@@ -18,6 +18,7 @@
 
 #include <QAbstractScrollArea>
 #include <QAction>
+#include <QFutureWatcher>
 #include <QTextLayout>
 #include <QTimer>
 
@@ -252,6 +253,8 @@ private:
     RegisteredAction m_close;
 
     Internal::ShortcutMap m_shortcutMap;
+
+    std::unique_ptr<QFutureWatcher<Utils::FilePath>> m_findShellWatcher;
 };
 
 } // namespace Terminal

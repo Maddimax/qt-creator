@@ -7,6 +7,9 @@
 #include <utils/environment.h>
 #include <utils/filepath.h>
 
+#include <projectexplorer/devicesupport/devicemanager.h>
+#include <projectexplorer/projectexplorerconstants.h>
+
 #include <QFileIconProvider>
 #include <QStandardPaths>
 
@@ -158,12 +161,21 @@ QList<ShellModelItem> ShellModel::local() const
 
 QList<ShellModelItem> ShellModel::remote() const
 {
-    const auto deviceCmds = Utils::Terminal::Hooks::instance().getTerminalCommandsForDevicesHook()();
+    auto devices = Utils::filtered(ProjectExplorer::DeviceManager::instance()->devices(),
+                                   [](const auto &device) {
+                                       return device->type()
+                                              != ProjectExplorer::Constants::DESKTOP_DEVICE_TYPE;
+                                   });
 
-    const QList<ShellModelItem> deviceItems = Utils::transform(
-        deviceCmds, [](const Utils::Terminal::NameAndCommandLine &item) -> ShellModelItem {
-            return ShellModelItem{item.name, {}, {item.commandLine, std::nullopt, std::nullopt}};
-        });
+    const QList<ShellModelItem> deviceItems
+        = Utils::transform(devices,
+                           [](const ProjectExplorer::IDevice::Ptr &device) -> ShellModelItem {
+                               return ShellModelItem{device->displayName(),
+                                                     {},
+                                                     {{{device->rootPath(), {}}},
+                                                      std::nullopt,
+                                                      std::nullopt}};
+                           });
 
     return deviceItems;
 }
