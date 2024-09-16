@@ -85,7 +85,6 @@ jobs:
     - name: Install UPX (macOS)
       if: ${{ startsWith(matrix.config.os, 'macos') }}
       run: |
-        brew update
         brew install upx
     - name: Download Ninja and CMake
       shell: cmake -P {0}
