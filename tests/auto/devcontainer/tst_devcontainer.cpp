@@ -88,6 +88,8 @@ int main() {
             qWarning().noquote() << "Log:\n\n" << logMessages;
     }
 
+    void parseUserFromPasswd_data();
+    void parseUserFromPasswd();
     void dockerCompose();
     void processInterface();
     void instanceConfigToString_data();
@@ -99,6 +101,29 @@ int main() {
     void upDockerfile();
     void containerWorkspaceReplacers();
 };
+
+void tst_DevContainer::parseUserFromPasswd_data()
+{
+    QTest::addColumn<QString>("passwdLine");
+    QTest::addColumn<DevContainer::UserFromPasswd>("expectedUser");
+
+    QTest::newRow("root") << "root:x:0:0:root:/root:/bin/sh"
+                           << DevContainer::UserFromPasswd{"root", "0", "0", "/root", "/bin/sh"};
+}
+
+void tst_DevContainer::parseUserFromPasswd()
+{
+    QFETCH(QString, passwdLine);
+    QFETCH(DevContainer::UserFromPasswd, expectedUser);
+
+    const auto res = DevContainer::parseUserFromPasswd(passwdLine);
+    QVERIFY(res);
+    QCOMPARE(res->name, expectedUser.name);
+    QCOMPARE(res->uid, expectedUser.uid);
+    QCOMPARE(res->gid, expectedUser.gid);
+    QCOMPARE(res->home, expectedUser.home);
+    QCOMPARE(res->shell, expectedUser.shell);
+}
 
 void tst_DevContainer::instanceConfigToString_data()
 {
