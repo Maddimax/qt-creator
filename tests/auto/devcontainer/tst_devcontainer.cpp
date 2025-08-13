@@ -73,6 +73,8 @@ int main() {
     return 0;
 })");
 
+        QVERIFY(testDocker("docker"));
+
         if (!testDocker("docker"))
             QSKIP("Docker is not set up correctly, skipping tests.");
 
@@ -330,6 +332,8 @@ void tst_DevContainer::upImage()
     Utils::Result<Tasking::Group> downRecipe = instance->downRecipe();
     QVERIFY_RESULT(downRecipe);
     QCOMPARE(Tasking::TaskTree::runBlocking(*downRecipe), Tasking::DoneWith::Success);
+
+    QVERIFY(false);
 }
 
 void tst_DevContainer::upWithHooks()
