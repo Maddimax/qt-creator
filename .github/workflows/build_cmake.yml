@@ -78,11 +78,8 @@ jobs:
       run: |
         brew update
         brew install upx
-    - name: Install Docker (macOS)
-      if: ${{ startsWith(matrix.config.os, 'macos') }}
-      run: |
-        brew install docker
-
+    - name: Set up Docker
+      uses: docker/setup-docker-action@v4
     - name: Download Ninja and CMake
       shell: cmake -P {0}
       run: |
