@@ -240,6 +240,8 @@
 	<string>${IDE_COPYRIGHT}</string>
 	<key>CFBundleIconFile</key>
 	<string>qtcreator</string>
+	<key>CFBundleIconName</key>
+	<string>qtcreator</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleSignature</key>
@@ -253,8 +255,6 @@
 	<key>CFBundleShortVersionString</key>
 	<string>${IDE_VERSION}</string>
 	<key>LSMinimumSystemVersion</key>
-	<string>${MACOSX_DEPLOYMENT_TARGET}</string>
-	<key>UIDesignRequiresCompatibility</key>
-	<true/>
+<string>${MACOSX_DEPLOYMENT_TARGET}</string>
 </dict>
 </plist>

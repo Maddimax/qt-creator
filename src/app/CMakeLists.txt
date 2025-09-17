@@ -115,25 +115,22 @@ if (APPLE)
   )
   # icon
   add_custom_command(
-    OUTPUT qtcreator.icns qtcreator-project.icns
+    OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/qtcreator.icns" "${CMAKE_CURRENT_BINARY_DIR}/qtcreator-project.icns"
+    WORKING_DIRECTORY "${IDE_ICON_PATH}"
     COMMAND
-      xcrun actool --app-icon qtcreator --output-partial-info-plist "${CMAKE_CURRENT_BINARY_DIR}/qtcreator.Info.plist"
-      --platform macosx --minimum-deployment-target 10.7 --compile "${CMAKE_CURRENT_BINARY_DIR}"
-      "${IDE_ICON_PATH}/qtcreator.xcassets"
-      > /dev/null
-    BYPRODUCTS qtcreator.Info.plist
+      xcrun actool
+        --notices --warnings --output-format human-readable-text
+        --app-icon qtcreator
+        --output-partial-info-plist "${CMAKE_CURRENT_BINARY_DIR}/qtcreator.Info.plist"
+        --compile "${CMAKE_CURRENT_BINARY_DIR}"
+        --include-all-app-icons
+        --development-region en --target-device mac --platform macosx --minimum-deployment-target 10.9
+        "${IDE_ICON_PATH}/qtcreator.xcassets" "${IDE_ICON_PATH}/qtcreator.icon"
+    BYPRODUCTS
+      qtcreator.Info.plist
     DEPENDS
-      qtcreator.xcassets/qtcreator.appiconset/Contents.json
-      qtcreator.xcassets/qtcreator.appiconset/icon_128x128.png
-      qtcreator.xcassets/qtcreator.appiconset/icon_128x128@2x.png
-      qtcreator.xcassets/qtcreator.appiconset/icon_16x16.png
-      qtcreator.xcassets/qtcreator.appiconset/icon_16x16@2x.png
-      qtcreator.xcassets/qtcreator.appiconset/icon_256x256.png
-      qtcreator.xcassets/qtcreator.appiconset/icon_256x256@2x.png
-      qtcreator.xcassets/qtcreator.appiconset/icon_32x32.png
-      qtcreator.xcassets/qtcreator.appiconset/icon_32x32@2x.png
-      qtcreator.xcassets/qtcreator.appiconset/icon_512x512.png
-      qtcreator.xcassets/qtcreator.appiconset/icon_512x512@2x.png
+      qtcreator.icon/icon.json
+      qtcreator.icon/Assets/qc.svg
       qtcreator.xcassets/qtcreator-project.iconset/icon_128x128.png
       qtcreator.xcassets/qtcreator-project.iconset/icon_128x128@2x.png
       qtcreator.xcassets/qtcreator-project.iconset/icon_16x16.png
