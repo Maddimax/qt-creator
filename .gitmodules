@@ -4,11 +4,11 @@
 	ignore = dirty
 [submodule "perfparser"]
 	path = src/tools/perfparser
-	url = ../perfparser.git
+	url = ../../qt-creator/perfparser.git
 	ignore = dirty
 [submodule "src/libs/qlitehtml"]
 	path = src/libs/qlitehtml
-	url = https://code.qt.io/playground/qlitehtml.git
+	url = https://codereview.qt-project.org/playground/qlitehtml.git
 [submodule "googletest"]
 	path = src/libs/3rdparty/googletest
 	url = https://github.com/google/googletest.git

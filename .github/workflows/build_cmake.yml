@@ -50,8 +50,11 @@ jobs:
       id: git
       shell: cmake -P {0}
       run: |
-        execute_process(COMMAND git submodule set-url -- perfparser https://code.qt.io/qt-creator/perfparser.git)
-        execute_process(COMMAND git submodule update --init --recursive)
+        execute_process(COMMAND git submodule update --init --recursive RESULT_VARIABLE updateResult)
+        if(updateResult AND NOT updateResult EQUAL 0)
+          message( FATAL_ERROR "Submodule update failed with code ${updateResult}")
+        endif()
+
         file(MAKE_DIRECTORY release)
         if (${{github.ref}} MATCHES "tags/v(([0-9.]+).*)")
             file(APPEND "$ENV{GITHUB_OUTPUT}" "tag=${CMAKE_MATCH_1}\n")
