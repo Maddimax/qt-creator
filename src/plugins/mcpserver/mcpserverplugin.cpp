@@ -204,6 +204,7 @@ public:
                 "Qt Creator builtin",
                 McpManager::ConnectionType::Streamable_Http,
                 url,
+                {},
                 {}};
 
             QTC_CHECK(McpManager::registerMcpServer(serverInfo));

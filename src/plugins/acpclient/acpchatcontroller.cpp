@@ -360,7 +360,16 @@ NewSessionRequest AcpChatController::buildNewSessionRequest() const
             const QString command = commandLine.executable().toUserOutput();
             const QStringList args = ProcessArgs::splitArgs(
                 commandLine.arguments(), HostOsInfo::hostOs());
-            mcpServers.append(McpServerStdio().name(info.name).command(command).args(args));
+            auto stdioServer = McpServerStdio().name(info.name).command(command).args(args);
+            if (info.envChanges.hasItems()) {
+                QList<EnvVariable> envVars;
+                for (const EnvironmentItem &item : info.envChanges.itemsFromUser()) {
+                    if (item.operation == EnvironmentItem::SetEnabled)
+                        envVars.append(EnvVariable().name(item.name).value(item.value));
+                }
+                stdioServer.env(envVars);
+            }
+            mcpServers.append(stdioServer);
             break;
         }
         case Core::McpManager::Sse: {

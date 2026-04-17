@@ -218,6 +218,8 @@ add_qtc_plugin(Core
     manhattanstyle.h
     mcpmanager.cpp
     mcpmanager.h
+    mcpregistry.cpp
+    mcpregistry.h
     messagebox.cpp
     messagebox.h
     messagemanager.cpp
