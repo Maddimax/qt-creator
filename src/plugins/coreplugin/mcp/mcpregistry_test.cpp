@@ -63,8 +63,9 @@ void McpRegistryTest::testReadRegistryFromWeb()
     QCOMPARE(parseError.error, QJsonParseError::NoError);
     QVERIFY(doc.isObject());
 
-    const Utils::Result<McpRegistry::McpRegistry> registry
-        = McpRegistry::fromJson<McpRegistry::McpRegistry>(doc.object());
+    using McpReg = McpRegistry::McpRegistry;
+    const Utils::Result<McpReg> registry
+        = McpRegistry::fromJson<McpReg>(doc.object());
     QVERIFY2(registry.has_value(), qPrintable(registry.error()));
     QVERIFY(registry->count() > 0);
     QVERIFY(!registry->servers().isEmpty());
