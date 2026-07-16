@@ -22,6 +22,7 @@
 #include "locator/locator_test.h"
 #include "loggingviewer.h"
 #include "mcp/mcpmanager.h"
+#include "mcp/mcpregistry_test.h"
 #include "modemanager.h"
 #include "session.h"
 #include "systemsettings.h"
@@ -506,6 +507,7 @@ Result<> CorePlugin::initialize(const QStringList &arguments)
 
 #ifdef WITH_TESTS
     addTestCreator(createLocatorTest);
+    addTestCreator(createMcpRegistryTest);
     addTestCreator(createVcsManagerTest);
     addTestCreator(createTabbedEditorTest);
     addTestCreator(createOutputFormatterTest);

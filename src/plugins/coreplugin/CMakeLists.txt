@@ -310,6 +310,8 @@ extend_qtc_plugin(Core
     locator/locator_test.h
     locator/locatorfiltertest.cpp
     locator/locatorfiltertest.h
+    mcp/mcpregistry_test.cpp
+    mcp/mcpregistry_test.h
 )
 
 extend_qtc_plugin(Core
