@@ -4,13 +4,12 @@
 #include "fileinprojectfinder.h"
 
 #include "algorithm.h"
+#include "prompts.h"
 #include "qrcparser.h"
 #include "qtcassert.h"
 
-#include <QCursor>
 #include <QDir>
 #include <QLoggingCategory>
-#include <QMenu>
 #include <QUrl>
 
 namespace {
@@ -534,12 +533,7 @@ FilePath chooseFileFromList(const FilePaths &candidates)
 {
     if (candidates.length() == 1)
         return candidates.first();
-    QMenu filesMenu;
-    for (const FilePath &candidate : candidates)
-        filesMenu.addAction(candidate.toUserOutput());
-    if (const QAction * const action = filesMenu.exec(QCursor::pos()))
-        return FilePath::fromUserInput(action->text());
-    return {};
+    return Prompts::chooseFile(candidates);
 }
 
 } // namespace Utils

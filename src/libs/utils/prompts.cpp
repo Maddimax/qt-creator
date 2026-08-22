@@ -7,6 +7,7 @@ namespace Utils::Prompts {
 
 static QuestionPrompt s_questionPrompt;
 static ErrorPrompt s_errorPrompt;
+static FileChoicePrompt s_fileChoicePrompt;
 
 void setQuestionPrompt(const QuestionPrompt &prompt)
 {
@@ -18,6 +19,11 @@ void setErrorPrompt(const ErrorPrompt &prompt)
     s_errorPrompt = prompt;
 }
 
+void setFileChoicePrompt(const FileChoicePrompt &prompt)
+{
+    s_fileChoicePrompt = prompt;
+}
+
 Button askQuestion(const QString &title, const QString &text, Buttons buttons)
 {
     return s_questionPrompt ? s_questionPrompt(title, text, buttons) : Button::Cancel;
@@ -27,6 +33,11 @@ void showError(const QString &title, const QString &text)
 {
     if (s_errorPrompt)
         s_errorPrompt(title, text);
+}
+
+FilePath chooseFile(const FilePaths &candidates)
+{
+    return s_fileChoicePrompt ? s_fileChoicePrompt(candidates) : FilePath();
 }
 
 } // namespace Utils::Prompts

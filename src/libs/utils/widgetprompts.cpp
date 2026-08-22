@@ -6,6 +6,8 @@
 #include "guiutils.h"
 #include "prompts.h"
 
+#include <QCursor>
+#include <QMenu>
 #include <QMessageBox>
 
 namespace Utils {
@@ -45,6 +47,14 @@ void installWidgetPrompts()
     });
     setErrorPrompt([](const QString &title, const QString &text) {
         QMessageBox::critical(dialogParent(), title, text);
+    });
+    setFileChoicePrompt([](const FilePaths &candidates) {
+        QMenu filesMenu;
+        for (const FilePath &candidate : candidates)
+            filesMenu.addAction(candidate.toUserOutput());
+        if (const QAction * const action = filesMenu.exec(QCursor::pos()))
+            return FilePath::fromUserInput(action->text());
+        return FilePath();
     });
 }
 
