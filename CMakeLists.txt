@@ -88,8 +88,9 @@ find_package(Qt6
 # but only required if WITH_TESTS=ON
 find_package(Qt6 COMPONENTS Test QUIET ${QT_TEST_COMPONENT_REQUIRED})
 
-find_package(Qt6 OPTIONAL_COMPONENTS Quick QuickWidgets Designer DesignerComponentsPrivate
-                                     Help SerialPort Svg Tools LinguistTools CanvasPainter QUIET)
+find_package(Qt6 OPTIONAL_COMPONENTS Quick QuickWidgets QuickControls2 Designer
+                                     DesignerComponentsPrivate Help SerialPort Svg Tools
+                                     LinguistTools CanvasPainter QUIET)
 
 if (Qt6_VERSION VERSION_GREATER_EQUAL 6.9.0)
   find_package(Qt6 OPTIONAL_COMPONENTS

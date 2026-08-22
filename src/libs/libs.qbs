@@ -23,6 +23,7 @@ Project {
         "qmleditorwidgets/qmleditorwidgets.qbs",
         "qmljs/qmljs.qbs",
         "qmldebug/qmldebug.qbs",
+        "qtcquick/qtcquick.qbs",
         "qtcreatorcdbext/qtcreatorcdbext.qbs",
         "solutions/solutions.qbs",
         "sqlite/sqlite.qbs",
