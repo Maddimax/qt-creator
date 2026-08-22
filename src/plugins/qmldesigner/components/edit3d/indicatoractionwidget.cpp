@@ -6,6 +6,7 @@
 #include <theme.h>
 #include <utils/icon.h>
 #include <utils/stylehelper.h>
+#include <utils/stylehelperpainting.h>
 
 #include <QActionGroup>
 #include <QMenu>

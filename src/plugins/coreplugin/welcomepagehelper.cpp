@@ -12,6 +12,7 @@
 #include <utils/layoutbuilder.h>
 #include <utils/qtcassert.h>
 #include <utils/stylehelper.h>
+#include <utils/stylehelperpainting.h>
 #include <utils/theme/theme.h>
 
 #include <QEasingCurve>

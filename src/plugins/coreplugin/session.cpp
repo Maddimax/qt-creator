@@ -28,6 +28,7 @@
 #include <utils/store.h>
 #include <utils/stringutils.h>
 #include <utils/stylehelper.h>
+#include <utils/stylehelperpainting.h>
 
 #include <nanotrace/nanotrace.h>
 

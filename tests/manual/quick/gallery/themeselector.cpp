@@ -4,6 +4,7 @@
 #include "themeselector.h"
 
 #include <utils/stylehelper.h>
+#include <utils/stylehelperpainting.h>
 #include <utils/theme/theme.h>
 #include <utils/theme/theme_p.h>
 

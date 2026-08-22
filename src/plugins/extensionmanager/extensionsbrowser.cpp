@@ -30,6 +30,7 @@
 #include <utils/qtcprocess.h>
 #include <utils/qtdesignwidgets.h>
 #include <utils/stylehelper.h>
+#include <utils/stylehelperpainting.h>
 #include <utils/unarchiver.h>
 
 #include <QApplication>

@@ -11,6 +11,7 @@
 #include <utils/overlaywidget.h>
 #include <utils/qtdesignwidgets.h>
 #include <utils/stylehelper.h>
+#include <utils/stylehelperpainting.h>
 
 #include <coreplugin/welcomepagehelper.h>
 

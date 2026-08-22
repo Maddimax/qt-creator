@@ -11,6 +11,7 @@
 #include <theme.h>
 #include <utils/fancylineedit.h>
 #include <utils/stylehelper.h>
+#include <utils/stylehelperpainting.h>
 
 #include <QHeaderView>
 #include <QLabel>

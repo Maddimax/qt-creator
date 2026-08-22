@@ -15,6 +15,7 @@
 #include <utils/layoutbuilder.h>
 #include <utils/shutdownguard.h>
 #include <utils/stylehelper.h>
+#include <utils/stylehelperpainting.h>
 #include <utils/textcodec.h>
 
 #include <QApplication>

@@ -11,6 +11,7 @@
 #include <utils/appinfo.h>
 #include <utils/hostosinfo.h>
 #include <utils/stylehelper.h>
+#include <utils/stylehelperpainting.h>
 #include <utils/temporarydirectory.h>
 #include <utils/theme/theme.h>
 #include <utils/theme/theme_p.h>

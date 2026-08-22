@@ -6,6 +6,7 @@
 #include <theme.h>
 #include <utils/fancylineedit.h>
 #include <utils/stylehelper.h>
+#include <utils/stylehelperpainting.h>
 
 #include <QHBoxLayout>
 #include <QIcon>

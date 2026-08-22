@@ -5,6 +5,7 @@
 #include "formeditortracing.h"
 
 #include <utils/stylehelper.h>
+#include <utils/stylehelperpainting.h>
 
 #include <QMouseEvent>
 #include <QStyleOption>

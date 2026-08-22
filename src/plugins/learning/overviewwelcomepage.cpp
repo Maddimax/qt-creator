@@ -13,6 +13,7 @@
 #include <utils/layoutbuilder.h>
 #include <utils/qtdesignwidgets.h>
 #include <utils/stylehelper.h>
+#include <utils/stylehelperpainting.h>
 #include <utils/utilsicons.h>
 
 #include <coreplugin/actionmanager/actionmanager.h>

@@ -12,6 +12,7 @@
 
 #include <theme.h>
 #include <utils/stylehelper.h>
+#include <utils/stylehelperpainting.h>
 
 namespace QmlDesigner {
 

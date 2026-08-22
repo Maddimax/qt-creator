@@ -24,6 +24,7 @@
 #include <utils/outputformatter.h>
 #include <utils/proxyaction.h>
 #include <utils/stylehelper.h>
+#include <utils/stylehelperpainting.h>
 #include <utils/theme/theme.h>
 #include <utils/utilsicons.h>
 

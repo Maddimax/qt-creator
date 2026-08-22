@@ -7,6 +7,7 @@
 #include <theme.h>
 
 #include <utils/stylehelper.h>
+#include <utils/stylehelperpainting.h>
 
 #include <QToolBar>
 #include <QHBoxLayout>

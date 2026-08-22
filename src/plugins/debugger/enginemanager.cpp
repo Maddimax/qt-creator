@@ -15,6 +15,7 @@
 
 #include <utils/basetreeview.h>
 #include <utils/stylehelper.h>
+#include <utils/stylehelperpainting.h>
 #include <utils/treemodel.h>
 #include <utils/qtcassert.h>
 

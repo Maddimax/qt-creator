@@ -23,6 +23,7 @@
 #include <utils/layoutbuilder.h>
 #include <utils/stringutils.h>
 #include <utils/stylehelper.h>
+#include <utils/stylehelperpainting.h>
 #include <utils/theme/theme.h>
 #include <utils/treemodel.h>
 #include <utils/utilsicons.h>

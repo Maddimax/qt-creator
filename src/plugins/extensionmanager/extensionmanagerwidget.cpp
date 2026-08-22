@@ -40,6 +40,7 @@
 #include <utils/qtdesignwidgets.h>
 #include <utils/stringutils.h>
 #include <utils/stylehelper.h>
+#include <utils/stylehelperpainting.h>
 #include <utils/temporarydirectory.h>
 #include <utils/textutils.h>
 #include <utils/widgets.h>

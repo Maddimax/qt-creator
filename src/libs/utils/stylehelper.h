@@ -10,15 +10,10 @@
 #include <QPen>
 
 QT_BEGIN_NAMESPACE
-class QLabel;
 class QPainter;
 class QPalette;
 class QPixmap;
 class QRect;
-// Note, this is exported but in a private header as qtopengl depends on it.
-// We should consider adding this as a public helper function.
-void qt_blurImage(QPainter *p, QImage &blurImage, qreal radius, bool quality, bool alphaOnly,
-                  int transposed = 0);
 QT_END_NAMESPACE
 
 // Helper class holding all custom color values
@@ -152,9 +147,6 @@ public:
                               | Qt::TextShowMnemonic;
 };
 
-QTCREATOR_UTILS_EXPORT void applyTf(QLabel *label, const TextFormat &tf,
-                                    bool singleLine = true);
-
 // Height of the project explorer navigation bar
 QTCREATOR_UTILS_EXPORT int navigationWidgetHeight();
 QTCREATOR_UTILS_EXPORT void setToolbarStyle(ToolbarStyle style);
@@ -184,8 +176,9 @@ QTCREATOR_UTILS_EXPORT QFont uiFont(UiElement element);
 QTCREATOR_UTILS_EXPORT int uiFontLineHeight(UiElement element);
 QTCREATOR_UTILS_EXPORT QString fontToCssProperties(const QFont &font);
 
-// Sets the base color and makes sure all top level widgets are updated
-QTCREATOR_UTILS_EXPORT void setBaseColor(const QColor &color);
+// Derives and stores the base color; returns whether it changed.
+// setBaseColor() in stylehelperpainting.h also repaints all widgets.
+QTCREATOR_UTILS_EXPORT bool storeBaseColor(const QColor &color);
 
 QTCREATOR_UTILS_EXPORT void drawPanelBgRect(QPainter *painter, const QRectF &rect,
                                             const QBrush &brush);
@@ -203,11 +196,6 @@ QTCREATOR_UTILS_EXPORT void menuGradient(QPainter *painter, const QRect &spanRec
 QTCREATOR_UTILS_EXPORT bool usePixmapCache();
 
 QTCREATOR_UTILS_EXPORT QPixmap disabledSideBarIcon(const QPixmap &enabledicon);
-QTCREATOR_UTILS_EXPORT void drawIconWithShadow(const QIcon &icon, const QRect &rect, QPainter *p,
-                                               QIcon::Mode iconMode, QIcon::State iconState,
-                                               int dipRadius = 3,
-                                               const QColor &color = QColor(0, 0, 0, 130),
-                                               const QPoint &dipOffset = QPoint(1, -2));
 QTCREATOR_UTILS_EXPORT void drawCornerImage(const QImage &img, QPainter *painter, const QRect &rect,
                                             int left = 0, int top = 0, int right = 0,
                                             int bottom = 0);
@@ -216,8 +204,6 @@ QTCREATOR_UTILS_EXPORT void tintImage(QImage &img, const QColor &tintColor);
 // Flatten a pixmap to a single color, keeping its alpha (a SourceIn fill).
 QTCREATOR_UTILS_EXPORT QPixmap tintedPixmap(const QPixmap &pixmap, const QColor &color);
 QTCREATOR_UTILS_EXPORT QLinearGradient statusBarGradient(const QRect &statusBarRect);
-QTCREATOR_UTILS_EXPORT void setPanelWidget(QWidget *widget, bool value = true);
-QTCREATOR_UTILS_EXPORT void setPanelWidgetSingleRow(QWidget *widget, bool value = true);
 
 QTCREATOR_UTILS_EXPORT
     Qt::HighDpiScaleFactorRoundingPolicy defaultHighDpiScaleFactorRoundingPolicy();
@@ -256,9 +242,6 @@ QTCREATOR_UTILS_EXPORT QIcon getIconFromIconFont(const QString &fontName,
 QTCREATOR_UTILS_EXPORT QIcon getIconFromIconFont(const QString &fontName,
                                                  const QString &iconSymbol, int fontSize,
                                                  int iconSize, QColor color);
-QTCREATOR_UTILS_EXPORT QIcon getIconFromIconFont(const QString &fontName,
-                                                 const QString &iconSymbol, int fontSize,
-                                                 int iconSize);
 QTCREATOR_UTILS_EXPORT QIcon getCursorFromIconFont(const QString &fontname,
                                                    const QString &cursorFill,
                                                    const QString &cursorOutline,
@@ -273,8 +256,4 @@ QTCREATOR_UTILS_EXPORT bool isReadableOn(const QColor &background, const QColor 
 // returns a foreground color readable on background (desiredForeground if already readable or adaption fails)
 QTCREATOR_UTILS_EXPORT QColor ensureReadableOn(const QColor &background,
                                                const QColor &desiredForeground);
-// modifies widget's palette QPalette::Base to color, leaves other colors of palette untouched
-QTCREATOR_UTILS_EXPORT void modifyPaletteBase(QWidget *widget, const QColor &color);
-// sets widget's background to colorRole from theme
-QTCREATOR_UTILS_EXPORT void setBackgroundColor(QWidget *widget, Theme::Color colorRole);
 } // namespace Utils::StyleHelper

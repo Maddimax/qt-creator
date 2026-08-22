@@ -17,6 +17,7 @@
 #include <coreplugin/icore.h>
 
 #include <utils/stylehelper.h>
+#include <utils/stylehelperpainting.h>
 
 #include <QApplication>
 #include <QComboBox>

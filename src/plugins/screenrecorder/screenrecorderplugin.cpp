@@ -24,6 +24,7 @@
 #include <utils/icon.h>
 #include <utils/layoutbuilder.h>
 #include <utils/stylehelper.h>
+#include <utils/stylehelperpainting.h>
 #include <utils/temporaryfile.h>
 
 #include <QDialog>

@@ -19,6 +19,7 @@
 #include <utils/qtcassert.h>
 #include <utils/storekey.h>
 #include <utils/stylehelper.h>
+#include <utils/stylehelperpainting.h>
 #include <utils/utilsicons.h>
 #include <utils/widgets.h>
 

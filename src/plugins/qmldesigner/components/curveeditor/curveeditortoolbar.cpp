@@ -13,6 +13,7 @@
 
 #include <utils/id.h>
 #include <utils/stylehelper.h>
+#include <utils/stylehelperpainting.h>
 
 #include <QAction>
 #include <QHBoxLayout>

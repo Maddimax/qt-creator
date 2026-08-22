@@ -10,6 +10,7 @@
 #include "layoutbuilder.h"
 #include "qtcassert.h"
 #include "stylehelper.h"
+#include "stylehelperpainting.h"
 #include "tooltip/tooltip.h"
 #include "utilstr.h"
 
@@ -151,9 +152,9 @@ ExpandButton::ExpandButton(QWidget *parent)
 {
     setCheckable(true);
     auto updateArrow = [this] (bool checked) {
-        static const QIcon expand =
+        const QIcon expand =
             Icon({{":/utils/images/arrowdown.png", Theme::PanelTextColorDark}}, Icon::Tint).icon();
-        static const QIcon collapse =
+        const QIcon collapse =
             Icon({{":/utils/images/arrowup.png", Theme::PanelTextColorDark}}, Icon::Tint).icon();
         setIcon(checked ? collapse : expand);
     };
