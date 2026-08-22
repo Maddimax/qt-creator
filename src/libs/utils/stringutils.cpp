@@ -8,7 +8,7 @@
 #include "utilstr.h"
 
 #ifdef QT_WIDGETS_LIB
-#include <QApplication>
+#include <QGuiApplication>
 #include <QClipboard>
 #endif
 
@@ -515,7 +515,7 @@ QTCREATOR_UTILS_EXPORT QString languageNameFromLanguageCode(const QString &langu
 #ifdef QT_WIDGETS_LIB
 QTCREATOR_UTILS_EXPORT void setClipboardAndSelection(const QString &text)
 {
-    QClipboard *clipboard = QApplication::clipboard();
+    QClipboard *clipboard = QGuiApplication::clipboard();
     clipboard->setText(text);
     if (clipboard->supportsSelection())
         clipboard->setText(text, QClipboard::Selection);

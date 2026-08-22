@@ -12,6 +12,7 @@
 #endif
 #include "processinterface.h"
 #include "processreaper.h"
+#include "prompts.h"
 #include "stringutils.h"
 #include "terminalhooks.h"
 #include "textcodec.h"
@@ -22,6 +23,7 @@
 #include <ptyqt.h>
 #endif
 
+#include <QCursor>
 #include <QCoreApplication>
 #include <QDebug>
 #include <QDir>
@@ -36,7 +38,6 @@
 #ifdef QT_GUI_LIB
 // qmlpuppet does not use that.
 #include <QGuiApplication>
-#include <QMessageBox>
 #include <QStringConverter>
 #endif
 
@@ -1408,10 +1409,10 @@ static bool askToKill(const CommandLine &command)
     const bool hasOverrideCursor = QGuiApplication::overrideCursor() != nullptr;
     if (hasOverrideCursor)
         QGuiApplication::restoreOverrideCursor();
-    QMessageBox::StandardButton answer = QMessageBox::question(nullptr, title, msg, QMessageBox::Yes|QMessageBox::No);
+    const Prompts::Button answer = Prompts::askQuestion(title, msg, Prompts::YesNo);
     if (hasOverrideCursor)
         QGuiApplication::setOverrideCursor(Qt::WaitCursor);
-    return answer == QMessageBox::Yes;
+    return answer == Prompts::Button::Yes;
 #else
     Q_UNUSED(command)
     return true;

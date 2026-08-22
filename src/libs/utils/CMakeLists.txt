@@ -295,6 +295,8 @@ extend_qtc_library(Utils CONDITION NOT EMSCRIPTEN
   SOURCES
     processhelper.cpp processhelper.h
     processreaper.cpp processreaper.h
+    prompts.cpp prompts.h
+    widgetprompts.cpp widgetprompts.h
 )
 
 extend_qtc_library(Utils

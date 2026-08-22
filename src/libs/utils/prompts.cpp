@@ -1,0 +1,32 @@
+// Copyright (C) 2026 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+
+#include "prompts.h"
+
+namespace Utils::Prompts {
+
+static QuestionPrompt s_questionPrompt;
+static ErrorPrompt s_errorPrompt;
+
+void setQuestionPrompt(const QuestionPrompt &prompt)
+{
+    s_questionPrompt = prompt;
+}
+
+void setErrorPrompt(const ErrorPrompt &prompt)
+{
+    s_errorPrompt = prompt;
+}
+
+Button askQuestion(const QString &title, const QString &text, Buttons buttons)
+{
+    return s_questionPrompt ? s_questionPrompt(title, text, buttons) : Button::Cancel;
+}
+
+void showError(const QString &title, const QString &text)
+{
+    if (s_errorPrompt)
+        s_errorPrompt(title, text);
+}
+
+} // namespace Utils::Prompts

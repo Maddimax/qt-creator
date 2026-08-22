@@ -5,12 +5,12 @@
 #include "savefile.h"
 
 #include "algorithm.h"
+#include "prompts.h"
 #include "environment.h"
 #include "qtcassert.h"
 #include "temporarydirectory.h"
 #include "utilstr.h"
 
-#include "fsengine/fileiconprovider.h"
 
 #include <QDataStream>
 #include <QDateTime>
@@ -24,9 +24,7 @@
 
 
 #ifdef QT_GUI_LIB
-#include "guiutils.h"
 
-#include <QMessageBox>
 #include <QGuiApplication>
 #include <QPromise>
 #endif
@@ -238,22 +236,20 @@ CopyHelper CopyAskingForOverwrite::operator()()
             if (m_skipAll)
                 copyFile = false;
             else if (!m_overwriteAll) {
-                const int res = QMessageBox::question(
-                    dialogParent(),
+                const Prompts::Button res = Prompts::askQuestion(
                     Tr::tr("Overwrite File?"),
                     Tr::tr("Overwrite existing file \"%1\"?").arg(dest.toUserOutput()),
-                    QMessageBox::Yes | QMessageBox::YesToAll | QMessageBox::No
-                            | QMessageBox::NoToAll | QMessageBox::Cancel);
+                    Prompts::OverwriteButtons);
 
-                if (res == QMessageBox::Cancel)
+                if (res == Prompts::Button::Cancel)
                     return CopyResult::Canceled;
 
-                if (res == QMessageBox::No) {
+                if (res == Prompts::Button::No) {
                     copyFile = false;
-                } else if (res == QMessageBox::NoToAll) {
+                } else if (res == Prompts::Button::NoToAll) {
                     m_skipAll = true;
                     copyFile = false;
-                } else if (res == QMessageBox::YesToAll) {
+                } else if (res == Prompts::Button::YesToAll) {
                     m_overwriteAll = true;
                 }
                 if (copyFile)

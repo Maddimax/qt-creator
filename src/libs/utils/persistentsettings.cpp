@@ -4,6 +4,7 @@
 #include "persistentsettings.h"
 
 #include "fileutils.h"
+#include "prompts.h"
 #include "qtcassert.h"
 #include "utilstr.h"
 
@@ -20,7 +21,6 @@
 
 #ifdef QT_GUI_LIB
 #include "guiutils.h"
-#include <QMessageBox>
 #endif
 
 // Read and write rectangle in X11 resource syntax "12x12+4+3"
@@ -397,7 +397,7 @@ Result<> PersistentSettingsWriter::save(const Store &data, [[maybe_unused]] bool
 
 #ifdef QT_GUI_LIB
     if (showErrorInMessageBox && !res)
-        QMessageBox::critical(dialogParent(), Tr::tr("File Error"), res.error());
+        Prompts::showError(Tr::tr("File Error"), res.error());
 #endif // QT_GUI_LIB
 
     return res;

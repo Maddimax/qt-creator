@@ -11,6 +11,7 @@
 #include <extensionsystem/pluginspec.h>
 #include <qtsingleapplication.h>
 
+#include <utils/widgetprompts.h>
 #include <utils/algorithm.h>
 #include <utils/appinfo.h>
 #include <utils/aspects.h>
@@ -881,6 +882,7 @@ int main(int argc, char **argv)
 
     PluginManager pluginManager;
     PluginManager::setPluginIID(QLatin1String("org.qt-project.Qt.QtCreatorPlugin"));
+    Utils::installWidgetPrompts();
     ExtensionSystem::installWidgetPrompts();
     PluginManager::startProfiling();
 
