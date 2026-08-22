@@ -10,6 +10,7 @@ Project {
         "fakevim/fakevim.qbs",
         "pluginview/pluginview.qbs",
         "proparser/testreader.qbs",
+        "quick/quick.qbs",
         "remotelinux/remotelinux.qbs",
         "sampler-testapp/sampler-testapp.qbs",
         "remotelinux-profiletransfer/remotelinux-profiletransfer.qbs",

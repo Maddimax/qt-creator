@@ -28,6 +28,7 @@ Project {
         "proparser/proparser.qbs",
         "qml/qml.qbs",
         "qmldebug/qmldebug.qbs",
+        "qtcquick/qtcquick.qbs",
         "qtprofiler/qtprofiler.qbs",
         "qttasktree/qttasktree.qbs",
         "sdktool/sdktool.qbs",

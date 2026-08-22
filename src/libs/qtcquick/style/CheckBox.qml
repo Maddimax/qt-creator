@@ -34,15 +34,42 @@ T.CheckBox {
         border.width: 1
         border.color: control.hovered ? Tokens.strokeMuted : Tokens.strokeSubtle
 
+        // A dash for the partial state, a tick for the checked one.
         Rectangle {
-            x: (parent.width - width) / 2
-            y: (parent.height - height) / 2
+            anchors.centerIn: parent
             width: Spacing.PrimitiveM
             height: Spacing.PrimitiveXxs
             radius: 1
             color: Tokens.textOnAccent
-            visible: control.checkState !== Qt.Unchecked
-            rotation: control.checkState === Qt.Checked ? -45 : 0
+            visible: control.checkState === Qt.PartiallyChecked
+        }
+
+        Item {
+            anchors.centerIn: parent
+            width: Spacing.PrimitiveL
+            height: Spacing.PrimitiveL
+            visible: control.checkState === Qt.Checked
+
+            Rectangle {
+                x: parent.width * 0.16
+                y: parent.height * 0.52
+                width: parent.width * 0.34
+                height: Spacing.PrimitiveXxs
+                radius: 1
+                color: Tokens.textOnAccent
+                transformOrigin: Item.Left
+                rotation: 45
+            }
+            Rectangle {
+                x: parent.width * 0.34
+                y: parent.height * 0.68
+                width: parent.width * 0.56
+                height: Spacing.PrimitiveXxs
+                radius: 1
+                color: Tokens.textOnAccent
+                transformOrigin: Item.Left
+                rotation: -55
+            }
         }
     }
 

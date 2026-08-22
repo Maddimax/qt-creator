@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/qtcquickgallery">
+        <file>Gallery.qml</file>
+    </qresource>
+</RCC>
