@@ -5,7 +5,8 @@
 
 #include "qtcassert.h"
 
-#include <QPlainTextEdit>
+#include <QTextCursor>
+#include <QTextDocument>
 
 #include <utility>
 

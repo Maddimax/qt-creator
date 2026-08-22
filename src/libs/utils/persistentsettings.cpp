@@ -19,10 +19,6 @@
 #include <QXmlStreamReader>
 #include <QXmlStreamWriter>
 
-#ifdef QT_GUI_LIB
-#include "guiutils.h"
-#endif
-
 // Read and write rectangle in X11 resource syntax "12x12+4+3"
 static QString rectangleToString(const QRect &r)
 {
