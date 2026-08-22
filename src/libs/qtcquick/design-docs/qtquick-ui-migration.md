@@ -101,10 +101,12 @@ What live theming requires, in order:
    `src/plugins` and `src/libs`. Every one of them latches a colour on first use
    and will show the old theme after a switch. These are invisible while a
    restart is mandatory, and each becomes a bug the moment it is not.
-5. **The widget side needs care while both UIs exist.**
-   `QApplication::setPalette` does widget propagation that
-   `QGuiApplication::setPalette` does not, and `ManhattanStyle` plus
-   `StyleHelper::setBaseColor` hold derived colours.
+5. **The widget side needs care while both UIs exist.** A theme now owns its
+   base palette, and `setThemeApplicationPalette()` lives in its own translation
+   unit; it deliberately still uses `QApplication::setPalette`, which propagates
+   to existing widgets where the `QGuiApplication` one does not. What is left
+   here is `ManhattanStyle` and `StyleHelper::setBaseColor`, which hold derived
+   colours.
 
 Items 1-3 are done. Item 4 is the remaining work and the one that will take the
 time: it is a cross-cutting audit, not a localised fix. Item 5 overlaps with the
@@ -170,11 +172,11 @@ QtPrintSupport header transitively:
 | | tainted | clean |
 |---|---|---|
 | Start | 137 files / 68153 lines | 229 / 35973 |
-| Now | 117 / 49777 | 257 / 54614 |
+| Now | 117 / 49319 | 258 / 55122 |
 
 The clean side is now the larger of the two by line count.
 
-The split is **not** a file sort. 16 headers are clean while their own
+The split is **not** a file sort. 15 headers are clean while their own
 implementation needs widgets, and a class's header and implementation have to
 land in the same library, so each of those is a small de-widgeting change that
 has to happen first.
@@ -183,17 +185,11 @@ has to happen first.
 
 In order:
 
-1. **`Theme::palette()`** derives from the *application* palette
-   (`QApplication::palette()`/`setPalette()`). `QGuiApplication` has both, but
-   `QApplication::setPalette` also does widget propagation, so a naive swap
-   risks losing repaints. Separating it properly means the theme owning its base
-   palette, a design change to user-visible theming. It also overlaps with live
-   theming item 5.
-2. The remaining 15 clean-header/tainted-impl pairs are genuine widget classes
+1. The remaining 15 clean-header/tainted-impl pairs are genuine widget classes
    whose headers happen not to name a widget type (`tooltip.h`, `dropsupport.h`,
    `fadingindicator.h`, `jsonrpcinspector.h`, `guiutils.h`, ...). They belong on
    the widget side and need no work; they classify there when the split lands.
-3. **Then the split itself**: two `add_qtc_library` calls over the same
+2. **Then the split itself**: two `add_qtc_library` calls over the same
    directory, so include paths do not change. Note the export macro: a second
    library needs its own (`add_qtc_library(Foo)` auto-defines `FOO_LIBRARY`), and
    defining `UTILS_LIBRARY` for both would mark imported symbols as exported,
@@ -215,6 +211,11 @@ If a fourth arrives that fits none of these, that is the point to reconsider a
 single "host services" object, rather than at the third.
 
 ## Things learned the hard way
+
+- Installing a theme with `setCreatorTheme()` applies its palette to the
+  application, so it needs a `QGuiApplication`. A `QTEST_GUILESS_MAIN` test can
+  build and query a theme but must not install an overriding one; it crashes in
+  `QGuiApplicationPrivate::setPalette`.
 
 - `qt_add_qml_module` needs `RESOURCE_PREFIX "/qt/qml"`. Without it the module
   lands at `:/<Uri>` which is not on the default import path, so `import` works
