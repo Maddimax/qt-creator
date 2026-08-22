@@ -26,7 +26,7 @@
 #include <utils/algorithm.h>
 #include <utils/aspects.h>
 #include <utils/async.h>
-#include <utils/guiutils.h>
+#include <utils/prompts.h>
 #include <utils/icon.h>
 #include <utils/layoutbuilder.h>
 #include <utils/mimeutils.h>

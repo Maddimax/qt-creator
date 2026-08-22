@@ -4,7 +4,6 @@
 #include "settingsaccessor.h"
 
 #include "algorithm.h"
-#include "guiutils.h"
 #include "persistentsettings.h"
 #include "prompts.h"
 #include "qtcassert.h"

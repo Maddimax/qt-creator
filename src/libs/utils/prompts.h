@@ -11,6 +11,17 @@
 
 #include <functional>
 
+namespace Utils {
+
+// Whether a user is available to answer blocking prompts. A scripted or
+// headless session (e.g. driven over the MCP server) sets this to false so
+// code that would otherwise wait on a modal dialog proceeds with its default
+// answer instead of blocking forever. Default: true.
+QTCREATOR_UTILS_EXPORT void setDialogsInteractive(bool interactive);
+QTCREATOR_UTILS_EXPORT bool dialogsInteractive();
+
+} // namespace Utils
+
 namespace Utils::Prompts {
 
 // Questions that core code has to ask the user. A user interface installs the

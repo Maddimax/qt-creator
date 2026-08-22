@@ -26,13 +26,6 @@ QTCREATOR_UTILS_EXPORT void onFirstShow(QWidget *widget, const std::function<voi
 QTCREATOR_UTILS_EXPORT QWidget *dialogParent();
 QTCREATOR_UTILS_EXPORT void setDialogParentGetter(QWidget *(*getter)());
 
-// Whether a user is available to answer blocking dialogs. A scripted/headless
-// session (e.g. driven over the MCP server) sets this to false so code that
-// would otherwise wait on a modal dialog proceeds with a sensible default
-// instead of blocking forever. Default: true.
-QTCREATOR_UTILS_EXPORT void setDialogsInteractive(bool interactive);
-QTCREATOR_UTILS_EXPORT bool dialogsInteractive();
-
 // returns previous value
 QTCREATOR_UTILS_EXPORT bool setIgnoreForDirtyHook(QObject *object, bool ignore = true);
 QTCREATOR_UTILS_EXPORT bool isIgnoredForDirtyHook(const QObject *object);

@@ -3,6 +3,22 @@
 
 #include "prompts.h"
 
+namespace Utils {
+
+static bool s_dialogsInteractive = true;
+
+void setDialogsInteractive(bool interactive)
+{
+    s_dialogsInteractive = interactive;
+}
+
+bool dialogsInteractive()
+{
+    return s_dialogsInteractive;
+}
+
+} // namespace Utils
+
 namespace Utils::Prompts {
 
 static QuestionPrompt s_questionPrompt;
