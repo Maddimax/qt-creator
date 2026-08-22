@@ -351,6 +351,7 @@ QtcLibrary {
         "utilsicons.h",
         "utilsicons.cpp",
         "utilstr.h",
+        "validationfunction.h",
         "variablechooser.cpp",
         "variablechooser.h",
         "widgets.cpp",

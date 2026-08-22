@@ -6,6 +6,7 @@
 #include "fancylineedit.h"
 #include "filepath.h"
 #include "id.h"
+#include "validationfunction.h"
 
 #include <QFontComboBox>
 #include <QMap>
@@ -772,7 +773,7 @@ public:
     void setHistoryCompleter(const Key &historyCompleterKey);
     void setAcceptRichText(bool acceptRichText);
     void setUseResetButton();
-    void setValidationFunction(const FancyLineEdit::ValidationFunction &validator);
+    void setValidationFunction(const ValidationFunction &validator);
     void setValidatorFactory(const std::function<QValidator *(QObject *parent)> &validatorFactory);
     void setAutoApplyOnEditingFinished(bool applyOnEditingFinished);
     void setElideMode(Qt::TextElideMode elideMode);
@@ -804,7 +805,7 @@ signals:
     void elideModeChanged(Qt::TextElideMode elideMode);
     void historyCompleterKeyChanged(const Key &historyCompleterKey);
     void acceptRichTextChanged(bool acceptRichText);
-    void validationFunctionChanged(const FancyLineEdit::ValidationFunction &validator);
+    void validationFunctionChanged(const ValidationFunction &validator);
     void placeholderTextChanged(const QString &placeholderText);
     void rightSideIconClicked();
 
@@ -866,7 +867,7 @@ public:
     void setInitialBrowsePathBackup(const FilePath &initialBrowsePathBackup);
 
     void setPlaceHolderText(const QString &placeHolderText);
-    void setValidationFunction(const FancyLineEdit::ValidationFunction &validator);
+    void setValidationFunction(const ValidationFunction &validator);
     void setDisplayFilter(const std::function<QString (const QString &)> &displayFilter);
     void setHistoryCompleter(const Key &historyCompleterKey);
     void setShowToolTipOnLabel(bool show);

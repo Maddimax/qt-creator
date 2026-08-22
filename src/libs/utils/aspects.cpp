@@ -1041,7 +1041,7 @@ public:
     QString m_placeHolderText;
     Key m_historyCompleterKey;
     StringAspect::ValueAcceptor m_valueAcceptor;
-    std::optional<FancyLineEdit::ValidationFunction> m_validator;
+    std::optional<ValidationFunction> m_validator;
     std::function<QValidator *(QObject *parent)> m_validatorFactory;
 
     CheckableAspectImplementation m_checkerImpl;
@@ -1290,7 +1290,7 @@ void StringAspect::setUseResetButton()
     d->m_useResetButton = true;
 }
 
-void StringAspect::setValidationFunction(const FancyLineEdit::ValidationFunction &validator)
+void StringAspect::setValidationFunction(const ValidationFunction &validator)
 {
     d->m_validator = validator;
     emit validationFunctionChanged(validator);
@@ -1631,7 +1631,7 @@ public:
     Lazy<FilePath> m_baseDirectory;
     FilePath m_initialBrowsePathBackup;
     StringAspect::ValueAcceptor m_valueAcceptor;
-    std::optional<FancyLineEdit::ValidationFunction> m_validator;
+    std::optional<ValidationFunction> m_validator;
     std::optional<FilePath> m_effectiveBinary;
     std::function<void()> m_openTerminal;
 
@@ -2002,7 +2002,7 @@ void FilePathAspect::setPlaceHolderText(const QString &placeHolderText)
     d->m_placeHolderText = placeHolderText;
 }
 
-void FilePathAspect::setValidationFunction(const FancyLineEdit::ValidationFunction &validator)
+void FilePathAspect::setValidationFunction(const ValidationFunction &validator)
 {
     d->m_validator = validator;
     if (d->m_pathChooserDisplay)

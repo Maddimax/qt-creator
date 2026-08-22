@@ -5,6 +5,8 @@
 
 #include "utils_global.h"
 
+#include "validationfunction.h"
+
 #include "result.h"
 #include "storekey.h"
 
@@ -86,17 +88,14 @@ public:
 
     //  Validation
 
-    // line edit, (out)errorMessage -> valid?
-    using AsyncValidationResult = Result<QString>;
-    using AsyncValidationFuture = QFuture<AsyncValidationResult>;
-    using AsyncValidationFunction = std::function<AsyncValidationFuture(QString)>;
-    using SynchronousValidationFunction = std::function<Result<>(FancyLineEdit &)>;
-    using SimpleSynchronousValidationFunction = std::function<Result<>(const QString &)>;
-    using ValidationFunction = std::variant<
-        AsyncValidationFunction,
-        SynchronousValidationFunction,
-        SimpleSynchronousValidationFunction
-    >;
+    // The validator types live in validationfunction.h; these keep the
+    // long-standing FancyLineEdit:: spellings working.
+    using AsyncValidationResult = Utils::AsyncValidationResult;
+    using AsyncValidationFuture = Utils::AsyncValidationFuture;
+    using AsyncValidationFunction = Utils::AsyncValidationFunction;
+    using SynchronousValidationFunction = Utils::SynchronousValidationFunction;
+    using SimpleSynchronousValidationFunction = Utils::SimpleSynchronousValidationFunction;
+    using ValidationFunction = Utils::ValidationFunction;
 
     enum State { Invalid, DisplayingPlaceholderText, Valid };
 

@@ -188,6 +188,7 @@ add_qtc_library(Utils
     utils.qrc
     utils_global.h
     utilstr.h
+    validationfunction.h
     utilsicons.cpp utilsicons.h
     utility.h
     variablechooser.cpp variablechooser.h
