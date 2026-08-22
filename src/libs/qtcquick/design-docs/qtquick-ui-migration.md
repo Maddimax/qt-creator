@@ -62,22 +62,22 @@ built on the assumption that the theme is immutable for the process lifetime:
 
 What live theming requires, in order:
 
-1. **`DesignSystem` must not snapshot.** Either delegate every accessor to
-   `Utils::creatorTheme()`, or rebuild on change. Deriving from `Utils::Theme`
-   was chosen because it makes the `Color` enum resolvable as
-   `Theme.Token_Text_Default` in QML; that benefit has to be kept while dropping
-   the copy.
-2. **Per-token notifying properties.** The plan originally rejected generating
-   one `Q_PROPERTY` per colour, on the grounds that no notification was needed.
-   With live theming that reasoning is void, and the generator becomes the right
-   answer: emit `Tokens`/`Fonts` as C++ singletons with a real property and
-   `NOTIFY changed` per token, generated from `Theme::Color` and
-   `StyleHelper::UiElement` so they cannot drift. The existing drift test
-   (`tests/auto/qtcquick/designsystem`) already asserts the coverage and will
-   keep working.
-3. **`Utils::setCreatorTheme()` has to announce the change.** It currently just
-   swaps a global and sets the application palette.
-4. **The caches have to be audited.** There are ~69 `static const QColor` /
+1. ~~`DesignSystem` must not snapshot.~~ **Done.** It forwards to
+   `Utils::creatorTheme()` and is no longer a `Utils::Theme`. The enums stay
+   reachable as `ThemeColor.Token_*` through a foreign registration.
+2. ~~Per-token notifying properties.~~ **Done.** `Tokens` and `Fonts` are
+   generated C++ singletons with a real property and `NOTIFY changed` per token,
+   produced by `generate-tokens.py` from `Theme::Color` and
+   `StyleHelper::UiElement`. `Tokens.qml` and `Fonts.qml` are gone. The plan had
+   rejected this on the grounds that no notification was needed; with live
+   theming that reasoning was void.
+3. ~~`setCreatorTheme()` has to announce the change.~~ **Done.**
+   `Utils::ThemeWatcher` outlives the themes that `setCreatorTheme()` deletes and
+   emits `themeChanged()`.
+   `tests/auto/qtcquick/designsystem` asserts a QML binding follows a theme swap,
+   using two themes with deliberately different accent colours; it goes red if
+   the notification is removed.
+4. **The caches have to be audited.** This is the remaining work. There are ~69 `static const QColor` /
    `static QColor` and ~21 `static const TextFormat` initialisations across
    `src/plugins` and `src/libs`. Every one of them latches a colour on first use
    and will show the old theme after a switch. These are invisible while a
@@ -87,9 +87,12 @@ What live theming requires, in order:
    `QGuiApplication::setPalette` does not, and `ManhattanStyle` plus
    `StyleHelper::setBaseColor` hold derived colours.
 
-Item 4 is the one that will take the time; items 1-3 are small and should be
-done before more QML surfaces are written against the current, non-notifying
-singletons.
+Items 1-3 are done. Item 4 is the remaining work and the one that will take the
+time: it is a cross-cutting audit, not a localised fix. Item 5 overlaps with the
+`Theme::palette()` blocker below.
+
+The gallery (`tests/manual/quick/gallery`) demonstrates the result: switching its
+theme selector recolours the scene in place, without recreating it.
 
 ## Status
 
@@ -159,8 +162,8 @@ has to happen first.
 
 In order:
 
-1. **Live theming items 1-3 above.** Do this before writing more QML surfaces
-   against the non-notifying singletons.
+1. **Live theming item 4**: the ~69 `static const QColor` / `static QColor` and
+   ~21 `static const TextFormat` caches. Each latches a colour on first use.
 2. **`FilePath::icon()`** calls `FileIconProvider::icon()`, which wraps
    `QFileIconProvider` (QtWidgets). `QIcon` is QtGui, so this wants a hook. It
    would be the third one-off hook after `PluginPrompts` and `Utils::Prompts`;
