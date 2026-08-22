@@ -32,15 +32,15 @@ RowLayout {
 
     SpinBox {
         editable: true
-        enabled: delegate.aspect.enabled && !delegate.aspect.readOnly
+        enabled: (delegate.aspect?.enabled ?? false) && !(delegate.aspect?.readOnly ?? false)
         from: delegate.minimum
         to: delegate.maximum
         stepSize: delegate.step
-        value: delegate.aspect.value ?? 0
+        value: delegate.aspect?.value ?? 0
         ToolTip.text: delegate.toolTip
         ToolTip.visible: hovered && delegate.toolTip !== ""
 
-        onValueModified: delegate.aspect.value = value
+        onValueModified: if (delegate.aspect) delegate.aspect.value = value
     }
 
     Item { Layout.fillWidth: true }

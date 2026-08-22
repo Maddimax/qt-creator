@@ -28,13 +28,13 @@ RowLayout {
     }
 
     TextField {
-        text: delegate.aspect.value ?? ""
-        enabled: delegate.aspect.enabled
-        readOnly: delegate.aspect.readOnly
+        text: delegate.aspect?.value ?? ""
+        enabled: delegate.aspect?.enabled ?? false
+        readOnly: delegate.aspect?.readOnly ?? true
         ToolTip.text: delegate.toolTip
         ToolTip.visible: hovered && delegate.toolTip !== ""
         Layout.fillWidth: true
 
-        onEditingFinished: delegate.aspect.value = text
+        onEditingFinished: if (delegate.aspect) delegate.aspect.value = text
     }
 }

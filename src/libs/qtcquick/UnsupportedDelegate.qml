@@ -16,7 +16,7 @@ Label {
 
     // Deliberately visible rather than silent, so gaps are obvious.
     text: qsTr("%1 (no Qt Quick editor yet)")
-              .arg(labelText !== "" ? labelText : aspect.objectName)
+              .arg(labelText !== "" ? labelText : (aspect?.objectName ?? ""))
     visible: aspectVisible
     color: Tokens.notificationAlertDefault
     font: Fonts.caption

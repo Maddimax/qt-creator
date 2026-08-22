@@ -40,6 +40,12 @@ private:
     std::unique_ptr<Internal::IOptionsPageWidgetPrivate> d;
 };
 
+// Installed by a front end that can render an AspectContainer itself, e.g. in
+// Qt Quick. Consulted before the container's own layouter. Returning nullptr
+// falls back to the widget path.
+using AspectFormFactory = std::function<QWidget *(Utils::AspectContainer *)>;
+CORE_EXPORT void setAspectFormFactory(const AspectFormFactory &factory);
+
 class CORE_EXPORT IOptionsPage
 {
     Q_DISABLE_COPY_MOVE(IOptionsPage)

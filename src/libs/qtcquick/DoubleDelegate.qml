@@ -32,9 +32,9 @@ RowLayout {
     }
 
     TextField {
-        text: Number(delegate.aspect.value ?? 0).toLocaleString(Qt.locale())
-        enabled: delegate.aspect.enabled
-        readOnly: delegate.aspect.readOnly
+        text: Number(delegate.aspect?.value ?? 0).toLocaleString(Qt.locale())
+        enabled: delegate.aspect?.enabled ?? false
+        readOnly: delegate.aspect?.readOnly ?? true
         horizontalAlignment: TextInput.AlignRight
         ToolTip.text: delegate.toolTip
         ToolTip.visible: hovered && delegate.toolTip !== ""
@@ -48,7 +48,7 @@ RowLayout {
 
         onEditingFinished: {
             const parsed = Number.fromLocaleString(Qt.locale(), text)
-            if (!isNaN(parsed))
+            if (!isNaN(parsed) && delegate.aspect)
                 delegate.aspect.value = parsed
         }
     }

@@ -29,15 +29,15 @@ RowLayout {
     }
 
     ComboBox {
-        enabled: delegate.aspect.enabled && !delegate.aspect.readOnly
-        currentIndex: delegate.aspect.value ?? 0
+        enabled: (delegate.aspect?.enabled ?? false) && !(delegate.aspect?.readOnly ?? false)
+        currentIndex: delegate.aspect?.value ?? 0
         ToolTip.text: delegate.toolTip
         ToolTip.visible: hovered && delegate.toolTip !== ""
         Layout.preferredWidth: 240
 
         model: delegate.options
 
-        onActivated: (index) => delegate.aspect.value = index
+        onActivated: (index) => { if (delegate.aspect) delegate.aspect.value = index }
     }
 
     Item { Layout.fillWidth: true }

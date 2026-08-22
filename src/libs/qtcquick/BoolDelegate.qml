@@ -17,11 +17,11 @@ CheckBox {
 
     text: labelText
     visible: aspectVisible
-    enabled: aspect.enabled && !aspect.readOnly
-    checked: aspect.value === true
+    enabled: (aspect?.enabled ?? false) && !(aspect?.readOnly ?? false)
+    checked: (aspect?.value ?? false) === true
     ToolTip.text: toolTip
     ToolTip.visible: hovered && toolTip !== ""
     Layout.fillWidth: true
 
-    onToggled: aspect.value = checked
+    onToggled: if (aspect) aspect.value = checked
 }

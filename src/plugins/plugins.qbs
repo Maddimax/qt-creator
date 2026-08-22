@@ -82,6 +82,7 @@ Project {
         "qnx/qnx.qbs",
         "qmakeprojectmanager/qmakeprojectmanager.qbs",
         "qtapplicationmanager/qtapplicationmanager.qbs",
+        "quickui/quickui.qbs",
         "qtsupport/qtsupport.qbs",
         "remote/remote.qbs",
         "resourceeditor/resourceeditor.qbs",

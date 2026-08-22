@@ -18,6 +18,7 @@
 #include <QLabel>
 #include <QPointer>
 #include <QPushButton>
+#include <QVBoxLayout>
 
 #include <utility>
 
@@ -27,6 +28,14 @@ using namespace Core::Internal;
 static QHash<Id, std::pair<QString, FilePath>> g_categories;
 
 namespace Core {
+
+static AspectFormFactory s_aspectFormFactory;
+
+void setAspectFormFactory(const AspectFormFactory &factory)
+{
+    s_aspectFormFactory = factory;
+}
+
 namespace Internal {
 
 using WidgetCreator = std::function<IOptionsPageWidget *()>;
@@ -499,6 +508,18 @@ IOptionsPageWidget *IOptionsPagePrivate::createWidget()
     } else if (m_settingsProvider) {
         AspectContainer *container = m_settingsProvider();
         QTC_ASSERT(container, return nullptr);
+
+        if (s_aspectFormFactory) {
+            if (QWidget *form = s_aspectFormFactory(container)) {
+                m_widget = new IOptionsPageWidget;
+                m_widget->d->setAspects(container);
+                auto layout = new QVBoxLayout(m_widget);
+                layout->setContentsMargins(0, 0, 0, 0);
+                layout->addWidget(form);
+                return m_widget;
+            }
+        }
+
         std::function<Layouting::Layout()> layouter = container->layouter();
         QTC_ASSERT(layouter, return nullptr);
         m_widget = new IOptionsPageWidget;
