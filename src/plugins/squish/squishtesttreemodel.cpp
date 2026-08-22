@@ -10,6 +10,7 @@
 #include <projectexplorer/projectexplorericons.h>
 
 #include <utils/qtcassert.h>
+#include <utils/themedvalue.h>
 #include <utils/utilsicons.h>
 
 #include <QApplication>
@@ -203,38 +204,41 @@ static QPixmap scaledPixmap(const Utils::Icon &icon)
 
 static QPixmap treeIcon(SquishTestTreeItem::Type type, int column)
 {
-    static QPixmap icons[] = {QPixmap(),
+    static const Utils::ThemedValue<QList<QPixmap>> icons([] {
+        return QList<QPixmap>{QPixmap(),
                               Utils::Icons::OPENFILE.pixmap(),
                               QIcon(":/fancyactionbar/images/mode_Edit.png").pixmap(16, 16),
                               Utils::Icons::OPENFILE.pixmap(),
                               Utils::Icons::OPENFILE.pixmap(),
                               QIcon(":/fancyactionbar/images/mode_Edit.png").pixmap(16, 16),
                               Utils::Icons::OPENFILE.pixmap(),
-                              QIcon(":/squish/images/data.png").pixmap(16, 16)
-                             };
-    static const QPixmap playIcon = scaledPixmap(Utils::Icons::RUN_SMALL);
-    static const QPixmap recordIcon = scaledPixmap(ProjectExplorer::Icons::RECORD_ON);
+                              QIcon(":/squish/images/data.png").pixmap(16, 16)};
+    });
+    static const Utils::ThemedValue<QPixmap> playIcon(
+        [] { return scaledPixmap(Utils::Icons::RUN_SMALL); });
+    static const Utils::ThemedValue<QPixmap> recordIcon(
+        [] { return scaledPixmap(ProjectExplorer::Icons::RECORD_ON); });
 
     if (column == 0)
-        return icons[type];
+        return icons().at(type);
 
     switch (type) {
     case SquishTestTreeItem::SquishSuite:
         if (column == 1)
-            return playIcon;
+            return playIcon();
         else if (column == 2)
             return QPixmap(":/squish/images/objectsmap.png");
         break;
     case SquishTestTreeItem::SquishTestCase:
         if (column == 1)
-            return playIcon;
+            return playIcon();
         else if (column == 2)
-            return recordIcon;
+            return recordIcon();
         break;
     default: // avoid warning of unhandled enum values
         break;
     }
-    return icons[0];
+    return icons().at(0);
 }
 
 QVariant SquishTestTreeModel::data(const QModelIndex &idx, int role) const
