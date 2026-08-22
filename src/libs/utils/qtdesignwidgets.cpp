@@ -513,9 +513,11 @@ void QtcLineEdit::paintEvent(QPaintEvent *event)
 
 static const QPixmap &searchBoxIcon()
 {
-    static const QPixmap icon = Icon({{FilePath::fromString(":/core/images/search.png"),
-                                       Theme::Token_Text_Muted}}, Icon::Tint).pixmap();
-    return icon;
+    static const ThemedValue<QPixmap> icon([] {
+        return Icon({{FilePath::fromString(":/core/images/search.png"),
+                      Theme::Token_Text_Muted}}, Icon::Tint).pixmap();
+    });
+    return icon();
 }
 
 QtcSearchBox::QtcSearchBox(QWidget *parent)
@@ -2078,11 +2080,9 @@ QIcon QtDesignSystemStyle::standardIcon(StandardPixmap sp, const QStyleOption *o
     QIcon icon;
 
     switch (sp) {
-    case SP_TabCloseButton: {
-        static const QIcon tabClose = Icons::CLOSE_FOREGROUND.icon();
-        icon = tabClose;
+    case SP_TabCloseButton:
+        icon = Icons::CLOSE_FOREGROUND.icon();
         break;
-    }
     default:
         icon = QCommonStyle::standardIcon(sp, opt, widget);
         break;

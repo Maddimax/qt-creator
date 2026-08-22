@@ -678,7 +678,7 @@ static void drawPrimitiveTweakedForDarkTheme(QStyle::PrimitiveElement element,
         QRect iconRect = QRect(0, 0, 16, 16);
         iconRect.moveCenter(option->rect.center());
         const QIcon::Mode mode = !isEnabled ? QIcon::Disabled : QIcon::Normal;
-        const static QIcon closeIcon = Utils::Icons::CLOSE_FOREGROUND.icon();
+        const QIcon closeIcon = Utils::Icons::CLOSE_FOREGROUND.icon();
         if (option->state & QStyle::State_MouseOver && widget)
             widget->style()->drawPrimitive(QStyle::PE_PanelButtonCommand, option, painter, widget);
         const QPixmap iconPx =
@@ -723,7 +723,7 @@ void ManhattanStyle::drawPrimitive(PrimitiveElement element, const QStyleOption 
             painter->setBrush(hoverColor);
             painter->drawRoundedRect(option->rect.adjusted(1, 1, -1, -1), 2, 2);
         }
-        const static QIcon closeIcon = Utils::Icons::PINNED.icon();
+        const QIcon closeIcon = Utils::Icons::PINNED.icon();
         const QPixmap iconPx
             = closeIcon.pixmap(iconRect.size() * devicePixelRatio, devicePixelRatio, QIcon::Normal);
         painter->drawPixmap(iconRect, iconPx);

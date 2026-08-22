@@ -42,9 +42,9 @@ void FinalStateItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *op
     painter->save();
     painter->setRenderHint(QPainter::Antialiasing, true);
     painter->setOpacity(getOpacity());
-    static const bool isDark = Utils::creatorTheme()->colorScheme() == Qt::ColorScheme::Dark;
+    const bool isDark = Utils::creatorTheme()->colorScheme() == Qt::ColorScheme::Dark;
     painter->setBrush(isDark ? QColor(0x00, 0x00, 0x00) : QColor(0xff, 0xff, 0xff));
-    static const QColor colorNormal = Utils::creatorColor(Utils::Theme::TextColorNormal);
+    const QColor colorNormal = Utils::creatorColor(Utils::Theme::TextColorNormal);
     m_pen.setColor(overlapping() ? qRgb(0xff, 0x00, 0x60) : colorNormal);
     painter->setPen(m_pen);
     painter->drawEllipse(boundingRect().center(), m_size, m_size);

@@ -651,12 +651,10 @@ void OutputPaneManager::updateStatusButtons(bool visible)
 void OutputPaneManager::updateMaximizeButton(bool maximized)
 {
     if (maximized) {
-        static const QIcon icon = Utils::Icons::ARROW_DOWN.icon();
-        m_instance->m_minMaxAction->setIcon(icon);
+        m_instance->m_minMaxAction->setIcon(Utils::Icons::ARROW_DOWN.icon());
         m_instance->m_minMaxAction->setText(Tr::tr("Minimize"));
     } else {
-        static const QIcon icon = Utils::Icons::ARROW_UP.icon();
-        m_instance->m_minMaxAction->setIcon(icon);
+        m_instance->m_minMaxAction->setIcon(Utils::Icons::ARROW_UP.icon());
         m_instance->m_minMaxAction->setText(Tr::tr("Maximize"));
     }
 }

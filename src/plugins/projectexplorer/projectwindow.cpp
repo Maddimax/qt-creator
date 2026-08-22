@@ -1067,16 +1067,12 @@ private:
         switch (overlayType) {
         case IconOverlay::Add:
             break;
-        case IconOverlay::Warning: {
-            static const QIcon warning = Utils::Icons::OVERLAY_WARNING.icon();
-            overlayIcon = warning;
+        case IconOverlay::Warning:
+            overlayIcon = Utils::Icons::OVERLAY_WARNING.icon();
             break;
-        }
-        case IconOverlay::Error: {
-            static const QIcon err = Utils::Icons::OVERLAY_ERROR.icon();
-            overlayIcon = err;
+        case IconOverlay::Error:
+            overlayIcon = Utils::Icons::OVERLAY_ERROR.icon();
             break;
-        }
         }
         const QSize iconSize(16, 16);
         const QRect iconRect(QPoint(), iconSize);

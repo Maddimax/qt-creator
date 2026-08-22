@@ -117,12 +117,12 @@ void CropSizeWarningIcon::setCropSize(const QSize &size)
 
 void CropSizeWarningIcon::paintEvent(QPaintEvent*)
 {
-    static const QIcon standardIcon = Icons::WARNING.icon();
-    static const QIcon toolBarIcon = Icons::WARNING_TOOLBAR.icon();
+    const QIcon icon = m_iconVariant == StandardVariant ? Icons::WARNING.icon()
+                                                        : Icons::WARNING_TOOLBAR.icon();
     QRect iconRect(QPoint(), warningIconSize);
     iconRect.moveCenter(rect().center());
     QPainter p(this);
-    (m_iconVariant == StandardVariant ? standardIcon : toolBarIcon).paint(&p, iconRect);
+    icon.paint(&p, iconRect);
 }
 
 void CropSizeWarningIcon::updateVisibility()

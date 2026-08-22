@@ -13,6 +13,7 @@
 #include <projectexplorer/projectexplorericons.h>
 #include <utils/algorithm.h>
 #include <utils/qtcassert.h>
+#include <utils/themedvalue.h>
 
 #include <QFontMetrics>
 #include <QIcon>
@@ -30,35 +31,37 @@ TestResultItem::TestResultItem(const TestResult &testResult)
 }
 
 static QIcon testResultIcon(ResultType result) {
-    const static QIcon icons[] = {
-        Icons::RESULT_PASS.icon(),
-        Icons::RESULT_FAIL.icon(),
-        Icons::RESULT_XFAIL.icon(),
-        Icons::RESULT_XPASS.icon(),
-        Icons::RESULT_SKIP.icon(),
-        Icons::RESULT_BLACKLISTEDPASS.icon(),
-        Icons::RESULT_BLACKLISTEDFAIL.icon(),
-        Icons::RESULT_BLACKLISTEDXPASS.icon(),
-        Icons::RESULT_BLACKLISTEDXFAIL.icon(),
-        Icons::RESULT_BENCHMARK.icon(),
-        Icons::RESULT_MESSAGEDEBUG.icon(),
-        Icons::RESULT_MESSAGEDEBUG.icon(), // Info gets the same handling as Debug for now
-        Icons::RESULT_MESSAGEWARN.icon(),
-        Icons::RESULT_MESSAGEFATAL.icon(),
-        Icons::RESULT_MESSAGEFATAL.icon(), // System gets same handling as Fatal for now
-        Icons::RESULT_MESSAGEFATAL.icon(), // Error gets same handling as Fatal for now
-        ProjectExplorer::Icons::DESKTOP_DEVICE.icon(),  // for now
-    }; // provide an icon for unknown??
+    static const Utils::ThemedValue<QList<QIcon>> icons([] {
+        return QList<QIcon>{
+            Icons::RESULT_PASS.icon(),
+            Icons::RESULT_FAIL.icon(),
+            Icons::RESULT_XFAIL.icon(),
+            Icons::RESULT_XPASS.icon(),
+            Icons::RESULT_SKIP.icon(),
+            Icons::RESULT_BLACKLISTEDPASS.icon(),
+            Icons::RESULT_BLACKLISTEDFAIL.icon(),
+            Icons::RESULT_BLACKLISTEDXPASS.icon(),
+            Icons::RESULT_BLACKLISTEDXFAIL.icon(),
+            Icons::RESULT_BENCHMARK.icon(),
+            Icons::RESULT_MESSAGEDEBUG.icon(),
+            Icons::RESULT_MESSAGEDEBUG.icon(), // Info gets the same handling as Debug for now
+            Icons::RESULT_MESSAGEWARN.icon(),
+            Icons::RESULT_MESSAGEFATAL.icon(),
+            Icons::RESULT_MESSAGEFATAL.icon(), // System gets same handling as Fatal for now
+            Icons::RESULT_MESSAGEFATAL.icon(), // Error gets same handling as Fatal for now
+            ProjectExplorer::Icons::DESKTOP_DEVICE.icon(),  // for now
+        }; // provide an icon for unknown??
+    });
 
     if (result < ResultType::FIRST_TYPE || result >= ResultType::MessageInternal) {
         switch (result) {
         case ResultType::Application:
-            return icons[16];
+            return icons().at(16);
         default:
             return QIcon();
         }
     }
-    return icons[int(result)];
+    return icons().at(int(result));
 }
 
 static QIcon testSummaryIcon(const std::optional<TestResultItem::SummaryEvaluation> &summary)

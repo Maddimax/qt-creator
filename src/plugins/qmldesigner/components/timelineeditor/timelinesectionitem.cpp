@@ -19,6 +19,7 @@
 #include <theme.h>
 
 #include <utils/qtcassert.h>
+#include <utils/themedvalue.h>
 
 #include <QAction>
 #include <QApplication>
@@ -263,11 +264,11 @@ void TimelineSectionItem::paint(QPainter *painter,
                  size().width(),
                  TimelineConstants::sectionHeight - 1);
 
-        static const QPixmap arrow = Theme::getPixmap("down-arrow");
+        static const Utils::ThemedValue<QPixmap> arrow(
+            [] { return Theme::getPixmap("down-arrow"); });
+        static const Utils::ThemedValue<QPixmap> arrow90([] { return rotateby90(arrow()); });
 
-        static const QPixmap arrow90 = rotateby90(arrow);
-
-        const QPixmap rotatedArrow = collapsed() ? arrow90 : arrow;
+        const QPixmap rotatedArrow = collapsed() ? arrow90() : arrow();
 
         const int textOffset = QFontMetrics(font()).ascent()
                                + (TimelineConstants::sectionHeight - QFontMetrics(font()).height())
@@ -626,10 +627,10 @@ qreal TimelineRulerSectionItem::playbackLoopEnd() const
 
 void TimelineRulerSectionItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *, QWidget *)
 {
-    static const QColor backgroundColor = Theme::getColor(Theme::DScontrolBackground);
-    static const QColor penColor = Theme::getColor(Theme::PanelTextColorLight);
-    static const QColor highlightColor = Theme::instance()->Theme::qmlDesignerButtonColor();
-    static const QColor handleColor = Theme::getColor(Theme::QmlDesigner_HighlightColor);
+    const QColor backgroundColor = Theme::getColor(Theme::DScontrolBackground);
+    const QColor penColor = Theme::getColor(Theme::PanelTextColorLight);
+    const QColor highlightColor = Theme::instance()->Theme::qmlDesignerButtonColor();
+    const QColor handleColor = Theme::getColor(Theme::QmlDesigner_HighlightColor);
     static const QColor playbackLoopColor = QColor(0, 255, 0, 255); // TODO: Timeline looping range color. Select color for this QDS-4941
 
     const int scrollOffset = TimelineGraphicsScene::getScrollOffset(scene());

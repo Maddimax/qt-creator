@@ -17,6 +17,7 @@
 #include <theme.h>
 
 #include <utils/qtcassert.h>
+#include <utils/themedvalue.h>
 
 #include <QAction>
 #include <QApplication>
@@ -306,11 +307,11 @@ void TransitionEditorSectionItem::paint(QPainter *painter,
                  size().width(),
                  TimelineConstants::sectionHeight - 1);
 
-        static const QPixmap arrow = Theme::getPixmap("down-arrow");
+        static const Utils::ThemedValue<QPixmap> arrow(
+            [] { return Theme::getPixmap("down-arrow"); });
+        static const Utils::ThemedValue<QPixmap> arrow90([] { return rotateby90(arrow()); });
 
-        static const QPixmap arrow90 = rotateby90(arrow);
-
-        const QPixmap rotatedArrow = collapsed() ? arrow90 : arrow;
+        const QPixmap rotatedArrow = collapsed() ? arrow90() : arrow();
 
         const int textOffset = QFontMetrics(font()).ascent()
                                + (TimelineConstants::sectionHeight - QFontMetrics(font()).height())

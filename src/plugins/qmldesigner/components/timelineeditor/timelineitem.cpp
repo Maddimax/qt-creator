@@ -14,6 +14,8 @@
 
 #include <coreplugin/icore.h>
 
+#include <utils/themedvalue.h>
+
 #include <QApplication>
 #include <QCursor>
 #include <QGraphicsView>
@@ -36,7 +38,7 @@ TimelineGraphicsScene *TimelineItem::timelineScene() const
 TimelineFrameHandle::TimelineFrameHandle(TimelineItem *parent)
     : TimelineMovableAbstractItem(parent)
 {
-    static const QColor color = Theme::getColor(Theme::IconsWarningToolBarColor);
+    const QColor color = Theme::getColor(Theme::IconsWarningToolBarColor);
     setBrush(color);
     setPen(color);
 
@@ -139,10 +141,12 @@ void TimelineFrameHandle::paint(QPainter *painter,
                                 const QStyleOptionGraphicsItem * /*option*/,
                                 QWidget * /*widget*/)
 {
-    static const QPixmap playHead = TimelineIcons::PLAYHEAD.pixmap();
+    static const Utils::ThemedValue<QPixmap> playHeadPixmap(
+        [] { return TimelineIcons::PLAYHEAD.pixmap(); });
+    const QPixmap playHead = playHeadPixmap();
 
-    static const int pixmapHeight = devicePixelHeight(playHead);
-    static const int pixmapWidth = devicePixelWidth(playHead);
+    const int pixmapHeight = devicePixelHeight(playHead);
+    const int pixmapWidth = devicePixelWidth(playHead);
 
     if (rect().x() < TimelineConstants::sectionWidth - rect().width() / 2)
         return;

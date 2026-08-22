@@ -901,18 +901,22 @@ QPixmap itemIcon(const QModelIndex &index, Size size)
         {1, creatorColor(Theme::Token_Gradient01_End)},
     };
 
-    const Theme::Color color = Theme::Token_Basic_White;
-    static const QIcon packS = Icon({{":/extensionmanager/images/packsmall.png", color}},
-                                    Icon::Tint).icon();
-    static const QIcon packB = Icon({{":/extensionmanager/images/packbig.png", color}},
-                                    Icon::Tint).icon();
-    static const QIcon extensionS = Icon({{":/extensionmanager/images/extensionsmall.png",
-                                           color}}, Icon::Tint).icon();
-    static const QIcon extensionB = Icon({{":/extensionmanager/images/extensionbig.png",
-                                           color}}, Icon::Tint).icon();
+    constexpr Theme::Color color = Theme::Token_Basic_White;
+    static const ThemedValue<QIcon> packS([color] {
+        return Icon({{":/extensionmanager/images/packsmall.png", color}}, Icon::Tint).icon();
+    });
+    static const ThemedValue<QIcon> packB([color] {
+        return Icon({{":/extensionmanager/images/packbig.png", color}}, Icon::Tint).icon();
+    });
+    static const ThemedValue<QIcon> extensionS([color] {
+        return Icon({{":/extensionmanager/images/extensionsmall.png", color}}, Icon::Tint).icon();
+    });
+    static const ThemedValue<QIcon> extensionB([color] {
+        return Icon({{":/extensionmanager/images/extensionbig.png", color}}, Icon::Tint).icon();
+    });
     const ItemType itemType = index.data(RoleItemType).value<ItemType>();
-    const QIcon &icon = (itemType == ItemTypePack) ? (size == SizeSmall ? packS : packB)
-                                                   : (size == SizeSmall ? extensionS : extensionB);
+    const QIcon &icon = (itemType == ItemTypePack) ? (size == SizeSmall ? packS() : packB())
+                                                   : (size == SizeSmall ? extensionS() : extensionB());
     const qreal iconOpacityDisabled = 0.5;
 
     QPainter p(&pixmap);

@@ -462,7 +462,7 @@ void StateItem::connectToParent(BaseItem *parentItem)
 
 void StateItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget)
 {
-    static QColor defaultForeground = Utils::creatorColor(Utils::Theme::TextColorNormal);
+    const QColor defaultForeground = Utils::creatorColor(Utils::Theme::TextColorNormal);
     ConnectableItem::paint(painter, option, widget);
 
     painter->save();

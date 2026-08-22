@@ -167,7 +167,7 @@ public:
                const QStyleOptionViewItem &option,
                const QModelIndex &index) const override
     {
-        static const QIcon fixItIcon = ::Utils::Icons::CODEMODEL_FIXIT.icon();
+        const QIcon fixItIcon = ::Utils::Icons::CODEMODEL_FIXIT.icon();
 
         QStyledItemDelegate::paint(painter, option, index);
 

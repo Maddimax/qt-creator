@@ -6,6 +6,7 @@
 
 #include <utils/icon.h>
 #include <utils/theme/theme.h>
+#include <utils/themedvalue.h>
 #include <utils/utilsicons.h>
 
 using namespace Utils;
@@ -15,36 +16,30 @@ namespace Todo::Internal {
 QIcon icon(IconType type)
 {
     switch (type) {
-    case IconType::Info: {
-        const static QIcon icon = Utils::Icons::INFO.icon();
-        return icon;
-    }
-    case IconType::Warning: {
-        const static QIcon icon = Utils::Icons::WARNING.icon();
-        return icon;
-    }
+    case IconType::Info:
+        return Utils::Icons::INFO.icon();
+    case IconType::Warning:
+        return Utils::Icons::WARNING.icon();
     case IconType::Bug: {
-        const static QIcon icon =
-                Icon({
-                         {":/todoplugin/images/bugfill.png", Theme::BackgroundColorNormal},
-                         {":/todoplugin/images/bug.png", Theme::IconsInterruptColor}
-                     }, Icon::Tint).icon();
-
-        return icon;
+        static const ThemedValue<QIcon> icon([] {
+            return Icon({
+                            {":/todoplugin/images/bugfill.png", Theme::BackgroundColorNormal},
+                            {":/todoplugin/images/bug.png", Theme::IconsInterruptColor}
+                        }, Icon::Tint).icon();
+        });
+        return icon();
     }
     case IconType::Todo: {
-        const static QIcon icon =
-                Icon({
-                         {":/todoplugin/images/tasklist.png", Theme::IconsRunColor}
-                     }, Icon::Tint).icon();
-        return icon;
+        static const ThemedValue<QIcon> icon([] {
+            return Icon({
+                            {":/todoplugin/images/tasklist.png", Theme::IconsRunColor}
+                        }, Icon::Tint).icon();
+        });
+        return icon();
     }
-
     default:
-    case IconType::Error: {
-        const static QIcon icon = Utils::Icons::CRITICAL.icon();
-        return icon;
-    }
+    case IconType::Error:
+        return Utils::Icons::CRITICAL.icon();
     }
 }
 

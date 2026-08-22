@@ -80,7 +80,7 @@ void InitialStateItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *
     painter->setRenderHint(QPainter::Antialiasing, true);
     painter->setOpacity(getOpacity());
 
-    static const QColor colorNormal = Utils::creatorColor(Utils::Theme::TextColorNormal);
+    const QColor colorNormal = Utils::creatorColor(Utils::Theme::TextColorNormal);
     m_pen.setColor(overlapping() ? qRgb(0xff, 0x00, 0x60) : colorNormal);
     painter->setPen(m_pen);
     painter->setBrush(Utils::creatorColor(Utils::Theme::PaletteTextDisabled));

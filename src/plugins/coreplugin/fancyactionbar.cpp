@@ -312,7 +312,8 @@ void FancyToolButton::hoverOverlay(QPainter *painter, const QRect &spanRect)
 {
     const QSize logicalSize = spanRect.size();
     const QString cacheKey = QLatin1String(Q_FUNC_INFO) + QString::number(logicalSize.width())
-                             + QLatin1Char('x') + QString::number(logicalSize.height());
+                             + QLatin1Char('x') + QString::number(logicalSize.height())
+                             + QLatin1Char('-') + QString::number(ThemeWatcher::generation());
     QPixmap overlay;
     if (!QPixmapCache::find(cacheKey, &overlay)) {
         const int dpr = painter->device()->devicePixelRatio();

@@ -60,22 +60,19 @@ const char kInstallSettingsKey[] = "Settings/InstallSettings";
 
 namespace QtSupport::Internal {
 
-static const QIcon &invalidVersionIcon()
+static QIcon invalidVersionIcon()
 {
-    static const QIcon theIcon(Utils::Icons::CRITICAL.icon());
-    return theIcon;
+    return Utils::Icons::CRITICAL.icon();
 }
 
-static const QIcon &warningVersionIcon()
+static QIcon warningVersionIcon()
 {
-    static const QIcon theIcon(Utils::Icons::WARNING.icon());
-    return theIcon;
+    return Utils::Icons::WARNING.icon();
 }
 
-static const QIcon &validVersionIcon()
+static QIcon validVersionIcon()
 {
-    static const QIcon theIcon;
-    return theIcon;
+    return {};
 }
 
 static QString nonUniqueDisplayNameWarning()

@@ -93,7 +93,7 @@ void SelectionIndicator::setItems(const QList<FormEditorItem*> &itemList)
 
     clear();
 
-    static QColor selectionColor = Utils::creatorColor(Utils::Theme::QmlDesigner_FormEditorSelectionColor);
+    const QColor selectionColor = Utils::creatorColor(Utils::Theme::QmlDesigner_FormEditorSelectionColor);
 
     for (FormEditorItem *item : itemList) {
         if (!item->qmlItemNode().isValid())
@@ -134,7 +134,7 @@ void SelectionIndicator::setItems(const QList<FormEditorItem*> &itemList)
             m_annotationItem = nullptr;
         }
 
-        static QColor textColor = Utils::creatorColor(Utils::Theme::QmlDesigner_FormEditorForegroundColor);
+        const QColor textColor = Utils::creatorColor(Utils::Theme::QmlDesigner_FormEditorForegroundColor);
 
         textItem->setDefaultTextColor(textColor);
         QPolygonF labelPolygon = boundingRectInLayerItemSpaceForItem(selectedItem, m_layerItem.data());

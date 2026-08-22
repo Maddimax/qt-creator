@@ -136,34 +136,22 @@ static Theme::Color fillColorForType(InfoLabelType type)
     }
 }
 
-static const QIcon &infoTypeIconSmall(InfoLabelType type)
+static QIcon iconForType(InfoLabelType type)
 {
     using namespace Utils;
     switch (type) {
-    case InfoLabelType::Information: {
-        static const QIcon icon = Icons::INFO.icon();
-        return icon;
-    }
-    case InfoLabelType::Warning: {
-        static const QIcon icon = Icons::WARNING.icon();
-        return icon;
-    }
-    case InfoLabelType::Error: {
-        static const QIcon icon = Icons::CRITICAL.icon();
-        return icon;
-    }
-    case InfoLabelType::Ok: {
-        static const QIcon icon = Icons::OK.icon();
-        return icon;
-    }
-    case InfoLabelType::NotOk: {
-        static const QIcon icon = Icons::BROKEN.icon();
-        return icon;
-    }
-    default: {
-        static const QIcon undefined;
-        return undefined;
-    }
+    case InfoLabelType::Information:
+        return Icons::INFO.icon();
+    case InfoLabelType::Warning:
+        return Icons::WARNING.icon();
+    case InfoLabelType::Error:
+        return Icons::CRITICAL.icon();
+    case InfoLabelType::Ok:
+        return Icons::OK.icon();
+    case InfoLabelType::NotOk:
+        return Icons::BROKEN.icon();
+    default:
+        return {};
     }
 }
 
@@ -183,7 +171,7 @@ void InfoLabel::paintEvent(QPaintEvent *event)
         p.fillRect(rect(), creatorColor(fillColorForType(m_type)));
         p.restore();
     }
-    const QIcon &icon = infoTypeIconSmall(m_type);
+    const QIcon icon = iconForType(m_type);
     const QIcon::Mode mode = !this->isEnabled() ? QIcon::Disabled : QIcon::Normal;
     const QPixmap iconPx =
             icon.pixmap(QSize(iconSize, iconSize) * devicePixelRatio(), devicePixelRatio(), mode);

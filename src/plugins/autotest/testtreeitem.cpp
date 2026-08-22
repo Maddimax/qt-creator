@@ -10,6 +10,7 @@
 #include "testconfiguration.h"
 
 #include <utils/link.h>
+#include <utils/themedvalue.h>
 #include <utils/utilsicons.h>
 
 #include <QIcon>
@@ -20,18 +21,19 @@ namespace Autotest {
 
 static QIcon testTreeIcon(TestTreeItem::Type type)
 {
-    static QIcon icons[] = {
-        QIcon(),
-        Icons::OPENFILE.icon(),
-        QIcon(":/autotest/images/suite.png"),
-        CodeModelIcon::iconForType(CodeModelIcon::Class),
-        CodeModelIcon::iconForType(CodeModelIcon::SlotPrivate),
-        QIcon(":/autotest/images/data.png")
-    };
+    static const ThemedValue<QList<QIcon>> icons([] {
+        return QList<QIcon>{
+            QIcon(),
+            Icons::OPENFILE.icon(),
+            QIcon(":/autotest/images/suite.png"),
+            CodeModelIcon::iconForType(CodeModelIcon::Class),
+            CodeModelIcon::iconForType(CodeModelIcon::SlotPrivate),
+            QIcon(":/autotest/images/data.png")};
+    });
 
-    if (int(type) >= int(sizeof icons / sizeof *icons))
-        return icons[3];
-    return icons[type];
+    if (int(type) >= icons().size())
+        return icons().at(3);
+    return icons().at(type);
 }
 
 ITestTreeItem::ITestTreeItem(ITestBase *testBase, const QString &name,

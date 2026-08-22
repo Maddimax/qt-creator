@@ -548,7 +548,7 @@ IAssistProposal *CustomAssistProcessor::perform()
     QList<AssistProposalItemInterface *> completions;
     switch (m_mode) {
     case CustomAssistMode::Preprocessor: {
-        static QIcon macroIcon = Utils::CodeModelIcon::iconForType(CodeModelIcon::Macro);
+        const QIcon macroIcon = Utils::CodeModelIcon::iconForType(CodeModelIcon::Macro);
         for (const QString &completion
              : CppCompletionAssistProcessor::preprocessorCompletions()) {
             completions << createItem(completion, macroIcon);

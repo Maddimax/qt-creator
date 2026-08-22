@@ -335,11 +335,10 @@ void QmlProfilerTraceBackend::setupToolBar()
         const bool recording = d->stateManager.currentState() != QmlProfilerStateManager::AppRunning
                                    ? d->stateManager.clientRecording()
                                    : d->stateManager.serverRecording();
-        const static QIcon recordOn = ProjectExplorer::Icons::RECORD_ON.icon();
-        const static QIcon recordOff = ProjectExplorer::Icons::RECORD_OFF.icon();
         d->recordButton.setToolTip(recording ? Tr::tr("Disable Profiling")
                                              : Tr::tr("Enable Profiling"));
-        d->recordButton.setIcon(recording ? recordOn : recordOff);
+        d->recordButton.setIcon(recording ? ProjectExplorer::Icons::RECORD_ON.icon()
+                                          : ProjectExplorer::Icons::RECORD_OFF.icon());
         d->recordButton.setChecked(recording);
     };
     connect(&d->stateManager, &QmlProfilerStateManager::stateChanged,

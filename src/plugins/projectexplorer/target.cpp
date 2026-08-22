@@ -283,9 +283,9 @@ QIcon Target::targetSelectorIcon() const
 
 QIcon Target::overlayIcon() const
 {
-    static const QIcon disconnected = Icons::DEVICE_DISCONNECTED_INDICATOR_OVERLAY.icon();
     IDevice::ConstPtr current = RunDeviceKitAspect::device(kit());
-    return current ? current->overlayIcon() : disconnected;
+    return current ? current->overlayIcon()
+                   : Icons::DEVICE_DISCONNECTED_INDICATOR_OVERLAY.icon();
 }
 
 QString Target::overlayIconToolTip()

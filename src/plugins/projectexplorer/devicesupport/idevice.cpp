@@ -1048,18 +1048,12 @@ QIcon IDevice::overlayIcon() const
     switch (deviceState()) {
     case IDevice::DeviceStateUnknown:
         return QIcon();
-    case IDevice::DeviceReadyToUse: {
-        static const QIcon ready = Icons::DEVICE_READY_INDICATOR_OVERLAY.icon();
-        return ready;
-    }
-    case IDevice::DeviceConnected: {
-        static const QIcon connected = Icons::DEVICE_CONNECTED_INDICATOR_OVERLAY.icon();
-        return connected;
-    }
-    case IDevice::DeviceDisconnected: {
-        static const QIcon disconnected = Icons::DEVICE_DISCONNECTED_INDICATOR_OVERLAY.icon();
-        return disconnected;
-    }
+    case IDevice::DeviceReadyToUse:
+        return Icons::DEVICE_READY_INDICATOR_OVERLAY.icon();
+    case IDevice::DeviceConnected:
+        return Icons::DEVICE_CONNECTED_INDICATOR_OVERLAY.icon();
+    case IDevice::DeviceDisconnected:
+        return Icons::DEVICE_DISCONNECTED_INDICATOR_OVERLAY.icon();
     }
     return QIcon();
 }

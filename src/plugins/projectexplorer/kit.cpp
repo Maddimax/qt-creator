@@ -414,14 +414,10 @@ QIcon Kit::targetSelectorIcon() const
 QIcon Kit::displayIcon() const
 {
     QIcon result = icon();
-    if (hasWarning()) {
-         static const QIcon warningIcon(Utils::Icons::WARNING.icon());
-         result = warningIcon;
-    }
-    if (!isValid()) {
-        static const QIcon errorIcon(Utils::Icons::CRITICAL.icon());
-        result = errorIcon;
-    }
+    if (hasWarning())
+        result = Utils::Icons::WARNING.icon();
+    if (!isValid())
+        result = Utils::Icons::CRITICAL.icon();
     return result;
 }
 

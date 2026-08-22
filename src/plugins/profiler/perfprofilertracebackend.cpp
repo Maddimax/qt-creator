@@ -427,11 +427,10 @@ void PerfProfilerTraceBackend::setupToolBar()
 
 void PerfProfilerTraceBackend::setRecording(bool recording)
 {
-    const static QIcon recordOn = ProjectExplorer::Icons::RECORD_ON.icon();
-    const static QIcon recordOff = ProjectExplorer::Icons::RECORD_OFF.icon();
     d->recordButton.setToolTip(recording ? Tr::tr("Stop collecting profile data.")
                                          : Tr::tr("Collect profile data."));
-    d->recordButton.setIcon(recording ? recordOn : recordOff);
+    d->recordButton.setIcon(recording ? ProjectExplorer::Icons::RECORD_ON.icon()
+                                      : ProjectExplorer::Icons::RECORD_OFF.icon());
     d->recordButton.setChecked(recording);
     emit recordingChanged(recording);
 }

@@ -92,9 +92,9 @@ void TransitionEditorPropertyItem::paint(QPainter *painter,
 {
     painter->save();
 
-    static const QColor penColor = Theme::getColor(Theme::BackgroundColorDark);
-    static const QColor textColor = Theme::getColor(Theme::PanelTextColorLight);
-    static const QColor backgroundColor = Theme::getColor(Theme::DScontrolBackground);
+    const QColor penColor = Theme::getColor(Theme::BackgroundColorDark);
+    const QColor textColor = Theme::getColor(Theme::PanelTextColorLight);
+    const QColor backgroundColor = Theme::getColor(Theme::DScontrolBackground);
 
     painter->fillRect(0, 0, TimelineConstants::sectionWidth, size().height(), backgroundColor);
     painter->fillRect(TimelineConstants::textIndentationProperties - 4,

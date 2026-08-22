@@ -68,22 +68,16 @@ enum IconIndex { OkIcon, ErrorIcon, NotLoadedIcon };
 
 static const int SortRole = Qt::UserRole + 1;
 
-static const QIcon &icon(IconIndex icon)
+static QIcon icon(IconIndex icon)
 {
     switch (icon) {
-    case OkIcon: {
-        static const QIcon ok = Utils::Icons::OK.icon();
-        return ok;
-    }
-    case ErrorIcon: {
-        static const QIcon error = Utils::Icons::BROKEN.icon();
-        return error;
-    }
+    case OkIcon:
+        return Utils::Icons::OK.icon();
+    case ErrorIcon:
+        return Utils::Icons::BROKEN.icon();
     default:
-    case NotLoadedIcon: {
-        static const QIcon notLoaded = Utils::Icons::NOTLOADED.icon();
-        return notLoaded;
-    }
+    case NotLoadedIcon:
+        return Utils::Icons::NOTLOADED.icon();
     }
 }
 

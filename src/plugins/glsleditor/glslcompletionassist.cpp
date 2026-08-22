@@ -20,6 +20,7 @@
 #include <cplusplus/ExpressionUnderCursor.h>
 
 #include <utils/icon.h>
+#include <utils/themedvalue.h>
 #include <utils/utilsicons.h>
 
 #include <QIcon>
@@ -118,7 +119,7 @@ static QIcon glslIcon(IconTypes iconType)
     using namespace CPlusPlus;
     using namespace Utils;
 
-    const char member[] = ":/codemodel/images/member.png";
+    static const char member[] = ":/codemodel/images/member.png";
 
     switch (iconType) {
     case IconTypeType:
@@ -132,19 +133,22 @@ static QIcon glslIcon(IconTypes iconType)
     case IconTypeVariable:
         return Utils::CodeModelIcon::iconForType(Utils::CodeModelIcon::VarPublic);
     case IconTypeAttribute: {
-        static const QIcon icon =
-                Icon({{member, Theme::IconsCodeModelAttributeColor}}, Icon::Tint).icon();
-        return icon;
+        static const ThemedValue<QIcon> icon([] {
+            return Icon({{member, Theme::IconsCodeModelAttributeColor}}, Icon::Tint).icon();
+        });
+        return icon();
     }
     case IconTypeUniform: {
-        static const QIcon icon =
-                Icon({{member, Theme::IconsCodeModelUniformColor}}, Icon::Tint).icon();
-        return icon;
+        static const ThemedValue<QIcon> icon([] {
+            return Icon({{member, Theme::IconsCodeModelUniformColor}}, Icon::Tint).icon();
+        });
+        return icon();
     }
     case IconTypeVarying: {
-        static const QIcon icon =
-                Icon({{member, Theme::IconsCodeModelVaryingColor}}, Icon::Tint).icon();
-        return icon;
+        static const ThemedValue<QIcon> icon([] {
+            return Icon({{member, Theme::IconsCodeModelVaryingColor}}, Icon::Tint).icon();
+        });
+        return icon();
     }
     case IconTypeOther:
     default:

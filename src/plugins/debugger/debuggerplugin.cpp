@@ -343,14 +343,12 @@ const char MENU_GROUP_START_QML[]            = "Debugger.Group.Start.Qml";
 
 static QIcon startIcon()
 {
-    const static QIcon icon = ProjectExplorer::Icons::DEBUG_START_SMALL_TOOLBAR.icon();
-    return icon;
+    return ProjectExplorer::Icons::DEBUG_START_SMALL_TOOLBAR.icon();
 }
 
 static QIcon interruptIcon()
 {
-    const static QIcon icon = Icons::DEBUG_INTERRUPT_SMALL.icon();
-    return icon;
+    return Icons::DEBUG_INTERRUPT_SMALL.icon();
 }
 
 static bool hideDebugMenu()

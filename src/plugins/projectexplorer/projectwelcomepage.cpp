@@ -298,12 +298,14 @@ public:
                                           isChecked() ? StyleHelper::SpacingTokens::RadiusS : 0);
         drawBackgroundRect(&painter, bgR, underMouse());
 
-        static const QPixmap arrowDown =
-            Icon({{FilePath::fromString(":/core/images/expandarrow.png"),
-                   Theme::Token_Text_Muted}}, Icon::Tint).pixmap();
-        static const QPixmap arrowUp =
-            QPixmap::fromImage(arrowDown.toImage().mirrored(false, true));
-        const QPixmap &arrow = isChecked() ? arrowUp : arrowDown;
+        static const ThemedValue<QPixmap> arrowDown([] {
+            return Icon({{FilePath::fromString(":/core/images/expandarrow.png"),
+                          Theme::Token_Text_Muted}}, Icon::Tint).pixmap();
+        });
+        static const ThemedValue<QPixmap> arrowUp([] {
+            return QPixmap::fromImage(arrowDown().toImage().mirrored(false, true));
+        });
+        const QPixmap &arrow = isChecked() ? arrowUp() : arrowDown();
         QRect arrowR(QPoint(), arrow.deviceIndependentSize().toSize());
         arrowR.moveCenter(rect().center());
         painter.drawPixmap(arrowR, arrow);

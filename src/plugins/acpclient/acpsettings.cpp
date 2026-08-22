@@ -70,7 +70,7 @@ static void fetchIconToPersistentCache(const QString &url, const std::shared_ptr
         return;
     }
 
-    static QString themeColor = creatorColor(Theme::PanelTextColorDark).toRgb().name();
+    const QString themeColor = creatorColor(Theme::PanelTextColorDark).toRgb().name();
 
     const QByteArray hash = QCryptographicHash::hash((url + themeColor).toUtf8(), QCryptographicHash::Sha1);
     const FilePath destPath = Core::ICore::userResourcePath("acpclient/icons")
@@ -87,7 +87,8 @@ static void fetchIconToPersistentCache(const QString &url, const std::shared_ptr
         task.setStreamMode(StreamMode::Reader);
     };
 
-    const auto fetchDone = [url, promise, destPath](const FileStreamer &task, DoneWith doneWith) {
+    const auto fetchDone = [url, promise, destPath, themeColor](const FileStreamer &task,
+                                                                DoneWith doneWith) {
         if (doneWith == DoneWith::Success) {
             Result<> res = createSvgFile(task.readData(), destPath, themeColor, promise);
             QTC_CHECK_RESULT(res);

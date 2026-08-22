@@ -20,6 +20,7 @@
 #include <utils/qtcassert.h>
 #include <utils/stringutils.h>
 #include <utils/theme/theme.h>
+#include <utils/themedvalue.h>
 
 #include <QRegularExpression>
 
@@ -100,9 +101,11 @@ QVariant GTestTreeItem::data(int column, int role) const
     case Qt::DecorationRole:
         if (type() == GroupNode
                 && GTestFramework::staticGroupMode() == GTest::Constants::GTestFilter) {
-            static const QIcon filterIcon = Icon({{":/utils/images/filtericon.png",
-                                                   Theme::PanelTextColorMid}}).icon();
-            return filterIcon;
+            static const Utils::ThemedValue<QIcon> filterIcon([] {
+                return Icon({{":/utils/images/filtericon.png",
+                              Theme::PanelTextColorMid}}).icon();
+            });
+            return filterIcon();
         }
         break;
     case Qt::ToolTipRole:

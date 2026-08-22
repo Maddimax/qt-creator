@@ -313,10 +313,10 @@ QByteArray IFindFilter::settingsKey() const
 */
 QPixmap IFindFilter::pixmapForFindFlags(FindFlags flags)
 {
-    static const QPixmap casesensitiveIcon = Icons::FIND_CASE_INSENSITIVELY.pixmap();
-    static const QPixmap regexpIcon = Icons::FIND_REGEXP.pixmap();
-    static const QPixmap wholewordsIcon = Icons::FIND_WHOLE_WORD.pixmap();
-    static const QPixmap preservecaseIcon = Icons::FIND_PRESERVE_CASE.pixmap();
+    const QPixmap casesensitiveIcon = Icons::FIND_CASE_INSENSITIVELY.pixmap();
+    const QPixmap regexpIcon = Icons::FIND_REGEXP.pixmap();
+    const QPixmap wholewordsIcon = Icons::FIND_WHOLE_WORD.pixmap();
+    const QPixmap preservecaseIcon = Icons::FIND_PRESERVE_CASE.pixmap();
     bool casesensitive = flags & FindCaseSensitively;
     bool wholewords = flags & FindWholeWords;
     bool regexp = flags & FindRegularExpression;

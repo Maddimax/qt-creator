@@ -281,14 +281,12 @@ QVariant WrapperNode::data(int column, int role) const
             return fileNode->icon();
         if (!project)
             return folderNode->icon();
-        static QIcon warnIcon = Utils::Icons::WARNING.icon();
-        static QIcon emptyIcon = Utils::Icons::EMPTY16.icon();
         if (project->needsConfiguration())
-            return warnIcon;
+            return Utils::Icons::WARNING.icon();
         if (bs && bs->isParsing())
-            return emptyIcon;
+            return Utils::Icons::EMPTY16.icon();
         if (!project->activeKit() || !project->projectIssues(project->activeKit()).isEmpty())
-            return warnIcon;
+            return Utils::Icons::WARNING.icon();
         return containerNode->rootProjectNode() ? containerNode->rootProjectNode()->icon()
                                                 : folderNode->icon();
     }

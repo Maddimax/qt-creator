@@ -57,7 +57,7 @@ void FormEditorToolButton::paint(QPainter *painter, const QStyleOptionGraphicsIt
                         toolButtonSize);
     painter->setPen(Qt::NoPen);
 
-    static QColor selectionColor = Utils::creatorColor(
+    const QColor selectionColor = Utils::creatorColor(
         Utils::Theme::QmlDesigner_FormEditorSelectionColor);
 
     if (m_state == Hovered)

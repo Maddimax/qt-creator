@@ -7,6 +7,7 @@
 
 #include <utils/stylehelper.h>
 #include <utils/theme/theme.h>
+#include <utils/themedvalue.h>
 #include <utils/utilsicons.h>
 
 #include <QApplication>
@@ -200,7 +201,7 @@ void TrackLabels::paintEvent(QPaintEvent *event)
 
         // Notes indicator button (shown when model has notes)
         if (hasNotes) {
-            static const QIcon noteIcon = Utils::Icons::INFO_TOOLBAR.icon();
+            const QIcon noteIcon = Utils::Icons::INFO_TOOLBAR.icon();
             const int ix = noteLeft + (kNoteButtonWidth - kIndicatorSize) / 2;
             const int iy = y + (titleHeight - kIndicatorSize) / 2;
             noteIcon.paint(&p, ix, iy, kIndicatorSize, kIndicatorSize);
@@ -208,13 +209,17 @@ void TrackLabels::paintEvent(QPaintEvent *event)
 
         // Expand/collapse indicator (right-aligned in title row)
         {
-            static const QIcon up = Utils::Icon({{":/utils/images/arrowup.png",
-                                                  Utils::Theme::PanelTextColorMid}},
-                                                Utils::Icon::Tint).icon();
-            static const QIcon down = Utils::Icon({{":/utils/images/arrowdown.png",
-                                                    Utils::Theme::PanelTextColorMid}},
-                                                  Utils::Icon::Tint).icon();
-            const QIcon &icon = track.expanded ? up : down;
+            static const Utils::ThemedValue<QIcon> up([] {
+                return Utils::Icon({{":/utils/images/arrowup.png",
+                                     Utils::Theme::PanelTextColorMid}},
+                                   Utils::Icon::Tint).icon();
+            });
+            static const Utils::ThemedValue<QIcon> down([] {
+                return Utils::Icon({{":/utils/images/arrowdown.png",
+                                     Utils::Theme::PanelTextColorMid}},
+                                   Utils::Icon::Tint).icon();
+            });
+            const QIcon icon = track.expanded ? up() : down();
             const int ix = expandLeft + (kTextRightMargin - kIndicatorSize) / 2;
             const int iy = y + (titleHeight - kIndicatorSize) / 2;
             icon.paint(&p, ix, iy, kIndicatorSize, kIndicatorSize);

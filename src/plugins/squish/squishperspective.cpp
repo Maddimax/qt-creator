@@ -58,9 +58,9 @@ static QIcon iconForType(IconType type)
 
 static QString customStyleSheet(bool extended)
 {
-    static const QString red = Utils::creatorColor(
+    const QString red = Utils::creatorColor(
                 Utils::Theme::ProgressBarColorError).name();
-    static const QString green = Utils::creatorColor(
+    const QString green = Utils::creatorColor(
                 Utils::Theme::ProgressBarColorFinished).name();
     if (!extended)
         return "QProgressBar {text-align:left; border:0px}";

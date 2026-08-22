@@ -87,7 +87,7 @@ void TrackPainterRaster::paintEvent(QPaintEvent *event)
         for (const QRectF &r : g.outlines) p.fillRect(r, outline);
         for (const QRectF &r : g.markers) p.fillRect(r, handle);
         if (!g.noteIcons.isEmpty()) {
-            static const QIcon icon = noteIcon().icon();
+            const QIcon icon = noteIcon().icon();
             for (const QPoint &c : g.noteIcons) {
                 icon.paint(&p, QRect(c.x() - kNoteIconSize / 2,
                                      c.y() - kNoteIconSize / 2,

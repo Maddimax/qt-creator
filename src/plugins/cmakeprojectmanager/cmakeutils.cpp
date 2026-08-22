@@ -10,6 +10,7 @@
 #include <utils/stringutils.h>
 #include <utils/textfileformat.h>
 #include <utils/theme/theme.h>
+#include <utils/themedvalue.h>
 
 #include <QColor>
 #include <QRegularExpression>
@@ -83,12 +84,14 @@ static bool hasAnsiReset(const QString &str)
 
 QString addCMakePrefix(const QString &str)
 {
-    static const QString prefix
-        = Utils::ansiColoredText(Constants::OUTPUT_PREFIX, creatorColor(Theme::Token_Text_Muted));
+    static const Utils::ThemedValue<QString> prefix([] {
+        return Utils::ansiColoredText(Constants::OUTPUT_PREFIX,
+                                      Utils::creatorColor(Theme::Token_Text_Muted));
+    });
     static QColor cachedColor = QColor::Invalid;
 
     if (!str.contains(QLatin1Char('\x1b')))
-        return prefix
+        return prefix()
                + (cachedColor.isValid() ? Utils::ansiColoredText(str, cachedColor) : str);
 
     const bool hasColor = hasAnsiColor(str);
@@ -98,7 +101,7 @@ QString addCMakePrefix(const QString &str)
     else if (hasReset)
         cachedColor = QColor::Invalid;
 
-    return prefix + (cachedColor.isValid() ? Utils::ansiColoredText(str, cachedColor) : str);
+    return prefix() + (cachedColor.isValid() ? Utils::ansiColoredText(str, cachedColor) : str);
 }
 
 QStringList addCMakePrefix(const QStringList &list)

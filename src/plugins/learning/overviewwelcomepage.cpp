@@ -576,8 +576,8 @@ public:
     RecentProjectItem(QWidget *parent = nullptr)
         : QWidget(parent)
     {
-        static const QPixmap iconPixmap = Icon({{":/projectexplorer/images/recentproject.png",
-                                           Theme::Token_Text_Muted}}, Icon::Tint).pixmap();
+        const QPixmap iconPixmap = Icon({{":/projectexplorer/images/recentproject.png",
+                                          Theme::Token_Text_Muted}}, Icon::Tint).pixmap();
         auto iconLabel = new QLabel;
         iconLabel->setPixmap(iconPixmap);
         iconLabel->setFixedWidth(iconPixmap.deviceIndependentSize().width());

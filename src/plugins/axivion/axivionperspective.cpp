@@ -90,14 +90,16 @@ static const Icon USER_ICON({{":/axivion/images/user.png", Theme::PanelTextColor
 
 static QPixmap trendIcon(qint64 added, qint64 removed)
 {
-    static const QPixmap unchanged = Utils::Icons::NEXT.pixmap();
-    static const QPixmap increased = Icon(
-                { {":/utils/images/arrowup.png", Theme::IconsErrorColor} }).pixmap();
-    static const QPixmap decreased = Icon(
-                {  {":/utils/images/arrowdown.png", Theme::IconsRunColor} }).pixmap();
+    static const ThemedValue<QPixmap> unchanged([] { return Utils::Icons::NEXT.pixmap(); });
+    static const ThemedValue<QPixmap> increased([] {
+        return Icon({{":/utils/images/arrowup.png", Theme::IconsErrorColor}}).pixmap();
+    });
+    static const ThemedValue<QPixmap> decreased([] {
+        return Icon({{":/utils/images/arrowdown.png", Theme::IconsRunColor}}).pixmap();
+    });
     if (added == removed)
-        return unchanged;
-    return added < removed ? decreased : increased;
+        return unchanged();
+    return added < removed ? decreased() : increased();
 }
 
 struct LinkWithColumns

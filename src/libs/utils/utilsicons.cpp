@@ -3,6 +3,8 @@
 
 #include "utilsicons.h"
 
+#include "themedvalue.h"
+
 namespace Utils {
 namespace Icons {
 
@@ -502,156 +504,203 @@ QIcon CodeModelIcon::iconForType(CodeModelIcon::Type type)
 
     switch (type) {
     case Class: {
-        const static QIcon icon(Icon({
-            classRelationBackgroundIcon, classRelationIcon,
-            {":/codemodel/images/classparent.png", Theme::IconsCodeModelClassColor},
-            classMemberFunctionIcon, classMemberVariableIcon
-        }, Icon::Tint).icon());
-        return icon;
+        static const ThemedValue<QIcon> icon([] {
+            return Icon({
+                classRelationBackgroundIcon, classRelationIcon,
+                {":/codemodel/images/classparent.png", Theme::IconsCodeModelClassColor},
+                classMemberFunctionIcon, classMemberVariableIcon
+            }, Icon::Tint).icon();
+        });
+        return icon();
     }
     case Struct: {
-        const static QIcon icon(Icon({
-            classRelationBackgroundIcon, classRelationIcon,
-            {":/codemodel/images/classparent.png", Theme::IconsCodeModelStructColor},
-            classMemberFunctionIcon, classMemberVariableIcon
-        }, Icon::Tint).icon());
-        return icon;
+        static const ThemedValue<QIcon> icon([] {
+            return Icon({
+                classRelationBackgroundIcon, classRelationIcon,
+                {":/codemodel/images/classparent.png", Theme::IconsCodeModelStructColor},
+                classMemberFunctionIcon, classMemberVariableIcon
+            }, Icon::Tint).icon();
+        });
+        return icon();
     }
     case Enum: {
-        const static QIcon icon(Icon({
-            {":/codemodel/images/enum.png", Theme::IconsCodeModelEnumColor}
-        }, Icon::Tint).icon());
-        return icon;
+        static const ThemedValue<QIcon> icon([] {
+            return Icon({
+                {":/codemodel/images/enum.png", Theme::IconsCodeModelEnumColor}
+            }, Icon::Tint).icon();
+        });
+        return icon();
     }
     case Enumerator: {
-        const static QIcon icon(Icon({
-            {":/codemodel/images/enumerator.png", Theme::IconsCodeModelEnumColor}
-        }, Icon::Tint).icon());
-        return icon;
+        static const ThemedValue<QIcon> icon([] {
+            return Icon({
+                {":/codemodel/images/enumerator.png", Theme::IconsCodeModelEnumColor}
+            }, Icon::Tint).icon();
+        });
+        return icon();
     }
     case FuncPublic: {
-        const static QIcon icon(Icon({
-                functionIcon}, Icon::Tint).icon());
-        return icon;
+        static const ThemedValue<QIcon> icon([] {
+            return Icon({
+                functionIcon
+            }, Icon::Tint).icon();
+        });
+        return icon();
     }
     case FuncProtected: {
-        const static QIcon icon(Icon({
+        static const ThemedValue<QIcon> icon([] {
+            return Icon({
                 functionIcon, protectedBackgroundIcon, protectedIcon
-        }, Icon::Tint).icon());
-        return icon;
+            }, Icon::Tint).icon();
+        });
+        return icon();
     }
     case FuncPrivate: {
-        const static QIcon icon(Icon({
-            functionIcon, privateBackgroundIcon, privateIcon
-        }, Icon::Tint).icon());
-        return icon;
+        static const ThemedValue<QIcon> icon([] {
+            return Icon({
+                functionIcon, privateBackgroundIcon, privateIcon
+            }, Icon::Tint).icon();
+        });
+        return icon();
     }
     case FuncPublicStatic: {
-        const static QIcon icon(Icon({
-            functionIcon, staticBackgroundIcon, staticIcon
-        }, Icon::Tint).icon());
-        return icon;
+        static const ThemedValue<QIcon> icon([] {
+            return Icon({
+                functionIcon, staticBackgroundIcon, staticIcon
+            }, Icon::Tint).icon();
+        });
+        return icon();
     }
     case FuncProtectedStatic: {
-        const static QIcon icon(Icon({
-            functionIcon, staticBackgroundIcon, staticIcon, protectedBackgroundIcon, protectedIcon
-        }, Icon::Tint).icon());
-        return icon;
+        static const ThemedValue<QIcon> icon([] {
+            return Icon({
+                functionIcon, staticBackgroundIcon, staticIcon, protectedBackgroundIcon, protectedIcon
+            }, Icon::Tint).icon();
+        });
+        return icon();
     }
     case FuncPrivateStatic: {
-        const static QIcon icon(Icon({
-            functionIcon, staticBackgroundIcon, staticIcon, privateBackgroundIcon, privateIcon
-        }, Icon::Tint).icon());
-        return icon;
+        static const ThemedValue<QIcon> icon([] {
+            return Icon({
+                functionIcon, staticBackgroundIcon, staticIcon, privateBackgroundIcon, privateIcon
+            }, Icon::Tint).icon();
+        });
+        return icon();
     }
     case Namespace: {
-        const static QIcon icon(Icon({
-            {":/utils/images/namespace.png", Theme::IconsCodeModelKeywordColor}
-        }, Icon::Tint).icon());
-        return icon;
+        static const ThemedValue<QIcon> icon([] {
+            return Icon({
+                {":/utils/images/namespace.png", Theme::IconsCodeModelKeywordColor}
+            }, Icon::Tint).icon();
+        });
+        return icon();
     }
     case VarPublic: {
-        const static QIcon icon(Icon({
-            variableIcon
-        }, Icon::Tint).icon());
-        return icon;
+        static const ThemedValue<QIcon> icon([] {
+            return Icon({
+                variableIcon
+            }, Icon::Tint).icon();
+        });
+        return icon();
     }
     case VarProtected: {
-        const static QIcon icon(Icon({
-            variableIcon, protectedBackgroundIcon, protectedIcon
-        }, Icon::Tint).icon());
-        return icon;
+        static const ThemedValue<QIcon> icon([] {
+            return Icon({
+                variableIcon, protectedBackgroundIcon, protectedIcon
+            }, Icon::Tint).icon();
+        });
+        return icon();
     }
     case VarPrivate: {
-        const static QIcon icon(Icon({
-            variableIcon, privateBackgroundIcon, privateIcon
-        }, Icon::Tint).icon());
-        return icon;
+        static const ThemedValue<QIcon> icon([] {
+            return Icon({
+                variableIcon, privateBackgroundIcon, privateIcon
+            }, Icon::Tint).icon();
+        });
+        return icon();
     }
     case VarPublicStatic: {
-        const static QIcon icon(Icon({
-            variableIcon, staticBackgroundIcon, staticIcon
-        }, Icon::Tint).icon());
-        return icon;
+        static const ThemedValue<QIcon> icon([] {
+            return Icon({
+                variableIcon, staticBackgroundIcon, staticIcon
+            }, Icon::Tint).icon();
+        });
+        return icon();
     }
     case VarProtectedStatic: {
-        const static QIcon icon(Icon({
-            variableIcon, staticBackgroundIcon, staticIcon, protectedBackgroundIcon, protectedIcon
-        }, Icon::Tint).icon());
-        return icon;
+        static const ThemedValue<QIcon> icon([] {
+            return Icon({
+                variableIcon, staticBackgroundIcon, staticIcon, protectedBackgroundIcon, protectedIcon
+            }, Icon::Tint).icon();
+        });
+        return icon();
     }
     case VarPrivateStatic: {
-        const static QIcon icon(Icon({
-            variableIcon, staticBackgroundIcon, staticIcon, privateBackgroundIcon, privateIcon
-        }, Icon::Tint).icon());
-        return icon;
+        static const ThemedValue<QIcon> icon([] {
+            return Icon({
+                variableIcon, staticBackgroundIcon, staticIcon, privateBackgroundIcon, privateIcon
+            }, Icon::Tint).icon();
+        });
+        return icon();
     }
     case Signal: {
-        const static QIcon icon(Icon({
-            signalIcon
-        }, Icon::Tint).icon());
-        return icon;
+        static const ThemedValue<QIcon> icon([] {
+            return Icon({
+                signalIcon
+            }, Icon::Tint).icon();
+        });
+        return icon();
     }
     case SlotPublic: {
-        const static QIcon icon(Icon({
-            slotIcon
-        }, Icon::Tint).icon());
-        return icon;
+        static const ThemedValue<QIcon> icon([] {
+            return Icon({
+                slotIcon
+            }, Icon::Tint).icon();
+        });
+        return icon();
     }
     case SlotProtected: {
-        const static QIcon icon(Icon({
-            slotIcon, protectedBackgroundIcon, protectedIcon
-        }, Icon::Tint).icon());
-        return icon;
+        static const ThemedValue<QIcon> icon([] {
+            return Icon({
+                slotIcon, protectedBackgroundIcon, protectedIcon
+            }, Icon::Tint).icon();
+        });
+        return icon();
     }
     case SlotPrivate: {
-        const static QIcon icon(Icon({
-            slotIcon, privateBackgroundIcon, privateIcon
-        }, Icon::Tint).icon());
-        return icon;
+        static const ThemedValue<QIcon> icon([] {
+            return Icon({
+                slotIcon, privateBackgroundIcon, privateIcon
+            }, Icon::Tint).icon();
+        });
+        return icon();
     }
     case Keyword: {
-        const static QIcon icon(Icon({
-            {":/codemodel/images/keyword.png", Theme::IconsCodeModelKeywordColor}
-        }, Icon::Tint).icon());
-        return icon;
+        static const ThemedValue<QIcon> icon([] {
+            return Icon({
+                {":/codemodel/images/keyword.png", Theme::IconsCodeModelKeywordColor}
+            }, Icon::Tint).icon();
+        });
+        return icon();
     }
     case Macro: {
-        const static QIcon icon(Icon({
-            {":/codemodel/images/macro.png", Theme::IconsCodeModelMacroColor}
-        }, Icon::Tint).icon());
-        return icon;
+        static const ThemedValue<QIcon> icon([] {
+            return Icon({
+                {":/codemodel/images/macro.png", Theme::IconsCodeModelMacroColor}
+            }, Icon::Tint).icon();
+        });
+        return icon();
     }
     case Property: {
-        const static QIcon icon(Icon({
-            variableIcon, propertyBackgroundIcon, propertyIcon
-        }, Icon::Tint).icon());
-        return icon;
+        static const ThemedValue<QIcon> icon([] {
+            return Icon({
+                variableIcon, propertyBackgroundIcon, propertyIcon
+            }, Icon::Tint).icon();
+        });
+        return icon();
     }
-    case Unknown: {
-        const static QIcon icon(Icons::EMPTY16.icon());
-        return icon;
-    }
+    case Unknown:
+        return Icons::EMPTY16.icon();
     default:
         break;
     }

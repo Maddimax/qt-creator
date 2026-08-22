@@ -78,6 +78,7 @@
 #include <utils/qtcprocess.h>
 #include <utils/qtcassert.h>
 #include <utils/theme/theme.h>
+#include <utils/themedvalue.h>
 
 #include <qtsupport/qtkitaspect.h>
 
@@ -1990,16 +1991,17 @@ void NodeInstanceView::emitInstancesChildrenChanged(const QVector<ModelNode> &no
 
 QVariant NodeInstanceView::modelNodePreviewImageDataToVariant(const ModelNodePreviewImageData &imageData) const
 {
-    static QPixmap placeHolder;
-    if (placeHolder.isNull()) {
+    static const Utils::ThemedValue<QPixmap> placeHolderPixmap([] {
         QPixmap placeHolderSrc(":/navigator/icon/tooltip_placeholder.png");
-        placeHolder = {150, 150};
+        QPixmap placeHolder(150, 150);
         // Placeholder has transparency, but we don't want to show the checkerboard, so
         // paint in the correct background color
         placeHolder.fill(Utils::creatorColor(Utils::Theme::BackgroundColorNormal));
         QPainter painter(&placeHolder);
         painter.drawPixmap(0, 0, 150, 150, placeHolderSrc);
-    }
+        return placeHolder;
+    });
+    const QPixmap placeHolder = placeHolderPixmap();
 
     QVariantMap map;
     map.insert("type", imageData.type);

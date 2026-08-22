@@ -151,13 +151,9 @@ static QIcon iconForSorted(std::optional<Qt::SortOrder> order)
                 {{":/axivion/images/sortAsc.png", Utils::Theme::IconsDisabledColor},
                  {":/axivion/images/sortDesc.png", Utils::Theme::PaletteText}},
                 Utils::Icon::MenuTintedStyle);
-    static const QIcon unsorted = UNSORTED.icon();
-    static const QIcon sortedAsc = SORT_ASC.icon();
-    static const QIcon sortedDesc = SORT_DESC.icon();
-
     if (!order)
-        return unsorted;
-    return *order == Qt::AscendingOrder ? sortedAsc : sortedDesc;
+        return UNSORTED.icon();
+    return *order == Qt::AscendingOrder ? SORT_ASC.icon() : SORT_DESC.icon();
 }
 
 static QIcon iconForFilter(bool isActive)
@@ -168,9 +164,7 @@ static QIcon iconForFilter(bool isActive)
     static const Utils::Icon ACTIVE(
                 {{":/axivion/images/filtericon.png", Utils::Theme::PaletteText}},
                 Utils::Icon::MenuTintedStyle);
-    static const QIcon inactive = INACTIVE.icon();
-    static const QIcon active = ACTIVE.icon();
-    return isActive ? active : inactive;
+    return isActive ? ACTIVE.icon() : INACTIVE.icon();
 }
 
 void IssueHeaderView::setColumnInfoList(const QList<ColumnInfo> &infos)

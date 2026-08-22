@@ -21,6 +21,7 @@
 
 #include <coreplugin/icore.h>
 #include <utils/qtcassert.h>
+#include <utils/themedvalue.h>
 
 #include <utils/algorithm.h>
 
@@ -346,12 +347,16 @@ void TimelinePropertyItem::paint(QPainter *painter, const QStyleOptionGraphicsIt
 {
     painter->save();
 
-    static const QColor penColor = Theme::getColor(Theme::BackgroundColorDark);
-    static const QColor textColor = Theme::getColor(Theme::PanelTextColorLight);
-    static const QColor backgroundColor = Theme::getColor(Theme::DScontrolBackground);
+    const QColor penColor = Theme::getColor(Theme::BackgroundColorDark);
+    const QColor textColor = Theme::getColor(Theme::PanelTextColorLight);
+    const QColor backgroundColor = Theme::getColor(Theme::DScontrolBackground);
 
-    static const QPixmap keyframe = TimelineIcons::KEYFRAME.pixmap();
-    static const QPixmap isKeyframe = TimelineIcons::IS_KEYFRAME.pixmap();
+    static const Utils::ThemedValue<QPixmap> keyframePixmap(
+        [] { return TimelineIcons::KEYFRAME.pixmap(); });
+    static const Utils::ThemedValue<QPixmap> isKeyframePixmap(
+        [] { return TimelineIcons::IS_KEYFRAME.pixmap(); });
+    const QPixmap keyframe = keyframePixmap();
+    const QPixmap isKeyframe = isKeyframePixmap();
 
     painter->fillRect(0, 0, TimelineConstants::sectionWidth, size().height(), backgroundColor);
     painter->fillRect(TimelineConstants::textIndentationProperties - 4,

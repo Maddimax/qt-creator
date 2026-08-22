@@ -238,14 +238,12 @@ void DocumentModelPrivate::setPinned(DocumentModel::Entry *entry, bool pinned)
 
 QIcon DocumentModelPrivate::lockedIcon()
 {
-    const static QIcon icon = Utils::Icons::LOCKED.icon();
-    return icon;
+    return Utils::Icons::LOCKED.icon();
 }
 
 QIcon DocumentModelPrivate::pinnedIcon()
 {
-    const static QIcon icon = Utils::Icons::PINNED.icon();
-    return icon;
+    return Utils::Icons::PINNED.icon();
 }
 
 std::optional<int> DocumentModelPrivate::indexOfFilePath(const Utils::FilePath &filePath) const
