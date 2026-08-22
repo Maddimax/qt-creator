@@ -77,7 +77,20 @@ What live theming requires, in order:
    `tests/auto/qtcquick/designsystem` asserts a QML binding follows a theme swap,
    using two themes with deliberately different accent colours; it goes red if
    the notification is removed.
-4. **The caches have to be audited.** This is the remaining work. There are ~69 `static const QColor` /
+4. **The caches have to be audited.** Partly done. **45** function-local statics
+   hold a *resolved* colour, brush, pixmap or icon derived from the theme and
+   latch it for the life of the process. `Utils::ThemedValue` recomputes such a
+   value after a theme change, keyed on a generation counter that
+   `setCreatorTheme()` bumps; dropping the `static` instead would re-tint on
+   every paint. Converted so far: the combo box arrows in `qtdesignwidgets` and
+   the progress view's pin icon. The rest are mechanical, and the bulk of them
+   are in `qmldesigner` (about 25) and `scxmleditor`, both of which are late in
+   the porting order anyway.
+
+   Note that `Utils::TextFormat` is **not** a hazard: it stores the
+   `Theme::Color` role and resolves it in `color()`, so the ~21
+   `static const TextFormat` instances hold no colour. An earlier version of this
+   document claimed otherwise. There are ~69 `static const QColor` /
    `static QColor` and ~21 `static const TextFormat` initialisations across
    `src/plugins` and `src/libs`. Every one of them latches a colour on first use
    and will show the old theme after a switch. These are invisible while a
@@ -162,8 +175,8 @@ has to happen first.
 
 In order:
 
-1. **Live theming item 4**: the ~69 `static const QColor` / `static QColor` and
-   ~21 `static const TextFormat` caches. Each latches a colour on first use.
+1. **Finish live theming item 4**: convert the remaining resolved-value statics
+   to `Utils::ThemedValue`. 45 sites total, two done.
 2. **`FilePath::icon()`** calls `FileIconProvider::icon()`, which wraps
    `QFileIconProvider` (QtWidgets). `QIcon` is QtGui, so this wants a hook. It
    would be the third one-off hook after `PluginPrompts` and `Utils::Prompts`;
