@@ -30,6 +30,7 @@
 #include <utils/qtcassert.h>
 
 #include <QAbstractListModel>
+#include <QComboBox>
 #include <QHBoxLayout>
 #include <QJsonValue>
 #include <QLabel>

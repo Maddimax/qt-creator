@@ -19,6 +19,7 @@
 #include <projectexplorer/projectmanager.h>
 #include <utils/layoutbuilder.h>
 
+#include <QComboBox>
 #include <QDialogButtonBox>
 #include <QGridLayout>
 #include <QHBoxLayout>

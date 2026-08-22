@@ -40,6 +40,7 @@
 
 #include <QDesktopServices>
 #include <QMessageBox>
+#include <QRegularExpression>
 
 using namespace Core;
 using namespace CppEditor;

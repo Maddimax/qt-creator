@@ -888,7 +888,7 @@ class FontFamilyAspectPrivate
 {
 public:
     UndoableValue<QString> m_undoable;
-    QFontComboBox::FontFilters m_fontFilters = QFontComboBox::AllFonts;
+    FontFamilyAspect::FontFilters m_fontFilters = FontFamilyAspect::AllFonts;
 };
 
 class SelectionAspectPrivate
@@ -1041,7 +1041,7 @@ public:
     QString m_placeHolderText;
     Key m_historyCompleterKey;
     StringAspect::ValueAcceptor m_valueAcceptor;
-    std::optional<ValidationFunction> m_validator;
+    std::optional<FancyLineEdit::ValidationFunction> m_validator;
     std::function<QValidator *(QObject *parent)> m_validatorFactory;
 
     CheckableAspectImplementation m_checkerImpl;
@@ -1631,7 +1631,7 @@ public:
     Lazy<FilePath> m_baseDirectory;
     FilePath m_initialBrowsePathBackup;
     StringAspect::ValueAcceptor m_valueAcceptor;
-    std::optional<ValidationFunction> m_validator;
+    std::optional<FancyLineEdit::ValidationFunction> m_validator;
     std::optional<FilePath> m_effectiveBinary;
     std::function<void()> m_openTerminal;
 
@@ -2131,7 +2131,7 @@ void FontFamilyAspect::addToLayoutImpl(Layouting::Layout &parent)
         parent.addItem(l);
 
     auto fontComboBox = createSubWidget<QFontComboBox>();
-    fontComboBox->setFontFilters(d->m_fontFilters);
+    fontComboBox->setFontFilters(QFontComboBox::FontFilters(int(d->m_fontFilters)));
     // Note: The extra QFontInfo hoop below is needed to get an actually
     // resolved for on the system,  otherwise asking "Monospace" can result
     // in "Dejavu Sans Mono" being selected.
@@ -2145,7 +2145,7 @@ void FontFamilyAspect::addToLayoutImpl(Layouting::Layout &parent)
     });
 }
 
-void FontFamilyAspect::setFontFilters(QFontComboBox::FontFilters fontFilters)
+void FontFamilyAspect::setFontFilters(FontFilters fontFilters)
 {
     d->m_fontFilters = fontFilters;
 }

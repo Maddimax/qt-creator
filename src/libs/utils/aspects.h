@@ -8,7 +8,7 @@
 #include "id.h"
 #include "validationfunction.h"
 
-#include <QFontComboBox>
+#include <QColor>
 #include <QMap>
 #include <QUndoCommand>
 #include <QVariant>
@@ -22,12 +22,14 @@ class QAbstractButton;
 class QAbstractSpinBox;
 class QAction;
 class QComboBox;
+class QCompleter;
 class QLabel;
 class QSettings;
 class QUndoStack;
 class QStandardItem;
 class QStandardItemModel;
 class QItemSelectionModel;
+class QValidator;
 QT_END_NAMESPACE
 
 namespace Layouting { class Layout; }
@@ -621,7 +623,16 @@ public:
     ~FontFamilyAspect() override;
 
     void addToLayoutImpl(Layouting::Layout &parent) override;
-    void setFontFilters(QFontComboBox::FontFilters fontFilters);
+    enum FontFilter {
+        AllFonts = 0,
+        ScalableFonts = 0x1,
+        NonScalableFonts = 0x2,
+        MonospacedFonts = 0x4,
+        ProportionalFonts = 0x8,
+    };
+    Q_DECLARE_FLAGS(FontFilters, FontFilter)
+
+    void setFontFilters(FontFilters fontFilters);
 
     void setDefaultValue(const QString &font);
 

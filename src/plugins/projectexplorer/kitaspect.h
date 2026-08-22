@@ -11,6 +11,7 @@
 
 #include <utils/aspects.h>
 
+#include <QAbstractItemModel>
 #include <QPair>
 #include <QSet>
 

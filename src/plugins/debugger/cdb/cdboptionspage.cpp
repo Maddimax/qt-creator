@@ -15,6 +15,7 @@
 
 #include <QCheckBox>
 #include <QFormLayout>
+#include <QLineEdit>
 #include <QTextStream>
 
 using namespace Utils;

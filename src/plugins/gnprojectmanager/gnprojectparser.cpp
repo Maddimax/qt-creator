@@ -27,6 +27,7 @@
 #include <utils/theme/theme.h>
 
 #include <QElapsedTimer>
+#include <QRegularExpression>
 
 #include <memory>
 #include <ranges>

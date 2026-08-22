@@ -460,7 +460,7 @@ TerminalSettings::TerminalSettings()
     // fontFamily.setHistoryCompleter("Terminal.Fonts.History");
     fontFamily.setToolTip(Tr::tr("The font family used in the terminal."));
     fontFamily.setDefaultValue(defaultFontFamily());
-    fontFamily.setFontFilters(QFontComboBox::MonospacedFonts);
+    fontFamily.setFontFilters(FontFamilyAspect::MonospacedFonts);
 
     fontSize.setSettingsKey("FontSize");
     fontSize.setLabelText(Tr::tr("Size:"));

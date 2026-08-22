@@ -10,6 +10,7 @@
 #include <QtTaskTree/QTaskTree>
 
 #include <QPair>
+#include <QRegularExpressionValidator>
 #include <QString>
 
 #include <cctype>

@@ -23,6 +23,7 @@
 
 #include <QComboBox>
 #include <QHeaderView>
+#include <QLineEdit>
 #include <QMessageBox>
 #include <QMetaEnum>
 #include <QPushButton>

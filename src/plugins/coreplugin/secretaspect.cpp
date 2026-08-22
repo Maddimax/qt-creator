@@ -21,6 +21,7 @@
 
 #include <QIcon>
 #include <QLabel>
+#include <QLineEdit>
 #include <QPointer>
 
 using namespace QKeychain;
