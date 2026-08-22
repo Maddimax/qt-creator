@@ -245,21 +245,28 @@ Layouting removal.
 
 `Utils` publishing `Qt::Widgets` is the gate for every other library: a library
 can reference zero widget symbols and still link QtWidgets through Utils.
-Measured by resolving the real include graph (`.h`/`.cpp`/`.mm`, excluding
-3rdparty), counting a file as tainted if it reaches a QtWidgets or
-QtPrintSupport header transitively:
+Measured over the real include graph (`.h`/`.cpp`/`.mm`, excluding 3rdparty):
+a file is widget-side if it reaches a QtWidgets or QtPrintSupport header
+transitively, **or shares a class with a file that does** - the pairing rule is
+part of the metric, because a class's header and implementation must land in
+the same library. (The earlier per-file rows below did not apply the pairing
+rule and overstated progress; see "Things learned the hard way".)
 
-| | tainted | clean |
+| | widget-side | clean |
 |---|---|---|
-| Start | 137 files / 68153 lines | 229 / 35973 |
-| Now | 117 / 49319 | 258 / 55122 |
+| Start (per-file, no pairing) | 137 files / 68153 lines | 229 / 35973 |
+| With pairing, before this series | 237 / 82786 | 140 / 22320 |
+| After terminalcommand split | 141 / 54338 | 238 / 50796 |
+| Now | 126 / 47877 | 258 / 57807 |
 
-The clean side is now the larger of the two by line count.
-
-The split is **not** a file sort. 15 headers are clean while their own
-implementation needs widgets, and a class's header and implementation have to
-land in the same library, so each of those is a small de-widgeting change that
-has to happen first.
+The clean side is the larger by files and lines under the honest metric.
+Clean now: `filepath`, `qtcprocess`, `environment`, `devicefileaccess`,
+`terminalhooks`, `treemodel`, `commandline`, `macroexpander`, `fileutils`,
+`theme/theme`, `stylehelper`, `icon`, `utilsicons`, `outputformatter`,
+`settingsaccessor`, `prompts`. Still widget-side and worked on:
+`aspects.{h,cpp}` (pinned by `addToLayoutImpl` constructing controls; the
+`AspectPresentation` inversion is in progress) and the genuinely-widget files
+that belong there.
 
 ## Next steps
 
