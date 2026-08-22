@@ -12,6 +12,7 @@
 #include <qtsupport/baseqtversion.h>
 
 #include <utils/elfreader.h>
+#include <utils/filedialogs.h>
 #include <utils/fileutils.h>
 #include <utils/guiutils.h>
 #include <utils/hostosinfo.h>

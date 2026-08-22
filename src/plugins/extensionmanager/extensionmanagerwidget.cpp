@@ -25,6 +25,7 @@
 #include <QtTaskTree/QTaskTree>
 #include <QtTaskTree/QSingleTaskTreeRunner>
 
+#include <utils/filedialogs.h>
 #include <utils/algorithm.h>
 #include <utils/dropsupport.h>
 #include <utils/fileutils.h>

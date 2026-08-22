@@ -21,6 +21,7 @@
 #include <coreplugin/helplink.h>
 #include <coreplugin/helpmanager.h>
 
+#include <utils/filedialogs.h>
 #include <utils/algorithm.h>
 #include <utils/appinfo.h>
 #include <utils/environment.h>

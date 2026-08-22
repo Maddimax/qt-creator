@@ -21,6 +21,7 @@
 #include <projectexplorer/toolchain.h>
 #include <projectexplorer/toolchainmanager.h>
 
+#include <utils/filedialogs.h>
 #include <utils/algorithm.h>
 #include <utils/guiutils.h>
 #include <utils/detailswidget.h>

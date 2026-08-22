@@ -39,6 +39,7 @@
 
 #include <texteditor/codestyleeditor.h>
 
+#include <utils/filedialogs.h>
 #include <utils/algorithm.h>
 #include <utils/environment.h>
 #include <utils/fileutils.h>

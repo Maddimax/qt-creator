@@ -27,6 +27,7 @@
 #include <projectexplorer/projecttree.h>
 #include <projectexplorer/project.h>
 
+#include <utils/filedialogs.h>
 #include <utils/action.h>
 #include <utils/commandline.h>
 #include <utils/fileutils.h>

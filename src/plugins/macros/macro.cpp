@@ -5,6 +5,7 @@
 #include "macroevent.h"
 
 
+#include <utils/filedialogs.h>
 #include <utils/fileutils.h>
 
 #include <QFileInfo>

@@ -54,6 +54,7 @@
 #include <texteditor/texteditor.h>
 #include <texteditor/textdocument.h>
 
+#include <utils/filedialogs.h>
 #include <utils/async.h>
 #include <utils/filestreamer.h>
 #include <utils/fileutils.h>

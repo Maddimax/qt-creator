@@ -7,6 +7,7 @@
 #include "screenrecordersettings.h"
 #include "screenrecordertr.h"
 
+#include <utils/filedialogs.h>
 #include <utils/algorithm.h>
 #include <utils/fileutils.h>
 #include <utils/layoutbuilder.h>

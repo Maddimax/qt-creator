@@ -22,6 +22,7 @@
 
 #include <QtTaskTree/QTaskTree>
 
+#include <utils/filedialogs.h>
 #include <utils/fileutils.h>
 #include <utils/qtcprocess.h>
 #include <utils/qtcassert.h>

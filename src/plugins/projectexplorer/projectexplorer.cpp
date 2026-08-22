@@ -118,6 +118,7 @@
 #include <texteditor/textdocument.h>
 #include <texteditor/texteditorconstants.h>
 
+#include <utils/filedialogs.h>
 #include <utils/action.h>
 #include <utils/algorithm.h>
 #include <utils/async.h>

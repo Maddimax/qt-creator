@@ -10,6 +10,7 @@
 #include "projectexplorerconstants.h"
 #include "taskhub.h"
 
+#include <utils/filedialogs.h>
 #include <utils/fileutils.h>
 #include <utils/guiutils.h>
 #include <utils/outputformatter.h>

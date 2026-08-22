@@ -8,6 +8,7 @@
 #include "projectexplorerconstants.h"
 #include "projectexplorertr.h"
 
+#include <utils/filedialogs.h>
 #include <utils/fileutils.h>
 #include <utils/guiutils.h>
 #include <utils/infolabel.h>

@@ -10,6 +10,7 @@
 #include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/icore.h>
 
+#include <utils/filedialogs.h>
 #include <utils/aspects.h>
 #include <utils/filepath.h>
 #include <utils/fileutils.h>

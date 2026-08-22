@@ -139,6 +139,8 @@ QtcLibrary {
         "fancymainwindow.h",
         "filedialog.cpp",
         "filedialog.h",
+        "filedialogs.cpp",
+        "filedialogs.h",
         "fileinprojectfinder.cpp",
         "fileinprojectfinder.h",
         "filepath.cpp",

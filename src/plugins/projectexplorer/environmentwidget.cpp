@@ -8,6 +8,7 @@
 #include <coreplugin/fileutils.h>
 #include <coreplugin/find/itemviewfind.h>
 
+#include <utils/filedialogs.h>
 #include <utils/algorithm.h>
 #include <utils/detailswidget.h>
 #include <utils/environment.h>

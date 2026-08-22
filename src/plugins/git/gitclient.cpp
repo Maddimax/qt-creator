@@ -30,6 +30,7 @@
 #include <texteditor/textdocument.h>
 #include <texteditor/texteditor.h>
 
+#include <utils/filedialogs.h>
 #include <utils/ansiescapecodehandler.h>
 #include <utils/algorithm.h>
 #include <utils/checkablemessagebox.h>

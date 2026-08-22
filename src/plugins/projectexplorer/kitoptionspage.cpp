@@ -16,6 +16,7 @@
 
 #include <coreplugin/dialogs/ioptionspage.h>
 
+#include <utils/filedialogs.h>
 #include <utils/algorithm.h>
 #include <utils/fileutils.h>
 #include <utils/groupedmodel.h>

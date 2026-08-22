@@ -5,6 +5,7 @@
 #include "helptr.h"
 #include "localhelpmanager.h"
 
+#include <utils/filedialogs.h>
 #include <utils/fadingindicator.h>
 #include <utils/fileutils.h>
 #include <utils/temporarydirectory.h>

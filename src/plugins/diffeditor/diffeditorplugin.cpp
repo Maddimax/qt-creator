@@ -24,6 +24,7 @@
 #include <texteditor/textdocument.h>
 #include <texteditor/texteditor.h>
 
+#include <utils/filedialogs.h>
 #include <utils/async.h>
 #include <utils/differ.h>
 #include <utils/fileutils.h>

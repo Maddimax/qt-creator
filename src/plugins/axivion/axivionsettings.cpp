@@ -14,6 +14,7 @@
 #include <projectexplorer/projectmanager.h>
 #include <QtTaskTree/QTaskTree>
 
+#include <utils/filedialogs.h>
 #include <utils/algorithm.h>
 #include <utils/fileutils.h>
 #include <utils/guiutils.h>

@@ -19,6 +19,7 @@
 
 #include <projectexplorer/projectexplorer.h>
 
+#include <utils/filedialogs.h>
 #include <utils/algorithm.h>
 #include <utils/aspects.h>
 #include <utils/fileutils.h>

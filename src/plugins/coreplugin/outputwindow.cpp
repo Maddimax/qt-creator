@@ -11,6 +11,7 @@
 #include "icore.h"
 #include "messagemanager.h"
 
+#include <utils/filedialogs.h>
 #include <utils/aggregate.h>
 #include <utils/algorithm.h>
 #include <utils/fileutils.h>

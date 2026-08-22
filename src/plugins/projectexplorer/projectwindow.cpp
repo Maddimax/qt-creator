@@ -38,6 +38,7 @@
 
 #include <texteditor/fontsettings.h>
 
+#include <utils/filedialogs.h>
 #include <utils/basetreeview.h>
 #include <utils/fileutils.h>
 #include <utils/hostosinfo.h>

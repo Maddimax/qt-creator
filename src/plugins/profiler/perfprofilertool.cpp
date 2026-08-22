@@ -30,6 +30,7 @@
 #include <projectexplorer/target.h>
 
 #include <utils/action.h>
+#include <utils/filedialogs.h>
 #include <utils/fileutils.h>
 #include <utils/qtcassert.h>
 #include <utils/shutdownguard.h>

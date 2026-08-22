@@ -26,6 +26,7 @@
 
 #include <texteditor/textdocument.h>
 
+#include <utils/filedialogs.h>
 #include <utils/action.h>
 #include <utils/environment.h>
 #include <utils/fileutils.h>

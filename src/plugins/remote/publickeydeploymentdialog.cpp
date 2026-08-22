@@ -13,6 +13,7 @@
 #include <projectexplorer/devicesupport/sshparameters.h>
 #include <projectexplorer/devicesupport/sshsettings.h>
 
+#include <utils/filedialogs.h>
 #include <utils/filepath.h>
 #include <utils/fileutils.h>
 #include <utils/qtcprocess.h>

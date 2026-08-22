@@ -18,6 +18,7 @@
 #include <projectexplorer/projectsettings.h>
 #include <projectexplorer/useglobalaspect.h>
 
+#include <utils/filedialogs.h>
 #include <utils/aspects.h>
 #include <utils/fileutils.h>
 #include <utils/hostosinfo.h>

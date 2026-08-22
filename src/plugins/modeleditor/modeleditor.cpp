@@ -51,6 +51,7 @@
 #include <coreplugin/icore.h>
 #include <coreplugin/editormanager/editormanager.h>
 #include <coreplugin/minisplitter.h>
+#include <utils/filedialogs.h>
 #include <utils/fadingindicator.h>
 #include <utils/fileutils.h>
 #include <utils/layoutbuilder.h>

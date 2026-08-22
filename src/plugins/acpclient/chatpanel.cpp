@@ -19,6 +19,7 @@
 #include <texteditor/textdocument.h>
 #include <texteditor/texteditorconstants.h>
 
+#include <utils/filedialogs.h>
 #include <utils/algorithm.h>
 #include <utils/dropsupport.h>
 #include <utils/fileutils.h>

@@ -18,6 +18,7 @@
 
 #include <coreplugin/icore.h>
 
+#include <utils/filedialogs.h>
 #include <utils/fileutils.h>
 #include <utils/theme/theme.h>
 #include <utils/utilsicons.h>

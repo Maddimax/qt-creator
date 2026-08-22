@@ -10,6 +10,7 @@
 #include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/documentmanager.h>
 
+#include <utils/filedialogs.h>
 #include <utils/algorithm.h>
 #include <utils/fileutils.h>
 #include <utils/guiutils.h>

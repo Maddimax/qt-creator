@@ -40,6 +40,7 @@
 #include <texteditor/refactoringchanges.h>
 #include <texteditor/textdocument.h>
 
+#include <utils/filedialogs.h>
 #include <utils/algorithm.h>
 #include <utils/checkablemessagebox.h>
 #include <utils/fileutils.h>

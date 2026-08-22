@@ -17,6 +17,7 @@
 #include <utils/pathchooser.h>
 #include <utils/qtcprocess.h>
 
+#include <QDir>
 #include <QFile>
 #include <QRegularExpression>
 #include <QVersionNumber>

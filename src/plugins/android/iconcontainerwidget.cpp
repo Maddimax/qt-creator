@@ -17,6 +17,7 @@
 #include <texteditor/textdocument.h>
 #include <texteditor/texteditor.h>
 
+#include <utils/filedialogs.h>
 #include <utils/fileutils.h>
 #include <utils/icon.h>
 

@@ -11,6 +11,7 @@
 #include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/icore.h>
 
+#include <utils/filedialogs.h>
 #include <utils/basetreeview.h>
 #include <utils/fileutils.h>
 #include <utils/layoutbuilder.h>

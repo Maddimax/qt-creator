@@ -6,6 +6,7 @@
 #include "locator.h"
 #include "../coreplugintr.h"
 
+#include <utils/filedialogs.h>
 #include <utils/algorithm.h>
 #include <utils/async.h>
 #include <utils/fileutils.h>

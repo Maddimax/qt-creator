@@ -6,6 +6,7 @@
 
 #include <coreplugin/icore.h>
 
+#include <utils/filedialogs.h>
 #include <utils/elidinglabel.h>
 #include <utils/fileutils.h>
 #include <utils/qtcsettings.h>

@@ -12,6 +12,7 @@
 #include <projectexplorer/projectmanager.h>
 #include <projectexplorer/target.h>
 
+#include <utils/filedialogs.h>
 #include <utils/fileutils.h>
 #include <utils/layoutbuilder.h>
 

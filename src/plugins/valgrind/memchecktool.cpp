@@ -52,6 +52,7 @@
 #include <QtTaskTree/QBarrier>
 
 
+#include <utils/filedialogs.h>
 #include <utils/checkablemessagebox.h>
 #include <utils/fileutils.h>
 #include <utils/pathchooser.h>

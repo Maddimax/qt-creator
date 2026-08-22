@@ -15,6 +15,7 @@
 #include <coreplugin/editormanager/ieditorfactory.h>
 #include <coreplugin/idocument.h>
 
+#include <utils/filedialogs.h>
 #include <utils/fileutils.h>
 #include <utils/fsengine/fileiconprovider.h>
 #include <utils/mimeconstants.h>

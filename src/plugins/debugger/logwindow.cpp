@@ -27,6 +27,7 @@
 #include <coreplugin/minisplitter.h>
 #include <coreplugin/find/basetextfind.h>
 
+#include <utils/filedialogs.h>
 #include <utils/aggregate.h>
 #include <utils/fancylineedit.h>
 #include <utils/fileutils.h>

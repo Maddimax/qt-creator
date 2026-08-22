@@ -33,6 +33,7 @@
 #include <projectexplorer/projectexplorericons.h>
 #include <projectexplorer/runcontrol.h>
 
+#include <utils/filedialogs.h>
 #include <utils/fileutils.h>
 #include <utils/qtcassert.h>
 #include <utils/shutdownguard.h>

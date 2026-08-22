@@ -12,6 +12,7 @@
 #include "../documentmanager.h"
 #include "../icore.h"
 
+#include <utils/filedialogs.h>
 #include <utils/algorithm.h>
 #include <utils/guiutils.h>
 #include <utils/fancylineedit.h>

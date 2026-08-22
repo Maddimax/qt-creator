@@ -6,6 +6,7 @@
 #include "texteditorconstants.h"
 #include "texteditortr.h"
 
+#include <utils/filedialogs.h>
 #include <utils/fileutils.h>
 
 #include <QFile>

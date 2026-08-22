@@ -7,6 +7,7 @@
 #include "coreplugintr.h"
 #include "icore.h"
 
+#include <utils/filedialogs.h>
 #include <utils/async.h>
 #include <utils/basetreeview.h>
 #include <utils/fancylineedit.h>

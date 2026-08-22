@@ -16,6 +16,7 @@
 #include <projectexplorer/projectmanager.h>
 #include <projectexplorer/projectnodes.h>
 
+#include <utils/filedialogs.h>
 #include <utils/algorithm.h>
 #include <utils/fileutils.h>
 #include <utils/icon.h>

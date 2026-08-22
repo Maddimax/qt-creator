@@ -33,6 +33,7 @@
 #include <qtsupport/qtcppkitinfo.h>
 #include <qtsupport/qtkitaspect.h>
 
+#include <utils/filedialogs.h>
 #include <utils/algorithm.h>
 #include <utils/filesystemwatcher.h>
 #include <utils/fileutils.h>

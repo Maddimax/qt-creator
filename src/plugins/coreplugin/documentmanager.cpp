@@ -18,6 +18,7 @@
 #include "messagemanager.h"
 #include "systemsettings.h"
 
+#include <utils/filedialogs.h>
 #include <utils/algorithm.h>
 #include <utils/fileutils.h>
 #include <utils/globalfilechangeblocker.h>

@@ -21,6 +21,7 @@
 
 #include <QtTaskTree/QSingleTaskTreeRunner>
 
+#include <utils/filedialogs.h>
 #include <utils/algorithm.h>
 #include <utils/async.h>
 #include <utils/detailswidget.h>

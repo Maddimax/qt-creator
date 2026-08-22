@@ -6,6 +6,7 @@
 #include "profilertr.h"
 #include "qmlprofilertool.h"
 
+#include <utils/filedialogs.h>
 #include <utils/fileutils.h>
 #include <utils/qtcassert.h>
 

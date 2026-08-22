@@ -28,6 +28,7 @@
 #include <utils/commandline.h>
 #include <utils/environment.h>
 #include <utils/fancymainwindow.h>
+#include <utils/filedialogs.h>
 #include <utils/fileutils.h>
 #include <utils/guiutils.h>
 #include <utils/hostosinfo.h>

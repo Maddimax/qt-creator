@@ -78,6 +78,7 @@
 #include <texteditor/textdocument.h>
 #include <texteditor/fontsettings.h>
 
+#include <utils/filedialogs.h>
 #include <utils/algorithm.h>
 #include <utils/basetreeview.h>
 #include <utils/checkablemessagebox.h>

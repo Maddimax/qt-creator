@@ -7,6 +7,7 @@
 
 #include <projectexplorer/devicesupport/sshsettings.h>
 
+#include <utils/filedialogs.h>
 #include <utils/fileutils.h>
 #include <utils/layoutbuilder.h>
 #include <utils/pathchooser.h>
