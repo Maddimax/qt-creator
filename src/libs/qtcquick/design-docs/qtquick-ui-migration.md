@@ -191,24 +191,51 @@ They were written to prove the aspect model; they are now the shape every
 aspect-driven surface targets. The `AspectPresentation` descriptor is what feeds
 them, and the ~25 `addToLayoutImpl()` overrides are what it replaces.
 
-**`aspects.h` is the single gate for the Utils split, and `addToLayoutImpl` is
-why - but not for the reason a reader expects.** The header itself is nearly
-clean: it only forward-declares `Layouting::Layout`, and its one leftover
-`fancylineedit.h` include is unused. What pins it to the widget side is its own
-implementation. `aspects.cpp` includes two dozen QtWidgets headers -
-`QCheckBox`, `QLineEdit`, `QSpinBox`, `QTreeWidget`, `QPainter`, ... - because
-the 16 `addToLayoutImpl()` overrides *construct the controls*. A class's header
-and implementation have to live in the same library, so no amount of include
-hygiene on `aspects.h` moves it.
+**`addToLayoutImpl` is what pins `aspects.{h,cpp}` to the widget side, and
+nothing more than that.** The header is nearly clean: it only forward-declares
+`Layouting::Layout`, and its leftover `fancylineedit.h` include is unused. What
+pins it is its own implementation. `aspects.cpp` includes two dozen QtWidgets
+headers - `QCheckBox`, `QLineEdit`, `QSpinBox`, `QTreeWidget`, `QPainter`, ... -
+because the 16 `addToLayoutImpl()` overrides *construct the controls*. A class's
+header and implementation must live in the same library, so no amount of include
+hygiene on `aspects.h` moves it. That is what `AspectPresentation` is for:
+`BaseAspect` describes the control it wants, and a renderer on each side builds
+it.
 
-Measured: removing the unused `fancylineedit.h` from `aspects.h` moves exactly
-**zero** files to the clean side of the transitive closure. Moving the widget
-construction out of `aspects.cpp` moves `aspects.{h,cpp}` and everything that
-reaches QtWidgets only through them.
+**But `aspects.h` is not the gate for the rest of `Utils`.** That was asserted
+here twice before it was measured, and both times it was wrong. The measured
+chain, with `<QFontComboBox>` gone from `aspects.h`, is:
 
-That is the `AspectPresentation` inversion: `BaseAspect` describes what control
-it wants, and a renderer on each side builds it. It is the whole gate, and
-nothing else about `Utils` needs to change first.
+    filepath.h  <- filepath.cpp -> devicefileaccess.h
+                <- devicefileaccess.cpp -> qtcprocess.h
+                <- qtcprocess.cpp -> terminalhooks.h
+                <- terminalhooks.cpp -> externalterminalprocessimpl.h
+                <- externalterminalprocessimpl.cpp -> terminalcommand.h
+                <- terminalcommand.cpp -> QDialog
+
+Every `<-` is the header/implementation pairing rule, not an include. The
+terminus is `terminalcommand.cpp`, which builds a modal "Select Terminal
+Emulator" dialog - `QDialog`, `QDialogButtonBox`, `QPushButton`, `pathchooser.h`,
+`elidinglabel.h` - in the same file as the `TerminalCommand` value type and its
+settings storage. Splitting that file is what unpins `filepath.h`,
+`environment.h`, `qtcprocess.h` and `devicefileaccess.h` all at once, and it is
+a smaller change than the aspects inversion.
+
+So there are two independent pieces of work, not one gate:
+
+1. Split `terminalcommand.cpp` - value type and settings stay, dialog leaves.
+   Unpins the `filepath`/`qtcprocess`/`environment` cluster.
+2. Invert `addToLayoutImpl` into `AspectPresentation`. Unpins `aspects.{h,cpp}`
+   and `terminalcommand.h`.
+
+Of the 37 headers in `Utils` that include a QtWidgets header directly, most are
+genuinely widget classes - `appmainwindow.h`, `crumblepath.h`, `elidinglabel.h`,
+`fancymainwindow.h`, `wizard.h`, `widgets.h`. Those belong on the widget side and
+need no work; they classify correctly when the split lands. The ones worth
+attention are the seams that already have a neutral counterpart:
+`checkablemessagebox.h` and the dialog headers (there is a `Utils::Prompts`
+seam), and `fsengine/fileiconprovider.h` (there is a `DeviceFileHooks::fileIcon`
+seam).
 
 That inversion is now on the critical path for both goals at once: it is the
 gate for a QtWidgets-free `Utils`, and it is the first real piece of the
@@ -238,17 +265,20 @@ has to happen first.
 
 In order:
 
-1. **Invert `addToLayoutImpl` into `AspectPresentation`.** This is the gate; see
-   "Removing Layouting" above. The 16 overrides in `aspects.cpp` are what drag
-   two dozen QtWidgets headers into the same library as `aspects.h`, and
-   `terminalcommand.h` inherits that through `aspects.h`. Nothing else in
-   `Utils` needs to move first: `filepath.h`, `environment.h` and
-   `qtcprocess.h` are already clean.
-2. The remaining 15 clean-header/tainted-impl pairs are genuine widget classes
+1. **Split `terminalcommand.cpp`**, moving the "Select Terminal Emulator" dialog
+   to the widget side. Cheapest first step: it unpins `filepath.h`,
+   `qtcprocess.h`, `environment.h` and `devicefileaccess.h` in one change. See
+   "Removing Layouting" above for the measured chain.
+2. **Invert `addToLayoutImpl` into `AspectPresentation`.** Started: the
+   descriptor and `BaseAspect::presentation()` exist, with all 16 built-in
+   aspects and 7 of ~30 plugin aspects reporting a control. What remains is the
+   widget renderer that consumes it, after which `addToLayoutImpl` and its two
+   dozen QtWidgets includes can leave `aspects.cpp`.
+3. The remaining 15 clean-header/tainted-impl pairs are genuine widget classes
    whose headers happen not to name a widget type (`tooltip.h`, `dropsupport.h`,
    `fadingindicator.h`, `jsonrpcinspector.h`, `guiutils.h`, ...). They belong on
    the widget side and need no work; they classify there when the split lands.
-3. **Then the split itself**: two `add_qtc_library` calls over the same
+4. **Then the split itself**: two `add_qtc_library` calls over the same
    directory, so include paths do not change. Note the export macro: a second
    library needs its own (`add_qtc_library(Foo)` auto-defines `FOO_LIBRARY`), and
    defining `UTILS_LIBRARY` for both would mark imported symbols as exported,
@@ -295,6 +325,19 @@ Always test the hypothesis by recomputing the closure with the include removed
 before doing the sweep. The first version of this note asserted `layoutbuilder.h`
 was the blocker; `aspects.h` never included it, and the claim survived into a
 commit message before being measured.
+
+**Get the taint propagation direction right, and validate the model before
+trusting a number.** Taint flows *downward*: a file is widget-side if it includes
+a widget header, or includes a file that is. It does **not** flow to includers -
+`elidinglabel.h` including `filepath.h` says nothing about `filepath.h`. On top
+of that, a class's `.h` and `.cpp` must land in the same library, so taint does
+flow both ways across that one pairing. An early version of the measurement
+propagated to includers as well, which marked almost everything widget-side and
+made every candidate change measure as "zero files gained" - the same wrong
+answer for three different hypotheses in a row. Cheap guard: assert known
+outcomes before reading results (`elidinglabel.h` must be widget-side, `id.h`
+must be clean) and print the actual include path behind each verdict rather than
+just a count.
 
 **Never let an automated build-fix loop write outside the repository.** A loop
 that scraped `(/Users/\S+\.(cpp|h|mm)):\d+:\d+: error:` from compiler output
