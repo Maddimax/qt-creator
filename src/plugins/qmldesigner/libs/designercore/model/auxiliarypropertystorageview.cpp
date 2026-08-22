@@ -106,8 +106,8 @@ AuxiliaryPropertyStorageView::~AuxiliaryPropertyStorageView() = default;
 
 void AuxiliaryPropertyStorageView::modelAttached(Model *model)
 {
-    auto entryRange = d->selectValues.rangeWithTransaction<Entry>(
-        Utils::PathString{model->fileUrl().path()});
+    Utils::PathString filePath{model->fileUrl().path()};
+    auto entryRange = d->selectValues.rangeWithTransaction<Entry>(filePath);
 
     for (const auto entry : entryRange) {
         auto node = model->modelNodeForId(QString{entry.nodeId});
