@@ -9,7 +9,6 @@
 #include <QList>
 #include <QString>
 #include <QSyntaxHighlighter>
-#include <QTextBrowser>
 #include <QTextDocument>
 
 #include <functional>

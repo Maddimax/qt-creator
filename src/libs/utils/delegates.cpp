@@ -6,7 +6,6 @@
 #include "filepath.h"
 
 #include <QApplication>
-#include <QCompleter>
 #include <QModelIndex>
 #include <QPainter>
 

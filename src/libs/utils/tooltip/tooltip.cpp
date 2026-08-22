@@ -13,7 +13,6 @@
 #include <QColor>
 #include <QHBoxLayout>
 #include <QKeyEvent>
-#include <QMenu>
 #include <QMouseEvent>
 #include <QScreen>
 #include <QWidget>

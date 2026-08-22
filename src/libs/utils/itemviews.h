@@ -9,7 +9,6 @@
 #include <QListView>
 #include <QListWidget>
 #include <QTreeView>
-#include <QTreeWidget>
 
 static const char activationModeC[] = "ActivationMode";
 

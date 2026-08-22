@@ -17,7 +17,6 @@
 #include <QCommonStyle>
 #include <QEvent>
 #include <QGuiApplication>
-#include <QLayout>
 #include <QNetworkReply>
 #include <QPaintEvent>
 #include <QPainter>

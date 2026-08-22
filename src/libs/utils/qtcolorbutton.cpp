@@ -11,7 +11,6 @@
 #include <QDragEnterEvent>
 #include <QMimeData>
 #include <QPainter>
-#include <QStyleOption>
 
 namespace Utils {
 

@@ -13,10 +13,8 @@
 #include "tooltip/tooltip.h"
 #include "utilstr.h"
 
-#include <QAbstractItemView>
 #include <QApplication>
 #include <QCheckBox>
-#include <QCompleter>
 #include <QDialogButtonBox>
 #include <qdrawutil.h>
 #include <QGraphicsOpacityEffect>

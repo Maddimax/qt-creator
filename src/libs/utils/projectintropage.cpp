@@ -12,13 +12,11 @@
 #include "utilstr.h"
 #include "wizard.h"
 
-#include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDir>
 #include <QFrame>
 #include <QLabel>
-#include <QSpacerItem>
 
 /*!
     \class Utils::ProjectIntroPage

@@ -7,11 +7,6 @@
 
 #include <QDesktopServices>
 #include <QGuiApplication>
-#include <QLabel>
-#include <QMenu>
-#include <QMessageBox>
-#include <QPushButton>
-#include <QToolButton>
 
 #ifdef ENABLE_SENTRY
 #include "appinfo.h"

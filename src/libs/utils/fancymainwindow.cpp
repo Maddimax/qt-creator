@@ -12,7 +12,6 @@
 #include "widgets.h"
 
 #include <QAbstractButton>
-#include <QApplication>
 #include <QContextMenuEvent>
 #include <QDockWidget>
 #include <QHBoxLayout>
@@ -21,7 +20,6 @@
 #include <QPainter>
 #include <QPointer>
 #include <QStyle>
-#include <QStyleOption>
 #include <QTimer>
 
 static const char ShowCentralWidgetKey[] = "ShowCentralWidget";

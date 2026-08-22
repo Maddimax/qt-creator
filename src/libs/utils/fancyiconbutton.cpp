@@ -5,7 +5,6 @@
 #include "hostosinfo.h"
 #include "stylehelper.h"
 
-#include <QApplication>
 #include <QKeyEvent>
 #include <QPainter>
 #include <QPropertyAnimation>

@@ -3,7 +3,6 @@
 
 #include "async.h"
 
-#include <QApplication>
 #include <qapplicationstatic.h>
 
 namespace Utils {

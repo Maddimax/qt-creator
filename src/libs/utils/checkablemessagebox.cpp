@@ -9,14 +9,8 @@
 #include "qtcsettings.h"
 #include "utilstr.h"
 
-#include <QApplication>
 #include <QCheckBox>
-#include <QHBoxLayout>
-#include <QLabel>
 #include <QPointer>
-#include <QPushButton>
-#include <QStyle>
-#include <QTextEdit>
 
 /*!
     \class Utils::CheckableMessageBox

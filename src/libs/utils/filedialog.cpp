@@ -52,7 +52,6 @@
 #include <QPlainTextEdit>
 #include <QProgressDialog>
 #include <QPromise>
-#include <QPushButton>
 #include <QRegularExpression>
 #include <QSettings>
 #include <QSortFilterProxyModel>
@@ -66,7 +65,6 @@
 #include <QTextLayout>
 #include <QTextOption>
 #include <QTimer>
-#include <QToolButton>
 #include <QTreeView>
 #include <QUrl>
 #include <QtGui/qactiongroup.h>

@@ -19,7 +19,6 @@
 #include <QMenu>
 #include <QPushButton>
 #include <QStandardItem>
-#include <QToolButton>
 
 namespace Utils {
 

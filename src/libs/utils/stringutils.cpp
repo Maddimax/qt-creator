@@ -24,7 +24,6 @@
 #include <QPalette>
 #include <QRegularExpression>
 #include <QSet>
-#include <QScrollBar>
 #include <QStack>
 #include <QTextDocument>
 #include <QTextList>

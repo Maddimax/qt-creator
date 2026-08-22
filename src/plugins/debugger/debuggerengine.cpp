@@ -82,6 +82,7 @@
 #include <QHeaderView>
 #include <QTextBlock>
 #include <QTimer>
+#include <QTreeWidget>
 
 using namespace Core;
 using namespace Debugger::Internal;
