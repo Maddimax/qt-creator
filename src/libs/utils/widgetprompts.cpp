@@ -9,6 +9,7 @@
 #include <QCursor>
 #include <QMenu>
 #include <QMessageBox>
+#include <QPushButton>
 
 namespace Utils {
 
@@ -28,6 +29,18 @@ static QMessageBox::StandardButtons standardButtons(Buttons buttons)
     return QMessageBox::Cancel;
 }
 
+static QMessageBox::StandardButton toStandardButton(Button button)
+{
+    switch (button) {
+    case Button::Yes:      return QMessageBox::Yes;
+    case Button::No:       return QMessageBox::No;
+    case Button::YesToAll: return QMessageBox::YesToAll;
+    case Button::NoToAll:  return QMessageBox::NoToAll;
+    case Button::Cancel:   break;
+    }
+    return QMessageBox::Cancel;
+}
+
 static Button fromStandardButton(int answer)
 {
     switch (answer) {
@@ -41,9 +54,18 @@ static Button fromStandardButton(int answer)
 
 void installWidgetPrompts()
 {
-    setQuestionPrompt([](const QString &title, const QString &text, Buttons buttons) {
-        return fromStandardButton(
-            QMessageBox::question(dialogParent(), title, text, standardButtons(buttons)));
+    setQuestionPrompt([](const QString &title, const QString &text, Buttons buttons,
+                         Button defaultButton) {
+        QMessageBox box(QMessageBox::Question, title, text, standardButtons(buttons),
+                        dialogParent());
+        // Qt only guesses a default and an escape button, and the guess differs
+        // between platforms, so set both when the caller named one.
+        if (QAbstractButton *button = box.button(toStandardButton(defaultButton))) {
+            box.setDefaultButton(qobject_cast<QPushButton *>(button));
+            box.setEscapeButton(button);
+        }
+        box.exec();
+        return fromStandardButton(box.standardButton(box.clickedButton()));
     });
     setErrorPrompt([](const QString &title, const QString &text) {
         QMessageBox::critical(dialogParent(), title, text);

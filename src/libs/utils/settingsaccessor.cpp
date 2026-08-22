@@ -6,6 +6,7 @@
 #include "algorithm.h"
 #include "guiutils.h"
 #include "persistentsettings.h"
+#include "prompts.h"
 #include "qtcassert.h"
 #include "utilstr.h"
 
@@ -14,18 +15,6 @@ namespace Utils {
 const char ORIGINAL_VERSION_KEY[] = "OriginalVersion";
 const char SETTINGS_ID_KEY[] = "EnvironmentId";
 const char VERSION_KEY[] = "Version";
-
-// --------------------------------------------------------------------
-// SettingsAccessor::Issue:
-// --------------------------------------------------------------------
-
-QMessageBox::StandardButtons SettingsAccessor::Issue::allButtons() const
-{
-    QMessageBox::StandardButtons result = QMessageBox::NoButton;
-    for (auto it = buttons.cbegin(); it != buttons.cend(); ++it)
-        result |= it.key();
-    return result;
-}
 
 // --------------------------------------------------------------------
 // SettingsAccessor:
@@ -149,32 +138,24 @@ SettingsAccessor::reportIssues(const Issue &issue, const FilePath &path)
     if (!path.exists())
         return Continue;
 
-    const QMessageBox::Icon icon
-            = issue.buttons.count() > 1 ? QMessageBox::Question : QMessageBox::Information;
-    const QMessageBox::StandardButtons buttons = issue.allButtons();
-    QTC_ASSERT(buttons != QMessageBox::NoButton, return Continue);
-
     if (!Utils::dialogsInteractive()) {
         // No user to answer (scripted/headless): proceed as if the default
-        // button had been chosen, rather than blocking on a modal dialog.
-        const QMessageBox::StandardButton chosen
-            = issue.defaultButton != QMessageBox::NoButton
-                  ? issue.defaultButton
-                  : (issue.buttons.isEmpty() ? QMessageBox::NoButton
-                                             : issue.buttons.constBegin().key());
+        // answer had been given, rather than blocking on a modal dialog.
         qWarning().noquote() << "SettingsAccessor:" << issue.title
                              << "- no interactive session, proceeding with the default.";
-        return issue.buttons.value(chosen, Continue);
+        return issue.defaultProceedInfo;
     }
 
-    QMessageBox msgBox(icon, issue.title, issue.message, buttons, Utils::dialogParent());
-    if (issue.defaultButton != QMessageBox::NoButton)
-        msgBox.setDefaultButton(issue.defaultButton);
-    if (issue.escapeButton != QMessageBox::NoButton)
-        msgBox.setEscapeButton(issue.escapeButton);
+    if (!issue.isQuestion) {
+        Prompts::showError(issue.title, issue.message);
+        return issue.defaultProceedInfo;
+    }
 
-    int boxAction = msgBox.exec();
-    return issue.buttons.value(static_cast<QMessageBox::StandardButton>(boxAction));
+    // No on both Enter and Escape: dismissing one of these must not load
+    // settings the user did not agree to.
+    const Prompts::Button answer = Prompts::askQuestion(issue.title, issue.message,
+                                                       Prompts::YesNo, Prompts::Button::No);
+    return answer == Prompts::Button::Yes ? Continue : DiscardAndContinue;
 }
 
 /*!
@@ -251,7 +232,7 @@ BackingUpSettingsAccessor::readData(const FilePath &path) const
                        "version of %2, or because a different settings path "
                        "was used.</p>")
                 .arg(path.toUserOutput(), m_applicationDisplayName), Issue::Type::ERROR);
-        i.buttons.insert(QMessageBox::Ok, DiscardAndContinue);
+        i.defaultProceedInfo = DiscardAndContinue;
         result.issue = i;
     }
 
@@ -509,7 +490,7 @@ UpgradingSettingsAccessor::validateVersionRange(const RestoreData &data) const
                        "<p>All settings files found in directory \"%1\" "
                        "were either too new or too old to be read.</p>")
                 .arg(result.path.toUserOutput()), Issue::Type::ERROR);
-        i.buttons.insert(QMessageBox::Ok, DiscardAndContinue);
+        i.defaultProceedInfo = DiscardAndContinue;
         result.issue = i;
         return result;
     }
@@ -525,7 +506,6 @@ UpgradingSettingsAccessor::validateVersionRange(const RestoreData &data) const
                        "changes made now will <b>not</b> be propagated to "
                        "the newer version.</p>")
                 .arg(result.path.toUserOutput(), m_applicationDisplayName), Issue::Type::WARNING);
-        i.buttons.insert(QMessageBox::Ok, Continue);
         result.issue = i;
         return result;
     }
@@ -540,11 +520,8 @@ UpgradingSettingsAccessor::validateVersionRange(const RestoreData &data) const
                        "using a different settings path before?</p>"
                        "<p>Do you still want to load the settings file \"%2\"?</p>")
                 .arg(m_applicationDisplayName, result.path.toUserOutput()), Issue::Type::WARNING);
-        i.defaultButton = QMessageBox::No;
-        i.escapeButton = QMessageBox::No;
-        i.buttons.clear();
-        i.buttons.insert(QMessageBox::Yes, Continue);
-        i.buttons.insert(QMessageBox::No, DiscardAndContinue);
+        i.isQuestion = true;
+        i.defaultProceedInfo = DiscardAndContinue;
         result.issue = i;
         return result;
     }
@@ -593,11 +570,8 @@ SettingsAccessor::RestoreData MergingSettingsAccessor::readData(const FilePath &
                                            "Do you want to try loading it anyway?")
                                     .arg(secondaryData.path.toUserOutput(), m_applicationDisplayName),
                                     Issue::Type::WARNING);
-        secondaryData.issue->buttons.clear();
-        secondaryData.issue->buttons.insert(QMessageBox::Yes, Continue);
-        secondaryData.issue->buttons.insert(QMessageBox::No, DiscardAndContinue);
-        secondaryData.issue->defaultButton = QMessageBox::No;
-        secondaryData.issue->escapeButton = QMessageBox::No;
+        secondaryData.issue->isQuestion = true;
+        secondaryData.issue->defaultProceedInfo = DiscardAndContinue;
         setVersionInMap(secondaryData.data, std::max(secondaryVersion, firstSupportedVersion()));
     }
 

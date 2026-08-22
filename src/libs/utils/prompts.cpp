@@ -24,9 +24,11 @@ void setFileChoicePrompt(const FileChoicePrompt &prompt)
     s_fileChoicePrompt = prompt;
 }
 
-Button askQuestion(const QString &title, const QString &text, Buttons buttons)
+Button askQuestion(const QString &title, const QString &text, Buttons buttons,
+                   Button defaultButton)
 {
-    return s_questionPrompt ? s_questionPrompt(title, text, buttons) : Button::Cancel;
+    return s_questionPrompt ? s_questionPrompt(title, text, buttons, defaultButton)
+                            : defaultButton;
 }
 
 void showError(const QString &title, const QString &text)

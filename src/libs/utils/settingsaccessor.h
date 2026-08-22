@@ -8,9 +8,6 @@
 #include "filepath.h"
 #include "store.h"
 
-#include <QHash>
-#include <QMessageBox>
-
 #include <memory>
 #include <optional>
 
@@ -55,7 +52,6 @@ public:
     virtual ~SettingsAccessor();
 
     enum ProceedInfo { Continue, DiscardAndContinue };
-    using ButtonMap = QHash<QMessageBox::StandardButton, ProceedInfo>;
     class Issue {
     public:
         enum class Type { ERROR, WARNING };
@@ -63,14 +59,14 @@ public:
             title{title}, message{message}, type{type}
         { }
 
-        QMessageBox::StandardButtons allButtons() const;
-
         QString title;
         QString message;
         Type type;
-        QMessageBox::StandardButton defaultButton = QMessageBox::NoButton;
-        QMessageBox::StandardButton escapeButton = QMessageBox::Ok;
-        QHash<QMessageBox::StandardButton, ProceedInfo> buttons = {{QMessageBox::Ok, ProceedInfo::Continue}};
+        // Plain notifications only ever have one outcome: defaultProceedInfo.
+        // Questions ask the user Yes/No: Yes means Continue, anything else
+        // (No, or no interactive session) means DiscardAndContinue.
+        bool isQuestion = false;
+        ProceedInfo defaultProceedInfo = ProceedInfo::Continue;
     };
 
     class RestoreData {
