@@ -28,6 +28,8 @@ theme to translate, so the QML design system is new work, not a port.
 - **Qt gaps:** solved Creator-side first, pushed upstream opportunistically.
 - **Squish suite:** dropped, not ported.
 - **Theme switching must work live, without a restart.** See below.
+- **`Utils::Layouting` is removed, not ported.** It does not get a Quick
+  backend. Layout is expressed in `.qml` files. See below.
 
 One caveat, stated once. This repo has been moving the other way: `src/libs/tracing`
 had a complete Qt Quick implementation and was migrated to `QWidget` +
@@ -161,6 +163,57 @@ Pre-existing test failures on this checkout, unchanged by this work and confirme
 against the base commit: `tst_debugger_dumpers`, `tst_baseenginedebugclient`,
 7 `AuxiliaryPropertyStorageView`, 3 `Model_Imports`, `McuModuleProjectItem`.
 
+## Removing Layouting
+
+`Layouting` is not given a second backend. It is deleted, and the layouts it
+describes are written as `.qml` files.
+
+This reverses an earlier working assumption, so the reasoning matters. A runtime
+`Layouting::Backend` was attractive because `builderutils.h` holds no Qt types
+and `Layout` already buffers `pendingItems` before materialising anything, so a
+backend swap looked nearly free at the 1730 call sites. What it actually buys is
+a C++ DSL that emits QML objects: every layout stays imperative, invisible to
+`qmllint`, unreachable from `qmlls`, and outside `qmlcachegen`. The 1730 call
+sites would survive the migration as permanent C++ UI code in a UI that is
+supposed to have none, and the DSL's own escape hatches
+(37 `using Implementation = QLabel;`, 64 `bindTo(T**)`, 69 `emerge()`) would each
+need a runtime-null story that is discoverable only by testing. A `.qml` file has
+none of those problems and is the artefact a designer can read.
+
+So `Layouting` is transitional scaffolding for the widget UI, kept alive only
+until each surface it describes has a `.qml` replacement, then removed with the
+widget UI itself.
+
+Two consequences that change the order of work:
+
+**`AspectForm.qml` and its per-kind delegates are the end state, not a stopgap.**
+They were written to prove the aspect model; they are now the shape every
+aspect-driven surface targets. The `AspectPresentation` descriptor is what feeds
+them, and the ~25 `addToLayoutImpl()` overrides are what it replaces.
+
+**`aspects.h` is the single gate for the Utils split, and `addToLayoutImpl` is
+why - but not for the reason a reader expects.** The header itself is nearly
+clean: it only forward-declares `Layouting::Layout`, and its one leftover
+`fancylineedit.h` include is unused. What pins it to the widget side is its own
+implementation. `aspects.cpp` includes two dozen QtWidgets headers -
+`QCheckBox`, `QLineEdit`, `QSpinBox`, `QTreeWidget`, `QPainter`, ... - because
+the 16 `addToLayoutImpl()` overrides *construct the controls*. A class's header
+and implementation have to live in the same library, so no amount of include
+hygiene on `aspects.h` moves it.
+
+Measured: removing the unused `fancylineedit.h` from `aspects.h` moves exactly
+**zero** files to the clean side of the transitive closure. Moving the widget
+construction out of `aspects.cpp` moves `aspects.{h,cpp}` and everything that
+reaches QtWidgets only through them.
+
+That is the `AspectPresentation` inversion: `BaseAspect` describes what control
+it wants, and a renderer on each side builds it. It is the whole gate, and
+nothing else about `Utils` needs to change first.
+
+That inversion is now on the critical path for both goals at once: it is the
+gate for a QtWidgets-free `Utils`, and it is the first real piece of the
+Layouting removal.
+
 ## Utils split progress
 
 `Utils` publishing `Qt::Widgets` is the gate for every other library: a library
@@ -185,11 +238,17 @@ has to happen first.
 
 In order:
 
-1. The remaining 15 clean-header/tainted-impl pairs are genuine widget classes
+1. **Invert `addToLayoutImpl` into `AspectPresentation`.** This is the gate; see
+   "Removing Layouting" above. The 16 overrides in `aspects.cpp` are what drag
+   two dozen QtWidgets headers into the same library as `aspects.h`, and
+   `terminalcommand.h` inherits that through `aspects.h`. Nothing else in
+   `Utils` needs to move first: `filepath.h`, `environment.h` and
+   `qtcprocess.h` are already clean.
+2. The remaining 15 clean-header/tainted-impl pairs are genuine widget classes
    whose headers happen not to name a widget type (`tooltip.h`, `dropsupport.h`,
    `fadingindicator.h`, `jsonrpcinspector.h`, `guiutils.h`, ...). They belong on
    the widget side and need no work; they classify there when the split lands.
-2. **Then the split itself**: two `add_qtc_library` calls over the same
+3. **Then the split itself**: two `add_qtc_library` calls over the same
    directory, so include paths do not change. Note the export macro: a second
    library needs its own (`add_qtc_library(Foo)` auto-defines `FOO_LIBRARY`), and
    defining `UTILS_LIBRARY` for both would mark imported symbols as exported,
@@ -211,6 +270,40 @@ If a fourth arrives that fits none of these, that is the point to reconsider a
 single "host services" object, rather than at the third.
 
 ## Things learned the hard way
+
+**The per-file taint count overstates progress.** The table above counts a file
+as clean if it does not itself reach a widget header. The number that decides
+whether a split is possible is the transitive closure: a clean file that is
+included by a widget-side file, or whose own `.cpp` needs widgets, joins the
+widget side. Computing that gave 140 files / 22201 lines clean against
+235 / 82240 - a much worse picture than the per-file table, and the reason the
+naive split was not landed. Always compute the closure before claiming a
+library can be split.
+
+**Removing a widget include from a widely-included header is only worth it if it
+changes the closure - and a header's own `.cpp` is part of the closure.**
+Dropping the unused `fancylineedit.h` from `aspects.h` compiles and looks like
+progress, but `aspects.cpp` includes two dozen QtWidgets headers of its own, so
+`aspects.h` stays on the widget side and the measured gain is zero files. The
+cost is not zero: 43 files needed an explicit `fancylineedit.h`, and behind them
+another 76 needed `<QLineEdit>`, spreading into vendored `src/shared/qbs`.
+Over a hundred files of churn for nothing. Removing `<QFontComboBox>` from the
+same header *was* worth it - it is a real QtWidgets header that 12 files were
+leeching, and the fallout was 12 honest includes.
+
+Always test the hypothesis by recomputing the closure with the include removed
+before doing the sweep. The first version of this note asserted `layoutbuilder.h`
+was the blocker; `aspects.h` never included it, and the claim survived into a
+commit message before being measured.
+
+**Never let an automated build-fix loop write outside the repository.** A loop
+that scraped `(/Users/\S+\.(cpp|h|mm)):\d+:\d+: error:` from compiler output
+matched paths in the Qt SDK as readily as paths in the checkout, and "fixed" four
+errors by injecting includes into `qobjectdefs.h`, `qobject.h` and `qvariant.h`
+in the installed Qt. The build then failed everywhere with
+`'QLineEdit' file not found` from QtCore. Any such loop must anchor its path
+pattern to the repository root.
+
 
 - Installing a theme with `setCreatorTheme()` applies its palette to the
   application, so it needs a `QGuiApplication`. A `QTEST_GUILESS_MAIN` test can
