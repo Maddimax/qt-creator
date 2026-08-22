@@ -170,9 +170,11 @@ QtPrintSupport header transitively:
 | | tainted | clean |
 |---|---|---|
 | Start | 137 files / 68153 lines | 229 / 35973 |
-| Now | 119 / 54720 | 254 / 49565 |
+| Now | 117 / 49777 | 257 / 54614 |
 
-The split is **not** a file sort. 18 headers are clean while their own
+The clean side is now the larger of the two by line count.
+
+The split is **not** a file sort. 16 headers are clean while their own
 implementation needs widgets, and a class's header and implementation have to
 land in the same library, so each of those is a small de-widgeting change that
 has to happen first.
@@ -181,25 +183,36 @@ has to happen first.
 
 In order:
 
-1. **`FilePath::icon()`** calls `FileIconProvider::icon()`, which wraps
-   `QFileIconProvider` (QtWidgets). `QIcon` is QtGui, so this wants a hook. It
-   would be the third one-off hook after `PluginPrompts` and `Utils::Prompts`;
-   consider a single "host services" seam instead of accumulating more.
-2. **`Theme::palette()`** derives from the *application* palette
+1. **`Theme::palette()`** derives from the *application* palette
    (`QApplication::palette()`/`setPalette()`). `QGuiApplication` has both, but
    `QApplication::setPalette` also does widget propagation, so a naive swap
    risks losing repaints. Separating it properly means the theme owning its base
    palette, a design change to user-visible theming. It also overlaps with live
    theming item 5.
-3. The remaining 15 clean-header/tainted-impl pairs are genuine widget classes
+2. The remaining 15 clean-header/tainted-impl pairs are genuine widget classes
    whose headers happen not to name a widget type (`tooltip.h`, `dropsupport.h`,
    `fadingindicator.h`, `jsonrpcinspector.h`, `guiutils.h`, ...). They belong on
    the widget side and need no work; they classify there when the split lands.
-4. **Then the split itself**: two `add_qtc_library` calls over the same
+3. **Then the split itself**: two `add_qtc_library` calls over the same
    directory, so include paths do not change. Note the export macro: a second
    library needs its own (`add_qtc_library(Foo)` auto-defines `FOO_LIBRARY`), and
    defining `UTILS_LIBRARY` for both would mark imported symbols as exported,
    which breaks on Windows.
+
+## On seams
+
+Three callbacks now let core code ask a user interface for something it cannot
+do itself: `ExtensionSystem::PluginPrompts`, `Utils::Prompts`, and the file icon
+in `Utils::DeviceFileHooks`.
+
+They were kept separate on purpose. The first two are *prompts*, and the plugin
+ones are specific dialogs (a markdown document with an acceptance checkbox), not
+generic questions, so they belong to the library that raises them. The icon is
+not a prompt at all but a service, and `DeviceFileHooks` already existed for
+exactly that shape, so it went there rather than into a new seam.
+
+If a fourth arrives that fits none of these, that is the point to reconsider a
+single "host services" object, rather than at the third.
 
 ## Things learned the hard way
 
