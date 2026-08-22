@@ -311,7 +311,14 @@ TEST_F(McuModuleProjectItem, set_qmlproject_path_create_from_empty)
 
 TEST_F(McuModuleProjectItem, is_valid_create_from_empty)
 {
-    bool isValid = createFromEmpty->isValid();
+    auto projectPath = Utils::FilePath::fromString(localTestDataDir
+                                                   + "/qmldirtoqmlproject/test_module.qmlproject");
+    QmlProjectManager::McuModuleProjectItem projectItem(QJsonObject{});
+    projectItem.setUri("test.module");
+    projectItem.setQmlFiles({"File1.qml", "File2.qml"});
+    projectItem.setQmlProjectPath(projectPath);
+
+    bool isValid = projectItem.isValid();
 
     ASSERT_TRUE(isValid);
 }
@@ -320,11 +327,16 @@ TEST_F(McuModuleProjectItem, check_saved_qmlproject_create_from_empty)
 {
     auto projectPath = Utils::FilePath::fromString(localTestDataDir
                                                    + "/qmldirtoqmlproject/test_module.qmlproject");
-    createFromEmpty->saveQmlProjectFile();
+    QmlProjectManager::McuModuleProjectItem projectItem(QJsonObject{});
+    projectItem.setUri("test.module");
+    projectItem.setQmlFiles({"File1.qml", "File2.qml"});
+    projectItem.setQmlProjectPath(projectPath);
+
+    projectItem.saveQmlProjectFile();
 
     QmlProjectManager::McuModuleProjectItem savedQmlProject(projectPath);
 
-    ASSERT_THAT(*createFromEmpty, Eq(savedQmlProject));
+    ASSERT_THAT(projectItem, Eq(savedQmlProject));
 }
 
 TEST_F(McuModuleProjectItem, create_from_nonexisting_file)
