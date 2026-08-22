@@ -28,6 +28,7 @@
 
 #include <texteditor/textdocument.h>
 
+#include <utils/themedvalue.h>
 #include <utils/algorithm.h>
 #include <utils/async.h>
 #include <utils/basetreeview.h>
@@ -1267,12 +1268,21 @@ void IssuesWidget::showOverlay(const QString &message, OverlayIconType type)
     }
 
     m_overlay->setPaintFunction([message, type](QWidget *that, QPainter &p, QPaintEvent *) {
-        static const QIcon noData = Icon({{":/axivion/images/nodata.png", Theme::IconsDisabledColor}},
-                                         Utils::Icon::Tint).icon();
-        static const QIcon error = Icon({{":/axivion/images/error.png", Theme::IconsErrorColor}},
-                                        Utils::Icon::Tint).icon();
-        static const QIcon settings = Icon({{":/utils/images/settings.png", Theme::IconsDisabledColor}},
-                                           Utils::Icon::Tint).icon();
+        static const ThemedValue<QIcon> noDataIcon([] {
+            return Icon({{":/axivion/images/nodata.png", Theme::IconsDisabledColor}},
+                        Utils::Icon::Tint).icon();
+        });
+        static const ThemedValue<QIcon> errorIcon([] {
+            return Icon({{":/axivion/images/error.png", Theme::IconsErrorColor}},
+                        Utils::Icon::Tint).icon();
+        });
+        static const ThemedValue<QIcon> settingsIcon([] {
+            return Icon({{":/utils/images/settings.png", Theme::IconsDisabledColor}},
+                        Utils::Icon::Tint).icon();
+        });
+        const QIcon noData = noDataIcon();
+        const QIcon error = errorIcon();
+        const QIcon settings = settingsIcon();
         QRect iconRect(0, 0, 32, 32);
         iconRect.moveCenter(that->rect().center());
         if (type == EmptyIcon)

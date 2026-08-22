@@ -445,8 +445,7 @@ QVariant LoggingCategoryModel::data(const QModelIndex &index, int role) const
         if (color.isValid())
             return color;
 
-        static const QColor defaultColor = Utils::creatorTheme()->palette().text().color();
-        return defaultColor;
+        return Utils::creatorTheme()->palette().text().color();
     } else if (
         m_categories.at(index.row()).isValid() && index.column() >= Column::Debug
         && index.column() <= Column::Info) {

@@ -423,7 +423,7 @@ QColor FlameGraphWidgetPrivate::colorForNode(int i, QStyle::State state) const
         return Utils::creatorColor(Utils::Theme::Timeline_BackgroundColor2);
 
     int typeId = (typeIdRole >= 0) ? node.modelIndex.data(typeIdRole).toInt() : i;
-    static const QColor bgColor = Utils::creatorColor(Utils::Theme::Timeline_BackgroundColor1);
+    const QColor bgColor = Utils::creatorColor(Utils::Theme::Timeline_BackgroundColor1);
     const int bgBlend = state == QStyle::State_Selected ? 15
                                                         : (state == QStyle::State_MouseOver ? 30
                                                                                             : 45);

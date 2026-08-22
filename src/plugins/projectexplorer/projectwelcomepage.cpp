@@ -20,6 +20,7 @@
 #include <coreplugin/sessionmodel.h>
 #include <coreplugin/welcomepagehelper.h>
 
+#include <utils/themedvalue.h>
 #include <utils/algorithm.h>
 #include <utils/elidinglabel.h>
 #include <utils/icon.h>
@@ -326,7 +327,9 @@ public:
         const int shortcutWidth = PaddingHM + shortcutNumberWidth + GapHM;
         m_shortcut->setMinimumWidth(shortcutWidth);
 
-        static const QPixmap icon = pixmap("session", Theme::Token_Text_Muted);
+        static const ThemedValue<QPixmap> sessionIcon(
+            [] { return pixmap("session", Theme::Token_Text_Muted); });
+        const QPixmap icon = sessionIcon();
         const QSize iconS = icon.deviceIndependentSize().toSize();
         auto iconLabel = new QLabel;
         iconLabel->setFixedWidth(iconS.width());

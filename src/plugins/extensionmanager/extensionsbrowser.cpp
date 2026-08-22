@@ -20,6 +20,7 @@
 #include <QtTaskTree/QNetworkReplyWrapper>
 #include <QtTaskTree/QSingleTaskTreeRunner>
 
+#include <utils/themedvalue.h>
 #include <utils/algorithm.h>
 #include <utils/fancylineedit.h>
 #include <utils/hostosinfo.h>
@@ -295,11 +296,13 @@ public:
             m_installStateLabel->setPalette(pal);
             m_installStateLabel->setText(stateString);
             const FilePath checkmarkMask = ":/extensionmanager/images/checkmark.png";
-            static const QPixmap iconActive = Icon({{checkmarkMask, Theme::Token_Accent_Muted}},
-                                                   Icon::Tint).pixmap();
-            static const QPixmap iconInactive = Icon({{checkmarkMask, stateInactiveTF.themeColor}},
-                                                     Icon::Tint).pixmap();
-            m_installStateIcon->setPixmap(active ? iconActive : iconInactive);
+            static const ThemedValue<QPixmap> iconActive([checkmarkMask] {
+                return Icon({{checkmarkMask, Theme::Token_Accent_Muted}}, Icon::Tint).pixmap();
+            });
+            static const ThemedValue<QPixmap> iconInactive([checkmarkMask] {
+                return Icon({{checkmarkMask, stateInactiveTF.themeColor}}, Icon::Tint).pixmap();
+            });
+            m_installStateIcon->setPixmap(active ? iconActive() : iconInactive());
             m_installState->layout()->invalidate(); // QTCREATORBUG-32954
         }
 
