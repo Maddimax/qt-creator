@@ -332,6 +332,7 @@ QtcLibrary {
         "textcodec.h",
         "textfileformat.cpp",
         "textfileformat.h",
+        "themedvalue.h",
         "textutils.cpp",
         "textutils.h",
         "treemodel.cpp",

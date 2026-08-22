@@ -172,6 +172,7 @@ add_qtc_library(Utils
     textcodec.cpp textcodec.h
     textfileformat.cpp textfileformat.h
     textutils.cpp textutils.h
+    themedvalue.h
     theme/theme.cpp theme/theme.h theme/theme_p.h
     tooltip/effects.h
     tooltip/tips.cpp tooltip/tips.h

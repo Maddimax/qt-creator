@@ -643,6 +643,10 @@ class QTCREATOR_UTILS_EXPORT ThemeWatcher : public QObject
 public:
     static ThemeWatcher *instance();
 
+    // Bumped whenever a theme is installed. Lets a cache tell whether the value
+    // it holds still belongs to the current theme.
+    static int generation();
+
 signals:
     void themeChanged();
 

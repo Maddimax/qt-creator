@@ -5,6 +5,7 @@
 
 #include "../coreplugintr.h"
 
+#include <utils/themedvalue.h>
 #include <utils/icon.h>
 #include <utils/overlaywidget.h>
 #include <utils/qtcassert.h>
@@ -81,9 +82,11 @@ ProgressView::ProgressView(QWidget *parent)
     pinButton->attachToWidget(this);
     pinButton->setAttribute(Qt::WA_TransparentForMouseEvents, false); // override OverlayWidget
     pinButton->setPaintFunction([](QWidget *that, QPainter &p, QPaintEvent *) {
-        static const QIcon icon = Icon({{":/utils/images/pinned_small.png", Theme::IconsBaseColor}},
-                                        Icon::Tint)
-                                       .icon();
+        static const ThemedValue<QIcon> pinnedIcon([] {
+            return Icon({{":/utils/images/pinned_small.png", Theme::IconsBaseColor}}, Icon::Tint)
+                .icon();
+        });
+        const QIcon icon = pinnedIcon();
         QRect iconRect(0, 0, PIN_SIZE, PIN_SIZE);
         iconRect.moveTopRight(that->rect().topRight());
         icon.paint(&p, iconRect);

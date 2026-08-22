@@ -7,6 +7,7 @@
 #include "icon.h"
 #include "networkaccessmanager.h"
 #include "stylehelper.h"
+#include "themedvalue.h"
 #include "utilsicons.h"
 
 #include <QtTaskTree/QNetworkReplyWrapper>
@@ -674,18 +675,21 @@ static const QPixmap &comboBoxIcon(WidgetState state)
     const FilePath mask = FilePath::fromString(":/core/images/expandarrow.png");
     switch (state) {
     case WidgetStateDefault: {
-        static const QPixmap icon = Icon({{mask, Theme::Token_Text_Muted}}, Icon::Tint).pixmap();
-        return icon;
+        static const ThemedValue<QPixmap> icon(
+            [mask] { return Icon({{mask, Theme::Token_Text_Muted}}, Icon::Tint).pixmap(); });
+        return icon();
     }
     case WidgetStateChecked:
     case WidgetStateHovered: {
-        static const QPixmap icon = Icon({{mask, Theme::Token_Text_Default}}, Icon::Tint).pixmap();
-        return icon;
+        static const ThemedValue<QPixmap> icon(
+            [mask] { return Icon({{mask, Theme::Token_Text_Default}}, Icon::Tint).pixmap(); });
+        return icon();
     }
     case WidgetStateDisabled:
     default: {
-        static const QPixmap icon = Icon({{mask, Theme::Token_Text_Subtle}}, Icon::Tint).pixmap();
-        return icon;
+        static const ThemedValue<QPixmap> icon(
+            [mask] { return Icon({{mask, Theme::Token_Text_Subtle}}, Icon::Tint).pixmap(); });
+        return icon();
     }
     }
 }

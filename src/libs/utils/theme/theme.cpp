@@ -74,10 +74,17 @@ static void setMacAppearance(Theme *theme)
 #endif
 }
 
+static int m_themeGeneration = 0;
+
 ThemeWatcher *ThemeWatcher::instance()
 {
     static GuardedObject<ThemeWatcher> theWatcher(new ThemeWatcher);
     return theWatcher.get();
+}
+
+int ThemeWatcher::generation()
+{
+    return m_themeGeneration;
 }
 
 void setCreatorTheme(Theme *theme)
@@ -90,6 +97,7 @@ void setCreatorTheme(Theme *theme)
     setMacAppearance(theme);
     setThemeApplicationPalette();
 
+    ++m_themeGeneration;
     emit ThemeWatcher::instance()->themeChanged();
 }
 
