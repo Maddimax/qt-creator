@@ -65,6 +65,7 @@ private:
     QList<IconMaskAndColor> m_iconSourceList;
     IconStyleOptions m_style = None;
     mutable int m_lastDevicePixelRatio = -1;
+    mutable int m_lastThemeGeneration = -1;
     mutable QIcon m_lastIcon;
 };
 

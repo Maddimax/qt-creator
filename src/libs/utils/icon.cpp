@@ -173,11 +173,15 @@ QIcon Icon::icon() const
     if (m_style == None)
         return QIcon(m_iconSourceList.constFirst().first.toFSPathString());
 
+    // The tinted pixmaps below are resolved against the current theme, so the
+    // cache has to be keyed on the theme as well as the device pixel ratio.
     const int maxDpr = qRound(qApp->devicePixelRatio());
-    if (maxDpr == m_lastDevicePixelRatio)
+    const int themeGeneration = ThemeWatcher::generation();
+    if (maxDpr == m_lastDevicePixelRatio && themeGeneration == m_lastThemeGeneration)
         return m_lastIcon;
 
     m_lastDevicePixelRatio = maxDpr;
+    m_lastThemeGeneration = themeGeneration;
     m_lastIcon = QIcon();
     for (int dpr = 1; dpr <= maxDpr; dpr++) {
         const MasksAndColors masks = masksAndColors(m_iconSourceList, dpr);
