@@ -11,12 +11,14 @@
 #include <QTextEdit>
 
 QT_BEGIN_NAMESPACE
+class QAction;
 class QTextCursor;
 class QTextCharFormat;
 QT_END_NAMESPACE
 
 namespace Utils {
 
+class TextEditingHost;
 class WidgetTextControlPrivate;
 
 class WidgetTextControl : public InputControl
@@ -70,6 +72,8 @@ public:
 
     Q_INVOKABLE virtual QVariant loadResource(int type, const QUrl &name);
 #ifndef QT_NO_CONTEXTMENU
+    QList<QAction *> createStandardContextMenuActions(const QPointF &pos, QObject *parent);
+    // Implemented in widgettextcontrolwidgethost.cpp.
     QMenu *createStandardContextMenu(const QPointF &pos, QWidget *parent);
 #endif
 
@@ -130,6 +134,8 @@ public:
     virtual int hitTest(const QPointF &point, Qt::HitTestAccuracy accuracy) const;
     virtual QRectF blockBoundingRect(const QTextBlock &block) const;
     virtual qreal mainLayoutOffset(const QTextBlock &block) const;
+    QAbstractTextDocumentLayout::PaintContext getPaintContext(const TextEditingHost *host) const;
+    // Deprecated, use the TextEditingHost overload.
     QAbstractTextDocumentLayout::PaintContext getPaintContext(QWidget *widget) const;
 
 public Q_SLOTS:
@@ -187,10 +193,15 @@ public:
     QPalette palette() const;
     void setPalette(const QPalette &pal);
 
+    virtual void processEvent(QEvent *e, const QTransform &transform, TextEditingHost *host);
+    void processEvent(QEvent *e, const QPointF &coordinateOffset, TextEditingHost *host);
+    // Deprecated, use the TextEditingHost overloads.
     virtual void processEvent(QEvent *e, const QTransform &transform, QWidget *contextWidget = nullptr);
     void processEvent(QEvent *e, const QPointF &coordinateOffset = QPointF(), QWidget *contextWidget = nullptr);
 
     // control methods
+    void drawContents(QPainter *painter, const QRectF &rect, TextEditingHost *host);
+    // Deprecated, use the TextEditingHost overload.
     void drawContents(QPainter *painter, const QRectF &rect = QRectF(), QWidget *widget = nullptr);
 
     void setFocus(bool focus, Qt::FocusReason = Qt::OtherFocusReason);
@@ -213,6 +224,8 @@ protected:
     virtual bool event(QEvent *e) override;
 
 private:
+    void processEventInternal(QEvent *e, const QTransform &transform);
+
     Q_DISABLE_COPY_MOVE(WidgetTextControl)
 
     std::unique_ptr<WidgetTextControlPrivate> d;

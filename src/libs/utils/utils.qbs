@@ -537,10 +537,12 @@ QtcLibrary {
             "plaintextedit.h",
             "plaintexteditaccessibility.cpp",
             "plaintexteditaccessibility.h",
+            "texteditinghost.h",
             "texteditorlayout.cpp",
             "texteditorlayout.h",
             "widgettextcontrol.cpp",
             "widgettextcontrol.h",
+            "widgettextcontrolwidgethost.cpp",
         ]
     }
 

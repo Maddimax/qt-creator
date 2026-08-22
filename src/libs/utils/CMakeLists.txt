@@ -243,10 +243,12 @@ extend_qtc_library(Utils
     plaintextedit.h
     plaintexteditaccessibility.cpp
     plaintexteditaccessibility.h
+    texteditinghost.h
     texteditorlayout.cpp
     texteditorlayout.h
     widgettextcontrol.cpp
     widgettextcontrol.h
+    widgettextcontrolwidgethost.cpp
 )
 
 # QPlatformTheme::standardButtonText, replaced by public API in Qt 6.12
