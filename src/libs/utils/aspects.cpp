@@ -189,6 +189,13 @@ QVariant BaseAspect::volatileVariantValue() const
     return {};
 }
 
+void BaseAspect::setVolatileVariantValue(const QVariant &value, Announcement howToAnnounce)
+{
+    Q_UNUSED(value)
+    Q_UNUSED(howToAnnounce)
+    QTC_CHECK(false);
+}
+
 QVariant BaseAspect::variantValue() const
 {
     return {};
@@ -2583,6 +2590,11 @@ void SelectionAspect::setDisplayStyle(SelectionAspect::DisplayStyle style)
     d->m_displayStyle = style;
 }
 
+SelectionAspect::DisplayStyle SelectionAspect::displayStyle() const
+{
+    return d->m_displayStyle;
+}
+
 QVariant SelectionAspect::toSettingsValue(const QVariant &valueToSave) const
 {
     if (!d->m_useDataAsSavedValue)
@@ -2875,6 +2887,21 @@ void IntegerAspect::setRange(qint64 min, qint64 max)
     d->m_maximumValue = max;
 }
 
+std::optional<qint64> IntegerAspect::minimumValue() const
+{
+    return d->m_minimumValue;
+}
+
+std::optional<qint64> IntegerAspect::maximumValue() const
+{
+    return d->m_maximumValue;
+}
+
+qint64 IntegerAspect::singleStep() const
+{
+    return d->m_singleStep;
+}
+
 void IntegerAspect::setLabel(const QString &label)
 {
     setLabelText(label);
@@ -2973,6 +3000,21 @@ void DoubleAspect::setRange(double min, double max)
 {
     d->m_minimumValue = min;
     d->m_maximumValue = max;
+}
+
+std::optional<double> DoubleAspect::minimumValue() const
+{
+    return d->m_minimumValue;
+}
+
+std::optional<double> DoubleAspect::maximumValue() const
+{
+    return d->m_maximumValue;
+}
+
+double DoubleAspect::singleStep() const
+{
+    return d->m_singleStep;
 }
 
 void DoubleAspect::setPrefix(const QString &prefix)

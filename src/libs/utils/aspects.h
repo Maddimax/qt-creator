@@ -68,6 +68,16 @@ class QTCREATOR_UTILS_EXPORT BaseAspect : public QObject
 {
     Q_OBJECT
 
+    // The volatile value is the one a settings page edits, so that Apply and
+    // Cancel keep working.
+    Q_PROPERTY(QVariant value READ volatileVariantValue WRITE setVolatileVariantValue
+                   NOTIFY volatileValueChanged)
+    Q_PROPERTY(QString labelText READ labelText WRITE setLabelText NOTIFY labelTextChanged)
+    Q_PROPERTY(QString toolTip READ toolTip WRITE setToolTip NOTIFY tooltipChanged)
+    Q_PROPERTY(bool enabled READ isEnabled WRITE setEnabled NOTIFY enabledChanged)
+    Q_PROPERTY(bool visible READ isVisible WRITE setVisible NOTIFY visibleChanged)
+    Q_PROPERTY(bool readOnly READ isReadOnly WRITE setReadOnly NOTIFY readOnlyChanged)
+
 public:
     BaseAspect(AspectContainer *container = nullptr);
     BaseAspect(const BaseAspect &) = delete;
@@ -79,6 +89,7 @@ public:
     enum Announcement { DoEmit, BeQuiet };
 
     virtual QVariant volatileVariantValue() const;
+    virtual void setVolatileVariantValue(const QVariant &value, Announcement = DoEmit);
     virtual QVariant variantValue() const;
     virtual void setVariantValue(const QVariant &value, Announcement = DoEmit);
 
@@ -364,6 +375,13 @@ public:
         announceChanges(changes, howToAnnounce);
     }
 
+    void setVolatileVariantValue(const QVariant &value,
+                                 Announcement howToAnnounce = DoEmit) override
+    {
+        if (value.canConvert<ValueType>())
+            setVolatileValue(value.value<ValueType>(), howToAnnounce);
+    }
+
     void setVolatileValue(const ValueType &value, Announcement howToAnnounce = DoEmit)
     {
         Changes changes;
@@ -635,7 +653,9 @@ public:
     QVariant itemValue() const;
 
     enum class DisplayStyle { RadioButtons, ComboBox };
+    Q_ENUM(DisplayStyle)
     void setDisplayStyle(DisplayStyle style);
+    DisplayStyle displayStyle() const;
 
     QVariant toSettingsValue(const QVariant &valueToSave) const override;
     QVariant fromSettingsValue(const QVariant &savedValue) const override;
@@ -656,9 +676,9 @@ public:
 
     void addOption(const QString &displayName, const QString &toolTip = {});
     void addOption(const Option &option);
-    int optionCount() const;
+    Q_INVOKABLE int optionCount() const;
     int indexForDisplay(const QString &displayName) const;
-    QString displayForIndex(int index) const;
+    Q_INVOKABLE QString displayForIndex(int index) const;
     std::optional<Option> optionForIndex(int index) const;
     void setOptionForIndex(int index, const Option &option);
     int indexForItemValue(const QVariant &value) const;
@@ -899,6 +919,9 @@ public:
     void addToLayoutImpl(Layouting::Layout &parent) override;
 
     void setRange(qint64 min, qint64 max);
+    std::optional<qint64> minimumValue() const;
+    std::optional<qint64> maximumValue() const;
+    qint64 singleStep() const;
     void setLabel(const QString &label); // FIXME: Use setLabelText
     void setPrefix(const QString &prefix);
     void setSuffix(const QString &suffix);
@@ -929,6 +952,9 @@ public:
     void addToLayoutImpl(Layouting::Layout &parent) override;
 
     void setRange(double min, double max);
+    std::optional<double> minimumValue() const;
+    std::optional<double> maximumValue() const;
+    double singleStep() const;
     void setPrefix(const QString &prefix);
     void setSuffix(const QString &suffix);
     void setSpecialValueText(const QString &specialText);
