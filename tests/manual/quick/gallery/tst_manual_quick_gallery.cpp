@@ -77,13 +77,8 @@ int main(int argc, char *argv[])
     quickWidget->quickWidget()->setInitialProperties(properties);
     quickWidget->setSource(QUrl("qrc:/qtcquickgallery/Gallery.qml"));
 
-    // The QML scene reads the theme at creation, so rebuild it on a theme change.
-    QObject::connect(themeSelector, &QComboBox::currentTextChanged, quickWidget,
-                     [quickWidget, properties](const QString &) {
-                         quickWidget->quickWidget()->setSource(QUrl());
-                         quickWidget->quickWidget()->setInitialProperties(properties);
-                         quickWidget->setSource(QUrl("qrc:/qtcquickgallery/Gallery.qml"));
-                     });
+    // No reload on a theme change: the token properties notify, so the scene
+    // follows on its own. That is the behaviour this gallery is here to show.
 
     using namespace Layouting;
     QWidget *window = Column {

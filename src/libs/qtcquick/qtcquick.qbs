@@ -15,6 +15,7 @@ QtcLibrary {
         "qtcdesignsystem.cpp", "qtcdesignsystem.h",
         "qtciconprovider.cpp", "qtciconprovider.h",
         "qtcquick_global.h",
+        "qtctokens.cpp", "qtctokens.h",
         "qtcquickengine.cpp", "qtcquickengine.h",
         "qtcquickwidget.cpp", "qtcquickwidget.h",
     ]

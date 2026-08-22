@@ -3,6 +3,8 @@
 
 #include "theme.h"
 #include "theme_p.h"
+
+#include "../shutdownguard.h"
 #include "../hostosinfo.h"
 #include "../qtcassert.h"
 #include "filepath.h"
@@ -72,6 +74,12 @@ static void setMacAppearance(Theme *theme)
 #endif
 }
 
+ThemeWatcher *ThemeWatcher::instance()
+{
+    static GuardedObject<ThemeWatcher> theWatcher(new ThemeWatcher);
+    return theWatcher.get();
+}
+
 void setCreatorTheme(Theme *theme)
 {
     if (m_creatorTheme == theme)
@@ -81,6 +89,8 @@ void setCreatorTheme(Theme *theme)
 
     setMacAppearance(theme);
     setThemeApplicationPalette();
+
+    emit ThemeWatcher::instance()->themeChanged();
 }
 
 Theme::Theme(const QString &id, QObject *parent)

@@ -27,9 +27,20 @@ QML_FOREIGN_NAMESPACE(Utils::StyleHelper)
 QML_NAMED_ELEMENT(UiElement)
 } // namespace UiElements
 
-// Deriving from Utils::Theme is what makes its Color, Flag and ImageFile enums
-// resolvable as Theme.Token_Text_Default in QML.
-class QTCQUICK_EXPORT DesignSystem : public Utils::Theme
+// Registered so that the Color, Flag and ImageFile enums are reachable as
+// ThemeColor.Token_Text_Default. Prefer the Tokens singleton, which has a real
+// property per token and therefore re-evaluates when the theme changes.
+struct ThemeColorForeign
+{
+    Q_GADGET
+    QML_FOREIGN(Utils::Theme)
+    QML_NAMED_ELEMENT(ThemeColor)
+    QML_UNCREATABLE("Use the Theme singleton")
+};
+
+// Forwards to the current theme rather than holding a copy, so that a theme
+// change is visible immediately.
+class QTCQUICK_EXPORT DesignSystem : public QObject
 {
     Q_OBJECT
     QML_NAMED_ELEMENT(Theme)
@@ -40,6 +51,8 @@ class QTCQUICK_EXPORT DesignSystem : public Utils::Theme
 public:
     explicit DesignSystem(QObject *parent = nullptr);
 
+    Q_INVOKABLE QColor color(Utils::Theme::Color role) const;
+    Q_INVOKABLE bool flag(Utils::Theme::Flag f) const;
     Q_INVOKABLE QColor colorToken(const QString &token) const;
     Q_INVOKABLE QFont uiFont(Utils::StyleHelper::UiElement element) const;
     Q_INVOKABLE int uiFontLineHeight(Utils::StyleHelper::UiElement element) const;
@@ -47,7 +60,6 @@ public:
     bool isDark() const;
 
 signals:
-    // A theme change requires a restart, so this is the seam rather than a live signal.
     void changed();
 };
 

@@ -634,6 +634,22 @@ private:
     QPair<QColor, QString> readNamedColor(const QString &color) const;
 };
 
+// Outlives any individual Theme, which setCreatorTheme() deletes, so connect
+// here rather than to creatorTheme().
+class QTCREATOR_UTILS_EXPORT ThemeWatcher : public QObject
+{
+    Q_OBJECT
+
+public:
+    static ThemeWatcher *instance();
+
+signals:
+    void themeChanged();
+
+private:
+    friend QTCREATOR_UTILS_EXPORT void setCreatorTheme(Theme *theme);
+};
+
 QTCREATOR_UTILS_EXPORT Theme *creatorTheme();
 QTCREATOR_UTILS_EXPORT QColor creatorColor(Theme::Color role);
 

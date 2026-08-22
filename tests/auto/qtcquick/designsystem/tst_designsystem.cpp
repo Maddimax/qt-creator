@@ -13,6 +13,9 @@
 #include <QMetaEnum>
 #include <QQmlComponent>
 #include <QQmlEngine>
+#include <QSignalSpy>
+#include <QSettings>
+#include <QTemporaryFile>
 #include <QTest>
 
 using namespace Utils;
@@ -87,6 +90,7 @@ private slots:
     void fontCoverage();
     void spacingCoverage();
     void iconProvider();
+    void tokensFollowThemeChange();
     void aspectContainerModel();
     void aspectFormLoads();
 };
@@ -288,6 +292,57 @@ void tst_DesignSystem::aspectFormLoads()
     std::unique_ptr<QObject> form(
         component.createWithInitialProperties({{"model", QVariant::fromValue(model)}}));
     QVERIFY(form);
+}
+
+// A theme change has to reach QML without a restart, which means the token
+// properties must notify. A binding over a Q_INVOKABLE would not re-evaluate,
+// so the two themes here deliberately differ in the token under test.
+static Theme *themeWithAccent(const QString &argb)
+{
+    QTemporaryFile file;
+    file.setAutoRemove(false);
+    if (!file.open())
+        return nullptr;
+    file.write(QString("[Colors]\nToken_Accent_Default=%1\n").arg(argb).toUtf8());
+    file.close();
+
+    auto theme = new DummyTheme;
+    QSettings settings(file.fileName(), QSettings::IniFormat);
+    theme->readSettings(settings);
+    QFile::remove(file.fileName());
+    return theme;
+}
+
+void tst_DesignSystem::tokensFollowThemeChange()
+{
+    setCreatorTheme(themeWithAccent("ffff0000"));
+    const QColor red = creatorColor(Theme::Token_Accent_Default);
+    QCOMPARE(red, QColor(255, 0, 0));
+
+    static const char *qml = R"(
+        import QtQuick
+        import QtCreator.Ui
+        QtObject {
+            property color accent: Tokens.accentDefault
+        }
+    )";
+    QQmlComponent component(QtcQuick::engine());
+    component.setData(qml, QUrl("qrc:/tst_designsystem.qml"));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    std::unique_ptr<QObject> probe(component.create());
+    QVERIFY(probe);
+    QCOMPARE(probe->property("accent").value<QColor>(), red);
+
+    QSignalSpy spy(ThemeWatcher::instance(), &ThemeWatcher::themeChanged);
+    setCreatorTheme(themeWithAccent("ff00ff00"));
+    QCOMPARE(spy.count(), 1);
+
+    const QColor green = creatorColor(Theme::Token_Accent_Default);
+    QCOMPARE(green, QColor(0, 255, 0));
+    // The whole point: the binding followed, with no restart and no reload.
+    QCOMPARE(probe->property("accent").value<QColor>(), green);
+
+    setCreatorTheme(new DummyTheme);
 }
 
 QTEST_MAIN(tst_DesignSystem)

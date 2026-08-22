@@ -6,13 +6,27 @@
 namespace QtcQuick {
 
 DesignSystem::DesignSystem(QObject *parent)
-    : Utils::Theme(Utils::creatorTheme(), parent)
-{}
+    : QObject(parent)
+{
+    connect(Utils::ThemeWatcher::instance(), &Utils::ThemeWatcher::themeChanged,
+            this, &DesignSystem::changed);
+}
+
+QColor DesignSystem::color(Utils::Theme::Color role) const
+{
+    return Utils::creatorColor(role);
+}
+
+bool DesignSystem::flag(Utils::Theme::Flag f) const
+{
+    Utils::Theme *theme = Utils::creatorTheme();
+    return theme && theme->flag(f);
+}
 
 QColor DesignSystem::colorToken(const QString &token) const
 {
     const Utils::Result<Utils::Theme::Color> role = Utils::Theme::colorToken(token);
-    return role ? color(*role) : QColor();
+    return role ? Utils::creatorColor(*role) : QColor();
 }
 
 QFont DesignSystem::uiFont(Utils::StyleHelper::UiElement element) const
@@ -27,7 +41,8 @@ int DesignSystem::uiFontLineHeight(Utils::StyleHelper::UiElement element) const
 
 bool DesignSystem::isDark() const
 {
-    return colorScheme() == Qt::ColorScheme::Dark;
+    Utils::Theme *theme = Utils::creatorTheme();
+    return theme && theme->colorScheme() == Qt::ColorScheme::Dark;
 }
 
 } // namespace QtcQuick
