@@ -139,6 +139,16 @@ public:
         parent.addItems({Tr::tr("Web browser:"), m_webBrowserComboBox});
     }
 
+    AspectPresentation presentation() const override
+    {
+        AspectPresentation p = BaseAspect::presentation();
+        p.control = AspectControls::ComboBox;
+        p.labelText = Tr::tr("Web browser:");
+        for (const WebBrowserEntry &be : m_availableBrowsers)
+            p.choices.append(be.second);
+        return p;
+    }
+
     void fromMap(const Store &map) override
     {
         if (!m_availableBrowsers.isEmpty())

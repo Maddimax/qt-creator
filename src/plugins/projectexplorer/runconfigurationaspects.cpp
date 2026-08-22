@@ -81,6 +81,14 @@ void TerminalAspect::addToLayoutImpl(Layout &parent)
     });
 }
 
+AspectPresentation TerminalAspect::presentation() const
+{
+    AspectPresentation p = BaseAspect::presentation();
+    p.control = AspectControls::CheckBox;
+    p.labelText = Tr::tr("Run in terminal");
+    return p;
+}
+
 /*!
     \reimp
 */
@@ -1072,6 +1080,16 @@ void LauncherAspect::addToLayoutImpl(Layout &builder)
             this, &LauncherAspect::updateCurrentLauncher);
 
     builder.addItems({Tr::tr("Launcher:"), m_comboBox.data()});
+}
+
+AspectPresentation LauncherAspect::presentation() const
+{
+    AspectPresentation p = BaseAspect::presentation();
+    p.control = AspectControls::ComboBox;
+    p.labelText = Tr::tr("Launcher:");
+    for (const Launcher &launcher : m_launchers)
+        p.choices.append(launcher.displayName);
+    return p;
 }
 
 void LauncherAspect::setCurrentLauncherId(const QString &id)

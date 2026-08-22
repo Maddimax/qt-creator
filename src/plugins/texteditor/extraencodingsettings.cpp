@@ -33,6 +33,15 @@ void EncodingSelectionAspect::addToLayoutImpl(Layouting::Layout &parent)
     });
 }
 
+AspectPresentation EncodingSelectionAspect::presentation() const
+{
+    AspectPresentation p = ByteArrayAspect::presentation();
+    p.control = AspectControls::ComboBox;
+    for (const TextEncoding &encoding : TextEncoding::availableEncodings())
+        p.choices.append(encoding.fullDisplayName());
+    return p;
+}
+
 void EncodingSelectionAspect::setValue(const TextEncoding &encoding)
 {
     ByteArrayAspect::setValue(encoding.name());

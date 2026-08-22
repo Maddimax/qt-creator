@@ -156,6 +156,14 @@ void SuppressionAspect::addToLayoutImpl(Layouting::Layout &parent)
     parent.addItem(Span { 2, group });
 }
 
+AspectPresentation SuppressionAspect::presentation() const
+{
+    AspectPresentation p = TypedAspect::presentation();
+    p.control = AspectControls::FilePathList;
+    p.labelText = Tr::tr("Suppression files:");
+    return p;
+}
+
 void SuppressionAspect::fromMap(const Store &map)
 {
     BaseAspect::fromMap(map); // FIXME Looks wrong, as it skips the intermediate level

@@ -241,6 +241,13 @@ void SecretAspect::addToLayoutImpl(Layouting::Layout &parent)
     addLabeledItem(parent, Layouting::Row{Layouting::noMargin, edit, warningLabel, showPasswordButton}.emerge());
 }
 
+AspectPresentation SecretAspect::presentation() const
+{
+    AspectPresentation p = BaseAspect::presentation();
+    p.control = AspectControls::PasswordLineEdit;
+    return p;
+}
+
 void SecretAspect::requestValue(
     const std::function<void(const Utils::Result<QString> &)> &callback) const
 {

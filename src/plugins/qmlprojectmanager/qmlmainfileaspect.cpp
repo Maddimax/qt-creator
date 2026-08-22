@@ -67,6 +67,14 @@ void QmlMainFileAspect::addToLayoutImpl(Layouting::Layout &parent)
     parent.addItems({Tr::tr("Main QML file:"), m_fileListCombo.data()});
 }
 
+AspectPresentation QmlMainFileAspect::presentation() const
+{
+    AspectPresentation p = BaseAspect::presentation();
+    p.control = AspectControls::ComboBox;
+    p.labelText = Tr::tr("Main QML file:");
+    return p;
+}
+
 void QmlMainFileAspect::toMap(Store &map) const
 {
     map.insert(Constants::QML_MAINSCRIPT_KEY, m_scriptFile);

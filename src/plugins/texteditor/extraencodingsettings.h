@@ -39,6 +39,7 @@ public:
 
 private:
     void addToLayoutImpl(Layouting::Layout &parent) override;
+    Utils::AspectPresentation presentation() const override;
 
     CodecChooser *m_codecChooser = nullptr;
 };

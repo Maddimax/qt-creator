@@ -20,6 +20,7 @@ public:
     ~SuppressionAspect() final;
 
     void addToLayoutImpl(Layouting::Layout &parent) final;
+    Utils::AspectPresentation presentation() const final;
 
     void fromMap(const Utils::Store &map) final;
     void toMap(Utils::Store &map) const final;

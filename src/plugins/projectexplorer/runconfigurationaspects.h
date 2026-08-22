@@ -31,6 +31,7 @@ public:
     explicit TerminalAspect(Utils::AspectContainer *container = nullptr);
 
     void addToLayoutImpl(Layouting::Layout &parent) override;
+    Utils::AspectPresentation presentation() const override;
 
     bool useTerminal() const;
     void setUseTerminalHint(bool useTerminal);
@@ -285,6 +286,7 @@ public:
     void fromMap(const Utils::Store &) override;
     void toMap(Utils::Store &) const override;
     void addToLayoutImpl(Layouting::Layout &parent) override;
+    Utils::AspectPresentation presentation() const override;
 
     struct Data : Utils::BaseAspect::Data { Launcher launcher; };
 
