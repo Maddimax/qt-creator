@@ -388,6 +388,7 @@ QtcLibrary {
             "theme.cpp",
             "theme.h",
             "theme_p.h",
+            "themeapplicationpalette.cpp",
         ]
     }
 

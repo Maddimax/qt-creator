@@ -9,6 +9,9 @@
 
 #include <QColor>
 #include <QMap>
+#include <QPalette>
+
+#include <optional>
 
 namespace Utils {
 
@@ -34,9 +37,15 @@ public:
     QMap<QString, QColor> palette;
     QMap<QString, QString> unresolvedPalette;
     QMap<QString, QString> unresolvedColors;
+    std::optional<QPalette> basePalette;
 };
 
 QTCREATOR_UTILS_EXPORT void setCreatorTheme(Theme *theme);
 QTCREATOR_UTILS_EXPORT void setThemeApplicationPalette();
+
+namespace Internal {
+// Whether the theme replaces the platform palette rather than sitting on it.
+QTCREATOR_UTILS_EXPORT bool isOverridingPalette(const Theme *theme);
+} // namespace Internal
 
 } // namespace Utils

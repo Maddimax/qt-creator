@@ -13,7 +13,7 @@
 #import "theme_mac.h"
 #endif
 
-#include <QApplication>
+#include <QGuiApplication>
 #include <QMetaEnum>
 #include <QPalette>
 #include <QSettings>
@@ -44,7 +44,7 @@ QColor creatorColor(Theme::Color role)
     return m_creatorTheme ? m_creatorTheme->color(role) : QColor();
 }
 
-static bool isOverridingPalette(const Theme *theme)
+bool Internal::isOverridingPalette(const Theme *theme)
 {
     if (theme->flag(Theme::DerivePaletteFromTheme))
         return true;
@@ -53,12 +53,6 @@ static bool isOverridingPalette(const Theme *theme)
         return systemTheme != Qt::ColorScheme::Unknown && systemTheme != theme->colorScheme();
     }
     return false;
-}
-
-void setThemeApplicationPalette()
-{
-    if (m_creatorTheme && isOverridingPalette(m_creatorTheme))
-        QApplication::setPalette(m_creatorTheme->palette());
 }
 
 static void setMacAppearance(Theme *theme)
@@ -362,7 +356,6 @@ void Theme::setInitialPalette(Theme *initTheme)
 {
     systemColorScheme(); // initialize value for system mode
     setMacAppearance(initTheme);
-    initialPalette();
 }
 
 void Theme::setHelpMenu(QMenu *menu)
@@ -396,19 +389,35 @@ Theme::Color Theme::highlightFor(Color role)
     return map.value(creatorColor(role).rgba(), role);
 }
 
+QPalette Theme::defaultBasePalette()
+{
+    return m_initialPalette.value_or(QPalette());
+}
+
+void Theme::setDefaultBasePalette(const QPalette &palette)
+{
+    m_initialPalette = copyPalette(palette);
+}
+
 QPalette Theme::initialPalette()
 {
-    if (!m_initialPalette) {
-        m_initialPalette = copyPalette(QApplication::palette());
-        QApplication::setPalette(*m_initialPalette);
-    }
-    return *m_initialPalette;
+    return defaultBasePalette();
+}
+
+QPalette Theme::basePalette() const
+{
+    return d->basePalette.value_or(defaultBasePalette());
+}
+
+void Theme::setBasePalette(const QPalette &palette)
+{
+    d->basePalette = copyPalette(palette);
 }
 
 QPalette Theme::palette() const
 {
-    QPalette pal = initialPalette();
-    if (!isOverridingPalette(this))
+    QPalette pal = basePalette();
+    if (!Internal::isOverridingPalette(this))
         return pal;
 
     const static struct {

@@ -614,6 +614,17 @@ public:
 
     Qt::ColorScheme colorScheme() const;
     static Qt::ColorScheme systemColorScheme();
+    // The unthemed palette a themed one is built on top of. A theme carries its
+    // own; without one it falls back to the default, which the application sets
+    // once from the style before any theme is installed. Reading it from the
+    // application instead would put QtWidgets into every consumer of a theme.
+    QPalette basePalette() const;
+    void setBasePalette(const QPalette &palette);
+
+    static QPalette defaultBasePalette();
+    static void setDefaultBasePalette(const QPalette &palette);
+
+    // The default base palette. Kept for callers that want the unthemed colours.
     static QPalette initialPalette();
 
     static void setInitialPalette(Theme *initTheme);

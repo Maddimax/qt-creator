@@ -33,6 +33,7 @@ Project {
         "templateengine/templateengine.qbs",
         "terminalinterface/terminalinterface.qbs",
         "text/text.qbs",
+        "theme/theme.qbs",
         "themedvalue/themedvalue.qbs",
         "treemodel/treemodel.qbs",
         "unarchiver/unarchiver.qbs",

@@ -58,6 +58,7 @@
 #include <utils/theme/theme.h>
 #include <utils/theme/theme_p.h>
 
+#include <QApplication>
 #include <QAuthenticator>
 #include <QCheckBox>
 #include <QDialog>
@@ -338,7 +339,14 @@ Result<> CorePlugin::initialize(const QStringList &arguments)
     Theme *themeFromArg = ThemeEntry::createTheme(args.themeId);
     Theme *theme = themeFromArg ? themeFromArg
                                 : ThemeEntry::createTheme(ThemeEntry::themeSetting());
-    Theme::setInitialPalette(theme); // Initialize palette before setting it
+    // The theme builds its palette on top of this one, and no longer reads it
+    // from the application itself. Capture it before a theme is installed.
+    Theme::setDefaultBasePalette(QApplication::palette());
+    // Setting the deep copy back makes every role explicit, where a plain
+    // QPalette leaves defaults to resolve per widget. Themed colours are applied
+    // on top of that, so the base has to be explicit first.
+    QApplication::setPalette(Theme::defaultBasePalette());
+    Theme::setInitialPalette(theme);
     setCreatorTheme(theme);
     InfoBar::initialize(ICore::settings());
     CheckableMessageBox::initialize(ICore::settings());
