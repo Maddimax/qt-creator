@@ -358,15 +358,6 @@ void Theme::setInitialPalette(Theme *initTheme)
     setMacAppearance(initTheme);
 }
 
-void Theme::setHelpMenu(QMenu *menu)
-{
-#ifdef Q_OS_MACOS
-    Internal::setMacOSHelpMenu(menu);
-#else
-    Q_UNUSED(menu)
-#endif
-}
-
 Result<Theme::Color> Theme::colorToken(const QString &tokenName,
                                              [[maybe_unused]] TokenFlags flags)
 {

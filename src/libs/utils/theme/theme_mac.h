@@ -3,15 +3,8 @@
 
 #pragma once
 
-#include <qglobal.h>
-
-QT_BEGIN_NAMESPACE
-class QMenu;
-QT_END_NAMESPACE
-
 namespace Utils::Internal {
 
 void forceMacAppearance(bool dark);
-void setMacOSHelpMenu(QMenu *menu);
 
 } // Utils::Internal

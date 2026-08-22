@@ -175,6 +175,7 @@ add_qtc_library(Utils
     textfileformat.cpp textfileformat.h
     textutils.cpp textutils.h
     themedvalue.h
+    theme/machelpmenu.h
     theme/theme.cpp theme/theme.h theme/theme_p.h
     theme/themeapplicationpalette.cpp
     tooltip/effects.h
@@ -280,6 +281,7 @@ extend_qtc_library(Utils CONDITION APPLE
     processhandle_mac.mm
     pathchooser.mm
     spellchecker_mac.mm
+    theme/machelpmenu.mm
     theme/theme_mac.mm theme/theme_mac.h
     touchbar/touchbar_appdelegate_mac.mm touchbar/touchbar_appdelegate_mac_p.h
     touchbar/touchbar_mac.mm touchbar/touchbar_mac_p.h

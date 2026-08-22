@@ -3,8 +3,6 @@
 
 #include "theme_mac.h"
 
-#include <QMenu>
-
 #include <AppKit/AppKit.h>
 
 namespace Utils {
@@ -14,11 +12,6 @@ void forceMacAppearance(bool dark)
 {
     NSApp.appearance = [NSAppearance
         appearanceNamed:(dark ? NSAppearanceNameDarkAqua : NSAppearanceNameAqua)];
-}
-
-void setMacOSHelpMenu(QMenu *menu)
-{
-    NSApp.helpMenu = menu->toNSMenu();
 }
 
 } // Internal

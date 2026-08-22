@@ -73,6 +73,8 @@
 #include <utils/qtcassert.h>
 #include <utils/stringutils.h>
 #include <utils/stylehelper.h>
+#include <utils/stylehelperpainting.h>
+#include <utils/theme/machelpmenu.h>
 #include <utils/theme/theme.h>
 #include <utils/touchbar/touchbar.h>
 #include <utils/utilsicons.h>
@@ -1725,7 +1727,7 @@ void ICorePrivate::registerDefaultContainers()
     ac = ActionManager::createMenu(Constants::M_HELP);
     menubar->addMenu(ac, Constants::G_HELP);
     ac->menu()->setTitle(Tr::tr("&Help"));
-    Theme::setHelpMenu(ac->menu());
+    Utils::setMacOSHelpMenu(ac->menu());
     ac->appendGroup(Constants::G_HELP_HELP);
     ac->appendGroup(Constants::G_HELP_SUPPORT);
     ac->appendGroup(Constants::G_HELP_ABOUT);

@@ -389,6 +389,7 @@ QtcLibrary {
         name: "Theme"
         prefix: "theme/"
         files: [
+            "machelpmenu.h",
             "theme.cpp",
             "theme.h",
             "theme_p.h",
@@ -443,6 +444,7 @@ QtcLibrary {
         condition: qbs.targetOS.contains("macos")
         prefix: "theme/"
         files: [
+            "machelpmenu.mm",
             "theme_mac.h", "theme_mac.mm",
         ]
     }

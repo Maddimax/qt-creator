@@ -11,7 +11,6 @@
 #include <QObject>
 
 QT_BEGIN_NAMESPACE
-class QMenu;
 class QPalette;
 class QSettings;
 QT_END_NAMESPACE
@@ -628,8 +627,6 @@ public:
     static QPalette initialPalette();
 
     static void setInitialPalette(Theme *initTheme);
-
-    static void setHelpMenu(QMenu *menu);
 
     static Result<Color> colorToken(const QString &token, TokenFlags flags = {});
     static Color highlightFor(Color role);
