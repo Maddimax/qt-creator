@@ -5,6 +5,7 @@
 
 #include "fancylineedit.h"
 #include "filepath.h"
+#include "aspectpresentation.h"
 #include "id.h"
 #include "validationfunction.h"
 
@@ -158,6 +159,10 @@ public:
     virtual void volatileFromMap(const Store &map);
 
     void addToLayout(Layouting::Layout &parent) const;
+
+    // Describes this aspect's control without building one. Renderers use
+    // this instead of asking what type the aspect is.
+    virtual AspectPresentation presentation() const;
 
     virtual void readSettings();
     virtual void writeSettings() const;
@@ -525,6 +530,7 @@ class QTCREATOR_UTILS_EXPORT BoolAspect : public TypedAspect<bool>
     Q_OBJECT
 
 public:
+    AspectPresentation presentation() const override;
     BoolAspect(AspectContainer *container = nullptr);
     ~BoolAspect() override;
 
@@ -603,6 +609,7 @@ class QTCREATOR_UTILS_EXPORT ColorAspect : public TypedAspect<QColor>
     Q_OBJECT
 
 public:
+    AspectPresentation presentation() const override;
     ColorAspect(AspectContainer *container = nullptr);
     ~ColorAspect() override;
 
@@ -619,6 +626,7 @@ class QTCREATOR_UTILS_EXPORT FontFamilyAspect : public TypedAspect<QString>
     Q_OBJECT
 
 public:
+    AspectPresentation presentation() const override;
     FontFamilyAspect(AspectContainer *container = nullptr);
     ~FontFamilyAspect() override;
 
@@ -653,6 +661,7 @@ class QTCREATOR_UTILS_EXPORT SelectionAspect : public TypedAspect<int>
     Q_OBJECT
 
 public:
+    AspectPresentation presentation() const override;
     SelectionAspect(AspectContainer *container = nullptr);
     ~SelectionAspect() override;
 
@@ -741,6 +750,7 @@ class QTCREATOR_UTILS_EXPORT MultiSelectionAspect : public TypedAspect<QStringLi
     Q_OBJECT
 
 public:
+    AspectPresentation presentation() const override;
     MultiSelectionAspect(AspectContainer *container = nullptr);
     ~MultiSelectionAspect() override;
 
@@ -768,6 +778,7 @@ class QTCREATOR_UTILS_EXPORT StringAspect : public TypedAspect<QString>
     Q_OBJECT
 
 public:
+    AspectPresentation presentation() const override;
     StringAspect(AspectContainer *container = nullptr);
     ~StringAspect() override;
 
@@ -846,6 +857,7 @@ class QTCREATOR_UTILS_EXPORT FilePathAspect : public TypedAspect<QString>
     Q_OBJECT
 
 public:
+    AspectPresentation presentation() const override;
     FilePathAspect(AspectContainer *container = nullptr);
     ~FilePathAspect();
 
@@ -925,6 +937,7 @@ class QTCREATOR_UTILS_EXPORT IntegerAspect : public TypedAspect<qint64>
     Q_OBJECT
 
 public:
+    AspectPresentation presentation() const override;
     IntegerAspect(AspectContainer *container = nullptr);
     ~IntegerAspect() override;
 
@@ -958,6 +971,7 @@ class QTCREATOR_UTILS_EXPORT DoubleAspect : public TypedAspect<double>
     Q_OBJECT
 
 public:
+    AspectPresentation presentation() const override;
     DoubleAspect(AspectContainer *container = nullptr);
     ~DoubleAspect() override;
 
@@ -1032,6 +1046,7 @@ class QTCREATOR_UTILS_EXPORT StringListAspect : public TypedAspect<QStringList>
     Q_OBJECT
 
 public:
+    AspectPresentation presentation() const override;
     StringListAspect(AspectContainer *container = nullptr);
     ~StringListAspect() override;
 
@@ -1065,6 +1080,7 @@ class QTCREATOR_UTILS_EXPORT FilePathListAspect : public TypedAspect<QStringList
     Q_OBJECT
 
 public:
+    AspectPresentation presentation() const override;
     FilePathListAspect(AspectContainer *container = nullptr);
     ~FilePathListAspect() override;
 
@@ -1093,6 +1109,7 @@ class QTCREATOR_UTILS_EXPORT IntegersAspect : public TypedAspect<QList<int>>
     Q_OBJECT
 
 public:
+    AspectPresentation presentation() const override;
     IntegersAspect(AspectContainer *container = nullptr);
     ~IntegersAspect() override;
 
@@ -1112,6 +1129,7 @@ class QTCREATOR_UTILS_EXPORT TextDisplay : public BaseAspect
     Q_OBJECT
 
 public:
+    AspectPresentation presentation() const override;
     explicit TextDisplay(AspectContainer *container = nullptr, const QString &message = {});
     ~TextDisplay() override;
 
@@ -1166,6 +1184,7 @@ class QTCREATOR_UTILS_EXPORT AspectContainer : public BaseAspect
     Q_OBJECT
 
 public:
+    AspectPresentation presentation() const override;
     explicit AspectContainer(AspectContainer *parentContainer = nullptr);
     ~AspectContainer();
 
@@ -1314,6 +1333,7 @@ class QTCREATOR_UTILS_EXPORT StringSelectionAspect : public Utils::TypedAspect<Q
 {
     Q_OBJECT
 public:
+    AspectPresentation presentation() const override;
     StringSelectionAspect(Utils::AspectContainer *container = nullptr);
 
     void addToLayoutImpl(Layouting::Layout &parent) override;
@@ -1351,6 +1371,7 @@ class QTCREATOR_UTILS_EXPORT FontAspect : public AspectContainer
     Q_OBJECT
 
 public:
+    AspectPresentation presentation() const override;
     FontAspect(Utils::AspectContainer *container = nullptr);
 
     QFont operator()() const;

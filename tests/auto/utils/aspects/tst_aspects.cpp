@@ -17,6 +17,10 @@ private slots:
     void valuePropertyEmitsOnce();
     void valuePropertyIgnoresWrongType();
     void metadataProperties();
+    void presentationReportsTheControl();
+    void presentationFollowsDisplayStyle();
+    void presentationCarriesBounds();
+    void everyBuiltInAspectHasAControl();
 };
 
 // Writing the "value" property must not commit, so that a settings page can
@@ -85,6 +89,121 @@ void tst_Aspects::metadataProperties()
     QVERIFY(aspect.setProperty("enabled", false));
     QCOMPARE(aspect.property("enabled").toBool(), false);
     QCOMPARE(enabledSpy.count(), 1);
+}
+
+void tst_Aspects::presentationReportsTheControl()
+{
+    BoolAspect boolAspect;
+    boolAspect.setLabelText("Label");
+    boolAspect.setToolTip("Tip");
+    const AspectPresentation p = boolAspect.presentation();
+    QCOMPARE(p.control, AspectControls::CheckBox);
+    QCOMPARE(p.labelText, QString("Label"));
+    QCOMPARE(p.toolTip, QString("Tip"));
+    QVERIFY(p.visible);
+    QVERIFY(p.enabled);
+    QVERIFY(!p.readOnly);
+
+    SelectionAspect selection;
+    selection.addOption("One");
+    selection.addOption("Two");
+    selection.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
+    QCOMPARE(selection.presentation().control, AspectControls::ComboBox);
+    QCOMPARE(selection.presentation().choices, QStringList({"One", "Two"}));
+
+    AspectContainer container;
+    QCOMPARE(container.presentation().control, AspectControls::Container);
+}
+
+// The control has to follow the display style, which is the part a renderer
+// cannot work out from the aspect's type.
+void tst_Aspects::presentationFollowsDisplayStyle()
+{
+    BoolAspect boolAspect;
+    QCOMPARE(boolAspect.presentation().control, AspectControls::CheckBox);
+    boolAspect.setDisplayStyle(BoolAspect::DisplayStyle::RadionButton);
+    QCOMPARE(boolAspect.presentation().control, AspectControls::RadioButton);
+
+    StringAspect stringAspect;
+    QCOMPARE(stringAspect.presentation().control, AspectControls::Label);
+    stringAspect.setDisplayStyle(StringAspect::LineEditDisplay);
+    QCOMPARE(stringAspect.presentation().control, AspectControls::LineEdit);
+    stringAspect.setDisplayStyle(StringAspect::PasswordLineEditDisplay);
+    QCOMPARE(stringAspect.presentation().control, AspectControls::PasswordLineEdit);
+    stringAspect.setDisplayStyle(StringAspect::TextEditDisplay);
+    QCOMPARE(stringAspect.presentation().control, AspectControls::TextEdit);
+
+    SelectionAspect selection;
+    selection.setDisplayStyle(SelectionAspect::DisplayStyle::RadioButtons);
+    QCOMPARE(selection.presentation().control, AspectControls::RadioButtonGroup);
+
+    StringListAspect list;
+    QCOMPARE(list.presentation().control, AspectControls::StringList);
+    list.setDisplayStyle(StringListAspect::DisplayStyle::CommaSeparatedLineEdit);
+    QCOMPARE(list.presentation().control, AspectControls::CommaSeparatedLineEdit);
+}
+
+// An unset bound must stay unset, so that a renderer can tell "no minimum"
+// from "minimum happens to be zero".
+void tst_Aspects::presentationCarriesBounds()
+{
+    IntegerAspect integer;
+    QVERIFY(!integer.presentation().minimum.isValid());
+    QVERIFY(!integer.presentation().maximum.isValid());
+    integer.setRange(3, 9);
+    integer.setSingleStep(2);
+    QCOMPARE(integer.presentation().minimum.toLongLong(), 3);
+    QCOMPARE(integer.presentation().maximum.toLongLong(), 9);
+    QCOMPARE(integer.presentation().singleStep.toLongLong(), 2);
+
+    DoubleAspect real;
+    QVERIFY(!real.presentation().minimum.isValid());
+    real.setRange(0.5, 1.5);
+    QCOMPARE(real.presentation().control, AspectControls::DoubleSpinBox);
+    QCOMPARE(real.presentation().minimum.toDouble(), 0.5);
+    QCOMPARE(real.presentation().maximum.toDouble(), 1.5);
+}
+
+// A built-in aspect reporting Custom means presentation() was not overridden
+// and every renderer will fall back to a placeholder for it.
+void tst_Aspects::everyBuiltInAspectHasAControl()
+{
+    BoolAspect boolAspect;
+    ColorAspect color;
+    DoubleAspect real;
+    FilePathAspect filePath;
+    FilePathListAspect filePathList;
+    FontFamilyAspect fontFamily;
+    IntegerAspect integer;
+    IntegersAspect integers;
+    MultiSelectionAspect multiSelection;
+    SelectionAspect selection;
+    StringAspect string;
+    StringListAspect stringList;
+    StringSelectionAspect stringSelection;
+    TextDisplay textDisplay;
+
+    const QList<QPair<QString, BaseAspect *>> aspects = {
+        {"BoolAspect", &boolAspect},
+        {"ColorAspect", &color},
+        {"DoubleAspect", &real},
+        {"FilePathAspect", &filePath},
+        {"FilePathListAspect", &filePathList},
+        {"FontFamilyAspect", &fontFamily},
+        {"IntegerAspect", &integer},
+        {"IntegersAspect", &integers},
+        {"MultiSelectionAspect", &multiSelection},
+        {"SelectionAspect", &selection},
+        {"StringAspect", &string},
+        {"StringListAspect", &stringList},
+        {"StringSelectionAspect", &stringSelection},
+        {"TextDisplay", &textDisplay},
+    };
+
+    for (const auto &[name, aspect] : aspects) {
+        const AspectControls::Control control = aspect->presentation().control;
+        QVERIFY2(control != AspectControls::Custom, qPrintable(name));
+    }
 }
 
 QTEST_GUILESS_MAIN(tst_Aspects)

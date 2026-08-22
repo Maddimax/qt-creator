@@ -594,6 +594,23 @@ void BaseAspect::addToLayoutImpl(Layout &)
 {
 }
 
+/*!
+    Describes the control this aspect wants, so that a renderer does not have to
+    know the aspect types. The base fills the fields every control has; each
+    aspect adds what its own control needs.
+*/
+AspectPresentation BaseAspect::presentation() const
+{
+    AspectPresentation p;
+    p.control = AspectControls::Custom;
+    p.labelText = labelText();
+    p.toolTip = toolTip();
+    p.readOnly = isReadOnly();
+    p.visible = isVisible();
+    p.enabled = isEnabled();
+    return p;
+}
+
 void addToLayout(Layouting::Layout *layout, const BaseAspect &aspect)
 {
     aspect.addToLayout(*layout);
@@ -1307,6 +1324,19 @@ void StringAspect::setAutoApplyOnEditingFinished(bool applyOnEditingFinished)
     d->m_autoApplyOnEditingFinished = applyOnEditingFinished;
 }
 
+AspectPresentation StringAspect::presentation() const
+{
+    AspectPresentation p = TypedAspect::presentation();
+    switch (d->m_displayStyle) {
+    case LabelDisplay:            p.control = AspectControls::Label; break;
+    case LineEditDisplay:         p.control = AspectControls::LineEdit; break;
+    case TextEditDisplay:         p.control = AspectControls::TextEdit; break;
+    case PasswordLineEditDisplay: p.control = AspectControls::PasswordLineEdit; break;
+    }
+    p.placeholderText = d->m_placeHolderText;
+    return p;
+}
+
 void StringAspect::addToLayoutImpl(Layout &parent)
 {
     d->m_checkerImpl.addToLayoutFirst(parent);
@@ -1815,6 +1845,14 @@ PathChooser *FilePathAspect::pathChooser() const
     return d->m_pathChooserDisplay.data();
 }
 
+AspectPresentation FilePathAspect::presentation() const
+{
+    AspectPresentation p = TypedAspect::presentation();
+    p.control = AspectControls::PathChooser;
+    p.placeholderText = d->m_placeHolderText;
+    return p;
+}
+
 void FilePathAspect::addToLayoutImpl(Layouting::Layout &parent)
 {
     d->m_checkerImpl.addToLayoutFirst(parent);
@@ -2054,6 +2092,13 @@ ColorAspect::ColorAspect(AspectContainer *container)
 
 ColorAspect::~ColorAspect() = default;
 
+AspectPresentation ColorAspect::presentation() const
+{
+    AspectPresentation p = TypedAspect::presentation();
+    p.control = AspectControls::ColorPicker;
+    return p;
+}
+
 void ColorAspect::addToLayoutImpl(Layouting::Layout &parent)
 {
     auto button = createSubWidget<QtColorButton>();
@@ -2124,6 +2169,13 @@ FontFamilyAspect::FontFamilyAspect(AspectContainer *container)
 }
 
 FontFamilyAspect::~FontFamilyAspect() = default;
+
+AspectPresentation FontFamilyAspect::presentation() const
+{
+    AspectPresentation p = TypedAspect::presentation();
+    p.control = AspectControls::FontFamilyPicker;
+    return p;
+}
 
 void FontFamilyAspect::addToLayoutImpl(Layouting::Layout &parent)
 {
@@ -2390,6 +2442,14 @@ std::function<void(Layouting::Layout *)> BoolAspect::adoptButton(QAbstractButton
 /*!
     \reimp
 */
+AspectPresentation BoolAspect::presentation() const
+{
+    AspectPresentation p = TypedAspect::presentation();
+    p.control = d->m_displayStyle == DisplayStyle::CheckBox ? AspectControls::CheckBox
+                                                            : AspectControls::RadioButton;
+    return p;
+}
+
 void BoolAspect::addToLayoutImpl(Layouting::Layout &parent)
 {
     if (d->m_displayStyle == DisplayStyle::CheckBox)
@@ -2520,6 +2580,16 @@ SelectionAspect::~SelectionAspect() = default;
 /*!
     \reimp
 */
+AspectPresentation SelectionAspect::presentation() const
+{
+    AspectPresentation p = TypedAspect::presentation();
+    p.control = d->m_displayStyle == DisplayStyle::ComboBox ? AspectControls::ComboBox
+                                                            : AspectControls::RadioButtonGroup;
+    for (int i = 0, n = optionCount(); i < n; ++i)
+        p.choices.append(displayForIndex(i));
+    return p;
+}
+
 void SelectionAspect::addToLayoutImpl(Layouting::Layout &parent)
 {
     switch (d->m_displayStyle) {
@@ -2731,6 +2801,14 @@ MultiSelectionAspect::~MultiSelectionAspect() = default;
 /*!
     \reimp
 */
+AspectPresentation MultiSelectionAspect::presentation() const
+{
+    AspectPresentation p = TypedAspect::presentation();
+    p.control = AspectControls::MultiSelection;
+    p.choices = d->m_allValues;
+    return p;
+}
+
 void MultiSelectionAspect::addToLayoutImpl(Layout &builder)
 {
     QTC_CHECK(d->m_listView == nullptr);
@@ -2840,6 +2918,18 @@ IntegerAspect::~IntegerAspect() = default;
 /*!
     \reimp
 */
+AspectPresentation IntegerAspect::presentation() const
+{
+    AspectPresentation p = TypedAspect::presentation();
+    p.control = AspectControls::SpinBox;
+    if (const std::optional<qint64> m = minimumValue())
+        p.minimum = *m;
+    if (const std::optional<qint64> m = maximumValue())
+        p.maximum = *m;
+    p.singleStep = singleStep();
+    return p;
+}
+
 void IntegerAspect::addToLayoutImpl(Layouting::Layout &parent)
 {
     QTC_CHECK(!d->m_spinBox);
@@ -2967,6 +3057,18 @@ DoubleAspect::~DoubleAspect() = default;
 /*!
     \reimp
 */
+AspectPresentation DoubleAspect::presentation() const
+{
+    AspectPresentation p = TypedAspect::presentation();
+    p.control = AspectControls::DoubleSpinBox;
+    if (const std::optional<double> m = minimumValue())
+        p.minimum = *m;
+    if (const std::optional<double> m = maximumValue())
+        p.maximum = *m;
+    p.singleStep = singleStep();
+    return p;
+}
+
 void DoubleAspect::addToLayoutImpl(Layout &builder)
 {
     QTC_CHECK(!d->m_spinBox);
@@ -3154,6 +3256,15 @@ void StringListAspect::volatileValueToGui()
 void StringListAspect::setDisplayStyle(DisplayStyle displayStyle)
 {
     d->m_displayStyle = displayStyle;
+}
+
+AspectPresentation StringListAspect::presentation() const
+{
+    AspectPresentation p = TypedAspect::presentation();
+    p.control = d->m_displayStyle == DisplayStyle::CommaSeparatedLineEdit
+                    ? AspectControls::CommaSeparatedLineEdit
+                    : AspectControls::StringList;
+    return p;
 }
 
 void StringListAspect::addToLayoutImpl(Layout &parent)
@@ -3385,6 +3496,13 @@ void FilePathListAspect::volatileValueToGui()
     d->undoable.setWithoutUndo(m_volatileValue);
 }
 
+AspectPresentation FilePathListAspect::presentation() const
+{
+    AspectPresentation p = TypedAspect::presentation();
+    p.control = AspectControls::FilePathList;
+    return p;
+}
+
 void FilePathListAspect::addToLayoutImpl(Layout &parent)
 {
     PathListEditor *editor = createSubWidget<PathListEditor>();
@@ -3479,6 +3597,13 @@ IntegersAspect::~IntegersAspect() = default;
 /*!
     \reimp
 */
+AspectPresentation IntegersAspect::presentation() const
+{
+    AspectPresentation p = TypedAspect::presentation();
+    p.control = AspectControls::IntegerList;
+    return p;
+}
+
 void IntegersAspect::addToLayoutImpl(Layouting::Layout &parent)
 {
     Q_UNUSED(parent)
@@ -3515,6 +3640,13 @@ TextDisplay::~TextDisplay() = default;
 /*!
     \reimp
 */
+AspectPresentation TextDisplay::presentation() const
+{
+    AspectPresentation p = BaseAspect::presentation();
+    p.control = AspectControls::Label;
+    return p;
+}
+
 void TextDisplay::addToLayoutImpl(Layout &parent)
 {
     if (!d->m_label) {
@@ -3618,6 +3750,13 @@ AspectContainer::~AspectContainer()
     aspectContainerRegistry().removeOne(this);
 #endif
     qDeleteAll(d->m_ownedItems);
+}
+
+AspectPresentation AspectContainer::presentation() const
+{
+    AspectPresentation p = BaseAspect::presentation();
+    p.control = AspectControls::Container;
+    return p;
 }
 
 void AspectContainer::addToLayoutImpl(Layouting::Layout &parent)
@@ -4017,6 +4156,13 @@ bool StringSelectionAspect::guiToVolatileValue()
     return oldBuffer != m_volatileValue;
 }
 
+AspectPresentation StringSelectionAspect::presentation() const
+{
+    AspectPresentation p = TypedAspect::presentation();
+    p.control = AspectControls::ComboBox;
+    return p;
+}
+
 void StringSelectionAspect::addToLayoutImpl(Layouting::Layout &parent)
 {
     QTC_ASSERT(m_fillCallback, return);
@@ -4151,6 +4297,13 @@ void FontAspect::setVolatileValue(const QFont &font)
 {
     fontFamily.setVolatileValue(font.family());
     fontPointSize.setVolatileValue(font.pointSize());
+}
+
+AspectPresentation FontAspect::presentation() const
+{
+    AspectPresentation p = AspectContainer::presentation();
+    p.control = AspectControls::FontPicker;
+    return p;
 }
 
 void FontAspect::addToLayoutImpl(Layouting::Layout &parent)
