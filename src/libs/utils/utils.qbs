@@ -40,7 +40,7 @@ QtcLibrary {
         cpp.frameworks: ["Foundation", "AppKit"]
     }
 
-    Depends { name: "Qt"; submodules: ["concurrent", "core-private", "network", "printsupport", "widgets", "xml", "sql"] }
+    Depends { name: "Qt"; submodules: ["concurrent", "core-private", "network", "qml", "widgets", "xml", "sql"] }
     // QPlatformTheme::standardButtonText, replaced by public API in Qt 6.12
     Depends {
         name: "Qt.gui-private"

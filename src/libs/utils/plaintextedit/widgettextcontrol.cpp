@@ -19,7 +19,6 @@
 #include <QMimeData>
 #include <QPainter>
 #include <QPointer>
-#include <QPrinter>
 #include <QStyleHintReturnVariant>
 #include <QStyleHints>
 #include <QTextBlock>
@@ -2736,14 +2735,13 @@ bool WidgetTextControl::isPreediting()
     return d->isPreediting();
 }
 
-#ifndef QT_NO_PRINTER
-void WidgetTextControl::print(QPagedPaintDevice *printer) const
+void WidgetTextControl::print(QPagedPaintDevice *printer, bool selectionOnly) const
 {
     if (!printer)
         return;
     QTextDocument *tempDoc = nullptr;
     const QTextDocument *doc = d->doc;
-    if (auto qprinter = dynamic_cast<QPrinter *>(printer); qprinter && qprinter->printRange() == QPrinter::Selection) {
+    if (selectionOnly) {
         if (!d->cursor.hasSelection())
             return;
         tempDoc = new QTextDocument(const_cast<QTextDocument *>(doc));
@@ -2758,7 +2756,6 @@ void WidgetTextControl::print(QPagedPaintDevice *printer) const
     doc->print(printer);
     delete tempDoc;
 }
-#endif
 
 QMimeData *WidgetTextControl::createMimeDataFromSelection() const
 {

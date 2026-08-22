@@ -2922,18 +2922,18 @@ bool PlainTextEdit::canPaste() const
 /*!
     \internal
 
-    Convenience function to print the text edit's document to the given \a printer. This
-    is equivalent to calling the print method on the document directly except that this
-    function also supports QPrinter::Selection as print range.
+    Convenience function to print the text edit's document to the given \a printer. This is
+    equivalent to calling the print method on the document directly, except that
+    \a selectionOnly restricts the output to the current selection.
+
+    Callers holding a QPrinter pass \c {printer->printRange() == QPrinter::Selection}.
 
     \sa QTextDocument::print()
 */
-#ifndef QT_NO_PRINTER
-void PlainTextEdit::print(QPagedPaintDevice *printer) const
+void PlainTextEdit::print(QPagedPaintDevice *printer, bool selectionOnly) const
 {
-    d->control->print(printer);
+    d->control->print(printer, selectionOnly);
 }
-#endif
 
 /*! \property Utils::PlainTextEdit::tabChangesFocus
   \brief whether \uicontrol Tab changes focus or is accepted as input

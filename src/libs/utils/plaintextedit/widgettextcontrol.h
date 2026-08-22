@@ -125,7 +125,7 @@ public:
 
     bool isPreediting();
 
-    void print(QPagedPaintDevice *printer) const;
+    void print(QPagedPaintDevice *printer, bool selectionOnly = false) const;
 
     virtual int hitTest(const QPointF &point, Qt::HitTestAccuracy accuracy) const;
     virtual QRectF blockBoundingRect(const QTextBlock &block) const;

@@ -146,7 +146,7 @@ public:
 
     bool canPaste() const;
 
-    void print(QPagedPaintDevice *printer) const;
+    void print(QPagedPaintDevice *printer, bool selectionOnly = false) const;
 
     int blockCount() const;
     QVariant inputMethodQuery(Qt::InputMethodQuery property) const override;
