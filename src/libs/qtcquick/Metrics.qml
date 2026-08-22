@@ -16,4 +16,31 @@ QtObject {
     readonly property int formControlWidth: 240
     // Side length of the color preview swatch in ColorDelegate.
     readonly property int colorSwatchSize: 24
+
+    // Opacity applied to a disabled icon that keeps its enabled tint
+    // (QtcSearchBox's leading icon, mirroring disabledIconOpacity).
+    readonly property real disabledIconOpacity: 0.3
+
+    // QtcSwitch's track: fixed pixel size in the widget, not on the
+    // spacing scale (the track height reuses Spacing.PrimitiveXl).
+    readonly property int switchTrackWidth: 32
+    // Gap between the track's edge and the knob, enabled+checked vs. any
+    // other state (QtcSwitch's thumbPadding).
+    readonly property int switchKnobInsetChecked: 3
+    readonly property int switchKnobInsetUnchecked: 2
+    // The knob stretches while pressed; widths for the checked and
+    // unchecked cases (QtcSwitch's thumbW when isDown()).
+    readonly property int switchKnobPressedWidthChecked: 17
+    readonly property int switchKnobPressedWidthUnchecked: 19
+    // Side length of the on/off glyph drawn inside the track.
+    readonly property int switchMarkSize: 6
+
+    // QtcProgressBar's sizeHint width; the track height reuses
+    // Spacing.PrimitiveM.
+    readonly property int progressBarMinimumWidth: 64
+
+    // Default width for a single-line text editor with no content yet
+    // (QtcLineEdit, QtcSearchBox), matching the QtCreatorStyle TextField
+    // and ComboBox background's own implicitWidth.
+    readonly property int lineEditWidth: 120
 }

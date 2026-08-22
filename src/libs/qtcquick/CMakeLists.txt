@@ -40,6 +40,15 @@ if(TARGET QtcQuick)
       IntegerDelegate.qml
       Metrics.qml
       MultiSelectionDelegate.qml
+      QtcBadge.qml
+      QtcButton.qml
+      QtcIconDisplay.qml
+      QtcLabel.qml
+      QtcLineEdit.qml
+      QtcPageIndicator.qml
+      QtcProgressBar.qml
+      QtcSearchBox.qml
+      QtcSwitch.qml
       SelectionDelegate.qml
       StringDelegate.qml
       StringListDelegate.qml
