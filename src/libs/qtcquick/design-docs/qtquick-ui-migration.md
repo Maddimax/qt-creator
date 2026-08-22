@@ -299,6 +299,45 @@ exactly that shape, so it went there rather than into a new seam.
 If a fourth arrives that fits none of these, that is the point to reconsider a
 single "host services" object, rather than at the third.
 
+## What the gutter extraction taught us about the viewport
+
+The gutter display list is done and the five paint methods ported cleanly, so the
+approach is validated for the easy half. Three findings about the *viewport*
+half, which is the one the plan calls the highest pixel-regression risk:
+
+**Roles, not resolved values.** The frame carries `ColorRole`/`FontRole` and
+plain geometry rather than a `QColor` or a `QFont`. That is what keeps it
+assertable in a test with no widget, and it means a frame does not go stale when
+the theme changes - the same property the theme audit had to chase across 160
+statics. Do the same for the viewport.
+
+**Ambient painter state is load-bearing.** Pixel identity in the gutter depended
+on reconstructing pen, font and anti-aliasing state that the old code threaded
+implicitly through one `QPainter`. The viewport has far more of it - clip
+regions, composition modes, per-overlay state - so a viewport display list has to
+make clip and composition **explicit primitives from day one** rather than
+discovering them as pixel diffs later.
+
+**`QStyle` leaks into painting.** `drawFoldingMarker` compares style names and
+nudges rects per style. Behind a callback that is acceptable for one marker; the
+viewport's overlays and annotations use `QStyle` and `QStaticText` much more
+heavily, and if each one becomes a callback the display list degenerates into a
+list of `QPainter` closures - which buys nothing. Those need real neutral
+primitives.
+
+**And the actual elephant: `QTextLayout::draw`.** The gutter only ever needed
+rects, lines and text-in-a-rect. The viewport's text is painted by layouts with
+format ranges, so a neutral frame there must either capture glyph runs or keep
+`QTextLayout *` alive across the frame - and the latter violates the
+no-live-document rule that makes the display list safe to hand to a render
+thread. The diff-sign walk already sits on this boundary: it reads `QTextLine`
+geometry at build time, which is only safe because build and render happen inside
+one paint event today.
+
+That last point is the one to settle before committing to a viewport frame
+builder, and it is the same question the `QSGTextNode` spike is measuring from
+the other direction.
+
 ## Porting hazards found by measurement
 
 Three findings that change what is portable, each found by reading the code
