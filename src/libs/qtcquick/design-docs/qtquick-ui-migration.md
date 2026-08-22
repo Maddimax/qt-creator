@@ -1,0 +1,223 @@
+# Replacing the Qt Creator UI with Qt Quick
+
+Working plan and status. Written to be picked up again after a break: the
+"Status" and "Next steps" sections are the resume points.
+
+## Goal
+
+A Qt Creator whose user interface is entirely Qt Quick, with no QtWidgets in the
+shipped product.
+
+Today the UI is QtWidgets throughout: ~2.26 M lines of C++ under `src/`, ~1200
+files touching QtWidgets, 486 classes deriving from a widget base, and a visual
+identity carried by `ManhattanStyle` (a 1583-line `QProxyStyle` covering ~33
+primitives) plus hand-painted widgets. There is no stylesheet and no declarative
+theme to translate, so the QML design system is new work, not a port.
+
+## Decisions
+
+- **End state:** zero QtWidgets.
+- **Sequencing:** a second app target (`qtcreator-quick`) reusing the non-UI
+  logic libraries. The widget UI keeps shipping until parity, then is deleted.
+- **Plugin API:** the widget-based plugin API survives in an opt-in
+  `widgetcompat` plugin, the only component linking QtWidgets. Core, Utils and
+  in-tree plugins become QtWidgets-free; default builds can switch the shim off.
+- **Text editor:** a custom `QQuickItem` over `QTextDocument`/`QTextLayout`,
+  reusing Creator's document, highlighter and code-assist model.
+- **QmlDesigner:** ported early; its panels are already QML.
+- **Qt gaps:** solved Creator-side first, pushed upstream opportunistically.
+- **Squish suite:** dropped, not ported.
+- **Theme switching must work live, without a restart.** See below.
+
+One caveat, stated once. This repo has been moving the other way: `src/libs/tracing`
+had a complete Qt Quick implementation and was migrated to `QWidget` +
+`QCanvasPainter`/`QPainter` (`8f33b44a0a0` → `2acc23b3560`), the Welcome page was
+QML and was rewritten in widgets, and
+`src/plugins/profiler/design-docs/native-mixed-profiler-design.md` names "a new
+rendering stack" as a non-goal. What failed there was *QML for high-density custom
+rendering*. The artefact it left behind, `src/libs/tracing/trackpainterbase.h`'s
+`enum class TrackBackend { Automatic, Gpu, Software }` with a QRectF/QRgb-only
+API, is the seam to reuse for the editor, timeline and flame graph. Rule: custom
+rendering goes inside a `QQuickItem` behind a painter abstraction, never into
+thousands of QML items.
+
+## Live theme switching
+
+A hard requirement for the new UI: changing the theme takes effect immediately.
+
+Today it does not. `themechooser.cpp:154` calls
+`ICore::askForRestart("The theme change will take effect after restart.")`, and
+nothing listens to `QStyleHints::colorSchemeChanged`.
+
+**This invalidates a decision taken in phase 1.** The token singletons were
+built on the assumption that the theme is immutable for the process lifetime:
+
+- `QtcQuick::DesignSystem` derives from `Utils::Theme` via
+  `Utils::Theme(Utils::creatorTheme(), parent)`, which takes a **copy** of the
+  theme at construction. A later theme change does not reach it at all.
+- `Tokens.qml` and `Fonts.qml` bind to `Theme.color(...)` and
+  `Theme.uiFont(...)`, which are `Q_INVOKABLE`. A QML binding over an invokable
+  with no notify signal never re-evaluates.
+- `DesignSystem::changed()` exists as the seam but is never emitted.
+
+What live theming requires, in order:
+
+1. **`DesignSystem` must not snapshot.** Either delegate every accessor to
+   `Utils::creatorTheme()`, or rebuild on change. Deriving from `Utils::Theme`
+   was chosen because it makes the `Color` enum resolvable as
+   `Theme.Token_Text_Default` in QML; that benefit has to be kept while dropping
+   the copy.
+2. **Per-token notifying properties.** The plan originally rejected generating
+   one `Q_PROPERTY` per colour, on the grounds that no notification was needed.
+   With live theming that reasoning is void, and the generator becomes the right
+   answer: emit `Tokens`/`Fonts` as C++ singletons with a real property and
+   `NOTIFY changed` per token, generated from `Theme::Color` and
+   `StyleHelper::UiElement` so they cannot drift. The existing drift test
+   (`tests/auto/qtcquick/designsystem`) already asserts the coverage and will
+   keep working.
+3. **`Utils::setCreatorTheme()` has to announce the change.** It currently just
+   swaps a global and sets the application palette.
+4. **The caches have to be audited.** There are ~69 `static const QColor` /
+   `static QColor` and ~21 `static const TextFormat` initialisations across
+   `src/plugins` and `src/libs`. Every one of them latches a colour on first use
+   and will show the old theme after a switch. These are invisible while a
+   restart is mandatory, and each becomes a bug the moment it is not.
+5. **The widget side needs care while both UIs exist.**
+   `QApplication::setPalette` does widget propagation that
+   `QGuiApplication::setPalette` does not, and `ManhattanStyle` plus
+   `StyleHelper::setBaseColor` hold derived colours.
+
+Item 4 is the one that will take the time; items 1-3 are small and should be
+done before more QML surfaces are written against the current, non-notifying
+singletons.
+
+## Status
+
+Branch `utils-drop-printsupport`, 16 commits, not pushed. Phase 1 complete;
+phase 2 in progress.
+
+```
+ 1. Utils: Drop the QtPrintSupport dependency
+ 2. Utils: Register style tokens with the meta-object system
+ 3. QtcQuick: Add a Qt Quick foundation library
+ 4. QtcQuick: Add the QtCreatorStyle Qt Quick Controls style
+ 5. QtcQuick: Add an image provider for Qt Creator icons
+ 6. Tests: Add a manual test for the Qt Quick design system
+ 7. Utils: Give aspects a QML-friendly property interface
+ 8. QtcQuick: Render aspect containers as Qt Quick forms
+ 9. Core: Allow rendering settings pages with Qt Quick
+10. QtcQuick: Single-source the settings form metrics
+11. ExtensionSystem: Stop depending on QtWidgets
+12. Utils: Remove unused QtWidgets includes
+13. Utils: Move the file dialogs out of fileutils
+14. Utils: Take QStyle out of stylehelper.h
+15. Utils: Ask the user through a seam instead of QMessageBox
+16. Utils: Write output into a QTextDocument, not a QPlainTextEdit
+```
+
+What exists now:
+
+- `src/libs/qtcquick` — `QtcQuick` (QML module `QtCreator.Ui`) with a shared
+  engine, a `QuickWidget` host, the `DesignSystem` theme bridge, an icon image
+  provider, and the aspect form; plus `QtcQuickStyle` (`QtCreatorStyle`), 13 Qt
+  Quick Controls styled from the tokens.
+- `src/plugins/quickui` — installs the aspect-form factory when
+  `QTC_QUICK_SETTINGS` is set. Its in-process test asserts that every
+  aspect-driven options page takes the Qt Quick path.
+- `tests/auto/qtcquick/designsystem` — headless load and drift test.
+- `tests/manual/quick/gallery` — the runnable gallery, with a theme selector.
+
+Verified: full build clean; `qmllint` clean on both QML modules with zero
+suppressions; the drift test goes red without `RESOURCE_PREFIX`; the aspect
+round-trip test goes red without its type guard; real preferences pages
+(Interface, System, MCP Servers, Custom Language Models) render through Qt Quick;
+two-way binding holds with Apply/Cancel intact.
+
+Pre-existing test failures on this checkout, unchanged by this work and confirmed
+against the base commit: `tst_debugger_dumpers`, `tst_baseenginedebugclient`,
+7 `AuxiliaryPropertyStorageView`, 3 `Model_Imports`, `McuModuleProjectItem`.
+
+## Utils split progress
+
+`Utils` publishing `Qt::Widgets` is the gate for every other library: a library
+can reference zero widget symbols and still link QtWidgets through Utils.
+Measured by resolving the real include graph (`.h`/`.cpp`/`.mm`, excluding
+3rdparty), counting a file as tainted if it reaches a QtWidgets or
+QtPrintSupport header transitively:
+
+| | tainted | clean |
+|---|---|---|
+| Start | 137 files / 68153 lines | 229 / 35973 |
+| Now | 119 / 54720 | 254 / 49565 |
+
+The split is **not** a file sort. 18 headers are clean while their own
+implementation needs widgets, and a class's header and implementation have to
+land in the same library, so each of those is a small de-widgeting change that
+has to happen first.
+
+## Next steps
+
+In order:
+
+1. **Live theming items 1-3 above.** Do this before writing more QML surfaces
+   against the non-notifying singletons.
+2. **`FilePath::icon()`** calls `FileIconProvider::icon()`, which wraps
+   `QFileIconProvider` (QtWidgets). `QIcon` is QtGui, so this wants a hook. It
+   would be the third one-off hook after `PluginPrompts` and `Utils::Prompts`;
+   consider a single "host services" seam instead of accumulating more.
+3. **`Theme::palette()`** derives from the *application* palette
+   (`QApplication::palette()`/`setPalette()`). `QGuiApplication` has both, but
+   `QApplication::setPalette` also does widget propagation, so a naive swap
+   risks losing repaints. Separating it properly means the theme owning its base
+   palette, a design change to user-visible theming. It also overlaps with live
+   theming item 5.
+4. The remaining 15 clean-header/tainted-impl pairs are genuine widget classes
+   whose headers happen not to name a widget type (`tooltip.h`, `dropsupport.h`,
+   `fadingindicator.h`, `jsonrpcinspector.h`, `guiutils.h`, ...). They belong on
+   the widget side and need no work; they classify there when the split lands.
+5. **Then the split itself**: two `add_qtc_library` calls over the same
+   directory, so include paths do not change. Note the export macro: a second
+   library needs its own (`add_qtc_library(Foo)` auto-defines `FOO_LIBRARY`), and
+   defining `UTILS_LIBRARY` for both would mark imported symbols as exported,
+   which breaks on Windows.
+
+## Things learned the hard way
+
+- `qt_add_qml_module` needs `RESOURCE_PREFIX "/qt/qml"`. Without it the module
+  lands at `:/<Uri>` which is not on the default import path, so `import` works
+  but the singletons come back undefined. Green in a dev tree that happens to set
+  an import path, broken when deployed.
+- QML singletons need `set_source_files_properties(X.qml PROPERTIES
+  QT_QML_SINGLETON_TYPE TRUE)` before `qt_add_qml_module`. Do not check in a
+  `qmldir`; CMake generates a better one.
+- A class whose base is a template instantiation cannot be QML-registered:
+  `qmltyperegistrar` cannot resolve the base. `SelectionAspect` derives from
+  `TypedAspect<int>`, so its options go through a model role instead.
+- `QtQuick.Controls` `SpinBox` is integer only, and silently truncated a
+  `DoubleAspect` from 1.5 to 1.
+- Plugin test slots must be named `test*` (`pluginmanager.cpp`, `isTestFunction`),
+  or the test plan is empty and there is no output at all. `-test <id>` loads only
+  that plugin's dependency closure, so counts seen there are much lower than a
+  source-tree grep suggests.
+- Moving a declaration without its definition compiles and then fails to *link*:
+  the export macro travels with the declaration, so under hidden visibility the
+  symbol is not exported.
+- `Qt6PrintSupport` declares `Core;Gui;Widgets`, so `Qt::PrintSupport` in
+  `PUBLIC_DEPENDS` keeps QtWidgets public regardless of anything else.
+- Removing an unused include exposes files that were getting a type transitively.
+  Fix at the using site, not by restoring the leak.
+- The "77 of ~130 options pages come free" figure is a source-tree count of
+  `setSettingsProvider` call sites. `AspectContainer` has no default layouter and
+  `IOptionsPagePrivate::createWidget()` asserts one exists, so each of the 93
+  `setLayouter` lambdas (83 files, 38 containing raw `new Q…`) defines its page's
+  structure. Rendering the flat aspect list proves the model and keeps
+  Apply/Cancel working, but does not reproduce the designed layout. That is why
+  the `Layouting` backend work is required rather than optional.
+
+## Effort
+
+25-38 engineer-years total; 10-14 for a Creator a developer could dogfood daily
+(phases 1-5 plus part of the plugin porting). If the number has to come under 10,
+the only credible reduction is leaving `qmldesigner` (200 k lines, 255 widget
+files, plus 18.7 k of vendored ADS) and `scxmleditor` on the compat shim
+permanently, or dropping them.
