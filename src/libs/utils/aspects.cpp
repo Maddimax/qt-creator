@@ -599,6 +599,11 @@ void BaseAspect::addToLayoutImpl(Layout &)
     know the aspect types. The base fills the fields every control has; each
     aspect adds what its own control needs.
 */
+void BaseAspect::setVolatileVariantValueFromGui(const QVariant &value)
+{
+    setVolatileVariantValue(value);
+}
+
 AspectPresentation BaseAspect::presentation() const
 {
     AspectPresentation p;
@@ -1182,6 +1187,8 @@ public:
 StringAspect::StringAspect(AspectContainer *container)
     : TypedAspect(container), d(new Internal::StringAspectPrivate)
 {
+    connect(&d->undoable.m_signal, &UndoSignaller::changed, this,
+            [this] { handleGuiChanged(); });
     setSpan(2, 1); // Default: Label + something
 }
 
@@ -1322,6 +1329,14 @@ void StringAspect::setValidatorFactory(
 void StringAspect::setAutoApplyOnEditingFinished(bool applyOnEditingFinished)
 {
     d->m_autoApplyOnEditingFinished = applyOnEditingFinished;
+}
+
+void StringAspect::setVolatileVariantValueFromGui(const QVariant &value)
+{
+    if (!value.canConvert<QString>())
+        return;
+    d->undoable.set(undoStack(), value.toString());
+    handleGuiChanged();
 }
 
 AspectPresentation StringAspect::presentation() const
@@ -2165,10 +2180,20 @@ void ColorAspect::setMinimumSize(const QSize &size)
 FontFamilyAspect::FontFamilyAspect(AspectContainer *container)
     : TypedAspect(container), d(new Internal::FontFamilyAspectPrivate)
 {
+    connect(&d->m_undoable.m_signal, &UndoSignaller::changed, this,
+            [this] { handleGuiChanged(); });
     setSpan(2, 1); // Default: Label + Combobox
 }
 
 FontFamilyAspect::~FontFamilyAspect() = default;
+
+void FontFamilyAspect::setVolatileVariantValueFromGui(const QVariant &value)
+{
+    if (!value.canConvert<QString>())
+        return;
+    d->m_undoable.set(undoStack(), value.toString());
+    handleGuiChanged();
+}
 
 AspectPresentation FontFamilyAspect::presentation() const
 {
@@ -2382,6 +2407,8 @@ QAction *ToggleAspect::action()
 BoolAspect::BoolAspect(AspectContainer *container)
     : TypedAspect(container), d(new Internal::BoolAspectPrivate)
 {
+    connect(&d->m_undoable.m_signal, &UndoSignaller::changed, this,
+            [this] { handleGuiChanged(); });
     setDefaultValue(false);
     setSpan(2, 1);
 }
@@ -2442,6 +2469,14 @@ std::function<void(Layouting::Layout *)> BoolAspect::adoptButton(QAbstractButton
 /*!
     \reimp
 */
+void BoolAspect::setVolatileVariantValueFromGui(const QVariant &value)
+{
+    if (!value.canConvert<bool>())
+        return;
+    d->m_undoable.set(undoStack(), value.toBool());
+    handleGuiChanged();
+}
+
 AspectPresentation BoolAspect::presentation() const
 {
     AspectPresentation p = TypedAspect::presentation();
@@ -2568,6 +2603,8 @@ QVariant InvertedSavedBoolAspect::toSettingsValue(const QVariant &valueToSave) c
 SelectionAspect::SelectionAspect(AspectContainer *container)
     : TypedAspect(container), d(new Internal::SelectionAspectPrivate)
 {
+    connect(&d->m_undoable.m_signal, &UndoSignaller::changed, this,
+            [this] { handleGuiChanged(); });
     setSpan(2, 1);
     d->m_undoable.setSilently(value());
 }
@@ -2580,6 +2617,14 @@ SelectionAspect::~SelectionAspect() = default;
 /*!
     \reimp
 */
+void SelectionAspect::setVolatileVariantValueFromGui(const QVariant &value)
+{
+    if (!value.canConvert<int>())
+        return;
+    d->m_undoable.set(undoStack(), value.toInt());
+    handleGuiChanged();
+}
+
 AspectPresentation SelectionAspect::presentation() const
 {
     AspectPresentation p = TypedAspect::presentation();
@@ -3230,6 +3275,8 @@ TriState TriState::fromInt(int v)
 StringListAspect::StringListAspect(AspectContainer *container)
     : TypedAspect(container), d(new Internal::StringListAspectPrivate)
 {
+    connect(&d->m_undoable.m_signal, &UndoSignaller::changed, this,
+            [this] { handleGuiChanged(); });
     setDefaultValue(QStringList());
 }
 
@@ -3256,6 +3303,14 @@ void StringListAspect::volatileValueToGui()
 void StringListAspect::setDisplayStyle(DisplayStyle displayStyle)
 {
     d->m_displayStyle = displayStyle;
+}
+
+void StringListAspect::setVolatileVariantValueFromGui(const QVariant &value)
+{
+    if (!value.canConvert<QStringList>())
+        return;
+    d->m_undoable.set(undoStack(), value.toStringList());
+    handleGuiChanged();
 }
 
 AspectPresentation StringListAspect::presentation() const
@@ -3467,6 +3522,8 @@ FilePathListAspect::FilePathListAspect(AspectContainer *container)
     : TypedAspect(container)
     , d(new Internal::FilePathListAspectPrivate)
 {
+    connect(&d->undoable.m_signal, &UndoSignaller::changed, this,
+            [this] { handleGuiChanged(); });
     setDefaultValue(QStringList());
 }
 
@@ -3494,6 +3551,14 @@ bool FilePathListAspect::guiToVolatileValue()
 void FilePathListAspect::volatileValueToGui()
 {
     d->undoable.setWithoutUndo(m_volatileValue);
+}
+
+void FilePathListAspect::setVolatileVariantValueFromGui(const QVariant &value)
+{
+    if (!value.canConvert<QStringList>())
+        return;
+    d->undoable.set(undoStack(), value.toStringList());
+    handleGuiChanged();
 }
 
 AspectPresentation FilePathListAspect::presentation() const
@@ -4108,6 +4173,8 @@ StringSelectionAspect::StringSelectionAspect(AspectContainer *container)
 
 QStandardItem *StringSelectionAspect::itemById(const QString &id)
 {
+    connect(&m_undoable.m_signal, &UndoSignaller::changed, this,
+            [this] { handleGuiChanged(); });
     for (int i = 0; i < m_model->rowCount(); ++i) {
         auto cur = m_model->item(i);
         if (cur->data() == id)
@@ -4154,6 +4221,14 @@ bool StringSelectionAspect::guiToVolatileValue()
     m_volatileValue = m_undoable.get();
 
     return oldBuffer != m_volatileValue;
+}
+
+void StringSelectionAspect::setVolatileVariantValueFromGui(const QVariant &value)
+{
+    if (!value.canConvert<QString>())
+        return;
+    m_undoable.set(undoStack(), value.toString());
+    handleGuiChanged();
 }
 
 AspectPresentation StringSelectionAspect::presentation() const

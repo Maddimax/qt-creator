@@ -74,7 +74,7 @@ class QTCREATOR_UTILS_EXPORT BaseAspect : public QObject
 
     // The volatile value is the one a settings page edits, so that Apply and
     // Cancel keep working.
-    Q_PROPERTY(QVariant value READ volatileVariantValue WRITE setVolatileVariantValue
+    Q_PROPERTY(QVariant value READ volatileVariantValue WRITE setVolatileVariantValueFromGui
                    NOTIFY volatileValueChanged)
     Q_PROPERTY(QString labelText READ labelText WRITE setLabelText NOTIFY labelTextChanged)
     Q_PROPERTY(QString toolTip READ toolTip WRITE setToolTip NOTIFY tooltipChanged)
@@ -94,6 +94,11 @@ public:
 
     virtual QVariant volatileVariantValue() const;
     virtual void setVolatileVariantValue(const QVariant &value, Announcement = DoEmit);
+    // A write standing for the user editing a control, as opposed to the
+    // program setting a value. Recorded on the undo stack by the aspects
+    // that support undo; the widget delegates do the same from their signal
+    // handlers.
+    virtual void setVolatileVariantValueFromGui(const QVariant &value);
     virtual QVariant variantValue() const;
     virtual void setVariantValue(const QVariant &value, Announcement = DoEmit);
 
@@ -530,6 +535,7 @@ class QTCREATOR_UTILS_EXPORT BoolAspect : public TypedAspect<bool>
     Q_OBJECT
 
 public:
+    void setVolatileVariantValueFromGui(const QVariant &value) override;
     AspectPresentation presentation() const override;
     BoolAspect(AspectContainer *container = nullptr);
     ~BoolAspect() override;
@@ -626,6 +632,7 @@ class QTCREATOR_UTILS_EXPORT FontFamilyAspect : public TypedAspect<QString>
     Q_OBJECT
 
 public:
+    void setVolatileVariantValueFromGui(const QVariant &value) override;
     AspectPresentation presentation() const override;
     FontFamilyAspect(AspectContainer *container = nullptr);
     ~FontFamilyAspect() override;
@@ -661,6 +668,7 @@ class QTCREATOR_UTILS_EXPORT SelectionAspect : public TypedAspect<int>
     Q_OBJECT
 
 public:
+    void setVolatileVariantValueFromGui(const QVariant &value) override;
     AspectPresentation presentation() const override;
     SelectionAspect(AspectContainer *container = nullptr);
     ~SelectionAspect() override;
@@ -778,6 +786,7 @@ class QTCREATOR_UTILS_EXPORT StringAspect : public TypedAspect<QString>
     Q_OBJECT
 
 public:
+    void setVolatileVariantValueFromGui(const QVariant &value) override;
     AspectPresentation presentation() const override;
     StringAspect(AspectContainer *container = nullptr);
     ~StringAspect() override;
@@ -1046,6 +1055,7 @@ class QTCREATOR_UTILS_EXPORT StringListAspect : public TypedAspect<QStringList>
     Q_OBJECT
 
 public:
+    void setVolatileVariantValueFromGui(const QVariant &value) override;
     AspectPresentation presentation() const override;
     StringListAspect(AspectContainer *container = nullptr);
     ~StringListAspect() override;
@@ -1080,6 +1090,7 @@ class QTCREATOR_UTILS_EXPORT FilePathListAspect : public TypedAspect<QStringList
     Q_OBJECT
 
 public:
+    void setVolatileVariantValueFromGui(const QVariant &value) override;
     AspectPresentation presentation() const override;
     FilePathListAspect(AspectContainer *container = nullptr);
     ~FilePathListAspect() override;
@@ -1333,6 +1344,7 @@ class QTCREATOR_UTILS_EXPORT StringSelectionAspect : public Utils::TypedAspect<Q
 {
     Q_OBJECT
 public:
+    void setVolatileVariantValueFromGui(const QVariant &value) override;
     AspectPresentation presentation() const override;
     StringSelectionAspect(Utils::AspectContainer *container = nullptr);
 

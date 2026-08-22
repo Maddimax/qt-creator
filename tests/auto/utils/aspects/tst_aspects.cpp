@@ -4,6 +4,7 @@
 #include <utils/aspects.h>
 
 #include <QSignalSpy>
+#include <QUndoStack>
 #include <QTest>
 
 using namespace Utils;
@@ -21,6 +22,7 @@ private slots:
     void presentationFollowsDisplayStyle();
     void presentationCarriesBounds();
     void everyBuiltInAspectHasAControl();
+    void aGuiWriteIsUndoable();
 };
 
 // Writing the "value" property must not commit, so that a settings page can
@@ -204,6 +206,26 @@ void tst_Aspects::everyBuiltInAspectHasAControl()
         const AspectControls::Control control = aspect->presentation().control;
         QVERIFY2(control != AspectControls::Custom, qPrintable(name));
     }
+}
+
+// A user editing a control has to be undoable. The widget delegates push an
+// undo command from their signal handlers; anything driving the aspect through
+// its properties, as a QML delegate does, must get the same.
+void tst_Aspects::aGuiWriteIsUndoable()
+{
+    QUndoStack stack;
+    BoolAspect aspect;
+    aspect.setAutoApply(false);
+    aspect.setUndoStack(&stack);
+    aspect.setValue(false);
+
+    QCOMPARE(stack.count(), 0);
+    QVERIFY(aspect.setProperty("value", true));
+    QCOMPARE(aspect.volatileValue(), true);
+    QCOMPARE(stack.count(), 1);
+
+    stack.undo();
+    QCOMPARE(aspect.volatileValue(), false);
 }
 
 QTEST_GUILESS_MAIN(tst_Aspects)
