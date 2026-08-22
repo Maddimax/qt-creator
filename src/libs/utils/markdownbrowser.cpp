@@ -84,9 +84,7 @@ static constexpr int kCopyButtonMargin = 2;
 
 static QIcon copyIcon(bool isCopied)
 {
-    static QIcon clickedIcon = Utils::Icons::OK.icon();
-    static QIcon unclickedIcon = Utils::Icons::COPY.icon();
-    return isCopied ? clickedIcon : unclickedIcon;
+    return isCopied ? Utils::Icons::OK.icon() : Utils::Icons::COPY.icon();
 }
 
 class AnimatedImageHandler : public QObject, public QTextObjectInterface
@@ -885,8 +883,8 @@ void MarkdownBrowser::postProcessDocument(bool firstTime)
         auto blockFormat = block.blockFormat();
 
         if (blockFormat.hasProperty(QTextFormat::HeadingLevel)) {
-            blockFormat.setTopMargin(SpacingTokens::PaddingVXxl * m_scale);
-            blockFormat.setBottomMargin(SpacingTokens::GapVM * m_scale);
+            blockFormat.setTopMargin(int(SpacingTokens::PaddingVXxl) * m_scale);
+            blockFormat.setBottomMargin(int(SpacingTokens::GapVM) * m_scale);
         } else {
             blockFormat.setLineHeight(contentTF.lineHeight() * m_scale, QTextBlockFormat::FixedHeight);
         }
