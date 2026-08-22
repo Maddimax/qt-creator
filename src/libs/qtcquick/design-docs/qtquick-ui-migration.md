@@ -299,6 +299,61 @@ exactly that shape, so it went there rather than into a new seam.
 If a fourth arrives that fits none of these, that is the point to reconsider a
 single "host services" object, rather than at the third.
 
+## The QSGTextNode spike: go, with one architecture change
+
+The editor port's go/no-go was measured with a standalone Qt Quick spike rather
+than reasoned about. Both risks it was aimed at are answered.
+
+**Throughput is a non-issue.** M5 Pro, macOS 26.5, Metal RHI, 120 Hz, window
+1400x834 at DPR 2.0, 61-62 visible lines, continuous 3000 px/s scroll over 12 s,
+frame measured swap-to-swap:
+
+| lines | mode | frame mean / p99 (ms) | polish (ms) | paintNode (ms) |
+|---|---|---|---|---|
+| 10k  | re-emit | 8.333 / 8.963 | 0.091 | 0.590 |
+| 100k | re-emit | 8.333 / 9.264 | 0.091 | 0.610 |
+| 1M   | re-emit | 8.335 / 9.216 | 0.092 | 0.615 |
+| 1M   | node cache | 8.334 / 9.834 | 0.092 | 0.048 |
+
+Every mode locks to vsync at every file size, including one million lines: cost
+is O(visible), not O(file). Re-emitting every visible text node each frame costs
+0.6 ms of render thread, so **the per-line node cache the plan assumed would be
+mandatory is not needed** for 120 Hz. Caveat stated by the spike: vsync could not
+be disabled on Metal, so headroom *beyond* 120 Hz is inferred from CPU time
+rather than measured.
+
+That retires the risk the plan ranked second overall - "if QML scrolling of a
+200k-line file is 10 % worse the programme is dead".
+
+**The multi-selection workaround has to be inverted.** The plan specified: emit
+selection backgrounds as scene-graph rectangles, merge only foregrounds into the
+layout formats. Measured against a `QTextLayout::draw(selections)` ground truth,
+that is the wrong way round:
+
+- Backgrounds as rectangles **fail**. Geometry from the public API punches
+  unhighlighted holes at tabs (23 px and 8 px in the fixture) and at a BiDi
+  boundary; a single-rect variant missed 55 px and over-painted 14 px on a
+  discontiguous RTL selection. There is no public API for selection-region
+  geometry - `addSelectedRegionsToPath` is private.
+- Merging foregrounds **and** backgrounds into `QTextLayout::formats()` **works**,
+  continuously across whitespace, trailing spaces and tabs, with correct BiDi and
+  full line height to within one device pixel. The whitespace hole that
+  `texteditorlayout.h` warns about, and that motivated the split, **did not
+  reproduce**.
+
+So merge both and patch the one real gap: the `lineHeight/4` newline tail, one
+rect off `naturalTextRect().right()`. Cost is a range flattener plus re-layout of
+a line when its overlays change, measured at ~25 us per line.
+
+**The render-thread rule is confirmed, not assumed.** Layout in `updatePolish()`
+ran clean; deliberately laying out in `updatePaintNode()` produced exactly the
+cross-thread QObject and QTimer failures the plan predicted. Creator's document
+layout is QObject-based, so that ordering is mandatory rather than stylistic.
+
+Upstream request, now a convenience rather than a blocker:
+`void addTextLayout(QPointF, QTextLayout *, const QList<QTextLayout::FormatRange> &selections, int lineStart = 0, int lineCount = -1);`
+or the smaller `QList<QRectF> QTextLine::selectionRects(int start, int length) const`.
+
 ## What the gutter extraction taught us about the viewport
 
 The gutter display list is done and the five paint methods ported cleanly, so the
