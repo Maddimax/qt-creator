@@ -24,6 +24,8 @@ QT_END_NAMESPACE
 // Helper class holding all custom color values
 namespace Utils::StyleHelper {
 
+Q_NAMESPACE_EXPORT(QTCREATOR_UTILS_EXPORT)
+
 const unsigned int DEFAULT_BASE_COLOR = 0x666666;
 inline constexpr int progressFadeAnimationDuration = 600;
 inline constexpr int defaultFadeAnimationDuration = 160;
@@ -49,55 +51,62 @@ constexpr char C_TABBAR_PINNED_DOCUMENT[] = "pinnedTab";
 constexpr char C_QT_SCALE_FACTOR_ROUNDING_POLICY[] = "QT_SCALE_FACTOR_ROUNDING_POLICY";
 
 namespace SpacingTokens {
-    constexpr int PrimitiveXxs = 2;
-    constexpr int PrimitiveXs = 4;
-    constexpr int PrimitiveS = 6;
-    constexpr int PrimitiveM = 8;
-    constexpr int PrimitiveL = 12;
-    constexpr int PrimitiveXl = 16;
-    constexpr int PrimitiveXxl = 24;
+
+Q_NAMESPACE_EXPORT(QTCREATOR_UTILS_EXPORT)
+
+enum Spacing {
+    PrimitiveXxs = 2,
+    PrimitiveXs = 4,
+    PrimitiveS = 6,
+    PrimitiveM = 8,
+    PrimitiveL = 12,
+    PrimitiveXl = 16,
+    PrimitiveXxl = 24,
 
     // Top and bottom padding within the component
-    constexpr int PaddingVXxs = PrimitiveXxs;
-    constexpr int PaddingVXs = PrimitiveXs;
-    constexpr int PaddingVS = PrimitiveS;
-    constexpr int PaddingVM = PrimitiveM;
-    constexpr int PaddingVL = PrimitiveL;
-    constexpr int PaddingVXl = PrimitiveXl;
-    constexpr int PaddingVXxl = PrimitiveXxl;
+    PaddingVXxs = PrimitiveXxs,
+    PaddingVXs = PrimitiveXs,
+    PaddingVS = PrimitiveS,
+    PaddingVM = PrimitiveM,
+    PaddingVL = PrimitiveL,
+    PaddingVXl = PrimitiveXl,
+    PaddingVXxl = PrimitiveXxl,
 
     // Left and right padding within the component
-    constexpr int PaddingHXxs = PrimitiveXxs;
-    constexpr int PaddingHXs = PrimitiveXs;
-    constexpr int PaddingHS = PrimitiveS;
-    constexpr int PaddingHM = PrimitiveM;
-    constexpr int PaddingHL = PrimitiveL;
-    constexpr int PaddingHXl = PrimitiveXl;
-    constexpr int PaddingHXxl = PrimitiveXxl;
+    PaddingHXxs = PrimitiveXxs,
+    PaddingHXs = PrimitiveXs,
+    PaddingHS = PrimitiveS,
+    PaddingHM = PrimitiveM,
+    PaddingHL = PrimitiveL,
+    PaddingHXl = PrimitiveXl,
+    PaddingHXxl = PrimitiveXxl,
 
     // Gap between vertically (on top of each other) positioned elements
-    constexpr int GapVXxs = PrimitiveXxs;
-    constexpr int GapVXs = PrimitiveXs;
-    constexpr int GapVS = PrimitiveS;
-    constexpr int GapVM = PrimitiveM;
-    constexpr int GapVL = PrimitiveL;
-    constexpr int GapVXl = PrimitiveXl;
-    constexpr int GapVXxl = PrimitiveXxl;
+    GapVXxs = PrimitiveXxs,
+    GapVXs = PrimitiveXs,
+    GapVS = PrimitiveS,
+    GapVM = PrimitiveM,
+    GapVL = PrimitiveL,
+    GapVXl = PrimitiveXl,
+    GapVXxl = PrimitiveXxl,
 
     // Gap between horizontally (from left to right) positioned elements
-    constexpr int GapHXxs = PrimitiveXxs;
-    constexpr int GapHXs = PrimitiveXs;
-    constexpr int GapHS = PrimitiveS;
-    constexpr int GapHM = PrimitiveM;
-    constexpr int GapHL = PrimitiveL;
-    constexpr int GapHXl = PrimitiveXl;
-    constexpr int GapHXxl = PrimitiveXxl;
+    GapHXxs = PrimitiveXxs,
+    GapHXs = PrimitiveXs,
+    GapHS = PrimitiveS,
+    GapHM = PrimitiveM,
+    GapHL = PrimitiveL,
+    GapHXl = PrimitiveXl,
+    GapHXxl = PrimitiveXxl,
 
     // Corner radii for rounded rectangles
-    constexpr int RadiusS = PrimitiveXs;
-    constexpr int RadiusM = PrimitiveM;
-    constexpr int RadiusL = PrimitiveL;
+    RadiusS = PrimitiveXs,
+    RadiusM = PrimitiveM,
+    RadiusL = PrimitiveL,
 };
+Q_ENUM_NS(Spacing)
+
+} // namespace SpacingTokens
 
 constexpr int HighlightThickness = SpacingTokens::PrimitiveXxs;
 
@@ -105,6 +114,7 @@ enum class ToolbarStyle {
     Compact,
     Relaxed,
 };
+Q_ENUM_NS(ToolbarStyle)
 
 // Keep in sync with:
 // SyleHelper::uiFontMetrics, ICore::uiConfigInformation, tst_manual_widgets_uifonts::main
@@ -127,6 +137,7 @@ enum UiElement {
     UiElementIconStandard,
     UiElementIconActive,
 };
+Q_ENUM_NS(UiElement)
 
 class QTCREATOR_UTILS_EXPORT TextFormat
 {

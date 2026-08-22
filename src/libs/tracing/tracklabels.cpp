@@ -145,7 +145,7 @@ void TrackLabels::paintEvent(QPaintEvent *event)
     const QColor trackBgColor = Utils::creatorColor(Utils::Theme::Token_Background_Muted);
     const QColor trackOutlineColor = Utils::creatorColor(Utils::Theme::Token_Stroke_Subtle);
     const QColor dividerColor = Utils::creatorColor(Utils::Theme::Timeline_DividerColor);
-    const int rounding = qMax(Utils::StyleHelper::SpacingTokens::RadiusS, kTrackOutline);
+    const int rounding = qMax<int>(Utils::StyleHelper::SpacingTokens::RadiusS, kTrackOutline);
     const QPen outlinePen(trackOutlineColor, kTrackOutline);
     const QFont trackLabelFont = trackLabelTf.font();
     const QColor trackLabelColor = trackLabelTf.color();
