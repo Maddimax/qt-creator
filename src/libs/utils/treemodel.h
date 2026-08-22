@@ -27,6 +27,8 @@ public:
 
     virtual QVariant data(int column, int role) const;
     virtual bool setData(int column, const QVariant &data, int role);
+    // Serves roles registered with BaseTreeModel::addItemRole().
+    virtual QVariant namedData(const QByteArray &roleName) const;
     virtual Qt::ItemFlags flags(int column) const;
 
     virtual bool hasChildren() const;
@@ -202,6 +204,13 @@ class QTCREATOR_UTILS_EXPORT BaseTreeModel : public QAbstractItemModel
 public:
     TreeItem *takeItem(TreeItem *item); // item is not destroyed.
 
+    // Named roles for QML consumption. Register before handing the model
+    // to a view; views cache roleNames(). Both return the allocated role.
+    int addColumnRole(const QByteArray &name, int column, int sourceRole = Qt::DisplayRole);
+    int addItemRole(const QByteArray &name); // answered by TreeItem::namedData()
+
+    QHash<int, QByteArray> roleNames() const override;
+
 protected:
     explicit BaseTreeModel(QObject *parent = nullptr);
     explicit BaseTreeModel(TreeItem *root, QObject *parent = nullptr);
@@ -246,6 +255,17 @@ protected:
     QStringList m_header;
     QStringList m_headerToolTip;
     int m_columnCount;
+
+private:
+    struct NamedRole
+    {
+        QByteArray name;
+        int column = -1; // -1: resolved through TreeItem::namedData()
+        int sourceRole = Qt::DisplayRole;
+    };
+    int registerNamedRole(const QByteArray &name, int column, int sourceRole);
+
+    QHash<int, NamedRole> m_namedRoles;
 };
 
 namespace Internal {

@@ -3,7 +3,9 @@
 
 #include <utils/treemodel.h>
 
+#include <QRegularExpression>
 #include <QSortFilterProxyModel>
+#include <QStringListModel>
 #include <QTest>
 
 #include <type_traits>
@@ -21,6 +23,8 @@ private slots:
     void testIteration();
     void testMixed();
     void testRemoveRows();
+    void testRoleNames();
+    void testNamedRoles();
 };
 
 static int countLevelItems(TreeItem *base, int level)
@@ -126,6 +130,107 @@ void tst_TreeModel::testRemoveRows()
     QCOMPARE(proxy.rowCount(), 2);
     QCOMPARE(m.rowCount(), 2);
     QCOMPARE(m.index(0, 0).data().toString(), QString("item3"));
+}
+
+// Resolves a role by name, the way QQmlDelegateModel binds delegate
+// properties.
+static int roleByName(const QAbstractItemModel &model, const QByteArray &name)
+{
+    const QHash<int, QByteArray> names = model.roleNames();
+    for (auto it = names.cbegin(); it != names.cend(); ++it) {
+        if (it.value() == name)
+            return it.key();
+    }
+    return -1;
+}
+
+void tst_TreeModel::testRoleNames()
+{
+    // An unconfigured model keeps the stock QAbstractItemModel role names.
+    TreeModel<> unconfigured;
+    QCOMPARE(unconfigured.roleNames(), QStringListModel().roleNames());
+
+    TreeModel<> m;
+    const int kindRole = m.addColumnRole("kind", 1);
+    const int detailRole = m.addItemRole("detail");
+    QVERIFY(kindRole != -1);
+    QVERIFY(detailRole != -1);
+    QVERIFY(kindRole != detailRole);
+
+    const QHash<int, QByteArray> names = m.roleNames();
+    QCOMPARE(names.value(kindRole), QByteArray("kind"));
+    QCOMPARE(names.value(detailRole), QByteArray("detail"));
+
+    // The defaults survive configuration.
+    QCOMPARE(names.value(Qt::DisplayRole), QByteArray("display"));
+    QCOMPARE(names.value(Qt::DecorationRole), QByteArray("decoration"));
+    QCOMPARE(names.value(Qt::ToolTipRole), QByteArray("toolTip"));
+
+    // Duplicate names are rejected.
+    QTest::ignoreMessage(QtDebugMsg, QRegularExpression("SOFT ASSERT.*"));
+    QCOMPARE(m.addItemRole("kind"), -1);
+    QCOMPARE(m.roleNames().size(), names.size());
+}
+
+class NamedDataItem : public TreeItem
+{
+public:
+    QVariant data(int column, int role) const override
+    {
+        if (role == Qt::DisplayRole)
+            return column == 1 ? m_kind : QString("col%1").arg(column);
+        return {};
+    }
+
+    bool setData(int column, const QVariant &data, int role) override
+    {
+        if (column == 1 && role == Qt::DisplayRole) {
+            m_kind = data.toString();
+            return true;
+        }
+        return false;
+    }
+
+    QVariant namedData(const QByteArray &roleName) const override
+    {
+        if (roleName == "detail")
+            return QString("detail-value");
+        return {};
+    }
+
+private:
+    QString m_kind = "col1";
+};
+
+void tst_TreeModel::testNamedRoles()
+{
+    TreeModel<> m;
+    m.setHeader({"name", "kind"});
+    const int kindRole = m.addColumnRole("kind", 1);
+    const int detailRole = m.addItemRole("detail");
+    m.rootItem()->appendChild(new NamedDataItem);
+
+    QCOMPARE(roleByName(m, "kind"), kindRole);
+    QCOMPARE(roleByName(m, "detail"), detailRole);
+
+    // QML queries column 0; a column role reroutes to the mapped column
+    // and returns exactly what column-oriented data() returns there.
+    const QModelIndex idx = m.index(0, 0);
+    QCOMPARE(m.data(idx, kindRole), m.data(m.index(0, 1), Qt::DisplayRole));
+    QCOMPARE(m.data(idx, kindRole).toString(), QString("col1"));
+
+    // An item role bypasses the column axis entirely.
+    QCOMPARE(m.data(idx, detailRole).toString(), QString("detail-value"));
+
+    // Unregistered roles still reach TreeItem::data() unchanged.
+    QCOMPARE(m.data(idx, Qt::DisplayRole).toString(), QString("col0"));
+    QVERIFY(!m.data(idx, Qt::ToolTipRole).isValid());
+
+    // Writing through a column role reaches TreeItem::setData() of the
+    // mapped column.
+    QVERIFY(m.setData(idx, QString("edited"), kindRole));
+    QCOMPARE(m.data(idx, kindRole).toString(), QString("edited"));
+    QCOMPARE(m.data(m.index(0, 1), Qt::DisplayRole).toString(), QString("edited"));
 }
 
 void tst_TreeModel::testTypes()

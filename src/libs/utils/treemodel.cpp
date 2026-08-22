@@ -638,6 +638,12 @@ bool TreeItem::setData(int column, const QVariant &data, int role)
     return false;
 }
 
+QVariant TreeItem::namedData(const QByteArray &roleName) const
+{
+    Q_UNUSED(roleName)
+    return {};
+}
+
 Qt::ItemFlags TreeItem::flags(int column) const
 {
     Q_UNUSED(column)
@@ -1036,7 +1042,12 @@ int BaseTreeModel::columnCount(const QModelIndex &idx) const
 bool BaseTreeModel::setData(const QModelIndex &idx, const QVariant &data, int role)
 {
     TreeItem *item = itemForIndex(idx);
-    bool res = item ? item->setData(idx.column(), data, role) : false;
+    if (!item)
+        return false;
+    const auto it = m_namedRoles.constFind(role);
+    const bool res = it == m_namedRoles.constEnd()
+                         ? item->setData(idx.column(), data, role)
+                         : it->column >= 0 && item->setData(it->column, data, it->sourceRole);
     if (res)
         emit dataChanged(idx, idx);
     return res;
@@ -1045,7 +1056,14 @@ bool BaseTreeModel::setData(const QModelIndex &idx, const QVariant &data, int ro
 QVariant BaseTreeModel::data(const QModelIndex &idx, int role) const
 {
     TreeItem *item = itemForIndex(idx);
-    return item ? item->data(idx.column(), role) : QVariant();
+    if (!item)
+        return {};
+    const auto it = m_namedRoles.constFind(role);
+    if (it == m_namedRoles.constEnd())
+        return item->data(idx.column(), role);
+    if (it->column < 0)
+        return item->namedData(it->name);
+    return item->data(it->column, it->sourceRole);
 }
 
 QVariant BaseTreeModel::headerData(int section, Qt::Orientation orientation,
@@ -1134,6 +1152,36 @@ void BaseTreeModel::setHeader(const QStringList &displays)
 void BaseTreeModel::setHeaderToolTip(const QStringList &tips)
 {
     m_headerToolTip = tips;
+}
+
+QHash<int, QByteArray> BaseTreeModel::roleNames() const
+{
+    QHash<int, QByteArray> names = QAbstractItemModel::roleNames();
+    for (auto it = m_namedRoles.cbegin(); it != m_namedRoles.cend(); ++it)
+        names.insert(it.key(), it.value().name);
+    return names;
+}
+
+int BaseTreeModel::addColumnRole(const QByteArray &name, int column, int sourceRole)
+{
+    QTC_ASSERT(column >= 0, return -1);
+    return registerNamedRole(name, column, sourceRole);
+}
+
+int BaseTreeModel::addItemRole(const QByteArray &name)
+{
+    return registerNamedRole(name, -1, Qt::DisplayRole);
+}
+
+int BaseTreeModel::registerNamedRole(const QByteArray &name, int column, int sourceRole)
+{
+    QTC_ASSERT(!name.isEmpty(), return -1);
+    QTC_ASSERT(roleNames().key(name, -1) == -1, return -1);
+    // Offset keeps allocated ids clear of the Qt::UserRole offsets that
+    // items already interpret in data().
+    const int role = Qt::UserRole + 0x10000 + int(m_namedRoles.size());
+    m_namedRoles.insert(role, {name, column, sourceRole});
+    return role;
 }
 
 QModelIndex BaseTreeModel::index(int row, int column, const QModelIndex &parent) const
