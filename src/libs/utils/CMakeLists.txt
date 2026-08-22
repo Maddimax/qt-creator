@@ -160,6 +160,7 @@ add_qtc_library(Utils
     stringtable.cpp stringtable.h
     stringutils.cpp stringutils.h
     stylehelper.cpp stylehelper.h
+    stylehelperpainting.h
     summarywidget.cpp summarywidget.h
     synchronizedvalue.h
     templateengine.cpp templateengine.h

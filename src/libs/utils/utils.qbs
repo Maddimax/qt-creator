@@ -310,6 +310,7 @@ QtcLibrary {
         "stringutils.h",
         "stylehelper.cpp",
         "stylehelper.h",
+        "stylehelperpainting.h",
         "summarywidget.cpp",
         "summarywidget.h",
         "synchronizedvalue.h",

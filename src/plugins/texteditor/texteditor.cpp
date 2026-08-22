@@ -70,6 +70,7 @@
 #include <utils/qtcassert.h>
 #include <utils/searchresultitem.h>
 #include <utils/stylehelper.h>
+#include <utils/stylehelperpainting.h>
 #include <utils/textutils.h>
 #include <utils/theme/theme.h>
 #include <utils/tooltip/tooltip.h>

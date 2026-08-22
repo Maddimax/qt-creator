@@ -6,8 +6,8 @@
 #include "theme/theme.h"
 #include "utils_global.h"
 
+#include <QIcon>
 #include <QPen>
-#include <QStyle>
 
 QT_BEGIN_NAMESPACE
 class QLabel;
@@ -186,12 +186,6 @@ QTCREATOR_UTILS_EXPORT QString fontToCssProperties(const QFont &font);
 
 // Sets the base color and makes sure all top level widgets are updated
 QTCREATOR_UTILS_EXPORT void setBaseColor(const QColor &color);
-
-// Draws a shaded anti-aliased arrow
-QTCREATOR_UTILS_EXPORT void drawArrow(QStyle::PrimitiveElement element, QPainter *painter,
-                                      const QStyleOption *option);
-QTCREATOR_UTILS_EXPORT void drawMinimalArrow(QStyle::PrimitiveElement element, QPainter *painter,
-                                             const QStyleOption *option);
 
 QTCREATOR_UTILS_EXPORT void drawPanelBgRect(QPainter *painter, const QRectF &rect,
                                             const QBrush &brush);

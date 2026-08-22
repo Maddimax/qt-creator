@@ -8,6 +8,7 @@
 #include "icon.h"
 #include "theme/theme.h"
 
+#include <utils/stylehelperpainting.h>
 #include <QHBoxLayout>
 #include <QMenu>
 #include <QPainter>

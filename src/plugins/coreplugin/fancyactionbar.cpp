@@ -8,6 +8,7 @@
 #include <utils/hostosinfo.h>
 #include <utils/stringutils.h>
 #include <utils/stylehelper.h>
+#include <utils/stylehelperpainting.h>
 #include <utils/theme/theme.h>
 #include <utils/tooltip/tooltip.h>
 
