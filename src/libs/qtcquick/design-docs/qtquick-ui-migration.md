@@ -299,6 +299,46 @@ exactly that shape, so it went there rather than into a new seam.
 If a fourth arrives that fits none of these, that is the point to reconsider a
 single "host services" object, rather than at the third.
 
+## Porting hazards found by measurement
+
+Three findings that change what is portable, each found by reading the code
+rather than reasoning about it.
+
+**Undo was never behind `setVolatileValue()`.** Each aspect keeps an
+`UndoableValue` holding GUI-side state, and every call that records an undo
+command sits in a widget signal lambda inside `addToLayoutImpl()`.
+`setVolatileValue()` goes the other way, through `volatileValueToGui()`, which
+each aspect implements with `setWithoutUndo`. So a setting edited through a Qt
+Quick delegate could not be undone while the same edit through a widget could.
+Two links were missing, not one: nothing recorded the command, and nothing
+carried an undo back to the aspect - the latter is also a widget-side signal
+connection. Fixed with `setVolatileVariantValueFromGui()` plus a connection made
+in the aspect's own constructor. **Rule: when a widget delegate does something in
+a signal handler, check whether the model half depends on that handler existing.**
+
+**`Icon::icon()` cached on the device pixel ratio alone.** It builds tinted
+pixmaps from `creatorColor()`, so an icon kept the colours of whichever theme was
+current when it was first requested. Removing an outer `static` that stores an
+icon is not sufficient on its own, and neither is fixing the inner cache: the
+outer fix makes the call happen again, the inner one makes the call return the
+right thing. Both are required, which is easy to get wrong in either direction.
+
+**`updateColumn(n)` does not refresh a QML delegate for n != 0.** QML delegates
+bind through the column-0 index, while `TreeItem::updateColumn(n)` emits
+`dataChanged` only for cell `(row, n)`. `TreeItem::update()` spans all columns and
+is fine. The debugger's watch and breakpoint models optimise with
+`updateColumn` on non-zero columns, so those panels need their updates widened
+before they can be driven from QML. This is the sharpest of the three because
+nothing fails loudly - the view just stops updating.
+
+Related, and the biggest porting risk for the debugger views: `canFetchMore()` /
+`fetchMore()` is per-item and widely used for lazy expansion. A plain
+`ListView`/`DelegateModel` only ever fetches the root level, and Qt Quick's
+`TreeView` goes through `QQmlTreeModelToTableModel` whose fetch-on-expand
+behaviour differs across Qt versions. Verify per panel. Eagerly populated panels,
+kit and device lists and option pages are portable now; `fetchMore`-driven ones
+are not.
+
 ## Things learned the hard way
 
 **The per-file taint count overstates progress.** The table above counts a file
