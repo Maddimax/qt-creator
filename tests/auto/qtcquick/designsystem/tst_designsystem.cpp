@@ -1,9 +1,11 @@
 // Copyright (C) 2026 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
+#include <qtcquick/aspectcontainermodel.h>
 #include <qtcquick/qtciconprovider.h>
 #include <qtcquick/qtcquickengine.h>
 
+#include <utils/aspects.h>
 #include <utils/stylehelper.h>
 #include <utils/theme/theme.h>
 #include <utils/theme/theme_p.h>
@@ -85,6 +87,8 @@ private slots:
     void fontCoverage();
     void spacingCoverage();
     void iconProvider();
+    void aspectContainerModel();
+    void aspectFormLoads();
 };
 
 void tst_DesignSystem::initTestCase()
@@ -220,6 +224,70 @@ void tst_DesignSystem::iconProvider()
     const QPixmap unknown = provider.requestPixmap(
         "/utils/images/home.png?color=NotAThemeColor", &size, {});
     QVERIFY(unknown.isNull());
+}
+
+// One of every aspect kind the form claims to handle.
+static void fillContainer(AspectContainer *container)
+{
+    auto boolAspect = new BoolAspect(container);
+    boolAspect->setLabelText("A bool");
+    auto stringAspect = new StringAspect(container);
+    stringAspect->setLabelText("A string");
+    auto integerAspect = new IntegerAspect(container);
+    integerAspect->setLabelText("An integer");
+    auto doubleAspect = new DoubleAspect(container);
+    doubleAspect->setLabelText("A double");
+    auto selectionAspect = new SelectionAspect(container);
+    selectionAspect->setLabelText("A selection");
+    selectionAspect->addOption("First");
+    selectionAspect->addOption("Second");
+    auto filePathAspect = new FilePathAspect(container);
+    filePathAspect->setLabelText("A file path");
+}
+
+void tst_DesignSystem::aspectContainerModel()
+{
+    AspectContainer container;
+    fillContainer(&container);
+
+    QtcQuick::AspectContainerModel model(&container);
+    QCOMPARE(model.rowCount(), 6);
+
+    const QHash<int, QByteArray> roles = model.roleNames();
+    QVERIFY(roles.values().contains("aspect"));
+    QVERIFY(roles.values().contains("kind"));
+    QVERIFY(roles.values().contains("options"));
+
+    using Kind = QtcQuick::AspectContainerModel::Kind;
+    const QList<Kind> expected = {Kind::Bool, Kind::String, Kind::Integer, Kind::Double,
+                                  Kind::Selection, Kind::FilePath};
+    for (int row = 0; row < expected.size(); ++row) {
+        const QModelIndex index = model.index(row, 0);
+        QCOMPARE(index.data(QtcQuick::AspectContainerModel::KindRole).toInt(),
+                 int(expected.at(row)));
+        QVERIFY(index.data(QtcQuick::AspectContainerModel::AspectRole).value<QObject *>());
+    }
+
+    // The options role only carries entries for a selection aspect.
+    QCOMPARE(model.index(4, 0).data(QtcQuick::AspectContainerModel::OptionsRole).toStringList(),
+             QStringList({"First", "Second"}));
+    QVERIFY(model.index(0, 0).data(QtcQuick::AspectContainerModel::OptionsRole)
+                .toStringList().isEmpty());
+}
+
+void tst_DesignSystem::aspectFormLoads()
+{
+    AspectContainer container;
+    fillContainer(&container);
+    auto model = new QtcQuick::AspectContainerModel(&container, this);
+
+    QQmlComponent component(QtcQuick::engine(),
+                            QUrl("qrc:/qt/qml/QtCreator/Ui/AspectForm.qml"));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+
+    std::unique_ptr<QObject> form(
+        component.createWithInitialProperties({{"model", QVariant::fromValue(model)}}));
+    QVERIFY(form);
 }
 
 QTEST_MAIN(tst_DesignSystem)

@@ -12,6 +12,8 @@ add_qtc_library(QtcQuick
     Qt::QuickWidgets
     Qt::Widgets
   SOURCES
+    aspectcontainermodel.cpp aspectcontainermodel.h
+    aspectform.cpp aspectform.h
     qtcdesignsystem.cpp qtcdesignsystem.h
     qtciconprovider.cpp qtciconprovider.h
     qtcquick_global.h
@@ -28,7 +30,15 @@ if(TARGET QtcQuick)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      AspectForm.qml
+      BoolDelegate.qml
+      DoubleDelegate.qml
       Fonts.qml
+      IntegerDelegate.qml
+      SelectionDelegate.qml
+      StringDelegate.qml
+      TextDisplayDelegate.qml
       Tokens.qml
+      UnsupportedDelegate.qml
   )
 endif()

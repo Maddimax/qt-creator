@@ -10,6 +10,8 @@ QtcLibrary {
     cpp.defines: base.concat("QTCQUICK_LIBRARY")
 
     files: [
+        "aspectcontainermodel.cpp", "aspectcontainermodel.h",
+        "aspectform.cpp", "aspectform.h",
         "qtcdesignsystem.cpp", "qtcdesignsystem.h",
         "qtciconprovider.cpp", "qtciconprovider.h",
         "qtcquick_global.h",
@@ -20,7 +22,7 @@ QtcLibrary {
     // qbs has no QML module support; the .qml files are built by CMake only.
     Group {
         name: "qml"
-        files: ["Fonts.qml", "Tokens.qml"]
+        files: ["*.qml"]
         fileTags: []
     }
 
