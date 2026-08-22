@@ -24,7 +24,7 @@ RowLayout {
 
     Label {
         text: delegate.labelText
-        Layout.preferredWidth: 200
+        Layout.preferredWidth: Metrics.formLabelWidth
         elide: Text.ElideRight
     }
 
@@ -33,7 +33,7 @@ RowLayout {
         currentIndex: delegate.aspect?.value ?? 0
         ToolTip.text: delegate.toolTip
         ToolTip.visible: hovered && delegate.toolTip !== ""
-        Layout.preferredWidth: 240
+        Layout.preferredWidth: Metrics.formControlWidth
 
         model: delegate.options
 

@@ -22,7 +22,8 @@ add_qtc_library(QtcQuick
 )
 
 if(TARGET QtcQuick)
-  set_source_files_properties(Fonts.qml Tokens.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+  set_source_files_properties(Fonts.qml Metrics.qml Tokens.qml
+                              PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
   qt_add_qml_module(QtcQuick
     URI QtCreator.Ui
@@ -35,6 +36,7 @@ if(TARGET QtcQuick)
       DoubleDelegate.qml
       Fonts.qml
       IntegerDelegate.qml
+      Metrics.qml
       SelectionDelegate.qml
       StringDelegate.qml
       TextDisplayDelegate.qml

@@ -23,7 +23,7 @@ RowLayout {
 
     Label {
         text: delegate.labelText
-        Layout.preferredWidth: 200
+        Layout.preferredWidth: Metrics.formLabelWidth
         elide: Text.ElideRight
     }
 

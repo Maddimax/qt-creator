@@ -27,7 +27,7 @@ RowLayout {
 
     Label {
         text: delegate.labelText
-        Layout.preferredWidth: 200
+        Layout.preferredWidth: Metrics.formLabelWidth
         elide: Text.ElideRight
     }
 
@@ -38,7 +38,7 @@ RowLayout {
         horizontalAlignment: TextInput.AlignRight
         ToolTip.text: delegate.toolTip
         ToolTip.visible: hovered && delegate.toolTip !== ""
-        Layout.preferredWidth: 120
+        Layout.preferredWidth: Metrics.formControlWidth / 2
 
         validator: DoubleValidator {
             bottom: delegate.minimum
