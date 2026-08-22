@@ -3,6 +3,8 @@
 
 #include "qtcquickengine.h"
 
+#include "qtciconprovider.h"
+
 #include <utils/environment.h>
 #include <utils/shutdownguard.h>
 
@@ -23,6 +25,8 @@ static QQmlEngine *createEngine()
     auto engine = new QQmlEngine;
     if (Utils::qtcEnvironmentVariableIsSet(kImportPathVariable))
         engine->addImportPath(Utils::qtcEnvironmentVariable(kImportPathVariable));
+
+    engine->addImageProvider(QLatin1String(IconProvider::name()), new IconProvider);
 
     QObject::connect(engine, &QQmlEngine::warnings, engine, [](const QList<QQmlError> &errors) {
         for (const QQmlError &error : errors)

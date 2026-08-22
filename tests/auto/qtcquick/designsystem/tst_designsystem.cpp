@@ -1,6 +1,7 @@
 // Copyright (C) 2026 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
+#include <qtcquick/qtciconprovider.h>
 #include <qtcquick/qtcquickengine.h>
 
 #include <utils/stylehelper.h>
@@ -83,6 +84,7 @@ private slots:
     void tokenCoverage();
     void fontCoverage();
     void spacingCoverage();
+    void iconProvider();
 };
 
 void tst_DesignSystem::initTestCase()
@@ -201,6 +203,23 @@ void tst_DesignSystem::spacingCoverage()
         QVERIFY(object);
         QCOMPARE(object->property("v").toInt(), spacing.value(i));
     }
+}
+
+void tst_DesignSystem::iconProvider()
+{
+    QtcQuick::IconProvider provider;
+    QSize size;
+
+    // A tinted mask has to come back as a real pixmap.
+    const QPixmap tinted = provider.requestPixmap(
+        "/utils/images/home.png?color=Token_Text_Muted", &size, {});
+    QVERIFY(!tinted.isNull());
+    QCOMPARE(size, tinted.size());
+
+    // An unknown theme colour must not produce a pixmap.
+    const QPixmap unknown = provider.requestPixmap(
+        "/utils/images/home.png?color=NotAThemeColor", &size, {});
+    QVERIFY(unknown.isNull());
 }
 
 QTEST_MAIN(tst_DesignSystem)

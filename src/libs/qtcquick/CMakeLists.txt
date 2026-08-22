@@ -13,6 +13,7 @@ add_qtc_library(QtcQuick
     Qt::Widgets
   SOURCES
     qtcdesignsystem.cpp qtcdesignsystem.h
+    qtciconprovider.cpp qtciconprovider.h
     qtcquick_global.h
     qtcquickengine.cpp qtcquickengine.h
     qtcquickwidget.cpp qtcquickwidget.h

@@ -11,6 +11,7 @@ QtcLibrary {
 
     files: [
         "qtcdesignsystem.cpp", "qtcdesignsystem.h",
+        "qtciconprovider.cpp", "qtciconprovider.h",
         "qtcquick_global.h",
         "qtcquickengine.cpp", "qtcquickengine.h",
         "qtcquickwidget.cpp", "qtcquickwidget.h",
