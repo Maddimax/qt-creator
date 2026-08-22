@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "extensionsystem_global.h"
+#include "extensionsystemwidgets_global.h"
 #include "pluginspec.h"
 
 #include <utils/treemodel.h>
@@ -29,7 +29,7 @@ class CollectionItem;
 class PluginItem;
 } // Internal
 
-class EXTENSIONSYSTEM_EXPORT PluginData
+class EXTENSIONSYSTEM_WIDGETS_EXPORT PluginData
 {
 public:
     explicit PluginData(QWidget *parent, PluginView *pluginView = nullptr);
@@ -48,7 +48,7 @@ private:
     friend class PluginView;
 };
 
-class EXTENSIONSYSTEM_EXPORT PluginView : public QWidget
+class EXTENSIONSYSTEM_WIDGETS_EXPORT PluginView : public QWidget
 {
     Q_OBJECT
 

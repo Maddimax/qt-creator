@@ -1,21 +1,33 @@
 add_qtc_library(ExtensionSystem
   DEPENDS Utils
-  PUBLIC_DEPENDS Qt::Core Qt::Widgets
+  PUBLIC_DEPENDS Qt::Core
   SOURCES
     extensionsystem_global.h
     extensionsystemtr.h
     invoker.cpp invoker.h
     iplugin.cpp iplugin.h
     optionsparser.cpp optionsparser.h
-    plugindetailsview.cpp plugindetailsview.h
-    pluginerroroverview.cpp pluginerroroverview.h
-    pluginerrorview.cpp pluginerrorview.h
     pluginmanager.cpp pluginmanager.h pluginmanager_p.h
+    pluginprompts.cpp pluginprompts.h
     pluginspec.cpp pluginspec.h
-    pluginview.cpp pluginview.h
   EXPLICIT_MOC
     pluginmanager.h
   SKIP_AUTOMOC pluginmanager.cpp
+)
+
+# The plugin dialogs. Kept out of ExtensionSystem so that the plugin loader
+# itself does not make QtWidgets a public dependency of every plugin.
+add_qtc_library(ExtensionSystemWidgets
+  PUBLIC_DEPENDS ExtensionSystem Qt::Widgets
+  DEPENDS Utils
+  SOURCES
+    extensionsystemwidgets_global.h
+    plugindetailsview.cpp plugindetailsview.h
+    pluginenabling.cpp pluginenabling.h
+    pluginerroroverview.cpp pluginerroroverview.h
+    pluginerrorview.cpp pluginerrorview.h
+    pluginview.cpp pluginview.h
+    pluginwidgetprompts.cpp pluginwidgetprompts.h
 )
 
 # If ExtensionSystem was compiled with QtTest, it should provide the test options

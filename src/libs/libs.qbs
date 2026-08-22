@@ -13,6 +13,7 @@ Project {
         "cplusplus/cplusplus.qbs",
         "devcontainer/devcontainer.qbs",
         "extensionsystem/extensionsystem.qbs",
+        "extensionsystem/extensionsystemwidgets.qbs",
         "glsl/glsl.qbs",
         "gocmdbridge/gocmdbridge.qbs",
         "languageserverprotocol/languageserverprotocol.qbs",

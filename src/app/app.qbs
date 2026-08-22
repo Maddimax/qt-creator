@@ -63,6 +63,7 @@ QtcProduct {
     Depends { name: "Qt"; submodules: ["widgets", "network"] }
     Depends { name: "Utils" }
     Depends { name: "ExtensionSystem" }
+    Depends { name: "ExtensionSystemWidgets" }
 
     files: [
         "app-Info.plist",

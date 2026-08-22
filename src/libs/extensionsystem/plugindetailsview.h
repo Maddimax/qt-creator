@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "extensionsystem_global.h"
+#include "extensionsystemwidgets_global.h"
 
 #include <QWidget>
 
@@ -13,7 +13,7 @@ class PluginSpec;
 
 namespace Internal { class PluginDetailsViewPrivate; }
 
-class EXTENSIONSYSTEM_EXPORT PluginDetailsView : public QWidget
+class EXTENSIONSYSTEM_WIDGETS_EXPORT PluginDetailsView : public QWidget
 {
     Q_OBJECT
 

@@ -51,6 +51,7 @@
 #include "versiondialog.h"
 #include "windowsupport.h"
 
+#include <extensionsystem/pluginenabling.h>
 #include <extensionsystem/pluginerroroverview.h>
 #include <extensionsystem/pluginmanager.h>
 
@@ -1114,7 +1115,7 @@ void ICore::restart()
 bool ICore::enablePlugins(const QSet<ExtensionSystem::PluginSpec *> &plugins)
 {
     std::optional<QSet<PluginSpec *>> additionalPlugins
-        = PluginManager::askForEnablingPlugins(dialogParent(), plugins, /*enable=*/true);
+        = ExtensionSystem::askForEnablingPlugins(dialogParent(), plugins, /*enable=*/true);
     if (!additionalPlugins) // canceled
         return false;
     const QSet<PluginSpec *> affectedPlugins = plugins + *additionalPlugins;

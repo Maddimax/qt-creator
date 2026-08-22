@@ -94,10 +94,6 @@ public:
     static void removePluginsAfterRestart();
     static void installPluginsAfterRestart();
 
-    // UI
-    static std::optional<QSet<PluginSpec *>> askForEnablingPlugins(
-        QWidget *dialogParent, const QSet<PluginSpec *> &plugins, bool enable);
-
     // Settings
     static void writeSettings();
 

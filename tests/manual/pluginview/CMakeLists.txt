@@ -1,6 +1,6 @@
 add_qtc_test(tst_manual_pluginview
   MANUALTEST
-  DEPENDS ExtensionSystem Utils
+  DEPENDS ExtensionSystem ExtensionSystemWidgets Utils
   SOURCES
     plugindialog.cpp plugindialog.h
 )

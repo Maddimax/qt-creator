@@ -3,10 +3,10 @@
 
 #pragma once
 
-#include "extensionsystem_global.h"
+#include "extensionsystemwidgets_global.h"
 
 namespace ExtensionSystem {
 
-EXTENSIONSYSTEM_EXPORT void showPluginErrorOverview();
+EXTENSIONSYSTEM_WIDGETS_EXPORT void showPluginErrorOverview();
 
 } // ExtensionSystem

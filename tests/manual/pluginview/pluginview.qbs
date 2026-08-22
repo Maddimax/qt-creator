@@ -5,6 +5,7 @@ Project {
         name: "Manual plugin view test"
 
         Depends { name: "ExtensionSystem" }
+        Depends { name: "ExtensionSystemWidgets" }
         Depends { name: "Utils" }
 
         files: [

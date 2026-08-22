@@ -4,6 +4,7 @@
 #include "pluginview.h"
 
 #include "extensionsystemtr.h"
+#include "pluginenabling.h"
 #include "pluginmanager.h"
 #include "pluginspec.h"
 
@@ -383,7 +384,7 @@ PluginData &PluginView::data()
 bool PluginData::setPluginsEnabled(const QSet<PluginSpec *> &plugins, bool enable)
 {
     std::optional<QSet<PluginSpec *>> additionalPlugins
-        = PluginManager::askForEnablingPlugins(m_parent, plugins, enable);
+        = askForEnablingPlugins(m_parent, plugins, enable);
     if (!additionalPlugins) // canceled
         return false;
 

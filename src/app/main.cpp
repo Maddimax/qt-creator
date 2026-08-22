@@ -7,6 +7,7 @@
 #include <extensionsystem/iplugin.h>
 #include <extensionsystem/pluginerroroverview.h>
 #include <extensionsystem/pluginmanager.h>
+#include <extensionsystem/pluginwidgetprompts.h>
 #include <extensionsystem/pluginspec.h>
 #include <qtsingleapplication.h>
 
@@ -880,6 +881,7 @@ int main(int argc, char **argv)
 
     PluginManager pluginManager;
     PluginManager::setPluginIID(QLatin1String("org.qt-project.Qt.QtCreatorPlugin"));
+    ExtensionSystem::installWidgetPrompts();
     PluginManager::startProfiling();
 
     QTranslator translator;

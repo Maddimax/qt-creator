@@ -7,6 +7,7 @@
 #include "iplugin.h"
 #include "optionsparser.h"
 #include "pluginmanager_p.h"
+#include "pluginprompts.h"
 #include "pluginspec.h"
 
 #include <nanotrace/nanotrace.h>
@@ -25,7 +26,6 @@
 #include <utils/shutdownguard.h>
 #include <utils/stringutils.h>
 
-#include <QCheckBox>
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDateTime>
@@ -36,11 +36,9 @@
 #include <QGuiApplication>
 #include <QLibrary>
 #include <QLibraryInfo>
-#include <QMessageBox>
 #include <QMetaProperty>
 #include <QPluginLoader>
 #include <QPointer>
-#include <QPushButton>
 #include <QScopeGuard>
 #include <QSysInfo>
 #include <QTextStream>
@@ -1520,41 +1518,19 @@ void PluginManagerPrivate::checkForProblematicPlugins()
     if (!enableCrashCheck)
         return;
     const std::optional<QString> pluginId = LockFile::lockedPluginId();
-    if (pluginId) {
-        PluginSpec *spec = pluginById(*pluginId);
-        if (spec && !spec->isRequired()) {
-            const QSet<PluginSpec *> dependents = PluginManager::pluginsRequiringPlugin(spec);
-            auto dependentsNames = Utils::transform<QStringList>(dependents, &PluginSpec::name);
-            std::sort(dependentsNames.begin(), dependentsNames.end());
-            const QString dependentsList = dependentsNames.join(", ");
-            const QString pluginsMenu = HostOsInfo::isMacHost()
-                                            ? Tr::tr("%1 > About Plugins")
-                                                  .arg(QGuiApplication::applicationDisplayName())
-                                            : Tr::tr("Help > About Plugins");
-            const QString otherPluginsText
-                = Tr::tr("If you temporarily disable %1, the following plugins that depend on "
-                         "it are also disabled: %2.").arg(spec->name(), dependentsList) + "\n\n";
-            const QString detailsText = (dependents.isEmpty() ? QString() : otherPluginsText)
-                                        + Tr::tr("Disable plugins permanently in %1.").arg(pluginsMenu);
-            const QString text = Tr::tr("The last time you started %1, it seems to have closed because "
-                                        "of a problem with the \"%2\" "
-                                        "plugin. Temporarily disable the plugin?")
-                                     .arg(QGuiApplication::applicationDisplayName(), spec->name());
-            QMessageBox dialog;
-            dialog.setIcon(QMessageBox::Question);
-            dialog.setText(text);
-            dialog.setDetailedText(detailsText);
-            QPushButton *disableButton = dialog.addButton(Tr::tr("Disable Plugin"),
-                                                          QMessageBox::AcceptRole);
-            dialog.addButton(Tr::tr("Continue"), QMessageBox::RejectRole);
-            dialog.exec();
-            if (dialog.clickedButton() == disableButton) {
-                spec->setForceDisabled(true);
-                for (PluginSpec *other : dependents)
-                    other->setForceDisabled(true);
-                enableDependenciesIndirectly();
-            }
-        }
+    if (!pluginId)
+        return;
+
+    PluginSpec *spec = pluginById(*pluginId);
+    if (!spec || spec->isRequired())
+        return;
+
+    const QSet<PluginSpec *> dependents = PluginManager::pluginsRequiringPlugin(spec);
+    if (PluginPrompts::askDisableCrashed(spec, dependents)) {
+        spec->setForceDisabled(true);
+        for (PluginSpec *other : dependents)
+            other->setForceDisabled(true);
+        enableDependenciesIndirectly();
     }
 }
 
@@ -1588,115 +1564,7 @@ bool PluginManager::specExistsAndIsEnabled(const QString &id)
     return spec && spec->isEffectivelyEnabled();
 }
 
-static QString pluginListString(const QSet<PluginSpec *> &plugins)
-{
-    QStringList names = Utils::transform<QList>(plugins, &PluginSpec::name);
-    names.sort();
-    return names.join(QLatin1Char('\n'));
-}
 
-/*!
-    Collects the dependencies of the \a plugins and asks the user if the
-    corresponding plugins should be enabled or disabled (dependening on
-    \a enable and using \a dialogParent as the parent for the dialog).
-
-    Returns a (possibly) empty set of additional plugins that should be enabled or disabled
-    respectively. Returns \c{std::nullopt} if the user canceled.
- */
-std::optional<QSet<PluginSpec *>> PluginManager::askForEnablingPlugins(
-    QWidget *dialogParent, const QSet<PluginSpec *> &plugins, bool enable)
-{
-    QSet<PluginSpec *> additionalPlugins;
-    if (enable) {
-        for (PluginSpec *spec : plugins) {
-            for (PluginSpec *other : PluginManager::pluginsToEnableForPlugin(spec)) {
-                if (!other->isEnabledBySettings())
-                    additionalPlugins.insert(other);
-            }
-        }
-        additionalPlugins.subtract(plugins);
-        if (!additionalPlugins.isEmpty()) {
-            if (QMessageBox::question(
-                    dialogParent,
-                    Tr::tr("Enabling Plugins"),
-                    Tr::tr("Enabling\n%1\nwill also enable the following plugins:\n\n%2")
-                        .arg(pluginListString(plugins), pluginListString(additionalPlugins)),
-                    QMessageBox::Ok | QMessageBox::Cancel,
-                    QMessageBox::Ok)
-                != QMessageBox::Ok) {
-                return {};
-            }
-        }
-    } else {
-        for (PluginSpec *spec : plugins) {
-            for (PluginSpec *other : PluginManager::pluginsRequiringPlugin(spec)) {
-                if (other->isEnabledBySettings())
-                    additionalPlugins.insert(other);
-            }
-        }
-        additionalPlugins.subtract(plugins);
-        if (!additionalPlugins.isEmpty()) {
-            if (QMessageBox::question(
-                    dialogParent,
-                    Tr::tr("Disabling Plugins"),
-                    Tr::tr("Disabling\n%1\nwill also disable the following plugins:\n\n%2")
-                        .arg(pluginListString(plugins), pluginListString(additionalPlugins)),
-                    QMessageBox::Ok | QMessageBox::Cancel,
-                    QMessageBox::Ok)
-                != QMessageBox::Ok) {
-                return {};
-            }
-        }
-    }
-    return additionalPlugins;
-}
-
-static bool checkTermsAndConditions(ExtensionSystem::PluginSpec *spec)
-{
-    using namespace Layouting;
-
-    QDialog dialog(Utils::dialogParent());
-    dialog.setWindowTitle(Tr::tr("Terms and Conditions"));
-
-    QDialogButtonBox buttonBox;
-    QCheckBox *acceptCheckBox;
-    QPushButton *acceptButton
-        = buttonBox.addButton(Tr::tr("Accept"), QDialogButtonBox::ButtonRole::YesRole);
-    QPushButton *decline
-        = buttonBox.addButton(Tr::tr("Decline"), QDialogButtonBox::ButtonRole::NoRole);
-    acceptButton->setAutoDefault(false);
-    acceptButton->setDefault(false);
-    acceptButton->setEnabled(false);
-    decline->setAutoDefault(true);
-    decline->setDefault(true);
-    QObject::connect(&buttonBox, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-    QObject::connect(&buttonBox, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-
-    const QLatin1String legal = QLatin1String(
-        "I confirm that I have reviewed and accept the terms and conditions\n"
-        "of this extension. I confirm that I have the authority and ability to\n"
-        "accept the terms and conditions of this extension for the customer.\n"
-        "I acknowledge that if the customer and the Qt Company already have a\n"
-        "valid agreement in place, that agreement shall apply, but these terms\n"
-        "shall govern the use of this extension.");
-
-    // clang-format off
-    Column {
-        Tr::tr("The plugin %1 requires you to accept the following terms and conditions:").arg(spec->name()), br,
-        TextEdit {
-            markdown(spec->termsAndConditions()->text),
-            readOnly(true),
-        }, br,
-        Row {
-            acceptCheckBox = new QCheckBox(legal), &buttonBox,
-        }
-    }.attachTo(&dialog);
-    // clang-format on
-
-    QObject::connect(acceptCheckBox, &QCheckBox::toggled, acceptButton, &QPushButton::setEnabled);
-
-    return dialog.exec() == QDialog::Accepted;
-}
 
 bool PluginManagerPrivate::acceptTermsAndConditions(PluginSpec *spec)
 {
@@ -1706,7 +1574,7 @@ bool PluginManagerPrivate::acceptTermsAndConditions(PluginSpec *spec)
     if (pluginsWithAcceptedTermsAndConditions.contains(spec->id()))
         return true;
 
-    if (!checkTermsAndConditions(spec)) {
+    if (!PluginPrompts::askAcceptTermsAndConditions(spec)) {
         spec->setError(Tr::tr("You did not accept the terms and conditions"));
         return false;
     }
