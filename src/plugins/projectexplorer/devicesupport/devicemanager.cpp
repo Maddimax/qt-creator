@@ -14,6 +14,7 @@
 
 #include <extensionsystem/pluginmanager.h>
 
+#include <utils/fsengine/fileiconprovider.h>
 #include <utils/algorithm.h>
 #include <utils/devicefileaccess.h>
 #include <utils/environment.h>
@@ -506,6 +507,10 @@ DeviceManager::DeviceManager()
         if (!device)
             return OsTypeLinux;
         return device->osType();
+    };
+
+    deviceHooks.fileIcon = [](const FilePath &filePath) {
+        return FileIconProvider::icon(filePath);
     };
 
     DeviceFileHooks::setupDeviceFileHooks(deviceHooks);

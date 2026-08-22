@@ -418,6 +418,9 @@ public:
     std::function<Result<DeviceFileAccessPtr>(const FilePath &)> fileAccess;
     std::function<QString(const FilePath &)> deviceDisplayName;
     std::function<QIcon(const FilePath &)> deviceIcon;
+    // Icon for a file or directory. Resolving it needs QFileIconProvider,
+    // which is QtWidgets, so the user interface supplies it.
+    std::function<QIcon(const FilePath &)> fileIcon;
     std::function<Result<>(const FilePath &, const FilePath &)> ensureReachable;
     std::function<Result<Environment>(const FilePath &)> environment;
     std::function<Result<Environment>(const FilePath &)> sourcedEnvironment;

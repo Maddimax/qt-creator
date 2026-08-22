@@ -51,7 +51,7 @@ static QIcon iconForPath(const FilePath &path)
             return QIcon(QPixmap::fromImage(std::move(image)));
     }
 
-    return path.icon();
+    return FileIconProvider::icon(path);
 }
 
 // ===== Worker — lives in background thread =====

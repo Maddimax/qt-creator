@@ -8,7 +8,6 @@
 #include "environment.h"
 #include "filestreamermanager.h"
 #include "fileutils.h"
-#include "fsengine/fileiconprovider.h"
 #include "hostosinfo.h"
 #include "qtcassert.h"
 #include "stringtable.h"
@@ -1744,7 +1743,9 @@ QIcon FilePath::icon() const
         if (deviceFileHooks().deviceIcon)
             return deviceFileHooks().deviceIcon(*this);
     }
-    return FileIconProvider::icon(*this);
+    if (deviceFileHooks().fileIcon)
+        return deviceFileHooks().fileIcon(*this);
+    return {};
 }
 
 /*!

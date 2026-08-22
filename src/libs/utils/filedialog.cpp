@@ -841,7 +841,7 @@ private:
         if (isFavorite)
             flags |= Qt::ItemIsDragEnabled;
         it->setFlags(flags);
-        it->setIcon(path.icon());
+        it->setIcon(FileIconProvider::icon(path));
         return it;
     }
 
@@ -874,7 +874,7 @@ private:
             it->setData(QVariant::fromValue(fp), SidebarFilePathRole);
             it->setData(false, SidebarIsSectionRole);
             it->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
-            it->setIcon(fp.icon());
+            it->setIcon(FileIconProvider::icon(fp));
             appendRow(it);
         }
         for (const FilePath &root : FSEngine::registeredDeviceRoots()) {
