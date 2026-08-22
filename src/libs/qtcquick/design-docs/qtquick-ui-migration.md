@@ -119,8 +119,15 @@ theme selector recolours the scene in place, without recreating it.
 
 ## Status
 
-Branch `utils-drop-printsupport`, 16 commits, not pushed. Phase 1 complete;
-phase 2 in progress.
+Branch `utils-drop-printsupport`, 16 + 29 commits, not pushed. Phase 1
+complete; phase 2 in progress. The second batch adds: the validator-type
+hoist, the QFontComboBox removal, AspectPresentation with 23 aspects
+reporting a control, the terminalcommand and StyleHelper and Theme help-menu
+splits, the Prompts seam growing a file chooser, a default button and
+dialogsInteractive(), the settings-accessor conversion, the theme-statics
+audit (~160 sites), the Icon cache theme keying, the GUI-write undo fix,
+TreeModel role names, the WidgetTextControl host interface, the gutter
+display list, nine QML design-system components and five aspect delegates.
 
 ```
  1. Utils: Drop the QtPrintSupport dependency
@@ -159,9 +166,15 @@ round-trip test goes red without its type guard; real preferences pages
 (Interface, System, MCP Servers, Custom Language Models) render through Qt Quick;
 two-way binding holds with Apply/Cancel intact.
 
-Pre-existing test failures on this checkout, unchanged by this work and confirmed
-against the base commit: `tst_debugger_dumpers`, `tst_baseenginedebugclient`,
-7 `AuxiliaryPropertyStorageView`, 3 `Model_Imports`, `McuModuleProjectItem`.
+Test state: 2984 tests. Every failure was confirmed pre-existing by
+reproducing it byte-for-byte at the base commit, and four groups are now
+fixed on this branch rather than merely attributed: `tst_baseenginedebugclient`
+(dangling reference in the test), the 7 `AuxiliaryPropertyStorageView` aborts
+(stack-use-after-scope binding a temporary into a lazy sqlite range, visible
+only under ASan), and `McuModuleProjectItem` (test-isolation bug). Still
+failing, still pre-existing: 3 `Model_Imports` (metaInfo expectation
+mismatches, root cause not established) and `tst_debugger_dumpers`
+(long-running, environment-dependent).
 
 ## Removing Layouting
 
