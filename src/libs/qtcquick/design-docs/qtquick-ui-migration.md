@@ -374,6 +374,64 @@ Upstream request, now a convenience rather than a blocker:
 `void addTextLayout(QPointF, QTextLayout *, const QList<QTextLayout::FormatRange> &selections, int lineStart = 0, int lineCount = -1);`
 or the smaller `QList<QRectF> QTextLine::selectionRects(int start, int length) const`.
 
+## The terminal spike: go, with the cleanest split in the tree
+
+The integrated terminal was spiked the same way as the editor: a standalone
+`QQuickItem` over the **unmodified** `TerminalSolution::TerminalSurface`,
+measured rather than reasoned about. Verdict: **TerminalLib can serve a QML
+shell with the widget view untouched.** The model layer (`terminalsurface`,
+`celliterator`, `keys`, `scrollback`) compiled, linked and ran in a binary
+with no QtWidgets at all - verified with `otool -L` - and an 11/11 scripted
+selftest against a real forkpty zsh covered keyboard round-trip through the
+existing `Keys` encoding, DECSCUSR cursor styles, altscreen, live
+`seq 1 50000`, scrollback navigation, CJK round-trip, and the
+`SurfaceIntegration` seam (title, clipboard). Rendering is one `QTextLayout`
+per visible row (cell runs as `FormatRange`s, backgrounds merged - the same
+inverted-merge approach the editor spike validated), laid out in
+`updatePolish()`, emitted through `QSGTextNode::addTextLayout`.
+
+Measured on the same machine and window as the editor spike (193x59 grid,
+Menlo 12, Release): full-grid restyle every frame holds 120 Hz at ~6.8 ms
+CPU; scrollback sweeps lock to vsync. Two honest costs:
+
+- **Wide characters drift off the strict cell grid** - fallback-font advances,
+  12.28 px max on a five-CJK-char row, 0.00 for ASCII. The widget's per-cell
+  `drawGlyphRun` cannot drift. A production item splits rows into per-run
+  layouts positioned at exact grid x, or accepts Konsole-style drift.
+- **`dataFromPty()` is synchronous on the GUI thread** (~20 ms per 64 KB of
+  scrolling output). Blast-feeding 256 KB chunks drops to ~11 fps while
+  churning. The widget shares this property behind its 33 ms flush throttle;
+  in Quick the frame loop coalesces naturally, so the throttle is unneeded -
+  but feeds must stay at real-pty chunk sizes (<= 64 KB).
+
+**The TerminalLib split** (the cleanest candidate in the tree): `TerminalModel`
+= the four model pairs plus `surfaceintegration.h`, plus `SearchHit` and
+`defaultFontFamily()/defaultFontSize()` moved out of `terminalview.h` (pure
+data / QtGui-only; coreplugin's `TerminalSearch` and compilerexplorer need them
+without the view). `TerminalWidgets` = `terminalview.{h,cpp}` and
+`glyphcache.{h,cpp}` - the glyph cache exists for the per-cell
+`QPainter::drawGlyphRun` path and the QML path never touches it. Consumers:
+coreplugin's `SearchableTerminal` follows the view; `TerminalSearch` follows
+the model.
+
+Unported interaction, with estimates from reading the widget methods:
+selection incl. the mouse state machine (~2-3 days, rendering is the same
+format-merge as cell backgrounds), IME preedit (~1 day), find-match highlights
+(~0.5 day once selection exists), link hover/activation (~1 day). Wavy and
+dashed underline rendering through QSGTextNode is **not verified**, and BiDi
+is a real open: QTextLayout reorders RTL runs where the widget paints strict
+grid order - inferred, no RTL test ran.
+
+One finding worth a follow-up independent of any QML work, measured:
+scrollback costs ~8.2 KB per line (40-byte cells x width) with a hardcoded
+capacity of 1e8 lines, so a 200k-line build log costs 1.6 GB of RSS in
+*today's* widget terminal too.
+
+Spike code and raw numbers live in the spike worktree
+(`tests/manual/quick/terminalspike/`, standalone CMake project with
+`--bench-model`, `--selftest`, `--canned` and interactive modes), findings in
+its `TERMINAL-SPIKE-FINDINGS.md`.
+
 ## What the gutter extraction taught us about the viewport
 
 The gutter display list is done and the five paint methods ported cleanly, so the
