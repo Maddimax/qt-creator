@@ -170,7 +170,7 @@ private slots:
         for (OutputFormat format : {OutputFormat::StdOutFormat, OutputFormat::StdErrFormat}) {
             QPlainTextEdit edit;
             OutputFormatter formatter;
-            formatter.setPlainTextEdit(&edit);
+            formatter.setSink(edit.document(), &edit);
             formatter.setLineParsers({new GenericOutputParser});
             formatter.appendMessage(input, format);
             formatter.flush();

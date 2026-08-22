@@ -59,7 +59,7 @@ public:
         m_questionLabel->setAlignment(Qt::AlignRight | Qt::AlignTrailing | Qt::AlignVCenter);
         m_answerButtonBox->setStandardButtons(QDialogButtonBox::No | QDialogButtonBox::Yes);
         m_dialogButtonBox->setStandardButtons(QDialogButtonBox::Cancel);
-        m_formatter->setPlainTextEdit(m_outputTextEdit);
+        m_formatter->setSink(m_outputTextEdit->document(), m_outputTextEdit);
         m_formatter->setParent(this);
 
         using namespace Layouting;

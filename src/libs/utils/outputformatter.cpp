@@ -14,7 +14,7 @@
 
 #include <QDir>
 #include <QPair>
-#include <QPlainTextEdit>
+#include <QTextDocument>
 #include <QPointer>
 #include <QRegularExpressionMatch>
 #include <QTextCursor>
@@ -229,7 +229,8 @@ void OutputLineParser::skipFileExistsCheck()
 class OutputFormatter::Private
 {
 public:
-    QPlainTextEdit *plainTextEdit = nullptr;
+    QTextDocument *document = nullptr;
+    QObject *sink = nullptr;
     QTextCharFormat formats[NumberOfFormats];
     QTextCursor cursor;
     AnsiEscapeCodeHandler escapeCodeHandler;
@@ -254,15 +255,21 @@ OutputFormatter::~OutputFormatter()
     delete d;
 }
 
-QPlainTextEdit *OutputFormatter::plainTextEdit() const
+QTextDocument *OutputFormatter::document() const
 {
-    return d->plainTextEdit;
+    return d->document;
 }
 
-void OutputFormatter::setPlainTextEdit(QPlainTextEdit *plainText)
+QObject *OutputFormatter::sink() const
 {
-    d->plainTextEdit = plainText;
-    d->cursor = plainText ? plainText->textCursor() : QTextCursor();
+    return d->sink;
+}
+
+void OutputFormatter::setSink(QTextDocument *document, QObject *sink)
+{
+    d->document = document;
+    d->sink = sink;
+    d->cursor = document ? QTextCursor(document) : QTextCursor();
     d->cursor.movePosition(QTextCursor::End);
     initFormats();
 }
@@ -376,7 +383,7 @@ void OutputFormatter::doAppendMessage(const QString &text, OutputFormat format, 
         if (d->postPrintAction)
             d->postPrintAction(p);
         else
-            p->runPostPrintActions(plainTextEdit());
+            p->runPostPrintActions(d->sink);
     }
 }
 
@@ -502,7 +509,7 @@ const QList<FormattedText> OutputFormatter::linkifiedText(
 
 void OutputFormatter::append(const QString &text, const QTextCharFormat &format)
 {
-    if (!plainTextEdit())
+    if (!d->document)
         return;
     int startPos = 0;
     int crPos = -1;
@@ -539,7 +546,7 @@ void OutputFormatter::clearLastLine()
 
 void OutputFormatter::initFormats()
 {
-    if (!plainTextEdit())
+    if (!d->document)
         return;
 
     d->formats[NormalMessageFormat].setForeground(creatorColor(Theme::OutputPanes_NormalMessageTextColor));
@@ -613,8 +620,8 @@ void OutputFormatter::handleLink(const QString &href)
 
 void OutputFormatter::clear()
 {
-    if (plainTextEdit())
-        plainTextEdit()->clear();
+    if (d->document)
+        d->document->clear();
 }
 
 void OutputFormatter::reset()
@@ -655,7 +662,7 @@ void OutputFormatter::flush()
     for (OutputLineParser * const p : std::as_const(d->lineParsers))
         p->flush();
     if (d->nextParser)
-        d->nextParser->runPostPrintActions(plainTextEdit());
+        d->nextParser->runPostPrintActions(d->sink);
 }
 
 bool OutputFormatter::hasFatalErrors() const
@@ -816,13 +823,13 @@ private slots:
         // offsets.
         for (int i = 0; i < input.size(); ++i) {
             OutputFormatter formatter;
-            QPlainTextEdit textEdit;
-            formatter.setPlainTextEdit(&textEdit);
+            QTextDocument doc;
+            formatter.setSink(&doc);
             formatter.setLineParsers({new TestFormatterB, new TestFormatterA});
             formatter.appendMessage(input.left(i), StdOutFormat);
             formatter.appendMessage(input.mid(i), StdOutFormat);
             formatter.flush();
-            QCOMPARE(textEdit.toPlainText(), output);
+            QCOMPARE(doc.toPlainText(), output);
         }
     }
 
@@ -933,9 +940,9 @@ private slots:
         QFETCH(int, expectedCharCount);
 
         OutputFormatter formatter;
-        QPlainTextEdit textEdit;
-        QTextDocument * const doc = textEdit.document();
-        formatter.setPlainTextEdit(&textEdit);
+        QTextDocument document;
+        QTextDocument * const doc = &document;
+        formatter.setSink(doc);
 
         const auto compareFormats = [&](int run) {
             QTextCursor cursor(doc);

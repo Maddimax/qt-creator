@@ -64,8 +64,8 @@ void addFormattedMessage(Utils::OutputFormatter *formatter,
         msg += QStringLiteral(": \"%1\"").arg(srcPath);
     msg += QLatin1Char('\n');
     formatter->appendMessage(msg, format);
-    formatter->plainTextEdit()->verticalScrollBar()->setValue(
-                formatter->plainTextEdit()->verticalScrollBar()->maximum());
+    if (const auto edit = qobject_cast<QPlainTextEdit *>(formatter->sink()))
+        edit->verticalScrollBar()->setValue(edit->verticalScrollBar()->maximum());
 }
 
 QIcon iconFromIconFont(Theme::Icon iconType, const QColor &color)
@@ -114,7 +114,7 @@ Import3dDialog::Import3dDialog(const QStringList &importFiles,
                                               Theme::getColor(Theme::IconsDisabledColor));
 
     m_outputFormatter = new Utils::OutputFormatter;
-    m_outputFormatter->setPlainTextEdit(ui->plainTextEdit);
+    m_outputFormatter->setSink(ui->plainTextEdit->document(), ui->plainTextEdit);
 
     // Skip unsupported assets
     QHash<QString, bool> supportMap;

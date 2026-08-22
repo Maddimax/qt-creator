@@ -150,7 +150,7 @@ VcsCommandPage::VcsCommandPage()
     m_logPlainTextEdit = new QPlainTextEdit;
     m_formatter = new OutputFormatter;
     m_logPlainTextEdit->setReadOnly(true);
-    m_formatter->setPlainTextEdit(m_logPlainTextEdit);
+    m_formatter->setSink(m_logPlainTextEdit->document(), m_logPlainTextEdit);
 
     verticalLayout->addWidget(m_logPlainTextEdit);
 

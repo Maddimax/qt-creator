@@ -483,7 +483,7 @@ void QtOutputFormatterTest::testQtOutputFormatter_appendMessage()
 {
     QPlainTextEdit edit;
     TestQtOutputFormatter formatter;
-    formatter.setPlainTextEdit(&edit);
+    formatter.setSink(edit.document(), &edit);
 
     QFETCH(QString, inputText);
     QFETCH(QString, outputText);
@@ -506,7 +506,7 @@ void QtOutputFormatterTest::testQtOutputFormatter_appendMixedAssertAndAnsi()
     QPlainTextEdit edit;
 
     TestQtOutputFormatter formatter;
-    formatter.setPlainTextEdit(&edit);
+    formatter.setSink(edit.document(), &edit);
 
     const QString inputText =
                 "\x1b[38;2;0;127;0mGreen "

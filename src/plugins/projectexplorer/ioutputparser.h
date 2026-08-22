@@ -52,7 +52,7 @@ protected:
 private:
     virtual bool isContinuation(const QString &line) const;
 
-    void runPostPrintActions(QPlainTextEdit *edit) override;
+    void runPostPrintActions(QObject *sink) override;
 
     class Private;
     Private * const d;

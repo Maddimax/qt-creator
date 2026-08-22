@@ -14,10 +14,10 @@
 #include <optional>
 
 QT_BEGIN_NAMESPACE
-class QPlainTextEdit;
 class QRegularExpressionMatch;
 class QTextCharFormat;
 class QTextCursor;
+class QTextDocument;
 QT_END_NAMESPACE
 
 namespace Utils {
@@ -78,7 +78,9 @@ public:
     virtual bool handleLink(const QString &href) { Q_UNUSED(href) return false; }
     virtual bool hasFatalErrors() const { return false; }
     virtual void flush() {}
-    virtual void runPostPrintActions(QPlainTextEdit *) {}
+    // The object the formatted output goes to, when the parser needs more than
+    // the document, e.g. Core::OutputWindow to register task positions.
+    virtual void runPostPrintActions(QObject *) {}
 
     void setRedirectionDetector(const OutputLineParser *detector);
     bool needsRedirection() const;
@@ -119,8 +121,11 @@ public:
     OutputFormatter();
     ~OutputFormatter() override;
 
-    QPlainTextEdit *plainTextEdit() const;
-    void setPlainTextEdit(QPlainTextEdit *plainText);
+    // The formatter writes into \a document. \a sink, when given, is handed to
+    // the line parsers, which may need the widget or item behind the document.
+    void setSink(QTextDocument *document, QObject *sink = nullptr);
+    QTextDocument *document() const;
+    QObject *sink() const;
 
     // Forwards to line parsers. Add those before.
     void addSearchDir(const FilePath &dir);

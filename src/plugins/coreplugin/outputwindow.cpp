@@ -128,7 +128,7 @@ OutputWindow::OutputWindow(
     setFrameShape(QFrame::NoFrame);
     setMouseTracking(true);
     setUndoRedoEnabled(false);
-    d->formatter.setPlainTextEdit(this);
+    d->formatter.setSink(document(), this);
 
     d->queueTimer.setSingleShot(true);
     d->queueTimer.setInterval(defaultInterval);

@@ -112,10 +112,10 @@ void OutputTaskParser::fixTargetLink()
     d->targetLinkFixed = true;
 }
 
-void OutputTaskParser::runPostPrintActions(QPlainTextEdit *edit)
+void OutputTaskParser::runPostPrintActions(QObject *sink)
 {
     int offset = 0;
-    if (const auto ow = qobject_cast<Core::OutputWindow *>(edit)) {
+    if (const auto ow = qobject_cast<Core::OutputWindow *>(sink)) {
         Utils::reverseForeach(taskInfo(), [ow, &offset](const TaskInfo &ti) {
             ow->registerPositionOf(
                 ti.task.id(),
