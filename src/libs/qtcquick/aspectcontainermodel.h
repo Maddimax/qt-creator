@@ -44,6 +44,10 @@ public:
         Double,
         Selection,
         StringList,
+        FilePathList,
+        MultiSelection,
+        Color,
+        FontFamily,
         TextDisplay,
         Container,
         Unsupported,
@@ -68,7 +72,7 @@ public:
     QVariant data(const QModelIndex &index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
 
-    static Kind kindOf(Utils::BaseAspect *aspect);
+    static Kind kindOf(Utils::AspectControls::Control control);
 
 private:
     QList<Utils::BaseAspect *> m_aspects;

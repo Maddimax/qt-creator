@@ -230,13 +230,15 @@ void tst_DesignSystem::iconProvider()
     QVERIFY(unknown.isNull());
 }
 
-// One of every aspect kind the form claims to handle.
+// One of every aspect kind the form claims to handle. The two string aspects
+// differ only in display style, which is what decides their control.
 static void fillContainer(AspectContainer *container)
 {
     auto boolAspect = new BoolAspect(container);
     boolAspect->setLabelText("A bool");
     auto stringAspect = new StringAspect(container);
     stringAspect->setLabelText("A string");
+    stringAspect->setDisplayStyle(StringAspect::LineEditDisplay);
     auto integerAspect = new IntegerAspect(container);
     integerAspect->setLabelText("An integer");
     auto doubleAspect = new DoubleAspect(container);
@@ -247,6 +249,21 @@ static void fillContainer(AspectContainer *container)
     selectionAspect->addOption("Second");
     auto filePathAspect = new FilePathAspect(container);
     filePathAspect->setLabelText("A file path");
+    auto labelAspect = new StringAspect(container);
+    labelAspect->setLabelText("A read-only string");
+    labelAspect->setDisplayStyle(StringAspect::LabelDisplay);
+    auto colorAspect = new ColorAspect(container);
+    colorAspect->setLabelText("A color");
+    auto fontFamilyAspect = new FontFamilyAspect(container);
+    fontFamilyAspect->setLabelText("A font family");
+    auto stringListAspect = new StringListAspect(container);
+    stringListAspect->setLabelText("A comma-separated list");
+    stringListAspect->setDisplayStyle(StringListAspect::DisplayStyle::CommaSeparatedLineEdit);
+    auto filePathListAspect = new FilePathListAspect(container);
+    filePathListAspect->setLabelText("A file path list");
+    auto multiSelectionAspect = new MultiSelectionAspect(container);
+    multiSelectionAspect->setLabelText("A multi-selection");
+    multiSelectionAspect->setAllValues({"First", "Second"});
 }
 
 void tst_DesignSystem::aspectContainerModel()
@@ -255,16 +272,20 @@ void tst_DesignSystem::aspectContainerModel()
     fillContainer(&container);
 
     QtcQuick::AspectContainerModel model(&container);
-    QCOMPARE(model.rowCount(), 6);
+    QCOMPARE(model.rowCount(), 12);
 
     const QHash<int, QByteArray> roles = model.roleNames();
     QVERIFY(roles.values().contains("aspect"));
     QVERIFY(roles.values().contains("kind"));
     QVERIFY(roles.values().contains("options"));
 
+    // The kind comes from the aspect's own presentation(), so a StringAspect
+    // set to LabelDisplay is a label rather than an editable field.
     using Kind = QtcQuick::AspectContainerModel::Kind;
     const QList<Kind> expected = {Kind::Bool, Kind::String, Kind::Integer, Kind::Double,
-                                  Kind::Selection, Kind::FilePath};
+                                  Kind::Selection, Kind::FilePath, Kind::TextDisplay,
+                                  Kind::Color, Kind::FontFamily, Kind::StringList,
+                                  Kind::FilePathList, Kind::MultiSelection};
     for (int row = 0; row < expected.size(); ++row) {
         const QModelIndex index = model.index(row, 0);
         QCOMPARE(index.data(QtcQuick::AspectContainerModel::KindRole).toInt(),
@@ -272,11 +293,15 @@ void tst_DesignSystem::aspectContainerModel()
         QVERIFY(index.data(QtcQuick::AspectContainerModel::AspectRole).value<QObject *>());
     }
 
-    // The options role only carries entries for a selection aspect.
+    // The options role only carries entries for a selection aspect ...
     QCOMPARE(model.index(4, 0).data(QtcQuick::AspectContainerModel::OptionsRole).toStringList(),
              QStringList({"First", "Second"}));
     QVERIFY(model.index(0, 0).data(QtcQuick::AspectContainerModel::OptionsRole)
                 .toStringList().isEmpty());
+    // ... or a multi-selection aspect, which presents its full set of choices
+    // the same way.
+    QCOMPARE(model.index(11, 0).data(QtcQuick::AspectContainerModel::OptionsRole).toStringList(),
+             QStringList({"First", "Second"}));
 }
 
 void tst_DesignSystem::aspectFormLoads()

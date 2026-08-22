@@ -12,6 +12,22 @@ using namespace Utils;
 
 namespace QtcQuick {
 
+namespace {
+
+enum BoundKind { Lower, Upper };
+
+QVariant widestBound(AspectControls::Control control, BoundKind kind)
+{
+    if (control == AspectControls::DoubleSpinBox) {
+        return kind == Lower ? std::numeric_limits<double>::lowest()
+                             : std::numeric_limits<double>::max();
+    }
+    return kind == Lower ? std::numeric_limits<int>::lowest()
+                         : std::numeric_limits<int>::max();
+}
+
+} // namespace
+
 AspectContainerModel::AspectContainerModel(AspectContainer *container, QObject *parent)
     : QAbstractListModel(parent)
 {
@@ -30,48 +46,24 @@ QVariant AspectContainerModel::data(const QModelIndex &index, int role) const
         return {};
 
     BaseAspect *aspect = m_aspects.at(index.row());
-    switch (role) {
-    case AspectRole:
+    if (role == AspectRole)
         return QVariant::fromValue(static_cast<QObject *>(aspect));
-    case KindRole:
-        return int(kindOf(aspect));
-    case LabelTextRole:
-        return aspect->labelText();
-    case ToolTipRole:
-        return aspect->toolTip();
-    case VisibleRole:
-        return aspect->isVisible();
-    case MinimumRole:
-        if (auto integer = qobject_cast<IntegerAspect *>(aspect))
-            return integer->minimumValue().value_or(std::numeric_limits<int>::lowest());
-        if (auto real = qobject_cast<DoubleAspect *>(aspect))
-            return real->minimumValue().value_or(std::numeric_limits<double>::lowest());
-        return {};
-    case MaximumRole:
-        if (auto integer = qobject_cast<IntegerAspect *>(aspect))
-            return integer->maximumValue().value_or(std::numeric_limits<int>::max());
-        if (auto real = qobject_cast<DoubleAspect *>(aspect))
-            return real->maximumValue().value_or(std::numeric_limits<double>::max());
-        return {};
-    case StepRole:
-        if (auto integer = qobject_cast<IntegerAspect *>(aspect))
-            return integer->singleStep();
-        if (auto real = qobject_cast<DoubleAspect *>(aspect))
-            return real->singleStep();
-        return {};
-    case OptionsRole: {
-        // SelectionAspect cannot be registered with QML because its base is a
-        // template instantiation, so its options come through the model.
-        auto selection = qobject_cast<SelectionAspect *>(aspect);
-        if (!selection)
-            return QStringList();
-        QStringList options;
-        for (int i = 0, n = selection->optionCount(); i < n; ++i)
-            options.append(selection->displayForIndex(i));
-        return options;
-    }
-    default:
-        return {};
+
+    const AspectPresentation p = aspect->presentation();
+    switch (role) {
+    case KindRole:      return int(kindOf(p.control));
+    case LabelTextRole: return p.labelText;
+    case ToolTipRole:   return p.toolTip;
+    case VisibleRole:   return p.visible;
+    case OptionsRole:   return p.choices;
+    // An aspect with no bound presents an unset minimum/maximum. The delegates
+    // bind these straight into SpinBox.from/to and DoubleValidator, so
+    // substitute the widest value of the right type rather than passing
+    // undefined into QML.
+    case MinimumRole:   return p.minimum.isValid() ? p.minimum : widestBound(p.control, Lower);
+    case MaximumRole:   return p.maximum.isValid() ? p.maximum : widestBound(p.control, Upper);
+    case StepRole:      return p.singleStep.isValid() ? p.singleStep : QVariant(1);
+    default:            return {};
     }
 }
 
@@ -90,27 +82,41 @@ QHash<int, QByteArray> AspectContainerModel::roleNames() const
     };
 }
 
-AspectContainerModel::Kind AspectContainerModel::kindOf(BaseAspect *aspect)
+AspectContainerModel::Kind AspectContainerModel::kindOf(AspectControls::Control control)
 {
-    // Order matters: the more derived aspects have to be tested first.
-    if (qobject_cast<AspectContainer *>(aspect))
-        return Container;
-    if (qobject_cast<Utils::TextDisplay *>(aspect))
-        return TextDisplay;
-    if (qobject_cast<FilePathAspect *>(aspect))
-        return FilePath;
-    if (qobject_cast<BoolAspect *>(aspect))
-        return Bool;
-    if (qobject_cast<SelectionAspect *>(aspect))
-        return Selection;
-    if (qobject_cast<IntegerAspect *>(aspect))
-        return Integer;
-    if (qobject_cast<DoubleAspect *>(aspect))
-        return Double;
-    if (qobject_cast<StringListAspect *>(aspect))
-        return StringList;
-    if (qobject_cast<StringAspect *>(aspect))
-        return String;
+    switch (control) {
+    case AspectControls::Container:              return Container;
+    case AspectControls::Label:                  return TextDisplay;
+    case AspectControls::CheckBox:
+    case AspectControls::RadioButton:
+    case AspectControls::Toggle:                 return Bool;
+    case AspectControls::LineEdit:
+    case AspectControls::PasswordLineEdit:
+    case AspectControls::TextEdit:               return String;
+    case AspectControls::PathChooser:            return FilePath;
+    case AspectControls::ComboBox:
+    case AspectControls::RadioButtonGroup:       return Selection;
+    case AspectControls::SpinBox:                return Integer;
+    case AspectControls::DoubleSpinBox:          return Double;
+    case AspectControls::CommaSeparatedLineEdit: return StringList;
+    case AspectControls::FilePathList:           return FilePathList;
+    case AspectControls::MultiSelection:         return MultiSelection;
+    case AspectControls::ColorPicker:            return Color;
+    case AspectControls::FontFamilyPicker:       return FontFamily;
+    // A plain StringList control wants per-item add/remove, which needs
+    // StringListAspect::appendValue()/removeValue() invokable from QML; only
+    // the flat value is bindable, so this stays a placeholder.
+    case AspectControls::StringList:
+    // FontAspect is an AspectContainer, not a TypedAspect: it has no
+    // volatileVariantValue() override, so its "value" property is always
+    // invalid and writing to it hits BaseAspect's QTC_CHECK(false).
+    case AspectControls::FontPicker:
+    // QList<int> has no registered QVariant conversion from the QVariantList
+    // a JS array turns into, unlike QStringList; writing back would silently
+    // fail canConvert() in TypedAspect::setVolatileVariantValue().
+    case AspectControls::IntegerList:
+    case AspectControls::Custom:                 return Unsupported;
+    }
     return Unsupported;
 }
 

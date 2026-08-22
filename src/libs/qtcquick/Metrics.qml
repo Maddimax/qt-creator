@@ -14,4 +14,6 @@ QtObject {
     readonly property int formLabelWidth: 200
     // Preferred width of a bounded editor in a settings form.
     readonly property int formControlWidth: 240
+    // Side length of the color preview swatch in ColorDelegate.
+    readonly property int colorSwatchSize: 24
 }

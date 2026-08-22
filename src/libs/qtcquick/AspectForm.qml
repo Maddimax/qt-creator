@@ -53,6 +53,26 @@ ScrollView {
                     SelectionDelegate {}
                 }
                 DelegateChoice {
+                    roleValue: AspectContainerModel.StringList
+                    StringListDelegate {}
+                }
+                DelegateChoice {
+                    roleValue: AspectContainerModel.FilePathList
+                    FilePathListDelegate {}
+                }
+                DelegateChoice {
+                    roleValue: AspectContainerModel.MultiSelection
+                    MultiSelectionDelegate {}
+                }
+                DelegateChoice {
+                    roleValue: AspectContainerModel.Color
+                    ColorDelegate {}
+                }
+                DelegateChoice {
+                    roleValue: AspectContainerModel.FontFamily
+                    FontFamilyDelegate {}
+                }
+                DelegateChoice {
                     roleValue: AspectContainerModel.TextDisplay
                     TextDisplayDelegate {}
                 }

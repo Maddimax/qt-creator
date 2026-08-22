@@ -33,11 +33,16 @@ if(TARGET QtcQuick)
     QML_FILES
       AspectForm.qml
       BoolDelegate.qml
+      ColorDelegate.qml
       DoubleDelegate.qml
+      FilePathListDelegate.qml
+      FontFamilyDelegate.qml
       IntegerDelegate.qml
       Metrics.qml
+      MultiSelectionDelegate.qml
       SelectionDelegate.qml
       StringDelegate.qml
+      StringListDelegate.qml
       TextDisplayDelegate.qml
       UnsupportedDelegate.qml
   )
