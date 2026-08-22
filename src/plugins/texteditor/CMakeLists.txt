@@ -65,6 +65,7 @@ add_qtc_plugin(TextEditor
     fontsettingspage.cpp fontsettingspage.h
     formatter.h
     formattexteditor.cpp formattexteditor.h
+    gutterframe.cpp gutterframe.h
     highlighter.cpp highlighter.h
     highlighterhelper.cpp highlighterhelper.h
     highlightersettings.cpp highlightersettings.h

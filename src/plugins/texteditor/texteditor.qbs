@@ -77,6 +77,8 @@ Project {
             "formatter.h",
             "formattexteditor.cpp",
             "formattexteditor.h",
+            "gutterframe.cpp",
+            "gutterframe.h",
             "highlighter.cpp",
             "highlighter.h",
             "highlighterhelper.cpp",

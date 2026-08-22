@@ -17,6 +17,7 @@
 #include "displaysettings.h"
 #include "extraencodingsettings.h"
 #include "fontsettings.h"
+#include "gutterframe.h"
 #include "highlighter.h"
 #include "highlighterhelper.h"
 #include "highlightersettings.h"
@@ -814,17 +815,8 @@ public:
     void scheduleCleanupAnnotationCache();
     void cleanupAnnotationCache();
 
-    // extra area paint methods
-    void paintLineNumbers(QPainter &painter, const ExtraAreaPaintEventData &data,
-                          const QRectF &blockBoundingRect) const;
-    void paintTextMarks(QPainter &painter, const ExtraAreaPaintEventData &data,
-                        const QRectF &blockBoundingRect) const;
-    void paintCodeFolding(QPainter &painter, const ExtraAreaPaintEventData &data,
-                          const QRectF &blockBoundingRect) const;
-    void paintRevisionMarker(QPainter &painter, const ExtraAreaPaintEventData &data,
-                             const QRectF &blockBoundingRect) const;
-    void paintDiffChangeSigns(QPainter &painter, const ExtraAreaPaintEventData &data,
-                              const QRectF &blockBoundingRect) const;
+    // gathers everything the gutter frame builder needs for one repaint
+    GutterFrameBuilder::Inputs gutterFrameInputs(const ExtraAreaPaintEventData &data) const;
     // width of the +/- diff sign column in the extra area, 0 when the feature
     // is off or the editor shows no inline diff
     int diffChangeSignWidth(const QFontMetrics &fm) const;
@@ -6943,211 +6935,35 @@ struct Internal::ExtraAreaPaintEventData
     QPalette palette;
 };
 
-void TextEditorWidgetPrivate::paintLineNumbers(QPainter &painter,
-                                               const ExtraAreaPaintEventData &data,
-                                               const QRectF &blockBoundingRect) const
+GutterFrameBuilder::Inputs TextEditorWidgetPrivate::gutterFrameInputs(
+    const ExtraAreaPaintEventData &data) const
 {
-    if (!m_lineNumbersVisible)
-        return;
-
-    const QString &number = q->lineNumber(data.block.blockNumber());
-    const bool selected = (
-                (data.selectionStart < data.block.position() + data.block.length()
-                 && data.selectionEnd > data.block.position())
-                || (data.selectionStart == data.selectionEnd && data.selectionEnd == data.block.position())
-                );
-    if (selected) {
-        painter.save();
-        QFont f = painter.font();
-        f.setBold(data.currentLineNumberFormat.font().bold());
-        f.setItalic(data.currentLineNumberFormat.font().italic());
-        painter.setFont(f);
-        painter.setPen(data.currentLineNumberFormat.foreground().color());
-        if (data.currentLineNumberFormat.background() != Qt::NoBrush) {
-            painter.fillRect(QRectF(0, blockBoundingRect.top(),
-                                   data.extraAreaWidth, blockBoundingRect.height()),
-                             data.currentLineNumberFormat.background().color());
-        }
-    }
-
-    QRectF rect;
-    rect.setX(data.markWidth);
-    rect.setY(blockBoundingRect.top() + q->editorLayout()->mainLayoutOffset(data.block));
-    // leave room on the right for the +/- diff sign column, when present
-    rect.setWidth(data.extraAreaWidth - data.markWidth - data.signWidth - 4);
-    rect.setHeight(blockBoundingRect.height());
-    painter.drawText(rect, Qt::AlignRight, number);
-    if (selected)
-        painter.restore();
-}
-
-void TextEditorWidgetPrivate::paintTextMarks(QPainter &painter, const ExtraAreaPaintEventData &data,
-                                             const QRectF &blockBoundingRect) const
-{
-    auto userData = static_cast<TextBlockUserData*>(data.block.userData());
-    if (!userData || !m_marksVisible)
-        return;
-    TextMarks marks = userData->marks();
-    QList<QIcon> icons;
-    auto end = marks.crend();
-    int marksWithIconCount = 0;
-    QIcon overrideIcon;
-    for (auto it = marks.crbegin(); it != end; ++it) {
-        if ((*it)->isVisible()) {
-            const QIcon icon = (*it)->icon();
-            if (!icon.isNull()) {
-                if ((*it)->isLocationMarker()) {
-                    overrideIcon = icon;
-                } else {
-                    if (icons.size() < 3
-                            && !Utils::contains(icons, Utils::equal(&QIcon::cacheKey, icon.cacheKey()))) {
-                        icons << icon;
-                    }
-                    ++marksWithIconCount;
-                }
-            }
-        }
-    }
-
-
-    int size = data.lineSpacing - 1;
-    int xoffset = 0;
-    // marks belong to the block's text, which starts below additional layout
-    // items like inline diff ghost rows
-    int yoffset = blockBoundingRect.top() + q->editorLayout()->mainLayoutOffset(data.block);
-
-    painter.save();
-    const QScopeGuard cleanup([&painter, size, yoffset, xoffset, overrideIcon] {
-        if (!overrideIcon.isNull()) {
-            const QRect r(xoffset, yoffset, size, size);
-            overrideIcon.paint(&painter, r, Qt::AlignCenter);
-        }
-        painter.restore();
-    });
-
-    if (icons.isEmpty())
-        return;
-
-    if (icons.size() == 1) {
-        const QRect r(xoffset, yoffset, size, size);
-        icons.first().paint(&painter, r, Qt::AlignCenter);
-        return;
-    }
-    size = size / 2;
-    for (const QIcon &icon : std::as_const(icons)) {
-        const QRect r(xoffset, yoffset, size, size);
-        icon.paint(&painter, r, Qt::AlignCenter);
-        if (xoffset != 0) {
-            yoffset += size;
-            xoffset = 0;
-        } else {
-            xoffset = size;
-        }
-    }
-    QFont font = painter.font();
-    font.setPixelSize(size);
-    painter.setFont(font);
-
-    const QColor color = data.currentLineNumberFormat.foreground().color();
-    if (color.isValid())
-        painter.setPen(color);
-
-    const QRect r(size, blockBoundingRect.top() + size, size, size);
-    const QString detail = marksWithIconCount > 9 ? QString("+")
-                                                  : QString::number(marksWithIconCount);
-    painter.drawText(r, Qt::AlignRight, detail);
-}
-
-static void drawRectBox(QPainter *painter, const QRect &rect, const QPalette &pal)
-{
-    painter->save();
-    painter->setOpacity(0.5);
-    painter->fillRect(rect, pal.brush(QPalette::Highlight));
-    painter->restore();
-}
-
-void TextEditorWidgetPrivate::paintCodeFolding(QPainter &painter,
-                                               const ExtraAreaPaintEventData &data,
-                                               const QRectF &blockBoundingRect) const
-{
-    if (!m_codeFoldingVisible)
-        return;
-
-    int extraAreaHighlightFoldBlockNumber = -1;
-    int extraAreaHighlightFoldEndBlockNumber = -1;
+    GutterFrameBuilder::Inputs in;
+    in.lineNumbersVisible = m_lineNumbersVisible;
+    in.marksVisible = m_marksVisible;
+    in.codeFoldingVisible = m_codeFoldingVisible;
+    in.revisionsVisible = m_revisionsVisible;
+    in.selectionStart = data.selectionStart;
+    in.selectionEnd = data.selectionEnd;
+    in.lineSpacing = data.lineSpacing;
+    in.markWidth = data.markWidth;
+    in.signWidth = data.signWidth;
+    in.extraAreaWidth = data.extraAreaWidth;
+    in.foldBoxWidth = globalFontSettings().lineSpacing() == 100 ? foldBoxWidth(data.fontMetrics)
+                                                                : foldBoxWidth();
+    in.currentLineNumberHasBackground = data.currentLineNumberFormat.background() != Qt::NoBrush;
+    in.currentLineNumberHasForeground
+        = data.currentLineNumberFormat.foreground().color().isValid();
+    in.lastSaveRevision = data.documentLayout->lastSaveRevision;
     if (!m_highlightBlocksInfo.isEmpty()) {
-        extraAreaHighlightFoldBlockNumber = m_highlightBlocksInfo.open.last();
-        extraAreaHighlightFoldEndBlockNumber = m_highlightBlocksInfo.close.first();
+        in.highlightFoldStart = m_highlightBlocksInfo.open.last();
+        in.highlightFoldEnd = m_highlightBlocksInfo.close.first();
     }
-
-    const QTextBlock &nextBlock = data.block.next();
-
-    bool drawBox = TextBlockUserData::foldingIndent(data.block)
-                   < TextBlockUserData::foldingIndent(nextBlock);
-    if (drawBox) {
-        qCDebug(foldingLog) << "need to paint folding marker";
-        qCDebug(foldingLog) << "folding indent for line" << (data.block.blockNumber() + 1) << "is"
-                            << TextBlockUserData::foldingIndent(data.block);
-        qCDebug(foldingLog) << "folding indent for line" << (nextBlock.blockNumber() + 1) << "is"
-                            << TextBlockUserData::foldingIndent(nextBlock);
-    }
-
-    const int blockNumber = data.block.blockNumber();
-    bool active = blockNumber == extraAreaHighlightFoldBlockNumber;
-    bool hovered = blockNumber >= extraAreaHighlightFoldBlockNumber
-            && blockNumber <= extraAreaHighlightFoldEndBlockNumber;
-
-    int boxWidth = 0;
-    if (globalFontSettings().lineSpacing() == 100)
-        boxWidth = foldBoxWidth(data.fontMetrics);
-    else
-        boxWidth = foldBoxWidth();
-
-    // additional layout items rendered above the block do not belong to the
-    // foldable text
-    const int mainLayoutOffset = q->editorLayout()->mainLayoutOffset(data.block);
-
-    if (hovered) {
-        int itop = qRound(blockBoundingRect.top()) + mainLayoutOffset;
-        int ibottom = qRound(blockBoundingRect.bottom());
-        QRect box = QRect(data.extraAreaWidth + 1, itop, boxWidth - 2, ibottom - itop);
-        drawRectBox(&painter, box, data.palette);
-    }
-
-    if (drawBox) {
-        bool expanded = nextBlock.isVisible();
-        int size = boxWidth/4;
-        QRect box(data.extraAreaWidth + size,
-                  int(blockBoundingRect.top()) + mainLayoutOffset + size,
-                  2 * (size) + 1, 2 * (size) + 1);
-        drawFoldingMarker(&painter, data.palette, box, expanded, active, hovered);
-    }
-
-}
-
-void TextEditorWidgetPrivate::paintRevisionMarker(QPainter &painter,
-                                                  const ExtraAreaPaintEventData &data,
-                                                  const QRectF &blockBoundingRect) const
-{
-    if (m_revisionsVisible && data.block.revision() != data.documentLayout->lastSaveRevision) {
-        painter.save();
-        painter.setRenderHint(QPainter::Antialiasing, false);
-        if (data.block.revision() < 0)
-            painter.setPen(QPen(Qt::darkGreen, 2));
-        else
-            painter.setPen(QPen(Qt::red, 2));
-        // the revision concerns the block's text, not the additional layout
-        // items rendered above (mainLayoutOffset) or below it (spacers padding
-        // the block to align with a side by side counterpart)
-        TextEditorLayout *layout = q->editorLayout();
-        const int mainOffset = layout->mainLayoutOffset(data.block);
-        const int appended = layout->additionalBlockHeight(data.block, true) - mainOffset;
-        painter.drawLine(data.extraAreaWidth - 1,
-                         int(blockBoundingRect.top()) + mainOffset,
-                         data.extraAreaWidth - 1,
-                         int(blockBoundingRect.bottom()) - appended - 1);
-        painter.restore();
-    }
+    in.diffHasRemovedRows = m_diffHasRemovedRows;
+    in.diffChangeSigns = m_diffChangeSigns;
+    in.editorLayout = q->editorLayout();
+    in.lineNumberString = [this](int blockNumber) { return q->lineNumber(blockNumber); };
+    return in;
 }
 
 bool TextEditorWidgetPrivate::hasDiffChangeSigns() const
@@ -7168,63 +6984,13 @@ int TextEditorWidgetPrivate::diffChangeSignWidth(const QFontMetrics &fm) const
     return PaddingHXs + glyphWidth + PaddingHM;
 }
 
-void TextEditorWidgetPrivate::paintDiffChangeSigns(QPainter &painter,
-                                                   const ExtraAreaPaintEventData &data,
-                                                   const QRectF &blockBoundingRect) const
-{
-    if (data.signWidth == 0)
-        return;
-    TextEditorLayout *layout = q->editorLayout();
-    if (!layout)
-        return;
-
-    // inset by the left padding and left-align, so the wider padding towards
-    // the text stays to the right of the glyph
-    const qreal x = data.extraAreaWidth - data.signWidth + StyleHelper::SpacingTokens::PaddingHXs;
-    const qreal width = data.signWidth - StyleHelper::SpacingTokens::PaddingHXs;
-    const auto drawSign = [&](QChar sign, qreal top, qreal height) {
-        painter.drawText(QRectF(x, top, width, height),
-                         Qt::AlignLeft | Qt::AlignVCenter, QString(sign));
-    };
-
-    // '-' next to each removed line shown as a ghost row. Ghost and spacer
-    // items sit above the main line (or below it for the last block), so walk
-    // the block's layout items in paint order and mark the ghost rows only.
-    if (m_diffHasRemovedRows) {
-        qreal top = blockBoundingRect.top();
-        const QList<Utils::LayoutItem *> items = layout->layoutItems(data.block);
-        for (Utils::LayoutItem *item : items) {
-            if (item->category() == inlineDiffGhostCategory()) {
-                if (auto *textItem = dynamic_cast<Utils::TextLayoutItem *>(item)) {
-                    if (QTextLayout *ghostLayout = textItem->layout()) {
-                        for (int i = 0; i < ghostLayout->lineCount(); ++i) {
-                            const QTextLine line = ghostLayout->lineAt(i);
-                            drawSign(u'-', top + line.y(), line.height());
-                        }
-                    }
-                }
-            }
-            top += item->height();
-        }
-    }
-
-    // '+' (or '-' on the baseline side) next to the block's own changed line
-    const QChar mainSign = m_diffChangeSigns.value(data.block.blockNumber());
-    if (!mainSign.isNull()) {
-        drawSign(mainSign,
-                 blockBoundingRect.top() + layout->mainLayoutOffset(data.block),
-                 data.lineSpacing);
-    }
-}
-
 void TextEditorWidget::extraAreaPaintEvent(QPaintEvent *e)
 {
     ExtraAreaPaintEventData data(this, d.get());
     QTC_ASSERT(data.documentLayout, return);
 
-    QPainter painter(d->m_extraArea);
-
-    painter.fillRect(e->rect(), data.palette.color(QPalette::Window));
+    GutterFrameBuilder builder(d->gutterFrameInputs(data));
+    builder.addBackground(e->rect());
 
     data.block = firstVisibleBlock();
     // skip a first block hidden in this widget's layout (a collapsed line), so
@@ -7235,30 +7001,20 @@ void TextEditorWidget::extraAreaPaintEvent(QPaintEvent *e)
     QRectF boundingRect = blockBoundingRect(data.block).translated(offset);
 
     while (data.block.isValid() && boundingRect.top() <= e->rect().bottom()) {
-        if (boundingRect.bottom() >= e->rect().top()) {
-
-            painter.setPen(data.palette.color(QPalette::Dark));
-
-            d->paintLineNumbers(painter, data, boundingRect);
-
-            if (d->m_codeFoldingVisible || d->m_marksVisible) {
-                painter.save();
-                painter.setRenderHint(QPainter::Antialiasing, false);
-
-                d->paintTextMarks(painter, data, boundingRect);
-                d->paintCodeFolding(painter, data, boundingRect);
-
-                painter.restore();
-            }
-
-            d->paintRevisionMarker(painter, data, boundingRect);
-            d->paintDiffChangeSigns(painter, data, boundingRect);
-        }
+        if (boundingRect.bottom() >= e->rect().top())
+            builder.addBlock(data.block, boundingRect);
 
         offset.ry() += boundingRect.height();
         data.block = d->nextVisibleBlock(data.block);
         boundingRect = blockBoundingRect(data.block).translated(offset);
     }
+
+    QPainter painter(d->m_extraArea);
+    paintGutterFrame(painter, builder.takeFrame(), data.palette, data.currentLineNumberFormat,
+                     [this, &data](QPainter &p, const QRect &rect, bool expanded, bool active,
+                                   bool hovered) {
+                         d->drawFoldingMarker(&p, data.palette, rect, expanded, active, hovered);
+                     });
 }
 
 void TextEditorWidgetPrivate::drawFoldingMarker(QPainter *painter, const QPalette &pal,

@@ -1,2 +1,3 @@
+add_subdirectory(gutterframe)
 add_subdirectory(highlighter)
 add_subdirectory(mergeconflict)
