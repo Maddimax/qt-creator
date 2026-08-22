@@ -1,5 +1,8 @@
+add_subdirectory(style)
+
 add_qtc_library(QtcQuick
   CONDITION TARGET Qt::Quick AND TARGET Qt::QuickWidgets AND TARGET Qt::QuickControls2
+  DEPENDS QtcQuickStyle
   PUBLIC_DEPENDS
     Utils
     Qt::Gui
@@ -21,6 +24,7 @@ if(TARGET QtcQuick)
   qt_add_qml_module(QtcQuick
     URI QtCreator.Ui
     VERSION 1.0
+    RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
       Fonts.qml

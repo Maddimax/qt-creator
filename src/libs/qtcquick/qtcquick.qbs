@@ -4,6 +4,7 @@ QtcLibrary {
     condition: Qt.quick.present && Qt.quickcontrols2.present
 
     Depends { name: "Utils" }
+    Depends { name: "QtcQuickStyle" }
     Depends { name: "Qt"; submodules: ["gui", "qml", "quick", "quickcontrols2", "quickwidgets", "widgets"] }
 
     cpp.defines: base.concat("QTCQUICK_LIBRARY")
