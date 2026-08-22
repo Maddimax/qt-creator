@@ -82,10 +82,16 @@ What live theming requires, in order:
    latch it for the life of the process. `Utils::ThemedValue` recomputes such a
    value after a theme change, keyed on a generation counter that
    `setCreatorTheme()` bumps; dropping the `static` instead would re-tint on
-   every paint. Converted so far: the combo box arrows in `qtdesignwidgets` and
-   the progress view's pin icon. The rest are mechanical, and the bulk of them
-   are in `qmldesigner` (about 25) and `scxmleditor`, both of which are late in
-   the porting order anyway.
+   every paint. Where the value is a plain colour lookup rather than a tinted
+   pixmap, the `static` simply goes: `creatorColor()` is a lookup and
+   `QPalette::text()` a copy, so caching bought nothing and only made them stale.
+
+   Everything outside `qmldesigner` and `scxmleditor` is converted: the combo box
+   arrows in `qtdesignwidgets`, the progress view's pin icon, the Axivion overlay
+   icons, the Extension Manager checkmarks, the welcome page session icon, and
+   two plain colours in `loggingviewer` and `flamegraphwidget`. What remains is
+   about 25 sites in `qmldesigner` plus a few in `scxmleditor`, both last in the
+   porting order.
 
    Note that `Utils::TextFormat` is **not** a hazard: it stores the
    `Theme::Color` role and resolves it in `color()`, so the ~21
@@ -175,23 +181,21 @@ has to happen first.
 
 In order:
 
-1. **Finish live theming item 4**: convert the remaining resolved-value statics
-   to `Utils::ThemedValue`. 45 sites total, two done.
-2. **`FilePath::icon()`** calls `FileIconProvider::icon()`, which wraps
+1. **`FilePath::icon()`** calls `FileIconProvider::icon()`, which wraps
    `QFileIconProvider` (QtWidgets). `QIcon` is QtGui, so this wants a hook. It
    would be the third one-off hook after `PluginPrompts` and `Utils::Prompts`;
    consider a single "host services" seam instead of accumulating more.
-3. **`Theme::palette()`** derives from the *application* palette
+2. **`Theme::palette()`** derives from the *application* palette
    (`QApplication::palette()`/`setPalette()`). `QGuiApplication` has both, but
    `QApplication::setPalette` also does widget propagation, so a naive swap
    risks losing repaints. Separating it properly means the theme owning its base
    palette, a design change to user-visible theming. It also overlaps with live
    theming item 5.
-4. The remaining 15 clean-header/tainted-impl pairs are genuine widget classes
+3. The remaining 15 clean-header/tainted-impl pairs are genuine widget classes
    whose headers happen not to name a widget type (`tooltip.h`, `dropsupport.h`,
    `fadingindicator.h`, `jsonrpcinspector.h`, `guiutils.h`, ...). They belong on
    the widget side and need no work; they classify there when the split lands.
-5. **Then the split itself**: two `add_qtc_library` calls over the same
+4. **Then the split itself**: two `add_qtc_library` calls over the same
    directory, so include paths do not change. Note the export macro: a second
    library needs its own (`add_qtc_library(Foo)` auto-defines `FOO_LIBRARY`), and
    defining `UTILS_LIBRARY` for both would mark imported symbols as exported,
