@@ -325,6 +325,8 @@ QtcLibrary {
         "temporaryfile.h",
         "terminalcommand.cpp",
         "terminalcommand.h",
+        "terminalcommandaspect.cpp",
+        "terminalcommandaspect.h",
         "terminalhooks.cpp",
         "terminalhooks.h",
         "terminalinterface.cpp",

@@ -168,6 +168,7 @@ add_qtc_library(Utils
     temporarydirectory.cpp temporarydirectory.h
     temporaryfile.cpp temporaryfile.h
     terminalcommand.cpp terminalcommand.h
+    terminalcommandaspect.cpp terminalcommandaspect.h
     terminalhooks.cpp terminalhooks.h
     terminalinterface.cpp terminalinterface.h
     textcodec.cpp textcodec.h
