@@ -79,13 +79,13 @@ void tst_BaseEngineDebugClient::deeplyNestedObjectTree()
     client.decode(ds, root, false); // must not crash
 
     // Count the decoded chain depth iteratively (the tree itself may be deep).
-    int depth = 0;
-    for (const ObjectReference *o = &root; ; ++depth) {
-        if (o->children().isEmpty())
-            break;
-        o = &o->children().first();
+    // children() returns by value, so each level has to be kept alive rather
+    // than taking the address of an element of the returned temporary.
+    int depth = 1; // the root
+    for (QList<ObjectReference> level = root.children(); !level.isEmpty();
+         level = level.first().children()) {
+        ++depth;
     }
-    ++depth; // count the leaf
 
     // The tree was capped well below the input depth, so it is safe to hold and
     // destroy. The exact cap is an implementation detail; use a generous bound.
@@ -118,13 +118,11 @@ void tst_BaseEngineDebugClient::deeplyNestedContextTree()
     ContextReference root;
     client.decode(ds, root); // must not crash
 
-    int depth = 0;
-    for (const ContextReference *c = &root; ; ++depth) {
-        if (c->contexts().isEmpty())
-            break;
-        c = &c->contexts().first();
+    int depth = 1; // the root
+    for (QList<ContextReference> level = root.contexts(); !level.isEmpty();
+         level = level.first().contexts()) {
+        ++depth;
     }
-    ++depth;
 
     QVERIFY(depth > 0);
     QVERIFY(depth < InputDepth);
