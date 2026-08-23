@@ -33,7 +33,19 @@ using namespace Utils;
 // Every test runs twice: once through the installed widget renderer and once
 // through the aspects' inline widget construction, asserting that both paths
 // build the same control wired the same way.
+// Only the aspects that still own an inline addToLayoutImpl body have a
+// fallback to compare against. The rest delegate unconditionally, so rendering
+// them with no renderer installed produces nothing - which their QTC_CHECK
+// says out loud.
 static void addRendererRows()
+{
+    QTest::addColumn<bool>("withRenderer");
+    QTest::newRow("renderer") << true;
+}
+
+// StringAspect and FilePathAspect keep their bodies, because the checkable
+// composites interleave the checker with the control's construction.
+static void addRendererAndFallbackRows()
 {
     QTest::addColumn<bool>("withRenderer");
     QTest::newRow("renderer") << true;
@@ -86,15 +98,15 @@ private slots:
     void colorPicker();
     void textDisplay_data() { addRendererRows(); }
     void textDisplay();
-    void stringLabel_data() { addRendererRows(); }
+    void stringLabel_data() { addRendererAndFallbackRows(); }
     void stringLabel();
-    void stringLineEdit_data() { addRendererRows(); }
+    void stringLineEdit_data() { addRendererAndFallbackRows(); }
     void stringLineEdit();
-    void stringTextEdit_data() { addRendererRows(); }
+    void stringTextEdit_data() { addRendererAndFallbackRows(); }
     void stringTextEdit();
-    void stringPasswordLineEdit_data() { addRendererRows(); }
+    void stringPasswordLineEdit_data() { addRendererAndFallbackRows(); }
     void stringPasswordLineEdit();
-    void pathChooser_data() { addRendererRows(); }
+    void pathChooser_data() { addRendererAndFallbackRows(); }
     void pathChooser();
     void stringListTree_data() { addRendererRows(); }
     void stringListTree();

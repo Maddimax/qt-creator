@@ -2322,42 +2322,9 @@ AspectPresentation ColorAspect::presentation() const
 
 void ColorAspect::addToLayoutImpl(Layouting::Layout &parent)
 {
-    if (renderAspect(*this, parent))
-        return;
-
-    auto button = createSubWidget<QtColorButton>();
-    button->setColor(volatileValue());
-    button->setAlphaAllowed(d->m_alphaAllowed);
-    button->setMinimumSize(d->m_minimumSize);
-
-    connect(button, &QtColorButton::colorChanged, this, [this](const QColor &c) {
-        setVolatileValue(c);
-    });
-
-    addOnVolatileValueChanged(button, [this, button] {
-        if (button->color() != volatileValue())
-            button->setColor(volatileValue());
-    });
-
-    if (d->m_withResetButton) {
-        auto resetButton = createSubWidget<QPushButton>(Tr::tr("Reset"));
-        resetButton->setToolTip(Tr::tr("Reset to default.", "Color"));
-        connect(resetButton, &QAbstractButton::clicked, this, [this] {
-            setVolatileValue(defaultValue());
-        });
-        addLabeledItems(parent, {button, resetButton});
-    } else {
-        QMenu *menu = new QMenu(button);
-        QAction *resetAction = menu->addAction(Tr::tr("Reset to Default"), this, [this] {
-            setVolatileValue(defaultValue());
-        });
-        resetAction->setIcon(button->generatePixmap());
-        resetAction->setIconVisibleInMenu(true);
-        button->setMenu(menu);
-        button->setToolTip(
-            QStringList{toolTip(), Tr::tr("Press and hold to reset to default.")}.join('\n'));
-        addLabeledItem(parent, button);
-    }
+    // The widget renderer owns this control's construction. Reaching the
+    // check means no renderer was installed; see installAspectWidgetRenderer().
+    QTC_CHECK(renderAspect(*this, parent));
 }
 
 void ColorAspect::setAlphaAllowed(bool allowed)
@@ -2414,25 +2381,9 @@ AspectPresentation FontFamilyAspect::presentation() const
 
 void FontFamilyAspect::addToLayoutImpl(Layouting::Layout &parent)
 {
-    if (renderAspect(*this, parent))
-        return;
-
-    if (QLabel *l = createLabel())
-        parent.addItem(l);
-
-    auto fontComboBox = createSubWidget<QFontComboBox>();
-    fontComboBox->setFontFilters(QFontComboBox::FontFilters(int(d->m_fontFilters)));
-    // Note: The extra QFontInfo hoop below is needed to get an actually
-    // resolved for on the system,  otherwise asking "Monospace" can result
-    // in "Dejavu Sans Mono" being selected.
-    fontComboBox->setCurrentFont(QFontInfo(QFont(value())).family());
-    parent.addItem(fontComboBox);
-
-    connect(fontComboBox, &QFontComboBox::currentTextChanged, this, [this](const QString &text) {
-        d->m_undoable.set(undoStack(), text);
-        updateStorage(m_volatileValue, text);
-        emit volatileValueChanged();
-    });
+    // The widget renderer owns this control's construction. Reaching the
+    // check means no renderer was installed; see installAspectWidgetRenderer().
+    QTC_CHECK(renderAspect(*this, parent));
 }
 
 void FontFamilyAspect::setFontFilters(FontFilters fontFilters)
@@ -2714,14 +2665,9 @@ AspectPresentation BoolAspect::presentation() const
 
 void BoolAspect::addToLayoutImpl(Layouting::Layout &parent)
 {
-    if (renderAspect(*this, parent))
-        return;
-
-    if (d->m_displayStyle == DisplayStyle::CheckBox)
-        addToLayoutHelper(parent, createSubWidget<QCheckBox>());
-    else
-        addToLayoutHelper(parent, createSubWidget<QRadioButton>());
-    volatileValueToGui();
+    // The widget renderer owns this control's construction. Reaching the
+    // check means no renderer was installed; see installAspectWidgetRenderer().
+    QTC_CHECK(renderAspect(*this, parent));
 }
 
 std::function<void (QObject *)> BoolAspect::groupChecker()
@@ -2867,60 +2813,9 @@ AspectPresentation SelectionAspect::presentation() const
 
 void SelectionAspect::addToLayoutImpl(Layouting::Layout &parent)
 {
-    if (renderAspect(*this, parent))
-        return;
-
-    switch (d->m_displayStyle) {
-    case DisplayStyle::RadioButtons: {
-        auto buttonGroup = new QButtonGroup(parent.product());
-        buttonGroup->setObjectName(objectName());
-        buttonGroup->setExclusive(true);
-        for (int i = 0, n = d->m_options.size(); i < n; ++i) {
-            const Option &option = d->m_options.at(i);
-            auto button = createSubWidget<QRadioButton>(option.displayName);
-            button->setChecked(i == value());
-            button->setEnabled(option.enabled);
-            button->setToolTip(option.tooltip);
-            parent.addItem(button);
-            buttonGroup->addButton(button, i);
-        }
-        volatileValueToGui();
-        connect(&d->m_undoable.m_signal, &UndoSignaller::changed, buttonGroup, [buttonGroup, this] {
-            QAbstractButton *button = buttonGroup->button(d->m_undoable.get());
-            QTC_ASSERT(button, return);
-            button->setChecked(true);
-        });
-
-        connect(buttonGroup, &QButtonGroup::idToggled, this, [this, buttonGroup] {
-            d->m_undoable.set(undoStack(), buttonGroup->id(buttonGroup->checkedButton()));
-            handleGuiChanged();
-        });
-        break;
-    }
-    case DisplayStyle::ComboBox:
-        if (!labelText().isEmpty()) {
-            setLabelText(labelText());
-        } else if (!displayName().isEmpty()) { // this is a fallback for compatibility (< 20.0), but warn
-            qWarning() << "Aspect" << displayName()
-                       << "uses ComboBox display but does not set labelText()";
-            setLabelText(displayName());
-        }
-        auto comboBox = createSubWidget<QComboBox>();
-        comboBox->setObjectName(objectName());
-        for (const Option &option : std::as_const(d->m_options))
-            comboBox->addItem(option.displayName);
-        comboBox->setCurrentIndex(volatileValue());
-        addLabeledItem(parent, comboBox);
-        connect(&d->m_undoable.m_signal, &UndoSignaller::changed, comboBox, [comboBox, this] {
-            comboBox->setCurrentIndex(d->m_undoable.get());
-        });
-        connect(comboBox, &QComboBox::currentIndexChanged, this, [this, comboBox] {
-            d->m_undoable.set(undoStack(), comboBox->currentIndex());
-            handleGuiChanged();
-        });
-
-        break;
-    }
+    // The widget renderer owns this control's construction. Reaching the
+    // check means no renderer was installed; see installAspectWidgetRenderer().
+    QTC_CHECK(renderAspect(*this, parent));
 }
 
 bool SelectionAspect::guiToVolatileValue()
@@ -3100,46 +2995,9 @@ AspectPresentation MultiSelectionAspect::presentation() const
 
 void MultiSelectionAspect::addToLayoutImpl(Layout &builder)
 {
-    if (renderAspect(*this, builder))
-        return;
-
-    QTC_CHECK(d->m_listView == nullptr);
-    if (d->m_allValues.isEmpty())
-        return;
-
-    switch (d->m_displayStyle) {
-    case DisplayStyle::ListView:
-        d->m_listView = createSubWidget<QListWidget>();
-        for (const QString &val : std::as_const(d->m_allValues))
-            (void) new QListWidgetItem(val, d->m_listView);
-        addLabeledItem(builder, d->m_listView);
-
-        connect(d->m_listView, &QListWidget::itemChanged, this, [this] {
-            QStringList val;
-            const int n = d->m_listView->count();
-            QTC_CHECK(n == d->m_allValues.size());
-            for (int i = 0; i != n; ++i) {
-                QListWidgetItem *item = d->m_listView->item(i);
-                if (item->checkState() == Qt::Checked)
-                    val.append(item->text());
-            }
-            d->m_undoable.set(undoStack(), val);
-        });
-
-        connect(&d->m_undoable.m_signal, &UndoSignaller::changed, d->m_listView, [this] {
-            const QSignalBlocker blocker(d->m_listView);
-            const QStringList checked = d->m_undoable.get();
-            const int n = d->m_listView->count();
-            QTC_CHECK(n == d->m_allValues.size());
-            for (int i = 0; i != n; ++i) {
-                QListWidgetItem *item = d->m_listView->item(i);
-                item->setCheckState(checked.contains(item->text()) ? Qt::Checked
-                                                                   : Qt::Unchecked);
-            }
-        });
-
-        volatileValueToGui();
-    }
+    // The widget renderer owns this control's construction. Reaching the
+    // check means no renderer was installed; see installAspectWidgetRenderer().
+    QTC_CHECK(renderAspect(*this, builder));
 }
 
 bool Internal::MultiSelectionAspectPrivate::setValueSelectedHelper(const QString &val, bool on)
@@ -3243,29 +3101,9 @@ AspectPresentation IntegerAspect::presentation() const
 
 void IntegerAspect::addToLayoutImpl(Layouting::Layout &parent)
 {
-    if (renderAspect(*this, parent))
-        return;
-
-    QTC_CHECK(!d->m_spinBox);
-    d->m_spinBox = createSubWidget<QSpinBox>();
-    d->m_spinBox->setDisplayIntegerBase(d->m_displayIntegerBase);
-    d->m_spinBox->setPrefix(d->m_prefix);
-    d->m_spinBox->setSuffix(d->m_suffix);
-    d->m_spinBox->setSingleStep(d->m_singleStep);
-    d->m_spinBox->setSpecialValueText(d->m_specialValueText);
-    if (d->m_minimumValue && d->m_maximumValue)
-        d->m_spinBox->setRange(int(*d->m_minimumValue / d->m_displayScaleFactor),
-                               int(*d->m_maximumValue / d->m_displayScaleFactor));
-    addLabeledItem(parent, d->m_spinBox);
-
-    QSpinBox *spinBox = d->m_spinBox.data();
-    connect(spinBox, &QSpinBox::valueChanged, this, [this, spinBox] {
-        d->m_undoable.set(undoStack(), qint64(spinBox->value()) * d->m_displayScaleFactor);
-    });
-    connect(&d->m_undoable.m_signal, &UndoSignaller::changed, spinBox, [this, spinBox] {
-        spinBox->setValue(int(d->m_undoable.get() / d->m_displayScaleFactor));
-    });
-    volatileValueToGui();
+    // The widget renderer owns this control's construction. Reaching the
+    // check means no renderer was installed; see installAspectWidgetRenderer().
+    QTC_CHECK(renderAspect(*this, parent));
 }
 
 bool IntegerAspect::guiToVolatileValue()
@@ -3426,27 +3264,9 @@ AspectPresentation DoubleAspect::presentation() const
 
 void DoubleAspect::addToLayoutImpl(Layout &builder)
 {
-    if (renderAspect(*this, builder))
-        return;
-
-    QTC_CHECK(!d->m_spinBox);
-    d->m_spinBox = createSubWidget<QDoubleSpinBox>();
-    d->m_spinBox->setPrefix(d->m_prefix);
-    d->m_spinBox->setSuffix(d->m_suffix);
-    d->m_spinBox->setSingleStep(d->m_singleStep);
-    d->m_spinBox->setSpecialValueText(d->m_specialValueText);
-    if (d->m_minimumValue && d->m_maximumValue)
-        d->m_spinBox->setRange(*d->m_minimumValue, *d->m_maximumValue);
-    addLabeledItem(builder, d->m_spinBox);
-
-    QDoubleSpinBox *spinBox = d->m_spinBox.data();
-    connect(spinBox, &QDoubleSpinBox::valueChanged, this, [this, spinBox] {
-        d->m_undoable.set(undoStack(), spinBox->value());
-    });
-    connect(&d->m_undoable.m_signal, &UndoSignaller::changed, spinBox, [this, spinBox] {
-        spinBox->setValue(d->m_undoable.get());
-    });
-    volatileValueToGui(); // Must happen after setRange()!
+    // The widget renderer owns this control's construction. Reaching the
+    // check means no renderer was installed; see installAspectWidgetRenderer().
+    QTC_CHECK(renderAspect(*this, builder));
 }
 
 bool DoubleAspect::guiToVolatileValue()
@@ -3658,134 +3478,9 @@ AspectPresentation StringListAspect::presentation() const
 
 void StringListAspect::addToLayoutImpl(Layout &parent)
 {
-    if (renderAspect(*this, parent))
-        return;
-
-    if (d->m_displayStyle == DisplayStyle::CommaSeparatedLineEdit) {
-        auto lineEdit = createSubWidget<FancyLineEdit>();
-
-        auto listToText = [](const QStringList &list) { return list.join(","); };
-        auto textToList = [](const QString &text) {
-            QStringList parts = text.split(',', Qt::SkipEmptyParts);
-            for (QString &p : parts)
-                p = p.trimmed();
-            parts.removeAll({});
-            return parts;
-        };
-
-        lineEdit->setText(listToText(d->m_undoable.get()));
-        lineEdit->setReadOnly(isReadOnly());
-
-        connect(lineEdit, &QLineEdit::textEdited, this, [this, lineEdit, textToList] {
-            d->m_undoable.set(undoStack(), textToList(lineEdit->text()));
-        });
-
-        connect(
-            &d->m_undoable.m_signal,
-            &UndoSignaller::changed,
-            lineEdit,
-            [this, lineEdit, listToText, textToList] {
-                if (textToList(lineEdit->text()) != d->m_undoable.get())
-                    lineEdit->setText(listToText(d->m_undoable.get()));
-                handleGuiChanged();
-            });
-
-        addLabeledItem(parent, lineEdit);
-        return;
-    }
-
-    auto editor = createSubWidget<QTreeWidget>();
-    editor->setHeaderHidden(true);
-    editor->setRootIsDecorated(false);
-    editor->setEditTriggers(
-        d->m_allowEditing ? QAbstractItemView::AllEditTriggers : QAbstractItemView::NoEditTriggers);
-
-    QPushButton *add = d->m_allowAdding ? createSubWidget<QPushButton>(Tr::tr("Add")) : nullptr;
-    QPushButton *remove = d->m_allowRemoving ? createSubWidget<QPushButton>(Tr::tr("Remove")) : nullptr;
-
-    auto itemsToStringList = [editor] {
-        QStringList items;
-        const QTreeWidgetItem *rootItem = editor->invisibleRootItem();
-        for (int i = 0, count = rootItem->childCount(); i < count; ++i) {
-            auto expr = rootItem->child(i)->data(0, Qt::DisplayRole).toString();
-            items.append(expr);
-        }
-        return items;
-    };
-
-    auto populate = [editor, this] {
-        editor->clear();
-        for (const QString &entry : d->m_undoable.get()) {
-            auto item = new QTreeWidgetItem(editor, {entry});
-            item->setData(0, Qt::ToolTipRole, entry);
-            item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable);
-        }
-    };
-
-    if (add) {
-        connect(add, &QPushButton::clicked, this, [this, populate, editor] {
-            d->m_undoable.setSilently(d->m_undoable.get() << "");
-            populate();
-            const QTreeWidgetItem *root = editor->invisibleRootItem();
-            QTreeWidgetItem *lastChild = root->child(root->childCount() - 1);
-            const QModelIndex index = editor->indexFromItem(lastChild, 0);
-            editor->edit(index);
-        });
-    }
-
-    if (remove) {
-        connect(remove, &QPushButton::clicked, this, [this, editor, itemsToStringList] {
-            const QList<QTreeWidgetItem *> selected = editor->selectedItems();
-            QTC_ASSERT(selected.size() == 1, return);
-            editor->invisibleRootItem()->removeChild(selected.first());
-            delete selected.first();
-            d->m_undoable.set(undoStack(), itemsToStringList());
-        });
-    }
-
-    connect(
-        &d->m_undoable.m_signal, &UndoSignaller::changed, editor, [this, populate, itemsToStringList] {
-            if (itemsToStringList() != d->m_undoable.get())
-                populate();
-
-            handleGuiChanged();
-        });
-
-    connect(
-        editor->model(),
-        &QAbstractItemModel::dataChanged,
-        this,
-        [this,
-         itemsToStringList](const QModelIndex &tl, const QModelIndex &br, const QList<int> &roles) {
-            if (!roles.contains(Qt::DisplayRole))
-                return;
-            if (tl != br)
-                return;
-            d->m_undoable.set(undoStack(), itemsToStringList());
-        });
-
-    populate();
-
-    // clang-format off
-    QWidget *mainWdgt = Widget {
-        Row {
-            noMargin,
-            editor,
-            If (d->m_allowAdding || d->m_allowRemoving) >> Then {
-                Column {
-                    If (d->m_allowAdding) >> Then {add},
-                    If (d->m_allowRemoving) >> Then {remove},
-                    st,
-                }
-            },
-        }
-    }.emerge();
-    // clang-format on
-
-    registerSubWidget(mainWdgt);
-
-    parent.addItem(createLabel());
-    parent.addItem(mainWdgt);
+    // The widget renderer owns this control's construction. Reaching the
+    // check means no renderer was installed; see installAspectWidgetRenderer().
+    QTC_CHECK(renderAspect(*this, parent));
 }
 
 void StringListAspect::appendValue(const QString &s, bool allowDuplicates)
@@ -3913,33 +3608,9 @@ AspectPresentation FilePathListAspect::presentation() const
 
 void FilePathListAspect::addToLayoutImpl(Layout &parent)
 {
-    if (renderAspect(*this, parent))
-        return;
-
-    PathListEditor *editor = createSubWidget<PathListEditor>();
-    editor->setPathList(value());
-    connect(editor, &PathListEditor::changed, this, [this, editor] {
-        d->undoable.set(undoStack(), editor->pathList());
-    });
-    connect(&d->undoable.m_signal, &UndoSignaller::changed, editor, [this, editor] {
-        if (editor->pathList() != d->undoable.get())
-            editor->setPathList(d->undoable.get());
-
-        handleGuiChanged();
-    });
-    connect(editor, &PathListEditor::changed, this, &FilePathListAspect::volatileValueChanged);
-
-    editor->setToolTip(toolTip());
-    editor->setMaximumHeight(100);
-    editor->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    editor->setPlaceholderText(d->placeHolderText);
-
-    registerSubWidget(editor);
-
-    connect(this, &FilePathListAspect::placeHolderTextChanged,
-            editor, &PathListEditor::setPlaceholderText);
-
-    parent.addItem(editor);
+    // The widget renderer owns this control's construction. Reaching the
+    // check means no renderer was installed; see installAspectWidgetRenderer().
+    QTC_CHECK(renderAspect(*this, parent));
 }
 
 void FilePathListAspect::setPlaceHolderText(const QString &placeHolderText)
@@ -4022,9 +3693,9 @@ AspectPresentation IntegersAspect::presentation() const
 
 void IntegersAspect::addToLayoutImpl(Layouting::Layout &parent)
 {
-    if (renderAspect(*this, parent))
-        return;
-    // TODO - when needed.
+    // The widget renderer owns this control's construction. Reaching the
+    // check means no renderer was installed; see installAspectWidgetRenderer().
+    QTC_CHECK(renderAspect(*this, parent));
 }
 
 
@@ -4087,26 +3758,9 @@ AspectPresentation TextDisplay::presentation() const
 
 void TextDisplay::addToLayoutImpl(Layout &parent)
 {
-    if (renderAspect(*this, parent))
-        return;
-
-    if (!d->m_label) {
-        d->m_label = createSubWidget<InfoLabel>(d->m_message, d->m_type);
-        d->m_label->setTextInteractionFlags(Qt::LinksAccessibleByMouse | Qt::TextSelectableByMouse);
-        d->m_label->setToolTip(toolTip());
-        connect(d->m_label, &QLabel::linkActivated, this, &TextDisplay::linkActivated);
-        d->m_label->setElideMode(Qt::ElideNone);
-        d->m_label->setWordWrap(d->m_wordWrap);
-        // Do not use m_label->setVisible(isVisible()) unconditionally, it does not
-        // have a QWidget parent yet when used in a LayoutBuilder.
-        if (!isVisible())
-            d->m_label->setVisible(false);
-
-        connect(this, &TextDisplay::changed, d->m_label, [this] {
-            d->m_label->setText(d->m_message);
-        });
-    }
-    parent.addItem(d->m_label.data());
+    // The widget renderer owns this control's construction. Reaching the
+    // check means no renderer was installed; see installAspectWidgetRenderer().
+    QTC_CHECK(renderAspect(*this, parent));
 }
 
 /*!
@@ -4626,99 +4280,9 @@ AspectPresentation StringSelectionAspect::presentation() const
 
 void StringSelectionAspect::addToLayoutImpl(Layouting::Layout &parent)
 {
-    if (renderAspect(*this, parent))
-        return;
-
-    QTC_ASSERT(m_fillCallback, return);
-
-    QComboBox *comboBox = createSubWidget<QComboBox>();
-
-    connect(
-        this,
-        &StringSelectionAspect::modelChange,
-        comboBox,
-        [this, comboBox, lastValue = QVariant()](bool changing) mutable {
-            if (changing) {
-                comboBox->blockSignals(true);
-                lastValue = m_volatileValue;
-            } else {
-                comboBox->blockSignals(false);
-                if (lastValue != m_volatileValue) {
-                    emit comboBox->currentIndexChanged(comboBox->currentIndex());
-                    emit comboBox->currentTextChanged(comboBox->currentText());
-                }
-            }
-        });
-
-    if (!m_model) {
-        m_model = new QStandardItemModel(this);
-        m_selectionModel = new QItemSelectionModel(m_model);
-
-        auto cb = [this](const QList<QStandardItem *> &items) {
-            emit modelChange(true);
-
-            m_model->clear();
-            for (QStandardItem *item : items)
-                m_model->appendRow(item);
-
-            volatileValueToGui();
-            emit modelChange(false);
-        };
-
-        connect(this, &StringSelectionAspect::refillRequested, this, [this, cb] {
-            m_fillCallback(cb);
-        });
-
-        m_fillCallback(cb);
-    }
-
-    comboBox->setInsertPolicy(QComboBox::InsertPolicy::NoInsert);
-    comboBox->setEditable(m_comboBoxEditable);
-    if (m_comboBoxEditable) {
-        comboBox->completer()->setCompletionMode(QCompleter::PopupCompletion);
-        comboBox->completer()->setFilterMode(Qt::MatchContains);
-    }
-    comboBox->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
-    comboBox->setCurrentText(value());
-    comboBox->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Fixed);
-
-    comboBox->setModel(m_model);
-    setWheelScrollingWithoutFocusBlocked(comboBox);
-
-    fixupComboBox(comboBox);
-
-    connect(m_selectionModel,
-            &QItemSelectionModel::currentChanged,
-            comboBox,
-            [comboBox](QModelIndex currentIdx) {
-                if (currentIdx.isValid() && comboBox->currentIndex() != currentIdx.row())
-                    comboBox->setCurrentIndex(currentIdx.row());
-            });
-
-    connect(comboBox, &QComboBox::activated, this, [this](int idx) {
-        QModelIndex modelIdx = m_model->index(idx, 0);
-        if (!modelIdx.isValid())
-            return;
-
-        const QString newValue = m_model->index(idx, 0).data(Qt::UserRole + 1).toString();
-        m_undoable.set(undoStack(), newValue);
-        volatileValueToGui();
-    });
-
-    connect(&m_undoable.m_signal, &UndoSignaller::changed, comboBox, [this, comboBox] {
-        auto item = itemById(m_undoable.get());
-        if (item)
-            m_selectionModel->setCurrentIndex(item->index(), QItemSelectionModel::ClearAndSelect);
-        else
-            comboBox->setCurrentText(m_undoable.get());
-
-        handleGuiChanged();
-    });
-
-    if (m_selectionModel->currentIndex().isValid())
-        comboBox->setCurrentIndex(m_selectionModel->currentIndex().row());
-
-    addLabeledItem(parent, comboBox);
+    // The widget renderer owns this control's construction. Reaching the
+    // check means no renderer was installed; see installAspectWidgetRenderer().
+    QTC_CHECK(renderAspect(*this, parent));
 }
 
 
@@ -4772,73 +4336,9 @@ AspectPresentation FontAspect::presentation() const
 
 void FontAspect::addToLayoutImpl(Layouting::Layout &parent)
 {
-    if (renderAspect(*this, parent))
-        return;
-
-    parent.addItem(fontFamily);
-
-    QComboBox *sizeComboBox = createSubWidget<QComboBox>();
-    parent.addItem(fontPointSize.labelText());
-    parent.addItem(sizeComboBox);
-
-    auto updateFontSizeSelector = [this, sizeComboBox] {
-
-        const QString family = fontFamily.volatileValue();
-        const QString fontStyle = QFontDatabase::styleString(volatileValue());
-
-        QList<int> pointSizes = QFontDatabase::pointSizes(family, fontStyle);
-        if (pointSizes.empty())
-            pointSizes = QFontDatabase::standardSizes();
-
-        QSignalBlocker blocker(sizeComboBox);
-        sizeComboBox->clear();
-        sizeComboBox->setCurrentIndex(-1);
-        sizeComboBox->setEnabled(!pointSizes.empty());
-
-        //  try to maintain selection or select closest.
-        if (pointSizes.empty())
-            return;
-
-        QString n;
-        for (int pointSize : std::as_const(pointSizes))
-            sizeComboBox->addItem(n.setNum(pointSize), QVariant(pointSize));
-
-        int desiredPointSize = fontPointSize.volatileValue();
-
-        //  try to maintain selection or select closest.
-        int closestIndex = -1;
-        int closestAbsError = 0xFFFF;
-
-        const int pointSizeCount = sizeComboBox->count();
-        for (int i = 0; i < pointSizeCount; i++) {
-            const int itemPointSize = sizeComboBox->itemData(i).toInt();
-            const int absError = qAbs(desiredPointSize - itemPointSize);
-            if (absError < closestAbsError) {
-                closestIndex  = i;
-                closestAbsError = absError;
-                if (closestAbsError == 0)
-                    break;
-            } else {    // past optimum
-                if (absError > closestAbsError)
-                    break;
-            }
-        }
-
-        if (closestIndex != -1)
-            sizeComboBox->setCurrentIndex(closestIndex);
-    };
-
-    updateFontSizeSelector();
-
-    connect(sizeComboBox, &QComboBox::currentIndexChanged, this, [this, sizeComboBox] {
-        int fontSize = 14;
-        int currentIndex = sizeComboBox->currentIndex();
-        if (currentIndex != -1)
-            fontSize = sizeComboBox->itemData(currentIndex).toInt();
-        fontPointSize.setVolatileValue(fontSize);
-    });
-
-    fontFamily.addOnVolatileValueChanged(sizeComboBox, updateFontSizeSelector);
+    // The widget renderer owns this control's construction. Reaching the
+    // check means no renderer was installed; see installAspectWidgetRenderer().
+    QTC_CHECK(renderAspect(*this, parent));
 }
 
 ByteArrayAspect::ByteArrayAspect(AspectContainer *container)
