@@ -231,7 +231,7 @@ void addCustomHighlighterPath(const FilePath &path)
     highlightRepository()->addCustomSearchPath(path.toUrlishString());
 }
 
-void downloadDefinitions(const QPointer<QLabel> &logger)
+void downloadDefinitions(const std::function<void(const QString &)> &logger)
 {
     using namespace KSyntaxHighlighting;
 
@@ -240,7 +240,7 @@ void downloadDefinitions(const QPointer<QLabel> &logger)
     QObject::connect(downloader, &DefinitionDownloader::done, [downloader, logger] {
         const QString msg = Tr::tr("Highlighter updates: done");
         if (logger)
-            logger->setText(msg);
+            logger(msg);
         else
             Core::MessageManager::writeFlashing(msg);
         downloader->deleteLater();
@@ -250,14 +250,14 @@ void downloadDefinitions(const QPointer<QLabel> &logger)
     QObject::connect(downloader, &DefinitionDownloader::informationMessage, [logger](const QString &message) {
         const QString msg = Tr::tr("Highlighter updates:") + ' ' + message;
         if (logger)
-            logger->setText(msg);
+            logger(msg);
         else
             Core::MessageManager::writeSilently(msg);
     });
 
     const QString msg = Tr::tr("Highlighter updates: starting");
     if (logger)
-        logger->setText(msg);
+        logger(msg);
     else
         Core::MessageManager::writeDisrupting(msg);
 

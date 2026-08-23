@@ -18,7 +18,6 @@
 #include <projectexplorer/projectsettings.h>
 #include <projectexplorer/useglobalaspect.h>
 
-#include <utils/aspectwidgets.h>
 #include <utils/filedialogs.h>
 #include <utils/aspects.h>
 #include <utils/fileutils.h>
@@ -27,7 +26,7 @@
 #include <utils/macroexpander.h>
 #include <utils/mimeconstants.h>
 #include <utils/mimeutils.h>
-#include <utils/pathchooser.h>
+#include <utils/pathvalidation.h>
 #include <utils/shutdownguard.h>
 
 #include <QCheckBox>
@@ -68,7 +67,6 @@ private:
 
 const char projectSettingsKeyC[] = "CppEditorFileNames";
 const char useGlobalKeyC[] = "UseGlobal";
-
 
 const char *licenseTemplateTemplate = QT_TRANSLATE_NOOP("QtC::CppEditor",
 "/**************************************************************************\n"
@@ -214,42 +212,23 @@ CppFileSettings::CppFileSettings()
     lowerCaseFiles.setDefaultValue(Constants::LOWERCASE_CPPFILES_DEFAULT);
     lowerCaseFiles.setLabelText(Tr::tr("&Lower case file names"));
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
+    includeGuardLabel.setQmlName("IncludeGuardLabel");
+
+    // "#pragma once" leaves no guard to template, so that field only applies
+    // when the pragma is off. Behaviour, not layout: keep it with the setting.
+    const auto updateGuardTemplate = [this] {
         headerGuardTemplate.setEnabled(isEnabled() && !headerPragmaOnce());
+    };
+    updateGuardTemplate();
+    connect(&headerPragmaOnce, &BaseAspect::changed, this, updateGuardTemplate);
+    connect(this, &BaseAspect::enabledChanged, this, updateGuardTemplate);
 
-        auto editButton = new QPushButton(Tr::tr("Edit..."));
-        editButton->setEnabled(isEnabled());
-        connect(this, &BaseAspect::enabledChanged, editButton,
-                [this, editButton] { editButton->setEnabled(isEnabled()); });
-        connect(editButton, &QPushButton::clicked, this, [this] { slotEdit(); });
+    editLicenseTemplate.setActionText(Tr::tr("Edit..."));
+    editLicenseTemplate.setQmlName("EditLicenseTemplate");
+    editLicenseTemplate.setAction([this] { slotEdit(); });
 
-        return Column {
-            Group {
-                title(Tr::tr("Headers")),
-                Form {
-                    headerSuffix, st, br,
-                    headerSearchPaths, br,
-                    headerPrefixes, br,
-                    includeGuardLabel, headerPragmaOnce, headerGuardTemplate
-                },
-            },
-            Group {
-                title(Tr::tr("Sources")),
-                Form {
-                    sourceSuffix, st, br,
-                    sourceSearchPaths, br,
-                    sourcePrefixes
-                }
-            },
-            lowerCaseFiles,
-            Row {
-                licenseTemplatePath,
-                editButton,
-            },
-            st
-        };
-    });
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/CppEditor/CppFileSettingsPage.qml"));
+
 }
 
 void CppFileSettings::setEnabled(bool enabled)

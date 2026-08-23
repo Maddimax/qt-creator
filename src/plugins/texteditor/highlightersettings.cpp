@@ -10,10 +10,9 @@
 #include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/icore.h>
 
-#include <utils/aspectwidgets.h>
 #include <utils/algorithm.h>
-#include <utils/layoutbuilder.h>
-#include <utils/pathchooser.h>
+#include <utils/pathvalidation.h>
+#include <QDesktopServices>
 
 using namespace Utils;
 
@@ -51,73 +50,45 @@ HighlighterSettings::HighlighterSettings()
     skipFilesPattern.setDefaultValue({});
     connect(&skipFilesPattern, &StringListAspect::changed, this, []{ HighlighterHelper::reload(); });
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
+    engineNote.setText(
+        Tr::tr("Highlight definitions are provided by the %1 engine.")
+            .arg("<a href=\"https://invent.kde.org/frameworks/syntax-highlighting\">"
+                 "KSyntaxHighlighting</a>"));
+    engineNote.setWordWrap(true);
+    engineNote.setQmlName("EngineNote");
+    QObject::connect(
+        &engineNote, &Utils::TextDisplay::linkActivated, &engineNote, [](const QString &link) {
+            QDesktopServices::openUrl(QUrl(link));
+        });
 
-        using namespace Layouting;
+    userFilesLabel.setText(Tr::tr("User Highlight Definition Files"));
+    userFilesLabel.setQmlName("UserFilesLabel");
 
-        auto definitionsInfolabel = new QLabel;
-        definitionsInfolabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-        definitionsInfolabel->setTextFormat(Qt::RichText);
-        definitionsInfolabel->setAlignment(Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter);
-        definitionsInfolabel->setWordWrap(true);
-        definitionsInfolabel->setOpenExternalLinks(true);
-        definitionsInfolabel->setText(
-            "<html><head/><body><p>"
-            + Tr::tr("Highlight definitions are provided by the %1 engine.")
-                  .arg(
-                      "<a "
-                      "href=\"https://invent.kde.org/frameworks/"
-                      "syntax-highlighting\">KSyntaxHighlighting</a>")
-            + "</p></body></html>");
+    updateStatus.setQmlName("UpdateStatus");
 
-        auto updateStatus = new QLabel;
-        updateStatus->setObjectName("updateStatus");
-
-        return Column {
-            definitionsInfolabel,
-            Space(3),
-            Group {
-                title(Tr::tr("Syntax Highlight Definition Files")),
-                Column {
-                    Row {
-                        PushButton {
-                            text(Tr::tr("Download Definitions")),
-                            Layouting::toolTip(Tr::tr("Download missing and update existing syntax definition files.")),
-                            onClicked(updateStatus, [label = QPointer(updateStatus)] {
-                                HighlighterHelper::downloadDefinitions(label);
-                            })
-                        },
-                        updateStatus,
-                        st
-                    },
-                    Row {
-                        Tr::tr("User Highlight Definition Files"),
-                        definitionFilesPath,
-                        PushButton {
-                            text(Tr::tr("Reload Definitions")),
-                            Layouting::toolTip(Tr::tr("Reload externally modified definition files.")),
-                            onClicked(this, &HighlighterHelper::reload)
-                        }
-                    },
-                    Row {
-                        st,
-                        PushButton {
-                            text(Tr::tr("Reset Remembered Definitions")),
-                            Layouting::toolTip(Tr::tr("Reset definitions remembered for files that can be "
-                                      "associated with more than one highlighter definition.")),
-                            onClicked(this, &HighlighterHelper::clearDefinitionForDocumentCache)
-                        }
-                    }
-                },
-            },
-            Form {
-                skipUpdateCheckForFilesPattern, br,
-                skipFilesPattern, br,
-            },
-            st
-        };
-
+    downloadDefinitions.setActionText(Tr::tr("Download Definitions"));
+    downloadDefinitions.setToolTip(
+        Tr::tr("Download missing and update existing syntax definition files."));
+    downloadDefinitions.setQmlName("DownloadDefinitions");
+    downloadDefinitions.setAction([this] {
+        HighlighterHelper::downloadDefinitions(
+            [this](const QString &message) { updateStatus.setText(message); });
     });
+
+    reloadDefinitions.setActionText(Tr::tr("Reload Definitions"));
+    reloadDefinitions.setToolTip(Tr::tr("Reload externally modified definition files."));
+    reloadDefinitions.setQmlName("ReloadDefinitions");
+    reloadDefinitions.setAction([] { HighlighterHelper::reload(); });
+
+    resetRememberedDefinitions.setActionText(Tr::tr("Reset Remembered Definitions"));
+    resetRememberedDefinitions.setToolTip(
+        Tr::tr("Reset definitions remembered for files that can be associated with more "
+               "than one highlighter definition."));
+    resetRememberedDefinitions.setQmlName("ResetRememberedDefinitions");
+    resetRememberedDefinitions.setAction(
+        [] { HighlighterHelper::clearDefinitionForDocumentCache(); });
+
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/TextEditor/HighlighterSettingsPage.qml"));
 
     readSettings();
 }

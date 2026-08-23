@@ -48,6 +48,7 @@ public:
     Utils::BoolAspect headerPragmaOnce{this};
     Utils::BoolAspect lowerCaseFiles{this};
     Utils::TextDisplay includeGuardLabel{this};
+    Utils::ActionAspect editLicenseTemplate{this};
 
     void addMimeInitializer() const;
     bool applySuffixesToMimeDB();

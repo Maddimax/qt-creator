@@ -165,5 +165,6 @@ if(TARGET TextEditor AND TARGET Qt::Quick)
     NO_PLUGIN
     QML_FILES
       CommentsSettingsPage.qml
+      HighlighterSettingsPage.qml
   )
 endif()

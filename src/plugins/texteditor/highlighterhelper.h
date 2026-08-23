@@ -6,9 +6,9 @@
 #include <KSyntaxHighlighting/Definition>
 
 #include <QFuture>
-#include <QLabel>
-#include <QPointer>
 #include <QTextDocument>
+
+#include <functional>
 
 namespace Utils { class FilePath; }
 
@@ -30,7 +30,10 @@ void rememberDefinitionForDocument(const Definition &definition, const TextDocum
 void clearDefinitionForDocumentCache();
 
 void addCustomHighlighterPath(const Utils::FilePath &path);
-void downloadDefinitions(const QPointer<QLabel> &logger = {});
+// Reports progress through \a logger where one is given, and to the message
+// manager otherwise. A callback rather than a label: whoever shows the progress
+// need not be a widget.
+void downloadDefinitions(const std::function<void(const QString &)> &logger = {});
 void reload();
 
 void handleShutdown();

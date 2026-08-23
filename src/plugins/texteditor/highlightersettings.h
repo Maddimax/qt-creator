@@ -18,6 +18,13 @@ public:
     Utils::FilePathAspect definitionFilesPath{this};
     Utils::StringListAspect skipUpdateCheckForFilesPattern{this};
     Utils::StringListAspect skipFilesPattern{this};
+
+    Utils::TextDisplay engineNote{this};
+    Utils::TextDisplay userFilesLabel{this};
+    Utils::TextDisplay updateStatus{this};
+    Utils::ActionAspect downloadDefinitions{this};
+    Utils::ActionAspect reloadDefinitions{this};
+    Utils::ActionAspect resetRememberedDefinitions{this};
 };
 
 HighlighterSettings &globalHighlighterSettings();
