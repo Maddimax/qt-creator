@@ -20,7 +20,7 @@
 #include <utils/async.h>
 #include <utils/detailswidget.h>
 #include <utils/environment.h>
-#include <utils/groupedmodel.h>
+#include <utils/groupedview.h>
 #include <utils/hostosinfo.h>
 #include <utils/layoutbuilder.h>
 #include <utils/pathchooser.h>

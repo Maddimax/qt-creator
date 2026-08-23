@@ -19,7 +19,7 @@
 #include <utils/filedialogs.h>
 #include <utils/algorithm.h>
 #include <utils/fileutils.h>
-#include <utils/groupedmodel.h>
+#include <utils/groupedview.h>
 #include <utils/guiutils.h>
 #include <utils/id.h>
 #include <utils/layoutbuilder.h>

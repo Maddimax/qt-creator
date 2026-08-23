@@ -17,7 +17,7 @@
 
 #include <utils/algorithm.h>
 #include <utils/detailswidget.h>
-#include <utils/groupedmodel.h>
+#include <utils/groupedview.h>
 #include <utils/guard.h>
 #include <utils/guiutils.h>
 #include <utils/layoutbuilder.h>

@@ -17,7 +17,7 @@
 #include <projectexplorer/projectexplorerconstants.h>
 
 #include <utils/detailswidget.h>
-#include <utils/groupedmodel.h>
+#include <utils/groupedview.h>
 #include <utils/guiutils.h>
 #include <utils/layoutbuilder.h>
 #include <utils/pathchooser.h>

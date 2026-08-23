@@ -26,7 +26,7 @@
 #include <utils/guiutils.h>
 #include <utils/detailswidget.h>
 #include <utils/fileutils.h>
-#include <utils/groupedmodel.h>
+#include <utils/groupedview.h>
 #include <utils/hostosinfo.h>
 #include <utils/treemodel.h>
 #include <utils/layoutbuilder.h>

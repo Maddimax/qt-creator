@@ -46,6 +46,7 @@ add_qtc_library(Utils
     devicefileaccess.cpp devicefileaccess.h
     dialogtask.h
     differ.cpp differ.h
+    dirtysettings.cpp dirtysettings.h
     displayname.cpp displayname.h
     dropsupport.cpp dropsupport.h
     elfreader.cpp elfreader.h
@@ -80,6 +81,7 @@ add_qtc_library(Utils
     globalfilechangeblocker.cpp globalfilechangeblocker.h
     globaltasktree.cpp globaltasktree.h
     groupedmodel.cpp groupedmodel.h
+    groupedview.cpp groupedview.h
     guard.cpp guard.h
     guardedcallback.h
     guitest.cpp guitest.h

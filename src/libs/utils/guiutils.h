@@ -5,7 +5,7 @@
 
 #include "utils_global.h"
 
-#include <functional>
+#include "dirtysettings.h"
 
 QT_BEGIN_NAMESPACE
 class QObject;
@@ -26,30 +26,9 @@ QTCREATOR_UTILS_EXPORT void onFirstShow(QWidget *widget, const std::function<voi
 QTCREATOR_UTILS_EXPORT QWidget *dialogParent();
 QTCREATOR_UTILS_EXPORT void setDialogParentGetter(QWidget *(*getter)());
 
-// returns previous value
-QTCREATOR_UTILS_EXPORT bool setIgnoreForDirtyHook(QObject *object, bool ignore = true);
-QTCREATOR_UTILS_EXPORT bool isIgnoredForDirtyHook(const QObject *object);
-
-QTCREATOR_UTILS_EXPORT void markSettingsDirty();
-QTCREATOR_UTILS_EXPORT void checkSettingsDirty();
-
-// Disables use of dirty hooks while active. Reference-counted, so overlapping
-// guards (even from different threads) no longer strand the suppression state.
-class QTCREATOR_UTILS_EXPORT DirtySettingsGuard
-{
-public:
-    DirtySettingsGuard();
-    ~DirtySettingsGuard();
-};
-
 QTCREATOR_UTILS_EXPORT void installCheckSettingsDirtyTrigger(QObject *object);
 
 QTCREATOR_UTILS_EXPORT void installMarkSettingsDirtyTrigger(QObject *object);
 QTCREATOR_UTILS_EXPORT void installMarkSettingsDirtyTriggerRecursively(QObject *object); // Avoid.
-
-namespace Internal {
-QTCREATOR_UTILS_EXPORT void setMarkSettingsDirtyHook(const std::function<void (bool)> &hook);
-QTCREATOR_UTILS_EXPORT void setCheckSettingsDirtyHook(const std::function<void ()> &hook);
-}
 
 } // namespace Utils
