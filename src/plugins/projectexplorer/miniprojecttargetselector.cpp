@@ -18,6 +18,7 @@
 #include "runconfiguration.h"
 #include "target.h"
 
+#include <utils/fancylineedit.h>
 #include <utils/algorithm.h>
 #include <utils/itemviews.h>
 #include <utils/layoutbuilder.h>

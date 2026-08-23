@@ -8,6 +8,8 @@
 #include <utils/aspects.h>
 #include <utils/id.h>
 
+#include <QWidget>
+
 #include <functional>
 #include <memory>
 

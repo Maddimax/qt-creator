@@ -3,6 +3,8 @@
 
 #include "extractfunction.h"
 
+#include <utils/fancylineedit.h>
+
 #include "../cppcodestylesettings.h"
 #include "../cppeditortr.h"
 #include "../cpprefactoringchanges.h"

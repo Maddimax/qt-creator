@@ -50,6 +50,7 @@
 #include <qtsupport/qtbuildaspects.h>
 #include <qtsupport/qtkitaspect.h>
 
+#include <utils/fancylineedit.h>
 #include <utils/algorithm.h>
 #include <utils/categorysortfiltermodel.h>
 #include <utils/checkablemessagebox.h>

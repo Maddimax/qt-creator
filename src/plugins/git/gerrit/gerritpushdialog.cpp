@@ -20,6 +20,7 @@
 #include <QDateTime>
 #include <QDialogButtonBox>
 #include <QLabel>
+#include <QLineEdit>
 #include <QPushButton>
 #include <QRegularExpressionValidator>
 

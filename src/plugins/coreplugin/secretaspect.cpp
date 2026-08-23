@@ -12,6 +12,7 @@
 #include <QtTaskTree/QParallelTaskTreeRunner>
 #include <QtTaskTree/QSingleTaskTreeRunner>
 
+#include <utils/fancylineedit.h>
 #include <utils/guardedcallback.h>
 #include <utils/hostosinfo.h>
 #include <utils/layoutbuilder.h>

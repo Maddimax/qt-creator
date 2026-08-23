@@ -20,6 +20,7 @@
 #include <projectexplorer/project.h>
 #include <projectexplorer/projectconfiguration.h>
 
+#include <utils/fancylineedit.h>
 #include <utils/categorysortfiltermodel.h>
 #include <utils/detailswidget.h>
 #include <utils/itemviews.h>

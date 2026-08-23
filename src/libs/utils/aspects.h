@@ -3,9 +3,8 @@
 
 #pragma once
 
-#include "fancylineedit.h"
-#include "filepath.h"
 #include "aspectpresentation.h"
+#include "filepath.h"
 #include "id.h"
 #include "validationfunction.h"
 
