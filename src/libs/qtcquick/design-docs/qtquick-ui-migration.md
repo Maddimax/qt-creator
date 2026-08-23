@@ -493,7 +493,7 @@ that the widget collapsed to controls that already existed. These do not:
 | CPU Usage | `PerfConfigEventsModel` splits each entry of a `StringListAspect` into columns for editing. The string list editor would carry the data and every operation, and lose the columns - a real downgrade for the one page that has it |
 | Debugger General | `DebuggerSourcePathMappingWidget`, a two-column table of source and target paths with add and remove |
 | Testing General | `FrameworksAspect` has no `presentation()` at all, and its tree is two check boxes per row - enabled, and grouped |
-| QML/JS Editing | `AnalyzerMessagesAspect`, a tree with two independent states per message |
+| QML/JS Editing | `AnalyzerMessagesAspect`, a tree with two independent states per message - and its state *is* the tree: `apply()`, `cancel()` and `isDirty()` all read `m_view`, and `apply()` returns early when there is none. No other renderer can drive it until the aspect owns its own volatile value |
 
 Three shapes would cover them: an editable multi-column table (CPU Usage,
 Debugger General), rows of several check boxes (Testing, QML/JS Editing), and a
@@ -502,7 +502,7 @@ is the one worth deciding rather than building: those editors are large, and
 hosting the existing widget inside an otherwise-Quick page may be the right
 answer for a long time.
 
-Two of these were taken further than reading, and both stopped for the same
+Three of these were taken further than reading, and each stopped for the same
 reason - the cost is not in the QML:
 
 **CPU Usage** would work today with the string list editor. `PerfConfigEventsModel`
@@ -510,6 +510,12 @@ splits each entry of `events`, a `StringListAspect`, into columns; a list of the
 raw event strings keeps the data and every operation and loses the columns. That
 is a visible downgrade for the only page that has that editor, so it wants
 someone's agreement, not a commit.
+
+**QML/JS Editing** cannot be drawn by anything but its own tree as it stands,
+because the tree holds the state rather than showing it. Making the aspect own a
+volatile copy and the tree show it is the right change with or without Qt Quick
+- an aspect that silently applies nothing when its page was never opened is
+holding on by a thread - but it is a rewrite of the aspect's core, not a port.
 
 **Testing** is key-compatible with per-item aspects, which is how the MCP tool
 table was solved: `FrameworksAspect` stores each framework under
