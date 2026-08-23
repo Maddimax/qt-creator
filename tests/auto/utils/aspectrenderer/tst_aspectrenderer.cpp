@@ -3,18 +3,27 @@
 
 #include <utils/aspects.h>
 #include <utils/aspectwidgetrenderer.h>
+#include <utils/elidinglabel.h>
 #include <utils/fancylineedit.h>
+#include <utils/infolabel.h>
 #include <utils/layoutbuilder.h>
+#include <utils/passworddialog.h>
+#include <utils/pathchooser.h>
 #include <utils/pathlisteditor.h>
+#include <utils/qtcolorbutton.h>
 
 #include <QCheckBox>
 #include <QComboBox>
 #include <QFontComboBox>
 #include <QLabel>
 #include <QListWidget>
+#include <QPushButton>
 #include <QRadioButton>
 #include <QSpinBox>
+#include <QStandardItem>
 #include <QTest>
+#include <QTextEdit>
+#include <QTreeWidget>
 #include <QUndoStack>
 
 #include <memory>
@@ -73,6 +82,26 @@ private slots:
     void filePathList();
     void integerList_data() { addRendererRows(); }
     void integerList();
+    void colorPicker_data() { addRendererRows(); }
+    void colorPicker();
+    void textDisplay_data() { addRendererRows(); }
+    void textDisplay();
+    void stringLabel_data() { addRendererRows(); }
+    void stringLabel();
+    void stringLineEdit_data() { addRendererRows(); }
+    void stringLineEdit();
+    void stringTextEdit_data() { addRendererRows(); }
+    void stringTextEdit();
+    void stringPasswordLineEdit_data() { addRendererRows(); }
+    void stringPasswordLineEdit();
+    void pathChooser_data() { addRendererRows(); }
+    void pathChooser();
+    void stringListTree_data() { addRendererRows(); }
+    void stringListTree();
+    void stringSelection_data() { addRendererRows(); }
+    void stringSelection();
+    void fontPicker_data() { addRendererRows(); }
+    void fontPicker();
 };
 
 void tst_AspectRenderer::initTestCase()
@@ -416,6 +445,290 @@ void tst_AspectRenderer::integerList()
     const std::unique_ptr<QWidget> widget = render(aspect);
     QVERIFY(widget);
     QVERIFY(widget->findChildren<QWidget *>().isEmpty()); // Renders nothing.
+}
+
+void tst_AspectRenderer::colorPicker()
+{
+    QFETCH(bool, withRenderer);
+    setRendererInstalled(withRenderer);
+
+    QUndoStack stack;
+    ColorAspect aspect;
+    aspect.setAutoApply(false);
+    aspect.setUndoStack(&stack);
+    aspect.setDefaultValue(QColor(Qt::black));
+
+    const std::unique_ptr<QWidget> widget = render(aspect);
+    auto button = widget->findChild<QtColorButton *>();
+    QVERIFY(button);
+    QCOMPARE(button->color(), QColor(Qt::black));
+    QCOMPARE(button->minimumSize(), QSize(64, 0)); // ColorAspect's default.
+    auto resetButton = widget->findChild<QPushButton *>();
+    QVERIFY(resetButton); // withResetButton is on by default.
+
+    // QtColorButton::setColor() does not emit colorChanged(); emit it the way
+    // the button's color dialog does.
+    emit button->colorChanged(QColor(Qt::red));
+    QCOMPARE(aspect.volatileValue(), QColor(Qt::red));
+    QCOMPARE(stack.count(), 0); // ColorAspect records no undo, on either path.
+
+    aspect.setVolatileValue(QColor(Qt::green));
+    QCOMPARE(button->color(), QColor(Qt::green));
+
+    resetButton->click();
+    QCOMPARE(aspect.volatileValue(), QColor(Qt::black));
+}
+
+void tst_AspectRenderer::textDisplay()
+{
+    QFETCH(bool, withRenderer);
+    setRendererInstalled(withRenderer);
+
+    TextDisplay aspect(nullptr, "hello");
+    const std::unique_ptr<QWidget> widget = render(aspect);
+    // InfoLabel has no Q_OBJECT macro, so findChild cannot key on it.
+    auto label = dynamic_cast<InfoLabel *>(widget->findChild<ElidingLabel *>());
+    QVERIFY(label);
+    QCOMPARE(label->text(), QString("hello"));
+    QVERIFY(label->wordWrap()); // TextDisplay defaults to word wrap.
+
+    aspect.setText("world");
+    QCOMPARE(label->text(), QString("world"));
+
+    // The live-forwarding setters must reach the built label.
+    aspect.setWordWrap(false);
+    QVERIFY(!label->wordWrap());
+    aspect.setIconType(InfoLabelType::Error);
+    QCOMPARE(label->type(), InfoLabelType::Error);
+}
+
+void tst_AspectRenderer::stringLabel()
+{
+    QFETCH(bool, withRenderer);
+    setRendererInstalled(withRenderer);
+
+    StringAspect aspect; // Default display style: LabelDisplay.
+    aspect.setAutoApply(false);
+    aspect.setValue("abc");
+
+    const std::unique_ptr<QWidget> widget = render(aspect);
+    auto label = widget->findChild<ElidingLabel *>();
+    QVERIFY(label);
+    QCOMPARE(label->text(), QString("abc"));
+
+    aspect.setVolatileValue("xyz");
+    QCOMPARE(label->text(), QString("xyz"));
+}
+
+void tst_AspectRenderer::stringLineEdit()
+{
+    QFETCH(bool, withRenderer);
+    setRendererInstalled(withRenderer);
+
+    QUndoStack stack;
+    StringAspect aspect;
+    aspect.setAutoApply(false);
+    aspect.setUndoStack(&stack);
+    aspect.setDisplayStyle(StringAspect::LineEditDisplay);
+    aspect.setLabelText("Name");
+
+    const std::unique_ptr<QWidget> widget = render(aspect);
+    auto lineEdit = widget->findChild<FancyLineEdit *>();
+    QVERIFY(lineEdit);
+    QVERIFY(lineEdit->text().isEmpty());
+    auto label = widget->findChild<QLabel *>();
+    QVERIFY(label);
+    QCOMPARE(label->text(), QString("Name"));
+
+    lineEdit->insert("abc");
+    QCOMPARE(aspect.volatileValue(), QString("abc"));
+    QCOMPARE(stack.count(), 1);
+
+    stack.undo();
+    QVERIFY(aspect.volatileValue().isEmpty());
+    QVERIFY(lineEdit->text().isEmpty());
+
+    aspect.setVolatileValue("zz");
+    QCOMPARE(lineEdit->text(), QString("zz"));
+}
+
+void tst_AspectRenderer::stringTextEdit()
+{
+    QFETCH(bool, withRenderer);
+    setRendererInstalled(withRenderer);
+
+    QUndoStack stack;
+    StringAspect aspect;
+    aspect.setAutoApply(false);
+    aspect.setUndoStack(&stack);
+    aspect.setDisplayStyle(StringAspect::TextEditDisplay);
+
+    const std::unique_ptr<QWidget> widget = render(aspect);
+    auto textEdit = widget->findChild<QTextEdit *>();
+    QVERIFY(textEdit);
+    QVERIFY(textEdit->toPlainText().isEmpty());
+
+    textEdit->setPlainText("abc");
+    QCOMPARE(aspect.volatileValue(), QString("abc"));
+    QCOMPARE(stack.count(), 1);
+
+    stack.undo();
+    QVERIFY(aspect.volatileValue().isEmpty());
+    QVERIFY(textEdit->toPlainText().isEmpty());
+
+    aspect.setVolatileValue("qq");
+    QCOMPARE(textEdit->toPlainText(), QString("qq"));
+}
+
+void tst_AspectRenderer::stringPasswordLineEdit()
+{
+    QFETCH(bool, withRenderer);
+    setRendererInstalled(withRenderer);
+
+    StringAspect aspect;
+    aspect.setAutoApply(false);
+    aspect.setDisplayStyle(StringAspect::PasswordLineEditDisplay);
+
+    const std::unique_ptr<QWidget> widget = render(aspect);
+    auto lineEdit = widget->findChild<FancyLineEdit *>();
+    QVERIFY(lineEdit);
+    QCOMPARE(lineEdit->echoMode(), QLineEdit::PasswordEchoOnEdit);
+
+    // ShowPasswordButton has no Q_OBJECT macro, so findChild cannot key on it.
+    ShowPasswordButton *showButton = nullptr;
+    const QList<QAbstractButton *> buttons = widget->findChildren<QAbstractButton *>();
+    for (QAbstractButton *button : buttons) {
+        if (auto b = dynamic_cast<ShowPasswordButton *>(button))
+            showButton = b;
+    }
+    QVERIFY(showButton);
+    showButton->click();
+    QCOMPARE(lineEdit->echoMode(), QLineEdit::Normal);
+    showButton->click();
+    QCOMPARE(lineEdit->echoMode(), QLineEdit::PasswordEchoOnEdit);
+}
+
+void tst_AspectRenderer::pathChooser()
+{
+    QFETCH(bool, withRenderer);
+    setRendererInstalled(withRenderer);
+
+    QUndoStack stack;
+    FilePathAspect aspect;
+    aspect.setAutoApply(false);
+    aspect.setUndoStack(&stack);
+
+    const std::unique_ptr<QWidget> widget = render(aspect);
+    auto chooser = widget->findChild<PathChooser *>();
+    QVERIFY(chooser);
+    QCOMPARE(aspect.pathChooser(), chooser); // The cache keeps serving the public API.
+
+    chooser->lineEdit()->insert("/tmp/one");
+    QCOMPARE(aspect.volatileValue(), QString("/tmp/one"));
+    QCOMPARE(stack.count(), 1);
+
+    stack.undo();
+    QVERIFY(aspect.volatileValue().isEmpty());
+    QVERIFY(chooser->lineEdit()->text().isEmpty());
+
+    aspect.setVolatileValue("/tmp/two");
+    QCOMPARE(chooser->lineEdit()->text(), QString("/tmp/two"));
+}
+
+void tst_AspectRenderer::stringListTree()
+{
+    QFETCH(bool, withRenderer);
+    setRendererInstalled(withRenderer);
+
+    QUndoStack stack;
+    StringListAspect aspect; // Default display style: ListView (the tree editor).
+    aspect.setAutoApply(false);
+    aspect.setUndoStack(&stack);
+    aspect.setValue({"a", "b"});
+
+    const std::unique_ptr<QWidget> widget = render(aspect);
+    auto tree = widget->findChild<QTreeWidget *>();
+    QVERIFY(tree);
+    QCOMPARE(tree->topLevelItemCount(), 2);
+    QCOMPARE(tree->topLevelItem(0)->text(0), QString("a"));
+    QCOMPARE(widget->findChildren<QPushButton *>().size(), 2); // Add and Remove.
+
+    tree->topLevelItem(0)->setText(0, "z"); // Fires dataChanged, like an item edit.
+    QCOMPARE(aspect.volatileValue(), (QStringList{"z", "b"}));
+    QCOMPARE(stack.count(), 1);
+
+    stack.undo();
+    QCOMPARE(aspect.volatileValue(), (QStringList{"a", "b"}));
+    QCOMPARE(tree->topLevelItem(0)->text(0), QString("a"));
+
+    aspect.setVolatileValue(QStringList{"x"});
+    QCOMPARE(tree->topLevelItemCount(), 1);
+    QCOMPARE(tree->topLevelItem(0)->text(0), QString("x"));
+}
+
+void tst_AspectRenderer::stringSelection()
+{
+    QFETCH(bool, withRenderer);
+    setRendererInstalled(withRenderer);
+
+    QUndoStack stack;
+    StringSelectionAspect aspect;
+    aspect.setAutoApply(false);
+    aspect.setUndoStack(&stack);
+    aspect.setFillCallback([](const StringSelectionAspect::ResultCallback &cb) {
+        const auto makeItem = [](const QString &display, const QString &id) {
+            auto item = new QStandardItem(display);
+            item->setData(id); // Qt::UserRole + 1, the write-back id.
+            return item;
+        };
+        cb({makeItem("One", "one"), makeItem("Two", "two")});
+    });
+    aspect.setValue("one");
+
+    const std::unique_ptr<QWidget> widget = render(aspect);
+    auto comboBox = widget->findChild<QComboBox *>();
+    QVERIFY(comboBox);
+    QCOMPARE(comboBox->count(), 2);
+    QCOMPARE(comboBox->currentIndex(), 0);
+
+    emit comboBox->activated(1); // Only user interaction emits this.
+    QCOMPARE(aspect.volatileValue(), QString("two"));
+    QCOMPARE(stack.count(), 1);
+    QCOMPARE(comboBox->currentIndex(), 1);
+
+    stack.undo();
+    QCOMPARE(aspect.volatileValue(), QString("one"));
+    QCOMPARE(comboBox->currentIndex(), 0);
+
+    aspect.setVolatileValue("two");
+    QCOMPARE(comboBox->currentIndex(), 1);
+}
+
+void tst_AspectRenderer::fontPicker()
+{
+    QFETCH(bool, withRenderer);
+    setRendererInstalled(withRenderer);
+
+    FontAspect aspect;
+    const std::unique_ptr<QWidget> widget = render(aspect);
+    auto familyBox = widget->findChild<QFontComboBox *>();
+    QVERIFY(familyBox);
+
+    QComboBox *sizeBox = nullptr;
+    const QList<QComboBox *> boxes = widget->findChildren<QComboBox *>();
+    for (QComboBox *box : boxes) {
+        if (!qobject_cast<QFontComboBox *>(box))
+            sizeBox = box;
+    }
+    QVERIFY(sizeBox);
+    QVERIFY(sizeBox->count() > 0);
+
+    const int target = sizeBox->currentIndex() == 0 ? sizeBox->count() - 1 : 0;
+    if (target == sizeBox->currentIndex())
+        QSKIP("Only one point size available");
+
+    sizeBox->setCurrentIndex(target);
+    QCOMPARE(aspect.fontPointSize.volatileValue(), qint64(sizeBox->itemData(target).toInt()));
 }
 
 QTEST_MAIN(tst_AspectRenderer)

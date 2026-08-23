@@ -1374,6 +1374,9 @@ AspectPresentation StringAspect::presentation() const
 
 void StringAspect::addToLayoutImpl(Layout &parent)
 {
+    if (renderAspect(*this, parent))
+        return;
+
     d->m_checkerImpl.addToLayoutFirst(parent);
 
     const QString displayedString = d->m_displayFilter ? d->m_displayFilter(volatileValue())
@@ -1664,6 +1667,76 @@ void StringAspect::setRightSideIconPath(const FilePath &path)
     d->m_rightSideIconPath = path;
 }
 
+bool StringAspect::isCheckable() const
+{
+    return d->m_checkerImpl.isCheckable();
+}
+
+UndoableValue<QString> &StringAspect::undoableValue()
+{
+    return d->undoable;
+}
+
+std::function<QString(const QString &)> StringAspect::displayFilter() const
+{
+    return d->m_displayFilter;
+}
+
+Qt::TextElideMode StringAspect::elideMode() const
+{
+    return d->m_elideMode;
+}
+
+bool StringAspect::showToolTipOnLabel() const
+{
+    return d->m_showToolTipOnLabel;
+}
+
+int StringAspect::minimumHeight() const
+{
+    return d->m_minimumHeight;
+}
+
+QCompleter *StringAspect::completer() const
+{
+    return d->m_completer;
+}
+
+FilePath StringAspect::rightSideIconPath() const
+{
+    return d->m_rightSideIconPath;
+}
+
+Key StringAspect::historyCompleterKey() const
+{
+    return d->m_historyCompleterKey;
+}
+
+std::optional<ValidationFunction> StringAspect::validationFunction() const
+{
+    return d->m_validator;
+}
+
+std::function<QValidator *(QObject *)> StringAspect::validatorFactory() const
+{
+    return d->m_validatorFactory;
+}
+
+bool StringAspect::validatePlaceHolder() const
+{
+    return d->m_validatePlaceHolder;
+}
+
+bool StringAspect::autoApplyOnEditingFinished() const
+{
+    return d->m_autoApplyOnEditingFinished;
+}
+
+bool StringAspect::acceptRichText() const
+{
+    return d->m_acceptRichText;
+}
+
 
 /*!
     \class Utils::FilePathAspect
@@ -1899,6 +1972,9 @@ AspectPresentation FilePathAspect::presentation() const
 
 void FilePathAspect::addToLayoutImpl(Layouting::Layout &parent)
 {
+    if (renderAspect(*this, parent))
+        return;
+
     d->m_checkerImpl.addToLayoutFirst(parent);
 
     const QString displayedString = d->m_displayFilter ? d->m_displayFilter(value()) : value();
@@ -2126,6 +2202,96 @@ void FilePathAspect::setOpenTerminalHandler(const std::function<void ()> &openTe
         d->m_pathChooserDisplay->setOpenTerminalHandler(openTerminal);
 }
 
+UndoableValue<QString> &FilePathAspect::undoableValue()
+{
+    return d->m_undoable;
+}
+
+std::function<QString(const QString &)> FilePathAspect::displayFilter() const
+{
+    return d->m_displayFilter;
+}
+
+PathChooserKind FilePathAspect::expectedKind() const
+{
+    return d->m_expectedKind;
+}
+
+Key FilePathAspect::historyCompleterKey() const
+{
+    return d->m_historyCompleterKey;
+}
+
+std::optional<ValidationFunction> FilePathAspect::validationFunction() const
+{
+    return d->m_validator;
+}
+
+Environment FilePathAspect::environment() const
+{
+    return d->m_environment;
+}
+
+Lazy<FilePath> FilePathAspect::baseDirectory() const
+{
+    return d->m_baseDirectory;
+}
+
+FilePath FilePathAspect::initialBrowsePathBackup() const
+{
+    return d->m_initialBrowsePathBackup;
+}
+
+std::function<void()> FilePathAspect::openTerminalHandler() const
+{
+    return d->m_openTerminal;
+}
+
+QString FilePathAspect::promptDialogFilter() const
+{
+    return d->m_prompDialogFilter;
+}
+
+QString FilePathAspect::promptDialogTitle() const
+{
+    return d->m_prompDialogTitle;
+}
+
+QStringList FilePathAspect::commandVersionArguments() const
+{
+    return d->m_commandVersionArguments;
+}
+
+bool FilePathAspect::allowPathFromDevice() const
+{
+    return d->m_allowPathFromDevice;
+}
+
+bool FilePathAspect::validatePlaceHolder() const
+{
+    return d->m_validatePlaceHolder;
+}
+
+FilePaths FilePathAspect::valueAlternatives() const
+{
+    return d->m_valueAlternatives;
+}
+
+bool FilePathAspect::autoApplyOnEditingFinished() const
+{
+    return d->m_autoApplyOnEditingFinished;
+}
+
+Guard &FilePathAspect::editFinishedGuard()
+{
+    return d->m_editFinishedGuard;
+}
+
+void FilePathAspect::cachePathChooser(PathChooser *pathChooser)
+{
+    d->m_pathChooserDisplay = pathChooser;
+}
+
 /*!
     \class Utils::ColorAspect
     \inmodule QtCreator
@@ -2152,6 +2318,7 @@ AspectPresentation ColorAspect::presentation() const
     p.control = AspectControls::ColorPicker;
     p.alphaAllowed = d->m_alphaAllowed;
     p.withResetButton = d->m_withResetButton;
+    p.minimumSize = d->m_minimumSize;
     return p;
 }
 
@@ -3682,6 +3849,11 @@ bool StringListAspect::uiAllowEditing() const
     return d->m_allowEditing;
 }
 
+UndoableValue<QStringList> &StringListAspect::undoableValue()
+{
+    return d->m_undoable;
+}
+
 /*!
     \class Utils::FilePathListAspect
     \inmodule QtCreator
@@ -3966,6 +4138,16 @@ void TextDisplay::setWordWrap(bool on)
 QString TextDisplay::text() const
 {
     return d->m_message;
+}
+
+InfoLabel *TextDisplay::cachedLabel() const
+{
+    return d->m_label.data();
+}
+
+void TextDisplay::setCachedLabel(InfoLabel *label)
+{
+    d->m_label = label;
 }
 
 /*!
@@ -4446,6 +4628,9 @@ AspectPresentation StringSelectionAspect::presentation() const
 
 void StringSelectionAspect::addToLayoutImpl(Layouting::Layout &parent)
 {
+    if (renderAspect(*this, parent))
+        return;
+
     QTC_ASSERT(m_fillCallback, return);
 
     QComboBox *comboBox = createSubWidget<QComboBox>();
@@ -4589,6 +4774,9 @@ AspectPresentation FontAspect::presentation() const
 
 void FontAspect::addToLayoutImpl(Layouting::Layout &parent)
 {
+    if (renderAspect(*this, parent))
+        return;
+
     parent.addItem(fontFamily);
 
     QComboBox *sizeComboBox = createSubWidget<QComboBox>();

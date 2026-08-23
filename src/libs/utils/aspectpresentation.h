@@ -8,6 +8,7 @@
 #include <QList>
 #include <QObject>
 #include <QPixmap>
+#include <QSize>
 #include <QString>
 #include <QVariant>
 
@@ -134,6 +135,7 @@ public:
 
     // ColorPicker.
     bool alphaAllowed = true;
+    QSize minimumSize;
     // ColorPicker and LineEdit.
     bool withResetButton = false;
 

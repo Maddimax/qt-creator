@@ -40,9 +40,13 @@ namespace Utils {
 class AspectContainer;
 class BoolAspect;
 class CheckableDecider;
+class Guard;
+class InfoLabel;
 class Key;
 class MacroExpander;
 class PathChooser;
+
+template <class T> class UndoableValue;
 
 enum class InfoLabelType;
 enum class PathChooserKind;
@@ -862,6 +866,24 @@ protected:
     bool volatileValueToValue() override;
 
     std::unique_ptr<Internal::StringAspectPrivate> d;
+
+private:
+    // Read access for the widget renderer, mirroring the public setters.
+    friend class Internal::AspectWidgetRenderer;
+    bool isCheckable() const;
+    UndoableValue<QString> &undoableValue();
+    std::function<QString(const QString &)> displayFilter() const;
+    Qt::TextElideMode elideMode() const;
+    bool showToolTipOnLabel() const;
+    int minimumHeight() const;
+    QCompleter *completer() const;
+    FilePath rightSideIconPath() const;
+    Key historyCompleterKey() const;
+    std::optional<ValidationFunction> validationFunction() const;
+    std::function<QValidator *(QObject *)> validatorFactory() const;
+    bool validatePlaceHolder() const;
+    bool autoApplyOnEditingFinished() const;
+    bool acceptRichText() const;
 };
 
 class QTCREATOR_UTILS_EXPORT ByteArrayAspect : public TypedAspect<QByteArray>
@@ -952,6 +974,28 @@ protected:
     bool volatileValueToValue() override;
 
     std::unique_ptr<Internal::FilePathAspectPrivate> d;
+
+private:
+    // Read access for the widget renderer, mirroring the public setters.
+    friend class Internal::AspectWidgetRenderer;
+    UndoableValue<QString> &undoableValue();
+    std::function<QString(const QString &)> displayFilter() const;
+    PathChooserKind expectedKind() const;
+    Key historyCompleterKey() const;
+    std::optional<ValidationFunction> validationFunction() const;
+    Environment environment() const;
+    Lazy<FilePath> baseDirectory() const;
+    FilePath initialBrowsePathBackup() const;
+    std::function<void()> openTerminalHandler() const;
+    QString promptDialogFilter() const;
+    QString promptDialogTitle() const;
+    QStringList commandVersionArguments() const;
+    bool allowPathFromDevice() const;
+    bool validatePlaceHolder() const;
+    FilePaths valueAlternatives() const;
+    bool autoApplyOnEditingFinished() const;
+    Guard &editFinishedGuard();
+    void cachePathChooser(PathChooser *pathChooser);
 };
 
 class QTCREATOR_UTILS_EXPORT IntegerAspect : public TypedAspect<qint64>
@@ -1105,6 +1149,11 @@ public:
     bool uiAllowEditing() const;
 
 private:
+    // The tree editor's Add flow appends the row-to-edit silently; only the
+    // edit itself records the undo command.
+    friend class Internal::AspectWidgetRenderer;
+    UndoableValue<QStringList> &undoableValue();
+
     std::unique_ptr<Internal::StringListAspectPrivate> d;
 };
 
@@ -1180,6 +1229,12 @@ signals:
     void linkActivated(const QString &link);
 
 private:
+    // The renderer keeps filling the cached label so that setIconType() and
+    // setWordWrap() still reach the live widget.
+    friend class Internal::AspectWidgetRenderer;
+    InfoLabel *cachedLabel() const;
+    void setCachedLabel(InfoLabel *label);
+
     std::unique_ptr<Internal::TextDisplayPrivate> d;
 };
 
@@ -1394,6 +1449,7 @@ protected:
     QStandardItem *itemById(const QString &id);
 
 private:
+    friend class Internal::AspectWidgetRenderer;
     FillCallback m_fillCallback;
     QStandardItemModel *m_model{nullptr};
     QItemSelectionModel *m_selectionModel{nullptr};

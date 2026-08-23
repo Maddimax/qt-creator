@@ -4,32 +4,52 @@
 #include "aspectwidgetrenderer.h"
 
 #include "aspects.h"
+#include "elidinglabel.h"
+#include "environment.h"
 #include "fancylineedit.h"
+#include "guard.h"
+#include "guiutils.h"
+#include "infolabel.h"
 #include "layoutbuilder.h"
+#include "passworddialog.h"
+#include "pathchooser.h"
 #include "pathlisteditor.h"
 #include "qtcassert.h"
+#include "qtcolorbutton.h"
 #include "stylehelper.h"
+#include "utilstr.h"
 
 #include <QButtonGroup>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QCompleter>
 #include <QDebug>
 #include <QFontComboBox>
+#include <QFontDatabase>
 #include <QFontInfo>
+#include <QItemSelectionModel>
 #include <QLabel>
 #include <QListWidget>
+#include <QMenu>
+#include <QPushButton>
 #include <QRadioButton>
 #include <QSpinBox>
+#include <QStandardItemModel>
+#include <QTextEdit>
+#include <QTreeWidget>
 #include <QVBoxLayout>
 
 using namespace Layouting;
 
 namespace Utils::Internal {
 
-// Rebuilds the widgets of the generic addToLayoutImpl() bodies in aspects.cpp,
-// driven by presentation() instead of the aspects' private state. GUI writes go
-// through setVolatileVariantValueFromGui(), which records undo like the bodies'
-// direct UndoableValue writes; GUI reads follow volatileValueChanged().
+// Rebuilds the widgets of the addToLayoutImpl() bodies in aspects.cpp. The
+// generic controls are driven by presentation() alone; the bespoke ones key on
+// the aspect type and read the rest through friend accessors - the point is
+// where the widget code lives, not that it be generic. GUI writes go through
+// setVolatileVariantValueFromGui(), which records undo like the bodies' direct
+// UndoableValue writes; GUI reads follow volatileValueChanged(), or the
+// aspect's UndoableValue signal where the body relies on its exact timing.
 class AspectWidgetRenderer
 {
 public:
@@ -54,6 +74,10 @@ public:
         case AspectControls::RadioButtonGroup:
             if (auto selectionAspect = qobject_cast<SelectionAspect *>(&aspect)) {
                 renderSelection(selectionAspect, parent, pres);
+                return true;
+            }
+            if (auto stringSelectionAspect = qobject_cast<StringSelectionAspect *>(&aspect)) {
+                renderStringSelection(stringSelectionAspect, parent);
                 return true;
             }
             return false;
@@ -90,12 +114,67 @@ public:
         case AspectControls::IntegerList:
             // Renders nothing, like IntegersAspect's own body.
             return qobject_cast<IntegersAspect *>(&aspect) != nullptr;
+        case AspectControls::Label:
+            if (auto stringAspect = qobject_cast<StringAspect *>(&aspect)) {
+                if (stringAspect->isCheckable())
+                    return false;
+                renderStringLabel(stringAspect, parent, pres);
+                return true;
+            }
+            if (auto textDisplay = qobject_cast<TextDisplay *>(&aspect)) {
+                renderTextDisplay(textDisplay, parent, pres);
+                return true;
+            }
+            return false;
+        case AspectControls::LineEdit:
+        case AspectControls::PasswordLineEdit:
+            if (auto stringAspect = qobject_cast<StringAspect *>(&aspect)) {
+                if (stringAspect->isCheckable())
+                    return false;
+                renderStringLineEdit(stringAspect, parent, pres);
+                return true;
+            }
+            return false;
+        case AspectControls::TextEdit:
+            if (auto stringAspect = qobject_cast<StringAspect *>(&aspect)) {
+                if (stringAspect->isCheckable())
+                    return false;
+                renderStringTextEdit(stringAspect, parent, pres);
+                return true;
+            }
+            return false;
+        case AspectControls::PathChooser:
+            if (auto filePathAspect = qobject_cast<FilePathAspect *>(&aspect)) {
+                if (filePathAspect->isCheckable())
+                    return false;
+                renderPathChooser(filePathAspect, parent, pres);
+                return true;
+            }
+            return false;
+        case AspectControls::ColorPicker:
+            if (auto colorAspect = qobject_cast<ColorAspect *>(&aspect)) {
+                renderColor(colorAspect, parent, pres);
+                return true;
+            }
+            return false;
+        case AspectControls::StringList:
+            if (auto stringListAspect = qobject_cast<StringListAspect *>(&aspect)) {
+                renderStringListTree(stringListAspect, parent, pres);
+                return true;
+            }
+            return false;
+        case AspectControls::FontPicker:
+            if (auto fontAspect = qobject_cast<FontAspect *>(&aspect)) {
+                renderFontPicker(fontAspect, parent);
+                return true;
+            }
+            return false;
         // Not handled:
-        // - ColorPicker: presentation() lacks the color button's minimum size.
-        // - Label: TextDisplay owns its live label; setIconType() and
-        //   setWordWrap() mutate it directly, with no signal to follow.
-        // - StringList: the tree editor's add flow needs
-        //   UndoableValue::setSilently on the aspect's private undoable.
+        // - Container: AspectContainer's body only runs its layouter()
+        //   closure; it contains no widget code to move.
+        // - Checkable String/FilePath aspects (the isCheckable() returns
+        //   above): the checkbox composite needs CheckableAspectImplementation,
+        //   which is private to aspects.cpp.
         default:
             return false;
         }
@@ -360,6 +439,566 @@ private:
                          editor, &PathListEditor::setPlaceholderText);
 
         parent.addItem(editor);
+    }
+
+    static QString displayedString(StringAspect *aspect)
+    {
+        const std::function<QString(const QString &)> filter = aspect->displayFilter();
+        return filter ? filter(aspect->volatileValue()) : aspect->volatileValue();
+    }
+
+    static void renderStringLabel(StringAspect *aspect, Layout &parent,
+                                  const AspectPresentation &pres)
+    {
+        const QString displayed = displayedString(aspect);
+        auto label = aspect->createSubWidget<ElidingLabel>();
+        label->setElideMode(aspect->elideMode());
+        label->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        label->setText(displayed);
+        label->setToolTip(aspect->showToolTipOnLabel() ? displayed : pres.toolTip);
+        QObject::connect(aspect, &StringAspect::elideModeChanged,
+                         label, &ElidingLabel::setElideMode);
+        aspect->addLabeledItem(parent, label);
+
+        QObject::connect(&aspect->undoableValue().m_signal, &UndoSignaller::changed, label,
+                         [aspect, label] {
+                             label->setText(aspect->undoableValue().get());
+                             label->setToolTip(aspect->showToolTipOnLabel()
+                                                   ? aspect->undoableValue().get()
+                                                   : aspect->toolTip());
+                         });
+    }
+
+    static void renderStringLineEdit(StringAspect *aspect, Layout &parent,
+                                     const AspectPresentation &pres)
+    {
+        auto lineEdit = aspect->createSubWidget<FancyLineEdit>();
+        // Named after the setting, like a path chooser, so a page with several
+        // of them can be told apart.
+        lineEdit->setObjectName(Utils::stringFromKey(aspect->settingsKey()));
+        aspect->addMacroExpansion(lineEdit);
+        lineEdit->setPlaceholderText(pres.placeholderText);
+        lineEdit->setMinimumHeight(aspect->minimumHeight());
+
+        if (QCompleter *completer = aspect->completer())
+            lineEdit->setSpecialCompleter(completer);
+
+        if (!aspect->rightSideIconPath().isEmpty()) {
+            QIcon icon(aspect->rightSideIconPath().toFSPathString());
+            QTC_CHECK(!icon.isNull());
+            lineEdit->setButtonIcon(FancyLineEdit::Right, icon);
+            lineEdit->setButtonVisible(FancyLineEdit::Right, true);
+            QObject::connect(lineEdit, &FancyLineEdit::rightButtonClicked,
+                             aspect, &StringAspect::rightSideIconClicked);
+        }
+
+        if (!aspect->historyCompleterKey().isEmpty())
+            lineEdit->setHistoryCompleter(aspect->historyCompleterKey());
+
+        QObject::connect(aspect, &StringAspect::historyCompleterKeyChanged, lineEdit,
+                         [lineEdit](const Key &historyCompleterKey) {
+                             lineEdit->setHistoryCompleter(historyCompleterKey);
+                         });
+        QObject::connect(aspect, &StringAspect::placeholderTextChanged,
+                         lineEdit, &FancyLineEdit::setPlaceholderText);
+
+        if (const std::optional<ValidationFunction> validator = aspect->validationFunction())
+            lineEdit->setValidationFunction(*validator);
+        else if (const auto validatorFactory = aspect->validatorFactory())
+            lineEdit->setValidator(validatorFactory(lineEdit));
+
+        lineEdit->setTextKeepingActiveCursor(displayedString(aspect));
+        lineEdit->setReadOnly(aspect->isReadOnly());
+        lineEdit->setValidatePlaceHolder(aspect->validatePlaceHolder());
+
+        aspect->addLabeledItem(parent, lineEdit);
+
+        if (pres.withResetButton) {
+            auto resetButton = aspect->createSubWidget<QPushButton>(Tr::tr("Reset"));
+            resetButton->setEnabled(lineEdit->text() != aspect->defaultValue());
+            QObject::connect(resetButton, &QPushButton::clicked, lineEdit, [aspect, lineEdit] {
+                lineEdit->setText(aspect->defaultValue());
+            });
+            QObject::connect(lineEdit, &QLineEdit::textChanged, resetButton,
+                             [aspect, lineEdit, resetButton] {
+                                 resetButton->setEnabled(lineEdit->text()
+                                                         != aspect->defaultValue());
+                             });
+            parent.addItem(resetButton);
+        }
+        QObject::connect(lineEdit, &FancyLineEdit::validChanged,
+                         aspect, &StringAspect::validChanged);
+        aspect->volatileValueToGui();
+        if (aspect->isAutoApply() && aspect->autoApplyOnEditingFinished()) {
+            QObject::connect(lineEdit, &FancyLineEdit::editingFinished, aspect,
+                             [aspect, lineEdit] {
+                                 if (lineEdit->text() != aspect->undoableValue().get())
+                                     aspect->setVolatileVariantValueFromGui(lineEdit->text());
+                             });
+        } else {
+            QObject::connect(lineEdit, &QLineEdit::textChanged, aspect, [aspect, lineEdit] {
+                aspect->setVolatileVariantValueFromGui(lineEdit->text());
+            });
+        }
+        if (pres.control == AspectControls::PasswordLineEdit) {
+            auto showPasswordButton = aspect->createSubWidget<ShowPasswordButton>();
+            lineEdit->setEchoMode(QLineEdit::PasswordEchoOnEdit);
+            parent.addItem(showPasswordButton);
+            QObject::connect(showPasswordButton, &ShowPasswordButton::toggled, lineEdit,
+                             [showPasswordButton, lineEdit] {
+                                 lineEdit->setEchoMode(showPasswordButton->isChecked()
+                                                           ? QLineEdit::Normal
+                                                           : QLineEdit::PasswordEchoOnEdit);
+                             });
+        }
+
+        QObject::connect(&aspect->undoableValue().m_signal, &UndoSignaller::changed, lineEdit,
+                         [aspect, lineEdit] {
+                             if (lineEdit->text() != aspect->undoableValue().get())
+                                 lineEdit->setTextKeepingActiveCursor(
+                                     aspect->undoableValue().get());
+                             lineEdit->validate();
+                         });
+    }
+
+    static void renderStringTextEdit(StringAspect *aspect, Layout &parent,
+                                     const AspectPresentation &pres)
+    {
+        auto textEdit = aspect->createSubWidget<QTextEdit>();
+        aspect->addMacroExpansion(textEdit);
+        textEdit->setPlaceholderText(pres.placeholderText);
+        textEdit->setUndoRedoEnabled(false);
+        textEdit->setAcceptRichText(aspect->acceptRichText());
+        textEdit->setTextInteractionFlags(Qt::TextEditorInteraction);
+        textEdit->setText(displayedString(aspect));
+        textEdit->setReadOnly(aspect->isReadOnly());
+        aspect->addLabeledItem(parent, textEdit);
+
+        aspect->volatileValueToGui();
+        QObject::connect(aspect, &StringAspect::acceptRichTextChanged,
+                         textEdit, &QTextEdit::setAcceptRichText);
+        QObject::connect(aspect, &StringAspect::placeholderTextChanged,
+                         textEdit, &QTextEdit::setPlaceholderText);
+
+        QObject::connect(textEdit, &QTextEdit::textChanged, aspect, [aspect, textEdit] {
+            if (textEdit->toPlainText() != aspect->undoableValue().get())
+                aspect->setVolatileVariantValueFromGui(textEdit->toPlainText());
+        });
+
+        QObject::connect(&aspect->undoableValue().m_signal, &UndoSignaller::changed, textEdit,
+                         [aspect, textEdit] {
+                             if (textEdit->toPlainText() != aspect->undoableValue().get())
+                                 textEdit->setText(aspect->undoableValue().get());
+                         });
+    }
+
+    static void renderPathChooser(FilePathAspect *aspect, Layout &parent,
+                                  const AspectPresentation &pres)
+    {
+        const std::function<QString(const QString &)> filter = aspect->displayFilter();
+        const QString displayed = filter ? filter(aspect->value()) : aspect->value();
+
+        PathChooser *pathChooser = aspect->createSubWidget<PathChooser>();
+        // The aspect's forwarding setters and its public pathChooser() keep
+        // going through the cached pointer.
+        aspect->cachePathChooser(pathChooser);
+        // A settings page tends to hold several of these, so name them apart.
+        pathChooser->setObjectName(Utils::stringFromKey(aspect->settingsKey()));
+        aspect->addMacroExpansion(pathChooser);
+        pathChooser->setExpectedKind(aspect->expectedKind());
+        if (!aspect->historyCompleterKey().isEmpty())
+            pathChooser->setHistoryCompleter(aspect->historyCompleterKey());
+        if (const std::optional<ValidationFunction> validator = aspect->validationFunction())
+            pathChooser->setValidationFunction(*validator);
+        pathChooser->setEnvironment(aspect->environment());
+        pathChooser->setBaseDirectory(aspect->baseDirectory());
+        pathChooser->setInitialBrowsePathBackup(aspect->initialBrowsePathBackup());
+        pathChooser->setOpenTerminalHandler(aspect->openTerminalHandler());
+        pathChooser->setPromptDialogFilter(aspect->promptDialogFilter());
+        pathChooser->setPromptDialogTitle(aspect->promptDialogTitle());
+        pathChooser->setCommandVersionArguments(aspect->commandVersionArguments());
+        pathChooser->setAllowPathFromDevice(aspect->allowPathFromDevice());
+        pathChooser->setReadOnly(aspect->isReadOnly());
+        pathChooser->lineEdit()->setValidatePlaceHolder(aspect->validatePlaceHolder());
+        pathChooser->setValueAlternatives(aspect->valueAlternatives());
+        if (aspect->defaultValue() == aspect->value())
+            pathChooser->setDefaultValue(FilePath::fromUserInput(aspect->defaultValue()));
+        else
+            pathChooser->setFilePath(FilePath::fromUserInput(displayed));
+        // Do not override the default value with the placeholder, but use the
+        // placeholder if the default is empty.
+        if (pathChooser->lineEdit()->placeholderText().isEmpty())
+            pathChooser->lineEdit()->setPlaceholderText(pres.placeholderText);
+        aspect->addLabeledItem(parent, pathChooser);
+        QObject::connect(pathChooser, &PathChooser::validChanged,
+                         aspect, &FilePathAspect::validChanged);
+
+        QObject::connect(&aspect->undoableValue().m_signal, &UndoSignaller::changed, pathChooser,
+                         [aspect, pathChooser] {
+                             if (pathChooser->lineEdit()->text() != aspect->undoableValue().get())
+                                 pathChooser->lineEdit()->setTextKeepingActiveCursor(
+                                     aspect->undoableValue().get());
+                         });
+
+        aspect->volatileValueToGui();
+        if (aspect->isAutoApply() && aspect->autoApplyOnEditingFinished()) {
+            QObject::connect(pathChooser, &PathChooser::editingFinished, aspect,
+                             [aspect, pathChooser] {
+                                 if (aspect->editFinishedGuard().isLocked())
+                                     return;
+                                 const GuardLocker lk(aspect->editFinishedGuard());
+                                 aspect->setVolatileVariantValueFromGui(
+                                     pathChooser->lineEdit()->text());
+                             });
+            QObject::connect(pathChooser, &PathChooser::browsingFinished, aspect,
+                             [aspect, pathChooser] {
+                                 aspect->setVolatileVariantValueFromGui(
+                                     pathChooser->lineEdit()->text());
+                             });
+        } else {
+            QObject::connect(pathChooser, &PathChooser::textChanged, aspect,
+                             [aspect](const QString &text) {
+                                 aspect->setVolatileVariantValueFromGui(text);
+                             });
+        }
+    }
+
+    static void renderColor(ColorAspect *aspect, Layout &parent, const AspectPresentation &pres)
+    {
+        auto button = aspect->createSubWidget<QtColorButton>();
+        button->setColor(aspect->volatileValue());
+        button->setAlphaAllowed(pres.alphaAllowed);
+        button->setMinimumSize(pres.minimumSize);
+
+        QObject::connect(button, &QtColorButton::colorChanged, aspect, [aspect](const QColor &c) {
+            aspect->setVolatileVariantValueFromGui(QVariant::fromValue(c));
+        });
+
+        aspect->addOnVolatileValueChanged(button, [aspect, button] {
+            if (button->color() != aspect->volatileValue())
+                button->setColor(aspect->volatileValue());
+        });
+
+        if (pres.withResetButton) {
+            auto resetButton = aspect->createSubWidget<QPushButton>(Tr::tr("Reset"));
+            resetButton->setToolTip(Tr::tr("Reset to default.", "Color"));
+            QObject::connect(resetButton, &QAbstractButton::clicked, aspect, [aspect] {
+                aspect->setVolatileValue(aspect->defaultValue());
+            });
+            aspect->addLabeledItems(parent, {button, resetButton});
+        } else {
+            QMenu *menu = new QMenu(button);
+            QAction *resetAction = menu->addAction(Tr::tr("Reset to Default"), aspect, [aspect] {
+                aspect->setVolatileValue(aspect->defaultValue());
+            });
+            resetAction->setIcon(button->generatePixmap());
+            resetAction->setIconVisibleInMenu(true);
+            button->setMenu(menu);
+            button->setToolTip(QStringList{pres.toolTip,
+                                           Tr::tr("Press and hold to reset to default.")}
+                                   .join('\n'));
+            aspect->addLabeledItem(parent, button);
+        }
+    }
+
+    static InfoLabelType infoLabelType(AspectControls::InfoType infoType)
+    {
+        switch (infoType) {
+        case AspectControls::InfoType::Information:
+            return InfoLabelType::Information;
+        case AspectControls::InfoType::Warning:
+            return InfoLabelType::Warning;
+        case AspectControls::InfoType::Error:
+            return InfoLabelType::Error;
+        case AspectControls::InfoType::Ok:
+            return InfoLabelType::Ok;
+        case AspectControls::InfoType::NotOk:
+            return InfoLabelType::NotOk;
+        case AspectControls::InfoType::None:
+            break;
+        }
+        return InfoLabelType::None;
+    }
+
+    static void renderTextDisplay(TextDisplay *aspect, Layout &parent,
+                                  const AspectPresentation &pres)
+    {
+        InfoLabel *label = aspect->cachedLabel();
+        if (!label) {
+            label = aspect->createSubWidget<InfoLabel>(aspect->text(),
+                                                       infoLabelType(pres.infoType));
+            label->setTextInteractionFlags(Qt::LinksAccessibleByMouse
+                                           | Qt::TextSelectableByMouse);
+            label->setToolTip(pres.toolTip);
+            QObject::connect(label, &QLabel::linkActivated,
+                             aspect, &TextDisplay::linkActivated);
+            label->setElideMode(Qt::ElideNone);
+            label->setWordWrap(pres.wordWrap);
+            // Do not use label->setVisible(isVisible()) unconditionally, it
+            // does not have a QWidget parent yet when used in a LayoutBuilder.
+            if (!pres.visible)
+                label->setVisible(false);
+
+            QObject::connect(aspect, &TextDisplay::changed, label, [aspect, label] {
+                label->setText(aspect->text());
+            });
+            aspect->setCachedLabel(label);
+        }
+        parent.addItem(label);
+    }
+
+    static void renderStringListTree(StringListAspect *aspect, Layout &parent,
+                                     const AspectPresentation &pres)
+    {
+        auto editor = aspect->createSubWidget<QTreeWidget>();
+        editor->setHeaderHidden(true);
+        editor->setRootIsDecorated(false);
+        editor->setEditTriggers(pres.allowEditing ? QAbstractItemView::AllEditTriggers
+                                                  : QAbstractItemView::NoEditTriggers);
+
+        QPushButton *add = pres.allowAdding
+                               ? aspect->createSubWidget<QPushButton>(Tr::tr("Add"))
+                               : nullptr;
+        QPushButton *remove = pres.allowRemoving
+                                  ? aspect->createSubWidget<QPushButton>(Tr::tr("Remove"))
+                                  : nullptr;
+
+        const auto itemsToStringList = [editor] {
+            QStringList items;
+            const QTreeWidgetItem *rootItem = editor->invisibleRootItem();
+            for (int i = 0, count = rootItem->childCount(); i < count; ++i)
+                items.append(rootItem->child(i)->data(0, Qt::DisplayRole).toString());
+            return items;
+        };
+
+        const auto populate = [editor, aspect] {
+            editor->clear();
+            for (const QString &entry : aspect->undoableValue().get()) {
+                auto item = new QTreeWidgetItem(editor, {entry});
+                item->setData(0, Qt::ToolTipRole, entry);
+                item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable);
+            }
+        };
+
+        if (add) {
+            QObject::connect(add, &QPushButton::clicked, aspect, [aspect, populate, editor] {
+                // The row to edit is appended silently; the edit itself
+                // records the undo command.
+                aspect->undoableValue().setSilently(aspect->undoableValue().get() << QString());
+                populate();
+                const QTreeWidgetItem *root = editor->invisibleRootItem();
+                QTreeWidgetItem *lastChild = root->child(root->childCount() - 1);
+                const QModelIndex index = editor->indexFromItem(lastChild, 0);
+                editor->edit(index);
+            });
+        }
+
+        if (remove) {
+            QObject::connect(remove, &QPushButton::clicked, aspect,
+                             [aspect, editor, itemsToStringList] {
+                                 const QList<QTreeWidgetItem *> selected = editor->selectedItems();
+                                 QTC_ASSERT(selected.size() == 1, return);
+                                 editor->invisibleRootItem()->removeChild(selected.first());
+                                 delete selected.first();
+                                 aspect->setVolatileVariantValueFromGui(itemsToStringList());
+                             });
+        }
+
+        QObject::connect(&aspect->undoableValue().m_signal, &UndoSignaller::changed, editor,
+                         [aspect, populate, itemsToStringList] {
+                             if (itemsToStringList() != aspect->undoableValue().get())
+                                 populate();
+                         });
+
+        QObject::connect(editor->model(), &QAbstractItemModel::dataChanged, aspect,
+                         [aspect, itemsToStringList](const QModelIndex &tl, const QModelIndex &br,
+                                                     const QList<int> &roles) {
+                             if (!roles.contains(Qt::DisplayRole))
+                                 return;
+                             if (tl != br)
+                                 return;
+                             aspect->setVolatileVariantValueFromGui(itemsToStringList());
+                         });
+
+        populate();
+
+        // clang-format off
+        QWidget *mainWdgt = Widget {
+            Row {
+                noMargin,
+                editor,
+                If (pres.allowAdding || pres.allowRemoving) >> Then {
+                    Column {
+                        If (pres.allowAdding) >> Then {add},
+                        If (pres.allowRemoving) >> Then {remove},
+                        st,
+                    }
+                },
+            }
+        }.emerge();
+        // clang-format on
+
+        aspect->registerSubWidget(mainWdgt);
+
+        parent.addItem(aspect->createLabel());
+        parent.addItem(mainWdgt);
+    }
+
+    static void renderStringSelection(StringSelectionAspect *aspect, Layout &parent)
+    {
+        QTC_ASSERT(aspect->m_fillCallback, return);
+
+        QComboBox *comboBox = aspect->createSubWidget<QComboBox>();
+
+        QObject::connect(aspect, &StringSelectionAspect::modelChange, comboBox,
+                         [aspect, comboBox, lastValue = QVariant()](bool changing) mutable {
+                             if (changing) {
+                                 comboBox->blockSignals(true);
+                                 lastValue = aspect->volatileValue();
+                             } else {
+                                 comboBox->blockSignals(false);
+                                 if (lastValue != QVariant(aspect->volatileValue())) {
+                                     emit comboBox->currentIndexChanged(comboBox->currentIndex());
+                                     emit comboBox->currentTextChanged(comboBox->currentText());
+                                 }
+                             }
+                         });
+
+        if (!aspect->m_model) {
+            aspect->m_model = new QStandardItemModel(aspect);
+            aspect->m_selectionModel = new QItemSelectionModel(aspect->m_model);
+
+            auto cb = [aspect](const QList<QStandardItem *> &items) {
+                emit aspect->modelChange(true);
+
+                aspect->m_model->clear();
+                for (QStandardItem *item : items)
+                    aspect->m_model->appendRow(item);
+
+                aspect->volatileValueToGui();
+                emit aspect->modelChange(false);
+            };
+
+            QObject::connect(aspect, &StringSelectionAspect::refillRequested, aspect,
+                             [aspect, cb] { aspect->m_fillCallback(cb); });
+
+            aspect->m_fillCallback(cb);
+        }
+
+        comboBox->setInsertPolicy(QComboBox::InsertPolicy::NoInsert);
+        comboBox->setEditable(aspect->m_comboBoxEditable);
+        if (aspect->m_comboBoxEditable) {
+            comboBox->completer()->setCompletionMode(QCompleter::PopupCompletion);
+            comboBox->completer()->setFilterMode(Qt::MatchContains);
+        }
+        comboBox->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+        comboBox->setCurrentText(aspect->value());
+        comboBox->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Fixed);
+
+        comboBox->setModel(aspect->m_model);
+        Utils::setWheelScrollingWithoutFocusBlocked(comboBox);
+
+        aspect->fixupComboBox(comboBox);
+
+        QObject::connect(aspect->m_selectionModel, &QItemSelectionModel::currentChanged, comboBox,
+                         [comboBox](const QModelIndex &currentIdx) {
+                             if (currentIdx.isValid()
+                                 && comboBox->currentIndex() != currentIdx.row())
+                                 comboBox->setCurrentIndex(currentIdx.row());
+                         });
+
+        QObject::connect(comboBox, &QComboBox::activated, aspect, [aspect](int idx) {
+            const QModelIndex modelIdx = aspect->m_model->index(idx, 0);
+            if (!modelIdx.isValid())
+                return;
+
+            const QString newValue = modelIdx.data(Qt::UserRole + 1).toString();
+            aspect->m_undoable.set(aspect->undoStack(), newValue);
+            aspect->volatileValueToGui();
+        });
+
+        QObject::connect(&aspect->m_undoable.m_signal, &UndoSignaller::changed, comboBox,
+                         [aspect, comboBox] {
+                             if (QStandardItem *item = aspect->itemById(aspect->m_undoable.get()))
+                                 aspect->m_selectionModel->setCurrentIndex(
+                                     item->index(), QItemSelectionModel::ClearAndSelect);
+                             else
+                                 comboBox->setCurrentText(aspect->m_undoable.get());
+
+                             aspect->handleGuiChanged();
+                         });
+
+        if (aspect->m_selectionModel->currentIndex().isValid())
+            comboBox->setCurrentIndex(aspect->m_selectionModel->currentIndex().row());
+
+        aspect->addLabeledItem(parent, comboBox);
+    }
+
+    static void renderFontPicker(FontAspect *aspect, Layout &parent)
+    {
+        parent.addItem(aspect->fontFamily);
+
+        QComboBox *sizeComboBox = aspect->createSubWidget<QComboBox>();
+        parent.addItem(aspect->fontPointSize.labelText());
+        parent.addItem(sizeComboBox);
+
+        auto updateFontSizeSelector = [aspect, sizeComboBox] {
+            const QString family = aspect->fontFamily.volatileValue();
+            const QString fontStyle = QFontDatabase::styleString(aspect->volatileValue());
+
+            QList<int> pointSizes = QFontDatabase::pointSizes(family, fontStyle);
+            if (pointSizes.empty())
+                pointSizes = QFontDatabase::standardSizes();
+
+            const QSignalBlocker blocker(sizeComboBox);
+            sizeComboBox->clear();
+            sizeComboBox->setCurrentIndex(-1);
+            sizeComboBox->setEnabled(!pointSizes.empty());
+
+            if (pointSizes.empty())
+                return;
+
+            QString n;
+            for (const int pointSize : std::as_const(pointSizes))
+                sizeComboBox->addItem(n.setNum(pointSize), QVariant(pointSize));
+
+            const int desiredPointSize = aspect->fontPointSize.volatileValue();
+
+            // Keep the selection, or take the closest available size.
+            int closestIndex = -1;
+            int closestAbsError = 0xFFFF;
+
+            const int pointSizeCount = sizeComboBox->count();
+            for (int i = 0; i < pointSizeCount; i++) {
+                const int itemPointSize = sizeComboBox->itemData(i).toInt();
+                const int absError = qAbs(desiredPointSize - itemPointSize);
+                if (absError < closestAbsError) {
+                    closestIndex = i;
+                    closestAbsError = absError;
+                    if (closestAbsError == 0)
+                        break;
+                } else { // Past the optimum.
+                    if (absError > closestAbsError)
+                        break;
+                }
+            }
+
+            if (closestIndex != -1)
+                sizeComboBox->setCurrentIndex(closestIndex);
+        };
+
+        updateFontSizeSelector();
+
+        QObject::connect(sizeComboBox, &QComboBox::currentIndexChanged, aspect,
+                         [aspect, sizeComboBox] {
+                             int fontSize = 14;
+                             const int currentIndex = sizeComboBox->currentIndex();
+                             if (currentIndex != -1)
+                                 fontSize = sizeComboBox->itemData(currentIndex).toInt();
+                             aspect->fontPointSize.setVolatileValue(fontSize);
+                         });
+
+        aspect->fontFamily.addOnVolatileValueChanged(sizeComboBox, updateFontSizeSelector);
     }
 };
 
