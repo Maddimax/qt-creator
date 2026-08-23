@@ -16,6 +16,8 @@
 #include <coreplugin/messagemanager.h>
 #include <coreplugin/terminal/searchableterminal.h>
 
+#include <solutions/terminal/terminaldefaults.h>
+
 #include <solutions/spinner/spinner.h>
 
 #include <texteditor/fontsettings.h>

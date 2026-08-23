@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "terminal_global.h"
+#include "terminalmodel_global.h"
 
 #include <string>
 
@@ -13,7 +13,7 @@ namespace TerminalSolution {
 
 class TerminalSurface;
 
-class TERMINAL_EXPORT CellIterator
+class TERMINAL_MODEL_EXPORT CellIterator
 {
 public:
     using iterator_category = std::bidirectional_iterator_tag;

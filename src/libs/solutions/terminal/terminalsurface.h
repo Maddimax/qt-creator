@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "terminal_global.h"
+#include "terminalmodel_global.h"
 
 #include "celliterator.h"
 
@@ -84,7 +84,19 @@ struct Cursor
     bool blink{false};
 };
 
-class TERMINAL_EXPORT TerminalSurface : public QObject
+struct SearchHit
+{
+    int start{-1};
+    int end{-1};
+
+    bool operator!=(const SearchHit &other) const
+    {
+        return start != other.start || end != other.end;
+    }
+    bool operator==(const SearchHit &other) const { return !operator!=(other); }
+};
+
+class TERMINAL_MODEL_EXPORT TerminalSurface : public QObject
 {
     Q_OBJECT;
 

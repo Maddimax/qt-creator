@@ -20,21 +20,6 @@ namespace TerminalSolution {
 class SurfaceIntegration;
 class TerminalViewPrivate;
 
-struct SearchHit
-{
-    int start{-1};
-    int end{-1};
-
-    bool operator!=(const SearchHit &other) const
-    {
-        return start != other.start || end != other.end;
-    }
-    bool operator==(const SearchHit &other) const { return !operator!=(other); }
-};
-
-QString TERMINAL_EXPORT defaultFontFamily();
-int TERMINAL_EXPORT defaultFontSize();
-
 class TERMINAL_EXPORT TerminalView : public QAbstractScrollArea
 {
     friend class CellIterator;

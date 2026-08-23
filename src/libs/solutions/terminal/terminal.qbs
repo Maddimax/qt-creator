@@ -1,18 +1,16 @@
 QtcLibrary {
-    name: "TerminalLib"
+    name: "TerminalModel"
 
     Depends { name: "vterm" }
-    Depends { name: "Qt.widgets" }
+    Depends { name: "Qt.gui" }
 
-    cpp.defines: base.concat("TERMINALLIB_LIBRARY")
+    cpp.defines: base.concat("TERMINALMODEL_LIBRARY")
 
     files: [
         "boxdrawing.cpp",
         "boxdrawing.h",
         "celliterator.cpp",
         "celliterator.h",
-        "glyphcache.cpp",
-        "glyphcache.h",
         "keys.cpp",
         "keys.h",
         "scrollback.cpp",
@@ -20,11 +18,10 @@ QtcLibrary {
         "sixel.cpp",
         "sixel.h",
         "surfaceintegration.h",
-        "terminal.qrc",
-        "terminal_global.h",
+        "terminaldefaults.cpp",
+        "terminaldefaults.h",
+        "terminalmodel_global.h",
         "terminalsurface.cpp",
         "terminalsurface.h",
-        "terminalview.cpp",
-        "terminalview.h",
     ]
 }

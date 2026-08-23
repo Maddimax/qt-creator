@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0+ OR GPL-3.0 WITH Qt-GPL-exception-1.0
 
 #include "terminalview.h"
+
 #include "boxdrawing.h"
+#include "terminaldefaults.h"
 #include "glyphcache.h"
 #include "terminalsurface.h"
 
@@ -122,28 +124,6 @@ public:
 
     std::function<void()> m_surfaceUpdater;
 };
-
-QString defaultFontFamily()
-{
-#ifdef Q_OS_DARWIN
-    return QLatin1String("Menlo");
-#elif defined(Q_OS_WIN)
-    return QLatin1String("Consolas");
-#else
-    return QLatin1String("Monospace");
-#endif
-}
-
-int defaultFontSize()
-{
-#ifdef Q_OS_DARWIN
-        return 12;
-#elif defined(Q_OS_WIN)
-    return 10;
-#else
-    return 9;
-#endif
-}
 
 TerminalView::TerminalView(QWidget *parent)
     : QAbstractScrollArea(parent)
