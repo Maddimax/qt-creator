@@ -336,25 +336,40 @@ In order:
    `checkableaspect.h` into the renderer.
 
    **`aspects.cpp` now has no QtWidgets include of its own, and exactly one
-   widget-side dependency: `layoutbuilder.h`**, which
-   `AspectContainer::addToLayoutImpl` needs complete because its layouter is a
-   `std::function<Layouting::Layout()>`. That is the floor, and it cannot be
-   lifted by cleaning `layoutbuilder.h` in place: the header names
-   `QFrame::Shape`, `QDialogButtonBox::ButtonRole/StandardButton` and
-   `CompletingTextEdit::CompletionBehavior`, and a nested enum requires its
-   enclosing class to be complete. `Layouting::Layout` itself is clean - it
-   only names `QLayout`, `QWidget` and the concrete layout types through
-   pointers - so the two ways out are:
+   widget-side dependency: `layoutbuilder.h`.** That one cannot be worked
+   around, and it is worth being precise about why, because the obvious idea
+   does not work.
 
-   1. Split the `Layout`/`LayoutItem` core into a `layout.h` that
-      `layoutbuilder.h` includes, leaving the three widget-specific builders
-      behind. No consumer changes: they keep including `layoutbuilder.h`.
-   2. Remove `Layouting` as planned, replacing it with hand-written `.qml`.
+   The obvious idea is to split `layoutbuilder.h`: `Layouting::Object`,
+   `LayoutItem` and `Layout` name widget types only through pointers, and the
+   only declarations needing a complete widget type are `QFrame::Shape`,
+   `QDialogButtonBox::ButtonRole/StandardButton` and
+   `CompletingTextEdit::CompletionBehavior` (nested enums, so their enclosing
+   class must be complete). A `layout.h` with the core, included by
+   `layoutbuilder.h`, would compile with no consumer changes.
 
-   (1) is throwaway work if (2) happens soon, and worth doing if the Utils
-   split needs to land first. Do not "fix" the nested enums by weakening the
-   signatures to `int` - `setFieldGrowthPolicy(int)` already does that and it
-   is not a pattern to spread.
+   It would not link. `AspectContainer::addToLayoutImpl` does not merely need
+   the type - it calls `parent.addItem()`, which reaches
+   `Layout::addLayoutItem`, which does `qobject_cast<QBoxLayout *>` on the
+   product and populates real layouts. `Layout`'s implementation is widget
+   code, so it belongs in `UtilsWidgets`, and a `Utils` that calls it would
+   need to link against `UtilsWidgets`. Splitting `Layout`'s member
+   definitions between the two libraries is not an option either: on Windows
+   an exported class cannot have that. Even storing the layouter is enough to
+   bind the two - `std::function<Layouting::Layout()>` instantiates
+   `LayoutItem`'s destructor, which is declared in the header and defined in
+   `layoutbuilder.cpp`.
+
+   So the aspects cannot be separated from `Layouting`, and the `Utils` split
+   waits on `Layouting`'s removal - which the plan calls for anyway. The scale
+   of that coupling: 95 `setLayouter` call sites and 70 `addToLayoutImpl`
+   overrides outside `Utils`. Both `BaseAspect::addToLayout`/`addToLayoutImpl`
+   and `AspectContainer::setLayouter` have to go, the same way the helper
+   family went - the entry point becomes a free function on the widget side.
+
+   Do not "fix" the nested enums by weakening the signatures to `int`;
+   `setFieldGrowthPolicy(int)` already does that and it is not a pattern to
+   spread, and as shown above it would not help.
 
    What is left in `aspects.h` that mentions a widget type is only what those
    free functions need in their own signatures, plus
