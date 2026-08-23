@@ -374,53 +374,15 @@ LocalsAndExpressionsSettings::LocalsAndExpressionsSettings()
                                 + Tr::tr("The number of array elements requested when expanding "
                                          "entries in the Locals and Expressions views."));
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        auto label = new QLabel; //(useHelperGroup);
-        label->setTextFormat(Qt::AutoText);
-        label->setWordWrap(true);
-        label->setText("<html><head/><body>\n<p>"
-           + Tr::tr("The debugging helpers are used to produce a nice "
-                "display of objects of certain types like QString or "
-                "std::map in the &quot;Locals&quot; and &quot;Expressions&quot; views.")
-            + "</p></body></html>");
+    helpersNote.setText(
+        Tr::tr("The debugging helpers are used to produce a nice display of objects of "
+               "certain types like QString or std::map in the \"Locals\" and "
+               "\"Expressions\" views."));
+    helpersNote.setWordWrap(true);
+    helpersNote.setQmlName("HelpersNote");
 
-        using namespace Layouting;
-        Column left {
-            label,
-            useCodeModel,
-            showThreadNames,
-            Group { title(Tr::tr("Extra Debugging Helper")), Column { extraDumperFile } }
-        };
-
-        Group useHelper {
-            Row {
-                left,
-                Group {
-                    title(Tr::tr("Debugging Helper Customization")),
-                    Column { extraDumperCommands }
-                }
-            }
-        };
-
-        Grid limits {
-            maximalStringLength, br,
-            displayStringLimit, br,
-            defaultArraySize
-        };
-
-        return Column {
-            useDebuggingHelpers,
-            allowInferiorCalls,
-            useHelper,
-            Space(10),
-            showStdNamespace,
-            showQtNamespace,
-            showQObjectNames,
-            Space(10),
-            Row { limits, st },
-            st
-        };
-    });
+    setQmlSource(
+        QUrl("qrc:/qt/qml/QtCreator/Debugger/LocalsAndExpressionsSettingsPage.qml"));
 
     readSettings();
 }

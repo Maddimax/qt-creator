@@ -25,6 +25,7 @@ public:
     Utils::TriStateAspect useDebugInfoD{this};
     Utils::StringAspect gdbStartupCommands{this};
     Utils::StringAspect gdbPostAttachCommands{this};
+    Utils::TextDisplay extendedWarning{this};
 
     Utils::BoolAspect targetAsync{this};
     Utils::BoolAspect autoEnrichParameters{this};

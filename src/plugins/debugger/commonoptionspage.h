@@ -92,6 +92,7 @@ public:
     Utils::IntegerAspect maximalStringLength{this};
     Utils::IntegerAspect displayStringLimit{this};
     Utils::IntegerAspect defaultArraySize{this};
+    Utils::TextDisplay helpersNote{this};
 };
 
 LocalsAndExpressionsSettings &localsAndExpressionSettings();

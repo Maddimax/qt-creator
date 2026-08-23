@@ -10,9 +10,6 @@
 #include <debugger/debuggerinternalconstants.h>
 #include <debugger/debuggertr.h>
 
-#include <utils/aspectwidgets.h>
-#include <utils/layoutbuilder.h>
-
 #include <QLabel>
 
 using namespace Core;
@@ -58,7 +55,6 @@ GdbSettings::GdbSettings()
         "next source code line for which code was actually generated.\n"
         "This option reflects such temporary change by moving the breakpoint\n"
         "markers in the source code editor."));
-
 
     breakOnThrow.setLabelText(Tr::tr("Break on \"throw\""));
     breakOnThrow.setSettingsKey(debugModeGroup, "BreakOnThrow");
@@ -202,62 +198,17 @@ GdbSettings::GdbSettings()
         "listing source files takes much longer than that on slow machines.\n"
         "In this case, the value should be increased."));
 
+    extendedWarning.setText(
+        "<i>"
+        + Tr::tr("The options below give access to advanced or experimental "
+                 "functions of GDB.")
+        + "<p>"
+        + Tr::tr("Enabling them may negatively impact your debugging experience.")
+        + "</i>");
+    extendedWarning.setWordWrap(true);
+    extendedWarning.setQmlName("ExtendedWarning");
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-
-        auto labelDangerous = new QLabel("<html><head/><body><i>" +
-            QLatin1String("%1<p>%2")
-                .arg(Tr::tr("The options below give access to advanced or experimental functions of GDB."),
-                     Tr::tr("Enabling them may negatively impact your debugging experience."))
-            + "</i></body></html>");
-        labelDangerous->setWordWrap(true);
-
-        Group general {
-            title(Tr::tr("General")),
-            Column {
-                Row { gdbWatchdogTimeout, st },
-                skipKnownFrames,
-                useMessageBoxForSignals,
-                adjustBreakpointLocations,
-                useDynamicType,
-                loadGdbInit,
-                loadGdbDumpers,
-                intelFlavor,
-                usePseudoTracepoints,
-                useIndexCache,
-                Row { useDebugInfoD, st },
-                st
-            }
-        };
-
-        Group extended {
-            title(Tr::tr("Extended")),
-            Column {
-                labelDangerous,
-                targetAsync,
-                autoEnrichParameters,
-                breakOnWarning,
-                breakOnFatal,
-                breakOnAbort,
-                enableReverseDebugging,
-                multiInferior,
-                st
-            }
-        };
-
-        Group startup {
-            title(Tr::tr("Additional Startup Commands")),
-            Column { gdbStartupCommands }
-        };
-
-        Group attach {
-            title(Tr::tr("Additional Attach Commands")),
-            Column { gdbPostAttachCommands },
-        };
-
-        return Grid { general, extended, br, startup, attach };
-    });
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Debugger/GdbSettingsPage.qml"));
 
     readSettings();
 }
