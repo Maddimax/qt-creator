@@ -468,6 +468,30 @@ path is unchanged. This is the same trap `FontAspect` already carries, and it is
 why HarmonyOS and ACP cannot simply be ported: a proper delegate for an
 asynchronously-read secret has to come first.
 
+#### The thirteen that are left, and what each one needs
+
+The mechanical patterns are used up. Every remaining page needs a control
+designed and a delegate written, which is a decision per widget rather than a
+port, so they are listed with what they actually need:
+
+| page | needs |
+|---|---|
+| HarmonyOS | a field for an asynchronously-read secret (see `SecretAspect` above) |
+| Clang Tools, Code Model | `ClangDiagnosticConfigIdAspect` to describe a combo *and* a separate manage action; its value is a `Utils::Id`, so `setVariantValue()` has to accept the choice id back |
+| QML/JS Editing | a tree of messages with two independent states per row - not a check-box list |
+| Testing | `FrameworksAspect` has no `presentation()` at all |
+| Qt Creator MCP Server | a table of tools: name, description and an enable box per row |
+| CPU Usage | `PerfConfigWidget`, an event configuration table |
+| Copilot | `AuthWidget`, a 190-line sign-in state machine with a spinner |
+| Code Style (x3) | `CodeStyleSelectorWidget`, with import, export and copy |
+| Snippets, Font && Colors | the snippet and color-scheme editors |
+
+Two of these are worth doing next for the same reason `TextWithAction` was: the
+shape recurs. A secret field appears in HarmonyOS and in Lua's scriptable
+settings; a combo-plus-action appears in Clang Tools, the Code Model, and
+anywhere else an aspect is chosen from a managed list. The editors at the bottom
+of the table are single-use and much larger.
+
 **One page that cannot be ported as it stands,** noted so nobody rediscovers
 it: Testing's "Active Test Frameworks" is a `FrameworksAspect` with no
 `presentation()`, so it is `Custom` and would vanish. (Display was the other
