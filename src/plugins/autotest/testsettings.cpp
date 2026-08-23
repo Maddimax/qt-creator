@@ -13,6 +13,7 @@
 
 #include <coreplugin/dialogs/ioptionspage.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/algorithm.h>
 #include <utils/guiutils.h>
 #include <utils/id.h>
@@ -185,7 +186,7 @@ void FrameworksAspect::readSettings()
 
 void FrameworksAspect::addToLayoutImpl(Layouting::Layout &parent)
 {
-    m_frameworkTreeWidget = createSubWidget<QTreeWidget>();
+    m_frameworkTreeWidget = Utils::AspectWidgets::createSubWidget<QTreeWidget>(this);
     m_frameworkTreeWidget->setRootIsDecorated(false);
     m_frameworkTreeWidget->setHeaderHidden(false);
     m_frameworkTreeWidget->setColumnCount(2);

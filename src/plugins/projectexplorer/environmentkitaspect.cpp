@@ -11,6 +11,7 @@
 #include "kitmanager.h"
 #include "toolchain.h"
 
+#include <utils/aspectwidgets.h>
 #include <utils/environment.h>
 #include <utils/environmentdialog.h>
 #include <utils/guiutils.h>
@@ -49,9 +50,9 @@ class EnvironmentKitAspectImpl final : public KitAspect
 public:
     EnvironmentKitAspectImpl(Kit *workingCopy, const KitAspectFactory *factory)
         : KitAspect(workingCopy, factory),
-          m_mainWidget(createSubWidget<QWidget>()),
-          m_buildEnvButton(createSubWidget<QPushButton>()),
-          m_runEnvButton(createSubWidget<QPushButton>())
+          m_mainWidget(Utils::AspectWidgets::createSubWidget<QWidget>(this)),
+          m_buildEnvButton(Utils::AspectWidgets::createSubWidget<QPushButton>(this)),
+          m_runEnvButton(Utils::AspectWidgets::createSubWidget<QPushButton>(this))
     {
         addMutableAction(m_mainWidget);
         if (HostOsInfo::isWindowsHost())

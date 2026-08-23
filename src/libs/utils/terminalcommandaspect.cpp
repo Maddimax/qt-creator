@@ -3,6 +3,7 @@
 
 #include "terminalcommandaspect.h"
 
+#include "aspectwidgets.h"
 #include "commandline.h"
 #include "elidinglabel.h"
 #include "guiutils.h"
@@ -109,7 +110,7 @@ void TerminalCommandAspect::addToLayoutImpl(Layouting::Layout &parent)
         dialog->show();
     });
 
-    addLabeledItem(parent, detailLabel);
+    AspectWidgets::addLabeledItem(this, parent, detailLabel);
     parent.addItem(changeButton);
     parent.addItem(presetButton);
 }

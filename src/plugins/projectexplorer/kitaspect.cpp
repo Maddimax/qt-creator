@@ -11,6 +11,7 @@
 
 #include <coreplugin/icore.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/algorithm.h>
 #include <utils/environment.h>
 #include <utils/guard.h>
@@ -286,7 +287,7 @@ void KitAspect::addToInnerLayout(Layouting::Layout &layout)
 
 void KitAspect::addListAspectSpec(const ListAspectSpec &listAspectSpec)
 {
-    const auto comboBox = createSubWidget<KitAspectComboBox>();
+    const auto comboBox = Utils::AspectWidgets::createSubWidget<KitAspectComboBox>(this);
     const auto sortModel = new KitAspectSortModel(this);
     sortModel->setSourceModel(listAspectSpec.model);
     comboBox->setModel(sortModel);
@@ -317,7 +318,7 @@ QList<QComboBox *> KitAspect::comboBoxes() const
 
 void KitAspect::addLabelToLayout(Layouting::Layout &layout)
 {
-    auto label = createSubWidget<QLabel>(d->factory->displayName() + ':');
+    auto label = Utils::AspectWidgets::createSubWidget<QLabel>(this, d->factory->displayName() + ':');
     label->setToolTip(d->factory->description());
     connect(label, &QLabel::linkActivated, this, [this](const QString &link) {
         emit labelLinkActivated(link);
@@ -337,7 +338,7 @@ void KitAspect::addListAspectsToLayout(Layouting::Layout &layout)
 void KitAspect::addManageButtonToLayout(Layouting::Layout &layout)
 {
     if (d->managingPageId.isValid()) {
-        d->manageButton = createSubWidget<QPushButton>(msgManage());
+        d->manageButton = Utils::AspectWidgets::createSubWidget<QPushButton>(this, msgManage());
         setIgnoreForDirtyHook(d->manageButton);
         connect(d->manageButton, &QPushButton::clicked, this, [this] {
             Core::ICore::showSettings(d->managingPageId, settingsPageItemToPreselect());

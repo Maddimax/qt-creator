@@ -6,6 +6,7 @@
 
 #include "api/library.h"
 
+#include <utils/aspectwidgets.h>
 #include <utils/elidinglabel.h>
 #include <utils/layoutbuilder.h>
 #include <utils/store.h>
@@ -233,7 +234,7 @@ void LibrarySelectionAspect::addToLayoutImpl(Layouting::Layout &parent)
         stack->setCurrentIndex(0);
     });
 
-    addLabeledItem(parent, stack);
+    Utils::AspectWidgets::addLabeledItem(this, parent, stack);
 }
 
 } // namespace CompilerExplorer

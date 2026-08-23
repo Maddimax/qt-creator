@@ -6,6 +6,7 @@
 #include "languageclienttr.h"
 
 #include <coreplugin/icore.h>
+#include <utils/aspectwidgets.h>
 #include <utils/algorithm.h>
 #include <utils/fancylineedit.h>
 #include <utils/guiutils.h>
@@ -137,8 +138,8 @@ MimeTypesAspect::~MimeTypesAspect() = default;
 
 void MimeTypesAspect::addToLayoutImpl(Layouting::Layout &parent)
 {
-    auto displayLabel = createSubWidget<QLabel>();
-    auto button = createSubWidget<QPushButton>(Tr::tr("Set MIME Types..."));
+    auto displayLabel = Utils::AspectWidgets::createSubWidget<QLabel>(this);
+    auto button = Utils::AspectWidgets::createSubWidget<QPushButton>(this, Tr::tr("Set MIME Types..."));
 
     d->m_displayLabel = displayLabel;
 
@@ -153,7 +154,7 @@ void MimeTypesAspect::addToLayoutImpl(Layouting::Layout &parent)
     hLayout->addStretch();
     hLayout->addWidget(button);
 
-    addLabeledItem(parent, container);
+    Utils::AspectWidgets::addLabeledItem(this, parent, container);
 }
 
 bool MimeTypesAspect::guiToVolatileValue()

@@ -10,6 +10,7 @@
 #include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/documentmanager.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/filedialogs.h>
 #include <utils/algorithm.h>
 #include <utils/fileutils.h>
@@ -137,7 +138,7 @@ void SuppressionAspect::addToLayoutImpl(Layouting::Layout &parent)
     d->addEntry = new QPushButton(Tr::tr("Add..."));
     d->removeEntry = new QPushButton(Tr::tr("Remove"));
 
-    d->entryList = createSubWidget<QListView>();
+    d->entryList = Utils::AspectWidgets::createSubWidget<QListView>(this);
     d->entryList->setModel(&d->m_model);
     d->entryList->setSelectionMode(QAbstractItemView::MultiSelection);
 

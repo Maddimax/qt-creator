@@ -15,6 +15,7 @@
 
 #include <coreplugin/icore.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/algorithm.h>
 #include <utils/fancylineedit.h>
 #include <utils/hostosinfo.h>
@@ -70,7 +71,7 @@ TerminalAspect::TerminalAspect(AspectContainer *container)
 void TerminalAspect::addToLayoutImpl(Layout &parent)
 {
     QTC_CHECK(!m_checkBox);
-    m_checkBox = createSubWidget<QCheckBox>(Tr::tr("Run in terminal"));
+    m_checkBox = Utils::AspectWidgets::createSubWidget<QCheckBox>(this, Tr::tr("Run in terminal"));
     m_checkBox->setChecked(m_useTerminal);
     m_checkBox->setEnabled(isEnabled());
     parent.addItems({empty, m_checkBox.data()});
@@ -241,10 +242,10 @@ void WorkingDirectoryAspect::addToLayoutImpl(Layout &builder)
     m_chooser->setReadOnly(isReadOnly());
     m_resetButton->setEnabled(!isReadOnly());
 
-    registerSubWidget(m_chooser);
-    registerSubWidget(m_resetButton);
+    Utils::AspectWidgets::registerSubWidget(this, m_chooser);
+    Utils::AspectWidgets::registerSubWidget(this, m_resetButton);
 
-    addLabeledItems(builder, {m_chooser.data(), m_resetButton.data()});
+    Utils::AspectWidgets::addLabeledItems(this, builder, {m_chooser.data(), m_resetButton.data()});
 }
 
 void WorkingDirectoryAspect::resetPath()
@@ -513,9 +514,9 @@ void ArgumentsAspect::addToLayoutImpl(Layout &builder)
         containerLayout->addWidget(m_resetButton);
         containerLayout->setAlignment(m_resetButton, Qt::AlignTop);
     }
-    registerSubWidget(container);
+    Utils::AspectWidgets::registerSubWidget(this, container);
 
-    addLabeledItem(builder, container);
+    Utils::AspectWidgets::addLabeledItem(this, builder, container);
 }
 
 void ArgumentsAspect::setFocusToInputField()
@@ -904,7 +905,7 @@ void RunAsAspect::fromMap(const Utils::Store &map)
 
 void RunAsAspect::addToLayoutImpl(Layouting::Layout &parent)
 {
-    parent.addItems({createLabel(), m_selection, m_user, st});
+    parent.addItems({Utils::AspectWidgets::createLabel(this), m_selection, m_user, st});
 }
 
 void RunAsAspect::updateUserNameEnabled()

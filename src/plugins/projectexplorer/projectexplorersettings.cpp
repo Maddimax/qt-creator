@@ -14,6 +14,7 @@
 #include <coreplugin/documentmanager.h>
 #include <coreplugin/icore.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/environmentdialog.h>
 #include <utils/guiutils.h>
 #include <utils/hostosinfo.h>
@@ -400,7 +401,7 @@ public:
         setId("ProjectExplorer.BuildAndRunSettings");
         setDisplayName(Tr::tr("Building and Running"));
         setCreateWidgetFunction([](Project *project) {
-            return project->projectExplorerSettings().createConfigWidget();
+            return Utils::AspectWidgets::createConfigWidget(&project->projectExplorerSettings());
         });
     }
 };

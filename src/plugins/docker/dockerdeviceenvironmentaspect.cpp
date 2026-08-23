@@ -9,6 +9,7 @@
 #include <projectexplorer/environmentaspectwidget.h>
 #include <projectexplorer/environmentwidget.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/layoutbuilder.h>
 
 #include <QMessageBox>
@@ -72,8 +73,8 @@ void DockerDeviceEnvironmentAspect::addToLayoutImpl(Layouting::Layout &parent)
     if (m_remoteEnvironment)
         envWidget->setBaseEnvironment(*m_remoteEnvironment);
 
-    registerSubWidget(envWidget);
-    addLabeledItem(parent, envWidget);
+    Utils::AspectWidgets::registerSubWidget(this, envWidget);
+    Utils::AspectWidgets::addLabeledItem(this, parent, envWidget);
 }
 
 Utils::Environment DockerDeviceEnvironmentAspect::operator()() const

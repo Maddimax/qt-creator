@@ -10,6 +10,7 @@
 #include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/icore.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/filedialogs.h>
 #include <utils/aspects.h>
 #include <utils/filepath.h>
@@ -116,21 +117,21 @@ public:
 
     void addToLayoutImpl(Layouting::Layout &parent) final
     {
-        m_antialias = createSubWidget<QCheckBox>(Tr::tr("Antialias"));
+        m_antialias = Utils::AspectWidgets::createSubWidget<QCheckBox>(this, Tr::tr("Antialias"));
         m_antialias->setChecked(m_value.antialias());
 
-        m_zoomSpinBox = createSubWidget<QSpinBox>();
+        m_zoomSpinBox = Utils::AspectWidgets::createSubWidget<QSpinBox>(this);
         m_zoomSpinBox->setSuffix(Tr::tr("%"));
         m_zoomSpinBox->setRange(10, 3000);
         m_zoomSpinBox->setSingleStep(10);
         m_zoomSpinBox->setValue(m_value.fontZoom());
 
-        m_lineSpacingSpinBox = createSubWidget<QSpinBox>();
+        m_lineSpacingSpinBox = Utils::AspectWidgets::createSubWidget<QSpinBox>(this);
         m_lineSpacingSpinBox->setSuffix(Tr::tr("%"));
         m_lineSpacingSpinBox->setRange(50, 3000);
         m_lineSpacingSpinBox->setValue(m_value.relativeLineSpacing());
 
-        m_lineSpacingWarningLabel = createSubWidget<QLabel>();
+        m_lineSpacingWarningLabel = Utils::AspectWidgets::createSubWidget<QLabel>(this);
         m_lineSpacingWarningLabel->setPixmap(Utils::Icons::WARNING.pixmap());
         m_lineSpacingWarningLabel->setToolTip(
                     Tr::tr("A line spacing value other than 100% disables text wrapping.\n"
@@ -138,27 +139,27 @@ public:
         if (m_value.relativeLineSpacing() == 100)
             m_lineSpacingWarningLabel->setVisible(false);
 
-        m_fontComboBox = createSubWidget<QFontComboBox>();
+        m_fontComboBox = Utils::AspectWidgets::createSubWidget<QFontComboBox>(this);
         m_fontComboBox->setCurrentFont(m_value.family());
 
-        m_sizeComboBox = createSubWidget<QComboBox>();
+        m_sizeComboBox = Utils::AspectWidgets::createSubWidget<QComboBox>(this);
         m_sizeComboBox->setEditable(true);
         auto sizeValidator = new QIntValidator(m_sizeComboBox);
         sizeValidator->setBottom(0);
         m_sizeComboBox->setValidator(sizeValidator);
 
-        m_copyButton = createSubWidget<QPushButton>(Tr::tr("Copy..."));
-        m_deleteButton = createSubWidget<QPushButton>(Tr::tr("Delete"));
+        m_copyButton = Utils::AspectWidgets::createSubWidget<QPushButton>(this, Tr::tr("Copy..."));
+        m_deleteButton = Utils::AspectWidgets::createSubWidget<QPushButton>(this, Tr::tr("Delete"));
         m_deleteButton->setEnabled(false);
 
         auto importButton = new QPushButton(Tr::tr("Import"));
         auto exportButton = new QPushButton(Tr::tr("Export"));
 
-        m_schemeComboBox = createSubWidget<QComboBox>();
+        m_schemeComboBox = Utils::AspectWidgets::createSubWidget<QComboBox>(this);
         m_schemeComboBox->setModel(&m_schemeListModel);
         m_schemeComboBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
 
-        m_schemeEdit = createSubWidget<ColorSchemeEdit>();
+        m_schemeEdit = Utils::AspectWidgets::createSubWidget<ColorSchemeEdit>(this);
         m_schemeEdit->setFormatDescriptions(m_descriptions);
         m_schemeEdit->setBaseFont(m_value.font());
         m_schemeEdit->setColorScheme(m_value.colorScheme());

@@ -7,6 +7,7 @@
 #include "environmentwidget.h"
 #include "projectexplorertr.h"
 
+#include <utils/aspectwidgets.h>
 #include <utils/environment.h>
 #include <utils/layoutbuilder.h>
 #include <utils/qtcassert.h>
@@ -35,7 +36,7 @@ EnvironmentAspectWidget::EnvironmentAspectWidget(EnvironmentAspect *aspect)
     auto label = [aspect]() {
         if (aspect->labelText().isEmpty())
             aspect->setLabelText(Tr::tr("Base environment for this run configuration:"));
-        return aspect->createLabel();
+        return Utils::AspectWidgets::createLabel(aspect);
     };
 
     m_baseEnvironmentComboBox = new QComboBox;

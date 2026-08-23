@@ -14,6 +14,7 @@
 #include "toolchainmanager.h"
 #include "toolchainoptionspage.h"
 
+#include <utils/aspectwidgets.h>
 #include <utils/async.h>
 #include <utils/layoutbuilder.h>
 #include <utils/macroexpander.h>
@@ -128,7 +129,7 @@ public:
 private:
     void addToInnerLayout(Layouting::Layout &layout) override
     {
-        const auto mainWidget = createSubWidget<QWidget>();
+        const auto mainWidget = Utils::AspectWidgets::createSubWidget<QWidget>(this);
         mainWidget->setContentsMargins(0, 0, 0, 0);
 
         const auto grid = new QGridLayout(mainWidget);

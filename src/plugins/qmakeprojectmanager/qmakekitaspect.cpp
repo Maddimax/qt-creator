@@ -12,6 +12,7 @@
 
 #include <qtsupport/qtkitaspect.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/guard.h>
 #include <utils/layoutbuilder.h>
 #include <utils/qtcassert.h>
@@ -28,7 +29,7 @@ class QmakeKitAspectImpl final : public KitAspect
 {
 public:
     QmakeKitAspectImpl(Kit *k, const KitAspectFactory *ki)
-        : KitAspect(k, ki), m_lineEdit(createSubWidget<QLineEdit>())
+        : KitAspect(k, ki), m_lineEdit(Utils::AspectWidgets::createSubWidget<QLineEdit>(this))
     {
         refresh(); // set up everything according to kit
         m_lineEdit->setToolTip(ki->description());

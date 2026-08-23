@@ -12,6 +12,7 @@
 #include <QtTaskTree/QParallelTaskTreeRunner>
 #include <QtTaskTree/QSingleTaskTreeRunner>
 
+#include <utils/aspectwidgets.h>
 #include <utils/fancylineedit.h>
 #include <utils/guardedcallback.h>
 #include <utils/hostosinfo.h>
@@ -202,10 +203,10 @@ bool SecretAspect::isDirty() const
 
 void SecretAspect::addToLayoutImpl(Layouting::Layout &parent)
 {
-    auto edit = createSubWidget<FancyLineEdit>();
+    auto edit = Utils::AspectWidgets::createSubWidget<FancyLineEdit>(this);
     edit->setObjectName(stringFromKey(settingsKey()) + ".secret");
     edit->setEchoMode(QLineEdit::Password);
-    auto showPasswordButton = createSubWidget<Utils::ShowPasswordButton>();
+    auto showPasswordButton = Utils::AspectWidgets::createSubWidget<Utils::ShowPasswordButton>(this);
     // Keep read-only/disabled until we have retrieved the value.
     edit->setReadOnly(true);
     showPasswordButton->setEnabled(false);
@@ -239,7 +240,7 @@ void SecretAspect::addToLayoutImpl(Layouting::Layout &parent)
         d->wasEdited = true;
     });
 
-    addLabeledItem(parent, Layouting::Row{Layouting::noMargin, edit, warningLabel, showPasswordButton}.emerge());
+    Utils::AspectWidgets::addLabeledItem(this, parent, Layouting::Row{Layouting::noMargin, edit, warningLabel, showPasswordButton}.emerge());
 }
 
 AspectPresentation SecretAspect::presentation() const

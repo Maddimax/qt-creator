@@ -16,6 +16,7 @@
 #include "runconfiguration.h"
 #include "target.h"
 
+#include <utils/aspectwidgets.h>
 #include <utils/guard.h>
 #include <utils/guiutils.h>
 #include <utils/infolabel.h>
@@ -929,7 +930,7 @@ QString RunSettingsWidget::uniqueRCName(const QString &name)
 void RunSettingsWidget::addRunControlWidgets()
 {
     for (BaseAspect *aspect : m_runConfiguration->aspects()) {
-        if (QWidget *rcw = aspect->createConfigWidget()) {
+        if (QWidget *rcw = Utils::AspectWidgets::createConfigWidget(aspect)) {
             auto label = new QLabel(this);
             label->setText(aspect->displayName());
             connect(aspect, &GlobalOrProjectAspect::changed, label, [label, aspect] {

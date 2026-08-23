@@ -15,6 +15,7 @@
 #include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/icore.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/aspects.h>
 #include <utils/guiutils.h>
 #include <utils/itemviews.h>
@@ -289,9 +290,9 @@ private:
 
 void SnippetsSettingsAspect::addToLayoutImpl(Layouting::Layout &parent)
 {
-    m_groupCombo = createSubWidget<QComboBox>();
+    m_groupCombo = Utils::AspectWidgets::createSubWidget<QComboBox>(this);
     setIgnoreForDirtyHook(m_groupCombo);
-    m_snippetsEditorStack = createSubWidget<QStackedWidget>();
+    m_snippetsEditorStack = Utils::AspectWidgets::createSubWidget<QStackedWidget>(this);
     for (const SnippetProvider &provider : SnippetProvider::snippetProviders()) {
         m_groupCombo->addItem(provider.displayName(), provider.groupId());
         auto snippetEditor = new SnippetEditorWidget;
@@ -302,11 +303,11 @@ void SnippetsSettingsAspect::addToLayoutImpl(Layouting::Layout &parent)
                 this, &SnippetsSettingsAspect::setSnippetContent);
     }
 
-    m_snippetsTable = createSubWidget<TreeView>();
+    m_snippetsTable = Utils::AspectWidgets::createSubWidget<TreeView>(this);
     m_snippetsTable->setRootIsDecorated(false);
     m_snippetsTable->setModel(&m_model);
 
-    m_revertButton = createSubWidget<QPushButton>(Tr::tr("Revert Built-in"));
+    m_revertButton = Utils::AspectWidgets::createSubWidget<QPushButton>(this, Tr::tr("Revert Built-in"));
     m_revertButton->setEnabled(false);
 
     auto snippetSplitter = new QSplitter(Qt::Vertical);

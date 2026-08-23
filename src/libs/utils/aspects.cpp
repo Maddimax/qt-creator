@@ -4,21 +4,20 @@
 #include "aspects.h"
 
 #include "algorithm.h"
+#include "aspectwidgets.h"
 #include "async.h"
 #include "checkableaspect.h"
 #include "checkablemessagebox.h"
 #include "environment.h"
 #include "guard.h"
-#include "guiutils.h"
 #include "layoutbuilder.h"
 #include "macroexpander.h"
-#include "pathchooser.h"
+#include "pathvalidation.h"
 #include "qtcassert.h"
 #include "qtcsettings.h"
 #include "stylehelper.h"
 #include "store.h"
 #include "utilstr.h"
-#include "variablechooser.h"
 
 #include <QAction>
 #include <QDebug>
@@ -261,51 +260,8 @@ void BaseAspect::setVisible(bool visible)
     emit visibleChanged(visible);
 }
 
-QLabel *BaseAspect::createLabel()
-{
-    if (d->m_labelText.isEmpty() && d->m_labelPixmap.isNull())
-        return nullptr;
 
-    auto label = new QLabel(d->m_labelText);
-    label->setTextInteractionFlags(label->textInteractionFlags() | Qt::TextSelectableByMouse);
-    connect(label, &QLabel::linkActivated, this, [this](const QString &link) {
-        emit labelLinkActivated(link);
-    });
-    if (!d->m_labelPixmap.isNull())
-        label->setPixmap(d->m_labelPixmap);
-    registerSubWidget(label);
 
-    connect(this, &BaseAspect::labelTextChanged, label, [label, this] {
-        label->setText(d->m_labelText);
-    });
-    connect(this, &BaseAspect::labelPixmapChanged, label, [label, this] {
-        label->setPixmap(d->m_labelPixmap);
-    });
-
-    return label;
-}
-
-QLabel *BaseAspect::addLabeledItem(Layout &parent, QWidget *widget)
-{
-    if (!d->m_controlObjectName.isEmpty())
-        widget->setObjectName(d->m_controlObjectName);
-    if (QLabel *l = createLabel()) {
-        l->setBuddy(widget);
-        parent.addItem(l);
-        parent.addItem(Span(std::max(d->m_spanX - 1, 1), widget));
-        return l;
-    }
-    parent.addItem(widget);
-    return {};
-}
-
-void BaseAspect::addLabeledItems(Layouting::Layout &parent, const QList<QWidget *> &widgets)
-{
-    if (QLabel *l = createLabel())
-        parent.addItem(l);
-    for (auto widget : widgets)
-        parent.addItem(widget);
-}
 
 /*!
     Sets \a labelText as text for the separate label in the visual
@@ -552,13 +508,9 @@ QString BaseAspect::displayName() const
 /*!
     \internal
 */
-QWidget *BaseAspect::createConfigWidget() const
+BaseAspect::ConfigWidgetCreator BaseAspect::configWidgetCreator() const
 {
-    auto configWidget = d->m_configWidgetCreator ? d->m_configWidgetCreator() : nullptr;
-    if (configWidget)
-        registerSubWidget(configWidget);
-
-    return configWidget;
+    return d->m_configWidgetCreator;
 }
 
 QAction *BaseAspect::action()
@@ -690,41 +642,12 @@ bool BaseAspect::isDirty() const
     return false;
 }
 
-void BaseAspect::registerSubWidget(QWidget *widget) const
-{
-    widget->setEnabled(isEnabled());
-    widget->setToolTip(d->m_tooltip);
-
-    // Visible is on by default. Not setting it explicitly avoid popping
-    // it up when the parent is not set yet, the normal case.
-    if (!d->m_visible)
-        widget->setVisible(d->m_visible);
-
-    connect(this, &BaseAspect::enabledChanged, widget, [this, widget] {
-        widget->setEnabled(d->m_enabled);
-    });
-    connect(this, &BaseAspect::visibleChanged, widget, &QWidget::setVisible);
-    connect(this, &BaseAspect::tooltipChanged, widget, &QWidget::setToolTip);
-
-    if (auto lineEdit = qobject_cast<QLineEdit *>(widget))
-        connect(this, &BaseAspect::readOnlyChanged, lineEdit, &QLineEdit::setReadOnly);
-    else if (auto textEdit = qobject_cast<QTextEdit *>(widget))
-        connect(this, &BaseAspect::readOnlyChanged, textEdit, &QTextEdit::setReadOnly);
-    else if (auto pathChooser = qobject_cast<PathChooser *>(widget))
-        connect(this, &BaseAspect::readOnlyChanged, pathChooser, &PathChooser::setReadOnly);
-
-    connect(this, &BaseAspect::destroyed, widget, &QObject::deleteLater);
-}
 
 void BaseAspect::setContainer(AspectContainer *container)
 {
     d->setContainer(container);
 }
 
-void BaseAspect::improveWheelScrolling(QWidget *widget)
-{
-    setWheelScrollingWithoutFocusBlocked(widget);
-}
 
 void BaseAspect::saveToMap(Store &data, const QVariant &value,
                            const QVariant &defaultValue, const Key &key) const
@@ -857,17 +780,6 @@ void BaseAspect::addOnLabelPixmapChanged(QObject *guard, const Callback &callbac
     connect(this, &BaseAspect::labelPixmapChanged, guard, callback);
 }
 
-void BaseAspect::addMacroExpansion(QWidget *w)
-{
-    const auto varChooser = new VariableChooser(w);
-    varChooser->addMacroExpanderProvider({this, [this] { return d->macroExpander(); }});
-    if (auto pathChooser = qobject_cast<PathChooser *>(w)) {
-        pathChooser->setMacroExpander(d->macroExpander());
-        varChooser->addSupportedWidget(pathChooser->lineEdit());
-    } else {
-        varChooser->addSupportedWidget(w);
-    }
-}
 
 namespace Internal {
 
@@ -2233,7 +2145,7 @@ void BoolAspect::addToLayoutHelper(Layouting::Layout &parent, QAbstractButton *b
         parent.addItem(button);
         break;
     case LabelPlacement::InExtraLabel:
-        addLabeledItem(parent, button);
+        AspectWidgets::addLabeledItem(this, parent, button);
         break;
     case LabelPlacement::ShowTip: {
         parent.addItem(empty);
@@ -2313,7 +2225,7 @@ std::function<void (QObject *)> BoolAspect::groupChecker()
     return [this](QObject *target) {
         auto groupBox = qobject_cast<QGroupBox *>(target);
         QTC_ASSERT(groupBox, return);
-        registerSubWidget(groupBox);
+        AspectWidgets::registerSubWidget(this, groupBox);
         groupBox->setCheckable(true);
         groupBox->setChecked(value());
 

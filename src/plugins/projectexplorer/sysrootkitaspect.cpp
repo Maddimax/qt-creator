@@ -9,6 +9,7 @@
 #include "toolchain.h"
 #include "toolchainkitaspect.h"
 
+#include <utils/aspectwidgets.h>
 #include <utils/filepath.h>
 #include <utils/guard.h>
 #include <utils/id.h>
@@ -25,7 +26,7 @@ class SysRootKitAspectImpl : public KitAspect
 public:
     SysRootKitAspectImpl(Kit *k, const KitAspectFactory *factory) : KitAspect(k, factory)
     {
-        m_chooser = createSubWidget<PathChooser>();
+        m_chooser = Utils::AspectWidgets::createSubWidget<PathChooser>(this);
         m_chooser->setExpectedKind(PathChooserKind::ExistingDirectory);
         m_chooser->setHistoryCompleter("PE.SysRoot.History");
         m_chooser->setFilePath(SysRootKitAspect::sysRoot(k));

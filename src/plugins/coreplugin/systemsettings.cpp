@@ -11,6 +11,7 @@
 #include "icore.h"
 #include "vcsmanager.h"
 
+#include <utils/aspectwidgets.h>
 #include <utils/appinfo.h>
 #include <utils/checkablemessagebox.h>
 #include <utils/crashreporting.h>
@@ -78,7 +79,7 @@ static QString fileBrowserHelpText()
 
 void EnvChangeAspect::addToLayoutImpl(Layouting::Layout &parent)
 {
-    auto label = createLabel();
+    auto label = Utils::AspectWidgets::createLabel(this);
     if (label)
         parent.addItem(label);
 

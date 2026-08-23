@@ -15,6 +15,7 @@
 #include "../toolchainkitaspect.h"
 #include "../windowsappsdksettings.h"
 
+#include <utils/aspectwidgets.h>
 #include <utils/environment.h>
 #include <utils/id.h>
 #include <utils/layoutbuilder.h>
@@ -99,9 +100,9 @@ private:
     {
         if (const QList<KitAspect *> embedded = aspectsToEmbed(); !embedded.isEmpty()) {
             Layouting::Layout box(new QHBoxLayout);
-            box.addItem(createSubWidget<QLabel>(Tr::tr("Type:")));
+            box.addItem(Utils::AspectWidgets::createSubWidget<QLabel>(this, Tr::tr("Type:")));
             embedded.first()->addToInnerLayout(box);
-            box.addItem(createSubWidget<QLabel>(Tr::tr("Device:")));
+            box.addItem(Utils::AspectWidgets::createSubWidget<QLabel>(this, Tr::tr("Device:")));
             KitAspect::addToInnerLayout(box);
             QSizePolicy p = comboBoxes().first()->sizePolicy();
             p.setHorizontalStretch(1);

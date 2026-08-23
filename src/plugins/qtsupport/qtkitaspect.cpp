@@ -23,6 +23,7 @@
 
 #include <qmakeprojectmanager/qmakeprojectmanagerconstants.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/algorithm.h>
 #include <utils/async.h>
 #include <utils/layoutbuilder.h>
@@ -116,7 +117,7 @@ private:
             QSizePolicy p = comboBoxes().first()->sizePolicy();
             p.setHorizontalStretch(2);
             comboBoxes().first()->setSizePolicy(p);
-            box.addItem(createSubWidget<QLabel>(Tr::tr("Mkspec:")));
+            box.addItem(Utils::AspectWidgets::createSubWidget<QLabel>(this, Tr::tr("Mkspec:")));
             embedded.first()->addToInnerLayout(box);
             layout.addItem(box);
         } else {

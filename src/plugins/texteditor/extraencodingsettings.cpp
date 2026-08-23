@@ -9,6 +9,7 @@
 #include <coreplugin/coreconstants.h>
 #include <coreplugin/editormanager/editormanager.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/layoutbuilder.h>
 #include <utils/qtcsettings.h>
 #include <utils/textcodec.h>
@@ -23,7 +24,7 @@ EncodingSelectionAspect::EncodingSelectionAspect(AspectContainer *container)
 
 void EncodingSelectionAspect::addToLayoutImpl(Layouting::Layout &parent)
 {
-    m_codecChooser = createSubWidget<CodecChooser>();
+    m_codecChooser = Utils::AspectWidgets::createSubWidget<CodecChooser>(this);
     m_codecChooser->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
     m_codecChooser->setAssignedEncoding(value());
     parent.addItem(m_codecChooser);

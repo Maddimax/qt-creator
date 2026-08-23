@@ -27,6 +27,7 @@
 #include <qtsupport/baseqtversion.h>
 #include <qtsupport/qtkitaspect.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/algorithm.h>
 #include <utils/async.h>
 #include <utils/utilsicons.h>
@@ -654,8 +655,8 @@ class CMakeGeneratorKitAspectImpl final : public KitAspect
 public:
     CMakeGeneratorKitAspectImpl(Kit *kit, const KitAspectFactory *factory)
         : KitAspect(kit, factory),
-          m_label(createSubWidget<ElidingLabel>()),
-          m_changeButton(createSubWidget<QPushButton>())
+          m_label(Utils::AspectWidgets::createSubWidget<ElidingLabel>(this)),
+          m_changeButton(Utils::AspectWidgets::createSubWidget<QPushButton>(this))
     {
         connect(this, &KitAspect::labelLinkActivated, this, [kit](const QString &) {
             CMakeKitAspect::openCMakeHelpUrl(kit, "%1/manual/cmake-generators.7.html");
@@ -1181,8 +1182,8 @@ class CMakeConfigurationKitAspectImpl final : public KitAspect
 public:
     CMakeConfigurationKitAspectImpl(Kit *kit, const KitAspectFactory *factory)
         : KitAspect(kit, factory),
-          m_summaryLabel(createSubWidget<ElidingLabel>()),
-          m_manageButton(createSubWidget<QPushButton>())
+          m_summaryLabel(Utils::AspectWidgets::createSubWidget<ElidingLabel>(this)),
+          m_manageButton(Utils::AspectWidgets::createSubWidget<QPushButton>(this))
     {
         refresh();
         m_manageButton->setText(Tr::tr("Change..."));

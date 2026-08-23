@@ -50,6 +50,7 @@
 #include <qtsupport/qtbuildaspects.h>
 #include <qtsupport/qtkitaspect.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/fancylineedit.h>
 #include <utils/algorithm.h>
 #include <utils/categorysortfiltermodel.h>
@@ -391,7 +392,8 @@ CMakeBuildSettingsWidget::CMakeBuildSettingsWidget(CMakeBuildConfiguration *bc) 
         }
     };
 
-    auto configureEnvironmentAspectWidget = bc->configureEnv.createConfigWidget();
+    auto configureEnvironmentAspectWidget
+        = Utils::AspectWidgets::createConfigWidget(&bc->configureEnv);
     configureEnvironmentAspectWidget->setContentsMargins(0, 0, 0, 0);
     configureEnvironmentAspectWidget->layout()->setContentsMargins(0, 0, 0, 0);
 

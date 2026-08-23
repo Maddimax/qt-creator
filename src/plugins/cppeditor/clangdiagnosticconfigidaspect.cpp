@@ -8,6 +8,7 @@
 
 #include <coreplugin/icore.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/guiutils.h>
 #include <utils/layoutbuilder.h>
 #include <utils/qtcsettings.h>
@@ -129,7 +130,7 @@ void ClangDiagnosticConfigIdAspect::setEditWidgetFactory(EditWidgetFactory facto
 
 void ClangDiagnosticConfigIdAspect::addToLayoutImpl(Layouting::Layout &parent)
 {
-    m_widget = createSubWidget<ClangDiagnosticConfigsSelectionWidget>();
+    m_widget = Utils::AspectWidgets::createSubWidget<ClangDiagnosticConfigsSelectionWidget>(this);
     if (m_modelFactory && m_editFactory) {
         const ClangDiagnosticConfigsModel model = m_modelFactory();
         const Id id = model.hasConfigWithId(volatileValue()) ? volatileValue() : defaultValue();

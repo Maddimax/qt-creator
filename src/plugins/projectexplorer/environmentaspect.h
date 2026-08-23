@@ -64,8 +64,6 @@ public:
         Utils::Environment environment;
     };
 
-    using Utils::BaseAspect::createLabel;
-
 signals:
     void baseEnvironmentChanged();
     void userEnvironmentChangesChanged(const Utils::EnvironmentChanges &diff);

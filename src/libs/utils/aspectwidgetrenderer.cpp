@@ -3,6 +3,7 @@
 
 #include "aspectwidgetrenderer.h"
 
+#include "aspectwidgets.h"
 #include "aspects.h"
 #include "checkableaspect.h"
 #include "elidinglabel.h"
@@ -256,7 +257,7 @@ private:
     template<class Aspect, class Widget>
     static void addCheckableLabeledItem(Aspect *aspect, Layout &parent, Widget *widget)
     {
-        QLabel *label = aspect->addLabeledItem(parent, widget);
+        QLabel *label = AspectWidgets::addLabeledItem(aspect, parent, widget);
         updateFromCheckStatus(aspect, widget);
         if (label)
             updateFromCheckStatus(aspect, label);
@@ -276,8 +277,8 @@ private:
     {
         QAbstractButton *button = pres.control == AspectControls::RadioButton
                                       ? static_cast<QAbstractButton *>(
-                                            aspect->createSubWidget<QRadioButton>())
-                                      : aspect->createSubWidget<QCheckBox>();
+                                            AspectWidgets::createSubWidget<QRadioButton>(aspect))
+                                      : AspectWidgets::createSubWidget<QCheckBox>(aspect);
 
         switch (pres.labelPlacement) {
         case AspectControls::LabelPlacement::Compact:
@@ -290,7 +291,7 @@ private:
             parent.addItem(button);
             break;
         case AspectControls::LabelPlacement::InExtraLabel:
-            aspect->addLabeledItem(parent, button);
+            AspectWidgets::addLabeledItem(aspect, parent, button);
             break;
         case AspectControls::LabelPlacement::ShowTip: {
             parent.addItem(empty);
@@ -319,10 +320,10 @@ private:
     static void renderFontFamily(FontFamilyAspect *aspect, Layout &parent,
                                  const AspectPresentation &pres)
     {
-        if (QLabel *l = aspect->createLabel())
+        if (QLabel *l = AspectWidgets::createLabel(aspect))
             parent.addItem(l);
 
-        auto fontComboBox = aspect->createSubWidget<QFontComboBox>();
+        auto fontComboBox = AspectWidgets::createSubWidget<QFontComboBox>(aspect);
         fontComboBox->setFontFilters(QFontComboBox::FontFilters(pres.fontFilters.toInt()));
         // The QFontInfo hoop resolves to a family actually on the system.
         fontComboBox->setCurrentFont(QFontInfo(QFont(aspect->value())).family());
@@ -347,7 +348,7 @@ private:
             buttonGroup->setExclusive(true);
             for (int i = 0, n = int(pres.choices.size()); i < n; ++i) {
                 const AspectPresentation::Choice &choice = pres.choices.at(i);
-                auto button = aspect->createSubWidget<QRadioButton>(choice.display);
+                auto button = AspectWidgets::createSubWidget<QRadioButton>(aspect, choice.display);
                 button->setChecked(i == aspect->value());
                 button->setEnabled(choice.enabled);
                 button->setToolTip(choice.toolTip);
@@ -374,12 +375,12 @@ private:
                        << "uses ComboBox display but does not set labelText()";
             aspect->setLabelText(aspect->displayName());
         }
-        auto comboBox = aspect->createSubWidget<QComboBox>();
+        auto comboBox = AspectWidgets::createSubWidget<QComboBox>(aspect);
         comboBox->setObjectName(aspect->objectName());
         for (const AspectPresentation::Choice &choice : pres.choices)
             comboBox->addItem(choice.display);
         comboBox->setCurrentIndex(aspect->volatileValue());
-        aspect->addLabeledItem(parent, comboBox);
+        AspectWidgets::addLabeledItem(aspect, parent, comboBox);
         aspect->addOnVolatileValueChanged(comboBox, [comboBox, aspect] {
             comboBox->setCurrentIndex(aspect->volatileValue());
         });
@@ -395,10 +396,10 @@ private:
         if (pres.choices.isEmpty())
             return;
 
-        auto listView = aspect->createSubWidget<QListWidget>();
+        auto listView = AspectWidgets::createSubWidget<QListWidget>(aspect);
         for (const AspectPresentation::Choice &choice : pres.choices)
             (void) new QListWidgetItem(choice.display, listView);
-        aspect->addLabeledItem(parent, listView);
+        AspectWidgets::addLabeledItem(aspect, parent, listView);
 
         const int expectedCount = int(pres.choices.size());
         QObject::connect(listView, &QListWidget::itemChanged, aspect,
@@ -432,7 +433,7 @@ private:
     static void renderSpinBox(IntegerAspect *aspect, Layout &parent,
                               const AspectPresentation &pres)
     {
-        auto spinBox = aspect->createSubWidget<QSpinBox>();
+        auto spinBox = AspectWidgets::createSubWidget<QSpinBox>(aspect);
         spinBox->setDisplayIntegerBase(pres.displayIntegerBase);
         spinBox->setPrefix(pres.prefix);
         spinBox->setSuffix(pres.suffix);
@@ -442,7 +443,7 @@ private:
         if (pres.minimum.isValid() && pres.maximum.isValid())
             spinBox->setRange(int(pres.minimum.toLongLong() / factor),
                               int(pres.maximum.toLongLong() / factor));
-        aspect->addLabeledItem(parent, spinBox);
+        AspectWidgets::addLabeledItem(aspect, parent, spinBox);
 
         QObject::connect(spinBox, &QSpinBox::valueChanged, aspect, [aspect, spinBox, factor] {
             aspect->setVolatileVariantValueFromGui(qint64(spinBox->value()) * factor);
@@ -456,14 +457,14 @@ private:
     static void renderDoubleSpinBox(DoubleAspect *aspect, Layout &parent,
                                     const AspectPresentation &pres)
     {
-        auto spinBox = aspect->createSubWidget<QDoubleSpinBox>();
+        auto spinBox = AspectWidgets::createSubWidget<QDoubleSpinBox>(aspect);
         spinBox->setPrefix(pres.prefix);
         spinBox->setSuffix(pres.suffix);
         spinBox->setSingleStep(pres.singleStep.toDouble());
         spinBox->setSpecialValueText(pres.specialValueText);
         if (pres.minimum.isValid() && pres.maximum.isValid())
             spinBox->setRange(pres.minimum.toDouble(), pres.maximum.toDouble());
-        aspect->addLabeledItem(parent, spinBox);
+        AspectWidgets::addLabeledItem(aspect, parent, spinBox);
 
         QObject::connect(spinBox, &QDoubleSpinBox::valueChanged, aspect, [aspect, spinBox] {
             aspect->setVolatileVariantValueFromGui(spinBox->value());
@@ -476,7 +477,7 @@ private:
 
     static void renderCommaSeparatedLineEdit(StringListAspect *aspect, Layout &parent)
     {
-        auto lineEdit = aspect->createSubWidget<FancyLineEdit>();
+        auto lineEdit = AspectWidgets::createSubWidget<FancyLineEdit>(aspect);
 
         const auto listToText = [](const QStringList &list) { return list.join(","); };
         const auto textToList = [](const QString &text) {
@@ -499,13 +500,13 @@ private:
                 lineEdit->setText(listToText(aspect->volatileValue()));
         });
 
-        aspect->addLabeledItem(parent, lineEdit);
+        AspectWidgets::addLabeledItem(aspect, parent, lineEdit);
     }
 
     static void renderFilePathList(FilePathListAspect *aspect, Layout &parent,
                                    const AspectPresentation &pres)
     {
-        PathListEditor *editor = aspect->createSubWidget<PathListEditor>();
+        PathListEditor *editor = AspectWidgets::createSubWidget<PathListEditor>(aspect);
         editor->setPathList(aspect->value());
         QObject::connect(editor, &PathListEditor::changed, aspect, [aspect, editor] {
             aspect->setVolatileVariantValueFromGui(editor->pathList());
@@ -524,7 +525,7 @@ private:
         editor->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
         editor->setPlaceholderText(pres.placeholderText);
 
-        aspect->registerSubWidget(editor);
+        AspectWidgets::registerSubWidget(aspect, editor);
 
         QObject::connect(aspect, &FilePathListAspect::placeHolderTextChanged,
                          editor, &PathListEditor::setPlaceholderText);
@@ -542,14 +543,14 @@ private:
                                   const AspectPresentation &pres)
     {
         const QString displayed = displayedString(aspect);
-        auto label = aspect->createSubWidget<ElidingLabel>();
+        auto label = AspectWidgets::createSubWidget<ElidingLabel>(aspect);
         label->setElideMode(aspect->elideMode());
         label->setTextInteractionFlags(Qt::TextSelectableByMouse);
         label->setText(displayed);
         label->setToolTip(aspect->showToolTipOnLabel() ? displayed : pres.toolTip);
         QObject::connect(aspect, &StringAspect::elideModeChanged,
                          label, &ElidingLabel::setElideMode);
-        aspect->addLabeledItem(parent, label);
+        AspectWidgets::addLabeledItem(aspect, parent, label);
 
         QObject::connect(&aspect->undoableValue().m_signal, &UndoSignaller::changed, label,
                          [aspect, label] {
@@ -563,11 +564,11 @@ private:
     static void renderStringLineEdit(StringAspect *aspect, Layout &parent,
                                      const AspectPresentation &pres)
     {
-        auto lineEdit = aspect->createSubWidget<FancyLineEdit>();
+        auto lineEdit = AspectWidgets::createSubWidget<FancyLineEdit>(aspect);
         // Named after the setting, like a path chooser, so a page with several
         // of them can be told apart.
         lineEdit->setObjectName(Utils::stringFromKey(aspect->settingsKey()));
-        aspect->addMacroExpansion(lineEdit);
+        AspectWidgets::addMacroExpansion(aspect, lineEdit);
         lineEdit->setPlaceholderText(pres.placeholderText);
         lineEdit->setMinimumHeight(aspect->minimumHeight());
 
@@ -605,7 +606,7 @@ private:
         addCheckableLabeledItem(aspect, parent, lineEdit);
 
         if (pres.withResetButton) {
-            auto resetButton = aspect->createSubWidget<QPushButton>(Tr::tr("Reset"));
+            auto resetButton = AspectWidgets::createSubWidget<QPushButton>(aspect, Tr::tr("Reset"));
             resetButton->setEnabled(lineEdit->text() != aspect->defaultValue());
             QObject::connect(resetButton, &QPushButton::clicked, lineEdit, [aspect, lineEdit] {
                 lineEdit->setText(aspect->defaultValue());
@@ -632,7 +633,7 @@ private:
             });
         }
         if (pres.control == AspectControls::PasswordLineEdit) {
-            auto showPasswordButton = aspect->createSubWidget<ShowPasswordButton>();
+            auto showPasswordButton = AspectWidgets::createSubWidget<ShowPasswordButton>(aspect);
             lineEdit->setEchoMode(QLineEdit::PasswordEchoOnEdit);
             parent.addItem(showPasswordButton);
             QObject::connect(showPasswordButton, &ShowPasswordButton::toggled, lineEdit,
@@ -655,8 +656,8 @@ private:
     static void renderStringTextEdit(StringAspect *aspect, Layout &parent,
                                      const AspectPresentation &pres)
     {
-        auto textEdit = aspect->createSubWidget<QTextEdit>();
-        aspect->addMacroExpansion(textEdit);
+        auto textEdit = AspectWidgets::createSubWidget<QTextEdit>(aspect);
+        AspectWidgets::addMacroExpansion(aspect, textEdit);
         textEdit->setPlaceholderText(pres.placeholderText);
         textEdit->setUndoRedoEnabled(false);
         textEdit->setAcceptRichText(aspect->acceptRichText());
@@ -689,10 +690,10 @@ private:
         const std::function<QString(const QString &)> filter = aspect->displayFilter();
         const QString displayed = filter ? filter(aspect->value()) : aspect->value();
 
-        PathChooser *pathChooser = aspect->createSubWidget<PathChooser>();
+        PathChooser *pathChooser = AspectWidgets::createSubWidget<PathChooser>(aspect);
         // A settings page tends to hold several of these, so name them apart.
         pathChooser->setObjectName(Utils::stringFromKey(aspect->settingsKey()));
-        aspect->addMacroExpansion(pathChooser);
+        AspectWidgets::addMacroExpansion(aspect, pathChooser);
         applyPathChooserConfiguration(aspect, pathChooser);
         if (aspect->defaultValue() == aspect->value())
             pathChooser->setDefaultValue(FilePath::fromUserInput(aspect->defaultValue()));
@@ -750,7 +751,7 @@ private:
 
     static void renderColor(ColorAspect *aspect, Layout &parent, const AspectPresentation &pres)
     {
-        auto button = aspect->createSubWidget<QtColorButton>();
+        auto button = AspectWidgets::createSubWidget<QtColorButton>(aspect);
         button->setColor(aspect->volatileValue());
         button->setAlphaAllowed(pres.alphaAllowed);
         button->setMinimumSize(pres.minimumSize);
@@ -765,12 +766,12 @@ private:
         });
 
         if (pres.withResetButton) {
-            auto resetButton = aspect->createSubWidget<QPushButton>(Tr::tr("Reset"));
+            auto resetButton = AspectWidgets::createSubWidget<QPushButton>(aspect, Tr::tr("Reset"));
             resetButton->setToolTip(Tr::tr("Reset to default.", "Color"));
             QObject::connect(resetButton, &QAbstractButton::clicked, aspect, [aspect] {
                 aspect->setVolatileValue(aspect->defaultValue());
             });
-            aspect->addLabeledItems(parent, {button, resetButton});
+            AspectWidgets::addLabeledItems(aspect, parent, {button, resetButton});
         } else {
             QMenu *menu = new QMenu(button);
             QAction *resetAction = menu->addAction(Tr::tr("Reset to Default"), aspect, [aspect] {
@@ -782,7 +783,7 @@ private:
             button->setToolTip(QStringList{pres.toolTip,
                                            Tr::tr("Press and hold to reset to default.")}
                                    .join('\n'));
-            aspect->addLabeledItem(parent, button);
+            AspectWidgets::addLabeledItem(aspect, parent, button);
         }
     }
 
@@ -808,7 +809,7 @@ private:
     static void renderTextDisplay(TextDisplay *aspect, Layout &parent,
                                   const AspectPresentation &pres)
     {
-        auto label = aspect->createSubWidget<InfoLabel>(aspect->text(),
+        auto label = AspectWidgets::createSubWidget<InfoLabel>(aspect, aspect->text(),
                                                         infoLabelType(pres.infoType));
         label->setTextInteractionFlags(Qt::LinksAccessibleByMouse | Qt::TextSelectableByMouse);
         label->setToolTip(pres.toolTip);
@@ -835,17 +836,17 @@ private:
     static void renderStringListTree(StringListAspect *aspect, Layout &parent,
                                      const AspectPresentation &pres)
     {
-        auto editor = aspect->createSubWidget<QTreeWidget>();
+        auto editor = AspectWidgets::createSubWidget<QTreeWidget>(aspect);
         editor->setHeaderHidden(true);
         editor->setRootIsDecorated(false);
         editor->setEditTriggers(pres.allowEditing ? QAbstractItemView::AllEditTriggers
                                                   : QAbstractItemView::NoEditTriggers);
 
         QPushButton *add = pres.allowAdding
-                               ? aspect->createSubWidget<QPushButton>(Tr::tr("Add"))
+                               ? AspectWidgets::createSubWidget<QPushButton>(aspect, Tr::tr("Add"))
                                : nullptr;
         QPushButton *remove = pres.allowRemoving
-                                  ? aspect->createSubWidget<QPushButton>(Tr::tr("Remove"))
+                                  ? AspectWidgets::createSubWidget<QPushButton>(aspect, Tr::tr("Remove"))
                                   : nullptr;
 
         const auto itemsToStringList = [editor] {
@@ -923,9 +924,9 @@ private:
         }.emerge();
         // clang-format on
 
-        aspect->registerSubWidget(mainWdgt);
+        AspectWidgets::registerSubWidget(aspect, mainWdgt);
 
-        parent.addItem(aspect->createLabel());
+        parent.addItem(AspectWidgets::createLabel(aspect));
         parent.addItem(mainWdgt);
     }
 
@@ -933,7 +934,7 @@ private:
     {
         QTC_ASSERT(aspect->m_fillCallback, return);
 
-        QComboBox *comboBox = aspect->createSubWidget<QComboBox>();
+        QComboBox *comboBox = AspectWidgets::createSubWidget<QComboBox>(aspect);
 
         QObject::connect(aspect, &StringSelectionAspect::modelChange, comboBox,
                          [aspect, comboBox, lastValue = QVariant()](bool changing) mutable {
@@ -1019,14 +1020,14 @@ private:
         if (aspect->m_selectionModel->currentIndex().isValid())
             comboBox->setCurrentIndex(aspect->m_selectionModel->currentIndex().row());
 
-        aspect->addLabeledItem(parent, comboBox);
+        AspectWidgets::addLabeledItem(aspect, parent, comboBox);
     }
 
     static void renderFontPicker(FontAspect *aspect, Layout &parent)
     {
         parent.addItem(aspect->fontFamily);
 
-        QComboBox *sizeComboBox = aspect->createSubWidget<QComboBox>();
+        QComboBox *sizeComboBox = AspectWidgets::createSubWidget<QComboBox>(aspect);
         parent.addItem(aspect->fontPointSize.labelText());
         parent.addItem(sizeComboBox);
 

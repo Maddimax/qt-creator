@@ -10,6 +10,7 @@
 #include <projectexplorer/kit.h>
 #include <projectexplorer/kitaspect.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/elidinglabel.h>
 #include <utils/layoutbuilder.h>
 #include <utils/qtcassert.h>
@@ -25,8 +26,8 @@ class QbsKitAspectImpl final : public KitAspect
 public:
     QbsKitAspectImpl(Kit *kit, const KitAspectFactory *kitInfo)
         : KitAspect(kit, kitInfo),
-          m_contentLabel(createSubWidget<Utils::ElidingLabel>()),
-          m_changeButton(createSubWidget<QPushButton>(Tr::tr("Change...")))
+          m_contentLabel(Utils::AspectWidgets::createSubWidget<Utils::ElidingLabel>(this)),
+          m_changeButton(Utils::AspectWidgets::createSubWidget<QPushButton>(this, Tr::tr("Change...")))
     {
         connect(m_changeButton, &QPushButton::clicked, this, &QbsKitAspectImpl::changeProperties);
     }

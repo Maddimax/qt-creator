@@ -151,7 +151,7 @@ public:
 
     using ConfigWidgetCreator = std::function<QWidget *()>;
     void setConfigWidgetCreator(const ConfigWidgetCreator &configWidgetCreator);
-    QWidget *createConfigWidget() const;
+    ConfigWidgetCreator configWidgetCreator() const;
 
     virtual QAction *action();
 
@@ -283,12 +283,6 @@ protected:
 
     virtual void handleGuiChanged();
 
-    void addMacroExpansion(QWidget *w);
-
-    QLabel *createLabel();
-    QLabel *addLabeledItem(Layouting::Layout &parent, QWidget *widget);
-    void addLabeledItems(Layouting::Layout &parent, const QList<QWidget *> &widgets);
-
     void setDataCreatorHelper(const DataCreator &creator) const;
     void setDataClonerHelper(const DataCloner &cloner) const;
     void addDataExtractorHelper(const DataExtractor &extractor) const;
@@ -307,19 +301,6 @@ protected:
             static_cast<DataClass *>(data)->*q = (aspect->*p)();
         });
     }
-
-    template <class Widget, typename ...Args>
-    Widget *createSubWidget(Args && ...args) {
-        auto w = new Widget(args...);
-        registerSubWidget(w);
-        if constexpr (std::is_base_of_v<QComboBox, Widget>
-                      || std::is_base_of_v<QAbstractSpinBox, Widget>) {
-            improveWheelScrolling(w);
-        }
-        return w;
-    }
-
-    void registerSubWidget(QWidget *widget) const;
 
     void saveToMap(Store &data, const QVariant &value,
                    const QVariant &defaultValue, const Key &key) const;
@@ -342,7 +323,6 @@ private:
     // the same protected widget helpers.
     friend class Internal::AspectWidgetRenderer;
     void setContainer(AspectContainer *container);
-    void improveWheelScrolling(QWidget *widget);
 
     std::unique_ptr<Internal::BaseAspectPrivate> d;
 };

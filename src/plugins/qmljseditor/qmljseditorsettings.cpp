@@ -24,6 +24,7 @@
 
 #include <extensionsystem/pluginmanager.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/algorithm.h>
 #include <utils/guiutils.h>
 #include <utils/hostosinfo.h>
@@ -371,7 +372,7 @@ void AnalyzerMessagesAspect::populateModel()
 
 void AnalyzerMessagesAspect::addToLayoutImpl(Layouting::Layout &parent)
 {
-    m_view = createSubWidget<QTreeView>();
+    m_view = Utils::AspectWidgets::createSubWidget<QTreeView>(this);
     auto model = new TreeModel<AnalyzerMessageItem>(m_view);
     model->setHeader({Tr::tr("Enabled"), Tr::tr("Only for Qt Quick UI"), Tr::tr("Message")});
     m_view->setModel(model);

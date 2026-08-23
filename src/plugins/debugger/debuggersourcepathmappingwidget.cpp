@@ -11,6 +11,7 @@
 
 #include <qtsupport/baseqtversion.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/elfreader.h>
 #include <utils/filedialogs.h>
 #include <utils/fileutils.h>
@@ -628,7 +629,7 @@ bool SourcePathMapAspect::isDirty() const
 void SourcePathMapAspect::addToLayoutImpl(Layouting::Layout &parent)
 {
     QTC_CHECK(!d->m_widget);
-    d->m_widget = createSubWidget<DebuggerSourcePathMappingWidget>();
+    d->m_widget = Utils::AspectWidgets::createSubWidget<DebuggerSourcePathMappingWidget>(this);
     d->m_widget->setSourcePathMap(value());
     parent.addItem(d->m_widget.data());
 }

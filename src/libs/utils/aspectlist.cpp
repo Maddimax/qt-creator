@@ -3,6 +3,7 @@
 
 #include "aspectlist.h"
 
+#include "aspectwidgets.h"
 #include "algorithm.h"
 #include "itemviews.h"
 #include "layoutbuilder.h"
@@ -305,7 +306,7 @@ public:
 
         QPushButton *removeButton = nullptr;
         QWidget *configWidget = nullptr;
-        auto listView = aspect->createSubWidget<TreeView>();
+        auto listView = AspectWidgets::createSubWidget<TreeView>(aspect);
         listView->header()->hide();
         listView->setModel(&model);
         listView->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);

@@ -5,6 +5,7 @@
 
 #include "coreplugintr.h"
 
+#include <utils/aspectwidgets.h>
 #include <utils/elidinglabel.h>
 #include <utils/environment.h>
 #include <utils/itemviews.h>
@@ -151,7 +152,7 @@ EnvVarSeparatorAspect::EnvVarSeparatorAspect(Utils::AspectContainer *container)
 
 void EnvVarSeparatorAspect::addToLayoutImpl(Layouting::Layout &parent)
 {
-    auto label = createLabel();
+    auto label = Utils::AspectWidgets::createLabel(this);
     if (label)
         parent.addItem(label);
 

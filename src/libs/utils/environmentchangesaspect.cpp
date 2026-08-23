@@ -3,6 +3,7 @@
 
 #include "environmentchangesaspect.h"
 
+#include "aspectwidgets.h"
 #include "elidinglabel.h"
 #include "environment.h"
 #include "environmentdialog.h"
@@ -26,11 +27,11 @@ void EnvironmentChangesAspect::addToLayoutImpl(Layouting::Layout &parent)
     };
     updateChangesLabel();
     connect(this, &EnvironmentChangesAspect::volatileValueChanged, this, updateChangesLabel);
-    registerSubWidget(changesLabel);
+    AspectWidgets::registerSubWidget(this, changesLabel);
 
     QPushButton *changeButton = new QPushButton(Tr::tr("Change..."));
     changeButton->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Preferred);
-    registerSubWidget(changeButton);
+    AspectWidgets::registerSubWidget(this, changeButton);
     connect(changeButton, &QPushButton::clicked, this, [changeButton, this]() {
         std::optional<EnvironmentChanges> changes
             = runEnvironmentItemsDialog(changeButton, volatileValue());
@@ -39,7 +40,8 @@ void EnvironmentChangesAspect::addToLayoutImpl(Layouting::Layout &parent)
     });
 
     // createLabel() may return nullptr; addEmpty == false drops it then.
-    parent.addItems({createLabel(), changesLabel, changeButton}, /*addEmpty=*/false);
+    parent.addItems({AspectWidgets::createLabel(this), changesLabel, changeButton},
+                    /*addEmpty=*/false);
 }
 
 } // namespace Utils
