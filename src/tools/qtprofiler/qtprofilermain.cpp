@@ -12,6 +12,7 @@
 #include <coreplugin/icore.h>
 
 #include <utils/algorithm.h>
+#include <utils/aspectwidgetrenderer.h>
 #include <utils/commandline.h>
 #include <utils/filepath.h>
 #include <utils/qtcsettings.h>
@@ -54,6 +55,8 @@ int main(int argc, char *argv[])
 #endif
 
     QApplication app(argc, argv);
+
+    Utils::installAspectWidgetRenderer();
     QApplication::setOrganizationName(Core::Constants::IDE_SETTINGSVARIANT_STR);
     QApplication::setApplicationName("QtProfiler");
     QApplication::setApplicationDisplayName("Qt Profiler");

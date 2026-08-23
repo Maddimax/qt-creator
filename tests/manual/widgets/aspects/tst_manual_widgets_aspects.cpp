@@ -7,6 +7,7 @@
 
 #include <utils/algorithm.h>
 #include <utils/aspects.h>
+#include <utils/aspectwidgetrenderer.h>
 #include <utils/layoutbuilder.h>
 
 #include <QApplication>
@@ -147,6 +148,8 @@ struct AspectUI : public Column
 int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
+
+    Utils::installAspectWidgetRenderer();
 
     auto selectionAspect = [] {
         auto selectionAspect = new Utils::SelectionAspect();
