@@ -12,6 +12,12 @@ class EnvVarSeparatorAspect : public Utils::StringListAspect
 public:
     EnvVarSeparatorAspect(Utils::AspectContainer *container = nullptr);
 
+    // A summary of the separators, and the dialog that edits them - the same
+    // shape as EnvironmentChangesAspect, so the same control.
+    Utils::AspectPresentation presentation() const override;
+    QString displayText() const override;
+    void triggerAction() override;
+
     void addToLayoutImpl(Layouting::Layout &parent) override;
 
     void writeSettings() const override { Utils::StringListAspect::writeSettings(); }

@@ -372,6 +372,7 @@ if(TARGET Core AND TARGET Qt::Quick)
     QML_FILES
       CustomLanguageModelsPage.qml
       GeneralSettingsPage.qml
+      SystemSettingsPage.qml
       mcp/McpSettingsPage.qml
   )
 endif()

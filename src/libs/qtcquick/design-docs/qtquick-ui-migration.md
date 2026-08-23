@@ -468,6 +468,14 @@ the user changed it, so the write-back is guarded on `text !== modelData`. The
 test for it looked flaky for a while, which is what a real bug that depends on
 whether focus moved looks like.
 
+**Look for the summary-and-a-button shape.** `EnvVarSeparatorAspect` built an
+eliding label showing the separators and a Change... button opening a dialog -
+which is exactly `AspectControls::TextWithAction`, already described and already
+drawn. Three overrides (`presentation()`, `displayText()`, `triggerAction()`)
+and it works on both renderers. `EnvChangeAspect` turned out to be a whole class
+existing only to re-implement its base's `addToLayoutImpl` slightly worse, so it
+is gone and `SystemSettings` uses `EnvironmentChangesAspect` directly.
+
 **A page action is an aspect now.** Several closures ended in a `PushButton`
 with an `onClicked` - Reset Version Control Cache, qbs's Reset, Install
 Extension - which nothing but a layout could see. `Utils::ActionAspect` holds
@@ -484,7 +492,7 @@ naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
 all`, minus `QmlDesigner` and `UpdateInfo`, see below): **73 aspect-driven
-pages, 54 with their own QML and rendered with Qt Quick, 19 still on widgets.**
+pages, 55 with their own QML and rendered with Qt Quick, 18 still on widgets.**
 Before the gate was narrowed, 65 pages rendered generically; the delegate work
 that made that possible is all still in place and is what the ports build on:
 `StringListAspect` (a real list editor), `IntegersAspect` (`Invisible`, because

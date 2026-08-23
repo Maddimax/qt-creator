@@ -8,6 +8,7 @@
 #include <utils/aspectwidgets.h>
 #include <utils/elidinglabel.h>
 #include <utils/environment.h>
+#include <utils/guiutils.h>
 #include <utils/itemviews.h>
 #include <utils/layoutbuilder.h>
 #include <utils/namevaluedictionary.h>
@@ -142,12 +143,43 @@ private:
 EnvVarSeparatorAspect::EnvVarSeparatorAspect(Utils::AspectContainer *container)
     : StringListAspect(container)
 {
+    // The summary is derived from the value, so it changes with it.
+    connect(this, &Utils::BaseAspect::volatileValueChanged,
+            this, &Utils::BaseAspect::displayTextChanged);
+
     Environment::setListSeparatorProvider([this](const QString &varName) -> std::optional<QString> {
         const NameValueDictionary seps = NameValueDictionary(value());
         if (const auto it = seps.find(varName); it != seps.end())
             return it.value();
         return {};
     });
+}
+
+Utils::AspectPresentation EnvVarSeparatorAspect::presentation() const
+{
+    Utils::AspectPresentation p = Utils::StringListAspect::presentation();
+    p.control = Utils::AspectControls::TextWithAction;
+    p.actionText = Tr::tr("Change...");
+    return p;
+}
+
+QString EnvVarSeparatorAspect::displayText() const
+{
+    const NameValueDictionary seps = NameValueDictionary(volatileValue());
+    QStringList parts;
+    for (auto it = seps.begin(); it != seps.end(); ++it)
+        parts.append(QString("%1: \"%2\"").arg(it.key(), it.value()));
+    return parts.join(", ");
+}
+
+void EnvVarSeparatorAspect::triggerAction()
+{
+    EnvVarSeparatorsDialog dlg(NameValueDictionary(volatileValue()), Utils::dialogParent());
+    if (dlg.exec() != QDialog::Accepted)
+        return;
+    const QStringList newValues = dlg.separators().toStringList();
+    if (volatileValue() != newValues)
+        setVolatileValue(newValues);
 }
 
 void EnvVarSeparatorAspect::addToLayoutImpl(Layouting::Layout &parent)

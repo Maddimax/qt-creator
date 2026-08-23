@@ -11,11 +11,9 @@
 #include "icore.h"
 #include "vcsmanager.h"
 
-#include <utils/aspectwidgets.h>
 #include <utils/appinfo.h>
 #include <utils/checkablemessagebox.h>
 #include <utils/crashreporting.h>
-#include <utils/elidinglabel.h>
 #include <utils/environment.h>
 #include <utils/environmentdialog.h>
 #include <utils/fileutils.h>
@@ -24,7 +22,7 @@
 #include <utils/hostosinfo.h>
 #include <utils/layoutbuilder.h>
 #include <utils/macroexpander.h>
-#include <utils/pathchooser.h>
+#include <utils/pathvalidation.h>
 #include <utils/terminalcommand.h>
 
 #include <QApplication>
@@ -36,7 +34,6 @@
 #include <QLineEdit>
 #include <QMenu>
 #include <QMessageBox>
-#include <QPushButton>
 #include <QToolButton>
 
 using namespace Utils;
@@ -77,35 +74,6 @@ static QString fileBrowserHelpText()
         "</table>");
 }
 
-void EnvChangeAspect::addToLayoutImpl(Layouting::Layout &parent)
-{
-    auto label = Utils::AspectWidgets::createLabel(this);
-    if (label)
-        parent.addItem(label);
-
-    auto changesLabel = new ElidingLabel();
-    QSizePolicy sizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    changesLabel->setSizePolicy(sizePolicy);
-    changesLabel->setElideMode(Qt::ElideRight);
-    auto updateChangesLabel = [this, changesLabel]() {
-        const EnvironmentItems items = volatileValue().itemsFromUser();
-        changesLabel->setText(EnvironmentItem::toShortSummary(items, false));
-    };
-    updateChangesLabel();
-    connect(this, &EnvChangeAspect::volatileValueChanged, this, updateChangesLabel);
-    parent.addItem(changesLabel);
-
-    QPushButton *changeButton = new QPushButton(Tr::tr("Change..."));
-    changeButton->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Preferred);
-    parent.addItem(changeButton);
-    connect(changeButton, &QPushButton::clicked, this, [changeButton, this]() {
-        std::optional<EnvironmentChanges> changes
-            = runEnvironmentItemsDialog(changeButton, volatileValue());
-        if (changes)
-            setVolatileValue(*changes);
-    });
-}
-
 SystemSettings::SystemSettings()
 {
     setAutoApply(false);
@@ -125,7 +93,7 @@ SystemSettings::SystemSettings()
             ICore::instance()->systemEnvironmentChanged();
     };
 
-    connect(&environmentChangesAspect, &EnvChangeAspect::changed, this, updateSystemEnv);
+    connect(&environmentChangesAspect, &Utils::BaseAspect::changed, this, updateSystemEnv);
 
     Qt::Alignment lfa = Qt::Alignment(qApp->style()->styleHint(QStyle::SH_FormLayoutFormAlignment));
 
@@ -301,46 +269,28 @@ SystemSettings::SystemSettings()
         Utils::setCrashReportingEnabled(systemSettings().enableCrashReports());
     });
 
-    QPushButton *crashButton = nullptr;
-    if (qtcEnvironmentVariableIsSet("QTC_SHOW_CRASHBUTTON") && isCrashReportingAvailable()) {
-        crashButton = new QPushButton("CRASH!!!");
-        QObject::connect(crashButton, &QPushButton::clicked, [] {
-            // do a real crash
-            volatile int *a = reinterpret_cast<volatile int *>(NULL);
-            *a = 1;
-        });
-    }
-
-    Utils::AspectWidgets::setLayouter(this, [this, crashButton]() -> Layouting::Layout {
-        using namespace Layouting;
-        // clang-format off
-        return Form {
-            environmentChangesAspect, br,
-            envVarSeparatorAspect, br,
-            If (HostOsInfo::isAnyUnixHost()) >> Then {
-                terminalCommand, br,
-            },
-            If (HostOsInfo::isAnyUnixHost() && !HostOsInfo::isMacHost()) >> Then {
-                externalFileBrowser, br,
-            },
-            If (hasDBusFileManager) >> Then {
-                useDbusFileManagers, br,
-            },
-            patchCommand, br,
-            maxRecentFiles, br,
-            reloadSetting, br,
-            autoSaveModifiedFiles, Row { autoSaveInterval }, st, br,
-            autoSaveAfterRefactoring, br,
-            disableAtomicSave, br,
-            autoSuspendEnabled, Row { autoSuspendMinDocumentCount}, st, br,
-            warnBeforeOpeningBigFiles, Row { bigFileSizeLimitInMB }, st, br,
-            askBeforeExit, br,
-            If (isCrashReportingAvailable()) >> Then {
-                enableCrashReports, If (crashButton) >> Then { crashButton }, br,
-            },
-        };
-        // clang-format on
+    crashNow.setActionText("CRASH!!!");
+    crashNow.setQmlName("CrashNow");
+    crashNow.setAction([] {
+        // do a real crash
+        volatile int *a = reinterpret_cast<volatile int *>(NULL);
+        *a = 1;
     });
+    crashNow.setVisible(qtcEnvironmentVariableIsSet("QTC_SHOW_CRASHBUTTON")
+                        && isCrashReportingAvailable());
+
+    // Which of these apply is a fact about the host and the build, not about
+    // the layout, so it is settled here rather than every time a page is drawn.
+    terminalCommand.setVisible(HostOsInfo::isAnyUnixHost());
+    externalFileBrowser.setVisible(HostOsInfo::isAnyUnixHost() && !HostOsInfo::isMacHost());
+    useDbusFileManagers.setVisible(hasDBusFileManager);
+    enableCrashReports.setVisible(isCrashReportingAvailable());
+
+    environmentChangesAspect.setQmlName("EnvironmentChanges");
+    envVarSeparatorAspect.setQmlName("EnvVarSeparators");
+    terminalCommand.setQmlName("Terminal");
+
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Core/SystemSettingsPage.qml"));
 }
 
 // SystemSettingsPage

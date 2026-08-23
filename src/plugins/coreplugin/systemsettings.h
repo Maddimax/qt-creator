@@ -17,13 +17,6 @@ namespace Core::Internal {
 inline constexpr char kEnvironmentChanges[] = "Core/EnvironmentChanges";
 inline constexpr char kEnvVarSeparators[] = "Core/EnvVarSeparators";
 
-class EnvChangeAspect : public Utils::EnvironmentChangesAspect
-{
-public:
-    using EnvironmentChangesAspect::EnvironmentChangesAspect;
-    void addToLayoutImpl(Layouting::Layout &parent);
-};
-
 class CORE_TEST_EXPORT SystemSettings final : public Utils::AspectContainer
 {
 public:
@@ -53,12 +46,13 @@ public:
 
     Utils::BoolAspect askBeforeExit{this};
 
-    EnvChangeAspect environmentChangesAspect{this};
+    Utils::EnvironmentChangesAspect environmentChangesAspect{this};
     EnvVarSeparatorAspect envVarSeparatorAspect{this};
 
     Utils::TerminalCommandAspect terminalCommand{this};
 
     Utils::BoolAspect enableCrashReports{this};
+    Utils::ActionAspect crashNow{this};
 
     void delayedInitialize();
 };
