@@ -285,7 +285,45 @@ that belong there.
 
 In order:
 
-0. **Deleting the aspect fallbacks is the next step, and it is measured.**
+0. **The renderer work is done, and it stops short of a clean `aspects.cpp`
+   for a reason that needs a decision, not more effort.**
+
+   Done: every binary installs the renderer; thirteen `addToLayoutImpl` bodies
+   are gone (578 lines); the stale includes they left behind are gone. Measured
+   by compiling with every QtWidgets include stripped, `aspects.cpp` went from
+   **21 widget types across 115 sites to 5 across 15**, and its QtWidgets
+   includes from 15 to 5.
+
+   **The closure did not move.** `aspects.{h,cpp}` are still widget-side, and
+   the reason is not the two surviving bodies - it is the *forwarding API*.
+   Splitting the remaining uses by kind:
+
+   | | in the two surviving bodies | in forwarding API |
+   |---|---|---|
+   | `PathChooser` | 6 | **14** |
+   | `InfoLabel` | 0 | 4 |
+   | `FancyLineEdit` | 7 | 2 |
+   | `QtColorButton`, `VariableChooser` | 0 | 1 each |
+
+   Most of it is public methods that mutate a live widget the aspect holds -
+   `FilePathAspect::pathChooser()`, the setters that forward to it,
+   `TextDisplay::setIconType()` on a cached `InfoLabel`. Those are member
+   functions of an exported class, so on Windows they cannot move to another
+   library, and they cannot be deleted without changing an API that plugins
+   use.
+
+   So the last step is not mechanical. It is the `AspectPresentation` end state
+   in full: an aspect *describes* its control and holds no widget, so there is
+   nothing to forward to. That removes `pathChooser()` and its siblings from the
+   public API, which is a decision about plugin compatibility rather than a
+   refactor - and per the compatibility policy above it is allowed (a source
+   change, one release cycle), but it should be taken deliberately.
+
+   Until then `aspects.{h,cpp}` land in `UtilsWidgets`, which matters because
+   the Qt Quick UI consumes aspects through `AspectContainerModel` and would
+   therefore pull QtWidgets. That is the real reason this is the gate.
+
+1. **The earlier measurement note, kept because the method matters.**
    Every binary that renders aspects now installs the renderer (`main.cpp`, the
    qtprofiler tool, the aspects manual test, the renderer autotest), so the
    inline bodies are only reached when the renderer declines a control. What
