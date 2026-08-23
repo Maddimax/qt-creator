@@ -52,7 +52,17 @@ QVariant AspectContainerModel::data(const QModelIndex &index, int role) const
 
     const AspectPresentation p = aspect->presentation();
     switch (role) {
-    case KindRole:      return int(kindOf(p.control));
+    case KindRole: {
+        const Kind kind = kindOf(p.control);
+        // A selection whose choices are not in its presentation cannot be
+        // rendered generically: StringSelectionAspect fills a
+        // QStandardItemModel from an async callback and reports no choices,
+        // which would otherwise give an empty combo box and a type error from
+        // binding its QString value to currentIndex.
+        if ((kind == Selection || kind == MultiSelection) && p.choices.isEmpty())
+            return int(Unsupported);
+        return int(kind);
+    }
     case LabelTextRole: return p.labelText;
     case ToolTipRole:   return p.toolTip;
     case VisibleRole:   return p.visible;

@@ -29,6 +29,7 @@ class QuickUiTest final : public QObject
 private slots:
     void testAspectDrivenPagesRenderWithQuick();
     void testNestedContainerIsAModelGroup();
+    void testSelectionWithoutDescribedChoicesIsUnsupported();
     void testNestedContainerRendersAsGroup();
 };
 
@@ -112,6 +113,25 @@ void QuickUiTest::testNestedContainerIsAModelGroup()
     QCOMPARE(child->rowCount(), 1);
     QCOMPARE(child->index(0, 0).data(QtcQuick::AspectContainerModel::KindRole).toInt(),
              int(QtcQuick::AspectContainerModel::Bool));
+}
+
+void QuickUiTest::testSelectionWithoutDescribedChoicesIsUnsupported()
+{
+    Utils::AspectContainer page;
+
+    Utils::SelectionAspect described(&page);
+    described.addOption("One");
+    described.addOption("Two");
+
+    // Its choices come from an async fill callback, not from presentation().
+    Utils::StringSelectionAspect undescribed(&page);
+
+    QtcQuick::AspectContainerModel model(&page);
+    QCOMPARE(model.rowCount(), 2);
+    QCOMPARE(model.index(0, 0).data(QtcQuick::AspectContainerModel::KindRole).toInt(),
+             int(QtcQuick::AspectContainerModel::Selection));
+    QCOMPARE(model.index(1, 0).data(QtcQuick::AspectContainerModel::KindRole).toInt(),
+             int(QtcQuick::AspectContainerModel::Unsupported));
 }
 
 void QuickUiTest::testNestedContainerRendersAsGroup()
