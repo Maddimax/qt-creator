@@ -440,6 +440,12 @@ key, and `TabSettings`' aspects, which persist through `toMap()`/`fromMap()`
 rather than keys and so derive no name at all. The sub-containers keep their
 closures - other pages embed them - and only the page's went.
 
+**FakeVim also builds standalone.** `tests/auto/fakevim` and
+`tests/manual/fakevim` compile `fakevimactions.cpp` with `FAKEVIM_STANDALONE`,
+where there is no `Utils::AspectContainer` at all. Everything added for the page
+- the three preset aspects and the `setQmlSource()` - has to sit inside the
+existing `#ifndef FAKEVIM_STANDALONE`, and `tst_fakevim` is what proves it does.
+
 **One page that cannot be ported as it stands,** noted so nobody rediscovers
 it: Testing's "Active Test Frameworks" is a `FrameworksAspect` with no
 `presentation()`, so it is `Custom` and would vanish. (Display was the other
@@ -492,7 +498,7 @@ naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
 all`, minus `QmlDesigner` and `UpdateInfo`, see below): **73 aspect-driven
-pages, 55 with their own QML and rendered with Qt Quick, 18 still on widgets.**
+pages, 56 with their own QML and rendered with Qt Quick, 17 still on widgets.**
 Before the gate was narrowed, 65 pages rendered generically; the delegate work
 that made that possible is all still in place and is what the ports build on:
 `StringListAspect` (a real list editor), `IntegersAspect` (`Invisible`, because

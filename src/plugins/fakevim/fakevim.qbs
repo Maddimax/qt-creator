@@ -26,6 +26,13 @@ QtcPlugin {
         "mcpsupport.h",
     ]
 
+    // qbs has no QML module support; the .qml files are built by CMake only.
+    Group {
+        name: "qml"
+        files: ["*.qml"]
+        fileTags: []
+    }
+
     QtcTestFiles {
         files: ["fakevim_test.cpp", "fakevim_test.h"]
     }

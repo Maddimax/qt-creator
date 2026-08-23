@@ -15,12 +15,10 @@
 #include <texteditor/tabsettings.h>
 #include <texteditor/codestylepool.h>
 #include <texteditor/typingsettings.h>
-#include <utils/aspectwidgets.h>
 #endif
 
 #include <utils/hostosinfo.h>
-#include <utils/layoutbuilder.h>
-#include <utils/pathchooser.h>
+#include <utils/pathvalidation.h>
 
 #include <QDebug>
 
@@ -44,7 +42,6 @@ Key FvBaseAspect::settingsKey() const
 // unused but kept for compile
 void setAutoApply(bool ) {}
 #endif
-
 
 FakeVimSettings &settings()
 {
@@ -213,121 +210,50 @@ FakeVimSettings::FakeVimSettings()
                "%USERPROFILE%\\_vimrc on Windows, ~/.vimrc otherwise."));
     vimRcPath.setPlaceHolderText(Tr::tr("Default: %1").arg(vimrcDefault));
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
+    copyTextEditorSettings.setActionText(Tr::tr("Copy Text Editor Settings"));
+    copyTextEditorSettings.setQmlName("CopyTextEditorSettings");
+    copyTextEditorSettings.setAction([this] {
         using namespace TextEditor;
-
-        Row bools {
-            Column {
-                autoIndent,
-                smartIndent,
-                expandTab,
-                smartTab,
-                useEditorTabSettings,
-                matchBracketsLikeVim,
-                hlSearch,
-                showCmd,
-                startOfLine,
-                passKeys,
-                blinkingCursor
-            },
-            Column {
-                incSearch,
-                useCoreSearch,
-                ignoreCase,
-                smartCase,
-                wrapScan,
-                showMarks,
-                passControlKey,
-                commaPassesShortcuts,
-                relativeNumber,
-                commandLineInEditor,
-                tildeOp,
-                timeout
-            }
-        };
-
-        Row ints { shiftWidth, tabStop, scrollOff, timeoutlen, cursorFlashTime, st };
-
-        Column strings {
-            backspace,
-            isKeyword,
-            tabOut,
-            Row {readVimRc, vimRcPath}
-        };
-
-        return Column {
-            useFakeVim,
-
-            Group {
-                title(Tr::tr("Vim Behavior")),
-                Column {
-                    bools,
-                    ints,
-                    strings
-                }
-            },
-
-            Group {
-                title(Tr::tr("Plugin Emulation")),
-                Column {
-                    emulateVimCommentary,
-                    emulateReplaceWithRegister,
-                    emulateArgTextObj,
-                    emulateExchange,
-                    emulateSurround,
-                    emulateVimUnimpaired
-                }
-            },
-
-            Row {
-                PushButton {
-                    text(Tr::tr("Copy Text Editor Settings")),
-                    onClicked(this, [this] {
-                        TabSettingsData ts = globalCodeStyle().tabSettings();
-                        expandTab.setVolatileValue(ts.m_tabPolicy != TabSettingsData::TabsOnlyTabPolicy);
-                        tabStop.setVolatileValue(ts.m_tabSize);
-                        shiftWidth.setVolatileValue(ts.m_indentSize);
-                        smartTab.setVolatileValue(globalTypingSettings().smartBackspaceBehavior()
-                                                  == TypingSettingsData::BackspaceFollowsPreviousIndents);
-                        autoIndent.setVolatileValue(true);
-                        smartIndent.setVolatileValue(globalTypingSettings().autoIndent());
-                        incSearch.setVolatileValue(true);
-                    }),
-                },
-                PushButton {
-                    text(Tr::tr("Set Qt Style")),
-                    onClicked(this, [this] {
-                        expandTab.setVolatileValue(true);
-                        tabStop.setVolatileValue(4);
-                        shiftWidth.setVolatileValue(4);
-                        smartTab.setVolatileValue(true);
-                        autoIndent.setVolatileValue(true);
-                        smartIndent.setVolatileValue(true);
-                        incSearch.setVolatileValue(true);
-                        backspace.setVolatileValue(QString("indent,eol,start"));
-                        passKeys.setVolatileValue(true);
-                    }),
-                },
-                PushButton {
-                    text(Tr::tr("Set Plain Style")),
-                    onClicked(this, [this] {
-                        expandTab.setVolatileValue(false);
-                        tabStop.setVolatileValue(8);
-                        shiftWidth.setVolatileValue(8);
-                        smartTab.setVolatileValue(false);
-                        autoIndent.setVolatileValue(false);
-                        smartIndent.setVolatileValue(false);
-                        incSearch.setVolatileValue(false);
-                        backspace.setVolatileValue(QString());
-                        passKeys.setVolatileValue(false);
-                    }),
-                 },
-                 st
-            },
-            st
-        };
+        TabSettingsData ts = globalCodeStyle().tabSettings();
+        expandTab.setVolatileValue(ts.m_tabPolicy != TabSettingsData::TabsOnlyTabPolicy);
+        tabStop.setVolatileValue(ts.m_tabSize);
+        shiftWidth.setVolatileValue(ts.m_indentSize);
+        smartTab.setVolatileValue(globalTypingSettings().smartBackspaceBehavior()
+                                  == TypingSettingsData::BackspaceFollowsPreviousIndents);
+        autoIndent.setVolatileValue(true);
+        smartIndent.setVolatileValue(globalTypingSettings().autoIndent());
+        incSearch.setVolatileValue(true);
     });
+
+    setQtStyle.setActionText(Tr::tr("Set Qt Style"));
+    setQtStyle.setQmlName("SetQtStyle");
+    setQtStyle.setAction([this] {
+        expandTab.setVolatileValue(true);
+        tabStop.setVolatileValue(4);
+        shiftWidth.setVolatileValue(4);
+        smartTab.setVolatileValue(true);
+        autoIndent.setVolatileValue(true);
+        smartIndent.setVolatileValue(true);
+        incSearch.setVolatileValue(true);
+        backspace.setVolatileValue(QString("indent,eol,start"));
+        passKeys.setVolatileValue(true);
+    });
+
+    setPlainStyle.setActionText(Tr::tr("Set Plain Style"));
+    setPlainStyle.setQmlName("SetPlainStyle");
+    setPlainStyle.setAction([this] {
+        expandTab.setVolatileValue(false);
+        tabStop.setVolatileValue(8);
+        shiftWidth.setVolatileValue(8);
+        smartTab.setVolatileValue(false);
+        autoIndent.setVolatileValue(false);
+        smartIndent.setVolatileValue(false);
+        incSearch.setVolatileValue(false);
+        backspace.setVolatileValue(QString());
+        passKeys.setVolatileValue(false);
+    });
+
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/FakeVim/FakeVimSettingsPage.qml"));
 
     readSettings();
 

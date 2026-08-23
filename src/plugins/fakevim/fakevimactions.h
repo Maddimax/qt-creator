@@ -282,6 +282,14 @@ public:
     FvIntegerAspect cursorFlashTime;
     FvBoolAspect commandLineInEditor;
 
+#ifndef FAKEVIM_STANDALONE
+    // The three presets the page offers. Aspects rather than buttons a layout
+    // builds, so the page's QML can reach them by name.
+    Utils::ActionAspect copyTextEditorSettings{this};
+    Utils::ActionAspect setQtStyle{this};
+    Utils::ActionAspect setPlainStyle{this};
+#endif
+
 private:
     void setup(FvBaseAspect *aspect, const QVariant &value,
                const Utils::Key &settingsKey,
