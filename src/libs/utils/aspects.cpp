@@ -933,6 +933,7 @@ public:
     QStringList m_allValues;
     MultiSelectionAspect::DisplayStyle m_displayStyle
         = MultiSelectionAspect::DisplayStyle::ListView;
+    UndoableValue<QStringList> m_undoable;
 
     // These are all owned by the configuration widget.
     QPointer<QListWidget> m_listView;
@@ -1093,6 +1094,8 @@ public:
     QString m_suffix;
     QString m_specialValueText;
     int m_singleStep = 1;
+    // Holds the stored value; the display scale factor is applied only at the spin box.
+    UndoableValue<qint64> m_undoable;
     QPointer<QSpinBox> m_spinBox; // Owned by configuration widget
 };
 
@@ -1105,6 +1108,7 @@ public:
     QString m_suffix;
     QString m_specialValueText;
     double m_singleStep = 1;
+    UndoableValue<double> m_undoable;
     QPointer<QDoubleSpinBox> m_spinBox; // Owned by configuration widget
 };
 
@@ -1690,11 +1694,15 @@ public:
     FilePaths m_valueAlternatives;
 
     Guard m_editFinishedGuard;
+
+    UndoableValue<QString> m_undoable;
 };
 
 FilePathAspect::FilePathAspect(AspectContainer *container)
     : TypedAspect(container), d(new Internal::FilePathAspectPrivate)
 {
+    connect(&d->m_undoable.m_signal, &UndoSignaller::changed, this,
+            [this] { handleGuiChanged(); });
     setSpan(2, 1); // Default: Label + something
 
     addDataExtractor(this, &FilePathAspect::value, &Data::value);
@@ -1824,9 +1832,7 @@ bool FilePathAspect::isCheckable() const
 
 bool FilePathAspect::guiToVolatileValue()
 {
-    if (d->m_pathChooserDisplay)
-        return updateStorage(m_volatileValue, d->m_pathChooserDisplay->lineEdit()->text());
-    return false;
+    return updateStorage(m_volatileValue, d->m_undoable.get());
 }
 
 bool FilePathAspect::volatileValueToValue()
@@ -1847,10 +1853,9 @@ bool FilePathAspect::valueToVolatileValue()
 
 void FilePathAspect::volatileValueToGui()
 {
-    if (d->m_pathChooserDisplay) {
-        d->m_pathChooserDisplay->lineEdit()->setText(m_volatileValue);
+    d->m_undoable.setWithoutUndo(m_volatileValue);
+    if (d->m_pathChooserDisplay)
         d->m_checkerImpl.updateWidgetFromCheckStatus(this, d->m_pathChooserDisplay.data());
-    }
 
     validateInput();
 }
@@ -1858,6 +1863,14 @@ void FilePathAspect::volatileValueToGui()
 PathChooser *FilePathAspect::pathChooser() const
 {
     return d->m_pathChooserDisplay.data();
+}
+
+void FilePathAspect::setVolatileVariantValueFromGui(const QVariant &value)
+{
+    if (!value.canConvert<QString>())
+        return;
+    d->m_undoable.set(undoStack(), value.toString());
+    handleGuiChanged();
 }
 
 AspectPresentation FilePathAspect::presentation() const
@@ -1905,19 +1918,29 @@ void FilePathAspect::addToLayoutImpl(Layouting::Layout &parent)
     d->m_checkerImpl.updateWidgetFromCheckStatus(this, d->m_pathChooserDisplay.data());
     addLabeledItem(parent, d->m_pathChooserDisplay);
     connect(d->m_pathChooserDisplay, &PathChooser::validChanged, this, &FilePathAspect::validChanged);
+
+    PathChooser *pathChooser = d->m_pathChooserDisplay.data();
+    connect(&d->m_undoable.m_signal, &UndoSignaller::changed, pathChooser,
+            [this, pathChooser] {
+        if (pathChooser->lineEdit()->text() != d->m_undoable.get())
+            pathChooser->lineEdit()->setTextKeepingActiveCursor(d->m_undoable.get());
+    });
+
     volatileValueToGui();
     if (isAutoApply() && d->m_autoApplyOnEditingFinished) {
-        connect(d->m_pathChooserDisplay, &PathChooser::editingFinished, this, [this] {
+        connect(pathChooser, &PathChooser::editingFinished, this, [this, pathChooser] {
             if (d->m_editFinishedGuard.isLocked())
                 return;
             GuardLocker lk(d->m_editFinishedGuard);
-            handleGuiChanged();
+            d->m_undoable.set(undoStack(), pathChooser->lineEdit()->text());
         });
-        connect(d->m_pathChooserDisplay, &PathChooser::browsingFinished,
-                this, &FilePathAspect::handleGuiChanged);
+        connect(pathChooser, &PathChooser::browsingFinished, this, [this, pathChooser] {
+            d->m_undoable.set(undoStack(), pathChooser->lineEdit()->text());
+        });
     } else {
-        connect(d->m_pathChooserDisplay, &PathChooser::textChanged,
-                this, &FilePathAspect::handleGuiChanged);
+        connect(pathChooser, &PathChooser::textChanged, this, [this](const QString &text) {
+            d->m_undoable.set(undoStack(), text);
+        });
     }
 
     d->m_checkerImpl.addToLayoutLast(parent);
@@ -2834,6 +2857,8 @@ QVariant SelectionAspect::itemValueForIndex(int index) const
 MultiSelectionAspect::MultiSelectionAspect(AspectContainer *container)
     : TypedAspect(container), d(new Internal::MultiSelectionAspectPrivate(this))
 {
+    connect(&d->m_undoable.m_signal, &UndoSignaller::changed, this,
+            [this] { handleGuiChanged(); });
     setDefaultValue(QStringList());
     setSpan(2, 1);
 }
@@ -2842,6 +2867,14 @@ MultiSelectionAspect::MultiSelectionAspect(AspectContainer *container)
     \internal
 */
 MultiSelectionAspect::~MultiSelectionAspect() = default;
+
+void MultiSelectionAspect::setVolatileVariantValueFromGui(const QVariant &value)
+{
+    if (!value.canConvert<QStringList>())
+        return;
+    d->m_undoable.set(undoStack(), value.toStringList());
+    handleGuiChanged();
+}
 
 /*!
     \reimp
@@ -2867,9 +2900,31 @@ void MultiSelectionAspect::addToLayoutImpl(Layout &builder)
             (void) new QListWidgetItem(val, d->m_listView);
         addLabeledItem(builder, d->m_listView);
 
+        connect(d->m_listView, &QListWidget::itemChanged, this, [this] {
+            QStringList val;
+            const int n = d->m_listView->count();
+            QTC_CHECK(n == d->m_allValues.size());
+            for (int i = 0; i != n; ++i) {
+                QListWidgetItem *item = d->m_listView->item(i);
+                if (item->checkState() == Qt::Checked)
+                    val.append(item->text());
+            }
+            d->m_undoable.set(undoStack(), val);
+        });
+
+        connect(&d->m_undoable.m_signal, &UndoSignaller::changed, d->m_listView, [this] {
+            const QSignalBlocker blocker(d->m_listView);
+            const QStringList checked = d->m_undoable.get();
+            const int n = d->m_listView->count();
+            QTC_CHECK(n == d->m_allValues.size());
+            for (int i = 0; i != n; ++i) {
+                QListWidgetItem *item = d->m_listView->item(i);
+                item->setCheckState(checked.contains(item->text()) ? Qt::Checked
+                                                                   : Qt::Unchecked);
+            }
+        });
+
         volatileValueToGui();
-        connect(d->m_listView, &QListWidget::itemChanged,
-                this, &MultiSelectionAspect::handleGuiChanged);
     }
 }
 
@@ -2906,30 +2961,12 @@ void MultiSelectionAspect::setDisplayStyle(MultiSelectionAspect::DisplayStyle st
 
 void MultiSelectionAspect::volatileValueToGui()
 {
-    if (d->m_listView) {
-        const int n = d->m_listView->count();
-        QTC_CHECK(n == d->m_allValues.size());
-        for (int i = 0; i != n; ++i) {
-            auto item = d->m_listView->item(i);
-            item->setCheckState(m_volatileValue.contains(item->text()) ? Qt::Checked : Qt::Unchecked);
-        }
-    }
+    d->m_undoable.setWithoutUndo(m_volatileValue);
 }
 
 bool MultiSelectionAspect::guiToVolatileValue()
 {
-    if (d->m_listView) {
-        QStringList val;
-        const int n = d->m_listView->count();
-        QTC_CHECK(n == d->m_allValues.size());
-        for (int i = 0; i != n; ++i) {
-            auto item = d->m_listView->item(i);
-            if (item->checkState() == Qt::Checked)
-                val.append(item->text());
-        }
-        return updateStorage(m_volatileValue, val);
-    }
-    return false;
+    return updateStorage(m_volatileValue, d->m_undoable.get());
 }
 
 
@@ -2952,6 +2989,8 @@ bool MultiSelectionAspect::guiToVolatileValue()
 IntegerAspect::IntegerAspect(AspectContainer *container)
     : TypedAspect(container), d(new Internal::IntegerAspectPrivate)
 {
+    connect(&d->m_undoable.m_signal, &UndoSignaller::changed, this,
+            [this] { handleGuiChanged(); });
     setSpan(2, 1);
 }
 
@@ -2959,6 +2998,14 @@ IntegerAspect::IntegerAspect(AspectContainer *container)
     \internal
 */
 IntegerAspect::~IntegerAspect() = default;
+
+void IntegerAspect::setVolatileVariantValueFromGui(const QVariant &value)
+{
+    if (!value.canConvert<qint64>())
+        return;
+    d->m_undoable.set(undoStack(), value.value<qint64>());
+    handleGuiChanged();
+}
 
 /*!
     \reimp
@@ -2987,23 +3034,26 @@ void IntegerAspect::addToLayoutImpl(Layouting::Layout &parent)
     if (d->m_minimumValue && d->m_maximumValue)
         d->m_spinBox->setRange(int(*d->m_minimumValue / d->m_displayScaleFactor),
                                int(*d->m_maximumValue / d->m_displayScaleFactor));
-    volatileValueToGui();
     addLabeledItem(parent, d->m_spinBox);
-    connect(d->m_spinBox.data(), &QSpinBox::valueChanged,
-            this, &IntegerAspect::handleGuiChanged);
+
+    QSpinBox *spinBox = d->m_spinBox.data();
+    connect(spinBox, &QSpinBox::valueChanged, this, [this, spinBox] {
+        d->m_undoable.set(undoStack(), qint64(spinBox->value()) * d->m_displayScaleFactor);
+    });
+    connect(&d->m_undoable.m_signal, &UndoSignaller::changed, spinBox, [this, spinBox] {
+        spinBox->setValue(int(d->m_undoable.get() / d->m_displayScaleFactor));
+    });
+    volatileValueToGui();
 }
 
 bool IntegerAspect::guiToVolatileValue()
 {
-    if (d->m_spinBox)
-        return updateStorage(m_volatileValue, d->m_spinBox->value() * d->m_displayScaleFactor);
-    return false;
+    return updateStorage(m_volatileValue, d->m_undoable.get());
 }
 
 void IntegerAspect::volatileValueToGui()
 {
-    if (d->m_spinBox)
-        d->m_spinBox->setValue(m_volatileValue / d->m_displayScaleFactor);
+    d->m_undoable.setWithoutUndo(m_volatileValue);
 }
 
 QVariant IntegerAspect::fromSettingsValue(const QVariant &savedValue) const
@@ -3090,6 +3140,8 @@ void IntegerAspect::setSingleStep(qint64 step)
 DoubleAspect::DoubleAspect(AspectContainer *container)
     : TypedAspect(container), d(new Internal::DoubleAspectPrivate)
 {
+    connect(&d->m_undoable.m_signal, &UndoSignaller::changed, this,
+            [this] { handleGuiChanged(); });
     setDefaultValue(double(0));
     setSpan(2, 1);
 }
@@ -3098,6 +3150,14 @@ DoubleAspect::DoubleAspect(AspectContainer *container)
     \internal
 */
 DoubleAspect::~DoubleAspect() = default;
+
+void DoubleAspect::setVolatileVariantValueFromGui(const QVariant &value)
+{
+    if (!value.canConvert<double>())
+        return;
+    d->m_undoable.set(undoStack(), value.toDouble());
+    handleGuiChanged();
+}
 
 /*!
     \reimp
@@ -3124,23 +3184,26 @@ void DoubleAspect::addToLayoutImpl(Layout &builder)
     d->m_spinBox->setSpecialValueText(d->m_specialValueText);
     if (d->m_minimumValue && d->m_maximumValue)
         d->m_spinBox->setRange(*d->m_minimumValue, *d->m_maximumValue);
-    volatileValueToGui(); // Must happen after setRange()!
     addLabeledItem(builder, d->m_spinBox);
-    connect(d->m_spinBox.data(), &QDoubleSpinBox::valueChanged,
-            this, &DoubleAspect::handleGuiChanged);
+
+    QDoubleSpinBox *spinBox = d->m_spinBox.data();
+    connect(spinBox, &QDoubleSpinBox::valueChanged, this, [this, spinBox] {
+        d->m_undoable.set(undoStack(), spinBox->value());
+    });
+    connect(&d->m_undoable.m_signal, &UndoSignaller::changed, spinBox, [this, spinBox] {
+        spinBox->setValue(d->m_undoable.get());
+    });
+    volatileValueToGui(); // Must happen after setRange()!
 }
 
 bool DoubleAspect::guiToVolatileValue()
 {
-    if (d->m_spinBox)
-        return updateStorage(m_volatileValue, d->m_spinBox->value());
-    return false;
+    return updateStorage(m_volatileValue, d->m_undoable.get());
 }
 
 void DoubleAspect::volatileValueToGui()
 {
-    if (d->m_spinBox)
-        d->m_spinBox->setValue(m_volatileValue);
+    d->m_undoable.setWithoutUndo(m_volatileValue);
 }
 
 void DoubleAspect::setRange(double min, double max)

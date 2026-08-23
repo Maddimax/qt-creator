@@ -758,6 +758,7 @@ class QTCREATOR_UTILS_EXPORT MultiSelectionAspect : public TypedAspect<QStringLi
     Q_OBJECT
 
 public:
+    void setVolatileVariantValueFromGui(const QVariant &value) override;
     AspectPresentation presentation() const override;
     MultiSelectionAspect(AspectContainer *container = nullptr);
     ~MultiSelectionAspect() override;
@@ -866,6 +867,7 @@ class QTCREATOR_UTILS_EXPORT FilePathAspect : public TypedAspect<QString>
     Q_OBJECT
 
 public:
+    void setVolatileVariantValueFromGui(const QVariant &value) override;
     AspectPresentation presentation() const override;
     FilePathAspect(AspectContainer *container = nullptr);
     ~FilePathAspect();
@@ -946,6 +948,7 @@ class QTCREATOR_UTILS_EXPORT IntegerAspect : public TypedAspect<qint64>
     Q_OBJECT
 
 public:
+    void setVolatileVariantValueFromGui(const QVariant &value) override;
     AspectPresentation presentation() const override;
     IntegerAspect(AspectContainer *container = nullptr);
     ~IntegerAspect() override;
@@ -980,6 +983,7 @@ class QTCREATOR_UTILS_EXPORT DoubleAspect : public TypedAspect<double>
     Q_OBJECT
 
 public:
+    void setVolatileVariantValueFromGui(const QVariant &value) override;
     AspectPresentation presentation() const override;
     DoubleAspect(AspectContainer *container = nullptr);
     ~DoubleAspect() override;

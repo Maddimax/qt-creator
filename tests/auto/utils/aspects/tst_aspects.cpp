@@ -23,6 +23,11 @@ private slots:
     void presentationCarriesBounds();
     void everyBuiltInAspectHasAControl();
     void aGuiWriteIsUndoable();
+    void filePathGuiWriteIsVolatileAndUndoable();
+    void integerGuiWriteIsVolatileAndUndoable();
+    void integerScaleFactorKeepsStoredUnits();
+    void doubleGuiWriteIsVolatileAndUndoable();
+    void multiSelectionGuiWriteIsVolatileAndUndoable();
 };
 
 // Writing the "value" property must not commit, so that a settings page can
@@ -226,6 +231,122 @@ void tst_Aspects::aGuiWriteIsUndoable()
 
     stack.undo();
     QCOMPARE(aspect.volatileValue(), false);
+}
+
+void tst_Aspects::filePathGuiWriteIsVolatileAndUndoable()
+{
+    QUndoStack stack;
+    FilePathAspect aspect;
+    aspect.setAutoApply(false);
+    aspect.setUndoStack(&stack);
+    aspect.setValue(QString("/old"));
+
+    QCOMPARE(stack.count(), 0);
+    QVERIFY(aspect.setProperty("value", QString("/new")));
+    QCOMPARE(aspect.volatileValue(), QString("/new"));
+    QCOMPARE(aspect.value(), QString("/old"));
+    QCOMPARE(stack.count(), 1);
+
+    stack.undo();
+    QCOMPARE(aspect.volatileValue(), QString("/old"));
+
+    stack.redo();
+    aspect.apply();
+    QCOMPARE(aspect.value(), QString("/new"));
+}
+
+void tst_Aspects::integerGuiWriteIsVolatileAndUndoable()
+{
+    QUndoStack stack;
+    IntegerAspect aspect;
+    aspect.setAutoApply(false);
+    aspect.setUndoStack(&stack);
+    aspect.setValue(1);
+
+    QCOMPARE(stack.count(), 0);
+    QVERIFY(aspect.setProperty("value", 42));
+    QCOMPARE(aspect.volatileValue(), 42);
+    QCOMPARE(aspect.value(), 1);
+    QCOMPARE(stack.count(), 1);
+
+    stack.undo();
+    QCOMPARE(aspect.volatileValue(), 1);
+
+    stack.redo();
+    aspect.apply();
+    QCOMPARE(aspect.value(), 42);
+}
+
+// The GUI-side state holds the stored value: a display scale factor must not
+// leak into value() or volatileValue(); it only rescales what a spin box shows.
+void tst_Aspects::integerScaleFactorKeepsStoredUnits()
+{
+    QUndoStack stack;
+    IntegerAspect aspect;
+    aspect.setAutoApply(false);
+    aspect.setUndoStack(&stack);
+    aspect.setDisplayScaleFactor(1024);
+    aspect.setValue(2048);
+
+    QCOMPARE(aspect.volatileValue(), 2048);
+    QCOMPARE(aspect.property("value").toLongLong(), 2048);
+
+    QVERIFY(aspect.setProperty("value", 4096));
+    QCOMPARE(aspect.volatileValue(), 4096);
+    QCOMPARE(aspect.value(), 2048);
+    QCOMPARE(stack.count(), 1);
+
+    stack.undo();
+    QCOMPARE(aspect.volatileValue(), 2048);
+
+    stack.redo();
+    aspect.apply();
+    QCOMPARE(aspect.value(), 4096);
+}
+
+void tst_Aspects::doubleGuiWriteIsVolatileAndUndoable()
+{
+    QUndoStack stack;
+    DoubleAspect aspect;
+    aspect.setAutoApply(false);
+    aspect.setUndoStack(&stack);
+    aspect.setValue(1.5);
+
+    QCOMPARE(stack.count(), 0);
+    QVERIFY(aspect.setProperty("value", 2.5));
+    QCOMPARE(aspect.volatileValue(), 2.5);
+    QCOMPARE(aspect.value(), 1.5);
+    QCOMPARE(stack.count(), 1);
+
+    stack.undo();
+    QCOMPARE(aspect.volatileValue(), 1.5);
+
+    stack.redo();
+    aspect.apply();
+    QCOMPARE(aspect.value(), 2.5);
+}
+
+void tst_Aspects::multiSelectionGuiWriteIsVolatileAndUndoable()
+{
+    QUndoStack stack;
+    MultiSelectionAspect aspect;
+    aspect.setAutoApply(false);
+    aspect.setUndoStack(&stack);
+    aspect.setAllValues({"a", "b", "c"});
+    aspect.setValue({"a"});
+
+    QCOMPARE(stack.count(), 0);
+    QVERIFY(aspect.setProperty("value", QStringList({"a", "c"})));
+    QCOMPARE(aspect.volatileValue(), QStringList({"a", "c"}));
+    QCOMPARE(aspect.value(), QStringList({"a"}));
+    QCOMPARE(stack.count(), 1);
+
+    stack.undo();
+    QCOMPARE(aspect.volatileValue(), QStringList({"a"}));
+
+    stack.redo();
+    aspect.apply();
+    QCOMPARE(aspect.value(), QStringList({"a", "c"}));
 }
 
 QTEST_GUILESS_MAIN(tst_Aspects)
