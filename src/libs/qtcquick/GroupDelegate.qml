@@ -16,8 +16,8 @@ GroupBox {
     id: root
 
     required property Aspect aspect
-    required property string labelText
-    required property bool aspectVisible
+    readonly property string labelText: aspect?.labelText ?? ""
+    readonly property bool aspectVisible: aspect?.visible ?? true
     // An AspectContainerModel for the nested container.
     required property var childModel
 

@@ -11,9 +11,9 @@ import QtCreator.Ui
 
 CheckBox {
     required property Aspect aspect
-    required property string labelText
-    required property string toolTip
-    required property bool aspectVisible
+    readonly property string labelText: aspect?.labelText ?? ""
+    readonly property string toolTip: aspect?.toolTip ?? ""
+    readonly property bool aspectVisible: aspect?.visible ?? true
 
     text: labelText
     visible: aspectVisible

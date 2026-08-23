@@ -14,9 +14,9 @@ RowLayout {
 
     required property Aspect aspect
     required property var options
-    required property string labelText
-    required property string toolTip
-    required property bool aspectVisible
+    readonly property string labelText: aspect?.labelText ?? ""
+    readonly property string toolTip: aspect?.toolTip ?? ""
+    readonly property bool aspectVisible: aspect?.visible ?? true
 
     visible: aspectVisible
     spacing: Spacing.GapHM

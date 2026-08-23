@@ -11,9 +11,11 @@
 #include <utils/algorithm.h>
 #include <utils/aspects.h>
 
+#include <QFile>
 #include <QQmlError>
 #include <QQuickItem>
 #include <QQuickWidget>
+#include <QTemporaryDir>
 #include <QTest>
 
 #include <memory>
@@ -31,6 +33,9 @@ private slots:
     void testNestedContainerIsAModelGroup();
     void testSelectionWithoutDescribedChoicesIsUnsupported();
     void testNestedContainerRendersAsGroup();
+    void testQmlNameIsDerivedFromTheSettingsKey();
+    void testPageQmlReachesItsAspectsByName();
+    void testLabelChangeReachesTheControl();
 };
 
 void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
@@ -105,8 +110,6 @@ void QuickUiTest::testNestedContainerIsAModelGroup()
     const QModelIndex index = model.index(0, 0);
     QCOMPARE(index.data(QtcQuick::AspectContainerModel::KindRole).toInt(),
              int(QtcQuick::AspectContainerModel::Container));
-    QCOMPARE(index.data(QtcQuick::AspectContainerModel::LabelTextRole).toString(),
-             QString("Group title"));
     auto child = index.data(QtcQuick::AspectContainerModel::ChildModelRole)
                      .value<QtcQuick::AspectContainerModel *>();
     QVERIFY(child);
@@ -160,6 +163,100 @@ void QuickUiTest::testNestedContainerRendersAsGroup()
     // is what makes the nesting - and so the grouping - real.
     QVERIFY(findQmlComponent(groupItem, "BoolDelegate"));
     QVERIFY(!findQmlComponent(groupItem, "UnsupportedDelegate"));
+}
+
+void QuickUiTest::testQmlNameIsDerivedFromTheSettingsKey()
+{
+    Utils::BoolAspect slashSeparated;
+    slashSeparated.setSettingsKey("General/ShowShortcutsInContextMenu");
+    QCOMPARE(slashSeparated.qmlName(), QString("ShowShortcutsInContextMenu"));
+
+    Utils::BoolAspect dotSeparated;
+    dotSeparated.setSettingsKey("QdbRunConfig.RemoteExecutable");
+    QCOMPARE(dotSeparated.qmlName(), QString("RemoteExecutable"));
+
+    Utils::BoolAspect bare;
+    bare.setSettingsKey("binary");
+    QCOMPARE(bare.qmlName(), QString("binary"));
+
+    // Nothing to derive from, so nothing to reach it by.
+    Utils::BoolAspect keyless;
+    QVERIFY(keyless.qmlName().isEmpty());
+
+    // An explicit name wins over the derived one.
+    slashSeparated.setQmlName("showShortcuts");
+    QCOMPARE(slashSeparated.qmlName(), QString("showShortcuts"));
+}
+
+void QuickUiTest::testPageQmlReachesItsAspectsByName()
+{
+    Utils::AspectContainer page;
+    Utils::BoolAspect flag(&page);
+    flag.setSettingsKey("Test/TheFlag");
+    flag.setLabelText("The flag");
+    flag.setValue(true);
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString pageQml = dir.filePath("TestPage.qml");
+    {
+        QFile file(pageQml);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write(R"(
+import QtQuick
+import QtCreator.Ui
+
+AspectPage {
+    BoolDelegate { aspect: aspects.TheFlag }
+}
+)");
+    }
+    page.setQmlSource(QUrl::fromLocalFile(pageQml));
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createAspectForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    if (!quickWidget->rootObject()) {
+        const QStringList errors = Utils::transform(quickWidget->errors(), &QQmlError::toString);
+        QFAIL(qPrintable(errors.join("; ")));
+    }
+
+    // The page's own component is the root, not the generic AspectForm. Without
+    // this the generic fallback satisfies everything below.
+    QVERIFY(QString::fromLatin1(quickWidget->rootObject()->metaObject()->className())
+                .startsWith("TestPage"));
+
+    // The page named the aspect, so the delegate is bound to the real one.
+    QQuickItem *delegate = findQmlComponent(quickWidget->rootObject(), "BoolDelegate");
+    QVERIFY(delegate);
+    QCOMPARE(delegate->property("checked").toBool(), true);
+    QCOMPARE(delegate->property("text").toString(), QString("The flag"));
+}
+
+void QuickUiTest::testLabelChangeReachesTheControl()
+{
+    Utils::AspectContainer page;
+    Utils::BoolAspect flag(&page);
+    flag.setLabelText("Before");
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createAspectForm(&page));
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QVERIFY(quickWidget->rootObject());
+
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "BoolDelegate"));
+    QCOMPARE(delegate->property("text").toString(), QString("Before"));
+
+    // The delegates read the label from the aspect's Q_PROPERTY, so a change
+    // follows its NOTIFY signal. It used to come from a model role, and the
+    // model emits no dataChanged, so this never updated.
+    flag.setLabelText("After");
+    QCOMPARE(delegate->property("text").toString(), QString("After"));
+
+    flag.setVisible(false);
+    QCOMPARE(delegate->property("visible").toBool(), false);
 }
 
 QObject *createQuickUiTest()

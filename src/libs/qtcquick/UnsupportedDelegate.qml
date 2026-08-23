@@ -11,8 +11,8 @@ import QtCreator.Ui
 
 Label {
     required property Aspect aspect
-    required property string labelText
-    required property bool aspectVisible
+    readonly property string labelText: aspect?.labelText ?? ""
+    readonly property bool aspectVisible: aspect?.visible ?? true
 
     // Deliberately visible rather than silent, so gaps are obvious.
     text: qsTr("%1 (no Qt Quick editor yet)")

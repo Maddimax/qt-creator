@@ -14,8 +14,8 @@ ColumnLayout {
 
     required property Aspect aspect
     required property var options
-    required property string labelText
-    required property bool aspectVisible
+    readonly property string labelText: aspect?.labelText ?? ""
+    readonly property bool aspectVisible: aspect?.visible ?? true
 
     visible: aspectVisible
     spacing: Spacing.GapVXs

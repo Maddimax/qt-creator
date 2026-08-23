@@ -11,8 +11,8 @@ import QtCreator.Ui
 
 Label {
     required property Aspect aspect
-    required property string labelText
-    required property bool aspectVisible
+    readonly property string labelText: aspect?.labelText ?? ""
+    readonly property bool aspectVisible: aspect?.visible ?? true
 
     text: labelText
     visible: aspectVisible && labelText !== ""

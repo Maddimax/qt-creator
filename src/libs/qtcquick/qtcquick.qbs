@@ -14,6 +14,7 @@ QtcLibrary {
     files: [
         "aspectcontainermodel.cpp", "aspectcontainermodel.h",
         "aspectform.cpp", "aspectform.h",
+        "namedaspects.cpp", "namedaspects.h",
         "qtcdesignsystem.cpp", "qtcdesignsystem.h",
         "qtciconprovider.cpp", "qtciconprovider.h",
         "qtcquick_global.h",

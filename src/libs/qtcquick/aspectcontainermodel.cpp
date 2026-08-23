@@ -63,9 +63,9 @@ QVariant AspectContainerModel::data(const QModelIndex &index, int role) const
             return int(Unsupported);
         return int(kind);
     }
-    case LabelTextRole: return p.labelText;
-    case ToolTipRole:   return p.toolTip;
-    case VisibleRole:   return p.visible;
+    // labelText, toolTip and visibility are Q_PROPERTYs on the aspect, so the
+    // delegates read them from there: one source of truth, and they follow
+    // their NOTIFY signals rather than needing this model to emit dataChanged.
     // The delegates expect a plain string model; per-choice metadata stays
     // behind until they grow roles for it.
     case OptionsRole:
@@ -95,9 +95,6 @@ QHash<int, QByteArray> AspectContainerModel::roleNames() const
     return {
         {AspectRole, "aspect"},
         {KindRole, "kind"},
-        {LabelTextRole, "labelText"},
-        {ToolTipRole, "toolTip"},
-        {VisibleRole, "aspectVisible"},
         {OptionsRole, "options"},
         {MinimumRole, "minimum"},
         {MaximumRole, "maximum"},

@@ -14,6 +14,7 @@ add_qtc_library(QtcQuick
   SOURCES
     aspectcontainermodel.cpp aspectcontainermodel.h
     aspectform.cpp aspectform.h
+    namedaspects.cpp namedaspects.h
     qtcdesignsystem.cpp qtcdesignsystem.h
     qtciconprovider.cpp qtciconprovider.h
     qtcquick_global.h
@@ -33,6 +34,7 @@ if(TARGET QtcQuick)
     QML_FILES
       AspectForm.qml
       AspectItems.qml
+      AspectPage.qml
       BoolDelegate.qml
       ColorDelegate.qml
       DoubleDelegate.qml

@@ -58,9 +58,6 @@ public:
     enum Role {
         AspectRole = Qt::UserRole + 1,
         KindRole,
-        LabelTextRole,
-        ToolTipRole,
-        VisibleRole,
         OptionsRole,
         MinimumRole,
         MaximumRole,

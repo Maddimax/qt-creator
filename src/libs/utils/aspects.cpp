@@ -69,6 +69,7 @@ public:
     QString m_labelText;
     QPixmap m_labelPixmap;
     QString m_controlObjectName;
+    QString m_qmlName;
     QIcon m_icon;
     QPointer<QAction> m_action; // Owned by us.
     AspectContainer *m_container = nullptr; // Not owned by us.
@@ -272,6 +273,27 @@ void BaseAspect::setLabelText(const QString &labelText)
     Sets \a labelPixmap as pixmap for the separate label in the visual
     representation of this aspect.
 */
+/*!
+    Returns the name a QML page uses to reach this aspect.
+
+    \sa setQmlName()
+*/
+QString BaseAspect::qmlName() const
+{
+    if (!d->m_qmlName.isEmpty())
+        return d->m_qmlName;
+
+    // Settings keys in the tree use both separators, and plenty use neither.
+    const QString key = stringFromKey(d->m_settingsKey);
+    const qsizetype lastSeparator = std::max(key.lastIndexOf('/'), key.lastIndexOf('.'));
+    return key.mid(lastSeparator + 1);
+}
+
+void BaseAspect::setQmlName(const QString &qmlName)
+{
+    d->m_qmlName = qmlName;
+}
+
 void BaseAspect::setControlObjectName(const QString &objectName)
 {
     d->m_controlObjectName = objectName;
@@ -3247,6 +3269,7 @@ public:
     QList<BaseAspect *> m_ownedItems; // Owned only.
     QStringList m_settingsGroup;
     std::shared_ptr<void> m_backendData;
+    QUrl m_qmlSource;
 };
 
 #ifdef WITH_TESTS
@@ -3340,6 +3363,16 @@ AspectContainer::const_iterator AspectContainer::begin() const
 AspectContainer::const_iterator AspectContainer::end() const
 {
     return d->m_items.cend();
+}
+
+void AspectContainer::setQmlSource(const QUrl &qmlSource)
+{
+    d->m_qmlSource = qmlSource;
+}
+
+QUrl AspectContainer::qmlSource() const
+{
+    return d->m_qmlSource;
 }
 
 void AspectContainer::setBackendData(const std::shared_ptr<void> &data)

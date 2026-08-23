@@ -10,6 +10,7 @@
 
 #include <QColor>
 #include <QMap>
+#include <QUrl>
 #include <QUndoCommand>
 #include <QVariant>
 
@@ -113,6 +114,13 @@ public:
 
     QString displayName() const;
     void setDisplayName(const QString &displayName);
+
+    // The name a hand-written QML page uses to reach this aspect, as
+    // "aspects.<qmlName>". Defaults to the last component of the settings key,
+    // which is empty for an aspect that has none; set it explicitly where the
+    // derived name is missing, ugly, or collides within the container.
+    QString qmlName() const;
+    void setQmlName(const QString &qmlName);
 
     QString toolTip() const;
     void setToolTip(const QString &tooltip);
@@ -1333,6 +1341,12 @@ public:
 
     const_iterator begin() const;
     const_iterator end() const;
+
+    // The QML file that lays this container out, for the Quick backend. When
+    // unset, a generic form is built from the aspects instead. A page keeps its
+    // layouter as well for as long as the widget backend is the default one.
+    void setQmlSource(const QUrl &qmlSource);
+    QUrl qmlSource() const;
 
     // Opaque storage for whatever the installed UI backend needs to build
     // this container. The widget backend keeps its layouter here; see
