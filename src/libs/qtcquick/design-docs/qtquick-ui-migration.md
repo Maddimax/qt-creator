@@ -270,58 +270,67 @@ rule and overstated progress; see "Things learned the hard way".)
 | Start (per-file, no pairing) | 137 files / 68153 lines | 229 / 35973 |
 | With pairing, before this series | 237 / 82786 | 140 / 22320 |
 | After terminalcommand split | 141 / 54338 | 238 / 50796 |
-| Now | 126 / 47877 | 258 / 57807 |
+| After the renderer work | 126 / 47877 | 258 / 57807 |
+| Now | 129 / 48458 | 260 / 57851 |
+
+(The last row was measured with a re-written script, so read the split rather
+than the delta: `pathvalidation.{h,cpp}` are new and clean, `checkableaspect.h`
+is new and widget-side.)
 
 The clean side is the larger by files and lines under the honest metric.
 Clean now: `filepath`, `qtcprocess`, `environment`, `devicefileaccess`,
 `terminalhooks`, `treemodel`, `commandline`, `macroexpander`, `fileutils`,
 `theme/theme`, `stylehelper`, `icon`, `utilsicons`, `outputformatter`,
 `settingsaccessor`, `prompts`. Still widget-side and worked on:
-`aspects.{h,cpp}` (pinned by `addToLayoutImpl` constructing controls; the
-`AspectPresentation` inversion is in progress) and the genuinely-widget files
+`aspects.cpp` - and `aspects.h` with it under the pairing rule, though the
+header itself now reaches no QtWidgets header - plus the genuinely-widget files
 that belong there.
 
 ## Next steps
 
 In order:
 
-0. **The renderer work is done, and it stops short of a clean `aspects.cpp`
-   for a reason that needs a decision, not more effort.**
+0. **`aspects.h` is clean. `aspects.cpp` is not, and what is left in it is
+   named below.**
 
-   Done: every binary installs the renderer; thirteen `addToLayoutImpl` bodies
-   are gone (578 lines); the stale includes they left behind are gone. Measured
-   by compiling with every QtWidgets include stripped, `aspects.cpp` went from
-   **21 widget types across 115 sites to 5 across 15**, and its QtWidgets
-   includes from 15 to 5.
+   The forwarding API is gone. `FilePathAspect::pathChooser()` was the bulk of
+   it - 14 of the 20 remaining `PathChooser` uses - and it is replaced by what
+   its callers actually wanted: `isValid()`, the aspect's own `validChanged`,
+   `volatileValueChanged` in place of the chooser's `textChanged`,
+   `resolvedVolatileValue()`, `setFocusToInputField()`, `validateInput()`,
+   `defaultValidationFunction()` and `addButton()`. The setters that used to
+   poke the cached widget now emit `controlConfigurationChanged()` and the
+   renderer re-reads the aspect, so live updates survive without either side
+   holding the other. `TextDisplay`'s cached `InfoLabel` and its
+   `InfoLabelType` parameter, `StringSelectionAspect::fixupComboBox()`,
+   `StringAspect::setCompleter(QCompleter *)`, `BaseAspect::aspectForWidget()`
+   and `WorkingDirectoryAspect::pathChooser()` went the same way.
 
-   **The closure did not move.** `aspects.{h,cpp}` are still widget-side, and
-   the reason is not the two surviving bodies - it is the *forwarding API*.
-   Splitting the remaining uses by kind:
+   With the checkable composite moved to the renderer, no aspect has an inline
+   `addToLayoutImpl` body left, and no aspect holds a pointer to a control.
 
-   | | in the two surviving bodies | in forwarding API |
-   |---|---|---|
-   | `PathChooser` | 6 | **14** |
-   | `InfoLabel` | 0 | 4 |
-   | `FancyLineEdit` | 7 | 2 |
-   | `QtColorButton`, `VariableChooser` | 0 | 1 each |
+   Measured over the include graph (same metric as the table above):
+   **`aspects.h` reaches no QtWidgets header.** It is still counted on the
+   widget side only through the pairing rule, because `aspects.cpp` is. That
+   distinction matters: the header is what `AspectContainerModel` and every
+   other consumer sees.
 
-   Most of it is public methods that mutate a live widget the aspect holds -
-   `FilePathAspect::pathChooser()`, the setters that forward to it,
-   `TextDisplay::setIconType()` on a cached `InfoLabel`. Those are member
-   functions of an exported class, so on Windows they cannot move to another
-   library, and they cannot be deleted without changing an API that plugins
-   use.
+   What still pins `aspects.cpp`, all of it widget code the aspects run
+   themselves rather than API they expose:
 
-   So the last step is not mechanical. It is the `AspectPresentation` end state
-   in full: an aspect *describes* its control and holds no widget, so there is
-   nothing to forward to. That removes `pathChooser()` and its siblings from the
-   public API, which is a decision about plugin compatibility rather than a
-   refactor - and per the compatibility policy above it is allowed (a source
-   change, one release cycle), but it should be taken deliberately.
+   | | why |
+   |---|---|
+   | `createLabel`, `addLabeledItem(s)` | build the label column; `<QLabel>` |
+   | `registerSubWidget`, `improveWheelScrolling` | apply enabled/tooltip/read-only to a built control |
+   | `addMacroExpansion` | attaches a `VariableChooser` |
+   | `BoolAspect::addToLayoutHelper` / `adoptButton` | lays out a foreign `QAbstractButton`; `<QVBoxLayout>` |
+   | `ToggleAspect` group-box path | `<QGroupBox>` |
+   | `BaseAspect::createConfigWidget` / `ConfigWidgetCreator` | nine plugin aspects return a bespoke widget |
+   | `layoutbuilder.h`, `checkablemessagebox.h` | included for `Layouting::Layout` and `CheckableDecider` |
 
-   Until then `aspects.{h,cpp}` land in `UtilsWidgets`, which matters because
-   the Qt Quick UI consumes aspects through `AspectContainerModel` and would
-   therefore pull QtWidgets. That is the real reason this is the gate.
+   These are the "aspect renders itself" extension point, not accessors, so
+   each needs its plugin call sites redesigned rather than re-pointed. That is
+   the same work as removing `Layouting`, and it should be done with it.
 
 1. **The earlier measurement note, kept because the method matters.**
    Every binary that renders aspects now installs the renderer (`main.cpp`, the
