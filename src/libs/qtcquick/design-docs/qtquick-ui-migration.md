@@ -502,6 +502,44 @@ is the one worth deciding rather than building: those editors are large, and
 hosting the existing widget inside an otherwise-Quick page may be the right
 answer for a long time.
 
+Two of these were taken further than reading, and both stopped for the same
+reason - the cost is not in the QML:
+
+**CPU Usage** would work today with the string list editor. `PerfConfigEventsModel`
+splits each entry of `events`, a `StringListAspect`, into columns; a list of the
+raw event strings keeps the data and every operation and loses the columns. That
+is a visible downgrade for the only page that has that editor, so it wants
+someone's agreement, not a commit.
+
+**Testing** is key-compatible with per-item aspects, which is how the MCP tool
+table was solved: `FrameworksAspect` stores each framework under
+`Id::toKey()` and its grouping under `Id::toKey() + groupSuffix`, in one settings
+group, so a container of two `BoolAspect`s per framework would read and write
+exactly the same keys. But it means moving a plugin's persistence, `apply()` and
+dirty tracking out of a hand-written aspect, and the reward is a two-column
+table becoming a flat list. Risk without a win.
+
+#### What the 27 remaining layouters are
+
+Worth knowing before hunting for dead ones, because most of these are not pages:
+
+- **9 are the pages above** (Code Style counts once here; its aspect serves all
+  three).
+- **5 are live nested containers**: `TabSettings`, `TypingSettings`,
+  `StorageSettings`, `ExtraEncodingSettings` and `BehaviorSettings`. The Behavior
+  page lays their aspects out itself now, but the *per-project* Editor page
+  (`editorsettingspropertiespage.cpp`) still embeds all five as containers, so
+  their layouters are reached. This was assumed for several rounds; it is
+  checked now.
+- **The rest are item and panel containers** - an ACP server, a language model,
+  a Docker port mapping, an Axivion path mapping, the profiler samplers, Lua's
+  scriptable settings, the MCP listen address, per-project Building and Running -
+  reached from run configurations and project panels, none of which this
+  migration has touched.
+
+So there is no dead-layouter cleanup waiting: the count comes down only as pages
+and panels move.
+
 
 **One page that cannot be ported as it stands,** noted so nobody rediscovers
 it: Testing's "Active Test Frameworks" is a `FrameworksAspect` with no
