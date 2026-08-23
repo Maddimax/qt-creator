@@ -92,7 +92,12 @@ void setCreatorTheme(Theme *theme)
     setThemeApplicationPalette();
 
     ++m_themeGeneration;
-    emit ThemeWatcher::instance()->themeChanged();
+    // The watcher is guarded, so it is already gone by the time the plugins are
+    // destroyed - and CorePlugin's destructor installs a null theme. Nobody is
+    // left to hear about it then, so there is nothing to do but skip the
+    // notification. The generation above is a plain int and stays valid.
+    if (ThemeWatcher *watcher = ThemeWatcher::instance())
+        emit watcher->themeChanged();
 }
 
 Theme::Theme(const QString &id, QObject *parent)

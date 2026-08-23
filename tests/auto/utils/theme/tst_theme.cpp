@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include <utils/theme/theme.h>
+#include <utils/shutdownguard.h>
 #include <utils/theme/theme_p.h>
 
 #include <QSettings>
@@ -45,6 +46,9 @@ private slots:
     void fallsBackToTheDefaultBasePalette();
     void prefersItsOwnBasePalette();
     void doesNotReadTheApplicationPalette();
+    // Last on purpose: it tears the shutdown guard down, so every guarded
+    // singleton in this process is gone afterwards.
+    void survivesAThemeChangeAfterShutdown();
 };
 
 void tst_Theme::fallsBackToTheDefaultBasePalette()
@@ -102,5 +106,24 @@ void tst_Theme::doesNotReadTheApplicationPalette()
 }
 
 QTEST_GUILESS_MAIN(tst_Theme)
+
+void tst_Theme::survivesAThemeChangeAfterShutdown()
+{
+    // CorePlugin's destructor installs a null theme, and by then the guard has
+    // taken ThemeWatcher with it. Emitting the change on the dead watcher used
+    // to abort on exit, every time.
+    // The watcher has to exist before the guard goes, as it does in the real
+    // application: it is a lazy singleton, so asking for it afterwards would
+    // just build a new one.
+    QVERIFY(ThemeWatcher::instance());
+    triggerShutdownGuard();
+    QVERIFY(!ThemeWatcher::instance());
+
+    const int before = ThemeWatcher::generation();
+    setCreatorTheme(new TestTheme);
+    QCOMPARE(ThemeWatcher::generation(), before + 1);
+    setCreatorTheme(nullptr);
+    QCOMPARE(ThemeWatcher::generation(), before + 2);
+}
 
 #include "tst_theme.moc"
