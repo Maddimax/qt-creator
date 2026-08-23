@@ -17,6 +17,7 @@ public:
     void setVcpkgRootEnvironmentVariable();
 
     Utils::FilePathAspect vcpkgRoot{this};
+    Utils::ActionAspect openWebsite{this};
 };
 
 VcpkgSettings *vcpkgSettingsForProject(ProjectExplorer::Project *project = nullptr);

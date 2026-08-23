@@ -14,6 +14,7 @@ public:
 
     Utils::IntegerAspect contentWidth{this};
     Utils::SelectionAspect modes{this};
+    Utils::TextDisplay modeSelectorNote{this};
 };
 
 ZenModeSettings &settings();

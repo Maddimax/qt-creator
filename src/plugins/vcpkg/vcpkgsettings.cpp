@@ -15,10 +15,9 @@
 #include <projectexplorer/projectsettings.h>
 #include <projectexplorer/useglobalaspect.h>
 
-#include <utils/aspectwidgets.h>
 #include <utils/environment.h>
 #include <utils/layoutbuilder.h>
-#include <utils/pathchooser.h>
+#include <utils/pathvalidation.h>
 #include <utils/utilsicons.h>
 
 #include <QDesktopServices>
@@ -50,29 +49,13 @@ VcpkgSettings::VcpkgSettings()
 
     connect(this, &AspectContainer::applied, this, &VcpkgSettings::setVcpkgRootEnvironmentVariable);
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-        auto websiteButton = new QToolButton;
-        websiteButton->setIcon(Icons::ONLINE.icon());
-        websiteButton->setToolTip(Constants::WEBSITE_URL);
+    openWebsite.setActionText(Tr::tr("Website"));
+    openWebsite.setToolTip(Constants::WEBSITE_URL);
+    openWebsite.setQmlName("OpenWebsite");
+    openWebsite.setAction(
+        [] { QDesktopServices::openUrl(QUrl::fromUserInput(Constants::WEBSITE_URL)); });
 
-        connect(websiteButton, &QAbstractButton::clicked, [] {
-            QDesktopServices::openUrl(QUrl::fromUserInput(Constants::WEBSITE_URL));
-        });
-
-        // clang-format off
-        return Column {
-            Group {
-                title(Tr::tr("Vcpkg installation")),
-                Form {
-                    PathChooser::label(),
-                    Span { 2, Row { vcpkgRoot, websiteButton } },
-                },
-            },
-            st,
-        };
-        // clang-format on
-    });
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Vcpkg/VcpkgSettingsPage.qml"));
 
     readSettings();
     setVcpkgRootEnvironmentVariable();

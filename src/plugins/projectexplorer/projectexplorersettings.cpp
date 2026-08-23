@@ -20,7 +20,7 @@
 #include <utils/hostosinfo.h>
 #include <utils/layoutbuilder.h>
 #include <utils/macroexpander.h>
-#include <utils/pathchooser.h>
+#include <utils/pathvalidation.h>
 
 #include <QButtonGroup>
 #include <QCheckBox>

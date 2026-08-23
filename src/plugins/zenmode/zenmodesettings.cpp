@@ -9,8 +9,6 @@
 #include <coreplugin/helpmanager.h>
 #include <coreplugin/modemanager.h>
 
-#include <utils/aspectwidgets.h>
-#include <utils/layoutbuilder.h>
 #include <utils/shutdownguard.h>
 
 #include <QGuiApplication>
@@ -55,36 +53,24 @@ ZenModeSettings::ZenModeSettings()
     modes.addOption(optIconsOnly);
     modes.addOption(optIconsText);
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-        auto modeSelectorLabel = new QLabel(
-            QString("<a href=\""
-                    "qthelp://org.qt-project.qtcreator/doc/"
-                    "creator-how-to-switch-between-modes.html"
-                    "\">%1</a>")
-                .arg(Tr::tr("Mode selector:")));
-        modeSelectorLabel->setToolTip(
-            //: %1=Qt Creator
-            Tr::tr(
-                "Determines the style to use for the global mode selector in %1 (see View > Modes) "
-                "when Zen mode or Distraction Free mode is enabled.")
-                .arg(QGuiApplication::applicationDisplayName()));
-        QObject::connect(modeSelectorLabel, &QLabel::linkActivated, [](const QString &link) {
+    modeSelectorNote.setText(
+        QString("<a href=\""
+                "qthelp://org.qt-project.qtcreator/doc/"
+                "creator-how-to-switch-between-modes.html"
+                "\">%1</a>")
+            .arg(Tr::tr("Mode selector:")));
+    modeSelectorNote.setToolTip(
+        //: %1=Qt Creator
+        Tr::tr("Determines the style to use for the global mode selector in %1 (see View > "
+               "Modes) when Zen mode or Distraction Free mode is enabled.")
+            .arg(QGuiApplication::applicationDisplayName()));
+    modeSelectorNote.setQmlName("ModeSelectorNote");
+    QObject::connect(
+        &modeSelectorNote, &TextDisplay::linkActivated, &modeSelectorNote, [](const QString &link) {
             HelpManager::showHelpUrl(link, HelpManager::ExternalHelpAlways);
         });
-        // clang-format off
-        return Column {
-            Group {
-                title(Tr::tr("When Zen Mode or Distraction Free Mode Is Active")),
-                Column {
-                    Row { contentWidth, st, },
-                    Row { modeSelectorLabel, modes, st}
-                }
-            },
-            st
-        };
-        // clang-format on
-    });
+
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/ZenMode/ZenModeSettingsPage.qml"));
 
     readSettings();
 }
