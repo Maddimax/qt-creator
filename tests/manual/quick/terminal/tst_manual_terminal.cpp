@@ -1,0 +1,672 @@
+// Copyright (C) 2026 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+
+#include "ptyhost.h"
+#include <terminal/terminalquickitem.h>
+
+#include <terminal/surfaceintegration.h>
+
+
+#include <QClipboard>
+#include <QCommandLineParser>
+#include <QDir>
+#include <QElapsedTimer>
+#include <QGuiApplication>
+#include <QKeyEvent>
+#include <QQmlApplicationEngine>
+#include <QQuickWindow>
+#include <QScreen>
+#include <QTimer>
+
+#include <mach/mach.h>
+
+#include <algorithm>
+#include <cstdio>
+
+using namespace TerminalSolution;
+
+// --- helpers ---------------------------------------------------------------
+
+static double rssMb()
+{
+    mach_task_basic_info info;
+    mach_msg_type_number_t count = MACH_TASK_BASIC_INFO_COUNT;
+    if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO, (task_info_t) &info, &count)
+        != KERN_SUCCESS)
+        return -1;
+    return double(info.resident_size) / (1024.0 * 1024.0);
+}
+
+struct Summary
+{
+    size_t n = 0;
+    double meanMs = 0, p50Ms = 0, p95Ms = 0, p99Ms = 0, maxMs = 0;
+};
+
+static Summary summarize(std::vector<qint64> ns)
+{
+    Summary s;
+    s.n = ns.size();
+    if (ns.empty())
+        return s;
+    std::sort(ns.begin(), ns.end());
+    double sum = 0;
+    for (qint64 v : ns)
+        sum += double(v);
+    const auto at = [&](double q) {
+        return double(ns[qMin(ns.size() - 1, size_t(q * double(ns.size())))]) / 1e6;
+    };
+    s.meanMs = sum / double(ns.size()) / 1e6;
+    s.p50Ms = at(0.50);
+    s.p95Ms = at(0.95);
+    s.p99Ms = at(0.99);
+    s.maxMs = double(ns.back()) / 1e6;
+    return s;
+}
+
+static void printSummary(const char *label, const Summary &s)
+{
+    std::printf("  %-10s n=%zu mean=%.3fms p50=%.3f p95=%.3f p99=%.3f max=%.3f\n",
+                label, s.n, s.meanMs, s.p50Ms, s.p95Ms, s.p99Ms, s.maxMs);
+}
+
+// Full-screen rewrites via cursor addressing: pure cell churn, no scrollback.
+static QByteArray makeChurn(int rows, int cols, int frames)
+{
+    QByteArray out;
+    out.reserve(qsizetype(frames) * rows * (cols + (cols / 8) * 12 + 16));
+    int counter = 0;
+    for (int f = 0; f < frames; ++f) {
+        for (int r = 1; r <= rows; ++r) {
+            out += "\x1b[" + QByteArray::number(r) + ";1H";
+            for (int c = 0; c < cols; c += 8) {
+                out += "\x1b[38;5;" + QByteArray::number(16 + counter % 216)
+                       + ((counter % 7 == 0) ? ";1m" : "m");
+                for (int i = 0; i < qMin(8, cols - c); ++i)
+                    out += char('!' + (counter + i) % 93);
+                ++counter;
+            }
+            out += "\x1b[0m";
+        }
+    }
+    return out;
+}
+
+// Colored counting lines: scrolling output that grows the scrollback.
+static QByteArray makeScrollSeq(int firstLine, int lineCount)
+{
+    QByteArray out;
+    out.reserve(qsizetype(lineCount) * 24);
+    for (int i = firstLine; i < firstLine + lineCount; ++i) {
+        out += "\x1b[38;5;" + QByteArray::number(16 + i % 216) + "m"
+               + QByteArray::number(i) + "\x1b[0m\r\n";
+    }
+    return out;
+}
+
+static QString gridTextRows(TerminalSurface *surface, int fromRow, int rowCount)
+{
+    QString result;
+    const int cols = surface->liveSize().width();
+    const int toRow = qMin(surface->fullSize().height(), fromRow + rowCount);
+    for (int y = qMax(0, fromRow); y < toRow; ++y) {
+        for (int x = 0; x < cols;) {
+            const char32_t ch = surface->fetchCharAt(x, y);
+            result += ch ? QString::fromUcs4(&ch, 1) : QStringLiteral(" ");
+            x += qMax(1, surface->cellWidthAt(x, y)); // skip wide-char continuation cells
+        }
+        result += QLatin1Char('\n');
+    }
+    return result;
+}
+
+static QString liveGridText(TerminalSurface *surface)
+{
+    const int live = surface->liveSize().height();
+    return gridTextRows(surface, surface->fullSize().height() - live, live);
+}
+
+class FrameRecorder
+{
+public:
+    void attach(QQuickWindow *window)
+    {
+        m_timer.start();
+        QObject::connect(window, &QQuickWindow::frameSwapped, window, [this] {
+            const qint64 now = m_timer.nsecsElapsed(); // render thread
+            if (m_active.load(std::memory_order_relaxed)) {
+                std::lock_guard lock(m_mutex);
+                if (m_last >= 0)
+                    m_deltas.push_back(now - m_last);
+            }
+            m_last = now;
+        }, Qt::DirectConnection);
+    }
+
+    void begin()
+    {
+        std::lock_guard lock(m_mutex);
+        m_deltas.clear();
+        m_last = -1;
+        m_active = true;
+    }
+
+    std::vector<qint64> end()
+    {
+        m_active = false;
+        std::lock_guard lock(m_mutex);
+        return std::move(m_deltas);
+    }
+
+private:
+    QElapsedTimer m_timer;
+    std::mutex m_mutex;
+    std::vector<qint64> m_deltas;
+    qint64 m_last = -1;
+    std::atomic<bool> m_active{false};
+};
+
+class DemoIntegration : public SurfaceIntegration
+{
+public:
+    explicit DemoIntegration(QQuickWindow *window)
+        : m_window(window)
+    {}
+
+    void onOsc(int, std::string_view, bool, bool) override {}
+    void onBell() override { std::printf("[integration] bell\n"); }
+    void onTitle(const QString &title) override { m_window->setTitle(title); }
+    void onSetClipboard(const QByteArray &text) override
+    {
+        QGuiApplication::clipboard()->setText(QString::fromUtf8(text));
+    }
+
+private:
+    QQuickWindow *m_window;
+};
+
+static void saveScreenshot(QQuickWindow *window, const QString &name)
+{
+    const QString dir = QStringLiteral(RESULTS_DIR);
+    QDir().mkpath(dir);
+    const QString path = dir + QLatin1Char('/') + name;
+    if (window->grabWindow().save(path))
+        std::printf("[screenshot] %s\n", qPrintable(path));
+    else
+        std::printf("[screenshot] FAILED to save %s\n", qPrintable(path));
+}
+
+static void printEnvironment(QQuickWindow *window, TerminalQuickItem *item)
+{
+    std::printf("[env] window=%dx%d dpr=%.1f refresh=%.0fHz grid=%dx%d cell=%.2fx%.0f\n",
+                window->width(), window->height(), window->devicePixelRatio(),
+                window->screen()->refreshRate(),
+                item->gridSize().width(), item->gridSize().height(),
+                item->cellSize().width(), item->cellSize().height());
+}
+
+// --- canned benchmark driver -----------------------------------------------
+
+class CannedDriver : public QObject
+{
+public:
+    CannedDriver(TerminalQuickItem *item, QQuickWindow *window, const QString &mode)
+        : m_item(item)
+        , m_window(window)
+        , m_mode(mode)
+    {
+        m_recorder.attach(window);
+        connect(window, &QQuickWindow::afterAnimating, this, &CannedDriver::onTick);
+        QTimer::singleShot(500, this, [this] {
+            printEnvironment(m_window, m_item);
+            setupPhases();
+            startPhase(0);
+            m_item->update(); // kick the frame loop
+        });
+    }
+
+private:
+    struct Phase
+    {
+        QString name;
+        std::function<void()> start;
+        std::function<bool()> tick; // true = phase done
+    };
+
+    void setupPhases()
+    {
+        const int rows = m_item->gridSize().height();
+        const int cols = m_item->gridSize().width();
+
+        if (m_mode == QLatin1String("churn")) {
+            m_phases.push_back({QStringLiteral("blast-churn"),
+                                [this, rows, cols] {
+                                    m_stream = makeChurn(rows, cols, 800);
+                                    m_pos = 0;
+                                },
+                                [this] { return feedChunk(256 * 1024); }});
+            m_phases.push_back({QStringLiteral("paced-churn-1-screen-per-frame"),
+                                [this, rows, cols] {
+                                    m_stream = makeChurn(rows, cols, 700);
+                                    m_pos = 0;
+                                    m_screenBytes = m_stream.size() / 700;
+                                },
+                                [this] { return feedChunk(m_screenBytes); }});
+        } else { // scrollseq
+            m_phases.push_back({QStringLiteral("blast-scrollseq-200k-lines"),
+                                [this] {
+                                    m_stream = makeScrollSeq(1, 200000);
+                                    m_pos = 0;
+                                },
+                                [this] { return feedChunk(256 * 1024); }});
+            m_phases.push_back({QStringLiteral("paced-scrollseq-64-lines-per-frame"),
+                                [this] {
+                                    m_stream = makeScrollSeq(200001, 38400); // 600 frames
+                                    m_pos = 0;
+                                    m_lineFeedFrom = 0;
+                                },
+                                [this] { return feedLines(64); }});
+            m_phases.push_back({QStringLiteral("sweep-slow-4-rows-per-frame"),
+                                [this] {
+                                    m_item->setScrollOffset(m_item->maxScrollOffset());
+                                    m_ticksLeft = 1000;
+                                },
+                                [this] { return sweep(4); }});
+            m_phases.push_back({QStringLiteral("sweep-fast-40-rows-per-frame"),
+                                [this] {
+                                    m_item->setScrollOffset(m_item->maxScrollOffset());
+                                    m_ticksLeft = 600;
+                                },
+                                [this] { return sweep(40); }});
+        }
+    }
+
+    bool feedChunk(qint64 chunkBytes)
+    {
+        if (m_pos >= m_stream.size())
+            return true;
+        const qint64 chunk = qMin<qint64>(chunkBytes, m_stream.size() - m_pos);
+        m_item->surface()->dataFromPty(QByteArray::fromRawData(m_stream.constData() + m_pos,
+                                                               chunk));
+        m_pos += chunk;
+        m_bytesFed += chunk;
+        return false;
+    }
+
+    bool feedLines(int lines)
+    {
+        if (m_pos >= m_stream.size())
+            return true;
+        qint64 end = m_pos;
+        for (int i = 0; i < lines && end < m_stream.size(); ++i) {
+            const qint64 nl = m_stream.indexOf('\n', end);
+            end = nl < 0 ? m_stream.size() : nl + 1;
+        }
+        m_item->surface()->dataFromPty(QByteArray::fromRawData(m_stream.constData() + m_pos,
+                                                               end - m_pos));
+        m_bytesFed += end - m_pos;
+        m_pos = end;
+        return false;
+    }
+
+    bool sweep(int rowsPerTick)
+    {
+        if (m_ticksLeft-- <= 0)
+            return true;
+        int offset = m_item->scrollOffset() - rowsPerTick;
+        if (offset < 0)
+            offset = m_item->maxScrollOffset();
+        m_item->setScrollOffset(offset);
+        return false;
+    }
+
+    void startPhase(int index)
+    {
+        m_phaseIndex = index;
+        m_bytesFed = 0;
+        m_phases[index].start();
+        m_item->beginStats();
+        m_recorder.begin();
+        m_wall.start();
+    }
+
+    void finishPhase()
+    {
+        const double wallMs = double(m_wall.nsecsElapsed()) / 1e6;
+        const Summary frames = summarize(m_recorder.end());
+        const TerminalQuickItem::Stats stats = m_item->takeStats();
+
+        std::printf("[phase %s] wall=%.0fms bytes=%.2fMB throughput=%.1fMB/s rss=%.0fMB\n",
+                    qPrintable(m_phases[m_phaseIndex].name), wallMs,
+                    double(m_bytesFed) / 1e6,
+                    wallMs > 0 ? double(m_bytesFed) / 1e6 / (wallMs / 1e3) : 0.0,
+                    rssMb());
+        printSummary("frame:", frames);
+        printSummary("polish:", summarize(stats.polishNs));
+        printSummary("paintNode:", summarize(stats.paintNodeNs));
+        std::printf("  gridDeviationMaxPx=%.3f\n", stats.maxGridDeviationPx);
+
+        if (m_phaseIndex + 1 < int(m_phases.size())) {
+            startPhase(m_phaseIndex + 1);
+        } else {
+            m_done = true;
+            saveScreenshot(m_window, QStringLiteral("canned-") + m_mode + QStringLiteral(".png"));
+            QCoreApplication::exit(0);
+        }
+    }
+
+    void onTick()
+    {
+        if (m_done || m_phaseIndex < 0)
+            return;
+        if (m_phases[m_phaseIndex].tick())
+            finishPhase();
+        if (!m_done)
+            m_item->update(); // keep the frame loop alive across phases
+    }
+
+    TerminalQuickItem *m_item;
+    QQuickWindow *m_window;
+    QString m_mode;
+    std::vector<Phase> m_phases;
+    int m_phaseIndex = -1;
+    bool m_done = false;
+
+    QByteArray m_stream;
+    qint64 m_pos = 0;
+    qint64 m_bytesFed = 0;
+    qint64 m_screenBytes = 0;
+    qint64 m_lineFeedFrom = 0;
+    int m_ticksLeft = 0;
+
+    QElapsedTimer m_wall;
+    FrameRecorder m_recorder;
+};
+
+// --- selftest driver (real shell) ------------------------------------------
+
+class SelfTest : public QObject
+{
+public:
+    SelfTest(TerminalQuickItem *item, QQuickWindow *window, PtyHost *pty)
+        : m_item(item)
+        , m_window(window)
+        , m_pty(pty)
+    {
+        setupSteps();
+        m_poll.setInterval(50);
+        connect(&m_poll, &QTimer::timeout, this, &SelfTest::poll);
+        QTimer::singleShot(300, this, [this] {
+            printEnvironment(m_window, m_item);
+            m_window->requestActivate();
+            startStep(0);
+        });
+    }
+
+private:
+    struct Step
+    {
+        QString name;
+        std::function<void()> action;
+        std::function<bool()> done;
+        int timeoutMs;
+    };
+
+    void sendText(const QString &text)
+    {
+        for (const QChar c : text) {
+            const bool isReturn = c == QLatin1Char('\r');
+            QKeyEvent event(QEvent::KeyPress, isReturn ? Qt::Key_Return : 0, Qt::NoModifier,
+                            QString(c));
+            QCoreApplication::sendEvent(m_item, &event);
+        }
+    }
+
+    void setupSteps()
+    {
+        TerminalSurface *surface = m_item->surface();
+
+        m_steps.push_back({QStringLiteral("shell prompt appears"),
+                           [this] { m_item->beginStats(); },
+                           [surface] { return liveGridText(surface).contains(QLatin1Char('%')); },
+                           10000});
+        m_steps.push_back({QStringLiteral("keyboard round trip (echo spike-$((6*7)) -> spike-42)"),
+                           [this] { sendText(QStringLiteral("echo spike-$((6*7))\r")); },
+                           [surface] {
+                               return liveGridText(surface).contains(QLatin1String("spike-42"));
+                           },
+                           10000});
+        m_steps.push_back({QStringLiteral("DECSCUSR 5 sets blinking cursor prop"),
+                           [this] { sendText(QStringLiteral("printf '\\e[5 q'\r")); },
+                           [surface] { return surface->cursor().blink; },
+                           5000});
+        m_steps.push_back({QStringLiteral("cursor blink timer toggles (needs window focus)"),
+                           [this] {
+                               m_blinkBase = m_item->blinkToggleCount();
+                               std::printf("[selftest] item hasActiveFocus=%d blinkTimerActive=%d\n",
+                                           m_item->hasActiveFocus(),
+                                           m_item->cursorBlinkTimerActive());
+                           },
+                           [this] { return m_item->blinkToggleCount() >= m_blinkBase + 2; },
+                           4000});
+        m_steps.push_back({QStringLiteral("DECSCUSR 2 restores steady cursor"),
+                           [this] { sendText(QStringLiteral("printf '\\e[2 q'\r")); },
+                           [surface] { return !surface->cursor().blink; },
+                           5000});
+        m_steps.push_back({QStringLiteral("altscreen enter (printf 1049h)"),
+                           [this] { sendText(QStringLiteral("printf '\\e[?1049h'\r")); },
+                           [surface] { return surface->isInAltScreen(); },
+                           5000});
+        m_steps.push_back({QStringLiteral("altscreen leave (printf 1049l)"),
+                           [this] { sendText(QStringLiteral("printf '\\e[?1049l'\r")); },
+                           [surface] { return !surface->isInAltScreen(); },
+                           5000});
+        m_steps.push_back({QStringLiteral("wide chars render (CJK via fallback font)"),
+                           [this] { sendText(QStringLiteral("echo 漢字テストwide\r")); },
+                           [this, surface] {
+                               if (!liveGridText(surface).contains(QStringLiteral("漢字テストwide")))
+                                   return false;
+                               // reported at the end via gridDeviationMaxPx
+                               return true;
+                           },
+                           10000});
+        m_steps.push_back({QStringLiteral("live shell: seq 1 50000"),
+                           [this] {
+                               m_seqTimer.start();
+                               sendText(QStringLiteral("seq 1 50000; echo SPIKE-DONE\r"));
+                           },
+                           [this, surface] {
+                               if (!liveGridText(surface).contains(QLatin1String("SPIKE-DONE")))
+                                   return false;
+                               std::printf("[measure] live seq 1 50000 wall=%.0fms rss=%.0fMB "
+                                           "scrollbackRows=%d\n",
+                                           double(m_seqTimer.nsecsElapsed()) / 1e6, rssMb(),
+                                           m_item->maxScrollOffset());
+                               return true;
+                           },
+                           60000});
+        m_steps.push_back({QStringLiteral("scrollback: offset 0 shows the first command"),
+                           [this] { m_item->setScrollOffset(0); },
+                           [this, surface] {
+                               return gridTextRows(surface, 0, 40)
+                                   .contains(QLatin1String("spike-42"));
+                           },
+                           3000});
+        m_steps.push_back({QStringLiteral("scroll back down"),
+                           [this] { m_item->setScrollOffset(m_item->maxScrollOffset()); },
+                           [this] { return m_item->scrollOffset() == m_item->maxScrollOffset(); },
+                           3000});
+    }
+
+    void startStep(int index)
+    {
+        m_stepIndex = index;
+        m_deadline = QDeadlineTimer(m_steps[index].timeoutMs);
+        m_steps[index].action();
+        m_poll.start();
+    }
+
+    void poll()
+    {
+        const Step &step = m_steps[m_stepIndex];
+        bool done = step.done();
+        bool failed = false;
+        if (!done && m_deadline.hasExpired()) {
+            failed = true;
+            done = true;
+        }
+        if (!done)
+            return;
+
+        m_poll.stop();
+        if (failed)
+            ++m_failures;
+        std::printf("[selftest] %-55s %s\n", qPrintable(step.name), failed ? "FAIL" : "PASS");
+
+        if (m_stepIndex + 1 < int(m_steps.size())) {
+            startStep(m_stepIndex + 1);
+        } else {
+            const TerminalQuickItem::Stats stats = m_item->takeStats();
+            std::printf("[measure] shell session polish mean=%.3fms gridDeviationMaxPx=%.3f "
+                        "(cell=%.2fpx)\n",
+                        summarize(stats.polishNs).meanMs, stats.maxGridDeviationPx,
+                        m_item->cellSize().width());
+            saveScreenshot(m_window, QStringLiteral("selftest-shell.png"));
+            std::printf("[selftest] %s (%d failures)\n", m_failures ? "FAILED" : "ALL PASSED",
+                        m_failures);
+            QCoreApplication::exit(m_failures);
+        }
+    }
+
+    TerminalQuickItem *m_item;
+    QQuickWindow *m_window;
+    PtyHost *m_pty;
+    std::vector<Step> m_steps;
+    int m_stepIndex = -1;
+    int m_failures = 0;
+    QTimer m_poll;
+    QDeadlineTimer m_deadline;
+    QElapsedTimer m_seqTimer;
+    int m_blinkBase = 0;
+};
+
+// --- headless model benchmark ----------------------------------------------
+
+static int benchModel()
+{
+    const int cols = 194;
+    const int rows = 55;
+
+    const auto run = [&](const char *name, const QByteArray &stream) {
+        TerminalSurface surface(QSize(cols, rows));
+        surface.setWriteToPty([](const QByteArray &data) { return data.size(); });
+        QElapsedTimer timer;
+        timer.start();
+        constexpr qint64 chunkSize = 256 * 1024;
+        for (qint64 pos = 0; pos < stream.size(); pos += chunkSize) {
+            surface.dataFromPty(QByteArray::fromRawData(
+                stream.constData() + pos, qMin(chunkSize, stream.size() - pos)));
+        }
+        const double wallMs = double(timer.nsecsElapsed()) / 1e6;
+        std::printf("[bench-model %s] grid=%dx%d bytes=%.2fMB wall=%.0fms throughput=%.1fMB/s "
+                    "scrollbackRows=%d rss=%.0fMB\n",
+                    name, cols, rows, double(stream.size()) / 1e6, wallMs,
+                    double(stream.size()) / 1e6 / (wallMs / 1e3),
+                    surface.fullSize().height() - surface.liveSize().height(), rssMb());
+    };
+    run("churn", makeChurn(rows, cols, 800));
+    run("scrollseq-200k", makeScrollSeq(1, 200000));
+    return 0;
+}
+
+// --- main --------------------------------------------------------------------
+
+int main(int argc, char *argv[])
+{
+    QGuiApplication app(argc, argv);
+
+    QCommandLineParser parser;
+    parser.addHelpOption();
+    const QCommandLineOption cannedOption("canned", "Run canned benchmark.", "churn|scrollseq");
+    const QCommandLineOption benchModelOption("bench-model", "Headless surface benchmark.");
+    const QCommandLineOption selftestOption("selftest", "Scripted real-shell verification.");
+    const QCommandLineOption demoOption("demo", "Run showcase commands and screenshot.");
+    parser.addOption(cannedOption);
+    parser.addOption(benchModelOption);
+    parser.addOption(selftestOption);
+    parser.addOption(demoOption);
+    parser.process(app);
+
+    if (parser.isSet(benchModelOption))
+        return benchModel();
+
+    QQmlApplicationEngine engine;
+    qmlRegisterType<TerminalQuickItem>("TerminalManualTest", 1, 0, "TerminalQuickItem");
+    engine.load(QUrl(QStringLiteral("qrc:/terminalmanual/Main.qml")));
+    if (engine.rootObjects().isEmpty())
+        return 1;
+
+    auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+    auto *item = window->findChild<TerminalQuickItem *>("term");
+    if (!item) {
+        std::fprintf(stderr, "no terminal item\n");
+        return 1;
+    }
+
+    DemoIntegration integration(window);
+    item->setSurfaceIntegration(&integration);
+
+    std::unique_ptr<CannedDriver> cannedDriver;
+    std::unique_ptr<SelfTest> selfTest;
+    std::unique_ptr<PtyHost> pty;
+
+    if (parser.isSet(cannedOption)) {
+        cannedDriver = std::make_unique<CannedDriver>(item, window, parser.value(cannedOption));
+    } else {
+        pty = std::make_unique<PtyHost>();
+        QObject::connect(pty.get(), &PtyHost::dataAvailable, item,
+                         [item](const QByteArray &data) { item->surface()->dataFromPty(data); });
+        QObject::connect(pty.get(), &PtyHost::finished, &app, [] { QCoreApplication::quit(); });
+        item->setWriteToPty([&pty](const QByteArray &data) { return pty->write(data); });
+        item->setResizePty([&pty](const QSize &size) { pty->resize(size); });
+        if (!pty->start(item->gridSize())) {
+            std::fprintf(stderr, "forkpty failed\n");
+            return 1;
+        }
+        if (parser.isSet(selftestOption))
+            selfTest = std::make_unique<SelfTest>(item, window, pty.get());
+        if (parser.isSet(demoOption)) {
+            // Showcase: colours, styles, unicode and real repo output, then a
+            // screenshot. Delays, not assertions - this produces a picture.
+            QTimer::singleShot(1200, item, [&pty] {
+                const char *cmds[] = {
+                    "clear\r",
+                    "printf '\\e[1;38;5;75m  Qt Creator :: Qt Quick terminal spike"
+                    "\\e[0m  (QQuickItem over TerminalSurface, QSGTextNode)\\n\\n'\r",
+                    "for i in {0..255}; do printf \"\\e[48;5;${i}m \"; done; "
+                    "printf '\\e[0m\\n\\n'\r",
+                    "printf '\\e[1mbold\\e[0m \\e[3mitalic\\e[0m "
+                    "\\e[4munderline\\e[0m \\e[7mreverse\\e[0m "
+                    "\\e[9mstrike\\e[0m \\e[38;5;208morange\\e[0m "
+                    "\\e[92mgreen\\e[0m \\e[96mcyan\\e[0m "
+                    "\xe2\x94\x8c\xe2\x94\x80 \xe6\xbc\xa2\xe5\xad\x97"
+                    "\xe3\x83\x86\xe3\x82\xb9\xe3\x83\x88 "
+                    "\xe2\x94\x80\xe2\x94\x90\\n\\n'\r",
+                    "CLICOLOR_FORCE=1 ls -G "
+                    "~/projects/qt/qtc-work/master/src/libs/solutions/terminal/\r",
+                    "git -C ~/projects/qt/qtc-work/master log --graph --color=always "
+                    "--pretty='%C(auto)%h%d %s' -12\r",
+                };
+                for (const char *cmd : cmds)
+                    pty->write(cmd);
+            });
+            auto *w = window;
+            QTimer::singleShot(4500, w, [w] {
+                saveScreenshot(w, QStringLiteral("demo-shell.png"));
+                QCoreApplication::quit();
+            });
+        }
+    }
+
+    return app.exec();
+}

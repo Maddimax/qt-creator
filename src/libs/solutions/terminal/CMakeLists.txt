@@ -21,3 +21,11 @@ add_qtc_library(TerminalLib
     terminal.qrc
     terminalview.cpp terminalview.h
 )
+
+add_qtc_library(TerminalQuick
+  CONDITION TARGET Qt::Quick
+  PUBLIC_DEPENDS TerminalModel Qt::Quick
+  SOURCES
+    terminalquick_global.h
+    terminalquickitem.cpp terminalquickitem.h
+)

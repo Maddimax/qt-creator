@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/terminalmanual">
+        <file>Main.qml</file>
+    </qresource>
+</RCC>

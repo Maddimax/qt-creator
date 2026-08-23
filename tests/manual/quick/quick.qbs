@@ -3,5 +3,6 @@ Project {
 
     references: [
         "gallery/gallery.qbs",
+        "terminal/terminal.qbs",
     ]
 }
