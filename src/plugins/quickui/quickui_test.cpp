@@ -182,7 +182,8 @@ void QuickUiTest::testSelectionWithoutDescribedChoicesIsUnsupported()
     described.addOption("One");
     described.addOption("Two");
 
-    // Its choices come from an async fill callback, not from presentation().
+    // No fill callback, so it has no choices to describe and no way to say
+    // which of them is current - its value is a choice id.
     Utils::StringSelectionAspect undescribed(&page);
 
     QtcQuick::AspectContainerModel model(&page);

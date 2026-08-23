@@ -117,11 +117,12 @@ AspectContainerModel::Kind AspectContainerModel::kindOf(const BaseAspect *aspect
     const AspectPresentation p = aspect->presentation();
     const Kind kind = kindOf(p.control);
 
-    // A selection whose choices are not in its presentation cannot be rendered
-    // generically: StringSelectionAspect fills a QStandardItemModel from an
-    // async callback and reports no choices, which would otherwise give an
-    // empty combo box and a type error from binding its value to currentIndex.
-    if ((kind == Selection || kind == MultiSelection) && p.choices.isEmpty())
+    // An id-valued selection with nothing to match against cannot show which
+    // choice is current. An index-valued one with no choices is just an empty
+    // combo box, which is what the widget editor draws for it too.
+    if (kind == Selection && p.valueIsChoiceId && p.choices.isEmpty())
+        return Unsupported;
+    if (kind == MultiSelection && p.choices.isEmpty())
         return Unsupported;
 
     return kind;

@@ -3738,7 +3738,11 @@ void StringSelectionAspect::ensureFilled() const
 {
     if (m_model)
         return;
-    QTC_ASSERT(m_fillCallback, return);
+    // No callback is nothing to fill, not a mistake: presentation() asks every
+    // time a form is built, and the renderer is where an aspect that needs one
+    // and lacks it gets complained about.
+    if (!m_fillCallback)
+        return;
 
     auto self = const_cast<StringSelectionAspect *>(this);
     m_model = new QStandardItemModel(self);
