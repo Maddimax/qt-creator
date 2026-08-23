@@ -11,11 +11,6 @@
 #include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/icore.h>
 
-#include <utils/aspectwidgets.h>
-#include <utils/layoutbuilder.h>
-
-#include <QLabel>
-
 using namespace Utils;
 
 namespace TextEditor {
@@ -172,6 +167,29 @@ DisplaySettings::DisplaySettings()
     minimalAnnotationContent.setDefaultValue(15);
 
     displayMinimap.setSettingsKey("DisplayMinimap");
+
+    lineSpacingNote.setText(
+        "<i>"
+        + Tr::tr("Set <a href=\"font zoom\">font line spacing</a> to 100% to enable "
+                 "text wrapping option.")
+        + "</i>");
+    lineSpacingNote.setQmlName("LineSpacingNote");
+    connect(&lineSpacingNote, &TextDisplay::linkActivated, this, [] {
+        Core::ICore::showSettings(Constants::TEXT_EDITOR_FONT_SETTINGS);
+    });
+
+    // Wrapping needs the normal line spacing, and whether it is normal is a
+    // fact about the font settings rather than about the layout - so it is
+    // maintained here, and the note appears only when wrapping is unavailable.
+    const auto updateWrapping = [this] {
+        const bool normalLineSpacing = globalFontSettings().lineSpacing() == 100;
+        if (!normalLineSpacing)
+            textWrapping.setVolatileValue(false);
+        textWrapping.setEnabled(normalLineSpacing);
+        lineSpacingNote.setVisible(!normalLineSpacing);
+    };
+    updateWrapping();
+    connect(&globalFontSettings(), &FontSettings::changed, this, updateWrapping);
     displayMinimap.setDefaultValue(false);
     displayMinimap.setLabelText(Tr::tr("Enable minimap"));
 
@@ -199,90 +217,10 @@ public:
         setAutoApply(false);
         registerAspect(&displaySettings());
         registerAspect(&marginSettings());
-        Utils::AspectWidgets::setLayouter(this, [] {
-            DisplaySettings &s = displaySettings();
-            MarginSettings &m = marginSettings();
-            auto *label =
-                new QLabel(Tr::tr("<i>Set <a href=\"font zoom\">font line spacing</a> "
-                                  "to 100% to enable text wrapping option.</i>"));
-            const auto updateWrapping = [label] {
-                const bool normalLineSpacing =
-                    globalFontSettings().lineSpacing() == 100;
-                if (!normalLineSpacing)
-                    displaySettings().textWrapping.setVolatileValue(false);
-                displaySettings().textWrapping.setEnabled(normalLineSpacing);
-                label->setVisible(!normalLineSpacing);
-            };
-            // do not use updateWrapping() before label got parented
-            if (globalFontSettings().lineSpacing() != 100) {
-                displaySettings().textWrapping.setVolatileValue(false);
-                displaySettings().textWrapping.setEnabled(false);
-            } else {
-                label->setVisible(false);
-            }
-            connect(&globalFontSettings(), &FontSettings::changed,
-                    label, updateWrapping);
-            connect(label, &QLabel::linkActivated, [] {
-                Core::ICore::showSettings(Constants::TEXT_EDITOR_FONT_SETTINGS); });
-            using namespace Layouting;
-            return Column {
-                Group {
-                    title(Tr::tr("Margin")),
-                    Column {
-                        Row { m.showMargin, m.marginColumn, m.tintMarginArea, st },
-                        Row { m.useIndenter, st },
-                        Row { m.centerEditorContentWidthPercent, st }
-                    }
-                },
-                Group {
-                    title(Tr::tr("Wrapping")),
-                    Column {
-                        s.textWrapping,
-                        Row { label, st },
-                        Row { s.breakindent, s.breakindentMin, s.breakindentShift, st },
-                        Row { s.showBreak, st },
-                        s.breakindentSbr
-                    }
-                },
-                Group {
-                    title(Tr::tr("Display")),
-                    Row {
-                        Column {
-                            s.displayLineNumbers,
-                            s.displayFoldingMarkers,
-                            s.markTextChanges,
-                            s.visualizeWhitespace,
-                            s.centerCursorOnScroll,
-                            s.autoFoldFirstComment,
-                            s.scrollBarHighlights,
-                            s.animateNavigationWithinFile,
-                            s.highlightSelection,
-                        },
-                        Column {
-                            s.highlightCurrentLine,
-                            s.highlightBlocks,
-                            s.animateMatchingParentheses,
-                            s.visualizeIndent,
-                            s.highlightMatchingParentheses,
-                            s.openLinksInNextSplit,
-                            s.displayFileEncoding,
-                            s.displayFileLineEnding,
-                            s.displayTabSettings,
-                            s.displayMinimap,
-                            s.markDiffChangeSigns,
-                        }
-                    }
-                },
-                Group {
-                    title(Tr::tr("Line Annotations")),
-                    groupChecker(Utils::AspectWidgets::groupChecker(&s.displayAnnotations)),
-                    Column {
-                        s.annotationAlignment
-                    }
-                },
-                st
-            };
-        });
+        displaySettings().setQmlName("Display");
+        marginSettings().setQmlName("Margin");
+
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/TextEditor/DisplaySettingsPage.qml"));
     }
 };
 

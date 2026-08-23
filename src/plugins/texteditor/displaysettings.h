@@ -93,6 +93,7 @@ public:
     Utils::TypedSelectionAspect<AnnotationAlignment> annotationAlignment{this};
     Utils::IntegerAspect minimalAnnotationContent{this};
     Utils::BoolAspect displayMinimap{this};
+    Utils::TextDisplay lineSpacingNote{this};
 
     void apply() override;
 

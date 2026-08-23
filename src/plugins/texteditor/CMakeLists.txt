@@ -167,6 +167,7 @@ if(TARGET TextEditor AND TARGET Qt::Quick)
       BehaviorSettingsPage.qml
       CommentsSettingsPage.qml
       CompletionSettingsPage.qml
+      DisplaySettingsPage.qml
       HighlighterSettingsPage.qml
   )
 endif()
