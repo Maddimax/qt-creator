@@ -8,17 +8,12 @@
 #include "checkableaspect.h"
 #include "checkablemessagebox.h"
 #include "environment.h"
-#include "environmentdialog.h"
-#include "fancylineedit.h"
 #include "guard.h"
 #include "guiutils.h"
 #include "layoutbuilder.h"
 #include "macroexpander.h"
-#include "passworddialog.h"
 #include "pathchooser.h"
-#include "pathlisteditor.h"
 #include "qtcassert.h"
-#include "qtcolorbutton.h"
 #include "qtcsettings.h"
 #include "stylehelper.h"
 #include "store.h"
@@ -27,15 +22,11 @@
 
 #include <QAction>
 #include <QDebug>
-#include <QDoubleSpinBox>
 #include <QItemSelectionModel>
 #include <QLabel>
 #include <QGroupBox>
 #include <QVBoxLayout>
-#include <QPaintEvent>
-#include <QPainter>
 #include <QPointer>
-#include <QPushButton>
 #include <QStandardItemModel>
 #include <QUndoStack>
 
@@ -935,9 +926,6 @@ public:
     MultiSelectionAspect::DisplayStyle m_displayStyle
         = MultiSelectionAspect::DisplayStyle::ListView;
     UndoableValue<QStringList> m_undoable;
-
-    // These are all owned by the configuration widget.
-    QPointer<QListWidget> m_listView;
 };
 
 class StringAspectPrivate
@@ -950,7 +938,7 @@ public:
     QString m_placeHolderText;
     Key m_historyCompleterKey;
     StringAspect::ValueAcceptor m_valueAcceptor;
-    std::optional<FancyLineEdit::ValidationFunction> m_validator;
+    std::optional<ValidationFunction> m_validator;
     std::function<QValidator *(QObject *parent)> m_validatorFactory;
 
     CheckableAspectImplementation m_checkerImpl;
@@ -982,7 +970,6 @@ public:
     int m_singleStep = 1;
     // Holds the stored value; the display scale factor is applied only at the spin box.
     UndoableValue<qint64> m_undoable;
-    QPointer<QSpinBox> m_spinBox; // Owned by configuration widget
 };
 
 class DoubleAspectPrivate
@@ -995,7 +982,6 @@ public:
     QString m_specialValueText;
     double m_singleStep = 1;
     UndoableValue<double> m_undoable;
-    QPointer<QDoubleSpinBox> m_spinBox; // Owned by configuration widget
 };
 
 class StringListAspectPrivate
@@ -1440,7 +1426,7 @@ public:
     Lazy<FilePath> m_baseDirectory;
     FilePath m_initialBrowsePathBackup;
     StringAspect::ValueAcceptor m_valueAcceptor;
-    std::optional<FancyLineEdit::ValidationFunction> m_validator;
+    std::optional<ValidationFunction> m_validator;
     std::optional<FilePath> m_effectiveBinary;
     std::function<void()> m_openTerminal;
 
