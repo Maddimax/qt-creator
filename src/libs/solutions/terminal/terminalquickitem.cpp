@@ -4,9 +4,11 @@
 #include "terminalquickitem.h"
 
 #include <QClipboard>
+#include <QCursor>
 #include <QFontMetricsF>
 #include <QGuiApplication>
 #include <QQuickWindow>
+#include <QSGImageNode>
 #include <QSGRectangleNode>
 #include <QSGTextNode>
 #include <QtMath>
@@ -22,7 +24,9 @@ TerminalQuickItem::TerminalQuickItem(QQuickItem *parent)
     : QQuickItem(parent)
 {
     setFlag(ItemHasContents);
+    setFlag(ItemAcceptsInputMethod);
     setAcceptedMouseButtons(Qt::AllButtons);
+    setAcceptHoverEvents(true); // the widget uses WA_MouseTracking for link hover
     setCursor(Qt::IBeamCursor);
 
     m_font = QFont(QStringLiteral("Menlo"), 12);
@@ -289,6 +293,59 @@ void TerminalQuickItem::enableMouseTracking(bool enable)
     m_allowMouseTracking = enable;
 }
 
+void TerminalQuickItem::setFont(const QFont &font)
+{
+    m_font = font;
+    const QFontMetricsF fm(m_font);
+    m_cellSize = QSizeF(fm.averageCharWidth(), qCeil(fm.height()));
+    m_charAdvance.fill(-1);
+    applySizeChange();
+    scheduleRefresh();
+}
+
+void TerminalQuickItem::setColors(const std::array<QColor, 20> &colors)
+{
+    if (m_palette == colors)
+        return;
+
+    m_palette = colors;
+    scheduleRefresh();
+}
+
+void TerminalQuickItem::zoomIn()
+{
+    QFont f = font();
+    f.setPointSize(f.pointSize() + 1);
+    setFont(f);
+}
+
+void TerminalQuickItem::zoomOut()
+{
+    QFont f = font();
+    f.setPointSize(qMax(f.pointSize() - 1, 1));
+    setFont(f);
+}
+
+void TerminalQuickItem::setPasswordMode(bool passwordMode)
+{
+    if (passwordMode != m_passwordMode) {
+        m_passwordMode = passwordMode;
+        scheduleRefresh();
+    }
+}
+
+void TerminalQuickItem::setAllowBlinkingCursor(bool allow)
+{
+    m_allowBlinking = allow;
+    configBlinkTimer();
+}
+
+void TerminalQuickItem::copyLinkToClipboard()
+{
+    if (m_linkSelection)
+        setClipboard(m_linkSelection->link.text);
+}
+
 // The widget binds these through the ActionManager; the item handles them
 // directly with the same per-OS sequences.
 static bool matchesShortcut(const QKeyEvent *event, Qt::Key key)
@@ -326,6 +383,11 @@ void TerminalQuickItem::keyPressEvent(QKeyEvent *event)
         m_cursorBlinkState = true;
     }
 
+    if (event->key() == Qt::Key_Control) {
+        if (!m_linkSelection.has_value() && checkLinkAt(mapFromGlobal(QCursor::pos())))
+            setCursor(Qt::PointingHandCursor);
+    }
+
     event->accept();
 
     if (handleCopyPasteShortcut(event))
@@ -351,8 +413,28 @@ void TerminalQuickItem::keyPressEvent(QKeyEvent *event)
     }
 }
 
+void TerminalQuickItem::keyReleaseEvent(QKeyEvent *event)
+{
+    if (event->key() == Qt::Key_Control && m_linkSelection.has_value()) {
+        m_linkSelection.reset();
+        setCursor(Qt::IBeamCursor);
+        scheduleRefresh();
+    }
+}
+
 void TerminalQuickItem::wheelEvent(QWheelEvent *event)
 {
+    // The widget gets these through the output pane's zoom shortcuts; the
+    // item handles the modifier itself with the same one-point increments.
+    if (event->modifiers() & Qt::ControlModifier) {
+        if (event->angleDelta().y() > 0)
+            zoomIn();
+        else if (event->angleDelta().y() < 0)
+            zoomOut();
+        event->accept();
+        return;
+    }
+
     qreal rows = 0;
     if (!event->pixelDelta().isNull())
         rows = -event->pixelDelta().y() / m_cellSize.height();
@@ -389,7 +471,14 @@ void TerminalQuickItem::mousePressEvent(QMouseEvent *event)
     m_activeMouseSelectStart = viewportToGlobal(event->position());
 
     if (event->button() == Qt::LeftButton && event->modifiers() & Qt::ControlModifier) {
-        // The widget activates links here; links are not ported yet.
+        if (m_linkSelection) {
+            if (event->modifiers() & Qt::ShiftModifier) {
+                copyLinkToClipboard();
+                return;
+            }
+
+            linkActivated(m_linkSelection->link);
+        }
         return;
     }
 
@@ -435,53 +524,98 @@ void TerminalQuickItem::mouseMoveEvent(QMouseEvent *event)
     if (m_allowMouseTracking)
         m_surface->mouseMove(toGridPos(event), event->modifiers());
 
-    if (!m_selection || !(event->buttons() & Qt::LeftButton))
-        return;
+    if (m_selection && (event->buttons() & Qt::LeftButton)) {
+        Selection newSelection = *m_selection;
 
-    Selection newSelection = *m_selection;
+        int scrollVelocity = 0;
+        if (event->position().y() < 0)
+            scrollVelocity = int(event->position().y());
+        else if (event->position().y() > height())
+            scrollVelocity = int(event->position().y() - height());
 
-    int scrollVelocity = 0;
-    if (event->position().y() < 0)
-        scrollVelocity = int(event->position().y());
-    else if (event->position().y() > height())
-        scrollVelocity = int(event->position().y() - height());
+        if ((scrollVelocity != 0) != m_scrollTimer.isActive()) {
+            if (scrollVelocity != 0)
+                m_scrollTimer.start();
+            else
+                m_scrollTimer.stop();
+        }
 
-    if ((scrollVelocity != 0) != m_scrollTimer.isActive()) {
-        if (scrollVelocity != 0)
-            m_scrollTimer.start();
-        else
-            m_scrollTimer.stop();
-    }
+        m_scrollDirection = scrollVelocity;
 
-    m_scrollDirection = scrollVelocity;
+        if (m_scrollTimer.isActive() && scrollVelocity != 0) {
+            const milliseconds scrollInterval = 1000ms / qAbs(scrollVelocity);
+            if (m_scrollTimer.intervalAsDuration() != scrollInterval)
+                m_scrollTimer.setInterval(scrollInterval);
+        }
 
-    if (m_scrollTimer.isActive() && scrollVelocity != 0) {
-        const milliseconds scrollInterval = 1000ms / qAbs(scrollVelocity);
-        if (m_scrollTimer.intervalAsDuration() != scrollInterval)
-            m_scrollTimer.setInterval(scrollInterval);
-    }
+        QPointF posBounded = event->position();
+        posBounded.setX(qBound<qreal>(0, posBounded.x(), width()));
 
-    QPointF posBounded = event->position();
-    posBounded.setX(qBound<qreal>(0, posBounded.x(), width()));
+        int start = m_surface->gridToPos(globalToGrid(m_activeMouseSelectStart));
+        int newEnd = m_surface->gridToPos(globalToGrid(viewportToGlobal(posBounded)));
 
-    int start = m_surface->gridToPos(globalToGrid(m_activeMouseSelectStart));
-    int newEnd = m_surface->gridToPos(globalToGrid(viewportToGlobal(posBounded)));
+        if (start > newEnd)
+            std::swap(start, newEnd);
+        if (start < 0)
+            start = 0;
 
-    if (start > newEnd)
-        std::swap(start, newEnd);
-    if (start < 0)
-        start = 0;
+        if (m_selectLineMode) {
+            newSelection.start = m_surface->gridToPos({0, m_surface->posToGrid(start).y()});
+            newSelection.end = m_surface->gridToPos(
+                {m_surface->liveSize().width(), m_surface->posToGrid(newEnd).y()});
+        } else {
+            newSelection.start = start;
+            newSelection.end = newEnd;
+        }
 
-    if (m_selectLineMode) {
-        newSelection.start = m_surface->gridToPos({0, m_surface->posToGrid(start).y()});
-        newSelection.end = m_surface->gridToPos(
-            {m_surface->liveSize().width(), m_surface->posToGrid(newEnd).y()});
+        setSelection(newSelection);
+        setCursor(m_linkSelection ? Qt::PointingHandCursor : Qt::IBeamCursor);
     } else {
-        newSelection.start = start;
-        newSelection.end = newEnd;
+        updateLinkHover(event->position(), event->modifiers());
+    }
+}
+
+void TerminalQuickItem::hoverMoveEvent(QHoverEvent *event)
+{
+    updateLinkHover(event->position(), event->modifiers());
+}
+
+void TerminalQuickItem::updateLinkHover(const QPointF &pos, Qt::KeyboardModifiers modifiers)
+{
+    if (modifiers & Qt::ControlModifier) {
+        checkLinkAt(pos);
+    } else if (m_linkSelection) {
+        m_linkSelection.reset();
+        scheduleRefresh();
     }
 
-    setSelection(newSelection);
+    setCursor(m_linkSelection ? Qt::PointingHandCursor : Qt::IBeamCursor);
+}
+
+bool TerminalQuickItem::checkLinkAt(const QPointF &pos)
+{
+    const TextAndOffsets hit = textAt(pos);
+
+    if (hit.text.size() > 0) {
+        const QString t
+            = QString::fromUcs4(hit.text.c_str(), int(hit.text.size())).trimmed();
+        const std::optional<Link> newLink = toLink(t);
+        if (newLink) {
+            const LinkSelection newSelection = LinkSelection{{hit.start, hit.end}, *newLink};
+            if (!m_linkSelection || *m_linkSelection != newSelection) {
+                m_linkSelection = newSelection;
+                scheduleRefresh();
+            }
+
+            return true;
+        }
+    }
+
+    if (m_linkSelection) {
+        m_linkSelection.reset();
+        scheduleRefresh();
+    }
+    return false;
 }
 
 void TerminalQuickItem::mouseReleaseEvent(QMouseEvent *event)
@@ -564,6 +698,47 @@ void TerminalQuickItem::focusOutEvent(QFocusEvent *event)
     scheduleRefresh();
 }
 
+void TerminalQuickItem::inputMethodEvent(QInputMethodEvent *event)
+{
+    // Gnome sends empty events when switching virtual desktops, so ignore those.
+    if (event->commitString().isEmpty() && event->preeditString().isEmpty()
+        && event->attributes().empty() && m_preEditString.isEmpty())
+        return;
+
+    setScrollOffset(maxScrollOffset());
+
+    m_preEditString = event->preeditString();
+
+    if (event->commitString().isEmpty()) {
+        scheduleRefresh();
+        return;
+    }
+
+    m_surface->sendKey(event->commitString());
+}
+
+QVariant TerminalQuickItem::inputMethodQuery(Qt::InputMethodQuery query) const
+{
+    switch (query) {
+    case Qt::ImEnabled:
+        return true;
+    case Qt::ImCursorRectangle: {
+        const Cursor cursor = m_surface->cursor();
+        return QRectF(cursor.position.x() * m_cellSize.width(),
+                      topMargin()
+                          + (cursor.position.y() - m_scrollOffset) * m_cellSize.height(),
+                      m_cellSize.width(),
+                      m_cellSize.height());
+    }
+    case Qt::ImFont:
+        return m_font;
+    case Qt::ImHints:
+        return int(Qt::ImhNone);
+    default:
+        return QQuickItem::inputMethodQuery(query);
+    }
+}
+
 void TerminalQuickItem::beginStats()
 {
     std::lock_guard lock(m_statsMutex);
@@ -590,6 +765,14 @@ QList<TerminalQuickItem::VisibleRun> TerminalQuickItem::visibleRuns(int document
     return result;
 }
 
+QList<TerminalQuickItem::VisibleRun> TerminalQuickItem::preeditRuns() const
+{
+    QList<VisibleRun> result;
+    for (const RunSnapshot &run : m_preeditRow.runs)
+        result.append({run.x, run.layout->text(), run.layout->formats()});
+    return result;
+}
+
 // A cell can join a batched layout only if its glyph advance is exactly one
 // cell; everything else (wide chars, fallback fonts, clusters) gets its own
 // layout pinned to its grid column.
@@ -612,6 +795,7 @@ void TerminalQuickItem::updatePolish()
     timer.start();
 
     m_rows.clear();
+    m_preeditRow = {};
     m_cursorSnapshot = {};
 
     if (width() <= 0 || height() <= 0)
@@ -727,6 +911,8 @@ void TerminalQuickItem::updatePolish()
             }
             const bool selected = m_selection && pos >= m_selection->start
                                   && pos < m_selection->end;
+            const bool tempLink = m_linkSelection && pos >= m_linkSelection->start
+                                  && pos < m_linkSelection->end;
 
             QTextCharFormat fmt;
             fmt.setForeground(toQColor(cell.foregroundColor));
@@ -748,7 +934,9 @@ void TerminalQuickItem::updatePolish()
                 fmt.setFontWeight(QFont::Bold);
             if (cell.italic)
                 fmt.setFontItalic(true);
-            if (cell.underlineStyle != QTextCharFormat::NoUnderline)
+            if (tempLink) // the widget dashes the hovered link range
+                fmt.setUnderlineStyle(QTextCharFormat::DashUnderline);
+            else if (cell.underlineStyle != QTextCharFormat::NoUnderline)
                 fmt.setUnderlineStyle(cell.underlineStyle);
             if (cell.strikeOut)
                 fmt.setFontStrikeOut(true);
@@ -757,7 +945,7 @@ void TerminalQuickItem::updatePolish()
             const QString &cellText = cell.text.isEmpty() ? oneSpace : cell.text;
             const bool interesting = !cell.text.isEmpty() || hasBg
                                      || cell.underlineStyle != QTextCharFormat::NoUnderline
-                                     || cell.strikeOut;
+                                     || cell.strikeOut || tempLink;
             const bool gridTrue = cellCols == 1 && cellText.size() == 1
                                   && gridTrueChar(cellText.at(0));
 
@@ -798,30 +986,85 @@ void TerminalQuickItem::updatePolish()
     }
 
     // Cursor snapshot; position is in full (scrollback included) coordinates.
-    const Cursor cursor = m_surface->cursor();
+    // Widget order (paintCursor): a preedit forces an underline cursor, else
+    // password mode swaps in the lock image, else the normal blinking cursor.
+    Cursor cursor = m_surface->cursor();
     const bool rowVisible = cursor.position.y() >= startRow && cursor.position.y() < endRow;
-    const bool blinkVisible = !cursor.blink || m_cursorBlinkState || !m_allowBlinking
-                              || !m_blinkTimer.isActive();
-    if (cursor.visible && rowVisible && blinkVisible) {
-        const int cw = qMax(1, m_surface->cellWidthAt(cursor.position.x(), cursor.position.y()));
+    const int cw = qMax(1, m_surface->cellWidthAt(cursor.position.x(), cursor.position.y()));
+    const QRectF cursorRect(cursor.position.x() * cellW,
+                            marginTop + (cursor.position.y() - startRow) * cellH,
+                            cw * cellW,
+                            cellH);
+    if (!m_preEditString.isEmpty())
+        cursor.shape = Cursor::Shape::Underline;
+    if (rowVisible && m_preEditString.isEmpty() && m_passwordMode) {
+        const QRectF aligned = QRectF(cursorRect.toAlignedRect());
+        const qreal dpr = window() ? window()->devicePixelRatio() : 1.0;
+        const int lockHeight = qMax(1, int(aligned.height() * dpr));
+        if (m_lockImage.height() != lockHeight) {
+            m_lockImage = QImage(QStringLiteral(":/terminal/images/passwordlock.png"))
+                              .scaledToHeight(lockHeight, Qt::SmoothTransformation);
+            m_lockImage.setDevicePixelRatio(dpr);
+        }
         m_cursorSnapshot.visible = true;
-        m_cursorSnapshot.focused = hasActiveFocus();
-        m_cursorSnapshot.shape = cursor.shape;
-        m_cursorSnapshot.rect = QRectF(cursor.position.x() * cellW,
-                                       marginTop + (cursor.position.y() - startRow) * cellH,
-                                       cw * cellW,
-                                       cellH);
-        if (cursor.shape == Cursor::Shape::Block && m_cursorSnapshot.focused) {
-            const TerminalCell cell = m_surface->fetchCell(cursor.position.x(),
-                                                           cursor.position.y());
-            if (!cell.text.isEmpty()) {
-                QTextLayout::FormatRange range;
-                range.start = 0;
-                range.length = cell.text.size();
-                range.format.setForeground(toQColor(cell.backgroundColor));
-                m_cursorSnapshot.cellLayout = makeLayout(cell.text, {range});
+        m_cursorSnapshot.passwordLock = true;
+        m_cursorSnapshot.lockImage = m_lockImage;
+        m_cursorSnapshot.rect = QRectF(aligned.topLeft(),
+                                       m_lockImage.deviceIndependentSize());
+    } else {
+        const bool blinkVisible = !cursor.blink || m_cursorBlinkState || !m_allowBlinking
+                                  || !m_blinkTimer.isActive();
+        if (cursor.visible && rowVisible && blinkVisible) {
+            m_cursorSnapshot.visible = true;
+            m_cursorSnapshot.focused = hasActiveFocus();
+            m_cursorSnapshot.shape = cursor.shape;
+            m_cursorSnapshot.rect = cursorRect;
+            if (cursor.shape == Cursor::Shape::Block && m_cursorSnapshot.focused) {
+                const TerminalCell cell = m_surface->fetchCell(cursor.position.x(),
+                                                               cursor.position.y());
+                if (!cell.text.isEmpty()) {
+                    QTextLayout::FormatRange range;
+                    range.start = 0;
+                    range.length = cell.text.size();
+                    range.format.setForeground(toQColor(cell.backgroundColor));
+                    m_cursorSnapshot.cellLayout = makeLayout(cell.text, {range});
+                }
             }
         }
+    }
+
+    // Preedit snapshot; drawn at the cursor cell, underlined, wrapping
+    // anywhere until the right edge (widget paintPreedit).
+    if (!m_preEditString.isEmpty() && rowVisible) {
+        const qreal x = cursor.position.x() * cellW;
+        auto layout = std::make_unique<QTextLayout>();
+        layout->setFont(m_font);
+        layout->setCacheEnabled(true);
+        QTextOption option;
+        option.setWrapMode(QTextOption::WrapAnywhere);
+        option.setTextDirection(Qt::LeftToRight);
+        layout->setTextOption(option);
+        layout->setText(m_preEditString);
+        QTextLayout::FormatRange range;
+        range.start = 0;
+        range.length = int(m_preEditString.size());
+        range.format.setForeground(m_palette[ColorIndex::Foreground]);
+        range.format.setFontUnderline(true);
+        layout->setFormats({range});
+        layout->beginLayout();
+        qreal y = 0;
+        while (true) {
+            QTextLine line = layout->createLine();
+            if (!line.isValid())
+                break;
+            line.setLineWidth(qMax<qreal>(1, width() - x));
+            line.setPosition(QPointF(0, y));
+            y += line.height();
+        }
+        layout->endLayout();
+        m_preeditRow.documentRow = cursor.position.y();
+        m_preeditRow.y = marginTop + (cursor.position.y() - startRow) * cellH;
+        m_preeditRow.runs.push_back({x, std::move(layout)});
     }
 
     if (m_statsActive) {
@@ -859,7 +1102,15 @@ QSGNode *TerminalQuickItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeDat
         root->appendChildNode(textNode);
     }
 
-    if (m_cursorSnapshot.visible) {
+    if (m_cursorSnapshot.visible && m_cursorSnapshot.passwordLock) {
+        if (!m_cursorSnapshot.lockImage.isNull()) {
+            QSGImageNode *lockNode = win->createImageNode();
+            lockNode->setTexture(win->createTextureFromImage(m_cursorSnapshot.lockImage));
+            lockNode->setOwnsTexture(true);
+            lockNode->setRect(m_cursorSnapshot.rect);
+            root->appendChildNode(lockNode);
+        }
+    } else if (m_cursorSnapshot.visible) {
         const QRectF r = m_cursorSnapshot.rect.adjusted(0.5, 0.5, -0.5, -0.5);
         const QColor color = m_palette[ColorIndex::Foreground];
         const auto addRect = [&](const QRectF &rect) {
@@ -893,6 +1144,14 @@ QSGNode *TerminalQuickItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeDat
                 break;
             }
         }
+    }
+
+    if (!m_preeditRow.runs.empty()) {
+        QSGTextNode *preeditNode = win->createTextNode();
+        preeditNode->setRenderType(QSGTextNode::NativeRendering);
+        for (const RunSnapshot &run : m_preeditRow.runs)
+            preeditNode->addTextLayout(QPointF(run.x, m_preeditRow.y), run.layout.get());
+        root->appendChildNode(preeditNode);
     }
 
     if (m_statsActive) {

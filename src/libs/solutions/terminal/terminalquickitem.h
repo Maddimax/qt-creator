@@ -8,6 +8,7 @@
 
 #include <QElapsedTimer>
 #include <QFont>
+#include <QImage>
 #include <QQuickItem>
 #include <QTextLayout>
 #include <QTimer>
@@ -81,6 +82,45 @@ public:
 
     void enableMouseTracking(bool enable);
 
+    void setFont(const QFont &font);
+    QFont font() const { return m_font; }
+    void setColors(const std::array<QColor, 20> &colors);
+
+    void zoomIn();
+    void zoomOut();
+
+    void setPasswordMode(bool passwordMode);
+
+    void setAllowBlinkingCursor(bool allow);
+    bool allowBlinkingCursor() const { return m_allowBlinking; }
+
+    struct Link
+    {
+        QString text;
+        int targetLine = 0;
+        int targetColumn = 0;
+    };
+
+    struct LinkSelection : public Selection
+    {
+        Link link;
+
+        bool operator!=(const LinkSelection &other) const
+        {
+            return link.text != other.link.text || link.targetLine != other.link.targetLine
+                   || link.targetColumn != other.link.targetColumn || Selection::operator!=(other);
+        }
+    };
+
+    void copyLinkToClipboard();
+
+    virtual std::optional<Link> toLink(const QString &text)
+    {
+        Q_UNUSED(text)
+        return std::nullopt;
+    }
+    virtual void linkActivated(const Link &link) { Q_UNUSED(link) }
+
     virtual const QList<SearchHit> &searchHits() const
     {
         static QList<SearchHit> noHits;
@@ -98,6 +138,16 @@ public:
     bool cursorBlinkTimerActive() const { return m_blinkTimer.isActive(); }
     int blinkToggleCount() const { return m_blinkToggles; }
     QColor paletteColor(int index) const { return m_palette[size_t(index) % m_palette.size()]; }
+    QString preeditString() const { return m_preEditString; }
+    std::optional<LinkSelection> linkSelection() const { return m_linkSelection; }
+    bool passwordLockVisible() const
+    {
+        return m_cursorSnapshot.passwordLock && !m_cursorSnapshot.lockImage.isNull();
+    }
+    bool cursorRectVisible() const
+    {
+        return m_cursorSnapshot.visible && !m_cursorSnapshot.passwordLock;
+    }
 
     struct VisibleRun
     {
@@ -106,6 +156,7 @@ public:
         QList<QTextLayout::FormatRange> formats;
     };
     QList<VisibleRun> visibleRuns(int documentRow) const;
+    QList<VisibleRun> preeditRuns() const;
 
     // Perf instrumentation
     struct Stats
@@ -125,6 +176,7 @@ protected:
     void updatePolish() override;
     void geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry) override;
     void keyPressEvent(QKeyEvent *event) override;
+    void keyReleaseEvent(QKeyEvent *event) override;
     void wheelEvent(QWheelEvent *event) override;
     void focusInEvent(QFocusEvent *event) override;
     void focusOutEvent(QFocusEvent *event) override;
@@ -132,6 +184,9 @@ protected:
     void mouseMoveEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
     void mouseDoubleClickEvent(QMouseEvent *event) override;
+    void hoverMoveEvent(QHoverEvent *event) override;
+    void inputMethodEvent(QInputMethodEvent *event) override;
+    QVariant inputMethodQuery(Qt::InputMethodQuery query) const override;
 
     bool setSelection(const std::optional<Selection> &selection, bool scroll = true);
     QString textFromSelection() const;
@@ -156,6 +211,9 @@ private:
     };
     TextAndOffsets textAt(const QPointF &pos) const;
 
+    bool checkLinkAt(const QPointF &pos);
+    void updateLinkHover(const QPointF &pos, Qt::KeyboardModifiers modifiers);
+
     bool handleCopyPasteShortcut(QKeyEvent *event);
     bool gridTrueChar(QChar c);
 
@@ -179,6 +237,8 @@ private:
         QRectF rect;
         Cursor::Shape shape = Cursor::Shape::Block;
         std::unique_ptr<QTextLayout> cellLayout; // inverted glyph under a block cursor
+        bool passwordLock = false;
+        QImage lockImage;
     };
 
     std::unique_ptr<TerminalSurface> m_surface;
@@ -195,6 +255,10 @@ private:
     qreal m_wheelAccum = 0;
 
     std::optional<Selection> m_selection;
+    std::optional<LinkSelection> m_linkSelection;
+    QString m_preEditString;
+    bool m_passwordMode = false;
+    QImage m_lockImage; // scaled passwordlock.png, cached per cell height
     QPointF m_activeMouseSelectStart; // full-buffer pixel coordinates
     bool m_selectLineMode = false;
     bool m_allowMouseTracking = true;
@@ -211,6 +275,7 @@ private:
     // Snapshots produced in updatePolish() (GUI thread), consumed in
     // updatePaintNode() (render thread, GUI blocked).
     std::vector<RowSnapshot> m_rows;
+    RowSnapshot m_preeditRow;
     CursorSnapshot m_cursorSnapshot;
 
     std::mutex m_statsMutex;
