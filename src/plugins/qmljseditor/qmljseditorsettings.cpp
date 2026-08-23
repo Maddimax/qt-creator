@@ -141,7 +141,7 @@ QmlJsEditingSettings::QmlJsEditingSettings()
                 },
             },
             Group {
-                visibleOn(&qdsCommand),
+                visibleOn(Utils::AspectWidgets::visibleController(&qdsCommand)),
                 title(Tr::tr("Qt Design Studio")),
                 Column {
                     Label {

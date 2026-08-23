@@ -69,6 +69,10 @@ QTCREATOR_UTILS_EXPORT std::function<void(Layouting::Layout *)> adoptButton(
 // A layouter that turns a QGroupBox into the aspect's check box.
 QTCREATOR_UTILS_EXPORT std::function<void(QObject *)> groupChecker(BoolAspect *aspect);
 
+// A controller that ties a widget's visibility to the aspect's, for
+// Layouting's visibleOn().
+QTCREATOR_UTILS_EXPORT std::function<void(QObject *)> visibleController(BaseAspect *aspect);
+
 template<class Widget, typename... Args>
 Widget *createSubWidget(BaseAspect *aspect, Args &&...args)
 {

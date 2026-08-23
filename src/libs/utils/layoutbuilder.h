@@ -727,7 +727,7 @@ inline constexpr auto fieldGrowthPolicy = Building::setter(
 inline constexpr auto groupChecker = Building::setter(
     [](auto &x, auto &&...a) { x.setGroupChecker(a...); });
 inline constexpr auto visibleOn = Building::setter(
-    [](auto &x, auto *aspect) { x.setVisibleController(aspect->visibleController()); });
+    [](auto &x, auto &&...a) { x.setVisibleController(a...); });
 inline constexpr auto icon = Building::setter([](auto &x, auto &&...a) { x.setIcon(a...); });
 inline constexpr auto objectName = Building::setter(
     [](auto &x, auto &&...a) { x.setObjectName(a...); });

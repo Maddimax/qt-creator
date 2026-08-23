@@ -186,4 +186,19 @@ std::function<void(QObject *)> groupChecker(BoolAspect *aspect)
     };
 }
 
+std::function<void(QObject *)> visibleController(BaseAspect *aspect)
+{
+    return [aspect](QObject *target) {
+        auto widget = qobject_cast<QWidget *>(target);
+        QTC_ASSERT(widget, return);
+        // Only hide here: showing a not-yet-parented widget makes it pop up
+        // as a top-level window. Later changes arrive once it is parented.
+        if (!aspect->isVisible())
+            widget->setVisible(false);
+        QObject::connect(aspect, &BaseAspect::visibleChanged, widget, [aspect, widget] {
+            widget->setVisible(aspect->isVisible());
+        });
+    };
+}
+
 } // namespace Utils::AspectWidgets
