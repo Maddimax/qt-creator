@@ -53,5 +53,7 @@ RowLayout {
         ToolTip.text: root.toolTip
         ToolTip.visible: false
         Layout.fillWidth: true
+
+        onLinkActivated: (link) => root.aspect?.activateLink(link)
     }
 }

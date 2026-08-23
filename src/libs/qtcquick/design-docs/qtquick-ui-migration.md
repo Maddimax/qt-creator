@@ -421,6 +421,15 @@ exists for it; `StringAspect` reports its filtered value there too, which is
 what a `LabelDisplay` draws. The delegate also colours the text by
 `infoType`, so an error looks like one.
 
+**A destroyed editor still speaks.** Removing a row of the string list editor
+destroys its `TextField`, which loses focus, which emits `editingFinished` -
+carrying the text of the row that is going away and an index that by then
+belongs to a different row. Writing that back undid the removal: taking out the
+first entry put its text on the second. A field only has something to say when
+the user changed it, so the write-back is guarded on `text !== modelData`. The
+test for it looked flaky for a while, which is what a real bug that depends on
+whether focus moved looks like.
+
 **A page action is an aspect now.** Several closures ended in a `PushButton`
 with an `onClicked` - Reset Version Control Cache, qbs's Reset, Install
 Extension - which nothing but a layout could see. `Utils::ActionAspect` holds

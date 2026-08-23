@@ -23,6 +23,7 @@
 #include <QFont>
 #include <QPromise>
 #include <QRegularExpression>
+#include <QSignalSpy>
 #include <QMetaEnum>
 #include <QQuickItem>
 #include <QQuickWidget>
@@ -580,6 +581,15 @@ void QuickUiTest::testTextDisplayShowsItsMessage()
     QTRY_VERIFY(labelDelegate = findQmlComponent(labelWidget->rootObject(), "TextDisplayDelegate"));
     QCOMPARE(labelDelegate->property("labelText").toString(), QString("Qbs version:"));
     QCOMPARE(labelDelegate->property("displayText").toString(), QString("qbs 2.6.1"));
+
+    // A message can carry a link, and only the aspect knows what one means -
+    // an external URL for one page, a help topic for another. The delegate
+    // reports it and the aspect decides.
+    QSignalSpy links(&message, &Utils::TextDisplay::linkActivated);
+    message.activateLink("http://download.qt.io/official_releases/jom/");
+    QCOMPARE(links.size(), 1);
+    QCOMPARE(links.first().first().toString(),
+             QString("http://download.qt.io/official_releases/jom/"));
 }
 
 void QuickUiTest::testQmlNameIsDerivedFromTheSettingsKey()
@@ -757,15 +767,7 @@ void QuickUiTest::testStringListEditorAddsRemovesAndEdits()
     // Remove takes out the current row. Add left the new row current.
     QVERIFY(remove->property("enabled").toBool());
 
-    // Choose the first row by giving it the focus, which is how a row becomes
-    // current here - a row sets itself current when it gains focus, and the
-    // focus Add gave the new row arrives asynchronously. Writing currentIndex
-    // directly races that: the late focus event overwrites it and Remove takes
-    // out the wrong row. Focusing is also the causal signal to wait on.
-    fields = findQmlComponents(editor, "TextField");
-    QCOMPARE(fields.size(), 3);
-    QMetaObject::invokeMethod(fields.at(0), "forceActiveFocus");
-    QTRY_COMPARE(view->property("currentIndex").toInt(), 0);
+    view->setProperty("currentIndex", 0);
     QVERIFY(remove->property("enabled").toBool());
     QMetaObject::invokeMethod(remove, "clicked");
     QCOMPARE(list.volatileValue(), QStringList({"beta", "gamma"}));

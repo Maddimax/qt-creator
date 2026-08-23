@@ -75,10 +75,20 @@ RowLayout {
                     required property string modelData
 
                     width: view.width
-                    text: modelData
+                    text: field.modelData
                     readOnly: !root.pres.allowEditing || !root.editable
                     onActiveFocusChanged: if (activeFocus) view.currentIndex = field.index
-                    onEditingFinished: root.replaceAt(field.index, text)
+                    onEditingFinished: {
+                        // Removing a row destroys its field, which loses focus,
+                        // which emits this - with the text of the row that is
+                        // going away and an index that now belongs to another
+                        // row. Writing that back undid the removal: taking out
+                        // the first entry put its text on the second. Only a
+                        // field the user actually changed has anything to say.
+                        if (field.text === field.modelData)
+                            return
+                        root.replaceAt(field.index, field.text)
+                    }
                 }
             }
         }

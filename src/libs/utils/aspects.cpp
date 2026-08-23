@@ -752,6 +752,15 @@ QString BaseAspect::displayText() const
 }
 
 /*!
+    Reports that \a link in the aspect's text was activated. Does nothing
+    unless an aspect gives the links a meaning.
+*/
+void BaseAspect::activateLink(const QString &link)
+{
+    Q_UNUSED(link)
+}
+
+/*!
     Performs this aspect's one action, for a TextWithAction control. Does
     nothing unless an aspect gives it a meaning.
 */
@@ -3321,6 +3330,11 @@ void TextDisplay::setText(const QString &message)
 QString TextDisplay::displayText() const
 {
     return d->m_message;
+}
+
+void TextDisplay::activateLink(const QString &link)
+{
+    emit linkActivated(link);
 }
 
 void TextDisplay::setWordWrap(bool on)

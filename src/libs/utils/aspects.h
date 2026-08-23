@@ -167,6 +167,10 @@ public:
 
     // What the button of a TextWithAction control does. Nothing by default.
     Q_INVOKABLE virtual void triggerAction();
+    // A link in the aspect's text was activated. Declared here so that a
+    // renderer holding only a BaseAspect can report it; what it means is the
+    // aspect's business.
+    Q_INVOKABLE virtual void activateLink(const QString &link);
 
     AspectContainer *container() const;
 
@@ -1252,6 +1256,7 @@ public:
     QString text() const;
     // The message. A renderer that has only a BaseAspect reads it here.
     QString displayText() const override;
+    void activateLink(const QString &link) override;
 
 signals:
     void linkActivated(const QString &link);
