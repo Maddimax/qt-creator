@@ -6,9 +6,7 @@
 #include "cpastertr.h"
 #include "cpasterconstants.h"
 
-#include <utils/aspectwidgets.h>
-#include <utils/layoutbuilder.h>
-#include <utils/pathchooser.h>
+#include <utils/pathvalidation.h>
 #include <utils/temporarydirectory.h>
 
 #include <QLabel>
@@ -38,23 +36,12 @@ FileShareProtocolSettings::FileShareProtocolSettings()
     displayCount.setSuffix(' ' + Tr::tr("entries"));
     displayCount.setLabelText(Tr::tr("&Display:"));
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-
-        auto label = new QLabel(Tr::tr(
-            "The fileshare-based paster protocol allows for sharing code snippets using "
-            "simple files on a shared network drive. Files are never deleted."));
-        label->setWordWrap(true);
-
-        return Column {
-            Form {
-                label, br,
-                path, br,
-                displayCount
-            },
-            st
-        };
-    });
+    note.setText(Tr::tr(
+        "The fileshare-based paster protocol allows for sharing code snippets using "
+        "simple files on a shared network drive. Files are never deleted."));
+    note.setWordWrap(true);
+    note.setQmlName("Note");
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/CodePaster/FileShareSettingsPage.qml"));
 
     readSettings();
 }

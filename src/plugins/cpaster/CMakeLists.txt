@@ -39,5 +39,6 @@ if(TARGET CodePaster AND TARGET Qt::Quick)
     NO_PLUGIN
     QML_FILES
       CodePasterSettingsPage.qml
+      FileShareSettingsPage.qml
   )
 endif()

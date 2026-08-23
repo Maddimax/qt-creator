@@ -88,6 +88,7 @@ if(TARGET CMakeProjectManager AND TARGET Qt::Quick)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      CMakeFormatterSettingsPage.qml
       CMakeSpecificSettingsPage.qml
   )
 endif()

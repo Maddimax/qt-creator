@@ -14,6 +14,7 @@
 #include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/editormanager/editormanager.h>
 #include <coreplugin/editormanager/ieditor.h>
+#include <coreplugin/helpmanager.h>
 #include <coreplugin/idocument.h>
 
 #include <projectexplorer/project.h>
@@ -25,12 +26,10 @@
 #include <texteditor/formattexteditor.h>
 #include <texteditor/texteditor.h>
 
-#include <utils/aspectwidgets.h>
 #include <utils/algorithm.h>
-#include <utils/layoutbuilder.h>
 #include <utils/mimeconstants.h>
 #include <utils/mimeutils.h>
-#include <utils/pathchooser.h>
+#include <utils/pathvalidation.h>
 
 #include <QMenu>
 
@@ -66,32 +65,16 @@ public:
         autoFormatMime.setLabelText(Tr::tr("Restrict to MIME types:"));
         autoFormatMime.setDisplayStyle(StringAspect::LineEditDisplay);
 
-        Utils::AspectWidgets::setLayouter(this, [this] {
-            using namespace Layouting;
-
-            auto cmakeFormatter = new QLabel(
-                Tr::tr("<a href=\"%1\">CMakeFormat</a> command:")
-                    .arg("qthelp://org.qt-project.qtcreator/doc/"
-                         "creator-project-cmake.html#formatting-cmake-files"));
-            cmakeFormatter->setOpenExternalLinks(true);
-
-            return Column {
-                Row { cmakeFormatter, command },
-                Space(10),
-                Group {
-                    title(Tr::tr("Automatic Formatting on File Save")),
-                    groupChecker(Utils::AspectWidgets::groupChecker(&autoFormatOnSave)),
-                    // Conceptually, that's a Form, but this would look odd:
-                    // xxxxxx [____]
-                    //        [x] xxxxxxxxxxxxxx
-                    Column {
-                        Row { autoFormatMime },
-                        autoFormatOnlyCurrentProject
-                    }
-                },
-                st
-            };
-        });
+        commandNote.setText(
+            Tr::tr("<a href=\"%1\">CMakeFormat</a> command:")
+                .arg("qthelp://org.qt-project.qtcreator/doc/"
+                     "creator-project-cmake.html#formatting-cmake-files"));
+        commandNote.setQmlName("CommandNote");
+        QObject::connect(
+            &commandNote, &Utils::TextDisplay::linkActivated, &commandNote, [](const QString &link) {
+                Core::HelpManager::showHelpUrl(link);
+            });
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/CMakeProjectManager/CMakeFormatterSettingsPage.qml"));
 
         MenuBuilder(Constants::CMAKEFORMATTER_MENU_ID)
             .setTitle(Tr::tr("CMakeFormatter"))
@@ -195,6 +178,7 @@ public:
     BoolAspect autoFormatOnSave{this};
     BoolAspect autoFormatOnlyCurrentProject{this};
     StringAspect autoFormatMime{this};
+    Utils::TextDisplay commandNote{this};
 
     QAction formatFile{Tr::tr("Format &Current File")};
 };

@@ -30,7 +30,6 @@
 #include <extensionsystem/invoker.h>
 #include <extensionsystem/pluginmanager.h>
 
-#include <utils/aspectwidgets.h>
 #include <utils/aggregate.h>
 #include <utils/algorithm.h>
 #include <utils/async.h>

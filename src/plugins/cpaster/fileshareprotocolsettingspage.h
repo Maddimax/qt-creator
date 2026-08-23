@@ -14,6 +14,7 @@ public:
 
     Utils::FilePathAspect path{this};
     Utils::IntegerAspect displayCount{this};
+    Utils::TextDisplay note{this};
 };
 
 FileShareProtocolSettings &fileShareSettings();
