@@ -285,6 +285,39 @@ that belong there.
 
 In order:
 
+0. **Deleting the aspect fallbacks is the next step, and it is measured.**
+   Every binary that renders aspects now installs the renderer (`main.cpp`, the
+   qtprofiler tool, the aspects manual test, the renderer autotest), so the
+   inline bodies are only reached when the renderer declines a control. What
+   deleting them buys, counted by compiling `aspects.cpp` with every QtWidgets
+   include stripped and reading the compiler's own list of required types:
+
+   | | widget references in `aspects.cpp` |
+   |---|---|
+   | inside the 17 `addToLayoutImpl` bodies | 51 |
+   | everywhere else | 19 |
+
+   So the bodies are 73 % of the widget surface. The remaining 19 sit in
+   `registerSubWidget`, `createLabel`/`addLabeledItem(s)`, `groupChecker`,
+   `StringAspect::setCompleter`/`completer`, and a few gui-sync remnants -
+   `QItemSelectionModel` and `QCompleter` (3 each), `QComboBox`, `QListWidget`,
+   `QSpinBox`, `QGroupBox`, `QDoubleSpinBox` (2 each), and one each of
+   `QFontComboBox`, `QButtonGroup`, `QVBoxLayout`.
+
+   Note what *not* to do: an earlier estimate counted whole `#include` lines
+   rather than references and concluded deletion would free only 7 of 17
+   includes, which made the step look worthless. Counting references, and
+   letting the compiler enumerate them rather than a regex, gives the honest
+   73 %. The include-level view was also actively misleading: `<QLayout>` was
+   masking `<QVBoxLayout>`.
+
+   Deleting the bodies makes a missing renderer render nothing. There is no
+   self-registration precedent in this codebase (no `Q_CONSTRUCTOR_FUNCTION`
+   anywhere), and the house style is an explicit install next to
+   `installWidgetPrompts()`, so the deletion should make the absence loud with
+   `QTC_CHECK` rather than silently degrade. After the split, the renderer lives
+   in `UtilsWidgets` and linking it is what supplies rendering.
+
 1. ~~Split `terminalcommand.cpp`.~~ **Done** - unpinned the
    `filepath`/`qtcprocess`/`environment` cluster, 96 files at once. The same
    pattern has since also split `TerminalSolution` into a QtGui-only
