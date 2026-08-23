@@ -27,6 +27,9 @@ RowLayout {
 
     Label {
         text: root.labelText
+        // A palette is a row of swatches with no labels at all; reserving the
+        // label column for each would push them off the page.
+        visible: text !== ""
         Layout.preferredWidth: Metrics.formLabelWidth
         elide: Text.ElideRight
     }

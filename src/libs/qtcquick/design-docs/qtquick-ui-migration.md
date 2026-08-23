@@ -473,6 +473,13 @@ it: Testing's "Active Test Frameworks" is a `FrameworksAspect` with no
 `presentation()`, so it is `Custom` and would vanish. (Display was the other
 one, until `named()` above; it draws aspects from two containers.)
 
+**A palette is not a form row.** `ColorDelegate` reserved the full label column
+whether or not the aspect had a label, so Terminal's sixteen ANSI swatches would
+each have claimed 200 pixels for nothing. It hides the label when there is none,
+as the text delegates already do. The four named colors carry the labels the
+closure spelled out beside them; the palette stays swatches only, eight to a
+row, as it was drawn.
+
 **An `InfoLabel` is a `TextDisplay` with an icon type.** WebAssembly's closure
 built six of them - is this an emsdk directory, is an SDK installed, activated,
 which version, and two warnings - plus a `QTextBrowser` showing the SDK
@@ -541,7 +548,7 @@ naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
 all`, minus `QmlDesigner` and `UpdateInfo`, see below): **73 aspect-driven
-pages, 59 with their own QML and rendered with Qt Quick, 14 still on widgets.**
+pages, 60 with their own QML and rendered with Qt Quick, 13 still on widgets.**
 Before the gate was narrowed, 65 pages rendered generically; the delegate work
 that made that possible is all still in place and is what the ports build on:
 `StringListAspect` (a real list editor), `IntegersAspect` (`Invisible`, because

@@ -37,8 +37,16 @@ public:
     Utils::BoolAspect allowClipboardWrite{this};
     Utils::BoolAspect confirmUnsafePaste{this};
 
-    // Windows only, see consolehost.h
+    // Windows only, see consolehost.h. The status says which console host is
+    // in use and the action fetches one; both are hidden where there is no
+    // choice to make.
     Utils::FilePathAspect consoleHostDirectory{this};
+    Utils::StringAspect consoleHostStatus{this};
+    Utils::ActionAspect downloadConsoleHost{this};
+
+    Utils::ActionAspect loadTheme{this};
+    Utils::ActionAspect resetTheme{this};
+    Utils::ActionAspect copyTheme{this};
 };
 
 TerminalSettings &settings();

@@ -12,13 +12,11 @@
 #include <coreplugin/icore.h>
 #include <coreplugin/dialogs/ioptionspage.h>
 
-#include <utils/aspectwidgets.h>
 #include <utils/filedialogs.h>
 #include <utils/environment.h>
 #include <utils/fileutils.h>
 #include <utils/hostosinfo.h>
-#include <utils/layoutbuilder.h>
-#include <utils/pathchooser.h>
+#include <utils/pathvalidation.h>
 #include <utils/shutdownguard.h>
 #include <utils/stringutils.h>
 #include <utils/theme/theme.h>
@@ -29,7 +27,6 @@
 #include <QLabel>
 #include <QLoggingCategory>
 #include <QMessageBox>
-#include <QPushButton>
 #include <QRegularExpression>
 #include <QTemporaryFile>
 #include <QXmlStreamReader>
@@ -566,11 +563,57 @@ TerminalSettings::TerminalSettings()
         Internal::ConsoleHost::apply();
     });
 
+    // Windows only: everywhere else there is no second console host to choose
+    // between, so the three of these say nothing and are not shown.
+    const bool choosable = Internal::ConsoleHost::isSupportedPlatform();
+    consoleHostDirectory.setVisible(choosable);
+    consoleHostDirectory.setQmlName("ConsoleHostDirectory");
+    // The chooser is for a console host of one's own; empty means the
+    // downloaded one, and showing that as the placeholder is what says so.
+    consoleHostDirectory.setPlaceHolderText(Internal::ConsoleHost::inUse().toUserOutput());
+
+    consoleHostStatus.setVisible(choosable);
+    consoleHostStatus.setQmlName("ConsoleHostStatus");
+    consoleHostStatus.setDisplayStyle(StringAspect::LabelDisplay);
+
+    const auto showConsoleHost = [this] {
+        consoleHostStatus.setValue(
+            Internal::ConsoleHost::inUse().isEmpty()
+                ? Tr::tr("A picture that a program prints into the terminal is not shown: "
+                         "the console host that comes with Windows passes on only the text.")
+                : Tr::tr("A picture that a program prints into the terminal is shown."));
+    };
+    showConsoleHost();
+    connect(&consoleHostDirectory, &BaseAspect::changed, this, showConsoleHost);
+
+    downloadConsoleHost.setVisible(choosable);
+    downloadConsoleHost.setQmlName("DownloadConsoleHost");
+    downloadConsoleHost.setActionText(Tr::tr("Download..."));
+    downloadConsoleHost.setAction([this, showConsoleHost] {
+        // One runner per download, kept alive by the callback it hands out.
+        const auto downloader = std::make_shared<QtTaskTree::QSingleTaskTreeRunner>();
+        downloadConsoleHost.setEnabled(false);
+        downloader->start({Internal::ConsoleHost::downloadRecipe()}, {},
+                          [this, showConsoleHost, downloader](QtTaskTree::DoneWith result) {
+            downloadConsoleHost.setEnabled(true);
+            if (result == QtTaskTree::DoneWith::Success)
+                consoleHostDirectory.setValue(Internal::ConsoleHost::downloadDirectory());
+            showConsoleHost();
+        });
+    });
+
     setupColor(this, foregroundColor, "Foreground", creatorColor(Theme::TerminalForeground));
     setupColor(this, backgroundColor, "Background", creatorColor(Theme::TerminalBackground));
     setupColor(this, selectionColor, "Selection", creatorColor(Theme::TerminalSelection));
 
     setupColor(this, findMatchColor, "Find matches", creatorColor(Theme::TerminalFindMatch));
+
+    // The named four are labeled; the ANSI palette is swatches only, as the
+    // closure drew them.
+    foregroundColor.setLabelText(Tr::tr("Foreground"));
+    backgroundColor.setLabelText(Tr::tr("Background"));
+    selectionColor.setLabelText(Tr::tr("Selection"));
+    findMatchColor.setLabelText(Tr::tr("Find match"));
 
     setupColor(this, colors[0], "0", creatorColor(Theme::TerminalAnsi0), "black");
     setupColor(this, colors[8], "8", creatorColor(Theme::TerminalAnsi8), "bright black");
@@ -596,188 +639,73 @@ TerminalSettings::TerminalSettings()
     setupColor(this, colors[7], "7", creatorColor(Theme::TerminalAnsi7), "white");
     setupColor(this, colors[15], "15", creatorColor(Theme::TerminalAnsi15), "bright white");
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
+    loadTheme.setActionText(Tr::tr("Load Theme..."));
+    loadTheme.setQmlName("LoadTheme");
+    loadTheme.setAction([] {
+        const FilePath path = FileUtils::getOpenFilePath(
+            "Open Theme",
+            {},
+            "All Scheme formats (*.itermcolors *.json *.colorscheme *.theme *.theme.txt);;"
+            "Xdefaults (.Xdefaults Xdefaults);;"
+            "iTerm Color Schemes(*.itermcolors);;"
+            "VS Code Color Schemes(*.json);;"
+            "Windows Terminal Schemes(*.json);;"
+            "Konsole Color Schemes(*.colorscheme);;"
+            "XFCE4 Terminal Color Schemes(*.theme *.theme.txt);;"
+            "All files (*)",
+            nullptr,
+            {},
+            true,
+            false);
 
-        // An If builds the items of both of its branches and drops the ones
-        // it does not take, and nothing would own a group that is dropped, so
-        // the group is only made where it shows.
-        const auto consoleHostGroup = [this]() -> QWidget * {
-            if (!Internal::ConsoleHost::isSupportedPlatform())
-                return nullptr;
+        if (path.isEmpty())
+            return;
 
-            auto consoleHostStatus = new QLabel;
-            consoleHostStatus->setWordWrap(true);
-            auto downloadConsoleHost = new QPushButton(Tr::tr("Download..."));
-
-            // The path chooser is for a console host of one's own; when it is
-            // empty the downloaded one is taken, and showing that as the
-            // placeholder is what tells where it came from.
-            consoleHostDirectory.setPlaceHolderText(
-                Internal::ConsoleHost::inUse().toUserOutput());
-
-            const auto showConsoleHost = [consoleHostStatus] {
-                consoleHostStatus->setText(
-                    Internal::ConsoleHost::inUse().isEmpty()
-                        ? Tr::tr("A picture that a program prints into the terminal is not "
-                                 "shown: the console host that comes with Windows passes on "
-                                 "only the text.")
-                        : Tr::tr("A picture that a program prints into the terminal is "
-                                 "shown."));
-            };
-            showConsoleHost();
-            connect(&consoleHostDirectory, &BaseAspect::changed, consoleHostStatus,
-                    showConsoleHost);
-
-            const auto downloader = std::make_shared<QtTaskTree::QSingleTaskTreeRunner>();
-            connect(downloadConsoleHost, &QPushButton::clicked, downloadConsoleHost,
-                    [this, downloadConsoleHost, showConsoleHost, downloader] {
-                downloadConsoleHost->setEnabled(false);
-                downloader->start({Internal::ConsoleHost::downloadRecipe()}, {},
-                                  [this, downloadConsoleHost, showConsoleHost](
-                                      QtTaskTree::DoneWith result) {
-                    downloadConsoleHost->setEnabled(true);
-                    if (result == QtTaskTree::DoneWith::Success)
-                        consoleHostDirectory.setValue(Internal::ConsoleHost::downloadDirectory());
-                    showConsoleHost();
-                });
-            });
-
-            return Group {
-                title(Tr::tr("Console Host")),
-                Column {
-                    consoleHostStatus,
-                    consoleHostDirectory,
-                    Row { downloadConsoleHost, st },
-                },
-            }.emerge();
-        };
-
-        auto loadThemeButton = new QPushButton(Tr::tr("Load Theme..."));
-        auto resetTheme = new QPushButton(Tr::tr("Reset Theme"));
-        auto copyTheme = schemeLog().isDebugEnabled() ? new QPushButton(Tr::tr("Copy Theme"))
-                                                      : nullptr;
-
-        connect(loadThemeButton, &QPushButton::clicked, this, [] {
-            const FilePath path = FileUtils::getOpenFilePath(
-                "Open Theme",
-                {},
-                "All Scheme formats (*.itermcolors *.json *.colorscheme *.theme *.theme.txt);;"
-                "Xdefaults (.Xdefaults Xdefaults);;"
-                "iTerm Color Schemes(*.itermcolors);;"
-                "VS Code Color Schemes(*.json);;"
-                "Windows Terminal Schemes(*.json);;"
-                "Konsole Color Schemes(*.colorscheme);;"
-                "XFCE4 Terminal Color Schemes(*.theme *.theme.txt);;"
-                "All files (*)",
-                nullptr,
-                {},
-                true,
-                false);
-
-            if (path.isEmpty())
-                return;
-
-            const Result<> result = loadColorScheme(path);
-            if (!result)
-                QMessageBox::warning(Core::ICore::dialogParent(), Tr::tr("Error"), result.error());
-        });
-
-        connect(resetTheme, &QPushButton::clicked, this, [this] {
-            foregroundColor.setVolatileValue(foregroundColor.defaultValue());
-            backgroundColor.setVolatileValue(backgroundColor.defaultValue());
-            selectionColor.setVolatileValue(selectionColor.defaultValue());
-
-            for (ColorAspect &color : colors)
-                color.setVolatileValue(color.defaultValue());
-        });
-
-        if (schemeLog().isDebugEnabled()) {
-            connect(copyTheme, &QPushButton::clicked, this, [this] {
-                auto toThemeColor = [](const ColorAspect &color) -> QString {
-                    QColor c = color.value();
-                    QString a = c.alpha() != 255 ? QString("%1").arg(c.alpha(), 2, 16, QChar('0'))
-                                                 : QString();
-                    return QString("%1%2%3%4")
-                        .arg(a)
-                        .arg(c.red(), 2, 16, QChar('0'))
-                        .arg(c.green(), 2, 16, QChar('0'))
-                        .arg(c.blue(), 2, 16, QChar('0'));
-                };
-
-                QString theme;
-                QTextStream stream(&theme);
-                stream << "TerminalForeground=" << toThemeColor(foregroundColor) << '\n';
-                stream << "TerminalBackground=" << toThemeColor(backgroundColor) << '\n';
-                stream << "TerminalSelection=" << toThemeColor(selectionColor) << '\n';
-                stream << "TerminalFindMatch=" << toThemeColor(findMatchColor) << '\n';
-                for (int i = 0; i < 16; ++i)
-                    stream << "TerminalAnsi" << i << '=' << toThemeColor(colors[i]) << '\n';
-
-                setClipboardAndSelection(theme);
-            });
-        }
-
-        // clang-format off
-        return Column {
-            Group {
-                title(Tr::tr("General")),
-                Column {
-                    enableTerminal, st,
-                    sendEscapeToTerminal, st,
-                    lockKeyboard, st,
-                    audibleBell, st,
-                    allowBlinkingCursor, st,
-                    enableMouseTracking, st,
-                    allowClipboardWrite, st,
-                    confirmUnsafePaste, st,
-                },
-            },
-            Group {
-                title(Tr::tr("Font")),
-                Row {
-                    fontFamily, Space(20),
-                    fontSize, st,
-                },
-            },
-            Group {
-                title(Tr::tr("Colors")),
-                Column {
-                    Row {
-                        Tr::tr("Foreground"), foregroundColor, st,
-                        Tr::tr("Background"), backgroundColor, st,
-                        Tr::tr("Selection"), selectionColor, st,
-                        Tr::tr("Find match"), findMatchColor, st,
-                    },
-                    Row {
-                        colors[0], colors[1],
-                        colors[2], colors[3],
-                        colors[4], colors[5],
-                        colors[6], colors[7]
-                    },
-                    Row {
-                        colors[8], colors[9],
-                        colors[10], colors[11],
-                        colors[12], colors[13],
-                        colors[14], colors[15]
-                    },
-                    Row {
-                        loadThemeButton, resetTheme, copyTheme, st,
-                    }
-                },
-            },
-            consoleHostGroup,
-            Group {
-                title(Tr::tr("Default Shell")),
-                Column {
-                    shell,
-                    shellArguments,
-                },
-            },
-            st,
-        };
-        // clang-format on
+        const Result<> result = loadColorScheme(path);
+        if (!result)
+            QMessageBox::warning(Core::ICore::dialogParent(), Tr::tr("Error"), result.error());
     });
+
+    resetTheme.setActionText(Tr::tr("Reset Theme"));
+    resetTheme.setQmlName("ResetTheme");
+    resetTheme.setAction([this] {
+        foregroundColor.setVolatileValue(foregroundColor.defaultValue());
+        backgroundColor.setVolatileValue(backgroundColor.defaultValue());
+        selectionColor.setVolatileValue(selectionColor.defaultValue());
+
+        for (ColorAspect &color : colors)
+            color.setVolatileValue(color.defaultValue());
+    });
+
+    copyTheme.setActionText(Tr::tr("Copy Theme"));
+    copyTheme.setQmlName("CopyTheme");
+    // A debugging aid, not something every user needs to see.
+    copyTheme.setVisible(schemeLog().isDebugEnabled());
+    copyTheme.setAction([this] {
+        auto toThemeColor = [](const ColorAspect &color) -> QString {
+            QColor c = color.value();
+            QString a = c.alpha() != 255 ? QString("%1").arg(c.alpha(), 2, 16, QChar('0'))
+                                         : QString();
+            return QString("%1%2%3%4")
+                .arg(a)
+                .arg(c.red(), 2, 16, QChar('0'))
+                .arg(c.green(), 2, 16, QChar('0'))
+                .arg(c.blue(), 2, 16, QChar('0'));
+        };
+
+        QString theme;
+        QTextStream stream(&theme);
+        stream << "TerminalForeground=" << toThemeColor(foregroundColor) << '\n';
+        stream << "TerminalBackground=" << toThemeColor(backgroundColor) << '\n';
+        stream << "TerminalSelection=" << toThemeColor(selectionColor) << '\n';
+        stream << "TerminalFindMatch=" << toThemeColor(findMatchColor) << '\n';
+        for (int i = 0; i < 16; ++i)
+            stream << "TerminalAnsi" << i << '=' << toThemeColor(colors[i]) << '\n';
+
+        setClipboardAndSelection(theme);
+    });
+
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Terminal/TerminalSettingsPage.qml"));
 
     readSettings();
 }
