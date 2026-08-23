@@ -315,22 +315,51 @@ In order:
    distinction matters: the header is what `AspectContainerModel` and every
    other consumer sees.
 
-   What still pins `aspects.cpp`, all of it widget code the aspects run
-   themselves rather than API they expose:
+   The widget code the aspects used to run themselves has moved out too.
+   `createSubWidget`, `registerSubWidget`, `createLabel`,
+   `addLabeledItem(s)`, `addMacroExpansion`, `improveWheelScrolling`,
+   `createConfigWidget`, `adoptButton`, `addToLayoutHelper` and
+   `groupChecker` are free functions in `Utils::AspectWidgets`
+   (`aspectwidgets.{h,cpp}`) taking the aspect as their first argument. They
+   had to stop being members: on Windows an exported class cannot have its
+   member definitions split across two libraries, so as long as they were
+   members no amount of moving other code could get `aspects.cpp` off the
+   widget side. 29 aspects that build their own control call them by name now.
+   `addToLayoutHelper` and the renderer's `renderBool` turned out to be the
+   same function written twice, so they became one `addButtonToLayout` that
+   the renderer, `adoptButton` and the checkable composites all go through.
 
-   | | why |
-   |---|---|
-   | `createLabel`, `addLabeledItem(s)` | build the label column; `<QLabel>` |
-   | `registerSubWidget`, `improveWheelScrolling` | apply enabled/tooltip/read-only to a built control |
-   | `addMacroExpansion` | attaches a `VariableChooser` |
-   | `BoolAspect::addToLayoutHelper` / `adoptButton` | lays out a foreign `QAbstractButton`; `<QVBoxLayout>` |
-   | `ToggleAspect` group-box path | `<QGroupBox>` |
-   | `BaseAspect::createConfigWidget` / `ConfigWidgetCreator` | nine plugin aspects return a bespoke widget |
-   | `layoutbuilder.h`, `checkablemessagebox.h` | included for `Layouting::Layout` and `CheckableDecider` |
+   Two more headers were pulling QtWidgets in for non-widget reasons and were
+   split: `CheckableDecider` (two `std::function`s) out of
+   `checkablemessagebox.h` into `checkabledecider.{h,cpp}`, and
+   `CheckableAspectImplementation::addToLayoutFirst/Last` out of
+   `checkableaspect.h` into the renderer.
 
-   These are the "aspect renders itself" extension point, not accessors, so
-   each needs its plugin call sites redesigned rather than re-pointed. That is
-   the same work as removing `Layouting`, and it should be done with it.
+   **`aspects.cpp` now has no QtWidgets include of its own, and exactly one
+   widget-side dependency: `layoutbuilder.h`**, which
+   `AspectContainer::addToLayoutImpl` needs complete because its layouter is a
+   `std::function<Layouting::Layout()>`. That is the floor, and it cannot be
+   lifted by cleaning `layoutbuilder.h` in place: the header names
+   `QFrame::Shape`, `QDialogButtonBox::ButtonRole/StandardButton` and
+   `CompletingTextEdit::CompletionBehavior`, and a nested enum requires its
+   enclosing class to be complete. `Layouting::Layout` itself is clean - it
+   only names `QLayout`, `QWidget` and the concrete layout types through
+   pointers - so the two ways out are:
+
+   1. Split the `Layout`/`LayoutItem` core into a `layout.h` that
+      `layoutbuilder.h` includes, leaving the three widget-specific builders
+      behind. No consumer changes: they keep including `layoutbuilder.h`.
+   2. Remove `Layouting` as planned, replacing it with hand-written `.qml`.
+
+   (1) is throwaway work if (2) happens soon, and worth doing if the Utils
+   split needs to land first. Do not "fix" the nested enums by weakening the
+   signatures to `int` - `setFieldGrowthPolicy(int)` already does that and it
+   is not a pattern to spread.
+
+   What is left in `aspects.h` that mentions a widget type is only what those
+   free functions need in their own signatures, plus
+   `ConfigWidgetCreator = std::function<QWidget *()>`, which never needs
+   `QWidget` complete.
 
 1. **The earlier measurement note, kept because the method matters.**
    Every binary that renders aspects now installs the renderer (`main.cpp`, the
