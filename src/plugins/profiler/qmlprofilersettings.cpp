@@ -84,22 +84,7 @@ QmlProfilerSettings::QmlProfilerSettings()
     findingsPerFrameBudgetUs.setDefaultValue(500);
     findingsPerFrameBudgetUs.setLabelText(Tr::tr("Report per-frame cost above (us):"));
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-        // The findings thresholds sit in the same form as the rest: an aspect placed in a
-        // Group needs its label spelled out again in a Row, and these already carry one.
-        return Form {
-            flushEnabled, br,
-            flushInterval, br,
-            aggregateTraces, br,
-            findingsCompileThresholdMs, br,
-            findingsSyncLoadThresholdMs, br,
-            findingsPeriodicMinCount, br,
-            findingsPeriodicDeviationPercent, br,
-            findingsPixmapMegapixels, br,
-            findingsPerFrameBudgetUs, br,
-        };
-    });
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Profiler/QmlProfilerSettingsPage.qml"));
 
     readSettings();
 

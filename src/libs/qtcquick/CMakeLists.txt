@@ -40,6 +40,7 @@ if(TARGET QtcQuick)
       AspectListDelegate.qml
       AspectPage.qml
       BoolDelegate.qml
+      ButtonDelegate.qml
       ColorDelegate.qml
       DoubleDelegate.qml
       FilePathListDelegate.qml

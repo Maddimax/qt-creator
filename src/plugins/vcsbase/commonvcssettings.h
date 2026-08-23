@@ -36,6 +36,7 @@ public:
     Utils::IntegerAspect vcsShowStatusInterval{this};
     Utils::BoolAspect spellCheck{this};
     SpellCheckLanguageAspect spellCheckLanguage{this};
+    Utils::ActionAspect resetCache{this};
 };
 
 VCSBASE_EXPORT CommonVcsSettings &commonSettings();

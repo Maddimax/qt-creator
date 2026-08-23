@@ -110,6 +110,7 @@ private slots:
     void testQmlOnlyContainerStillLaysOutInAWidgetLayout();
     void testAspectVisibilityReachesTheDrawnControl();
     void testAspectQmlNamesAreUsableAndUnique();
+    void testActionAspectIsAButtonOnEitherRenderer();
 };
 
 void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
@@ -484,6 +485,44 @@ void QuickUiTest::testAspectQmlNamesAreUsableAndUnique()
     }
     if (!problems.isEmpty())
         QFAIL(qPrintable("\n  " + problems.join("\n  ")));
+}
+
+void QuickUiTest::testActionAspectIsAButtonOnEitherRenderer()
+{
+    // A page action used to be a PushButton a Layouting closure built, which
+    // no other renderer could see. As an aspect it is reachable by name from a
+    // page's QML and drawn by both renderers.
+    int triggered = 0;
+    Utils::AspectContainer page;
+    Utils::ActionAspect reset(&page);
+    reset.setActionText("Reset Version Control Cache");
+    reset.setQmlName("ResetCache");
+    reset.setAction([&triggered] { ++triggered; });
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QVERIFY(quickWidget->rootObject());
+
+    QQuickItem *button = nullptr;
+    QTRY_VERIFY(button = findButton(quickWidget->rootObject(), "Reset Version Control Cache"));
+    QMetaObject::invokeMethod(button, "clicked");
+    QCOMPARE(triggered, 1);
+
+    // And the same aspect in a widget layout, which is what an unported page
+    // containing one still gets.
+    Layouting::Column column{&reset};
+    const std::unique_ptr<QWidget> widget(column.emerge());
+    QVERIFY(widget);
+    QAbstractButton *pushButton = nullptr;
+    for (QAbstractButton *candidate : widget->findChildren<QAbstractButton *>()) {
+        if (candidate->text() == "Reset Version Control Cache")
+            pushButton = candidate;
+    }
+    QVERIFY(pushButton);
+    pushButton->click();
+    QCOMPARE(triggered, 2);
 }
 
 void QuickUiTest::testQmlNameIsDerivedFromTheSettingsKey()

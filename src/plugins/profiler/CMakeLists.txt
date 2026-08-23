@@ -206,3 +206,17 @@ endfunction()
 if (TARGET Profiler)
   cmake_language(DEFER DIRECTORY "${CMAKE_SOURCE_DIR}" CALL qtc_profiler_add_perfparser_dependency)
 endif()
+
+# Settings pages' Qt Quick forms. A module rather than a plain resource so that
+# qmllint and qmlcachegen see the files; qbs cannot build QML modules, so it
+# only lists them - the same split qtcquick already lives with.
+if(TARGET Profiler AND TARGET Qt::Quick)
+  qt_add_qml_module(Profiler
+    URI QtCreator.Profiler
+    VERSION 1.0
+    RESOURCE_PREFIX "/qt/qml"
+    NO_PLUGIN
+    QML_FILES
+      QmlProfilerSettingsPage.qml
+  )
+endif()

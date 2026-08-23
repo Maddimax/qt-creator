@@ -412,13 +412,23 @@ second: `git log -S setQmlSource -p` and grep the deleted lines for
 behaviour, and `groupChecker` (CTest, Beautifier, Subversion) is pure layout,
 answered by `AspectGroupBox.checkAspect`.
 
+**A page action is an aspect now.** Several closures ended in a `PushButton`
+with an `onClicked` - Reset Version Control Cache, qbs's Reset, Install
+Extension - which nothing but a layout could see. `Utils::ActionAspect` holds
+no value and carries only a label and a callback; its control is
+`AspectControls::Button`, drawn by `ButtonDelegate` on the Quick side and by a
+`QPushButton` on the widget side. So the button is reachable by name from a
+page's QML like everything else, works before and after a page is ported, and
+needs no second seam beside `aspects`. Give it a `setQmlName()`: it has no
+settings key to derive one from.
+
 One more thing a closure can be: shared. `CppcheckSettings::layouter()` is a
 method, and the manual-run dialog builds a widget from it too, so the page
 naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
 all`, minus `QmlDesigner` and `UpdateInfo`, see below): **73 aspect-driven
-pages, 32 with their own QML and rendered with Qt Quick, 41 still on widgets.**
+pages, 37 with their own QML and rendered with Qt Quick, 36 still on widgets.**
 Before the gate was narrowed, 65 pages rendered generically; the delegate work
 that made that possible is all still in place and is what the ports build on:
 `StringListAspect` (a real list editor), `IntegersAspect` (`Invisible`, because

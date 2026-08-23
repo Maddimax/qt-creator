@@ -68,6 +68,10 @@ ColumnLayout {
                 TextWithActionDelegate {}
             }
             DelegateChoice {
+                roleValue: AspectContainerModel.Button
+                ButtonDelegate {}
+            }
+            DelegateChoice {
                 roleValue: AspectContainerModel.Invisible
                 Item {}
             }

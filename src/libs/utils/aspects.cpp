@@ -934,6 +934,13 @@ public:
     bool m_wordWrap = true;
 };
 
+class ActionAspectPrivate
+{
+public:
+    QString m_actionText;
+    std::function<void()> m_action;
+};
+
 } // Internal
 
 /*!
@@ -3232,6 +3239,53 @@ AspectPresentation TextDisplay::presentation() const
     p.infoType = d->m_type;
     p.wordWrap = d->m_wordWrap;
     return p;
+}
+
+/*!
+    \class Utils::ActionAspect
+    \inmodule QtCreator
+
+    \brief A button on a page, and the thing it does.
+
+    Holds no value. A page action is an aspect like everything else on the page,
+    so it is reachable by name from the page's QML and drawable by either
+    renderer.
+*/
+
+ActionAspect::ActionAspect(AspectContainer *container)
+    : BaseAspect(container), d(new Internal::ActionAspectPrivate)
+{}
+
+ActionAspect::~ActionAspect() = default;
+
+void ActionAspect::setActionText(const QString &text)
+{
+    d->m_actionText = text;
+}
+
+void ActionAspect::setAction(const std::function<void()> &action)
+{
+    d->m_action = action;
+}
+
+void ActionAspect::triggerAction()
+{
+    QTC_ASSERT(d->m_action, return);
+    d->m_action();
+}
+
+AspectPresentation ActionAspect::presentation() const
+{
+    AspectPresentation p = BaseAspect::presentation();
+    p.control = AspectControls::Button;
+    p.actionText = d->m_actionText;
+    return p;
+}
+
+void ActionAspect::addToLayoutImpl(Layout &parent)
+{
+    // As TextDisplay: the widget renderer owns this control's construction.
+    QTC_CHECK(renderAspect(*this, parent));
 }
 
 void TextDisplay::addToLayoutImpl(Layout &parent)

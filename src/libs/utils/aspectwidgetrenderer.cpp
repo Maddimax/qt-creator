@@ -173,6 +173,9 @@ public:
                 return true;
             }
             return false;
+        case AspectControls::Button:
+            renderButton(&aspect, parent, pres);
+            return true;
         case AspectControls::Container:
             if (auto container = qobject_cast<AspectContainer *>(&aspect)) {
                 if (const AspectWidgets::Layouter l = AspectWidgets::layouter(container))
@@ -288,6 +291,19 @@ private:
             QObject::connect(checked, &BoolAspect::volatileValueChanged, label,
                              [aspect, label] { updateFromCheckStatus(aspect, label); });
         }
+    }
+
+    static void renderButton(BaseAspect *aspect, Layout &parent, const AspectPresentation &pres)
+    {
+        auto button = AspectWidgets::createSubWidget<QPushButton>(aspect);
+        button->setText(pres.actionText);
+        button->setToolTip(pres.toolTip);
+        button->setEnabled(pres.enabled);
+        button->setVisible(pres.visible);
+        QObject::connect(button, &QAbstractButton::clicked, aspect, [aspect] {
+            aspect->triggerAction();
+        });
+        parent.addItem(button);
     }
 
     static void renderBool(BoolAspect *aspect, Layout &parent, const AspectPresentation &pres)

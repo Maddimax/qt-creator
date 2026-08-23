@@ -51,6 +51,7 @@ enum class PathChooserKind;
 using Store = QMap<Key, QVariant>; // TODO: storefwd.h? utils_fwd.h?
 
 namespace Internal {
+class ActionAspectPrivate;
 class AspectContainerPrivate;
 class AspectWidgetRenderer;
 class BaseAspectPrivate;
@@ -1250,6 +1251,29 @@ signals:
 
 private:
     std::unique_ptr<Internal::TextDisplayPrivate> d;
+};
+
+// A button on a page, and the thing it does. Holds no value: it is here so
+// that a page action is an aspect like everything else on the page, reachable
+// by name from the page's QML and drawable by either renderer, rather than
+// something only a layout could build.
+class QTCREATOR_UTILS_EXPORT ActionAspect : public BaseAspect
+{
+    Q_OBJECT
+
+public:
+    explicit ActionAspect(AspectContainer *container = nullptr);
+    ~ActionAspect() override;
+
+    void setActionText(const QString &text);
+    void setAction(const std::function<void()> &action);
+
+    void triggerAction() override;
+    AspectPresentation presentation() const override;
+    void addToLayoutImpl(Layouting::Layout &parent) override;
+
+private:
+    std::unique_ptr<Internal::ActionAspectPrivate> d;
 };
 
 class QTCREATOR_UTILS_EXPORT AspectContainerData

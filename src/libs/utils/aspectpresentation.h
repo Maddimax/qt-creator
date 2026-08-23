@@ -48,6 +48,8 @@ enum Control {
     // A summary of the value plus one button that acts on it, for an aspect
     // edited through a dialog rather than in place.
     TextWithAction,
+    // One button and nothing else, for a page action that has no value.
+    Button,
 };
 Q_ENUM_NS(Control)
 

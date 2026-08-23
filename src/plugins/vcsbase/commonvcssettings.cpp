@@ -165,27 +165,14 @@ CommonVcsSettings::CommonVcsSettings()
     spellCheckLanguage.setEnabler(&spellCheck);
     spellCheckLanguage.setVisible(SpellChecker::instance()->isAvailable());
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-        return Column {
-            Row { vcsShowStatus, vcsShowStatusInterval, st },
-            Row { lineWrap, lineWrapWidth, st },
-            Row { spellCheck, spellCheckLanguage, st },
-            Form {
-                submitMessageCheckScript, br,
-                nickNameMailMap, br,
-                nickNameFieldListFile, br,
-                sshPasswordPrompt, br,
-                empty,
-                PushButton {
-                    text(Tr::tr("Reset Version Control Cache")),
-                    Layouting::toolTip(Tr::tr("Reset information about which "
-                                              "version control system handles which directory.")),
-                    onClicked(this, &VcsManager::clearVersionControlCache)
-                }
-            }
-        };
-    });
+    resetCache.setActionText(Tr::tr("Reset Version Control Cache"));
+    resetCache.setToolTip(
+        Tr::tr("Reset information about which version control system handles "
+               "which directory."));
+    resetCache.setQmlName("ResetCache");
+    resetCache.setAction([] { VcsManager::clearVersionControlCache(); });
+
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/VcsBase/CommonVcsSettingsPage.qml"));
 
     auto updatePath = [this] {
         Environment env;

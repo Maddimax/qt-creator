@@ -382,53 +382,7 @@ ValgrindSettings::ValgrindSettings(bool global)
     shortenTemplates.setToolTip(Tr::tr("Remove template parameter lists when displaying function names."));
     shortenTemplates.setVisible(global);
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-
-        // clang-format off
-        Grid generic {
-            valgrindExecutable, br,
-            valgrindArguments, br,
-            selfModifyingCodeDetection, br
-        };
-
-        Grid memcheck {
-            memcheckArguments, br,
-            trackOrigins, br,
-            showReachable, br,
-            leakCheckOnFinish, br,
-            numCallers, br,
-            filterExternalIssues, br,
-            suppressions
-        };
-
-        Grid callgrind {
-            callgrindArguments, br,
-            kcachegrindExecutable, br,
-            minimumInclusiveCostRatio, br,
-            visualizationMinimumInclusiveCostRatio, br,
-            enableEventToolTips, br,
-            Span {
-                2,
-                Group {
-                    Column {
-                        enableCacheSim,
-                        enableBranchSim,
-                        collectSystime,
-                        collectBusEvents,
-                    }
-                }
-            }
-        };
-
-        return Column {
-            Group { title(Tr::tr("Valgrind Generic Settings")), generic },
-            Group { title(Tr::tr("Memcheck Memory Analysis Options")), memcheck },
-            Group { title(Tr::tr("Callgrind Profiling Options")), callgrind },
-            st,
-        };
-        // clang-format on
-    });
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Valgrind/ValgrindSettingsPage.qml"));
 
     if (global)
         readSettings();

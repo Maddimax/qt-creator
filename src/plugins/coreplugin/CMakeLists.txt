@@ -370,6 +370,7 @@ if(TARGET Core AND TARGET Qt::Quick)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      CustomLanguageModelsPage.qml
       mcp/McpSettingsPage.qml
   )
 endif()

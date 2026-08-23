@@ -117,10 +117,7 @@ CustomLanguageModels::CustomLanguageModels()
         return {};
     };
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-        return Column { models };
-    });
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Core/CustomLanguageModelsPage.qml"));
 
     readSettings();
 }

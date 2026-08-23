@@ -104,6 +104,7 @@ GitSettings::GitSettings()
     repositoryBrowserCmd.setLabelText(Tr::tr("Command:"));
 
     instantBlame.setSettingsKey("Git Instant");
+    instantBlame.setQmlName("InstantBlame");
     instantBlame.setDefaultValue(true);
     instantBlame.setLabelText(Tr::tr("Add instant blame annotations to editor"));
     instantBlame.setToolTip(
@@ -138,50 +139,7 @@ GitSettings::GitSettings()
 
     timeout.setDefaultValue(Utils::HostOsInfo::isWindowsHost() ? 60 : 30);
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-        return Column {
-            Group {
-                title(Tr::tr("Configuration")),
-                Form {
-                    binaryPath, br,
-                    path, br,
-                    winSetHomeEnvironment,
-                }
-            },
-
-            Group {
-                title(Tr::tr("Miscellaneous")),
-                Column {
-                    Row { logCount, timeout, st },
-                    Row { pullRebase, rebaseMerges, updateRefs, st },
-                }
-            },
-
-            Group {
-                title(Tr::tr("Gitk")),
-                Row { gitkOptions }
-            },
-
-            Group {
-                title(Tr::tr("Repository Browser")),
-                Row { repositoryBrowserCmd }
-            },
-
-            Group {
-                title(Tr::tr("Instant Blame")),
-                groupChecker(Utils::AspectWidgets::groupChecker(&instantBlame)),
-                Row {
-                    instantBlameIgnoreSpaceChanges,
-                    instantBlameIgnoreLineMoves,
-                    instantBlameShowSubject,
-                    st
-                },
-            },
-
-            st
-        };
-    });
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Git/GitSettingsPage.qml"));
     connect(&binaryPath, &BaseAspect::changed, this, [this] { tryResolve = true; });
     connect(&path, &BaseAspect::changed, this, [this] { tryResolve = true; });
 
