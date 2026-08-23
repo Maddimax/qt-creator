@@ -462,6 +462,17 @@ it: Testing's "Active Test Frameworks" is a `FrameworksAspect` with no
 `presentation()`, so it is `Custom` and would vanish. (Display was the other
 one, until `named()` above; it draws aspects from two containers.)
 
+**A multi-line string was getting a one-line editor.** `TextEditDisplay` is
+what an aspect asks for when its value is several lines - GDB's extra dumper
+commands, the C++ code model's ignore pattern, a build step's effective call -
+and the Quick side folded it into the same `String` kind as a line edit. Two
+pages had already been ported when that was noticed. `TextAreaDelegate` draws it
+now, writing back when the editor loses the focus rather than per keystroke.
+
+Splitting that `case` is worth a word: `LineEdit` and `PasswordLineEdit` were
+*fall-through* labels on the `TextEdit` line, so changing what that line
+returned quietly changed all three. The password test caught it.
+
 **A spin box's unit was being dropped.** An `IntegerAspect` can name a prefix
 or suffix - the version control timeouts say "s" - and the widget renderer sets
 them on the `QSpinBox`. Qt Quick's `SpinBox` has neither property, so the

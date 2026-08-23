@@ -17,6 +17,9 @@ QtObject {
     // Height of a list editor in a settings form: enough rows to be worth
     // scrolling, not enough to dominate the page.
     readonly property int formListHeight: 120
+    // Height of a multi-line text editor in a settings form. Shorter than a
+    // list: what goes in one is usually a handful of lines.
+    readonly property int formTextAreaHeight: 90
     // Side length of the color preview swatch in ColorDelegate.
     readonly property int colorSwatchSize: 24
 

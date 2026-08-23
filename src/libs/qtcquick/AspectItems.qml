@@ -76,6 +76,10 @@ ColumnLayout {
                 RadioDelegate {}
             }
             DelegateChoice {
+                roleValue: AspectContainerModel.Text
+                TextAreaDelegate {}
+            }
+            DelegateChoice {
                 roleValue: AspectContainerModel.Invisible
                 Item {}
             }

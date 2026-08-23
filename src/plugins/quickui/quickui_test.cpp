@@ -117,6 +117,7 @@ private slots:
     void testRadioStyledBoolIsARadioButton();
     void testSpinBoxDrawsItsPrefixAndSuffix();
     void testPageQmlReachesANestedContainersAspects();
+    void testMultiLineStringGetsATextArea();
 };
 
 void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
@@ -715,6 +716,55 @@ AspectPage {
 
     // One object per container, so a page and the generic form agree on it.
     QCOMPARE(nested.findChildren<QtcQuick::NamedAspects *>().size(), 1);
+}
+
+void QuickUiTest::testMultiLineStringGetsATextArea()
+{
+    // A string edited over several lines - GDB's extra dumper commands, the C++
+    // code model's ignore pattern - shared the single-line delegate, which
+    // showed one line of it and no way to reach the rest. Both of those pages
+    // had already been ported when this was noticed.
+    Utils::AspectContainer page;
+    Utils::StringAspect commands(&page);
+    commands.setDisplayStyle(Utils::StringAspect::TextEditDisplay);
+    commands.setLabelText("Commands:");
+    commands.setValue("first\nsecond");
+    Utils::StringAspect name(&page);
+    name.setDisplayStyle(Utils::StringAspect::LineEditDisplay);
+    name.setLabelText("Name:");
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QQuickItem *rootItem = quickWidget->rootObject();
+    QVERIFY(rootItem);
+
+    // One of each: a line edit is still a line edit.
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(rootItem, "TextAreaDelegate"));
+    QCOMPARE(findQmlComponents(rootItem, "StringDelegate").size(), 1);
+
+    // Looked for inside the ScrollView: searching the delegate for "TextArea"
+    // would match TextAreaDelegate itself.
+    QQuickItem *scroll = findQmlComponent(delegate, "ScrollView");
+    QVERIFY(scroll);
+    QQuickItem *area = findQmlComponent(scroll, "TextArea");
+    QVERIFY(area);
+    QCOMPARE(area->property("text").toString(), QString("first\nsecond"));
+
+    // Written back when the editor loses the focus, not per keystroke: one undo
+    // step per character would be unusable.
+    QMetaObject::invokeMethod(area, "forceActiveFocus");
+    QTRY_VERIFY(area->hasActiveFocus());
+    area->setProperty("text", "first\nsecond\nthird");
+    QCOMPARE(commands.volatileValue(), QString("first\nsecond"));
+
+    // Tabbing away is what commits it.
+    QQuickItem *other = findQmlComponent(rootItem, "TextField");
+    QVERIFY(other);
+    QMetaObject::invokeMethod(other, "forceActiveFocus");
+    QTRY_COMPARE(commands.volatileValue(), QString("first\nsecond\nthird"));
 }
 
 void QuickUiTest::testQmlNameIsDerivedFromTheSettingsKey()

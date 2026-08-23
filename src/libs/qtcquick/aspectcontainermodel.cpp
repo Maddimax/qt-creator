@@ -100,8 +100,8 @@ AspectContainerModel::Kind AspectContainerModel::kindOf(AspectControls::Control 
     case AspectControls::Toggle:                 return Bool;
     case AspectControls::RadioButton:            return Radio;
     case AspectControls::LineEdit:
-    case AspectControls::PasswordLineEdit:
-    case AspectControls::TextEdit:               return String;
+    case AspectControls::PasswordLineEdit:       return String;
+    case AspectControls::TextEdit:               return Text;
     case AspectControls::PathChooser:            return FilePath;
     case AspectControls::ComboBox:
     case AspectControls::RadioButtonGroup:       return Selection;

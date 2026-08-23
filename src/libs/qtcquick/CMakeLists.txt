@@ -63,6 +63,7 @@ if(TARGET QtcQuick)
       StringDelegate.qml
       StringListDelegate.qml
       StringListEditorDelegate.qml
+      TextAreaDelegate.qml
       TextDisplayDelegate.qml
       TextWithActionDelegate.qml
       UnsupportedDelegate.qml
