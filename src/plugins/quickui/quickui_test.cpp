@@ -32,6 +32,7 @@
 #include <QTemporaryDir>
 #include <QTest>
 
+#include <functional>
 #include <memory>
 
 namespace QuickUi::Internal {
@@ -189,6 +190,59 @@ void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
             // an "aspect" property, which is what makes them one.
             const QList<QQuickItem *> delegates = findAspectDelegates(
                 quickWidget->rootObject());
+
+            // A hand-written page lists what it shows, so it can leave a
+            // setting out and nothing says so - the mirror image of the generic
+            // form showing everything. Every visible aspect the container holds
+            // has to appear somewhere on the page.
+            QSet<const Utils::BaseAspect *> drawn;
+            for (QQuickItem *delegate : delegates) {
+                if (auto aspect = delegate->property("aspect").value<Utils::BaseAspect *>())
+                    drawn.insert(aspect);
+            }
+            // A group's check box is drawn by AspectGroupBox, not by a delegate.
+            for (QQuickItem *group : findQmlComponents(quickWidget->rootObject(),
+                                                       "AspectGroupBox")) {
+                if (auto aspect = group->property("checkAspect").value<Utils::BaseAspect *>())
+                    drawn.insert(aspect);
+            }
+            QStringList missing;
+            std::function<void(const Utils::AspectContainer *)> walk =
+                [&](const Utils::AspectContainer *container) {
+                    for (Utils::BaseAspect *aspect : container->aspects()) {
+                        if (!aspect->isVisible())
+                            continue;
+                        if (auto nested = qobject_cast<Utils::AspectContainer *>(aspect)) {
+                            walk(nested);
+                            continue;
+                        }
+                        const auto kind = QtcQuick::AspectContainerModel::kindOf(aspect);
+                        if (kind == QtcQuick::AspectContainerModel::Invisible
+                            || kind == QtcQuick::AspectContainerModel::Unsupported)
+                            continue;
+                        // An aspect with no label was never meant for a form:
+                        // it is stored settings, or it is driven from some other
+                        // part of the UI. The closures did not draw these
+                        // either.
+                        if (aspect->labelText().isEmpty())
+                            continue;
+                        if (!drawn.contains(aspect)) {
+                            missing << Utils::stringFromKey(aspect->settingsKey())
+                                       + "/" + aspect->qmlName();
+                        }
+                    }
+                };
+            walk(*aspects);
+            // Reported rather than asserted: a page legitimately leaves out
+            // settings that are stored but edited elsewhere - GDB's throw and
+            // catch breakpoints live in the Breakpoints view, Valgrind's cycle
+            // detection in the Callgrind toolbar. Each line below was checked
+            // against the closure the page replaced. A new line is worth
+            // checking the same way.
+            if (!missing.isEmpty()) {
+                qInfo().noquote() << page->displayName() << "does not draw:"
+                                  << missing.join(", ");
+            }
             QVERIFY2(!delegates.isEmpty(),
                      qPrintable(page->displayName() + " renders no aspect at all"));
             for (QQuickItem *delegate : delegates) {

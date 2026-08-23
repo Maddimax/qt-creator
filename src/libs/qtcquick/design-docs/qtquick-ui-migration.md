@@ -481,26 +481,27 @@ nothing - and waits on the signal rather than on a non-empty string, because an
 empty secret is a legitimate answer. `FontAspect` still carries the original
 version of this trap.
 
-#### The thirteen that are left, and what each one needs
+#### The nine that are left, and what each one needs
 
-The mechanical patterns are used up. Every remaining page needs a control
-designed and a delegate written, which is a decision per widget rather than a
-port, so they are listed with what they actually need:
+Every one of these was read, not guessed at - the last three rounds each found
+that the widget collapsed to controls that already existed. These do not:
 
-| page | needs |
+| page | the widget, and why it does not collapse |
 |---|---|
-| QML/JS Editing | a tree of messages with two independent states per row - not a check-box list |
-| Testing | `FrameworksAspect` has no `presentation()` at all |
-| CPU Usage | `PerfConfigWidget`, an event configuration table |
-| Code Style (x3) | `CodeStyleSelectorWidget`, with import, export and copy |
-| Snippets, Font && Colors | the snippet and color-scheme editors |
+| Code Style (x3) | `createValueEditor()` returns a per-language editor built by a factory, and the page puts a syntax-highlighted preview beside it |
+| Snippets, Font && Colors | an editor and a live preview, same shape |
+| CPU Usage | `PerfConfigEventsModel` splits each entry of a `StringListAspect` into columns for editing. The string list editor would carry the data and every operation, and lose the columns - a real downgrade for the one page that has it |
+| Debugger General | `DebuggerSourcePathMappingWidget`, a two-column table of source and target paths with add and remove |
+| Testing General | `FrameworksAspect` has no `presentation()` at all, and its tree is two check boxes per row - enabled, and grouped |
+| QML/JS Editing | `AnalyzerMessagesAspect`, a tree with two independent states per message |
 
-Two of these are worth doing next for the same reason `TextWithAction` was: the
-shape recurs. The secret field is done - it was
-needed by HarmonyOS and by Lua's scriptable settings. A combo-plus-action is the
-other one: it appears in Clang Tools, the Code Model, and anywhere else an
-aspect is chosen from a managed list. The editors at the bottom of the table are
-single-use and much larger.
+Three shapes would cover them: an editable multi-column table (CPU Usage,
+Debugger General), rows of several check boxes (Testing, QML/JS Editing), and a
+hosted editor with a preview (Code Style, Snippets, Font && Colors). The third
+is the one worth deciding rather than building: those editors are large, and
+hosting the existing widget inside an otherwise-Quick page may be the right
+answer for a long time.
+
 
 **One page that cannot be ported as it stands,** noted so nobody rediscovers
 it: Testing's "Active Test Frameworks" is a `FrameworksAspect` with no
@@ -574,6 +575,26 @@ carrying the current configuration's name, opening a dialog that both picks and
 edits. That is `TextWithAction` - already described, already drawn - so the
 aspect needed three overrides and no new control at all. The guess would have
 cost a delegate and a kind for nothing.
+
+**Does a page leave anything out?** The gate above exists because the generic
+form shows *every* aspect while a layouter picks. A hand-written page picks too,
+so it has the mirror-image failure: it can quietly omit a setting. The page test
+walks each container and reports every labelled, visible aspect that no delegate
+and no group check box drew.
+
+It is reported, not asserted, because the exceptions are real: GDB's throw and
+catch breakpoints are edited in the Breakpoints view, Valgrind's cycle detection
+in the Callgrind toolbar, and plenty of aspects are stored settings that no page
+ever showed. Filtering on "has a `labelText`" removes most of that noise - an
+aspect nobody wrote a label for was never meant for a form - and collecting
+`AspectGroupBox.checkAspect` removes the rest of the false positives.
+
+What is left is five lines, each checked against the closure the page replaced
+and each correct: GDB's `BreakOnThrow` and `BreakOnCatch`, Catch's `WarnEmpty`,
+CVS's `LogCount`, FakeVim's `TextWidth`, and Valgrind's `CycleDetection` and
+`ShortenTemplates`. A *sixth* line is worth checking the same way. So the 64
+ported pages are faithful to what their closures drew, which is the first time
+that has been checked rather than assumed.
 
 **Naming the wrong delegate is not an error anywhere.** A check box bound to a
 string aspect draws unchecked and writes `true` into it; a one-line field bound
