@@ -361,11 +361,52 @@ rather than a refactor - and it needs delegate parity first. Known gaps:
   list, and `AspectPresentation` carries `spanX`/`spanY` but nothing renders
   them yet.
 
+### The Quick backend's replacement for setLayouter()
+
+A page points at a QML file:
+
+    setQmlSource(QUrl("qrc:/.../QmakeSettingsPage.qml"));
+
+`createAspectForm()` loads it when set and falls back to the generic
+model-driven form when not, so pages migrate one at a time. The page reaches
+its aspects by name:
+
+    AspectPage {
+        GroupBox {
+            title: qsTr("Parsing")
+            BoolDelegate { aspect: aspects.RunSystemFunction }
+        }
+    }
+
+`aspects` is a `QQmlPropertyMap` of `BaseAspect::qmlName()` to aspect.
+`qmlName()` defaults to the last component of the settings key (the tree uses
+both `/` and `.` as separators, and plenty of keys use neither) and
+`setQmlName()` overrides it. An aspect with no settings key has no derived
+name and is not reachable until given one; two aspects deriving the same name
+assert rather than leaving one silently unreachable.
+
+Writing the first such page immediately showed the delegates were wrong: they
+took `labelText`, `toolTip` and visibility as model roles, so a hand-written
+page would have had to repeat what the aspect already knows. All three are
+`Q_PROPERTY` on `BaseAspect`, so the delegates now read them from the aspect
+and those roles are gone. That also fixed a latent bug - the model emits no
+`dataChanged`, so a label or visibility change never reached the control.
+
+**Open: where plugin page QML lives.** No plugin ships QML today; `QtcQuick`
+is the only QML module in the tree. The two options are a QML module per
+plugin (`qt_add_qml_module` alongside `add_qtc_plugin`), which gives qmllint
+and qmlcachegen over the page files, or a plain resource, which gives neither.
+The catch is that **qbs has no QML module support** - the comment in
+`qtcquick.qbs` says the `.qml` files are built by CMake only - so a module per
+plugin means the qbs build ships no page QML at all. Decide this before
+writing the second page; 92 files will follow it.
+
 ### Phase 4 - the closures
 
-Then, per page: move the grouping into nested containers, delete the closure.
-65 pages this way. The other 27 need hand-written `.qml`, because they mix in
-widgets the model cannot describe.
+Then, per page: move the grouping into nested containers or write the page
+`.qml`, and once Quick is the default, delete the closure. 65 pages are pure
+aspect arrangements; the other 27 mix in widgets the model cannot describe and
+need hand-written `.qml` regardless.
 
 Do not try to shortcut Phase 1 by splitting `layoutbuilder.h` - see the note
 under step 0 for why that compiles and does not link.
