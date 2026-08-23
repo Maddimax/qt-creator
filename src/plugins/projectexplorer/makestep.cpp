@@ -353,13 +353,13 @@ QWidget *MakeStep::createConfigWidget()
         m_overrideMakeflagsAspect.setEnabled(jobCountEnabled);
 
         QString warningText;
-        InfoLabelType iconType = InfoLabelType::Information;
+        InfoType iconType = InfoType::Information;
         if (makeflagsJobCountMismatch()) {
             if (m_overrideMakeflagsAspect.value()) {
                 warningText = Tr::tr("Overriding <code>MAKEFLAGS</code> environment variable.");
             } else {
                 warningText = Tr::tr("<code>MAKEFLAGS</code> specifies a conflicting job count.");
-                iconType = InfoLabelType::Warning;
+                iconType = InfoType::Warning;
             }
         } else {
             warningText = Tr::tr("No conflict with <code>MAKEFLAGS</code> environment variable.");

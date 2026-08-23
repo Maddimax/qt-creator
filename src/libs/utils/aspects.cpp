@@ -12,7 +12,6 @@
 #include "fancylineedit.h"
 #include "guard.h"
 #include "guiutils.h"
-#include "infolabel.h"
 #include "layoutbuilder.h"
 #include "macroexpander.h"
 #include "passworddialog.h"
@@ -31,6 +30,7 @@
 #include <QCompleter>
 #include <QDoubleSpinBox>
 #include <QItemSelectionModel>
+#include <QLabel>
 #include <QGroupBox>
 #include <QVBoxLayout>
 #include <QPaintEvent>
@@ -1024,9 +1024,8 @@ class TextDisplayPrivate
 {
 public:
     QString m_message;
-    InfoLabelType m_type = InfoLabelType::None;
+    InfoType m_type = InfoType::None;
     bool m_wordWrap = true;
-    QPointer<InfoLabel> m_label;
 };
 
 } // Internal
@@ -3360,9 +3359,9 @@ void IntegersAspect::addToLayoutImpl(Layouting::Layout &parent)
     \class Utils::TextDisplay
     \inmodule QtCreator
 
-    \brief A text display is a phony aspect with the sole purpose of providing
-    some text display using an Utils::InfoLabel in places where otherwise
-    more expensive Utils::StringAspect items would be used.
+    \brief A text display is a phony aspect with the sole purpose of showing a
+    short message, optionally with an icon, in places where otherwise more
+    expensive Utils::StringAspect items would be used.
 
     A text display does not have a real value.
 */
@@ -3389,26 +3388,7 @@ AspectPresentation TextDisplay::presentation() const
 {
     AspectPresentation p = BaseAspect::presentation();
     p.control = AspectControls::Label;
-    switch (d->m_type) {
-    case InfoLabelType::None:
-        p.infoType = AspectControls::InfoType::None;
-        break;
-    case InfoLabelType::Information:
-        p.infoType = AspectControls::InfoType::Information;
-        break;
-    case InfoLabelType::Warning:
-        p.infoType = AspectControls::InfoType::Warning;
-        break;
-    case InfoLabelType::Error:
-        p.infoType = AspectControls::InfoType::Error;
-        break;
-    case InfoLabelType::Ok:
-        p.infoType = AspectControls::InfoType::Ok;
-        break;
-    case InfoLabelType::NotOk:
-        p.infoType = AspectControls::InfoType::NotOk;
-        break;
-    }
+    p.infoType = d->m_type;
     p.wordWrap = d->m_wordWrap;
     return p;
 }
@@ -3424,11 +3404,10 @@ void TextDisplay::addToLayoutImpl(Layout &parent)
     Sets \a t as the information label type for the visual representation
     of this aspect.
  */
-void TextDisplay::setIconType(const InfoLabelType &t)
+void TextDisplay::setIconType(InfoType type)
 {
-    d->m_type = t;
-    if (d->m_label)
-        d->m_label->setType(t);
+    d->m_type = type;
+    emit controlConfigurationChanged();
 }
 
 void TextDisplay::setText(const QString &message)
@@ -3440,23 +3419,12 @@ void TextDisplay::setText(const QString &message)
 void TextDisplay::setWordWrap(bool on)
 {
     d->m_wordWrap = on;
-    if (d->m_label)
-        d->m_label->setWordWrap(on);
+    emit controlConfigurationChanged();
 }
 
 QString TextDisplay::text() const
 {
     return d->m_message;
-}
-
-InfoLabel *TextDisplay::cachedLabel() const
-{
-    return d->m_label.data();
-}
-
-void TextDisplay::setCachedLabel(InfoLabel *label)
-{
-    d->m_label = label;
 }
 
 /*!

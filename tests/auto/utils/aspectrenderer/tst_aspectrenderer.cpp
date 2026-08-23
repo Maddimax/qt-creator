@@ -515,7 +515,7 @@ void tst_AspectRenderer::textDisplay()
     // The live-forwarding setters must reach the built label.
     aspect.setWordWrap(false);
     QVERIFY(!label->wordWrap());
-    aspect.setIconType(InfoLabelType::Error);
+    aspect.setIconType(InfoType::Error);
     QCOMPARE(label->type(), InfoLabelType::Error);
 }
 

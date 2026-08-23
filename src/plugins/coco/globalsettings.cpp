@@ -78,11 +78,11 @@ void CocoSettings::updateLabel(const FilePath &dir)
 {
     if (isCocoDirectory(dir) && verifyCocoDirectory(dir)) {
         m_isValid = true;
-        messageLabel.setIconType(InfoLabelType::None);
+        messageLabel.setIconType(InfoType::None);
         messageLabel.setText({});
     } else {
         m_isValid = false;
-        messageLabel.setIconType(InfoLabelType::Error);
+        messageLabel.setIconType(InfoType::Error);
         messageLabel.setText(Tr::tr("Error: Coco installation directory not found at \"%1\".")
                                  .arg(dir.toUserOutput()));
     }
@@ -123,7 +123,7 @@ void CocoSettings::logError(const QString &msg)
 {
     logFlashing(msg);
     m_isValid = false;
-    messageLabel.setIconType(InfoLabelType::Error);
+    messageLabel.setIconType(InfoType::Error);
     messageLabel.setText(msg);
 }
 

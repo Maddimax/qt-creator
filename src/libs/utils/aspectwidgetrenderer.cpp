@@ -798,27 +798,27 @@ private:
     static void renderTextDisplay(TextDisplay *aspect, Layout &parent,
                                   const AspectPresentation &pres)
     {
-        InfoLabel *label = aspect->cachedLabel();
-        if (!label) {
-            label = aspect->createSubWidget<InfoLabel>(aspect->text(),
-                                                       infoLabelType(pres.infoType));
-            label->setTextInteractionFlags(Qt::LinksAccessibleByMouse
-                                           | Qt::TextSelectableByMouse);
-            label->setToolTip(pres.toolTip);
-            QObject::connect(label, &QLabel::linkActivated,
-                             aspect, &TextDisplay::linkActivated);
-            label->setElideMode(Qt::ElideNone);
-            label->setWordWrap(pres.wordWrap);
-            // Do not use label->setVisible(isVisible()) unconditionally, it
-            // does not have a QWidget parent yet when used in a LayoutBuilder.
-            if (!pres.visible)
-                label->setVisible(false);
+        auto label = aspect->createSubWidget<InfoLabel>(aspect->text(),
+                                                        infoLabelType(pres.infoType));
+        label->setTextInteractionFlags(Qt::LinksAccessibleByMouse | Qt::TextSelectableByMouse);
+        label->setToolTip(pres.toolTip);
+        QObject::connect(label, &QLabel::linkActivated, aspect, &TextDisplay::linkActivated);
+        label->setElideMode(Qt::ElideNone);
+        label->setWordWrap(pres.wordWrap);
+        // Do not use label->setVisible(isVisible()) unconditionally, it
+        // does not have a QWidget parent yet when used in a LayoutBuilder.
+        if (!pres.visible)
+            label->setVisible(false);
 
-            QObject::connect(aspect, &TextDisplay::changed, label, [aspect, label] {
-                label->setText(aspect->text());
-            });
-            aspect->setCachedLabel(label);
-        }
+        QObject::connect(aspect, &TextDisplay::changed, label, [aspect, label] {
+            label->setText(aspect->text());
+        });
+        QObject::connect(aspect, &BaseAspect::controlConfigurationChanged, label,
+                         [aspect, label] {
+                             const AspectPresentation p = aspect->presentation();
+                             label->setType(infoLabelType(p.infoType));
+                             label->setWordWrap(p.wordWrap);
+                         });
         parent.addItem(label);
     }
 

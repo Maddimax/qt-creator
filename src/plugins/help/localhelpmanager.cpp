@@ -186,7 +186,7 @@ HelpSettings::HelpSettings()
     fallbackFont.fontPointSize.setDefaultValue(14);
     fallbackFont.fontPointSize.setLabelText(Tr::tr("Size:"));
 
-    errorLabel.setIconType(InfoLabelType::Error);
+    errorLabel.setIconType(InfoType::Error);
 
     setLayouter([this] {
 

@@ -41,14 +41,12 @@ class AspectContainer;
 class BoolAspect;
 class CheckableDecider;
 class Guard;
-class InfoLabel;
 class Key;
 class MacroExpander;
 class PathChooser;
 
 template <class T> class UndoableValue;
 
-enum class InfoLabelType;
 enum class PathChooserKind;
 
 using Store = QMap<Key, QVariant>; // TODO: storefwd.h? utils_fwd.h?
@@ -1254,7 +1252,7 @@ public:
 
     void addToLayoutImpl(Layouting::Layout &parent) override;
 
-    void setIconType(const InfoLabelType &t);
+    void setIconType(InfoType type);
     void setText(const QString &message);
     void setWordWrap(bool on);
 
@@ -1264,12 +1262,6 @@ signals:
     void linkActivated(const QString &link);
 
 private:
-    // The renderer keeps filling the cached label so that setIconType() and
-    // setWordWrap() still reach the live widget.
-    friend class Internal::AspectWidgetRenderer;
-    InfoLabel *cachedLabel() const;
-    void setCachedLabel(InfoLabel *label);
-
     std::unique_ptr<Internal::TextDisplayPrivate> d;
 };
 

@@ -83,6 +83,8 @@ Q_FLAG_NS(FontFilters)
 
 } // namespace AspectControls
 
+using InfoType = AspectControls::InfoType;
+
 // A backend-neutral description of an aspect's control, so that a renderer does
 // not have to know the aspect types. Only fields the control needs are filled.
 class QTCREATOR_UTILS_EXPORT AspectPresentation

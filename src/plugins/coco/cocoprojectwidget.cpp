@@ -39,7 +39,7 @@ CocoProjectWidget::CocoProjectWidget(Project *project, BuildConfiguration *build
     using namespace Layouting;
 
     m_configerrorLabel.setVisible(false);
-    m_configerrorLabel.setIconType(InfoLabelType::Error);
+    m_configerrorLabel.setIconType(InfoType::Error);
     Label docLink(
         QString(
             "<a href=\"https://doc.qt.io/coco/coveragescanner-command-line-arguments.html\">%1</a>")
@@ -157,12 +157,12 @@ void CocoProjectWidget::configurationErrorOccurred(const QString &error)
     Q_UNUSED(error)
 
     if (m_configState == configEdited) {
-        setMessageLabel(Utils::InfoLabelType::Information, Tr::tr("Re-configuring stopped by user."));
+        setMessageLabel(Utils::InfoType::Information, Tr::tr("Re-configuring stopped by user."));
         setState(configStopped);
     } else {
         // The variable error seems to contain no usable information.
         setMessageLabel(
-            Utils::InfoLabelType::Error,
+            Utils::InfoType::Error,
             Tr::tr("Error when configuring with \"%1\". "
                    "Check General Messages for more information.")
                 .arg(m_buildSettings->featureFilenName()));
@@ -229,7 +229,7 @@ void CocoProjectWidget::setTweaksVisible(bool on)
     m_tweaksEdit.setVisible(on);
 }
 
-void CocoProjectWidget::setMessageLabel(const Utils::InfoLabelType type, const QString &text)
+void CocoProjectWidget::setMessageLabel(Utils::InfoType type, const QString &text)
 {
     m_messageLabel.setText(text);
     m_messageLabel.setIconType(type);
@@ -238,7 +238,7 @@ void CocoProjectWidget::setMessageLabel(const Utils::InfoLabelType type, const Q
 void CocoProjectWidget::clearMessageLabel()
 {
     m_messageLabel.setText("");
-    m_messageLabel.setIconType(Utils::InfoLabelType::None);
+    m_messageLabel.setIconType(Utils::InfoType::None);
 }
 
 void CocoProjectWidget::onCoverageGroupBoxClicked()

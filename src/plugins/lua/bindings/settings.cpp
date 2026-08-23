@@ -573,19 +573,19 @@ void setupSettingsModule()
                             const QString type = value.as<QString>().toLower();
 
                             if (type.isEmpty() || type == "None")
-                                aspect->setIconType(InfoLabelType::None);
+                                aspect->setIconType(InfoType::None);
                             else if (type == "information")
-                                aspect->setIconType(InfoLabelType::Information);
+                                aspect->setIconType(InfoType::Information);
                             else if (type == "warning")
-                                aspect->setIconType(InfoLabelType::Warning);
+                                aspect->setIconType(InfoType::Warning);
                             else if (type == "error")
-                                aspect->setIconType(InfoLabelType::Error);
+                                aspect->setIconType(InfoType::Error);
                             else if (type == "ok")
-                                aspect->setIconType(InfoLabelType::Ok);
+                                aspect->setIconType(InfoType::Ok);
                             else if (type == "notok")
-                                aspect->setIconType(InfoLabelType::NotOk);
+                                aspect->setIconType(InfoType::NotOk);
                             else
-                                aspect->setIconType(InfoLabelType::None);
+                                aspect->setIconType(InfoType::None);
                         } else {
                             baseAspectCreate(aspect, key, value);
                         }

@@ -297,7 +297,7 @@ void tst_Aspects::presentationCarriesLabelState()
     TextDisplay display(nullptr, "message");
     QCOMPARE(display.presentation().infoType, AspectControls::InfoType::None);
     QVERIFY(display.presentation().wordWrap);
-    display.setIconType(InfoLabelType::Warning);
+    display.setIconType(InfoType::Warning);
     display.setWordWrap(false);
     const AspectPresentation p = display.presentation();
     QCOMPARE(p.infoType, AspectControls::InfoType::Warning);
