@@ -6,6 +6,7 @@
 #include "utils_global.h"
 
 #include "fancylineedit.h"
+#include "pathvalidation.h"
 #include "utility.h"
 
 QT_BEGIN_NAMESPACE
@@ -14,7 +15,6 @@ class QLineEdit;
 QT_END_NAMESPACE
 
 namespace Utils {
-Q_NAMESPACE_EXPORT(QTCREATOR_UTILS_EXPORT)
 
 class CommandLine;
 class Environment;
@@ -22,17 +22,6 @@ class FilePath;
 class FilePaths;
 class MacroExpander;
 class PathChooserPrivate;
-
-enum class PathChooserKind {
-    ExistingDirectory,
-    Directory, // A directory, doesn't need to exist
-    File, // An existing file
-    SaveFile, // A file that does not need to exist
-    ExistingCommand, // A command that must exist at the time of selection
-    Command, // A command that may or may not exist at the time of selection (e.g. result of a build)
-    Any
-};
-Q_ENUM_NS(PathChooserKind)
 
 class QTCREATOR_UTILS_EXPORT PathChooser : public QWidget
 {
@@ -64,13 +53,6 @@ public:
     FilePath absoluteFilePath() const; // Relative paths resolved wrt the specified base dir.
 
     FilePath unexpandedFilePath() const; // The raw unexpanded input as FilePath.
-
-    static FilePath expandPath(
-        const FilePath &path,
-        const MacroExpander *macroExpander,
-        const FilePath &baseDirectory,
-        const Environment &env,
-        PathChooserKind expectedKind = PathChooserKind::Any);
 
     FilePath baseDirectory() const;
     void setBaseDirectory(const Lazy<FilePath> &base);

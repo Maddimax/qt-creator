@@ -239,6 +239,8 @@ QtcLibrary {
         "passworddialog.h",
         "pathchooser.cpp",
         "pathchooser.h",
+        "pathvalidation.cpp",
+        "pathvalidation.h",
         "pathlisteditor.cpp",
         "pathlisteditor.h",
         "persistentsettings.cpp",

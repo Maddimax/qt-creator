@@ -1836,7 +1836,7 @@ FilePath FilePathAspect::effectiveBinary() const
         return *d->m_effectiveBinary;
 
     d->m_effectiveBinary.emplace(
-        PathChooser::expandPath(expandedValue(), nullptr, {}, {}, d->m_expectedKind));
+        Utils::expandPath(expandedValue(), nullptr, {}, {}, d->m_expectedKind));
     return *d->m_effectiveBinary;
 }
 

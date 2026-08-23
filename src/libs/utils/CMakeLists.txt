@@ -115,6 +115,7 @@ add_qtc_library(Utils
     overlaywidget.cpp overlaywidget.h
     passworddialog.cpp passworddialog.h
     pathchooser.cpp pathchooser.h
+    pathvalidation.cpp pathvalidation.h
     pathlisteditor.cpp pathlisteditor.h
     patternvalidator.h
     persistentsettings.cpp persistentsettings.h
