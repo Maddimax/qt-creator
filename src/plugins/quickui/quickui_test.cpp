@@ -114,6 +114,7 @@ private slots:
     void testActionAspectIsAButtonOnEitherRenderer();
     void testTextDisplayShowsItsMessage();
     void testRadioStyledBoolIsARadioButton();
+    void testSpinBoxDrawsItsPrefixAndSuffix();
 };
 
 void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
@@ -629,6 +630,35 @@ void QuickUiTest::testRadioStyledBoolIsARadioButton()
     QMetaObject::invokeMethod(radios.at(1), "toggled");
     QCOMPARE(chosen.volatileValue(), true);
     QCOMPARE(current.volatileValue(), true);
+}
+
+void QuickUiTest::testSpinBoxDrawsItsPrefixAndSuffix()
+{
+    // A spin box aspect can name a unit - the version control timeouts say
+    // "s", Application Output says "characters" - and Qt Quick's SpinBox has
+    // no prefix or suffix of its own, so the delegate has to put them beside
+    // it. It used to drop them.
+    Utils::AspectContainer page;
+    Utils::IntegerAspect timeout(&page);
+    timeout.setLabelText("Timeout:");
+    timeout.setRange(0, 100);
+    timeout.setValue(30);
+    timeout.setSuffix("s");
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QVERIFY(quickWidget->rootObject());
+
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "IntegerDelegate"));
+    QStringList drawn;
+    for (QQuickItem *label : findQmlComponents(delegate, "Label")) {
+        if (label->property("visible").toBool())
+            drawn << label->property("text").toString();
+    }
+    QCOMPARE(drawn, QStringList({"Timeout:", "s"}));
 }
 
 void QuickUiTest::testQmlNameIsDerivedFromTheSettingsKey()

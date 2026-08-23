@@ -56,5 +56,10 @@ RowLayout {
         }
     }
 
+    Label {
+        text: delegate.pres.suffix ?? ""
+        visible: text !== ""
+    }
+
     Item { Layout.fillWidth: true }
 }

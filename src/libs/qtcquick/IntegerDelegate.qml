@@ -31,6 +31,11 @@ RowLayout {
         elide: Text.ElideRight
     }
 
+    Label {
+        text: delegate.pres.prefix ?? ""
+        visible: text !== ""
+    }
+
     SpinBox {
         editable: true
         enabled: (delegate.aspect?.enabled ?? false) && !(delegate.aspect?.readOnly ?? false)
@@ -44,6 +49,11 @@ RowLayout {
         ToolTip.visible: hovered && delegate.toolTip !== ""
 
         onValueModified: if (delegate.aspect) delegate.aspect.value = value
+    }
+
+    Label {
+        text: delegate.pres.suffix ?? ""
+        visible: text !== ""
     }
 
     Item { Layout.fillWidth: true }

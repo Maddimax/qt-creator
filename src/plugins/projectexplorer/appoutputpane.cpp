@@ -1371,6 +1371,10 @@ AppOutputSettings::AppOutputSettings()
     maxCharCount.setSettingsKey("ProjectExplorer/Settings/MaxAppOutputLines");
     maxCharCount.setRange(1, INT_MAX);
     maxCharCount.setDefaultValue(Core::Constants::DEFAULT_MAX_CHAR_COUNT);
+    // The closure used to split "Limit output to %1 characters" around the spin
+    // box. The aspect says the same thing itself, which any renderer can draw.
+    maxCharCount.setLabelText(Tr::tr("Limit output to"));
+    maxCharCount.setSuffix(Tr::tr("characters"));
 
     overwriteBackground.setSettingsKey("ProjectExplorer/Settings/OverwriteBackground");
     overwriteBackground.setDefaultValue(false);
@@ -1382,26 +1386,7 @@ AppOutputSettings::AppOutputSettings()
     backgroundColor.setDefaultValue(QColor{});
     backgroundColor.setEnabler(&overwriteBackground);
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        // clang-format off
-        using namespace Layouting;
-        const QString msg = Tr::tr("Limit output to %1 characters");
-        const QStringList parts = msg.split("%1") << QString() << QString();
-        return Column {
-            wrapOutput,
-            cleanOldOutput,
-            discardExcessiveOutput,
-            mergeChannels,
-            Form {
-                runOutputMode, br,
-                debugOutputMode, br,
-            },
-            Row { parts.at(0).trimmed(), maxCharCount, parts.at(1).trimmed(), st },
-            Row { overwriteBackground, backgroundColor, st },
-            st,
-        };
-        // clang-format on
-    });
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/ProjectExplorer/AppOutputSettingsPage.qml"));
 
     readSettings();
 }

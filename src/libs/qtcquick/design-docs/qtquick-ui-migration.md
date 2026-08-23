@@ -421,6 +421,14 @@ exists for it; `StringAspect` reports its filtered value there too, which is
 what a `LabelDisplay` draws. The delegate also colours the text by
 `infoType`, so an error looks like one.
 
+**A spin box's unit was being dropped.** An `IntegerAspect` can name a prefix
+or suffix - the version control timeouts say "s" - and the widget renderer sets
+them on the `QSpinBox`. Qt Quick's `SpinBox` has neither property, so the
+delegates put them beside it. Until now they were simply not drawn, on pages
+already ported. Application Output's closure did the same thing by hand,
+splitting "Limit output to %1 characters" around the box; the aspect says it
+itself now.
+
 **A radio button is not a check box.** `AspectControls::RadioButton` folded
 into the check box on the Quick side, so a page offering a choice of two showed
 two check boxes. `RadioDelegate` draws it properly. Which of a set is on stays
@@ -452,7 +460,7 @@ naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
 all`, minus `QmlDesigner` and `UpdateInfo`, see below): **73 aspect-driven
-pages, 42 with their own QML and rendered with Qt Quick, 31 still on widgets.**
+pages, 43 with their own QML and rendered with Qt Quick, 30 still on widgets.**
 Before the gate was narrowed, 65 pages rendered generically; the delegate work
 that made that possible is all still in place and is what the ports build on:
 `StringListAspect` (a real list editor), `IntegersAspect` (`Invisible`, because

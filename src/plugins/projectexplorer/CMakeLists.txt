@@ -229,6 +229,7 @@ if(TARGET ProjectExplorer AND TARGET Qt::Quick)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      AppOutputSettingsPage.qml
       BuildAndRunSettingsPage.qml
       BuildPropertiesSettingsPage.qml
       CompileOutputSettingsPage.qml

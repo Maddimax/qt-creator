@@ -86,6 +86,10 @@ QVariantMap AspectModels::presentation(BaseAspect *aspect)
         // ordinary line edit: it differs only in not echoing what it holds.
         {"password", p.control == AspectControls::PasswordLineEdit},
         {"placeholderText", p.placeholderText},
+        // SpinBox. Qt Quick's has no prefix or suffix of its own, so the
+        // delegates put them beside it.
+        {"prefix", p.prefix},
+        {"suffix", p.suffix},
         // As a name rather than a number, so the delegates can read it.
         {"infoType", QString::fromLatin1(
                          QMetaEnum::fromType<AspectControls::InfoType>().valueToKey(
