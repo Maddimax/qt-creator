@@ -301,6 +301,75 @@ Clean now: `filepath`, `qtcprocess`, `environment`, `devicefileaccess`,
 header itself now reaches no QtWidgets header - plus the genuinely-widget files
 that belong there.
 
+## Removing Layouting
+
+The footprint, measured: **388 files include `layoutbuilder.h`**, 332 have
+`using namespace Layouting`, and there are roughly 1800 layout expressions
+(649 `Column`, 441 `Row`, 392 `Group`, 183 `Form`, 49 `Grid`, the rest in
+single digits). There is almost no dead weight to trim - only `SpanAll`,
+`rowStretch` and `widgetAttribute` are unused, about 60 lines, and `SpanAll`
+has a manual-demo user. So the size is all in the call sites, and it comes off
+in phases.
+
+Layouting does two unrelated jobs, and only the first one blocks anything:
+
+1. **Describing an aspect container** - the 92 `setLayouter` closures that
+   return `Column { aspectA, Group { title(...), Form { ... } } }`. These are
+   what QML replaces.
+2. **Hand-built widget UIs** - dialogs, panels and tool windows using
+   `Column`/`Row` as nicer QVBoxLayout syntax over real widgets. These go when
+   the Quick port reaches those windows, not before.
+
+Of the 92 closures, **65 are nothing but an arrangement of aspects** and 27
+also build raw widgets or poke objects (measured by scanning each closure body
+for `new`, `QWidget`, `QLabel`, `QPushButton` or `->`).
+
+### Phase 1 - done
+
+`AspectContainer` no longer stores a `std::function<Layouting::Layout()>`;
+it holds opaque backend data and `Utils::AspectWidgets::setLayouter()` puts the
+layouter there. `aspects.{h,cpp}` reference no Layouting or QtWidgets symbol
+(`nm -u`), so `Layouting` is no longer load-bearing in the aspect core and the
+library split is unblocked.
+
+### Phase 2 - done
+
+A page can now express grouping without a closure: a nested `AspectContainer`
+whose label is the group title, rendered by `GroupDelegate.qml` through the
+`childModel` role. Recursive. This is what the 65 need in order to lose their
+closures.
+
+### Phase 3 - the gate, and it is a product decision
+
+**No layouter can actually be deleted until the Quick form is the default.**
+`IOptionsPagePrivate::createWidget()` uses the Quick path only when an
+`aspectFormFactory` is installed, which today only the `quickui` plugin does.
+Delete a closure while the factory is absent and that page renders nothing.
+
+So Phase 3 is: install the factory unconditionally. That changes how every
+aspect-driven settings page looks, so it is a decision to take deliberately
+rather than a refactor - and it needs delegate parity first. Known gaps:
+
+- `StringSelectionAspect` and anything else whose choices come from an async
+  fill callback report no choices, so they render as `Unsupported`. They need
+  the choices in `AspectPresentation`, or a model role fed from the callback.
+- `StringList` (needs `appendValue`/`removeValue` invokable from QML),
+  `FontPicker` (a container, not a `TypedAspect`, so it has no bindable value)
+  and `IntegerList` (no `QVariantList` -> `QList<int>` conversion) are
+  placeholders. The reasons are recorded next to `kindOf()`.
+- Row and column arrangement within a group is not expressible: the model is a
+  list, and `AspectPresentation` carries `spanX`/`spanY` but nothing renders
+  them yet.
+
+### Phase 4 - the closures
+
+Then, per page: move the grouping into nested containers, delete the closure.
+65 pages this way. The other 27 need hand-written `.qml`, because they mix in
+widgets the model cannot describe.
+
+Do not try to shortcut Phase 1 by splitting `layoutbuilder.h` - see the note
+under step 0 for why that compiles and does not link.
+
 ## Next steps
 
 In order:
