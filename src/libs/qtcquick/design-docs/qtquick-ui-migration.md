@@ -383,6 +383,20 @@ or the smaller `QList<QRectF> QTextLine::selectionRects(int start, int length) c
 
 ## The terminal spike: go, with the cleanest split in the tree
 
+**Status update: the spike is being productised.** `TerminalQuick` is now the
+third product of the terminal solution - `TerminalSolution::TerminalQuickItem`
+linking `TerminalModel` and Qt::Quick only - with the spike's manual test moved
+in-tree (`tests/manual/quick/terminal/`, selftest/benchmark/demo modes). Landed
+on top of the port: grid-exact per-run rendering (the measured 12.281 px CJK
+drift is now 0.000, at one to two percent frame cost), the widget view's full
+selection state machine with per-platform clipboard behaviour behind the same
+virtual seams, and search-hit highlighting over the SearchHit seam with the
+current hit distinguished the widget's way. The selftest is 18 causal steps
+against a live zsh. In progress: IME preedit, links, zoom, password mode, the
+hosting setters, and a verdict on wavy/dashed underlines through QSGTextNode.
+Remaining after that: wiring into Creator's terminal plugin, which is gated on
+the shell interfaces rather than on this component.
+
 The integrated terminal was spiked the same way as the editor: a standalone
 `QQuickItem` over the **unmodified** `TerminalSolution::TerminalSurface`,
 measured rather than reasoned about. Verdict: **TerminalLib can serve a QML
