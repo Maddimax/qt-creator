@@ -421,6 +421,12 @@ exists for it; `StringAspect` reports its filtered value there too, which is
 what a `LabelDisplay` draws. The delegate also colours the text by
 `infoType`, so an error looks like one.
 
+**Verified against the whole suite,** not just the QuickUi test: `ctest -j8`
+gives 2985 tests with four failures - `tst_debugger_dumpers` and three
+`Model_Imports` cases - which are the same four that failed before any of this
+work started. `tst_utils_aspects` passes. Worth repeating after a batch that
+touches `aspects.h`, since almost everything includes it.
+
 **Two pages that cannot be ported as they stand,** noted so nobody rediscovers
 them: Testing's "Active Test Frameworks" is a `FrameworksAspect` with no
 `presentation()`, so it is `Custom` and would vanish; and Display draws aspects
