@@ -14,9 +14,11 @@
 
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <vector>
 
 namespace TerminalSolution {
@@ -29,6 +31,13 @@ class TERMINAL_QUICK_EXPORT TerminalQuickItem : public QQuickItem
     Q_PROPERTY(int scrollOffset READ scrollOffset WRITE setScrollOffset NOTIFY scrollOffsetChanged)
 
 public:
+    enum class ItemColorIdx {
+        Foreground = ColorIndex::Foreground,
+        Background = ColorIndex::Background,
+        Selection,
+        FindMatch,
+    };
+
     explicit TerminalQuickItem(QQuickItem *parent = nullptr);
     ~TerminalQuickItem() override;
 
@@ -48,16 +57,62 @@ public:
 
     void setSurfaceIntegration(SurfaceIntegration *integration);
 
+    struct Selection
+    {
+        int start;
+        int end;
+        bool final{false};
+
+        bool operator!=(const Selection &other) const
+        {
+            return start != other.start || end != other.end || final != other.final;
+        }
+
+        bool operator==(const Selection &other) const { return !operator!=(other); }
+    };
+
+    std::optional<Selection> selection() const { return m_selection; }
+    void clearSelection();
+    void selectAll();
+
+    void copyToClipboard();
+    void pasteFromClipboard();
+    void paste(const QString &text);
+
+    void enableMouseTracking(bool enable);
+
+    virtual const QList<SearchHit> &searchHits() const
+    {
+        static QList<SearchHit> noHits;
+        return noHits;
+    }
+
+    virtual void setClipboard(const QString &text) { Q_UNUSED(text) }
+    virtual void selectionChanged(const std::optional<Selection> &newSelection)
+    {
+        Q_UNUSED(newSelection)
+    }
+    virtual void contextMenuRequested(const QPoint &pos) { Q_UNUSED(pos) }
+
     // Selftest observability
     bool cursorBlinkTimerActive() const { return m_blinkTimer.isActive(); }
     int blinkToggleCount() const { return m_blinkToggles; }
+    QColor paletteColor(int index) const { return m_palette[size_t(index) % m_palette.size()]; }
+
+    struct VisibleRun
+    {
+        qreal x = 0;
+        QString text;
+        QList<QTextLayout::FormatRange> formats;
+    };
+    QList<VisibleRun> visibleRuns(int documentRow) const;
 
     // Perf instrumentation
     struct Stats
     {
         std::vector<qint64> polishNs;
         std::vector<qint64> paintNodeNs;
-        double maxGridDeviationPx = 0; // |layout x advance - grid column x|, worst visible cell
+        double maxGridDeviationPx = 0; // |layout advance - grid span| within multi-cell layouts
     };
     void beginStats();
     Stats takeStats();
@@ -73,17 +128,48 @@ protected:
     void wheelEvent(QWheelEvent *event) override;
     void focusInEvent(QFocusEvent *event) override;
     void focusOutEvent(QFocusEvent *event) override;
+    void mousePressEvent(QMouseEvent *event) override;
+    void mouseMoveEvent(QMouseEvent *event) override;
+    void mouseReleaseEvent(QMouseEvent *event) override;
+    void mouseDoubleClickEvent(QMouseEvent *event) override;
+
+    bool setSelection(const std::optional<Selection> &selection, bool scroll = true);
+    QString textFromSelection() const;
+
+    void scheduleRefresh();
 
 private:
-    void scheduleRefresh();
     void applySizeChange();
     void configBlinkTimer();
     QColor toQColor(const std::variant<int, QColor> &color) const;
 
+    qreal topMargin() const;
+    QPointF viewportToGlobal(QPointF p) const;
+    QPoint globalToGrid(QPointF p) const;
+    QPoint toGridPos(QMouseEvent *event) const;
+
+    struct TextAndOffsets
+    {
+        int start;
+        int end;
+        std::u32string text;
+    };
+    TextAndOffsets textAt(const QPointF &pos) const;
+
+    bool handleCopyPasteShortcut(QKeyEvent *event);
+    bool gridTrueChar(QChar c);
+
+    struct RunSnapshot
+    {
+        qreal x = 0;
+        std::unique_ptr<QTextLayout> layout;
+    };
+
     struct RowSnapshot
     {
+        int documentRow = -1;
         qreal y = 0;
-        std::unique_ptr<QTextLayout> layout;
+        std::vector<RunSnapshot> runs;
     };
 
     struct CursorSnapshot
@@ -102,10 +188,19 @@ private:
     QFont m_font;
     QSizeF m_cellSize;
     std::array<QColor, 20> m_palette;
+    std::array<qreal, 0x300> m_charAdvance; // lazily measured, -1 = unknown
 
     int m_scrollOffset = 0;
     bool m_followOutput = true;
     qreal m_wheelAccum = 0;
+
+    std::optional<Selection> m_selection;
+    QPointF m_activeMouseSelectStart; // full-buffer pixel coordinates
+    bool m_selectLineMode = false;
+    bool m_allowMouseTracking = true;
+    std::chrono::system_clock::time_point m_lastDoubleClick{std::chrono::system_clock::now()};
+    QTimer m_scrollTimer;
+    int m_scrollDirection = 0;
 
     Cursor m_cursor;
     QTimer m_blinkTimer;

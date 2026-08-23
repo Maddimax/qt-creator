@@ -185,6 +185,67 @@ private:
     QQuickWindow *m_window;
 };
 
+// Mirrors how Creator subclasses the widget view: clipboard binding and the
+// searchHits() seam live in the embedder.
+class TestTerminalItem : public TerminalQuickItem
+{
+public:
+    using TerminalQuickItem::TerminalQuickItem;
+
+    const QList<SearchHit> &searchHits() const override { return m_hits; }
+    void setSearchHits(const QList<SearchHit> &hits)
+    {
+        m_hits = hits;
+        scheduleRefresh();
+    }
+
+    // Creator marks the current hit by selecting it (TerminalSearch).
+    void selectCurrentHit(const SearchHit &hit)
+    {
+        setSelection(Selection{hit.start, hit.end, true});
+    }
+
+    void setClipboard(const QString &text) override
+    {
+        QGuiApplication::clipboard()->setText(text);
+    }
+
+private:
+    QList<SearchHit> m_hits;
+};
+
+static QString selectionText(TerminalSurface *surface, int start, int end)
+{
+    auto it = surface->iteratorAt(start);
+    const auto endIt = surface->iteratorAt(end);
+    std::u32string s;
+    bool previousWasZero = false;
+    for (; it != endIt; ++it) {
+        if (it.gridPos().x() == 0 && !s.empty() && previousWasZero)
+            s += U'\n';
+        if (*it != 0) {
+            previousWasZero = false;
+            s += *it;
+        } else {
+            previousWasZero = true;
+        }
+    }
+    return QString::fromUcs4(s.data(), int(s.size()));
+}
+
+// Topmost visible document row whose text starts with prefix.
+static int findVisibleRow(TerminalSurface *surface, const QString &prefix)
+{
+    const int full = surface->fullSize().height();
+    for (int y = full - surface->liveSize().height(); y < full; ++y) {
+        if (y < 0)
+            continue;
+        if (gridTextRows(surface, y, 1).trimmed().startsWith(prefix))
+            return y;
+    }
+    return -1;
+}
+
 static void saveScreenshot(QQuickWindow *window, const QString &name)
 {
     const QString dir = QStringLiteral(RESULTS_DIR);
@@ -388,7 +449,7 @@ private:
 class SelfTest : public QObject
 {
 public:
-    SelfTest(TerminalQuickItem *item, QQuickWindow *window, PtyHost *pty)
+    SelfTest(TestTerminalItem *item, QQuickWindow *window, PtyHost *pty)
         : m_item(item)
         , m_window(window)
         , m_pty(pty)
@@ -420,6 +481,29 @@ private:
                             QString(c));
             QCoreApplication::sendEvent(m_item, &event);
         }
+    }
+
+    QPointF cellCenter(int documentRow, int column) const
+    {
+        const qreal cellW = m_item->cellSize().width();
+        const qreal cellH = m_item->cellSize().height();
+        const qreal top = m_item->height() - m_item->gridSize().height() * cellH;
+        return {column * cellW + cellW / 2,
+                top + (documentRow - m_item->scrollOffset()) * cellH + cellH / 2};
+    }
+
+    void sendMouse(QEvent::Type type, const QPointF &pos, Qt::MouseButton button,
+                   Qt::MouseButtons buttons)
+    {
+        QMouseEvent event(type, pos, m_item->mapToScene(pos), m_item->mapToGlobal(pos),
+                          button, buttons, Qt::NoModifier);
+        QCoreApplication::sendEvent(m_item, &event);
+    }
+
+    void sendShortcut(Qt::Key key, const QString &text)
+    {
+        QKeyEvent event(QEvent::KeyPress, key, Qt::ControlModifier, text);
+        QCoreApplication::sendEvent(m_item, &event);
     }
 
     void setupSteps()
@@ -496,6 +580,140 @@ private:
                            [this] { m_item->setScrollOffset(m_item->maxScrollOffset()); },
                            [this] { return m_item->scrollOffset() == m_item->maxScrollOffset(); },
                            3000});
+        // Columns in the marker row: "select-alpha" 0-11, "bravo-target" 13-24.
+        m_steps.push_back({QStringLiteral("marker line for the selection tests"),
+                           [this] {
+                               sendText(QStringLiteral(
+                                   "echo select-alpha bravo-target charlie\r"));
+                           },
+                           [surface] {
+                               const int row = findVisibleRow(
+                                   surface, QStringLiteral("select-alpha bravo-target charlie"));
+                               if (row < 0)
+                                   return false;
+                               // the prompt below proves the output is complete
+                               return gridTextRows(surface, row + 1, 5)
+                                   .contains(QLatin1Char('%'));
+                           },
+                           10000});
+        m_steps.push_back({QStringLiteral("mouse drag selects computed cells"),
+                           [this, surface] {
+                               m_markerRow = findVisibleRow(
+                                   surface, QStringLiteral("select-alpha bravo-target charlie"));
+                               if (m_markerRow < 0)
+                                   return;
+                               const QPointF from = cellCenter(m_markerRow, 13);
+                               const QPointF to = cellCenter(m_markerRow, 25);
+                               sendMouse(QEvent::MouseButtonPress, from, Qt::LeftButton,
+                                         Qt::LeftButton);
+                               sendMouse(QEvent::MouseMove, cellCenter(m_markerRow, 18),
+                                         Qt::NoButton, Qt::LeftButton);
+                               sendMouse(QEvent::MouseMove, to, Qt::NoButton, Qt::LeftButton);
+                               sendMouse(QEvent::MouseButtonRelease, to, Qt::LeftButton,
+                                         Qt::NoButton);
+                           },
+                           [this, surface] {
+                               const auto sel = m_item->selection();
+                               if (!sel || !sel->final)
+                                   return false;
+                               return selectionText(surface, sel->start, sel->end)
+                                      == QLatin1String("bravo-target");
+                           },
+                           5000});
+        m_steps.push_back({QStringLiteral("copy shortcut fills the clipboard"),
+                           [this] {
+                               QGuiApplication::clipboard()->setText(
+                                   QStringLiteral("sentinel-unchanged"));
+                               sendShortcut(Qt::Key_C, QStringLiteral("c"));
+                           },
+                           [] {
+                               return QGuiApplication::clipboard()->text()
+                                      == QLatin1String("bravo-target");
+                           },
+                           5000});
+        m_steps.push_back({QStringLiteral("double-click selects the word under the cursor"),
+                           [this] {
+                               if (m_markerRow < 0)
+                                   return;
+                               const QPointF at = cellCenter(m_markerRow, 15);
+                               sendMouse(QEvent::MouseButtonDblClick, at, Qt::LeftButton,
+                                         Qt::LeftButton);
+                               sendMouse(QEvent::MouseButtonRelease, at, Qt::LeftButton,
+                                         Qt::NoButton);
+                           },
+                           [this, surface] {
+                               const auto sel = m_item->selection();
+                               if (!sel || !sel->final)
+                                   return false;
+                               return selectionText(surface, sel->start, sel->end)
+                                      == QLatin1String("bravo-target");
+                           },
+                           5000});
+        m_steps.push_back({QStringLiteral("paste shortcut round-trips through the pty"),
+                           [this] {
+                               QGuiApplication::clipboard()->setText(
+                                   QStringLiteral("echo paste-sentinel-$((11*13))"));
+                               sendShortcut(Qt::Key_V, QStringLiteral("v"));
+                               sendText(QStringLiteral("\r"));
+                           },
+                           [surface] {
+                               return liveGridText(surface)
+                                   .contains(QLatin1String("paste-sentinel-143"));
+                           },
+                           10000});
+        m_steps.push_back({QStringLiteral("search hits render findmatch and selection colors"),
+                           [this, surface] {
+                               m_markerRow = findVisibleRow(
+                                   surface, QStringLiteral("select-alpha bravo-target charlie"));
+                               if (m_markerRow < 0)
+                                   return;
+                               const int base = surface->gridToPos({0, m_markerRow});
+                               const SearchHit alpha{base, base + 12};
+                               const SearchHit bravo{base + 13, base + 25};
+                               m_item->setSearchHits({alpha, bravo});
+                               m_item->selectCurrentHit(bravo);
+                           },
+                           [this] {
+                               if (m_markerRow < 0)
+                                   return false;
+                               const QColor find = m_item->paletteColor(
+                                   int(TerminalQuickItem::ItemColorIdx::FindMatch));
+                               const QColor sel = m_item->paletteColor(
+                                   int(TerminalQuickItem::ItemColorIdx::Selection));
+                               bool haveFind = false;
+                               bool haveSel = false;
+                               const auto runs = m_item->visibleRuns(m_markerRow);
+                               for (const TerminalQuickItem::VisibleRun &run : runs) {
+                                   for (const QTextLayout::FormatRange &range : run.formats) {
+                                       const QColor bg = range.format.background().color();
+                                       haveFind = haveFind || bg == find;
+                                       haveSel = haveSel || bg == sel;
+                                   }
+                               }
+                               return haveFind && haveSel;
+                           },
+                           5000});
+        m_steps.push_back({QStringLiteral("CJK glyphs sit on exact grid columns"),
+                           [this] {
+                               m_item->setSearchHits({});
+                               sendText(QStringLiteral("echo \u6f22\u5b57\u30c6\u30b9\u30c8END\r"));
+                           },
+                           [this, surface] {
+                               const int row = findVisibleRow(
+                                   surface,
+                                   QStringLiteral("\u6f22\u5b57\u30c6\u30b9\u30c8END"));
+                               if (row < 0)
+                                   return false;
+                               // 5 wide chars = 10 columns before "END"
+                               const qreal expected = 10 * m_item->cellSize().width();
+                               const auto runs = m_item->visibleRuns(row);
+                               for (const TerminalQuickItem::VisibleRun &run : runs) {
+                                   if (run.text.startsWith(QLatin1String("END")))
+                                       return qAbs(run.x - expected) < 0.5;
+                               }
+                               return false;
+                           },
+                           10000});
     }
 
     void startStep(int index)
@@ -538,7 +756,7 @@ private:
         }
     }
 
-    TerminalQuickItem *m_item;
+    TestTerminalItem *m_item;
     QQuickWindow *m_window;
     PtyHost *m_pty;
     std::vector<Step> m_steps;
@@ -548,6 +766,7 @@ private:
     QDeadlineTimer m_deadline;
     QElapsedTimer m_seqTimer;
     int m_blinkBase = 0;
+    int m_markerRow = -1;
 };
 
 // --- headless model benchmark ----------------------------------------------
@@ -601,13 +820,14 @@ int main(int argc, char *argv[])
         return benchModel();
 
     QQmlApplicationEngine engine;
-    qmlRegisterType<TerminalQuickItem>("TerminalManualTest", 1, 0, "TerminalQuickItem");
+    qmlRegisterType<TestTerminalItem>("TerminalManualTest", 1, 0, "TerminalQuickItem");
     engine.load(QUrl(QStringLiteral("qrc:/terminalmanual/Main.qml")));
     if (engine.rootObjects().isEmpty())
         return 1;
 
     auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
-    auto *item = window->findChild<TerminalQuickItem *>("term");
+    // The registered type is TestTerminalItem, so the downcast is exact.
+    auto *item = static_cast<TestTerminalItem *>(window->findChild<TerminalQuickItem *>("term"));
     if (!item) {
         std::fprintf(stderr, "no terminal item\n");
         return 1;
