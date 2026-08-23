@@ -11,6 +11,7 @@
 #include <QCommandLineParser>
 #include <QDir>
 #include <QElapsedTimer>
+#include <QFontMetricsF>
 #include <QGuiApplication>
 #include <QKeyEvent>
 #include <QQmlApplicationEngine>
@@ -24,6 +25,8 @@
 #include <cstdio>
 
 using namespace TerminalSolution;
+
+void installEditMenu(); // editmenu.mm; hosts the system "Emoji & Symbols" item
 
 // --- helpers ---------------------------------------------------------------
 
@@ -210,8 +213,25 @@ public:
         QGuiApplication::clipboard()->setText(text);
     }
 
+    // Creator's toLink parses file paths and URLs; a canned URL check stands in.
+    std::optional<Link> toLink(const QString &text) override
+    {
+        if (text.startsWith(QLatin1String("http")))
+            return Link{text, 0, 0};
+        return std::nullopt;
+    }
+
+    void linkActivated(const Link &link) override { m_activatedLinks.append(link.text); }
+    QStringList activatedLinks() const { return m_activatedLinks; }
+
+    // The window's frame-synchronous hover refresh follows the real pointer
+    // and can clear a synthetic link hover between poll cycles; rebuilding
+    // the snapshots synchronously keeps the assertions race-free.
+    void forcePolish() { updatePolish(); }
+
 private:
     QList<SearchHit> m_hits;
+    QStringList m_activatedLinks;
 };
 
 static QString selectionText(TerminalSurface *surface, int start, int end)
@@ -454,6 +474,9 @@ public:
         , m_window(window)
         , m_pty(pty)
     {
+        connect(window, &QQuickWindow::frameSwapped, this,
+                [this] { m_frameCount.fetch_add(1, std::memory_order_relaxed); },
+                Qt::DirectConnection); // render thread
         setupSteps();
         m_poll.setInterval(50);
         connect(&m_poll, &QTimer::timeout, this, &SelfTest::poll);
@@ -493,16 +516,49 @@ private:
     }
 
     void sendMouse(QEvent::Type type, const QPointF &pos, Qt::MouseButton button,
-                   Qt::MouseButtons buttons)
+                   Qt::MouseButtons buttons, Qt::KeyboardModifiers modifiers = Qt::NoModifier)
     {
         QMouseEvent event(type, pos, m_item->mapToScene(pos), m_item->mapToGlobal(pos),
-                          button, buttons, Qt::NoModifier);
+                          button, buttons, modifiers);
         QCoreApplication::sendEvent(m_item, &event);
     }
 
     void sendShortcut(Qt::Key key, const QString &text)
     {
         QKeyEvent event(QEvent::KeyPress, key, Qt::ControlModifier, text);
+        QCoreApplication::sendEvent(m_item, &event);
+    }
+
+    void sendHover(const QPointF &pos, Qt::KeyboardModifiers modifiers)
+    {
+        QHoverEvent event(QEvent::HoverMove, pos, m_item->mapToGlobal(pos), pos, modifiers);
+        QCoreApplication::sendEvent(m_item, &event);
+    }
+
+    void sendKeyRelease(Qt::Key key)
+    {
+        QKeyEvent event(QEvent::KeyRelease, key, Qt::NoModifier);
+        QCoreApplication::sendEvent(m_item, &event);
+    }
+
+    void sendPreedit(const QString &preedit)
+    {
+        QInputMethodEvent event(preedit, {});
+        QCoreApplication::sendEvent(m_item, &event);
+    }
+
+    void sendCommit(const QString &commit)
+    {
+        QInputMethodEvent event;
+        event.setCommitString(commit);
+        QCoreApplication::sendEvent(m_item, &event);
+    }
+
+    void sendZoomWheel(int angleDeltaY)
+    {
+        const QPointF pos(10, 10);
+        QWheelEvent event(pos, m_item->mapToGlobal(pos), QPoint(), QPoint(0, angleDeltaY),
+                          Qt::NoButton, Qt::ControlModifier, Qt::NoScrollPhase, false);
         QCoreApplication::sendEvent(m_item, &event);
     }
 
@@ -714,6 +770,283 @@ private:
                                return false;
                            },
                            10000});
+        m_steps.push_back({QStringLiteral("IME preedit paints underlined at the cursor cell"),
+                           [this, surface] {
+                               m_preeditCell = surface->cursor().position;
+                               sendPreedit(QStringLiteral("ime-preedit"));
+                           },
+                           [this] {
+                               const auto runs = m_item->preeditRuns();
+                               if (runs.size() != 1)
+                                   return false;
+                               const TerminalQuickItem::VisibleRun &run = runs.first();
+                               if (run.text != QLatin1String("ime-preedit"))
+                                   return false;
+                               const qreal expectedX = m_preeditCell.x()
+                                                       * m_item->cellSize().width();
+                               if (qAbs(run.x - expectedX) > 0.5)
+                                   return false;
+                               return !run.formats.isEmpty()
+                                      && run.formats.first().format.fontUnderline();
+                           },
+                           5000});
+        m_steps.push_back({QStringLiteral("IME commit reaches the shell, preedit clears"),
+                           [this] {
+                               sendCommit(QStringLiteral("echo ime-$((3*19))"));
+                               sendText(QStringLiteral("\r"));
+                           },
+                           [this, surface] {
+                               return liveGridText(surface).contains(QLatin1String("ime-57"))
+                                      && m_item->preeditString().isEmpty()
+                                      && m_item->preeditRuns().isEmpty();
+                           },
+                           10000});
+        m_steps.push_back({QStringLiteral("link marker line appears"),
+                           [this] {
+                               sendText(QStringLiteral(
+                                   "echo http://example.com/spike-link\r"));
+                           },
+                           [this, surface] {
+                               m_linkRow = findVisibleRow(
+                                   surface, QStringLiteral("http://example.com/spike-link"));
+                               if (m_linkRow < 0)
+                                   return false;
+                               return gridTextRows(surface, m_linkRow + 1, 5)
+                                   .contains(QLatin1Char('%'));
+                           },
+                           10000});
+        // The real pointer can sit inside the window and its frame-synchronous
+        // hover refresh clears synthetic link hovers, so each poll re-arms the
+        // hover and asserts synchronously (no event loop in between).
+        m_steps.push_back({QStringLiteral("modifier hover shows hand cursor and dashed link"),
+                           [] {},
+                           [this] {
+                               sendHover(cellCenter(m_linkRow, 5), Qt::ControlModifier);
+                               if (m_item->cursor().shape() != Qt::PointingHandCursor)
+                                   return false;
+                               const auto link = m_item->linkSelection();
+                               if (!link
+                                   || link->link.text
+                                          != QLatin1String("http://example.com/spike-link"))
+                                   return false;
+                               m_item->forcePolish();
+                               const auto runs = m_item->visibleRuns(m_linkRow);
+                               for (const TerminalQuickItem::VisibleRun &run : runs) {
+                                   for (const QTextLayout::FormatRange &range : run.formats) {
+                                       if (range.format.underlineStyle()
+                                           == QTextCharFormat::DashUnderline)
+                                           return true;
+                                   }
+                               }
+                               return false;
+                           },
+                           5000});
+        m_steps.push_back({QStringLiteral("modifier click activates the link seam"),
+                           [this] {
+                               const QPointF at = cellCenter(m_linkRow, 5);
+                               sendHover(at, Qt::ControlModifier);
+                               sendMouse(QEvent::MouseButtonPress, at, Qt::LeftButton,
+                                         Qt::LeftButton, Qt::ControlModifier);
+                               sendMouse(QEvent::MouseButtonRelease, at, Qt::LeftButton,
+                                         Qt::NoButton, Qt::ControlModifier);
+                           },
+                           [this] {
+                               return m_item->activatedLinks()
+                                      == QStringList{QStringLiteral(
+                                          "http://example.com/spike-link")};
+                           },
+                           5000});
+        m_steps.push_back({QStringLiteral("modifier release clears the link hover"),
+                           [] {},
+                           [this] {
+                               sendHover(cellCenter(m_linkRow, 5), Qt::ControlModifier);
+                               if (!m_item->linkSelection())
+                                   return false;
+                               sendKeyRelease(Qt::Key_Control);
+                               if (m_item->linkSelection())
+                                   return false;
+                               if (m_item->cursor().shape() != Qt::IBeamCursor)
+                                   return false;
+                               m_item->forcePolish();
+                               const auto runs = m_item->visibleRuns(m_linkRow);
+                               for (const TerminalQuickItem::VisibleRun &run : runs) {
+                                   for (const QTextLayout::FormatRange &range : run.formats) {
+                                       if (range.format.underlineStyle()
+                                           == QTextCharFormat::DashUnderline)
+                                           return false;
+                                   }
+                               }
+                               return true;
+                           },
+                           5000});
+        m_steps.push_back({QStringLiteral("ctrl+wheel zoom-in grows cells, resizes the pty"),
+                           [this] {
+                               m_cellWBefore = m_item->cellSize().width();
+                               m_gridBefore = m_item->gridSize();
+                               m_resizeBase = m_pty->resizeCount();
+                               sendZoomWheel(120);
+                           },
+                           [this] {
+                               return m_item->cellSize().width() > m_cellWBefore
+                                      && m_item->gridSize().width() < m_gridBefore.width()
+                                      && m_pty->resizeCount() > m_resizeBase
+                                      && m_pty->lastGrid() == m_item->gridSize();
+                           },
+                           5000});
+        m_steps.push_back({QStringLiteral("ctrl+wheel zoom-out restores the grid"),
+                           [this] {
+                               m_resizeBase = m_pty->resizeCount();
+                               sendZoomWheel(-120);
+                           },
+                           [this] {
+                               return qAbs(m_item->cellSize().width() - m_cellWBefore) < 0.01
+                                      && m_item->gridSize() == m_gridBefore
+                                      && m_pty->resizeCount() > m_resizeBase
+                                      && m_pty->lastGrid() == m_item->gridSize();
+                           },
+                           5000});
+        m_steps.push_back(
+            {QStringLiteral("wavy and dashed underline formats reach the layout"),
+             [this] {
+                 sendText(QStringLiteral("printf 'UL \\e[4:3mWWWW\\e[0m \\e[4:5mDDDD\\e[0m "
+                                         "\\e[4mSSSS\\e[0m\\n'\r"));
+             },
+             [this, surface] {
+                 m_ulRow = findVisibleRow(surface, QStringLiteral("UL WWWW DDDD SSSS"));
+                 if (m_ulRow < 0)
+                     return false;
+                 bool haveWave = false, haveDash = false, haveSolid = false;
+                 const auto runs = m_item->visibleRuns(m_ulRow);
+                 for (const TerminalQuickItem::VisibleRun &run : runs) {
+                     for (const QTextLayout::FormatRange &range : run.formats) {
+                         switch (range.format.underlineStyle()) {
+                         case QTextCharFormat::WaveUnderline: haveWave = true; break;
+                         case QTextCharFormat::DashUnderline: haveDash = true; break;
+                         case QTextCharFormat::SingleUnderline: haveSolid = true; break;
+                         default: break;
+                         }
+                     }
+                 }
+                 if (!(haveWave && haveDash && haveSolid))
+                     return false;
+                 measureUnderlinePixels(); // rendering evidence, reported, not asserted
+                 return true;
+             },
+             10000});
+        // ZLE also keeps ECHO off at the ordinary prompt, so grid markers
+        // bound the read; echoOff() confirms the hidden-input phase itself.
+        m_steps.push_back(
+            {QStringLiteral("password prompt swaps the cursor for the lock"),
+             [this] {
+                 sendText(QStringLiteral(
+                     "echo pw-start; read -s line; echo pw-done-$line\r"));
+             },
+             [this, surface] {
+                 if (findVisibleRow(surface, QStringLiteral("pw-start")) < 0
+                     || !m_pty->echoOff())
+                     return false;
+                 m_item->setPasswordMode(true); // Creator wires this from Pty input flags
+                 return m_item->passwordLockVisible();
+             },
+             10000});
+        m_steps.push_back(
+            {QStringLiteral("leaving password mode restores the cursor"),
+             [this] { sendText(QStringLiteral("secret\r")); },
+             [this, surface] {
+                 if (findVisibleRow(surface, QStringLiteral("pw-done-secret")) < 0)
+                     return false;
+                 m_item->setPasswordMode(false);
+                 return !m_item->passwordLockVisible() && m_item->cursorRectVisible();
+             },
+             10000});
+        // Bounded pty reads must let the frame loop breathe: frames have to be
+        // produced while the burst is still printing, not only afterwards.
+        m_steps.push_back(
+            {QStringLiteral("burst output renders frames during the feed"),
+             [this] {
+                 m_burstFrameBase = m_frameCount.load(std::memory_order_relaxed);
+                 m_seqTimer.start();
+                 sendText(QStringLiteral("seq 1 200000; echo BURST-DONE\r"));
+             },
+             [this, surface] {
+                 if (!liveGridText(surface).contains(QLatin1String("BURST-DONE")))
+                     return false;
+                 const int frames = m_frameCount.load(std::memory_order_relaxed)
+                                    - m_burstFrameBase;
+                 if (!m_burstPrinted) {
+                     m_burstPrinted = true;
+                     std::printf("[measure] burst seq 1 200000 wall=%.0fms "
+                                 "frames-during-feed=%d\n",
+                                 double(m_seqTimer.nsecsElapsed()) / 1e6, frames);
+                 }
+                 return frames >= 10;
+             },
+             60000});
+        // Guards the raw-control-byte path past the IM/shortcut handling:
+        // a real ctrl+c arrives as Key_C + MetaModifier with text \x03 on
+        // macOS and must interrupt the foreground command.
+        m_steps.push_back(
+            {QStringLiteral("ctrl+c interrupts the foreground command"),
+             [this] { sendText(QStringLiteral("echo pre-int; sleep 30; echo post-int\r")); },
+             [this, surface] {
+                 const int preRow = findVisibleRow(surface, QStringLiteral("pre-int"));
+                 if (preRow < 0)
+                     return false;
+                 if (!m_interruptSent) {
+                     m_interruptSent = true;
+                     QKeyEvent event(QEvent::KeyPress, Qt::Key_C, Qt::MetaModifier,
+                                     QString(QChar(0x03)));
+                     QCoreApplication::sendEvent(m_item, &event);
+                     return false;
+                 }
+                 // A prompt below pre-int proves the list was aborted; were
+                 // post-int coming it would precede the prompt.
+                 const QString below = gridTextRows(surface, preRow + 1, 5);
+                 return below.contains(QLatin1Char('%'))
+                        && !below.contains(QLatin1String("post-int"));
+             },
+             15000});
+    }
+
+    // Pixel evidence for the wavy/dashed verdict: count non-background pixels
+    // in the band below the baseline where only underlines paint (the samples
+    // have no descenders). solid > 0 proves the probe itself works.
+    void measureUnderlinePixels()
+    {
+        const QImage img = m_window->grabWindow();
+        const qreal dpr = m_window->devicePixelRatio();
+        const qreal cellW = m_item->cellSize().width();
+        const qreal cellH = m_item->cellSize().height();
+        const qreal top = m_item->height() - m_item->gridSize().height() * cellH;
+        const qreal rowY = top + (m_ulRow - m_item->scrollOffset()) * cellH;
+        const qreal ascent = QFontMetricsF(m_item->font()).ascent();
+        const QRgb bg = m_item->paletteColor(17).rgb(); // ColorIndex::Background
+
+        const auto bandCount = [&](int fromCol, int cols) {
+            int count = 0;
+            const int x0 = int(fromCol * cellW * dpr);
+            const int x1 = int((fromCol + cols) * cellW * dpr);
+            const int y0 = int((rowY + ascent + 1) * dpr);
+            const int y1 = int((rowY + cellH) * dpr);
+            for (int y = y0; y < y1 && y < img.height(); ++y) {
+                for (int x = x0; x < x1 && x < img.width(); ++x) {
+                    if (img.pixel(x, y) != bg)
+                        ++count;
+                }
+            }
+            return count;
+        };
+        // columns in "UL WWWW DDDD SSSS": WWWW at 3, DDDD at 8, SSSS at 13
+        const int wave = bandCount(3, 4);
+        const int dash = bandCount(8, 4);
+        const int solid = bandCount(13, 4);
+        std::printf("[underline-pixels] wave=%d dash=%d solid=%d\n", wave, dash, solid);
+
+        const QString dir = QStringLiteral(RESULTS_DIR);
+        QDir().mkpath(dir);
+        const QRect crop(0, qMax(0, int((rowY - cellH) * dpr)), img.width(),
+                         int(3 * cellH * dpr));
+        img.copy(crop).save(dir + QLatin1String("/selftest-underlines.png"));
     }
 
     void startStep(int index)
@@ -767,6 +1100,16 @@ private:
     QElapsedTimer m_seqTimer;
     int m_blinkBase = 0;
     int m_markerRow = -1;
+    int m_linkRow = -1;
+    int m_ulRow = -1;
+    QPoint m_preeditCell;
+    qreal m_cellWBefore = 0;
+    QSize m_gridBefore;
+    int m_resizeBase = 0;
+    std::atomic<int> m_frameCount{0};
+    int m_burstFrameBase = 0;
+    bool m_burstPrinted = false;
+    bool m_interruptSent = false;
 };
 
 // --- headless model benchmark ----------------------------------------------
@@ -803,6 +1146,7 @@ static int benchModel()
 int main(int argc, char *argv[])
 {
     QGuiApplication app(argc, argv);
+    installEditMenu();
 
     QCommandLineParser parser;
     parser.addHelpOption();

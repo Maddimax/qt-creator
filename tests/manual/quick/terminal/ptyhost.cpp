@@ -9,6 +9,7 @@
 #include <signal.h>
 #include <stdlib.h>
 #include <sys/ioctl.h>
+#include <termios.h>
 #include <unistd.h>
 #include <util.h>
 
@@ -48,22 +49,22 @@ bool PtyHost::start(const QSize &gridSize)
     return true;
 }
 
+// One bounded chunk per activation; the level-triggered notifier re-fires
+// while data remains, so rendering interleaves with heavy output. Creator's
+// widget reads the same way (one readAllRawStandardOutput per readyRead).
 void PtyHost::readAvailable()
 {
     char buffer[65536];
-    while (true) {
-        const ssize_t n = ::read(m_masterFd, buffer, sizeof buffer);
-        if (n > 0) {
-            emit dataAvailable(QByteArray(buffer, n));
-            continue;
-        }
-        if (n < 0 && (errno == EAGAIN || errno == EINTR))
-            return;
-        // n == 0 or hard error: shell exited
-        m_notifier->setEnabled(false);
-        emit finished();
+    const ssize_t n = ::read(m_masterFd, buffer, sizeof buffer);
+    if (n > 0) {
+        emit dataAvailable(QByteArray(buffer, n));
         return;
     }
+    if (n < 0 && (errno == EAGAIN || errno == EINTR))
+        return;
+    // n == 0 or hard error: shell exited
+    m_notifier->setEnabled(false);
+    emit finished();
 }
 
 qint64 PtyHost::write(const QByteArray &data)
@@ -82,4 +83,18 @@ void PtyHost::resize(const QSize &gridSize)
     ws.ws_col = gridSize.width();
     ws.ws_row = gridSize.height();
     ::ioctl(m_masterFd, TIOCSWINSZ, &ws);
+    ++m_resizeCount;
+    m_lastGrid = gridSize;
+}
+
+// The pty master reflects the slave's termios; ECHO drops while a password
+// prompt (read -s) is active. Creator gets the same fact as a Pty input flag.
+bool PtyHost::echoOff() const
+{
+    if (m_masterFd < 0)
+        return false;
+    struct termios t = {};
+    if (::tcgetattr(m_masterFd, &t) != 0)
+        return false;
+    return (t.c_lflag & ECHO) == 0;
 }

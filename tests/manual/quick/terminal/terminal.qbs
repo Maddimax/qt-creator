@@ -9,9 +9,11 @@ CppApplication {
     Depends { name: "Qt"; submodules: ["gui", "qml", "quick"] }
 
     cpp.defines: base.concat(['RESULTS_DIR="' + sourceDirectory + '/results"'])
+    cpp.frameworks: ["AppKit"]
 
     files: [
         "Main.qml",
+        "editmenu.mm",
         "ptyhost.cpp",
         "ptyhost.h",
         "terminalmanual.qrc",
