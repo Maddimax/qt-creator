@@ -349,10 +349,20 @@ control - and the declined pages are the backlog rather than a regression.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
 all`, minus `QmlDesigner` and `UpdateInfo`, see below): **73 aspect-driven
-pages, 54 rendered with Qt Quick, 19 still on widgets.** What holds those 19
-back: six `StringListAspect`s, one `IntegersAspect`, one `FontAspect`, three
-`AspectList`s, and about nine aspects whose control is `Custom` because they
-build their own widget in `addToLayoutImpl`.
+pages, 58 rendered with Qt Quick, 15 still on widgets.** The `StringListAspect`s
+and the `IntegersAspect` have since been handled - a real list editor for the
+former, and `Invisible` for the latter because it draws nothing in the widget
+path either. What holds the remaining 15 back:
+
+| blocker | pages | what it needs |
+|---|---|---|
+| control is `Custom` (the aspect builds its own widget) | ~9 | its own delegate, or the page gets hand-written QML |
+| `AspectList` | 3 | a delegate repeating over nested containers, editable |
+| `FontAspect` | 1 | it is an `AspectContainer`, not a `TypedAspect`, so it has no bindable value |
+| async-choice selections (`StringSelectionAspect`) | some of the above | choices in `AspectPresentation`, or a role fed from the fill callback |
+
+The `Custom` group is the floor for the generic form: those aspects render a
+bespoke widget on purpose, so the page has to be hand written either way.
 
 `QTC_QUICK_SETTINGS` now means the opposite of what it used to: render the
 declined pages too, placeholders and all, so the gaps are visible while working
@@ -369,6 +379,13 @@ given; the count was 4 before, and 21 with one extra plugin.
 
 Remaining delegate gaps, which now decide whether a page is accepted rather
 than whether it renders correctly:
+
+One trap when writing a delegate for a list-valued aspect: a `QStringList`
+property reaches QML as a sequence that **writes through**. Indexing into
+`aspect.value` and assigning an element sets the aspect immediately, once per
+element. Copy the list (`.slice()`), edit the copy, assign it once - and check
+that removing the assignment fails your test, because otherwise it will pass
+on the write-through by accident.
 
 - `StringSelectionAspect` and anything else whose choices come from an async
   fill callback report no choices, so they render as `Unsupported`. They need
