@@ -457,6 +457,17 @@ where there is no `Utils::AspectContainer` at all. Everything added for the page
 - the three preset aspects and the `setQmlSource()` - has to sit inside the
 existing `#ifndef FAKEVIM_STANDALONE`, and `tst_fakevim` is what proves it does.
 
+**An aspect must not name a control it cannot back.** `Core::SecretAspect` said
+`PasswordLineEdit`, which reads like an ordinary password field - but its value
+only arrives through `requestValue()`, so it has no `variantValue()` at all. A
+generic field bound to it shows nothing and trips `BaseAspect`'s check on the
+first edit, which is `qFatal` under `QTC_FATAL_ASSERTS`. It says `Custom` now,
+so the form draws a placeholder and the gap is visible. `addToLayoutImpl()`
+builds the widget editor itself and never consults the control, so the widget
+path is unchanged. This is the same trap `FontAspect` already carries, and it is
+why HarmonyOS and ACP cannot simply be ported: a proper delegate for an
+asynchronously-read secret has to come first.
+
 **One page that cannot be ported as it stands,** noted so nobody rediscovers
 it: Testing's "Active Test Frameworks" is a `FrameworksAspect` with no
 `presentation()`, so it is `Custom` and would vanish. (Display was the other

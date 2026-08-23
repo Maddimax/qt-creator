@@ -246,7 +246,13 @@ void SecretAspect::addToLayoutImpl(Layouting::Layout &parent)
 AspectPresentation SecretAspect::presentation() const
 {
     AspectPresentation p = BaseAspect::presentation();
-    p.control = AspectControls::PasswordLineEdit;
+    // Not PasswordLineEdit, tempting as it looks. The value only arrives
+    // through requestValue(), so there is no variantValue() for a renderer to
+    // read or write - a generic password field would show nothing and trip
+    // BaseAspect's check on the first edit. addToLayoutImpl() builds the widget
+    // editor itself and does not consult this, so saying Custom costs it
+    // nothing and stops any other renderer from promising what it cannot do.
+    p.control = AspectControls::Custom;
     return p;
 }
 

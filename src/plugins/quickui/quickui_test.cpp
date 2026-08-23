@@ -4,6 +4,7 @@
 #include "quickui_test.h"
 
 #include <coreplugin/dialogs/ioptionspage.h>
+#include <coreplugin/secretaspect.h>
 
 #include <qtcquick/aspectmodels.h>
 #include <qtcquick/aspectcontainermodel.h>
@@ -118,6 +119,7 @@ private slots:
     void testSpinBoxDrawsItsPrefixAndSuffix();
     void testPageQmlReachesANestedContainersAspects();
     void testMultiLineStringGetsATextArea();
+    void testSecretIsNotOfferedAsAPlainPasswordField();
 };
 
 void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
@@ -765,6 +767,30 @@ void QuickUiTest::testMultiLineStringGetsATextArea()
     QVERIFY(other);
     QMetaObject::invokeMethod(other, "forceActiveFocus");
     QTRY_COMPARE(commands.volatileValue(), QString("first\nsecond\nthird"));
+}
+
+void QuickUiTest::testSecretIsNotOfferedAsAPlainPasswordField()
+{
+    // A SecretAspect's value only arrives through requestValue(), so it has no
+    // variantValue() for a renderer to read or write: a generic password field
+    // would show nothing and trip BaseAspect's check on the first edit. It says
+    // Custom, and the form draws a placeholder rather than a broken field.
+    Utils::AspectContainer page;
+    Core::SecretAspect secret(&page);
+    secret.setSettingsKey("Test.Secret");
+    secret.setLabelText("Password:");
+
+    QCOMPARE(int(QtcQuick::AspectContainerModel::kindOf(&secret)),
+             int(QtcQuick::AspectContainerModel::Unsupported));
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QQuickItem *rootItem = quickWidget->rootObject();
+    QVERIFY(rootItem);
+    QTRY_VERIFY(findQmlComponent(rootItem, "UnsupportedDelegate"));
+    QVERIFY(!findQmlComponent(rootItem, "StringDelegate"));
 }
 
 void QuickUiTest::testQmlNameIsDerivedFromTheSettingsKey()
