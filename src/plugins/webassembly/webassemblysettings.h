@@ -5,12 +5,6 @@
 
 #include <utils/aspects.h>
 
-QT_BEGIN_NAMESPACE
-class QTextBrowser;
-QT_END_NAMESPACE
-
-namespace Utils { class InfoLabel; }
-
 namespace WebAssembly::Internal {
 
 class WebAssemblySettings final : public Utils::AspectContainer
@@ -21,13 +15,14 @@ public:
     Utils::FilePathAspect emSdk{this};
 
 private:
-    Utils::InfoLabel *m_statusIsEmsdkDir = nullptr;
-    Utils::InfoLabel *m_statusSdkInstalled = nullptr;
-    Utils::InfoLabel *m_statusSdkActivated = nullptr;
-    Utils::InfoLabel *m_statusSdkInvalid = nullptr;
-    Utils::InfoLabel *m_emSdkVersionDisplay = nullptr;
-    QTextBrowser *m_emSdkEnvDisplay = nullptr;
-    Utils::InfoLabel *m_qtVersionDisplay = nullptr;
+    Utils::TextDisplay instruction{this};
+    Utils::TextDisplay statusIsEmsdkDir{this};
+    Utils::TextDisplay statusSdkInstalled{this};
+    Utils::TextDisplay statusSdkActivated{this};
+    Utils::TextDisplay statusSdkInvalid{this};
+    Utils::TextDisplay emSdkVersionDisplay{this};
+    Utils::StringAspect emSdkEnvDisplay{this};
+    Utils::TextDisplay qtVersionDisplay{this};
 
     void updateStatus();
 };

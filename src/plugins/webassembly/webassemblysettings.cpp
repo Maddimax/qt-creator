@@ -14,17 +14,14 @@
 
 #include <projectexplorer/projectexplorerconstants.h>
 
-#include <utils/aspectwidgets.h>
 #include <utils/aspects.h>
 #include <utils/environment.h>
-#include <utils/infolabel.h>
-#include <utils/layoutbuilder.h>
-#include <utils/pathchooser.h>
+#include <utils/pathvalidation.h>
 
+#include <QDesktopServices>
 #include <QDir>
 #include <QGroupBox>
 #include <QGuiApplication>
-#include <QTextBrowser>
 #include <QTimer>
 
 using namespace Utils;
@@ -64,73 +61,52 @@ WebAssemblySettings::WebAssemblySettings()
 
     connect(this, &Utils::AspectContainer::applied, &registerToolChains);
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        auto instruction = new QLabel(
-            Tr::tr("Select the root directory of an installed %1. "
-                   "Ensure that the activated SDK version is compatible with the %2 "
-                   "or %3 version that you plan to develop against.")
-                .arg(R"(<a href="https://emscripten.org/docs/getting_started/downloads.html">Emscripten SDK</a>)")
-                .arg(R"(<a href="https://doc.qt.io/qt-5/wasm.html#install-emscripten">Qt 5</a>)")
-                .arg(R"(<a href="https://doc.qt.io/qt-6/wasm.html#installing-emscripten">Qt 6</a>)"));
-        instruction->setOpenExternalLinks(true);
-        instruction->setWordWrap(true);
-
-        m_statusIsEmsdkDir = new InfoLabel(Tr::tr("The chosen directory is an emsdk location."));
-        m_statusSdkInstalled = new InfoLabel(Tr::tr("An SDK is installed."));
-        m_statusSdkActivated = new InfoLabel(Tr::tr("An SDK is activated."));
-        m_statusSdkInvalid = new InfoLabel({}, InfoLabelType::Error);
-        m_statusSdkInvalid->setWordWrap(true);
-        m_statusSdkInvalid->setElideMode(Qt::ElideNone);
-
-        m_emSdkVersionDisplay = new InfoLabel;
-        m_emSdkVersionDisplay->setElideMode(Qt::ElideNone);
-        m_emSdkVersionDisplay->setWordWrap(true);
-
-        m_emSdkEnvDisplay = new QTextBrowser;
-        m_emSdkEnvDisplay->setLineWrapMode(QTextBrowser::NoWrap);
-
-        const QString minimumSupportedQtVersion =
-            WebAssemblyQtVersion::minimumSupportedQtVersion().toString();
-        m_qtVersionDisplay = new InfoLabel(
-            Tr::tr("Note: %1 supports Qt %2 for WebAssembly and higher. "
-                   "Your installed lower Qt version(s) are not supported.")
-                .arg(Core::ICore::versionString(), minimumSupportedQtVersion),
-            InfoLabelType::Warning);
-        m_qtVersionDisplay->setElideMode(Qt::ElideNone);
-        m_qtVersionDisplay->setWordWrap(true);
-
-        // _clang-format off
-        using namespace Layouting;
-        Column col {
-            Group {
-                title(Tr::tr("Emscripten SDK path:")),
-                Column {
-                    instruction,
-                    emSdk,
-                    m_statusIsEmsdkDir,
-                    m_statusSdkInstalled,
-                    m_statusSdkActivated,
-                    m_statusSdkInvalid,
-                    m_emSdkVersionDisplay,
-                },
-            },
-            Group {
-                title(Tr::tr("Emscripten SDK environment:")),
-                Column {
-                    m_emSdkEnvDisplay,
-                },
-            },
-            m_qtVersionDisplay,
-        };
-        // _clang-format on
-
-        connect(&emSdk, &Utils::BaseAspect::volatileValueChanged,
-                this, &WebAssemblySettings::updateStatus);
-
-        updateStatus();
-
-        return col;
+    instruction.setText(
+        Tr::tr("Select the root directory of an installed %1. "
+               "Ensure that the activated SDK version is compatible with the %2 "
+               "or %3 version that you plan to develop against.")
+            .arg(R"(<a href="https://emscripten.org/docs/getting_started/downloads.html">Emscripten SDK</a>)")
+            .arg(R"(<a href="https://doc.qt.io/qt-5/wasm.html#install-emscripten">Qt 5</a>)")
+            .arg(R"(<a href="https://doc.qt.io/qt-6/wasm.html#installing-emscripten">Qt 6</a>)"));
+    instruction.setWordWrap(true);
+    instruction.setQmlName("Instruction");
+    connect(&instruction, &Utils::TextDisplay::linkActivated, this, [](const QString &link) {
+        QDesktopServices::openUrl(QUrl(link));
     });
+
+    statusIsEmsdkDir.setText(Tr::tr("The chosen directory is an emsdk location."));
+    statusIsEmsdkDir.setQmlName("StatusIsEmsdkDir");
+    statusSdkInstalled.setText(Tr::tr("An SDK is installed."));
+    statusSdkInstalled.setQmlName("StatusSdkInstalled");
+    statusSdkActivated.setText(Tr::tr("An SDK is activated."));
+    statusSdkActivated.setQmlName("StatusSdkActivated");
+    statusSdkInvalid.setIconType(Utils::InfoType::Error);
+    statusSdkInvalid.setWordWrap(true);
+    statusSdkInvalid.setQmlName("StatusSdkInvalid");
+
+    emSdkVersionDisplay.setWordWrap(true);
+    emSdkVersionDisplay.setQmlName("EmSdkVersionDisplay");
+
+    emSdkEnvDisplay.setDisplayStyle(Utils::StringAspect::TextEditDisplay);
+    emSdkEnvDisplay.setReadOnly(true);
+    emSdkEnvDisplay.setQmlName("EmSdkEnvDisplay");
+
+    qtVersionDisplay.setText(
+        Tr::tr("Note: %1 supports Qt %2 for WebAssembly and higher. "
+               "Your installed lower Qt version(s) are not supported.")
+            .arg(Core::ICore::versionString(),
+                 WebAssemblyQtVersion::minimumSupportedQtVersion().toString()));
+    qtVersionDisplay.setIconType(Utils::InfoType::Warning);
+    qtVersionDisplay.setWordWrap(true);
+    qtVersionDisplay.setQmlName("QtVersionDisplay");
+
+    // The status of the chosen directory follows the directory, and is not
+    // something a layout should be computing on its way past.
+    connect(&emSdk, &Utils::BaseAspect::volatileValueChanged,
+            this, &WebAssemblySettings::updateStatus);
+    updateStatus();
+
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/WebAssembly/WebAssemblySettingsPage.qml"));
 
     readSettings();
 }
@@ -164,21 +140,22 @@ void WebAssemblySettings::updateStatus()
     const auto version = WebAssemblyEmSdk::version(newEmSdk);
     const bool sdkValid = newEmSdk.exists() && version;
 
-    m_statusIsEmsdkDir->setVisible(!sdkValid);
-    m_statusSdkInstalled->setVisible(!sdkValid);
-    m_statusSdkActivated->setVisible(!sdkValid);
-    m_statusSdkInvalid->setVisible(!sdkValid);
-    m_statusSdkInvalid->setText(version.has_value() ? QString() : version.error());
-    m_emSdkVersionDisplay->setVisible(sdkValid);
-    m_emSdkEnvDisplay->setEnabled(sdkValid);
+    statusIsEmsdkDir.setVisible(!sdkValid);
+    statusSdkInstalled.setVisible(!sdkValid);
+    statusSdkActivated.setVisible(!sdkValid);
+    statusSdkInvalid.setVisible(!sdkValid);
+    statusSdkInvalid.setText(version.has_value() ? QString() : version.error());
+    emSdkVersionDisplay.setVisible(sdkValid);
+    emSdkEnvDisplay.setEnabled(sdkValid);
 
     if (sdkValid && version) {
         const QVersionNumber sdkVersion = *version;
         const QVersionNumber minVersion = minimumSupportedEmSdkVersion();
         const bool versionTooLow = sdkVersion < minVersion;
-        m_emSdkVersionDisplay->setType(versionTooLow ? InfoLabelType::NotOk : InfoLabelType::Ok);
+        emSdkVersionDisplay.setIconType(versionTooLow ? Utils::InfoType::NotOk
+                                                      : Utils::InfoType::Ok);
         auto bold = [](const QString &text) { return QString("<b>" + text + "</b>"); };
-        m_emSdkVersionDisplay->setText(
+        emSdkVersionDisplay.setText(
             versionTooLow ? Tr::tr("The activated version %1 is not supported by %2. "
                                    "Activate version %3 or higher.")
                                 .arg(bold(sdkVersion.toString()))
@@ -186,19 +163,21 @@ void WebAssemblySettings::updateStatus()
                                 .arg(bold(minVersion.toString()))
                           : Tr::tr("Activated version: %1")
                                 .arg(bold(sdkVersion.toString())));
-        m_emSdkEnvDisplay->setText(environmentDisplay(newEmSdk));
+        emSdkEnvDisplay.setValue(environmentDisplay(newEmSdk));
     } else {
         const EmsdkError error = emsdkError(newEmSdk);
         const bool isEmsdkDir = error != EmsdkErrorNoDir && error != EmsdkErrorNoEmsdkDir;
-        m_statusIsEmsdkDir->setType(isEmsdkDir ? InfoLabelType::Ok : InfoLabelType::NotOk);
+        statusIsEmsdkDir.setIconType(isEmsdkDir ? Utils::InfoType::Ok : Utils::InfoType::NotOk);
         const bool sdkInstalled = isEmsdkDir && error != EmsdkErrorNoSdkInstalled;
-        m_statusSdkInstalled->setType(sdkInstalled ? InfoLabelType::Ok : InfoLabelType::NotOk);
+        statusSdkInstalled.setIconType(sdkInstalled ? Utils::InfoType::Ok
+                                                    : Utils::InfoType::NotOk);
         const bool sdkActivated = sdkInstalled && error != EmsdkErrorNoSdkActivated;
-        m_statusSdkActivated->setType(sdkActivated ? InfoLabelType::Ok : InfoLabelType::NotOk);
-        m_emSdkEnvDisplay->clear();
+        statusSdkActivated.setIconType(sdkActivated ? Utils::InfoType::Ok
+                                                    : Utils::InfoType::NotOk);
+        emSdkEnvDisplay.setValue({});
     }
 
-    m_qtVersionDisplay->setVisible(WebAssemblyQtVersion::isUnsupportedQtVersionInstalled());
+    qtVersionDisplay.setVisible(WebAssemblyQtVersion::isUnsupportedQtVersionInstalled());
 }
 
 // WebAssemblySettingsPage
