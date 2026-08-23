@@ -7,7 +7,6 @@ pragma FunctionSignatureBehavior: Enforced
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import QtQml.Models
 import QtCreator.Ui
 
 ScrollView {
@@ -22,62 +21,9 @@ ScrollView {
         width: root.availableWidth
         spacing: Spacing.GapVS
 
-        Repeater {
+        AspectItems {
+            Layout.fillWidth: true
             model: root.model
-
-            delegate: DelegateChooser {
-                role: "kind"
-
-                DelegateChoice {
-                    roleValue: AspectContainerModel.Bool
-                    BoolDelegate {}
-                }
-                DelegateChoice {
-                    roleValue: AspectContainerModel.String
-                    StringDelegate {}
-                }
-                DelegateChoice {
-                    roleValue: AspectContainerModel.FilePath
-                    StringDelegate {}
-                }
-                DelegateChoice {
-                    roleValue: AspectContainerModel.Integer
-                    IntegerDelegate {}
-                }
-                DelegateChoice {
-                    roleValue: AspectContainerModel.Double
-                    DoubleDelegate {}
-                }
-                DelegateChoice {
-                    roleValue: AspectContainerModel.Selection
-                    SelectionDelegate {}
-                }
-                DelegateChoice {
-                    roleValue: AspectContainerModel.StringList
-                    StringListDelegate {}
-                }
-                DelegateChoice {
-                    roleValue: AspectContainerModel.FilePathList
-                    FilePathListDelegate {}
-                }
-                DelegateChoice {
-                    roleValue: AspectContainerModel.MultiSelection
-                    MultiSelectionDelegate {}
-                }
-                DelegateChoice {
-                    roleValue: AspectContainerModel.Color
-                    ColorDelegate {}
-                }
-                DelegateChoice {
-                    roleValue: AspectContainerModel.FontFamily
-                    FontFamilyDelegate {}
-                }
-                DelegateChoice {
-                    roleValue: AspectContainerModel.TextDisplay
-                    TextDisplayDelegate {}
-                }
-                DelegateChoice { UnsupportedDelegate {} }
-            }
         }
 
         Item { Layout.fillHeight: true }

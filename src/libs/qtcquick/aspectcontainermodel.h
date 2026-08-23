@@ -6,6 +6,7 @@
 #include "qtcquick_global.h"
 
 #include <QAbstractListModel>
+#include <QHash>
 #include <QQmlEngine>
 
 #include <utils/aspects.h>
@@ -64,6 +65,7 @@ public:
         MinimumRole,
         MaximumRole,
         StepRole,
+        ChildModelRole,
     };
 
     explicit AspectContainerModel(Utils::AspectContainer *container, QObject *parent = nullptr);
@@ -76,6 +78,9 @@ public:
 
 private:
     QList<Utils::BaseAspect *> m_aspects;
+    // A model per nested container, built on demand and owned by this one, so
+    // that a group delegate can repeat over its children.
+    mutable QHash<Utils::BaseAspect *, AspectContainerModel *> m_childModels;
 };
 
 } // namespace QtcQuick

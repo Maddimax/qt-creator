@@ -67,6 +67,15 @@ QVariant AspectContainerModel::data(const QModelIndex &index, int role) const
     case MinimumRole:   return p.minimum.isValid() ? p.minimum : widestBound(p.control, Lower);
     case MaximumRole:   return p.maximum.isValid() ? p.maximum : widestBound(p.control, Upper);
     case StepRole:      return p.singleStep.isValid() ? p.singleStep : QVariant(1);
+    case ChildModelRole: {
+        auto container = qobject_cast<AspectContainer *>(aspect);
+        if (!container)
+            return {};
+        AspectContainerModel *&child = m_childModels[aspect];
+        if (!child)
+            child = new AspectContainerModel(container, const_cast<AspectContainerModel *>(this));
+        return QVariant::fromValue(child);
+    }
     default:            return {};
     }
 }
@@ -83,6 +92,7 @@ QHash<int, QByteArray> AspectContainerModel::roleNames() const
         {MinimumRole, "minimum"},
         {MaximumRole, "maximum"},
         {StepRole, "step"},
+        {ChildModelRole, "childModel"},
     };
 }
 

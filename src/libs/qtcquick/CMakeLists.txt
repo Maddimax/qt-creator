@@ -32,11 +32,13 @@ if(TARGET QtcQuick)
     NO_PLUGIN
     QML_FILES
       AspectForm.qml
+      AspectItems.qml
       BoolDelegate.qml
       ColorDelegate.qml
       DoubleDelegate.qml
       FilePathListDelegate.qml
       FontFamilyDelegate.qml
+      GroupDelegate.qml
       IntegerDelegate.qml
       Metrics.qml
       MultiSelectionDelegate.qml
