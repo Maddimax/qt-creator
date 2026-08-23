@@ -13,6 +13,8 @@
 
 namespace QtcQuick {
 
+class AspectItemListModel;
+
 // Registering the aspect types lets a QML delegate declare "property Aspect"
 // and have qmllint check every binding against the real properties.
 struct AspectForeign
@@ -52,6 +54,7 @@ public:
         FontFamily,
         TextDisplay,
         Container,
+        AspectList,
         // Shows nothing at all, which some aspects legitimately do.
         Invisible,
         Unsupported,
@@ -67,6 +70,7 @@ public:
         AllowAddingRole,
         AllowRemovingRole,
         AllowEditingRole,
+        ItemListModelRole,
         MinimumRole,
         MaximumRole,
         StepRole,
@@ -94,6 +98,7 @@ private:
     // A model per nested container, built on demand and owned by this one, so
     // that a group delegate can repeat over its children.
     mutable QHash<Utils::BaseAspect *, AspectContainerModel *> m_childModels;
+    mutable QHash<Utils::BaseAspect *, AspectItemListModel *> m_itemListModels;
 };
 
 } // namespace QtcQuick

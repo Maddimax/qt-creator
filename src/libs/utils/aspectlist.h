@@ -20,6 +20,8 @@ public:
     AspectList(Utils::AspectContainer *container = nullptr);
     ~AspectList() override;
 
+    AspectPresentation presentation() const override;
+
     void fromMap(const Utils::Store &map) override;
     void toMap(Utils::Store &map) const override;
 

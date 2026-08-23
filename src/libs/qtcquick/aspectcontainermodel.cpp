@@ -3,7 +3,10 @@
 
 #include "aspectcontainermodel.h"
 
+#include "aspectitemlistmodel.h"
+
 #include <utils/algorithm.h>
+#include <utils/aspectlist.h>
 #include <utils/aspects.h>
 #include <utils/qtcassert.h>
 
@@ -73,6 +76,15 @@ QVariant AspectContainerModel::data(const QModelIndex &index, int role) const
     case AllowAddingRole:   return p.allowAdding;
     case AllowRemovingRole: return p.allowRemoving;
     case AllowEditingRole:  return p.allowEditing;
+    case ItemListModelRole: {
+        auto list = qobject_cast<Utils::AspectList *>(aspect);
+        if (!list)
+            return {};
+        AspectItemListModel *&items = m_itemListModels[aspect];
+        if (!items)
+            items = new AspectItemListModel(list, const_cast<AspectContainerModel *>(this));
+        return QVariant::fromValue(items);
+    }
     // An aspect with no bound presents an unset minimum/maximum. The delegates
     // bind these straight into SpinBox.from/to and DoubleValidator, so
     // substitute the widest value of the right type rather than passing
@@ -104,6 +116,7 @@ QHash<int, QByteArray> AspectContainerModel::roleNames() const
         {AllowAddingRole, "allowAdding"},
         {AllowRemovingRole, "allowRemoving"},
         {AllowEditingRole, "allowEditing"},
+        {ItemListModelRole, "itemListModel"},
         {MinimumRole, "minimum"},
         {MaximumRole, "maximum"},
         {StepRole, "step"},
@@ -168,6 +181,7 @@ AspectContainerModel::Kind AspectContainerModel::kindOf(AspectControls::Control 
     case AspectControls::ColorPicker:            return Color;
     case AspectControls::FontFamilyPicker:       return FontFamily;
     case AspectControls::StringList:             return StringListEditor;
+    case AspectControls::AspectList:             return AspectList;
     // IntegersAspect draws nothing in the widget path either, so drawing
     // nothing here is parity rather than a gap.
     case AspectControls::IntegerList:            return Invisible;

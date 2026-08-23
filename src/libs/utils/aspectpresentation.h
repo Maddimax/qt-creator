@@ -43,6 +43,8 @@ enum Control {
     FilePathList,
     MultiSelection,
     IntegerList,
+    // A list of sub-aspects with a details pane, add and remove.
+    AspectList,
 };
 Q_ENUM_NS(Control)
 

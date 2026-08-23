@@ -415,6 +415,16 @@ AspectList::AspectList(Utils::AspectContainer *container)
 
 AspectList::~AspectList() = default;
 
+AspectPresentation AspectList::presentation() const
+{
+    AspectPresentation p = BaseAspect::presentation();
+    // Only the list-with-details style is described; the inline style builds a
+    // row of controls per item and has no counterpart yet.
+    if (d->displayStyle == DisplayStyle::ListViewWithDetails)
+        p.control = AspectControls::AspectList;
+    return p;
+}
+
 void AspectList::fromMap(const Utils::Store &map)
 {
     QTC_ASSERT(!settingsKey().isEmpty(), return);

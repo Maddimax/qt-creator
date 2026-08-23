@@ -60,6 +60,10 @@ ColumnLayout {
                 StringListEditorDelegate {}
             }
             DelegateChoice {
+                roleValue: AspectContainerModel.AspectList
+                AspectListDelegate {}
+            }
+            DelegateChoice {
                 roleValue: AspectContainerModel.Invisible
                 Item {}
             }

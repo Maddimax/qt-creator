@@ -9,6 +9,7 @@
 #include <qtcquick/aspectform.h>
 
 #include <utils/algorithm.h>
+#include <utils/aspectlist.h>
 #include <utils/aspects.h>
 
 #include <QFile>
@@ -78,6 +79,7 @@ private slots:
     void testIdValuedSelectionRoundTrips();
     void testStringListEditorAddsRemovesAndEdits();
     void testStringSelectionOffersItsChoices();
+    void testAspectListAddsRemovesAndShowsDetails();
 };
 
 void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
@@ -437,6 +439,53 @@ void QuickUiTest::testStringSelectionOffersItsChoices()
 
     QMetaObject::invokeMethod(combo, "activated", Q_ARG(int, 0));
     QCOMPARE(selection.volatileValue(), QString("first"));
+}
+
+void QuickUiTest::testAspectListAddsRemovesAndShowsDetails()
+{
+    Utils::AspectContainer page;
+    Utils::AspectList servers(&page);
+    servers.setLabelText("Servers");
+    servers.setDisplayStyle(Utils::AspectList::DisplayStyle::ListViewWithDetails);
+    servers.listViewDataCallback = [](Utils::BaseAspect *item, int) -> QVariant {
+        return item->displayName();
+    };
+    servers.setCreateItemFunction([] {
+        auto item = std::make_shared<Utils::AspectContainer>();
+        item->setDisplayName("A server");
+        auto flag = new Utils::BoolAspect(item.get());
+        flag->setLabelText("Enabled");
+        return item;
+    });
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createAspectForm(&page));
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QVERIFY(quickWidget->rootObject());
+
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "AspectListDelegate"));
+    QQuickItem *view = findQmlComponent(delegate, "QQuickListView");
+    QVERIFY(view);
+    QCOMPARE(view->property("count").toInt(), 0);
+
+    // Add creates an item through the aspect and selects it.
+    QQuickItem *add = findButton(delegate, "Add");
+    QVERIFY(add);
+    QMetaObject::invokeMethod(add, "clicked");
+    QCOMPARE(servers.volatileItems().size(), 1);
+    QTRY_COMPARE(view->property("count").toInt(), 1);
+    QCOMPARE(view->property("currentIndex").toInt(), 0);
+
+    // The details pane shows the selected item's own aspects.
+    QTRY_VERIFY(findQmlComponent(delegate, "BoolDelegate"));
+
+    QQuickItem *remove = findButton(delegate, "Remove");
+    QVERIFY(remove);
+    QMetaObject::invokeMethod(remove, "clicked");
+    QCOMPARE(servers.volatileItems().size(), 0);
+    QTRY_COMPARE(view->property("count").toInt(), 0);
+    QVERIFY(!findQmlComponent(delegate, "BoolDelegate"));
 }
 
 QObject *createQuickUiTest()
