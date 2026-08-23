@@ -25,26 +25,17 @@
 #include "variablechooser.h"
 
 #include <QAction>
-#include <QButtonGroup>
-#include <QCheckBox>
-#include <QCompleter>
 #include <QDebug>
-#include <QFontComboBox>
+#include <QCompleter>
+#include <QDoubleSpinBox>
+#include <QItemSelectionModel>
 #include <QGroupBox>
-#include <QLabel>
-#include <QLineEdit>
-#include <QListWidget>
 #include <QVBoxLayout>
-#include <QMenu>
 #include <QPaintEvent>
 #include <QPainter>
 #include <QPointer>
 #include <QPushButton>
-#include <QRadioButton>
-#include <QSpinBox>
 #include <QStandardItemModel>
-#include <QTextEdit>
-#include <QTreeWidget>
 #include <QUndoStack>
 
 using namespace Layouting;
