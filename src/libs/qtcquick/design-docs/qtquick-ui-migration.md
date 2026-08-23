@@ -349,20 +349,27 @@ control - and the declined pages are the backlog rather than a regression.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
 all`, minus `QmlDesigner` and `UpdateInfo`, see below): **73 aspect-driven
-pages, 58 rendered with Qt Quick, 15 still on widgets.** The `StringListAspect`s
-and the `IntegersAspect` have since been handled - a real list editor for the
-former, and `Invisible` for the latter because it draws nothing in the widget
-path either. What holds the remaining 15 back:
+pages, 61 rendered with Qt Quick, 12 still on widgets.** Handled since:
+`StringListAspect` (a real list editor), `IntegersAspect` (`Invisible`, because
+it draws nothing in the widget path either), `StringSelectionAspect` (it builds
+its own choices now), and index-valued selections with no options (an empty
+combo box is what the widget editor draws too). What holds the remaining 12
+back, counted by walking each declined page's container:
 
 | blocker | pages | what it needs |
 |---|---|---|
-| control is `Custom` (the aspect builds its own widget) | ~9 | its own delegate, or the page gets hand-written QML |
-| `AspectList` | 3 | a delegate repeating over nested containers, editable |
-| `FontAspect` | 1 | it is an `AspectContainer`, not a `TypedAspect`, so it has no bindable value |
-| async-choice selections (`StringSelectionAspect`) | some of the above | choices in `AspectPresentation`, or a role fed from the fill callback |
+| control is `Custom` - the aspect builds its own widget | 6 | its own delegate, or the page gets hand-written QML |
+| `AspectList` | 3 | a delegate repeating over nested containers, with add and remove |
+| `FontAspect` | 1 (also `Custom`-blocked) | it is an `AspectContainer`, not a `TypedAspect`, so it has no bindable value |
+| `ByteArrayAspect` with a `Custom` control | 1 (also `Custom`-blocked) | it is an internal id, not meant to be shown at all |
 
 The `Custom` group is the floor for the generic form: those aspects render a
-bespoke widget on purpose, so the page has to be hand written either way.
+bespoke widget on purpose, so those pages have to be hand written either way.
+`AspectList` is the largest remaining piece of generic work.
+
+To find out what blocks a page, walk its container with
+`AspectContainerModel::kindOf()` and print the aspects that come back
+`Unsupported`; the pass count alone will not tell you.
 
 `QTC_QUICK_SETTINGS` now means the opposite of what it used to: render the
 declined pages too, placeholders and all, so the gaps are visible while working
