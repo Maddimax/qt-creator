@@ -16,13 +16,17 @@ T.ItemDelegate {
     implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
                              implicitContentHeight + topPadding + bottomPadding)
 
+    font: Fonts.body2
+
     horizontalPadding: Spacing.PaddingHS
     verticalPadding: Spacing.PaddingVXs
     spacing: Spacing.GapHS
 
     contentItem: Text {
         text: control.text
-        font: Fonts.body2
+        // The control's font, not the token directly, so that a caller can
+        // strike a row through or embolden it.
+        font: control.font
         color: !control.enabled ? Tokens.textSubtle
              : control.highlighted ? Tokens.textOnAccent : Tokens.textDefault
         verticalAlignment: Text.AlignVCenter

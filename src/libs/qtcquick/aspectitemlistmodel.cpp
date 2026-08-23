@@ -10,6 +10,8 @@
 #include <utils/aspects.h>
 #include <utils/qtcassert.h>
 
+#include <QFuture>
+
 using namespace Utils;
 
 namespace QtcQuick {
@@ -73,9 +75,27 @@ QVariant AspectItemListModel::data(const QModelIndex &index, int role) const
         return row.added;
     case RemovedRole:
         return row.removed;
-    case LabelRole:
+    case LabelRole: {
         QTC_ASSERT(m_list->listViewDataCallback, return {});
-        return m_list->listViewDataCallback(item, Qt::DisplayRole);
+        const QVariant label = m_list->listViewDataCallback(item, Qt::DisplayRole);
+        // A label can arrive as a future - the MCP server list names itself
+        // asynchronously. Show nothing until it is there, then say so.
+        if (label.canConvert<QFuture<QVariant>>()) {
+            QFuture<QVariant> pending = label.value<QFuture<QVariant>>();
+            if (!pending.isFinished()) {
+                auto self = const_cast<AspectItemListModel *>(this);
+                pending.then(self, [self, index](const QVariant &) {
+                    emit self->dataChanged(index, index, {LabelRole});
+                });
+                // An empty string rather than an invalid QVariant: the row
+                // declares label as a required string, and QML cannot assign
+                // undefined to one - the delegate would fail to be created.
+                return QString();
+            }
+            return pending.result();
+        }
+        return label;
+    }
     case ItemModelRole: {
         auto container = qobject_cast<AspectContainer *>(item);
         if (!container)

@@ -67,16 +67,7 @@ CommentsSettings::CommentsSettings()
         if the comment starts with "/*!" or "//!".)"
     ));
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-        return Column {
-            enableDoxygen,
-            Row { Space(30), generateBrief },
-            leadingAsterisks,
-            Row { commandPrefix, st },
-            st
-        };
-    });
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/TextEditor/CommentsSettingsPage.qml"));
 
     readSettings();
 

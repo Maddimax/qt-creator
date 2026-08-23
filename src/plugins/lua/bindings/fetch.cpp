@@ -99,15 +99,7 @@ void setupFetchModule()
             pluginsNotAllowedToFetch.setUiAllowAdding(false);
             pluginsNotAllowedToFetch.setUiAllowEditing(false);
 
-            Utils::AspectWidgets::setLayouter(this, [this] {
-                using namespace Layouting;
-                // clang-format off
-                return Form {
-                    pluginsAllowedToFetch, br,
-                    pluginsNotAllowedToFetch, br,
-                };
-                // clang-format on
-            });
+            setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Lua/NetworkAccessPage.qml"));
 
             readSettings();
         }

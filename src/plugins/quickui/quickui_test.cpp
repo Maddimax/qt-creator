@@ -16,6 +16,8 @@
 #include <QFile>
 #include <QQmlError>
 #include <QStandardItem>
+#include <QFont>
+#include <QPromise>
 #include <QQuickItem>
 #include <QQuickWidget>
 #include <QTemporaryDir>
@@ -95,6 +97,7 @@ private slots:
     void testStringSelectionOffersItsChoices();
     void testAspectListAddsRemovesAndShowsDetails();
     void testTextWithActionShowsSummaryAndActs();
+    void testAspectListLabelArrivingLate();
 };
 
 void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
@@ -532,7 +535,11 @@ void QuickUiTest::testAspectListAddsRemovesAndShowsDetails()
     QQuickItem *row = findQmlComponent(view, "ItemDelegate");
     QVERIFY(row);
     QVERIFY(row->property("removed").toBool());
-    QVERIFY(row->property("font").value<QFont>().strikeOut());
+    // On the text that is actually drawn: the style used to hard-code the font
+    // on its content item, so the row's own font never reached the screen.
+    auto rowText = row->property("contentItem").value<QQuickItem *>();
+    QVERIFY(rowText);
+    QVERIFY(rowText->property("font").value<QFont>().strikeOut());
 
     // And there is nothing left to remove on a row already on its way out.
     QVERIFY(!remove->property("enabled").toBool());
@@ -585,6 +592,44 @@ void QuickUiTest::testTextWithActionShowsSummaryAndActs()
     QVERIFY(button);
     QMetaObject::invokeMethod(button, "clicked");
     QCOMPARE(aspect.actions, 1);
+}
+
+void QuickUiTest::testAspectListLabelArrivingLate()
+{
+    Utils::AspectContainer page;
+    Utils::AspectList servers(&page);
+    servers.setDisplayStyle(Utils::AspectList::DisplayStyle::ListViewWithDetails);
+
+    // The MCP server list names its rows asynchronously, so the callback hands
+    // back a future rather than a string.
+    QPromise<QVariant> promise;
+    const QFuture<QVariant> pending = promise.future();
+    promise.start();
+    servers.listViewDataCallback = [pending](Utils::BaseAspect *, int) -> QVariant {
+        return QVariant::fromValue(pending);
+    };
+    servers.setCreateItemFunction([] { return std::make_shared<Utils::AspectContainer>(); });
+    servers.createAndAddItem();
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createAspectForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QVERIFY(quickWidget->rootObject());
+
+    // A list that is not on screen builds no rows until something asks for one.
+    QQuickItem *view = findQmlComponent(quickWidget->rootObject(), "QQuickListView");
+    QVERIFY(view);
+    QCOMPARE(view->property("count").toInt(), 1);
+    view->setProperty("currentIndex", 0);
+
+    QQuickItem *row = nullptr;
+    QTRY_VERIFY(row = findQmlComponent(view, "ItemDelegate"));
+    QCOMPARE(row->property("text").toString(), QString());
+
+    promise.addResult(QVariant("Named later"));
+    promise.finish();
+    QTRY_COMPARE(row->property("text").toString(), QString("Named later"));
 }
 
 QObject *createQuickUiTest()

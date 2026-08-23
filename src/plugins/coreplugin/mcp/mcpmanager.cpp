@@ -712,37 +712,7 @@ public:
                 "Environment variable changes applied when launching the MCP server process. "
                 "Only used for standard IO connection type."));
 
-        Utils::AspectWidgets::setLayouter(this, [this]() -> Layouting::Layout {
-            using namespace Layouting;
-
-            const auto updateVisible = [this]() {
-                const QString type = connectionType.volatileValue();
-                const bool isStdio = conTypeEnum().keyToValue(type.toUtf8()) == McpManager::Stdio;
-
-                launchCommand.setVisible(isStdio);
-                launchArguments.setVisible(isStdio);
-                envChanges.setVisible(isStdio);
-                url.setVisible(!isStdio);
-                httpHeaders.setVisible(!isStdio);
-            };
-            updateVisible();
-
-            connect(
-                &connectionType, &StringSelectionAspect::volatileValueChanged, this, updateVisible);
-
-            // clang-format off
-            return Form {
-                noMargin,
-                name, br,
-                connectionType, br,
-                launchCommand, br,
-                launchArguments, br,
-                envChanges, br,
-                url, br,
-                httpHeaders, br,
-            };
-            // clang-format on
-        });
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Core/mcp/McpSettingsPage.qml"));
     }
 
     McpManager::ServerInfo toServerInfo() const

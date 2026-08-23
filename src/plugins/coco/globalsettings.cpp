@@ -43,13 +43,12 @@ CocoSettings::CocoSettings()
         updateLabel(cocoPath.expandedVolatileValue());
     });
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-        return Form {
-            Tr::tr("Coco Directory"), cocoPath , br,
-            Span(2, messageLabel),
-        };
-    });
+    // No settings key, so no derived name for the page QML to use.
+
+    messageLabel.setQmlName("message");
+
+
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Coco/CocoSettingsPage.qml"));
 
     readSettings();
 
