@@ -10,9 +10,7 @@
 
 #include <coreplugin/dialogs/ioptionspage.h>
 
-#include <utils/aspectwidgets.h>
 #include <utils/environment.h>
-#include <utils/layoutbuilder.h>
 
 using namespace Utils;
 

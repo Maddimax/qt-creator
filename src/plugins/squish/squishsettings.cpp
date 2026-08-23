@@ -11,15 +11,15 @@
 #include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/icore.h>
 
-#include <utils/aspectwidgets.h>
 #include <utils/filedialogs.h>
 #include <utils/basetreeview.h>
 #include <utils/fileutils.h>
 #include <utils/layoutbuilder.h>
-#include <utils/pathchooser.h>
+#include <utils/pathvalidation.h>
 #include <utils/progressindicator.h>
 #include <utils/qtcassert.h>
 #include <utils/treemodel.h>
+#include <utils/validationfunction.h>
 
 #include <QDialogButtonBox>
 #include <QFrame>
@@ -48,10 +48,10 @@ SquishSettings::SquishSettings()
     squishPath.setExpectedKind(PathChooserKind::ExistingDirectory);
     squishPath.setPlaceHolderText(Tr::tr("Path to Squish installation"));
     squishPath.setValidationFunction(
-        [this](const QString &text) -> FancyLineEdit::AsyncValidationFuture {
+        [this](const QString &text) -> AsyncValidationFuture {
             return squishPath.defaultValidationFunction()(text).then(
-                [](const FancyLineEdit::AsyncValidationResult &result)
-                    -> FancyLineEdit::AsyncValidationResult {
+                [](const AsyncValidationResult &result)
+                    -> AsyncValidationResult {
                     if (!result)
                         return result;
 

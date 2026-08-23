@@ -10,8 +10,6 @@
 #include <coreplugin/icore.h>
 #include <coreplugin/plugininstallwizard.h>
 
-#include <utils/aspectwidgets.h>
-#include <utils/layoutbuilder.h>
 #include <utils/stylehelper.h>
 
 #include <QGuiApplication>
@@ -45,52 +43,30 @@ ExtensionManagerSettings::ExtensionManagerSettings()
     repositoryUrls.setDefaultValue(
         {"https://github.com/qt-creator/extension-registry/archive/refs/heads/main.tar.gz"});
 
-    // clang-format off
-    Utils::AspectWidgets::setLayouter(this, [this] {
-#ifndef QT_NO_SSL
-        const bool sslSupported = QSslSocket::supportsSsl();
-#else
-        const bool sslSupported = false;
-#endif
-        useExternalRepo.setEnabled(sslSupported);
-        if (!sslSupported)
-            useExternalRepo.setToolTip(Tr::tr("SSL support is not available."));
+    note.setText(externalRepoWarningNote());
+    note.setWordWrap(true);
+    note.setQmlName("Note");
 
-        using namespace Layouting;
-        using namespace Core;
-        return Column {
-            Group {
-                title(Tr::tr("Note")),
-                Column {
-                    Label {
-                        wordWrap(true),
-                        text(externalRepoWarningNote()),
-                    }
-                }
-            },
-            Group {
-                title(Tr::tr("Use External Repository")),
-                groupChecker(Utils::AspectWidgets::groupChecker(&useExternalRepo)),
-                Form {
-                    repositoryUrls, br,
-                },
-            },
-            Row {
-                PushButton {
-                    text(Tr::tr("Install Extension...")),
-                    onClicked(this, [] {
-                        if (executePluginInstallWizard() == InstallResult::NeedsRestart) {
-                            ICore::askForRestart(msgPluginChangesRequireRestart());
-                        }
-                    }),
-                },
-                st,
-            },
-            st,
-            spacing(Utils::StyleHelper::SpacingTokens::GapVXxl),
-        };
+    // Whether an external repository can be reached at all is a property of
+    // the build, not of the layout, so it does not belong in whatever draws
+    // the page.
+#ifndef QT_NO_SSL
+    const bool sslSupported = QSslSocket::supportsSsl();
+#else
+    const bool sslSupported = false;
+#endif
+    useExternalRepo.setEnabled(sslSupported);
+    if (!sslSupported)
+        useExternalRepo.setToolTip(Tr::tr("SSL support is not available."));
+
+    installExtension.setActionText(Tr::tr("Install Extension..."));
+    installExtension.setQmlName("InstallExtension");
+    installExtension.setAction([] {
+        if (Core::executePluginInstallWizard() == Core::InstallResult::NeedsRestart)
+            Core::ICore::askForRestart(Core::msgPluginChangesRequireRestart());
     });
-    // clang-format on
+
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/ExtensionManager/ExtensionManagerSettingsPage.qml"));
 
     readSettings();
 }

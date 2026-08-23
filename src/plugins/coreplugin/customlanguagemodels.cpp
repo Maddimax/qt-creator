@@ -12,7 +12,7 @@
 #include <utils/aspectlist.h>
 #include <utils/aspects.h>
 #include <utils/layoutbuilder.h>
-#include <utils/pathchooser.h>
+#include <utils/pathvalidation.h>
 #include <utils/shutdownguard.h>
 
 #include <QHeaderView>

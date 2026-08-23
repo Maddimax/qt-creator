@@ -10,11 +10,9 @@
 #include <coreplugin/vcsmanager.h>
 
 #include <utils/algorithm.h>
-#include <utils/aspectwidgets.h>
 #include <utils/environment.h>
 #include <utils/hostosinfo.h>
-#include <utils/layoutbuilder.h>
-#include <utils/pathchooser.h>
+#include <utils/pathvalidation.h>
 #include <utils/spellchecker.h>
 
 #include <QComboBox>

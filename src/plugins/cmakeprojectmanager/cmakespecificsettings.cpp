@@ -14,7 +14,6 @@
 #include <projectexplorer/projectimporter.h>
 #include <projectexplorer/projectpanelfactory.h>
 
-#include <utils/aspectwidgets.h>
 #include <utils/hostosinfo.h>
 #include <utils/layoutbuilder.h>
 #include <utils/qtcassert.h>

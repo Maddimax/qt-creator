@@ -36,9 +36,10 @@ public:
     Utils::FilePathAspect qbsExecutableFilePath{this};
     Utils::StringAspect defaultInstallDirTemplate{this};
     Utils::BoolAspect useCreatorSettings{this};
-
-private:
-    Utils::TextDisplay m_versionLabel;
+    Utils::ActionAspect resetExecutablePath{this};
+    // Registered so that it is one of the container's aspects: a page's QML
+    // reaches only those.
+    Utils::TextDisplay versionLabel{this};
 };
 
 class QbsSettingsPage : public Core::IOptionsPage

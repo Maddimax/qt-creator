@@ -8,8 +8,6 @@
 
 #include <coreplugin/dialogs/ioptionspage.h>
 #include <cppeditor/cppeditorconstants.h>
-#include <utils/aspectwidgets.h>
-#include <utils/layoutbuilder.h>
 
 using namespace Utils;
 

@@ -7,11 +7,10 @@
 #include "cppchecktool.h"
 #include "cppchecktr.h"
 
-#include <utils/aspectwidgets.h>
 #include <utils/environment.h>
 #include <utils/hostosinfo.h>
-#include <utils/pathchooser.h>
 #include <utils/layoutbuilder.h>
+#include <utils/pathvalidation.h>
 
 #include <coreplugin/dialogs/ioptionspage.h>
 

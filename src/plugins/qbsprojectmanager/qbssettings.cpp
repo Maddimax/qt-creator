@@ -11,11 +11,9 @@
 #include <projectexplorer/devicesupport/devicemanager.h>
 #include <projectexplorer/devicesupport/idevice.h>
 #include <projectexplorer/projectexplorerconstants.h>
-#include <utils/aspectwidgets.h>
 #include <utils/environment.h>
 #include <utils/hostosinfo.h>
-#include <utils/layoutbuilder.h>
-#include <utils/pathchooser.h>
+#include <utils/pathvalidation.h>
 #include <utils/qtcprocess.h>
 
 #include <QCheckBox>
@@ -143,31 +141,23 @@ QbsSettings::QbsSettings()
     useCreatorSettings.setLabelText(Tr::tr("Use %1 settings directory for Qbs")
                                     .arg(QGuiApplication::applicationDisplayName()));
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-        return Column {
-            useCreatorSettings,
-            Form {
-                qbsExecutableFilePath,
-                PushButton {
-                    text(Tr::tr("Reset")),
-                    onClicked(this, [this] {
-                        const FilePath defaultPath = QbsSettings::defaultQbsExecutableFilePath();
-                        qbsExecutableFilePath.setVolatileValue(defaultPath.toUserOutput());
-                    })
-                }, br,
-                defaultInstallDirTemplate, br,
-                Tr::tr("Qbs version:"), m_versionLabel, br,
-            },
-            st
-        };
+    resetExecutablePath.setActionText(Tr::tr("Reset"));
+    resetExecutablePath.setQmlName("ResetExecutablePath");
+    resetExecutablePath.setAction([this] {
+        const FilePath defaultPath = QbsSettings::defaultQbsExecutableFilePath();
+        qbsExecutableFilePath.setVolatileValue(defaultPath.toUserOutput());
     });
+
+    versionLabel.setLabelText(Tr::tr("Qbs version:"));
+    versionLabel.setQmlName("Version");
+
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/QbsProjectManager/QbsSettingsPage.qml"));
 
     readSettings();
 
     auto updateVersionString = [this] {
         const QString version = getQbsVersion(qbsExecutableFilePath.expandedVolatileValue());
-        m_versionLabel.setText(version.isEmpty() ? Tr::tr("Failed to retrieve version.") : version);
+        versionLabel.setText(version.isEmpty() ? Tr::tr("Failed to retrieve version.") : version);
     };
     updateVersionString();
 

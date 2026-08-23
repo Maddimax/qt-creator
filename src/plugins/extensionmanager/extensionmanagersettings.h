@@ -12,8 +12,10 @@ class ExtensionManagerSettings final : public Utils::AspectContainer
 public:
     ExtensionManagerSettings();
 
+    Utils::TextDisplay note{this};
     Utils::BoolAspect useExternalRepo{this};
     Utils::StringListAspect repositoryUrls{this};
+    Utils::ActionAspect installExtension{this};
 };
 
 QString externalRepoWarningNote();
