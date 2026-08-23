@@ -66,7 +66,7 @@ BuildDirectoryAspect::BuildDirectoryAspect(BuildConfiguration *bc)
                 Tr::tr("The build directory is not reachable from the build device.")))));
         }
 
-        return pathChooser()->defaultValidationFunction()(text);
+        return defaultValidationFunction()(text);
     });
 
     setOpenTerminalHandler(
@@ -155,9 +155,9 @@ void BuildDirectoryAspect::addToLayoutImpl(Layouting::Layout &parent)
 
     const auto buildDevice = BuildDeviceKitAspect::device(buildConfiguration()->kit());
     if (buildDevice && buildDevice->type() != ProjectExplorer::Constants::DESKTOP_DEVICE_TYPE)
-        pathChooser()->setAllowPathFromDevice(true);
+        setAllowPathFromDevice(true);
     else
-        pathChooser()->setAllowPathFromDevice(false);
+        setAllowPathFromDevice(false);
 }
 
 void BuildDirectoryAspect::announceChanges(Changes changes, Announcement howToAnnounce)

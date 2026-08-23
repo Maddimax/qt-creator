@@ -849,7 +849,7 @@ public:
         };
         // clang-format on
 
-        settings->executable.pathChooser()->addButton(
+        settings->executable.addButton(
             Tr::tr("Download latest standalone qmlls"), this, [this, settings = QPointer(settings)] {
                 m_qmllsDownloader.start({downloadGithubQmlls()}, {}, [settings] {
                     if (!settings)

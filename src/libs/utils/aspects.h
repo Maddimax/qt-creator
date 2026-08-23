@@ -267,6 +267,13 @@ signals:
     void labelTextChanged();
     void labelPixmapChanged();
 
+    // Renderer-facing. An aspect holds no control, so a setter that has to
+    // reach a live one says what happened and lets whoever built the control
+    // re-read the aspect.
+    void controlConfigurationChanged();
+    void controlFocusRequested();
+    void controlValidationRequested();
+
 protected:
     virtual void addToLayoutImpl(Layouting::Layout &parent);
     [[deprecated("Use valueToVolatileValue()")]] bool internalToBuffer() { return valueToVolatileValue(); }
@@ -916,6 +923,11 @@ public:
     FilePath effectiveBinary() const;
     FilePath expandedValue() const;
     FilePath expandedVolatileValue() const;
+    // Resolves the current input the way the control does: macros and
+    // environment variables expanded, then the base directory applied, or the
+    // search path for the command kinds. expandedVolatileValue() only expands
+    // macros.
+    FilePath resolvedVolatileValue() const;
     QString value() const;
     void setValue(const FilePath &filePath, Announcement howToAnnounce = DoEmit);
     void setValue(const QString &filePath, Announcement howToAnnounce = DoEmit);
@@ -951,7 +963,26 @@ public:
     using ValueAcceptor = std::function<std::optional<QString>(const QString &, const QString &)>;
     void setValueAcceptor(ValueAcceptor &&acceptor);
 
-    PathChooser *pathChooser() const; // Avoid to use.
+    // Whether the control currently shows something the expected kind
+    // accepts. False until the first validation of a control has finished,
+    // and false while no control is showing the aspect.
+    bool isValid() const;
+
+    // The validation the control applies when no validation function is set.
+    // Wrap it to add a check of your own.
+    AsyncValidationFunction defaultValidationFunction() const;
+
+    // An extra button next to the browse button, for example to install what
+    // the path is supposed to point at.
+    class Button
+    {
+    public:
+        QString text;
+        QPointer<QObject> context;
+        std::function<void()> callback;
+    };
+    void addButton(const QString &text, QObject *context,
+                   const std::function<void()> &callback);
 
     void addToLayoutImpl(Layouting::Layout &parent) override;
 
@@ -997,7 +1028,9 @@ private:
     FilePaths valueAlternatives() const;
     bool autoApplyOnEditingFinished() const;
     Guard &editFinishedGuard();
-    void cachePathChooser(PathChooser *pathChooser);
+
+    QList<Button> buttons() const;
+    void setValid(bool valid);
 };
 
 class QTCREATOR_UTILS_EXPORT IntegerAspect : public TypedAspect<qint64>

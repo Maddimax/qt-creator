@@ -1,6 +1,7 @@
 // Copyright (C) 2026 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
+#include <utils/algorithm.h>
 #include <utils/aspects.h>
 #include <utils/aspectwidgetrenderer.h>
 #include <utils/elidinglabel.h>
@@ -13,17 +14,21 @@
 #include <utils/qtcolorbutton.h>
 
 #include <QCheckBox>
+#include <QDir>
 #include <QComboBox>
 #include <QFontComboBox>
 #include <QLabel>
+#include <QLineEdit>
 #include <QListWidget>
 #include <QPushButton>
 #include <QRadioButton>
 #include <QSpinBox>
+#include <QSignalSpy>
 #include <QStandardItem>
 #include <QTest>
 #include <QTextEdit>
 #include <QTreeWidget>
+#include <QVBoxLayout>
 #include <QUndoStack>
 
 #include <memory>
@@ -96,6 +101,14 @@ private slots:
     void stringPasswordLineEdit();
     void pathChooser_data() { addRendererRows(); }
     void pathChooser();
+    void filePathValidity_data() { addRendererRows(); }
+    void filePathValidity();
+    void filePathExtraButton_data() { addRendererRows(); }
+    void filePathExtraButton();
+    void filePathLiveReconfiguration_data() { addRendererRows(); }
+    void filePathLiveReconfiguration();
+    void filePathFocusRequest_data() { addRendererRows(); }
+    void filePathFocusRequest();
     void checkableStringLineEdit_data() { addRendererRows(); }
     void checkableStringLineEdit();
     void checkableFilePath_data() { addRendererRows(); }
@@ -636,6 +649,112 @@ void tst_AspectRenderer::pathChooser()
 
     aspect.setVolatileValue("/tmp/two");
     QCOMPARE(chooser->lineEdit()->text(), QString("/tmp/two"));
+}
+
+void tst_AspectRenderer::filePathValidity()
+{
+    QFETCH(bool, withRenderer);
+    setRendererInstalled(withRenderer);
+
+    FilePathAspect aspect;
+    aspect.setAutoApply(false);
+    aspect.setExpectedKind(PathChooserKind::ExistingDirectory);
+
+    // Nothing has been validated yet, and an empty path is not a directory.
+    QVERIFY(!aspect.isValid());
+
+    QSignalSpy validSpy(&aspect, &FilePathAspect::validChanged);
+    const std::unique_ptr<QWidget> widget = render(aspect);
+    auto chooser = widget->findChild<PathChooser *>();
+    QVERIFY(chooser);
+
+    chooser->lineEdit()->insert(QDir::tempPath());
+    QTRY_VERIFY(aspect.isValid());
+    QCOMPARE(chooser->isValid(), aspect.isValid());
+    QCOMPARE(validSpy.count(), 1);
+    QCOMPARE(validSpy.last().first().toBool(), true);
+
+    chooser->lineEdit()->insert("/no-such-thing");
+    QTRY_VERIFY(!aspect.isValid());
+    QCOMPARE(validSpy.count(), 2);
+    QCOMPARE(validSpy.last().first().toBool(), false);
+}
+
+void tst_AspectRenderer::filePathExtraButton()
+{
+    QFETCH(bool, withRenderer);
+    setRendererInstalled(withRenderer);
+
+    FilePathAspect aspect;
+    aspect.setAutoApply(false);
+
+    int clicked = 0;
+    aspect.addButton("Install", &aspect, [&clicked] { ++clicked; });
+
+    const std::unique_ptr<QWidget> widget = render(aspect);
+    const QList<QPushButton *> before = widget->findChildren<QPushButton *>();
+    QPushButton *install = Utils::findOr(before, nullptr, [](QPushButton *b) {
+        return b->text() == "Install";
+    });
+    QVERIFY(install);
+    install->click();
+    QCOMPARE(clicked, 1);
+
+    // A button added after the control exists still reaches it, and the ones
+    // already there are not duplicated.
+    aspect.addButton("Later", &aspect, [] {});
+    const QList<QPushButton *> after = widget->findChildren<QPushButton *>();
+    QCOMPARE(after.size(), before.size() + 1);
+    QVERIFY(Utils::findOr(after, nullptr, [](QPushButton *b) { return b->text() == "Later"; }));
+}
+
+void tst_AspectRenderer::filePathLiveReconfiguration()
+{
+    QFETCH(bool, withRenderer);
+    setRendererInstalled(withRenderer);
+
+    FilePathAspect aspect;
+    aspect.setAutoApply(false);
+    aspect.setExpectedKind(PathChooserKind::File);
+
+    const std::unique_ptr<QWidget> widget = render(aspect);
+    auto chooser = widget->findChild<PathChooser *>();
+    QVERIFY(chooser);
+    QCOMPARE(chooser->expectedKind(), PathChooserKind::File);
+
+    // The aspect does not know the widget; the setter has to reach it anyway.
+    aspect.setExpectedKind(PathChooserKind::ExistingDirectory);
+    QCOMPARE(chooser->expectedKind(), PathChooserKind::ExistingDirectory);
+
+    aspect.setPromptDialogTitle("Pick one");
+    QCOMPARE(chooser->promptDialogTitle(), QString("Pick one"));
+}
+
+void tst_AspectRenderer::filePathFocusRequest()
+{
+    QFETCH(bool, withRenderer);
+    setRendererInstalled(withRenderer);
+
+    FilePathAspect aspect;
+    aspect.setAutoApply(false);
+
+    // A second focusable widget, so that the aspect's control is not the only
+    // candidate and getting focus means something.
+    const auto window = std::make_unique<QWidget>();
+    auto layout = new QVBoxLayout(window.get());
+    auto other = new QLineEdit;
+    layout->addWidget(other);
+    layout->addWidget(Layouting::Column { aspect }.emerge());
+
+    auto chooser = window->findChild<PathChooser *>();
+    QVERIFY(chooser);
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window.get()));
+    other->setFocus();
+    QVERIFY(!chooser->hasFocus());
+
+    aspect.setFocusToInputField();
+    QVERIFY(chooser->hasFocus());
 }
 
 void tst_AspectRenderer::checkableStringLineEdit()

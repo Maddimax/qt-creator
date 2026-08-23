@@ -326,14 +326,6 @@ void WorkingDirectoryAspect::setDefaultWorkingDirectory(const FilePath &defaultW
     }
 }
 
-/*!
-    \internal
-*/
-PathChooser *WorkingDirectoryAspect::pathChooser() const
-{
-    return m_chooser;
-}
-
 
 /*!
     \class ProjectExplorer::ArgumentsAspect
@@ -557,6 +549,9 @@ ExecutableAspect::ExecutableAspect(AspectContainer *container)
     m_executable.setLabelText(Tr::tr("Executable:"));
 
     connect(&m_executable, &StringAspect::changed, this, &ExecutableAspect::changed);
+    // A build can turn a path that did not exist into one that does.
+    connect(BuildManager::instance(), &BuildManager::buildQueueFinished,
+            &m_executable, &FilePathAspect::validateInput);
 }
 
 /*!
@@ -687,10 +682,6 @@ FilePath ExecutableAspect::executable() const
 void ExecutableAspect::addToLayoutImpl(Layout &builder)
 {
     builder.addItem(m_executable);
-    if (m_executable.pathChooser()) {
-        connect(BuildManager::instance(), &BuildManager::buildQueueFinished,
-                m_executable.pathChooser(), &PathChooser::triggerChanged);
-    }
     if (m_alternativeExecutable) {
         builder.flush();
         builder.addItem(m_alternativeExecutable);

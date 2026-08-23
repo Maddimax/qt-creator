@@ -115,7 +115,7 @@ public:
 
         const bool canDerive = buildInfoForCurrentDocumentDerivable();
         auto updateOk = [okButton, canDerive] {
-            okButton->setEnabled(settings().lastBauhausConfig.pathChooser()->isValid()
+            okButton->setEnabled(settings().lastBauhausConfig.isValid()
                                  && (canDerive
                                      || !settings().lastSfaCommand.volatileValue().isEmpty()));
         };

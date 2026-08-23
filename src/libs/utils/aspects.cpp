@@ -4,6 +4,7 @@
 #include "aspects.h"
 
 #include "algorithm.h"
+#include "async.h"
 #include "checkableaspect.h"
 #include "checkablemessagebox.h"
 #include "environment.h"
@@ -1441,7 +1442,6 @@ public:
     Key m_historyCompleterKey;
     PathChooserKind m_expectedKind = PathChooserKind::File;
     Environment m_environment;
-    QPointer<PathChooser> m_pathChooserDisplay;
     Lazy<FilePath> m_baseDirectory;
     FilePath m_initialBrowsePathBackup;
     StringAspect::ValueAcceptor m_valueAcceptor;
@@ -1456,7 +1456,9 @@ public:
     bool m_autoApplyOnEditingFinished = false;
     bool m_allowPathFromDevice = true;
     bool m_validatePlaceHolder = false;
+    bool m_valid = false;
     FilePaths m_valueAlternatives;
+    QList<FilePathAspect::Button> m_buttons;
 
     Guard m_editFinishedGuard;
 
@@ -1499,6 +1501,15 @@ FilePath FilePathAspect::expandedValue() const
             return FilePath::fromUserInput(expander->expand(value));
     }
     return FilePath::fromUserInput(value);
+}
+
+FilePath FilePathAspect::resolvedVolatileValue() const
+{
+    return Utils::expandPath(FilePath::fromUserInput(TypedAspect::volatileValue()),
+                             macroExpander(),
+                             d->m_baseDirectory.value(),
+                             d->m_environment,
+                             d->m_expectedKind);
 }
 
 FilePath FilePathAspect::expandedVolatileValue() const
@@ -1622,9 +1633,56 @@ void FilePathAspect::volatileValueToGui()
     validateInput();
 }
 
-PathChooser *FilePathAspect::pathChooser() const
+bool FilePathAspect::isValid() const
 {
-    return d->m_pathChooserDisplay.data();
+    return d->m_valid;
+}
+
+void FilePathAspect::setValid(bool valid)
+{
+    if (d->m_valid == valid)
+        return;
+    d->m_valid = valid;
+    emit validChanged(valid);
+}
+
+AsyncValidationFunction FilePathAspect::defaultValidationFunction() const
+{
+    // The control this ends up in is destroyed with the aspect, so capturing
+    // the aspect is as safe as PathChooser capturing itself was.
+    return [this](const QString &text) -> AsyncValidationFuture {
+        if (text.isEmpty()) {
+            return QtFuture::makeReadyFuture(
+                AsyncValidationResult(ResultError(Tr::tr("The path must not be empty."))));
+        }
+
+        const FilePath expanded = Utils::expandPath(FilePath::fromUserInput(text),
+                                                    macroExpander(),
+                                                    d->m_baseDirectory.value(),
+                                                    d->m_environment,
+                                                    d->m_expectedKind);
+        if (expanded.isEmpty()) {
+            return QtFuture::makeReadyFuture(AsyncValidationResult(
+                ResultError(Tr::tr("The path \"%1\" expanded to an empty string.")
+                                .arg(expanded.toUserOutput()))));
+        }
+
+        return Utils::asyncRun([expanded, kind = d->m_expectedKind] {
+            return Utils::validatePath(expanded, kind);
+        });
+    };
+}
+
+void FilePathAspect::addButton(const QString &text, QObject *context,
+                               const std::function<void()> &callback)
+{
+    d->m_buttons.append({text, context, callback});
+    emit controlConfigurationChanged();
+}
+
+QList<FilePathAspect::Button> FilePathAspect::buttons() const
+{
+    return d->m_buttons;
 }
 
 void FilePathAspect::setVolatileVariantValueFromGui(const QVariant &value)
@@ -1684,43 +1742,37 @@ void FilePathAspect::volatileFromMap(const Store &map)
 
 void FilePathAspect::setFocusToInputField()
 {
-    if (d->m_pathChooserDisplay)
-        d->m_pathChooserDisplay->setFocus();
+    emit controlFocusRequested();
 }
 
 void FilePathAspect::setPromptDialogFilter(const QString &filter)
 {
     d->m_prompDialogFilter = filter;
-    if (d->m_pathChooserDisplay)
-        d->m_pathChooserDisplay->setPromptDialogFilter(filter);
+    emit controlConfigurationChanged();
 }
 
 void FilePathAspect::setPromptDialogTitle(const QString &title)
 {
     d->m_prompDialogTitle = title;
-    if (d->m_pathChooserDisplay)
-        d->m_pathChooserDisplay->setPromptDialogTitle(title);
+    emit controlConfigurationChanged();
 }
 
 void FilePathAspect::setCommandVersionArguments(const QStringList &arguments)
 {
     d->m_commandVersionArguments = arguments;
-    if (d->m_pathChooserDisplay)
-        d->m_pathChooserDisplay->setCommandVersionArguments(arguments);
+    emit controlConfigurationChanged();
 }
 
 void FilePathAspect::setAllowPathFromDevice(bool allowPathFromDevice)
 {
     d->m_allowPathFromDevice = allowPathFromDevice;
-    if (d->m_pathChooserDisplay)
-        d->m_pathChooserDisplay->setAllowPathFromDevice(allowPathFromDevice);
+    emit controlConfigurationChanged();
 }
 
 void FilePathAspect::setValidatePlaceHolder(bool validatePlaceHolder)
 {
     d->m_validatePlaceHolder = validatePlaceHolder;
-    if (d->m_pathChooserDisplay)
-        d->m_pathChooserDisplay->lineEdit()->setValidatePlaceHolder(validatePlaceHolder);
+    emit controlConfigurationChanged();
 }
 
 void FilePathAspect::setShowToolTipOnLabel(bool show)
@@ -1737,8 +1789,7 @@ void FilePathAspect::setAutoApplyOnEditingFinished(bool applyOnEditingFinished)
 void FilePathAspect::setValueAlternatives(const FilePaths &candidates)
 {
     d->m_valueAlternatives = candidates;
-    if (d->m_pathChooserDisplay)
-        d->m_pathChooserDisplay->setValueAlternatives(candidates);
+    emit controlConfigurationChanged();
 }
 
 /*!
@@ -1751,30 +1802,26 @@ void FilePathAspect::setExpectedKind(const PathChooserKind &expectedKind)
     if (d->m_expectedKind != expectedKind) {
         d->m_expectedKind = expectedKind;
         d->m_effectiveBinary.reset();
-        if (d->m_pathChooserDisplay)
-            d->m_pathChooserDisplay->setExpectedKind(expectedKind);
+        emit controlConfigurationChanged();
     }
 }
 
 void FilePathAspect::setEnvironment(const Environment &env)
 {
     d->m_environment = env;
-    if (d->m_pathChooserDisplay)
-        d->m_pathChooserDisplay->setEnvironment(env);
+    emit controlConfigurationChanged();
 }
 
 void FilePathAspect::setBaseDirectory(const Lazy<FilePath> &baseDirectory)
 {
     d->m_baseDirectory = baseDirectory;
-    if (d->m_pathChooserDisplay)
-        d->m_pathChooserDisplay->setBaseDirectory(baseDirectory);
+    emit controlConfigurationChanged();
 }
 
 void FilePathAspect::setInitialBrowsePathBackup(const FilePath &initialBrowsePathBackup)
 {
     d->m_initialBrowsePathBackup = initialBrowsePathBackup;
-    if (d->m_pathChooserDisplay)
-        d->m_pathChooserDisplay->setInitialBrowsePathBackup(initialBrowsePathBackup);
+    emit controlConfigurationChanged();
 }
 
 void FilePathAspect::setPlaceHolderText(const QString &placeHolderText)
@@ -1785,8 +1832,7 @@ void FilePathAspect::setPlaceHolderText(const QString &placeHolderText)
 void FilePathAspect::setValidationFunction(const ValidationFunction &validator)
 {
     d->m_validator = validator;
-    if (d->m_pathChooserDisplay)
-        d->m_pathChooserDisplay->setValidationFunction(*d->m_validator);
+    emit controlConfigurationChanged();
 }
 
 void FilePathAspect::setDisplayFilter(const std::function<QString (const QString &)> &displayFilter)
@@ -1797,21 +1843,18 @@ void FilePathAspect::setDisplayFilter(const std::function<QString (const QString
 void FilePathAspect::setHistoryCompleter(const Key &historyCompleterKey)
 {
     d->m_historyCompleterKey = historyCompleterKey;
-    if (d->m_pathChooserDisplay)
-        d->m_pathChooserDisplay->setHistoryCompleter(historyCompleterKey);
+    emit controlConfigurationChanged();
 }
 
 void FilePathAspect::validateInput()
 {
-    if (d->m_pathChooserDisplay)
-        d->m_pathChooserDisplay->triggerChanged();
+    emit controlValidationRequested();
 }
 
 void FilePathAspect::setOpenTerminalHandler(const std::function<void ()> &openTerminal)
 {
     d->m_openTerminal = openTerminal;
-    if (d->m_pathChooserDisplay)
-        d->m_pathChooserDisplay->setOpenTerminalHandler(openTerminal);
+    emit controlConfigurationChanged();
 }
 
 Internal::CheckableAspectImplementation &FilePathAspect::checker()
@@ -1902,11 +1945,6 @@ bool FilePathAspect::autoApplyOnEditingFinished() const
 Guard &FilePathAspect::editFinishedGuard()
 {
     return d->m_editFinishedGuard;
-}
-
-void FilePathAspect::cachePathChooser(PathChooser *pathChooser)
-{
-    d->m_pathChooserDisplay = pathChooser;
 }
 
 /*!

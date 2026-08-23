@@ -1835,10 +1835,8 @@ Result<> ProjectExplorerPlugin::initialize(const QStringList &arguments)
             ModeManager::activateMode(Constants::MODE_SESSION);
             dd->m_proWindow->activateBuildSettings();
             if (BuildConfiguration *const activeBc = activeBuildConfigForActiveProject()) {
-                if (const auto dirAspect = activeBc->aspect<BuildDirectoryAspect>()) {
-                    if (PathChooser *const chooser = dirAspect->pathChooser())
-                        chooser->setFocus();
-                }
+                if (const auto dirAspect = activeBc->aspect<BuildDirectoryAspect>())
+                    dirAspect->setFocusToInputField();
             }
         });
     ActionBuilder(this, "ProjectExplorer.EditActiveRunConfig")

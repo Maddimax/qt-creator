@@ -44,6 +44,8 @@ using namespace Layouting;
 
 namespace Utils::Internal {
 
+const char BUTTONS_ADDED[] = "QtcAspect.ButtonsAdded";
+
 // Rebuilds the widgets of the addToLayoutImpl() bodies in aspects.cpp. The
 // generic controls are driven by presentation() alone; the bespoke ones key on
 // the aspect type and read the rest through friend accessors - the point is
@@ -179,6 +181,38 @@ public:
     }
 
 private:
+    // Everything a FilePathAspect's setters can change after the control
+    // exists. Idempotent: it runs at build time and again on every
+    // controlConfigurationChanged().
+    static void applyPathChooserConfiguration(FilePathAspect *aspect, PathChooser *pathChooser)
+    {
+        pathChooser->setExpectedKind(aspect->expectedKind());
+        if (!aspect->historyCompleterKey().isEmpty())
+            pathChooser->setHistoryCompleter(aspect->historyCompleterKey());
+        if (const std::optional<ValidationFunction> validator = aspect->validationFunction())
+            pathChooser->setValidationFunction(*validator);
+        pathChooser->setEnvironment(aspect->environment());
+        pathChooser->setBaseDirectory(aspect->baseDirectory());
+        pathChooser->setInitialBrowsePathBackup(aspect->initialBrowsePathBackup());
+        pathChooser->setOpenTerminalHandler(aspect->openTerminalHandler());
+        pathChooser->setPromptDialogFilter(aspect->promptDialogFilter());
+        pathChooser->setPromptDialogTitle(aspect->promptDialogTitle());
+        pathChooser->setCommandVersionArguments(aspect->commandVersionArguments());
+        pathChooser->setAllowPathFromDevice(aspect->allowPathFromDevice());
+        pathChooser->setReadOnly(aspect->isReadOnly());
+        pathChooser->lineEdit()->setValidatePlaceHolder(aspect->validatePlaceHolder());
+        pathChooser->setValueAlternatives(aspect->valueAlternatives());
+
+        // addButton() has no counterpart, so only the ones not added yet.
+        const QList<FilePathAspect::Button> buttons = aspect->buttons();
+        const int added = pathChooser->property(BUTTONS_ADDED).toInt();
+        for (int i = added; i < buttons.size(); ++i) {
+            const FilePathAspect::Button &button = buttons.at(i);
+            pathChooser->addButton(button.text, button.context, button.callback);
+        }
+        pathChooser->setProperty(BUTTONS_ADDED, buttons.size());
+    }
+
     // The check box, where the aspect has one, brackets its control.
     template<class Aspect, class Render>
     static void withChecker(Aspect *aspect, Layout &parent, const Render &render)
@@ -646,28 +680,10 @@ private:
         const QString displayed = filter ? filter(aspect->value()) : aspect->value();
 
         PathChooser *pathChooser = aspect->createSubWidget<PathChooser>();
-        // The aspect's forwarding setters and its public pathChooser() keep
-        // going through the cached pointer.
-        aspect->cachePathChooser(pathChooser);
         // A settings page tends to hold several of these, so name them apart.
         pathChooser->setObjectName(Utils::stringFromKey(aspect->settingsKey()));
         aspect->addMacroExpansion(pathChooser);
-        pathChooser->setExpectedKind(aspect->expectedKind());
-        if (!aspect->historyCompleterKey().isEmpty())
-            pathChooser->setHistoryCompleter(aspect->historyCompleterKey());
-        if (const std::optional<ValidationFunction> validator = aspect->validationFunction())
-            pathChooser->setValidationFunction(*validator);
-        pathChooser->setEnvironment(aspect->environment());
-        pathChooser->setBaseDirectory(aspect->baseDirectory());
-        pathChooser->setInitialBrowsePathBackup(aspect->initialBrowsePathBackup());
-        pathChooser->setOpenTerminalHandler(aspect->openTerminalHandler());
-        pathChooser->setPromptDialogFilter(aspect->promptDialogFilter());
-        pathChooser->setPromptDialogTitle(aspect->promptDialogTitle());
-        pathChooser->setCommandVersionArguments(aspect->commandVersionArguments());
-        pathChooser->setAllowPathFromDevice(aspect->allowPathFromDevice());
-        pathChooser->setReadOnly(aspect->isReadOnly());
-        pathChooser->lineEdit()->setValidatePlaceHolder(aspect->validatePlaceHolder());
-        pathChooser->setValueAlternatives(aspect->valueAlternatives());
+        applyPathChooserConfiguration(aspect, pathChooser);
         if (aspect->defaultValue() == aspect->value())
             pathChooser->setDefaultValue(FilePath::fromUserInput(aspect->defaultValue()));
         else
@@ -677,8 +693,20 @@ private:
         if (pathChooser->lineEdit()->placeholderText().isEmpty())
             pathChooser->lineEdit()->setPlaceholderText(pres.placeholderText);
         addCheckableLabeledItem(aspect, parent, pathChooser);
+
+        // The aspect's setters do not know this widget; they say what changed
+        // and we re-read them. Everything but the value, which the user may be
+        // in the middle of typing.
+        QObject::connect(aspect, &BaseAspect::controlConfigurationChanged, pathChooser,
+                         [aspect, pathChooser] {
+                             applyPathChooserConfiguration(aspect, pathChooser);
+                         });
+        QObject::connect(aspect, &BaseAspect::controlFocusRequested,
+                         pathChooser, qOverload<>(&QWidget::setFocus));
+        QObject::connect(aspect, &BaseAspect::controlValidationRequested,
+                         pathChooser, &PathChooser::triggerChanged);
         QObject::connect(pathChooser, &PathChooser::validChanged,
-                         aspect, &FilePathAspect::validChanged);
+                         aspect, &FilePathAspect::setValid);
 
         QObject::connect(&aspect->undoableValue().m_signal, &UndoSignaller::changed, pathChooser,
                          [aspect, pathChooser] {
