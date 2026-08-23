@@ -271,11 +271,26 @@ rule and overstated progress; see "Things learned the hard way".)
 | With pairing, before this series | 237 / 82786 | 140 / 22320 |
 | After terminalcommand split | 141 / 54338 | 238 / 50796 |
 | After the renderer work | 126 / 47877 | 258 / 57807 |
-| Now | 129 / 48458 | 260 / 57851 |
+| After the aspect API change | 129 / 48458 | 260 / 57851 |
+| Now | 131 / 47646 | 266 / 58825 |
 
-(The last row was measured with a re-written script, so read the split rather
-than the delta: `pathvalidation.{h,cpp}` are new and clean, `checkableaspect.h`
-is new and widget-side.)
+(These last rows were measured with a re-written script, so read the split
+rather than the delta across that boundary; the file count also moves because
+this work added files on both sides.)
+
+**The metric counts includes, not links.** A file can be include-clean and
+still reference a symbol defined in widget code, in which case it cannot change
+library. Check with `nm -u <object> | c++filt` before believing a file is ready
+to move - see the `layoutbuilder` note in step 0 below for the case where this
+matters.
+
+**Where the closure stands.** Exempting each root-tainted file in turn and
+re-running the closure says how many files it blocks. The largest is
+`layoutbuilder` at 7; nothing else is above 4, and the remaining widget-side
+files are genuinely widget classes - dialogs, labels, views, tool tips,
+wizards. So the split is close to its floor apart from `layoutbuilder` and what
+depends on it: `aspects.{h,cpp}`, `checkableaspect.h` and `portlist.{h,cpp}`
+(which declares a `PortListAspect`).
 
 The clean side is the larger by files and lines under the honest metric.
 Clean now: `filepath`, `qtcprocess`, `environment`, `devicefileaccess`,
@@ -348,8 +363,12 @@ In order:
    class must be complete). A `layout.h` with the core, included by
    `layoutbuilder.h`, would compile with no consumer changes.
 
-   It would not link. `AspectContainer::addToLayoutImpl` does not merely need
-   the type - it calls `parent.addItem()`, which reaches
+   It would not link, and this is measured, not reasoned:
+   `nm -u aspects.cpp.o | c++filt` lists exactly three Layouting symbols -
+   `Layout::addItem`, `LayoutItem::~LayoutItem` and
+   `addToLayout(Layout *, const Layout &)` - all defined in
+   `layoutbuilder.cpp`. `AspectContainer::addToLayoutImpl` does not merely need
+   the type; it calls `parent.addItem()`, which reaches
    `Layout::addLayoutItem`, which does `qobject_cast<QBoxLayout *>` on the
    product and populates real layouts. `Layout`'s implementation is widget
    code, so it belongs in `UtilsWidgets`, and a `Utils` that calls it would
