@@ -629,6 +629,18 @@ void addToLayout(Layouting::Layout *layout, const BaseAspect *aspect)
     aspect->addToLayout(*layout);
 }
 
+static AspectRenderer s_aspectRenderer;
+
+void setAspectRenderer(const AspectRenderer &renderer)
+{
+    s_aspectRenderer = renderer;
+}
+
+static bool renderAspect(BaseAspect &aspect, Layout &parent)
+{
+    return s_aspectRenderer && s_aspectRenderer(aspect, parent);
+}
+
 /*!
     Updates this aspect's value from user-initiated changes in the widget.
 
@@ -2145,6 +2157,9 @@ AspectPresentation ColorAspect::presentation() const
 
 void ColorAspect::addToLayoutImpl(Layouting::Layout &parent)
 {
+    if (renderAspect(*this, parent))
+        return;
+
     auto button = createSubWidget<QtColorButton>();
     button->setColor(volatileValue());
     button->setAlphaAllowed(d->m_alphaAllowed);
@@ -2234,6 +2249,9 @@ AspectPresentation FontFamilyAspect::presentation() const
 
 void FontFamilyAspect::addToLayoutImpl(Layouting::Layout &parent)
 {
+    if (renderAspect(*this, parent))
+        return;
+
     if (QLabel *l = createLabel())
         parent.addItem(l);
 
@@ -2531,6 +2549,9 @@ AspectPresentation BoolAspect::presentation() const
 
 void BoolAspect::addToLayoutImpl(Layouting::Layout &parent)
 {
+    if (renderAspect(*this, parent))
+        return;
+
     if (d->m_displayStyle == DisplayStyle::CheckBox)
         addToLayoutHelper(parent, createSubWidget<QCheckBox>());
     else
@@ -2681,6 +2702,9 @@ AspectPresentation SelectionAspect::presentation() const
 
 void SelectionAspect::addToLayoutImpl(Layouting::Layout &parent)
 {
+    if (renderAspect(*this, parent))
+        return;
+
     switch (d->m_displayStyle) {
     case DisplayStyle::RadioButtons: {
         auto buttonGroup = new QButtonGroup(parent.product());
@@ -2911,6 +2935,9 @@ AspectPresentation MultiSelectionAspect::presentation() const
 
 void MultiSelectionAspect::addToLayoutImpl(Layout &builder)
 {
+    if (renderAspect(*this, builder))
+        return;
+
     QTC_CHECK(d->m_listView == nullptr);
     if (d->m_allValues.isEmpty())
         return;
@@ -3051,6 +3078,9 @@ AspectPresentation IntegerAspect::presentation() const
 
 void IntegerAspect::addToLayoutImpl(Layouting::Layout &parent)
 {
+    if (renderAspect(*this, parent))
+        return;
+
     QTC_CHECK(!d->m_spinBox);
     d->m_spinBox = createSubWidget<QSpinBox>();
     d->m_spinBox->setDisplayIntegerBase(d->m_displayIntegerBase);
@@ -3231,6 +3261,9 @@ AspectPresentation DoubleAspect::presentation() const
 
 void DoubleAspect::addToLayoutImpl(Layout &builder)
 {
+    if (renderAspect(*this, builder))
+        return;
+
     QTC_CHECK(!d->m_spinBox);
     d->m_spinBox = createSubWidget<QDoubleSpinBox>();
     d->m_spinBox->setPrefix(d->m_prefix);
@@ -3460,6 +3493,9 @@ AspectPresentation StringListAspect::presentation() const
 
 void StringListAspect::addToLayoutImpl(Layout &parent)
 {
+    if (renderAspect(*this, parent))
+        return;
+
     if (d->m_displayStyle == DisplayStyle::CommaSeparatedLineEdit) {
         auto lineEdit = createSubWidget<FancyLineEdit>();
 
@@ -3707,6 +3743,9 @@ AspectPresentation FilePathListAspect::presentation() const
 
 void FilePathListAspect::addToLayoutImpl(Layout &parent)
 {
+    if (renderAspect(*this, parent))
+        return;
+
     PathListEditor *editor = createSubWidget<PathListEditor>();
     editor->setPathList(value());
     connect(editor, &PathListEditor::changed, this, [this, editor] {
@@ -3813,7 +3852,8 @@ AspectPresentation IntegersAspect::presentation() const
 
 void IntegersAspect::addToLayoutImpl(Layouting::Layout &parent)
 {
-    Q_UNUSED(parent)
+    if (renderAspect(*this, parent))
+        return;
     // TODO - when needed.
 }
 
@@ -3877,6 +3917,9 @@ AspectPresentation TextDisplay::presentation() const
 
 void TextDisplay::addToLayoutImpl(Layout &parent)
 {
+    if (renderAspect(*this, parent))
+        return;
+
     if (!d->m_label) {
         d->m_label = createSubWidget<InfoLabel>(d->m_message, d->m_type);
         d->m_label->setTextInteractionFlags(Qt::LinksAccessibleByMouse | Qt::TextSelectableByMouse);

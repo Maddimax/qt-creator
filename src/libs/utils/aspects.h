@@ -51,6 +51,7 @@ using Store = QMap<Key, QVariant>; // TODO: storefwd.h? utils_fwd.h?
 
 namespace Internal {
 class AspectContainerPrivate;
+class AspectWidgetRenderer;
 class BaseAspectPrivate;
 class ToggleAspectPrivate;
 class BoolAspectPrivate;
@@ -331,6 +332,9 @@ protected:
 private:
     friend class Internal::CheckableAspectImplementation;
     friend class AspectContainer;
+    // Builds the same controls the addToLayoutImpl() bodies build and needs
+    // the same protected widget helpers.
+    friend class Internal::AspectWidgetRenderer;
     void setContainer(AspectContainer *container);
     void improveWheelScrolling(QWidget *widget);
 
@@ -339,6 +343,13 @@ private:
 
 QTCREATOR_UTILS_EXPORT void addToLayout(Layouting::Layout *layout, const BaseAspect *aspect);
 QTCREATOR_UTILS_EXPORT void addToLayout(Layouting::Layout *layout, const BaseAspect &aspect);
+
+// Builds the control described by presentation() for one GUI backend,
+// installed at startup like Utils::Prompts (see aspectwidgetrenderer.h).
+// Returns false for a control it does not handle; the aspect's inline widget
+// construction then runs.
+using AspectRenderer = std::function<bool(BaseAspect &aspect, Layouting::Layout &parent)>;
+QTCREATOR_UTILS_EXPORT void setAspectRenderer(const AspectRenderer &renderer);
 
 template<typename ValueType>
 class TypedAspect : public BaseAspect

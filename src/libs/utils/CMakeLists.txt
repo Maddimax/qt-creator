@@ -20,6 +20,7 @@ add_qtc_library(Utils
     aspectlist.cpp aspectlist.h
     aspectpresentation.h
     aspects.cpp aspects.h
+    aspectwidgetrenderer.cpp aspectwidgetrenderer.h
     async.cpp async.h
     basetreeview.cpp basetreeview.h
     benchmarker.cpp benchmarker.h

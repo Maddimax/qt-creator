@@ -1,4 +1,5 @@
 add_subdirectory(ansiescapecodehandler)
+add_subdirectory(aspectrenderer)
 add_subdirectory(aspects)
 add_subdirectory(async)
 add_subdirectory(commandline)

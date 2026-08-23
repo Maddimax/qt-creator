@@ -71,6 +71,8 @@ QtcLibrary {
         "aspectpresentation.h",
         "aspects.cpp",
         "aspects.h",
+        "aspectwidgetrenderer.cpp",
+        "aspectwidgetrenderer.h",
         "async.cpp",
         "async.h",
         "basetreeview.cpp",

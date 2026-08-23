@@ -15,6 +15,7 @@
 #include <utils/algorithm.h>
 #include <utils/appinfo.h>
 #include <utils/aspects.h>
+#include <utils/aspectwidgetrenderer.h>
 #include <utils/crashreporting.h>
 #include <utils/environment.h>
 #include <utils/fileutils.h>
@@ -883,6 +884,7 @@ int main(int argc, char **argv)
     PluginManager pluginManager;
     PluginManager::setPluginIID(QLatin1String("org.qt-project.Qt.QtCreatorPlugin"));
     Utils::installWidgetPrompts();
+    Utils::installAspectWidgetRenderer();
     ExtensionSystem::installWidgetPrompts();
     PluginManager::startProfiling();
 
