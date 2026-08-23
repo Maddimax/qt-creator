@@ -28,6 +28,7 @@ add_qtc_library(Utils
     camelcasecursor.cpp camelcasecursor.h
     categorysortfiltermodel.cpp categorysortfiltermodel.h
     changeset.cpp changeset.h
+    checkableaspect.h
     checkablemessagebox.cpp checkablemessagebox.h
     clangutils.cpp clangutils.h
     codegeneration.cpp codegeneration.h

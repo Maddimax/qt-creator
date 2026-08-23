@@ -86,6 +86,7 @@ QtcLibrary {
         "categorysortfiltermodel.h",
         "changeset.cpp",
         "changeset.h",
+        "checkableaspect.h",
         "checkablemessagebox.cpp",
         "checkablemessagebox.h",
         "clangutils.cpp",

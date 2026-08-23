@@ -4,6 +4,7 @@
 #include "aspectwidgetrenderer.h"
 
 #include "aspects.h"
+#include "checkableaspect.h"
 #include "elidinglabel.h"
 #include "environment.h"
 #include "fancylineedit.h"
@@ -116,9 +117,9 @@ public:
             return qobject_cast<IntegersAspect *>(&aspect) != nullptr;
         case AspectControls::Label:
             if (auto stringAspect = qobject_cast<StringAspect *>(&aspect)) {
-                if (stringAspect->isCheckable())
-                    return false;
-                renderStringLabel(stringAspect, parent, pres);
+                withChecker(stringAspect, parent, [&] {
+                    renderStringLabel(stringAspect, parent, pres);
+                });
                 return true;
             }
             if (auto textDisplay = qobject_cast<TextDisplay *>(&aspect)) {
@@ -129,25 +130,25 @@ public:
         case AspectControls::LineEdit:
         case AspectControls::PasswordLineEdit:
             if (auto stringAspect = qobject_cast<StringAspect *>(&aspect)) {
-                if (stringAspect->isCheckable())
-                    return false;
-                renderStringLineEdit(stringAspect, parent, pres);
+                withChecker(stringAspect, parent, [&] {
+                    renderStringLineEdit(stringAspect, parent, pres);
+                });
                 return true;
             }
             return false;
         case AspectControls::TextEdit:
             if (auto stringAspect = qobject_cast<StringAspect *>(&aspect)) {
-                if (stringAspect->isCheckable())
-                    return false;
-                renderStringTextEdit(stringAspect, parent, pres);
+                withChecker(stringAspect, parent, [&] {
+                    renderStringTextEdit(stringAspect, parent, pres);
+                });
                 return true;
             }
             return false;
         case AspectControls::PathChooser:
             if (auto filePathAspect = qobject_cast<FilePathAspect *>(&aspect)) {
-                if (filePathAspect->isCheckable())
-                    return false;
-                renderPathChooser(filePathAspect, parent, pres);
+                withChecker(filePathAspect, parent, [&] {
+                    renderPathChooser(filePathAspect, parent, pres);
+                });
                 return true;
             }
             return false;
@@ -172,15 +173,61 @@ public:
         // Not handled:
         // - Container: AspectContainer's body only runs its layouter()
         //   closure; it contains no widget code to move.
-        // - Checkable String/FilePath aspects (the isCheckable() returns
-        //   above): the checkbox composite needs CheckableAspectImplementation,
-        //   which is private to aspects.cpp.
         default:
             return false;
         }
     }
 
 private:
+    // The check box, where the aspect has one, brackets its control.
+    template<class Aspect, class Render>
+    static void withChecker(Aspect *aspect, Layout &parent, const Render &render)
+    {
+        aspect->checker().addToLayoutFirst(parent);
+        render();
+        aspect->checker().addToLayoutLast(parent);
+    }
+
+    static void setControlReadOnly(QLabel *, bool) {}
+
+    template<class Widget>
+    static void setControlReadOnly(Widget *w, bool readOnly)
+    {
+        w->setReadOnly(readOnly);
+    }
+
+    // What the optional check box does to the control it guards.
+    template<class Aspect, class Widget>
+    static void updateFromCheckStatus(Aspect *aspect, Widget *w)
+    {
+        const CheckableAspectImplementation &checker = aspect->checker();
+        const bool enabled = !checker.m_checked || checker.m_checked->volatileValue();
+        if (checker.m_uncheckedSemantics == UncheckedSemantics::Disabled)
+            w->setEnabled(enabled && aspect->isEnabled());
+        else
+            setControlReadOnly(w, !enabled || aspect->isReadOnly());
+    }
+
+    // addLabeledItem(), plus the greying out the check box drives.
+    template<class Aspect, class Widget>
+    static void addCheckableLabeledItem(Aspect *aspect, Layout &parent, Widget *widget)
+    {
+        QLabel *label = aspect->addLabeledItem(parent, widget);
+        updateFromCheckStatus(aspect, widget);
+        if (label)
+            updateFromCheckStatus(aspect, label);
+
+        BoolAspect *checked = aspect->checker().m_checked.get();
+        if (!checked)
+            return;
+        QObject::connect(checked, &BoolAspect::volatileValueChanged, widget,
+                         [aspect, widget] { updateFromCheckStatus(aspect, widget); });
+        if (label) {
+            QObject::connect(checked, &BoolAspect::volatileValueChanged, label,
+                             [aspect, label] { updateFromCheckStatus(aspect, label); });
+        }
+    }
+
     static void renderBool(BoolAspect *aspect, Layout &parent, const AspectPresentation &pres)
     {
         QAbstractButton *button = pres.control == AspectControls::RadioButton
@@ -511,7 +558,7 @@ private:
         lineEdit->setReadOnly(aspect->isReadOnly());
         lineEdit->setValidatePlaceHolder(aspect->validatePlaceHolder());
 
-        aspect->addLabeledItem(parent, lineEdit);
+        addCheckableLabeledItem(aspect, parent, lineEdit);
 
         if (pres.withResetButton) {
             auto resetButton = aspect->createSubWidget<QPushButton>(Tr::tr("Reset"));
@@ -572,7 +619,7 @@ private:
         textEdit->setTextInteractionFlags(Qt::TextEditorInteraction);
         textEdit->setText(displayedString(aspect));
         textEdit->setReadOnly(aspect->isReadOnly());
-        aspect->addLabeledItem(parent, textEdit);
+        addCheckableLabeledItem(aspect, parent, textEdit);
 
         aspect->volatileValueToGui();
         QObject::connect(aspect, &StringAspect::acceptRichTextChanged,
@@ -629,7 +676,7 @@ private:
         // placeholder if the default is empty.
         if (pathChooser->lineEdit()->placeholderText().isEmpty())
             pathChooser->lineEdit()->setPlaceholderText(pres.placeholderText);
-        aspect->addLabeledItem(parent, pathChooser);
+        addCheckableLabeledItem(aspect, parent, pathChooser);
         QObject::connect(pathChooser, &PathChooser::validChanged,
                          aspect, &FilePathAspect::validChanged);
 

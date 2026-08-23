@@ -4,6 +4,7 @@
 #include "aspects.h"
 
 #include "algorithm.h"
+#include "checkableaspect.h"
 #include "checkablemessagebox.h"
 #include "environment.h"
 #include "environmentdialog.h"
@@ -943,121 +944,6 @@ public:
     QPointer<QListWidget> m_listView;
 };
 
-template<class Widget>
-void setReadOnly(Widget *w, bool readOnly)
-{
-    w->setReadOnly(readOnly);
-}
-template<>
-void setReadOnly<QLabel>(QLabel *, bool)
-{}
-
-class CheckableAspectImplementation
-{
-public:
-    void fromMap(const Store &map)
-    {
-        if (m_checked)
-            m_checked->fromMap(map);
-    }
-
-    void toMap(Store &map)
-    {
-        if (m_checked)
-            m_checked->toMap(map);
-    }
-
-    void volatileToMap(Store &map)
-    {
-        if (m_checked)
-            m_checked->volatileToMap(map);
-    }
-
-    void volatileFromMap(const Store &map)
-    {
-        if (m_checked)
-            m_checked->volatileFromMap(map);
-    }
-
-    template<class Widget>
-    void updateWidgetFromCheckStatus(BaseAspect *aspect, Widget *w)
-    {
-        const bool enabled = !m_checked || m_checked->volatileValue();
-        if (m_uncheckedSemantics == UncheckedSemantics::Disabled)
-            w->setEnabled(enabled && aspect->isEnabled());
-        else
-            setReadOnly(w, !enabled || aspect->isReadOnly());
-    }
-
-    void setUncheckedSemantics(UncheckedSemantics semantics)
-    {
-        m_uncheckedSemantics = semantics;
-    }
-
-    bool isChecked() const
-    {
-        QTC_ASSERT(m_checked, return false);
-        return m_checked->value();
-    }
-
-    void setChecked(bool checked)
-    {
-        QTC_ASSERT(m_checked, return);
-        m_checked->setValue(checked);
-    }
-
-    bool isCheckable() const { return bool(m_checked); }
-
-    void makeCheckable(CheckBoxPlacement checkBoxPlacement, const QString &checkerLabel,
-                       const Key &checkerKey, BaseAspect *aspect)
-    {
-        QTC_ASSERT(!m_checked, return);
-        m_checkBoxPlacement = checkBoxPlacement;
-        m_checked.reset(new BoolAspect);
-        m_checked->setLabel(checkerLabel, checkBoxPlacement == CheckBoxPlacement::Top
-                                              ? BoolAspect::LabelPlacement::InExtraLabel
-                                              : BoolAspect::LabelPlacement::AtCheckBox);
-        m_checked->setSettingsKey(checkerKey);
-        m_checked->addOnChanged(aspect, [aspect] {
-            // FIXME: Check.
-            aspect->valueToVolatileValue();
-            aspect->volatileValueToGui();
-            emit aspect->changed();
-            aspect->checkedChanged();
-        });
-        m_checked->addOnVolatileValueChanged(aspect, [aspect] {
-            // FIXME: Check.
-            aspect->valueToVolatileValue();
-            aspect->volatileValueToGui();
-        });
-
-        aspect->valueToVolatileValue();
-        aspect->volatileValueToGui();
-    }
-
-    void addToLayoutFirst(Layout &parent)
-    {
-        if (m_checked) {
-            if (m_checkBoxPlacement == CheckBoxPlacement::Top) {
-                m_checked->addToLayoutImpl(parent);
-                parent.flush();
-            } else if (m_checkBoxPlacement == CheckBoxPlacement::Left) {
-                m_checked->addToLayoutImpl(parent);
-            }
-        }
-    }
-
-    void addToLayoutLast(Layout &parent)
-    {
-        if (m_checked && m_checkBoxPlacement == CheckBoxPlacement::Right)
-            m_checked->addToLayoutImpl(parent);
-    }
-
-    CheckBoxPlacement m_checkBoxPlacement = CheckBoxPlacement::Right;
-    UncheckedSemantics m_uncheckedSemantics = UncheckedSemantics::Disabled;
-    std::unique_ptr<BoolAspect> m_checked;
-};
-
 class StringAspectPrivate
 {
 public:
@@ -1363,213 +1249,9 @@ AspectPresentation StringAspect::presentation() const
 
 void StringAspect::addToLayoutImpl(Layout &parent)
 {
-    if (renderAspect(*this, parent))
-        return;
-
-    d->m_checkerImpl.addToLayoutFirst(parent);
-
-    const QString displayedString = d->m_displayFilter ? d->m_displayFilter(volatileValue())
-                                                       : volatileValue();
-
-    switch (d->m_displayStyle) {
-    case PasswordLineEditDisplay:
-    case LineEditDisplay: {
-        auto lineEditDisplay = createSubWidget<FancyLineEdit>();
-        // Named after the setting, like a path chooser, so a page with several of
-        // them can be told apart.
-        lineEditDisplay->setObjectName(stringFromKey(settingsKey()));
-        addMacroExpansion(lineEditDisplay);
-        lineEditDisplay->setPlaceholderText(d->m_placeHolderText);
-        lineEditDisplay->setMinimumHeight(d->m_minimumHeight);
-
-        if (d->m_completer)
-            lineEditDisplay->setSpecialCompleter(d->m_completer);
-
-        if (!d->m_rightSideIconPath.isEmpty()) {
-            QIcon icon(d->m_rightSideIconPath.toFSPathString());
-            QTC_CHECK(!icon.isNull());
-            lineEditDisplay->setButtonIcon(FancyLineEdit::Right, icon);
-            lineEditDisplay->setButtonVisible(FancyLineEdit::Right, true);
-            connect(lineEditDisplay, &FancyLineEdit::rightButtonClicked,
-                    this, &StringAspect::rightSideIconClicked);
-        }
-
-        if (!d->m_historyCompleterKey.isEmpty())
-            lineEditDisplay->setHistoryCompleter(d->m_historyCompleterKey);
-
-        connect(this,
-                &StringAspect::historyCompleterKeyChanged,
-                lineEditDisplay,
-                [lineEditDisplay](const Key &historyCompleterKey) {
-                    lineEditDisplay->setHistoryCompleter(historyCompleterKey);
-                });
-        connect(this,
-                &StringAspect::placeholderTextChanged,
-                lineEditDisplay,
-                &FancyLineEdit::setPlaceholderText);
-
-        if (d->m_validator)
-            lineEditDisplay->setValidationFunction(*d->m_validator);
-        else if (d->m_validatorFactory)
-            lineEditDisplay->setValidator(d->m_validatorFactory(lineEditDisplay));
-
-        lineEditDisplay->setTextKeepingActiveCursor(displayedString);
-        lineEditDisplay->setReadOnly(isReadOnly());
-        lineEditDisplay->setValidatePlaceHolder(d->m_validatePlaceHolder);
-
-        QLabel *label = addLabeledItem(parent, lineEditDisplay);
-
-        d->m_checkerImpl.updateWidgetFromCheckStatus(this, lineEditDisplay);
-        if (label)
-            d->m_checkerImpl.updateWidgetFromCheckStatus(this, label);
-
-        if (d->m_checkerImpl.m_checked.get()) {
-            connect(
-                d->m_checkerImpl.m_checked.get(),
-                &BoolAspect::volatileValueChanged,
-                lineEditDisplay,
-                [this, lineEditDisplay] {
-                    d->m_checkerImpl.updateWidgetFromCheckStatus(this, lineEditDisplay);
-                });
-            if (label) {
-                connect(
-                    d->m_checkerImpl.m_checked.get(),
-                    &BoolAspect::volatileValueChanged,
-                    label,
-                    [this, label] { d->m_checkerImpl.updateWidgetFromCheckStatus(this, label); });
-            }
-        }
-
-        if (d->m_useResetButton) {
-            auto resetButton = createSubWidget<QPushButton>(Tr::tr("Reset"));
-            resetButton->setEnabled(lineEditDisplay->text() != defaultValue());
-            connect(resetButton, &QPushButton::clicked, lineEditDisplay, [this, lineEditDisplay] {
-                lineEditDisplay->setText(defaultValue());
-            });
-            connect(lineEditDisplay,
-                    &QLineEdit::textChanged,
-                    resetButton,
-                    [this, lineEditDisplay, resetButton] {
-                        resetButton->setEnabled(lineEditDisplay->text() != defaultValue());
-                    });
-            parent.addItem(resetButton);
-        }
-        connect(lineEditDisplay, &FancyLineEdit::validChanged, this, &StringAspect::validChanged);
-        volatileValueToGui();
-        if (isAutoApply() && d->m_autoApplyOnEditingFinished) {
-            connect(lineEditDisplay, &FancyLineEdit::editingFinished, this, [this, lineEditDisplay] {
-                if (lineEditDisplay->text() != d->undoable.get()) {
-                    d->undoable.set(undoStack(), lineEditDisplay->text());
-                    handleGuiChanged();
-                }
-            });
-        } else {
-            connect(lineEditDisplay, &QLineEdit::textChanged, this, [this, lineEditDisplay] {
-                d->undoable.set(undoStack(), lineEditDisplay->text());
-                handleGuiChanged();
-            });
-        }
-        if (d->m_displayStyle == PasswordLineEditDisplay) {
-            auto showPasswordButton = createSubWidget<ShowPasswordButton>();
-            lineEditDisplay->setEchoMode(QLineEdit::PasswordEchoOnEdit);
-            parent.addItem(showPasswordButton);
-            connect(showPasswordButton,
-                    &ShowPasswordButton::toggled,
-                    lineEditDisplay,
-                    [showPasswordButton, lineEditDisplay] {
-                        lineEditDisplay->setEchoMode(showPasswordButton->isChecked()
-                                                         ? QLineEdit::Normal
-                                                         : QLineEdit::PasswordEchoOnEdit);
-                    });
-        }
-
-        connect(&d->undoable.m_signal,
-                &UndoSignaller::changed,
-                lineEditDisplay,
-                [this, lineEditDisplay] {
-                    if (lineEditDisplay->text() != d->undoable.get())
-                        lineEditDisplay->setTextKeepingActiveCursor(d->undoable.get());
-
-                    lineEditDisplay->validate();
-                });
-
-        break;
-    }
-    case TextEditDisplay: {
-        auto textEditDisplay = createSubWidget<QTextEdit>();
-        addMacroExpansion(textEditDisplay);
-        textEditDisplay->setPlaceholderText(d->m_placeHolderText);
-        textEditDisplay->setUndoRedoEnabled(false);
-        textEditDisplay->setAcceptRichText(d->m_acceptRichText);
-        textEditDisplay->setTextInteractionFlags(Qt::TextEditorInteraction);
-        textEditDisplay->setText(displayedString);
-        textEditDisplay->setReadOnly(isReadOnly());
-        QLabel *label = addLabeledItem(parent, textEditDisplay);
-        d->m_checkerImpl.updateWidgetFromCheckStatus(this, textEditDisplay);
-        if (label)
-            d->m_checkerImpl.updateWidgetFromCheckStatus(this, label);
-
-        if (d->m_checkerImpl.m_checked) {
-            connect(d->m_checkerImpl.m_checked.get(),
-                    &BoolAspect::volatileValueChanged,
-                    textEditDisplay,
-                    [this, textEditDisplay] {
-                        d->m_checkerImpl.updateWidgetFromCheckStatus(this, textEditDisplay);
-                    });
-            if (label) {
-                connect(
-                    d->m_checkerImpl.m_checked.get(),
-                    &BoolAspect::volatileValueChanged,
-                    label,
-                    [this, label] { d->m_checkerImpl.updateWidgetFromCheckStatus(this, label); });
-            }
-        }
-
-        volatileValueToGui();
-        connect(this,
-                &StringAspect::acceptRichTextChanged,
-                textEditDisplay,
-                &QTextEdit::setAcceptRichText);
-        connect(this,
-                &StringAspect::placeholderTextChanged,
-                textEditDisplay,
-                &QTextEdit::setPlaceholderText);
-
-        connect(textEditDisplay, &QTextEdit::textChanged, this, [this, textEditDisplay] {
-            if (textEditDisplay->toPlainText() != d->undoable.get()) {
-                d->undoable.set(undoStack(), textEditDisplay->toPlainText());
-                handleGuiChanged();
-            }
-        });
-
-        connect(&d->undoable.m_signal,
-                &UndoSignaller::changed,
-                textEditDisplay,
-                [this, textEditDisplay] {
-                    if (textEditDisplay->toPlainText() != d->undoable.get())
-                        textEditDisplay->setText(d->undoable.get());
-                });
-        break;
-    }
-    case LabelDisplay: {
-        auto labelDisplay = createSubWidget<ElidingLabel>();
-        labelDisplay->setElideMode(d->m_elideMode);
-        labelDisplay->setTextInteractionFlags(Qt::TextSelectableByMouse);
-        labelDisplay->setText(displayedString);
-        labelDisplay->setToolTip(d->m_showToolTipOnLabel ? displayedString : toolTip());
-        connect(this, &StringAspect::elideModeChanged, labelDisplay, &ElidingLabel::setElideMode);
-        addLabeledItem(parent, labelDisplay);
-
-        connect(&d->undoable.m_signal, &UndoSignaller::changed, labelDisplay, [this, labelDisplay] {
-            labelDisplay->setText(d->undoable.get());
-            labelDisplay->setToolTip(d->m_showToolTipOnLabel ? d->undoable.get() : toolTip());
-        });
-
-        break;
-    }
-    }
-
-    d->m_checkerImpl.addToLayoutLast(parent);
+    // The widget renderer owns this control's construction. Reaching the
+    // check means no renderer was installed; see installAspectWidgetRenderer().
+    QTC_CHECK(renderAspect(*this, parent));
 }
 
 QString StringAspect::expandedValue() const
@@ -1659,6 +1341,11 @@ void StringAspect::setRightSideIconPath(const FilePath &path)
 bool StringAspect::isCheckable() const
 {
     return d->m_checkerImpl.isCheckable();
+}
+
+Internal::CheckableAspectImplementation &StringAspect::checker()
+{
+    return d->m_checkerImpl;
 }
 
 UndoableValue<QString> &StringAspect::undoableValue()
@@ -1932,9 +1619,6 @@ bool FilePathAspect::valueToVolatileValue()
 void FilePathAspect::volatileValueToGui()
 {
     d->m_undoable.setWithoutUndo(m_volatileValue);
-    if (d->m_pathChooserDisplay)
-        d->m_checkerImpl.updateWidgetFromCheckStatus(this, d->m_pathChooserDisplay.data());
-
     validateInput();
 }
 
@@ -1961,70 +1645,9 @@ AspectPresentation FilePathAspect::presentation() const
 
 void FilePathAspect::addToLayoutImpl(Layouting::Layout &parent)
 {
-    if (renderAspect(*this, parent))
-        return;
-
-    d->m_checkerImpl.addToLayoutFirst(parent);
-
-    const QString displayedString = d->m_displayFilter ? d->m_displayFilter(value()) : value();
-
-    d->m_pathChooserDisplay = createSubWidget<PathChooser>();
-    // A settings page tends to hold several of these, so name them apart.
-    d->m_pathChooserDisplay->setObjectName(stringFromKey(settingsKey()));
-    addMacroExpansion(d->m_pathChooserDisplay);
-    d->m_pathChooserDisplay->setExpectedKind(d->m_expectedKind);
-    if (!d->m_historyCompleterKey.isEmpty())
-        d->m_pathChooserDisplay->setHistoryCompleter(d->m_historyCompleterKey);
-
-    if (d->m_validator)
-        d->m_pathChooserDisplay->setValidationFunction(*d->m_validator);
-    d->m_pathChooserDisplay->setEnvironment(d->m_environment);
-    d->m_pathChooserDisplay->setBaseDirectory(d->m_baseDirectory);
-    d->m_pathChooserDisplay->setInitialBrowsePathBackup(d->m_initialBrowsePathBackup);
-    d->m_pathChooserDisplay->setOpenTerminalHandler(d->m_openTerminal);
-    d->m_pathChooserDisplay->setPromptDialogFilter(d->m_prompDialogFilter);
-    d->m_pathChooserDisplay->setPromptDialogTitle(d->m_prompDialogTitle);
-    d->m_pathChooserDisplay->setCommandVersionArguments(d->m_commandVersionArguments);
-    d->m_pathChooserDisplay->setAllowPathFromDevice(d->m_allowPathFromDevice);
-    d->m_pathChooserDisplay->setReadOnly(isReadOnly());
-    d->m_pathChooserDisplay->lineEdit()->setValidatePlaceHolder(d->m_validatePlaceHolder);
-    d->m_pathChooserDisplay->setValueAlternatives(d->m_valueAlternatives);
-    if (defaultValue() == value())
-        d->m_pathChooserDisplay->setDefaultValue(FilePath::fromUserInput(defaultValue()));
-    else
-        d->m_pathChooserDisplay->setFilePath(FilePath::fromUserInput(displayedString));
-    // do not override default value with placeholder, but use placeholder if default is empty
-    if (d->m_pathChooserDisplay->lineEdit()->placeholderText().isEmpty())
-        d->m_pathChooserDisplay->lineEdit()->setPlaceholderText(d->m_placeHolderText);
-    d->m_checkerImpl.updateWidgetFromCheckStatus(this, d->m_pathChooserDisplay.data());
-    addLabeledItem(parent, d->m_pathChooserDisplay);
-    connect(d->m_pathChooserDisplay, &PathChooser::validChanged, this, &FilePathAspect::validChanged);
-
-    PathChooser *pathChooser = d->m_pathChooserDisplay.data();
-    connect(&d->m_undoable.m_signal, &UndoSignaller::changed, pathChooser,
-            [this, pathChooser] {
-        if (pathChooser->lineEdit()->text() != d->m_undoable.get())
-            pathChooser->lineEdit()->setTextKeepingActiveCursor(d->m_undoable.get());
-    });
-
-    volatileValueToGui();
-    if (isAutoApply() && d->m_autoApplyOnEditingFinished) {
-        connect(pathChooser, &PathChooser::editingFinished, this, [this, pathChooser] {
-            if (d->m_editFinishedGuard.isLocked())
-                return;
-            GuardLocker lk(d->m_editFinishedGuard);
-            d->m_undoable.set(undoStack(), pathChooser->lineEdit()->text());
-        });
-        connect(pathChooser, &PathChooser::browsingFinished, this, [this, pathChooser] {
-            d->m_undoable.set(undoStack(), pathChooser->lineEdit()->text());
-        });
-    } else {
-        connect(pathChooser, &PathChooser::textChanged, this, [this](const QString &text) {
-            d->m_undoable.set(undoStack(), text);
-        });
-    }
-
-    d->m_checkerImpl.addToLayoutLast(parent);
+    // The widget renderer owns this control's construction. Reaching the
+    // check means no renderer was installed; see installAspectWidgetRenderer().
+    QTC_CHECK(renderAspect(*this, parent));
 }
 
 /*!
@@ -2189,6 +1812,11 @@ void FilePathAspect::setOpenTerminalHandler(const std::function<void ()> &openTe
     d->m_openTerminal = openTerminal;
     if (d->m_pathChooserDisplay)
         d->m_pathChooserDisplay->setOpenTerminalHandler(openTerminal);
+}
+
+Internal::CheckableAspectImplementation &FilePathAspect::checker()
+{
+    return d->m_checkerImpl;
 }
 
 UndoableValue<QString> &FilePathAspect::undoableValue()

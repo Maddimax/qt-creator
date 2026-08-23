@@ -30,26 +30,14 @@
 
 using namespace Utils;
 
-// Every test runs twice: once through the installed widget renderer and once
-// through the aspects' inline widget construction, asserting that both paths
-// build the same control wired the same way.
-// Only the aspects that still own an inline addToLayoutImpl body have a
-// fallback to compare against. The rest delegate unconditionally, so rendering
-// them with no renderer installed produces nothing - which their QTC_CHECK
-// says out loud.
+// No aspect owns an inline addToLayoutImpl body any more: they all delegate
+// unconditionally, so rendering with no renderer installed produces nothing -
+// which their QTC_CHECK says out loud. The column is kept so that the tests
+// name the path they exercise.
 static void addRendererRows()
 {
     QTest::addColumn<bool>("withRenderer");
     QTest::newRow("renderer") << true;
-}
-
-// StringAspect and FilePathAspect keep their bodies, because the checkable
-// composites interleave the checker with the control's construction.
-static void addRendererAndFallbackRows()
-{
-    QTest::addColumn<bool>("withRenderer");
-    QTest::newRow("renderer") << true;
-    QTest::newRow("fallback") << false;
 }
 
 static void setRendererInstalled(bool installed)
@@ -98,16 +86,20 @@ private slots:
     void colorPicker();
     void textDisplay_data() { addRendererRows(); }
     void textDisplay();
-    void stringLabel_data() { addRendererAndFallbackRows(); }
+    void stringLabel_data() { addRendererRows(); }
     void stringLabel();
-    void stringLineEdit_data() { addRendererAndFallbackRows(); }
+    void stringLineEdit_data() { addRendererRows(); }
     void stringLineEdit();
-    void stringTextEdit_data() { addRendererAndFallbackRows(); }
+    void stringTextEdit_data() { addRendererRows(); }
     void stringTextEdit();
-    void stringPasswordLineEdit_data() { addRendererAndFallbackRows(); }
+    void stringPasswordLineEdit_data() { addRendererRows(); }
     void stringPasswordLineEdit();
-    void pathChooser_data() { addRendererAndFallbackRows(); }
+    void pathChooser_data() { addRendererRows(); }
     void pathChooser();
+    void checkableStringLineEdit_data() { addRendererRows(); }
+    void checkableStringLineEdit();
+    void checkableFilePath_data() { addRendererRows(); }
+    void checkableFilePath();
     void stringListTree_data() { addRendererRows(); }
     void stringListTree();
     void stringSelection_data() { addRendererRows(); }
@@ -633,7 +625,6 @@ void tst_AspectRenderer::pathChooser()
     const std::unique_ptr<QWidget> widget = render(aspect);
     auto chooser = widget->findChild<PathChooser *>();
     QVERIFY(chooser);
-    QCOMPARE(aspect.pathChooser(), chooser); // The cache keeps serving the public API.
 
     chooser->lineEdit()->insert("/tmp/one");
     QCOMPARE(aspect.volatileValue(), QString("/tmp/one"));
@@ -645,6 +636,63 @@ void tst_AspectRenderer::pathChooser()
 
     aspect.setVolatileValue("/tmp/two");
     QCOMPARE(chooser->lineEdit()->text(), QString("/tmp/two"));
+}
+
+void tst_AspectRenderer::checkableStringLineEdit()
+{
+    QFETCH(bool, withRenderer);
+    setRendererInstalled(withRenderer);
+
+    StringAspect aspect;
+    aspect.setAutoApply(false);
+    aspect.setDisplayStyle(StringAspect::LineEditDisplay);
+    aspect.setLabelText("Name");
+    aspect.makeCheckable(CheckBoxPlacement::Right, "Override", "Override");
+
+    const std::unique_ptr<QWidget> widget = render(aspect);
+    auto lineEdit = widget->findChild<FancyLineEdit *>();
+    QVERIFY(lineEdit);
+    auto checkBox = widget->findChild<QCheckBox *>();
+    QVERIFY(checkBox);
+    QCOMPARE(checkBox->text(), QString("Override"));
+
+    // Unchecked greys out the control it guards, and its label.
+    QVERIFY(!checkBox->isChecked());
+    QVERIFY(!lineEdit->isEnabled());
+    auto label = widget->findChild<QLabel *>();
+    QVERIFY(label);
+    QVERIFY(!label->isEnabled());
+
+    checkBox->click();
+    QVERIFY(aspect.isChecked());
+    QVERIFY(lineEdit->isEnabled());
+    QVERIFY(label->isEnabled());
+
+    checkBox->click();
+    QVERIFY(!aspect.isChecked());
+    QVERIFY(!lineEdit->isEnabled());
+    QVERIFY(!label->isEnabled());
+}
+
+void tst_AspectRenderer::checkableFilePath()
+{
+    QFETCH(bool, withRenderer);
+    setRendererInstalled(withRenderer);
+
+    FilePathAspect aspect;
+    aspect.setAutoApply(false);
+    aspect.setLabelText("Build directory");
+    aspect.makeCheckable(CheckBoxPlacement::Top, "Shadow build:", "Shadow");
+
+    const std::unique_ptr<QWidget> widget = render(aspect);
+    auto chooser = widget->findChild<PathChooser *>();
+    QVERIFY(chooser);
+    auto checkBox = widget->findChild<QCheckBox *>();
+    QVERIFY(checkBox);
+
+    QVERIFY(!chooser->isEnabled());
+    checkBox->click();
+    QVERIFY(chooser->isEnabled());
 }
 
 void tst_AspectRenderer::stringListTree()

@@ -871,6 +871,7 @@ private:
     // Read access for the widget renderer, mirroring the public setters.
     friend class Internal::AspectWidgetRenderer;
     bool isCheckable() const;
+    Internal::CheckableAspectImplementation &checker();
     UndoableValue<QString> &undoableValue();
     std::function<QString(const QString &)> displayFilter() const;
     Qt::TextElideMode elideMode() const;
@@ -978,6 +979,7 @@ protected:
 private:
     // Read access for the widget renderer, mirroring the public setters.
     friend class Internal::AspectWidgetRenderer;
+    Internal::CheckableAspectImplementation &checker();
     UndoableValue<QString> &undoableValue();
     std::function<QString(const QString &)> displayFilter() const;
     PathChooserKind expectedKind() const;
