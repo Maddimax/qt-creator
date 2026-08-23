@@ -349,19 +349,35 @@ control - and the declined pages are the backlog rather than a regression.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
 all`, minus `QmlDesigner` and `UpdateInfo`, see below): **73 aspect-driven
-pages, 64 rendered with Qt Quick, 9 still on widgets.** Handled since the flip:
+pages, 65 rendered with Qt Quick, 8 still on widgets.** Handled since the flip:
 `StringListAspect` (a real list editor), `IntegersAspect` (`Invisible`, because
 it draws nothing in the widget path either), `StringSelectionAspect` (it builds
 its own choices now), index-valued selections with no options (an empty combo
 box is what the widget editor draws too), and `AspectList`'s
 list-with-details style.
 
-**The generic work is done.** All nine remaining pages are held by aspects
-whose control is `Custom` because they build their own widget in
-`addToLayoutImpl` - an environment editor, a diagnostic-config chooser, a
-colour-scheme editor and so on. Those are bespoke on purpose, so what is left
-is per-page QML, not more delegates. `FontAspect` and an internal
-`ByteArrayAspect` are on pages already blocked that way.
+All eight remaining pages are held by aspects whose control is `Custom`
+because they build their own widget in `addToLayoutImpl`. Not all of them need
+porting one by one, though: `EnvironmentChangesAspect` turned out to be a
+summary plus one button, which is now the `TextWithAction` control, and
+`BaseAspect` grew `displayText()` and `triggerAction()` for it. Look for that
+shape before writing a bespoke delegate. What is left, from walking each
+declined page:
+
+| page | blocked by |
+|---|---|
+| Clang Tools | `ClangDiagnosticConfigIdAspect` - a combo plus a manage button |
+| Font && Colors | the colour-scheme editor |
+| Snippets | the snippets editor |
+| QML/JS Editing | two unnamed `Custom` aspects |
+| General (x4) | `FontAspect`, an `AspectList` inline style, two unnamed `Custom` aspects |
+
+**A finding worth knowing before porting more:** the layouter picks which
+aspects a page shows; the generic form shows *every* aspect in the container.
+So a storage-only aspect appears as a placeholder and declines its page -
+`ProjectExplorer/Settings/EnvironmentId`, a persisted UUID that no layout ever
+contained, is one. Those need marking as not-for-display; nothing does that
+today, and `isFullyRenderable()` has no way to tell them from a real gap.
 
 Still undescribed and therefore still on widgets by design:
 `AspectList`'s inline-list style, which builds a row of controls per item.
