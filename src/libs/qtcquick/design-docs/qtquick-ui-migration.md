@@ -285,15 +285,22 @@ that belong there.
 
 In order:
 
-1. **Split `terminalcommand.cpp`**, moving the "Select Terminal Emulator" dialog
-   to the widget side. Cheapest first step: it unpins `filepath.h`,
-   `qtcprocess.h`, `environment.h` and `devicefileaccess.h` in one change. See
-   "Removing Layouting" above for the measured chain.
-2. **Invert `addToLayoutImpl` into `AspectPresentation`.** Started: the
-   descriptor and `BaseAspect::presentation()` exist, with all 16 built-in
-   aspects and 7 of ~30 plugin aspects reporting a control. What remains is the
-   widget renderer that consumes it, after which `addToLayoutImpl` and its two
-   dozen QtWidgets includes can leave `aspects.cpp`.
+1. ~~Split `terminalcommand.cpp`.~~ **Done** - unpinned the
+   `filepath`/`qtcprocess`/`environment` cluster, 96 files at once. The same
+   pattern has since also split `TerminalSolution` into a QtGui-only
+   `TerminalModel` and the widget `TerminalLib`, verified at the binary level.
+2. **Invert `addToLayoutImpl` into `AspectPresentation`.** In progress. Done:
+   the descriptor and `BaseAspect::presentation()` with all 16 built-in and 7
+   plugin aspects reporting a control; GUI writes undoable without a widget;
+   and the last four aspects that kept GUI state in a widget pointer
+   (FilePathAspect, IntegerAspect, DoubleAspect, MultiSelectionAspect) now
+   use the UndoableValue pattern like the other seven. Remaining, in order:
+   the descriptor fields from the feasibility study (in progress), then a
+   widget renderer keyed on the control that the 16 `addToLayoutImpl`
+   bodies collapse into, then the move of that renderer plus the two dozen
+   QtWidgets includes out of `aspects.cpp`. Note the Windows constraint on
+   the end state: an exported class's member definitions cannot be split
+   across two libraries, so the virtual itself must go, not merely move.
 3. The remaining 15 clean-header/tainted-impl pairs are genuine widget classes
    whose headers happen not to name a widget type (`tooltip.h`, `dropsupport.h`,
    `fadingindicator.h`, `jsonrpcinspector.h`, `guiutils.h`, ...). They belong on
