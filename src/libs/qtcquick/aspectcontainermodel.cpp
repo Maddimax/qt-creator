@@ -70,6 +70,15 @@ QVariant AspectContainerModel::data(const QModelIndex &index, int role) const
     // behind until they grow roles for it.
     case OptionsRole:
         return Utils::transform<QStringList>(p.choices, &AspectPresentation::Choice::display);
+    // Ids as strings rather than as their own types: a QByteArray id reaches
+    // QML as an ArrayBuffer, which cannot be compared with indexOf(), and
+    // every aspect that takes an id converts from a string.
+    case OptionIdsRole:
+        return Utils::transform<QStringList>(p.choices, [](const AspectPresentation::Choice &c) {
+            return c.id.toString();
+        });
+    case ValueIsChoiceIdRole:
+        return p.valueIsChoiceId;
     // An aspect with no bound presents an unset minimum/maximum. The delegates
     // bind these straight into SpinBox.from/to and DoubleValidator, so
     // substitute the widest value of the right type rather than passing
@@ -96,6 +105,8 @@ QHash<int, QByteArray> AspectContainerModel::roleNames() const
         {AspectRole, "aspect"},
         {KindRole, "kind"},
         {OptionsRole, "options"},
+        {OptionIdsRole, "optionIds"},
+        {ValueIsChoiceIdRole, "valueIsChoiceId"},
         {MinimumRole, "minimum"},
         {MaximumRole, "maximum"},
         {StepRole, "step"},

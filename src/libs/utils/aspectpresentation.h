@@ -125,6 +125,10 @@ public:
     };
     QList<Choice> choices;
 
+    // Whether the aspect's value is the id of the selected choice rather than
+    // its index. An encoding selector stores the encoding name, for example.
+    bool valueIsChoiceId = false;
+
     // SpinBox and DoubleSpinBox. Unset when the aspect has no bound.
     QVariant minimum;
     QVariant maximum;

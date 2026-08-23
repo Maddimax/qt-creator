@@ -14,6 +14,9 @@ RowLayout {
 
     required property Aspect aspect
     required property var options
+    // Aspects differ in what they store: an index, or the id of the choice.
+    required property var optionIds
+    required property bool valueIsChoiceId
     readonly property string labelText: aspect?.labelText ?? ""
     readonly property string toolTip: aspect?.toolTip ?? ""
     readonly property bool aspectVisible: aspect?.visible ?? true
@@ -30,14 +33,20 @@ RowLayout {
 
     ComboBox {
         enabled: (delegate.aspect?.enabled ?? false) && !(delegate.aspect?.readOnly ?? false)
-        currentIndex: delegate.aspect?.value ?? 0
+        currentIndex: delegate.valueIsChoiceId
+                      ? delegate.optionIds.indexOf(String(delegate.aspect?.value ?? ""))
+                      : (delegate.aspect?.value ?? 0)
         ToolTip.text: delegate.toolTip
         ToolTip.visible: hovered && delegate.toolTip !== ""
         Layout.preferredWidth: Metrics.formControlWidth
 
         model: delegate.options
 
-        onActivated: (index) => { if (delegate.aspect) delegate.aspect.value = index }
+        onActivated: (index) => {
+            if (!delegate.aspect)
+                return
+            delegate.aspect.value = delegate.valueIsChoiceId ? delegate.optionIds[index] : index
+        }
     }
 
     Item { Layout.fillWidth: true }

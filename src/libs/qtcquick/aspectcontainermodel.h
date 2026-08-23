@@ -59,6 +59,8 @@ public:
         AspectRole = Qt::UserRole + 1,
         KindRole,
         OptionsRole,
+        OptionIdsRole,
+        ValueIsChoiceIdRole,
         MinimumRole,
         MaximumRole,
         StepRole,

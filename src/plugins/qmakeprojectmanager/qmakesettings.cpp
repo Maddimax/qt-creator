@@ -44,6 +44,10 @@ QmakeSettings::QmakeSettings()
     ignoreSystemFunction.setToolTip(Tr::tr("Checking this option avoids unwanted side effects, "
          "but may result in inexact parsing results."));
 
+    // The Qt Quick backend lays this page out from QML; the layouter below is
+    // what the widget backend still uses.
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/QmakeProjectManager/QmakeSettingsPage.qml"));
+
     Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
         return Column {

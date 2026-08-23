@@ -38,6 +38,7 @@ AspectPresentation EncodingSelectionAspect::presentation() const
 {
     AspectPresentation p = ByteArrayAspect::presentation();
     p.control = AspectControls::ComboBox;
+    p.valueIsChoiceId = true; // The value is the encoding name, not an index.
     for (const TextEncoding &encoding : TextEncoding::availableEncodings())
         p.choices.append({encoding.fullDisplayName(), {}, true, encoding.name()});
     return p;

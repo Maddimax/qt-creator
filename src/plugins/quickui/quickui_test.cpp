@@ -36,6 +36,7 @@ private slots:
     void testQmlNameIsDerivedFromTheSettingsKey();
     void testPageQmlReachesItsAspectsByName();
     void testLabelChangeReachesTheControl();
+    void testIdValuedSelectionRoundTrips();
 };
 
 void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
@@ -65,6 +66,15 @@ void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
             const QStringList errors
                 = Utils::transform(quickWidget->errors(), &QQmlError::toString);
             QFAIL(qPrintable(page->displayName() + ": " + errors.join("; ")));
+        }
+        // A page that names a QML file must render through it, not fall back to
+        // the generic form. The root object's type is named after the file.
+        if (const QUrl source = (*aspects)->qmlSource(); !source.isEmpty()) {
+            const QString component = source.fileName().chopped(strlen(".qml"));
+            QVERIFY2(QString::fromLatin1(
+                         quickWidget->rootObject()->metaObject()->className())
+                         .startsWith(component),
+                     qPrintable(page->displayName() + " did not render " + component));
         }
         ++renderedWithQuick;
     }
@@ -257,6 +267,46 @@ void QuickUiTest::testLabelChangeReachesTheControl()
 
     flag.setVisible(false);
     QCOMPARE(delegate->property("visible").toBool(), false);
+}
+
+// The shape EncodingSelectionAspect has: a ComboBox whose value is the id of
+// the choice, not its index.
+class IdValuedSelection final : public Utils::ByteArrayAspect
+{
+public:
+    using Utils::ByteArrayAspect::ByteArrayAspect;
+
+    Utils::AspectPresentation presentation() const override
+    {
+        Utils::AspectPresentation p = Utils::ByteArrayAspect::presentation();
+        p.control = Utils::AspectControls::ComboBox;
+        p.valueIsChoiceId = true;
+        p.choices.append({"First", {}, true, QByteArray("first")});
+        p.choices.append({"Second", {}, true, QByteArray("second")});
+        return p;
+    }
+};
+
+void QuickUiTest::testIdValuedSelectionRoundTrips()
+{
+    Utils::AspectContainer page;
+    IdValuedSelection selection(&page);
+    selection.setValue("second");
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createAspectForm(&page));
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QVERIFY(quickWidget->rootObject());
+
+    QQuickItem *combo = nullptr;
+    QTRY_VERIFY(combo = findQmlComponent(quickWidget->rootObject(), "ComboBox"));
+
+    // The id selects the row, rather than being read as an index.
+    QCOMPARE(combo->property("currentIndex").toInt(), 1);
+
+    // And a pick writes the id back, not the index.
+    QMetaObject::invokeMethod(combo, "activated", Q_ARG(int, 0));
+    QCOMPARE(selection.volatileValue(), QByteArray("first"));
 }
 
 QObject *createQuickUiTest()
