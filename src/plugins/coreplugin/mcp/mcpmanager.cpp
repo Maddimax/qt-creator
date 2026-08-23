@@ -649,6 +649,8 @@ public:
 
         id.setSettingsKey("id");
         id.setValue(QUuid::createUuid().toString());
+        // Storage only: the identity of the server, never edited.
+        id.setVisible(false);
 
         name.setLabelText(Tr::tr("Name:"));
         name.setSettingsKey("name");
@@ -712,6 +714,21 @@ public:
                 "Environment variable changes applied when launching the MCP server process. "
                 "Only used for standard IO connection type."));
 
+        // Which fields apply depends on the connection type. This is the
+        // server's own behaviour, not a property of how it is drawn, so it does
+        // not belong in whatever lays the aspects out.
+        const auto updateVisible = [this] {
+            const QString type = connectionType.volatileValue();
+            const bool isStdio = conTypeEnum().keyToValue(type.toUtf8()) == McpManager::Stdio;
+
+            launchCommand.setVisible(isStdio);
+            launchArguments.setVisible(isStdio);
+            envChanges.setVisible(isStdio);
+            url.setVisible(!isStdio);
+            httpHeaders.setVisible(!isStdio);
+        };
+        updateVisible();
+        connect(&connectionType, &StringSelectionAspect::volatileValueChanged, this, updateVisible);
     }
 
     McpManager::ServerInfo toServerInfo() const

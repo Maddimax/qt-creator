@@ -386,12 +386,27 @@ aborted the process on `std::bad_function_call`. `AspectWidgets::layouter()`
 now falls back to laying the container's aspects out in order rather than
 returning an empty function, so the two can never combine into a crash again.
 
-**Check what the layouter did besides listing aspects.** An `AspectList` can
-carry extra buttons (`addExtraButton()`); the MCP page uses one to fill a server
-in from a registry. The Quick delegate knew nothing about them, so porting the
-page would have dropped it silently - the same failure the gate above exists to
-prevent, one level further in. `AspectItemListModel` now exposes them and
-`AspectListDelegate` draws them after Add and Remove.
+**Check what the layouter did besides listing aspects.** Three things hid in
+the MCP ones:
+
+- An `AspectList` can carry extra buttons (`addExtraButton()`); the MCP page
+  uses one to fill a server in from a registry. The Quick delegate knew nothing
+  about them, so the port would have dropped it silently - the same failure the
+  gate above exists to prevent, one level further in. `AspectItemListModel` now
+  exposes them and `AspectListDelegate` draws them after Add and Remove.
+- The item's `Form` listed seven of its eight aspects, leaving out the `id` - a
+  UUID that is storage only. The generic form has no such list, so it drew the
+  UUID in a text field. This is the storage-only problem noted above, and the
+  answer is `setVisible(false)` on the aspect: the delegates bind their
+  visibility to it, so it is already the marking that was wanted. No new API.
+- The closure also *wired up behaviour*: which fields apply depends on the
+  connection type, and the closure connected `volatileValueChanged` to set
+  their visibility. Behaviour has no business being in a layouter - it is lost
+  the moment anything else draws the container - so it moved to the
+  constructor, where it works for either renderer.
+
+So when reading a closure, separate what it lists from what it *does*. Only the
+first becomes QML.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
 all`, minus `QmlDesigner` and `UpdateInfo`, see below): **73 aspect-driven

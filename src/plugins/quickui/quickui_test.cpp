@@ -107,6 +107,7 @@ private slots:
     void testPasswordAspectDoesNotEchoItsValue();
     void testAspectListOffersItsExtraButtons();
     void testQmlOnlyContainerStillLaysOutInAWidgetLayout();
+    void testAspectVisibilityReachesTheDrawnControl();
 };
 
 void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
@@ -397,6 +398,38 @@ void QuickUiTest::testQmlOnlyContainerStillLaysOutInAWidgetLayout()
     const QList<QCheckBox *> boxes = widget->findChildren<QCheckBox *>();
     QCOMPARE(boxes.size(), 1);
     QCOMPARE(boxes.first()->text(), QString("Enabled"));
+}
+
+void QuickUiTest::testAspectVisibilityReachesTheDrawnControl()
+{
+    // Hiding an aspect is how a container keeps something out of its form
+    // without a layouter choosing what to list: an internal id that is never
+    // edited, or a field that only applies to one connection type. The MCP
+    // servers page needs both.
+    Utils::AspectContainer page;
+    Utils::BoolAspect shown(&page);
+    shown.setLabelText("Shown");
+    Utils::BoolAspect hidden(&page);
+    hidden.setLabelText("Hidden");
+    hidden.setVisible(false);
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QQuickItem *rootItem = quickWidget->rootObject();
+    QVERIFY(rootItem);
+
+    QList<QQuickItem *> delegates;
+    QTRY_COMPARE((delegates = findQmlComponents(rootItem, "BoolDelegate")).size(), 2);
+    QCOMPARE(delegates.at(0)->property("visible").toBool(), true);
+    QCOMPARE(delegates.at(1)->property("visible").toBool(), false);
+
+    // And it follows a change, which is what the connection-type switch does.
+    shown.setVisible(false);
+    hidden.setVisible(true);
+    QTRY_COMPARE(delegates.at(0)->property("visible").toBool(), false);
+    QCOMPARE(delegates.at(1)->property("visible").toBool(), true);
 }
 
 void QuickUiTest::testQmlNameIsDerivedFromTheSettingsKey()
