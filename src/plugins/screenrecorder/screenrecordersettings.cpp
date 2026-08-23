@@ -9,11 +9,9 @@
 #include <coreplugin/coreconstants.h>
 #include <coreplugin/dialogs/ioptionspage.h>
 
-#include <utils/aspectwidgets.h>
 #include <utils/fileutils.h>
 #include <utils/environment.h>
-#include <utils/layoutbuilder.h>
-#include <utils/pathchooser.h>
+#include <utils/pathvalidation.h>
 
 #include <QDesktopServices>
 #include <QGuiApplication>
@@ -161,45 +159,26 @@ ScreenRecorderSettings::ScreenRecorderSettings()
     recordScreenCropRect.setSettingsKey("RecordScreenCropRect");
     recordScreenCropRect.setDefaultValue(rectToStringList({}));
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-        auto websiteLabel = new QLabel;
-        websiteLabel->setText(QString("<a href=\"%1\">%1</a>").arg(Constants::FFMPEG_DOWNLOAD_URL));
-        websiteLabel->setTextInteractionFlags(Qt::TextBrowserInteraction);
-        websiteLabel->setOpenExternalLinks(true);
+    ffmpegWebsite.setText(
+        QString("<a href=\"%1\">%1</a>").arg(Constants::FFMPEG_DOWNLOAD_URL));
+    ffmpegWebsite.setQmlName("FFmpegWebsite");
+    QObject::connect(
+        &ffmpegWebsite, &TextDisplay::linkActivated, &ffmpegWebsite, [](const QString &link) {
+            QDesktopServices::openUrl(QUrl(link));
+        });
 
-        // clang-format off
-        using namespace Layouting;
-        return Column {
-            Group {
-                title(Tr::tr("FFmpeg Installation")),
-                Form {
-                    ffmpegTool, br,
-                    ffprobeTool, br,
-                    websiteLabel, br,
-                },
-            },
-            Group {
-                title(Tr::tr("Record Settings")),
-                Column {
-                    captureCursor,
-                    captureMouseClicks,
-                    Row { screenCaptureType, st },
-                    Row { enableFileSizeLimit, fileSizeLimit, st },
-                    Row { enableRtBuffer, rtBufferSize, st },
-                },
-            },
-            Group {
-                title(Tr::tr("Export Settings")),
-                Column {
-                    animatedImagesAsEndlessLoop,
-                },
-            },
-            logFfmpegCommandline,
-            st,
-        };
-        // clang-format on
-    });
+    // Recording state, not settings anyone edits on the page.
+    const QList<BaseAspect *> stored{&lastOpenDirectory,
+                                     &exportLastDirectory,
+                                     &exportLastFormat,
+                                     &lastSaveImageDirectory,
+                                     &recordFrameRate,
+                                     &recordScreenId,
+                                     &recordScreenCropRect};
+    for (BaseAspect *aspect : stored)
+        aspect->setVisible(false);
+
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/ScreenRecorder/ScreenRecorderSettingsPage.qml"));
 
     readSettings();
 

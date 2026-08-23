@@ -43,6 +43,7 @@ public:
     Utils::IntegerAspect rtBufferSize{this}; // in MB
     Utils::BoolAspect logFfmpegCommandline{this};
     Utils::BoolAspect animatedImagesAsEndlessLoop{this};
+    Utils::TextDisplay ffmpegWebsite{this};
 
     // Used in other places
     Utils::FilePathAspect lastOpenDirectory{this};
