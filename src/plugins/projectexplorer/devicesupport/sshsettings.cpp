@@ -67,17 +67,7 @@ SshSettings::SshSettings()
     setSettingsGroup("SshSettings");
     setAutoApply(false);
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-        return Form {
-            m_useConnectionSharingAspect, br,
-            m_connectionSharingTimeoutInMinutesAspect, br,
-            m_sshFilePathAspect, br,
-            m_sftpFilePathAspect, br,
-            m_askpassFilePathAspect, br,
-            m_keygenFilePathAspect, br
-        };
-    });
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/ProjectExplorer/devicesupport/SshSettingsPage.qml"));
 
     m_useConnectionSharingAspect.setSettingsKey("UseConnectionSharing");
     m_useConnectionSharingAspect.setDefaultValue(!HostOsInfo::isWindowsHost());

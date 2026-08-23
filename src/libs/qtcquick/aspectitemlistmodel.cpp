@@ -23,6 +23,9 @@ AspectItemListModel::AspectItemListModel(AspectList *list, QObject *parent)
     QTC_ASSERT(m_list, return);
     reload();
     connect(m_list, &AspectList::volatileItemListChanged, this, &AspectItemListModel::reload);
+    // Apply says changed(), not volatileItemListChanged(), and it is what makes
+    // a removed row finally go away.
+    connect(m_list, &AspectList::changed, this, &AspectItemListModel::reload);
 }
 
 void AspectItemListModel::reload()
@@ -45,10 +48,10 @@ void AspectItemListModel::reload()
 
     m_rows.clear();
     for (const std::shared_ptr<BaseAspect> &item : appliedItems)
-        m_rows.append({item.get(), false, !isVolatile(item)});
+        m_rows.append({item, false, !isVolatile(item)});
     for (const std::shared_ptr<BaseAspect> &item : volatileItems) {
         if (!appliedItems.contains(item))
-            m_rows.append({item.get(), true, false});
+            m_rows.append({item, true, false});
     }
 
     // Models for items that are gone would dangle; the rest are rebuilt on
@@ -69,7 +72,7 @@ QVariant AspectItemListModel::data(const QModelIndex &index, int role) const
         return {};
 
     const Row &row = m_rows.at(index.row());
-    BaseAspect *item = row.item;
+    BaseAspect *item = row.item.get();
     switch (role) {
     case AddedRole:
         return row.added;
@@ -126,7 +129,7 @@ int AspectItemListModel::addItem()
     const std::shared_ptr<BaseAspect> item = m_list->createAndAddItem();
     // The aspect emits volatileItemListChanged(), so the row exists by now.
     return int(Utils::indexOf(m_rows, [&item](const Row &row) {
-        return row.item == item.get();
+        return row.item == item;
     }));
 }
 
@@ -138,13 +141,7 @@ void AspectItemListModel::removeItem(int row)
     if (m_rows.at(row).removed)
         return;
 
-    BaseAspect *item = m_rows.at(row).item;
-    const QList<std::shared_ptr<BaseAspect>> items = m_list->volatileItems();
-    const auto shared = Utils::findOr(items, {}, [item](const std::shared_ptr<BaseAspect> &i) {
-        return i.get() == item;
-    });
-    QTC_ASSERT(shared, return);
-    m_list->removeItem(shared);
+    m_list->removeItem(m_rows.at(row).item);
 }
 
 } // namespace QtcQuick

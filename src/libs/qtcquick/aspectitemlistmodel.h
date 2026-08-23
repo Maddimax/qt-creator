@@ -9,6 +9,8 @@
 #include <QHash>
 #include <QQmlEngine>
 
+#include <memory>
+
 namespace Utils {
 class AspectList;
 class BaseAspect;
@@ -52,7 +54,10 @@ private:
 
     struct Row
     {
-        Utils::BaseAspect *item = nullptr;
+        // Shared rather than raw: applying a removal drops the aspect's last
+        // reference inside AspectList::apply(), before it says anything, so a
+        // raw pointer here would dangle for the rest of that call.
+        std::shared_ptr<Utils::BaseAspect> item;
         bool added = false;
         bool removed = false;
     };

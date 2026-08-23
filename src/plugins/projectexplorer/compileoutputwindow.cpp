@@ -302,19 +302,7 @@ CompileOutputSettings::CompileOutputSettings()
     backgroundColor.setDefaultValue(QColor{});
     backgroundColor.setEnabler(&overwriteColor);
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-        const QString msg = Tr::tr("Limit output to %1 characters");
-        const QStringList parts = msg.split("%1") << QString() << QString();
-        return Column {
-            wrapOutput,
-            popUp,
-            discardOutput,
-            Row { parts.at(0), maxCharCount, parts.at(1), st },
-            Row { overwriteColor, backgroundColor, st },
-            st
-        };
-    });
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/ProjectExplorer/CompileOutputSettingsPage.qml"));
 
     readSettings();
 }

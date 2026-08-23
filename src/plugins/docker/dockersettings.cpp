@@ -31,18 +31,7 @@ ContainerToolSettings::ContainerToolSettings(
     setAutoApply(false);
     setSettingsGroup(scheme);
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-        // clang-format off
-        return Column {
-            Group {
-                title(Tr::tr("Configuration")),
-                Row { binaryPath }
-            },
-            st
-        };
-        // clang-format on
-    });
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Docker/DockerSettingsPage.qml"));
 
     const QString toolName = scheme.at(0).toUpper() + scheme.mid(1);
 

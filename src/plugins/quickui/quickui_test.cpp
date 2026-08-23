@@ -543,6 +543,19 @@ void QuickUiTest::testAspectListAddsRemovesAndShowsDetails()
 
     // And there is nothing left to remove on a row already on its way out.
     QVERIFY(!remove->property("enabled").toBool());
+
+    // Applying the removal takes the row away. AspectList::apply() drops the
+    // aspect's last reference before it says changed(), so a model holding raw
+    // pointers would be left with a dangling row to crash on.
+    servers.apply();
+    QCOMPARE(servers.items().size(), 0);
+    QTRY_COMPARE(view->property("count").toInt(), 0);
+    QVERIFY(!findQmlComponent(view, "ItemDelegate"));
+
+    // Still usable afterwards: Add works on the emptied list.
+    QMetaObject::invokeMethod(add, "clicked");
+    QCOMPARE(servers.volatileItems().size(), 1);
+    QTRY_COMPARE(view->property("count").toInt(), 1);
 }
 
 // The shape EnvironmentChangesAspect has: a summary of the value and one
