@@ -135,7 +135,7 @@ settings.StringDisplayStyle = {
 ---@field elideMode? Qt.TextElideMode The elide mode of the aspect.
 ---@field rightSideIconPath? string Path to the icon
 ---@field minimumHeight? int
----@field completer QCompleter? A QCompleter object.
+---@field completions string[]? Words the line edit completes against.
 StringAspectCreate = {}
 
 ---@class StringAspect : TypedAspect<string>

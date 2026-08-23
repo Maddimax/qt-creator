@@ -213,6 +213,16 @@ private:
         pathChooser->setProperty(BUTTONS_ADDED, buttons.size());
     }
 
+    static void applyComboBoxSizing(QComboBox *comboBox, const AspectPresentation &pres)
+    {
+        comboBox->setSizeAdjustPolicy(
+            pres.sizeAdjustPolicy == AspectControls::SizeAdjustPolicy::ToContents
+                ? QComboBox::AdjustToContents
+                : QComboBox::AdjustToMinimumContentsLengthWithIcon);
+        if (pres.minimumContentsLength > 0)
+            comboBox->setMinimumContentsLength(pres.minimumContentsLength);
+    }
+
     // The check box, where the aspect has one, brackets its control.
     template<class Aspect, class Render>
     static void withChecker(Aspect *aspect, Layout &parent, const Render &render)
@@ -561,8 +571,8 @@ private:
         lineEdit->setPlaceholderText(pres.placeholderText);
         lineEdit->setMinimumHeight(aspect->minimumHeight());
 
-        if (QCompleter *completer = aspect->completer())
-            lineEdit->setSpecialCompleter(completer);
+        if (const QStringList completions = aspect->completions(); !completions.isEmpty())
+            lineEdit->setSpecialCompleter(new QCompleter(completions, lineEdit));
 
         if (!aspect->rightSideIconPath().isEmpty()) {
             QIcon icon(aspect->rightSideIconPath().toFSPathString());
@@ -966,14 +976,17 @@ private:
             comboBox->completer()->setCompletionMode(QCompleter::PopupCompletion);
             comboBox->completer()->setFilterMode(Qt::MatchContains);
         }
-        comboBox->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+        applyComboBoxSizing(comboBox, aspect->presentation());
+        QObject::connect(aspect, &BaseAspect::controlConfigurationChanged, comboBox,
+                         [aspect, comboBox] {
+                             applyComboBoxSizing(comboBox, aspect->presentation());
+                         });
         comboBox->setCurrentText(aspect->value());
         comboBox->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Fixed);
 
         comboBox->setModel(aspect->m_model);
         Utils::setWheelScrollingWithoutFocusBlocked(comboBox);
 
-        aspect->fixupComboBox(comboBox);
 
         QObject::connect(aspect->m_selectionModel, &QItemSelectionModel::currentChanged, comboBox,
                          [comboBox](const QModelIndex &currentIdx) {

@@ -70,6 +70,14 @@ enum class InfoType {
 };
 Q_ENUM_NS(InfoType)
 
+// ComboBox. Mirrors QComboBox::SizeAdjustPolicy, with only the two values
+// aspects ask for.
+enum class SizeAdjustPolicy {
+    ToMinimumContentsLengthWithIcon,
+    ToContents,
+};
+Q_ENUM_NS(SizeAdjustPolicy)
+
 // FontFamilyPicker. Mirrors FontFamilyAspect::FontFilter.
 enum FontFilter {
     AllFonts = 0,
@@ -101,6 +109,10 @@ public:
     QString toolTip;
     QString placeholderText;
 
+    // Object name for the control itself, for styling and for tests that
+    // address it by name. Empty leaves whatever the renderer picked.
+    QString objectName;
+
     // ComboBox, RadioButtonGroup and MultiSelection. Writes back to the
     // aspect must use the id where it is set, not the display text.
     class Choice
@@ -125,6 +137,11 @@ public:
     // SpinBox. The control shows the value divided by displayScaleFactor.
     int displayIntegerBase = 10;
     qint64 displayScaleFactor = 1;
+
+    // ComboBox.
+    AspectControls::SizeAdjustPolicy sizeAdjustPolicy
+        = AspectControls::SizeAdjustPolicy::ToMinimumContentsLengthWithIcon;
+    int minimumContentsLength = 0;
 
     // StringList.
     bool allowAdding = true;

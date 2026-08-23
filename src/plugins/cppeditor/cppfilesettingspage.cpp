@@ -113,11 +113,7 @@ SuffixSelectionAspect::SuffixSelectionAspect(AspectContainer *container)
     : StringSelectionAspect(container)
 {
     setComboBoxEditable(false);
-}
-
-void SuffixSelectionAspect::fixupComboBox(QComboBox *comboBox)
-{
-    comboBox->setMinimumContentsLength(8); // Characters. We have plenty of room.
+    setMinimumContentsLength(8); // Characters. We have plenty of room.
 }
 
 void SuffixSelectionAspect::setMimeType(const QString &mimeType)

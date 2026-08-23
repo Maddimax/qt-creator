@@ -120,11 +120,7 @@ public:
             resultCb(registryItems());
         };
         setFillCallback(fillCallback);
-    }
-
-    void fixupComboBox(QComboBox *comboBox) override
-    {
-        comboBox->setSizeAdjustPolicy(QComboBox::AdjustToContents);
+        setSizeAdjustPolicy(Utils::AspectControls::SizeAdjustPolicy::ToContents);
     }
 
     std::optional<Acp::Registry::ACPAgentRegistry> registry() const { return s_registry; }

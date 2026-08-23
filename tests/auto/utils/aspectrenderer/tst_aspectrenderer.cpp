@@ -863,10 +863,16 @@ void tst_AspectRenderer::stringSelection()
         cb({makeItem("One", "one"), makeItem("Two", "two")});
     });
     aspect.setValue("one");
+    aspect.setControlObjectName("theBox");
+    aspect.setMinimumContentsLength(20);
+    aspect.setSizeAdjustPolicy(AspectControls::SizeAdjustPolicy::ToContents);
 
     const std::unique_ptr<QWidget> widget = render(aspect);
     auto comboBox = widget->findChild<QComboBox *>();
     QVERIFY(comboBox);
+    QCOMPARE(comboBox->objectName(), QString("theBox"));
+    QCOMPARE(comboBox->minimumContentsLength(), 20);
+    QCOMPARE(comboBox->sizeAdjustPolicy(), QComboBox::AdjustToContents);
     QCOMPARE(comboBox->count(), 2);
     QCOMPARE(comboBox->currentIndex(), 0);
 

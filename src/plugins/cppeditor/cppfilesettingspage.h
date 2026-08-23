@@ -27,7 +27,6 @@ public:
     explicit SuffixSelectionAspect(Utils::AspectContainer *container);
 
     void setMimeType(const QString &mimeType);
-    void fixupComboBox(QComboBox *comboBox) final;
 };
 
 class CppFileSettings : public Utils::AspectContainer

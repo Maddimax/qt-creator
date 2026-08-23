@@ -23,7 +23,6 @@ class QAbstractButton;
 class QAbstractSpinBox;
 class QAction;
 class QComboBox;
-class QCompleter;
 class QLabel;
 class QSettings;
 class QUndoStack;
@@ -147,14 +146,13 @@ public:
     QString labelText() const;
     void setLabelText(const QString &labelText);
     void setLabelPixmap(const QPixmap &labelPixmap);
+    void setControlObjectName(const QString &objectName);
     void setIcon(const QIcon &labelIcon);
     QIcon icon() const;
 
     using ConfigWidgetCreator = std::function<QWidget *()>;
     void setConfigWidgetCreator(const ConfigWidgetCreator &configWidgetCreator);
     QWidget *createConfigWidget() const;
-
-    static QPointer<const BaseAspect> aspectForWidget(QWidget *widget);
 
     virtual QAction *action();
 
@@ -837,7 +835,9 @@ public:
     void setRightSideIconPath(const FilePath &path);
     void addOnRightSideIconClicked(QObject *guard, const std::function<void()> &);
     void setMinimumHeight(int);
-    void setCompleter(QCompleter *completer);
+    // What typing in the control completes against. The control owns the
+    // completer; the aspect only says what to complete.
+    void setCompletions(const QStringList &completions);
 
     enum DisplayStyle {
         LabelDisplay,
@@ -882,7 +882,7 @@ private:
     Qt::TextElideMode elideMode() const;
     bool showToolTipOnLabel() const;
     int minimumHeight() const;
-    QCompleter *completer() const;
+    QStringList completions() const;
     FilePath rightSideIconPath() const;
     Key historyCompleterKey() const;
     std::optional<ValidationFunction> validationFunction() const;
@@ -1455,7 +1455,9 @@ public:
     StringSelectionAspect(Utils::AspectContainer *container = nullptr);
 
     void addToLayoutImpl(Layouting::Layout &parent) override;
-    virtual void fixupComboBox(QComboBox */*comboBox*/) {}
+
+    void setSizeAdjustPolicy(AspectControls::SizeAdjustPolicy policy);
+    void setMinimumContentsLength(int characters);
 
     using ResultCallback = std::function<void(QList<QStandardItem *> items)>;
     using FillCallback = std::function<void(ResultCallback)>;
@@ -1481,6 +1483,9 @@ private:
     QStandardItemModel *m_model{nullptr};
     QItemSelectionModel *m_selectionModel{nullptr};
     bool m_comboBoxEditable{true};
+    AspectControls::SizeAdjustPolicy m_sizeAdjustPolicy
+        = AspectControls::SizeAdjustPolicy::ToMinimumContentsLengthWithIcon;
+    int m_minimumContentsLength = 0;
 
     Utils::UndoableValue<QString> m_undoable;
 };

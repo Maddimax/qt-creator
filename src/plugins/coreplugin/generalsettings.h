@@ -12,19 +12,15 @@ namespace Core {
 class CORE_EXPORT CodecForLocaleAspect : public Utils::StringSelectionAspect
 {
 public:
-    using StringSelectionAspect::StringSelectionAspect;
-
-    void fixupComboBox(QComboBox *comboBox) override;
+    explicit CodecForLocaleAspect(Utils::AspectContainer *container = nullptr);
 };
 
 class CORE_EXPORT LanguageSelectionAspect : public Utils::StringSelectionAspect
 {
 public:
-    using StringSelectionAspect::StringSelectionAspect;
+    explicit LanguageSelectionAspect(Utils::AspectContainer *container = nullptr);
 
     static inline const QString kSystemLanguage = "__system__";
-
-    void fixupComboBox(QComboBox *comboBox) override;
 
     QVariant toSettingsValue(const QVariant &valueToSave) const override;
     QVariant fromSettingsValue(const QVariant &savedValue) const override;
@@ -33,9 +29,7 @@ public:
 class CORE_EXPORT ThemeSelectionAspect : public Utils::StringSelectionAspect
 {
 public:
-    using StringSelectionAspect::StringSelectionAspect;
-
-    void fixupComboBox(QComboBox *comboBox) override;
+    explicit ThemeSelectionAspect(Utils::AspectContainer *container = nullptr);
 };
 
 class CORE_EXPORT GeneralSettings : public Utils::AspectContainer

@@ -197,16 +197,17 @@ namespace Core {
 
 using namespace Internal;
 
-void CodecForLocaleAspect::fixupComboBox(QComboBox *comboBox)
+CodecForLocaleAspect::CodecForLocaleAspect(AspectContainer *container)
+    : StringSelectionAspect(container)
 {
-    comboBox->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
-    comboBox->setMinimumContentsLength(20);
+    setMinimumContentsLength(20);
 }
 
-void LanguageSelectionAspect::fixupComboBox(QComboBox *comboBox)
+LanguageSelectionAspect::LanguageSelectionAspect(AspectContainer *container)
+    : StringSelectionAspect(container)
 {
-    comboBox->setObjectName("languageBox");
-    comboBox->setMinimumContentsLength(20);
+    setControlObjectName("languageBox");
+    setMinimumContentsLength(20);
 }
 
 QVariant LanguageSelectionAspect::toSettingsValue(const QVariant &valueToSave) const
@@ -221,9 +222,10 @@ QVariant LanguageSelectionAspect::fromSettingsValue(const QVariant &savedValue) 
     return v.isEmpty() ? kSystemLanguage : v;
 }
 
-void ThemeSelectionAspect::fixupComboBox(QComboBox *comboBox)
+ThemeSelectionAspect::ThemeSelectionAspect(AspectContainer *container)
+    : StringSelectionAspect(container)
 {
-    comboBox->setSizeAdjustPolicy(QComboBox::AdjustToContents);
+    setSizeAdjustPolicy(AspectControls::SizeAdjustPolicy::ToContents);
 }
 
 GeneralSettings &generalSettings()

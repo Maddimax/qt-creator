@@ -27,7 +27,6 @@
 
 #include <QAction>
 #include <QDebug>
-#include <QCompleter>
 #include <QDoubleSpinBox>
 #include <QItemSelectionModel>
 #include <QLabel>
@@ -44,7 +43,6 @@ using namespace Layouting;
 
 namespace Utils {
 
-static const char ASPECT_PROPERTY[] = "aspect";
 
 
 BaseAspect::Changes::Changes()
@@ -85,6 +83,7 @@ public:
     QString m_tooltip;
     QString m_labelText;
     QPixmap m_labelPixmap;
+    QString m_controlObjectName;
     QIcon m_icon;
     QPointer<QAction> m_action; // Owned by us.
     AspectContainer *m_container = nullptr; // Not owned by us.
@@ -297,6 +296,8 @@ QLabel *BaseAspect::createLabel()
 
 QLabel *BaseAspect::addLabeledItem(Layout &parent, QWidget *widget)
 {
+    if (!d->m_controlObjectName.isEmpty())
+        widget->setObjectName(d->m_controlObjectName);
     if (QLabel *l = createLabel()) {
         l->setBuddy(widget);
         parent.addItem(l);
@@ -329,6 +330,12 @@ void BaseAspect::setLabelText(const QString &labelText)
     Sets \a labelPixmap as pixmap for the separate label in the visual
     representation of this aspect.
 */
+void BaseAspect::setControlObjectName(const QString &objectName)
+{
+    d->m_controlObjectName = objectName;
+    emit controlConfigurationChanged();
+}
+
 void BaseAspect::setLabelPixmap(const QPixmap &labelPixmap)
 {
     d->m_labelPixmap = labelPixmap;
@@ -601,6 +608,7 @@ AspectPresentation BaseAspect::presentation() const
     p.control = AspectControls::Custom;
     p.labelText = labelText();
     p.labelPixmap = d->m_labelPixmap;
+    p.objectName = d->m_controlObjectName;
     p.spanX = d->m_spanX;
     p.spanY = d->m_spanY;
     p.toolTip = toolTip();
@@ -691,23 +699,10 @@ bool BaseAspect::isDirty() const
     return false;
 }
 
-QPointer<const BaseAspect> BaseAspect::aspectForWidget(QWidget *widget)
-{
-    if (!widget)
-        return nullptr;
-    const QVariant v = widget->property(ASPECT_PROPERTY);
-    if (!v.isValid())
-        return nullptr;
-    return v.value<QPointer<const BaseAspect>>();
-}
-
 void BaseAspect::registerSubWidget(QWidget *widget) const
 {
     widget->setEnabled(isEnabled());
     widget->setToolTip(d->m_tooltip);
-    QPointer<const BaseAspect> thisPtr(this);
-    const auto thisPtrVariant = QVariant::fromValue<QPointer<const BaseAspect>>(thisPtr);
-    widget->setProperty(ASPECT_PROPERTY, thisPtrVariant);
 
     // Visible is on by default. Not setting it explicitly avoid popping
     // it up when the parent is not set yet, the normal case.
@@ -969,7 +964,7 @@ public:
 
     FilePath m_rightSideIconPath;
     int m_minimumHeight = 0;
-    QPointer<QCompleter> m_completer;
+    QStringList m_completions;
 
     UndoableValue<QString> undoable;
 };
@@ -1328,9 +1323,10 @@ void StringAspect::setMinimumHeight(int height)
     d->m_minimumHeight = height;
 }
 
-void StringAspect::setCompleter(QCompleter *completer)
+void StringAspect::setCompletions(const QStringList &completions)
 {
-    d->m_completer = completer;
+    d->m_completions = completions;
+    emit controlConfigurationChanged();
 }
 
 void StringAspect::setRightSideIconPath(const FilePath &path)
@@ -1373,9 +1369,9 @@ int StringAspect::minimumHeight() const
     return d->m_minimumHeight;
 }
 
-QCompleter *StringAspect::completer() const
+QStringList StringAspect::completions() const
 {
-    return d->m_completer;
+    return d->m_completions;
 }
 
 FilePath StringAspect::rightSideIconPath() const
@@ -3900,7 +3896,21 @@ AspectPresentation StringSelectionAspect::presentation() const
 {
     AspectPresentation p = TypedAspect::presentation();
     p.control = AspectControls::ComboBox;
+    p.sizeAdjustPolicy = m_sizeAdjustPolicy;
+    p.minimumContentsLength = m_minimumContentsLength;
     return p;
+}
+
+void StringSelectionAspect::setSizeAdjustPolicy(AspectControls::SizeAdjustPolicy policy)
+{
+    m_sizeAdjustPolicy = policy;
+    emit controlConfigurationChanged();
+}
+
+void StringSelectionAspect::setMinimumContentsLength(int characters)
+{
+    m_minimumContentsLength = characters;
+    emit controlConfigurationChanged();
 }
 
 void StringSelectionAspect::addToLayoutImpl(Layouting::Layout &parent)

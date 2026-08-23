@@ -176,8 +176,8 @@ void typedAspectCreate(StringAspect *aspect, const std::string &key, const sol::
         aspect->setRightSideIconPath(value.as<FilePath>());
     else if (key == "minimumHeight")
         aspect->setMinimumHeight(value.as<int>());
-    else if (key == "completer")
-        aspect->setCompleter(value.as<QCompleter*>());
+    else if (key == "completions")
+        aspect->setCompletions(value.as<QStringList>());
     else if (key == "addOnRightSideIconClicked") {
         aspect->addOnRightSideIconClicked(aspect, [func = value.as<sol::main_function>()]() {
             void_safe_call(func);
