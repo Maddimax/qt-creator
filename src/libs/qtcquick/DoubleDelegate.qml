@@ -43,8 +43,9 @@ RowLayout {
         Layout.preferredWidth: Metrics.formControlWidth / 2
 
         validator: DoubleValidator {
-            bottom: delegate.pres.minimum
-            top: delegate.pres.maximum
+            // See IntegerDelegate: pres is empty once the aspect is gone.
+            bottom: delegate.pres.minimum ?? 0
+            top: delegate.pres.maximum ?? 0
             notation: DoubleValidator.StandardNotation
         }
 

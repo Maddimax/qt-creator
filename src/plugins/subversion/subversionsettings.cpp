@@ -7,10 +7,8 @@
 
 #include <coreplugin/dialogs/ioptionspage.h>
 
-#include <utils/aspectwidgets.h>
 #include <utils/hostosinfo.h>
-#include <utils/layoutbuilder.h>
-#include <utils/pathchooser.h>
+#include <utils/pathvalidation.h>
 
 #include <vcsbase/vcsbaseconstants.h>
 
@@ -66,35 +64,7 @@ SubversionSettings::SubversionSettings()
         password.setEnabled(useAuthentication());
     });
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-
-        return Column {
-            Group {
-                title(Tr::tr("Configuration")),
-                Column { binaryPath }
-            },
-
-            Group {
-                title(Tr::tr("Authentication")),
-                groupChecker(Utils::AspectWidgets::groupChecker(&useAuthentication)),
-                Form {
-                    userName, br,
-                    password,
-                 }
-            },
-
-            Group {
-                title(Tr::tr("Miscellaneous")),
-                Column {
-                    Row { logCount, timeout, st },
-                    spaceIgnorantAnnotation,
-                }
-            },
-
-            st
-        };
-    });
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Subversion/SubversionSettingsPage.qml"));
 
     readSettings();
 }

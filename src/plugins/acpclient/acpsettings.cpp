@@ -23,7 +23,7 @@
 #include <utils/globaltasktree.h>
 #include <utils/layoutbuilder.h>
 #include <utils/networkaccessmanager.h>
-#include <utils/pathchooser.h>
+#include <utils/pathvalidation.h>
 #include <utils/temporarydirectory.h>
 #include <utils/temporaryfile.h>
 #include <utils/infolabel.h>

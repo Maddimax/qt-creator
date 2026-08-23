@@ -87,6 +87,8 @@ QtcPlugin {
         files: [
             "qtest/*"
         ]
+        // The .qml files are listed by the "qml" group above.
+        excludeFiles: ["qtest/*.qml"]
     }
 
     Group {
@@ -94,6 +96,8 @@ QtcPlugin {
         files: [
             "quick/*"
         ]
+        // The .qml files are listed by the "qml" group above.
+        excludeFiles: ["quick/*.qml"]
     }
 
     Group {
@@ -101,6 +105,8 @@ QtcPlugin {
         files: [
             "gtest/*"
         ]
+        // The .qml files are listed by the "qml" group above.
+        excludeFiles: ["gtest/*.qml"]
     }
 
     Group {
@@ -108,6 +114,8 @@ QtcPlugin {
         files: [
             "boost/*"
         ]
+        // The .qml files are listed by the "qml" group above.
+        excludeFiles: ["boost/*.qml"]
     }
 
     Group {
@@ -115,6 +123,8 @@ QtcPlugin {
         files: [
             "catch/*"
         ]
+        // The .qml files are listed by the "qml" group above.
+        excludeFiles: ["catch/*.qml"]
     }
 
     Group {
@@ -122,6 +132,8 @@ QtcPlugin {
         files: [
             "ctest/*"
         ]
+        // The .qml files are listed by the "qml" group above.
+        excludeFiles: ["ctest/*.qml"]
     }
 
     QtcTestFiles {

@@ -80,6 +80,9 @@ QVariantMap AspectModels::presentation(BaseAspect *aspect)
         {"allowRemoving", p.allowRemoving},
         {"allowEditing", p.allowEditing},
         {"actionText", p.actionText},
+        // A password shares the String kind, and so the delegate, with an
+        // ordinary line edit: it differs only in not echoing what it holds.
+        {"password", p.control == AspectControls::PasswordLineEdit},
         {"placeholderText", p.placeholderText},
     };
 }

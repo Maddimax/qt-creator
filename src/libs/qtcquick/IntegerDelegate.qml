@@ -34,9 +34,11 @@ RowLayout {
     SpinBox {
         editable: true
         enabled: (delegate.aspect?.enabled ?? false) && !(delegate.aspect?.readOnly ?? false)
-        from: delegate.pres.minimum
-        to: delegate.pres.maximum
-        stepSize: delegate.pres.step
+        // A delegate can outlive its aspect: the property goes null and pres
+        // becomes empty, so every bound needs a value of the right type.
+        from: delegate.pres.minimum ?? 0
+        to: delegate.pres.maximum ?? 0
+        stepSize: delegate.pres.step ?? 1
         value: delegate.aspect?.value ?? 0
         ToolTip.text: delegate.toolTip
         ToolTip.visible: hovered && delegate.toolTip !== ""

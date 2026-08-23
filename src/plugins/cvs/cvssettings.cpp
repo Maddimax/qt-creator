@@ -7,10 +7,8 @@
 
 #include <coreplugin/dialogs/ioptionspage.h>
 
-#include <utils/aspectwidgets.h>
 #include <utils/hostosinfo.h>
-#include <utils/layoutbuilder.h>
-#include <utils/pathchooser.h>
+#include <utils/pathvalidation.h>
 
 #include <vcsbase/vcsbaseconstants.h>
 
@@ -55,29 +53,7 @@ CvsSettings::CvsSettings()
 
     diffIgnoreBlankLines.setSettingsKey("DiffIgnoreBlankLines");
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-        return Column {
-            Group {
-                title(Tr::tr("Configuration")),
-                Form {
-                    binaryPath, br,
-                    cvsRoot
-                }
-            },
-            Group {
-                title(Tr::tr("Miscellaneous")),
-                Column {
-                    Form {
-                        timeout, br,
-                        diffOptions,
-                    },
-                    describeByCommitId,
-                }
-            },
-            st
-        };
-    });
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/CVS/CvsSettingsPage.qml"));
 
     readSettings();
 }

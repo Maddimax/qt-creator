@@ -8,9 +8,7 @@
 
 #include <coreplugin/dialogs/ioptionspage.h>
 
-#include <utils/aspectwidgets.h>
-#include <utils/layoutbuilder.h>
-#include <utils/pathchooser.h>
+#include <utils/pathvalidation.h>
 
 #include <vcsbase/vcsbaseconstants.h>
 
@@ -84,37 +82,7 @@ FossilSettings::FossilSettings()
     logCount.setToolTip(Tr::tr("The number of recent commit log entries to show. "
         "Choose 0 to see all entries."));
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-        return Column {
-            Group {
-                title(Tr::tr("Configuration")),
-                Row { binaryPath }
-            },
-
-            Group {
-                title(Tr::tr("Local Repositories")),
-                Row { defaultRepoPath }
-            },
-
-            Group {
-                title(Tr::tr("User")),
-                Form {
-                    userName, br,
-                    sslIdentityFile
-                }
-            },
-
-            Group {
-                title(Tr::tr("Miscellaneous")),
-                Column {
-                    Row { logCount, timelineWidth, timeout, st },
-                    disableAutosync
-                },
-            },
-            st
-        };
-    });
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Fossil/FossilSettingsPage.qml"));
 
     readSettings();
 }

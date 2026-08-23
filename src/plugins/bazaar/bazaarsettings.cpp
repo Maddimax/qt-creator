@@ -8,9 +8,7 @@
 
 #include <coreplugin/dialogs/ioptionspage.h>
 
-#include <utils/aspectwidgets.h>
-#include <utils/layoutbuilder.h>
-#include <utils/pathchooser.h>
+#include <utils/pathvalidation.h>
 
 #include <vcsbase/vcsbaseconstants.h>
 
@@ -63,30 +61,7 @@ BazaarSettings::BazaarSettings()
     timeout.setLabelText(Tr::tr("Timeout:"));
     timeout.setSuffix(Tr::tr("s"));
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-
-        return Column {
-            Group {
-                title(Tr::tr("Configuration")),
-                Row { binaryPath }
-            },
-
-            Group {
-                title(Tr::tr("User")),
-                Form {
-                    userName, br,
-                    userEmail
-                }
-            },
-
-            Group {
-                title(Tr::tr("Miscellaneous")),
-                Row { logCount, timeout, st }
-            },
-            st
-        };
-    });
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Bazaar/BazaarSettingsPage.qml"));
 
     readSettings();
 }

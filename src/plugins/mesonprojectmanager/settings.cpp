@@ -8,9 +8,6 @@
 
 #include <coreplugin/dialogs/ioptionspage.h>
 
-#include <utils/aspectwidgets.h>
-#include <utils/layoutbuilder.h>
-
 namespace MesonProjectManager::Internal {
 
 MesonSettings &settings()

@@ -10,10 +10,8 @@
 
 #include <projectexplorer/projectexplorerconstants.h>
 
-#include <utils/aspectwidgets.h>
 #include <utils/hostosinfo.h>
-#include <utils/layoutbuilder.h>
-#include <utils/pathchooser.h>
+#include <utils/pathvalidation.h>
 
 using namespace Utils;
 

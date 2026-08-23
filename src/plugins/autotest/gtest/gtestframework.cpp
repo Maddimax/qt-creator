@@ -15,7 +15,6 @@
 
 #include <coreplugin/dialogs/ioptionspage.h>
 
-#include <utils/aspectwidgets.h>
 #include <utils/layoutbuilder.h>
 
 using namespace Layouting;
@@ -182,6 +181,5 @@ public:
 };
 
 const GTestSettingsPage settingsPage;
-
 
 } // Autotest::Internal

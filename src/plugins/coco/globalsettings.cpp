@@ -7,13 +7,11 @@
 #include "cocopluginconstants.h"
 #include "cocotr.h"
 
-#include <utils/aspectwidgets.h>
 #include <utils/filepath.h>
 #include <utils/fileutils.h>
 #include <utils/hostosinfo.h>
 #include <utils/infolabel.h>
-#include <utils/layoutbuilder.h>
-#include <utils/pathchooser.h>
+#include <utils/pathvalidation.h>
 
 #include <QProcess>
 #include <QRegularExpression>
@@ -46,7 +44,6 @@ CocoSettings::CocoSettings()
     // No settings key, so no derived name for the page QML to use.
 
     messageLabel.setQmlName("message");
-
 
     setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Coco/CocoSettingsPage.qml"));
 

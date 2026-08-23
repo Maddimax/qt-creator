@@ -13,6 +13,7 @@ RowLayout {
     id: delegate
 
     required property Aspect aspect
+    readonly property var pres: aspect ? AspectModels.presentation(aspect) : ({})
     readonly property string labelText: aspect?.labelText ?? ""
     readonly property string toolTip: aspect?.toolTip ?? ""
     readonly property bool aspectVisible: aspect?.visible ?? true
@@ -29,6 +30,7 @@ RowLayout {
 
     TextField {
         text: delegate.aspect?.value ?? ""
+        echoMode: delegate.pres.password ? TextInput.Password : TextInput.Normal
         enabled: delegate.aspect?.enabled ?? false
         readOnly: delegate.aspect?.readOnly ?? true
         ToolTip.text: delegate.toolTip

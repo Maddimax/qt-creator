@@ -9,11 +9,9 @@
 #include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/icore.h>
 
-#include <utils/aspectwidgets.h>
 #include <utils/aspects.h>
 #include <utils/guardedcallback.h>
 #include <utils/infobar.h>
-#include <utils/layoutbuilder.h>
 #include <utils/networkaccessmanager.h>
 #include <utils/stylehelper.h>
 

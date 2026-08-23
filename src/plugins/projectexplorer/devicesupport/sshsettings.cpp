@@ -9,11 +9,9 @@
 #include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/icore.h>
 
-#include <utils/aspectwidgets.h>
 #include <utils/algorithm.h>
 #include <utils/environment.h>
 #include <utils/hostosinfo.h>
-#include <utils/layoutbuilder.h>
 
 #include <QWriteLocker>
 

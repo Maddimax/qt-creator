@@ -13,7 +13,6 @@
 
 #include <projectexplorer/buildsystem.h>
 
-#include <utils/aspectwidgets.h>
 #include <utils/layoutbuilder.h>
 
 using namespace Layouting;

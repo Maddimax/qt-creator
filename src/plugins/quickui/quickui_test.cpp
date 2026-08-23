@@ -18,6 +18,7 @@
 #include <QStandardItem>
 #include <QFont>
 #include <QPromise>
+#include <QMetaEnum>
 #include <QQuickItem>
 #include <QQuickWidget>
 #include <QTemporaryDir>
@@ -99,6 +100,7 @@ private slots:
     void testTextWithActionShowsSummaryAndActs();
     void testAspectListLabelArrivingLate();
     void testPageWithoutItsOwnQmlIsDeclined();
+    void testPasswordAspectDoesNotEchoItsValue();
 };
 
 void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
@@ -286,6 +288,42 @@ void QuickUiTest::testPageWithoutItsOwnQmlIsDeclined()
     QVERIFY(quickWidget);
     QVERIFY(quickWidget->rootObject());
     QVERIFY(findQmlComponent(quickWidget->rootObject(), "BoolDelegate"));
+}
+
+void QuickUiTest::testPasswordAspectDoesNotEchoItsValue()
+{
+    Utils::AspectContainer page;
+    Utils::StringAspect secret(&page);
+    secret.setDisplayStyle(Utils::StringAspect::PasswordLineEditDisplay);
+    secret.setLabelText("Password");
+    secret.setValue("hunter2");
+    Utils::StringAspect plain(&page);
+    plain.setDisplayStyle(Utils::StringAspect::LineEditDisplay);
+    plain.setLabelText("Name");
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QQuickItem *rootItem = quickWidget->rootObject();
+    QVERIFY(rootItem);
+
+    // A password shares the String kind, and so the delegate, with an ordinary
+    // line edit. It must still not draw what it holds.
+    QList<QQuickItem *> delegates;
+    QTRY_COMPARE((delegates = findQmlComponents(rootItem, "StringDelegate")).size(), 2);
+    QQuickItem *secretField = findQmlComponent(delegates.at(0), "TextField");
+    QQuickItem *plainField = findQmlComponent(delegates.at(1), "TextField");
+    QVERIFY(secretField);
+    QVERIFY(plainField);
+    const QMetaObject *mo = secretField->metaObject();
+    const QMetaEnum echoModes = mo->property(mo->indexOfProperty("echoMode")).enumerator();
+    const int password = echoModes.keyToValue("Password");
+    const int normal = echoModes.keyToValue("Normal");
+    QVERIFY(password != -1 && normal != -1);
+    QCOMPARE(secretField->property("echoMode").toInt(), password);
+    QCOMPARE(secretField->property("text").toString(), QString("hunter2"));
+    QCOMPARE(plainField->property("echoMode").toInt(), normal);
 }
 
 void QuickUiTest::testQmlNameIsDerivedFromTheSettingsKey()

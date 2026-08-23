@@ -10,10 +10,8 @@
 
 #include <projectexplorer/projectexplorerconstants.h>
 
-#include <utils/aspectwidgets.h>
 #include <utils/environment.h>
-#include <utils/layoutbuilder.h>
-#include <utils/pathchooser.h>
+#include <utils/pathvalidation.h>
 
 using namespace Utils;
 
@@ -44,20 +42,7 @@ ZephyrSettings::ZephyrSettings()
     qmlProjectExporterFilePath.setExpectedKind(PathChooserKind::ExistingCommand);
     qmlProjectExporterFilePath.setPlaceHolderText(Tr::tr("optional, for Qt for MCUs projects"));
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-        return Column {
-            Group {
-                title(Tr::tr("West Build Tool")),
-                Form {
-                    westFilePath, br,
-                    workspaceDir, br,
-                    qmlProjectExporterFilePath,
-                },
-            },
-            st,
-        };
-    });
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Zephyr/ZephyrSettingsPage.qml"));
 
     readSettings();
 }

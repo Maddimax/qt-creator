@@ -11,7 +11,6 @@
 
 #include <coreplugin/dialogs/ioptionspage.h>
 
-#include <utils/aspectwidgets.h>
 #include <utils/hostosinfo.h>
 #include <utils/layoutbuilder.h>
 #include <utils/shutdownguard.h>

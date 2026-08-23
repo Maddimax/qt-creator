@@ -8,9 +8,7 @@
 
 #include <projectexplorer/projectexplorerconstants.h>
 
-#include <utils/aspectwidgets.h>
 #include <utils/hostosinfo.h>
-#include <utils/layoutbuilder.h>
 
 using namespace Utils;
 
