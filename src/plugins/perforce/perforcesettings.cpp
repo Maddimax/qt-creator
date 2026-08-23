@@ -6,6 +6,7 @@
 #include "perforcechecker.h"
 #include "perforcetr.h"
 
+#include <utils/aspectwidgets.h>
 #include <utils/environment.h>
 #include <utils/hostosinfo.h>
 #include <utils/infolabel.h>
@@ -123,7 +124,7 @@ PerforceSettings::PerforceSettings()
 
         Group environment {
             title(Tr::tr("Environment Variables")),
-            groupChecker(customEnv.groupChecker()),
+            groupChecker(Utils::AspectWidgets::groupChecker(&customEnv)),
             Row { p4Port, p4Client, p4User }
         };
 

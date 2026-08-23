@@ -20,6 +20,7 @@
 #include <projectexplorer/projectpanelfactory.h>
 #include <projectexplorer/target.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/infolabel.h>
 #include <utils/layoutbuilder.h>
 
@@ -53,7 +54,7 @@ CocoProjectWidget::CocoProjectWidget(Project *project, BuildConfiguration *build
     m_saveButton.setFont(bold);
 
     m_coverageGroupbox = {
-        groupChecker(m_coverageGroupBoxEnabled.groupChecker()),
+        groupChecker(Utils::AspectWidgets::groupChecker(&m_coverageGroupBoxEnabled)),
         Column {
             Row {Tr::tr("CoverageScanner options:"), st, docLink },
             m_optionEdit,

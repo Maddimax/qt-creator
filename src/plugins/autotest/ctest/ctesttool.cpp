@@ -13,6 +13,7 @@
 
 #include <projectexplorer/buildsystem.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/layoutbuilder.h>
 
 using namespace Layouting;
@@ -43,12 +44,12 @@ CTestTool::CTestTool()
             outputMode, br,
             Group {
                 title(Tr::tr("Repeat Tests")),
-                groupChecker(repeat.groupChecker()),
+                groupChecker(Utils::AspectWidgets::groupChecker(&repeat)),
                 Row { repetitionMode, repetitionCount},
             }, br,
             Group {
                 title(Tr::tr("Run in Parallel")),
-                groupChecker(parallel.groupChecker()),
+                groupChecker(Utils::AspectWidgets::groupChecker(&parallel)),
                 Column {
                     Row { jobs }, br,
                     Row { testLoad, threshold }

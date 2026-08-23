@@ -10,6 +10,7 @@
 #include <coreplugin/icore.h>
 #include <coreplugin/plugininstallwizard.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/layoutbuilder.h>
 #include <utils/stylehelper.h>
 
@@ -69,7 +70,7 @@ ExtensionManagerSettings::ExtensionManagerSettings()
             },
             Group {
                 title(Tr::tr("Use External Repository")),
-                groupChecker(useExternalRepo.groupChecker()),
+                groupChecker(Utils::AspectWidgets::groupChecker(&useExternalRepo)),
                 Form {
                     repositoryUrls, br,
                 },

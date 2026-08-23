@@ -4,27 +4,21 @@
 #include "aspects.h"
 
 #include "algorithm.h"
-#include "aspectwidgets.h"
 #include "async.h"
 #include "checkableaspect.h"
 #include "checkablemessagebox.h"
 #include "environment.h"
 #include "guard.h"
-#include "layoutbuilder.h"
 #include "macroexpander.h"
 #include "pathvalidation.h"
 #include "qtcassert.h"
 #include "qtcsettings.h"
-#include "stylehelper.h"
 #include "store.h"
 #include "utilstr.h"
 
 #include <QAction>
 #include <QDebug>
 #include <QItemSelectionModel>
-#include <QLabel>
-#include <QGroupBox>
-#include <QVBoxLayout>
 #include <QPointer>
 #include <QStandardItemModel>
 #include <QUndoStack>
@@ -2132,53 +2126,7 @@ BoolAspect::BoolAspect(AspectContainer *container)
 */
 BoolAspect::~BoolAspect() = default;
 
-void BoolAspect::addToLayoutHelper(Layouting::Layout &parent, QAbstractButton *button)
-{
-    switch (d->m_labelPlacement) {
-    case LabelPlacement::Compact:
-        button->setText(labelText());
-        parent.addItem(button);
-        break;
-    case LabelPlacement::AtCheckBox:
-        button->setText(labelText());
-        parent.addItem(empty);
-        parent.addItem(button);
-        break;
-    case LabelPlacement::InExtraLabel:
-        AspectWidgets::addLabeledItem(this, parent, button);
-        break;
-    case LabelPlacement::ShowTip: {
-        parent.addItem(empty);
-        button->setText(labelText());
-        auto ttLabel = new QLabel(toolTip());
-        ttLabel->setFont(StyleHelper::uiFont(StyleHelper::UiElementLabelSmall));
-        auto lt = new QVBoxLayout;
-        lt->setContentsMargins({});
-        lt->setSpacing(StyleHelper::SpacingTokens::GapVXs);
-        lt->addWidget(button);
-        lt->addWidget(ttLabel);
-        parent.addItem(lt);
-        break;
-    }
-    }
 
-    connect(button, &QAbstractButton::clicked, this, [button, this] {
-        d->m_undoable.set(undoStack(), button->isChecked());
-    });
-
-    connect(&d->m_undoable.m_signal, &UndoSignaller::changed, button, [button, this] {
-        button->setChecked(d->m_undoable.get());
-        handleGuiChanged();
-    });
-}
-
-std::function<void(Layouting::Layout *)> BoolAspect::adoptButton(QAbstractButton *button)
-{
-    return [this, button](Layouting::Layout *layout) {
-        addToLayoutHelper(*layout, button);
-        volatileValueToGui();
-    };
-}
 
 /*!
     \reimp
@@ -2220,26 +2168,6 @@ void BoolAspect::addToLayoutImpl(Layouting::Layout &parent)
     QTC_CHECK(renderAspect(*this, parent));
 }
 
-std::function<void (QObject *)> BoolAspect::groupChecker()
-{
-    return [this](QObject *target) {
-        auto groupBox = qobject_cast<QGroupBox *>(target);
-        QTC_ASSERT(groupBox, return);
-        AspectWidgets::registerSubWidget(this, groupBox);
-        groupBox->setCheckable(true);
-        groupBox->setChecked(value());
-
-        connect(groupBox, &QGroupBox::clicked, this, [groupBox, this] {
-            d->m_undoable.set(undoStack(), groupBox->isChecked());
-        });
-
-        connect(&d->m_undoable.m_signal, &UndoSignaller::changed, groupBox, [groupBox, this] {
-            groupBox->setChecked(d->m_undoable.get());
-            handleGuiChanged();
-        });
-        volatileValueToGui();
-    };
-}
 
 QAction *BoolAspect::action()
 {

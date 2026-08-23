@@ -7,6 +7,7 @@
 
 #include <coreplugin/dialogs/ioptionspage.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/hostosinfo.h>
 #include <utils/layoutbuilder.h>
 #include <utils/pathchooser.h>
@@ -76,7 +77,7 @@ SubversionSettings::SubversionSettings()
 
             Group {
                 title(Tr::tr("Authentication")),
-                groupChecker(useAuthentication.groupChecker()),
+                groupChecker(Utils::AspectWidgets::groupChecker(&useAuthentication)),
                 Form {
                     userName, br,
                     password,

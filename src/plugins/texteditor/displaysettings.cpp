@@ -11,6 +11,7 @@
 #include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/icore.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/layoutbuilder.h>
 
 #include <QLabel>
@@ -274,7 +275,7 @@ public:
                 },
                 Group {
                     title(Tr::tr("Line Annotations")),
-                    groupChecker(s.displayAnnotations.groupChecker()),
+                    groupChecker(Utils::AspectWidgets::groupChecker(&s.displayAnnotations)),
                     Column {
                         s.annotationAlignment
                     }

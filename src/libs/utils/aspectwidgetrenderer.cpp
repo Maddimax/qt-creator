@@ -279,42 +279,7 @@ private:
                                       ? static_cast<QAbstractButton *>(
                                             AspectWidgets::createSubWidget<QRadioButton>(aspect))
                                       : AspectWidgets::createSubWidget<QCheckBox>(aspect);
-
-        switch (pres.labelPlacement) {
-        case AspectControls::LabelPlacement::Compact:
-            button->setText(pres.labelText);
-            parent.addItem(button);
-            break;
-        case AspectControls::LabelPlacement::AtControl:
-            button->setText(pres.labelText);
-            parent.addItem(empty);
-            parent.addItem(button);
-            break;
-        case AspectControls::LabelPlacement::InExtraLabel:
-            AspectWidgets::addLabeledItem(aspect, parent, button);
-            break;
-        case AspectControls::LabelPlacement::ShowTip: {
-            parent.addItem(empty);
-            button->setText(pres.labelText);
-            auto ttLabel = new QLabel(pres.toolTip);
-            ttLabel->setFont(StyleHelper::uiFont(StyleHelper::UiElementLabelSmall));
-            auto lt = new QVBoxLayout;
-            lt->setContentsMargins({});
-            lt->setSpacing(StyleHelper::SpacingTokens::GapVXs);
-            lt->addWidget(button);
-            lt->addWidget(ttLabel);
-            parent.addItem(lt);
-            break;
-        }
-        }
-
-        QObject::connect(button, &QAbstractButton::clicked, aspect, [button, aspect] {
-            aspect->setVolatileVariantValueFromGui(button->isChecked());
-        });
-        aspect->addOnVolatileValueChanged(button, [button, aspect] {
-            button->setChecked(aspect->volatileValue());
-        });
-        button->setChecked(aspect->volatileValue());
+        AspectWidgets::addButtonToLayout(aspect, parent, button);
     }
 
     static void renderFontFamily(FontFamilyAspect *aspect, Layout &parent,

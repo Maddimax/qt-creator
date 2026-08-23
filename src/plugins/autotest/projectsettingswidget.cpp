@@ -11,6 +11,7 @@
 
 #include <projectexplorer/projectpanelfactory.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/algorithm.h>
 #include <utils/aspects.h>
 #include <utils/layoutbuilder.h>
@@ -83,7 +84,7 @@ ProjectTestSettingsWidget::ProjectTestSettingsWidget(Project *project)
         Row { // explicitly outside of the global settings
             Group {
                 title(Tr::tr("Limit Files to Path Patterns")),
-                groupChecker(m_projectSettings->limitToFilter.groupChecker()),
+                groupChecker(Utils::AspectWidgets::groupChecker(&m_projectSettings->limitToFilter)),
                 Column {
                     filterLabel,
                     Row {

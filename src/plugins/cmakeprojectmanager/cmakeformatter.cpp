@@ -25,6 +25,7 @@
 #include <texteditor/formattexteditor.h>
 #include <texteditor/texteditor.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/algorithm.h>
 #include <utils/layoutbuilder.h>
 #include <utils/mimeconstants.h>
@@ -79,7 +80,7 @@ public:
                 Space(10),
                 Group {
                     title(Tr::tr("Automatic Formatting on File Save")),
-                    groupChecker(autoFormatOnSave.groupChecker()),
+                    groupChecker(Utils::AspectWidgets::groupChecker(&autoFormatOnSave)),
                     // Conceptually, that's a Form, but this would look odd:
                     // xxxxxx [____]
                     //        [x] xxxxxxxxxxxxxx

@@ -9,9 +9,11 @@
 
 #include <QList>
 
+#include <functional>
 #include <type_traits>
 
 QT_BEGIN_NAMESPACE
+class QAbstractButton;
 class QAbstractSpinBox;
 class QComboBox;
 class QLabel;
@@ -51,6 +53,21 @@ QTCREATOR_UTILS_EXPORT void addMacroExpansion(BaseAspect *aspect, QWidget *widge
 
 // The widget from setConfigWidgetCreator(), or nullptr when none was set.
 QTCREATOR_UTILS_EXPORT QWidget *createConfigWidget(BaseAspect *aspect);
+
+// Places an existing check box or radio button according to the aspect's label
+// placement and ties the two together. The renderer and adoptButton() differ
+// only in who creates the button.
+QTCREATOR_UTILS_EXPORT void addButtonToLayout(BoolAspect *aspect,
+                                              Layouting::Layout &parent,
+                                              QAbstractButton *button);
+
+// A layouter that places a button the caller owns - for example one that is
+// already in a QButtonGroup with a button of its own.
+QTCREATOR_UTILS_EXPORT std::function<void(Layouting::Layout *)> adoptButton(
+    BoolAspect *aspect, QAbstractButton *button);
+
+// A layouter that turns a QGroupBox into the aspect's check box.
+QTCREATOR_UTILS_EXPORT std::function<void(QObject *)> groupChecker(BoolAspect *aspect);
 
 template<class Widget, typename... Args>
 Widget *createSubWidget(BaseAspect *aspect, Args &&...args)

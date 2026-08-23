@@ -8,6 +8,7 @@
 
 #include <coreplugin/dialogs/ioptionspage.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/genericconstants.h>
 #include <utils/layoutbuilder.h>
 
@@ -49,7 +50,7 @@ GeneralSettings::GeneralSettings()
         return Column {
             Group {
                 title(Tr::tr("Automatic Formatting on File Save")),
-                groupChecker(autoFormatOnSave.groupChecker()),
+                groupChecker(Utils::AspectWidgets::groupChecker(&autoFormatOnSave)),
                 Form {
                     autoFormatTools, br,
                     autoFormatMime, br,

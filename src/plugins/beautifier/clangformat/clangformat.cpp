@@ -23,6 +23,7 @@
 #include <texteditor/textdocument.h>
 #include <texteditor/texteditor.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/aspects.h>
 #include <utils/fileutils.h>
 #include <utils/guiutils.h>
@@ -269,7 +270,8 @@ public:
                 title(Tr::tr("Options")),
                 bindTo(&options),
                 Form {
-                    s.usePredefinedStyle.adoptButton(predefinedStyleButton),
+                    Utils::AspectWidgets::adoptButton(&s.usePredefinedStyle,
+                                                     predefinedStyleButton),
                     predefinedBlob, br,
                     customizedStyleButton, configurations,
                 },

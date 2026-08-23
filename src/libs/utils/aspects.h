@@ -538,7 +538,6 @@ public:
     ~BoolAspect() override;
 
     void addToLayoutImpl(Layouting::Layout &parent) override;
-    std::function<void(QObject *)> groupChecker();
 
     Utils::CheckableDecider askAgainCheckableDecider();
     Utils::CheckableDecider doNotAskAgainCheckableDecider();
@@ -553,11 +552,7 @@ public:
     enum class DisplayStyle { CheckBox, RadionButton };
     void setDisplayStyle(DisplayStyle displayStyle);
 
-    std::function<void(Layouting::Layout *)> adoptButton(QAbstractButton *button);
-
 private:
-    void addToLayoutHelper(Layouting::Layout &parent, QAbstractButton *button);
-
     void volatileValueToGui() override;
     bool guiToVolatileValue() override;
 

@@ -7,11 +7,16 @@
 #include "layoutbuilder.h"
 #include "macroexpander.h"
 #include "pathchooser.h"
+#include "qtcassert.h"
+#include "stylehelper.h"
 #include "variablechooser.h"
 
+#include <QAbstractButton>
+#include <QGroupBox>
 #include <QLabel>
 #include <QLineEdit>
 #include <QTextEdit>
+#include <QVBoxLayout>
 
 namespace Utils::AspectWidgets {
 
@@ -114,6 +119,71 @@ QWidget *createConfigWidget(BaseAspect *aspect)
         registerSubWidget(aspect, configWidget);
 
     return configWidget;
+}
+
+void addButtonToLayout(BoolAspect *aspect, Layouting::Layout &parent, QAbstractButton *button)
+{
+    const AspectPresentation pres = aspect->presentation();
+    switch (pres.labelPlacement) {
+    case AspectControls::LabelPlacement::Compact:
+        button->setText(pres.labelText);
+        parent.addItem(button);
+        break;
+    case AspectControls::LabelPlacement::AtControl:
+        button->setText(pres.labelText);
+        parent.addItem(Layouting::empty);
+        parent.addItem(button);
+        break;
+    case AspectControls::LabelPlacement::InExtraLabel:
+        addLabeledItem(aspect, parent, button);
+        break;
+    case AspectControls::LabelPlacement::ShowTip: {
+        parent.addItem(Layouting::empty);
+        button->setText(pres.labelText);
+        auto ttLabel = new QLabel(pres.toolTip);
+        ttLabel->setFont(StyleHelper::uiFont(StyleHelper::UiElementLabelSmall));
+        auto lt = new QVBoxLayout;
+        lt->setContentsMargins({});
+        lt->setSpacing(StyleHelper::SpacingTokens::GapVXs);
+        lt->addWidget(button);
+        lt->addWidget(ttLabel);
+        parent.addItem(lt);
+        break;
+    }
+    }
+
+    QObject::connect(button, &QAbstractButton::clicked, aspect, [button, aspect] {
+        aspect->setVolatileVariantValueFromGui(button->isChecked());
+    });
+    aspect->addOnVolatileValueChanged(button, [button, aspect] {
+        button->setChecked(aspect->volatileValue());
+    });
+    button->setChecked(aspect->volatileValue());
+}
+
+std::function<void(Layouting::Layout *)> adoptButton(BoolAspect *aspect, QAbstractButton *button)
+{
+    return [aspect, button](Layouting::Layout *layout) {
+        addButtonToLayout(aspect, *layout, button);
+    };
+}
+
+std::function<void(QObject *)> groupChecker(BoolAspect *aspect)
+{
+    return [aspect](QObject *target) {
+        auto groupBox = qobject_cast<QGroupBox *>(target);
+        QTC_ASSERT(groupBox, return);
+        registerSubWidget(aspect, groupBox);
+        groupBox->setCheckable(true);
+
+        QObject::connect(groupBox, &QGroupBox::clicked, aspect, [groupBox, aspect] {
+            aspect->setVolatileVariantValueFromGui(groupBox->isChecked());
+        });
+        aspect->addOnVolatileValueChanged(groupBox, [groupBox, aspect] {
+            groupBox->setChecked(aspect->volatileValue());
+        });
+        groupBox->setChecked(aspect->volatileValue());
+    };
 }
 
 } // namespace Utils::AspectWidgets

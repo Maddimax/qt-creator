@@ -7,6 +7,7 @@
 
 #include <coreplugin/dialogs/ioptionspage.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/environment.h>
 #include <utils/layoutbuilder.h>
 #include <utils/pathchooser.h>
@@ -169,7 +170,7 @@ GitSettings::GitSettings()
 
             Group {
                 title(Tr::tr("Instant Blame")),
-                groupChecker(instantBlame.groupChecker()),
+                groupChecker(Utils::AspectWidgets::groupChecker(&instantBlame)),
                 Row {
                     instantBlameIgnoreSpaceChanges,
                     instantBlameIgnoreLineMoves,

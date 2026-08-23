@@ -3,6 +3,7 @@
 
 #include <utils/algorithm.h>
 #include <utils/aspects.h>
+#include <utils/aspectwidgets.h>
 #include <utils/aspectwidgetrenderer.h>
 #include <utils/elidinglabel.h>
 #include <utils/fancylineedit.h>
@@ -15,6 +16,7 @@
 
 #include <QCheckBox>
 #include <QDir>
+#include <QGroupBox>
 #include <QComboBox>
 #include <QFontComboBox>
 #include <QLabel>
@@ -101,6 +103,10 @@ private slots:
     void stringPasswordLineEdit();
     void pathChooser_data() { addRendererRows(); }
     void pathChooser();
+    void boolGroupChecker_data() { addRendererRows(); }
+    void boolGroupChecker();
+    void boolAdoptedButton_data() { addRendererRows(); }
+    void boolAdoptedButton();
     void filePathValidity_data() { addRendererRows(); }
     void filePathValidity();
     void filePathExtraButton_data() { addRendererRows(); }
@@ -649,6 +655,74 @@ void tst_AspectRenderer::pathChooser()
 
     aspect.setVolatileValue("/tmp/two");
     QCOMPARE(chooser->lineEdit()->text(), QString("/tmp/two"));
+}
+
+void tst_AspectRenderer::boolGroupChecker()
+{
+    QFETCH(bool, withRenderer);
+    setRendererInstalled(withRenderer);
+
+    QUndoStack stack;
+    BoolAspect aspect;
+    aspect.setAutoApply(false);
+    aspect.setUndoStack(&stack);
+    aspect.setValue(true);
+
+    using namespace Layouting;
+    const std::unique_ptr<QWidget> widget(
+        Column {
+            Group {
+                title("Options"),
+                groupChecker(AspectWidgets::groupChecker(&aspect)),
+                Column { st },
+            }
+        }.emerge());
+
+    auto groupBox = widget->findChild<QGroupBox *>();
+    QVERIFY(groupBox);
+    QVERIFY(groupBox->isCheckable());
+    QVERIFY(groupBox->isChecked());
+
+    // The group box is the aspect's check box, undo included. QGroupBox has no
+    // click(); a real click sets the state and then emits clicked().
+    groupBox->setChecked(false);
+    emit groupBox->clicked(false);
+    QCOMPARE(aspect.volatileValue(), false);
+    QCOMPARE(stack.count(), 1);
+    stack.undo();
+    QCOMPARE(aspect.volatileValue(), true);
+    QVERIFY(groupBox->isChecked());
+
+    aspect.setVolatileValue(false);
+    QVERIFY(!groupBox->isChecked());
+}
+
+void tst_AspectRenderer::boolAdoptedButton()
+{
+    QFETCH(bool, withRenderer);
+    setRendererInstalled(withRenderer);
+
+    QUndoStack stack;
+    BoolAspect aspect;
+    aspect.setAutoApply(false);
+    aspect.setUndoStack(&stack);
+    aspect.setLabel("Use the preset", BoolAspect::LabelPlacement::Compact);
+
+    // A button the page owns, not one the aspect made.
+    auto adopted = new QRadioButton;
+
+    using namespace Layouting;
+    const std::unique_ptr<QWidget> widget(
+        Column { AspectWidgets::adoptButton(&aspect, adopted) }.emerge());
+
+    QCOMPARE(adopted->text(), QString("Use the preset"));
+    QVERIFY(!adopted->isChecked());
+
+    adopted->click();
+    QCOMPARE(aspect.volatileValue(), true);
+    QCOMPARE(stack.count(), 1);
+    stack.undo();
+    QVERIFY(!adopted->isChecked());
 }
 
 void tst_AspectRenderer::filePathValidity()
