@@ -5,6 +5,7 @@
 
 #include "qtcquick_global.h"
 
+#include <QQmlEngine>
 #include <QQmlPropertyMap>
 
 namespace Utils { class AspectContainer; }
@@ -18,6 +19,8 @@ namespace QtcQuick {
 class QTCQUICK_EXPORT NamedAspects : public QQmlPropertyMap
 {
     Q_OBJECT
+    QML_ELEMENT
+    QML_UNCREATABLE("Created from C++ by createAspectForm() or AspectModels.named()")
 
 public:
     explicit NamedAspects(Utils::AspectContainer *container, QObject *parent = nullptr);

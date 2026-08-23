@@ -56,6 +56,15 @@ static QString continuationTooltip()
 
 TabSettings::TabSettings()
 {
+    // These persist through toMap()/fromMap() rather than settings keys, so
+    // they derive no name for a page's QML to write. Name them.
+    codingStyleWarning.setQmlName("CodingStyleWarning");
+    autoDetect.setQmlName("AutoDetect");
+    tabPolicy.setQmlName("TabPolicy");
+    tabSize.setQmlName("TabSize");
+    indentSize.setQmlName("IndentSize");
+    continuationAlignBehavior.setQmlName("ContinuationAlignBehavior");
+
     codingStyleWarning.setText(
         Tr::tr("<i>Code indentation is configured in <a href=\"C++\">C++</a> "
            "and <a href=\"QtQuick\">Qt Quick</a> settings.</i>"));

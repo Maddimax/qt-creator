@@ -152,17 +152,16 @@ public:
         registerAspect(&globalExtraEncodingSettings());
         registerAspect(&globalBehaviorSettings());
 
-        Utils::AspectWidgets::setLayouter(this, [] {
-            using namespace Layouting;
-            return Column {
-                &globalTabSettings(),
-                &globalTypingSettings(),
-                &globalStorageSettings(),
-                &globalExtraEncodingSettings(),
-                &globalBehaviorSettings(),
-                st,
-            };
-        });
+        // The page's QML addresses each of the five by name, and none of them
+        // has a settings key to derive one from.
+        globalTabSettings().setQmlName("Tabs");
+        globalTypingSettings().setQmlName("Typing");
+        globalStorageSettings().setQmlName("Storage");
+        globalExtraEncodingSettings().setQmlName("Encoding");
+        globalBehaviorSettings().setQmlName("Behavior");
+
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/TextEditor/BehaviorSettingsPage.qml"));
+
     }
 };
 

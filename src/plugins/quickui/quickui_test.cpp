@@ -8,6 +8,7 @@
 #include <qtcquick/aspectmodels.h>
 #include <qtcquick/aspectcontainermodel.h>
 #include <qtcquick/aspectform.h>
+#include <qtcquick/namedaspects.h>
 
 #include <utils/algorithm.h>
 #include <utils/aspectlist.h>
@@ -115,6 +116,7 @@ private slots:
     void testTextDisplayShowsItsMessage();
     void testRadioStyledBoolIsARadioButton();
     void testSpinBoxDrawsItsPrefixAndSuffix();
+    void testPageQmlReachesANestedContainersAspects();
 };
 
 void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
@@ -659,6 +661,60 @@ void QuickUiTest::testSpinBoxDrawsItsPrefixAndSuffix()
             drawn << label->property("text").toString();
     }
     QCOMPARE(drawn, QStringList({"Timeout:", "s"}));
+}
+
+void QuickUiTest::testPageQmlReachesANestedContainersAspects()
+{
+    // Some pages are several settings objects side by side - Behavior is five -
+    // and "aspects" names only the page container's own. AspectModels.named()
+    // gives a page the same by-name access to a nested container, so it can lay
+    // the sub-aspects out itself instead of settling for the generic form of
+    // each.
+    Utils::AspectContainer page;
+    Utils::AspectContainer nested(&page);
+    nested.setQmlName("Nested");
+    Utils::BoolAspect flag(&nested);
+    flag.setSettingsKey("Sub/TheFlag");
+    flag.setLabelText("The flag");
+    flag.setValue(true);
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString pageQml = dir.filePath("NestedPage.qml");
+    {
+        QFile file(pageQml);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write(R"(
+import QtQuick
+import QtCreator.Ui
+
+AspectPage {
+    id: root
+    readonly property var sub: AspectModels.named(aspects.Nested)
+    BoolDelegate { aspect: root.sub.TheFlag }
+}
+)");
+    }
+    page.setQmlSource(QUrl::fromLocalFile(pageQml));
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createAspectForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QQuickItem *rootItem = quickWidget->rootObject();
+    if (!rootItem) {
+        const QStringList errors = Utils::transform(quickWidget->errors(), &QQmlError::toString);
+        QFAIL(qPrintable(errors.join("; ")));
+    }
+
+    QQuickItem *delegate = findQmlComponent(rootItem, "BoolDelegate");
+    QVERIFY(delegate);
+    QVERIFY(!delegate->property("aspect").isNull());
+    QCOMPARE(delegate->property("text").toString(), QString("The flag"));
+    QCOMPARE(delegate->property("checked").toBool(), true);
+
+    // One object per container, so a page and the generic form agree on it.
+    QCOMPARE(nested.findChildren<QtcQuick::NamedAspects *>().size(), 1);
 }
 
 void QuickUiTest::testQmlNameIsDerivedFromTheSettingsKey()

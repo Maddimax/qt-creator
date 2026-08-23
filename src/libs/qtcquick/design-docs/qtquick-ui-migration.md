@@ -427,6 +427,19 @@ gives 2985 tests with four failures - `tst_debugger_dumpers` and three
 work started. `tst_utils_aspects` passes. Worth repeating after a batch that
 touches `aspects.h`, since almost everything includes it.
 
+**A page can be several settings objects side by side.** Behavior is five -
+tab, typing, storage, encoding and behavior settings, each a container
+registered on the page - and `aspects` names only the page container's own
+aspects. `AspectModels.named(container)` hands a page the same by-name access
+to a nested one, so it lays the sub-aspects out itself rather than settling for
+the generic form of each. One `NamedAspects` per container, cached on it, so a
+page and the generic form agree.
+
+Two things needed naming for that: the five containers, which have no settings
+key, and `TabSettings`' aspects, which persist through `toMap()`/`fromMap()`
+rather than keys and so derive no name at all. The sub-containers keep their
+closures - other pages embed them - and only the page's went.
+
 **Two pages that cannot be ported as they stand,** noted so nobody rediscovers
 them: Testing's "Active Test Frameworks" is a `FrameworksAspect` with no
 `presentation()`, so it is `Custom` and would vanish; and Display draws aspects
@@ -473,7 +486,7 @@ naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
 all`, minus `QmlDesigner` and `UpdateInfo`, see below): **73 aspect-driven
-pages, 51 with their own QML and rendered with Qt Quick, 22 still on widgets.**
+pages, 53 with their own QML and rendered with Qt Quick, 20 still on widgets.**
 Before the gate was narrowed, 65 pages rendered generically; the delegate work
 that made that possible is all still in place and is what the ports build on:
 `StringListAspect` (a real list editor), `IntegersAspect` (`Invisible`, because

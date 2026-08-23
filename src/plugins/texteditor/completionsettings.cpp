@@ -8,9 +8,6 @@
 
 #include <coreplugin/dialogs/ioptionspage.h>
 
-#include <utils/aspectwidgets.h>
-#include <utils/layoutbuilder.h>
-
 using namespace Utils;
 
 namespace TextEditor {
@@ -123,43 +120,7 @@ CompletionSettings::CompletionSettings()
     overwriteClosingChars.setLabelText(Tr::tr("Overwrite closing punctuation"));
     overwriteClosingChars.setToolTip(Tr::tr("Automatically overwrite closing parentheses and quotes."));
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-        return Column {
-            Group {
-                title(Tr::tr("Behavior")),
-                Form {
-                    caseSensitivity, st, br,
-                    completionTrigger, st, br,
-                    automaticProposalTimeoutInMs, st, br,
-                    characterThreshold, st, br,
-                    Span(2, partiallyComplete), br,
-                    Span(2, autoSplitStrings), br,
-                }
-            },
-            Group {
-                title(Tr::tr("&Automatically Insert Matching Characters")),
-                Row {
-                    Column {
-                        autoInsertBrackets,
-                        surroundingAutoBrackets,
-                        spaceAfterFunctionName,
-                        highlightAutoComplete,
-                        Row { Space(30), skipAutoCompletedText },
-                        Row { Space(30), autoRemove },
-                    },
-                    Column {
-                        autoInsertQuotes,
-                        surroundingAutoQuotes,
-                        animateAutoComplete,
-                        overwriteClosingChars,
-                        st,
-                    }
-                }
-            },
-            st
-        };
-    });
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/TextEditor/CompletionSettingsPage.qml"));
 
     readSettings();
 

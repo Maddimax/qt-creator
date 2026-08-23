@@ -5,13 +5,15 @@
 
 #include "aspectcontainermodel.h"
 #include "aspectitemlistmodel.h"
+#include "namedaspects.h"
 
 #include <utils/algorithm.h>
 #include <utils/aspectlist.h>
 #include <utils/aspects.h>
 
-#include <QMetaEnum>
 #include <utils/qtcassert.h>
+
+#include <QMetaEnum>
 
 #include <limits>
 
@@ -44,6 +46,16 @@ AspectItemListModel *AspectModels::itemList(BaseAspect *aspect)
     if (auto existing = list->findChild<AspectItemListModel *>({}, Qt::FindDirectChildrenOnly))
         return existing;
     return new AspectItemListModel(list, list);
+}
+
+NamedAspects *AspectModels::named(BaseAspect *aspect)
+{
+    auto container = qobject_cast<AspectContainer *>(aspect);
+    QTC_ASSERT(container, return nullptr);
+
+    if (auto existing = container->findChild<NamedAspects *>({}, Qt::FindDirectChildrenOnly))
+        return existing;
+    return new NamedAspects(container, container);
 }
 
 AspectContainerModel *AspectModels::container(BaseAspect *aspect)

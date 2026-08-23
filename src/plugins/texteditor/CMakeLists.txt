@@ -164,7 +164,9 @@ if(TARGET TextEditor AND TARGET Qt::Quick)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      BehaviorSettingsPage.qml
       CommentsSettingsPage.qml
+      CompletionSettingsPage.qml
       HighlighterSettingsPage.qml
   )
 endif()
