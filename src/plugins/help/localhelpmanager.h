@@ -20,6 +20,8 @@ class BookmarkManager;
 
 namespace Help::Internal {
 
+class HelpWidget;
+
 class HelpViewer;
 
 struct HelpViewerFactory
@@ -63,6 +65,16 @@ public:
     Utils::TypedSelectionAspect<Core::HelpManager::HelpViewerLocation> contextHelpOption{this};
     Utils::FontAspect fallbackFont{this};
     Utils::TextDisplay errorLabel{this};
+    Utils::TextDisplay styleSheetNote{this};
+    Utils::ActionAspect useCurrentPage{this};
+    Utils::ActionAspect useBlankPage{this};
+    Utils::ActionAspect resetHomePage{this};
+    Utils::ActionAspect importBookmarks{this};
+    Utils::ActionAspect exportBookmarks{this};
+
+    // Keeps "Use Current Page" enabled only while there is a page to take.
+    // Called once the help mode's widget exists, which is after this is built.
+    void followCurrentViewer(HelpWidget *widget);
 
 private:
     void apply() final;

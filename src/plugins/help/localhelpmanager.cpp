@@ -21,7 +21,6 @@
 #include <coreplugin/helplink.h>
 #include <coreplugin/helpmanager.h>
 
-#include <utils/aspectwidgets.h>
 #include <utils/filedialogs.h>
 #include <utils/algorithm.h>
 #include <utils/appinfo.h>
@@ -29,7 +28,6 @@
 #include <utils/fileutils.h>
 #include <utils/hostosinfo.h>
 #include <utils/infolabel.h>
-#include <utils/layoutbuilder.h>
 #include <utils/mimeconstants.h>
 #include <utils/stringutils.h>
 #include <utils/theme/theme.h>
@@ -189,116 +187,87 @@ HelpSettings::HelpSettings()
 
     errorLabel.setIconType(InfoType::Error);
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
+    fallbackFont.setQmlName("FallbackFont");
+    fontZoom.setLabelText(Tr::tr("Zoom:"));
+    viewerBackend.setLabelText(Tr::tr("Viewer backend:"));
 
-        using namespace Layouting;
+    styleSheetNote.setText(
+        Tr::tr("Note: The above setting takes effect only if the HTML file does not use "
+               "a style sheet."));
+    styleSheetNote.setWordWrap(true);
+    styleSheetNote.setQmlName("StyleSheetNote");
 
-        auto fontGroupBox = new QGroupBox(Tr::tr("Font"));
-        // clang-format off
-        Column {
-            Row { fallbackFont, st },
-            Row { Tr::tr("Note: The above setting takes effect only if the "
-                         "HTML file does not use a style sheet.") },
-            Row { Tr::tr("Zoom:"), fontZoom, antiAlias, st }
-        }.attachTo(fontGroupBox);
-        // clang-format on
+    errorLabel.setIconType(Utils::InfoType::Error);
+    errorLabel.setQmlName("ErrorLabel");
+    errorLabel.setVisible(false);
 
-        auto importBookmarks = [this] {
-            errorLabel.setVisible(false);
+    useCurrentPage.setActionText(Tr::tr("Use Current Page"));
+    useCurrentPage.setQmlName("UseCurrentPage");
+    useCurrentPage.setAction([this] {
+        if (HelpViewer *viewer = modeHelpWidget()->currentViewer())
+            homePage.setVolatileValue(viewer->source().toString());
+    });
+    // Nothing to take until the help mode has a widget, which is later than
+    // this: see followCurrentViewer().
+    useCurrentPage.setEnabled(false);
 
-            FilePath filePath = FileUtils::getOpenFilePath(Tr::tr("Import Bookmarks"),
-                                                           FilePath::fromString(QDir::currentPath()),
-                                                           Tr::tr("Files (*.xbel)"));
-            if (filePath.isEmpty())
-                return;
+    useBlankPage.setActionText(Tr::tr("Use Blank Page"));
+    useBlankPage.setQmlName("UseBlankPage");
+    useBlankPage.setAction(
+        [this] { homePage.setVolatileValue(Help::Constants::AboutBlank); });
 
-            QFile file(filePath.toFSPathString());
-            if (file.open(QIODevice::ReadOnly)) {
-                const BookmarkManager &manager = LocalHelpManager::bookmarkManager();
-                XbelReader reader(manager.treeBookmarkModel(), manager.listBookmarkModel());
-                if (reader.readFromFile(&file))
-                    return;
-            }
-            errorLabel.setVisible(true);
-            errorLabel.setText(Tr::tr("Cannot import bookmarks."));
-        };
+    resetHomePage.setActionText(Tr::tr("Reset"));
+    resetHomePage.setToolTip(Tr::tr("Reset to default."));
+    resetHomePage.setQmlName("ResetHomePage");
+    resetHomePage.setAction([this] { homePage.setVolatileValue(homePage.defaultValue()); });
 
-        auto exportBookmarks = [this] {
-            errorLabel.setVisible(false);
-
-            FilePath filePath = FileUtils::getSaveFilePath(Tr::tr("Save File"),
-                                                           "untitled.xbel",
-                                                           Tr::tr("Files (*.xbel)"));
-            QLatin1String suffix(".xbel");
-            if (!filePath.endsWith(suffix))
-                filePath = filePath.stringAppended(suffix);
-
-            FileSaver saver(filePath);
-            if (!saver.hasError()) {
-                XbelWriter writer(LocalHelpManager::bookmarkManager().treeBookmarkModel());
-                writer.writeToFile(saver.file());
-                saver.setResult(&writer);
-            }
-            if (const Result<> res = saver.finalize(); !res) {
-                errorLabel.setVisible(true);
-                errorLabel.setText(res.error());
-            }
-        };
-
+    importBookmarks.setActionText(Tr::tr("Import Bookmarks..."));
+    importBookmarks.setQmlName("ImportBookmarks");
+    importBookmarks.setAction([this] {
         errorLabel.setVisible(false);
 
-        return Column {
-            fontGroupBox,
-            Group {
-                title(Tr::tr("Startup")),
-                Layouting::objectName("startupGroupBox"),
-                Form {
-                    fieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow),
-                    contextHelpOption, br,
-                    startOption, br,
-                    homePage,
-                    PushButton {
-                        text(Tr::tr("Use &Current Page")),
-                        enabled(modeHelpWidget()->currentViewer() != nullptr),
-                        onClicked(this, [this] {
-                            if (HelpViewer *viewer = modeHelpWidget()->currentViewer())
-                                homePage.setVolatileValue(viewer->source().toString());
-                        }),
-                    },
-                    PushButton {
-                        text(Tr::tr("Use &Blank Page")),
-                        onClicked(this, [this] { homePage.setVolatileValue(Help::Constants::AboutBlank); })
-                    },
-                    PushButton {
-                        text(Tr::tr("Reset")),
-                        Layouting::toolTip(Tr::tr("Reset to default.")),
-                        onClicked(this, [this] { homePage.setVolatileValue(homePage.defaultValue()); })
-                    },
-                }
-            },
-            Group {
-                title(Tr::tr("Behavior")),
-                Column {
-                    scrollWheelZooming,
-                    returnOnClose,
-                    Row { Tr::tr("Viewer backend:"), viewerBackend, st }
-                }
-            },
-            Row {
-                st,
-                errorLabel,
-                PushButton {
-                    text(Tr::tr("Import Bookmarks...")),
-                    onClicked(this, importBookmarks)
-                },
-                PushButton {
-                    text(Tr::tr("Export Bookmarks...")),
-                    onClicked(this, exportBookmarks)
-                },
-            },
-            st
-        };
+        const FilePath filePath = FileUtils::getOpenFilePath(
+            Tr::tr("Import Bookmarks"),
+            FilePath::fromString(QDir::currentPath()),
+            Tr::tr("Files (*.xbel)"));
+        if (filePath.isEmpty())
+            return;
+
+        QFile file(filePath.toFSPathString());
+        if (file.open(QIODevice::ReadOnly)) {
+            const BookmarkManager &manager = LocalHelpManager::bookmarkManager();
+            XbelReader reader(manager.treeBookmarkModel(), manager.listBookmarkModel());
+            if (reader.readFromFile(&file))
+                return;
+        }
+        errorLabel.setText(Tr::tr("Cannot import bookmarks."));
+        errorLabel.setVisible(true);
     });
+
+    exportBookmarks.setActionText(Tr::tr("Export Bookmarks..."));
+    exportBookmarks.setQmlName("ExportBookmarks");
+    exportBookmarks.setAction([this] {
+        errorLabel.setVisible(false);
+
+        FilePath filePath
+            = FileUtils::getSaveFilePath(Tr::tr("Save File"), "untitled.xbel", Tr::tr("Files (*.xbel)"));
+        const QLatin1String suffix(".xbel");
+        if (!filePath.endsWith(suffix))
+            filePath = filePath.stringAppended(suffix);
+
+        FileSaver saver(filePath);
+        if (!saver.hasError()) {
+            XbelWriter writer(LocalHelpManager::bookmarkManager().treeBookmarkModel());
+            writer.writeToFile(saver.file());
+            saver.setResult(&writer);
+        }
+        if (const Result<> res = saver.finalize(); !res) {
+            errorLabel.setText(res.error());
+            errorLabel.setVisible(true);
+        }
+    });
+
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Help/HelpSettingsPage.qml"));
 
     readSettings();
 }
@@ -405,6 +374,15 @@ HelpViewerFactory LocalHelpManager::viewerBackend()
     if (!id.isEmpty())
         return backendForId(id).value_or(defaultViewerBackend());
     return defaultViewerBackend();
+}
+
+void HelpSettings::followCurrentViewer(HelpWidget *widget)
+{
+    const auto update = [this, widget] {
+        useCurrentPage.setEnabled(widget->currentViewer() != nullptr);
+    };
+    update();
+    connect(widget, &HelpWidget::currentIndexChanged, this, update);
 }
 
 void LocalHelpManager::setupGuiHelpEngine()

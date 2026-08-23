@@ -440,6 +440,17 @@ key, and `TabSettings`' aspects, which persist through `toMap()`/`fromMap()`
 rather than keys and so derive no name at all. The sub-containers keep their
 closures - other pages embed them - and only the page's went.
 
+**A closure runs when the page opens; a constructor runs at startup.** Moving
+behaviour out of a layouter changes *when* it runs, and that is not always safe.
+The Help page's "Use Current Page" was enabled from
+`modeHelpWidget()->currentViewer()`, which the closure could ask because the
+help mode existed by then; from the settings constructor the same call
+dereferenced a null plugin private and took the process down. The accessor
+returns nullptr now, and the plugin tells the settings to follow the widget once
+it has created it. So: when moving something out of a closure, ask what it
+depends on and whether that exists yet - and note that the QuickUi test's *exit
+code* is what caught this, not its totals, which were never printed.
+
 **FakeVim also builds standalone.** `tests/auto/fakevim` and
 `tests/manual/fakevim` compile `fakevimactions.cpp` with `FAKEVIM_STANDALONE`,
 where there is no `Utils::AspectContainer` at all. Everything added for the page
@@ -498,7 +509,7 @@ naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
 all`, minus `QmlDesigner` and `UpdateInfo`, see below): **73 aspect-driven
-pages, 56 with their own QML and rendered with Qt Quick, 17 still on widgets.**
+pages, 57 with their own QML and rendered with Qt Quick, 16 still on widgets.**
 Before the gate was narrowed, 65 pages rendered generically; the delegate work
 that made that possible is all still in place and is what the ports build on:
 `StringListAspect` (a real list editor), `IntegersAspect` (`Invisible`, because

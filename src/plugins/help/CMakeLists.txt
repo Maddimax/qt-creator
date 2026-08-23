@@ -85,3 +85,17 @@ qtc_add_resources(Help "resources"
     images/mode_help_mask@2x.png
     offline-dark.css
 )
+
+# Settings pages' Qt Quick forms. A module rather than a plain resource so that
+# qmllint and qmlcachegen see the files; qbs cannot build QML modules, so it
+# only lists them - the same split qtcquick already lives with.
+if(TARGET Help AND TARGET Qt::Quick)
+  qt_add_qml_module(Help
+    URI QtCreator.Help
+    VERSION 1.0
+    RESOURCE_PREFIX "/qt/qml"
+    NO_PLUGIN
+    QML_FILES
+      HelpSettingsPage.qml
+  )
+endif()

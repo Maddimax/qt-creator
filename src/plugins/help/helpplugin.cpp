@@ -168,6 +168,9 @@ HelpPluginPrivate::HelpPluginPrivate()
     }
 
     m_centralWidget = createHelpWidget(Context("Help.CentralHelpWidget"), HelpWidget::ModeWidget);
+    // Whether the settings page can offer "Use Current Page" depends on this
+    // widget, which did not exist when the settings were constructed.
+    helpSettings().followCurrentViewer(m_centralWidget);
     connect(HelpManager::instance(), &HelpManager::helpRequested,
             this, &HelpPluginPrivate::showHelpUrl);
     connect(&m_searchTaskHandler, &SearchTaskHandler::search,
@@ -354,7 +357,8 @@ HelpViewer *createHelpViewer()
 
 HelpWidget *modeHelpWidget()
 {
-    return dd->m_centralWidget;
+    // Called from the settings, which are constructed before this exists.
+    return dd ? dd->m_centralWidget : nullptr;
 }
 
 void HelpPluginPrivate::showLinksInCurrentViewer(const QList<Core::HelpLink> &links,
