@@ -9,6 +9,8 @@ namespace ProjectExplorer { class Project; }
 
 namespace Copilot::Internal {
 
+class CopilotClient;
+
 class CopilotSettings final : public Utils::AspectContainer
 {
 public:
@@ -23,6 +25,25 @@ public:
     Utils::BoolAspect proxyRejectUnauthorized{this};
 
     Utils::StringAspect githubEnterpriseUrl{this};
+
+    // The sign-in state, which used to live in AuthWidget. The button's label
+    // is the state; the display carries whatever went wrong.
+    Utils::TextDisplay warning{this};
+    Utils::TextDisplay help{this};
+    Utils::ActionAspect signIn{this};
+    Utils::TextDisplay authStatus{this};
+
+private:
+    enum class AuthState { SignedIn, SignedOut, Unknown };
+
+    void setAuthState(const QString &buttonText, const QString &message, bool working);
+    void restartClient();
+    void checkAuthStatus();
+    void requestSignIn();
+    void requestSignOut();
+
+    AuthState m_authState = AuthState::Unknown;
+    CopilotClient *m_client = nullptr;
 };
 
 CopilotSettings &settings();

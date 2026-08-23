@@ -10,8 +10,6 @@ QtcPlugin {
     Depends { name: "Qt"; submodules: ["widgets", "xml", "network"] }
 
     files: [
-        "authwidget.cpp",
-        "authwidget.h",
         "copilot.qrc",
         "copilotclient.cpp",
         "copilotclient.h",
@@ -26,6 +24,13 @@ QtcPlugin {
         "requests/signininitiate.h",
         "requests/signout.h",
     ]
+
+    // qbs has no QML module support; the .qml files are built by CMake only.
+    Group {
+        name: "qml"
+        files: ["*.qml"]
+        fileTags: []
+    }
 
     Group {
         name: "long description"

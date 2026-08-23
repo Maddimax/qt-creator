@@ -16,11 +16,21 @@ RowLayout {
     id: root
 
     required property Aspect aspect
-    readonly property var pres: aspect ? AspectModels.presentation(aspect) : ({})
+    // Not readonly: an aspect can change what it wants drawn - the label on
+    // Copilot's sign-in button is its state - and says so with
+    // controlConfigurationChanged().
+    property var pres: aspect ? AspectModels.presentation(aspect) : ({})
     readonly property string labelText: aspect?.labelText ?? ""
     readonly property string displayText: aspect?.displayText ?? ""
     readonly property string toolTip: aspect?.toolTip ?? ""
     readonly property bool aspectVisible: aspect?.visible ?? true
+
+    Connections {
+        target: root.aspect
+        function onControlConfigurationChanged() {
+            root.pres = AspectModels.presentation(root.aspect)
+        }
+    }
 
     visible: aspectVisible && (root.labelText !== "" || root.displayText !== "")
     spacing: Spacing.GapHM

@@ -304,6 +304,9 @@ private:
             aspect->triggerAction();
         });
         parent.addItem(button);
+        // Same as the Quick delegate: the aspect is being drawn, so let it find
+        // out what its label should say.
+        aspect->requestDisplayText();
     }
 
     static void renderBool(BoolAspect *aspect, Layout &parent, const AspectPresentation &pres)

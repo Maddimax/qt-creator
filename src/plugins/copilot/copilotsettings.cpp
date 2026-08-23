@@ -3,12 +3,14 @@
 
 #include "copilotsettings.h"
 
-#include "authwidget.h"
+#include "copilotclient.h"
 #include "copilotconstants.h"
 #include "copilottr.h"
 
 #include <coreplugin/coreconstants.h>
 #include <coreplugin/dialogs/ioptionspage.h>
+
+#include <languageclient/languageclientmanager.h>
 
 #include <projectexplorer/project.h>
 #include <projectexplorer/projectmanager.h>
@@ -16,12 +18,14 @@
 #include <projectexplorer/projectsettings.h>
 #include <projectexplorer/useglobalaspect.h>
 
-#include <utils/aspectwidgets.h>
 #include <utils/algorithm.h>
+#include <utils/guardedcallback.h>
+#include <utils/pathvalidation.h>
+#include <utils/qtcassert.h>
+#include <utils/stringutils.h>
 #include <utils/layoutbuilder.h>
-#include <utils/pathchooser.h>
 
-#include <QToolTip>
+#include <QDesktopServices>
 
 using namespace ProjectExplorer;
 using namespace Utils;
@@ -35,6 +39,115 @@ static void initEnableAspect(BoolAspect &enableCopilot)
     enableCopilot.setLabelText(Tr::tr("Enable Copilot"));
     enableCopilot.setToolTip(Tr::tr("Enables the Copilot integration."));
     enableCopilot.setDefaultValue(false);
+}
+
+void CopilotSettings::setAuthState(const QString &buttonText, const QString &message, bool working)
+{
+    signIn.setActionText(buttonText);
+    signIn.setEnabled(!working);
+    authStatus.setText(message);
+    authStatus.setVisible(!message.isEmpty());
+}
+
+void CopilotSettings::restartClient()
+{
+    LanguageClient::LanguageClientManager::shutdownClient(m_client);
+    m_client = nullptr;
+
+    const FilePath nodeJs = nodeJsPath.expandedVolatileValue();
+    const FilePath agent = distPath.expandedVolatileValue();
+    const bool enabled = enableCopilot.volatileValue() || isCopilotEnabledByProject();
+    if (!enabled || !nodeJs.isExecutableFile() || !agent.exists()) {
+        setAuthState(Tr::tr("Sign In"), {}, false);
+        signIn.setEnabled(false);
+        return;
+    }
+
+    setAuthState(Tr::tr("Sign In"), {}, true);
+
+    m_client = new CopilotClient(nodeJs, agent);
+    connect(m_client, &LanguageClient::Client::initialized,
+            this, &CopilotSettings::checkAuthStatus);
+    connect(m_client, &QObject::destroyed, this, [destroyed = m_client, this] {
+        if (destroyed == m_client)
+            m_client = nullptr;
+    });
+}
+
+void CopilotSettings::checkAuthStatus()
+{
+    QTC_ASSERT(m_client && m_client->reachable(), return);
+
+    setAuthState(Tr::tr("Checking status..."), {}, true);
+
+    m_client->requestCheckStatus(
+        false, guardedCallback(this, [this](const CheckStatusRequest::Response &response) {
+            if (response.error()) {
+                setAuthState(Tr::tr("Failed to authenticate"),
+                             response.error()->message(),
+                             false);
+                return;
+            }
+            const CheckStatusResponse result = *response.result();
+            if (result.user().isEmpty()) {
+                setAuthState(Tr::tr("Sign In"), {}, false);
+                m_authState = AuthState::SignedOut;
+                return;
+            }
+            setAuthState(Tr::tr("Sign Out %1").arg(result.user()), {}, false);
+            m_authState = AuthState::SignedIn;
+        }));
+}
+
+void CopilotSettings::requestSignIn()
+{
+    QTC_ASSERT(m_client && m_client->reachable(), return);
+
+    setAuthState(Tr::tr("Signing in..."), {}, true);
+
+    m_client->requestSignInInitiate(
+        guardedCallback(this, [this](const SignInInitiateRequest::Response &response) {
+            if (response.error()) {
+                setAuthState(Tr::tr("Sign In"),
+                             Tr::tr("The sign-in request failed: %1")
+                                 .arg(response.error()->message()),
+                             false);
+                return;
+            }
+
+            Utils::setClipboardAndSelection(response.result()->userCode());
+            QDesktopServices::openUrl(QUrl(response.result()->verificationUri()));
+
+            authStatus.setText(
+                Tr::tr("A browser window will open. Enter the code %1 when asked.\n"
+                       "The code has been copied to your clipboard.")
+                    .arg(response.result()->userCode()));
+            authStatus.setVisible(true);
+
+            m_client->requestSignInConfirm(
+                response.result()->userCode(),
+                guardedCallback(this, [this](const SignInConfirmRequest::Response &response) {
+                    if (response.error()) {
+                        setAuthState(Tr::tr("Sign In"), response.error()->message(), false);
+                        return;
+                    }
+                    setAuthState(Tr::tr("Sign Out %1").arg(response.result()->user()), {}, false);
+                    m_authState = AuthState::SignedIn;
+                }));
+        }));
+}
+
+void CopilotSettings::requestSignOut()
+{
+    QTC_ASSERT(m_client && m_client->reachable(), return);
+
+    setAuthState(Tr::tr("Signing out..."), {}, true);
+
+    m_client->requestSignOut(guardedCallback(this, [this](const SignOutRequest::Response &response) {
+        QTC_ASSERT(!response.error(), return);
+        QTC_ASSERT(response.result()->status() == "NotSignedIn", return);
+        checkAuthStatus();
+    }));
 }
 
 CopilotSettings &settings()
@@ -150,66 +263,66 @@ CopilotSettings::CopilotSettings()
     proxy.setEnabler(&enableCopilot);
     proxyRejectUnauthorized.setEnabler(&enableCopilot);
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
+    warning.setText(
+        Tr::tr("Enabling %1 is subject to your agreement and abidance with your applicable "
+               "%1 terms. It is your responsibility to know and accept the requirements and "
+               "parameters of using tools like %1. This may include, but is not limited to, "
+               "ensuring you have the rights to allow %1 access to your code, as well as "
+               "understanding any implications of your use of %1 and suggestions produced "
+               "(like copyright, accuracy, etc.).")
+            .arg("Copilot"));
+    warning.setWordWrap(true);
+    warning.setQmlName("Warning");
 
-        // clang-format off
-
-        Label warningLabel {
-            wordWrap(true),
-            textInteractionFlags(
-                Qt::LinksAccessibleByMouse | Qt::LinksAccessibleByKeyboard | Qt::TextSelectableByMouse),
-            text(Tr::tr("Enabling %1 is subject to your agreement and abidance with your applicable "
-                 "%1 terms. It is your responsibility to know and accept the requirements and "
-                 "parameters of using tools like %1. This may include, but is not limited to, "
-                 "ensuring you have the rights to allow %1 access to your code, as well as "
-                 "understanding any implications of your use of %1 and suggestions produced "
-                 "(like copyright, accuracy, etc.).")
-                       .arg("Copilot")),
-        };
-
-        Label helpLabel {
-            textFormat(Qt::MarkdownText),
-            wordWrap(true),
-            textInteractionFlags(
-                Qt::LinksAccessibleByMouse | Qt::LinksAccessibleByKeyboard | Qt::TextSelectableByMouse),
-            openExternalLinks(true),
-            onLinkHovered(this, [](const QString &link) { QToolTip::showText(QCursor::pos(), link); }),
-            text(Tr::tr(
-                "The Copilot plugin requires node.js and the Copilot neovim plugin. "
-                "If you install the neovim plugin as described in %1, "
-                "the plugin will find the %3 file automatically.\n\n"
-                "Otherwise you need to specify the path to the %2 "
-                "file from the Copilot neovim plugin.",
-                "Markdown text for the copilot instruction label")
-                       .arg("[README.md](https://github.com/github/copilot.vim)")
-                       .arg("[language-server.js](https://github.com/github/copilot.vim/tree/release/copilot-language-server/dist)")
-                       .arg(entryPointFileName)),
-        };
-
-        return Column {
-            Group {
-                title(Tr::tr("Note")),
-                Column {
-                    warningLabel, br,
-                    helpLabel, br,
-                }
-            },
-            Form {
-                new AuthWidget, br,
-                enableCopilot, br,
-                nodeJsPath, br,
-                distPath, br,
-                autoComplete, br,
-                githubEnterpriseUrl, br,
-                hr, br,
-                proxy, br,
-                proxyRejectUnauthorized, br,
-            },
-            st
-        };
-        // clang-format on
+    help.setText(
+        Tr::tr("The Copilot plugin requires node.js and the Copilot neovim plugin. "
+               "If you install the neovim plugin as described in %1, "
+               "the plugin will find the %3 file automatically.\n\n"
+               "Otherwise you need to specify the path to the %2 "
+               "file from the Copilot neovim plugin.",
+               "Markdown text for the copilot instruction label")
+            .arg("[README.md](https://github.com/github/copilot.vim)")
+            .arg("[language-server.js](https://github.com/github/copilot.vim/tree/release/"
+                 "copilot-language-server/dist)")
+            .arg(entryPointFileName));
+    help.setWordWrap(true);
+    help.setQmlName("Help");
+    connect(&help, &Utils::TextDisplay::linkActivated, this, [](const QString &link) {
+        QDesktopServices::openUrl(QUrl(link));
     });
+
+    authStatus.setQmlName("AuthStatus");
+    authStatus.setVisible(false);
+
+    signIn.setQmlName("SignIn");
+    signIn.setAction([this] {
+        if (m_authState == AuthState::SignedIn)
+            requestSignOut();
+        else if (m_authState == AuthState::SignedOut)
+            requestSignIn();
+        else
+            restartClient();
+    });
+
+    // The client belongs to the settings, not to whatever is drawing them: it
+    // used to be created and shut down with the widget, so it churned every
+    // time the page was opened.
+    connect(this, &Utils::AspectContainer::applied, this, &CopilotSettings::restartClient);
+    connect(&nodeJsPath, &Utils::FilePathAspect::volatileValueChanged,
+            this, &CopilotSettings::restartClient);
+    connect(&distPath, &Utils::FilePathAspect::volatileValueChanged,
+            this, &CopilotSettings::restartClient);
+    connect(&enableCopilot, &Utils::BoolAspect::volatileValueChanged,
+            this, &CopilotSettings::restartClient);
+    // Not here: starting the client reads these settings back, and they are a
+    // function-local static still under construction. It starts when the page
+    // is first drawn, which is when the widget editor used to start it.
+    signIn.setOnShown([this] { restartClient(); });
+    setAuthState(Tr::tr("Sign In"), {}, false);
+    signIn.setEnabled(false);
+
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Copilot/CopilotSettingsPage.qml"));
+
 }
 
 // Global settings page

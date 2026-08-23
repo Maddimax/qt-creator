@@ -1283,8 +1283,13 @@ public:
 
     void setActionText(const QString &text);
     void setAction(const std::function<void()> &action);
+    // Called when the action is first drawn, for one whose label reports state
+    // that costs something to find out. Copilot starts a language server here,
+    // which is why it must not happen when the settings are constructed.
+    void setOnShown(const std::function<void()> &onShown);
 
     void triggerAction() override;
+    void requestDisplayText() override;
     AspectPresentation presentation() const override;
     void addToLayoutImpl(Layouting::Layout &parent) override;
 

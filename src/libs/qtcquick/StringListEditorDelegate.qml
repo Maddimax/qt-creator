@@ -18,10 +18,20 @@ RowLayout {
     // The descriptor, read from the aspect rather than taken as model roles, so
     // that a hand-written page can use this delegate with nothing but the
     // aspect. See AspectModels::presentation().
-    readonly property var pres: aspect ? AspectModels.presentation(aspect) : ({})
+    // Not readonly: an aspect can change what it wants drawn - the label on
+    // Copilot's sign-in button is its state - and says so with
+    // controlConfigurationChanged().
+    property var pres: aspect ? AspectModels.presentation(aspect) : ({})
     readonly property string labelText: aspect?.labelText ?? ""
     readonly property string toolTip: aspect?.toolTip ?? ""
     readonly property bool aspectVisible: aspect?.visible ?? true
+
+    Connections {
+        target: root.aspect
+        function onControlConfigurationChanged() {
+            root.pres = AspectModels.presentation(root.aspect)
+        }
+    }
     readonly property bool editable: (aspect?.enabled ?? false) && !(aspect?.readOnly ?? false)
 
     // A copy, deliberately: a QStringList property reaches QML as a sequence

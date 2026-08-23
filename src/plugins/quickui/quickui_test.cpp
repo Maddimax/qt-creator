@@ -529,6 +529,7 @@ void QuickUiTest::testActionAspectIsAButtonOnEitherRenderer()
 
     QQuickItem *button = nullptr;
     QTRY_VERIFY(button = findButton(quickWidget->rootObject(), "Reset Version Control Cache"));
+    QVERIFY(button);
     QMetaObject::invokeMethod(button, "clicked");
     QCOMPARE(triggered, 1);
 
@@ -545,6 +546,37 @@ void QuickUiTest::testActionAspectIsAButtonOnEitherRenderer()
     QVERIFY(pushButton);
     pushButton->click();
     QCOMPARE(triggered, 2);
+
+    // An action's label can be its state - Copilot's button says "Sign In",
+    // then "Signing in ...", then "Sign out <user>" - so changing it has to
+    // reach what was drawn. The descriptor is read once when the delegate is
+    // built, so the aspect has to say it changed.
+    reset.setActionText("Signing out...");
+    QTRY_COMPARE(button->property("text").toString(), QString("Signing out..."));
+
+    // An action whose label reports state is told when it is first drawn, so
+    // that finding the state out costs nothing until someone looks. Copilot
+    // starts a language server there.
+    int shown = 0;
+    Utils::AspectContainer lazyPage;
+    Utils::ActionAspect lazy(&lazyPage);
+    lazy.setActionText("Sign In");
+    lazy.setQmlName("Lazy");
+    lazy.setAction([] {});
+    lazy.setOnShown([&shown, &lazy] {
+        ++shown;
+        lazy.setActionText("Checking status...");
+    });
+    QCOMPARE(shown, 0);
+
+    const std::unique_ptr<QWidget> lazyForm(QtcQuick::createGenericAspectForm(&lazyPage));
+    QVERIFY(lazyForm);
+    auto lazyWidget = lazyForm->findChild<QQuickWidget *>();
+    QVERIFY(lazyWidget);
+    QVERIFY(lazyWidget->rootObject());
+    QTRY_COMPARE(shown, 1);
+    QQuickItem *lazyButton = findButton(lazyWidget->rootObject(), "Checking status...");
+    QVERIFY(lazyButton);
 }
 
 void QuickUiTest::testTextDisplayShowsItsMessage()

@@ -955,6 +955,7 @@ class ActionAspectPrivate
 public:
     QString m_actionText;
     std::function<void()> m_action;
+    std::function<void()> m_onShown;
 };
 
 } // Internal
@@ -3282,7 +3283,11 @@ ActionAspect::~ActionAspect() = default;
 
 void ActionAspect::setActionText(const QString &text)
 {
+    if (d->m_actionText == text)
+        return;
     d->m_actionText = text;
+    // The label is part of what a renderer drew, so say it has changed.
+    emit controlConfigurationChanged();
 }
 
 void ActionAspect::setAction(const std::function<void()> &action)
@@ -3290,10 +3295,21 @@ void ActionAspect::setAction(const std::function<void()> &action)
     d->m_action = action;
 }
 
+void ActionAspect::setOnShown(const std::function<void()> &onShown)
+{
+    d->m_onShown = onShown;
+}
+
 void ActionAspect::triggerAction()
 {
     QTC_ASSERT(d->m_action, return);
     d->m_action();
+}
+
+void ActionAspect::requestDisplayText()
+{
+    if (d->m_onShown)
+        d->m_onShown();
 }
 
 AspectPresentation ActionAspect::presentation() const

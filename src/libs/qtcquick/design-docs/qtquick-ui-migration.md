@@ -493,7 +493,6 @@ port, so they are listed with what they actually need:
 | Testing | `FrameworksAspect` has no `presentation()` at all |
 | Qt Creator MCP Server | a table of tools: name, description and an enable box per row |
 | CPU Usage | `PerfConfigWidget`, an event configuration table |
-| Copilot | `AuthWidget`, a 190-line sign-in state machine with a spinner |
 | Code Style (x3) | `CodeStyleSelectorWidget`, with import, export and copy |
 | Snippets, Font && Colors | the snippet and color-scheme editors |
 
@@ -577,6 +576,27 @@ edits. That is `TextWithAction` - already described, already drawn - so the
 aspect needed three overrides and no new control at all. The guess would have
 cost a delegate and a kind for nothing.
 
+**When a page is drawn is not when its settings are constructed.** Two things
+came out of Copilot's sign-in button, which is a `Button` whose label *is* the
+state - "Sign In", "Checking status...", "Sign Out <user>".
+
+A descriptor read once is not enough: the delegates hold `pres` and nothing told
+them to re-read it, so `setActionText()` changed nothing on screen.
+`ActionAspect` says `controlConfigurationChanged()` now, and every delegate that
+reads a descriptor re-reads it on that signal - which the widget renderer has
+always done.
+
+And starting the sign-in check belongs to the page being *shown*.
+`AuthWidget` did it in its constructor, so opening the page started a language
+server; doing the same from `CopilotSettings`' constructor started one at every
+Creator launch - and worse, deadlocked, because `CopilotClient` reads
+`settings()` back while that function-local static is still being constructed.
+`ActionAspect::setOnShown()` runs when the action is first drawn, on either
+renderer, which is where the widget did it.
+
+The spinner is gone; the button disabling itself while it works is what says so
+now.
+
 **A page action is an aspect now.** Several closures ended in a `PushButton`
 with an `onClicked` - Reset Version Control Cache, qbs's Reset, Install
 Extension - which nothing but a layout could see. `Utils::ActionAspect` holds
@@ -593,7 +613,7 @@ naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
 all`, minus `QmlDesigner` and `UpdateInfo`, see below): **73 aspect-driven
-pages, 62 with their own QML and rendered with Qt Quick, 11 still on widgets.**
+pages, 63 with their own QML and rendered with Qt Quick, 10 still on widgets.**
 Before the gate was narrowed, 65 pages rendered generically; the delegate work
 that made that possible is all still in place and is what the ports build on:
 `StringListAspect` (a real list editor), `IntegersAspect` (`Invisible`, because
