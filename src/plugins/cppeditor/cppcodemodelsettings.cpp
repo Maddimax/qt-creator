@@ -78,23 +78,7 @@ CppCodeModelSettings::CppCodeModelSettings()
         "Indexing should almost always be kept enabled, as disabling it will severely limit the "
         "capabilities of the code model."));
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-        return Column {
-            Group {
-                title(Tr::tr("General")),
-                Column {
-                    interpretAmbiguousHeadersAsC,
-                    ignorePch,
-                    useBuiltinPreprocessor,
-                    enableIndexing,
-                    Row { skipIndexingBigFiles, indexerFileSizeLimitInMb, st },
-                    Row { Column { ignoreFiles, st }, ignorePattern },
-                }
-            },
-            st
-        };
-    });
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/CppEditor/CppCodeModelSettingsPage.qml"));
 }
 
 bool operator==(const CppEditor::CppCodeModelSettingsData &s1,

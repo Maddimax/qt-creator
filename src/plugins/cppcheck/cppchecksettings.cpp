@@ -99,7 +99,7 @@ CppcheckSettings::CppcheckSettings()
     guessArguments.setLabelText(Tr::tr("Calculate additional arguments"));
     guessArguments.setToolTip(Tr::tr("Like C++ standard and language."));
 
-    Utils::AspectWidgets::setLayouter(this, layouter());
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Cppcheck/CppcheckSettingsPage.qml"));
 
     readSettings();
 }

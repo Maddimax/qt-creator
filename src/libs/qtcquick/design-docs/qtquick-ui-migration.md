@@ -406,11 +406,19 @@ the MCP ones:
   constructor, where it works for either renderer.
 
 So when reading a closure, separate what it lists from what it *does*. Only the
-first becomes QML.
+first becomes QML. Every closure replaced so far has been re-read for the
+second: `git log -S setQmlSource -p` and grep the deleted lines for
+`setVisible|setEnabled|connect(` - the MCP one is the only one that carried
+behaviour, and `groupChecker` (CTest, Beautifier, Subversion) is pure layout,
+answered by `AspectGroupBox.checkAspect`.
+
+One more thing a closure can be: shared. `CppcheckSettings::layouter()` is a
+method, and the manual-run dialog builds a widget from it too, so the page
+naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
 all`, minus `QmlDesigner` and `UpdateInfo`, see below): **73 aspect-driven
-pages, 30 with their own QML and rendered with Qt Quick, 43 still on widgets.**
+pages, 32 with their own QML and rendered with Qt Quick, 41 still on widgets.**
 Before the gate was narrowed, 65 pages rendered generically; the delegate work
 that made that possible is all still in place and is what the ports build on:
 `StringListAspect` (a real list editor), `IntegersAspect` (`Invisible`, because
