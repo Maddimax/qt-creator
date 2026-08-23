@@ -50,3 +50,17 @@ extend_qtc_plugin(ClangTools
     clangtoolsunittests.qrc
     readexporteddiagnosticstest.cpp readexporteddiagnosticstest.h
 )
+
+# Settings pages' Qt Quick forms. A module rather than a plain resource so that
+# qmllint and qmlcachegen see the files; qbs cannot build QML modules, so it
+# only lists them - the same split qtcquick already lives with.
+if(TARGET ClangTools AND TARGET Qt::Quick)
+  qt_add_qml_module(ClangTools
+    URI QtCreator.ClangTools
+    VERSION 1.0
+    RESOURCE_PREFIX "/qt/qml"
+    NO_PLUGIN
+    QML_FILES
+      ClangToolsSettingsPage.qml
+  )
+endif()

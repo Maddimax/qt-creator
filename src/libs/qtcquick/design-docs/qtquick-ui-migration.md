@@ -489,7 +489,6 @@ port, so they are listed with what they actually need:
 
 | page | needs |
 |---|---|
-| Clang Tools, Code Model | `ClangDiagnosticConfigIdAspect` to describe a combo *and* a separate manage action; its value is a `Utils::Id`, so `setVariantValue()` has to accept the choice id back |
 | QML/JS Editing | a tree of messages with two independent states per row - not a check-box list |
 | Testing | `FrameworksAspect` has no `presentation()` at all |
 | Qt Creator MCP Server | a table of tools: name, description and an enable box per row |
@@ -569,6 +568,15 @@ and it works on both renderers. `EnvChangeAspect` turned out to be a whole class
 existing only to re-implement its base's `addToLayoutImpl` slightly worse, so it
 is gone and `SystemSettings` uses `EnvironmentChangesAspect` directly.
 
+**Read the widget before designing its replacement.** The plan said Clang Tools
+needed a combo with a manage action, and that the config id would have to accept
+a choice id back. Reading
+`ClangDiagnosticConfigsSelectionWidget` said otherwise: it is one button
+carrying the current configuration's name, opening a dialog that both picks and
+edits. That is `TextWithAction` - already described, already drawn - so the
+aspect needed three overrides and no new control at all. The guess would have
+cost a delegate and a kind for nothing.
+
 **A page action is an aspect now.** Several closures ended in a `PushButton`
 with an `onClicked` - Reset Version Control Cache, qbs's Reset, Install
 Extension - which nothing but a layout could see. `Utils::ActionAspect` holds
@@ -585,7 +593,7 @@ naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
 all`, minus `QmlDesigner` and `UpdateInfo`, see below): **73 aspect-driven
-pages, 61 with their own QML and rendered with Qt Quick, 12 still on widgets.**
+pages, 62 with their own QML and rendered with Qt Quick, 11 still on widgets.**
 Before the gate was narrowed, 65 pages rendered generically; the delegate work
 that made that possible is all still in place and is what the ports build on:
 `StringListAspect` (a real list editor), `IntegersAspect` (`Invisible`, because

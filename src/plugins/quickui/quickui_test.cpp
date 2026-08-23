@@ -196,6 +196,19 @@ void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
                          qPrintable(page->displayName() + ": "
                                     + QString::fromLatin1(delegate->metaObject()->className())
                                     + " has no aspect"));
+
+                // A delegate that draws a button takes its label from the
+                // aspect's descriptor, so an aspect that has not said what its
+                // action is called gets a nameless button. Naming the delegate
+                // in a page's QML does not make the aspect describe itself.
+                const QString drawn = QString::fromLatin1(delegate->metaObject()->className());
+                if (drawn.startsWith("TextWithActionDelegate")
+                    || drawn.startsWith("ButtonDelegate")) {
+                    const QVariantMap pres = delegate->property("pres").toMap();
+                    QVERIFY2(!pres.value("actionText").toString().isEmpty(),
+                             qPrintable(page->displayName() + ": " + drawn
+                                        + "'s button has no label"));
+                }
             }
         }
         ++renderedWithQuick;

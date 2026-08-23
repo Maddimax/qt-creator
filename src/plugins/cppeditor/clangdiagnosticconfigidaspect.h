@@ -42,6 +42,12 @@ public:
     void readSettings() final;
     void writeSettings() const final;
 
+    // A name and the dialog that changes it, which is what the widget editor is
+    // too: a button carrying the current configuration's name.
+    Utils::AspectPresentation presentation() const final;
+    QString displayText() const final;
+    void triggerAction() final;
+
     void addToLayoutImpl(Layouting::Layout &parent) final;
 
     void refresh();

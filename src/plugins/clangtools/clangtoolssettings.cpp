@@ -21,7 +21,7 @@
 #include <utils/aspectwidgets.h>
 #include <utils/algorithm.h>
 #include <utils/layoutbuilder.h>
-#include <utils/pathchooser.h>
+#include <utils/pathvalidation.h>
 #include <utils/qtcassert.h>
 #include <utils/store.h>
 
@@ -63,6 +63,8 @@ RunSettings::RunSettings(const Key &prefix)
     diagnosticConfigId.setDefaultValue(defaultDiagnosticId());
     diagnosticConfigId.setSettingsKey(prefix + diagnosticConfigIdKey);
     diagnosticConfigId.setModelFactory([] { return diagnosticConfigsModel(); });
+    // The widget editor spelled this out inside itself; the aspect says it now.
+    diagnosticConfigId.setLabelText(Tr::tr("Diagnostic configuration:"));
 
     parallelJobs.setSettingsKey(prefix + "ParallelJobs");
     parallelJobs.setDefaultValue(qMax(0, QThread::idealThreadCount() / 2));
@@ -155,30 +157,7 @@ ClangToolsSettings::ClangToolsSettings()
     enableLowerClazyLevels.setSettingsKey("EnableLowerClazyLevels");
     enableLowerClazyLevels.setDefaultValue(true);
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-        return Column {
-            Group {
-                title(Tr::tr("Executables")),
-                Form {
-                    clangTidyExecutable, br,
-                    clazyStandaloneExecutable,
-                },
-            },
-            Group {
-                title(Tr::tr("Run Options")),
-                Column {
-                    diagnosticConfigId,
-                    preferConfigFile,
-                    buildBeforeAnalysis,
-                    analyzeOpenFiles,
-                    Row { parallelJobs, st },
-                },
-            },
-            st,
-            noMargin,
-        };
-    });
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/ClangTools/ClangToolsSettingsPage.qml"));
 
     diagnosticConfigId.setPersistCustomConfigs(true);
     setAutoApply(false);
