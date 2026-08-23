@@ -73,6 +73,8 @@ public:
     Utils::InvertedSavedBoolAspect customEnv{this};
     Utils::IntegerAspect timeOutS{this};
     Utils::BoolAspect autoOpen{this};
+    Utils::TextDisplay testResult{this};
+    Utils::ActionAspect test{this};
 
 private:
     QStringList workingDirectoryArguments(const QString &workingDir) const;

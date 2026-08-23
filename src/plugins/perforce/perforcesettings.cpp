@@ -6,12 +6,9 @@
 #include "perforcechecker.h"
 #include "perforcetr.h"
 
-#include <utils/aspectwidgets.h>
 #include <utils/environment.h>
 #include <utils/hostosinfo.h>
-#include <utils/infolabel.h>
-#include <utils/layoutbuilder.h>
-#include <utils/pathchooser.h>
+#include <utils/pathvalidation.h>
 #include <utils/qtcassert.h>
 
 #include <vcsbase/vcsbaseconstants.h>
@@ -20,7 +17,6 @@
 #include <QDir>
 #include <QFileDialog>
 #include <QFileInfo>
-#include <QPushButton>
 #include <QStringList>
 
 #include <coreplugin/dialogs/ioptionspage.h>
@@ -82,68 +78,36 @@ PerforceSettings::PerforceSettings()
     autoOpen.setDefaultValue(true);
     autoOpen.setLabelText(Tr::tr("Automatically open files when editing"));
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
+    testResult.setQmlName("TestResult");
 
-        auto errorLabel = new InfoLabel({}, InfoLabelType::None);
-        errorLabel->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Preferred);
-        errorLabel->setFilled(true);
-        auto testButton = new QPushButton(Tr::tr("Test"));
-        QObject::connect(testButton, &QPushButton::clicked, errorLabel,
-                [this, errorLabel, testButton] {
-            testButton->setEnabled(false);
-            auto checker = new PerforceChecker(errorLabel);
-            checker->setUseOverideCursor(true);
-            QObject::connect(checker, &PerforceChecker::failed, errorLabel,
-                    [errorLabel, testButton, checker](const QString &t) {
-                errorLabel->setType(InfoLabelType::Error);
-                errorLabel->setText(t);
-                testButton->setEnabled(true);
-                checker->deleteLater();
-            });
-            QObject::connect(checker, &PerforceChecker::succeeded, errorLabel,
-                    [errorLabel, testButton, checker](const FilePath &repo) {
-                errorLabel->setType(InfoLabelType::Ok);
-                errorLabel->setText(Tr::tr("Test succeeded (%1).")
-                                        .arg(repo.toUserOutput()));
-                testButton->setEnabled(true);
-                checker->deleteLater();
-            });
+    test.setActionText(Tr::tr("Test"));
+    test.setQmlName("Test");
+    test.setAction([this] {
+        test.setEnabled(false);
+        testResult.setIconType(Utils::InfoType::Information);
+        testResult.setText(Tr::tr("Testing..."));
 
-            errorLabel->setType(InfoLabelType::Information);
-            errorLabel->setText(Tr::tr("Testing..."));
-
-            const FilePath p4Bin = p4BinaryPath.expandedVolatileValue();
-            checker->start(p4Bin, {}, commonP4Arguments_volatile(), 10000);
+        auto checker = new PerforceChecker(this);
+        checker->setUseOverideCursor(true);
+        const auto finished = [this, checker] {
+            test.setEnabled(true);
+            checker->deleteLater();
+        };
+        connect(checker, &PerforceChecker::failed, this, [this, finished](const QString &message) {
+            testResult.setIconType(Utils::InfoType::Error);
+            testResult.setText(message);
+            finished();
+        });
+        connect(checker, &PerforceChecker::succeeded, this, [this, finished](const FilePath &repo) {
+            testResult.setIconType(Utils::InfoType::Ok);
+            testResult.setText(Tr::tr("Test succeeded (%1).").arg(repo.toUserOutput()));
+            finished();
         });
 
-        Group config {
-            title(Tr::tr("Configuration")),
-            Row { p4BinaryPath }
-        };
-
-        Group environment {
-            title(Tr::tr("Environment Variables")),
-            groupChecker(Utils::AspectWidgets::groupChecker(&customEnv)),
-            Row { p4Port, p4Client, p4User }
-        };
-
-        Group misc {
-            title(Tr::tr("Miscellaneous")),
-            Column {
-                Row { logCount, timeOutS, st },
-                autoOpen
-            }
-        };
-
-        return Column {
-            config,
-            environment,
-            misc,
-            Row { errorLabel, st, testButton },
-            st
-        };
+        checker->start(p4BinaryPath.expandedVolatileValue(), {}, commonP4Arguments_volatile(), 10000);
     });
+
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Perforce/PerforceSettingsPage.qml"));
 
     readSettings();
 }
