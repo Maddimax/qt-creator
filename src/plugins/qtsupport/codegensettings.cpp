@@ -41,27 +41,7 @@ CodeGenSettings::CodeGenSettings()
     addQtVersionCheck.setSettingsKey("AddQtVersionCheck");
     addQtVersionCheck.setLabelText(Tr::tr("Add Qt version #ifdef for module names"));
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-        return Column {
-            Group {
-                title(Tr::tr("Embedding of the UI Class")),
-                Column {
-                    embedding,
-                }
-            },
-            Group {
-                title(Tr::tr("Code Generation")),
-                Column {
-                    retranslationSupport,
-                    includeQtModule,
-                    addQtVersionCheck
-                }
-            },
-            st
-        };
-    });
-
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/QtSupport/CodeGenSettingsPage.qml"));
 
     readSettings();
     addQtVersionCheck.setEnabler(&includeQtModule);

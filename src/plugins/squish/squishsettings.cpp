@@ -100,16 +100,7 @@ SquishSettings::SquishSettings()
         serverPort.setEnabled(!checked);
     });
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-        return Form {
-            squishPath, br,
-            licensePath, br,
-            local, serverHost, serverPort, br,
-            verbose, br,
-            minimizeIDE, br,
-        };
-    });
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Squish/SquishSettingsPage.qml"));
 
     readSettings();
 }

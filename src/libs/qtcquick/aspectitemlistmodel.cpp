@@ -123,6 +123,18 @@ QHash<int, QByteArray> AspectItemListModel::roleNames() const
     };
 }
 
+QStringList AspectItemListModel::extraButtons() const
+{
+    QTC_ASSERT(m_list, return {});
+    return m_list->extraButtonTexts();
+}
+
+void AspectItemListModel::triggerExtraButton(int index)
+{
+    QTC_ASSERT(m_list, return);
+    m_list->triggerExtraButton(index);
+}
+
 int AspectItemListModel::addItem()
 {
     QTC_ASSERT(m_list, return -1);

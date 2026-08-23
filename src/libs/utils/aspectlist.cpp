@@ -643,6 +643,17 @@ void AspectList::setDisplayStyle(DisplayStyle displayStyle)
     d->displayStyle = displayStyle;
 }
 
+QStringList AspectList::extraButtonTexts() const
+{
+    return Utils::transform(d->extraButtons, [](const auto &button) { return button.text; });
+}
+
+void AspectList::triggerExtraButton(int index)
+{
+    QTC_ASSERT(index >= 0 && index < d->extraButtons.size(), return);
+    d->extraButtons.at(index).callback();
+}
+
 void AspectList::addExtraButton(const QString &text, std::function<void()> callback)
 {
     d->extraButtons.append({text, std::move(callback)});

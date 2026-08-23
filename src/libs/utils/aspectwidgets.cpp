@@ -210,7 +210,20 @@ Layouter layouter(const AspectContainer *container)
 {
     const std::shared_ptr<Layouter> stored
         = std::static_pointer_cast<Layouter>(container->backendData());
-    return stored ? *stored : Layouter();
+    if (stored)
+        return *stored;
+
+    // A container that has been given QML instead of a layouter can still end
+    // up inside a widget layout - an AspectList's details pane calls this for
+    // every item. Callers invoke the result, so never hand back an empty
+    // function: lay the aspects out in order, which is all a Column of them
+    // would have done.
+    return [container] {
+        Layouting::Column column;
+        for (BaseAspect *aspect : container->aspects())
+            column.addItem(aspect);
+        return column;
+    };
 }
 
 } // namespace Utils::AspectWidgets

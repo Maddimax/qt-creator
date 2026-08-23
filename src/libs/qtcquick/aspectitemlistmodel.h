@@ -29,6 +29,10 @@ class QTCQUICK_EXPORT AspectItemListModel : public QAbstractListModel
     QML_ELEMENT
     QML_UNCREATABLE("Created from C++ by createAspectForm()")
 
+    // Buttons the list offers besides Add and Remove, in order. Fixed once the
+    // aspect is set up, which is before any of this is built.
+    Q_PROPERTY(QStringList extraButtons READ extraButtons CONSTANT)
+
 public:
     enum Role {
         LabelRole = Qt::UserRole + 1,
@@ -48,6 +52,9 @@ public:
     // Returns the row of the new item, so a view can select it.
     Q_INVOKABLE int addItem();
     Q_INVOKABLE void removeItem(int row);
+
+    QStringList extraButtons() const;
+    Q_INVOKABLE void triggerExtraButton(int index);
 
 private:
     void reload();

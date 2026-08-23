@@ -59,21 +59,7 @@ CMakeSpecificSettings::CMakeSpecificSettings(Project *p, bool autoApply)
 {
     useGlobalSettings.setSettingsPageId(Constants::Settings::GENERAL_ID);
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-        return Column {
-            autorunCMake,
-            cleanOldOutput,
-            packageManagerAutoSetup,
-            maintenanceToolDependencyProvider,
-            askBeforeReConfigureInitialParams,
-            askBeforePresetsReload,
-            showSourceSubFolders,
-            showAdvancedOptionsByDefault,
-            useJunctionsForSourceAndBuildDirectories,
-            st
-        };
-    });
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/CMakeProjectManager/CMakeSpecificSettingsPage.qml"));
 
     // TODO: fixup of QTCREATORBUG-26289 , remove in Qt Creator 7 or so
     Core::ICore::settings()->remove("CMakeSpecificSettings/NinjaPath");

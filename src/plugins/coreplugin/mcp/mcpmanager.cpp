@@ -712,7 +712,6 @@ public:
                 "Environment variable changes applied when launching the MCP server process. "
                 "Only used for standard IO connection type."));
 
-        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Core/mcp/McpSettingsPage.qml"));
     }
 
     McpManager::ServerInfo toServerInfo() const
@@ -1046,15 +1045,7 @@ public:
                 removeQtDocsServer();
         });
 
-        Utils::AspectWidgets::setLayouter(this, [this]() {
-            using namespace Layouting;
-            // clang-format off
-            return Column{
-                enableDocsMcpServer,
-                &mcpServers,
-            };
-            // clang-format on
-        });
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Core/mcp/McpSettingsPage.qml"));
 
         readSettings();
         if (enableDocsMcpServer())

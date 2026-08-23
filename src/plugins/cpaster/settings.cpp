@@ -48,19 +48,8 @@ Settings::Settings()
     displayOutput.setDefaultValue(true);
     displayOutput.setLabelText(Tr::tr("Display General Messages after sending a post"));
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-        return Column {
-            Form {
-                protocols, br,
-                username, br,
-                expiryDays
-            },
-            copyToClipboard,
-            displayOutput,
-            st
-        };
-    });
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/CodePaster/CodePasterSettingsPage.qml"));
+
 }
 
 class CPasterSettingsPage final : public Core::IOptionsPage

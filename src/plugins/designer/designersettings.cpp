@@ -29,10 +29,7 @@ DesignerSettings::DesignerSettings()
                "instead of relying on QMetaObject::connectSlotsByName() and an on_...() slot "
                "name."));
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-        return Column { generatePointerToMemberConnections, st };
-    });
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Designer/DesignerSettingsPage.qml"));
 
     readSettings();
 }

@@ -113,6 +113,21 @@ RowLayout {
             }
         }
 
+        Repeater {
+            model: root.itemListModel?.extraButtons ?? []
+
+            delegate: Button {
+                id: extra
+
+                required property int index
+                required property string modelData
+
+                text: extra.modelData
+                enabled: root.editable
+                onClicked: root.itemListModel.triggerExtraButton(extra.index)
+            }
+        }
+
         Item { Layout.fillHeight: true }
     }
 }

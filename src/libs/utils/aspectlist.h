@@ -69,6 +69,8 @@ public:
     void setDisplayStyle(DisplayStyle displayStyle);
 
     void addExtraButton(const QString &text, std::function<void()> callback);
+    QStringList extraButtonTexts() const;
+    void triggerExtraButton(int index);
 
     CovariantCallback<QVariant(BaseAspect *, int)> listViewDataCallback;
 

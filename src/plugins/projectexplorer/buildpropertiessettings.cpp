@@ -46,23 +46,11 @@ BuildPropertiesSettings::BuildPropertiesSettings()
 {
     setAutoApply(false);
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-
-        return Column {
-            Form {
-                buildDirectoryTemplate, br,
-                workingDirectoryTemplate, br,
-                separateDebugInfo, br,
-                qmlDebugging, br,
-                qtQuickCompiler
-            },
-            st
-        };
-    });
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/ProjectExplorer/BuildPropertiesSettingsPage.qml"));
 
     buildDirectoryTemplate.setDisplayStyle(StringAspect::LineEditDisplay);
     buildDirectoryTemplate.setSettingsKey("Directories/BuildDirectory.TemplateV2");
+    buildDirectoryTemplate.setQmlName("BuildDirectoryTemplate");
     buildDirectoryTemplate.setDefaultValue(defaultBuildDirectoryTemplate());
     buildDirectoryTemplate.setLabelText(Tr::tr("Default build directory:"));
     buildDirectoryTemplate.setToolTip(
@@ -76,6 +64,7 @@ BuildPropertiesSettings::BuildPropertiesSettings()
 
     workingDirectoryTemplate.setDisplayStyle(StringAspect::LineEditDisplay);
     workingDirectoryTemplate.setSettingsKey("Directories/WorkingDirectory.Template");
+    workingDirectoryTemplate.setQmlName("WorkingDirectoryTemplate");
     workingDirectoryTemplate.setDefaultValue(defaultWorkingDirectoryTemplate());
     workingDirectoryTemplate.setLabelText(Tr::tr("Default working directory:"));
     workingDirectoryTemplate.setToolTip(

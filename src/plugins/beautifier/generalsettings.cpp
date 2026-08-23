@@ -45,21 +45,8 @@ GeneralSettings::GeneralSettings()
     autoFormatMime.setLabelText(Tr::tr("Restrict to MIME types:"));
     autoFormatMime.setDisplayStyle(StringAspect::LineEditDisplay);
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-        return Column {
-            Group {
-                title(Tr::tr("Automatic Formatting on File Save")),
-                groupChecker(Utils::AspectWidgets::groupChecker(&autoFormatOnSave)),
-                Form {
-                    autoFormatTools, br,
-                    autoFormatMime, br,
-                    Span(2, autoFormatOnlyCurrentProject)
-                }
-            },
-            st
-        };
-    });
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Beautifier/BeautifierSettingsPage.qml"));
+
     readSettings();
 }
 

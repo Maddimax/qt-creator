@@ -372,12 +372,30 @@ never reached by a real page on its own.
 
 This makes progress purely additive: a page moves to Quick when someone writes
 its QML and looks at it. It also means `isFullyRenderable()` is no longer a
-gate, only a measure - of the 57 pages still on widgets, 49 contain nothing but
-aspects the generic form already knows, so those are the cheap ports.
+gate, only a measure; the test prints how many of the remaining pages contain
+nothing but aspects the generic form already knows, which are the cheap ports.
+
+#### Two traps when porting a page
+
+**Put `setQmlSource()` on the page's container, not on an item's.** The MCP
+servers page has both: `McpManagerSettings` is the page, and `McpServerAspect`
+is one row of its `AspectList`. Setting it on the item left the page on its
+layouter, so the QML was never loaded - and worse, the item then had no
+layouter, which is what the widget editor's details pane calls. Clicking Add
+aborted the process on `std::bad_function_call`. `AspectWidgets::layouter()`
+now falls back to laying the container's aspects out in order rather than
+returning an empty function, so the two can never combine into a crash again.
+
+**Check what the layouter did besides listing aspects.** An `AspectList` can
+carry extra buttons (`addExtraButton()`); the MCP page uses one to fill a server
+in from a registry. The Quick delegate knew nothing about them, so porting the
+page would have dropped it silently - the same failure the gate above exists to
+prevent, one level further in. `AspectItemListModel` now exposes them and
+`AspectListDelegate` draws them after Add and Remove.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
 all`, minus `QmlDesigner` and `UpdateInfo`, see below): **73 aspect-driven
-pages, 16 with their own QML and rendered with Qt Quick, 57 still on widgets.**
+pages, 30 with their own QML and rendered with Qt Quick, 43 still on widgets.**
 Before the gate was narrowed, 65 pages rendered generically; the delegate work
 that made that possible is all still in place and is what the ports build on:
 `StringListAspect` (a real list editor), `IntegersAspect` (`Invisible`, because

@@ -12,7 +12,11 @@
 #include <utils/algorithm.h>
 #include <utils/aspectlist.h>
 #include <utils/aspects.h>
+#include <utils/layoutbuilder.h>
 
+#include <QAbstractButton>
+#include <QAbstractItemView>
+#include <QCheckBox>
 #include <QFile>
 #include <QQmlError>
 #include <QStandardItem>
@@ -101,6 +105,8 @@ private slots:
     void testAspectListLabelArrivingLate();
     void testPageWithoutItsOwnQmlIsDeclined();
     void testPasswordAspectDoesNotEchoItsValue();
+    void testAspectListOffersItsExtraButtons();
+    void testQmlOnlyContainerStillLaysOutInAWidgetLayout();
 };
 
 void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
@@ -324,6 +330,73 @@ void QuickUiTest::testPasswordAspectDoesNotEchoItsValue()
     QCOMPARE(secretField->property("echoMode").toInt(), password);
     QCOMPARE(secretField->property("text").toString(), QString("hunter2"));
     QCOMPARE(plainField->property("echoMode").toInt(), normal);
+}
+
+void QuickUiTest::testAspectListOffersItsExtraButtons()
+{
+    Utils::AspectContainer page;
+    page.setAutoApply(false);
+    Utils::AspectList servers(&page);
+    servers.setLabelText("Servers");
+    servers.setDisplayStyle(Utils::AspectList::DisplayStyle::ListViewWithDetails);
+    servers.setCreateItemFunction([] { return std::make_shared<Utils::AspectContainer>(); });
+    int fromRegistry = 0;
+    servers.addExtraButton("Add From Registry...", [&fromRegistry] { ++fromRegistry; });
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QVERIFY(quickWidget->rootObject());
+
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "AspectListDelegate"));
+
+    // A list can offer more than Add and Remove - the MCP servers page adds
+    // one that fills an item in from a registry - and a page ported to QML
+    // would lose them silently.
+    QQuickItem *extra = nullptr;
+    QTRY_VERIFY(extra = findButton(delegate, "Add From Registry..."));
+    QMetaObject::invokeMethod(extra, "clicked");
+    QCOMPARE(fromRegistry, 1);
+}
+
+void QuickUiTest::testQmlOnlyContainerStillLaysOutInAWidgetLayout()
+{
+    // An AspectList item is a container, and the details pane of the widget
+    // editor calls its layouter. A container given QML instead of a layouter
+    // has none, and calling an empty std::function aborts the process.
+    Utils::AspectContainer page;
+    page.setAutoApply(false);
+    Utils::AspectList servers(&page);
+    servers.setDisplayStyle(Utils::AspectList::DisplayStyle::ListViewWithDetails);
+    servers.setCreateItemFunction([] {
+        auto item = std::make_shared<Utils::AspectContainer>();
+        item->setQmlSource(QUrl("qrc:/nothing/AtAll.qml"));
+        auto flag = new Utils::BoolAspect(item.get());
+        flag->setLabelText("Enabled");
+        return item;
+    });
+
+    Layouting::Column column{&servers};
+    const std::unique_ptr<QWidget> widget(column.emerge());
+    QVERIFY(widget);
+    auto view = widget->findChild<QAbstractItemView *>();
+    QVERIFY(view);
+
+    // Adding selects the new item, which is what makes the details pane lay it
+    // out. Its aspects have to appear even though it named no layouter.
+    QAbstractButton *add = nullptr;
+    for (QAbstractButton *button : widget->findChildren<QAbstractButton *>()) {
+        if (button->text() == "Add")
+            add = button;
+    }
+    QVERIFY(add);
+    add->click();
+    QCOMPARE(servers.volatileItems().size(), 1);
+    const QList<QCheckBox *> boxes = widget->findChildren<QCheckBox *>();
+    QCOMPARE(boxes.size(), 1);
+    QCOMPARE(boxes.first()->text(), QString("Enabled"));
 }
 
 void QuickUiTest::testQmlNameIsDerivedFromTheSettingsKey()
