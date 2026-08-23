@@ -353,6 +353,8 @@ rather than a refactor - and it needs delegate parity first. Known gaps:
 - `StringSelectionAspect` and anything else whose choices come from an async
   fill callback report no choices, so they render as `Unsupported`. They need
   the choices in `AspectPresentation`, or a model role fed from the callback.
+  Note this is *not* the same as an aspect storing a choice id rather than an
+  index - that one is handled, via `AspectPresentation::valueIsChoiceId`.
 - `StringList` (needs `appendValue`/`removeValue` invokable from QML),
   `FontPicker` (a container, not a `TypedAspect`, so it has no bindable value)
   and `IntegerList` (no `QVariantList` -> `QList<int>` conversion) are
@@ -392,14 +394,31 @@ page would have had to repeat what the aspect already knows. All three are
 and those roles are gone. That also fixed a latent bug - the model emits no
 `dataChanged`, so a label or visibility change never reached the control.
 
-**Open: where plugin page QML lives.** No plugin ships QML today; `QtcQuick`
-is the only QML module in the tree. The two options are a QML module per
-plugin (`qt_add_qml_module` alongside `add_qtc_plugin`), which gives qmllint
-and qmlcachegen over the page files, or a plain resource, which gives neither.
-The catch is that **qbs has no QML module support** - the comment in
-`qtcquick.qbs` says the `.qml` files are built by CMake only - so a module per
-plugin means the qbs build ships no page QML at all. Decide this before
-writing the second page; 92 files will follow it.
+**Where plugin page QML lives: a QML module per plugin.** Decided, and
+`QmakeProjectManager` is the worked example - `qt_add_qml_module` next to
+`add_qtc_plugin` with `URI QtCreator.<PluginName>`, `NO_PLUGIN` and
+`RESOURCE_PREFIX "/qt/qml"`, giving `qrc:/qt/qml/QtCreator/<PluginName>/`.
+This buys qmllint and qmlcachegen over the page files. qbs cannot build QML
+modules, so its `.qbs` only lists the files in a `fileTags: []` group - the
+same split `qtcquick.qbs` already lives with, and the reason to keep the note
+here rather than pretend the two build systems agree.
+
+### The recipe for a page
+
+1. Write `<Page>.qml` with `AspectPage` as its root, addressing aspects as
+   `aspects.<qmlName>`.
+2. Add the `qt_add_qml_module` block to the plugin's `CMakeLists.txt` and list
+   the file in its `.qbs`.
+3. `setQmlSource(QUrl("qrc:/qt/qml/QtCreator/<Plugin>/<Page>.qml"))` in the
+   container's constructor; leave the layouter alone.
+4. Run `-test QuickUi -load <Plugin>`. The page test checks that a container
+   naming a QML file renders through it rather than falling back to the
+   generic form, so a wrong URI or a missing module fails there.
+
+Loading one plugin into that test took the aspect-driven page count from 4 to
+21, which is how the `EncodingSelectionAspect` bug below was found. Expect
+each new plugin loaded to surface more: the way to look for them is the
+`QWARN` lines, not the pass count.
 
 ### Phase 4 - the closures
 
