@@ -35,21 +35,7 @@ QtTestFramework::QtTestFramework()
     setPriority(QtTest::Constants::FRAMEWORK_PRIORITY);
     setSettingsGroups("Autotest", "QtTest");
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        return Row { Form {
-            noCrashHandler, br,
-            useXMLOutput, br,
-            verboseBench, br,
-            logSignalsSlots, br,
-            limitWarnings, maxWarnings, br,
-            Group {
-                title(Tr::tr("Benchmark Metrics")),
-                Column { metrics }
-            }, br,
-            quickCheckForDerivedTests, br,
-            parseMessages, br
-        }, st };
-    });
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/AutoTest/qtest/QtTestSettingsPage.qml"));
 
     metrics.setSettingsKey("Metrics");
     metrics.setDefaultValue(Walltime);

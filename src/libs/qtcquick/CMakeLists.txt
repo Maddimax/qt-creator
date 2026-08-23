@@ -35,6 +35,7 @@ if(TARGET QtcQuick)
     NO_PLUGIN
     QML_FILES
       AspectForm.qml
+      AspectGroupBox.qml
       AspectItems.qml
       AspectListDelegate.qml
       AspectPage.qml

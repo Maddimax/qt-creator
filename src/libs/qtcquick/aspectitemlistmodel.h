@@ -31,6 +31,10 @@ public:
     enum Role {
         LabelRole = Qt::UserRole + 1,
         ItemModelRole,
+        // An item added or removed since the last Apply. The widget editor
+        // shows the first in bold and the second struck through.
+        AddedRole,
+        RemovedRole,
     };
 
     explicit AspectItemListModel(Utils::AspectList *list, QObject *parent = nullptr);
@@ -46,8 +50,15 @@ public:
 private:
     void reload();
 
+    struct Row
+    {
+        Utils::BaseAspect *item = nullptr;
+        bool added = false;
+        bool removed = false;
+    };
+
     Utils::AspectList *m_list = nullptr;
-    QList<Utils::BaseAspect *> m_items;
+    QList<Row> m_rows;
     mutable QHash<Utils::BaseAspect *, AspectContainerModel *> m_itemModels;
 };
 

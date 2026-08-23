@@ -18,8 +18,9 @@ GroupBox {
     required property Aspect aspect
     readonly property string labelText: aspect?.labelText ?? ""
     readonly property bool aspectVisible: aspect?.visible ?? true
-    // An AspectContainerModel for the nested container.
-    required property var childModel
+    // Derived rather than taken as a model role, so that a hand-written page
+    // can use this delegate with nothing but the aspect.
+    readonly property var childModel: aspect ? AspectModels.container(aspect) : null
 
     title: labelText
     visible: aspectVisible

@@ -10,27 +10,11 @@
 #include <utils/aspects.h>
 #include <utils/qtcassert.h>
 
-#include <limits>
 
 using namespace Utils;
 
 namespace QtcQuick {
 
-namespace {
-
-enum BoundKind { Lower, Upper };
-
-QVariant widestBound(AspectControls::Control control, BoundKind kind)
-{
-    if (control == AspectControls::DoubleSpinBox) {
-        return kind == Lower ? std::numeric_limits<double>::lowest()
-                             : std::numeric_limits<double>::max();
-    }
-    return kind == Lower ? std::numeric_limits<int>::lowest()
-                         : std::numeric_limits<int>::max();
-}
-
-} // namespace
 
 AspectContainerModel::AspectContainerModel(AspectContainer *container, QObject *parent)
     : QAbstractListModel(parent)
@@ -53,66 +37,22 @@ QVariant AspectContainerModel::data(const QModelIndex &index, int role) const
     if (role == AspectRole)
         return QVariant::fromValue(static_cast<QObject *>(aspect));
 
-    const AspectPresentation p = aspect->presentation();
     switch (role) {
     case KindRole:
         return int(kindOf(aspect));
-    // labelText, toolTip and visibility are Q_PROPERTYs on the aspect, so the
-    // delegates read them from there: one source of truth, and they follow
-    // their NOTIFY signals rather than needing this model to emit dataChanged.
-    // The delegates expect a plain string model; per-choice metadata stays
-    // behind until they grow roles for it.
-    case OptionsRole:
-        return Utils::transform<QStringList>(p.choices, &AspectPresentation::Choice::display);
-    // Ids as strings rather than as their own types: a QByteArray id reaches
-    // QML as an ArrayBuffer, which cannot be compared with indexOf(), and
-    // every aspect that takes an id converts from a string.
-    case OptionIdsRole:
-        return Utils::transform<QStringList>(p.choices, [](const AspectPresentation::Choice &c) {
-            return c.id.toString();
-        });
-    case ValueIsChoiceIdRole:
-        return p.valueIsChoiceId;
-    case AllowAddingRole:   return p.allowAdding;
-    case AllowRemovingRole: return p.allowRemoving;
-    case AllowEditingRole:  return p.allowEditing;
-    case ActionTextRole:    return p.actionText;
-    // An aspect with no bound presents an unset minimum/maximum. The delegates
-    // bind these straight into SpinBox.from/to and DoubleValidator, so
-    // substitute the widest value of the right type rather than passing
-    // undefined into QML.
-    case MinimumRole:   return p.minimum.isValid() ? p.minimum : widestBound(p.control, Lower);
-    case MaximumRole:   return p.maximum.isValid() ? p.maximum : widestBound(p.control, Upper);
-    case StepRole:      return p.singleStep.isValid() ? p.singleStep : QVariant(1);
-    case ChildModelRole: {
-        auto container = qobject_cast<AspectContainer *>(aspect);
-        if (!container)
-            return {};
-        AspectContainerModel *&child = m_childModels[aspect];
-        if (!child)
-            child = new AspectContainerModel(container, const_cast<AspectContainerModel *>(this));
-        return QVariant::fromValue(child);
-    }
-    default:            return {};
+    default:
+        return {};
     }
 }
 
 QHash<int, QByteArray> AspectContainerModel::roleNames() const
 {
+    // Only what picks a delegate and what it is for. Everything else a delegate
+    // needs it reads from the aspect through AspectModels, so that the same
+    // delegate works in a hand-written page, which has no roles to give.
     return {
         {AspectRole, "aspect"},
         {KindRole, "kind"},
-        {OptionsRole, "options"},
-        {OptionIdsRole, "optionIds"},
-        {ValueIsChoiceIdRole, "valueIsChoiceId"},
-        {AllowAddingRole, "allowAdding"},
-        {AllowRemovingRole, "allowRemoving"},
-        {AllowEditingRole, "allowEditing"},
-        {ActionTextRole, "actionText"},
-        {MinimumRole, "minimum"},
-        {MaximumRole, "maximum"},
-        {StepRole, "step"},
-        {ChildModelRole, "childModel"},
     };
 }
 

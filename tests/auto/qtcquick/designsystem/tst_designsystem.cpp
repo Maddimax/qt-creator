@@ -1,6 +1,7 @@
 // Copyright (C) 2026 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
+#include <qtcquick/aspectmodels.h>
 #include <qtcquick/aspectcontainermodel.h>
 #include <qtcquick/qtciconprovider.h>
 #include <qtcquick/qtcquickengine.h>
@@ -275,9 +276,11 @@ void tst_DesignSystem::aspectContainerModel()
     QCOMPARE(model.rowCount(), 12);
 
     const QHash<int, QByteArray> roles = model.roleNames();
+    // The model carries only what picks a delegate and what it is for; the rest
+    // a delegate reads from the aspect, so that it works in a page too.
+    QCOMPARE(roles.values().size(), 2);
     QVERIFY(roles.values().contains("aspect"));
     QVERIFY(roles.values().contains("kind"));
-    QVERIFY(roles.values().contains("options"));
 
     // The kind comes from the aspect's own presentation(), so a StringAspect
     // set to LabelDisplay is a label rather than an editable field.
@@ -293,15 +296,21 @@ void tst_DesignSystem::aspectContainerModel()
         QVERIFY(index.data(QtcQuick::AspectContainerModel::AspectRole).value<QObject *>());
     }
 
-    // The options role only carries entries for a selection aspect ...
-    QCOMPARE(model.index(4, 0).data(QtcQuick::AspectContainerModel::OptionsRole).toStringList(),
-             QStringList({"First", "Second"}));
-    QVERIFY(model.index(0, 0).data(QtcQuick::AspectContainerModel::OptionsRole)
-                .toStringList().isEmpty());
+    // The choices are read from the aspect rather than from a model role, so
+    // that a hand-written page gets them too. Only a selection aspect ...
+    QtcQuick::AspectModels models;
+    const auto optionsOf = [&](int row) {
+        auto aspect = model.index(row, 0)
+                          .data(QtcQuick::AspectContainerModel::AspectRole)
+                          .value<QObject *>();
+        return models.presentation(qobject_cast<Utils::BaseAspect *>(aspect))
+            .value("options").toStringList();
+    };
+    QCOMPARE(optionsOf(4), QStringList({"First", "Second"}));
+    QVERIFY(optionsOf(0).isEmpty());
     // ... or a multi-selection aspect, which presents its full set of choices
     // the same way.
-    QCOMPARE(model.index(11, 0).data(QtcQuick::AspectContainerModel::OptionsRole).toStringList(),
-             QStringList({"First", "Second"}));
+    QCOMPARE(optionsOf(11), QStringList({"First", "Second"}));
 }
 
 void tst_DesignSystem::aspectFormLoads()

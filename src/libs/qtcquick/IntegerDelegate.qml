@@ -16,9 +16,10 @@ RowLayout {
     readonly property string labelText: aspect?.labelText ?? ""
     readonly property string toolTip: aspect?.toolTip ?? ""
     readonly property bool aspectVisible: aspect?.visible ?? true
-    required property var minimum
-    required property var maximum
-    required property var step
+    // The descriptor, read from the aspect rather than taken as model roles, so
+    // that a hand-written page can use this delegate with nothing but the
+    // aspect. See AspectModels::presentation().
+    readonly property var pres: aspect ? AspectModels.presentation(aspect) : ({})
 
     visible: aspectVisible
     spacing: Spacing.GapHM
@@ -33,9 +34,9 @@ RowLayout {
     SpinBox {
         editable: true
         enabled: (delegate.aspect?.enabled ?? false) && !(delegate.aspect?.readOnly ?? false)
-        from: delegate.minimum
-        to: delegate.maximum
-        stepSize: delegate.step
+        from: delegate.pres.minimum
+        to: delegate.pres.maximum
+        stepSize: delegate.pres.step
         value: delegate.aspect?.value ?? 0
         ToolTip.text: delegate.toolTip
         ToolTip.visible: hovered && delegate.toolTip !== ""

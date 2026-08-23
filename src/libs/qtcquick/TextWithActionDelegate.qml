@@ -15,7 +15,10 @@ RowLayout {
     id: root
 
     required property Aspect aspect
-    required property string actionText
+    // The descriptor, read from the aspect rather than taken as model roles, so
+    // that a hand-written page can use this delegate with nothing but the
+    // aspect. See AspectModels::presentation().
+    readonly property var pres: aspect ? AspectModels.presentation(aspect) : ({})
     readonly property string labelText: aspect?.labelText ?? ""
     readonly property string toolTip: aspect?.toolTip ?? ""
     readonly property bool aspectVisible: aspect?.visible ?? true
@@ -39,7 +42,7 @@ RowLayout {
     }
 
     Button {
-        text: root.actionText
+        text: root.pres.actionText
         enabled: (root.aspect?.enabled ?? false) && !(root.aspect?.readOnly ?? false)
         onClicked: root.aspect?.triggerAction()
     }

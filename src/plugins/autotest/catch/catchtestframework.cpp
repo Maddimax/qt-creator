@@ -33,20 +33,7 @@ CatchFramework::CatchFramework()
     setId("AutoTest.Framework.Catch");
     setDisplayName(Tr::tr("Catch Test"));
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        return Row { Form {
-            showSuccess, br,
-            breakOnFailure, br,
-            noThrow, br,
-            visibleWhitespace, br,
-            abortAfterChecked, abortAfter, br,
-            samplesChecked, benchmarkSamples, br,
-            resamplesChecked, benchmarkResamples, br,
-            confidenceIntervalChecked, confidenceInterval, br,
-            warmupChecked, benchmarkWarmupTime, br,
-            noAnalysis
-        }, st };
-    });
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/AutoTest/catch/CatchTestSettingsPage.qml"));
 
     abortAfter.setSettingsKey("AbortAfter");
     abortAfter.setRange(1, 9999);

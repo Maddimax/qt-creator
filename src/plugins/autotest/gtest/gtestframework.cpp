@@ -46,17 +46,7 @@ GTestFramework::GTestFramework()
     setDisplayName(Tr::tr(GTest::Constants::FRAMEWORK_SETTINGS_CATEGORY));
     setPriority(GTest::Constants::FRAMEWORK_PRIORITY);
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        return Row { Form {
-                runDisabled, br,
-                throwOnFailure, br,
-                breakOnFailure, br,
-                repeat, iterations, br,
-                shuffle, seed, br,
-                groupMode, br,
-                gtestFilter, br
-            }, st };
-    });
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/AutoTest/gtest/GTestSettingsPage.qml"));
 
     iterations.setSettingsKey("Iterations");
     iterations.setDefaultValue(1);

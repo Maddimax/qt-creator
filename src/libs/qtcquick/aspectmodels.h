@@ -31,6 +31,12 @@ public:
     // Both are cached on the aspect, so a page and the generic form share one.
     Q_INVOKABLE QtcQuick::AspectItemListModel *itemList(Utils::BaseAspect *aspect);
     Q_INVOKABLE QtcQuick::AspectContainerModel *container(Utils::BaseAspect *aspect);
+
+    // Everything a delegate needs beyond the aspect's own properties: the
+    // bounds, the choices, what may be added or removed. Read from the aspect
+    // rather than taken as model roles, because a hand-written page has no
+    // roles to give.
+    Q_INVOKABLE QVariantMap presentation(Utils::BaseAspect *aspect);
 };
 
 } // namespace QtcQuick

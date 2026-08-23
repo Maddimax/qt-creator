@@ -33,16 +33,7 @@ BoostTestFramework::BoostTestFramework()
     setDisplayName(Tr::tr(BoostTest::Constants::FRAMEWORK_SETTINGS_CATEGORY));
     setPriority(BoostTest::Constants::FRAMEWORK_PRIORITY);
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        return Row { Form {
-            logLevel, br,
-            reportLevel, br,
-            randomize, Row { seed }, br,
-            systemErrors, br,
-            fpExceptions, br,
-            memLeaks,
-        }, st};
-    });
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/AutoTest/boost/BoostTestSettingsPage.qml"));
 
     logLevel.setSettingsKey("LogLevel");
     logLevel.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);

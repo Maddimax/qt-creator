@@ -5,6 +5,7 @@
 
 #include <coreplugin/dialogs/ioptionspage.h>
 
+#include <qtcquick/aspectmodels.h>
 #include <qtcquick/aspectcontainermodel.h>
 #include <qtcquick/aspectform.h>
 
@@ -198,8 +199,8 @@ void QuickUiTest::testNestedContainerIsAModelGroup()
     const QModelIndex index = model.index(0, 0);
     QCOMPARE(index.data(QtcQuick::AspectContainerModel::KindRole).toInt(),
              int(QtcQuick::AspectContainerModel::Container));
-    auto child = index.data(QtcQuick::AspectContainerModel::ChildModelRole)
-                     .value<QtcQuick::AspectContainerModel *>();
+    QtcQuick::AspectModels models;
+    QtcQuick::AspectContainerModel *child = models.container(&group);
     QVERIFY(child);
     QCOMPARE(child->rowCount(), 1);
     QCOMPARE(child->index(0, 0).data(QtcQuick::AspectContainerModel::KindRole).toInt(),
@@ -474,6 +475,7 @@ void QuickUiTest::testStringSelectionOffersItsChoices()
 void QuickUiTest::testAspectListAddsRemovesAndShowsDetails()
 {
     Utils::AspectContainer page;
+    page.setAutoApply(false);
     Utils::AspectList servers(&page);
     servers.setLabelText("Servers");
     servers.setDisplayStyle(Utils::AspectList::DisplayStyle::ListViewWithDetails);
@@ -510,12 +512,30 @@ void QuickUiTest::testAspectListAddsRemovesAndShowsDetails()
     // The details pane shows the selected item's own aspects.
     QTRY_VERIFY(findQmlComponent(delegate, "BoolDelegate"));
 
+    // Removing an item that was never applied takes its row with it.
     QQuickItem *remove = findButton(delegate, "Remove");
     QVERIFY(remove);
     QMetaObject::invokeMethod(remove, "clicked");
     QCOMPARE(servers.volatileItems().size(), 0);
     QTRY_COMPARE(view->property("count").toInt(), 0);
     QVERIFY(!findQmlComponent(delegate, "BoolDelegate"));
+
+    // Removing one that was applied keeps the row, struck through, until the
+    // removal is applied in turn.
+    QMetaObject::invokeMethod(add, "clicked");
+    servers.apply();
+    QTRY_COMPARE(view->property("count").toInt(), 1);
+    view->setProperty("currentIndex", 0);
+    QMetaObject::invokeMethod(remove, "clicked");
+    QCOMPARE(servers.volatileItems().size(), 0);
+    QCOMPARE(view->property("count").toInt(), 1);
+    QQuickItem *row = findQmlComponent(view, "ItemDelegate");
+    QVERIFY(row);
+    QVERIFY(row->property("removed").toBool());
+    QVERIFY(row->property("font").value<QFont>().strikeOut());
+
+    // And there is nothing left to remove on a row already on its way out.
+    QVERIFY(!remove->property("enabled").toBool());
 }
 
 // The shape EnvironmentChangesAspect has: a summary of the value and one

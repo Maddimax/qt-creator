@@ -36,27 +36,7 @@ CTestTool::CTestTool()
     setDisplayName(Tr::tr("CTest"));
 
     // clang-format off
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        return Row { Form {
-            outputOnFail, br,
-            scheduleRandom, br,
-            stopOnFailure, br,
-            outputMode, br,
-            Group {
-                title(Tr::tr("Repeat Tests")),
-                groupChecker(Utils::AspectWidgets::groupChecker(&repeat)),
-                Row { repetitionMode, repetitionCount},
-            }, br,
-            Group {
-                title(Tr::tr("Run in Parallel")),
-                groupChecker(Utils::AspectWidgets::groupChecker(&parallel)),
-                Column {
-                    Row { jobs }, br,
-                    Row { testLoad, threshold }
-                }
-            }
-        }, st };
-    });
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/AutoTest/ctest/CTestSettingsPage.qml"));
     // clang-format on
 
     outputOnFail.setSettingsKey("OutputOnFail");

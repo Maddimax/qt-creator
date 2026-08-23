@@ -15,9 +15,10 @@ RowLayout {
     id: root
 
     required property Aspect aspect
-    required property bool allowAdding
-    required property bool allowRemoving
-    required property bool allowEditing
+    // The descriptor, read from the aspect rather than taken as model roles, so
+    // that a hand-written page can use this delegate with nothing but the
+    // aspect. See AspectModels::presentation().
+    readonly property var pres: aspect ? AspectModels.presentation(aspect) : ({})
     readonly property string labelText: aspect?.labelText ?? ""
     readonly property string toolTip: aspect?.toolTip ?? ""
     readonly property bool aspectVisible: aspect?.visible ?? true
@@ -75,7 +76,7 @@ RowLayout {
 
                     width: view.width
                     text: modelData
-                    readOnly: !root.allowEditing || !root.editable
+                    readOnly: !root.pres.allowEditing || !root.editable
                     onActiveFocusChanged: if (activeFocus) view.currentIndex = field.index
                     onEditingFinished: root.replaceAt(field.index, text)
                 }
@@ -87,7 +88,7 @@ RowLayout {
 
             Button {
                 text: qsTr("Add")
-                visible: root.allowAdding
+                visible: root.pres.allowAdding
                 enabled: root.editable
                 onClicked: {
                     const next = root.entries()
@@ -100,7 +101,7 @@ RowLayout {
 
             Button {
                 text: qsTr("Remove")
-                visible: root.allowRemoving
+                visible: root.pres.allowRemoving
                 enabled: root.editable && view.currentIndex >= 0
                 onClicked: {
                     const next = root.entries()

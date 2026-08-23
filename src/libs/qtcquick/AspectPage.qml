@@ -25,6 +25,9 @@ ScrollView {
         id: column
 
         width: root.availableWidth
+        // At least the viewport, so that a child asking to fill the height has
+        // something to fill; taller when the content needs it.
+        height: Math.max(implicitHeight, root.availableHeight)
         spacing: Spacing.GapVS
     }
 }

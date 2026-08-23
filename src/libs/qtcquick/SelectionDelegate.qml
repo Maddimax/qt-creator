@@ -13,10 +13,10 @@ RowLayout {
     id: delegate
 
     required property Aspect aspect
-    required property var options
-    // Aspects differ in what they store: an index, or the id of the choice.
-    required property var optionIds
-    required property bool valueIsChoiceId
+    // The descriptor, read from the aspect rather than taken as model roles, so
+    // that a hand-written page can use this delegate with nothing but the
+    // aspect. See AspectModels::presentation().
+    readonly property var pres: aspect ? AspectModels.presentation(aspect) : ({})
     readonly property string labelText: aspect?.labelText ?? ""
     readonly property string toolTip: aspect?.toolTip ?? ""
     readonly property bool aspectVisible: aspect?.visible ?? true
@@ -33,19 +33,19 @@ RowLayout {
 
     ComboBox {
         enabled: (delegate.aspect?.enabled ?? false) && !(delegate.aspect?.readOnly ?? false)
-        currentIndex: delegate.valueIsChoiceId
-                      ? delegate.optionIds.indexOf(String(delegate.aspect?.value ?? ""))
+        currentIndex: delegate.pres.valueIsChoiceId
+                      ? delegate.pres.optionIds.indexOf(String(delegate.aspect?.value ?? ""))
                       : (delegate.aspect?.value ?? 0)
         ToolTip.text: delegate.toolTip
         ToolTip.visible: hovered && delegate.toolTip !== ""
         Layout.preferredWidth: Metrics.formControlWidth
 
-        model: delegate.options
+        model: delegate.pres.options
 
         onActivated: (index) => {
             if (!delegate.aspect)
                 return
-            delegate.aspect.value = delegate.valueIsChoiceId ? delegate.optionIds[index] : index
+            delegate.aspect.value = delegate.pres.valueIsChoiceId ? delegate.pres.optionIds[index] : index
         }
     }
 

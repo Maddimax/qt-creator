@@ -37,7 +37,8 @@ RowLayout {
 
         Frame {
             Layout.fillWidth: true
-            Layout.preferredHeight: Metrics.formListHeight
+            Layout.fillHeight: true
+            Layout.minimumHeight: Metrics.formListHeight
 
             ListView {
                 id: view
@@ -56,9 +57,15 @@ RowLayout {
                     // from currentItem, rather than calling data() with a role
                     // enum that QML would have to know.
                     required property var itemModel
+                    // Not applied yet: struck through when it is on its way
+                    // out, bold when it is new, as in the widget editor.
+                    required property bool added
+                    required property bool removed
 
                     width: view.width
                     text: label
+                    font.strikeout: row.removed
+                    font.bold: row.added
                     highlighted: ListView.isCurrentItem
                     onClicked: view.currentIndex = row.index
                 }
@@ -98,6 +105,7 @@ RowLayout {
         Button {
             text: qsTr("Remove")
             enabled: root.editable && view.currentIndex >= 0
+                     && !(view.currentItem?.removed ?? false)
             onClicked: {
                 const row = view.currentIndex
                 view.currentIndex = -1

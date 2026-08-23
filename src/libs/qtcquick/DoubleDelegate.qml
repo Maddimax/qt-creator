@@ -18,8 +18,10 @@ RowLayout {
     readonly property string labelText: aspect?.labelText ?? ""
     readonly property string toolTip: aspect?.toolTip ?? ""
     readonly property bool aspectVisible: aspect?.visible ?? true
-    required property var minimum
-    required property var maximum
+    // The descriptor, read from the aspect rather than taken as model roles, so
+    // that a hand-written page can use this delegate with nothing but the
+    // aspect. See AspectModels::presentation().
+    readonly property var pres: aspect ? AspectModels.presentation(aspect) : ({})
 
     visible: aspectVisible
     spacing: Spacing.GapHM
@@ -41,8 +43,8 @@ RowLayout {
         Layout.preferredWidth: Metrics.formControlWidth / 2
 
         validator: DoubleValidator {
-            bottom: delegate.minimum
-            top: delegate.maximum
+            bottom: delegate.pres.minimum
+            top: delegate.pres.maximum
             notation: DoubleValidator.StandardNotation
         }
 

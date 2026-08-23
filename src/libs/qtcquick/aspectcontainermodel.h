@@ -65,17 +65,6 @@ public:
     enum Role {
         AspectRole = Qt::UserRole + 1,
         KindRole,
-        OptionsRole,
-        OptionIdsRole,
-        ValueIsChoiceIdRole,
-        AllowAddingRole,
-        AllowRemovingRole,
-        AllowEditingRole,
-        ActionTextRole,
-        MinimumRole,
-        MaximumRole,
-        StepRole,
-        ChildModelRole,
     };
 
     explicit AspectContainerModel(Utils::AspectContainer *container, QObject *parent = nullptr);
@@ -98,7 +87,6 @@ private:
     QList<Utils::BaseAspect *> m_aspects;
     // A model per nested container, built on demand and owned by this one, so
     // that a group delegate can repeat over its children.
-    mutable QHash<Utils::BaseAspect *, AspectContainerModel *> m_childModels;
 };
 
 } // namespace QtcQuick

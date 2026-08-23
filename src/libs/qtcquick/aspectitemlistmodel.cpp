@@ -26,8 +26,29 @@ AspectItemListModel::AspectItemListModel(AspectList *list, QObject *parent)
 void AspectItemListModel::reload()
 {
     beginResetModel();
-    m_items = Utils::transform(m_list->volatileItems(),
-                               [](const std::shared_ptr<BaseAspect> &item) { return item.get(); });
+
+    // An item that has been removed but not applied yet keeps its row, struck
+    // through, the way the widget editor shows it. So the rows are the applied
+    // items in their order, marked removed where they are no longer volatile,
+    // followed by the ones added since.
+    const QList<std::shared_ptr<BaseAspect>> volatileItems = m_list->volatileItems();
+    // With auto-apply there is no pending state to show, and the applied list
+    // is only brought up to date after volatileItemListChanged() - so reading
+    // it here would leave a removed row struck through for good.
+    const QList<std::shared_ptr<BaseAspect>> appliedItems
+        = m_list->isAutoApply() ? volatileItems : m_list->items();
+    const auto isVolatile = [&volatileItems](const std::shared_ptr<BaseAspect> &item) {
+        return volatileItems.contains(item);
+    };
+
+    m_rows.clear();
+    for (const std::shared_ptr<BaseAspect> &item : appliedItems)
+        m_rows.append({item.get(), false, !isVolatile(item)});
+    for (const std::shared_ptr<BaseAspect> &item : volatileItems) {
+        if (!appliedItems.contains(item))
+            m_rows.append({item.get(), true, false});
+    }
+
     // Models for items that are gone would dangle; the rest are rebuilt on
     // demand, which costs nothing until a row is shown.
     qDeleteAll(m_itemModels);
@@ -37,16 +58,21 @@ void AspectItemListModel::reload()
 
 int AspectItemListModel::rowCount(const QModelIndex &parent) const
 {
-    return parent.isValid() ? 0 : int(m_items.size());
+    return parent.isValid() ? 0 : int(m_rows.size());
 }
 
 QVariant AspectItemListModel::data(const QModelIndex &index, int role) const
 {
-    if (!index.isValid() || index.row() >= m_items.size())
+    if (!index.isValid() || index.row() >= m_rows.size())
         return {};
 
-    BaseAspect *item = m_items.at(index.row());
+    const Row &row = m_rows.at(index.row());
+    BaseAspect *item = row.item;
     switch (role) {
+    case AddedRole:
+        return row.added;
+    case RemovedRole:
+        return row.removed;
     case LabelRole:
         QTC_ASSERT(m_list->listViewDataCallback, return {});
         return m_list->listViewDataCallback(item, Qt::DisplayRole);
@@ -69,6 +95,8 @@ QHash<int, QByteArray> AspectItemListModel::roleNames() const
     return {
         {LabelRole, "label"},
         {ItemModelRole, "itemModel"},
+        {AddedRole, "added"},
+        {RemovedRole, "removed"},
     };
 }
 
@@ -77,15 +105,20 @@ int AspectItemListModel::addItem()
     QTC_ASSERT(m_list, return -1);
     const std::shared_ptr<BaseAspect> item = m_list->createAndAddItem();
     // The aspect emits volatileItemListChanged(), so the row exists by now.
-    return int(m_items.indexOf(item.get()));
+    return int(Utils::indexOf(m_rows, [&item](const Row &row) {
+        return row.item == item.get();
+    }));
 }
 
 void AspectItemListModel::removeItem(int row)
 {
     QTC_ASSERT(m_list, return);
-    QTC_ASSERT(row >= 0 && row < m_items.size(), return);
+    QTC_ASSERT(row >= 0 && row < m_rows.size(), return);
+    // Removing a row that is already struck through would do nothing anyway.
+    if (m_rows.at(row).removed)
+        return;
 
-    BaseAspect *item = m_items.at(row);
+    BaseAspect *item = m_rows.at(row).item;
     const QList<std::shared_ptr<BaseAspect>> items = m_list->volatileItems();
     const auto shared = Utils::findOr(items, {}, [item](const std::shared_ptr<BaseAspect> &i) {
         return i.get() == item;

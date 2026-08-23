@@ -13,7 +13,10 @@ ColumnLayout {
     id: root
 
     required property Aspect aspect
-    required property var options
+    // The descriptor, read from the aspect rather than taken as model roles, so
+    // that a hand-written page can use this delegate with nothing but the
+    // aspect. See AspectModels::presentation().
+    readonly property var pres: aspect ? AspectModels.presentation(aspect) : ({})
     readonly property string labelText: aspect?.labelText ?? ""
     readonly property bool aspectVisible: aspect?.visible ?? true
 
@@ -27,7 +30,7 @@ ColumnLayout {
     }
 
     Repeater {
-        model: root.options
+        model: root.pres.options
 
         delegate: CheckBox {
             id: option
