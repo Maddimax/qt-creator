@@ -339,16 +339,36 @@ whose label is the group title, rendered by `GroupDelegate.qml` through the
 `childModel` role. Recursive. This is what the 65 need in order to lose their
 closures.
 
-### Phase 3 - the gate, and it is a product decision
+### Phase 3 - done, without waiting for full parity
 
-**No layouter can actually be deleted until the Quick form is the default.**
-`IOptionsPagePrivate::createWidget()` uses the Quick path only when an
-`aspectFormFactory` is installed, which today only the `quickui` plugin does.
-Delete a closure while the factory is absent and that page renders nothing.
+The factory is installed unconditionally, so the Quick form is the default.
+Full delegate parity turned out not to be a prerequisite: `createAspectForm()`
+**declines a container it cannot show in full**, and `IOptionsPage` keeps that
+page's widget layout. So the flip is a strict improvement - no page loses a
+control - and the declined pages are the backlog rather than a regression.
 
-So Phase 3 is: install the factory unconditionally. That changes how every
-aspect-driven settings page looks, so it is a decision to take deliberately
-rather than a refactor - and it needs delegate parity first. Known gaps:
+Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
+all`, minus `QmlDesigner` and `UpdateInfo`, see below): **73 aspect-driven
+pages, 54 rendered with Qt Quick, 19 still on widgets.** What holds those 19
+back: six `StringListAspect`s, one `IntegersAspect`, one `FontAspect`, three
+`AspectList`s, and about nine aspects whose control is `Custom` because they
+build their own widget in `addToLayoutImpl`.
+
+`QTC_QUICK_SETTINGS` now means the opposite of what it used to: render the
+declined pages too, placeholders and all, so the gaps are visible while working
+on them.
+
+Two things to know about running that measurement. `-load all` trips over any
+stale plugin left in the build directory from an older configure - here a
+`libQmlDesigner.dylib` from months earlier, still referencing the removed
+`AspectContainer::setLayouter` - and a plugin that fails to load aborts the
+whole test run, so `-noload` it. `UpdateInfo` fails in a dev build for
+unrelated reasons and needs the same treatment. Also note that the pages a
+`-test` run sees are the tested plugin's dependency closure unless `-load` is
+given; the count was 4 before, and 21 with one extra plugin.
+
+Remaining delegate gaps, which now decide whether a page is accepted rather
+than whether it renders correctly:
 
 - `StringSelectionAspect` and anything else whose choices come from an async
   fill callback report no choices, so they render as `Unsupported`. They need
