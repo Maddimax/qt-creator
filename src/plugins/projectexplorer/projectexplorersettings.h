@@ -67,6 +67,8 @@ public:
     // This is used to warn the user when he is trying to open a .user file that was created
     // somewhere else (which might lead to unexpected results).
     Utils::ByteArrayAspect environmentId{this};
+    Utils::ActionAspect changeAppEnv{this};
+    Utils::TextDisplay jomNote{this};
 
 private:
     static Project *projectForContext(QObject *context);

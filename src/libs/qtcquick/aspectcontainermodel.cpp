@@ -97,8 +97,8 @@ AspectContainerModel::Kind AspectContainerModel::kindOf(AspectControls::Control 
     case AspectControls::Container:              return Container;
     case AspectControls::Label:                  return TextDisplay;
     case AspectControls::CheckBox:
-    case AspectControls::RadioButton:
     case AspectControls::Toggle:                 return Bool;
+    case AspectControls::RadioButton:            return Radio;
     case AspectControls::LineEdit:
     case AspectControls::PasswordLineEdit:
     case AspectControls::TextEdit:               return String;

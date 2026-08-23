@@ -57,6 +57,7 @@ if(TARGET QtcQuick)
       QtcPageIndicator.qml
       QtcProgressBar.qml
       QtcSearchBox.qml
+      RadioDelegate.qml
       QtcSwitch.qml
       SelectionDelegate.qml
       StringDelegate.qml

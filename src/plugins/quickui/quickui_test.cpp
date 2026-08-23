@@ -113,6 +113,7 @@ private slots:
     void testAspectQmlNamesAreUsableAndUnique();
     void testActionAspectIsAButtonOnEitherRenderer();
     void testTextDisplayShowsItsMessage();
+    void testRadioStyledBoolIsARadioButton();
 };
 
 void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
@@ -590,6 +591,44 @@ void QuickUiTest::testTextDisplayShowsItsMessage()
     QCOMPARE(links.size(), 1);
     QCOMPARE(links.first().first().toString(),
              QString("http://download.qt.io/official_releases/jom/"));
+}
+
+void QuickUiTest::testRadioStyledBoolIsARadioButton()
+{
+    // A bool aspect can ask to be drawn as a radio button, and the Quick side
+    // used to fold that into the check box - so a page offering a choice of two
+    // showed two check boxes. Which of a set is on is the aspects' own
+    // business, they keep each other in step, so the buttons must not group
+    // themselves or they would fight it.
+    Utils::AspectContainer page;
+    Utils::BoolAspect current(&page);
+    current.setDisplayStyle(Utils::BoolAspect::DisplayStyle::RadionButton);
+    current.setLabelText("Current directory");
+    current.setValue(true);
+    Utils::BoolAspect chosen(&page);
+    chosen.setDisplayStyle(Utils::BoolAspect::DisplayStyle::RadionButton);
+    chosen.setLabelText("Directory");
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QVERIFY(quickWidget->rootObject());
+
+    QList<QQuickItem *> radios;
+    QTRY_COMPARE((radios = findQmlComponents(quickWidget->rootObject(), "RadioDelegate")).size(),
+                 2);
+    QVERIFY(!findQmlComponent(quickWidget->rootObject(), "BoolDelegate"));
+    QCOMPARE(radios.at(0)->property("checked").toBool(), true);
+    QCOMPARE(radios.at(1)->property("checked").toBool(), false);
+    QCOMPARE(radios.at(0)->property("autoExclusive").toBool(), false);
+
+    // Checking the second one leaves the first to the aspects: nothing here
+    // unchecks it behind their backs.
+    radios.at(1)->setProperty("checked", true);
+    QMetaObject::invokeMethod(radios.at(1), "toggled");
+    QCOMPARE(chosen.volatileValue(), true);
+    QCOMPARE(current.volatileValue(), true);
 }
 
 void QuickUiTest::testQmlNameIsDerivedFromTheSettingsKey()

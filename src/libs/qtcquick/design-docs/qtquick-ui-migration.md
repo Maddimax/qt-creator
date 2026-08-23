@@ -421,6 +421,12 @@ exists for it; `StringAspect` reports its filtered value there too, which is
 what a `LabelDisplay` draws. The delegate also colours the text by
 `infoType`, so an error looks like one.
 
+**A radio button is not a check box.** `AspectControls::RadioButton` folded
+into the check box on the Quick side, so a page offering a choice of two showed
+two check boxes. `RadioDelegate` draws it properly. Which of a set is on stays
+the aspects' business - they keep each other in step in C++ - so the delegate
+sets `autoExclusive: false` rather than grouping itself and fighting them.
+
 **A destroyed editor still speaks.** Removing a row of the string list editor
 destroys its `TextField`, which loses focus, which emits `editingFinished` -
 carrying the text of the row that is going away and an index that by then
@@ -446,7 +452,7 @@ naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
 all`, minus `QmlDesigner` and `UpdateInfo`, see below): **73 aspect-driven
-pages, 39 with their own QML and rendered with Qt Quick, 34 still on widgets.**
+pages, 40 with their own QML and rendered with Qt Quick, 33 still on widgets.**
 Before the gate was narrowed, 65 pages rendered generically; the delegate work
 that made that possible is all still in place and is what the ports build on:
 `StringListAspect` (a real list editor), `IntegersAspect` (`Invisible`, because

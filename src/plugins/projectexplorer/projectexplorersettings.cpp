@@ -26,6 +26,7 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QCoreApplication>
+#include <QDesktopServices>
 #include <QLabel>
 #include <QPushButton>
 #include <QRadioButton>
@@ -201,76 +202,48 @@ ProjectExplorerSettings::ProjectExplorerSettings(bool global)
 
     environmentId.setSettingsKey("EnvironmentId");
 
-    Utils::AspectWidgets::setLayouter(this, [this, appEnvToolTip] {
-        using namespace Layouting;
+    // Aspects with no settings key derive no name, so a page's QML cannot
+    // reach them until they are given one.
+    useCurrentDirectory.setQmlName("UseCurrentDirectory");
+    useProjectDirectory.setQmlName("UseProjectDirectory");
+    projectsDirectory.setQmlName("ProjectsDirectory");
+    appEnvChangeDisplay.setQmlName("AppEnvChangeDisplay");
 
-        PushButton appEnvButton {
-            text(Tr::tr("Change...")),
-            Layouting::toolTip(appEnvToolTip),
-            sizePolicy(QSizePolicy{QSizePolicy::Fixed, QSizePolicy::Preferred}),
-            onClicked(this, [this] {
-                const std::optional<EnvironmentChanges> changes =
-                        runEnvironmentItemsDialog(dialogParent(), appEnvChanges.volatileValue());
-                if (!changes)
-                    return;
-                appEnvChanges.setVolatileValue(*changes);
-            })
-        };
+    // Storage only: it identifies this development environment and is never
+    // edited, so no page should offer it.
+    environmentId.setVisible(false);
 
-        return
-            Column {
-                Group {
-                    title(Tr::tr("Projects Directory")),
-                    Column {
-                        useCurrentDirectory,
-                        Row { useProjectDirectory, projectsDirectory },
-                    }
-                },
-                Group {
-                    title(Tr::tr("Closing Projects")),
-                    Column {
-                        closeSourceFilesWithProject
-                    },
-                },
-                Group {
-                    title(Tr::tr("Build and Run")),
-                    Column {
-                        saveBeforeBuild,
-                        deployBeforeRun,
-                        addLibraryPathsToRunEnv,
-                        promptToStopRunControl,
-                        promptToStopCloseTab,
-                        automaticallyCreateRunConfigurations,
-                        clearIssuesOnRebuild,
-                        abortBuildAllOnError,
-                        lowBuildPriority,
-                        warnAgainstNonAsciiBuildDir,
-                        Form {
-                            kitFilter, br,
-                            appEnvChangeDisplay, appEnvButton, br,
-                            buildBeforeDeploy, br,
-                            stopBeforeBuild, br,
-                            terminalMode, br,
-                            syncRunConfigurations, br,
-                            reaperTimeoutInSeconds, st, br,
-                        },
-                        If (HostOsInfo::isWindowsHost()) >> Then {
-                            Label {
-                                text("<i>jom</i> is a drop-in replacement for <i>nmake</i> which "
-                                     "distributes the compilation process to multiple CPU core "
-                                     "The latest binary is available at "
-                                     "<a href=\"http://download.qt.io/official_releases/jom/\">"
-                                     "http://download.qt.io/official_releases/jom/</a>. "
-                                     "Disable it if you experience problems with your builds."),
-                                wordWrap(true)
-                            },
-                            useJom,
-                        }
-                    },
-                },
-                st
-            };
+    changeAppEnv.setActionText(Tr::tr("Change..."));
+    changeAppEnv.setToolTip(appEnvToolTip);
+    changeAppEnv.setQmlName("ChangeAppEnv");
+    changeAppEnv.setAction([this] {
+        const std::optional<EnvironmentChanges> changes
+            = runEnvironmentItemsDialog(dialogParent(), appEnvChanges.volatileValue());
+        if (!changes)
+            return;
+        appEnvChanges.setVolatileValue(*changes);
     });
+
+    jomNote.setText(
+        Tr::tr("<i>jom</i> is a drop-in replacement for <i>nmake</i> which "
+               "distributes the compilation process to multiple CPU cores. "
+               "The latest binary is available at "
+               "<a href=\"http://download.qt.io/official_releases/jom/\">"
+               "http://download.qt.io/official_releases/jom/</a>. "
+               "Disable it if you experience problems with your builds."));
+    jomNote.setWordWrap(true);
+    jomNote.setQmlName("JomNote");
+    connect(&jomNote, &TextDisplay::linkActivated, this, [](const QString &link) {
+        QDesktopServices::openUrl(QUrl(link));
+    });
+
+    // jom is a Windows build tool, so neither the note nor the option applies
+    // anywhere else. Which is a fact about the host, not about the layout.
+    jomNote.setVisible(HostOsInfo::isWindowsHost());
+    useJom.setVisible(HostOsInfo::isWindowsHost());
+
+    setQmlSource(
+        QUrl("qrc:/qt/qml/QtCreator/ProjectExplorer/BuildAndRunSettingsPage.qml"));
 
     useCurrentDirectory.addOnVolatileValueChanged(this, [this] {
         const bool useCurrent = useCurrentDirectory.volatileValue();

@@ -57,6 +57,7 @@ public:
         AspectList,
         TextWithAction,
         Button,
+        Radio,
         // Shows nothing at all, which some aspects legitimately do.
         Invisible,
         Unsupported,
