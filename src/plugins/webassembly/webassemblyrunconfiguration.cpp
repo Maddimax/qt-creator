@@ -145,7 +145,7 @@ public:
         p.control = AspectControls::ComboBox;
         p.labelText = Tr::tr("Web browser:");
         for (const WebBrowserEntry &be : m_availableBrowsers)
-            p.choices.append(be.second);
+            p.choices.append({be.second, {}, true, be.first});
         return p;
     }
 

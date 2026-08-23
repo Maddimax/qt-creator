@@ -5,9 +5,10 @@
 
 #include "utils_global.h"
 
+#include <QList>
 #include <QObject>
+#include <QPixmap>
 #include <QString>
-#include <QStringList>
 #include <QVariant>
 
 namespace Utils {
@@ -44,6 +45,41 @@ enum Control {
 };
 Q_ENUM_NS(Control)
 
+// Where the label goes. The semantics are BoolAspect::LabelPlacement's:
+// AtControl puts the text on the control itself in the field column, Compact
+// does the same without reserving a label column, ShowTip repeats the tool
+// tip in a sub-label under the control.
+enum class LabelPlacement {
+    InExtraLabel,
+    AtControl,
+    Compact,
+    ShowTip,
+};
+Q_ENUM_NS(LabelPlacement)
+
+// Label. Mirrors Utils::InfoLabelType, reordered so that "no icon" is the
+// value-initialized default.
+enum class InfoType {
+    None,
+    Information,
+    Warning,
+    Error,
+    Ok,
+    NotOk,
+};
+Q_ENUM_NS(InfoType)
+
+// FontFamilyPicker. Mirrors FontFamilyAspect::FontFilter.
+enum FontFilter {
+    AllFonts = 0,
+    ScalableFonts = 0x1,
+    NonScalableFonts = 0x2,
+    MonospacedFonts = 0x4,
+    ProportionalFonts = 0x8,
+};
+Q_DECLARE_FLAGS(FontFilters, FontFilter)
+Q_FLAG_NS(FontFilters)
+
 } // namespace AspectControls
 
 // A backend-neutral description of an aspect's control, so that a renderer does
@@ -54,16 +90,55 @@ public:
     AspectControls::Control control = AspectControls::Custom;
 
     QString labelText;
+    QPixmap labelPixmap;
+    AspectControls::LabelPlacement labelPlacement = AspectControls::LabelPlacement::InExtraLabel;
+    int spanX = 1;
+    int spanY = 1;
+
     QString toolTip;
     QString placeholderText;
 
-    // ComboBox, RadioButtonGroup and MultiSelection.
-    QStringList choices;
+    // ComboBox, RadioButtonGroup and MultiSelection. Writes back to the
+    // aspect must use the id where it is set, not the display text.
+    class Choice
+    {
+    public:
+        QString display;
+        QString toolTip;
+        bool enabled = true;
+        QVariant id;
+    };
+    QList<Choice> choices;
 
     // SpinBox and DoubleSpinBox. Unset when the aspect has no bound.
     QVariant minimum;
     QVariant maximum;
     QVariant singleStep;
+
+    QString prefix;
+    QString suffix;
+    QString specialValueText;
+
+    // SpinBox. The control shows the value divided by displayScaleFactor.
+    int displayIntegerBase = 10;
+    qint64 displayScaleFactor = 1;
+
+    // StringList.
+    bool allowAdding = true;
+    bool allowRemoving = true;
+    bool allowEditing = true;
+
+    // Label.
+    AspectControls::InfoType infoType = AspectControls::InfoType::None;
+    bool wordWrap = false;
+
+    // ColorPicker.
+    bool alphaAllowed = true;
+    // ColorPicker and LineEdit.
+    bool withResetButton = false;
+
+    // FontFamilyPicker.
+    AspectControls::FontFilters fontFilters = AspectControls::AllFonts;
 
     bool readOnly = false;
     bool visible = true;
@@ -71,3 +146,5 @@ public:
 };
 
 } // namespace Utils
+
+Q_DECLARE_OPERATORS_FOR_FLAGS(Utils::AspectControls::FontFilters)

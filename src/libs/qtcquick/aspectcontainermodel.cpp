@@ -3,6 +3,7 @@
 
 #include "aspectcontainermodel.h"
 
+#include <utils/algorithm.h>
 #include <utils/aspects.h>
 #include <utils/qtcassert.h>
 
@@ -55,7 +56,10 @@ QVariant AspectContainerModel::data(const QModelIndex &index, int role) const
     case LabelTextRole: return p.labelText;
     case ToolTipRole:   return p.toolTip;
     case VisibleRole:   return p.visible;
-    case OptionsRole:   return p.choices;
+    // The delegates expect a plain string model; per-choice metadata stays
+    // behind until they grow roles for it.
+    case OptionsRole:
+        return Utils::transform<QStringList>(p.choices, &AspectPresentation::Choice::display);
     // An aspect with no bound presents an unset minimum/maximum. The delegates
     // bind these straight into SpinBox.from/to and DoubleValidator, so
     // substitute the widest value of the right type rather than passing

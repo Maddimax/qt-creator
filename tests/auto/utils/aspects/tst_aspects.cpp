@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include <utils/aspects.h>
+#include <utils/infolabel.h>
 
 #include <QSignalSpy>
 #include <QUndoStack>
@@ -21,6 +22,14 @@ private slots:
     void presentationReportsTheControl();
     void presentationFollowsDisplayStyle();
     void presentationCarriesBounds();
+    void presentationCarriesLabelGeometry();
+    void presentationCarriesNumericDisplay();
+    void presentationCarriesChoiceMetadata();
+    void presentationCarriesListEditingFlags();
+    void presentationCarriesPlaceholderText();
+    void presentationCarriesLabelState();
+    void presentationCarriesColorAndResetState();
+    void presentationCarriesFontFilters();
     void everyBuiltInAspectHasAControl();
     void aGuiWriteIsUndoable();
     void filePathGuiWriteIsVolatileAndUndoable();
@@ -116,7 +125,10 @@ void tst_Aspects::presentationReportsTheControl()
     selection.addOption("Two");
     selection.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
     QCOMPARE(selection.presentation().control, AspectControls::ComboBox);
-    QCOMPARE(selection.presentation().choices, QStringList({"One", "Two"}));
+    const QList<AspectPresentation::Choice> choices = selection.presentation().choices;
+    QCOMPARE(choices.size(), 2);
+    QCOMPARE(choices.at(0).display, QString("One"));
+    QCOMPARE(choices.at(1).display, QString("Two"));
 
     AspectContainer container;
     QCOMPARE(container.presentation().control, AspectControls::Container);
@@ -169,6 +181,154 @@ void tst_Aspects::presentationCarriesBounds()
     QCOMPARE(real.presentation().control, AspectControls::DoubleSpinBox);
     QCOMPARE(real.presentation().minimum.toDouble(), 0.5);
     QCOMPARE(real.presentation().maximum.toDouble(), 1.5);
+}
+
+// The label decision lives in the aspect: placement and span must reach a
+// renderer without a widget being built. (The pixmap is carried too, but a
+// non-null QPixmap needs a QGuiApplication, which this test does not have.)
+void tst_Aspects::presentationCarriesLabelGeometry()
+{
+    IntegerAspect integer;
+    QCOMPARE(integer.presentation().labelPlacement, AspectControls::LabelPlacement::InExtraLabel);
+    QCOMPARE(integer.presentation().spanX, 2);
+    QCOMPARE(integer.presentation().spanY, 1);
+    integer.setSpan(3, 2);
+    QCOMPARE(integer.presentation().spanX, 3);
+    QCOMPARE(integer.presentation().spanY, 2);
+    QVERIFY(integer.presentation().labelPixmap.isNull());
+
+    BoolAspect boolAspect;
+    QCOMPARE(boolAspect.presentation().labelPlacement, AspectControls::LabelPlacement::AtControl);
+    boolAspect.setLabelPlacement(BoolAspect::LabelPlacement::Compact);
+    QCOMPARE(boolAspect.presentation().labelPlacement, AspectControls::LabelPlacement::Compact);
+    boolAspect.setLabel("With tip", BoolAspect::LabelPlacement::ShowTip);
+    QCOMPARE(boolAspect.presentation().labelPlacement, AspectControls::LabelPlacement::ShowTip);
+    boolAspect.setLabelPlacement(BoolAspect::LabelPlacement::InExtraLabel);
+    QCOMPARE(boolAspect.presentation().labelPlacement,
+             AspectControls::LabelPlacement::InExtraLabel);
+}
+
+// The spin box decorations are display-only state: value() never contains
+// them, so a renderer can only get them from the descriptor.
+void tst_Aspects::presentationCarriesNumericDisplay()
+{
+    IntegerAspect integer;
+    QCOMPARE(integer.presentation().displayIntegerBase, 10);
+    QCOMPARE(integer.presentation().displayScaleFactor, 1);
+    integer.setPrefix("0x");
+    integer.setSuffix(" MB");
+    integer.setSpecialValueText("<unset>");
+    integer.setDisplayIntegerBase(16);
+    integer.setDisplayScaleFactor(1024);
+    const AspectPresentation p = integer.presentation();
+    QCOMPARE(p.prefix, QString("0x"));
+    QCOMPARE(p.suffix, QString(" MB"));
+    QCOMPARE(p.specialValueText, QString("<unset>"));
+    QCOMPARE(p.displayIntegerBase, 16);
+    QCOMPARE(p.displayScaleFactor, 1024);
+
+    DoubleAspect real;
+    real.setPrefix("~");
+    real.setSuffix(" s");
+    real.setSpecialValueText("default");
+    const AspectPresentation q = real.presentation();
+    QCOMPARE(q.prefix, QString("~"));
+    QCOMPARE(q.suffix, QString(" s"));
+    QCOMPARE(q.specialValueText, QString("default"));
+}
+
+// addOption()'s tool tip, enabled flag and item data must survive into the
+// descriptor: a combo delegate writes back the id, not the display text.
+void tst_Aspects::presentationCarriesChoiceMetadata()
+{
+    SelectionAspect selection;
+    selection.addOption("One", "first tip");
+    SelectionAspect::Option second("Two", "second tip", 42);
+    second.enabled = false;
+    selection.addOption(second);
+
+    const QList<AspectPresentation::Choice> choices = selection.presentation().choices;
+    QCOMPARE(choices.size(), 2);
+    QCOMPARE(choices.at(0).display, QString("One"));
+    QCOMPARE(choices.at(0).toolTip, QString("first tip"));
+    QVERIFY(choices.at(0).enabled);
+    QCOMPARE(choices.at(1).display, QString("Two"));
+    QCOMPARE(choices.at(1).toolTip, QString("second tip"));
+    QVERIFY(!choices.at(1).enabled);
+    QCOMPARE(choices.at(1).id.toInt(), 42);
+
+    // A multi selection writes back the display strings, so they are the ids.
+    MultiSelectionAspect multi;
+    multi.setAllValues({"a", "b"});
+    const QList<AspectPresentation::Choice> all = multi.presentation().choices;
+    QCOMPARE(all.size(), 2);
+    QCOMPARE(all.at(0).display, QString("a"));
+    QCOMPARE(all.at(0).id.toString(), QString("a"));
+    QVERIFY(all.at(1).enabled);
+    QCOMPARE(all.at(1).id.toString(), QString("b"));
+}
+
+void tst_Aspects::presentationCarriesListEditingFlags()
+{
+    StringListAspect list;
+    QVERIFY(list.presentation().allowAdding);
+    QVERIFY(list.presentation().allowRemoving);
+    QVERIFY(list.presentation().allowEditing);
+    list.setUiAllowAdding(false);
+    list.setUiAllowRemoving(false);
+    list.setUiAllowEditing(false);
+    const AspectPresentation p = list.presentation();
+    QVERIFY(!p.allowAdding);
+    QVERIFY(!p.allowRemoving);
+    QVERIFY(!p.allowEditing);
+}
+
+void tst_Aspects::presentationCarriesPlaceholderText()
+{
+    FilePathListAspect paths;
+    QVERIFY(paths.presentation().placeholderText.isEmpty());
+    paths.setPlaceHolderText("One path per line");
+    QCOMPARE(paths.placeHolderText(), QString("One path per line"));
+    QCOMPARE(paths.presentation().placeholderText, QString("One path per line"));
+}
+
+void tst_Aspects::presentationCarriesLabelState()
+{
+    TextDisplay display(nullptr, "message");
+    QCOMPARE(display.presentation().infoType, AspectControls::InfoType::None);
+    QVERIFY(display.presentation().wordWrap);
+    display.setIconType(InfoLabelType::Warning);
+    display.setWordWrap(false);
+    const AspectPresentation p = display.presentation();
+    QCOMPARE(p.infoType, AspectControls::InfoType::Warning);
+    QVERIFY(!p.wordWrap);
+}
+
+void tst_Aspects::presentationCarriesColorAndResetState()
+{
+    ColorAspect color;
+    QVERIFY(color.presentation().alphaAllowed);
+    QVERIFY(color.presentation().withResetButton);
+    color.setAlphaAllowed(false);
+    color.setWithResetButton(false);
+    QVERIFY(!color.presentation().alphaAllowed);
+    QVERIFY(!color.presentation().withResetButton);
+
+    StringAspect string;
+    string.setDisplayStyle(StringAspect::LineEditDisplay);
+    QVERIFY(!string.presentation().withResetButton);
+    string.setUseResetButton();
+    QVERIFY(string.presentation().withResetButton);
+}
+
+void tst_Aspects::presentationCarriesFontFilters()
+{
+    FontFamilyAspect font;
+    QCOMPARE(font.presentation().fontFilters,
+             AspectControls::FontFilters(AspectControls::AllFonts));
+    font.setFontFilters(FontFamilyAspect::MonospacedFonts);
+    QCOMPARE(font.presentation().fontFilters,
+             AspectControls::FontFilters(AspectControls::MonospacedFonts));
 }
 
 // A built-in aspect reporting Custom means presentation() was not overridden

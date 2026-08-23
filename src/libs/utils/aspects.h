@@ -959,6 +959,11 @@ public:
     std::optional<qint64> minimumValue() const;
     std::optional<qint64> maximumValue() const;
     qint64 singleStep() const;
+    QString prefix() const;
+    QString suffix() const;
+    QString specialValueText() const;
+    int displayIntegerBase() const;
+    qint64 displayScaleFactor() const;
     void setLabel(const QString &label); // FIXME: Use setLabelText
     void setPrefix(const QString &prefix);
     void setSuffix(const QString &suffix);
@@ -994,6 +999,9 @@ public:
     std::optional<double> minimumValue() const;
     std::optional<double> maximumValue() const;
     double singleStep() const;
+    QString prefix() const;
+    QString suffix() const;
+    QString specialValueText() const;
     void setPrefix(const QString &prefix);
     void setSuffix(const QString &suffix);
     void setSpecialValueText(const QString &specialText);
@@ -1106,6 +1114,7 @@ public:
 
     void addToLayoutImpl(Layouting::Layout &parent) override;
     void setPlaceHolderText(const QString &placeHolderText);
+    QString placeHolderText() const;
 
     void appendValue(const FilePath &path, bool allowDuplicates = true);
     void removeValue(const FilePath &path);

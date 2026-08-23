@@ -1088,7 +1088,7 @@ AspectPresentation LauncherAspect::presentation() const
     p.control = AspectControls::ComboBox;
     p.labelText = Tr::tr("Launcher:");
     for (const Launcher &launcher : m_launchers)
-        p.choices.append(launcher.displayName);
+        p.choices.append({launcher.displayName, {}, true, launcher.id});
     return p;
 }
 

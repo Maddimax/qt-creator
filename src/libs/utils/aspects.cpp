@@ -609,6 +609,9 @@ AspectPresentation BaseAspect::presentation() const
     AspectPresentation p;
     p.control = AspectControls::Custom;
     p.labelText = labelText();
+    p.labelPixmap = d->m_labelPixmap;
+    p.spanX = d->m_spanX;
+    p.spanY = d->m_spanY;
     p.toolTip = toolTip();
     p.readOnly = isReadOnly();
     p.visible = isVisible();
@@ -1353,6 +1356,7 @@ AspectPresentation StringAspect::presentation() const
     case PasswordLineEditDisplay: p.control = AspectControls::PasswordLineEdit; break;
     }
     p.placeholderText = d->m_placeHolderText;
+    p.withResetButton = d->m_useResetButton;
     return p;
 }
 
@@ -2134,6 +2138,8 @@ AspectPresentation ColorAspect::presentation() const
 {
     AspectPresentation p = TypedAspect::presentation();
     p.control = AspectControls::ColorPicker;
+    p.alphaAllowed = d->m_alphaAllowed;
+    p.withResetButton = d->m_withResetButton;
     return p;
 }
 
@@ -2222,6 +2228,7 @@ AspectPresentation FontFamilyAspect::presentation() const
 {
     AspectPresentation p = TypedAspect::presentation();
     p.control = AspectControls::FontFamilyPicker;
+    p.fontFilters = AspectControls::FontFilters::fromInt(d->m_fontFilters.toInt());
     return p;
 }
 
@@ -2505,6 +2512,20 @@ AspectPresentation BoolAspect::presentation() const
     AspectPresentation p = TypedAspect::presentation();
     p.control = d->m_displayStyle == DisplayStyle::CheckBox ? AspectControls::CheckBox
                                                             : AspectControls::RadioButton;
+    switch (d->m_labelPlacement) {
+    case LabelPlacement::AtCheckBox:
+        p.labelPlacement = AspectControls::LabelPlacement::AtControl;
+        break;
+    case LabelPlacement::Compact:
+        p.labelPlacement = AspectControls::LabelPlacement::Compact;
+        break;
+    case LabelPlacement::InExtraLabel:
+        p.labelPlacement = AspectControls::LabelPlacement::InExtraLabel;
+        break;
+    case LabelPlacement::ShowTip:
+        p.labelPlacement = AspectControls::LabelPlacement::ShowTip;
+        break;
+    }
     return p;
 }
 
@@ -2653,8 +2674,8 @@ AspectPresentation SelectionAspect::presentation() const
     AspectPresentation p = TypedAspect::presentation();
     p.control = d->m_displayStyle == DisplayStyle::ComboBox ? AspectControls::ComboBox
                                                             : AspectControls::RadioButtonGroup;
-    for (int i = 0, n = optionCount(); i < n; ++i)
-        p.choices.append(displayForIndex(i));
+    for (const Option &option : std::as_const(d->m_options))
+        p.choices.append({option.displayName, option.tooltip, option.enabled, option.itemData});
     return p;
 }
 
@@ -2883,7 +2904,8 @@ AspectPresentation MultiSelectionAspect::presentation() const
 {
     AspectPresentation p = TypedAspect::presentation();
     p.control = AspectControls::MultiSelection;
-    p.choices = d->m_allValues;
+    for (const QString &value : std::as_const(d->m_allValues))
+        p.choices.append({value, {}, true, value});
     return p;
 }
 
@@ -3019,6 +3041,11 @@ AspectPresentation IntegerAspect::presentation() const
     if (const std::optional<qint64> m = maximumValue())
         p.maximum = *m;
     p.singleStep = singleStep();
+    p.prefix = prefix();
+    p.suffix = suffix();
+    p.specialValueText = specialValueText();
+    p.displayIntegerBase = displayIntegerBase();
+    p.displayScaleFactor = displayScaleFactor();
     return p;
 }
 
@@ -3085,6 +3112,31 @@ std::optional<qint64> IntegerAspect::maximumValue() const
 qint64 IntegerAspect::singleStep() const
 {
     return d->m_singleStep;
+}
+
+QString IntegerAspect::prefix() const
+{
+    return d->m_prefix;
+}
+
+QString IntegerAspect::suffix() const
+{
+    return d->m_suffix;
+}
+
+QString IntegerAspect::specialValueText() const
+{
+    return d->m_specialValueText;
+}
+
+int IntegerAspect::displayIntegerBase() const
+{
+    return d->m_displayIntegerBase;
+}
+
+qint64 IntegerAspect::displayScaleFactor() const
+{
+    return d->m_displayScaleFactor;
 }
 
 void IntegerAspect::setLabel(const QString &label)
@@ -3171,6 +3223,9 @@ AspectPresentation DoubleAspect::presentation() const
     if (const std::optional<double> m = maximumValue())
         p.maximum = *m;
     p.singleStep = singleStep();
+    p.prefix = prefix();
+    p.suffix = suffix();
+    p.specialValueText = specialValueText();
     return p;
 }
 
@@ -3225,6 +3280,21 @@ std::optional<double> DoubleAspect::maximumValue() const
 double DoubleAspect::singleStep() const
 {
     return d->m_singleStep;
+}
+
+QString DoubleAspect::prefix() const
+{
+    return d->m_prefix;
+}
+
+QString DoubleAspect::suffix() const
+{
+    return d->m_suffix;
+}
+
+QString DoubleAspect::specialValueText() const
+{
+    return d->m_specialValueText;
 }
 
 void DoubleAspect::setPrefix(const QString &prefix)
@@ -3382,6 +3452,9 @@ AspectPresentation StringListAspect::presentation() const
     p.control = d->m_displayStyle == DisplayStyle::CommaSeparatedLineEdit
                     ? AspectControls::CommaSeparatedLineEdit
                     : AspectControls::StringList;
+    p.allowAdding = d->m_allowAdding;
+    p.allowRemoving = d->m_allowRemoving;
+    p.allowEditing = d->m_allowEditing;
     return p;
 }
 
@@ -3628,6 +3701,7 @@ AspectPresentation FilePathListAspect::presentation() const
 {
     AspectPresentation p = TypedAspect::presentation();
     p.control = AspectControls::FilePathList;
+    p.placeholderText = d->placeHolderText;
     return p;
 }
 
@@ -3666,6 +3740,11 @@ void FilePathListAspect::setPlaceHolderText(const QString &placeHolderText)
 
     d->placeHolderText = placeHolderText;
     emit placeHolderTextChanged(placeHolderText);
+}
+
+QString FilePathListAspect::placeHolderText() const
+{
+    return d->placeHolderText;
 }
 
 void FilePathListAspect::appendValue(const FilePath &path, bool allowDuplicates)
@@ -3772,6 +3851,27 @@ AspectPresentation TextDisplay::presentation() const
 {
     AspectPresentation p = BaseAspect::presentation();
     p.control = AspectControls::Label;
+    switch (d->m_type) {
+    case InfoLabelType::None:
+        p.infoType = AspectControls::InfoType::None;
+        break;
+    case InfoLabelType::Information:
+        p.infoType = AspectControls::InfoType::Information;
+        break;
+    case InfoLabelType::Warning:
+        p.infoType = AspectControls::InfoType::Warning;
+        break;
+    case InfoLabelType::Error:
+        p.infoType = AspectControls::InfoType::Error;
+        break;
+    case InfoLabelType::Ok:
+        p.infoType = AspectControls::InfoType::Ok;
+        break;
+    case InfoLabelType::NotOk:
+        p.infoType = AspectControls::InfoType::NotOk;
+        break;
+    }
+    p.wordWrap = d->m_wordWrap;
     return p;
 }
 
