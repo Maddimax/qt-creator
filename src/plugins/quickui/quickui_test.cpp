@@ -24,6 +24,23 @@ namespace QuickUi::Internal {
 
 // Runs inside a fully initialised Qt Creator, so it exercises the real
 // registered options pages rather than a synthetic container.
+// The first item in the visual tree whose type name starts with \a component.
+// A QML component's class name is its own file name plus a suffix, so this
+// finds delegates by the file that declares them. findChildren() is no use
+// here: a Repeater's delegates are visual children of its parent but not
+// QObject children of it.
+static QQuickItem *findQmlComponent(QQuickItem *root, const QString &component)
+{
+    if (QString::fromLatin1(root->metaObject()->className()).startsWith(component))
+        return root;
+    const QList<QQuickItem *> children = root->childItems();
+    for (QQuickItem *child : children) {
+        if (QQuickItem *found = findQmlComponent(child, component))
+            return found;
+    }
+    return nullptr;
+}
+
 class QuickUiTest final : public QObject
 {
     Q_OBJECT
@@ -47,6 +64,7 @@ void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
 
     int aspectDriven = 0;
     int renderedWithQuick = 0;
+    QStringList declined;
 
     for (Core::IOptionsPage *page : Core::IOptionsPage::allOptionsPages()) {
         const std::optional<Utils::AspectContainer *> aspects = page->aspects();
@@ -58,8 +76,18 @@ void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
         if (!widget)
             continue;
         auto quickWidget = widget->findChild<QQuickWidget *>();
-        if (!quickWidget)
+
+        // The form takes every page it can show fully and declines the rest,
+        // which keep their widget layout. Neither outcome may be arbitrary.
+        const bool renderable
+            = QtcQuick::AspectContainerModel::isFullyRenderable(*aspects)
+              || !(*aspects)->qmlSource().isEmpty();
+        QCOMPARE(bool(quickWidget), renderable);
+
+        if (!quickWidget) {
+            declined << page->displayName();
             continue;
+        }
         // A QQuickWidget whose component failed to load has no root object,
         // and a page showing nothing is not a page rendered with Quick.
         if (!quickWidget->rootObject()) {
@@ -67,6 +95,12 @@ void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
                 = Utils::transform(quickWidget->errors(), &QQmlError::toString);
             QFAIL(qPrintable(page->displayName() + ": " + errors.join("; ")));
         }
+        // The point of declining a page is that an accepted one shows every
+        // control. Checked against the rendered tree rather than against the
+        // same predicate the factory used to decide.
+        QVERIFY2(!findQmlComponent(quickWidget->rootObject(), "UnsupportedDelegate"),
+                 qPrintable(page->displayName() + " renders a placeholder"));
+
         // A page that names a QML file must render through it, not fall back to
         // the generic form. The root object's type is named after the file.
         if (const QUrl source = (*aspects)->qmlSource(); !source.isEmpty()) {
@@ -79,33 +113,18 @@ void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
         ++renderedWithQuick;
     }
 
-    qInfo() << "aspect-driven pages:" << aspectDriven
-            << "rendered with Qt Quick:" << renderedWithQuick;
+    qInfo().noquote() << "aspect-driven pages:" << aspectDriven
+                      << "rendered with Qt Quick:" << renderedWithQuick
+                      << "\n  still on widgets:" << declined.join(", ");
 
-    // How many aspect-driven pages exist depends on which plugins this test run
-    // loads, which is only QuickUi's dependency closure. The invariant is that
-    // every one of them goes through the Qt Quick path.
+    // How many pages exist depends on which plugins this run loads, which is
+    // QuickUi's dependency closure unless -load is given. What is asserted per
+    // page is above; here it is only that there were pages at all and that the
+    // Quick path is not simply switched off.
     QVERIFY(aspectDriven > 0);
-    QCOMPARE(renderedWithQuick, aspectDriven);
+    QVERIFY(renderedWithQuick > 0);
 
     Core::setAspectFormFactory({});
-}
-
-// The first item in the visual tree whose type name starts with \a component.
-// A QML component's class name is its own file name plus a suffix, so this
-// finds delegates by the file that declares them. findChildren() is no use
-// here: a Repeater's delegates are visual children of its parent but not
-// QObject children of it.
-static QQuickItem *findQmlComponent(QQuickItem *root, const QString &component)
-{
-    if (QString::fromLatin1(root->metaObject()->className()).startsWith(component))
-        return root;
-    const QList<QQuickItem *> children = root->childItems();
-    for (QQuickItem *child : children) {
-        if (QQuickItem *found = findQmlComponent(child, component))
-            return found;
-    }
-    return nullptr;
 }
 
 void QuickUiTest::testNestedContainerIsAModelGroup()

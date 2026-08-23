@@ -8,6 +8,7 @@
 #include "qtcquickwidget.h"
 
 #include <utils/aspects.h>
+#include <utils/environment.h>
 #include <utils/qtcassert.h>
 
 #include <QQuickWidget>
@@ -28,6 +29,17 @@ QWidget *createAspectForm(Utils::AspectContainer *container)
         widget->quickWidget()->setInitialProperties({{"aspects", QVariant::fromValue(named)}});
         widget->setSource(source);
         return widget;
+    }
+
+    // A page with an aspect the generic form cannot show would lose a control,
+    // so decline it and let the caller keep its widget layout. Those pages are
+    // the migration backlog: give them their own QML, or teach the form the
+    // aspect. QTC_QUICK_SETTINGS renders them anyway, placeholders and all, so
+    // that the gaps are visible while working on them.
+    if (!AspectContainerModel::isFullyRenderable(container)
+        && !Utils::qtcEnvironmentVariableIsSet("QTC_QUICK_SETTINGS")) {
+        delete widget;
+        return nullptr;
     }
 
     auto model = new AspectContainerModel(container, widget);

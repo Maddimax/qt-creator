@@ -75,6 +75,14 @@ public:
 
     static Kind kindOf(Utils::AspectControls::Control control);
 
+    // The kind for one aspect, which is kindOf() on its control plus the cases
+    // where the control is right but the aspect cannot describe itself.
+    static Kind kindOf(const Utils::BaseAspect *aspect);
+
+    // Whether a generic form can show every aspect in \a container, nested
+    // containers included. False means at least one would be a placeholder.
+    static bool isFullyRenderable(const Utils::AspectContainer *container);
+
 private:
     QList<Utils::BaseAspect *> m_aspects;
     // A model per nested container, built on demand and owned by this one, so

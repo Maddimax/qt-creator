@@ -52,17 +52,8 @@ QVariant AspectContainerModel::data(const QModelIndex &index, int role) const
 
     const AspectPresentation p = aspect->presentation();
     switch (role) {
-    case KindRole: {
-        const Kind kind = kindOf(p.control);
-        // A selection whose choices are not in its presentation cannot be
-        // rendered generically: StringSelectionAspect fills a
-        // QStandardItemModel from an async callback and reports no choices,
-        // which would otherwise give an empty combo box and a type error from
-        // binding its QString value to currentIndex.
-        if ((kind == Selection || kind == MultiSelection) && p.choices.isEmpty())
-            return int(Unsupported);
-        return int(kind);
-    }
+    case KindRole:
+        return int(kindOf(aspect));
     // labelText, toolTip and visibility are Q_PROPERTYs on the aspect, so the
     // delegates read them from there: one source of truth, and they follow
     // their NOTIFY signals rather than needing this model to emit dataChanged.
@@ -112,6 +103,40 @@ QHash<int, QByteArray> AspectContainerModel::roleNames() const
         {StepRole, "step"},
         {ChildModelRole, "childModel"},
     };
+}
+
+AspectContainerModel::Kind AspectContainerModel::kindOf(const BaseAspect *aspect)
+{
+    QTC_ASSERT(aspect, return Unsupported);
+    const AspectPresentation p = aspect->presentation();
+    const Kind kind = kindOf(p.control);
+
+    // A selection whose choices are not in its presentation cannot be rendered
+    // generically: StringSelectionAspect fills a QStandardItemModel from an
+    // async callback and reports no choices, which would otherwise give an
+    // empty combo box and a type error from binding its value to currentIndex.
+    if ((kind == Selection || kind == MultiSelection) && p.choices.isEmpty())
+        return Unsupported;
+
+    return kind;
+}
+
+bool AspectContainerModel::isFullyRenderable(const AspectContainer *container)
+{
+    QTC_ASSERT(container, return false);
+
+    const QList<BaseAspect *> aspects = container->aspects();
+    for (const BaseAspect *aspect : aspects) {
+        const Kind kind = kindOf(aspect);
+        if (kind == Unsupported)
+            return false;
+        if (kind == Container) {
+            auto nested = qobject_cast<const AspectContainer *>(aspect);
+            if (!nested || !isFullyRenderable(nested))
+                return false;
+        }
+    }
+    return true;
 }
 
 AspectContainerModel::Kind AspectContainerModel::kindOf(AspectControls::Control control)

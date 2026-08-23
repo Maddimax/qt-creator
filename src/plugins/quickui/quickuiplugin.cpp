@@ -24,9 +24,9 @@ private:
 #ifdef WITH_TESTS
         addTestCreator(createQuickUiTest);
 #endif
-        if (!Utils::qtcEnvironmentVariableIsSet("QTC_QUICK_SETTINGS"))
-            return;
-
+        // Every aspect-driven settings page the Qt Quick form can show fully
+        // goes through it. createAspectForm() declines the rest, and
+        // IOptionsPage falls back to their widget layout.
         Core::setAspectFormFactory([](Utils::AspectContainer *container) {
             return QtcQuick::createAspectForm(container);
         });
