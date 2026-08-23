@@ -9,6 +9,7 @@
 #include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/icore.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/aspects.h>
 #include <utils/guardedcallback.h>
 #include <utils/infobar.h>
@@ -98,7 +99,7 @@ void setupFetchModule()
             pluginsNotAllowedToFetch.setUiAllowAdding(false);
             pluginsNotAllowedToFetch.setUiAllowEditing(false);
 
-            setLayouter([this] {
+            Utils::AspectWidgets::setLayouter(this, [this] {
                 using namespace Layouting;
                 // clang-format off
                 return Form {

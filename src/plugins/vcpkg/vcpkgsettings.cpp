@@ -15,6 +15,7 @@
 #include <projectexplorer/projectsettings.h>
 #include <projectexplorer/useglobalaspect.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/environment.h>
 #include <utils/layoutbuilder.h>
 #include <utils/pathchooser.h>
@@ -49,7 +50,7 @@ VcpkgSettings::VcpkgSettings()
 
     connect(this, &AspectContainer::applied, this, &VcpkgSettings::setVcpkgRootEnvironmentVariable);
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
         auto websiteButton = new QToolButton;
         websiteButton->setIcon(Icons::ONLINE.icon());

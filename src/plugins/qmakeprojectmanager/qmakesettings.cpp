@@ -8,6 +8,7 @@
 
 #include <projectexplorer/projectexplorerconstants.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/hostosinfo.h>
 #include <utils/layoutbuilder.h>
 
@@ -43,7 +44,7 @@ QmakeSettings::QmakeSettings()
     ignoreSystemFunction.setToolTip(Tr::tr("Checking this option avoids unwanted side effects, "
          "but may result in inexact parsing results."));
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
         return Column {
             warnAgainstUnalignedBuildDir,

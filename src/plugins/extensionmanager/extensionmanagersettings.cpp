@@ -46,7 +46,7 @@ ExtensionManagerSettings::ExtensionManagerSettings()
         {"https://github.com/qt-creator/extension-registry/archive/refs/heads/main.tar.gz"});
 
     // clang-format off
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
 #ifndef QT_NO_SSL
         const bool sslSupported = QSslSocket::supportsSsl();
 #else

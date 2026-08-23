@@ -14,6 +14,7 @@
 #include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/messagemanager.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/fancylineedit.h>
 #include <utils/hostosinfo.h>
 #include <utils/layoutbuilder.h>
@@ -75,7 +76,7 @@ BehaviorSettings::BehaviorSettings(const Key &keyPrefix)
     smartSelectionChanging.setLabelText(Tr::tr("Enable smart selection changing"));
     smartSelectionChanging.setToolTip(Tr::tr("Using Select Block Up / Down actions will now provide smarter selections."));
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
         return Column {
             Group {
@@ -151,7 +152,7 @@ public:
         registerAspect(&globalExtraEncodingSettings());
         registerAspect(&globalBehaviorSettings());
 
-        setLayouter([] {
+        Utils::AspectWidgets::setLayouter(this, [] {
             using namespace Layouting;
             return Column {
                 &globalTabSettings(),

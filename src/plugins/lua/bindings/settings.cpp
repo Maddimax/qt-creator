@@ -4,6 +4,7 @@
 #include "../luaengine.h"
 #include "utils.h"
 
+#include <utils/aspectwidgets.h>
 #include <utils/aspectlist.h>
 #include <utils/aspects.h>
 #include <utils/environment.h>
@@ -69,7 +70,7 @@ static std::unique_ptr<LuaAspectContainer> aspectContainerCreate(const sol::main
                 container->setAutoApply(v.as<bool>());
             } else if (key == "layouter") {
                 if (v.is<sol::function>())
-                    container->setLayouter(
+                    Utils::AspectWidgets::setLayouter(container.get(),
                         [func = v.as<sol::main_function>()]() -> Layouting::Layout {
                             auto res = safe_call<Layouting::Layout>(func);
                             QTC_ASSERT_RESULT(res, return {});

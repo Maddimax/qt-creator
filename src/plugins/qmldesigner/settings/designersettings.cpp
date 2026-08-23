@@ -5,6 +5,7 @@
 
 #include "qmldesignertr.h"
 
+#include <utils/aspectwidgets.h>
 #include <utils/guiutils.h>
 #include <utils/layoutbuilder.h>
 #include <utils/qtcsettings.h>
@@ -246,7 +247,7 @@ DesignerSettings::DesignerSettings()
     groqApiKey.setSettingsKey("GroqApiKey");
     groqApiKey.setDefaultValue({});
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
 
         return Column {

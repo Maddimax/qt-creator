@@ -45,7 +45,7 @@ GeneralSettings::GeneralSettings()
     autoFormatMime.setLabelText(Tr::tr("Restrict to MIME types:"));
     autoFormatMime.setDisplayStyle(StringAspect::LineEditDisplay);
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
         return Column {
             Group {

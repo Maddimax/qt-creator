@@ -14,6 +14,7 @@
 
 #include <qmljstools/qmljstoolsconstants.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/layoutbuilder.h>
 
 #include <QGuiApplication>
@@ -93,7 +94,7 @@ TabSettings::TabSettings()
     continuationAlignBehavior.addOption(Tr::tr("With Regular Indent"));
     continuationAlignBehavior.setToolTip(continuationTooltip());
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
         return Column {
             Group {

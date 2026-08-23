@@ -9,6 +9,7 @@
 #include "themechooser.h"
 
 
+#include <utils/aspectwidgets.h>
 #include <utils/algorithm.h>
 #include <utils/checkablemessagebox.h>
 #include <utils/infobar.h>
@@ -355,7 +356,7 @@ GeneralSettings::GeneralSettings()
         ICore::askForRestart(Tr::tr("The theme change will take effect after restart."));
     });
 
-    setLayouter([this]() -> Layouting::Layout {
+    Utils::AspectWidgets::setLayouter(this, [this]() -> Layouting::Layout {
         static const bool showDpiPolicy = StyleHelper::defaultHighDpiScaleFactorRoundingPolicy()
                                           != Qt::HighDpiScaleFactorRoundingPolicy::Unset;
 

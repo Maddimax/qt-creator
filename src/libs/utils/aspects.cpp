@@ -9,7 +9,6 @@
 #include "checkabledecider.h"
 #include "environment.h"
 #include "guard.h"
-#include "layoutbuilder.h"
 #include "macroexpander.h"
 #include "pathvalidation.h"
 #include "qtcassert.h"
@@ -3247,7 +3246,7 @@ public:
     QList<BaseAspect *> m_items; // Both owned and non-owned.
     QList<BaseAspect *> m_ownedItems; // Owned only.
     QStringList m_settingsGroup;
-    std::function<Layouting::Layout()> m_layouter;
+    std::shared_ptr<void> m_backendData;
 };
 
 #ifdef WITH_TESTS
@@ -3295,7 +3294,9 @@ AspectPresentation AspectContainer::presentation() const
 
 void AspectContainer::addToLayoutImpl(Layouting::Layout &parent)
 {
-    parent.addItem(layouter()());
+    // The widget renderer owns this control's construction. Reaching the
+    // check means no renderer was installed; see installAspectWidgetRenderer().
+    QTC_CHECK(renderAspect(*this, parent));
 }
 
 /*!
@@ -3341,14 +3342,14 @@ AspectContainer::const_iterator AspectContainer::end() const
     return d->m_items.cend();
 }
 
-void AspectContainer::setLayouter(const std::function<Layouting::Layout ()> &layouter)
+void AspectContainer::setBackendData(const std::shared_ptr<void> &data)
 {
-    d->m_layouter = layouter;
+    d->m_backendData = data;
 }
 
-std::function<Layout ()> AspectContainer::layouter() const
+std::shared_ptr<void> AspectContainer::backendData() const
 {
-    return d->m_layouter;
+    return d->m_backendData;
 }
 
 const QList<BaseAspect *> &AspectContainer::aspects() const

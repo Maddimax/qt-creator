@@ -10,6 +10,7 @@
 
 #include <projectexplorer/projectexplorerconstants.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/environment.h>
 #include <utils/layoutbuilder.h>
 #include <utils/pathchooser.h>
@@ -43,7 +44,7 @@ ZephyrSettings::ZephyrSettings()
     qmlProjectExporterFilePath.setExpectedKind(PathChooserKind::ExistingCommand);
     qmlProjectExporterFilePath.setPlaceHolderText(Tr::tr("optional, for Qt for MCUs projects"));
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
         return Column {
             Group {

@@ -11,6 +11,7 @@
 #include <projectexplorer/devicesupport/devicemanager.h>
 #include <projectexplorer/devicesupport/idevice.h>
 #include <projectexplorer/projectexplorerconstants.h>
+#include <utils/aspectwidgets.h>
 #include <utils/environment.h>
 #include <utils/hostosinfo.h>
 #include <utils/layoutbuilder.h>
@@ -142,7 +143,7 @@ QbsSettings::QbsSettings()
     useCreatorSettings.setLabelText(Tr::tr("Use %1 settings directory for Qbs")
                                     .arg(QGuiApplication::applicationDisplayName()));
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
         return Column {
             useCreatorSettings,

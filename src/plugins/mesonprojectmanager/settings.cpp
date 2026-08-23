@@ -8,6 +8,7 @@
 
 #include <coreplugin/dialogs/ioptionspage.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/layoutbuilder.h>
 
 namespace MesonProjectManager::Internal {
@@ -32,7 +33,7 @@ MesonSettings::MesonSettings()
     verboseBuild.setLabelText(Tr::tr("Meson verbose mode"));
     verboseBuild.setToolTip(Tr::tr("Enables verbose mode by default when invoking Meson."));
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
         return Column {
             autorunMeson,

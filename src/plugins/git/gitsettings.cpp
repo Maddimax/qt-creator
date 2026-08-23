@@ -138,7 +138,7 @@ GitSettings::GitSettings()
 
     timeout.setDefaultValue(Utils::HostOsInfo::isWindowsHost() ? 60 : 30);
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
         return Column {
             Group {

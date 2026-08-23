@@ -103,6 +103,10 @@ private slots:
     void stringPasswordLineEdit();
     void pathChooser_data() { addRendererRows(); }
     void pathChooser();
+    void container_data() { addRendererRows(); }
+    void container();
+    void containerWithoutLayouter_data() { addRendererRows(); }
+    void containerWithoutLayouter();
     void boolGroupChecker_data() { addRendererRows(); }
     void boolGroupChecker();
     void boolAdoptedButton_data() { addRendererRows(); }
@@ -655,6 +659,40 @@ void tst_AspectRenderer::pathChooser()
 
     aspect.setVolatileValue("/tmp/two");
     QCOMPARE(chooser->lineEdit()->text(), QString("/tmp/two"));
+}
+
+void tst_AspectRenderer::container()
+{
+    QFETCH(bool, withRenderer);
+    setRendererInstalled(withRenderer);
+
+    AspectContainer container;
+    BoolAspect flag(&container);
+    flag.setLabelText("Flag");
+    StringAspect name(&container);
+    name.setDisplayStyle(StringAspect::LineEditDisplay);
+    name.setLabelText("Name");
+
+    AspectWidgets::setLayouter(&container, [&flag, &name] {
+        using namespace Layouting;
+        return Form { flag, br, name };
+    });
+
+    const std::unique_ptr<QWidget> widget = render(container);
+    QVERIFY(widget->findChild<QCheckBox *>());
+    QVERIFY(widget->findChild<FancyLineEdit *>());
+}
+
+void tst_AspectRenderer::containerWithoutLayouter()
+{
+    QFETCH(bool, withRenderer);
+    setRendererInstalled(withRenderer);
+
+    // Used to call an empty std::function. Renders nothing now.
+    AspectContainer container;
+    const std::unique_ptr<QWidget> widget = render(container);
+    QVERIFY(widget);
+    QVERIFY(!widget->findChild<QCheckBox *>());
 }
 
 void tst_AspectRenderer::boolGroupChecker()

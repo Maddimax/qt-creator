@@ -14,6 +14,7 @@
 #include <projectexplorer/projectmanager.h>
 #include <QtTaskTree/QTaskTree>
 
+#include <utils/aspectwidgets.h>
 #include <utils/filedialogs.h>
 #include <utils/algorithm.h>
 #include <utils/fileutils.h>
@@ -623,7 +624,7 @@ public:
         m_localPath.setShowToolTipOnLabel(true);
 
         using namespace Layouting;
-        setLayouter([this] {
+        Utils::AspectWidgets::setLayouter(this, [this] {
             return Form {
                         &m_projectName, br,
                         &m_analysisPath, br,
@@ -700,7 +701,7 @@ AxivionSettingsWidget::AxivionSettingsWidget()
     m_removeServerButton = new QPushButton(Tr::tr("Remove"), this);
 
     m_detailsWidget = new QWidget(this);
-    m_details.layouter()().attachTo(m_detailsWidget);
+    Utils::AspectWidgets::layouter(&m_details)().attachTo(m_detailsWidget);
 
     m_mappingTree.setSelectionMode(QAbstractItemView::SingleSelection);
     m_mappingTree.setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -997,7 +998,7 @@ static PathMapping showPathMappingsDialog(const PathMapping &suggested)
     auto mappingWidget = new QWidget(&dialog);
     PathMappingDetails details;
     details.updateContent(suggested);
-    details.layouter()().attachTo(mappingWidget);
+    Utils::AspectWidgets::layouter(&details)().attachTo(mappingWidget);
 
     ok->setEnabled(suggested.isValid()
                    && suggested.localPath.resolvePath(suggested.analysisPath).exists());

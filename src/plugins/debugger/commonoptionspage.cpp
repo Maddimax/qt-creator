@@ -13,6 +13,7 @@
 
 #include <coreplugin/dialogs/ioptionspage.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/layoutbuilder.h>
 
 #include <QGuiApplication>
@@ -171,7 +172,7 @@ CommonSettings::CommonSettings()
                  "as it does not use scope information."));
     useToolTipsInMainEditor.setDefaultValue(true);
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
 
         Group behavior {
@@ -373,7 +374,7 @@ LocalsAndExpressionsSettings::LocalsAndExpressionsSettings()
                                 + Tr::tr("The number of array elements requested when expanding "
                                          "entries in the Locals and Expressions views."));
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         auto label = new QLabel; //(useHelperGroup);
         label->setTextFormat(Qt::AutoText);
         label->setWordWrap(true);

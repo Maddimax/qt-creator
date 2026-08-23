@@ -9,6 +9,7 @@
 #include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/icore.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/algorithm.h>
 #include <utils/environment.h>
 #include <utils/hostosinfo.h>
@@ -66,7 +67,7 @@ SshSettings::SshSettings()
     setSettingsGroup("SshSettings");
     setAutoApply(false);
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
         return Form {
             m_useConnectionSharingAspect, br,

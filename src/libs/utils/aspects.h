@@ -1334,8 +1334,12 @@ public:
     const_iterator begin() const;
     const_iterator end() const;
 
-    void setLayouter(const std::function<Layouting::Layout()> &layouter);
-    std::function<Layouting::Layout()> layouter() const;
+    // Opaque storage for whatever the installed UI backend needs to build
+    // this container. The widget backend keeps its layouter here; see
+    // Utils::AspectWidgets::setLayouter(). The container never looks inside,
+    // which is what keeps Layouting out of this header.
+    void setBackendData(const std::shared_ptr<void> &data);
+    std::shared_ptr<void> backendData() const;
 
 #ifdef WITH_TESTS
     // Registry of all live AspectContainer instances, for settings

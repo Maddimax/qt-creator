@@ -82,7 +82,7 @@ PerforceSettings::PerforceSettings()
     autoOpen.setDefaultValue(true);
     autoOpen.setLabelText(Tr::tr("Automatically open files when editing"));
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
 
         auto errorLabel = new InfoLabel({}, InfoLabelType::None);

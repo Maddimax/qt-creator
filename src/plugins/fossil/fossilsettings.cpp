@@ -8,6 +8,7 @@
 
 #include <coreplugin/dialogs/ioptionspage.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/layoutbuilder.h>
 #include <utils/pathchooser.h>
 
@@ -83,7 +84,7 @@ FossilSettings::FossilSettings()
     logCount.setToolTip(Tr::tr("The number of recent commit log entries to show. "
         "Choose 0 to see all entries."));
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
         return Column {
             Group {

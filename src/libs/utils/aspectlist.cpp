@@ -369,7 +369,7 @@ public:
                     newConfigWidget = new QWidget();
 
                     if (auto container = dynamic_cast<AspectContainer *>(item->aspect().get()))
-                        container->layouter()().attachTo(newConfigWidget);
+                        AspectWidgets::layouter(container)().attachTo(newConfigWidget);
                     else
                         Column{item->aspect().get()}.attachTo(newConfigWidget);
                 }

@@ -805,7 +805,7 @@ public:
     explicit FontSettingsPageContainer(const FormatDescriptions &fd)
         : m_aspect(fd, this)
     {
-        setLayouter([this] {
+        Utils::AspectWidgets::setLayouter(this, [this] {
             using namespace Layouting;
             return Column { &m_aspect, noMargin };
         });

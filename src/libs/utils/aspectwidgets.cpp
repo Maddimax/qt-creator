@@ -201,4 +201,16 @@ std::function<void(QObject *)> visibleController(BaseAspect *aspect)
     };
 }
 
+void setLayouter(AspectContainer *container, const Layouter &layouter)
+{
+    container->setBackendData(std::make_shared<Layouter>(layouter));
+}
+
+Layouter layouter(const AspectContainer *container)
+{
+    const std::shared_ptr<Layouter> stored
+        = std::static_pointer_cast<Layouter>(container->backendData());
+    return stored ? *stored : Layouter();
+}
+
 } // namespace Utils::AspectWidgets

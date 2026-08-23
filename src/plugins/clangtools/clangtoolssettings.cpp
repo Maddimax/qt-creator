@@ -18,6 +18,7 @@
 
 #include <projectexplorer/projectmanager.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/algorithm.h>
 #include <utils/layoutbuilder.h>
 #include <utils/pathchooser.h>
@@ -81,7 +82,7 @@ RunSettings::RunSettings(const Key &prefix)
     analyzeOpenFiles.setDefaultValue(true);
     analyzeOpenFiles.setLabelText(Tr::tr("Analyze open files"));
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
         return Column {
             Group {
@@ -154,7 +155,7 @@ ClangToolsSettings::ClangToolsSettings()
     enableLowerClazyLevels.setSettingsKey("EnableLowerClazyLevels");
     enableLowerClazyLevels.setDefaultValue(true);
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
         return Column {
             Group {

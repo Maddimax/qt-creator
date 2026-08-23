@@ -88,7 +88,7 @@ ExtraEncodingSettings::ExtraEncodingSettings()
     lineEndingSetting.setDefaultValue(ExtraEncodingSettingsData::Unix);
     lineEndingSetting.setLabelText(Tr::tr("Default line endings:"));
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
         return Column {
             Group {

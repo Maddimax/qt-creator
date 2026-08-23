@@ -14,6 +14,7 @@
 #include <projectexplorer/devicesupport/idevice.h>
 #include <projectexplorer/target.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/aspects.h>
 #include <utils/guiutils.h>
 #include <utils/layoutbuilder.h>
@@ -411,7 +412,7 @@ PerfSettings::PerfSettings(ProjectExplorer::Target *target)
         stackSize.setEnabled(callgraphMode.volatileValue() == 0);
     });
 
-    setLayouter([this, target] {
+    Utils::AspectWidgets::setLayouter(this, [this, target] {
         using namespace Layouting;
         auto widget = new PerfConfigWidget(this, target);
         return Column { widget };

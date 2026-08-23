@@ -554,7 +554,7 @@ public:
     SnippetsSettings()
     {
         setAutoApply(false);
-        setLayouter([this] {
+        Utils::AspectWidgets::setLayouter(this, [this] {
             using namespace Layouting;
             return Column { &m_snippets, noMargin };
         });

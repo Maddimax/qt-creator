@@ -10,6 +10,7 @@
 #include <coreplugin/vcsmanager.h>
 
 #include <utils/algorithm.h>
+#include <utils/aspectwidgets.h>
 #include <utils/environment.h>
 #include <utils/hostosinfo.h>
 #include <utils/layoutbuilder.h>
@@ -164,7 +165,7 @@ CommonVcsSettings::CommonVcsSettings()
     spellCheckLanguage.setEnabler(&spellCheck);
     spellCheckLanguage.setVisible(SpellChecker::instance()->isAvailable());
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
         return Column {
             Row { vcsShowStatus, vcsShowStatusInterval, st },

@@ -378,7 +378,7 @@ ValgrindSettings::ValgrindSettings(bool global)
     shortenTemplates.setToolTip(Tr::tr("Remove template parameter lists when displaying function names."));
     shortenTemplates.setVisible(global);
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
 
         // clang-format off

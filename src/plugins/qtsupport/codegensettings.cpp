@@ -8,6 +8,7 @@
 
 #include <coreplugin/dialogs/ioptionspage.h>
 #include <cppeditor/cppeditorconstants.h>
+#include <utils/aspectwidgets.h>
 #include <utils/layoutbuilder.h>
 
 using namespace Utils;
@@ -40,7 +41,7 @@ CodeGenSettings::CodeGenSettings()
     addQtVersionCheck.setSettingsKey("AddQtVersionCheck");
     addQtVersionCheck.setLabelText(Tr::tr("Add Qt version #ifdef for module names"));
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
         return Column {
             Group {

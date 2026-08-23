@@ -10,6 +10,7 @@
 #include <debugger/debuggerinternalconstants.h>
 #include <debugger/debuggertr.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/layoutbuilder.h>
 
 #include <QLabel>
@@ -202,7 +203,7 @@ GdbSettings::GdbSettings()
         "In this case, the value should be increased."));
 
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
 
         auto labelDangerous = new QLabel("<html><head/><body><i>" +

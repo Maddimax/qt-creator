@@ -16,6 +16,7 @@
 #include <projectexplorer/projectsettings.h>
 #include <projectexplorer/useglobalaspect.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/algorithm.h>
 #include <utils/layoutbuilder.h>
 #include <utils/pathchooser.h>
@@ -149,7 +150,7 @@ CopilotSettings::CopilotSettings()
     proxy.setEnabler(&enableCopilot);
     proxyRejectUnauthorized.setEnabler(&enableCopilot);
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
 
         // clang-format off

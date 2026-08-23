@@ -5,6 +5,7 @@
 
 #include "profiler_global.h"
 
+#include <utils/aspectwidgets.h>
 #include <utils/aspects.h>
 #include <utils/commandline.h>
 #include <utils/environment.h>
@@ -274,7 +275,7 @@ private:
 };
 
 // Backend-specific recording settings. Besides holding the options, it renders its
-// own configuration controls via AspectContainer::setLayouter(), keeping them next
+// own configuration controls via AspectWidgets::setLayouter(), keeping them next
 // to the settings they use. All backends can launch an executable, so the launch
 // command lives here; backend-specific alternatives (attach to a pid, connect to a
 // debug server) are added by subclasses, which decide in createSession() which

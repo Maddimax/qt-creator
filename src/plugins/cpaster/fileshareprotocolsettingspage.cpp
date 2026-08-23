@@ -6,6 +6,7 @@
 #include "cpastertr.h"
 #include "cpasterconstants.h"
 
+#include <utils/aspectwidgets.h>
 #include <utils/layoutbuilder.h>
 #include <utils/pathchooser.h>
 #include <utils/temporarydirectory.h>
@@ -37,7 +38,7 @@ FileShareProtocolSettings::FileShareProtocolSettings()
     displayCount.setSuffix(' ' + Tr::tr("entries"));
     displayCount.setLabelText(Tr::tr("&Display:"));
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
 
         auto label = new QLabel(Tr::tr(

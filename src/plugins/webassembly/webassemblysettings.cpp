@@ -14,6 +14,7 @@
 
 #include <projectexplorer/projectexplorerconstants.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/aspects.h>
 #include <utils/environment.h>
 #include <utils/infolabel.h>
@@ -63,7 +64,7 @@ WebAssemblySettings::WebAssemblySettings()
 
     connect(this, &Utils::AspectContainer::applied, &registerToolChains);
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         auto instruction = new QLabel(
             Tr::tr("Select the root directory of an installed %1. "
                    "Ensure that the activated SDK version is compatible with the %2 "

@@ -10,6 +10,7 @@
 
 #include <projectexplorer/projectexplorerconstants.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/hostosinfo.h>
 #include <utils/layoutbuilder.h>
 #include <utils/pathchooser.h>
@@ -30,7 +31,7 @@ ContainerToolSettings::ContainerToolSettings(
     setAutoApply(false);
     setSettingsGroup(scheme);
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
         // clang-format off
         return Column {

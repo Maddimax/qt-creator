@@ -12,6 +12,7 @@
 
 #include <projectexplorer/projectexplorerconstants.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/infolabel.h>
 #include <utils/layoutbuilder.h>
 #include <utils/pathchooser.h>
@@ -94,7 +95,7 @@ HarmonyOsSettings::HarmonyOsSettings()
         applyConfig();
     });
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         auto instruction = new QLabel(
             Tr::tr("Select the installation directory of DevEco Studio or of the HarmonyOS "
                    "command-line tools. It must contain the OpenHarmony native SDK (with the "

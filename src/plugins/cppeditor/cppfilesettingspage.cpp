@@ -18,6 +18,7 @@
 #include <projectexplorer/projectsettings.h>
 #include <projectexplorer/useglobalaspect.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/filedialogs.h>
 #include <utils/aspects.h>
 #include <utils/fileutils.h>
@@ -213,7 +214,7 @@ CppFileSettings::CppFileSettings()
     lowerCaseFiles.setDefaultValue(Constants::LOWERCASE_CPPFILES_DEFAULT);
     lowerCaseFiles.setLabelText(Tr::tr("&Lower case file names"));
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
         headerGuardTemplate.setEnabled(isEnabled() && !headerPragmaOnce());
 

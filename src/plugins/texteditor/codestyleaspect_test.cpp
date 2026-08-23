@@ -10,6 +10,7 @@
 #include "tabsettings.h"
 #include "textindenter.h"
 
+#include <utils/aspectwidgets.h>
 #include <utils/layoutbuilder.h>
 
 #include <QSpinBox>
@@ -221,7 +222,7 @@ private slots:
 
         CodeStyleAspect aspect(&codeStyle, TEST_LANGUAGE_ID);
         QWidget host;
-        aspect.layouter()().attachTo(&host);
+        Utils::AspectWidgets::layouter(&aspect)().attachTo(&host);
 
         QVERIFY(!aspect.isDirty());
 
@@ -246,7 +247,7 @@ private slots:
 
         CodeStyleAspect aspect(&codeStyle, TEST_LANGUAGE_ID);
         QWidget host;
-        aspect.layouter()().attachTo(&host);
+        Utils::AspectWidgets::layouter(&aspect)().attachTo(&host);
 
         QSpinBox *tabSize = spinBoxWithValue(&host, 11);
         QVERIFY(tabSize);
@@ -270,7 +271,7 @@ private slots:
 
         CodeStyleAspect aspect(&codeStyle, LIVE_TEST_LANGUAGE_ID);
         QWidget host;
-        aspect.layouter()().attachTo(&host);
+        Utils::AspectWidgets::layouter(&aspect)().attachTo(&host);
 
         QVERIFY(!aspect.isDirty());
 
@@ -303,7 +304,7 @@ private slots:
 
         CodeStyleAspect aspect(&codeStyle, VALUE_TEST_LANGUAGE_ID);
         QWidget host;
-        aspect.layouter()().attachTo(&host);
+        Utils::AspectWidgets::layouter(&aspect)().attachTo(&host);
 
         QVERIFY(!aspect.isDirty());
 
@@ -346,7 +347,7 @@ private slots:
 
         CodeStyleAspect aspect(&codeStyle, LIVE_TEST_LANGUAGE_ID);
         QWidget host;
-        aspect.layouter()().attachTo(&host);
+        Utils::AspectWidgets::layouter(&aspect)().attachTo(&host);
 
         // The editor shows the active delegate's tab size (5).
         QSpinBox *tabSize = spinBoxWithValue(&host, 5);

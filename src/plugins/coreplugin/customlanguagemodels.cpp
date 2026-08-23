@@ -7,6 +7,7 @@
 #include "coreplugintr.h"
 #include "dialogs/ioptionspage.h"
 
+#include <utils/aspectwidgets.h>
 #include <utils/algorithm.h>
 #include <utils/aspectlist.h>
 #include <utils/aspects.h>
@@ -100,7 +101,7 @@ CustomLanguageModel::CustomLanguageModel()
     arguments.setDisplayStyle(StringAspect::LineEditDisplay);
 
     using namespace Layouting;
-    setLayouter([this] { return Form { name, br, executable, br, arguments }; });
+    Utils::AspectWidgets::setLayouter(this, [this] { return Form { name, br, executable, br, arguments }; });
 }
 
 CustomLanguageModels::CustomLanguageModels()
@@ -116,7 +117,7 @@ CustomLanguageModels::CustomLanguageModels()
         return {};
     };
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
         return Column { models };
     });

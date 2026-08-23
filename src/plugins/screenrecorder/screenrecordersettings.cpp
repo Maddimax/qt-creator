@@ -9,6 +9,7 @@
 #include <coreplugin/coreconstants.h>
 #include <coreplugin/dialogs/ioptionspage.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/fileutils.h>
 #include <utils/environment.h>
 #include <utils/layoutbuilder.h>
@@ -160,7 +161,7 @@ ScreenRecorderSettings::ScreenRecorderSettings()
     recordScreenCropRect.setSettingsKey("RecordScreenCropRect");
     recordScreenCropRect.setDefaultValue(rectToStringList({}));
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
         auto websiteLabel = new QLabel;
         websiteLabel->setText(QString("<a href=\"%1\">%1</a>").arg(Constants::FFMPEG_DOWNLOAD_URL));

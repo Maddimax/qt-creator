@@ -122,7 +122,7 @@ QmlJsEditingSettings::QmlJsEditingSettings()
     qdsCommand.setLabelText(Tr::tr("Command:"));
     qdsCommand.setVisible(false);
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
         // clang-format off
         Column column {

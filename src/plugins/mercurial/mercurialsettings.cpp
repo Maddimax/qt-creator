@@ -8,6 +8,7 @@
 
 #include <coreplugin/dialogs/ioptionspage.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/layoutbuilder.h>
 #include <utils/pathchooser.h>
 
@@ -46,7 +47,7 @@ MercurialSettings::MercurialSettings()
 
     diffIgnoreBlankLines.setSettingsKey("diffIgnoreBlankLines");
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
 
         return Column {

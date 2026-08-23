@@ -17,6 +17,7 @@
 #include <projectexplorer/projectsettings.h>
 #include <projectexplorer/useglobalaspect.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/hostosinfo.h>
 #include <utils/layoutbuilder.h>
 #include <utils/macroexpander.h>
@@ -77,7 +78,7 @@ CppCodeModelSettings::CppCodeModelSettings()
         "Indexing should almost always be kept enabled, as disabling it will severely limit the "
         "capabilities of the code model."));
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
         return Column {
             Group {

@@ -375,7 +375,7 @@ TestSettings::TestSettings()
     runAfterBuild.addOption(Tr::tr("All", "Run tests after build"));
     runAfterBuild.addOption(Tr::tr("Selected"));
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         auto scanThreadLabel = new QLabel(Tr::tr("Scan threads:"));
         scanThreadLabel->setToolTip("Number of worker threads used when scanning for tests.");
 

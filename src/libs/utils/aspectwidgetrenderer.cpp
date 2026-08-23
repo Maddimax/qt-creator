@@ -173,9 +173,14 @@ public:
                 return true;
             }
             return false;
+        case AspectControls::Container:
+            if (auto container = qobject_cast<AspectContainer *>(&aspect)) {
+                if (const AspectWidgets::Layouter l = AspectWidgets::layouter(container))
+                    parent.addItem(l());
+                return true;
+            }
+            return false;
         // Not handled:
-        // - Container: AspectContainer's body only runs its layouter()
-        //   closure; it contains no widget code to move.
         default:
             return false;
         }

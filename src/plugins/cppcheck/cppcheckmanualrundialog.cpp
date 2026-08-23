@@ -10,6 +10,7 @@
 #include <projectexplorer/projectnodes.h>
 #include <projectexplorer/selectablefilesmodel.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/filepath.h>
 #include <utils/layoutbuilder.h>
 #include <utils/qtcassert.h>
@@ -82,7 +83,7 @@ ManualRunDialog::ManualRunDialog(const ProjectExplorer::Project *project,
         analyzeButton->setEnabled(m_model->hasCheckedFiles() || hasExternalFiles);
     });
 
-    auto optionsWidget = settings->layouter()().emerge();
+    auto optionsWidget = Utils::AspectWidgets::layouter(settings)().emerge();
 
     auto layout = new QVBoxLayout(this);
     layout->addWidget(optionsWidget);

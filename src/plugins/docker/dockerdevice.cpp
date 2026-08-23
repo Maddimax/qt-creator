@@ -25,6 +25,7 @@
 #include <client/bridgedfileaccess.h>
 #include <client/cmdbridgeclient.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/algorithm.h>
 #include <utils/async.h>
 #include <utils/devicefileaccess.h>
@@ -1324,7 +1325,7 @@ PortMapping::PortMapping()
     protocol.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
     protocol.setLabelText(Tr::tr("Protocol:"));
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
         return Row{ip, hostPort, containerPort, protocol};
     });

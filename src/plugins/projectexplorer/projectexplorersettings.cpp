@@ -201,7 +201,7 @@ ProjectExplorerSettings::ProjectExplorerSettings(bool global)
 
     environmentId.setSettingsKey("EnvironmentId");
 
-    setLayouter([this, appEnvToolTip] {
+    Utils::AspectWidgets::setLayouter(this, [this, appEnvToolTip] {
         using namespace Layouting;
 
         PushButton appEnvButton {
@@ -429,7 +429,7 @@ PerProjectProjectExplorerSettings::PerProjectProjectExplorerSettings(Project *pr
     setGlobalSettings(&globalProjectExplorerSettings(), Constants::BUILD_AND_RUN_SETTINGS_PAGE_ID);
     setId("PESettingsAspect");
     settings->setSettingsKey("PESettings");
-    settings->setLayouter([settings] {
+    Utils::AspectWidgets::setLayouter(settings, [settings] {
         using namespace Layouting;
         return Column {
             settings->addLibraryPathsToRunEnv,

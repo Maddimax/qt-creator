@@ -199,7 +199,7 @@ public:
         setAutoApply(false);
         registerAspect(&displaySettings());
         registerAspect(&marginSettings());
-        setLayouter([] {
+        Utils::AspectWidgets::setLayouter(this, [] {
             DisplaySettings &s = displaySettings();
             MarginSettings &m = marginSettings();
             auto *label =

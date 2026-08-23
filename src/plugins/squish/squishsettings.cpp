@@ -11,6 +11,7 @@
 #include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/icore.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/filedialogs.h>
 #include <utils/basetreeview.h>
 #include <utils/fileutils.h>
@@ -99,7 +100,7 @@ SquishSettings::SquishSettings()
         serverPort.setEnabled(!checked);
     });
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
         return Form {
             squishPath, br,

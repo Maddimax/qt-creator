@@ -24,6 +24,7 @@
 #include <projectexplorer/projectsettings.h>
 #include <projectexplorer/useglobalaspect.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/clangutils.h>
 #include <utils/guiutils.h>
 #include <utils/infolabel.h>
@@ -402,7 +403,7 @@ ClangdSettings::ClangdSettings()
     }
     sizeThresholdInKb.setEnabler(&sizeThresholdEnabled);
 
-    setLayouter([this] { return clangdSettingsLayout(this); });
+    Utils::AspectWidgets::setLayouter(this, [this] { return clangdSettingsLayout(this); });
 
     loadSettings();
 
@@ -790,7 +791,7 @@ public:
         // Base constructor loaded global settings into aspects; now override
         // with project-specific values if applicable.
         setAutoApply(true);
-        setLayouter([this] { return clangdSettingsLayout(this); });
+        Utils::AspectWidgets::setLayouter(this, [this] { return clangdSettingsLayout(this); });
 
         const Store store =
             storeFromVariant(project->namedSettings(clangdSettingsKey()));

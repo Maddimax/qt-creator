@@ -8,6 +8,7 @@
 
 #include <coreplugin/dialogs/ioptionspage.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/layoutbuilder.h>
 
 using namespace Utils;
@@ -83,7 +84,7 @@ QmlProfilerSettings::QmlProfilerSettings()
     findingsPerFrameBudgetUs.setDefaultValue(500);
     findingsPerFrameBudgetUs.setLabelText(Tr::tr("Report per-frame cost above (us):"));
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
         // The findings thresholds sit in the same form as the rest: an aspect placed in a
         // Group needs its label spelled out again in a Row, and these already carry one.

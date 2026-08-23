@@ -15,6 +15,7 @@
 
 #include <coreplugin/dialogs/ioptionspage.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/layoutbuilder.h>
 
 using namespace Layouting;
@@ -45,7 +46,7 @@ GTestFramework::GTestFramework()
     setDisplayName(Tr::tr(GTest::Constants::FRAMEWORK_SETTINGS_CATEGORY));
     setPriority(GTest::Constants::FRAMEWORK_PRIORITY);
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         return Row { Form {
                 runDisabled, br,
                 throwOnFailure, br,

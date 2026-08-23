@@ -36,7 +36,7 @@ CTestTool::CTestTool()
     setDisplayName(Tr::tr("CTest"));
 
     // clang-format off
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         return Row { Form {
             outputOnFail, br,
             scheduleRandom, br,

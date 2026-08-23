@@ -311,7 +311,7 @@ SystemSettings::SystemSettings()
         });
     }
 
-    setLayouter([this, crashButton]() -> Layouting::Layout {
+    Utils::AspectWidgets::setLayouter(this, [this, crashButton]() -> Layouting::Layout {
         using namespace Layouting;
         // clang-format off
         return Form {

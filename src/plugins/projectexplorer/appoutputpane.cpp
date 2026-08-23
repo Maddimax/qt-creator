@@ -30,6 +30,7 @@
 #include <extensionsystem/invoker.h>
 #include <extensionsystem/pluginmanager.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/aggregate.h>
 #include <utils/algorithm.h>
 #include <utils/async.h>
@@ -1381,7 +1382,7 @@ AppOutputSettings::AppOutputSettings()
     backgroundColor.setDefaultValue(QColor{});
     backgroundColor.setEnabler(&overwriteBackground);
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         // clang-format off
         using namespace Layouting;
         const QString msg = Tr::tr("Limit output to %1 characters");

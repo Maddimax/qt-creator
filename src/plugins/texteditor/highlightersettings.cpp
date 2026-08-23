@@ -10,6 +10,7 @@
 #include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/icore.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/algorithm.h>
 #include <utils/layoutbuilder.h>
 #include <utils/pathchooser.h>
@@ -50,7 +51,7 @@ HighlighterSettings::HighlighterSettings()
     skipFilesPattern.setDefaultValue({});
     connect(&skipFilesPattern, &StringListAspect::changed, this, []{ HighlighterHelper::reload(); });
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
 
         using namespace Layouting;
 

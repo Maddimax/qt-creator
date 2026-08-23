@@ -21,6 +21,7 @@
 #include <coreplugin/helplink.h>
 #include <coreplugin/helpmanager.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/filedialogs.h>
 #include <utils/algorithm.h>
 #include <utils/appinfo.h>
@@ -188,7 +189,7 @@ HelpSettings::HelpSettings()
 
     errorLabel.setIconType(InfoType::Error);
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
 
         using namespace Layouting;
 

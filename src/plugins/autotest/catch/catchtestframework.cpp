@@ -11,6 +11,7 @@
 
 #include <coreplugin/dialogs/ioptionspage.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/layoutbuilder.h>
 
 using namespace Layouting;
@@ -32,7 +33,7 @@ CatchFramework::CatchFramework()
     setId("AutoTest.Framework.Catch");
     setDisplayName(Tr::tr("Catch Test"));
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         return Row { Form {
             showSuccess, br,
             breakOnFailure, br,

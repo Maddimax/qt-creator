@@ -6,6 +6,7 @@
 
 #include "ioptionspage.h"
 
+#include <utils/aspectwidgets.h>
 #include <utils/algorithm.h>
 #include <utils/guiutils.h>
 #include <utils/layoutbuilder.h>
@@ -520,7 +521,8 @@ IOptionsPageWidget *IOptionsPagePrivate::createWidget()
             }
         }
 
-        std::function<Layouting::Layout()> layouter = container->layouter();
+        const Utils::AspectWidgets::Layouter layouter
+            = Utils::AspectWidgets::layouter(container);
         QTC_ASSERT(layouter, return nullptr);
         m_widget = new IOptionsPageWidget;
         m_widget->d->setAspects(container);

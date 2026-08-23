@@ -66,7 +66,7 @@ SubversionSettings::SubversionSettings()
         password.setEnabled(useAuthentication());
     });
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
 
         return Column {

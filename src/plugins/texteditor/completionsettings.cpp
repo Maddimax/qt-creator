@@ -8,6 +8,7 @@
 
 #include <coreplugin/dialogs/ioptionspage.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/layoutbuilder.h>
 
 using namespace Utils;
@@ -122,7 +123,7 @@ CompletionSettings::CompletionSettings()
     overwriteClosingChars.setLabelText(Tr::tr("Overwrite closing punctuation"));
     overwriteClosingChars.setToolTip(Tr::tr("Automatically overwrite closing parentheses and quotes."));
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
         return Column {
             Group {

@@ -15,6 +15,7 @@
 #include <texteditor/tabsettings.h>
 #include <texteditor/codestylepool.h>
 #include <texteditor/typingsettings.h>
+#include <utils/aspectwidgets.h>
 #endif
 
 #include <utils/hostosinfo.h>
@@ -212,7 +213,7 @@ FakeVimSettings::FakeVimSettings()
                "%USERPROFILE%\\_vimrc on Windows, ~/.vimrc otherwise."));
     vimRcPath.setPlaceHolderText(Tr::tr("Default: %1").arg(vimrcDefault));
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
         using namespace TextEditor;
 

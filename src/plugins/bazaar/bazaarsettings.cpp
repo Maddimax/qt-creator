@@ -8,6 +8,7 @@
 
 #include <coreplugin/dialogs/ioptionspage.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/layoutbuilder.h>
 #include <utils/pathchooser.h>
 
@@ -62,7 +63,7 @@ BazaarSettings::BazaarSettings()
     timeout.setLabelText(Tr::tr("Timeout:"));
     timeout.setSuffix(Tr::tr("s"));
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
 
         return Column {

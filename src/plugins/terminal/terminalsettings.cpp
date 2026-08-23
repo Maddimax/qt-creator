@@ -12,6 +12,7 @@
 #include <coreplugin/icore.h>
 #include <coreplugin/dialogs/ioptionspage.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/filedialogs.h>
 #include <utils/environment.h>
 #include <utils/fileutils.h>
@@ -590,7 +591,7 @@ TerminalSettings::TerminalSettings()
     setupColor(this, colors[7], "7", creatorColor(Theme::TerminalAnsi7), "white");
     setupColor(this, colors[15], "15", creatorColor(Theme::TerminalAnsi15), "bright white");
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
 
         // An If builds the items of both of its branches and drops the ones

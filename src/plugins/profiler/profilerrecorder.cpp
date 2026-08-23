@@ -10,6 +10,7 @@
 #include "qmlprofilersampler.h"
 #include "sampler.h"
 
+#include <utils/aspectwidgets.h>
 #include <utils/commandline.h>
 #include <utils/layoutbuilder.h>
 #include <utils/qtcassert.h>
@@ -324,7 +325,7 @@ QWidget *ProfilerRecorder::createConfigWidget() const
     if (!settings)
         return nullptr;
     auto widget = new QWidget;
-    settings->layouter()().attachTo(widget);
+    Utils::AspectWidgets::layouter(settings)().attachTo(widget);
     return widget;
 }
 

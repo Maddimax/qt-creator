@@ -14,6 +14,7 @@
 #include <projectexplorer/projectimporter.h>
 #include <projectexplorer/projectpanelfactory.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/hostosinfo.h>
 #include <utils/layoutbuilder.h>
 #include <utils/qtcassert.h>
@@ -58,7 +59,7 @@ CMakeSpecificSettings::CMakeSpecificSettings(Project *p, bool autoApply)
 {
     useGlobalSettings.setSettingsPageId(Constants::Settings::GENERAL_ID);
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
         return Column {
             autorunCMake,

@@ -11,6 +11,7 @@
 
 #include <solutions/spinner/spinner.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/algorithm.h>
 #include <utils/aspectlist.h>
 #include <utils/aspects.h>
@@ -711,7 +712,7 @@ public:
                 "Environment variable changes applied when launching the MCP server process. "
                 "Only used for standard IO connection type."));
 
-        setLayouter([this]() -> Layouting::Layout {
+        Utils::AspectWidgets::setLayouter(this, [this]() -> Layouting::Layout {
             using namespace Layouting;
 
             const auto updateVisible = [this]() {
@@ -1075,7 +1076,7 @@ public:
                 removeQtDocsServer();
         });
 
-        setLayouter([this]() {
+        Utils::AspectWidgets::setLayouter(this, [this]() {
             using namespace Layouting;
             // clang-format off
             return Column{

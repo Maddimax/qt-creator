@@ -11,6 +11,7 @@
 
 #include "profilertr.h"
 
+#include <utils/aspectwidgets.h>
 #include <utils/async.h>
 #include <utils/futuresynchronizer.h>
 #include <utils/layoutbuilder.h>
@@ -56,7 +57,7 @@ CallStackSamplerSettings::CallStackSamplerSettings()
     updateTargetEnabled();
     connect(&attach, &BoolAspect::changed, this, [this] { updateTargetEnabled(); });
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
         auto pick = new QtcButton(Tr::tr("Select Process…"), QtcButton::SmallSecondary);
         auto picked = new QtcLabel(m_pickedName.isEmpty() ? Tr::tr("No process selected")

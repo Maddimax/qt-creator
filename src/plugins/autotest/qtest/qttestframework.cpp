@@ -11,6 +11,7 @@
 
 #include <coreplugin/dialogs/ioptionspage.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/hostosinfo.h>
 #include <utils/layoutbuilder.h>
 #include <utils/shutdownguard.h>
@@ -34,7 +35,7 @@ QtTestFramework::QtTestFramework()
     setPriority(QtTest::Constants::FRAMEWORK_PRIORITY);
     setSettingsGroups("Autotest", "QtTest");
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         return Row { Form {
             noCrashHandler, br,
             useXMLOutput, br,

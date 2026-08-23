@@ -5,6 +5,7 @@
 
 #include "texteditortr.h"
 
+#include <utils/aspectwidgets.h>
 #include <utils/layoutbuilder.h>
 
 #include <QTextCursor>
@@ -93,7 +94,7 @@ TypingSettings::TypingSettings()
                                                .arg(lineStartCommentPosition)
                                                .arg(afterWhitespaceCommentPosition));
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
         return Column {
             Group {

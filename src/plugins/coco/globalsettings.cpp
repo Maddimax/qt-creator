@@ -7,6 +7,7 @@
 #include "cocopluginconstants.h"
 #include "cocotr.h"
 
+#include <utils/aspectwidgets.h>
 #include <utils/filepath.h>
 #include <utils/fileutils.h>
 #include <utils/hostosinfo.h>
@@ -42,7 +43,7 @@ CocoSettings::CocoSettings()
         updateLabel(cocoPath.expandedVolatileValue());
     });
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
         return Form {
             Tr::tr("Coco Directory"), cocoPath , br,

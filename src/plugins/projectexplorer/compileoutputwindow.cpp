@@ -20,6 +20,7 @@
 #include <texteditor/fontsettings.h>
 #include <texteditor/behaviorsettings.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/layoutbuilder.h>
 #include <utils/outputformatter.h>
 #include <utils/proxyaction.h>
@@ -301,7 +302,7 @@ CompileOutputSettings::CompileOutputSettings()
     backgroundColor.setDefaultValue(QColor{});
     backgroundColor.setEnabler(&overwriteColor);
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
         const QString msg = Tr::tr("Limit output to %1 characters");
         const QStringList parts = msg.split("%1") << QString() << QString();

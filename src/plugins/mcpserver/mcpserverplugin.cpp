@@ -23,6 +23,7 @@
 
 #include <texteditor/textdocument.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/algorithm.h>
 #include <utils/aspects.h>
 #include <utils/async.h>
@@ -103,7 +104,7 @@ public:
                 customAddress.setEnabled(addressType.volatileValue() == 2);
         });
 
-        setLayouter([this]() {
+        Utils::AspectWidgets::setLayouter(this, [this]() {
             using namespace Layouting;
             return Row{noMargin, addressType, customAddress};
         });
@@ -254,7 +255,7 @@ public:
             &ToolRegistry::toolRegistered,
             this,
             &ToolEnablerAspect::onToolRegistered);
-        setLayouter([this]() { return buildLayout(); });
+        Utils::AspectWidgets::setLayouter(this, [this]() { return buildLayout(); });
     }
 
     void apply() override
@@ -746,7 +747,7 @@ McpServerPluginSettings::McpServerPluginSettings(McpServerPlugin *plugin)
     connect(&port, &BaseAspect::changed, plugin, &McpServerPlugin::restartServer);
     connect(&enableCors, &BaseAspect::changed, plugin, &McpServerPlugin::restartServer);
 
-    setLayouter([this, plugin]() {
+    Utils::AspectWidgets::setLayouter(this, [this, plugin]() {
         using namespace Layouting;
         auto statusLabel = new QLabel();
         auto statusIcon = new QLabel();

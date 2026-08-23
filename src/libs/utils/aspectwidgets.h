@@ -73,6 +73,13 @@ QTCREATOR_UTILS_EXPORT std::function<void(QObject *)> groupChecker(BoolAspect *a
 // Layouting's visibleOn().
 QTCREATOR_UTILS_EXPORT std::function<void(QObject *)> visibleController(BaseAspect *aspect);
 
+// How a container lays itself out with the widget backend. Held as opaque
+// backend data on the container, so that the aspects themselves carry no
+// Layouting dependency.
+using Layouter = std::function<Layouting::Layout()>;
+QTCREATOR_UTILS_EXPORT void setLayouter(AspectContainer *container, const Layouter &layouter);
+QTCREATOR_UTILS_EXPORT Layouter layouter(const AspectContainer *container);
+
 template<class Widget, typename... Args>
 Widget *createSubWidget(BaseAspect *aspect, Args &&...args)
 {

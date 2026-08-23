@@ -7,6 +7,7 @@
 #include "cppchecktool.h"
 #include "cppchecktr.h"
 
+#include <utils/aspectwidgets.h>
 #include <utils/environment.h>
 #include <utils/hostosinfo.h>
 #include <utils/pathchooser.h>
@@ -98,7 +99,7 @@ CppcheckSettings::CppcheckSettings()
     guessArguments.setLabelText(Tr::tr("Calculate additional arguments"));
     guessArguments.setToolTip(Tr::tr("Like C++ standard and language."));
 
-    setLayouter(layouter());
+    Utils::AspectWidgets::setLayouter(this, layouter());
 
     readSettings();
 }

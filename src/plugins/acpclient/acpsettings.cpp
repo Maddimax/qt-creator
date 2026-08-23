@@ -10,6 +10,7 @@
 #include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/icore.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/fileutils.h>
 #include <utils/appinfo.h>
 #include <utils/aspectlist.h>
@@ -240,7 +241,7 @@ public:
             applyRegistryTemplate();
         });
 
-        setLayouter([this]() -> Layouting::Layout {
+        Utils::AspectWidgets::setLayouter(this, [this]() -> Layouting::Layout {
             using namespace Layouting;
 
             InfoLabel *templateCmdInfo = new InfoLabel();
@@ -466,7 +467,7 @@ public:
             return {};
         };
 
-        setLayouter([this]() {
+        Utils::AspectWidgets::setLayouter(this, [this]() {
             using namespace Layouting;
             return Column{
                 &acpServers,

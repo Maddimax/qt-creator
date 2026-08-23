@@ -15,6 +15,7 @@
 
 #include <qmldebug/qmlprofilereventtypes.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/layoutbuilder.h>
 #include <utils/qtcprocess.h>
 #include <utils/qtdesignwidgets.h>
@@ -67,7 +68,7 @@ QmlProfilerSamplerSettings::QmlProfilerSamplerSettings()
         featureAspects.append(aspect);
     }
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
         Flow features;
         for (BoolAspect *aspect : std::as_const(featureAspects))

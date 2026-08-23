@@ -8,6 +8,7 @@
 
 #include <coreplugin/dialogs/ioptionspage.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/layoutbuilder.h>
 
 using namespace Utils;
@@ -66,7 +67,7 @@ CommentsSettings::CommentsSettings()
         if the comment starts with "/*!" or "//!".)"
     ));
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
         return Column {
             enableDoxygen,

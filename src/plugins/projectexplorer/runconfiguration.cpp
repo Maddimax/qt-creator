@@ -24,6 +24,7 @@
 #include <projectexplorer/devicesupport/idevice.h>
 #include <projectexplorer/projectexplorerconstants.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/algorithm.h>
 #include <utils/checkablemessagebox.h>
 #include <utils/detailswidget.h>
@@ -155,7 +156,7 @@ public:
         auto restoreButton = new QPushButton(Tr::tr("Restore Global"));
 
         auto innerPane = new QWidget;
-        auto configWidget = aspect->projectSettings()->layouter()().emerge();
+        auto configWidget = Utils::AspectWidgets::layouter(aspect->projectSettings())().emerge();
 
         Column {
             Row { useGlobalCheckBox, useGlobalLabel, st },

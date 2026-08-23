@@ -8,6 +8,7 @@
 
 #include <coreplugin/dialogs/ioptionspage.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/layoutbuilder.h>
 
 using namespace Utils;
@@ -47,7 +48,7 @@ Settings::Settings()
     displayOutput.setDefaultValue(true);
     displayOutput.setLabelText(Tr::tr("Display General Messages after sending a post"));
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
         return Column {
             Form {

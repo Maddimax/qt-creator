@@ -5,6 +5,7 @@
 
 #include "texteditortr.h"
 
+#include <utils/aspectwidgets.h>
 #include <utils/layoutbuilder.h>
 
 #include <QRegularExpression>
@@ -71,7 +72,7 @@ StorageSettings::StorageSettings()
     ignoreFileTypes.setEnabled(false);
     ignoreFileTypes.setToolTip(Tr::tr("List of wildcard-aware file patterns, separated by commas or semicolons."));
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
         return Column {
             Group {

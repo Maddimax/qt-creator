@@ -9,6 +9,7 @@
 #include <coreplugin/helpmanager.h>
 #include <coreplugin/modemanager.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/layoutbuilder.h>
 #include <utils/shutdownguard.h>
 
@@ -54,7 +55,7 @@ ZenModeSettings::ZenModeSettings()
     modes.addOption(optIconsOnly);
     modes.addOption(optIconsText);
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
         auto modeSelectorLabel = new QLabel(
             QString("<a href=\""

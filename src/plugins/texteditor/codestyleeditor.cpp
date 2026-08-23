@@ -15,6 +15,7 @@
 #include "texteditortr.h"
 
 #include <coreplugin/icore.h>
+#include <utils/aspectwidgets.h>
 #include <utils/filepath.h>
 #include <utils/guiutils.h>
 #include <utils/infolabel.h>
@@ -149,7 +150,7 @@ CodeStyleAspect::CodeStyleAspect(ICodeStylePreferences *codeStyle, Id languageId
     : m_codeStyle(codeStyle)
     , m_languageId(languageId)
 {
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         ICodeStylePreferencesFactory *factory = codeStyleFactory(m_languageId);
         ensurePageCopy(factory);
         syncFromReal();

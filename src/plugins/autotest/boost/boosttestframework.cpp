@@ -11,6 +11,7 @@
 
 #include <coreplugin/dialogs/ioptionspage.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/layoutbuilder.h>
 
 using namespace Layouting;
@@ -32,7 +33,7 @@ BoostTestFramework::BoostTestFramework()
     setDisplayName(Tr::tr(BoostTest::Constants::FRAMEWORK_SETTINGS_CATEGORY));
     setPriority(BoostTest::Constants::FRAMEWORK_PRIORITY);
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         return Row { Form {
             logLevel, br,
             reportLevel, br,

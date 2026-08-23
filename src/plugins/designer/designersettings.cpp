@@ -8,6 +8,7 @@
 
 #include <coreplugin/dialogs/ioptionspage.h>
 
+#include <utils/aspectwidgets.h>
 #include <utils/layoutbuilder.h>
 
 using namespace Utils;
@@ -28,7 +29,7 @@ DesignerSettings::DesignerSettings()
                "instead of relying on QMetaObject::connectSlotsByName() and an on_...() slot "
                "name."));
 
-    setLayouter([this] {
+    Utils::AspectWidgets::setLayouter(this, [this] {
         using namespace Layouting;
         return Column { generatePointerToMemberConnections, st };
     });
