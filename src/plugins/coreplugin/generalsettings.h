@@ -50,6 +50,8 @@ public:
     LanguageSelectionAspect language{this};
     Utils::ColorAspect color{this};
     ThemeSelectionAspect theme{this};
+    Utils::TextDisplay envVarInfo{this};
+    Utils::ActionAspect resetWarnings{this};
 };
 
 CORE_EXPORT GeneralSettings &generalSettings();

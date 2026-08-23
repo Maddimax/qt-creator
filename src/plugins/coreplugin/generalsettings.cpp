@@ -8,8 +8,6 @@
 #include "icore.h"
 #include "themechooser.h"
 
-
-#include <utils/aspectwidgets.h>
 #include <utils/algorithm.h>
 #include <utils/checkablemessagebox.h>
 #include <utils/infobar.h>
@@ -137,34 +135,10 @@ static void fillThemeItems(const StringSelectionAspect::ResultCallback &cb)
     cb(items);
 }
 
-class ResetWarningsButton : public QPushButton
+// The tool tip listing the scaling-related environment variables that are set,
+// or nothing when none is. Used to be a label; the information is the same.
+static std::optional<QString> envVarScalingToolTip()
 {
-public:
-    ResetWarningsButton()
-    {
-        setText(Tr::tr("Reset Warnings", "Button text"));
-        setToolTip(
-            Tr::tr("Re-enable warnings that were suppressed by selecting \"Do Not "
-                   "Show Again\" (for example, missing highlighter)."));
-        setEnabled(InfoBar::anyGloballySuppressed()
-                   || CheckableMessageBox::hasSuppressedQuestions());
-        connect(this, &QAbstractButton::clicked, this, [this] {
-            InfoBar::clearGloballySuppressed();
-            CheckableMessageBox::resetAllDoNotAskAgainQuestions();
-            setEnabled(InfoBar::anyGloballySuppressed()
-                       || CheckableMessageBox::hasSuppressedQuestions());
-        });
-    }
-};
-
-static InfoLabel *createEnvVarInfoLabel()
-{
-    static const bool showDpiPolicy = StyleHelper::defaultHighDpiScaleFactorRoundingPolicy()
-                                      != Qt::HighDpiScaleFactorRoundingPolicy::Unset;
-
-    if (!showDpiPolicy)
-        return nullptr;
-
     static const QList<const char *> envVars = {
         StyleHelper::C_QT_SCALE_FACTOR_ROUNDING_POLICY,
         "QT_ENABLE_HIGHDPI_SCALING",
@@ -173,23 +147,17 @@ static InfoLabel *createEnvVarInfoLabel()
         "QT_SCREEN_SCALE_FACTORS",
         "QT_USE_PHYSICAL_DPI",
     };
-    auto setVars = Utils::filtered(envVars, &qEnvironmentVariableIsSet);
-
+    const QList<const char *> setVars = Utils::filtered(envVars, &qEnvironmentVariableIsSet);
     if (setVars.isEmpty())
-        return nullptr;
+        return {};
 
-    QString toolTip
-        = Tr::tr(
-              "The following environment variables are set and can "
-              "influence the UI scaling behavior of %1:")
-              .arg(QGuiApplication::applicationDisplayName())
-          + "\n\n"
-          + Utils::transform<QStringList>(setVars, [](const char *var) {
-                return QString("%1=%2").arg(QString::fromUtf8(var)).arg(qEnvironmentVariable(var));
-            }).join("\n");
-    auto envVarInfo = new InfoLabel(Tr::tr("Environment influences UI scaling behavior."));
-    envVarInfo->setAdditionalToolTip(toolTip);
-    return envVarInfo;
+    return Tr::tr("The following environment variables are set and can "
+                  "influence the UI scaling behavior of %1:")
+               .arg(QGuiApplication::applicationDisplayName())
+           + "\n\n"
+           + Utils::transform<QStringList>(setVars, [](const char *var) {
+                 return QString("%1=%2").arg(QString::fromUtf8(var), qEnvironmentVariable(var));
+             }).join("\n");
 }
 
 } // namespace Core::Internal
@@ -356,34 +324,37 @@ GeneralSettings::GeneralSettings()
         ICore::askForRestart(Tr::tr("The theme change will take effect after restart."));
     });
 
-    Utils::AspectWidgets::setLayouter(this, [this]() -> Layouting::Layout {
-        static const bool showDpiPolicy = StyleHelper::defaultHighDpiScaleFactorRoundingPolicy()
-                                          != Qt::HighDpiScaleFactorRoundingPolicy::Unset;
+    // Whether Qt lets us choose a rounding policy at all is a property of the
+    // build, not of the layout.
+    const bool showDpiPolicy = StyleHelper::defaultHighDpiScaleFactorRoundingPolicy()
+                               != Qt::HighDpiScaleFactorRoundingPolicy::Unset;
+    highDpiScaleFactorRoundingPolicy.setVisible(showDpiPolicy);
 
-        auto envVarInfo = createEnvVarInfoLabel();
+    if (const std::optional<QString> toolTip = envVarScalingToolTip(); showDpiPolicy && toolTip) {
+        envVarInfo.setText(Tr::tr("Environment influences UI scaling behavior."));
+        envVarInfo.setToolTip(*toolTip);
+        envVarInfo.setIconType(Utils::InfoType::Warning);
+    } else {
+        envVarInfo.setVisible(false);
+    }
+    envVarInfo.setQmlName("EnvVarInfo");
 
-        // clang-format off
-        return Column {
-            Form {
-                color, st, br,
-                theme, st, br,
-                toolbarStyle, st, br,
-                language, st, br,
-                If (showDpiPolicy) >> Then {
-                    highDpiScaleFactorRoundingPolicy, st, br,
-                    If (envVarInfo) >> Then { envVarInfo, br } >> Else { st, br },
-                },
-                codecForLocale, st, br,
-                showShortcutsInContextMenus, st, br,
-                provideSplitterCursors, st, br,
-                preferInfoBarOverPopup, st, br,
-                useTabsInEditorViews, st, br,
-                showOkAndCancelInSettingsMode, st, br,
-                Row { new ResetWarningsButton, st },
-            }
-        };
-        // clang-format on
+    resetWarnings.setActionText(Tr::tr("Reset Warnings", "Button text"));
+    resetWarnings.setToolTip(
+        Tr::tr("Re-enable warnings that were suppressed by selecting \"Do Not "
+               "Show Again\" (for example, missing highlighter)."));
+    resetWarnings.setQmlName("ResetWarnings");
+    const auto anySuppressed = [] {
+        return InfoBar::anyGloballySuppressed() || CheckableMessageBox::hasSuppressedQuestions();
+    };
+    resetWarnings.setEnabled(anySuppressed());
+    resetWarnings.setAction([this, anySuppressed] {
+        InfoBar::clearGloballySuppressed();
+        CheckableMessageBox::resetAllDoNotAskAgainQuestions();
+        resetWarnings.setEnabled(anySuppressed());
     });
+
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Core/GeneralSettingsPage.qml"));
 
     readSettings();
 

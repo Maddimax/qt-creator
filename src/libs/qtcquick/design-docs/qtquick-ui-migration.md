@@ -421,6 +421,13 @@ exists for it; `StringAspect` reports its filtered value there too, which is
 what a `LabelDisplay` draws. The delegate also colours the text by
 `infoType`, so an error looks like one.
 
+**Two pages that cannot be ported as they stand,** noted so nobody rediscovers
+them: Testing's "Active Test Frameworks" is a `FrameworksAspect` with no
+`presentation()`, so it is `Custom` and would vanish; and Display draws aspects
+from *two* containers, `DisplaySettings` and `MarginSettings`, while a page's
+QML reaches the one container it was given. Display needs the second nested in
+the first before it can move.
+
 **A spin box's unit was being dropped.** An `IntegerAspect` can name a prefix
 or suffix - the version control timeouts say "s" - and the widget renderer sets
 them on the `QSpinBox`. Qt Quick's `SpinBox` has neither property, so the
@@ -460,7 +467,7 @@ naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
 all`, minus `QmlDesigner` and `UpdateInfo`, see below): **73 aspect-driven
-pages, 50 with their own QML and rendered with Qt Quick, 23 still on widgets.**
+pages, 51 with their own QML and rendered with Qt Quick, 22 still on widgets.**
 Before the gate was narrowed, 65 pages rendered generically; the delegate work
 that made that possible is all still in place and is what the ports build on:
 `StringListAspect` (a real list editor), `IntegersAspect` (`Invisible`, because
