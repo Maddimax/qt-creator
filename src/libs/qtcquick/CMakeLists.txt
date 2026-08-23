@@ -56,6 +56,7 @@ if(TARGET QtcQuick)
       SelectionDelegate.qml
       StringDelegate.qml
       StringListDelegate.qml
+      StringListEditorDelegate.qml
       TextDisplayDelegate.qml
       UnsupportedDelegate.qml
   )

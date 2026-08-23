@@ -41,6 +41,27 @@ static QQuickItem *findQmlComponent(QQuickItem *root, const QString &component)
     return nullptr;
 }
 
+// Every item in the visual tree whose type name starts with \a component.
+static QList<QQuickItem *> findQmlComponents(QQuickItem *root, const QString &component)
+{
+    QList<QQuickItem *> found;
+    if (QString::fromLatin1(root->metaObject()->className()).startsWith(component))
+        found << root;
+    const QList<QQuickItem *> children = root->childItems();
+    for (QQuickItem *child : children)
+        found << findQmlComponents(child, component);
+    return found;
+}
+
+// The button in \a root whose text is \a text.
+static QQuickItem *findButton(QQuickItem *root, const QString &text)
+{
+    const QList<QQuickItem *> buttons = findQmlComponents(root, "Button");
+    return Utils::findOr(buttons, nullptr, [&text](QQuickItem *b) {
+        return b->property("text").toString() == text;
+    });
+}
+
 class QuickUiTest final : public QObject
 {
     Q_OBJECT
@@ -54,6 +75,7 @@ private slots:
     void testPageQmlReachesItsAspectsByName();
     void testLabelChangeReachesTheControl();
     void testIdValuedSelectionRoundTrips();
+    void testStringListEditorAddsRemovesAndEdits();
 };
 
 void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
@@ -63,6 +85,7 @@ void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
     });
 
     int aspectDriven = 0;
+    int renderable = 0;
     int renderedWithQuick = 0;
     QStringList declined;
 
@@ -79,10 +102,11 @@ void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
 
         // The form takes every page it can show fully and declines the rest,
         // which keep their widget layout. Neither outcome may be arbitrary.
-        const bool renderable
+        const bool pageIsRenderable
             = QtcQuick::AspectContainerModel::isFullyRenderable(*aspects)
               || !(*aspects)->qmlSource().isEmpty();
-        QCOMPARE(bool(quickWidget), renderable);
+        renderable += pageIsRenderable ? 1 : 0;
+        QCOMPARE(bool(quickWidget), pageIsRenderable);
 
         if (!quickWidget) {
             declined << page->displayName();
@@ -117,12 +141,13 @@ void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
                       << "rendered with Qt Quick:" << renderedWithQuick
                       << "\n  still on widgets:" << declined.join(", ");
 
-    // How many pages exist depends on which plugins this run loads, which is
-    // QuickUi's dependency closure unless -load is given. What is asserted per
-    // page is above; here it is only that there were pages at all and that the
-    // Quick path is not simply switched off.
+    // How many pages exist, and how many of them the form can show, depends on
+    // which plugins this run loads - QuickUi's dependency closure unless -load
+    // is given, and every page in that closure happens to be declined. So the
+    // count to assert is that the form took every page it could, not that it
+    // took any particular number.
     QVERIFY(aspectDriven > 0);
-    QVERIFY(renderedWithQuick > 0);
+    QCOMPARE(renderedWithQuick, renderable);
 
     Core::setAspectFormFactory({});
 }
@@ -326,6 +351,52 @@ void QuickUiTest::testIdValuedSelectionRoundTrips()
     // And a pick writes the id back, not the index.
     QMetaObject::invokeMethod(combo, "activated", Q_ARG(int, 0));
     QCOMPARE(selection.volatileValue(), QByteArray("first"));
+}
+
+void QuickUiTest::testStringListEditorAddsRemovesAndEdits()
+{
+    Utils::AspectContainer page;
+    Utils::StringListAspect list(&page);
+    list.setLabelText("Entries");
+    list.setValue({"alpha", "beta"});
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createAspectForm(&page));
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QVERIFY(quickWidget->rootObject());
+
+    QQuickItem *editor = nullptr;
+    QTRY_VERIFY(editor = findQmlComponent(quickWidget->rootObject(), "StringListEditorDelegate"));
+
+    QQuickItem *view = findQmlComponent(editor, "QQuickListView");
+    QVERIFY(view);
+    QCOMPARE(view->property("count").toInt(), 2);
+
+    // Nothing is selected yet, so there is nothing to remove.
+    QQuickItem *remove = findButton(editor, "Remove");
+    QVERIFY(remove);
+    QVERIFY(!remove->property("enabled").toBool());
+
+    // Add appends an empty row, which is what the widget editor does before
+    // starting the edit on it.
+    QQuickItem *add = findButton(editor, "Add");
+    QVERIFY(add);
+    QMetaObject::invokeMethod(add, "clicked");
+    QCOMPARE(list.volatileValue(), QStringList({"alpha", "beta", ""}));
+
+    // Editing a row writes the whole list back.
+    QList<QQuickItem *> fields;
+    QTRY_COMPARE((fields = findQmlComponents(editor, "TextField")).size(), 3);
+    fields.at(2)->setProperty("text", "gamma");
+    QMetaObject::invokeMethod(fields.at(2), "editingFinished");
+    QCOMPARE(list.volatileValue(), QStringList({"alpha", "beta", "gamma"}));
+
+    // Remove takes out the current row. Add left the new row current.
+    QVERIFY(remove->property("enabled").toBool());
+    view->setProperty("currentIndex", 0);
+    QVERIFY(remove->property("enabled").toBool());
+    QMetaObject::invokeMethod(remove, "clicked");
+    QCOMPARE(list.volatileValue(), QStringList({"beta", "gamma"}));
 }
 
 QObject *createQuickUiTest()

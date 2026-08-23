@@ -14,6 +14,9 @@ QtObject {
     readonly property int formLabelWidth: 200
     // Preferred width of a bounded editor in a settings form.
     readonly property int formControlWidth: 240
+    // Height of a list editor in a settings form: enough rows to be worth
+    // scrolling, not enough to dominate the page.
+    readonly property int formListHeight: 120
     // Side length of the color preview swatch in ColorDelegate.
     readonly property int colorSwatchSize: 24
 

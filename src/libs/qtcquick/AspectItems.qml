@@ -56,6 +56,14 @@ ColumnLayout {
                 StringListDelegate {}
             }
             DelegateChoice {
+                roleValue: AspectContainerModel.StringListEditor
+                StringListEditorDelegate {}
+            }
+            DelegateChoice {
+                roleValue: AspectContainerModel.Invisible
+                Item {}
+            }
+            DelegateChoice {
                 roleValue: AspectContainerModel.FilePathList
                 FilePathListDelegate {}
             }

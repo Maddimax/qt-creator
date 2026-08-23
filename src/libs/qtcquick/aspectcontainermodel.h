@@ -45,12 +45,15 @@ public:
         Double,
         Selection,
         StringList,
+        StringListEditor,
         FilePathList,
         MultiSelection,
         Color,
         FontFamily,
         TextDisplay,
         Container,
+        // Shows nothing at all, which some aspects legitimately do.
+        Invisible,
         Unsupported,
     };
     Q_ENUM(Kind)
@@ -61,6 +64,9 @@ public:
         OptionsRole,
         OptionIdsRole,
         ValueIsChoiceIdRole,
+        AllowAddingRole,
+        AllowRemovingRole,
+        AllowEditingRole,
         MinimumRole,
         MaximumRole,
         StepRole,

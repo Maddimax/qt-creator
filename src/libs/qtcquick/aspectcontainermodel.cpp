@@ -70,6 +70,9 @@ QVariant AspectContainerModel::data(const QModelIndex &index, int role) const
         });
     case ValueIsChoiceIdRole:
         return p.valueIsChoiceId;
+    case AllowAddingRole:   return p.allowAdding;
+    case AllowRemovingRole: return p.allowRemoving;
+    case AllowEditingRole:  return p.allowEditing;
     // An aspect with no bound presents an unset minimum/maximum. The delegates
     // bind these straight into SpinBox.from/to and DoubleValidator, so
     // substitute the widest value of the right type rather than passing
@@ -98,6 +101,9 @@ QHash<int, QByteArray> AspectContainerModel::roleNames() const
         {OptionsRole, "options"},
         {OptionIdsRole, "optionIds"},
         {ValueIsChoiceIdRole, "valueIsChoiceId"},
+        {AllowAddingRole, "allowAdding"},
+        {AllowRemovingRole, "allowRemoving"},
+        {AllowEditingRole, "allowEditing"},
         {MinimumRole, "minimum"},
         {MaximumRole, "maximum"},
         {StepRole, "step"},
@@ -160,18 +166,14 @@ AspectContainerModel::Kind AspectContainerModel::kindOf(AspectControls::Control 
     case AspectControls::MultiSelection:         return MultiSelection;
     case AspectControls::ColorPicker:            return Color;
     case AspectControls::FontFamilyPicker:       return FontFamily;
-    // A plain StringList control wants per-item add/remove, which needs
-    // StringListAspect::appendValue()/removeValue() invokable from QML; only
-    // the flat value is bindable, so this stays a placeholder.
-    case AspectControls::StringList:
+    case AspectControls::StringList:             return StringListEditor;
+    // IntegersAspect draws nothing in the widget path either, so drawing
+    // nothing here is parity rather than a gap.
+    case AspectControls::IntegerList:            return Invisible;
     // FontAspect is an AspectContainer, not a TypedAspect: it has no
     // volatileVariantValue() override, so its "value" property is always
     // invalid and writing to it hits BaseAspect's QTC_CHECK(false).
     case AspectControls::FontPicker:
-    // QList<int> has no registered QVariant conversion from the QVariantList
-    // a JS array turns into, unlike QStringList; writing back would silently
-    // fail canConvert() in TypedAspect::setVolatileVariantValue().
-    case AspectControls::IntegerList:
     case AspectControls::Custom:                 return Unsupported;
     }
     return Unsupported;
