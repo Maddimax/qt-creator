@@ -45,7 +45,7 @@ AspectPage {
                 IntegerDelegate { aspect: root.display.BreakIndentShift }
             }
 
-            BoolDelegate { aspect: root.display.ShowBreak }
+            StringDelegate { aspect: root.display.ShowBreak }
             BoolDelegate { aspect: root.display.BreakIndentSbr }
         }
     }

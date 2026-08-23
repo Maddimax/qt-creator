@@ -20,7 +20,7 @@ AspectPage {
         title: qsTr("Use External Repository")
         checkAspect: aspects.UseExternalRepo
 
-        StringListDelegate { aspect: aspects.RepositoryUrls }
+        StringListEditorDelegate { aspect: aspects.RepositoryUrls }
     }
 
     ButtonDelegate { aspect: aspects.InstallExtension }

@@ -46,12 +46,12 @@ AspectPage {
     AspectGroupBox {
         title: qsTr("Additional Startup Commands")
 
-        StringDelegate { aspect: aspects.GdbStartupCommands }
+        TextAreaDelegate { aspect: aspects.GdbStartupCommands }
     }
 
     AspectGroupBox {
         title: qsTr("Additional Attach Commands")
 
-        StringDelegate { aspect: aspects.GdbPostAttachCommands }
+        TextAreaDelegate { aspect: aspects.GdbPostAttachCommands }
     }
 }

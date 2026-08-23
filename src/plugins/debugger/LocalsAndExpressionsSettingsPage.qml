@@ -26,7 +26,7 @@ AspectPage {
     AspectGroupBox {
         title: qsTr("Debugging Helper Customization")
 
-        StringDelegate { aspect: aspects.GdbCustomDumperCommands }
+        TextAreaDelegate { aspect: aspects.GdbCustomDumperCommands }
     }
 
     BoolDelegate { aspect: aspects.ShowStandardNamespace }

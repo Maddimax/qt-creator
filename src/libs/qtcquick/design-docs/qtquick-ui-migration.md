@@ -491,7 +491,6 @@ port, so they are listed with what they actually need:
 |---|---|
 | QML/JS Editing | a tree of messages with two independent states per row - not a check-box list |
 | Testing | `FrameworksAspect` has no `presentation()` at all |
-| Qt Creator MCP Server | a table of tools: name, description and an enable box per row |
 | CPU Usage | `PerfConfigWidget`, an event configuration table |
 | Code Style (x3) | `CodeStyleSelectorWidget`, with import, export and copy |
 | Snippets, Font && Colors | the snippet and color-scheme editors |
@@ -576,6 +575,25 @@ edits. That is `TextWithAction` - already described, already drawn - so the
 aspect needed three overrides and no new control at all. The guess would have
 cost a delegate and a kind for nothing.
 
+**Naming the wrong delegate is not an error anywhere.** A check box bound to a
+string aspect draws unchecked and writes `true` into it; a one-line field bound
+to a multi-line one shows a third of it. Nothing complained, and the pages had
+been reviewed. So the page test now checks two things it could not see before:
+
+- The delegate a page named must be one the aspect's kind is drawn by, mirroring
+  the choices in `AspectItems.qml`.
+- A check box must have text beside it. That is the defect that started this
+  whole gate - a page of boxes with nothing next to them - and no other
+  assertion could see it.
+
+Between them they found five defects in pages already ported and reviewed:
+`showBreak` drawn as a check box on Display (it is a string), and four
+multi-line aspects drawn as one-line fields - GDB's two command fields, the
+debugging helper commands, and the C++ ignore pattern - plus Extension
+Manager's repository list asking for the editor and getting the plain list. The
+lesson is not to look harder; it is that a page's QML says what to draw and
+nothing was checking it against what the aspect asked for.
+
 **When a page is drawn is not when its settings are constructed.** Two things
 came out of Copilot's sign-in button, which is a `Button` whose label *is* the
 state - "Sign In", "Checking status...", "Sign Out <user>".
@@ -613,7 +631,7 @@ naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
 all`, minus `QmlDesigner` and `UpdateInfo`, see below): **73 aspect-driven
-pages, 63 with their own QML and rendered with Qt Quick, 10 still on widgets.**
+pages, 64 with their own QML and rendered with Qt Quick, 9 still on widgets.**
 Before the gate was narrowed, 65 pages rendered generically; the delegate work
 that made that possible is all still in place and is what the ports build on:
 `StringListAspect` (a real list editor), `IntegersAspect` (`Invisible`, because

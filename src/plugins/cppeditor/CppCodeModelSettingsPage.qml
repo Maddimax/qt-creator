@@ -29,7 +29,7 @@ AspectPage {
                     aspect: aspects.IgnoreFiles
                     Layout.alignment: Qt.AlignTop
                 }
-                StringDelegate { aspect: aspects.IgnorePattern }
+                TextAreaDelegate { aspect: aspects.IgnorePattern }
             }
         }
     }

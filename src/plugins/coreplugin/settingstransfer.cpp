@@ -117,6 +117,53 @@ Result<SettingsImport> importSettings(const SettingsTransfer &transfer, const Fi
     Returns \uicontrol Export and \uicontrol Import buttons for \a transfer,
     for a preferences page to add to its layout.
 */
+void exportSettingsInteractively(const SettingsTransfer &transfer)
+{
+    const FilePath filePath = DocumentManager::getSaveFileNameWithExtension(
+        Tr::tr("Export %1").arg(transfer.displayName),
+        DocumentManager::fileDialogInitialDirectory() / (transfer.fileNameBase + ".json"),
+        fileFilter());
+    if (filePath.isEmpty())
+        return;
+
+    if (const Result<> result = exportSettings(transfer, filePath); !result) {
+        QMessageBox::critical(
+            ICore::dialogParent(),
+            Tr::tr("Export Failed"),
+            Tr::tr("Cannot export to %1: %2")
+                .arg(filePath.toUserOutput())
+                .arg(result.error()));
+    }
+}
+
+void importSettingsInteractively(const SettingsTransfer &transfer)
+{
+    const FilePath filePath = FileUtils::getOpenFilePath(
+        Tr::tr("Import %1").arg(transfer.displayName),
+        DocumentManager::fileDialogInitialDirectory(),
+        fileFilter());
+    if (filePath.isEmpty())
+        return;
+
+    const Result<SettingsImport> imported = importSettings(transfer, filePath);
+    if (!imported) {
+        QMessageBox::critical(
+            ICore::dialogParent(),
+            Tr::tr("Import Failed"),
+            Tr::tr("Cannot import %1: %2")
+                .arg(filePath.toUserOutput())
+                .arg(imported.error()));
+    } else if (imported->applied == 0 && imported->ignored > 0) {
+        QMessageBox::warning(
+            ICore::dialogParent(),
+            Tr::tr("Nothing Imported"),
+            Tr::tr("None of the settings in %1 exist here, so everything was reset to its "
+                   "default. The file may have been written by a different version of %2.")
+                .arg(filePath.toUserOutput())
+                .arg(QGuiApplication::applicationDisplayName()));
+    }
+}
+
 Layouting::Layout settingsTransferButtons(const SettingsTransfer &transfer)
 {
     using namespace Layouting;
@@ -128,48 +175,10 @@ Layouting::Layout settingsTransferButtons(const SettingsTransfer &transfer)
     importButton->setToolTip(Tr::tr("Replaces these settings with the contents of a file."));
 
     QObject::connect(exportButton, &QPushButton::clicked, transfer.container, [transfer] {
-        const FilePath filePath = DocumentManager::getSaveFileNameWithExtension(
-            Tr::tr("Export %1").arg(transfer.displayName),
-            DocumentManager::fileDialogInitialDirectory() / (transfer.fileNameBase + ".json"),
-            fileFilter());
-        if (filePath.isEmpty())
-            return;
-
-        if (const Result<> result = exportSettings(transfer, filePath); !result) {
-            QMessageBox::critical(
-                ICore::dialogParent(),
-                Tr::tr("Export Failed"),
-                Tr::tr("Cannot export to %1: %2")
-                    .arg(filePath.toUserOutput())
-                    .arg(result.error()));
-        }
+        exportSettingsInteractively(transfer);
     });
-
     QObject::connect(importButton, &QPushButton::clicked, transfer.container, [transfer] {
-        const FilePath filePath = FileUtils::getOpenFilePath(
-            Tr::tr("Import %1").arg(transfer.displayName),
-            DocumentManager::fileDialogInitialDirectory(),
-            fileFilter());
-        if (filePath.isEmpty())
-            return;
-
-        const Result<SettingsImport> imported = importSettings(transfer, filePath);
-        if (!imported) {
-            QMessageBox::critical(
-                ICore::dialogParent(),
-                Tr::tr("Import Failed"),
-                Tr::tr("Cannot import %1: %2")
-                    .arg(filePath.toUserOutput())
-                    .arg(imported.error()));
-        } else if (imported->applied == 0 && imported->ignored > 0) {
-            QMessageBox::warning(
-                ICore::dialogParent(),
-                Tr::tr("Nothing Imported"),
-                Tr::tr("None of the settings in %1 exist here, so everything was reset to its "
-                       "default. The file may have been written by a different version of %2.")
-                    .arg(filePath.toUserOutput())
-                    .arg(QGuiApplication::applicationDisplayName()));
-        }
+        importSettingsInteractively(transfer);
     });
 
     return Row{noMargin, exportButton, importButton};

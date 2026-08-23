@@ -202,6 +202,57 @@ void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
                 // action is called gets a nameless button. Naming the delegate
                 // in a page's QML does not make the aspect describe itself.
                 const QString drawn = QString::fromLatin1(delegate->metaObject()->className());
+
+                // A page naming the wrong delegate for an aspect is not an
+                // error anywhere: a check box bound to a string aspect draws
+                // unchecked and writes true into it. So the delegate a page
+                // named has to be the one the aspect asked for.
+                // Which kinds each delegate serves, mirroring the choices in
+                // AspectItems.qml - StringDelegate draws a path as well as a
+                // string, for one.
+                using Kind = QtcQuick::AspectContainerModel;
+                static const QHash<QString, QList<int>> serves{
+                    {"BoolDelegate", {Kind::Bool}},
+                    {"RadioDelegate", {Kind::Radio}},
+                    {"StringDelegate", {Kind::String, Kind::FilePath}},
+                    {"TextAreaDelegate", {Kind::Text}},
+                    {"SecretDelegate", {Kind::Secret}},
+                    {"IntegerDelegate", {Kind::Integer}},
+                    {"DoubleDelegate", {Kind::Double}},
+                    {"SelectionDelegate", {Kind::Selection}},
+                    {"ColorDelegate", {Kind::Color}},
+                    {"FontFamilyDelegate", {Kind::FontFamily}},
+                    {"TextDisplayDelegate", {Kind::TextDisplay}},
+                    {"TextWithActionDelegate", {Kind::TextWithAction}},
+                    {"ButtonDelegate", {Kind::Button}},
+                    {"StringListDelegate", {Kind::StringList}},
+                    {"StringListEditorDelegate", {Kind::StringListEditor}},
+                    {"AspectListDelegate", {Kind::AspectList}},
+                    {"MultiSelectionDelegate", {Kind::MultiSelection}},
+                    {"FilePathListDelegate", {Kind::FilePathList}},
+                };
+                for (auto it = serves.cbegin(); it != serves.cend(); ++it) {
+                    if (!drawn.startsWith(it.key()))
+                        continue;
+                    auto aspect = delegate->property("aspect").value<Utils::BaseAspect *>();
+                    QVERIFY(aspect);
+                    const int kind = int(QtcQuick::AspectContainerModel::kindOf(aspect));
+                    QVERIFY2(it.value().contains(kind),
+                             qPrintable(page->displayName() + ": " + drawn + " drew "
+                                        + Utils::stringFromKey(aspect->settingsKey())
+                                        + ", which asked for kind " + QString::number(kind)));
+                }
+
+                // A check box carries its own text, so an aspect that never
+                // said what it is called is drawn as a box with nothing beside
+                // it. That is what a page of nameless check boxes looks like,
+                // and it is invisible to every other assertion here.
+                if (drawn.startsWith("BoolDelegate") || drawn.startsWith("RadioDelegate")) {
+                    QVERIFY2(!delegate->property("text").toString().isEmpty(),
+                             qPrintable(page->displayName() + ": " + drawn
+                                        + " has no text beside it"));
+                }
+
                 if (drawn.startsWith("TextWithActionDelegate")
                     || drawn.startsWith("ButtonDelegate")) {
                     const QVariantMap pres = delegate->property("pres").toMap();

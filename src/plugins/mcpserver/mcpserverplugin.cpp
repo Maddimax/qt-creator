@@ -43,12 +43,9 @@
 #include <QPainter>
 #include <QPushButton>
 #include <QSortFilterProxyModel>
-#include <QStandardItemModel>
 #include <QStyledItemDelegate>
-#include <QTableView>
 #include <QTcpServer>
 #include <QThread>
-#include <QToolTip>
 
 #include <QtTaskTree/QParallelTaskTreeRunner>
 
@@ -132,26 +129,6 @@ public:
 
 // Calls resizeRowsToContents() deferred whenever the viewport is resized,
 // so row heights are computed after the columns have their final widths.
-class ResizeRowsOnViewportResize : public QObject
-{
-public:
-    explicit ResizeRowsOnViewportResize(QTableView *view)
-        : QObject(view)
-        , m_view(view)
-    {}
-
-protected:
-    bool eventFilter(QObject *, QEvent *e) override
-    {
-        if (e->type() == QEvent::Resize)
-            QMetaObject::invokeMethod(m_view, &QTableView::resizeRowsToContents, Qt::QueuedConnection);
-        return false;
-    }
-
-private:
-    QTableView *m_view;
-};
-
 class PaddedItemDelegate : public QStyledItemDelegate
 {
 public:
@@ -255,7 +232,6 @@ public:
             &ToolRegistry::toolRegistered,
             this,
             &ToolEnablerAspect::onToolRegistered);
-        Utils::AspectWidgets::setLayouter(this, [this]() { return buildLayout(); });
     }
 
     void apply() override
@@ -276,100 +252,19 @@ private:
             aspect->setSettingsKey(keyFromString(name));
             aspect->setLabelPlacement(BoolAspect::LabelPlacement::Compact);
             aspect->setDefaultValue(true);
+            // The table carried the name and the description in its own
+            // columns, so the aspects had neither and a plain list of them was
+            // a column of nameless check boxes.
+            aspect->setLabelText(tool.title().value_or(name));
+            aspect->setToolTip(tool.description().value_or(QString{}));
             const SettingsGroupNester nester({"McpServer", "EnabledTools"});
             aspect->readSettings();
             ToolRegistry::enableTool(name, aspect->value());
             m_toolAspects[name] = aspect;
-            m_toolMetadata[name] = tool;
         }
-    }
-
-    Layouting::Column buildLayout()
-    {
-        using namespace Layouting;
-
-        auto *view = new QTableView;
-        auto *model = new QStandardItemModel(0, 3, view);
-        model->setHorizontalHeaderLabels({{}, Tr::tr("Name"), Tr::tr("Description")});
-
-        for (const QString &name : Utils::sorted(m_toolAspects.keys())) {
-            const Schema::Tool &tool = m_toolMetadata[name];
-            BoolAspect *aspect = m_toolAspects[name];
-
-            auto *checkItem = new QStandardItem;
-            checkItem->setCheckable(true);
-            checkItem->setCheckState(aspect->volatileValue() ? Qt::Checked : Qt::Unchecked);
-            checkItem->setEditable(false);
-            checkItem->setData(name, Qt::UserRole);
-            checkItem->setTextAlignment(Qt::AlignTop | Qt::AlignHCenter);
-            checkItem->setToolTip(Tr::tr("Enable or disable this tool for MCP clients."));
-
-            auto *nameItem = new QStandardItem(tool.title().value_or(name));
-            nameItem->setEditable(false);
-            nameItem->setData(name, Qt::UserRole);
-
-            auto *descItem = new QStandardItem(tool.description().value_or(QString{}));
-            descItem->setEditable(false);
-
-            model->appendRow({checkItem, nameItem, descItem});
-
-            QObject::connect(aspect, &BaseAspect::volatileValueChanged, view, [aspect, checkItem] {
-                checkItem->setCheckState(aspect->volatileValue() ? Qt::Checked : Qt::Unchecked);
-            });
-        }
-
-        auto *proxy = new ToolFilterProxyModel(view);
-        proxy->setSourceModel(model);
-        proxy->setFilterCaseSensitivity(Qt::CaseInsensitive);
-
-        auto *filterEdit = new QLineEdit;
-        filterEdit->setPlaceholderText(Tr::tr("Filter by name or description..."));
-        filterEdit->setMinimumWidth(250);
-        filterEdit->setClearButtonEnabled(true);
-
-        view->setModel(proxy);
-        view->setWordWrap(true);
-        view->setSelectionBehavior(QAbstractItemView::SelectRows);
-        view->setSelectionMode(QAbstractItemView::SingleSelection);
-        view->verticalHeader()->setVisible(false);
-        view->horizontalHeader()->setStretchLastSection(true);
-        view->setShowGrid(false);
-        view->resizeColumnToContents(0);
-        view->resizeColumnToContents(1);
-        view->setItemDelegate(new PaddedItemDelegate(view));
-        view->setItemDelegateForColumn(1, new ToolNameDelegate(view));
-        view->viewport()->installEventFilter(new ResizeRowsOnViewportResize(view));
-        view->setAlternatingRowColors(true);
-
-        QObject::connect(filterEdit, &QLineEdit::textChanged, proxy, [proxy, view](const QString &text) {
-            proxy->setFilterFixedString(text);
-            QMetaObject::invokeMethod(view, &QTableView::resizeRowsToContents, Qt::QueuedConnection);
-        });
-
-        QObject::connect(
-            model,
-            &QStandardItemModel::dataChanged,
-            view,
-            [this, model](const QModelIndex &topLeft, const QModelIndex &, const QList<int> &roles) {
-                if (topLeft.column() != 0 || !roles.contains(Qt::CheckStateRole))
-                    return;
-                const QString name = model->data(topLeft, Qt::UserRole).toString();
-                if (auto *aspect = m_toolAspects.value(name))
-                    aspect->setVolatileValue(
-                        model->data(topLeft, Qt::CheckStateRole).toInt() == Qt::Checked);
-            });
-
-        const Core::SettingsTransfer transfer{
-            this,
-            Constants::TOOL_SELECTION_ID,
-            Tr::tr("MCP Tool Selection"),
-            "mcp-tool-selection"};
-
-        return Column{noMargin, Row{Core::settingsTransferButtons(transfer), st, filterEdit}, view};
     }
 
     QMap<QString, BoolAspect *> m_toolAspects;
-    QMap<QString, Schema::Tool> m_toolMetadata;
 };
 
 class McpServerPluginSettings : public AspectContainer
@@ -382,6 +277,9 @@ public:
     IntegerAspect port{this};
     BoolAspect enableCors{this};
     ToolEnablerAspect enabledTools{this};
+    Utils::TextDisplay serverStatus{this};
+    Utils::ActionAspect exportTools{this};
+    Utils::ActionAspect importTools{this};
 };
 
 class McpServerSettingsPage : public Core::IOptionsPage
@@ -742,61 +640,51 @@ McpServerPluginSettings::McpServerPluginSettings(McpServerPlugin *plugin)
     enabledTools.setSettingsGroup("EnabledTools");
     enabledTools.setToolTip(Tr::tr("Select which tools to enable or disable"));
 
+    // A settings group is not a settings key, so these derive no name for the
+    // page's QML to write.
+    enabled.setQmlName("Enabled");
+    listenAddress.setQmlName("ListenAddress");
+    enabledTools.setQmlName("EnabledTools");
+    serverStatus.setQmlName("ServerStatus");
+
+    const Core::SettingsTransfer transfer{
+        this,
+        Constants::TOOL_SELECTION_ID,
+        Tr::tr("MCP Tool Selection"),
+        "mcp-tool-selection"};
+    exportTools.setActionText(Tr::tr("Export..."));
+    exportTools.setToolTip(Tr::tr("Writes these settings to a file."));
+    exportTools.setQmlName("ExportTools");
+    exportTools.setAction([transfer] { Core::exportSettingsInteractively(transfer); });
+    importTools.setActionText(Tr::tr("Import..."));
+    importTools.setToolTip(Tr::tr("Replaces these settings with the contents of a file."));
+    importTools.setQmlName("ImportTools");
+    importTools.setAction([transfer] { Core::importSettingsInteractively(transfer); });
+
     connect(&enabled, &BaseAspect::changed, plugin, &McpServerPlugin::restartServer);
     connect(&listenAddress, &BaseAspect::changed, plugin, &McpServerPlugin::restartServer);
     connect(&port, &BaseAspect::changed, plugin, &McpServerPlugin::restartServer);
     connect(&enableCors, &BaseAspect::changed, plugin, &McpServerPlugin::restartServer);
 
-    Utils::AspectWidgets::setLayouter(this, [this, plugin]() {
-        using namespace Layouting;
-        auto statusLabel = new QLabel();
-        auto statusIcon = new QLabel();
-
-        statusIcon->setFixedSize(24, 24);
-        statusIcon->setAlignment(Qt::AlignCenter);
-
-        statusLabel->setTextInteractionFlags(Qt::TextBrowserInteraction);
-        statusLabel->setTextFormat(Qt::MarkdownText);
-        statusLabel->setOpenExternalLinks(false);
-        connect(statusLabel, &QLabel::linkActivated, [](const QString &link) {
-            Utils::setClipboardAndSelection(link);
-            QToolTip::showText(QCursor::pos(), Tr::tr("Address copied to clipboard."), nullptr);
-        });
-
-        const auto updateStatus = [plugin, statusIcon, statusLabel]() {
-            const bool isRunning = plugin->isServerRunning();
-            auto p = statusLabel->palette();
-
-            p.setColor(
-                QPalette::WindowText,
-                creatorColor(isRunning ? Theme::TextColorNormal : Theme::TextColorError));
-            statusLabel->setPalette(p);
-            statusIcon->setPalette(p);
-            statusIcon->setText(isRunning ? "✓" : "✗");
-
-            if (isRunning) {
-                statusLabel->setText(
-                    Tr::tr("The MCP Server is running, listening on: %1.")
-                        .arg(plugin->listenAddresses()));
-            } else {
-                statusLabel->setText(Tr::tr("The MCP Server is not running."));
-            }
-        };
-
-        updateStatus();
-        connect(this, &AspectContainer::applied, this, [updateStatus]() { updateStatus(); });
-
-        // clang-format off
-        return Form {
-            enabled, br,
-            Tr::tr("Listen on:"), listenAddress, br,
-            port, br,
-            enableCors, br,
-            statusIcon, statusLabel, br,
-            enabledTools, br,
-        };
-        // clang-format on
+    // Whether the server is up is not a property of the layout, and it changes
+    // while the page is open.
+    const auto updateStatus = [this, plugin] {
+        const bool isRunning = plugin->isServerRunning();
+        serverStatus.setIconType(isRunning ? Utils::InfoType::Ok : Utils::InfoType::Error);
+        serverStatus.setText(
+            isRunning ? Tr::tr("The MCP Server is running, listening on: %1.")
+                            .arg(plugin->listenAddresses())
+                      : Tr::tr("The MCP Server is not running."));
+    };
+    updateStatus();
+    connect(this, &AspectContainer::applied, this, updateStatus);
+    // The address is a link only so that it can be copied.
+    connect(&serverStatus, &Utils::TextDisplay::linkActivated, this, [](const QString &link) {
+        Utils::setClipboardAndSelection(link);
     });
+
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/McpServer/McpServerSettingsPage.qml"));
+
 };
 
 static Result<Mcp::Schema::ReadResourceResult> getOpenEditorContent(
