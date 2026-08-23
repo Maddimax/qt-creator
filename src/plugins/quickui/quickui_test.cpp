@@ -22,6 +22,7 @@
 #include <QStandardItem>
 #include <QFont>
 #include <QPromise>
+#include <QRegularExpression>
 #include <QMetaEnum>
 #include <QQuickItem>
 #include <QQuickWidget>
@@ -108,6 +109,7 @@ private slots:
     void testAspectListOffersItsExtraButtons();
     void testQmlOnlyContainerStillLaysOutInAWidgetLayout();
     void testAspectVisibilityReachesTheDrawnControl();
+    void testAspectQmlNamesAreUsableAndUnique();
 };
 
 void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
@@ -430,6 +432,58 @@ void QuickUiTest::testAspectVisibilityReachesTheDrawnControl()
     hidden.setVisible(true);
     QTRY_COMPARE(delegates.at(0)->property("visible").toBool(), false);
     QCOMPARE(delegates.at(1)->property("visible").toBool(), true);
+}
+
+// A name a page QML can write after "aspects.". Anything else leaves the aspect
+// unreachable, and a nonexistent name is undefined in QML rather than an error.
+static bool isUsableQmlName(const QString &name)
+{
+    static const QRegularExpression identifier("^[A-Za-z_][A-Za-z0-9_]*$");
+    return identifier.match(name).hasMatch();
+}
+
+static void collectQmlNameProblems(
+    const Utils::AspectContainer *container, const QString &page, QStringList *problems)
+{
+    QHash<QString, Utils::BaseAspect *> seen;
+    for (Utils::BaseAspect *aspect : container->aspects()) {
+        const QString name = aspect->qmlName();
+        if (name.isEmpty())
+            continue;
+        if (!isUsableQmlName(name)) {
+            *problems << QString("%1: \"%2\" is not a name QML can write")
+                             .arg(page, name);
+        } else if (Utils::BaseAspect *other = seen.value(name)) {
+            *problems << QString("%1: \"%2\" names both %3 and %4")
+                             .arg(page,
+                                  name,
+                                  Utils::stringFromKey(other->settingsKey()),
+                                  Utils::stringFromKey(aspect->settingsKey()));
+        } else {
+            seen.insert(name, aspect);
+        }
+        if (auto nested = qobject_cast<Utils::AspectContainer *>(aspect))
+            collectQmlNameProblems(nested, page, problems);
+    }
+}
+
+void QuickUiTest::testAspectQmlNamesAreUsableAndUnique()
+{
+    // A page QML reaches its aspects by name, and the names are derived from
+    // settings keys. Two keys ending in the same component - Memcheck.Arguments
+    // and Callgrind.Arguments - derive the same name, which leaves one aspect
+    // unreachable with nothing to see in the rendered page. So does a key with
+    // a space in it. Both need setQmlName(), and both are invisible until
+    // someone writes the QML, so check every page whether it is ported or not.
+    QStringList problems;
+    for (Core::IOptionsPage *page : Core::IOptionsPage::allOptionsPages()) {
+        const std::optional<Utils::AspectContainer *> aspects = page->aspects();
+        if (!aspects || !*aspects)
+            continue;
+        collectQmlNameProblems(*aspects, page->displayName(), &problems);
+    }
+    if (!problems.isEmpty())
+        QFAIL(qPrintable("\n  " + problems.join("\n  ")));
 }
 
 void QuickUiTest::testQmlNameIsDerivedFromTheSettingsKey()

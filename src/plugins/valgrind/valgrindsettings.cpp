@@ -252,6 +252,9 @@ ValgrindSettings::ValgrindSettings(bool global)
 
     // Memcheck
     memcheckArguments.setSettingsKey(base + "Memcheck.Arguments");
+    // Both argument keys end in "Arguments", so the derived QML names would
+    // collide and leave one of the two unreachable.
+    memcheckArguments.setQmlName("MemcheckArguments");
     memcheckArguments.setDisplayStyle(StringAspect::LineEditDisplay);
     memcheckArguments.setLabelText(Tr::tr("Extra Memcheck arguments:"));
 
@@ -298,6 +301,7 @@ ValgrindSettings::ValgrindSettings(bool global)
     kcachegrindExecutable.setDisplayName(Tr::tr("KCachegrind Command"));
 
     callgrindArguments.setSettingsKey(base + "Callgrind.Arguments");
+    callgrindArguments.setQmlName("CallgrindArguments");
     callgrindArguments.setDisplayStyle(StringAspect::LineEditDisplay);
     callgrindArguments.setLabelText(Tr::tr("Extra Callgrind arguments:"));
 

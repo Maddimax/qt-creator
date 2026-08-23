@@ -79,6 +79,11 @@ static void setupColor(TerminalSettings *settings,
                 const QString &humanReadableName = {})
 {
     color.setSettingsKey(keyFromString(label));
+    // The settings keys are the ANSI indices and "Find matches"; neither is a
+    // name a page's QML can write after "aspects.". Keep the keys, which are
+    // persisted, and name the aspects Color0 to Color15, ColorForeground and so
+    // on.
+    color.setQmlName("Color" + QString(label).remove(' '));
     color.setDefaultValue(defaultColor);
     color.setToolTip(Tr::tr("The color used for %1.")
                          .arg(humanReadableName.isEmpty() ? label : humanReadableName));
