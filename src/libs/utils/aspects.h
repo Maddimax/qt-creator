@@ -83,6 +83,7 @@ class QTCREATOR_UTILS_EXPORT BaseAspect : public QObject
     Q_PROPERTY(bool enabled READ isEnabled WRITE setEnabled NOTIFY enabledChanged)
     Q_PROPERTY(bool visible READ isVisible WRITE setVisible NOTIFY visibleChanged)
     Q_PROPERTY(bool readOnly READ isReadOnly WRITE setReadOnly NOTIFY readOnlyChanged)
+    Q_PROPERTY(QString displayText READ displayText NOTIFY displayTextChanged)
 
 public:
     BaseAspect(AspectContainer *container = nullptr);
@@ -158,6 +159,13 @@ public:
     ConfigWidgetCreator configWidgetCreator() const;
 
     virtual QAction *action();
+
+    // A summary of the value, for the controls that show one instead of an
+    // editor. Empty unless the aspect has something to summarise.
+    virtual QString displayText() const;
+
+    // What the button of a TextWithAction control does. Nothing by default.
+    Q_INVOKABLE virtual void triggerAction();
 
     AspectContainer *container() const;
 
@@ -265,6 +273,7 @@ signals:
     void tooltipChanged(const QString &tooltip);
     void labelTextChanged();
     void labelPixmapChanged();
+    void displayTextChanged();
 
     // Renderer-facing. An aspect holds no control, so a setter that has to
     // reach a live one says what happened and lets whoever built the control

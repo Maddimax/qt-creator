@@ -742,6 +742,22 @@ void BaseAspect::setMacroExpander(MacroExpander *expander)
         d->macroExpander()->registerSubProvider({this, [expander] { return expander; }});
 }
 
+/*!
+    Returns a summary of this aspect's value for the controls that show one
+    rather than an editor.
+*/
+QString BaseAspect::displayText() const
+{
+    return {};
+}
+
+/*!
+    Performs this aspect's one action, for a TextWithAction control. Does
+    nothing unless an aspect gives it a meaning.
+*/
+void BaseAspect::triggerAction()
+{}
+
 MacroExpander *BaseAspect::macroExpander() const
 {
     return d->macroExpander();

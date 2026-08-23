@@ -55,6 +55,7 @@ public:
         TextDisplay,
         Container,
         AspectList,
+        TextWithAction,
         // Shows nothing at all, which some aspects legitimately do.
         Invisible,
         Unsupported,
@@ -71,6 +72,7 @@ public:
         AllowRemovingRole,
         AllowEditingRole,
         ItemListModelRole,
+        ActionTextRole,
         MinimumRole,
         MaximumRole,
         StepRole,

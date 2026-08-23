@@ -11,7 +11,16 @@ namespace Utils {
 class QTCREATOR_UTILS_EXPORT EnvironmentChangesAspect
     : public TypedAspect<EnvironmentChanges>
 {
-    using TypedAspect::TypedAspect;
+    Q_OBJECT
+
+public:
+    explicit EnvironmentChangesAspect(AspectContainer *container = nullptr);
+
+    AspectPresentation presentation() const override;
+
+    // A summary of the changes, and the dialog that edits them.
+    QString displayText() const override;
+    void triggerAction() override;
 
 private:
     QVariant variantValue() const override { return m_value.toVariant(); }

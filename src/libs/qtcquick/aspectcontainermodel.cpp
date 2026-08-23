@@ -76,6 +76,7 @@ QVariant AspectContainerModel::data(const QModelIndex &index, int role) const
     case AllowAddingRole:   return p.allowAdding;
     case AllowRemovingRole: return p.allowRemoving;
     case AllowEditingRole:  return p.allowEditing;
+    case ActionTextRole:    return p.actionText;
     case ItemListModelRole: {
         auto list = qobject_cast<Utils::AspectList *>(aspect);
         if (!list)
@@ -116,6 +117,7 @@ QHash<int, QByteArray> AspectContainerModel::roleNames() const
         {AllowAddingRole, "allowAdding"},
         {AllowRemovingRole, "allowRemoving"},
         {AllowEditingRole, "allowEditing"},
+        {ActionTextRole, "actionText"},
         {ItemListModelRole, "itemListModel"},
         {MinimumRole, "minimum"},
         {MaximumRole, "maximum"},
@@ -182,6 +184,7 @@ AspectContainerModel::Kind AspectContainerModel::kindOf(AspectControls::Control 
     case AspectControls::FontFamilyPicker:       return FontFamily;
     case AspectControls::StringList:             return StringListEditor;
     case AspectControls::AspectList:             return AspectList;
+    case AspectControls::TextWithAction:         return TextWithAction;
     // IntegersAspect draws nothing in the widget path either, so drawing
     // nothing here is parity rather than a gap.
     case AspectControls::IntegerList:            return Invisible;

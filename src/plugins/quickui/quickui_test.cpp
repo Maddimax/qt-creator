@@ -80,6 +80,7 @@ private slots:
     void testStringListEditorAddsRemovesAndEdits();
     void testStringSelectionOffersItsChoices();
     void testAspectListAddsRemovesAndShowsDetails();
+    void testTextWithActionShowsSummaryAndActs();
 };
 
 void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
@@ -486,6 +487,55 @@ void QuickUiTest::testAspectListAddsRemovesAndShowsDetails()
     QCOMPARE(servers.volatileItems().size(), 0);
     QTRY_COMPARE(view->property("count").toInt(), 0);
     QVERIFY(!findQmlComponent(delegate, "BoolDelegate"));
+}
+
+// The shape EnvironmentChangesAspect has: a summary of the value and one
+// button, because it is edited through a dialog.
+class SummaryWithAction final : public Utils::StringAspect
+{
+public:
+    using Utils::StringAspect::StringAspect;
+
+    int actions = 0;
+
+    Utils::AspectPresentation presentation() const override
+    {
+        Utils::AspectPresentation p = Utils::StringAspect::presentation();
+        p.control = Utils::AspectControls::TextWithAction;
+        p.actionText = "Change...";
+        return p;
+    }
+
+    QString displayText() const override { return "summary of " + volatileValue(); }
+    void triggerAction() override { ++actions; }
+};
+
+void QuickUiTest::testTextWithActionShowsSummaryAndActs()
+{
+    Utils::AspectContainer page;
+    SummaryWithAction aspect(&page);
+    aspect.setLabelText("Environment");
+    aspect.setValue("one change");
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createAspectForm(&page));
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QVERIFY(quickWidget->rootObject());
+
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "TextWithActionDelegate"));
+
+    // The summary comes from the aspect, not from a model snapshot, so it
+    // follows the value.
+    const QList<QQuickItem *> labels = findQmlComponents(delegate, "Label");
+    QVERIFY(Utils::anyOf(labels, [](QQuickItem *l) {
+        return l->property("text").toString() == "summary of one change";
+    }));
+
+    QQuickItem *button = findButton(delegate, "Change...");
+    QVERIFY(button);
+    QMetaObject::invokeMethod(button, "clicked");
+    QCOMPARE(aspect.actions, 1);
 }
 
 QObject *createQuickUiTest()

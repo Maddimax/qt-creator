@@ -45,6 +45,9 @@ enum Control {
     IntegerList,
     // A list of sub-aspects with a details pane, add and remove.
     AspectList,
+    // A summary of the value plus one button that acts on it, for an aspect
+    // edited through a dialog rather than in place.
+    TextWithAction,
 };
 Q_ENUM_NS(Control)
 
@@ -135,6 +138,9 @@ public:
     QVariant minimum;
     QVariant maximum;
     QVariant singleStep;
+
+    // TextWithAction. The button's label.
+    QString actionText;
 
     QString prefix;
     QString suffix;
