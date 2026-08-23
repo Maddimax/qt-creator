@@ -3,6 +3,8 @@ import qbs 1.0
 QtcPlugin {
     name: "QuickUi"
 
+    Depends { name: "Qt.quick"; required: false }
+    Depends { name: "Qt.quickcontrols2"; required: false }
     condition: Qt.quick.present && Qt.quickcontrols2.present
 
     Depends { name: "Core" }

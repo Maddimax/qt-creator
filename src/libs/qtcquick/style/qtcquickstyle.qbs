@@ -1,6 +1,8 @@
 QtcLibrary {
     name: "QtcQuickStyle"
 
+    Depends { name: "Qt.quick"; required: false }
+    Depends { name: "Qt.quickcontrols2"; required: false }
     condition: Qt.quick.present && Qt.quickcontrols2.present
 
     Depends { name: "Qt"; submodules: ["qml", "quick", "quickcontrols2"] }
