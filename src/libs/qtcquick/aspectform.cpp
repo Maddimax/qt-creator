@@ -15,37 +15,42 @@
 
 namespace QtcQuick {
 
-QWidget *createAspectForm(Utils::AspectContainer *container)
+QWidget *createGenericAspectForm(Utils::AspectContainer *container)
 {
     QTC_ASSERT(container, return nullptr);
 
     auto widget = new QuickWidget;
+    auto model = new AspectContainerModel(container, widget);
+    widget->quickWidget()->setInitialProperties({{"model", QVariant::fromValue(model)}});
+    widget->setSource(QUrl("qrc:/qt/qml/QtCreator/Ui/AspectForm.qml"));
+    return widget;
+}
 
-    // A page with its own QML lays itself out and reaches its aspects by name;
-    // one without gets the generic form driven by the model. Each path passes
-    // only what its root component declares.
+QWidget *createAspectForm(Utils::AspectContainer *container)
+{
+    QTC_ASSERT(container, return nullptr);
+
+    // A page with its own QML lays itself out and reaches its aspects by name.
     if (const QUrl source = container->qmlSource(); !source.isEmpty()) {
+        auto widget = new QuickWidget;
         auto named = new NamedAspects(container, widget);
         widget->quickWidget()->setInitialProperties({{"aspects", QVariant::fromValue(named)}});
         widget->setSource(source);
         return widget;
     }
 
-    // A page with an aspect the generic form cannot show would lose a control,
-    // so decline it and let the caller keep its widget layout. Those pages are
-    // the migration backlog: give them their own QML, or teach the form the
-    // aspect. QTC_QUICK_SETTINGS renders them anyway, placeholders and all, so
-    // that the gaps are visible while working on them.
-    if (!AspectContainerModel::isFullyRenderable(container)
-        && !Utils::qtcEnvironmentVariableIsSet("QTC_QUICK_SETTINGS")) {
-        delete widget;
-        return nullptr;
-    }
-
-    auto model = new AspectContainerModel(container, widget);
-    widget->quickWidget()->setInitialProperties({{"model", QVariant::fromValue(model)}});
-    widget->setSource(QUrl("qrc:/qt/qml/QtCreator/Ui/AspectForm.qml"));
-    return widget;
+    // A page without one keeps its widget layout, even where the generic form
+    // could show all of its aspects. It is the layouter that decides what a
+    // page shows: it picks aspects, arranges them, labels them, and may build
+    // widgets of its own - the tool table on the Qt Creator MCP Server page,
+    // for one. The generic form shows the container's aspects in order and
+    // nothing else, so it drops all of that, and none of it can be seen from
+    // the aspects to tell the two cases apart. Set QTC_QUICK_SETTINGS to render
+    // every page generically anyway, which is how to see what one looks like
+    // before writing its QML.
+    if (Utils::qtcEnvironmentVariableIsSet("QTC_QUICK_SETTINGS"))
+        return createGenericAspectForm(container);
+    return nullptr;
 }
 
 } // namespace QtcQuick

@@ -24,9 +24,9 @@ private:
 #ifdef WITH_TESTS
         addTestCreator(createQuickUiTest);
 #endif
-        // Every aspect-driven settings page the Qt Quick form can show fully
-        // goes through it. createAspectForm() declines the rest, and
-        // IOptionsPage falls back to their widget layout.
+        // Every settings page that has been given its own QML renders through
+        // it. createAspectForm() declines the rest, and IOptionsPage falls back
+        // to their widget layout.
         Core::setAspectFormFactory([](Utils::AspectContainer *container) {
             return QtcQuick::createAspectForm(container);
         });

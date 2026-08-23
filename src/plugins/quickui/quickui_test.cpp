@@ -98,6 +98,7 @@ private slots:
     void testAspectListAddsRemovesAndShowsDetails();
     void testTextWithActionShowsSummaryAndActs();
     void testAspectListLabelArrivingLate();
+    void testPageWithoutItsOwnQmlIsDeclined();
 };
 
 void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
@@ -107,8 +108,9 @@ void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
     });
 
     int aspectDriven = 0;
-    int renderable = 0;
+    int withQml = 0;
     int renderedWithQuick = 0;
+    int genericWouldDo = 0;
     QStringList declined;
 
     for (Core::IOptionsPage *page : Core::IOptionsPage::allOptionsPages()) {
@@ -122,13 +124,16 @@ void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
             continue;
         auto quickWidget = widget->findChild<QQuickWidget *>();
 
-        // The form takes every page it can show fully and declines the rest,
-        // which keep their widget layout. Neither outcome may be arbitrary.
-        const bool pageIsRenderable
-            = QtcQuick::AspectContainerModel::isFullyRenderable(*aspects)
-              || !(*aspects)->qmlSource().isEmpty();
-        renderable += pageIsRenderable ? 1 : 0;
-        QCOMPARE(bool(quickWidget), pageIsRenderable);
+        // The factory takes every page that names its own QML and declines the
+        // rest, which keep their widget layout. Neither outcome may be
+        // arbitrary. How many of the declined ones the generic form could
+        // nonetheless show all the aspects of is the porting backlog, reported
+        // below: those are the cheap ports, not a promise about what renders.
+        const bool pageHasQml = !(*aspects)->qmlSource().isEmpty();
+        withQml += pageHasQml ? 1 : 0;
+        QCOMPARE(bool(quickWidget), pageHasQml);
+        if (!pageHasQml && QtcQuick::AspectContainerModel::isFullyRenderable(*aspects))
+            ++genericWouldDo;
 
         if (!quickWidget) {
             declined << page->displayName();
@@ -177,6 +182,8 @@ void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
 
     qInfo().noquote() << "aspect-driven pages:" << aspectDriven
                       << "rendered with Qt Quick:" << renderedWithQuick
+                      << "\n  of the" << declined.size() << "still on widgets,"
+                      << genericWouldDo << "have only aspects the generic form knows"
                       << "\n  still on widgets:" << declined.join(", ");
 
     // How many pages exist, and how many of them the form can show, depends on
@@ -185,7 +192,7 @@ void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
     // count to assert is that the form took every page it could, not that it
     // took any particular number.
     QVERIFY(aspectDriven > 0);
-    QCOMPARE(renderedWithQuick, renderable);
+    QCOMPARE(renderedWithQuick, withQml);
 
     Core::setAspectFormFactory({});
 }
@@ -240,7 +247,7 @@ void QuickUiTest::testNestedContainerRendersAsGroup()
     Utils::BoolAspect flag(&group);
     flag.setLabelText("Flag");
 
-    const std::unique_ptr<QWidget> form(QtcQuick::createAspectForm(&page));
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
     QVERIFY(form);
     auto quickWidget = form->findChild<QQuickWidget *>();
     QVERIFY(quickWidget);
@@ -256,6 +263,29 @@ void QuickUiTest::testNestedContainerRendersAsGroup()
     // is what makes the nesting - and so the grouping - real.
     QVERIFY(findQmlComponent(groupItem, "BoolDelegate"));
     QVERIFY(!findQmlComponent(groupItem, "UnsupportedDelegate"));
+}
+
+void QuickUiTest::testPageWithoutItsOwnQmlIsDeclined()
+{
+    Utils::AspectContainer page;
+    Utils::BoolAspect flag(&page);
+    flag.setSettingsKey("Test/Flag");
+    flag.setLabelText("Flag");
+
+    // A page is rendered with Quick only once it has been given its own QML,
+    // even when every aspect on it is one the generic form can show: what a
+    // page shows is the layouter's choice, and the generic form does not know
+    // that choice. So this one is declined and keeps its widget layout.
+    QVERIFY(QtcQuick::AspectContainerModel::isFullyRenderable(&page));
+    QVERIFY(!QtcQuick::createAspectForm(&page));
+
+    // The generic form is still what an unported page looks like on request.
+    const std::unique_ptr<QWidget> generic(QtcQuick::createGenericAspectForm(&page));
+    QVERIFY(generic);
+    auto quickWidget = generic->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QVERIFY(quickWidget->rootObject());
+    QVERIFY(findQmlComponent(quickWidget->rootObject(), "BoolDelegate"));
 }
 
 void QuickUiTest::testQmlNameIsDerivedFromTheSettingsKey()
@@ -333,7 +363,7 @@ void QuickUiTest::testLabelChangeReachesTheControl()
     Utils::BoolAspect flag(&page);
     flag.setLabelText("Before");
 
-    const std::unique_ptr<QWidget> form(QtcQuick::createAspectForm(&page));
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
     auto quickWidget = form->findChild<QQuickWidget *>();
     QVERIFY(quickWidget);
     QVERIFY(quickWidget->rootObject());
@@ -376,7 +406,7 @@ void QuickUiTest::testIdValuedSelectionRoundTrips()
     IdValuedSelection selection(&page);
     selection.setValue("second");
 
-    const std::unique_ptr<QWidget> form(QtcQuick::createAspectForm(&page));
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
     auto quickWidget = form->findChild<QQuickWidget *>();
     QVERIFY(quickWidget);
     QVERIFY(quickWidget->rootObject());
@@ -399,7 +429,7 @@ void QuickUiTest::testStringListEditorAddsRemovesAndEdits()
     list.setLabelText("Entries");
     list.setValue({"alpha", "beta"});
 
-    const std::unique_ptr<QWidget> form(QtcQuick::createAspectForm(&page));
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
     auto quickWidget = form->findChild<QQuickWidget *>();
     QVERIFY(quickWidget);
     QVERIFY(quickWidget->rootObject());
@@ -461,7 +491,7 @@ void QuickUiTest::testStringSelectionOffersItsChoices()
     QCOMPARE(p.choices.at(1).display, QString("Second"));
     QCOMPARE(p.choices.at(1).id.toString(), QString("second"));
 
-    const std::unique_ptr<QWidget> form(QtcQuick::createAspectForm(&page));
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
     auto quickWidget = form->findChild<QQuickWidget *>();
     QVERIFY(quickWidget);
     QVERIFY(quickWidget->rootObject());
@@ -493,7 +523,7 @@ void QuickUiTest::testAspectListAddsRemovesAndShowsDetails()
         return item;
     });
 
-    const std::unique_ptr<QWidget> form(QtcQuick::createAspectForm(&page));
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
     auto quickWidget = form->findChild<QQuickWidget *>();
     QVERIFY(quickWidget);
     QVERIFY(quickWidget->rootObject());
@@ -586,7 +616,7 @@ void QuickUiTest::testTextWithActionShowsSummaryAndActs()
     aspect.setLabelText("Environment");
     aspect.setValue("one change");
 
-    const std::unique_ptr<QWidget> form(QtcQuick::createAspectForm(&page));
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
     auto quickWidget = form->findChild<QQuickWidget *>();
     QVERIFY(quickWidget);
     QVERIFY(quickWidget->rootObject());
@@ -624,7 +654,7 @@ void QuickUiTest::testAspectListLabelArrivingLate()
     servers.setCreateItemFunction([] { return std::make_shared<Utils::AspectContainer>(); });
     servers.createAndAddItem();
 
-    const std::unique_ptr<QWidget> form(QtcQuick::createAspectForm(&page));
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
     QVERIFY(form);
     auto quickWidget = form->findChild<QQuickWidget *>();
     QVERIFY(quickWidget);

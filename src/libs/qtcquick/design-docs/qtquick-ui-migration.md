@@ -341,15 +341,45 @@ closures.
 
 ### Phase 3 - done, without waiting for full parity
 
-The factory is installed unconditionally, so the Quick form is the default.
+The factory is installed unconditionally, so the Quick path is the default.
 Full delegate parity turned out not to be a prerequisite: `createAspectForm()`
-**declines a container it cannot show in full**, and `IOptionsPage` keeps that
-page's widget layout. So the flip is a strict improvement - no page loses a
-control - and the declined pages are the backlog rather than a regression.
+**declines a page it is not ready for**, and `IOptionsPage` keeps that page's
+widget layout. So the flip is a strict improvement - no page loses a control -
+and the declined pages are the backlog rather than a regression.
+
+#### What "ready" means: the page has its own QML
+
+The first rule tried was "accept a page whose every aspect the generic form can
+show" (`AspectContainerModel::isFullyRenderable()`). It is not sufficient, and
+the Qt Creator MCP Server page is the counter-example: its layouter builds a
+`QTableView` of registered tools, and the per-tool `BoolAspect`s carry no label
+of their own because the names live in the table's model. Every aspect on that
+page is one the generic form knows, so the page was accepted - and rendered as a
+column of nameless check boxes with the table gone.
+
+The general point: **the layouter is what decides what a page shows.** It picks
+which aspects appear, arranges them, supplies labels of its own, and may build
+widgets that belong to no aspect. The generic form knows none of that - it shows
+the container's aspects, in order, and nothing else. And the difference cannot
+be seen from the aspects, so no predicate over them can tell an unported page
+that would render correctly from one that would quietly lose half of itself.
+
+So the gate is the one thing that does carry the intent: `createAspectForm()`
+renders a page **iff it names its own QML** via `AspectContainer::setQmlSource()`.
+`createGenericAspectForm()` still builds the generic form for anything, and is
+what the delegate tests use and what `QTC_QUICK_SETTINGS` turns on, but it is
+never reached by a real page on its own.
+
+This makes progress purely additive: a page moves to Quick when someone writes
+its QML and looks at it. It also means `isFullyRenderable()` is no longer a
+gate, only a measure - of the 57 pages still on widgets, 49 contain nothing but
+aspects the generic form already knows, so those are the cheap ports.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
 all`, minus `QmlDesigner` and `UpdateInfo`, see below): **73 aspect-driven
-pages, 65 rendered with Qt Quick, 8 still on widgets.** Handled since the flip:
+pages, 16 with their own QML and rendered with Qt Quick, 57 still on widgets.**
+Before the gate was narrowed, 65 pages rendered generically; the delegate work
+that made that possible is all still in place and is what the ports build on:
 `StringListAspect` (a real list editor), `IntegersAspect` (`Invisible`, because
 it draws nothing in the widget path either), `StringSelectionAspect` (it builds
 its own choices now), index-valued selections with no options (an empty combo
@@ -386,9 +416,11 @@ To find out what blocks a page, walk its container with
 `AspectContainerModel::kindOf()` and print the aspects that come back
 `Unsupported`; the pass count alone will not tell you.
 
-`QTC_QUICK_SETTINGS` now means the opposite of what it used to: render the
-declined pages too, placeholders and all, so the gaps are visible while working
-on them.
+`QTC_QUICK_SETTINGS` now means the opposite of what it used to: render every
+declined page generically, placeholders and all, so that what a page would look
+like is visible before writing its QML. It reads
+`Environment::systemEnvironment()`, a snapshot taken at startup, so a test
+cannot flip it with `qputenv`.
 
 Two things to know about running that measurement. `-load all` trips over any
 stale plugin left in the build directory from an older configure - here a
