@@ -12,13 +12,7 @@
 
 #include <projectexplorer/projectexplorerconstants.h>
 
-#include <utils/aspectwidgets.h>
-#include <utils/infolabel.h>
-#include <utils/layoutbuilder.h>
-#include <utils/pathchooser.h>
-
-#include <QLabel>
-#include <QPushButton>
+#include <utils/pathvalidation.h>
 
 using namespace Utils;
 
@@ -95,93 +89,60 @@ HarmonyOsSettings::HarmonyOsSettings()
         applyConfig();
     });
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        auto instruction = new QLabel(
-            Tr::tr("Select the installation directory of DevEco Studio or of the HarmonyOS "
-                   "command-line tools. It must contain the OpenHarmony native SDK (with the "
-                   "\"llvm\" and \"sysroot\" folders) used to build for HarmonyOS."));
-        instruction->setWordWrap(true);
+    instruction.setText(
+        Tr::tr("Select the installation directory of DevEco Studio or of the HarmonyOS "
+               "command-line tools. It must contain the OpenHarmony native SDK (with the "
+               "\"llvm\" and \"sysroot\" folders) used to build for HarmonyOS."));
+    instruction.setWordWrap(true);
+    instruction.setQmlName("Instruction");
 
-        auto autodetectButton = new QPushButton(Tr::tr("Auto-detect"));
+    status.setWordWrap(true);
+    status.setQmlName("Status");
 
-        auto status = new InfoLabel;
-        status->setElideMode(Qt::ElideNone);
-        status->setWordWrap(true);
+    signingNote.setText(
+        Tr::tr("Material for signing HarmonyOS packages, as issued for the developer "
+               "account. Projects that DevEco Studio set up for automatic signing use "
+               "their own material instead."));
+    signingNote.setWordWrap(true);
+    signingNote.setQmlName("SigningNote");
 
-        auto signingNote = new QLabel(
-            Tr::tr("Material for signing HarmonyOS packages, as issued for the developer "
-                   "account. Projects that DevEco Studio set up for automatic signing use "
-                   "their own material instead."));
-        signingNote->setWordWrap(true);
+    // What the chosen directory contains, which follows the directory rather
+    // than whatever happens to be drawing the page.
+    const auto updateStatus = [this] {
+        const FilePath sdkRoot = sdkLocation.resolvedVolatileValue();
+        if (sdkRoot.isEmpty()) {
+            status.setIconType(Utils::InfoType::None);
+            status.setText({});
+            return;
+        }
+        if (Sdk::isValidSdk(sdkRoot)) {
+            status.setIconType(Utils::InfoType::Ok);
+            const bool hasHvigor = !Sdk::hvigorBinPath(sdkRoot).isEmpty();
+            status.setText(hasHvigor
+                ? Tr::tr("A HarmonyOS SDK with the hvigor build tool was found.")
+                : Tr::tr("A HarmonyOS SDK was found, but the hvigor build tool is missing."));
+        } else {
+            status.setIconType(Utils::InfoType::NotOk);
+            status.setText(Tr::tr("No HarmonyOS native SDK was found in this directory."));
+        }
+    };
+    connect(&sdkLocation, &BaseAspect::volatileValueChanged, this, updateStatus);
+    updateStatus();
 
-        using namespace Layouting;
-        Column column {
-            Group {
-                title(Tr::tr("HarmonyOS SDK")),
-                Column {
-                    instruction,
-                    Row { sdkLocation, autodetectButton },
-                    status,
-                    Form { additionalPackages, br },
-                    automaticKitCreation,
-                },
-            },
-            Group {
-                title(Tr::tr("Running")),
-                Column { runWithoutInstalling },
-            },
-            Group {
-                title(Tr::tr("Package Signing")),
-                Column {
-                    signingNote,
-                    Form {
-                        signingCertificate, br,
-                        signingProfile, br,
-                        signingKeystore, br,
-                        signingKeyAlias, br,
-                        signingKeyPassword, br,
-                        signingStorePassword, br,
-                    },
-                },
-            },
-            st,
-        };
-
-        const auto updateStatus = [this, status] {
-            const FilePath sdkRoot = sdkLocation.resolvedVolatileValue();
-            if (sdkRoot.isEmpty()) {
-                status->setType(InfoLabelType::None);
-                status->setText({});
-                return;
-            }
-            if (Sdk::isValidSdk(sdkRoot)) {
-                status->setType(InfoLabelType::Ok);
-                const bool hasHvigor = !Sdk::hvigorBinPath(sdkRoot).isEmpty();
-                status->setText(hasHvigor
-                    ? Tr::tr("A HarmonyOS SDK with the hvigor build tool was found.")
-                    : Tr::tr("A HarmonyOS SDK was found, but the hvigor build tool is missing."));
-            } else {
-                status->setType(InfoLabelType::NotOk);
-                status->setText(Tr::tr("No HarmonyOS native SDK was found in this directory."));
-            }
-        };
-
-        connect(&sdkLocation, &BaseAspect::volatileValueChanged, this, updateStatus);
-        connect(autodetectButton, &QPushButton::clicked, this, [this, status, updateStatus] {
-            const FilePath detected = Sdk::detectDevEcoSdk();
-            if (detected.isEmpty()) {
-                status->setType(InfoLabelType::Warning);
-                status->setText(Tr::tr("Could not find an installed DevEco Studio SDK."));
-                return;
-            }
-            sdkLocation.setVolatileValue(detected.toUserOutput());
-            updateStatus();
-        });
-
+    autodetect.setActionText(Tr::tr("Auto-detect"));
+    autodetect.setQmlName("Autodetect");
+    autodetect.setAction([this, updateStatus] {
+        const FilePath detected = Sdk::detectDevEcoSdk();
+        if (detected.isEmpty()) {
+            status.setIconType(Utils::InfoType::Warning);
+            status.setText(Tr::tr("Could not find an installed DevEco Studio SDK."));
+            return;
+        }
+        sdkLocation.setVolatileValue(detected.toUserOutput());
         updateStatus();
-
-        return column;
     });
+
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/HarmonyOS/HarmonyOsSettingsPage.qml"));
 
     readSettings();
     refreshSigningPasswords();

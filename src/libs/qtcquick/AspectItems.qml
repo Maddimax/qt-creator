@@ -80,6 +80,10 @@ ColumnLayout {
                 TextAreaDelegate {}
             }
             DelegateChoice {
+                roleValue: AspectContainerModel.Secret
+                SecretDelegate {}
+            }
+            DelegateChoice {
                 roleValue: AspectContainerModel.Invisible
                 Item {}
             }

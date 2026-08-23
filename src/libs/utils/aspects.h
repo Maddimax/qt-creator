@@ -171,6 +171,10 @@ public:
     // renderer holding only a BaseAspect can report it; what it means is the
     // aspect's business.
     Q_INVOKABLE virtual void activateLink(const QString &link);
+    // Asks the aspect to produce its displayText(), for the ones that have to
+    // go and get it. Says so with displayTextChanged() when it arrives; does
+    // nothing where there is nothing to fetch.
+    Q_INVOKABLE virtual void requestDisplayText();
 
     AspectContainer *container() const;
 

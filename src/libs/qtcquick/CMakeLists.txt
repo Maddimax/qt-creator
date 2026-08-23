@@ -60,6 +60,7 @@ if(TARGET QtcQuick)
       RadioDelegate.qml
       QtcSwitch.qml
       SelectionDelegate.qml
+      SecretDelegate.qml
       StringDelegate.qml
       StringListDelegate.qml
       StringListEditorDelegate.qml

@@ -761,6 +761,13 @@ void BaseAspect::activateLink(const QString &link)
 }
 
 /*!
+    Asks the aspect to produce its displayText(). Aspects that keep their value
+    to hand have nothing to do here.
+*/
+void BaseAspect::requestDisplayText()
+{}
+
+/*!
     Performs this aspect's one action, for a TextWithAction control. Does
     nothing unless an aspect gives it a meaning.
 */

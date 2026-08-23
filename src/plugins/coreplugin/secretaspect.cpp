@@ -246,13 +246,9 @@ void SecretAspect::addToLayoutImpl(Layouting::Layout &parent)
 AspectPresentation SecretAspect::presentation() const
 {
     AspectPresentation p = BaseAspect::presentation();
-    // Not PasswordLineEdit, tempting as it looks. The value only arrives
-    // through requestValue(), so there is no variantValue() for a renderer to
-    // read or write - a generic password field would show nothing and trip
-    // BaseAspect's check on the first edit. addToLayoutImpl() builds the widget
-    // editor itself and does not consult this, so saying Custom costs it
-    // nothing and stops any other renderer from promising what it cannot do.
-    p.control = AspectControls::Custom;
+    // Its own control: the value is not kept here, it has to be fetched. See
+    // displayText() and requestDisplayText().
+    p.control = AspectControls::Secret;
     return p;
 }
 
@@ -269,8 +265,39 @@ void SecretAspect::requestValue(
 
 void SecretAspect::setValue(const QString &value)
 {
+    if (d->value == value && d->wasEdited)
+        return;
     d->value = value;
     d->wasEdited = true;
+    emit changed();
+    emit displayTextChanged();
+}
+
+QString SecretAspect::displayText() const
+{
+    // Empty until the secret has been fetched or set. An empty secret is a
+    // legitimate answer too, which is why the delegate waits for the signal
+    // rather than for a non-empty string.
+    return d->value;
+}
+
+void SecretAspect::requestDisplayText()
+{
+    requestValue([this](const Utils::Result<QString> &) {
+        // requestValue() has already cached whatever it found.
+        emit displayTextChanged();
+    });
+}
+
+void SecretAspect::setVolatileVariantValue(const QVariant &value, Announcement howToAnnounce)
+{
+    Q_UNUSED(howToAnnounce)
+    setValue(value.toString());
+}
+
+QVariant SecretAspect::volatileVariantValue() const
+{
+    return d->value;
 }
 
 bool SecretAspect::isSecretStorageAvailable()

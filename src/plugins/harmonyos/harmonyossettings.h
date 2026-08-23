@@ -28,6 +28,11 @@ public:
     Core::SecretAspect signingKeyPassword{this};
     Core::SecretAspect signingStorePassword{this};
 
+    Utils::TextDisplay instruction{this};
+    Utils::TextDisplay status{this};
+    Utils::TextDisplay signingNote{this};
+    Utils::ActionAspect autodetect{this};
+
     // The keychain is read asynchronously while the build steps need the passwords
     // synchronously, so they are fetched once per session and kept in memory.
     QString keyPassword() const { return m_keyPassword; }

@@ -119,7 +119,7 @@ private slots:
     void testSpinBoxDrawsItsPrefixAndSuffix();
     void testPageQmlReachesANestedContainersAspects();
     void testMultiLineStringGetsATextArea();
-    void testSecretIsNotOfferedAsAPlainPasswordField();
+    void testSecretIsFetchedBeforeItCanBeEdited();
 };
 
 void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
@@ -769,19 +769,19 @@ void QuickUiTest::testMultiLineStringGetsATextArea()
     QTRY_COMPARE(commands.volatileValue(), QString("first\nsecond\nthird"));
 }
 
-void QuickUiTest::testSecretIsNotOfferedAsAPlainPasswordField()
+void QuickUiTest::testSecretIsFetchedBeforeItCanBeEdited()
 {
-    // A SecretAspect's value only arrives through requestValue(), so it has no
-    // variantValue() for a renderer to read or write: a generic password field
-    // would show nothing and trip BaseAspect's check on the first edit. It says
-    // Custom, and the form draws a placeholder rather than a broken field.
+    // A secret is not kept in the aspect: it has to be fetched, and it arrives
+    // later. So the field is read-only until it does - typing before then would
+    // overwrite what is stored with nothing - and it is read through
+    // displayText() rather than the value property, which a secret has none of.
     Utils::AspectContainer page;
     Core::SecretAspect secret(&page);
     secret.setSettingsKey("Test.Secret");
     secret.setLabelText("Password:");
 
     QCOMPARE(int(QtcQuick::AspectContainerModel::kindOf(&secret)),
-             int(QtcQuick::AspectContainerModel::Unsupported));
+             int(QtcQuick::AspectContainerModel::Secret));
 
     const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
     QVERIFY(form);
@@ -789,8 +789,26 @@ void QuickUiTest::testSecretIsNotOfferedAsAPlainPasswordField()
     QVERIFY(quickWidget);
     QQuickItem *rootItem = quickWidget->rootObject();
     QVERIFY(rootItem);
-    QTRY_VERIFY(findQmlComponent(rootItem, "UnsupportedDelegate"));
-    QVERIFY(!findQmlComponent(rootItem, "StringDelegate"));
+
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(rootItem, "SecretDelegate"));
+    QQuickItem *field = findQmlComponent(delegate, "TextField");
+    QVERIFY(field);
+
+    // The delegate asks on completion. Whether the keychain answers at all
+    // depends on the machine, so wait for the answer either way.
+    QTRY_VERIFY(delegate->property("arrived").toBool());
+    QVERIFY(!field->property("readOnly").toBool());
+
+    // Not echoed until asked for.
+    const QMetaObject *mo = field->metaObject();
+    const QMetaEnum echoModes = mo->property(mo->indexOfProperty("echoMode")).enumerator();
+    QCOMPARE(field->property("echoMode").toInt(), echoModes.keyToValue("Password"));
+
+    // Written through the value property, which is all a delegate has.
+    field->setProperty("text", "hunter2");
+    QMetaObject::invokeMethod(field, "editingFinished");
+    QCOMPARE(secret.displayText(), QString("hunter2"));
 }
 
 void QuickUiTest::testQmlNameIsDerivedFromTheSettingsKey()

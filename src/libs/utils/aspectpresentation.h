@@ -50,6 +50,10 @@ enum Control {
     TextWithAction,
     // One button and nothing else, for a page action that has no value.
     Button,
+    // A field for a value that is not kept in the aspect and has to be gone
+    // and got - a secret from the keychain. Written like a line edit, read
+    // through displayText() once requestDisplayText() has delivered it.
+    Secret,
 };
 Q_ENUM_NS(Control)
 

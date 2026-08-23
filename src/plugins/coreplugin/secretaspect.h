@@ -29,6 +29,12 @@ public:
         const std::function<void(const Utils::Result<QString> &)> &callback) const;
     void setValue(const QString &value);
 
+    // For a renderer that has only a BaseAspect: the secret is read through
+    // displayText() once requestDisplayText() has fetched it, and written
+    // through the value property.
+    QString displayText() const override;
+    void requestDisplayText() override;
+
     // The keychain service and key. When unset, both are derived from the
     // settings key by splitting it at the last '.'.
     void setService(const QString &service);
@@ -36,6 +42,11 @@ public:
 
     void readSettings() override;
     void writeSettings() const override;
+
+    // What a GUI edit writes. A secret has no applied-versus-volatile split:
+    // setValue() takes it and writeSettings() persists it.
+    void setVolatileVariantValue(const QVariant &value, Announcement howToAnnounce = DoEmit) override;
+    QVariant volatileVariantValue() const override;
 
     static QString warningThatNoSecretStorageIsAvailable();
 

@@ -457,16 +457,29 @@ where there is no `Utils::AspectContainer` at all. Everything added for the page
 - the three preset aspects and the `setQmlSource()` - has to sit inside the
 existing `#ifndef FAKEVIM_STANDALONE`, and `tst_fakevim` is what proves it does.
 
-**An aspect must not name a control it cannot back.** `Core::SecretAspect` said
-`PasswordLineEdit`, which reads like an ordinary password field - but its value
-only arrives through `requestValue()`, so it has no `variantValue()` at all. A
-generic field bound to it shows nothing and trips `BaseAspect`'s check on the
-first edit, which is `qFatal` under `QTC_FATAL_ASSERTS`. It says `Custom` now,
-so the form draws a placeholder and the gap is visible. `addToLayoutImpl()`
-builds the widget editor itself and never consults the control, so the widget
-path is unchanged. This is the same trap `FontAspect` already carries, and it is
-why HarmonyOS and ACP cannot simply be ported: a proper delegate for an
-asynchronously-read secret has to come first.
+**A value the aspect does not keep.** `Core::SecretAspect` first said
+`PasswordLineEdit`, which reads like an ordinary password field - but a secret
+is not held by the aspect at all: it arrives from the keychain through
+`requestValue()`, later. A generic field bound to it shows nothing and trips
+`BaseAspect`'s check on the first edit, which is `qFatal` under
+`QTC_FATAL_ASSERTS`.
+
+It has a control of its own now, `AspectControls::Secret`, and the three pieces
+a renderer needs are on `BaseAspect` where any renderer can reach them:
+
+- `requestDisplayText()`, a virtual invokable meaning "go and get what you
+  show". Generic, not secret-specific; the default does nothing, because most
+  aspects have their value to hand.
+- `displayText()` for the answer, said with `displayTextChanged()`.
+- `setVolatileVariantValue()` for the write. Note *volatile*: that is what the
+  `value` property's WRITE is, and overriding `setVariantValue()` instead looks
+  right and does nothing at all.
+
+`SecretDelegate` asks on completion and keeps the field read-only until the
+answer arrives - typing before then would overwrite what is stored with
+nothing - and waits on the signal rather than on a non-empty string, because an
+empty secret is a legitimate answer. `FontAspect` still carries the original
+version of this trap.
 
 #### The thirteen that are left, and what each one needs
 
@@ -476,7 +489,6 @@ port, so they are listed with what they actually need:
 
 | page | needs |
 |---|---|
-| HarmonyOS | a field for an asynchronously-read secret (see `SecretAspect` above) |
 | Clang Tools, Code Model | `ClangDiagnosticConfigIdAspect` to describe a combo *and* a separate manage action; its value is a `Utils::Id`, so `setVariantValue()` has to accept the choice id back |
 | QML/JS Editing | a tree of messages with two independent states per row - not a check-box list |
 | Testing | `FrameworksAspect` has no `presentation()` at all |
@@ -487,10 +499,11 @@ port, so they are listed with what they actually need:
 | Snippets, Font && Colors | the snippet and color-scheme editors |
 
 Two of these are worth doing next for the same reason `TextWithAction` was: the
-shape recurs. A secret field appears in HarmonyOS and in Lua's scriptable
-settings; a combo-plus-action appears in Clang Tools, the Code Model, and
-anywhere else an aspect is chosen from a managed list. The editors at the bottom
-of the table are single-use and much larger.
+shape recurs. The secret field is done - it was
+needed by HarmonyOS and by Lua's scriptable settings. A combo-plus-action is the
+other one: it appears in Clang Tools, the Code Model, and anywhere else an
+aspect is chosen from a managed list. The editors at the bottom of the table are
+single-use and much larger.
 
 **One page that cannot be ported as it stands,** noted so nobody rediscovers
 it: Testing's "Active Test Frameworks" is a `FrameworksAspect` with no
@@ -572,7 +585,7 @@ naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
 all`, minus `QmlDesigner` and `UpdateInfo`, see below): **73 aspect-driven
-pages, 60 with their own QML and rendered with Qt Quick, 13 still on widgets.**
+pages, 61 with their own QML and rendered with Qt Quick, 12 still on widgets.**
 Before the gate was narrowed, 65 pages rendered generically; the delegate work
 that made that possible is all still in place and is what the ports build on:
 `StringListAspect` (a real list editor), `IntegersAspect` (`Invisible`, because
