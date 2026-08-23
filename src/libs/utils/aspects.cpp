@@ -3734,10 +3734,50 @@ void StringSelectionAspect::setVolatileVariantValueFromGui(const QVariant &value
     handleGuiChanged();
 }
 
+void StringSelectionAspect::ensureFilled() const
+{
+    if (m_model)
+        return;
+    QTC_ASSERT(m_fillCallback, return);
+
+    auto self = const_cast<StringSelectionAspect *>(this);
+    m_model = new QStandardItemModel(self);
+    m_selectionModel = new QItemSelectionModel(m_model);
+
+    const auto fill = [self](const QList<QStandardItem *> &items) {
+        emit self->modelChange(true);
+
+        self->m_model->clear();
+        for (QStandardItem *item : items)
+            self->m_model->appendRow(item);
+
+        self->volatileValueToGui();
+        emit self->modelChange(false);
+    };
+
+    connect(self, &StringSelectionAspect::refillRequested, self, [self, fill] {
+        self->m_fillCallback(fill);
+    });
+
+    m_fillCallback(fill);
+}
+
 AspectPresentation StringSelectionAspect::presentation() const
 {
     AspectPresentation p = TypedAspect::presentation();
     p.control = AspectControls::ComboBox;
+    // The value is the item's data, which is what volatileValueToGui() looks
+    // items up by. An item without data is addressed by an empty id, matching
+    // what the widget editor stores for it.
+    p.valueIsChoiceId = true;
+    ensureFilled();
+    if (m_model) {
+        for (int row = 0, rows = m_model->rowCount(); row < rows; ++row) {
+            const QStandardItem *item = m_model->item(row);
+            p.choices.append(
+                {item->text(), item->toolTip(), item->isEnabled(), item->data()});
+        }
+    }
     p.sizeAdjustPolicy = m_sizeAdjustPolicy;
     p.minimumContentsLength = m_minimumContentsLength;
     return p;

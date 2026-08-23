@@ -13,6 +13,7 @@
 
 #include <QFile>
 #include <QQmlError>
+#include <QStandardItem>
 #include <QQuickItem>
 #include <QQuickWidget>
 #include <QTemporaryDir>
@@ -76,6 +77,7 @@ private slots:
     void testLabelChangeReachesTheControl();
     void testIdValuedSelectionRoundTrips();
     void testStringListEditorAddsRemovesAndEdits();
+    void testStringSelectionOffersItsChoices();
 };
 
 void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
@@ -397,6 +399,43 @@ void QuickUiTest::testStringListEditorAddsRemovesAndEdits()
     QVERIFY(remove->property("enabled").toBool());
     QMetaObject::invokeMethod(remove, "clicked");
     QCOMPARE(list.volatileValue(), QStringList({"beta", "gamma"}));
+}
+
+void QuickUiTest::testStringSelectionOffersItsChoices()
+{
+    Utils::AspectContainer page;
+    Utils::StringSelectionAspect selection(&page);
+    selection.setLabelText("Pick");
+    selection.setFillCallback([](const Utils::StringSelectionAspect::ResultCallback &cb) {
+        const auto item = [](const QString &display, const QString &id) {
+            auto i = new QStandardItem(display);
+            i->setData(id);
+            return i;
+        };
+        cb({item("First", "first"), item("Second", "second")});
+    });
+    selection.setValue("second");
+
+    // The choices come from a fill callback, so the aspect has to run it itself
+    // for a form that never builds a widget.
+    const Utils::AspectPresentation p = selection.presentation();
+    QCOMPARE(p.choices.size(), 2);
+    QVERIFY(p.valueIsChoiceId);
+    QCOMPARE(p.choices.at(1).display, QString("Second"));
+    QCOMPARE(p.choices.at(1).id.toString(), QString("second"));
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createAspectForm(&page));
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QVERIFY(quickWidget->rootObject());
+
+    QQuickItem *combo = nullptr;
+    QTRY_VERIFY(combo = findQmlComponent(quickWidget->rootObject(), "ComboBox"));
+    QCOMPARE(combo->property("count").toInt(), 2);
+    QCOMPARE(combo->property("currentIndex").toInt(), 1);
+
+    QMetaObject::invokeMethod(combo, "activated", Q_ARG(int, 0));
+    QCOMPARE(selection.volatileValue(), QString("first"));
 }
 
 QObject *createQuickUiTest()

@@ -1458,6 +1458,11 @@ public:
 
     void setComboBoxEditable(bool editable) { m_comboBoxEditable = editable; }
 
+    // Builds the choices if they are not built yet. The fill callback is only
+    // run once, lazily, the way the widget editor used to run it, so this can
+    // be called from presentation().
+    void ensureFilled() const;
+
 signals:
     void refillRequested();
     void modelChange(bool isChanging);
@@ -1468,8 +1473,10 @@ protected:
 private:
     friend class Internal::AspectWidgetRenderer;
     FillCallback m_fillCallback;
-    QStandardItemModel *m_model{nullptr};
-    QItemSelectionModel *m_selectionModel{nullptr};
+    // Lazily built by ensureFilled(), which presentation() calls, so both
+    // backends see the choices without either of them owning the model.
+    mutable QStandardItemModel *m_model{nullptr};
+    mutable QItemSelectionModel *m_selectionModel{nullptr};
     bool m_comboBoxEditable{true};
     AspectControls::SizeAdjustPolicy m_sizeAdjustPolicy
         = AspectControls::SizeAdjustPolicy::ToMinimumContentsLengthWithIcon;

@@ -932,26 +932,7 @@ private:
                              }
                          });
 
-        if (!aspect->m_model) {
-            aspect->m_model = new QStandardItemModel(aspect);
-            aspect->m_selectionModel = new QItemSelectionModel(aspect->m_model);
-
-            auto cb = [aspect](const QList<QStandardItem *> &items) {
-                emit aspect->modelChange(true);
-
-                aspect->m_model->clear();
-                for (QStandardItem *item : items)
-                    aspect->m_model->appendRow(item);
-
-                aspect->volatileValueToGui();
-                emit aspect->modelChange(false);
-            };
-
-            QObject::connect(aspect, &StringSelectionAspect::refillRequested, aspect,
-                             [aspect, cb] { aspect->m_fillCallback(cb); });
-
-            aspect->m_fillCallback(cb);
-        }
+        aspect->ensureFilled();
 
         comboBox->setInsertPolicy(QComboBox::InsertPolicy::NoInsert);
         comboBox->setEditable(aspect->m_comboBoxEditable);
