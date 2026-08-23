@@ -349,23 +349,22 @@ control - and the declined pages are the backlog rather than a regression.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
 all`, minus `QmlDesigner` and `UpdateInfo`, see below): **73 aspect-driven
-pages, 61 rendered with Qt Quick, 12 still on widgets.** Handled since:
+pages, 64 rendered with Qt Quick, 9 still on widgets.** Handled since the flip:
 `StringListAspect` (a real list editor), `IntegersAspect` (`Invisible`, because
 it draws nothing in the widget path either), `StringSelectionAspect` (it builds
-its own choices now), and index-valued selections with no options (an empty
-combo box is what the widget editor draws too). What holds the remaining 12
-back, counted by walking each declined page's container:
+its own choices now), index-valued selections with no options (an empty combo
+box is what the widget editor draws too), and `AspectList`'s
+list-with-details style.
 
-| blocker | pages | what it needs |
-|---|---|---|
-| control is `Custom` - the aspect builds its own widget | 6 | its own delegate, or the page gets hand-written QML |
-| `AspectList` | 3 | a delegate repeating over nested containers, with add and remove |
-| `FontAspect` | 1 (also `Custom`-blocked) | it is an `AspectContainer`, not a `TypedAspect`, so it has no bindable value |
-| `ByteArrayAspect` with a `Custom` control | 1 (also `Custom`-blocked) | it is an internal id, not meant to be shown at all |
+**The generic work is done.** All nine remaining pages are held by aspects
+whose control is `Custom` because they build their own widget in
+`addToLayoutImpl` - an environment editor, a diagnostic-config chooser, a
+colour-scheme editor and so on. Those are bespoke on purpose, so what is left
+is per-page QML, not more delegates. `FontAspect` and an internal
+`ByteArrayAspect` are on pages already blocked that way.
 
-The `Custom` group is the floor for the generic form: those aspects render a
-bespoke widget on purpose, so those pages have to be hand written either way.
-`AspectList` is the largest remaining piece of generic work.
+Still undescribed and therefore still on widgets by design:
+`AspectList`'s inline-list style, which builds a row of controls per item.
 
 To find out what blocks a page, walk its container with
 `AspectContainerModel::kindOf()` and print the aspects that come back
