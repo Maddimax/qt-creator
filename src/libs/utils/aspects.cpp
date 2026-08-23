@@ -6,9 +6,10 @@
 #include "algorithm.h"
 #include "async.h"
 #include "checkableaspect.h"
-#include "checkablemessagebox.h"
+#include "checkabledecider.h"
 #include "environment.h"
 #include "guard.h"
+#include "layoutbuilder.h"
 #include "macroexpander.h"
 #include "pathvalidation.h"
 #include "qtcassert.h"
@@ -18,6 +19,7 @@
 
 #include <QAction>
 #include <QDebug>
+#include <QFontInfo>
 #include <QItemSelectionModel>
 #include <QPointer>
 #include <QStandardItemModel>

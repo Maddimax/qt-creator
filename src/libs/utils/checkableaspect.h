@@ -4,7 +4,6 @@
 #pragma once
 
 #include "aspects.h"
-#include "layoutbuilder.h"
 #include "qtcassert.h"
 
 #include <memory>
@@ -13,8 +12,8 @@ namespace Utils::Internal {
 
 // The optional check box that StringAspect and FilePathAspect can put next to
 // their control. Shared between aspects.cpp and the widget renderer, which
-// builds the composite; the enabling of the control itself is the renderer's
-// job because only it has the widget.
+// places the check box and greys out the control it guards - both of those
+// need a layout and a widget, which is why they are not here.
 class CheckableAspectImplementation
 {
 public:
@@ -86,24 +85,6 @@ public:
 
         aspect->valueToVolatileValue();
         aspect->volatileValueToGui();
-    }
-
-    void addToLayoutFirst(Layouting::Layout &parent)
-    {
-        if (m_checked) {
-            if (m_checkBoxPlacement == CheckBoxPlacement::Top) {
-                m_checked->addToLayoutImpl(parent);
-                parent.flush();
-            } else if (m_checkBoxPlacement == CheckBoxPlacement::Left) {
-                m_checked->addToLayoutImpl(parent);
-            }
-        }
-    }
-
-    void addToLayoutLast(Layouting::Layout &parent)
-    {
-        if (m_checked && m_checkBoxPlacement == CheckBoxPlacement::Right)
-            m_checked->addToLayoutImpl(parent);
     }
 
     CheckBoxPlacement m_checkBoxPlacement = CheckBoxPlacement::Right;

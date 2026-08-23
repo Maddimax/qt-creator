@@ -30,6 +30,7 @@ add_qtc_library(Utils
     categorysortfiltermodel.cpp categorysortfiltermodel.h
     changeset.cpp changeset.h
     checkableaspect.h
+    checkabledecider.cpp checkabledecider.h
     checkablemessagebox.cpp checkablemessagebox.h
     clangutils.cpp clangutils.h
     codegeneration.cpp codegeneration.h

@@ -24,11 +24,7 @@
     static conveniences. The message label can open external URLs.
 */
 
-static const char kDoNotAskAgainKey[] = "DoNotAskAgain";
-
 namespace Utils {
-
-static QtcSettings *theSettings;
 
 static void prepare(QMessageBox::Icon icon,
                     const QString &title,
@@ -144,27 +140,7 @@ static void show(QMessageBox::Icon icon,
     msgBox->show();
 }
 
-CheckableDecider::CheckableDecider(const Key &settingsSubKey)
-{
-    QTC_ASSERT(theSettings, return);
-    shouldAskAgain = [settingsSubKey] {
-        theSettings->beginGroup(kDoNotAskAgainKey);
-        bool shouldNotAsk = theSettings->value(settingsSubKey, false).toBool();
-        theSettings->endGroup();
-        return !shouldNotAsk;
-    };
-    doNotAskAgain = [settingsSubKey] {
-        theSettings->beginGroup(kDoNotAskAgainKey);
-        theSettings->setValue(settingsSubKey, true);
-        theSettings->endGroup();
-    };
-}
 
-CheckableDecider::CheckableDecider(bool *storage)
-{
-    shouldAskAgain = [storage] { return !*storage; };
-    doNotAskAgain = [storage] { *storage = true; };
-}
 
 QMessageBox::StandardButton CheckableMessageBox::question(
     const QString &title,
@@ -262,10 +238,10 @@ void CheckableMessageBox::information_async(
  */
 void CheckableMessageBox::resetAllDoNotAskAgainQuestions()
 {
-    QTC_ASSERT(theSettings, return);
-    theSettings->beginGroup(kDoNotAskAgainKey);
-    theSettings->remove(Key());
-    theSettings->endGroup();
+    QTC_ASSERT(doNotAskAgainSettings(), return);
+    doNotAskAgainSettings()->beginGroup(doNotAskAgainGroup());
+    doNotAskAgainSettings()->remove(Key());
+    doNotAskAgainSettings()->endGroup();
 }
 
 /*!
@@ -274,11 +250,11 @@ void CheckableMessageBox::resetAllDoNotAskAgainQuestions()
 */
 bool CheckableMessageBox::hasSuppressedQuestions()
 {
-    QTC_ASSERT(theSettings, return false);
-    theSettings->beginGroup(kDoNotAskAgainKey);
-    const bool hasSuppressed = !theSettings->childKeys().isEmpty()
-                               || !theSettings->childGroups().isEmpty();
-    theSettings->endGroup();
+    QTC_ASSERT(doNotAskAgainSettings(), return false);
+    doNotAskAgainSettings()->beginGroup(doNotAskAgainGroup());
+    const bool hasSuppressed = !doNotAskAgainSettings()->childKeys().isEmpty()
+                               || !doNotAskAgainSettings()->childGroups().isEmpty();
+    doNotAskAgainSettings()->endGroup();
     return hasSuppressed;
 }
 
@@ -300,7 +276,7 @@ QString CheckableMessageBox::msgDoNotShowAgain()
 
 void CheckableMessageBox::initialize(QtcSettings *settings)
 {
-    theSettings = settings;
+    setDoNotAskAgainSettings(settings);
 }
 
 } // namespace Utils

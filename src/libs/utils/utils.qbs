@@ -89,6 +89,8 @@ QtcLibrary {
         "changeset.cpp",
         "changeset.h",
         "checkableaspect.h",
+        "checkabledecider.cpp",
+        "checkabledecider.h",
         "checkablemessagebox.cpp",
         "checkablemessagebox.h",
         "clangutils.cpp",

@@ -5,6 +5,8 @@
 
 #include "utils_global.h"
 
+#include "checkabledecider.h"
+
 #include <QMap>
 #include <QMessageBox>
 
@@ -12,20 +14,6 @@ namespace Utils {
 
 class Key;
 class QtcSettings;
-
-class QTCREATOR_UTILS_EXPORT CheckableDecider
-{
-public:
-    CheckableDecider() = default;
-    CheckableDecider(const Key &settingsSubKey);
-    CheckableDecider(bool *doNotAskAgain);
-    CheckableDecider(const std::function<bool()> &should, const std::function<void()> &doNot)
-        : shouldAskAgain(should), doNotAskAgain(doNot)
-    {}
-
-    std::function<bool()> shouldAskAgain;
-    std::function<void()> doNotAskAgain;
-};
 
 class QTCREATOR_UTILS_EXPORT CheckableMessageBox
 {

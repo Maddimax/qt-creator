@@ -228,9 +228,21 @@ private:
     template<class Aspect, class Render>
     static void withChecker(Aspect *aspect, Layout &parent, const Render &render)
     {
-        aspect->checker().addToLayoutFirst(parent);
+        CheckableAspectImplementation &checker = aspect->checker();
+        BoolAspect *checked = checker.m_checked.get();
+        if (checked) {
+            if (checker.m_checkBoxPlacement == CheckBoxPlacement::Top) {
+                checked->addToLayoutImpl(parent);
+                parent.flush();
+            } else if (checker.m_checkBoxPlacement == CheckBoxPlacement::Left) {
+                checked->addToLayoutImpl(parent);
+            }
+        }
+
         render();
-        aspect->checker().addToLayoutLast(parent);
+
+        if (checked && checker.m_checkBoxPlacement == CheckBoxPlacement::Right)
+            checked->addToLayoutImpl(parent);
     }
 
     static void setControlReadOnly(QLabel *, bool) {}
