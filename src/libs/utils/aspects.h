@@ -801,6 +801,11 @@ public:
     QString operator()() const;
     [[deprecated("Use operator()() instead")]] QString expandedValue() const;
 
+    // The value as it is shown, display filter applied. What a LabelDisplay
+    // draws, and what a renderer holding only a BaseAspect can read.
+    QString displayText() const override;
+
+
     // Hook between UI and StringAspect:
     using ValueAcceptor = std::function<std::optional<QString>(const QString &, const QString &)>;
     void setValueAcceptor(ValueAcceptor &&acceptor);
@@ -1245,6 +1250,8 @@ public:
     void setWordWrap(bool on);
 
     QString text() const;
+    // The message. A renderer that has only a BaseAspect reads it here.
+    QString displayText() const override;
 
 signals:
     void linkActivated(const QString &link);

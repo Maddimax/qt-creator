@@ -1057,6 +1057,12 @@ void StringAspect::setShowToolTipOnLabel(bool show)
     Sets a \a displayFilter for fine-tuning the visual appearance
     of the value of this string aspect.
 */
+QString StringAspect::displayText() const
+{
+    const std::function<QString(const QString &)> filter = displayFilter();
+    return filter ? filter(volatileValue()) : volatileValue();
+}
+
 void StringAspect::setDisplayFilter(const std::function<QString(const QString &)> &displayFilter)
 {
     d->m_displayFilter = displayFilter;
@@ -3309,6 +3315,12 @@ void TextDisplay::setText(const QString &message)
 {
     d->m_message = message;
     emit changed();
+    emit displayTextChanged();
+}
+
+QString TextDisplay::displayText() const
+{
+    return d->m_message;
 }
 
 void TextDisplay::setWordWrap(bool on)

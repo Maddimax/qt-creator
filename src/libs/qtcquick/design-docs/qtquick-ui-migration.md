@@ -412,6 +412,15 @@ second: `git log -S setQmlSource -p` and grep the deleted lines for
 behaviour, and `groupChecker` (CTest, Beautifier, Subversion) is pure layout,
 answered by `AspectGroupBox.checkAspect`.
 
+**Text the page only shows still has to reach the renderer.** A `TextDisplay`
+kept its message where only a cast to `TextDisplay` could read it, which the
+widget renderer does and no one else can - so the Quick delegate drew an empty
+label and the Coco page's error message was invisible. Anything a renderer has
+to show goes through `BaseAspect::displayText()`, the property that already
+exists for it; `StringAspect` reports its filtered value there too, which is
+what a `LabelDisplay` draws. The delegate also colours the text by
+`infoType`, so an error looks like one.
+
 **A page action is an aspect now.** Several closures ended in a `PushButton`
 with an `onClicked` - Reset Version Control Cache, qbs's Reset, Install
 Extension - which nothing but a layout could see. `Utils::ActionAspect` holds

@@ -111,6 +111,7 @@ private slots:
     void testAspectVisibilityReachesTheDrawnControl();
     void testAspectQmlNamesAreUsableAndUnique();
     void testActionAspectIsAButtonOnEitherRenderer();
+    void testTextDisplayShowsItsMessage();
 };
 
 void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
@@ -525,6 +526,62 @@ void QuickUiTest::testActionAspectIsAButtonOnEitherRenderer()
     QCOMPARE(triggered, 2);
 }
 
+void QuickUiTest::testTextDisplayShowsItsMessage()
+{
+    // A TextDisplay keeps its message where only a cast to TextDisplay could
+    // read it, so the Quick delegate - which has a BaseAspect and nothing else
+    // - drew an empty label. The Coco page's error message was invisible. The
+    // message goes through displayText() now, like every other renderer-visible
+    // string.
+    Utils::AspectContainer page;
+    Utils::TextDisplay message(&page);
+    message.setText("Coco installation directory not found.");
+    message.setIconType(Utils::InfoType::Error);
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QQuickItem *rootItem = quickWidget->rootObject();
+    QVERIFY(rootItem);
+
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(rootItem, "TextDisplayDelegate"));
+    // The style has its own Label.qml, so the class name is the file's.
+    const QList<QQuickItem *> labels = findQmlComponents(delegate, "Label");
+    QString drawn;
+    for (QQuickItem *label : labels) {
+        if (label->property("visible").toBool())
+            drawn += label->property("text").toString();
+    }
+    QCOMPARE(drawn, QString("Coco installation directory not found."));
+
+    // A later message replaces it: setText has to say so.
+    message.setText("Something else went wrong.");
+    QTRY_COMPARE(delegate->property("displayText").toString(),
+                 QString("Something else went wrong."));
+
+    // A StringAspect drawn as a label shares the delegate, and shows its value
+    // rather than its label text - with the display filter applied, as the
+    // widget renderer does.
+    Utils::AspectContainer other;
+    Utils::StringAspect version(&other);
+    version.setDisplayStyle(Utils::StringAspect::LabelDisplay);
+    version.setLabelText("Qbs version:");
+    version.setValue("2.6.1");
+    version.setDisplayFilter([](const QString &v) { return "qbs " + v; });
+
+    const std::unique_ptr<QWidget> labelForm(QtcQuick::createGenericAspectForm(&other));
+    QVERIFY(labelForm);
+    auto labelWidget = labelForm->findChild<QQuickWidget *>();
+    QVERIFY(labelWidget);
+    QVERIFY(labelWidget->rootObject());
+    QQuickItem *labelDelegate = nullptr;
+    QTRY_VERIFY(labelDelegate = findQmlComponent(labelWidget->rootObject(), "TextDisplayDelegate"));
+    QCOMPARE(labelDelegate->property("labelText").toString(), QString("Qbs version:"));
+    QCOMPARE(labelDelegate->property("displayText").toString(), QString("qbs 2.6.1"));
+}
+
 void QuickUiTest::testQmlNameIsDerivedFromTheSettingsKey()
 {
     Utils::BoolAspect slashSeparated;
@@ -699,7 +756,16 @@ void QuickUiTest::testStringListEditorAddsRemovesAndEdits()
 
     // Remove takes out the current row. Add left the new row current.
     QVERIFY(remove->property("enabled").toBool());
-    view->setProperty("currentIndex", 0);
+
+    // Choose the first row by giving it the focus, which is how a row becomes
+    // current here - a row sets itself current when it gains focus, and the
+    // focus Add gave the new row arrives asynchronously. Writing currentIndex
+    // directly races that: the late focus event overwrites it and Remove takes
+    // out the wrong row. Focusing is also the causal signal to wait on.
+    fields = findQmlComponents(editor, "TextField");
+    QCOMPARE(fields.size(), 3);
+    QMetaObject::invokeMethod(fields.at(0), "forceActiveFocus");
+    QTRY_COMPARE(view->property("currentIndex").toInt(), 0);
     QVERIFY(remove->property("enabled").toBool());
     QMetaObject::invokeMethod(remove, "clicked");
     QCOMPARE(list.volatileValue(), QStringList({"beta", "gamma"}));

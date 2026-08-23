@@ -9,6 +9,8 @@
 #include <utils/algorithm.h>
 #include <utils/aspectlist.h>
 #include <utils/aspects.h>
+
+#include <QMetaEnum>
 #include <utils/qtcassert.h>
 
 #include <limits>
@@ -84,6 +86,10 @@ QVariantMap AspectModels::presentation(BaseAspect *aspect)
         // ordinary line edit: it differs only in not echoing what it holds.
         {"password", p.control == AspectControls::PasswordLineEdit},
         {"placeholderText", p.placeholderText},
+        // As a name rather than a number, so the delegates can read it.
+        {"infoType", QString::fromLatin1(
+                         QMetaEnum::fromType<AspectControls::InfoType>().valueToKey(
+                             int(p.infoType)))},
     };
 }
 
