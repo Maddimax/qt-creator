@@ -77,15 +77,6 @@ QVariant AspectContainerModel::data(const QModelIndex &index, int role) const
     case AllowRemovingRole: return p.allowRemoving;
     case AllowEditingRole:  return p.allowEditing;
     case ActionTextRole:    return p.actionText;
-    case ItemListModelRole: {
-        auto list = qobject_cast<Utils::AspectList *>(aspect);
-        if (!list)
-            return {};
-        AspectItemListModel *&items = m_itemListModels[aspect];
-        if (!items)
-            items = new AspectItemListModel(list, const_cast<AspectContainerModel *>(this));
-        return QVariant::fromValue(items);
-    }
     // An aspect with no bound presents an unset minimum/maximum. The delegates
     // bind these straight into SpinBox.from/to and DoubleValidator, so
     // substitute the widest value of the right type rather than passing
@@ -118,7 +109,6 @@ QHash<int, QByteArray> AspectContainerModel::roleNames() const
         {AllowRemovingRole, "allowRemoving"},
         {AllowEditingRole, "allowEditing"},
         {ActionTextRole, "actionText"},
-        {ItemListModelRole, "itemListModel"},
         {MinimumRole, "minimum"},
         {MaximumRole, "maximum"},
         {StepRole, "step"},

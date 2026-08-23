@@ -27,16 +27,7 @@ NimSettings::NimSettings()
     setSettingsGroups("Nim", "NimSuggest");
     setAutoApply(false);
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-        return Column {
-            Group {
-                title(QString("Nimsuggest")),
-                Column { nimSuggestPath }
-            },
-            st
-        };
-    });
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Nim/NimSettingsPage.qml"));
 
     nimSuggestPath.setSettingsKey("Command");
     nimSuggestPath.setExpectedKind(PathChooserKind::ExistingCommand);

@@ -14,6 +14,7 @@ add_qtc_library(QtcQuick
   SOURCES
     aspectcontainermodel.cpp aspectcontainermodel.h
     aspectitemlistmodel.cpp aspectitemlistmodel.h
+    aspectmodels.cpp aspectmodels.h
     aspectform.cpp aspectform.h
     namedaspects.cpp namedaspects.h
     qtcdesignsystem.cpp qtcdesignsystem.h

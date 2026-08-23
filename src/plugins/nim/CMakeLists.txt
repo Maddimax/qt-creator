@@ -31,3 +31,17 @@ add_qtc_plugin(Nim
     tools/nimlexer.cpp tools/nimlexer.h
     tools/sourcecodestream.h
 )
+
+# The settings page's Qt Quick form. A module rather than a plain resource so
+# that qmllint and qmlcachegen see the file; qbs cannot build QML modules, so
+# it only lists it - the same split qtcquick already lives with.
+if(TARGET Nim AND TARGET Qt::Quick)
+  qt_add_qml_module(Nim
+    URI QtCreator.Nim
+    VERSION 1.0
+    RESOURCE_PREFIX "/qt/qml"
+    NO_PLUGIN
+    QML_FILES
+      NimSettingsPage.qml
+  )
+endif()

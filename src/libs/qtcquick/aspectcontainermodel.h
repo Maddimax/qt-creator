@@ -71,7 +71,6 @@ public:
         AllowAddingRole,
         AllowRemovingRole,
         AllowEditingRole,
-        ItemListModelRole,
         ActionTextRole,
         MinimumRole,
         MaximumRole,
@@ -100,7 +99,6 @@ private:
     // A model per nested container, built on demand and owned by this one, so
     // that a group delegate can repeat over its children.
     mutable QHash<Utils::BaseAspect *, AspectContainerModel *> m_childModels;
-    mutable QHash<Utils::BaseAspect *, AspectItemListModel *> m_itemListModels;
 };
 
 } // namespace QtcQuick

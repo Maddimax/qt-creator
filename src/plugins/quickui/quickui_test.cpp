@@ -55,6 +55,19 @@ static QList<QQuickItem *> findQmlComponents(QQuickItem *root, const QString &co
     return found;
 }
 
+// Every item in the visual tree that declares an "aspect" property, which is
+// what makes an item one of our delegates.
+static QList<QQuickItem *> findAspectDelegates(QQuickItem *root)
+{
+    QList<QQuickItem *> found;
+    if (root->metaObject()->indexOfProperty("aspect") >= 0)
+        found << root;
+    const QList<QQuickItem *> children = root->childItems();
+    for (QQuickItem *child : children)
+        found << findAspectDelegates(child);
+    return found;
+}
+
 // The button in \a root whose text is \a text.
 static QQuickItem *findButton(QQuickItem *root, const QString &text)
 {
@@ -138,6 +151,22 @@ void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
                          quickWidget->rootObject()->metaObject()->className())
                          .startsWith(component),
                      qPrintable(page->displayName() + " did not render " + component));
+
+            // A page QML names its aspects, and a name that does not exist is
+            // undefined in QML rather than an error: the delegate is built and
+            // shows nothing. So every delegate must have found its aspect, and
+            // there must be at least one. Delegates are recognised by declaring
+            // an "aspect" property, which is what makes them one.
+            const QList<QQuickItem *> delegates = findAspectDelegates(
+                quickWidget->rootObject());
+            QVERIFY2(!delegates.isEmpty(),
+                     qPrintable(page->displayName() + " renders no aspect at all"));
+            for (QQuickItem *delegate : delegates) {
+                QVERIFY2(!delegate->property("aspect").isNull(),
+                         qPrintable(page->displayName() + ": "
+                                    + QString::fromLatin1(delegate->metaObject()->className())
+                                    + " has no aspect"));
+            }
         }
         ++renderedWithQuick;
     }

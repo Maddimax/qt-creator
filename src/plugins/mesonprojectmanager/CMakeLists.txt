@@ -123,3 +123,17 @@ add_qtc_test(tst_mesonparser
 
 
 endif(WITH_TESTS)
+
+# The settings page's Qt Quick form. A module rather than a plain resource so
+# that qmllint and qmlcachegen see the file; qbs cannot build QML modules, so
+# it only lists it - the same split qtcquick already lives with.
+if(TARGET MesonProjectManager AND TARGET Qt::Quick)
+  qt_add_qml_module(MesonProjectManager
+    URI QtCreator.MesonProjectManager
+    VERSION 1.0
+    RESOURCE_PREFIX "/qt/qml"
+    NO_PLUGIN
+    QML_FILES
+      MesonSettingsPage.qml
+  )
+endif()

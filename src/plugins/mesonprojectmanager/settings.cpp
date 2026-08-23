@@ -33,14 +33,7 @@ MesonSettings::MesonSettings()
     verboseBuild.setLabelText(Tr::tr("Meson verbose mode"));
     verboseBuild.setToolTip(Tr::tr("Enables verbose mode by default when invoking Meson."));
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-        return Column {
-            autorunMeson,
-            verboseBuild,
-            st,
-        };
-    });
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/MesonProjectManager/MesonSettingsPage.qml"));
 
     readSettings();
 }

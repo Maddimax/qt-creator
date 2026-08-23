@@ -57,3 +57,17 @@ extend_qtc_plugin(AcpClient
 if(WITH_TESTS)
   add_subdirectory(testserver)
 endif()
+
+# The settings page's Qt Quick form. A module rather than a plain resource so
+# that qmllint and qmlcachegen see the file; qbs cannot build QML modules, so
+# it only lists it - the same split qtcquick already lives with.
+if(TARGET AcpClient AND TARGET Qt::Quick)
+  qt_add_qml_module(AcpClient
+    URI QtCreator.AcpClient
+    VERSION 1.0
+    RESOURCE_PREFIX "/qt/qml"
+    NO_PLUGIN
+    QML_FILES
+      AcpSettingsPage.qml
+  )
+endif()

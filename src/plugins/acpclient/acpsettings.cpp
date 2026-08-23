@@ -467,12 +467,7 @@ public:
             return {};
         };
 
-        Utils::AspectWidgets::setLayouter(this, [this]() {
-            using namespace Layouting;
-            return Column{
-                &acpServers,
-            };
-        });
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/AcpClient/AcpSettingsPage.qml"));
 
         readSettings();
     }
