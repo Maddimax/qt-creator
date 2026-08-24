@@ -25,7 +25,7 @@ AspectPage {
         Layout.fillWidth: true
 
         ColumnLayout {
-            SelectionDelegate { aspect: aspects.Metrics }
+            RadioGroupDelegate { aspect: aspects.Metrics }
         }
     }
 

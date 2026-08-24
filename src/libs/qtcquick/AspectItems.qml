@@ -52,6 +52,10 @@ ColumnLayout {
                 SelectionDelegate {}
             }
             DelegateChoice {
+                roleValue: AspectContainerModel.RadioGroup
+                RadioGroupDelegate {}
+            }
+            DelegateChoice {
                 roleValue: AspectContainerModel.StringList
                 StringListDelegate {}
             }

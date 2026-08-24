@@ -82,6 +82,17 @@ Utils::AspectContainer *ICodeStylePreferencesFactory::createSettingsAspects(
     return m_settingsAspectsCreator ? m_settingsAspectsCreator(codeStyle) : nullptr;
 }
 
+void ICodeStylePreferencesFactory::setPreviewFormatter(const PreviewFormatter &formatter)
+{
+    m_previewFormatter = formatter;
+}
+
+ICodeStylePreferencesFactory::PreviewFormatter
+ICodeStylePreferencesFactory::previewFormatter() const
+{
+    return m_previewFormatter;
+}
+
 void ICodeStylePreferencesFactory::setSettingsAspectsCreator(const SettingsAspectsCreator &creator)
 {
     m_settingsAspectsCreator = creator;

@@ -65,7 +65,7 @@ AspectContainerModel::Kind AspectContainerModel::kindOf(const BaseAspect *aspect
     // An id-valued selection with nothing to match against cannot show which
     // choice is current. An index-valued one with no choices is just an empty
     // combo box, which is what the widget editor draws for it too.
-    if (kind == Selection && p.valueIsChoiceId && p.choices.isEmpty())
+    if ((kind == Selection || kind == RadioGroup) && p.valueIsChoiceId && p.choices.isEmpty())
         return Unsupported;
     if (kind == MultiSelection && p.choices.isEmpty())
         return Unsupported;
@@ -103,8 +103,8 @@ AspectContainerModel::Kind AspectContainerModel::kindOf(AspectControls::Control 
     case AspectControls::PasswordLineEdit:       return String;
     case AspectControls::TextEdit:               return Text;
     case AspectControls::PathChooser:            return FilePath;
-    case AspectControls::ComboBox:
-    case AspectControls::RadioButtonGroup:       return Selection;
+    case AspectControls::ComboBox:               return Selection;
+    case AspectControls::RadioButtonGroup:       return RadioGroup;
     case AspectControls::SpinBox:                return Integer;
     case AspectControls::DoubleSpinBox:          return Double;
     case AspectControls::CommaSeparatedLineEdit: return StringList;

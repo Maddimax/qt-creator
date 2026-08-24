@@ -314,6 +314,7 @@ void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
                 static const QHash<QString, QList<int>> serves{
                     {"BoolDelegate", {Kind::Bool}},
                     {"RadioDelegate", {Kind::Radio}},
+                    {"RadioGroupDelegate", {Kind::RadioGroup}},
                     {"StringDelegate", {Kind::String, Kind::FilePath}},
                     {"TextAreaDelegate", {Kind::Text}},
                     {"SecretDelegate", {Kind::Secret}},
@@ -412,18 +413,28 @@ void QuickUiTest::testSelectionWithoutDescribedChoicesIsUnsupported()
     Utils::AspectContainer page;
 
     Utils::SelectionAspect described(&page);
+    described.setDisplayStyle(Utils::SelectionAspect::DisplayStyle::ComboBox);
     described.addOption("One");
     described.addOption("Two");
+
+    // The same aspect, asking to be read at a glance instead. Which control it
+    // gets is its own answer, the way the widget renderer has always taken it.
+    Utils::SelectionAspect asRadioButtons(&page);
+    asRadioButtons.setDisplayStyle(Utils::SelectionAspect::DisplayStyle::RadioButtons);
+    asRadioButtons.addOption("One");
+    asRadioButtons.addOption("Two");
 
     // No fill callback, so it has no choices to describe and no way to say
     // which of them is current - its value is a choice id.
     Utils::StringSelectionAspect undescribed(&page);
 
     QtcQuick::AspectContainerModel model(&page);
-    QCOMPARE(model.rowCount(), 2);
+    QCOMPARE(model.rowCount(), 3);
     QCOMPARE(model.index(0, 0).data(QtcQuick::AspectContainerModel::KindRole).toInt(),
              int(QtcQuick::AspectContainerModel::Selection));
     QCOMPARE(model.index(1, 0).data(QtcQuick::AspectContainerModel::KindRole).toInt(),
+             int(QtcQuick::AspectContainerModel::RadioGroup));
+    QCOMPARE(model.index(2, 0).data(QtcQuick::AspectContainerModel::KindRole).toInt(),
              int(QtcQuick::AspectContainerModel::Unsupported));
 }
 

@@ -246,6 +246,9 @@ static void fillContainer(AspectContainer *container)
     doubleAspect->setLabelText("A double");
     auto selectionAspect = new SelectionAspect(container);
     selectionAspect->setLabelText("A selection");
+    // Said explicitly: the display style decides between a combo box and a
+    // group of radio buttons, and the default is the radio buttons.
+    selectionAspect->setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
     selectionAspect->addOption("First");
     selectionAspect->addOption("Second");
     auto filePathAspect = new FilePathAspect(container);

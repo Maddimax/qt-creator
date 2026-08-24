@@ -782,18 +782,50 @@ Three things that shaped it:
 
 What each of the three still needs, from reading them:
 
-- **QML/JS** is the most tractable. `QmlJSCodeStyleSettings` is five fields, and
-  the three formatter widgets already keep them in aspects
-  (`SelectionAspect`, `IntegerAspect`, `FilePathAspect`, `StringAspect`) - they
-  need hoisting into a container rather than rewriting. The qmlformat half is an
-  options table with a context-dependent cell editor, which is what
-  `AspectTable` is for.
+- **QML/JS is done.** `QmlJSCodeStyleAspects` is what the form edits: the
+  formatter selection, a nested container per formatter, and
+  `QmlFormatOptionsAspect` for the qmlformat table. The four
+  `QmlCodeStyleWidgetBase` subclasses, the `QStackedWidget` and the
+  `QStyledItemDelegate` are gone; `QmlFormatOptionsModel` stayed and grew the
+  `AspectTable` roles, which is all a Qt Quick table needs from it.
 - **C++** is the biggest: `CppCodeStyleSettings` is a plain struct of
   twenty-five bools with no aspects at all, laid out across tabs.
 - **ClangFormat** is self-managed: it lays out its own selector and owns its
   deferred apply/cancel, because its settings live in `.clang-format` files
   rather than in the preferences. It is a port like the others, not an
   exception - no page keeps its widgets.
+
+Four things the QML/JS port turned up, worth knowing before the next one:
+
+- **A settings container is reached under one name.** `CodeStyleAspect` calls
+  `setQmlName("Settings")` on whatever the factory hands over, so every
+  language's form starts `AspectModels.named(aspects.Settings)` rather than
+  inventing its own name. `NamedAspects` is one level deep, so a nested
+  container needs a `qmlName()` of its own too - `TabSettings` had none.
+- **A selection says how it wants to be drawn, and now the Quick form
+  listens.** `AspectControls::RadioButtonGroup` used to map to `Selection`, so a
+  `SelectionAspect` whose display style is `RadioButtons` - which is the
+  *default* - drew a combo box. It maps to a new `RadioGroup` kind and
+  `RadioGroupDelegate` now. Four already-ported pages were drawing combo boxes
+  where the widget page draws radio buttons; they were changed to match.
+- **The preview is the language's, not just the indenter's.** QML/JS runs
+  qmlformat over it, so `ICodeStylePreferencesFactory` grew
+  `setPreviewFormatter()` and `TextEditor::formatText()` was exported (the
+  string-in, string-out half of `formatEditor()`). Where a language sets none,
+  Format asks for a re-indent, which is all its formatting is.
+- **A model handed to QML must have a parent.** `QmlFormatOptionsModel` is a
+  member of the aspect and was default-constructed, so QML took ownership of it
+  and freed it - all tests green, exit code 134. This is the third time; see
+  `tableModel()`.
+
+**Known and not chased:** the QML/JS page logs five `implicitWidth` binding-loop
+warnings, one per `AspectGroupBox`, because it is the first page to put groups
+in a `RowLayout` rather than straight into the page's column. Qt breaks the loop
+and the page lays out correctly. Two fixes were tried and rejected: giving both
+`RowLayout` children a `Layout.preferredWidth` changes nothing, and giving the
+group's label `Loader` `implicitWidth: 0` silences it but collapses the whole
+page to nothing. The page is also taller than the viewport and scrolls; capping
+the table with `Layout.preferredHeight` did not change that.
 
 One piece is shared by all three and is already done for them:
 `TextEditor::TabSettings` is an `AspectContainer` of five aspects plus a
@@ -931,7 +963,8 @@ item is itself a `TextField`.
 
 Worth knowing before hunting for dead ones, because most of these are not pages:
 
-- **3 are the pages above**: Code Style, whose one aspect serves all three.
+- **2 are the pages above**: Code Style for C++ and for ClangFormat. QML/JS
+  moved; the page is per language, which is what made that possible.
 - **5 are live nested containers**: `TabSettings`, `TypingSettings`,
   `StorageSettings`, `ExtraEncodingSettings` and `BehaviorSettings`. The Behavior
   page lays their aspects out itself now, but the *per-project* Editor page
@@ -1097,7 +1130,7 @@ naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
 all`, minus `QmlDesigner` and `UpdateInfo`, see below): **73 aspect-driven
-pages, 70 with their own QML and rendered with Qt Quick, 3 still on widgets.**
+pages, 71 with their own QML and rendered with Qt Quick, 2 still on widgets.**
 Before the gate was narrowed, 65 pages rendered generically; the delegate work
 that made that possible is all still in place and is what the ports build on:
 `StringListAspect` (a real list editor), `IntegersAspect` (`Invisible`, because

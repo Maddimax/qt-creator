@@ -58,6 +58,7 @@ public:
         TextWithAction,
         Button,
         Radio,
+        RadioGroup,
         Text,
         Secret,
         Table,

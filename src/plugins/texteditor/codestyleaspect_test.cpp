@@ -13,6 +13,7 @@
 #include <utils/aspectwidgets.h>
 #include <utils/layoutbuilder.h>
 
+#include <QSignalSpy>
 #include <QSpinBox>
 #include <QTest>
 #include <QWidget>
@@ -228,6 +229,12 @@ public:
             return prefs;
         });
         setQmlSource(QUrl("qrc:/qt/qml/QtCreator/TextEditor/CodeStyleTestPage.qml"));
+        // A language whose formatting is more than its indenter says so, and
+        // gets a Format button that runs this. Shouting stands in for
+        // qmlformat, which a test must not depend on having.
+        setPreviewFormatter([](ICodeStylePreferences *, const QString &text) {
+            return Utils::Result<QString>(text.toUpper());
+        });
         setGlobalCodeStyleId("QmlPoolTestGlobal");
         setDefaultCodeStyleId("narrow");
         setBuiltInCodeStyles([this](CodeStylePool *pool) {
@@ -594,6 +601,51 @@ private slots:
         preview->setValue(QString("something else"));
         preview->resetText();
         QCOMPARE(preview->value(), factory.previewText());
+    }
+
+    // The Format button runs the language's own formatter over the preview,
+    // because for QML/JS the formatting is qmlformat and not the indenter.
+    void testFormattingThePreviewRunsTheLanguagesFormatter()
+    {
+        QmlPoolTestCodeStyleFactory factory;
+        CodeStyleAspect aspect(factory.globalCodeStyle(), QML_POOL_TEST_LANGUAGE_ID);
+
+        auto preview = qobject_cast<CodeStylePreviewAspect *>(aspectNamed(&aspect, "Preview"));
+        auto format = qobject_cast<ActionAspect *>(aspectNamed(&aspect, "FormatPreview"));
+        auto reset = qobject_cast<ActionAspect *>(aspectNamed(&aspect, "ResetPreview"));
+        QVERIFY(preview);
+        QVERIFY(format);
+        QVERIFY(reset);
+
+        preview->setValue(QString("if (a) b;"));
+        format->triggerAction();
+        QCOMPARE(preview->value(), QString("IF (A) B;"));
+
+        // And Reset puts the factory's text back, whatever was formatted or
+        // typed over it.
+        reset->triggerAction();
+        QCOMPARE(preview->value(), factory.previewText());
+    }
+
+    // A language with only an indenter has nothing to run, and asks for the
+    // indenting to happen again instead - which is all its formatting is.
+    void testFormattingWithoutAFormatterAsksForAReindent()
+    {
+        QmlTestCodeStyleFactory factory;
+        ICodeStylePreferences codeStyle;
+        CodeStyleAspect aspect(&codeStyle, QML_TEST_LANGUAGE_ID);
+
+        auto preview = qobject_cast<CodeStylePreviewAspect *>(aspectNamed(&aspect, "Preview"));
+        auto format = qobject_cast<ActionAspect *>(aspectNamed(&aspect, "FormatPreview"));
+        QVERIFY(preview);
+        QVERIFY(format);
+
+        QSignalSpy reindents(preview, &CodeStylePreviewAspect::reindentRequested);
+        preview->setValue(QString("if (a) b;"));
+        format->triggerAction();
+
+        QCOMPARE(reindents.count(), 1);
+        QCOMPARE(preview->value(), QString("if (a) b;"));
     }
 
     // A language that stayed on widgets gets none of it: there is no form to

@@ -90,6 +90,6 @@ AspectPage {
         title: qsTr("Line Annotations")
         checkAspect: root.display.DisplayAnnotations
 
-        SelectionDelegate { aspect: root.display.AnnotationAlignment }
+        RadioGroupDelegate { aspect: root.display.AnnotationAlignment }
     }
 }

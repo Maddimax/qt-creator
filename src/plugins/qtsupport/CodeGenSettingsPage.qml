@@ -13,7 +13,7 @@ AspectPage {
     AspectGroupBox {
         title: qsTr("Embedding of the UI Class")
 
-        SelectionDelegate { aspect: aspects.Embedding }
+        RadioGroupDelegate { aspect: aspects.Embedding }
     }
 
     AspectGroupBox {

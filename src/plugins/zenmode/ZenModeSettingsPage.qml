@@ -18,7 +18,7 @@ AspectPage {
 
             RowLayout {
                 TextDisplayDelegate { aspect: aspects.ModeSelectorNote }
-                SelectionDelegate { aspect: aspects.ModesBarState }
+                RadioGroupDelegate { aspect: aspects.ModesBarState }
             }
         }
     }

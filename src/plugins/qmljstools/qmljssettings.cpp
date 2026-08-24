@@ -23,46 +23,29 @@
 
 #include <texteditor/codestylepool.h>
 #include <texteditor/command.h>
-#include <texteditor/displaysettings.h>
-#include <texteditor/fontsettings.h>
-#include <texteditor/snippets/snippeteditor.h>
-#include <texteditor/snippets/snippetprovider.h>
 #include <texteditor/formattexteditor.h>
 #include <texteditor/icodestylepreferencesfactory.h>
 #include <texteditor/indenter.h>
 #include <texteditor/tabsettings.h>
-#include <texteditor/codestylepool.h>
 
+#include <utils/aspectpresentation.h>
 #include <utils/aspects.h>
 #include <utils/commandline.h>
 #include <utils/filepath.h>
-#include <utils/guiutils.h>
-#include <utils/layoutbuilder.h>
+#include <utils/guard.h>
 #include <utils/mimeconstants.h>
 #include <utils/mimeutils.h>
 #include <utils/qtcassert.h>
 #include <utils/qtcprocess.h>
 #include <utils/shutdownguard.h>
 
-#include <QAbstractItemView>
 #include <QAbstractTableModel>
-#include <QCheckBox>
 #include <QColor>
-#include <QComboBox>
-#include <QHeaderView>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QLabel>
-#include <QLineEdit>
-#include <QPushButton>
 #include <QSet>
-#include <QSpinBox>
-#include <QStackedWidget>
-#include <QStandardPaths>
-#include <QStyledItemDelegate>
-#include <QTableView>
-#include <QVBoxLayout>
+#include <QVersionNumber>
 
 using namespace std::chrono_literals;
 using namespace TextEditor;
@@ -128,335 +111,6 @@ Id QmlJSCodeStyleSettings::settingsId()
     return Constants::QML_JS_CODE_STYLE_SETTINGS_ID;
 }
 
-// QmlCodeStyleWidgetBase
-
-class QmlCodeStyleWidgetBase : public QWidget
-{
-    Q_OBJECT
-
-public:
-    explicit QmlCodeStyleWidgetBase(QWidget *parent) : QWidget(parent) {}
-
-    virtual void setCodeStyleSettings(const QmlJSCodeStyleSettings &settings) = 0;
-    virtual void setPreferences(QmlJSCodeStylePreferences *preferences) = 0;
-    virtual void slotCurrentPreferencesChanged(TextEditor::ICodeStylePreferences *preferences) = 0;
-
-signals:
-    void settingsChanged(const QmlJSCodeStyleSettings &);
-};
-
-// FormatterSelectionWidget
-
-class FormatterSelectionWidget : public QmlCodeStyleWidgetBase
-{
-public:
-    explicit FormatterSelectionWidget(QWidget *parent);
-
-    const Utils::SelectionAspect &selection() const { return m_formatterSelection; }
-    Utils::SelectionAspect &selection() { return m_formatterSelection; }
-
-    void setCodeStyleSettings(const QmlJSCodeStyleSettings &settings) override;
-    void setPreferences(QmlJSCodeStylePreferences *preferences) override;
-    void slotCurrentPreferencesChanged(TextEditor::ICodeStylePreferences *preferences) override;
-
-private:
-    void slotSettingsChanged();
-
-    Utils::SelectionAspect m_formatterSelection;
-    QmlJSCodeStylePreferences *m_preferences = nullptr;
-};
-
-FormatterSelectionWidget::FormatterSelectionWidget(QWidget *parent)
-    : QmlCodeStyleWidgetBase(parent)
-{
-    m_formatterSelection.setDefaultValue(QmlJSCodeStyleSettings::Builtin);
-    m_formatterSelection.setDisplayStyle(Utils::SelectionAspect::DisplayStyle::RadioButtons);
-    m_formatterSelection.addOption(Tr::tr("Built-In Formatter [Deprecated]"));
-    m_formatterSelection.addOption(Tr::tr("QmlFormat [LSP]"));
-    m_formatterSelection.addOption(Tr::tr("Custom Formatter [Must be qmlformat compatible]"));
-    m_formatterSelection.setLabelText(Tr::tr("Formatter"));
-
-    connect(&m_formatterSelection, &Utils::SelectionAspect::changed,
-            this, &FormatterSelectionWidget::slotSettingsChanged);
-
-    using namespace Layouting;
-    Column {
-        Group {
-            title(Tr::tr("Formatter Selection")),
-            Column { m_formatterSelection, br },
-        },
-        noMargin,
-    }.attachTo(this);
-}
-
-void FormatterSelectionWidget::setCodeStyleSettings(const QmlJSCodeStyleSettings &settings)
-{
-    if (settings.formatter != m_formatterSelection.value())
-        m_formatterSelection.setValue(settings.formatter);
-}
-
-void FormatterSelectionWidget::setPreferences(QmlJSCodeStylePreferences *preferences)
-{
-    if (m_preferences == preferences)
-        return;
-
-    slotCurrentPreferencesChanged(preferences);
-
-    if (m_preferences) {
-        disconnect(m_preferences, &QmlJSCodeStylePreferences::currentValueChanged, this, nullptr);
-        disconnect(m_preferences, &QmlJSCodeStylePreferences::currentPreferencesChanged,
-                   this, &FormatterSelectionWidget::slotCurrentPreferencesChanged);
-    }
-    m_preferences = preferences;
-    if (m_preferences) {
-        setCodeStyleSettings(m_preferences->currentCodeStyleSettings());
-        connect(m_preferences, &QmlJSCodeStylePreferences::currentValueChanged, this, [this] {
-            setCodeStyleSettings(m_preferences->currentCodeStyleSettings());
-        });
-        connect(m_preferences, &QmlJSCodeStylePreferences::currentPreferencesChanged,
-                this, &FormatterSelectionWidget::slotCurrentPreferencesChanged);
-    }
-}
-
-void FormatterSelectionWidget::slotCurrentPreferencesChanged(
-    TextEditor::ICodeStylePreferences *preferences)
-{
-    QmlJSCodeStylePreferences *current = dynamic_cast<QmlJSCodeStylePreferences *>(
-        preferences ? preferences->currentPreferences() : nullptr);
-    setEnabled(current && !current->isReadOnly());
-}
-
-void FormatterSelectionWidget::slotSettingsChanged()
-{
-    QmlJSCodeStyleSettings settings = m_preferences ? m_preferences->currentCodeStyleSettings()
-                                                    : QmlJSCodeStyleSettings::currentGlobalCodeStyle();
-    settings.formatter = static_cast<QmlJSCodeStyleSettings::Formatter>(m_formatterSelection.value());
-    emit settingsChanged(settings);
-}
-
-// BuiltinFormatterSettingsWidget
-
-class BuiltinFormatterSettingsWidget final : public QmlCodeStyleWidgetBase
-{
-public:
-    BuiltinFormatterSettingsWidget(QWidget *parent, FormatterSelectionWidget *selection)
-        : QmlCodeStyleWidgetBase(parent)
-        , m_tabSettingsWidget(new TabSettings)
-        , m_formatterSelectionWidget(selection)
-    {
-        m_lineLength.setRange(0, 999);
-        m_tabSettingsWidget->setParent(this);
-
-        using namespace Layouting;
-        Column {
-            Group {
-                title(Tr::tr("Built-in Formatter Settings")),
-                Column {
-                    m_tabSettingsWidget,
-                    Group {
-                        title(Tr::tr("Other Settings")),
-                        Form {
-                            Tr::tr("Line length:"), m_lineLength, br
-                        }
-                    }
-                }
-            },
-            noMargin
-        }.attachTo(this);
-
-        connect(&m_lineLength, &IntegerAspect::changed,
-                this, &BuiltinFormatterSettingsWidget::slotSettingsChanged);
-    }
-
-    void setCodeStyleSettings(const QmlJSCodeStyleSettings &settings) override;
-    void setPreferences(QmlJSCodeStylePreferences *preferences) override;
-    void slotCurrentPreferencesChanged(ICodeStylePreferences *preferences) override;
-
-private:
-    void slotSettingsChanged();
-    void slotTabSettingsChanged();
-
-    IntegerAspect m_lineLength;
-    TabSettings *m_tabSettingsWidget;
-    QmlJSCodeStylePreferences *m_preferences = nullptr;
-    FormatterSelectionWidget *m_formatterSelectionWidget;
-};
-
-void BuiltinFormatterSettingsWidget::setCodeStyleSettings(const QmlJSCodeStyleSettings &settings)
-{
-    QSignalBlocker blocker(this);
-    m_lineLength.setValue(settings.lineLength);
-}
-
-void BuiltinFormatterSettingsWidget::setPreferences(QmlJSCodeStylePreferences *preferences)
-{
-    if (m_preferences == preferences)
-        return;
-
-    slotCurrentPreferencesChanged(preferences);
-
-    if (m_preferences) {
-        disconnect(m_preferences, &QmlJSCodeStylePreferences::currentValueChanged, this, nullptr);
-        disconnect(m_preferences, &QmlJSCodeStylePreferences::currentPreferencesChanged,
-                   this, &BuiltinFormatterSettingsWidget::slotCurrentPreferencesChanged);
-        disconnect(m_preferences, &ICodeStylePreferences::currentTabSettingsChanged,
-                   m_tabSettingsWidget, &TabSettings::setData);
-        disconnect(m_tabSettingsWidget, &TabSettings::changed,
-                   this, &BuiltinFormatterSettingsWidget::slotTabSettingsChanged);
-    }
-    m_preferences = preferences;
-    if (m_preferences) {
-        setCodeStyleSettings(m_preferences->currentCodeStyleSettings());
-        connect(m_preferences, &QmlJSCodeStylePreferences::currentValueChanged, this, [this] {
-            setCodeStyleSettings(m_preferences->currentCodeStyleSettings());
-        });
-        connect(m_preferences, &QmlJSCodeStylePreferences::currentPreferencesChanged,
-                this, &BuiltinFormatterSettingsWidget::slotCurrentPreferencesChanged);
-        m_tabSettingsWidget->setData(m_preferences->currentTabSettings());
-        connect(m_preferences, &ICodeStylePreferences::currentTabSettingsChanged,
-                m_tabSettingsWidget, &TabSettings::setData);
-        connect(m_tabSettingsWidget, &TabSettings::changed,
-                this, &BuiltinFormatterSettingsWidget::slotTabSettingsChanged);
-    }
-}
-
-void BuiltinFormatterSettingsWidget::slotCurrentPreferencesChanged(ICodeStylePreferences *preferences)
-{
-    QmlJSCodeStylePreferences *current = dynamic_cast<QmlJSCodeStylePreferences *>(
-        preferences ? preferences->currentPreferences() : nullptr);
-    const bool enableWidgets = current && !current->isReadOnly() && m_formatterSelectionWidget
-                               && m_formatterSelectionWidget->selection().value()
-                                      == QmlJSCodeStyleSettings::Builtin;
-    setEnabled(enableWidgets);
-}
-
-void BuiltinFormatterSettingsWidget::slotSettingsChanged()
-{
-    QmlJSCodeStyleSettings settings = m_preferences
-                                          ? m_preferences->currentCodeStyleSettings()
-                                          : QmlJSCodeStyleSettings::currentGlobalCodeStyle();
-    settings.lineLength = m_lineLength.value();
-    emit settingsChanged(settings);
-}
-
-void BuiltinFormatterSettingsWidget::slotTabSettingsChanged()
-{
-    if (!m_preferences)
-        return;
-
-    ICodeStylePreferences *current = m_preferences->currentPreferences();
-    if (!current)
-        return;
-
-    current->setTabSettings(m_tabSettingsWidget->data());
-}
-
-// CustomFormatterWidget
-
-class CustomFormatterWidget : public QmlCodeStyleWidgetBase
-{
-public:
-    CustomFormatterWidget(QWidget *parent, FormatterSelectionWidget *selection)
-        : QmlCodeStyleWidgetBase(parent)
-        , m_formatterSelectionWidget(selection)
-    {
-        m_customFormatterPath.setParent(this);
-        m_customFormatterArguments.setParent(this);
-
-        m_customFormatterPath.setPlaceHolderText(
-                    QmlFormatSettings::instance().latestQmlFormatPath().toUrlishString());
-        m_customFormatterPath.setLabelText(Tr::tr("Command:"));
-
-        m_customFormatterArguments.setLabelText(Tr::tr("Arguments:"));
-        m_customFormatterArguments.setDisplayStyle(StringAspect::LineEditDisplay);
-
-        using namespace Layouting;
-        Column {
-            Group {
-                title(Tr::tr("Custom Formatter Configuration")),
-                Column {
-                    m_customFormatterPath, br,
-                    m_customFormatterArguments, br,
-                    st
-                },
-            },
-            noMargin,
-        }.attachTo(this);
-
-        connect(&m_customFormatterPath, &BaseAspect::changed,
-                this, &CustomFormatterWidget::slotSettingsChanged);
-        connect(&m_customFormatterArguments, &BaseAspect::changed,
-                this, &CustomFormatterWidget::slotSettingsChanged);
-    }
-
-    void setCodeStyleSettings(const QmlJSCodeStyleSettings &settings) override;
-    void setPreferences(QmlJSCodeStylePreferences *preferences) override;
-    void slotCurrentPreferencesChanged(ICodeStylePreferences *preferences) override;
-
-private:
-    void slotSettingsChanged();
-
-    FilePathAspect m_customFormatterPath;
-    StringAspect m_customFormatterArguments;
-    FormatterSelectionWidget *m_formatterSelectionWidget = nullptr;
-    QmlJSCodeStylePreferences *m_preferences = nullptr;
-};
-
-void CustomFormatterWidget::setCodeStyleSettings(const QmlJSCodeStyleSettings &settings)
-{
-    QSignalBlocker blocker(this);
-    if (settings.customFormatterPath != m_customFormatterPath.expandedValue())
-        m_customFormatterPath.setValue(settings.customFormatterPath);
-    if (settings.customFormatterArguments != m_customFormatterArguments.value())
-        m_customFormatterArguments.setValue(settings.customFormatterArguments);
-}
-
-void CustomFormatterWidget::setPreferences(QmlJSCodeStylePreferences *preferences)
-{
-    if (m_preferences == preferences)
-        return;
-
-    slotCurrentPreferencesChanged(preferences);
-
-    if (m_preferences) {
-        disconnect(m_preferences, &QmlJSCodeStylePreferences::currentValueChanged, this, nullptr);
-        disconnect(m_preferences, &QmlJSCodeStylePreferences::currentPreferencesChanged,
-                   this, &CustomFormatterWidget::slotCurrentPreferencesChanged);
-    }
-    m_preferences = preferences;
-    if (m_preferences) {
-        setCodeStyleSettings(m_preferences->currentCodeStyleSettings());
-        connect(m_preferences, &QmlJSCodeStylePreferences::currentValueChanged, this, [this] {
-            setCodeStyleSettings(m_preferences->currentCodeStyleSettings());
-        });
-        connect(m_preferences, &QmlJSCodeStylePreferences::currentPreferencesChanged,
-                this, &CustomFormatterWidget::slotCurrentPreferencesChanged);
-    }
-}
-
-void CustomFormatterWidget::slotCurrentPreferencesChanged(ICodeStylePreferences *preferences)
-{
-    QmlJSCodeStylePreferences *current = dynamic_cast<QmlJSCodeStylePreferences *>(
-        preferences ? preferences->currentPreferences() : nullptr);
-    const bool enableWidgets = current && !current->isReadOnly() && m_formatterSelectionWidget
-                               && m_formatterSelectionWidget->selection().value()
-                                      == QmlJSCodeStyleSettings::Custom;
-    setEnabled(enableWidgets);
-}
-
-void CustomFormatterWidget::slotSettingsChanged()
-{
-    QmlJSCodeStyleSettings settings = m_preferences ? m_preferences->currentCodeStyleSettings()
-                                                    : QmlJSCodeStyleSettings::currentGlobalCodeStyle();
-    if (m_customFormatterPath.value().isEmpty()) {
-        m_customFormatterPath.setValue(
-            QmlFormatSettings::instance().latestQmlFormatPath().toUrlishString());
-    }
-    settings.customFormatterPath = m_customFormatterPath.expandedValue();
-    settings.customFormatterArguments = m_customFormatterArguments.value();
-    emit settingsChanged(settings);
-}
-
 // QmlFormatOptionsModel
 
 class QmlFormatOptionsModel : public QAbstractTableModel
@@ -487,6 +141,7 @@ public:
     QVariant headerData(int section, Qt::Orientation orientation, int role = Qt::DisplayRole) const override;
     bool setData(const QModelIndex &index, const QVariant &value, int role = Qt::EditRole) override;
     Qt::ItemFlags flags(const QModelIndex &index) const override;
+    QHash<int, QByteArray> roleNames() const override;
 
     void setOptionsFromJson(const QJsonDocument &doc);
     QString writeGlobalQmlFormatIniFile() const;
@@ -511,6 +166,7 @@ QVariant QmlFormatOptionsModel::data(const QModelIndex &index, int role) const
         return QVariant();
 
     const Option &option = m_options.at(index.row());
+    const bool isValueCell = index.column() == Column::Value;
 
     if (role == Qt::DisplayRole) {
         switch (index.column()) {
@@ -522,12 +178,27 @@ QVariant QmlFormatOptionsModel::data(const QModelIndex &index, int role) const
         case Column::Name: return option.name;
         case Column::Value: return option.value;
         }
-    } else if (role == Qt::CheckStateRole && index.column() == Column::Value && option.isBool()) {
+    } else if (role == Qt::CheckStateRole && isValueCell && option.isBool()) {
         return option.value.toBool() ? Qt::Checked : Qt::Unchecked;
     } else if (role == Qt::ForegroundRole && option.hidden) {
         return QColor(Qt::gray);
     } else if (role == Qt::ToolTipRole && option.hidden) {
         return Tr::tr("This option was found in the INI file but is not a standard qmlformat option.");
+    } else if (role == AspectTable::EditableRole) {
+        return AspectTable::isWritable(flags(index));
+    } else if (role == AspectTable::CheckableRole) {
+        return isValueCell && option.isBool();
+    } else if (role == AspectTable::ChoicesRole && isValueCell && option.isStringList()) {
+        // What the hint lists, as the choices a view offers. Which cells offer
+        // one depends on the option, which is why the model answers and not
+        // the view - it is the same answer for a QTableView.
+        QVariantList choices;
+        const QStringList values = option.hint.split(',');
+        for (const QString &value : values)
+            choices.append(QVariantMap{{"display", value}, {"id", value}});
+        return choices;
+    } else if (role == AspectTable::ValidatorRole && isValueCell && option.isInt()) {
+        return QString(R"(-?\d*)");
     }
 
     return QVariant();
@@ -573,6 +244,11 @@ Qt::ItemFlags QmlFormatOptionsModel::flags(const QModelIndex &index) const
             flags |= Qt::ItemIsUserCheckable;
     }
     return flags;
+}
+
+QHash<int, QByteArray> QmlFormatOptionsModel::roleNames() const
+{
+    return AspectTable::withRoleNames(QAbstractTableModel::roleNames());
 }
 
 void QmlFormatOptionsModel::setOptionsFromJson(const QJsonDocument &doc)
@@ -631,343 +307,10 @@ void QmlFormatOptionsModel::loadGlobalQmlFormatIniFile()
     endResetModel();
 }
 
-// QmlFormatOptionsDelegate
-
-class QmlFormatOptionsDelegate : public QStyledItemDelegate
-{
-    Q_OBJECT
-
-public:
-    explicit QmlFormatOptionsDelegate(QmlFormatOptionsModel *model, QObject *parent = nullptr);
-
-    QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &option,
-                          const QModelIndex &index) const override;
-    void setEditorData(QWidget *editor, const QModelIndex &index) const override;
-    void setModelData(QWidget *editor, QAbstractItemModel *model,
-                      const QModelIndex &index) const override;
-
-private:
-    QmlFormatOptionsModel *m_model;
-};
-
-QmlFormatOptionsDelegate::QmlFormatOptionsDelegate(QmlFormatOptionsModel *model, QObject *parent)
-    : QStyledItemDelegate(parent), m_model(model)
-{}
-
-QWidget *QmlFormatOptionsDelegate::createEditor(QWidget *parent,
-                                                 const QStyleOptionViewItem &,
-                                                 const QModelIndex &index) const
-{
-    if (index.column() != 1)
-        return nullptr;
-    const auto &opts = m_model->options();
-    if (index.row() >= opts.size())
-        return nullptr;
-
-    const QmlFormatOptionsModel::Option &opt = opts.at(index.row());
-    if (opt.isInt()) {
-        auto *spinBox = new QSpinBox(parent);
-        spinBox->setRange(std::numeric_limits<int>::min(), std::numeric_limits<int>::max());
-        return spinBox;
-    }
-    if (opt.isString())
-        return new QLineEdit(parent);
-    if (opt.isStringList()) {
-        auto *comboBox = new QComboBox(parent);
-        comboBox->addItems(opt.hint.split(','));
-        return comboBox;
-    }
-    return nullptr;
-}
-
-void QmlFormatOptionsDelegate::setEditorData(QWidget *editor, const QModelIndex &index) const
-{
-    const auto &opts = m_model->options();
-    if (index.row() >= opts.size())
-        return;
-    const QmlFormatOptionsModel::Option &opt = opts.at(index.row());
-    if (opt.isInt()) {
-        if (auto *sb = qobject_cast<QSpinBox *>(editor))
-            sb->setValue(opt.value.toInt());
-    } else if (opt.isString()) {
-        if (auto *le = qobject_cast<QLineEdit *>(editor))
-            le->setText(opt.value.toString());
-    } else if (opt.isStringList()) {
-        if (auto *cb = qobject_cast<QComboBox *>(editor))
-            cb->setCurrentText(opt.value.toString());
-    }
-}
-
-void QmlFormatOptionsDelegate::setModelData(QWidget *editor, QAbstractItemModel *model,
-                                             const QModelIndex &index) const
-{
-    const auto &opts = m_model->options();
-    if (index.row() >= opts.size())
-        return;
-    const QmlFormatOptionsModel::Option &opt = opts.at(index.row());
-    QVariant value;
-    if (opt.isInt()) {
-        if (auto *sb = qobject_cast<QSpinBox *>(editor))
-            value = sb->value();
-    } else if (opt.isString()) {
-        if (auto *le = qobject_cast<QLineEdit *>(editor))
-            value = le->text();
-    } else if (opt.isStringList()) {
-        if (auto *cb = qobject_cast<QComboBox *>(editor))
-            value = cb->currentText();
-    }
-    if (value.isValid())
-        model->setData(index, value, Qt::EditRole);
-}
-
-// QmlFormatSettingsWidget
-
-class QmlFormatSettingsWidget : public QmlCodeStyleWidgetBase
-{
-public:
-    QmlFormatSettingsWidget(QWidget *parent, FormatterSelectionWidget *selection);
-
-    void setCodeStyleSettings(const QmlJSCodeStyleSettings &settings) override;
-    void setPreferences(QmlJSCodeStylePreferences *preferences) override;
-    void slotCurrentPreferencesChanged(TextEditor::ICodeStylePreferences *preferences) override;
-
-private:
-    void slotSettingsChanged();
-    void initVersion();
-    void initOptions();
-    void resetOptions();
-    void generateFallbackJson();
-
-    QTableView *m_optionsTableView;
-    QmlFormatOptionsModel *m_optionsModel;
-    QmlFormatOptionsDelegate *m_optionsDelegate;
-    QPushButton *m_deployIniButton;
-    QPushButton *m_tableResetButton;
-    QLabel *m_versionLabel;
-    FormatterSelectionWidget *m_formatterSelectionWidget = nullptr;
-    QmlJSCodeStylePreferences *m_preferences = nullptr;
-    QJsonDocument m_fallbackJson;
-    bool m_updatingFromModel = false;
-};
-
-QmlFormatSettingsWidget::QmlFormatSettingsWidget(QWidget *parent, FormatterSelectionWidget *selection)
-    : QmlCodeStyleWidgetBase(parent)
-    , m_optionsTableView(new QTableView())
-    , m_optionsModel(new QmlFormatOptionsModel(this))
-    , m_optionsDelegate(new QmlFormatOptionsDelegate(m_optionsModel, this))
-    , m_deployIniButton(new QPushButton(Tr::tr("Deploy INI File to Current Project")))
-    , m_tableResetButton(new QPushButton(Tr::tr("Reset to Defaults")))
-    , m_versionLabel(new QLabel())
-    , m_formatterSelectionWidget(selection)
-{
-    generateFallbackJson();
-
-    m_optionsTableView->setModel(m_optionsModel);
-    m_optionsTableView->setItemDelegate(m_optionsDelegate);
-    m_optionsTableView->horizontalHeader()->setStretchLastSection(false);
-    m_optionsTableView->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-    m_optionsTableView->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
-    m_optionsTableView->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    m_optionsTableView->setSelectionBehavior(QAbstractItemView::SelectRows);
-    QSizePolicy sp(QSizePolicy::MinimumExpanding, QSizePolicy::MinimumExpanding);
-    sp.setHorizontalStretch(1);
-    m_optionsTableView->setSizePolicy(sp);
-
-    m_versionLabel->setOpenExternalLinks(true);
-
-    using namespace Layouting;
-    Column{
-        Group{
-            title(Tr::tr("Global qmlformat Configuration")),
-            Column{
-                Row{
-                    m_versionLabel,
-                    Label{
-                        openExternalLinks(true),
-                        text(
-                            "<a href='https://doc.qt.io/qt/qtqml-tooling-qmlformat.html'>"
-                            + Tr::tr("Open latest documentation") + "</a>"),
-                    },
-                    st,
-                },
-                m_optionsTableView,
-                Row{
-                    st,
-                    m_deployIniButton,
-                    m_tableResetButton,
-                },
-                Label{
-                    wordWrap(true),
-                    text(
-                        "<i>"
-                        + Tr::tr(
-                            "Global formatting options are ignored by projects having "
-                            "their own deployed .qmlformat.ini files.")
-                        + "</i>"),
-                },
-            },
-        },
-        noMargin}
-        .attachTo(this);
-
-    initOptions();
-    initVersion();
-
-    connect(m_optionsModel, &QmlFormatOptionsModel::dataChanged,
-            this, &QmlFormatSettingsWidget::slotSettingsChanged);
-    connect(m_tableResetButton, &QPushButton::clicked,
-            this, &QmlFormatSettingsWidget::resetOptions);
-    connect(m_deployIniButton, &QPushButton::clicked, this, [this] {
-        if (ProjectExplorer::Project * const p = ProjectExplorer::ProjectTree::currentProject()) {
-            p->projectDirectory().pathAppended(".qmlformat.ini")
-                .writeFileContents(m_optionsModel->writeGlobalQmlFormatIniFile().toUtf8());
-        }
-    });
-
-    m_deployIniButton->setEnabled(ProjectExplorer::ProjectTree::currentProject());
-    connect(ProjectExplorer::ProjectTree::instance(),
-            &ProjectExplorer::ProjectTree::currentProjectChanged,
-            this, [this] {
-                m_deployIniButton->setEnabled(ProjectExplorer::ProjectTree::currentProject());
-            });
-}
-
-void QmlFormatSettingsWidget::setCodeStyleSettings(const QmlJSCodeStyleSettings &settings)
-{
-    QSignalBlocker blocker(this);
-    QmlFormatSettings::instance().globalQmlFormatIniFile()
-        .writeFileContents(settings.qmlformatIniContent.toUtf8());
-    m_optionsModel->loadGlobalQmlFormatIniFile();
-}
-
-void QmlFormatSettingsWidget::setPreferences(QmlJSCodeStylePreferences *preferences)
-{
-    if (m_preferences == preferences)
-        return;
-
-    slotCurrentPreferencesChanged(preferences);
-
-    if (m_preferences) {
-        disconnect(m_preferences, &QmlJSCodeStylePreferences::currentValueChanged, this, nullptr);
-        disconnect(m_preferences, &QmlJSCodeStylePreferences::currentPreferencesChanged,
-                   this, &QmlFormatSettingsWidget::slotCurrentPreferencesChanged);
-    }
-    m_preferences = preferences;
-    if (m_preferences) {
-        setCodeStyleSettings(m_preferences->currentCodeStyleSettings());
-        connect(m_preferences, &QmlJSCodeStylePreferences::currentValueChanged, this, [this] {
-            // ignore changes triggered by us - model would reset while cell editor still open
-            // detaching it from view
-            if (m_updatingFromModel)
-                return;
-            setCodeStyleSettings(m_preferences->currentCodeStyleSettings());
-        });
-        connect(m_preferences, &QmlJSCodeStylePreferences::currentPreferencesChanged,
-                this, &QmlFormatSettingsWidget::slotCurrentPreferencesChanged);
-    }
-}
-
-void QmlFormatSettingsWidget::slotCurrentPreferencesChanged(
-    TextEditor::ICodeStylePreferences *preferences)
-{
-    auto *current = dynamic_cast<QmlJSCodeStylePreferences *>(
-        preferences ? preferences->currentPreferences() : nullptr);
-    const bool enableWidgets = current && !current->isReadOnly() && m_formatterSelectionWidget
-                               && m_formatterSelectionWidget->selection().value()
-                                      == QmlJSCodeStyleSettings::QmlFormat;
-    setEnabled(enableWidgets);
-}
-
-void QmlFormatSettingsWidget::slotSettingsChanged()
-{
-    QmlJSCodeStyleSettings settings = m_preferences ? m_preferences->currentCodeStyleSettings()
-                                                    : QmlJSCodeStyleSettings::currentGlobalCodeStyle();
-    settings.qmlformatIniContent = m_optionsModel->writeGlobalQmlFormatIniFile();
-    m_updatingFromModel = true;
-    emit settingsChanged(settings);
-    m_updatingFromModel = false;
-}
-
-void QmlFormatSettingsWidget::initVersion()
-{
-    using namespace Core;
-    const FilePath &qmlFormatPath = QmlFormatSettings::instance().latestQmlFormatPath();
-    if (qmlFormatPath.isEmpty()) {
-        MessageManager::writeSilently(Tr::tr("qmlformat not found. No version."));
-        m_versionLabel->setText("Unknown qmlformat version");
-        return;
-    }
-    const FilePath executable = CommandLine(qmlFormatPath).executable();
-
-    Process process;
-    process.setCommand({executable, {"--version"}});
-    process.setUtf8StdOutCodec();
-    process.start();
-    if (!process.waitForFinished(5s)) {
-        MessageManager::writeFlashing(
-            Tr::tr("Cannot run \"%1\" or some other error occurred. No version.")
-                .arg(executable.toUserOutput()));
-        m_versionLabel->setText("Unknown qmlformat version");
-        return;
-    }
-    const QString errorText = process.readAllStandardError();
-    if (!errorText.isEmpty()) {
-        MessageManager::writeFlashing(
-            Tr::tr("\"%1\": %2. No version.").arg(executable.toUserOutput(), errorText));
-        m_versionLabel->setText("Unknown qmlformat version");
-        return;
-    }
-    m_versionLabel->setText(process.readAllStandardOutput().trimmed());
-}
-
-void QmlFormatSettingsWidget::initOptions()
-{
-    using namespace Core;
-    const FilePath &qmlFormatPath = QmlFormatSettings::instance().latestQmlFormatPath();
-    if (qmlFormatPath.isEmpty()) {
-        MessageManager::writeSilently(Tr::tr("qmlformat not found. Using fallback output options."));
-        m_optionsModel->setOptionsFromJson(m_fallbackJson);
-        return;
-    }
-    const FilePath executable = CommandLine(qmlFormatPath).executable();
-
-    Process process;
-    process.setCommand({executable, {"--output-options"}});
-    process.setUtf8StdOutCodec();
-    process.start();
-    if (!process.waitForFinished(5s)) {
-        MessageManager::writeFlashing(
-            Tr::tr("Cannot run \"%1\" or some other error occurred. Using fallback output options.")
-                .arg(executable.toUserOutput()));
-        m_optionsModel->setOptionsFromJson(m_fallbackJson);
-        return;
-    }
-    const QString errorText = process.readAllStandardError();
-    if (!errorText.isEmpty()) {
-        MessageManager::writeFlashing(
-            Tr::tr("\"%1\": %2. Using fallback output options.")
-                .arg(executable.toUserOutput(), errorText));
-        m_optionsModel->setOptionsFromJson(m_fallbackJson);
-        return;
-    }
-
-    QJsonDocument doc = QJsonDocument::fromJson(process.readAllStandardOutput().toUtf8());
-    if (doc.isNull() || !doc.isObject() || !doc.object().contains("options")) {
-        MessageManager::writeFlashing(
-            Tr::tr("Invalid JSON response from qmlformat. Using fallback output options."));
-        m_optionsModel->setOptionsFromJson(m_fallbackJson);
-        return;
-    }
-    m_optionsModel->setOptionsFromJson(doc);
-}
-
-void QmlFormatSettingsWidget::resetOptions()
-{
-    initOptions();
-    slotSettingsChanged();
-}
-
-void QmlFormatSettingsWidget::generateFallbackJson()
+// What qmlformat offers when it cannot be asked. Kept so that the page shows
+// the usual options with no Qt kit around, and so that a test does not depend
+// on one being installed.
+static QJsonDocument fallbackOptionsJson()
 {
     QJsonObject root;
     QJsonArray optionsArray;
@@ -987,246 +330,161 @@ void QmlFormatSettingsWidget::generateFallbackJson()
     addOption(QLatin1String("IndentWidth"), 4, QLatin1String(QMetaType::fromType<int>().name()));
     addOption(QLatin1String("SemicolonRule"), "always", QLatin1String("always,essential"));
     root[QStringLiteral("options")] = optionsArray;
-    m_fallbackJson = QJsonDocument(root);
+    return QJsonDocument(root);
 }
 
-// QmlJSCodeStylePreferencesWidget
+// QmlFormatOptionsAspect
 
-QmlJSCodeStylePreferencesWidget::QmlJSCodeStylePreferencesWidget(
-    const QString &previewText, QWidget *parent)
-    : QWidget(parent)
-    , m_formatterSelectionWidget(new FormatterSelectionWidget(this))
-    , m_formatterSettingsStack(new QStackedWidget(this))
+// The global qmlformat configuration, as a table. The value is the INI file's
+// contents, because that is what the code style stores and what qmlformat
+// reads; the rows are the model's, and the two are kept in step through the
+// file itself, which has to be on disk for qmlformat to find it anyway.
+class QmlFormatOptionsAspect final : public TypedAspect<QString>
 {
-    m_formatterSettingsStack->insertWidget(QmlJSCodeStyleSettings::Builtin,
-            new BuiltinFormatterSettingsWidget(this, m_formatterSelectionWidget));
-    m_formatterSettingsStack->insertWidget(QmlJSCodeStyleSettings::QmlFormat,
-            new QmlFormatSettingsWidget(this, m_formatterSelectionWidget));
-    m_formatterSettingsStack->insertWidget(QmlJSCodeStyleSettings::Custom,
-            new CustomFormatterWidget(this, m_formatterSelectionWidget));
-    m_formatterSettingsStack->setContentsMargins({});
+public:
+    explicit QmlFormatOptionsAspect(AspectContainer *container);
 
-    m_formatterSelectionWidget->setContentsMargins({});
+    AspectPresentation presentation() const override;
+    QAbstractItemModel *tableModel() override;
 
-    for (const auto &formatterWidget :
-         m_formatterSettingsStack->findChildren<QmlCodeStyleWidgetBase *>()) {
-        formatterWidget->setContentsMargins({});
-        connect(
-            formatterWidget,
-            &QmlCodeStyleWidgetBase::settingsChanged,
-            this,
-            &QmlJSCodeStylePreferencesWidget::slotSettingsChanged);
-    }
+    // Puts qmlformat's own options back, discarding what the INI file held.
+    void resetToQmlFormatDefaults();
+    // The options qmlformat reports, or the fallback. Asked for once and
+    // asynchronously: this is built while a settings page is being opened.
+    void askQmlFormatForItsOptions();
 
-    const int index = m_formatterSelectionWidget->selection().value();
-    m_formatterSettingsStack->setCurrentIndex(index);
+protected:
+    void volatileValueToGui() override;
 
-    m_previewTextEdit = new SnippetEditorWidget(this);
-    m_previewTextEdit->setPlainText(previewText);
-    QSizePolicy sp(QSizePolicy::MinimumExpanding, QSizePolicy::MinimumExpanding);
-    sp.setHorizontalStretch(1);
-    m_previewTextEdit->setSizePolicy(sp);
-    decorateEditor(globalFontSettings().data());
+private:
+    void setOptionsJson(const QJsonDocument &doc);
 
-    connect(&globalFontSettings(), &FontSettings::changed, this, [this] {
-        decorateEditor(globalFontSettings().data());
-    });
+    // Parented: a model handed to QML from a Q_INVOKABLE with no parent is one
+    // QML takes ownership of and deletes.
+    QmlFormatOptionsModel m_model{this};
+    std::unique_ptr<Process> m_optionsProcess;
+    QJsonDocument m_reportedOptions;
+    // The model is what produced the current value, so reloading it from that
+    // value would reset the view while a cell editor is still open in it.
+    bool m_writingBack = false;
+};
 
-    connect(
-        m_formatterSelectionWidget,
-        &FormatterSelectionWidget::settingsChanged,
-        [this](const QmlJSCodeStyleSettings &settings) {
-            int index = m_formatterSelectionWidget->selection().volatileValue();
-            if (index < 0 || index >= static_cast<int>(m_formatterSettingsStack->count()))
-                return;
+QmlFormatOptionsAspect::QmlFormatOptionsAspect(AspectContainer *container)
+    : TypedAspect<QString>(container)
+{
+    setQmlName("QmlFormatOptions");
+    m_reportedOptions = fallbackOptionsJson();
+    setOptionsJson(m_reportedOptions);
 
-            m_formatterSettingsStack->setCurrentIndex(index);
-            if (auto *current = dynamic_cast<QmlCodeStyleWidgetBase *>(
-                    m_formatterSettingsStack->widget(index))) {
-                current->slotCurrentPreferencesChanged(m_preferences);
-            }
-            slotSettingsChanged(settings);
-        });
-
-    using namespace Layouting;
-    Row{Column{m_formatterSelectionWidget, br, m_formatterSettingsStack, st, noMargin},
-        Column{
-            Group{
-                title(Tr::tr("Preview")),
-                Column{
-                    Label{
-                        wordWrap(true),
-                        text(
-                            Tr::tr(
-                                "Edit preview contents to see how the current settings "
-                                "are applied to custom code snippets. Changes in the preview "
-                                "do not affect the current settings.")),
-                    },
-                    m_previewTextEdit,
-                    Row{
-                        st,
-                        PushButton{
-                            text(Tr::tr("Reset to Original Preview Text")),
-                            onClicked(
-                                this,
-                                [this, previewText]() {
-                                    m_previewTextEdit->setPlainText(previewText);
-                                }),
-                        },
-                        PushButton{
-                            text(Tr::tr("Format Current Preview Text")),
-                            onClicked(this, [this]() { this->updatePreview(); }),
-                        },
-                    },
-                },
-            },
-        },
-        noMargin}
-        .attachTo(this);
-
-    setVisualizeWhitespace(true);
-
-    // Formatting the preview can mean running qmlformat; not worth doing while
-    // the page is off screen. Notably it is also built, and never shown, just
-    // to be scraped for the preferences search keywords.
-    Utils::onFirstShow(this, [this] {
-        m_isShown = true;
-        updatePreview();
+    connect(&m_model, &QAbstractItemModel::dataChanged, this, [this] {
+        m_writingBack = true;
+        setVolatileValue(m_model.writeGlobalQmlFormatIniFile());
+        m_writingBack = false;
     });
 }
 
-void QmlJSCodeStylePreferencesWidget::setPreferences(QmlJSCodeStylePreferences *preferences)
+AspectPresentation QmlFormatOptionsAspect::presentation() const
 {
-    m_preferences = preferences;
-    m_formatterSelectionWidget->setPreferences(preferences);
-    for (const auto &formatterWidget :
-         m_formatterSettingsStack->findChildren<QmlCodeStyleWidgetBase *>()) {
-        formatterWidget->setPreferences(preferences);
-    }
-    if (m_preferences)
-    {
-        connect(m_preferences, &ICodeStylePreferences::currentTabSettingsChanged,
-                this, &QmlJSCodeStylePreferencesWidget::updatePreview);
-        connect(m_preferences, &QmlJSCodeStylePreferences::currentValueChanged,
-                [this]{
-                    m_formatterSettingsStack->setCurrentIndex(m_formatterSelectionWidget->selection().value());
-                    updatePreview();
-                });
-    }
-    updatePreview();
+    AspectPresentation presentation = TypedAspect<QString>::presentation();
+    presentation.control = AspectControls::Table;
+    // The options are qmlformat's, so there is no row to add or take away.
+    presentation.allowAdding = false;
+    presentation.allowRemoving = false;
+    return presentation;
 }
 
-void QmlJSCodeStylePreferencesWidget::decorateEditor(const FontSettingsData &fontSettings)
+QAbstractItemModel *QmlFormatOptionsAspect::tableModel()
 {
-    m_previewTextEdit->textDocument()->setFontSettings(fontSettings);
-    SnippetProvider::decorateEditor(m_previewTextEdit,
-                                    QmlJSEditor::Constants::QML_SNIPPETS_GROUP_ID);
+    return &m_model;
 }
 
-void QmlJSCodeStylePreferencesWidget::setVisualizeWhitespace(bool on)
+void QmlFormatOptionsAspect::volatileValueToGui()
 {
-    DisplaySettingsData displaySettings = m_previewTextEdit->displaySettings();
-    displaySettings.m_visualizeWhitespace = on;
-    m_previewTextEdit->setDisplaySettings(displaySettings);
-}
-
-void QmlJSCodeStylePreferencesWidget::slotSettingsChanged(const QmlJSCodeStyleSettings &settings)
-{
-    if (!m_preferences)
+    if (m_writingBack)
         return;
-
-    QmlJSCodeStylePreferences *current = dynamic_cast<QmlJSCodeStylePreferences*>(m_preferences->currentPreferences());
-    if (!current)
-        return;
-
-    current->setCodeStyleSettings(settings);
-
-    updatePreview();
+    QmlFormatSettings::globalQmlFormatIniFile().writeFileContents(m_volatileValue.toUtf8());
+    m_model.loadGlobalQmlFormatIniFile();
 }
 
-void QmlJSCodeStylePreferencesWidget::updatePreview()
+void QmlFormatOptionsAspect::setOptionsJson(const QJsonDocument &doc)
 {
-    if (!m_isShown)
-        return;
-
-    switch (m_formatterSelectionWidget->selection().value()) {
-    case QmlJSCodeStyleSettings::Builtin:
-        builtInFormatterPreview();
-        break;
-    case QmlJSCodeStyleSettings::QmlFormat:
-        qmlformatPreview();
-        break;
-    case QmlJSCodeStyleSettings::Custom:
-        customFormatterPreview();
-        break;
-    }
+    m_model.setOptionsFromJson(doc);
+    m_model.loadGlobalQmlFormatIniFile();
 }
 
-void QmlJSCodeStylePreferencesWidget::builtInFormatterPreview()
+void QmlFormatOptionsAspect::resetToQmlFormatDefaults()
 {
-    QTextDocument *doc = m_previewTextEdit->document();
-
-    const TabSettingsData &ts = m_preferences
-            ? m_preferences->currentTabSettings()
-            : globalCodeStyle().tabSettings();
-    m_previewTextEdit->textDocument()->setTabSettings(ts);
-    CreatorCodeFormatter formatter(ts);
-    formatter.invalidateCache(doc);
-
-    QTextBlock block = doc->firstBlock();
-    QTextCursor tc = m_previewTextEdit->textCursor();
-    tc.beginEditBlock();
-    while (block.isValid()) {
-        m_previewTextEdit->textDocument()->indenter()->indentBlock(block, QChar::Null, ts);
-        block = block.next();
-    }
-    tc.endEditBlock();
+    setOptionsJson(m_reportedOptions);
+    m_writingBack = true;
+    setVolatileValue(m_model.writeGlobalQmlFormatIniFile());
+    m_writingBack = false;
 }
 
-void QmlJSCodeStylePreferencesWidget::qmlformatPreview()
+void QmlFormatOptionsAspect::askQmlFormatForItsOptions()
 {
     using namespace Core;
-    const Utils::FilePath &qmlFormatPath = QmlFormatSettings::instance().latestQmlFormatPath();
+    const FilePath &qmlFormatPath = QmlFormatSettings::instance().latestQmlFormatPath();
     if (qmlFormatPath.isEmpty()) {
-        MessageManager::writeSilently("qmlformat not found.");
+        MessageManager::writeSilently(Tr::tr("qmlformat not found. Using fallback output options."));
         return;
     }
-    const Utils::CommandLine commandLine(qmlFormatPath);
-    TextEditor::Command command;
-    command.setExecutable(commandLine.executable());
-    command.setProcessing(TextEditor::Command::FileProcessing);
-    command.addOptions(commandLine.splitArguments());
-    command.addOption("--inplace");
-    command.addOption("%file");
-    if (!command.isValid())
-        return;
-    TextEditor::TabSettingsData tabSettings;
-    tabSettings.m_tabSize = 4;
-    QSettings settings(
-        QmlJSTools::QmlFormatSettings::globalQmlFormatIniFile().toUrlishString(),
-        QSettings::IniFormat);
-    if (settings.contains("IndentWidth"))
-        tabSettings.m_indentSize = settings.value("IndentWidth").toInt();
-    if (settings.contains("UseTabs"))
-        tabSettings.m_tabPolicy = settings.value("UseTabs").toBool()
-                                        ? TextEditor::TabSettingsData::TabPolicy::TabsOnlyTabPolicy
-                                        : TextEditor::TabSettingsData::TabPolicy::SpacesOnlyTabPolicy;
-    QString dummyFilePath = QStandardPaths::writableLocation(QStandardPaths::TempLocation) + "/dummy.qml";
-    m_previewTextEdit->textDocument()->setFilePath(Utils::FilePath::fromString(dummyFilePath));
-    m_previewTextEdit->textDocument()->setTabSettings(tabSettings);
-    TextEditor::formatEditor(m_previewTextEdit, command);
+
+    const FilePath executable = CommandLine(qmlFormatPath).executable();
+    m_optionsProcess.reset(new Process);
+    m_optionsProcess->setCommand({executable, {"--output-options"}});
+    m_optionsProcess->setUtf8StdOutCodec();
+    connect(m_optionsProcess.get(), &Process::done, this, [this, executable] {
+        const QString errorText = m_optionsProcess->readAllStandardError();
+        if (m_optionsProcess->result() != ProcessResult::FinishedWithSuccess
+            || !errorText.isEmpty()) {
+            MessageManager::writeFlashing(
+                Tr::tr("\"%1\": %2. Using fallback output options.")
+                    .arg(executable.toUserOutput(),
+                         errorText.isEmpty() ? m_optionsProcess->errorString() : errorText));
+            return;
+        }
+
+        const QJsonDocument doc
+            = QJsonDocument::fromJson(m_optionsProcess->readAllStandardOutput().toUtf8());
+        if (doc.isNull() || !doc.isObject() || !doc.object().contains("options")) {
+            MessageManager::writeFlashing(
+                Tr::tr("Invalid JSON response from qmlformat. Using fallback output options."));
+            return;
+        }
+        m_reportedOptions = doc;
+        setOptionsJson(doc);
+    });
+    m_optionsProcess->start();
 }
 
-void QmlJSCodeStylePreferencesWidget::customFormatterPreview()
+// How the preview is formatted, which is by whichever formatter the style
+// selected. The built-in one has no command to run: its formatting is the
+// indenter, which the preview runs anyway.
+static Result<QString> formatPreview(ICodeStylePreferences *codeStyle, const QString &text)
 {
-    Utils::FilePath path = m_preferences->currentCodeStyleSettings().customFormatterPath;
-    QStringList args = m_preferences->currentCodeStyleSettings()
-                           .customFormatterArguments.split(" ", Qt::SkipEmptyParts);
-    if (path.isEmpty()) {
-        Core::MessageManager::writeSilently("Custom formatter not found.");
-        return;
+    auto preferences = dynamic_cast<QmlJSCodeStylePreferences *>(codeStyle);
+    QTC_ASSERT(preferences, return text);
+    const QmlJSCodeStyleSettings settings = preferences->currentCodeStyleSettings();
+
+    FilePath executable;
+    QStringList arguments;
+    switch (settings.formatter) {
+    case QmlJSCodeStyleSettings::Builtin:
+        return text;
+    case QmlJSCodeStyleSettings::QmlFormat:
+        executable = QmlFormatSettings::instance().latestQmlFormatPath();
+        if (executable.isEmpty())
+            return ResultError(Tr::tr("qmlformat not found."));
+        break;
+    case QmlJSCodeStyleSettings::Custom:
+        executable = settings.customFormatterPath;
+        if (executable.isEmpty())
+            return ResultError(Tr::tr("Custom formatter not found."));
+        arguments = settings.customFormatterArguments.split(' ', Qt::SkipEmptyParts);
+        break;
     }
-    const Utils::CommandLine commandLine(path, args);
+
+    const CommandLine commandLine(executable, arguments);
     TextEditor::Command command;
     command.setExecutable(commandLine.executable());
     command.setProcessing(TextEditor::Command::FileProcessing);
@@ -1234,11 +492,167 @@ void QmlJSCodeStylePreferencesWidget::customFormatterPreview()
     command.addOption("--inplace");
     command.addOption("%file");
     if (!command.isValid())
+        return ResultError(Tr::tr("Cannot run \"%1\".").arg(executable.toUserOutput()));
+
+    // A file name rather than a real file: the formatter is told what the code
+    // is by its suffix, and formatText() writes the text to a temporary copy.
+    return TextEditor::formatText(FilePath::fromString("preview.qml"), text, command);
+}
+
+// QmlJSCodeStyleAspects
+
+// What the QML/JS Code Style form edits. The settings live in the code style
+// rather than in a settings key of their own, so these aspects read from and
+// write to the preferences the page handed over - its own editable copy - and
+// nothing here is saved directly.
+class QmlJSCodeStyleAspects final : public AspectContainer
+{
+public:
+    explicit QmlJSCodeStyleAspects(QmlJSCodeStylePreferences *preferences);
+
+private:
+    void readFromPreferences();
+    void writeToPreferences();
+    void updateState();
+
+    QmlJSCodeStylePreferences *m_preferences = nullptr;
+    Guard m_reading;
+
+    SelectionAspect m_formatter{this};
+
+    AspectContainer m_builtinSettings{this};
+    TabSettings m_tabSettings;
+    IntegerAspect m_lineLength{&m_builtinSettings};
+
+    AspectContainer m_qmlFormatSettings{this};
+    TextDisplay m_qmlFormatVersion{&m_qmlFormatSettings};
+    QmlFormatOptionsAspect m_qmlFormatOptions{&m_qmlFormatSettings};
+    ActionAspect m_deployIni{&m_qmlFormatSettings};
+    ActionAspect m_resetOptions{&m_qmlFormatSettings};
+
+    AspectContainer m_customSettings{this};
+    FilePathAspect m_customFormatterPath{&m_customSettings};
+    StringAspect m_customFormatterArguments{&m_customSettings};
+};
+
+QmlJSCodeStyleAspects::QmlJSCodeStyleAspects(QmlJSCodeStylePreferences *preferences)
+    : m_preferences(preferences)
+{
+    m_formatter.setQmlName("Formatter");
+    m_formatter.setLabelText(Tr::tr("Formatter"));
+    m_formatter.setDisplayStyle(SelectionAspect::DisplayStyle::RadioButtons);
+    m_formatter.setDefaultValue(QmlJSCodeStyleSettings::Builtin);
+    m_formatter.addOption(Tr::tr("Built-In Formatter [Deprecated]"));
+    m_formatter.addOption(Tr::tr("QmlFormat [LSP]"));
+    m_formatter.addOption(Tr::tr("Custom Formatter [Must be qmlformat compatible]"));
+
+    m_builtinSettings.setQmlName("BuiltinSettings");
+    m_tabSettings.setQmlName("TabSettings");
+    m_builtinSettings.registerAspect(&m_tabSettings);
+    m_tabSettings.setPreferences(preferences);
+    m_lineLength.setQmlName("LineLength");
+    m_lineLength.setLabelText(Tr::tr("Line length:"));
+    m_lineLength.setRange(0, 999);
+
+    m_qmlFormatSettings.setQmlName("QmlFormatSettings");
+    m_qmlFormatVersion.setQmlName("QmlFormatVersion");
+    m_deployIni.setQmlName("DeployIni");
+    m_deployIni.setActionText(Tr::tr("Deploy INI File to Current Project"));
+    m_deployIni.setAction([this] {
+        if (ProjectExplorer::Project *const project = ProjectExplorer::ProjectTree::currentProject())
+            project->projectDirectory().pathAppended(".qmlformat.ini")
+                .writeFileContents(m_qmlFormatOptions.volatileValue().toUtf8());
+    });
+    m_resetOptions.setQmlName("ResetOptions");
+    m_resetOptions.setActionText(Tr::tr("Reset to Defaults"));
+    m_resetOptions.setAction([this] { m_qmlFormatOptions.resetToQmlFormatDefaults(); });
+
+    m_customSettings.setQmlName("CustomSettings");
+    m_customFormatterPath.setQmlName("CustomFormatterPath");
+    m_customFormatterPath.setLabelText(Tr::tr("Command:"));
+    m_customFormatterPath.setPlaceHolderText(
+        QmlFormatSettings::instance().latestQmlFormatPath().toUrlishString());
+    m_customFormatterArguments.setQmlName("CustomFormatterArguments");
+    m_customFormatterArguments.setLabelText(Tr::tr("Arguments:"));
+    m_customFormatterArguments.setDisplayStyle(StringAspect::LineEditDisplay);
+
+    // The version qmlformat reports is the version of the Qt it ships with, and
+    // that is already known - asking the binary would mean running it while a
+    // settings page is being opened.
+    const QVersionNumber version = QmlFormatSettings::instance().latestQmlFormatVersion();
+    m_qmlFormatVersion.setText(version.isNull()
+                                   ? Tr::tr("Unknown qmlformat version")
+                                   : Tr::tr("qmlformat %1").arg(version.toString()));
+
+    readFromPreferences();
+    m_qmlFormatOptions.askQmlFormatForItsOptions();
+
+    connect(this, &AspectContainer::volatileValueChanged,
+            this, &QmlJSCodeStyleAspects::writeToPreferences);
+    connect(&m_formatter, &BaseAspect::volatileValueChanged,
+            this, &QmlJSCodeStyleAspects::updateState);
+    connect(preferences, &QmlJSCodeStylePreferences::currentValueChanged,
+            this, &QmlJSCodeStyleAspects::readFromPreferences);
+    connect(preferences, &QmlJSCodeStylePreferences::currentPreferencesChanged,
+            this, &QmlJSCodeStyleAspects::readFromPreferences);
+
+    // Only where there is a project to deploy into.
+    const auto updateDeploy = [this] {
+        m_deployIni.setEnabled(ProjectExplorer::ProjectTree::currentProject() != nullptr);
+    };
+    connect(ProjectExplorer::ProjectTree::instance(),
+            &ProjectExplorer::ProjectTree::currentProjectChanged, this, updateDeploy);
+    updateDeploy();
+}
+
+void QmlJSCodeStyleAspects::readFromPreferences()
+{
+    const GuardLocker locker(m_reading);
+    const QmlJSCodeStyleSettings settings = m_preferences->currentCodeStyleSettings();
+    m_formatter.setValue(settings.formatter);
+    m_lineLength.setValue(settings.lineLength);
+    m_qmlFormatOptions.setValue(settings.qmlformatIniContent);
+    m_customFormatterPath.setValue(settings.customFormatterPath);
+    m_customFormatterArguments.setValue(settings.customFormatterArguments);
+    updateState();
+}
+
+void QmlJSCodeStyleAspects::writeToPreferences()
+{
+    if (m_reading.isLocked())
         return;
 
-    QString dummyFilePath = QStandardPaths::writableLocation(QStandardPaths::TempLocation) + "/dummy.qml";
-    m_previewTextEdit->textDocument()->setFilePath(Utils::FilePath::fromString(dummyFilePath));
-    TextEditor::formatEditor(m_previewTextEdit, command);
+    auto current = dynamic_cast<QmlJSCodeStylePreferences *>(m_preferences->currentPreferences());
+    if (!current || current->isReadOnly())
+        return;
+
+    QmlJSCodeStyleSettings settings = current->codeStyleSettings();
+    settings.formatter
+        = static_cast<QmlJSCodeStyleSettings::Formatter>(m_formatter.volatileValue());
+    settings.lineLength = m_lineLength.volatileValue();
+    settings.qmlformatIniContent = m_qmlFormatOptions.volatileValue();
+    settings.customFormatterPath = FilePath::fromUserInput(m_customFormatterPath.volatileValue());
+    settings.customFormatterArguments = m_customFormatterArguments.volatileValue();
+    current->setCodeStyleSettings(settings);
+}
+
+void QmlJSCodeStyleAspects::updateState()
+{
+    auto current = dynamic_cast<QmlJSCodeStylePreferences *>(m_preferences->currentPreferences());
+    const bool editable = current && !current->isReadOnly();
+    const int formatter = m_formatter.volatileValue();
+
+    m_formatter.setEnabled(editable);
+
+    // One formatter's settings at a time: the widget page stacked them, and
+    // there is nothing useful to say about the two that are not in use.
+    const auto show = [editable](AspectContainer &group, bool selected) {
+        group.setVisible(selected);
+        group.setEnabled(editable);
+    };
+    show(m_builtinSettings, formatter == QmlJSCodeStyleSettings::Builtin);
+    show(m_qmlFormatSettings, formatter == QmlJSCodeStyleSettings::QmlFormat);
+    show(m_customSettings, formatter == QmlJSCodeStyleSettings::Custom);
 }
 
 // QmlJSCodeStyleSettingsPage
@@ -1268,14 +682,12 @@ public:
         setPreviewText(QString::fromLatin1(Internal::previewText));
         setIndenterCreator([](QTextDocument *doc) { return QmlJSEditor::createQmlJsIndenter(doc); });
         setCodeStyleCreator([] { return new QmlJSCodeStylePreferences; });
-        setValueEditorCreator([](ICodeStylePreferences *codeStyle) {
-            auto widget = new QmlJSCodeStylePreferencesWidget(
-                QString::fromLatin1(Internal::previewText));
-            widget->setPreferences(static_cast<QmlJSCodeStylePreferences *>(codeStyle));
-            return widget;
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/QmlJSTools/QmlJSCodeStylePage.qml"));
+        setSettingsAspectsCreator([](ICodeStylePreferences *codeStyle) {
+            return new QmlJSCodeStyleAspects(
+                static_cast<QmlJSCodeStylePreferences *>(codeStyle));
         });
-        // The widget brings its own preview.
-        setValueEditorHasPreview(true);
+        setPreviewFormatter(&formatPreview);
 
         setGlobalCodeStyleId(idKey);
         setDefaultCodeStyleId("qt");

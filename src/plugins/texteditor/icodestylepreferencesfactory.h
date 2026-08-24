@@ -6,6 +6,7 @@
 #include "texteditor_global.h"
 
 #include <utils/id.h>
+#include <utils/result.h>
 
 namespace Utils { class AspectContainer; }
 
@@ -57,7 +58,8 @@ public:
 
     // The aspects that form edits, for the page-local copy of the preferences.
     // A form names aspects, so a language that has one has to hand them over -
-    // the page itself knows nothing about any language's settings.
+    // the page itself knows nothing about any language's settings. The page
+    // reaches them as aspects.Settings, whatever the language called them.
     Utils::AspectContainer *createSettingsAspects(ICodeStylePreferences *codeStyle) const;
     Indenter *createIndenter(QTextDocument *doc) const;
     ICodeStylePreferences *createCodeStyle() const;
@@ -81,6 +83,14 @@ public:
     using SettingsAspectsCreator
         = std::function<Utils::AspectContainer *(ICodeStylePreferences *)>;
     void setSettingsAspectsCreator(const SettingsAspectsCreator &creator);
+
+    // How this language formats the code style preview, where running its
+    // indenter over it is not the whole story - QML/JS runs qmlformat, or
+    // whichever formatter the style selected. Unset means the indenter is it.
+    using PreviewFormatter
+        = std::function<Utils::Result<QString>(ICodeStylePreferences *, const QString &)>;
+    void setPreviewFormatter(const PreviewFormatter &formatter);
+    PreviewFormatter previewFormatter() const;
     void setIndenterCreator(const IndenterCreator &creator);
     void setCodeStyleCreator(const CodeStyleCreator &creator);
     void setValueEditorCreator(const ValueEditorCreator &creator);
@@ -105,6 +115,7 @@ private:
     QString m_snippetGroupId;
     QUrl m_qmlSource;
     SettingsAspectsCreator m_settingsAspectsCreator;
+    PreviewFormatter m_previewFormatter;
     QString m_previewText;
     IndenterCreator m_indenterCreator;
     CodeStyleCreator m_codeStyleCreator;

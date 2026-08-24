@@ -98,6 +98,10 @@ RowLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.minimumHeight: Metrics.formListHeight
+            // Asked for, rather than however tall the rows happen to add up
+            // to: a table with more rows than fit scrolls, and does not push
+            // the buttons under it off the bottom of the page.
+            Layout.preferredHeight: Metrics.formListHeight
 
             ColumnLayout {
                 anchors.fill: parent

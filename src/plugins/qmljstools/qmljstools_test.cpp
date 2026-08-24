@@ -13,10 +13,15 @@
 #include <qmljs/qmljsvalueowner.h>
 #include <qmljstools/qmljsindenter.h>
 
+#include <qmljstools/qmljssettings.h>
+#include <qmljstools/qmljstoolsconstants.h>
+
+#include <texteditor/icodestylepreferencesfactory.h>
 #include <texteditor/tabsettings.h>
 #include <texteditor/texteditor.h>
 #include <texteditor/textdocument.h>
 
+#include <utils/aspects.h>
 #include <utils/temporarydirectory.h>
 
 #include <QTest>
@@ -38,6 +43,9 @@ private slots:
     void test_qmlAutoIndentOnNewLine();
     void test_qmlAutoIndentWhileTyping();
     void test_qmlSyntaxErrorDiagnostic();
+    void test_codeStyleAspectsReadThePreferences();
+    void test_codeStyleAspectsWriteBackToThePreferences();
+    void test_codeStyleShowsOneFormattersSettings();
 };
 
 void QmlJSToolsTest::test_basic()
@@ -258,6 +266,100 @@ void QmlJSToolsTest::test_qmlSyntaxErrorDiagnostic()
     valid->setSource("import QtQuick\nItem {\n}\n");
     valid->parse();
     QVERIFY(valid->diagnosticMessages().isEmpty());
+}
+
+// The aspects the Code Style form edits, as the page gets them.
+static Utils::AspectContainer *settingsAspectsFor(QmlJSCodeStylePreferences *preferences)
+{
+    TextEditor::ICodeStylePreferencesFactory *factory
+        = TextEditor::codeStyleFactory(::QmlJSTools::Constants::QML_JS_SETTINGS_ID);
+    return factory ? factory->createSettingsAspects(preferences) : nullptr;
+}
+
+static Utils::BaseAspect *aspectNamed(const Utils::AspectContainer *container, const QString &name)
+{
+    const QList<Utils::BaseAspect *> aspects = container->aspects();
+    for (Utils::BaseAspect *aspect : aspects) {
+        if (aspect->qmlName() == name)
+            return aspect;
+        if (auto nested = qobject_cast<const Utils::AspectContainer *>(aspect)) {
+            if (Utils::BaseAspect *found = aspectNamed(nested, name))
+                return found;
+        }
+    }
+    return nullptr;
+}
+
+void QmlJSToolsTest::test_codeStyleAspectsReadThePreferences()
+{
+    QmlJSCodeStylePreferences preferences;
+    QmlJSCodeStyleSettings settings;
+    settings.lineLength = 42;
+    settings.formatter = QmlJSCodeStyleSettings::Custom;
+    settings.customFormatterArguments = "--tabs";
+    preferences.setCodeStyleSettings(settings);
+
+    std::unique_ptr<Utils::AspectContainer> aspects(settingsAspectsFor(&preferences));
+    QVERIFY(aspects);
+
+    auto lineLength = qobject_cast<Utils::IntegerAspect *>(aspectNamed(aspects.get(), "LineLength"));
+    auto formatter = qobject_cast<Utils::SelectionAspect *>(aspectNamed(aspects.get(), "Formatter"));
+    auto arguments = qobject_cast<Utils::StringAspect *>(
+        aspectNamed(aspects.get(), "CustomFormatterArguments"));
+    QVERIFY(lineLength);
+    QVERIFY(formatter);
+    QVERIFY(arguments);
+
+    // The settings live in the code style, not in settings keys of their own,
+    // so the form is a view of whichever style the page is editing.
+    QCOMPARE(lineLength->value(), 42);
+    QCOMPARE(formatter->value(), int(QmlJSCodeStyleSettings::Custom));
+    QCOMPARE(arguments->value(), QString("--tabs"));
+}
+
+void QmlJSToolsTest::test_codeStyleAspectsWriteBackToThePreferences()
+{
+    QmlJSCodeStylePreferences preferences;
+    std::unique_ptr<Utils::AspectContainer> aspects(settingsAspectsFor(&preferences));
+    QVERIFY(aspects);
+
+    auto lineLength = qobject_cast<Utils::IntegerAspect *>(aspectNamed(aspects.get(), "LineLength"));
+    QVERIFY(lineLength);
+    const int before = preferences.codeStyleSettings().lineLength;
+
+    // What the form writes when the user edits the field.
+    lineLength->setVolatileValue(before + 17);
+
+    QCOMPARE(preferences.codeStyleSettings().lineLength, before + 17);
+}
+
+void QmlJSToolsTest::test_codeStyleShowsOneFormattersSettings()
+{
+    QmlJSCodeStylePreferences preferences;
+    std::unique_ptr<Utils::AspectContainer> aspects(settingsAspectsFor(&preferences));
+    QVERIFY(aspects);
+
+    auto formatter = qobject_cast<Utils::SelectionAspect *>(aspectNamed(aspects.get(), "Formatter"));
+    Utils::BaseAspect *builtin = aspectNamed(aspects.get(), "BuiltinSettings");
+    Utils::BaseAspect *qmlformat = aspectNamed(aspects.get(), "QmlFormatSettings");
+    Utils::BaseAspect *custom = aspectNamed(aspects.get(), "CustomSettings");
+    QVERIFY(formatter);
+    QVERIFY(builtin);
+    QVERIFY(qmlformat);
+    QVERIFY(custom);
+
+    // The page stacked the three formatters' settings; picking one is what
+    // decides which is on show, and it is the container that decides, not the
+    // form.
+    formatter->setVolatileValue(QmlJSCodeStyleSettings::Builtin);
+    QVERIFY(builtin->isVisible());
+    QVERIFY(!qmlformat->isVisible());
+    QVERIFY(!custom->isVisible());
+
+    formatter->setVolatileValue(QmlJSCodeStyleSettings::Custom);
+    QVERIFY(!builtin->isVisible());
+    QVERIFY(!qmlformat->isVisible());
+    QVERIFY(custom->isVisible());
 }
 
 QObject *createQmlJSToolsTest()

@@ -15,6 +15,7 @@
 #include "texteditortr.h"
 
 #include <coreplugin/icore.h>
+#include <coreplugin/messagemanager.h>
 #include <utils/aspectwidgets.h>
 #include <utils/filepath.h>
 #include <utils/guiutils.h>
@@ -260,6 +261,7 @@ CodeStylePreviewAspect::CodeStylePreviewAspect(AspectContainer *container,
                                                ICodeStylePreferences *codeStyle)
     : StringAspect(container)
     , m_codeStyle(codeStyle)
+    , m_factory(factory)
     , m_languageId(factory->languageId().toString())
     , m_mimeType(SnippetProvider::mimeTypeForGroup(factory->snippetGroupId()))
 {
@@ -288,6 +290,23 @@ QString CodeStylePreviewAspect::mimeType() const
 void CodeStylePreviewAspect::resetText()
 {
     setValue(defaultValue());
+    emit reindentRequested();
+}
+
+void CodeStylePreviewAspect::formatText()
+{
+    const ICodeStylePreferencesFactory::PreviewFormatter formatter = m_factory->previewFormatter();
+    if (!formatter) {
+        emit reindentRequested();
+        return;
+    }
+
+    const Utils::Result<QString> formatted = formatter(m_codeStyle, volatileValue());
+    if (!formatted) {
+        Core::MessageManager::writeFlashing(formatted.error());
+        return;
+    }
+    setValue(*formatted);
 }
 
 CodeStyleAspect::CodeStyleAspect(ICodeStylePreferences *codeStyle, Id languageId)
@@ -304,12 +323,26 @@ CodeStyleAspect::CodeStyleAspect(ICodeStylePreferences *codeStyle, Id languageId
             // Which style is being edited, and what it does to code: the page's
             // own aspects, so that every language's form gets the same ones.
             setupSelectorAspects(factory);
-            new CodeStylePreviewAspect(this, factory, m_pageCodeStyle);
+            auto preview = new CodeStylePreviewAspect(this, factory, m_pageCodeStyle);
+
+            auto resetPreview = new ActionAspect(this);
+            resetPreview->setQmlName("ResetPreview");
+            resetPreview->setActionText(Tr::tr("Reset to Original Preview Text"));
+            resetPreview->setAction([preview] { preview->resetText(); });
+
+            auto formatPreview = new ActionAspect(this);
+            formatPreview->setQmlName("FormatPreview");
+            formatPreview->setActionText(Tr::tr("Format Current Preview Text"));
+            formatPreview->setAction([preview] { preview->formatText(); });
             // The form names aspects, and the page knows none of this
             // language's - the factory hands them over, editing the page-local
-            // copy so that Cancel still means something.
-            if (AspectContainer *settings = factory->createSettingsAspects(m_pageCodeStyle))
+            // copy so that Cancel still means something. The page names the
+            // container, not the language: every form reaches its own settings
+            // as AspectModels.named(aspects.Settings).
+            if (AspectContainer *settings = factory->createSettingsAspects(m_pageCodeStyle)) {
+                settings->setQmlName("Settings");
                 registerAspect(settings, /*takeOwnership=*/true);
+            }
             setQmlSource(factory->qmlSource());
         }
     }

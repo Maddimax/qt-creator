@@ -137,6 +137,11 @@ static FormatOutput format(const FormatInput &input)
  * actually changed parts are updated while preserving the cursor position, the folded
  * blocks, and the scroll bar position.
  */
+Result<QString> formatText(const FilePath &filePath, const QString &text, const Command &command)
+{
+    return format({filePath, text, command, -1, 0});
+}
+
 void updateEditorText(PlainTextEdit *editor, const QString &text)
 {
     const QString editorText = editor->toPlainText();

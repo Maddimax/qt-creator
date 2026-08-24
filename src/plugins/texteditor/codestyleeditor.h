@@ -102,10 +102,19 @@ public:
     QString mimeType() const;
 
     // Puts the factory's preview text back, discarding whatever was typed.
-    Q_INVOKABLE void resetText();
+    void resetText();
+    // Runs the language's own formatter over it, where it has one. Where it has
+    // not, the indenter is the formatting, and only a re-indent is asked for.
+    void formatText();
+
+signals:
+    // The text was not changed but should be laid out again: nothing else can
+    // ask the QML side's indenter to re-run.
+    void reindentRequested();
 
 private:
     ICodeStylePreferences *m_codeStyle = nullptr;
+    const ICodeStylePreferencesFactory *m_factory = nullptr;
     QString m_languageId;
     QString m_mimeType;
 };

@@ -13,18 +13,9 @@
 #include <utils/filepath.h>
 #include <utils/store.h>
 
-namespace TextEditor {
-class FontSettingsData;
-class TabSettingsData;
-}
-
-QT_BEGIN_NAMESPACE
-class QStackedWidget;
-QT_END_NAMESPACE
+namespace TextEditor { class TabSettingsData; }
 
 namespace QmlJSTools {
-
-class FormatterSelectionWidget;
 
 class QMLJSTOOLS_EXPORT QmlJSCodeStyleSettings
 {
@@ -61,32 +52,6 @@ QMLJSTOOLS_EXPORT QmlJSCodeStylePreferences *globalQmlJSCodeStyle();
 namespace Internal {
 
 void setupQmlJSToolsSettings();
-
-class QmlJSCodeStylePreferencesWidget : public QWidget
-{
-    Q_OBJECT
-
-public:
-    explicit QmlJSCodeStylePreferencesWidget(const QString &previewText, QWidget *parent = nullptr);
-
-    void setPreferences(QmlJSCodeStylePreferences* preferences);
-
-private:
-    void decorateEditor(const TextEditor::FontSettingsData &fontSettings);
-    void setVisualizeWhitespace(bool on);
-    void slotSettingsChanged(const QmlJSCodeStyleSettings &);
-    void slotCurrentPreferencesChanged(TextEditor::ICodeStylePreferences *preferences);
-    void updatePreview();
-    void builtInFormatterPreview();
-    void qmlformatPreview();
-    void customFormatterPreview();
-
-    FormatterSelectionWidget *m_formatterSelectionWidget;
-    QStackedWidget *m_formatterSettingsStack;
-    TextEditor::SnippetEditorWidget *m_previewTextEdit;
-    QmlJSCodeStylePreferences *m_preferences = nullptr;
-    bool m_isShown = false;
-};
 
 class QmlJSCodeStyleSettingsPage : public Core::IOptionsPage
 {

@@ -10,20 +10,18 @@ import QtQuick.Layouts
 import QtCreator.Ui
 import QtCreator.TextEditor
 
-// What the code style being edited does to code. The text is the aspect's
-// value, so typing in it is an ordinary aspect edit; the indenter re-runs
-// whenever the style changes, which is the whole point of the thing.
+// What the code style being edited does to code. The text is an aspect's value,
+// so typing in it is an ordinary aspect edit; the indenter re-runs whenever the
+// style changes, which is the whole point of the thing. The page's aspects, not
+// the language's, so every Code Style page gets the same preview; see
+// CodeStyleAspect::CodeStyleAspect().
 ColumnLayout {
     id: root
 
-    // A CodeStylePreviewAspect. Its extra properties come in separately: what
-    // a page reaches through aspects.<name> is typed as a plain Aspect.
-    required property Aspect aspect
-    // What the code is, for looking up a highlight definition.
-    required property string mimeType
-    // Whose indenter re-indents it, and against which preferences.
-    required property string languageId
-    required property QtObject codeStyle
+    // The page's NamedAspects. Preview is a CodeStylePreviewAspect, which
+    // carries what a preview needs beyond the text; it is reached by name and
+    // so is untyped here.
+    required property var aspects
 
     // Whether the code is being indented. Worth reading in a test, and worth
     // knowing before blaming the layout.
@@ -55,8 +53,8 @@ ColumnLayout {
                 id: edit
 
                 objectName: "codeStylePreviewText"
-                text: root.aspect?.value ?? ""
-                enabled: root.aspect?.enabled ?? false
+                text: root.aspects.Preview.value ?? ""
+                enabled: root.aspects.Preview.enabled ?? false
                 textFormat: TextEdit.PlainText
                 font: highlighting.font
                 color: highlighting.textColor
@@ -65,34 +63,48 @@ ColumnLayout {
                 // indenter rewrites the document, and it must not do that
                 // under the cursor.
                 onEditingFinished: {
-                    if (root.aspect && text !== root.aspect.value)
-                        root.aspect.value = text
+                    if (text !== root.aspects.Preview.value)
+                        root.aspects.Preview.value = text
                 }
 
                 CodeHighlighting {
                     id: highlighting
 
                     document: edit.textDocument
-                    mimeType: root.mimeType
+                    mimeType: root.aspects.Preview.mimeType
                 }
 
                 CodeIndenting {
                     id: indenting_
 
                     document: edit.textDocument
-                    languageId: root.languageId
-                    codeStyle: root.codeStyle
+                    languageId: root.aspects.Preview.languageId
+                    codeStyle: root.aspects.Preview.codeStyle
                 }
             }
         }
     }
 
+    RowLayout {
+        spacing: Spacing.GapHXs
+        Layout.fillWidth: true
+
+        Item { Layout.fillWidth: true }
+
+        ButtonDelegate { aspect: root.aspects.ResetPreview; Layout.fillWidth: false }
+        ButtonDelegate { aspect: root.aspects.FormatPreview; Layout.fillWidth: false }
+    }
+
     // The text arrives by binding, which can land after CodeIndenting has
-    // attached; and it is replaced whenever the aspect's value changes.
+    // attached, and is replaced whenever the aspect's value changes.
     Component.onCompleted: indenting_.reindent()
 
     Connections {
-        target: root.aspect
+        target: root.aspects.Preview
+
         function onVolatileValueChanged() { indenting_.reindent() }
+        // Asked for when the text did not change but its layout should: the
+        // Format button, for a language whose formatting is the indenter.
+        function onReindentRequested() { indenting_.reindent() }
     }
 }

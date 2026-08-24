@@ -59,6 +59,7 @@ if(TARGET QtcQuick)
       QtcProgressBar.qml
       QtcSearchBox.qml
       RadioDelegate.qml
+      RadioGroupDelegate.qml
       QtcSwitch.qml
       SelectionDelegate.qml
       SecretDelegate.qml
