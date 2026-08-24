@@ -46,7 +46,6 @@ add_qtc_plugin(Debugger
     debuggerprotocol.cpp debuggerprotocol.h
     debuggerrunconfigurationaspect.cpp debuggerrunconfigurationaspect.h
     debuggerruncontrol.cpp debuggerruncontrol.h
-    debuggersourcepathmappingwidget.cpp debuggersourcepathmappingwidget.h
     debuggertest.cpp debuggertest.h
     debuggertooltipmanager.cpp debuggertooltipmanager.h
     debuggertr.h
@@ -90,6 +89,8 @@ add_qtc_plugin(Debugger
     sourcefileshandler.cpp sourcefileshandler.h
     sourceutils.cpp sourceutils.h
     stackframe.cpp stackframe.h
+    sourcepathmap.cpp sourcepathmap.h
+    sourcepathmap_test.cpp sourcepathmap_test.h
     stackhandler.cpp stackhandler.h
     stackwindow.cpp stackwindow.h
     terminal.cpp terminal.h
@@ -169,6 +170,7 @@ if(TARGET Debugger AND TARGET Qt::Quick)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      CommonSettingsPage.qml
       GdbSettingsPage.qml
       LocalsAndExpressionsSettingsPage.qml
   )

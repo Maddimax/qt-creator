@@ -25,12 +25,18 @@ public:
     void fromMap(const Utils::Store &map) override;
     void toMap(Utils::Store &map) const override;
 
-    void addToLayoutImpl(Layouting::Layout &parent) override;
-
     void readSettings() override;
     void writeSettings() const override;
 
     bool isDirty() const override;
+
+    Utils::AspectPresentation presentation() const override;
+    QAbstractItemModel *tableModel() override;
+
+    // Maps each of the paths an unpatched Qt reports having been built at onto
+    // the sources the user picked.
+    void addQtSources(const Utils::FilePath &qtSourcesPath);
+    static bool hasQtBuildPaths();
 
 private:
     bool guiToVolatileValue() override;
@@ -66,6 +72,7 @@ public:
     Utils::BoolAspect showUnsupportedBreakpointWarning{this};
 
     SourcePathMapAspect sourcePathMap{this};
+    Utils::ActionAspect addQtSources{this};
 
     Utils::BoolAspect *registerForPostMortem = nullptr;
 };

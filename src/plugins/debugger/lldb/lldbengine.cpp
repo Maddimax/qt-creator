@@ -10,7 +10,7 @@
 #include <debugger/debuggerinternalconstants.h>
 #include <debugger/debuggeritem.h>
 #include <debugger/debuggerprotocol.h>
-#include <debugger/debuggersourcepathmappingwidget.h>
+#include <debugger/sourcepathmap.h>
 #include <debugger/debuggertooltipmanager.h>
 #include <debugger/debuggertr.h>
 #include <debugger/disassemblerlines.h>

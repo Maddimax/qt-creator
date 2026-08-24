@@ -11,7 +11,7 @@
 #include <debugger/debuggercore.h>
 #include <debugger/debuggerinternalconstants.h>
 #include <debugger/debuggerprotocol.h>
-#include <debugger/debuggersourcepathmappingwidget.h>
+#include <debugger/sourcepathmap.h>
 #include <debugger/debuggertooltipmanager.h>
 #include <debugger/debuggertr.h>
 #include <debugger/disassembleragent.h>

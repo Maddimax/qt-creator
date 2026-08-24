@@ -15,6 +15,7 @@
 #include "debuggerrunconfigurationaspect.h"
 #include "debuggerruncontrol.h"
 #include "debuggertest.h"
+#include "sourcepathmap_test.h"
 #include "debuggertr.h"
 #include "enginemanager.h"
 #include "loadcoredialog.h"
@@ -2151,6 +2152,7 @@ Result<> DebuggerPlugin::initialize(const QStringList &arguments)
 
 #ifdef WITH_TESTS
     addTestCreator(createDebuggerTest);
+    addTestCreator(createSourcePathMapTest);
 #endif
 
     return ResultOk;

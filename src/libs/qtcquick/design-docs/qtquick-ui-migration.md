@@ -485,7 +485,7 @@ nothing - and waits on the signal rather than on a non-empty string, because an
 empty secret is a legitimate answer. `FontAspect` still carries the original
 version of this trap.
 
-#### The eight that are left, and what each one needs
+#### The seven that are left, and what each one needs
 
 Every one of these was read, not guessed at - the last three rounds each found
 that the widget collapsed to controls that already existed. These do not:
@@ -494,14 +494,14 @@ that the widget collapsed to controls that already existed. These do not:
 |---|---|
 | Code Style (x3) | `createValueEditor()` returns a per-language editor built by a factory, and the page puts a syntax-highlighted preview beside it |
 | Snippets, Font && Colors | an editor and a live preview, same shape |
-| Debugger General | `DebuggerSourcePathMappingWidget`, a two-column table of source and target paths with add and remove |
 | Testing General | `FrameworksAspect` has no `presentation()` at all, and its tree is two check boxes per row - enabled, and grouped |
 | QML/JS Editing | `AnalyzerMessagesAspect`, a tree with two independent states per message - and its state *is* the tree: `apply()`, `cancel()` and `isDirty()` all read `m_view`, and `apply()` returns early when there is none. No other renderer can drive it until the aspect owns its own volatile value |
 
 Two shapes would cover them: rows of several check boxes (Testing, QML/JS
 Editing) and a hosted editor with a preview (Code Style, Snippets, Font &&
-Colors). Multi-column tables are now built - see below - and Debugger General
-needs only `SourcePathMapAspect` to own its value and hand out a model.
+Colors). Both remaining check-box pages are held by the same thing as Debugger
+General was - an aspect that keeps its value in its widget - and that page is
+done, so they are the same job twice more.
 
 Two of these were taken further than reading, and each stopped for the same
 reason - the cost is not in the QML:
@@ -573,6 +573,44 @@ Things to copy when the next table aspect arrives:
   would compare stale text against a new row and write it there. These tables
   are tens of rows; the saving is not worth that.
 
+#### Give the model a parent
+
+`BaseAspect::tableModel()` is `Q_INVOKABLE` and returns a `QObject *`. A QML
+engine takes JavaScript ownership of an unparented `QObject` it is handed, so
+its garbage collector deleted `SourcePathMappingModel` out from under the
+aspect, and the aspect's destructor then wrote through the freed object at
+shutdown. Parent the model to the aspect.
+
+Worth knowing how that showed up: **31 passed, 0 failed** - and exit code 134.
+The crash is in the teardown after the totals are printed, so the totals are
+useless on their own. The negative control for the fix produces the same thing:
+every test green, process aborted.
+
+#### Debugger General: an aspect that owned its value already
+
+`SourcePathMapAspect` was on the blocked list as "a two-column table", and it
+was the cheapest of the three widget-state aspects because it was not one:
+being a `TypedAspect<SourcePathMap>` it already had `m_value` and
+`m_volatileValue`, and only `guiToVolatileValue()` and `volatileValueToGui()`
+went through the widget. Moving the rows from the widget into the aspect kept
+the pull-based contract exactly as it was - the framework asks, the aspect
+answers - so there is no write loop to guard against.
+
+The rows cannot be the value. `SourcePathMap` is a `QMap` keyed by source path,
+so a row that is only half typed has no key yet, and two of them are one entry.
+The widget solved that by writing `<new source>` into a new row and recognizing
+an unfinished one by its angle brackets, which made any path starting with `<`
+look unfinished. The model keeps a row list instead and leaves out any row that
+is not filled in on both sides.
+
+What went, besides 543 lines of widget: the master-detail editors below the
+tree, since the table edits in place, and with them the target's `PathChooser` -
+its browse button, history completer and variable chooser. Every other path on
+every ported page is a plain field for the same reason, and that is the
+`PathChooser` port, not this one. "Add Qt sources..." is an `ActionAspect` now,
+and `registerForPostMortem` is registered on every platform rather than only on
+Windows, because one shared `.qml` names it either way.
+
 #### Testing a TableView needs a window
 
 `createGenericAspectForm()` is enough to exercise every other delegate without
@@ -593,11 +631,11 @@ after the first layout without a render pass; and find a cell control by
 `objectName` rather than by type, because a non-editable `ComboBox`'s content
 item is itself a `TextField`.
 
-#### What the 26 remaining layouters are
+#### What the 25 remaining layouters are
 
 Worth knowing before hunting for dead ones, because most of these are not pages:
 
-- **8 are the pages above** (Code Style counts once here; its aspect serves all
+- **7 are the pages above** (Code Style counts once here; its aspect serves all
   three).
 - **5 are live nested containers**: `TabSettings`, `TypingSettings`,
   `StorageSettings`, `ExtraEncodingSettings` and `BehaviorSettings`. The Behavior
@@ -764,7 +802,7 @@ naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
 all`, minus `QmlDesigner` and `UpdateInfo`, see below): **73 aspect-driven
-pages, 65 with their own QML and rendered with Qt Quick, 8 still on widgets.**
+pages, 66 with their own QML and rendered with Qt Quick, 7 still on widgets.**
 Before the gate was narrowed, 65 pages rendered generically; the delegate work
 that made that possible is all still in place and is what the ports build on:
 `StringListAspect` (a real list editor), `IntegersAspect` (`Invisible`, because
@@ -773,7 +811,7 @@ its own choices now), index-valued selections with no options (an empty combo
 box is what the widget editor draws too), and `AspectList`'s
 list-with-details style.
 
-All eight remaining pages are held by aspects whose control is `Custom`
+All seven remaining pages are held by aspects whose control is `Custom`
 because they build their own widget in `addToLayoutImpl`. Not all of them need
 porting one by one, though: `EnvironmentChangesAspect` turned out to be a
 summary plus one button, which is now the `TextWithAction` control, and

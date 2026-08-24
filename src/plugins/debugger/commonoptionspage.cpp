@@ -13,8 +13,7 @@
 
 #include <coreplugin/dialogs/ioptionspage.h>
 
-#include <utils/aspectwidgets.h>
-#include <utils/layoutbuilder.h>
+#include <utils/filedialogs.h>
 
 #include <QGuiApplication>
 #include <QLabel>
@@ -73,12 +72,15 @@ CommonSettings::CommonSettings()
                                           .arg(QGuiApplication::applicationDisplayName()));
     registerForPostMortem->setLabelText(
         Tr::tr("Use %1 for post-mortem debugging").arg(QGuiApplication::applicationDisplayName()));
-    registerAspect(registerForPostMortem);
 #else
-    // Some dummy.
+    // Only Windows has a post-mortem debugger to register with. The page names
+    // the aspect either way, so the stand-in is registered too and draws
+    // nothing.
     registerForPostMortem = new BoolAspect;
     registerForPostMortem->setVisible(false);
 #endif
+    registerForPostMortem->setQmlName("RegisterForPostMortem");
+    registerAspect(registerForPostMortem);
 
     maximalStackDepth.setSettingsKey(debugModeGroup, "MaximalStackDepth");
     maximalStackDepth.setDefaultValue(20);
@@ -172,58 +174,18 @@ CommonSettings::CommonSettings()
                  "as it does not use scope information."));
     useToolTipsInMainEditor.setDefaultValue(true);
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-
-        Group behavior {
-            title(Tr::tr("Behavior")),
-            Column {
-                registerForPostMortem,
-                raiseOnInterrupt,
-                warnOnReleaseBuilds,
-                breakpointsFullPathByDefault,
-                resolveBreakpointSymlinks,
-                forceLoggingToConsole,
-                nativeMixedMode,
-                collapseMachineryFrames,
-                Row { maximalStackDepth, st },
-                st
-            }
-        };
-
-        Group userInterface {
-            title(Tr::tr("User Interface")),
-            Column {
-                useAnnotationsInMainEditor,
-                useToolTipsInMainEditor,
-                useAlternatingRowColors,
-                fontSizeFollowsEditor,
-                stationaryEditorWhileStepping,
-                showQmlObjectTree,
-                showUnsupportedBreakpointWarning,
-            }
-        };
-
-        Group afterLife {
-            title(Tr::tr("When Debugging Stops")),
-            Column {
-                closeSourceBuffersOnExit,
-                closeMemoryBuffersOnExit,
-                switchModeOnExit,
-            }
-        };
-
-        return Column {
-            Grid {
-                Column { behavior, afterLife },
-                Column { userInterface, st },
-                columnStretch(0, 1),
-                columnStretch(1, 1)
-            },
-            sourcePathMap,
-            st
-        };
+    addQtSources.setQmlName("AddQtSources");
+    addQtSources.setActionText(Tr::tr("Add Qt Sources..."));
+    addQtSources.setToolTip(Tr::tr("Adds a mapping for Qt's source folders "
+                                   "when using an unpatched version of Qt."));
+    addQtSources.setVisible(SourcePathMapAspect::hasQtBuildPaths());
+    addQtSources.setAction([this] {
+        const FilePath path = FileUtils::getExistingDirectory(Tr::tr("Qt Sources"));
+        if (!path.isEmpty())
+            sourcePathMap.addQtSources(path);
     });
+
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Debugger/CommonSettingsPage.qml"));
 
     readSettings();
 }

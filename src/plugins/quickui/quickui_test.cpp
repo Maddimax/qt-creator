@@ -342,7 +342,11 @@ void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
                 // said what it is called is drawn as a box with nothing beside
                 // it. That is what a page of nameless check boxes looks like,
                 // and it is invisible to every other assertion here.
-                if (drawn.startsWith("BoolDelegate") || drawn.startsWith("RadioDelegate")) {
+                // An aspect that is not shown has nothing beside it because it
+                // is not there - a page names its aspects on every platform,
+                // and some of them only exist on one.
+                if ((drawn.startsWith("BoolDelegate") || drawn.startsWith("RadioDelegate"))
+                    && delegate->property("aspectVisible").toBool()) {
                     QVERIFY2(!delegate->property("text").toString().isEmpty(),
                              qPrintable(page->displayName() + ": " + drawn
                                         + " has no text beside it"));
