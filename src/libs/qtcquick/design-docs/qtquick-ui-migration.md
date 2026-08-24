@@ -1332,15 +1332,15 @@ pages that hand over an `AspectContainer` through `setSettingsProvider()`.
 A page that calls `IOptionsPage::setWidgetCreator()` builds its own
 `IOptionsPageWidget` and answers nothing from `aspects()`, so the test skips it
 entirely: `isFullyRenderable()` is never asked and the page is not in the 73.
-There are **34 such call sites in 31 files** - Keyboard, Locator, MIME Types,
+There are **33 such call sites in 30 files** - Keyboard, Locator, MIME Types,
 the toolchain, kit and device pages, Beautifier's three, Clangd, Axivion - and
 they are pure QtWidgets from top to bottom. Counted with
 
     grep -rn setWidgetCreator src/plugins src/libs --include='*.cpp'
 
 minus the mode files, which are `IMode::setWidgetCreator()` and a different
-thing. Gerrit, To-Do, GitLab and Meson's Tools went this way; converting any of them
-took an
+thing. Gerrit, To-Do, GitLab and the Meson and GN Tools pages went this way;
+converting any of them took an
 `AspectContainer` that reads the plugin's own settings struct when the page is
 built and writes it back on apply, which is the same shape the Code Style pages
 use and needs no change to what the rest of the plugin reads.
@@ -1402,6 +1402,19 @@ Two things bit while doing it, both worth knowing:
   `GroupedView` is a member destroyed before `~QWidget` runs; anything else has
   to arrange the same, which is what `GroupedListWidget` in
   `groupedlistaspect.cpp` does.
+
+Meson's and GN's Tools pages are the first two of the seven. They are the same
+page twice, so the second one took minutes; CMake tools should be the same
+again, and Debuggers, Kits, Toolchains and Qt Versions differ only in what
+their details form holds.
+
+**A page in a DisabledByDefault plugin is not in the census.** GN's is:
+`-load all` does not put such a plugin into the running state, so its pages are
+never registered and the QuickUi run that walks every page cannot see them -
+the count stays where it was and nothing says the new `.qml` was never loaded.
+`-test <plugin>` does run it, so the page carries its own check that its QML
+reaches Ready instead. ClearCase is in the same position. Before writing a
+page, read its plugin's `.json.in`.
 
 One thing to watch: a `SelectionAspect` over a list that is being edited holds
 a *position*. GitLab's default server has to be remembered by id and looked up
