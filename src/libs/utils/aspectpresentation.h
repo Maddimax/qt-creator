@@ -58,6 +58,9 @@ enum Control {
     // Rows and columns, from the model the aspect hands out. See
     // BaseAspect::tableModel() and AspectTable below.
     Table,
+    // Items in named groups - what was found and what the user added - with
+    // one of them current. See Utils::GroupedListAspect.
+    GroupedList,
 };
 Q_ENUM_NS(Control)
 
@@ -250,6 +253,10 @@ public:
 
     // Table. The text in an empty filter field; no filter where it is empty.
     QString filterPlaceholderText;
+
+    // GroupedList. Whether one of the items is the default one, which not
+    // every such list has - a list of toolchains does not.
+    bool showsDefault = false;
 
     // StringList and Table.
     bool allowAdding = true;

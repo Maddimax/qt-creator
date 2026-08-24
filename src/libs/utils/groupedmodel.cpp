@@ -17,8 +17,12 @@ namespace Utils {
 class GroupedModel::DisplayModel final : public QAbstractItemModel
 {
 public:
+    // Parented to the model it is a view of, which is also what keeps QML off
+    // it: a parentless QObject handed out from an invokable belongs to the
+    // engine, and its GC frees it. See GroupedListAspect::displayModel().
     explicit DisplayModel(QAbstractItemModel *base)
-        : m_base(base)
+        : QAbstractItemModel(base)
+        , m_base(base)
     {}
 
     ~DisplayModel() { qDeleteAll(m_filters); }

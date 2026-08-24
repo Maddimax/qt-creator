@@ -92,6 +92,10 @@ ColumnLayout {
                 TableDelegate {}
             }
             DelegateChoice {
+                roleValue: AspectContainerModel.GroupedList
+                GroupedListDelegate {}
+            }
+            DelegateChoice {
                 roleValue: AspectContainerModel.Invisible
                 Item {}
             }

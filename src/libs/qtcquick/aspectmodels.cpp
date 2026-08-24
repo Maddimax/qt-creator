@@ -102,6 +102,7 @@ QVariantMap AspectModels::presentation(BaseAspect *aspect)
         {"maximum", p.maximum.isValid() ? p.maximum : widestBound(p.control, Upper)},
         {"step", p.singleStep.isValid() ? p.singleStep : QVariant(1)},
         {"filterPlaceholderText", p.filterPlaceholderText},
+        {"showsDefault", p.showsDefault},
         {"allowAdding", p.allowAdding},
         {"allowRemoving", p.allowRemoving},
         {"allowEditing", p.allowEditing},

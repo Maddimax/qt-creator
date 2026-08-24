@@ -47,6 +47,7 @@ if(TARGET QtcQuick)
       FilePathListDelegate.qml
       FontFamilyDelegate.qml
       GroupDelegate.qml
+      GroupedListDelegate.qml
       IntegerDelegate.qml
       Metrics.qml
       MultiSelectionDelegate.qml

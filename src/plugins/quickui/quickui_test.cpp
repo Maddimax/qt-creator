@@ -19,6 +19,8 @@
 #include <utils/algorithm.h>
 #include <utils/aspectlist.h>
 #include <utils/aspects.h>
+#include <utils/groupedlistaspect.h>
+#include <utils/groupedmodel.h>
 #include <utils/pathvalidation.h>
 #include <utils/layoutbuilder.h>
 
@@ -177,6 +179,7 @@ private slots:
     void testTableAspectFiltersItsRows();
     void testTableCellReadsInItsOwnColours();
     void testListRowShowsWhatTheListSaysAboutTheItem();
+    void testGroupedListShowsItsGroupsAndActsOnTheCurrentItem();
     void testFieldSaysWhatIsWrongAndKeepsItOut();
     void testColourOffersToGoBackToItsDefault();
     void testColourWithNoResetHasNoButton();
@@ -1977,6 +1980,118 @@ void QuickUiTest::testFieldSaysWhatIsWrongAndKeepsItOut()
     QMetaObject::invokeMethod(field, "editingFinished");
     QCOMPARE(keyword.volatileValue(), QString("FIXME"));
     QTRY_VERIFY(!message->property("visible").toBool());
+}
+
+namespace {
+
+class GroupedTool
+{
+public:
+    friend bool operator==(const GroupedTool &, const GroupedTool &) = default;
+
+    QString name;
+    bool autoDetected = false;
+};
+
+class GroupedToolsModel : public Utils::TypedGroupedModel<GroupedTool>
+{
+public:
+    explicit GroupedToolsModel(bool withDefault)
+    {
+        setShowDefault(withDefault);
+        setHeader({"Name"});
+        setFilters("Auto-detected", {{"Manual", [this](int row) {
+                                          return !item(row).autoDetected;
+                                      }}});
+        appendItem({"found", true});
+        appendItem({"mine", false});
+        if (withDefault)
+            setDefaultRow(0);
+    }
+
+    int cloneRow(int row) override
+    {
+        return appendVolatileItem({item(row).name + " (copy)", false});
+    }
+
+private:
+    QVariant variantData(int row, int column, int role) const override
+    {
+        if (role == Qt::DisplayRole && column == 0)
+            return item(row).name;
+        return {};
+    }
+};
+
+} // namespace
+
+void QuickUiTest::testGroupedListShowsItsGroupsAndActsOnTheCurrentItem()
+{
+    Utils::AspectContainer page;
+    page.setAutoApply(false);
+    GroupedToolsModel model(/*withDefault=*/true);
+    Utils::GroupedListAspect tools(&page);
+    tools.setLabelText("Tools");
+    tools.setModel(&model);
+    tools.setShowsDefault(true);
+    tools.setCanRemoveRow([&model](int row) { return !model.item(row).autoDetected; });
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "GroupedListDelegate"));
+
+    // The tree is over the groups, with the items under them - not a flat list
+    // of the model's rows.
+    QAbstractItemModel *tree = tools.displayModel();
+    QVERIFY(tree);
+    QCOMPARE(tree->rowCount({}), 2);
+    QCOMPARE(tree->rowCount(tree->index(0, 0)), 1);
+    QCOMPARE(tree->rowCount(tree->index(1, 0)), 1);
+    // A group heading is not an item, so nothing acts on it.
+    QCOMPARE(tools.rowForIndex(tree->index(0, 0)), -1);
+    QVERIFY(tools.rowForIndex(tree->index(0, 0, tree->index(0, 0))) >= 0);
+
+    QQuickItem *clone = findQmlNamed(delegate, "groupedListCloneButton").value(0);
+    QQuickItem *remove = findQmlNamed(delegate, "groupedListRemoveButton").value(0);
+    QQuickItem *makeDefault = findQmlNamed(delegate, "groupedListMakeDefaultButton").value(0);
+    QVERIFY(clone && remove && makeDefault);
+
+    // Nothing current: nothing to act on.
+    QVERIFY(!clone->property("enabled").toBool());
+    QVERIFY(!remove->property("enabled").toBool());
+    QVERIFY(!makeDefault->property("enabled").toBool());
+
+    // The auto-detected one is not the user's to remove, and it is already the
+    // default; it can still be copied.
+    const int found = model.item(0).autoDetected ? 0 : 1;
+    const int mine = 1 - found;
+    tools.setCurrentRow(found);
+    QTRY_VERIFY(clone->property("enabled").toBool());
+    QVERIFY(!remove->property("enabled").toBool());
+    QVERIFY(!makeDefault->property("enabled").toBool());
+
+    tools.setCurrentRow(mine);
+    QTRY_VERIFY(remove->property("enabled").toBool());
+    QVERIFY(makeDefault->property("enabled").toBool());
+    QCOMPARE(remove->property("text").toString(), QString("Remove"));
+
+    // Removing is not applied yet, so the button offers to take it back.
+    QMetaObject::invokeMethod(remove, "clicked");
+    QVERIFY(model.isRemoved(mine));
+    tools.setCurrentRow(mine);
+    QTRY_COMPARE(remove->property("text").toString(), QString("Restore"));
+    QVERIFY(remove->property("enabled").toBool());
+    QVERIFY(!clone->property("enabled").toBool());
+
+    // Cloning selects the copy, which the view follows.
+    tools.setCurrentRow(found);
+    QMetaObject::invokeMethod(clone, "clicked");
+    QCOMPARE(model.itemCount(), 3);
+    QCOMPARE(tools.currentRow(), 2);
 }
 
 void QuickUiTest::testListRowShowsWhatTheListSaysAboutTheItem()

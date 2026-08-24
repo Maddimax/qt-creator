@@ -7,6 +7,8 @@
 #include <utils/aspectwidgetrenderer.h>
 #include <utils/elidinglabel.h>
 #include <utils/fancylineedit.h>
+#include <utils/groupedlistaspect.h>
+#include <utils/groupedmodel.h>
 #include <utils/infolabel.h>
 #include <utils/layoutbuilder.h>
 #include <utils/passworddialog.h>
@@ -36,6 +38,41 @@
 #include <memory>
 
 using namespace Utils;
+
+namespace {
+
+class RendererTool
+{
+public:
+    friend bool operator==(const RendererTool &, const RendererTool &) = default;
+
+    QString name;
+    bool autoDetected = false;
+};
+
+class RendererToolsModel : public TypedGroupedModel<RendererTool>
+{
+public:
+    RendererToolsModel()
+    {
+        setHeader({"Name"});
+        setFilters("Auto-detected", {{"Manual", [this](int row) {
+                                          return !item(row).autoDetected;
+                                      }}});
+        appendItem({"found", true});
+        appendItem({"mine", false});
+    }
+
+private:
+    QVariant variantData(int row, int column, int role) const override
+    {
+        if (role == Qt::DisplayRole && column == 0)
+            return item(row).name;
+        return {};
+    }
+};
+
+} // namespace
 
 // No aspect owns an inline addToLayoutImpl body any more: they all delegate
 // unconditionally, so rendering with no renderer installed produces nothing -
@@ -83,6 +120,8 @@ private slots:
     void fontFamilyPicker();
     void multiSelection_data() { addRendererRows(); }
     void multiSelection();
+    void groupedList_data() { addRendererRows(); }
+    void groupedList();
     void commaSeparatedLineEdit_data() { addRendererRows(); }
     void commaSeparatedLineEdit();
     void filePathList_data() { addRendererRows(); }
@@ -376,6 +415,36 @@ void tst_AspectRenderer::fontFamilyPicker()
     // keep its selection when the volatile value changes from outside.
     aspect.setVolatileValue(comboBox->itemText(0));
     QCOMPARE(comboBox->currentText(), target);
+}
+
+// A GroupedListAspect is a view rather than a control, so it is put in whole
+// instead of being built from the descriptor. A page that has not moved to Qt
+// Quick still has to get a tree and the buttons that act on it.
+void tst_AspectRenderer::groupedList()
+{
+    QFETCH(bool, withRenderer);
+    setRendererInstalled(withRenderer);
+
+    RendererToolsModel model;
+    GroupedListAspect aspect;
+    aspect.setModel(&model);
+
+    const std::unique_ptr<QWidget> widget = render(aspect);
+    auto tree = widget->findChild<QTreeView *>();
+    QVERIFY(tree);
+    QCOMPARE(tree->model(), model.groupedDisplayModel());
+    // The groups, with the items under them.
+    QCOMPARE(tree->model()->rowCount({}), 2);
+
+    const QList<QPushButton *> buttons = widget->findChildren<QPushButton *>();
+    QCOMPARE(buttons.size(), 3);
+    // Nothing is current, so none of them does anything.
+    QVERIFY(Utils::allOf(buttons, [](QPushButton *b) { return !b->isEnabled(); }));
+
+    // The aspect and the view agree on what is current, whichever set it.
+    aspect.setCurrentRow(1);
+    QCOMPARE(model.mapToSource(tree->selectionModel()->currentIndex()).row(), 1);
+    QVERIFY(Utils::anyOf(buttons, [](QPushButton *b) { return b->isEnabled(); }));
 }
 
 void tst_AspectRenderer::multiSelection()
