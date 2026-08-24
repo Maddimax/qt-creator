@@ -18,6 +18,15 @@ using namespace Utils;
 
 namespace QtcQuick {
 
+// A list that answers asynchronously - the MCP server list names itself once
+// it has connected - hands back a future for every role, not just the one it
+// meant. Only the label knows what to do with that; a colour or an icon that
+// is not there yet is simply not there.
+static QVariant withoutFuture(const QVariant &value)
+{
+    return value.canConvert<QFuture<QVariant>>() ? QVariant() : value;
+}
+
 AspectItemListModel::AspectItemListModel(AspectList *list, QObject *parent)
     : QAbstractListModel(parent)
     , m_list(list)
@@ -113,11 +122,11 @@ QVariant AspectItemListModel::data(const QModelIndex &index, int role) const
         const QVariant decoration = m_list->listViewDataCallback(item, Qt::DecorationRole);
         if (decoration.canConvert<QIcon>())
             return iconUrl(decoration.value<QIcon>());
-        return decoration;
+        return withoutFuture(decoration);
     }
     case ForegroundRole: {
         QTC_ASSERT(m_list->listViewDataCallback, return {});
-        return m_list->listViewDataCallback(item, Qt::ForegroundRole);
+        return withoutFuture(m_list->listViewDataCallback(item, Qt::ForegroundRole));
     }
     case ItemModelRole: {
         auto container = qobject_cast<AspectContainer *>(item);
