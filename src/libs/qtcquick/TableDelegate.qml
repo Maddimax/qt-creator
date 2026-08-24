@@ -155,12 +155,23 @@ RowLayout {
                             root.editable && (model.editable ?? true)
 
                         implicitWidth: Math.max(Metrics.lineEditWidth, editor.implicitWidth)
-                        implicitHeight: editor.implicitHeight
+                        // A wrapping cell only knows how tall it is once it
+                        // knows how wide it is, and its width is the column's.
+                        // So the row's height follows the laid-out text, and a
+                        // long description gets the lines it needs.
+                        implicitHeight: Math.max(Metrics.tableRowMinimumHeight,
+                                                 editor.implicitHeight)
 
                         Loader {
                             id: editor
 
-                            anchors.fill: parent
+                            // As wide as the column and no taller than it needs
+                            // to be, so a check box beside a four-line
+                            // description sits on the row's first line rather
+                            // than floating in the middle of it.
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.top: parent.top
                             sourceComponent: {
                                 if (cell.model.checkable ?? false)
                                     return check
@@ -235,15 +246,15 @@ RowLayout {
                                 // and keep two columns of text apart.
                                 leftPadding: Spacing.PaddingHS
                                 rightPadding: Spacing.PaddingHS
-                                // One line per cell: rows are a uniform height,
-                                // so anything taller spills into the row below.
-                                // A value can have newlines of its own, which
-                                // NoWrap does not help with. The tool tip has
-                                // the rest.
-                                elide: Text.ElideRight
-                                wrapMode: Text.NoWrap
-                                maximumLineCount: 1
-                                verticalAlignment: Text.AlignVCenter
+                                topPadding: Spacing.PaddingVXs
+                                bottomPadding: Spacing.PaddingVXs
+                                // Wrapped, not elided: a description is worth
+                                // reading, and the row grows to hold it. Eliding
+                                // as well would pin the implicit height to one
+                                // line while the text wrapped underneath it,
+                                // which is how rows came to overlap.
+                                wrapMode: Text.WordWrap
+                                verticalAlignment: Text.AlignTop
                                 ToolTip.text: cell.cellText
                                 ToolTip.visible: cellHover.hovered && text !== ""
 

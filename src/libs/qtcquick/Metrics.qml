@@ -24,6 +24,9 @@ QtObject {
     // elides: a column wider than the table scrolls the header label out of
     // view, and a long description would take the whole width.
     readonly property int tableColumnMaxWidth: 320
+    // Shortest a table row may be, so a row of check boxes and a row of
+    // wrapped text still look like the same table.
+    readonly property int tableRowMinimumHeight: 24
     // Side length of the color preview swatch in ColorDelegate.
     readonly property int colorSwatchSize: 24
 
