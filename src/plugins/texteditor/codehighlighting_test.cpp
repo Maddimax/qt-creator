@@ -6,7 +6,13 @@
 #include "codehighlighting.h"
 
 #include "codedocument.h"
+#include "codeassist/assistinterface.h"
 #include "codeassist/assistproposalitem.h"
+#include "codeassist/completionassistprovider.h"
+#include "codeassist/genericproposal.h"
+#include "codeassist/genericproposalmodel.h"
+#include "codeassist/iassistprocessor.h"
+#include "codecompletion.h"
 #include "codeassist/assisttarget.h"
 #include "textdocument.h"
 
@@ -53,54 +59,38 @@ private slots:
     void testEditingThroughTheViewSavesTheFile();
     void testALanguageServerIsToldAboutTheFileOnlyWhenAsked();
     void testACompletionCanBeAppliedWithoutAWidget();
+    void testCompletionOffersWhatTheProviderKnowsAndPutsItIn();
 };
 
-// An AssistTarget over a plain document and a cursor, which is what a Qt Quick
-// view has. The operations are the ones the proposal items were calling on
-// TextEditorWidget; none of them needs a widget to mean something.
-class DocumentAssistTarget final : public AssistTarget
+// A provider that knows two words. What a real one does is go and ask a code
+// model or a language server; what it hands back is this.
+class TwoWordProvider final : public CompletionAssistProvider
 {
 public:
-    explicit DocumentAssistTarget(QTextDocument *document)
-        : m_document(document)
-        , m_cursor(document)
-    {}
-
-    QTextDocument *document() const override { return m_document; }
-    int position() const override { return m_cursor.position(); }
-    QChar characterAt(int position) const override { return m_document->characterAt(position); }
-    QString textAt(int position, int length) const override
-    {
-        QTextCursor cursor(m_document);
-        cursor.setPosition(position);
-        cursor.setPosition(position + length, QTextCursor::KeepAnchor);
-        return cursor.selectedText();
-    }
-    QTextCursor textCursor() const override { return m_cursor; }
-    QTextCursor textCursorAt(int position) const override
-    {
-        QTextCursor cursor(m_document);
-        cursor.setPosition(position);
-        return cursor;
-    }
-    void setCursorPosition(int position) override { m_cursor.setPosition(position); }
-    void replace(int position, int length, const QString &text) override
-    {
-        QTextCursor cursor(m_document);
-        cursor.setPosition(position);
-        cursor.setPosition(position + length, QTextCursor::KeepAnchor);
-        cursor.insertText(text);
-        m_cursor = cursor;
-    }
-    void insertCodeSnippet(int basePosition, const QString &snippet, const SnippetParser &) override
-    {
-        replace(basePosition, m_cursor.position() - basePosition, snippet);
-    }
-
-private:
-    QTextDocument *m_document = nullptr;
-    QTextCursor m_cursor;
+    IAssistProcessor *createProcessor(const AssistInterface *) const override;
 };
+
+class TwoWordProcessor final : public IAssistProcessor
+{
+public:
+    IAssistProposal *perform() override
+    {
+        QList<AssistProposalItemInterface *> items;
+        for (const QString &word : {QString("alpha"), QString("alphabet")}) {
+            auto item = new AssistProposalItem;
+            item->setText(word);
+            items.append(item);
+        }
+        QSharedPointer<GenericProposalModel> model(new GenericProposalModel);
+        model->loadContent(items);
+        return new GenericProposal(interface()->position() - 2, model);
+    }
+};
+
+IAssistProcessor *TwoWordProvider::createProcessor(const AssistInterface *) const
+{
+    return new TwoWordProcessor;
+}
 
 // Stands in for the language client manager, which is reached by object name
 // because TextEditor does not depend on the plugin it lives in. Registering one
@@ -276,6 +266,42 @@ void CodeHighlightingTest::testACompletionCanBeAppliedWithoutAWidget()
 
     QCOMPARE(document.toPlainText(), QString("using QString"));
     QCOMPARE(target.position(), 13);
+}
+
+// The whole path, with no widget anywhere: the provider is asked what could go
+// at the cursor, QML is handed the words, and taking one puts it in the file.
+void CodeHighlightingTest::testCompletionOffersWhatTheProviderKnowsAndPutsItIn()
+{
+    Utils::TemporaryDirectory dir("codecompletion-test");
+    QVERIFY(dir.isValid());
+    const Utils::FilePath file = dir.filePath("sample.txt");
+    QVERIFY(file.writeFileContents("al"));
+
+    QQmlEngine engine;
+    const std::unique_ptr<QQuickItem> edit = textEdit(&engine, {});
+    QVERIFY(edit);
+
+    CodeDocument document;
+    document.setDocument(documentOf(edit.get()));
+    document.setFilePath(file);
+    QVERIFY(document.isOpened());
+
+    TwoWordProvider provider;
+    document.textDocument()->setCompletionAssistProvider(&provider);
+
+    CodeCompletion completion;
+    completion.setCodeDocument(&document);
+    QVERIFY(!completion.isActive());
+
+    completion.invoke(2);
+    QVERIFY(completion.isActive());
+    QCOMPARE(completion.proposals(), QStringList({"alpha", "alphabet"}));
+
+    // Taking the second one replaces what was typed, from where the word began.
+    completion.apply(1);
+    QCOMPARE(document.textDocument()->document()->toPlainText(), QString("alphabet"));
+    // And nothing is on offer any more.
+    QVERIFY(!completion.isActive());
 }
 
 void CodeHighlightingTest::testHighlightsAQuickDocument()

@@ -944,9 +944,19 @@ a widget and were left alone: `IAssistProposal::makeCorrection()`, and pasting
 in the circular-clipboard assist, which reaches the widget through a
 `dynamic_cast` on the target.
 
-What is still to come: running the assist processor from a Quick view and
-showing the proposals (the model side is widget-free already - `IAssistProvider`
-takes an `AssistInterface` built from a cursor and a path), and line numbers.
+**Asking for the proposals needed nothing new.** `CodeCompletion` builds an
+`AssistInterface` from a cursor and the document's path, asks the document's
+`completionAssistProvider()`, and hands the words to QML as a `QStringList`;
+taking one applies it through a `DocumentAssistTarget`. A provider that has to
+go and ask - a language server does - answers through the async handler rather
+than from `start()`, and both paths land in the same place.
+
+The cursor position has to be remembered from when the completion was asked
+for. An item replaces from the proposal's base position to where the cursor
+was, and by the time a server answers the view's own cursor may have moved on.
+
+What is left of the editor itself: the QML that shows the list (a page's own
+business - this supplies the words, not a popup), and line numbers.
 
 #### Font && Colors: twenty aspects and one name collision
 

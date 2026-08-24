@@ -47,6 +47,33 @@ public:
     virtual void encourageApply();
 };
 
+// An AssistTarget over a plain document and a cursor, which is what a Qt Quick
+// view has: the operations are all things a QTextCursor can do.
+class TEXTEDITOR_EXPORT DocumentAssistTarget : public AssistTarget
+{
+public:
+    explicit DocumentAssistTarget(QTextDocument *document);
+
+    QTextDocument *document() const override;
+    int position() const override;
+    QChar characterAt(int position) const override;
+    QString textAt(int position, int length) const override;
+    QTextCursor textCursor() const override;
+    QTextCursor textCursorAt(int position) const override;
+
+    void setCursorPosition(int position) override;
+    void replace(int position, int length, const QString &text) override;
+    // A snippet's placeholders are the widget editor's; here the text is put in
+    // as it stands, which is what a plain view can honour.
+    void insertCodeSnippet(int basePosition,
+                           const QString &snippet,
+                           const SnippetParser &parse) override;
+
+private:
+    QTextDocument *m_document = nullptr;
+    QTextCursor m_cursor;
+};
+
 class TextEditorWidget;
 
 // TextEditorWidget as an AssistTarget, so that the widget path is unchanged by

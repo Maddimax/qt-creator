@@ -5,6 +5,8 @@
 
 #include <texteditor/texteditor.h>
 
+#include <QTextDocument>
+
 namespace TextEditor {
 
 AssistTarget::~AssistTarget() = default;
@@ -15,6 +17,68 @@ void AssistTarget::setAutoCompleteSkipPosition(const QTextCursor &cursor)
 }
 
 void AssistTarget::encourageApply() {}
+
+DocumentAssistTarget::DocumentAssistTarget(QTextDocument *document)
+    : m_document(document)
+    , m_cursor(document)
+{}
+
+QTextDocument *DocumentAssistTarget::document() const
+{
+    return m_document;
+}
+
+int DocumentAssistTarget::position() const
+{
+    return m_cursor.position();
+}
+
+QChar DocumentAssistTarget::characterAt(int position) const
+{
+    return m_document->characterAt(position);
+}
+
+QString DocumentAssistTarget::textAt(int position, int length) const
+{
+    QTextCursor cursor(m_document);
+    cursor.setPosition(position);
+    cursor.setPosition(position + length, QTextCursor::KeepAnchor);
+    return cursor.selectedText();
+}
+
+QTextCursor DocumentAssistTarget::textCursor() const
+{
+    return m_cursor;
+}
+
+QTextCursor DocumentAssistTarget::textCursorAt(int position) const
+{
+    QTextCursor cursor(m_document);
+    cursor.setPosition(position);
+    return cursor;
+}
+
+void DocumentAssistTarget::setCursorPosition(int position)
+{
+    m_cursor.setPosition(position);
+}
+
+void DocumentAssistTarget::replace(int position, int length, const QString &text)
+{
+    QTextCursor cursor(m_document);
+    cursor.setPosition(position);
+    cursor.setPosition(position + length, QTextCursor::KeepAnchor);
+    cursor.insertText(text);
+    m_cursor = cursor;
+}
+
+void DocumentAssistTarget::insertCodeSnippet(int basePosition,
+                                             const QString &snippet,
+                                             const SnippetParser &parse)
+{
+    Q_UNUSED(parse)
+    replace(basePosition, m_cursor.position() - basePosition, snippet);
+}
 
 WidgetAssistTarget::WidgetAssistTarget(TextEditorWidget *widget)
     : m_widget(widget)
