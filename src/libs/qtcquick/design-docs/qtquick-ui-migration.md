@@ -913,10 +913,25 @@ marks, `IDocument::save()` - is in the view with it. It is the substitution, not
 a copy: typing in the view modifies the file's document, and the file knows it
 has been changed.
 
-What is built and tested so far is that substitution, and saving through it.
-What is still to come, in the order the page needs it: attaching a language
-client (`LanguageClientManager` wants `documentOpened`/`editorOpened` with an
-`IEditor`, which a Quick view does not have), completion, and line numbers.
+**A language server has to be told, and only when asked.** The manager learns
+about ordinary documents from `EditorManager`'s signals; one opened by a
+settings page never passes through it, which is why the ClangFormat page has
+always called `documentOpened` by name. `CodeDocument` does the same behind
+`useLanguageServer`, off by default - a page that wants diagnostics or
+completion asks for them, and one that does not is not to start servers behind
+the user's back. `editorOpened` turns out not to be needed: everything it wires
+up is guarded on `TextEditorWidget::fromEditor()`, so a view that is not one
+gets nothing from it either way.
+
+Testing that meant standing in for the manager. It is reached by object name,
+and `getObjectByName()` returns the first match, so a test takes the real one
+out of the pool, puts a spy in under the same name, and restores it after. That
+is the only way to see the announcement: without a configured server, a real
+manager does nothing observable.
+
+What is still to come, in the order the page needs it: completion (the widget
+path runs `TextEditorWidget::invokeAssist()`, and `CodeAssistant` lives on the
+widget, so this is the large remaining piece), and line numbers.
 
 #### Font && Colors: twenty aspects and one name collision
 

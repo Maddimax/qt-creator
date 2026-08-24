@@ -5,6 +5,8 @@
 
 #include "textdocument.h"
 
+#include <extensionsystem/pluginmanager.h>
+
 #include <utils/qtcassert.h>
 
 #include <QPointer>
@@ -23,7 +25,22 @@ public:
     // manager is showing, so nothing else will close it.
     std::unique_ptr<TextDocument> m_document;
     QList<QMetaObject::Connection> m_connections;
+    bool m_useLanguageServer = false;
+    bool m_announced = false;
 };
+
+// The language client manager lives in a plugin TextEditor does not depend on,
+// and learns about ordinary documents from the editor manager. One opened here
+// never goes through it, so it is told by name - which is what the ClangFormat
+// page has always done for its own editor.
+template<typename... Args>
+static void tellLanguageClientManager(const char *method, Args &&...args)
+{
+    QObject *manager = ExtensionSystem::PluginManager::getObjectByName("LanguageClientManager");
+    if (!manager)
+        return;
+    QMetaObject::invokeMethod(manager, method, args...);
+}
 
 CodeDocument::CodeDocument(QObject *parent)
     : QObject(parent)
@@ -32,6 +49,7 @@ CodeDocument::CodeDocument(QObject *parent)
 
 CodeDocument::~CodeDocument()
 {
+    withdrawFromLanguageServer();
     delete d;
 }
 
@@ -88,6 +106,41 @@ bool CodeDocument::isOpened() const
     return d->m_document != nullptr;
 }
 
+bool CodeDocument::usesLanguageServer() const
+{
+    return d->m_useLanguageServer;
+}
+
+void CodeDocument::setUseLanguageServer(bool use)
+{
+    if (d->m_useLanguageServer == use)
+        return;
+    d->m_useLanguageServer = use;
+    if (use)
+        announceToLanguageServer();
+    else
+        withdrawFromLanguageServer();
+    emit useLanguageServerChanged();
+}
+
+void CodeDocument::announceToLanguageServer()
+{
+    if (d->m_announced || !d->m_useLanguageServer || !d->m_document)
+        return;
+    d->m_announced = true;
+    tellLanguageClientManager("documentOpened",
+                              Q_ARG(Core::IDocument *, d->m_document.get()));
+}
+
+void CodeDocument::withdrawFromLanguageServer()
+{
+    if (!d->m_announced)
+        return;
+    d->m_announced = false;
+    tellLanguageClientManager("documentClosed",
+                              Q_ARG(Core::IDocument *, d->m_document.get()));
+}
+
 bool CodeDocument::save()
 {
     if (!d->m_document)
@@ -106,6 +159,9 @@ void CodeDocument::reload()
 void CodeDocument::reattach()
 {
     const bool wasOpened = isOpened();
+
+    // Before the document goes: the manager is told about the one it knows.
+    withdrawFromLanguageServer();
 
     for (const QMetaObject::Connection &connection : std::as_const(d->m_connections))
         disconnect(connection);
@@ -135,6 +191,8 @@ void CodeDocument::reattach()
                    this, &CodeDocument::modifiedChanged)
         << connect(d->m_document->document(), &QTextDocument::contentsChanged,
                    this, &CodeDocument::contentsChanged);
+
+    announceToLanguageServer();
 
     if (wasOpened != isOpened())
         emit openedChanged();

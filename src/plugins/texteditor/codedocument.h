@@ -39,6 +39,11 @@ class TEXTEDITOR_EXPORT CodeDocument : public QObject
     // Whether a document was opened at all. Without one the TextEdit keeps its
     // own, and nothing below does anything.
     Q_PROPERTY(bool opened READ isOpened NOTIFY openedChanged)
+    // Whether a language server should be told about the file. A document that
+    // goes through the editor manager is announced for free; this one does not,
+    // so a page that wants diagnostics or completion has to ask.
+    Q_PROPERTY(bool useLanguageServer READ usesLanguageServer WRITE setUseLanguageServer
+                   NOTIFY useLanguageServerChanged)
 
 public:
     explicit CodeDocument(QObject *parent = nullptr);
@@ -60,6 +65,9 @@ public:
     bool isModified() const;
     bool isOpened() const;
 
+    bool usesLanguageServer() const;
+    void setUseLanguageServer(bool use);
+
     // Writes the file back. Says whether it managed to.
     Q_INVOKABLE bool save();
     // Throws away what was typed and reads the file again.
@@ -70,11 +78,14 @@ signals:
     void filePathChanged();
     void modifiedChanged();
     void openedChanged();
+    void useLanguageServerChanged();
     // The text changed, whoever changed it.
     void contentsChanged();
 
 private:
     void reattach();
+    void announceToLanguageServer();
+    void withdrawFromLanguageServer();
 
     CodeDocumentPrivate *d = nullptr;
 };

@@ -15,7 +15,13 @@
 #include "snippets/snippetprovider.h"
 #include "tabsettings.h"
 
+#include <coreplugin/idocument.h>
+
+#include <extensionsystem/pluginmanager.h>
+
 #include <utils/temporarydirectory.h>
+
+#include <QScopeGuard>
 
 #include <QQmlComponent>
 #include <QQmlEngine>
@@ -43,6 +49,25 @@ private slots:
     void testEverySnippetGroupSaysWhatItIsWrittenIn();
     void testAQuickEditShowsCreatorsOwnDocument();
     void testEditingThroughTheViewSavesTheFile();
+    void testALanguageServerIsToldAboutTheFileOnlyWhenAsked();
+};
+
+// Stands in for the language client manager, which is reached by object name
+// because TextEditor does not depend on the plugin it lives in. Registering one
+// of these with that name is what lets a test see what it was told.
+class LanguageClientManagerSpy final : public QObject
+{
+    Q_OBJECT
+
+public:
+    LanguageClientManagerSpy() { setObjectName("LanguageClientManager"); }
+
+    QList<Core::IDocument *> opened;
+    QList<Core::IDocument *> closed;
+
+public slots:
+    void documentOpened(Core::IDocument *document) { opened.append(document); }
+    void documentClosed(Core::IDocument *document) { closed.append(document); }
 };
 
 // The character formats a highlighter left on the first line, minus the
@@ -128,6 +153,58 @@ void CodeHighlightingTest::testEditingThroughTheViewSavesTheFile()
     QVERIFY(document.save());
     QVERIFY(!document.isModified());
     QCOMPARE(file.fileContents().value_or(QByteArray()), QByteArray("after\n"));
+}
+
+// A document opened through the editor manager is announced to a language
+// server for free. One opened by a settings page is not, so a page that wants
+// completion or diagnostics has to ask - and a page that does not should not be
+// starting servers behind the user's back.
+void CodeHighlightingTest::testALanguageServerIsToldAboutTheFileOnlyWhenAsked()
+{
+    Utils::TemporaryDirectory dir("codedocument-lsp-test");
+    QVERIFY(dir.isValid());
+    const Utils::FilePath file = dir.filePath("sample.cpp");
+    QVERIFY(file.writeFileContents("int main() {}\n"));
+
+    // The real manager answers to this name too, and the first object with it
+    // wins; taking it out is what makes the spy the one that is found.
+    QObject *real = ExtensionSystem::PluginManager::getObjectByName("LanguageClientManager");
+    if (real)
+        ExtensionSystem::PluginManager::removeObject(real);
+    LanguageClientManagerSpy spy;
+    ExtensionSystem::PluginManager::addObject(&spy);
+    const QScopeGuard restore([real, &spy] {
+        ExtensionSystem::PluginManager::removeObject(&spy);
+        if (real)
+            ExtensionSystem::PluginManager::addObject(real);
+    });
+
+    QQmlEngine engine;
+    const std::unique_ptr<QQuickItem> edit = textEdit(&engine, {});
+    QVERIFY(edit);
+
+    {
+        CodeDocument document;
+        document.setDocument(documentOf(edit.get()));
+        document.setFilePath(file);
+        QVERIFY(document.isOpened());
+
+        // Not asked for: nothing was said about it.
+        QVERIFY(spy.opened.isEmpty());
+
+        document.setUseLanguageServer(true);
+        QCOMPARE(spy.opened.size(), 1);
+        QCOMPARE(spy.opened.first(), static_cast<Core::IDocument *>(document.textDocument()));
+
+        // Asking twice does not announce it twice.
+        document.setUseLanguageServer(true);
+        QCOMPARE(spy.opened.size(), 1);
+        QVERIFY(spy.closed.isEmpty());
+    }
+
+    // And it is taken back when the document goes, so the server is not left
+    // tracking a file nothing is showing.
+    QCOMPARE(spy.closed.size(), 1);
 }
 
 void CodeHighlightingTest::testHighlightsAQuickDocument()
