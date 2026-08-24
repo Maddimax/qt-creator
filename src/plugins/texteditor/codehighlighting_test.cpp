@@ -60,6 +60,8 @@ private slots:
     void testALanguageServerIsToldAboutTheFileOnlyWhenAsked();
     void testACompletionCanBeAppliedWithoutAWidget();
     void testCompletionOffersWhatTheProviderKnowsAndPutsItIn();
+    void testHighlightingFollowsADocumentSwap();
+    void testTheEditorComponentShowsAFile();
 };
 
 // A provider that knows two words. What a real one does is go and ask a code
@@ -302,6 +304,76 @@ void CodeHighlightingTest::testCompletionOffersWhatTheProviderKnowsAndPutsItIn()
     QCOMPARE(document.textDocument()->document()->toPlainText(), QString("alphabet"));
     // And nothing is on offer any more.
     QVERIFY(!completion.isActive());
+}
+
+// CodeHighlighting attaches to whatever QTextDocument the TextEdit has, and
+// CodeDocument swaps that for the file's. Attached first, the highlighter was
+// left colouring a document nothing was showing.
+void CodeHighlightingTest::testHighlightingFollowsADocumentSwap()
+{
+    Utils::TemporaryDirectory dir("highlight-swap-test");
+    QVERIFY(dir.isValid());
+    const Utils::FilePath file = dir.filePath("sample.cpp");
+    QVERIFY(file.writeFileContents("int main() { return 0; } // a comment\n"));
+
+    QQmlEngine engine;
+    const std::unique_ptr<QQuickItem> edit = textEdit(&engine, {});
+    QVERIFY(edit);
+    QQuickTextDocument *quickDocument = documentOf(edit.get());
+    QVERIFY(quickDocument);
+
+    // Highlighting first, the file second - which is the order QML declares
+    // them in, and the order that used to leave the file uncoloured.
+    CodeHighlighting highlighting;
+    highlighting.setDocument(quickDocument);
+    highlighting.setMimeType("text/x-c++src");
+
+    CodeDocument document;
+    document.setDocument(quickDocument);
+    document.setFilePath(file);
+    QVERIFY(document.isOpened());
+
+    QTRY_VERIFY(formatRunsOnFirstLine(document.textDocument()->document()) > 1);
+}
+
+// The editor a settings page puts on a page: the pieces above, assembled.
+void CodeHighlightingTest::testTheEditorComponentShowsAFile()
+{
+    Utils::TemporaryDirectory dir("codeeditor-test");
+    QVERIFY(dir.isValid());
+    const Utils::FilePath file = dir.filePath("sample.txt");
+    QVERIFY(file.writeFileContents("first line\nsecond line\n"));
+
+    QQmlEngine engine;
+    QQmlComponent component(&engine);
+    component.setData(QByteArray("import QtQuick\nimport QtCreator.TextEditor\n"
+                                 "CodeEditor { width: 400; height: 200 }"),
+                      QUrl("qrc:/test/CodeEditorTest.qml"));
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+
+    const std::unique_ptr<QObject> editor(
+        component.createWithInitialProperties({{"filePath", file.toUrlishString()}}));
+    QVERIFY2(editor, qPrintable(component.errorString()));
+
+    QVERIFY(editor->property("opened").toBool());
+    QVERIFY(!editor->property("modified").toBool());
+
+    auto text = editor->findChild<QQuickItem *>("codeEditorText");
+    QVERIFY(text);
+    QCOMPARE(text->property("text").toString(), QString("first line\nsecond line\n"));
+
+    // Typing in it is typing in the file: what the view shows is the file's
+    // own document, so an edit through the view is an edit to the file.
+    QQuickTextDocument *shown = documentOf(text);
+    QVERIFY(shown);
+    QTextCursor cursor(shown->textDocument());
+    cursor.select(QTextCursor::Document);
+    cursor.insertText("edited\n");
+    QVERIFY(editor->property("modified").toBool());
+
+    QVERIFY(QMetaObject::invokeMethod(editor.get(), "save"));
+    QCOMPARE(file.fileContents().value_or(QByteArray()), QByteArray("edited\n"));
+    QVERIFY(!editor->property("modified").toBool());
 }
 
 void CodeHighlightingTest::testHighlightsAQuickDocument()

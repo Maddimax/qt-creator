@@ -44,7 +44,16 @@ void CodeIndenting::setDocument(QQuickTextDocument *document)
 {
     if (d->m_document == document)
         return;
+    if (d->m_document)
+        disconnect(d->m_document, nullptr, this, nullptr);
     d->m_document = document;
+    // The QTextDocument behind a TextEdit can be swapped for another - see
+    // CodeDocument - and what was attached to the old one is attached to
+    // nothing the view is showing.
+    if (d->m_document) {
+        connect(d->m_document, &QQuickTextDocument::textDocumentChanged,
+                this, [this] { reattach(); });
+    }
     reattach();
     emit documentChanged();
 }

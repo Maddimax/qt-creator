@@ -955,8 +955,21 @@ The cursor position has to be remembered from when the completion was asked
 for. An item replaces from the proposal's base position to where the cursor
 was, and by the time a server answers the view's own cursor may have moved on.
 
-What is left of the editor itself: the QML that shows the list (a page's own
-business - this supplies the words, not a popup), and line numbers.
+**`CodeEditor.qml` is the four pieces assembled**: a `TextEdit` over a
+`CodeDocument`, the file's colours from `CodeHighlighting`, line numbers, and
+Ctrl+Space asking `CodeCompletion` with a popup to pick from. Ctrl+S saves.
+A page gets an editor over a file in one line.
+
+**Attaching to a TextEdit means attaching to whichever document it has.**
+`CodeDocument` swaps that for the file's, and QML declares its children in
+order, so a highlighter declared first was left colouring a document nothing was
+showing. `CodeHighlighting` and `CodeIndenting` follow
+`QQuickTextDocument::textDocumentChanged` now.
+
+What is left of the editor: nothing the last page needs. Line numbers are drawn
+against the lines rather than stacked as rows, which is what keeps them with the
+text when a line wraps - that is layout, so a screenshot is what checks it, not
+a test: `TextEdit.lineCount` is 0 until something lays the text out.
 
 #### Font && Colors: twenty aspects and one name collision
 

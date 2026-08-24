@@ -184,6 +184,7 @@ if(TARGET TextEditor AND TARGET Qt::Quick)
     NO_PLUGIN
     QML_FILES
       BehaviorSettingsPage.qml
+      CodeEditor.qml
       CodeStylePreview.qml
       CodeStyleSelector.qml
       CodeView.qml
