@@ -29,6 +29,14 @@ RowLayout {
     // The aspect owns the model, so it outlives any one page.
     readonly property var sourceModel: aspect?.tableModel() ?? null
 
+    // Which row is selected, in the aspect's own model rather than the filtered
+    // one - a page showing a detail of the current row means that row, not the
+    // one at that position in whatever is on screen. -1 when nothing is.
+    readonly property int currentRow: {
+        const index = view.currentIndex
+        return index && index.valid ? root.rows.mapToSource(index).row : -1
+    }
+
     // Narrowing the rows is the view's business; which rows there are and what
     // they offer is the model's. Always in the chain, so there is one index
     // space whether or not the filter field is shown.

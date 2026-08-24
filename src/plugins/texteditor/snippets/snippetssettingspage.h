@@ -3,8 +3,18 @@
 
 #pragma once
 
+#include <QtGlobal>
+
+QT_BEGIN_NAMESPACE
+class QObject;
+QT_END_NAMESPACE
+
 namespace TextEditor::Internal {
 
 void setupSnippetsSettings();
+
+#ifdef WITH_TESTS
+QObject *createSnippetsSettingsTest();
+#endif
 
 } // TextEditor::Internal

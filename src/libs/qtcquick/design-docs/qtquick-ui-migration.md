@@ -485,7 +485,7 @@ nothing - and waits on the signal rather than on a non-empty string, because an
 empty secret is a legitimate answer. `FontAspect` still carries the original
 version of this trap.
 
-#### The five that are left, and what each one needs
+#### The four that are left, and what each one needs
 
 Every one of these was read, not guessed at - the last three rounds each found
 that the widget collapsed to controls that already existed. These do not:
@@ -493,7 +493,6 @@ that the widget collapsed to controls that already existed. These do not:
 | page | the widget, and why it does not collapse |
 |---|---|
 | Code Style (x3) | `createValueEditor()` returns a per-language editor built by a factory, and the page puts a syntax-highlighted preview beside it |
-| Snippets | an editable highlighted editor and a live preview |
 | Font && Colors | not a text editor at all: a list that renders each item in its own format, plus the one `Custom` aspect that owns the whole page |
 
 One shape is left: a hosted editor with a preview (Code Style, Snippets,
@@ -706,9 +705,37 @@ the mime type its snippets are written in, and the five registrations say what
 theirs are. The test walks every registered group and fails on one that names
 none, so a new group cannot quietly become unhighlightable.
 
-What is still missing for Code Style is the per-language value editor. Neither
-control is wired into a page yet - they are the pieces those pages are built
-from.
+Snippets uses both now, which is what they were for. What is still missing for
+Code Style is the per-language value editor.
+
+#### Snippets: a detail pane is a sibling aspect
+
+The page shows the snippets of a group and the content of the selected one. The
+content lived in the editor widget, and which row was selected lived in the
+table widget, so neither could be reached without opening the page.
+
+Both are siblings now: a `SelectionAspect` for the group, a table aspect over
+`SnippetsTableModel` (which was already a `QAbstractTableModel`), a
+`StringAspect` for the selected snippet's content, and five `ActionAspect`s.
+`TableDelegate` gained a readonly `currentRow` - **in the aspect's own model,
+not the filtered one**, since a page showing a detail of the current row means
+that row rather than the one at that position on screen.
+
+Two things worth copying:
+
+- **A two-way binding needs exactly one guard, in one place.** Selecting a
+  snippet writes it into the content aspect; editing the content writes it into
+  the model. The first version had two guards - a `QSignalBlocker` around the
+  write *and* a value check in `setCurrentContent()` - and removing the blocker
+  changed nothing, because the value check already stopped the loop. Two guards
+  where one is load-bearing means the control for the other cannot bite. The
+  blocker is gone and the test asserts that *selecting* a snippet leaves the
+  aspect clean, which is what the remaining guard is for.
+- **A list that a registry fills is empty when the page is built.** Snippet
+  groups register while the plugins start up, so the group picker came up blank.
+  It is filled from `setSettingsProvider()`, which runs when the page is opened.
+  That is the third time this shape has come up - test frameworks, analyzer
+  messages, snippet groups - and it is always the same fix.
 
 #### Give the model a parent
 
@@ -772,7 +799,7 @@ item is itself a `TextField`.
 
 Worth knowing before hunting for dead ones, because most of these are not pages:
 
-- **5 are the pages above** (Code Style counts once here; its aspect serves all
+- **4 are the pages above** (Code Style counts once here; its aspect serves all
   three).
 - **5 are live nested containers**: `TabSettings`, `TypingSettings`,
   `StorageSettings`, `ExtraEncodingSettings` and `BehaviorSettings`. The Behavior
@@ -939,7 +966,7 @@ naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
 all`, minus `QmlDesigner` and `UpdateInfo`, see below): **73 aspect-driven
-pages, 68 with their own QML and rendered with Qt Quick, 5 still on widgets.**
+pages, 69 with their own QML and rendered with Qt Quick, 4 still on widgets.**
 Before the gate was narrowed, 65 pages rendered generically; the delegate work
 that made that possible is all still in place and is what the ports build on:
 `StringListAspect` (a real list editor), `IntegersAspect` (`Invisible`, because
@@ -948,7 +975,7 @@ its own choices now), index-valued selections with no options (an empty combo
 box is what the widget editor draws too), and `AspectList`'s
 list-with-details style.
 
-All five remaining pages are held by aspects whose control is `Custom`
+All four remaining pages are held by aspects whose control is `Custom`
 because they build their own widget in `addToLayoutImpl`. Not all of them need
 porting one by one, though: `EnvironmentChangesAspect` turned out to be a
 summary plus one button, which is now the `TextWithAction` control, and
