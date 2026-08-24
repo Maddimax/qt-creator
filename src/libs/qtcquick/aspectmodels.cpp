@@ -69,6 +69,11 @@ AspectContainerModel *AspectModels::container(BaseAspect *aspect)
     return new AspectContainerModel(container, container);
 }
 
+QString AspectModels::localPath(const QUrl &url)
+{
+    return url.toLocalFile();
+}
+
 QVariantMap AspectModels::presentation(BaseAspect *aspect)
 {
     QTC_ASSERT(aspect, return {});
@@ -121,6 +126,12 @@ QVariantMap AspectModels::presentation(BaseAspect *aspect)
                            QMetaEnum::fromType<AspectControls::TextFormat>().valueToKey(
                                int(p.textFormat)))},
         {"wordWrap", p.wordWrap},
+        // PathChooser. What the browse button should ask for, as a name.
+        {"pathKind", QString::fromLatin1(
+                         QMetaEnum::fromType<AspectControls::PathKind>().valueToKey(
+                             int(p.pathKind)))},
+        {"promptDialogTitle", p.promptDialogTitle},
+        {"promptDialogFilter", p.promptDialogFilter},
     };
 }
 

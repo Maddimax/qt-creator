@@ -13,6 +13,8 @@ import QtCreator.TextEditor
 AspectPage {
     id: root
 
+    contentFillsHeight: true
+
     SelectionDelegate { aspect: aspects.Group }
 
     RowLayout {

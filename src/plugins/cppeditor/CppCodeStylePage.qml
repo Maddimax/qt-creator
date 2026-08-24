@@ -16,6 +16,8 @@ import QtCreator.TextEditor
 AspectPage {
     id: root
 
+    contentFillsHeight: true
+
     readonly property var settings: AspectModels.named(aspects.Settings)
     readonly property var general: AspectModels.named(settings.GeneralSettings)
     readonly property var tabs: AspectModels.named(general.TabSettings)

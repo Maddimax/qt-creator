@@ -6,96 +6,118 @@
 #include "gerritserver.h"
 #include "../gittr.h"
 
-
-#include <utils/guiutils.h>
-#include <utils/layoutbuilder.h>
+#include <utils/aspects.h>
 #include <utils/pathchooser.h>
 
 #include <vcsbase/vcsbaseconstants.h>
-
-#include <QLineEdit>
-#include <QSpinBox>
-#include <QCheckBox>
-#include <QFormLayout>
 
 using namespace Utils;
 
 namespace Gerrit::Internal {
 
-class GerritOptionsWidget : public Core::IOptionsPageWidget
+// What the Gerrit settings page edits. The settings themselves live in
+// GerritParameters, which the rest of the plugin reads and which keeps its own
+// settings keys, so these aspects have none: they are read from it when the
+// page is built and written back on apply.
+class GerritSettingsAspects final : public AspectContainer
 {
 public:
-    GerritOptionsWidget(const std::function<void()> &onChanged)
+    explicit GerritSettingsAspects(const std::function<void()> &onChanged)
+        : m_onChanged(onChanged)
     {
-        const GerritParameters &s = gerritSettings();
-        auto hostLineEdit = new QLineEdit(s.server.host);
+        setAutoApply(false);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Git/gerrit/GerritSettingsPage.qml"));
 
-        auto userLineEdit = new QLineEdit(s.server.user.userName);
+        m_host.setQmlName("Host");
+        m_host.setLabelText(Git::Tr::tr("&Host:"));
+        m_host.setDisplayStyle(StringAspect::LineEditDisplay);
 
-        auto sshChooser = new Utils::PathChooser;
-        sshChooser->setFilePath(s.ssh);
-        sshChooser->setExpectedKind(Utils::PathChooserKind::ExistingCommand);
-        sshChooser->setCommandVersionArguments({"-V"});
-        sshChooser->setHistoryCompleter("Git.SshCommand.History");
+        m_user.setQmlName("User");
+        m_user.setLabelText(Git::Tr::tr("&User:"));
+        m_user.setDisplayStyle(StringAspect::LineEditDisplay);
 
-        auto curlChooser = new Utils::PathChooser;
-        curlChooser->setFilePath(s.curl);
-        curlChooser->setExpectedKind(Utils::PathChooserKind::ExistingCommand);
-        curlChooser->setCommandVersionArguments({"-V"});
+        m_ssh.setQmlName("Ssh");
+        m_ssh.setLabelText(Git::Tr::tr("&ssh:"));
+        m_ssh.setExpectedKind(PathChooserKind::ExistingCommand);
+        m_ssh.setCommandVersionArguments({"-V"});
+        m_ssh.setHistoryCompleter("Git.SshCommand.History");
 
-        auto portSpinBox = new QSpinBox(this);
-        portSpinBox->setRange(1, 65535);
-        portSpinBox->setValue(s.server.port);
+        m_curl.setQmlName("Curl");
+        m_curl.setLabelText(Git::Tr::tr("cur&l:"));
+        m_curl.setExpectedKind(PathChooserKind::ExistingCommand);
+        m_curl.setCommandVersionArguments({"-V"});
 
-        auto httpsCheckBox = new QCheckBox(Git::Tr::tr("HTTPS"));
-        httpsCheckBox->setChecked(s.https);
-        httpsCheckBox->setToolTip(Git::Tr::tr(
+        m_port.setQmlName("Port");
+        m_port.setLabelText(Git::Tr::tr("SSH &Port:"));
+        m_port.setRange(1, 65535);
+
+        m_https.setQmlName("Https");
+        m_https.setLabelText(Git::Tr::tr("P&rotocol:"));
+        m_https.setLabel(Git::Tr::tr("HTTPS"), BoolAspect::LabelPlacement::AtCheckBox);
+        m_https.setToolTip(Git::Tr::tr(
             "Determines the protocol used to form a URL in case\n"
             "\"canonicalWebUrl\" is not configured in the file\n"
             "\"gerrit.config\"."));
 
-        using namespace Layouting;
-        Form {
-            Git::Tr::tr("&Host:"), hostLineEdit, br,
-            Git::Tr::tr("&User:"), userLineEdit, br,
-            Git::Tr::tr("&ssh:"), sshChooser, br,
-            Git::Tr::tr("cur&l:"), curlChooser, br,
-            Git::Tr::tr("SSH &Port:"), portSpinBox, br,
-            Git::Tr::tr("P&rotocol:"), httpsCheckBox
-        }.attachTo(this);
-
-        setOnApply([hostLineEdit,
-                    userLineEdit,
-                    sshChooser,
-                    curlChooser,
-                    portSpinBox,
-                    httpsCheckBox,
-                    onChanged] {
-            GerritParameters &s = gerritSettings();
-
-            GerritServer server(hostLineEdit->text().trimmed(),
-                                static_cast<unsigned short>(portSpinBox->value()),
-                                userLineEdit->text().trimmed(),
-                                GerritServer::Ssh);
-            FilePath ssh = sshChooser->filePath();
-            FilePath curl = curlChooser->filePath();
-            bool https = httpsCheckBox->isChecked();
-
-            if (server == s.server && ssh == s.ssh && curl == s.curl && https == s.https)
-                return;
-
-            s.server = server;
-            s.ssh = ssh;
-            s.curl = curl;
-            s.https = https;
-            if (s.ssh != ssh)
-                s.setPortFlagBySshType();
-            s.toSettings();
-            emit onChanged();
-        });
-
-        installMarkSettingsDirtyTriggerRecursively(this);
+        readFromParameters();
     }
+
+    void apply() override
+    {
+        AspectContainer::apply();
+
+        GerritParameters &s = gerritSettings();
+        const GerritServer server(m_host().trimmed(),
+                                  static_cast<unsigned short>(m_port()),
+                                  m_user().trimmed(),
+                                  GerritServer::Ssh);
+        const FilePath ssh = m_ssh();
+        const FilePath curl = m_curl();
+        const bool https = m_https();
+
+        if (server == s.server && ssh == s.ssh && curl == s.curl && https == s.https)
+            return;
+
+        // Before the assignment: which flag the port takes depends on what the
+        // ssh binary is, so it is a change of binary that has to ask again.
+        const bool sshChanged = s.ssh != ssh;
+
+        s.server = server;
+        s.ssh = ssh;
+        s.curl = curl;
+        s.https = https;
+        if (sshChanged)
+            s.setPortFlagBySshType();
+        s.toSettings();
+        if (m_onChanged)
+            m_onChanged();
+    }
+
+    void cancel() override
+    {
+        AspectContainer::cancel();
+        readFromParameters();
+    }
+
+private:
+    void readFromParameters()
+    {
+        const GerritParameters &s = gerritSettings();
+        m_host.setValue(s.server.host);
+        m_user.setValue(s.server.user.userName);
+        m_ssh.setValue(s.ssh);
+        m_curl.setValue(s.curl);
+        m_port.setValue(s.server.port);
+        m_https.setValue(s.https);
+    }
+
+    StringAspect m_host{this};
+    StringAspect m_user{this};
+    FilePathAspect m_ssh{this};
+    FilePathAspect m_curl{this};
+    IntegerAspect m_port{this};
+    BoolAspect m_https{this};
+    std::function<void()> m_onChanged;
 };
 
 // GerritOptionsPage
@@ -105,7 +127,10 @@ GerritOptionsPage::GerritOptionsPage(const std::function<void()> &onChanged)
     setId("Gerrit");
     setDisplayName(Git::Tr::tr("Gerrit"));
     setCategory(VcsBase::Constants::VCS_SETTINGS_CATEGORY);
-    setWidgetCreator([onChanged] { return new GerritOptionsWidget(onChanged); });
+    setSettingsProvider([onChanged] {
+        static GerritSettingsAspects theSettings(onChanged);
+        return &theSettings;
+    });
 }
 
 } // Gerrit::Internal

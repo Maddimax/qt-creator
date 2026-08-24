@@ -103,6 +103,19 @@ enum class SizeAdjustPolicy {
 };
 Q_ENUM_NS(SizeAdjustPolicy)
 
+// PathChooser. Mirrors Utils::PathChooserKind, which cannot be used here:
+// pathvalidation.h pulls in more than a descriptor should.
+enum class PathKind {
+    ExistingDirectory,
+    Directory,
+    File,
+    SaveFile,
+    ExistingCommand,
+    Command,
+    Any,
+};
+Q_ENUM_NS(PathKind)
+
 // FontFamilyPicker. Mirrors FontFamilyAspect::FontFilter.
 enum FontFilter {
     AllFonts = 0,
@@ -224,6 +237,12 @@ public:
     AspectControls::SizeAdjustPolicy sizeAdjustPolicy
         = AspectControls::SizeAdjustPolicy::ToMinimumContentsLengthWithIcon;
     int minimumContentsLength = 0;
+
+    // PathChooser. What is being asked for, and what to put on the dialog that
+    // asks for it.
+    AspectControls::PathKind pathKind = AspectControls::PathKind::Any;
+    QString promptDialogTitle;
+    QString promptDialogFilter;
 
     // Table. The text in an empty filter field; no filter where it is empty.
     QString filterPlaceholderText;

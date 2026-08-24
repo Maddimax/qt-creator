@@ -19,6 +19,12 @@ ScrollView {
     // A NamedAspects for the page's container, set from C++.
     required property var aspects
 
+    // Whether something on the page wants the height that is left over - a
+    // table, a code preview. A page that says nothing is held at the top
+    // instead of having its rows spread down the viewport, which is what a
+    // column of plain settings did.
+    property bool contentFillsHeight: false
+
     contentWidth: availableWidth
 
     ColumnLayout {
@@ -29,5 +35,21 @@ ScrollView {
         // something to fill; taller when the content needs it.
         height: Math.max(implicitHeight, root.availableHeight)
         spacing: Spacing.GapVS
+
+        Item {
+            id: filler
+
+            Layout.fillHeight: !root.contentFillsHeight
+        }
+    }
+
+    // Last, whatever order the page's own children were given in: they are
+    // appended to the same list, and a filler in front of them would push the
+    // page down rather than hold it up. Re-parenting moves an item to the end,
+    // but assigning the parent it already has does not, so it is taken out
+    // first.
+    Component.onCompleted: {
+        filler.parent = null
+        filler.parent = column
     }
 }

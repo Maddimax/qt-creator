@@ -15,6 +15,7 @@
 #include <utils/algorithm.h>
 #include <utils/aspectlist.h>
 #include <utils/aspects.h>
+#include <utils/pathvalidation.h>
 #include <utils/layoutbuilder.h>
 
 #include <QAbstractButton>
@@ -142,6 +143,7 @@ private slots:
     void testPageQmlReachesItsAspectsByName();
     void testLabelChangeReachesTheControl();
     void testLabelDropsItsAcceleratorForQuick();
+    void testPathAspectOffersSomewhereToBrowseFrom();
     void testIdValuedSelectionRoundTrips();
     void testStringListEditorAddsRemovesAndEdits();
     void testStringSelectionOffersItsChoices();
@@ -1208,6 +1210,37 @@ void QuickUiTest::testLabelDropsItsAcceleratorForQuick()
     QQuickItem *spin = nullptr;
     QTRY_VERIFY(spin = findQmlComponent(quickWidget->rootObject(), "IntegerDelegate"));
     QCOMPARE(spin->property("labelText").toString(), QString("Bells & whistles:"));
+}
+
+// A path aspect shares its delegate with a plain string, and shared it whole:
+// the field was there and the way to browse for a path was not.
+void QuickUiTest::testPathAspectOffersSomewhereToBrowseFrom()
+{
+    Utils::AspectContainer page;
+    Utils::FilePathAspect path(&page);
+    path.setLabelText("A path");
+    path.setExpectedKind(Utils::PathChooserKind::ExistingCommand);
+    Utils::StringAspect text(&page);
+    text.setLabelText("A string");
+    text.setDisplayStyle(Utils::StringAspect::LineEditDisplay);
+
+    // Not shown: an item's visibility does not need a window, and a window
+    // shown here takes the focus a later test is checking for.
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QVERIFY(quickWidget->rootObject());
+
+    QList<QQuickItem *> buttons;
+    QTRY_VERIFY((buttons = findQmlNamed(quickWidget->rootObject(), "browseButton")).size() == 2);
+    QCOMPARE(buttons.size(), 2);
+
+    // One for each StringDelegate, but only the one drawing a path shows it.
+    int shown = 0;
+    for (QQuickItem *button : buttons)
+        shown += button->isVisible() ? 1 : 0;
+    QCOMPARE(shown, 1);
 }
 
 // The shape EncodingSelectionAspect has: a ComboBox whose value is the id of

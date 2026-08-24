@@ -11,6 +11,7 @@
 
 #include <QObject>
 #include <QQmlEngine>
+#include <QUrl>
 
 namespace Utils { class BaseAspect; }
 
@@ -47,6 +48,10 @@ public:
     // rather than taken as model roles, because a hand-written page has no
     // roles to give.
     Q_INVOKABLE QVariantMap presentation(Utils::BaseAspect *aspect);
+
+    // A file dialog hands back a URL and a path aspect stores a path. QML has
+    // no conversion of its own that is not string surgery on "file://".
+    Q_INVOKABLE QString localPath(const QUrl &url);
 };
 
 } // namespace QtcQuick

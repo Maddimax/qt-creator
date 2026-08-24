@@ -10,6 +10,8 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
+
+    contentFillsHeight: true
     TableDelegate { aspect: aspects.Events }
     ButtonDelegate { aspect: aspects.ResetToDefaults }
     SelectionDelegate { aspect: aspects.CallgraphMode }

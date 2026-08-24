@@ -25,10 +25,12 @@
 #include "stashdialog.h"
 #include "temporarypatchfile.h"
 
+#include "gerrit/gerritparameters.h"
 #include "gerrit/gerritplugin.h"
 
 #include <coreplugin/icore.h>
 #include <coreplugin/coreconstants.h>
+#include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/documentmanager.h>
 #include <coreplugin/actionmanager/actionmanager.h>
 #include <coreplugin/actionmanager/actioncontainer.h>
@@ -2465,7 +2467,56 @@ private slots:
     void testGraphModelRepositorySwitch();
     void testSubmitMessageSpellCheck();
     void testDiffDescriptionEditor();
+    void testGerritPageEditsTheParameters();
 };
+
+// The Gerrit settings live in GerritParameters, which the rest of the plugin
+// reads; the page's aspects are a view of it that Apply writes back.
+void GitTest::testGerritPageEditsTheParameters()
+{
+    Core::IOptionsPage *page = Utils::findOr(
+        Core::IOptionsPage::allOptionsPages(), nullptr,
+        [](Core::IOptionsPage *candidate) { return candidate->id() == "Gerrit"; });
+    QVERIFY(page);
+
+    const std::optional<Utils::AspectContainer *> aspects = page->aspects();
+    QVERIFY(aspects && *aspects);
+
+    const auto named = [container = *aspects](const QString &name) -> Utils::BaseAspect * {
+        const QList<Utils::BaseAspect *> all = container->aspects();
+        for (Utils::BaseAspect *aspect : all) {
+            if (aspect->qmlName() == name)
+                return aspect;
+        }
+        return nullptr;
+    };
+
+    auto host = qobject_cast<Utils::StringAspect *>(named("Host"));
+    auto port = qobject_cast<Utils::IntegerAspect *>(named("Port"));
+    QVERIFY(host);
+    QVERIFY(port);
+
+    Gerrit::Internal::GerritParameters &settings = Gerrit::Internal::gerritSettings();
+    const QString originalHost = settings.server.host;
+    QCOMPARE(host->value(), originalHost);
+
+    // What the form writes when the user types in the field, and what Apply
+    // does with it. Trimmed on the way, as the widget page did.
+    host->setVolatileValue(QString("  gerrit.example.org  "));
+    QVERIFY((*aspects)->isDirty());
+    QCOMPARE(settings.server.host, originalHost);
+
+    (*aspects)->apply();
+    QCOMPARE(settings.server.host, QString("gerrit.example.org"));
+
+    // And Cancel goes back to what the parameters hold, not to what was typed.
+    host->setVolatileValue(QString("typed.and.abandoned"));
+    (*aspects)->cancel();
+    QCOMPARE(host->value(), QString("gerrit.example.org"));
+
+    host->setVolatileValue(originalHost);
+    (*aspects)->apply();
+}
 
 void GitTest::testStatusParsing_data()
 {

@@ -55,5 +55,6 @@ if(TARGET Git AND TARGET Qt::Quick)
     NO_PLUGIN
     QML_FILES
       GitSettingsPage.qml
+      gerrit/GerritSettingsPage.qml
   )
 endif()

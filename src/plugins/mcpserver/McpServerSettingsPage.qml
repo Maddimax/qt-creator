@@ -12,6 +12,8 @@ import QtCreator.Ui
 AspectPage {
     id: root
 
+    contentFillsHeight: true
+
     // The address is a container of a choice and a custom value.
     readonly property var listen: AspectModels.named(aspects.ListenAddress)
 

@@ -15,6 +15,8 @@ import QtCreator.TextEditor
 AspectPage {
     id: root
 
+    contentFillsHeight: true
+
     // The language's own settings, which the page reaches under one name
     // whatever the language called them. See CodeStyleAspect.
     readonly property var settings: AspectModels.named(aspects.Settings)

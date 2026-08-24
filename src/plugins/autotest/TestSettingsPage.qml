@@ -10,6 +10,8 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
+
+    contentFillsHeight: true
     AspectGroupBox {
         title: qsTr("General")
 

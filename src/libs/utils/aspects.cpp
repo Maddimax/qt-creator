@@ -1660,6 +1660,11 @@ AspectPresentation FilePathAspect::presentation() const
     AspectPresentation p = TypedAspect::presentation();
     p.control = AspectControls::PathChooser;
     p.placeholderText = d->m_placeHolderText;
+    // The two enums are declared in the same order, and the descriptor's exists
+    // so that it does not have to include pathvalidation.h.
+    p.pathKind = static_cast<AspectControls::PathKind>(expectedKind());
+    p.promptDialogTitle = promptDialogTitle();
+    p.promptDialogFilter = promptDialogFilter();
     return p;
 }
 

@@ -6,6 +6,7 @@ pragma FunctionSignatureBehavior: Enforced
 
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Dialogs
 import QtQuick.Layouts
 import QtCreator.Ui
 
@@ -20,6 +21,13 @@ RowLayout {
     readonly property string labelText: aspect?.plainLabelText ?? ""
     readonly property string toolTip: aspect?.toolTip ?? ""
     readonly property bool aspectVisible: aspect?.visible ?? true
+    // A path aspect shares this delegate with a plain string; what it adds is
+    // somewhere to browse from. "Any" is the default and means the aspect
+    // never said it wanted a path.
+    readonly property string pathKind: delegate.pres.pathKind ?? ""
+    readonly property bool isPath: pathKind !== "" && pathKind !== "Any"
+    readonly property bool wantsDirectory:
+        pathKind === "ExistingDirectory" || pathKind === "Directory"
 
     Connections {
         target: delegate.aspect
@@ -50,5 +58,42 @@ RowLayout {
         Layout.fillWidth: true
 
         onEditingFinished: if (delegate.aspect) delegate.aspect.value = text
+    }
+
+    Button {
+        objectName: "browseButton"
+        text: qsTr("Browse...")
+        visible: delegate.isPath
+        enabled: (delegate.aspect?.enabled ?? false) && !(delegate.aspect?.readOnly ?? true)
+        onClicked: delegate.wantsDirectory ? folderDialog.open() : fileDialog.open()
+    }
+
+    FileDialog {
+        id: fileDialog
+
+        title: (delegate.pres.promptDialogTitle ?? "") !== ""
+               ? delegate.pres.promptDialogTitle : qsTr("Choose File")
+        nameFilters: (delegate.pres.promptDialogFilter ?? "") !== ""
+                     ? [delegate.pres.promptDialogFilter] : []
+        // A path that does not have to exist yet is being saved to, not opened.
+        fileMode: delegate.pathKind === "SaveFile"
+                  ? FileDialog.SaveFile : FileDialog.OpenFile
+
+        onAccepted: {
+            if (delegate.aspect)
+                delegate.aspect.value = AspectModels.localPath(selectedFile)
+        }
+    }
+
+    FolderDialog {
+        id: folderDialog
+
+        title: (delegate.pres.promptDialogTitle ?? "") !== ""
+               ? delegate.pres.promptDialogTitle : qsTr("Choose Directory")
+
+        onAccepted: {
+            if (delegate.aspect)
+                delegate.aspect.value = AspectModels.localPath(selectedFolder)
+        }
     }
 }

@@ -1196,17 +1196,23 @@ method, and the manual-run dialog builds a widget from it too, so the page
 naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
-all`, minus `QmlDesigner` and `UpdateInfo`, see below): **73 aspect-driven
-pages, 72 with their own QML and rendered with Qt Quick, 1 still on widgets.**
+all`, minus `QmlDesigner` and `UpdateInfo`, see below): **74 aspect-driven
+pages, 73 with their own QML and rendered with Qt Quick, 1 still on widgets.**
+Gerrit is the first of the widget-creator pages below to have joined that
+count: it became aspect-driven and then got a form, which is the shape the rest
+of them take.
 
 **What that count does not include, and it is the bigger half.** It counts
 pages that hand over an `AspectContainer` through `setSettingsProvider()`.
 A page that calls `IOptionsPage::setWidgetCreator()` builds its own
 `IOptionsPageWidget` and answers nothing from `aspects()`, so the test skips it
 entirely: `isFullyRenderable()` is never asked and the page is not in the 73.
-There are **52 such call sites in 46 files** - General, Environment, Keyboard,
+There are **51 such call sites in 45 files** - General, Environment, Keyboard,
 Locator, the project settings pages, Beautifier's three, Clangd, Axivion - and
-they are pure QtWidgets from top to bottom.
+they are pure QtWidgets from top to bottom. Gerrit was the 52nd; converting it
+took an `AspectContainer` that reads `GerritParameters` when the page is built
+and writes it back on apply, which is the same shape the Code Style pages use
+and needs no change to what the rest of the plugin reads.
 
 So the settings-page migration is complete for the pages that were *already
 aspect-driven*. The remaining work is a different shape: those pages have to
@@ -1266,6 +1272,24 @@ whole test run, so `-noload` it. `UpdateInfo` fails in a dev build for
 unrelated reasons and needs the same treatment. Also note that the pages a
 `-test` run sees are the tested plugin's dependency closure unless `-load` is
 given; the count was 4 before, and 21 with one extra plugin.
+
+**A path aspect had nowhere to browse from.** `StringDelegate` draws both a
+string and a path, and drew them identically: a field and nothing else, on
+every page with a `FilePathAspect` on it. `AspectPresentation` carries
+`pathKind` (mirroring `PathChooserKind`) and the prompt title and filter now,
+and the delegate puts a Browse button beside the field that opens a `FileDialog`
+or a `FolderDialog`. What it is not yet is a `PathChooser`: no expansion of the
+typed path, no per-kind validation feedback, no "open terminal here".
+
+**A short page spread its rows down the viewport.** `AspectPage` sizes its
+column to at least the viewport so that a table can fill it, and a column that
+is taller than its content hands the slack to its children - so six settings
+came out evenly spaced over 900 pixels. The page holds itself at the top now,
+and a page whose content *should* fill says `contentFillsHeight: true`. That is
+stated rather than worked out: reading the children's `Layout.fillHeight` to
+decide gave the wrong answer, and a filler declared before the default-property
+children lands in front of them - re-parenting moves it to the end, but only if
+it is taken out of the parent first.
 
 **Labels are written for the widget renderer.** `"Ta&b size:"` means a keyboard
 accelerator there; Qt Quick Controls has no mnemonics, so the delegates drew the

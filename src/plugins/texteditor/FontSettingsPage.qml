@@ -12,6 +12,8 @@ import QtCreator.Ui
 AspectPage {
     id: root
 
+    contentFillsHeight: true
+
     AspectGroupBox {
         title: qsTr("Font")
 
