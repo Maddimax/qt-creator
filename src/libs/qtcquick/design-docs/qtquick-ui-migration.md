@@ -1276,8 +1276,8 @@ method, and the manual-run dialog builds a widget from it too, so the page
 naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
-all`, minus `QmlDesigner` and `UpdateInfo`, see below): **79 aspect-driven
-pages, all 79 with their own QML and rendered with Qt Quick, none still on
+all`, minus `QmlDesigner` and `UpdateInfo`, see below): **80 aspect-driven
+pages, all 80 with their own QML and rendered with Qt Quick, none still on
 widgets.** Gerrit is the first of the widget-creator pages below to have joined
 that count: it became aspect-driven and then got a form, which is the shape the
 rest of them take.
@@ -1332,17 +1332,32 @@ pages that hand over an `AspectContainer` through `setSettingsProvider()`.
 A page that calls `IOptionsPage::setWidgetCreator()` builds its own
 `IOptionsPageWidget` and answers nothing from `aspects()`, so the test skips it
 entirely: `isFullyRenderable()` is never asked and the page is not in the 73.
-There are **36 such call sites in 33 files** - Keyboard, Locator, MIME Types,
+There are **35 such call sites in 32 files** - Keyboard, Locator, MIME Types,
 the toolchain, kit and device pages, Beautifier's three, Clangd, Axivion - and
 they are pure QtWidgets from top to bottom. Counted with
 
     grep -rn setWidgetCreator src/plugins src/libs --include='*.cpp'
 
 minus the mode files, which are `IMode::setWidgetCreator()` and a different
-thing. Gerrit and To-Do went this way; converting either took an
+thing. Gerrit, To-Do and GitLab went this way; converting any of them took an
 `AspectContainer` that reads the plugin's own settings struct when the page is
 built and writes it back on apply, which is the same shape the Code Style pages
 use and needs no change to what the rest of the plugin reads.
+
+Two of the three had a list edited through a modal dialog, and both became an
+`AspectList` with the dialog's form as the item's own aspects. That is the
+shape to reach for: a page that opens a dialog to edit one of a list is a
+list-with-details that has not been written yet. It also removes the dialog's
+usual habit of dropping what was typed without saying why - GitLab's Add
+silently discarded a bad host - because the check becomes the aspect's
+validation.
+
+One thing to watch: a `SelectionAspect` over a list that is being edited holds
+a *position*. GitLab's default server has to be remembered by id and looked up
+again whenever the choices are rebuilt, or it follows the wrong server as soon
+as one in front of it is removed. `setUseDataAsSavedValue()` does not do this -
+it only changes what `toSettings()` writes, and a page-local container never
+saves itself.
 
 So the settings-page migration is complete for the pages that were *already
 aspect-driven*. The remaining work is a different shape: those pages have to
