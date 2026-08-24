@@ -39,6 +39,20 @@ add_qtc_plugin(QmlJSEditor
 extend_qtc_plugin(QmlJSEditor
   CONDITION WITH_TESTS
   SOURCES
+    qmljseditorsettings_test.cpp qmljseditorsettings_test.h
     qmljsindenter_test.cpp qmljsindenter_test.h
     qmljsquickfix_test.cpp qmljsquickfix_test.h
 )
+
+# The page's QML lives in a module so qmllint and qmlcachegen see the files;
+# qbs cannot build QML modules, so it only lists them.
+if(TARGET QmlJSEditor AND TARGET Qt::Quick)
+  qt_add_qml_module(QmlJSEditor
+    URI QtCreator.QmlJSEditor
+    VERSION 1.0
+    RESOURCE_PREFIX "/qt/qml"
+    NO_PLUGIN
+    QML_FILES
+      QmlJsEditingSettingsPage.qml
+  )
+endif()

@@ -8,6 +8,7 @@
 #include "qmljseditorsettings.h"
 #include "qmljseditortr.h"
 #include "qmljsfilecomponentrenamehandler.h"
+#include "qmljseditorsettings_test.h"
 #include "qmljsindenter_test.h"
 #include "qmljsoutline.h"
 #include "qmljsquickfixassist.h"
@@ -516,6 +517,7 @@ class QmlJSEditorPlugin final : public ExtensionSystem::IPlugin
         setupQmlJsEditingSettings();
 
 #ifdef WITH_TESTS
+        addTestCreator(createQmlJsEditingSettingsTest);
         addTestCreator(createQmlJSIndenterTest);
         addTestCreator(createQmlJSQuickFixTest);
 #endif

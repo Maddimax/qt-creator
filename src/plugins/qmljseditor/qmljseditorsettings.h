@@ -6,21 +6,22 @@
 #include <utils/aspects.h>
 #include <utils/filepath.h>
 
-#include <QPointer>
-
-QT_BEGIN_NAMESPACE
-class QTreeView;
-QT_END_NAMESPACE
-
 namespace QmlJSEditor::Internal {
 
-// Custom static analyzer message selection, edited through a two-column
-// checkable tree. Persisted under the legacy DISABLED_MESSAGES /
-// DISABLED_MESSAGES_NONQUICKUI keys, which QmlJS::Check reads directly.
+class AnalyzerMessagesAspectPrivate;
+
+// Which static analyzer messages are on, and which of those are off in files
+// that are not a Qt Quick UI. One row per known message; the check states are
+// the aspect's, so isDirty() and cancel() do not need a page to be open.
+// Persisted under the legacy DISABLED_MESSAGES / DISABLED_MESSAGES_NONQUICKUI
+// keys, which QmlJS::Check reads directly.
 class AnalyzerMessagesAspect final : public Utils::BaseAspect
 {
+    Q_OBJECT
+
 public:
     AnalyzerMessagesAspect(Utils::AspectContainer *container = nullptr);
+    ~AnalyzerMessagesAspect() final;
 
     void apply() final;
     void cancel() final;
@@ -28,25 +29,13 @@ public:
     void readSettings() final;
     void writeSettings() const final;
 
-    void addToLayoutImpl(Layouting::Layout &parent) final;
+    Utils::AspectPresentation presentation() const override;
+    QAbstractItemModel *tableModel() override;
+
+    void resetToDefault();
 
 private:
-    void populateModel();
-
-    QList<int> m_disabled;
-    QList<int> m_disabledForNonQuickUi;
-    QPointer<QTreeView> m_view = nullptr;
-};
-
-// UI-only aspect (nothing persisted): hosts the "Install Qt Design Studio"
-// button and keeps the qdsCommand placeholder in sync. All behavior lives in
-// addToLayoutImpl.
-class QdsInstallAspect final : public Utils::BaseAspect
-{
-public:
-    QdsInstallAspect(Utils::AspectContainer *container = nullptr);
-
-    void addToLayoutImpl(Layouting::Layout &parent) final;
+    AnalyzerMessagesAspectPrivate *d = nullptr;
 };
 
 class QmlJsEditingSettings final : public Utils::AspectContainer
@@ -64,8 +53,11 @@ public:
     Utils::BoolAspect useCustomAnalyzer{this};
     Utils::SelectionAspect uiQmlOpenMode{this};
     AnalyzerMessagesAspect analyzerMessages{this};
+    Utils::ActionAspect resetAnalyzerMessages{this};
+    Utils::TextDisplay qdsHint{this};
     Utils::FilePathAspect qdsCommand{this};
-    QdsInstallAspect qdsInstall{this};
+    Utils::ActionAspect qdsInstall{this};
+    Utils::ActionAspect openLanguageServerSettings{this};
 };
 
 QmlJsEditingSettings &settings();

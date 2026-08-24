@@ -485,7 +485,7 @@ nothing - and waits on the signal rather than on a non-empty string, because an
 empty secret is a legitimate answer. `FontAspect` still carries the original
 version of this trap.
 
-#### The six that are left, and what each one needs
+#### The five that are left, and what each one needs
 
 Every one of these was read, not guessed at - the last three rounds each found
 that the widget collapsed to controls that already existed. These do not:
@@ -494,12 +494,10 @@ that the widget collapsed to controls that already existed. These do not:
 |---|---|
 | Code Style (x3) | `createValueEditor()` returns a per-language editor built by a factory, and the page puts a syntax-highlighted preview beside it |
 | Snippets, Font && Colors | an editor and a live preview, same shape |
-| QML/JS Editing | `AnalyzerMessagesAspect`, a tree with two independent states per message - and its state *is* the tree: `apply()`, `cancel()` and `isDirty()` all read `m_view`, and `apply()` returns early when there is none. No other renderer can drive it until the aspect owns its own volatile value |
 
 One shape is left: a hosted editor with a preview (Code Style, Snippets,
-Font && Colors). QML/JS Editing is rows of check boxes like Testing was, and
-held by the same thing - an aspect whose value lives in its widget - so it is
-that job once more.
+Font && Colors). Everything else is ported, so the remaining work is the Qt
+Quick text editor and nothing else.
 
 Two of these were taken further than reading, and each stopped for the same
 reason - the cost is not in the QML:
@@ -603,6 +601,50 @@ Two things the layouter was carrying:
 alone and covers what the rewrite made pure: the rows, the flags, dirty
 tracking and cancelling, and the warning.
 
+#### QML/JS Editing: the last of the three widget-state aspects
+
+`AnalyzerMessagesAspect` was the worst of the three, because its `apply()`
+*returned early* when no page was open - an aspect that silently applies nothing
+unless someone looked at it. It keeps the two lists it persists now, plus a
+volatile copy the model writes into, so `apply()`, `cancel()` and `isDirty()`
+are all answers it can give on its own.
+
+One thing to be careful with: what is stored is the list of *disabled* messages,
+so the Enabled column shows the opposite of what it writes. Getting that
+backwards turns every check off the first time anything is touched, which is why
+there is a test for the inversion alone.
+
+The tree's context menu is gone. "Reset to Default" is an `ActionAspect` beside
+the table, which is discoverable in a way a right-click on a tree is not.
+`QdsInstallAspect` - a whole aspect class whose only job was to host one button
+in `addToLayoutImpl` - is an `ActionAspect` too, and the explanatory paragraph
+above the Design Studio command is a `TextDisplay` with a link.
+
+#### What a screenshot found that the tests could not
+
+Twice now, looking at a rendered page found defects that every delegate test
+passed over, and both times most of them were not that page's fault:
+
+- A Qt Quick `SpinBox` formats for the locale, so a port number read "46.327".
+  Chasing that found `displayScaleFactor` and `specialValueText` missing too -
+  the Testing page was showing a 60-second timeout as "60000 s".
+- The style's `TextField` had **no placeholder item at all**, so
+  `placeholderText` showed nowhere in the UI.
+- A delegate reserved the 200px label column even for an aspect with no label,
+  which pushed controls into the middle of the page with nothing beside them.
+- `AspectGroupBox` used an *invisible check box* as its label when it had
+  nothing to check, so every plainly-titled group on every ported page had no
+  title.
+- A `GroupBox` does not lay its children out. They kept their implicit size, so
+  a table inside a group stayed as narrow as its own labels and a paragraph of
+  text ran off the page. `AspectGroupBox` stacks them and fills the width now,
+  which is what the `Column` inside the widget `Group` did.
+
+The lesson is not "write more delegate tests". Two of these five are invisible
+to any test that reads properties off items: a label that is clipped out of view
+still has its `text`, and an item at its implicit size still reports the size it
+asked for. **Look at the page.**
+
 #### Give the model a parent
 
 `BaseAspect::tableModel()` is `Q_INVOKABLE` and returns a `QObject *`. A QML
@@ -661,11 +703,11 @@ after the first layout without a render pass; and find a cell control by
 `objectName` rather than by type, because a non-editable `ComboBox`'s content
 item is itself a `TextField`.
 
-#### What the 24 remaining layouters are
+#### What the 23 remaining layouters are
 
 Worth knowing before hunting for dead ones, because most of these are not pages:
 
-- **6 are the pages above** (Code Style counts once here; its aspect serves all
+- **5 are the pages above** (Code Style counts once here; its aspect serves all
   three).
 - **5 are live nested containers**: `TabSettings`, `TypingSettings`,
   `StorageSettings`, `ExtraEncodingSettings` and `BehaviorSettings`. The Behavior
@@ -832,7 +874,7 @@ naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
 all`, minus `QmlDesigner` and `UpdateInfo`, see below): **73 aspect-driven
-pages, 67 with their own QML and rendered with Qt Quick, 6 still on widgets.**
+pages, 68 with their own QML and rendered with Qt Quick, 5 still on widgets.**
 Before the gate was narrowed, 65 pages rendered generically; the delegate work
 that made that possible is all still in place and is what the ports build on:
 `StringListAspect` (a real list editor), `IntegersAspect` (`Invisible`, because
@@ -841,7 +883,7 @@ its own choices now), index-valued selections with no options (an empty combo
 box is what the widget editor draws too), and `AspectList`'s
 list-with-details style.
 
-All six remaining pages are held by aspects whose control is `Custom`
+All five remaining pages are held by aspects whose control is `Custom`
 because they build their own widget in `addToLayoutImpl`. Not all of them need
 porting one by one, though: `EnvironmentChangesAspect` turned out to be a
 summary plus one button, which is now the `TextWithAction` control, and
@@ -854,7 +896,6 @@ declined page:
 | Clang Tools | `ClangDiagnosticConfigIdAspect` - a combo plus a manage button |
 | Font && Colors | the colour-scheme editor |
 | Snippets | the snippets editor |
-| QML/JS Editing | two unnamed `Custom` aspects |
 | General (x4) | `FontAspect`, an `AspectList` inline style, two unnamed `Custom` aspects |
 
 **A finding worth knowing before porting more:** the layouter picks which

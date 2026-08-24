@@ -82,7 +82,15 @@ static QList<int> defaultDisabledMessagesNonQuickUi()
     return disabledForNonQuickUi;
 }
 
-static void openQtVersionsOptions();
+static void openQtVersionsOptions()
+{
+    Core::ICore::showSettings(QtSupport::Constants::QTVERSION_SETTINGS_PAGE_ID);
+}
+
+static UpdateInfo::Service *updateInfoService()
+{
+    return ExtensionSystem::PluginManager::getObject<UpdateInfo::Service>();
+}
 
 QmlJsEditingSettings::QmlJsEditingSettings()
 {
@@ -122,78 +130,54 @@ QmlJsEditingSettings::QmlJsEditingSettings()
     qdsCommand.setLabelText(Tr::tr("Command:"));
     qdsCommand.setVisible(false);
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-        // clang-format off
-        Column column {
-            Group {
-                title(Tr::tr("Formatting")),
-                Column {
-                    autoFormatOnSave,
-                    autoFormatOnlyCurrentProject,
-                },
-            },
-            Group {
-                title(Tr::tr("Qt Quick Toolbars")),
-                Column {
-                    pinContextPane,
-                    enableContextPane
-                },
-            },
-            Group {
-                visibleOn(Utils::AspectWidgets::visibleController(&qdsCommand)),
-                title(Tr::tr("Qt Design Studio")),
-                Column {
-                    Label {
-                        wordWrap(true),
-                        text(Tr::tr("Set the path to the Qt Design Studio application to enable "
-                                    "the \"Open in Qt Design Studio\" feature. If you have Qt "
-                                    "Design Studio installed alongside Qt Creator with the Qt "
-                                    "Online Installer, it is used as the default. Use "
-                                    "<a href=\"linkwithqt\">\"Link with Qt\"</a> to link an "
-                                    "offline installation of Qt Creator to a Qt Online Installer.")),
-                        onLinkActivated(this, [](const QString &) { openQtVersionsOptions(); })
-                    },
-                    Form {
-                        qdsCommand, br
-                    },
-                    qdsInstall,
-                },
-            },
-            Group {
-                title(Tr::tr("Features")),
-                Column {
-                    foldAuxData,
-                    Row { uiQmlOpenMode, st }
-                },
-            },
-            Group {
-                title(Tr::tr("QML Language Server")),
-                Row {
-                    PushButton {
-                        text(Tr::tr("Open Language Server preferences...")),
-                        onClicked(this, [] { Core::ICore::showSettings(LanguageClient::Constants::LANGUAGECLIENT_SETTINGS_PAGE); })
-                    },
-                    st
-                },
-            },
-            Group {
-                title(Tr::tr("Static Analyzer")),
-                Column {
-                    useCustomAnalyzer,
-                    analyzerMessages
-                },
-            },
-            st,
-        };
-        // clang-format on
+    qdsHint.setQmlName("QdsHint");
+    qdsHint.setWordWrap(true);
+    qdsHint.setText(Tr::tr("Set the path to the Qt Design Studio application to enable "
+                           "the \"Open in Qt Design Studio\" feature. If you have Qt "
+                           "Design Studio installed alongside Qt Creator with the Qt "
+                           "Online Installer, it is used as the default. Use "
+                           "<a href=\"linkwithqt\">\"Link with Qt\"</a> to link an "
+                           "offline installation of Qt Creator to a Qt Online Installer."));
+    connect(&qdsHint, &TextDisplay::linkActivated, this, [] { openQtVersionsOptions(); });
 
-        return column;
+    // There is nothing to install with if no updater is loaded, and nothing to
+    // install if a Qt Design Studio is already known.
+    const auto updateQdsInstall = [this] {
+        qdsCommand.setPlaceHolderText(defaultQdsCommand().toUserOutput());
+        qdsInstall.setVisible(defaultQdsCommand().isEmpty() && updateInfoService());
+    };
+
+    qdsInstall.setQmlName("QdsInstall");
+    qdsInstall.setActionText(Tr::tr("Install Qt Design Studio"));
+    qdsInstall.setAction([this, updateQdsInstall] {
+        UpdateInfo::Service *updater = updateInfoService();
+        QTC_ASSERT(updater, return);
+        if (updater->installPackages("^qt[.].*qtdesignstudio.*$")) {
+            updateQdsInstall();
+            emit qdsCommand.changed();
+        }
     });
+
+    openLanguageServerSettings.setQmlName("OpenLanguageServerSettings");
+    openLanguageServerSettings.setActionText(Tr::tr("Open Language Server preferences..."));
+    openLanguageServerSettings.setAction([] {
+        Core::ICore::showSettings(LanguageClient::Constants::LANGUAGECLIENT_SETTINGS_PAGE);
+    });
+
+    resetAnalyzerMessages.setQmlName("ResetAnalyzerMessages");
+    resetAnalyzerMessages.setActionText(Tr::tr("Reset to Default"));
+    resetAnalyzerMessages.setToolTip(Tr::tr("Turns every check back on except the ones that are "
+                                            "off by default."));
+    resetAnalyzerMessages.setAction([this] { analyzerMessages.resetToDefault(); });
+
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/QmlJSEditor/QmlJsEditingSettingsPage.qml"));
 
     readSettings();
 
     analyzerMessages.setEnabler(&useCustomAnalyzer);
+    resetAnalyzerMessages.setEnabler(&useCustomAnalyzer);
+
+    updateQdsInstall();
 }
 
 FilePath QmlJsEditingSettings::defaultQdsCommand() const
@@ -201,72 +185,6 @@ FilePath QmlJsEditingSettings::defaultQdsCommand() const
     QtcSettings *settings = Core::ICore::settings();
     const Key qdsInstallationEntry = "QML/Designer/DesignStudioInstallation"; //set in installer
     return FilePath::fromUserInput(settings->value(qdsInstallationEntry).toString());
-}
-
-class AnalyzerMessageItem final : public Utils::TreeItem
-{
-public:
-    AnalyzerMessageItem() = default;
-    AnalyzerMessageItem(int number, const QString &message)
-        : m_messageNumber(number)
-        , m_message(message)
-    {}
-
-    QVariant data(int column, int role) const final
-    {
-        if (role == Qt::DisplayRole) {
-            if (column == 0)
-                return QString("M%1").arg(m_messageNumber);
-            if (column == 2)
-                return m_message.split('\n').first();
-        } else if (role == Qt::CheckStateRole) {
-            if (column == 0)
-                return m_checked ? Qt::Checked : Qt::Unchecked;
-            if (column == 1)
-                return m_disabledInNonQuickUi ? Qt::Checked : Qt::Unchecked;
-        }
-        return TreeItem::data(column, role);
-    }
-
-    bool setData(int column, const QVariant &value, int role) final
-    {
-        if (role == Qt::CheckStateRole) {
-            if (column == 0) {
-                m_checked = value.toBool();
-                return true;
-            }
-            if (column == 1) {
-                m_disabledInNonQuickUi = value.toBool();
-                return true;
-            }
-        }
-        return false;
-    }
-
-    Qt::ItemFlags flags(int column) const final
-    {
-        if (column == 0 || column == 1)
-            return Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsUserCheckable;
-        else
-            return Qt::ItemIsEnabled | Qt::ItemIsSelectable;
-    }
-
-    int messageNumber() const { return m_messageNumber; }
-private:
-    int m_messageNumber = -1;
-    QString m_message;
-    bool m_checked = true;
-    bool m_disabledInNonQuickUi = false;
-};
-
-static void openQtVersionsOptions()
-{
-    Core::ICore::showSettings(QtSupport::Constants::QTVERSION_SETTINGS_PAGE_ID);
-}
-
-static UpdateInfo::Service *updateInfoService()
-{
-    return ExtensionSystem::PluginManager::getObject<UpdateInfo::Service>();
 }
 
 static QStringList disabledMessagesToStringList(const QList<int> &list)
@@ -279,158 +197,239 @@ static QList<int> disabledMessagesFromStringList(const QStringList &list)
     return Utils::transform<QList<int>>(list, [](const QString &s) { return s.toInt(); });
 }
 
-static void populateMessageModel(QTreeView *view, const QList<int> &disabled,
-                                 const QList<int> &disabledForNonQuickUi)
+// One row per known static analyzer message: a check box that turns the check
+// on, a second that turns it off in files that are not a Qt Quick UI, and the
+// message itself to read. The check states are the aspect's volatile value,
+// which is what this writes into.
+class AnalyzerMessagesModel : public QAbstractTableModel
 {
-    using namespace QmlJS::StaticAnalysis;
-    auto model = static_cast<TreeModel<AnalyzerMessageItem> *>(view->model());
-    model->clear();
-    TreeItem *root = model->rootItem();
-    const QList<Type> knownMessages = Utils::sorted(Message::allMessageTypes());
-    for (Type msgType : knownMessages) {
-        const QString msg = Message::prototypeForMessageType(msgType).message;
-        auto item = new AnalyzerMessageItem(msgType, msg);
-        item->setData(0, !disabled.contains(msgType), Qt::CheckStateRole);
-        item->setData(1, disabledForNonQuickUi.contains(msgType), Qt::CheckStateRole);
-        root->appendChild(item);
+public:
+    enum Column { ColumnEnabled, ColumnNonQuickUi, ColumnMessage, ColumnCount };
+
+    struct State
+    {
+        QList<int> disabled;
+        QList<int> disabledForNonQuickUi;
+    };
+
+    AnalyzerMessagesModel(State *state, QObject *parent)
+        : QAbstractTableModel(parent)
+        , m_state(state)
+    {
+        using namespace QmlJS::StaticAnalysis;
+        for (Type type : Utils::sorted(Message::allMessageTypes())) {
+            m_rows.append({int(type),
+                           Message::prototypeForMessageType(type).message.split('\n').first()});
+        }
     }
-    for (int column = 0; column < 3; ++column)
-        view->resizeColumnToContents(column);
+
+    void reread()
+    {
+        if (m_rows.isEmpty())
+            return;
+        emit dataChanged(index(0, ColumnEnabled),
+                         index(m_rows.size() - 1, ColumnNonQuickUi),
+                         {Qt::CheckStateRole});
+    }
+
+    int rowCount(const QModelIndex &parent) const override
+    {
+        return parent.isValid() ? 0 : m_rows.size();
+    }
+
+    int columnCount(const QModelIndex &parent) const override
+    {
+        return parent.isValid() ? 0 : ColumnCount;
+    }
+
+    QVariant data(const QModelIndex &index, int role) const override
+    {
+        const Row &row = m_rows.at(index.row());
+        switch (role) {
+        case Qt::DisplayRole:
+            switch (index.column()) {
+            case ColumnEnabled: return QString("M%1").arg(row.number);
+            case ColumnMessage: return row.message;
+            default:            return QString();
+            }
+        case Qt::CheckStateRole:
+            if (index.column() == ColumnEnabled)
+                return m_state->disabled.contains(row.number) ? Qt::Unchecked : Qt::Checked;
+            if (index.column() == ColumnNonQuickUi) {
+                return m_state->disabledForNonQuickUi.contains(row.number) ? Qt::Checked
+                                                                          : Qt::Unchecked;
+            }
+            return {};
+        case Qt::ToolTipRole:
+            return row.message;
+        case AspectTable::EditableRole:
+            return AspectTable::isWritable(flags(index));
+        case AspectTable::CheckableRole:
+            return flags(index).testFlag(Qt::ItemIsUserCheckable);
+        default:
+            return {};
+        }
+    }
+
+    bool setData(const QModelIndex &index, const QVariant &value, int role) override
+    {
+        if (role != Qt::CheckStateRole || !flags(index).testFlag(Qt::ItemIsUserCheckable))
+            return false;
+        const int number = m_rows.at(index.row()).number;
+        const bool on = value.toInt() == Qt::Checked;
+        // A message the user ticked is one that is not disabled, so the Enabled
+        // column stores the opposite of what it shows.
+        QList<int> &list = index.column() == ColumnEnabled ? m_state->disabled
+                                                           : m_state->disabledForNonQuickUi;
+        const bool listed = index.column() == ColumnEnabled ? !on : on;
+        if (listed) {
+            if (!list.contains(number))
+                list.append(number);
+        } else {
+            list.removeAll(number);
+        }
+        emit dataChanged(index, index, {Qt::CheckStateRole});
+        return true;
+    }
+
+    QVariant headerData(int section, Qt::Orientation orientation, int role) const override
+    {
+        if (orientation == Qt::Vertical || role != Qt::DisplayRole)
+            return {};
+        switch (section) {
+        case ColumnEnabled:    return Tr::tr("Enabled");
+        case ColumnNonQuickUi: return Tr::tr("Only for Qt Quick UI");
+        default:               return Tr::tr("Message");
+        }
+    }
+
+    QHash<int, QByteArray> roleNames() const override
+    {
+        return AspectTable::withRoleNames(QAbstractTableModel::roleNames());
+    }
+
+    Qt::ItemFlags flags(const QModelIndex &index) const override
+    {
+        const Qt::ItemFlags flags = QAbstractTableModel::flags(index);
+        if (index.column() == ColumnMessage)
+            return flags;
+        return flags | Qt::ItemIsUserCheckable;
+    }
+
+private:
+    struct Row
+    {
+        int number = -1;
+        QString message;
+    };
+
+    State *m_state = nullptr;
+    QList<Row> m_rows;
+};
+
+static bool operator==(const AnalyzerMessagesModel::State &first,
+                       const AnalyzerMessagesModel::State &second)
+{
+    return Utils::sorted(first.disabled) == Utils::sorted(second.disabled)
+           && Utils::sorted(first.disabledForNonQuickUi)
+                  == Utils::sorted(second.disabledForNonQuickUi);
 }
 
-static void extractMessageModel(QTreeView *view, QList<int> &disabled,
-                                QList<int> &disabledForNonQuickUi)
+class AnalyzerMessagesAspectPrivate
 {
-    auto model = static_cast<TreeModel<AnalyzerMessageItem> *>(view->model());
-    model->forAllItems([&disabled, &disabledForNonQuickUi](AnalyzerMessageItem *item) {
-        if (item->data(0, Qt::CheckStateRole) == Qt::Unchecked)
-            disabled.append(item->messageNumber());
-        if (item->data(1, Qt::CheckStateRole) == Qt::Checked)
-            disabledForNonQuickUi.append(item->messageNumber());
-    });
-}
+public:
+    explicit AnalyzerMessagesAspectPrivate(AnalyzerMessagesAspect *aspect)
+        : m_model(&m_volatileState, aspect)
+    {}
+
+    // What was applied, and what the check boxes hold now.
+    AnalyzerMessagesModel::State m_state;
+    AnalyzerMessagesModel::State m_volatileState;
+    AnalyzerMessagesModel m_model;
+};
 
 AnalyzerMessagesAspect::AnalyzerMessagesAspect(AspectContainer *container)
     : BaseAspect(container)
-{}
+    , d(new AnalyzerMessagesAspectPrivate(this))
+{
+    setQmlName("AnalyzerMessages");
+    setToolTip(Tr::tr("Enabled checks can be disabled for non Qt Quick UI"
+                      " files, but disabled checks cannot get explicitly"
+                      " enabled for non Qt Quick UI files."));
+
+    connect(&d->m_model, &QAbstractItemModel::dataChanged, this, [this] {
+        checkSettingsDirty();
+    });
+}
+
+AnalyzerMessagesAspect::~AnalyzerMessagesAspect()
+{
+    delete d;
+}
+
+AspectPresentation AnalyzerMessagesAspect::presentation() const
+{
+    AspectPresentation p = BaseAspect::presentation();
+    p.control = AspectControls::Table;
+    // The rows are the known message types.
+    p.allowAdding = false;
+    p.allowRemoving = false;
+    return p;
+}
+
+QAbstractItemModel *AnalyzerMessagesAspect::tableModel()
+{
+    return &d->m_model;
+}
+
+void AnalyzerMessagesAspect::resetToDefault()
+{
+    d->m_volatileState = {defaultDisabledMessages(), defaultDisabledMessagesNonQuickUi()};
+    d->m_model.reread();
+    checkSettingsDirty();
+}
 
 void AnalyzerMessagesAspect::apply()
 {
-    if (!m_view)
-        return;
-    m_disabled.clear();
-    m_disabledForNonQuickUi.clear();
-    extractMessageModel(m_view, m_disabled, m_disabledForNonQuickUi);
+    d->m_state = d->m_volatileState;
 }
 
 void AnalyzerMessagesAspect::cancel()
 {
-    if (m_view)
-        populateModel();
+    d->m_volatileState = d->m_state;
+    d->m_model.reread();
 }
 
 bool AnalyzerMessagesAspect::isDirty() const
 {
-    if (!m_view)
-        return false;
-    QList<int> disabled;
-    QList<int> disabledForNonQuickUi;
-    extractMessageModel(m_view, disabled, disabledForNonQuickUi);
-    return Utils::sorted(disabled) != Utils::sorted(m_disabled)
-           || Utils::sorted(disabledForNonQuickUi) != Utils::sorted(m_disabledForNonQuickUi);
+    return !(d->m_volatileState == d->m_state);
 }
 
 void AnalyzerMessagesAspect::readSettings()
 {
     QtcSettings &s = Utils::userSettings();
     s.beginGroup(QmlJSEditor::Constants::SETTINGS_CATEGORY_QML);
-    m_disabled = disabledMessagesFromStringList(
+    d->m_state.disabled = disabledMessagesFromStringList(
         s.value(DISABLED_MESSAGES, disabledMessagesToStringList(defaultDisabledMessages()))
             .toStringList());
-    m_disabledForNonQuickUi = disabledMessagesFromStringList(
+    d->m_state.disabledForNonQuickUi = disabledMessagesFromStringList(
         s.value(DISABLED_MESSAGES_NONQUICKUI,
                 disabledMessagesToStringList(defaultDisabledMessagesNonQuickUi()))
             .toStringList());
     s.endGroup();
-    if (m_view)
-        populateModel();
+
+    d->m_volatileState = d->m_state;
+    d->m_model.reread();
 }
 
 void AnalyzerMessagesAspect::writeSettings() const
 {
     QtcSettings &s = Utils::userSettings();
     s.beginGroup(QmlJSEditor::Constants::SETTINGS_CATEGORY_QML);
-    s.setValue(DISABLED_MESSAGES, disabledMessagesToStringList(m_disabled));
-    s.setValue(DISABLED_MESSAGES_NONQUICKUI, disabledMessagesToStringList(m_disabledForNonQuickUi));
+    s.setValue(DISABLED_MESSAGES, disabledMessagesToStringList(d->m_state.disabled));
+    s.setValue(DISABLED_MESSAGES_NONQUICKUI,
+               disabledMessagesToStringList(d->m_state.disabledForNonQuickUi));
     s.endGroup();
-}
-
-void AnalyzerMessagesAspect::populateModel()
-{
-    populateMessageModel(m_view, m_disabled, m_disabledForNonQuickUi);
-}
-
-void AnalyzerMessagesAspect::addToLayoutImpl(Layouting::Layout &parent)
-{
-    m_view = Utils::AspectWidgets::createSubWidget<QTreeView>(this);
-    auto model = new TreeModel<AnalyzerMessageItem>(m_view);
-    model->setHeader({Tr::tr("Enabled"), Tr::tr("Only for Qt Quick UI"), Tr::tr("Message")});
-    m_view->setModel(model);
-    m_view->setToolTip(
-        "<html>"
-        + Tr::tr("Enabled checks can be disabled for non Qt Quick UI"
-                 " files, but disabled checks cannot get explicitly"
-                 " enabled for non Qt Quick UI files."));
-    m_view->setContextMenuPolicy(Qt::CustomContextMenu);
-
-    populateModel();
-
-    connect(model, &QAbstractItemModel::dataChanged, this, &checkSettingsDirty);
-
-    connect(m_view, &QTreeView::customContextMenuRequested, this, [this](const QPoint &pos) {
-        QMenu menu;
-        QAction *reset = menu.addAction(Tr::tr("Reset to Default"));
-        connect(reset, &QAction::triggered, this, [this] {
-            populateMessageModel(m_view, defaultDisabledMessages(),
-                                 defaultDisabledMessagesNonQuickUi());
-            checkSettingsDirty();
-        });
-        menu.exec(m_view->mapToGlobal(pos));
-    });
-
-    parent.addItem(m_view);
-}
-
-QdsInstallAspect::QdsInstallAspect(AspectContainer *container)
-    : BaseAspect(container)
-{}
-
-void QdsInstallAspect::addToLayoutImpl(Layouting::Layout &parent)
-{
-    using namespace Layouting;
-    auto button = new QPushButton(Tr::tr("Install Qt Design Studio"));
-    QWidget *row = Row { st, button, noMargin }.emerge();
-
-    const auto update = [row] {
-        QmlJsEditingSettings &s = settings();
-        const QString placeholder = s.defaultQdsCommand().toUserOutput();
-        s.qdsCommand.setPlaceHolderText(placeholder);
-        row->setVisible(s.defaultQdsCommand().isEmpty() && updateInfoService());
-    };
-    // Do not show the not-yet-parented row; it would briefly pop up as a window.
-    if (!settings().defaultQdsCommand().isEmpty() || !updateInfoService())
-        row->setVisible(false);
-
-    connect(button, &QPushButton::clicked, this, [update] {
-        UpdateInfo::Service *updater = updateInfoService();
-        QTC_ASSERT(updater, return);
-        if (updater->installPackages("^qt[.].*qtdesignstudio.*$")) {
-            update();
-            emit settings().qdsCommand.changed();
-        }
-    });
-
-    parent.addItem(row);
 }
 
 class QmlJsEditingSettingsPage : public Core::IOptionsPage

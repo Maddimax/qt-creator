@@ -77,8 +77,17 @@ QtcPlugin {
         "quicktoolbar.h",
     ]
 
+    // qbs has no QML module support; the .qml files are built by CMake only.
+    Group {
+        name: "qml"
+        files: ["*.qml"]
+        fileTags: []
+    }
+
     QtcTestFiles {
         files: [
+            "qmljseditorsettings_test.cpp",
+            "qmljseditorsettings_test.h",
             "qmljsindenter_test.cpp",
             "qmljsindenter_test.h",
             "qmljsquickfix_test.cpp",
