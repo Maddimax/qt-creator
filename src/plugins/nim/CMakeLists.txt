@@ -42,6 +42,7 @@ if(TARGET Nim AND TARGET Qt::Quick)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      NimCodeStylePage.qml
       NimSettingsPage.qml
   )
 endif()

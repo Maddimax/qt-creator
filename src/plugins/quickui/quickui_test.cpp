@@ -6,6 +6,9 @@
 #include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/secretaspect.h>
 
+#include <extensionsystem/pluginmanager.h>
+#include <extensionsystem/pluginspec.h>
+
 #include <qtcquick/aspectmodels.h>
 #include <qtcquick/qtcquickengine.h>
 #include <qtcquick/aspectcontainermodel.h>
@@ -231,7 +234,7 @@ void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
             ++genericWouldDo;
 
         if (!quickWidget) {
-            declined << page->displayName();
+            declined << page->displayName() + " [" + page->id().toString() + "]";
             continue;
         }
         // A QQuickWidget whose component failed to load has no root object,
@@ -410,13 +413,29 @@ void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
                       << genericWouldDo << "have only aspects the generic form knows"
                       << "\n  still on widgets:" << declined.join(", ");
 
-    // How many pages exist, and how many of them the form can show, depends on
-    // which plugins this run loads - QuickUi's dependency closure unless -load
-    // is given, and every page in that closure happens to be declined. So the
-    // count to assert is that the form took every page it could, not that it
-    // took any particular number.
     QVERIFY(aspectDriven > 0);
     QCOMPARE(renderedWithQuick, withQml);
+
+    // Every aspect-driven page names a form, so a declined one is a page that
+    // went back to widgets rather than one waiting its turn. Nothing else here
+    // says so: a page without QML and no QQuickWidget agrees with itself.
+    //
+    // The one page that may be declined is C++'s, and only where ClangFormat
+    // is built: it replaces the C++ factory with one whose editor lays out its
+    // own selector and applies outside the preferences, and it has no form.
+    QStringList unported = declined;
+    if (Utils::anyOf(ExtensionSystem::PluginManager::plugins(),
+                     [](ExtensionSystem::PluginSpec *spec) {
+                         return spec->name() == "ClangFormat"
+                                && spec->state() == ExtensionSystem::PluginSpec::Running;
+                     })) {
+        // CppEditor::Constants::CPP_CODE_STYLE_SETTINGS_ID, spelled out rather
+        // than reached for: QuickUi does not depend on CppEditor. A rename
+        // fails safe, leaving the page named below.
+        unported.removeOne("Code Style [A.Cpp.Code Style]");
+    }
+    QVERIFY2(unported.isEmpty(),
+             qPrintable("pages back on widgets: " + unported.join(", ")));
 
     Core::setAspectFormFactory({});
 }

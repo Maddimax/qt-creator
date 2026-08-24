@@ -16,8 +16,8 @@
 #include <texteditor/indenter.h>
 #include <texteditor/tabsettings.h>
 
+#include <utils/aspects.h>
 #include <utils/id.h>
-#include <utils/layoutbuilder.h>
 #include <utils/shutdownguard.h>
 
 #include <QTextDocument>
@@ -27,18 +27,19 @@ using namespace Utils;
 
 namespace Nim {
 
-// The Nim value editor: just the tab settings controls, editing the given
-// (page-local) preferences live. The selector and preview around it are
-// provided by the hosting CodeStyleAspect, which defers the commit.
-class NimCodeStylePreferencesWidget : public QWidget
+// What the Nim Code Style form edits, which is the tab settings and nothing
+// else: the language has no settings of its own. The selector and the preview
+// around it are the hosting CodeStyleAspect's.
+class NimCodeStyleAspects final : public AspectContainer
 {
 public:
-    explicit NimCodeStylePreferencesWidget(ICodeStylePreferences *preferences)
+    explicit NimCodeStyleAspects(ICodeStylePreferences *preferences)
     {
+        m_tabSettings.setQmlName("TabSettings");
+        registerAspect(&m_tabSettings);
+        // TabSettings writes through to the preferences the page handed over -
+        // its own editable copy - so there is nothing to apply here.
         m_tabSettings.setPreferences(preferences);
-
-        using namespace Layouting;
-        Column { &m_tabSettings, noMargin }.attachTo(this);
     }
 
 private:
@@ -62,8 +63,10 @@ public:
             prefs->setSettingsSuffix("TabPreferences");
             return prefs;
         });
-        setValueEditorCreator([](ICodeStylePreferences *codeStyle) {
-            return new NimCodeStylePreferencesWidget{codeStyle};
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Nim/NimCodeStylePage.qml"));
+        setSettingsAspectsCreator([](ICodeStylePreferences *codeStyle,
+                                     CodeStylePreviewAspect *) {
+            return new NimCodeStyleAspects(codeStyle);
         });
 
         setGlobalCodeStyleId(Constants::C_NIMGLOBALCODESTYLE_ID);

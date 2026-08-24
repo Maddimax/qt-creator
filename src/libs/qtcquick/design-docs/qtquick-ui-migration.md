@@ -1098,7 +1098,11 @@ item is itself a `TextField`.
 
 Worth knowing before hunting for dead ones, because most of these are not pages:
 
-- **1 is the page above**: Code Style for ClangFormat. It is not blocked on
+- **1 is Code Style for ClangFormat**, which is not built here - no LLVM, no
+  `libClangFormat.dylib`, and it is absent from the running-plugin list. Its
+  factory takes over `CPP_SETTINGS_ID` and replaces C++'s, so where it *is*
+  built the C++ Code Style page is the one page still on widgets. It is not
+  blocked on
   aspects - `ClangFormatSettings` is already an `AspectContainer` of five, and
   `ClangFormatGlobalConfigWidget` is 312 lines of widgets hand-wired to them.
   It is blocked on the middle of the page being **a whole Qt Creator editor**:
@@ -1273,10 +1277,18 @@ naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
 all`, minus `QmlDesigner` and `UpdateInfo`, see below): **78 aspect-driven
-pages, 77 with their own QML and rendered with Qt Quick, 1 still on widgets.**
-Gerrit is the first of the widget-creator pages below to have joined that
-count: it became aspect-driven and then got a form, which is the shape the rest
-of them take.
+pages, all 78 with their own QML and rendered with Qt Quick, none still on
+widgets.** Gerrit is the first of the widget-creator pages below to have joined
+that count: it became aspect-driven and then got a form, which is the shape the
+rest of them take.
+
+Nothing said that until now. A page that names no QML gets no `QQuickWidget`,
+and the test compared the two against each other - which agrees with itself
+whichever way a page goes, so a page falling back to widgets passed. Now that
+the backlog is empty the test asserts it is: a declined page is a regression.
+The one allowance is C++'s page where ClangFormat is built, since that factory
+replaces C++'s with a self-managed editor and no form; it is named by page id,
+so a rename fails safe rather than silently widening the hole.
 
 **What that count does not include, and it is the bigger half.** It counts
 pages that hand over an `AspectContainer` through `setSettingsProvider()`.
