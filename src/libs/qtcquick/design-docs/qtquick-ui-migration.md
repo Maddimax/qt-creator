@@ -849,14 +849,29 @@ Four things the QML/JS port turned up, worth knowing before the next one:
   and freed it - all tests green, exit code 134. This is the third time; see
   `tableModel()`.
 
-**Known and not chased:** the QML/JS page logs five `implicitWidth` binding-loop
-warnings, one per `AspectGroupBox`, because it is the first page to put groups
-in a `RowLayout` rather than straight into the page's column. Qt breaks the loop
-and the page lays out correctly. Two fixes were tried and rejected: giving both
-`RowLayout` children a `Layout.preferredWidth` changes nothing, and giving the
-group's label `Loader` `implicitWidth: 0` silences it but collapses the whole
-page to nothing. The page is also taller than the viewport and scrolls; capping
-the table with `Layout.preferredHeight` did not change that.
+**AspectGroupBox and binding loops, since this took three attempts.** Every
+page with a group on it used to log two `implicitWidth` binding-loop warnings
+per group - 44 across six pages, measured in the running application. The cycle
+was the group's label: the style's own label takes `availableWidth` so that it
+can elide, but `AspectGroupBox` replaces the label with a `Loader`, and a
+Loader's *implicit* width is its item's while the group's width is worked out
+from its label's. Binding the Loader's width to the group's closed it. The fix
+is to give the Loader no width at all, so the title is as wide as its text -
+which is what a `QGroupBox` title was too. Rejected on the way:
+`Layout.preferredWidth` on the columns (changes nothing) and `implicitWidth: 0`
+on the Loader (silences it, and collapses the page to nothing, because
+`topPadding` only reserves room for a label that reports a width).
+
+**A loop cannot be caught by a test that builds one page.** It is reported only
+while the Preferences dialog negotiates widths; a page built and shown on its
+own settles in one pass and says nothing - verified by restoring the width
+binding and watching the check pass. What `testAspectDrivenPagesRenderWithQuick`
+does now collect is every other engine warning while it builds the pages, which
+is the class that hides failed bindings and TypeErrors. Loops are measured by
+driving the app over MCP and counting.
+
+The QML/JS and C++ pages are taller than the viewport and scroll; capping the
+table with `Layout.preferredHeight` did not change that.
 
 One piece is shared by all three and is already done for them:
 `TextEditor::TabSettings` is an `AspectContainer` of five aspects plus a

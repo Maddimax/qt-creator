@@ -7,6 +7,7 @@
 #include <coreplugin/secretaspect.h>
 
 #include <qtcquick/aspectmodels.h>
+#include <qtcquick/qtcquickengine.h>
 #include <qtcquick/aspectcontainermodel.h>
 #include <qtcquick/aspectform.h>
 #include <qtcquick/namedaspects.h>
@@ -28,7 +29,10 @@
 #include <QRegularExpression>
 #include <QSignalSpy>
 #include <QMetaEnum>
+#include <QQmlEngine>
+#include <QQmlError>
 #include <QQuickItem>
+#include <QScopeGuard>
 #include <QQuickWidget>
 #include <QTemporaryDir>
 #include <QTest>
@@ -176,6 +180,28 @@ void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
     int renderedWithQuick = 0;
     int genericWouldDo = 0;
     QStringList declined;
+
+    // A QML warning is not a failure anywhere: the engine reports it and
+    // carries on, so a broken binding shows up as a page that looks nearly
+    // right - a delegate that draws nothing, a property left at its default.
+    // Collected here because this is where every page is built; a second test
+    // that builds them again sees nothing, the warnings having already been
+    // reported for the instances made below.
+    //
+    // Binding loops are not among what this catches: they need the Preferences
+    // dialog's own layout negotiation to be reported at all, and a page built
+    // here settles its width in one pass. See the note on AspectGroupBox in the
+    // migration plan for how those are measured.
+    QStringList qmlWarnings;
+    const QMetaObject::Connection warningConnection = QObject::connect(
+        QtcQuick::engine(), &QQmlEngine::warnings, QtcQuick::engine(),
+        [&qmlWarnings](const QList<QQmlError> &errors) {
+            for (const QQmlError &error : errors)
+                qmlWarnings << error.toString();
+        });
+    const QScopeGuard disconnectWarnings([warningConnection] {
+        QObject::disconnect(warningConnection);
+    });
 
     for (Core::IOptionsPage *page : Core::IOptionsPage::allOptionsPages()) {
         const std::optional<Utils::AspectContainer *> aspects = page->aspects();
@@ -370,6 +396,8 @@ void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
         }
         ++renderedWithQuick;
     }
+
+    QVERIFY2(qmlWarnings.isEmpty(), qPrintable("\n" + qmlWarnings.join("\n")));
 
     qInfo().noquote() << "aspect-driven pages:" << aspectDriven
                       << "rendered with Qt Quick:" << renderedWithQuick

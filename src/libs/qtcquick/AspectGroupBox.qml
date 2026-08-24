@@ -26,9 +26,14 @@ GroupBox {
 
     // A group that checks nothing still has a title to show, so the label is
     // the check box only when there is something to check.
+    //
+    // No width: the style's own label takes availableWidth so that it can
+    // elide, but a Loader's implicit width is its item's, and the group's width
+    // is worked out from its label's - so binding the Loader's width to the
+    // group's closes a loop, on every page with a group on it. The label is as
+    // wide as its text instead, which is what a QGroupBox title was too.
     label: Loader {
         x: root.leftPadding
-        width: root.availableWidth
         sourceComponent: root.checkAspect ? checkLabel : titleLabel
 
         Component {
@@ -48,7 +53,6 @@ GroupBox {
             Label {
                 text: root.title
                 font: Fonts.h6
-                elide: Text.ElideRight
             }
         }
     }
