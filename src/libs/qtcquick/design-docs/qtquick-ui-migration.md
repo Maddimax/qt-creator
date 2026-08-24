@@ -1276,8 +1276,8 @@ method, and the manual-run dialog builds a widget from it too, so the page
 naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
-all`, minus `QmlDesigner` and `UpdateInfo`, see below): **78 aspect-driven
-pages, all 78 with their own QML and rendered with Qt Quick, none still on
+all`, minus `QmlDesigner` and `UpdateInfo`, see below): **79 aspect-driven
+pages, all 79 with their own QML and rendered with Qt Quick, none still on
 widgets.** Gerrit is the first of the widget-creator pages below to have joined
 that count: it became aspect-driven and then got a form, which is the shape the
 rest of them take.
@@ -1290,17 +1290,59 @@ The one allowance is C++'s page where ClangFormat is built, since that factory
 replaces C++'s with a self-managed editor and no form; it is named by page id,
 so a rename fails safe rather than silently widening the hole.
 
-**What that count does not include, and it is the bigger half.** It counts
+### Two holes the widget-creator pages walked into
+
+The To-Do page was the first of the widget-creator pages ported after the
+aspect-driven backlog emptied, and it found two things missing that every page
+after it would have found too.
+
+**A list row could only say a name.** `AspectList`'s widget list view asks its
+`listViewDataCallback` for any role a `QListView` wants, so a list whose items
+are told apart by how they look - To-Do's keywords, and the kits, devices and
+MIME types still to come - already had the data. Only the Quick model was
+narrower. It now answers `Qt::DecorationRole` and `Qt::ForegroundRole` as well.
+
+QML has no `QIcon`, and the icons a model row shows are built rather than
+looked up - two masks tinted with two theme colours, in To-Do's case - so
+serving them by resource path was not enough. `QtcQuick::iconUrl()` registers
+an icon with the image provider and hands back the URL an `Image` loads it
+from. What accumulates is one entry per distinct icon, which for settings pages
+is a handful of statics.
+
+The row is also told when its item changes, which nothing did: the name is
+edited in the details pane, so renaming an item left the list showing the old
+one.
+
+**A field did not validate.** `StringAspect::validationFunction()` is private
+to the widget renderer, so `setValidationFunction()` did nothing at all on a
+Quick page - the field took any value and said nothing. Around 15 settings
+pages set one, several of them already ported. `BaseAspect::validationMessage()`
+is the way to ask that does not need the function itself, and `StringDelegate`
+shows the reason under the field.
+
+It also keeps a rejected value out of the aspect, which the widget line edit
+does not - it colours the field and stores the value anyway. A page whose
+modal dialog used to refuse the value outright would otherwise start accepting
+it, which is what To-Do would have done with a keyword containing a space.
+Only the validation shape taking a `QString` can answer; the other two want a
+`FancyLineEdit` or return a `QFuture`.
+
+**What the aspect-driven count does not include, and it is the bigger half.** It counts
 pages that hand over an `AspectContainer` through `setSettingsProvider()`.
 A page that calls `IOptionsPage::setWidgetCreator()` builds its own
 `IOptionsPageWidget` and answers nothing from `aspects()`, so the test skips it
 entirely: `isFullyRenderable()` is never asked and the page is not in the 73.
-There are **47 such call sites in 41 files** - General, Environment, Keyboard,
-Locator, the project settings pages, Beautifier's three, Clangd, Axivion - and
-they are pure QtWidgets from top to bottom. Gerrit was the 52nd; converting it
-took an `AspectContainer` that reads `GerritParameters` when the page is built
-and writes it back on apply, which is the same shape the Code Style pages use
-and needs no change to what the rest of the plugin reads.
+There are **36 such call sites in 33 files** - Keyboard, Locator, MIME Types,
+the toolchain, kit and device pages, Beautifier's three, Clangd, Axivion - and
+they are pure QtWidgets from top to bottom. Counted with
+
+    grep -rn setWidgetCreator src/plugins src/libs --include='*.cpp'
+
+minus the mode files, which are `IMode::setWidgetCreator()` and a different
+thing. Gerrit and To-Do went this way; converting either took an
+`AspectContainer` that reads the plugin's own settings struct when the page is
+built and writes it back on apply, which is the same shape the Code Style pages
+use and needs no change to what the rest of the plugin reads.
 
 So the settings-page migration is complete for the pages that were *already
 aspect-driven*. The remaining work is a different shape: those pages have to
