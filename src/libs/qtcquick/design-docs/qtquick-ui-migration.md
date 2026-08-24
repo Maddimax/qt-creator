@@ -1267,6 +1267,13 @@ unrelated reasons and needs the same treatment. Also note that the pages a
 `-test` run sees are the tested plugin's dependency closure unless `-load` is
 given; the count was 4 before, and 21 with one extra plugin.
 
+**Labels are written for the widget renderer.** `"Ta&b size:"` means a keyboard
+accelerator there; Qt Quick Controls has no mnemonics, so the delegates drew the
+ampersand. 45 labels across the ported pages had one. `BaseAspect` answers
+`plainLabelText` for the Quick side - `labelText` with `stripAccelerator()`
+applied - and the aspect still reports what it was given, because the widget
+renderer needs it. Anything new that draws a label should read the plain one.
+
 Remaining delegate gaps, which now decide whether a page is accepted rather
 than whether it renders correctly:
 

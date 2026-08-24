@@ -81,6 +81,10 @@ class QTCREATOR_UTILS_EXPORT BaseAspect : public QObject
     Q_PROPERTY(QVariant value READ volatileVariantValue WRITE setVolatileVariantValueFromGui
                    NOTIFY volatileValueChanged)
     Q_PROPERTY(QString labelText READ labelText WRITE setLabelText NOTIFY labelTextChanged)
+    // The label without its keyboard accelerator, for a renderer that has no
+    // use for one. Qt Quick Controls has no mnemonics, so "Ta&b size:" is drawn
+    // with the ampersand in it unless the & is taken out first.
+    Q_PROPERTY(QString plainLabelText READ plainLabelText NOTIFY labelTextChanged)
     Q_PROPERTY(QString toolTip READ toolTip WRITE setToolTip NOTIFY tooltipChanged)
     Q_PROPERTY(bool enabled READ isEnabled WRITE setEnabled NOTIFY enabledChanged)
     Q_PROPERTY(bool visible READ isVisible WRITE setVisible NOTIFY visibleChanged)
@@ -154,6 +158,7 @@ public:
     void setSaveAlways(bool saveAlways);
 
     QString labelText() const;
+    QString plainLabelText() const;
     void setLabelText(const QString &labelText);
     void setLabelPixmap(const QPixmap &labelPixmap);
     void setControlObjectName(const QString &objectName);

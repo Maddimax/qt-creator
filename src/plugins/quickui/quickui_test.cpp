@@ -141,6 +141,7 @@ private slots:
     void testQmlNameIsDerivedFromTheSettingsKey();
     void testPageQmlReachesItsAspectsByName();
     void testLabelChangeReachesTheControl();
+    void testLabelDropsItsAcceleratorForQuick();
     void testIdValuedSelectionRoundTrips();
     void testStringListEditorAddsRemovesAndEdits();
     void testStringSelectionOffersItsChoices();
@@ -1178,6 +1179,35 @@ void QuickUiTest::testLabelChangeReachesTheControl()
 
     flag.setVisible(false);
     QCOMPARE(delegate->property("visible").toBool(), false);
+}
+
+// Labels are written for the widget renderer, which turns "&" into a keyboard
+// accelerator. Qt Quick Controls has no mnemonics, so a label drawn as written
+// shows the ampersand - which is what every ported page did.
+void QuickUiTest::testLabelDropsItsAcceleratorForQuick()
+{
+    Utils::AspectContainer page;
+    Utils::BoolAspect flag(&page);
+    flag.setLabelText("Ta&b size:");
+    Utils::IntegerAspect number(&page);
+    number.setLabelText("Bells && whistles:");
+
+    // The aspect still says what it was given: the widget renderer needs it.
+    QCOMPARE(flag.labelText(), QString("Ta&b size:"));
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QVERIFY(quickWidget->rootObject());
+
+    QQuickItem *box = nullptr;
+    QTRY_VERIFY(box = findQmlComponent(quickWidget->rootObject(), "BoolDelegate"));
+    QCOMPARE(box->property("text").toString(), QString("Tab size:"));
+
+    // And an ampersand that was meant to be one survives as one.
+    QQuickItem *spin = nullptr;
+    QTRY_VERIFY(spin = findQmlComponent(quickWidget->rootObject(), "IntegerDelegate"));
+    QCOMPARE(spin->property("labelText").toString(), QString("Bells & whistles:"));
 }
 
 // The shape EncodingSelectionAspect has: a ComboBox whose value is the id of

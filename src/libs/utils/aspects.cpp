@@ -14,6 +14,7 @@
 #include "qtcassert.h"
 #include "qtcsettings.h"
 #include "store.h"
+#include "stringutils.h"
 #include "utilstr.h"
 
 #include <QAction>
@@ -325,6 +326,11 @@ QIcon BaseAspect::icon() const
 QString BaseAspect::labelText() const
 {
     return d->m_labelText;
+}
+
+QString BaseAspect::plainLabelText() const
+{
+    return stripAccelerator(d->m_labelText);
 }
 
 QString BaseAspect::toolTip() const

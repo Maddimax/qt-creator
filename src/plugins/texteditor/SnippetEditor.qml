@@ -19,7 +19,7 @@ RowLayout {
     // What the text is, so that a highlight definition can be found.
     required property string mimeType
 
-    readonly property string labelText: aspect?.labelText ?? ""
+    readonly property string labelText: aspect?.plainLabelText ?? ""
     readonly property bool aspectVisible: aspect?.visible ?? true
 
     visible: aspectVisible

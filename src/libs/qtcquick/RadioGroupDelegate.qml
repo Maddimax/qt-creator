@@ -21,7 +21,7 @@ ColumnLayout {
     // that a hand-written page can use this delegate with nothing but the
     // aspect. See AspectModels::presentation().
     property var pres: aspect ? AspectModels.presentation(aspect) : ({})
-    readonly property string labelText: aspect?.labelText ?? ""
+    readonly property string labelText: aspect?.plainLabelText ?? ""
     readonly property string toolTip: aspect?.toolTip ?? ""
     readonly property bool aspectVisible: aspect?.visible ?? true
 

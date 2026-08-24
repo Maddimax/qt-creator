@@ -15,7 +15,7 @@ RowLayout {
     id: delegate
 
     required property Aspect aspect
-    readonly property string labelText: aspect?.labelText ?? ""
+    readonly property string labelText: aspect?.plainLabelText ?? ""
     readonly property string toolTip: aspect?.toolTip ?? ""
     readonly property bool aspectVisible: aspect?.visible ?? true
 

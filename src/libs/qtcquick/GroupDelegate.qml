@@ -16,7 +16,7 @@ GroupBox {
     id: root
 
     required property Aspect aspect
-    readonly property string labelText: aspect?.labelText ?? ""
+    readonly property string labelText: aspect?.plainLabelText ?? ""
     readonly property bool aspectVisible: aspect?.visible ?? true
     // Derived rather than taken as a model role, so that a hand-written page
     // can use this delegate with nothing but the aspect.

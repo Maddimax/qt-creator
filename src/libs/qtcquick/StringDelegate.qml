@@ -17,7 +17,7 @@ RowLayout {
     // Copilot's sign-in button is its state - and says so with
     // controlConfigurationChanged().
     property var pres: aspect ? AspectModels.presentation(aspect) : ({})
-    readonly property string labelText: aspect?.labelText ?? ""
+    readonly property string labelText: aspect?.plainLabelText ?? ""
     readonly property string toolTip: aspect?.toolTip ?? ""
     readonly property bool aspectVisible: aspect?.visible ?? true
 
