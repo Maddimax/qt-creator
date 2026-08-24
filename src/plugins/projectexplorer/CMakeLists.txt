@@ -206,6 +206,7 @@ extend_qtc_plugin(ProjectExplorer
 extend_qtc_plugin(ProjectExplorer
   CONDITION WITH_TESTS
   SOURCES
+    customparserspage_test.cpp customparserspage_test.h
     jsonwizard/jsonwizard_test.cpp jsonwizard/jsonwizard_test.h
     outputparser_test.cpp outputparser_test.h
     taskhandling_test.cpp taskhandling_test.h
@@ -233,6 +234,7 @@ if(TARGET ProjectExplorer AND TARGET Qt::Quick)
       BuildAndRunSettingsPage.qml
       BuildPropertiesSettingsPage.qml
       CompileOutputSettingsPage.qml
+      CustomParsersSettingsPage.qml
       devicesupport/SshSettingsPage.qml
   )
 endif()

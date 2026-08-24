@@ -167,6 +167,7 @@ private slots:
     void testSecretIsFetchedBeforeItCanBeEdited();
     void testTableAspectDrawsWhatItsModelOffers();
     void testTableAspectAddsAndRemovesRows();
+    void testTableAspectRemovesEverySelectedRow();
     void testTableAspectFiltersItsRows();
     void testTableCellReadsInItsOwnColours();
     void testColourOffersToGoBackToItsDefault();
@@ -1861,6 +1862,51 @@ void QuickUiTest::testTableAspectAddsAndRemovesRows()
 
     QMetaObject::invokeMethod(remove, "clicked");
     QCOMPARE(table.m_model.words(), QStringList({"on/red/one", "on/red/new"}));
+}
+
+// The widget tables these replace used ExtendedSelection, and the pages that
+// act on a selection - export these parsers, remove those kits - were written
+// for more than one row at a time.
+void QuickUiTest::testTableAspectRemovesEverySelectedRow()
+{
+    Utils::AspectContainer page;
+    TestTableAspect table(&page);
+    table.setLabelText("Rows");
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "TableDelegate"));
+    QQuickItem *view = nullptr;
+    QTRY_VERIFY(view = tableViewOf(quickWidget->rootObject()));
+
+    // Three rows, so that removing two leaves something behind.
+    QQuickItem *add = findButton(delegate, "Add");
+    QVERIFY(add);
+    QMetaObject::invokeMethod(add, "clicked");
+    QCOMPARE(table.m_model.words().size(), 3);
+
+    auto shown = view->property("model").value<QAbstractItemModel *>();
+    QVERIFY(shown);
+    auto selection = view->property("selectionModel").value<QItemSelectionModel *>();
+    QVERIFY(selection);
+    selection->select(shown->index(0, 0), QItemSelectionModel::Select | QItemSelectionModel::Rows);
+    selection->select(shown->index(2, 0), QItemSelectionModel::Select | QItemSelectionModel::Rows);
+
+    // Both of them, and the delegate reports them in the aspect's own order.
+    QTRY_COMPARE(delegate->property("selectedRows").toList().size(), 2);
+    QCOMPARE(delegate->property("selectedRows").toList().first().toInt(), 0);
+
+    QQuickItem *remove = findButton(delegate, "Remove");
+    QVERIFY(remove);
+    QVERIFY(remove->property("enabled").toBool());
+    QMetaObject::invokeMethod(remove, "clicked");
+
+    // The one that was not selected, and it is the one that was in the middle:
+    // removing from the top would have shifted the others out from under it.
+    QCOMPARE(table.m_model.words(), QStringList({"off/blue/two"}));
 }
 
 void QuickUiTest::testColourOffersToGoBackToItsDefault()

@@ -37,6 +37,21 @@ RowLayout {
         return index && index.valid ? root.rows.mapToSource(index).row : -1
     }
 
+    // Every selected row, in the aspect's own model, ascending. A page that
+    // acts on a selection - export these, remove those - wants all of them and
+    // not just the one the keyboard is on.
+    readonly property var selectedRows: {
+        const rows = []
+        const indexes = view.selectionModel.selectedIndexes
+        for (let i = 0; i < indexes.length; ++i) {
+            const row = root.rows.mapToSource(indexes[i]).row
+            if (!rows.includes(row))
+                rows.push(row)
+        }
+        rows.sort((a, b) => a - b)
+        return rows
+    }
+
     // Narrowing the rows is the view's business; which rows there are and what
     // they offer is the model's. Always in the chain, so there is one index
     // space whether or not the filter field is shown.
@@ -121,6 +136,10 @@ RowLayout {
                     clip: true
                     boundsBehavior: Flickable.StopAtBounds
                     selectionBehavior: TableView.SelectRows
+                    // More than one at a time: the widget tables these replace
+                    // used ExtendedSelection, and the pages that act on a
+                    // selection were written for it.
+                    selectionMode: TableView.ExtendedSelection
                     selectionModel: ItemSelectionModel { model: view.model }
                     ToolTip.text: root.toolTip
                     ToolTip.visible: false
@@ -305,8 +324,13 @@ RowLayout {
             Button {
                 text: qsTr("Remove")
                 visible: root.pres.allowRemoving
-                enabled: root.editable && view.currentRow >= 0
-                onClicked: root.rows.removeRows(view.currentRow, 1)
+                enabled: root.editable && root.selectedRows.length > 0
+                // Backwards, so that removing one does not move the next.
+                onClicked: {
+                    const rows = root.selectedRows
+                    for (let i = rows.length - 1; i >= 0; --i)
+                        root.sourceModel.removeRows(rows[i], 1)
+                }
             }
 
             Item { Layout.fillWidth: true }

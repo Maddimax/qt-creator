@@ -18,6 +18,7 @@
 #include "currentprojectfind.h"
 #include "customexecutablerunconfiguration.h"
 #include "customparser.h"
+#include "customparserspage_test.h"
 #include "customparserssettingspage.h"
 #include "customtoolchain.h"
 #include "customwizard/customwizard.h"
@@ -901,6 +902,7 @@ Result<> ProjectExplorerPlugin::initialize(const QStringList &arguments)
     addTestCreator(createClangParserTest);
     addTestCreator(createClangClParserTest);
     addTestCreator(createCustomParserTest);
+    addTestCreator(createCustomParsersPageTest);
     addTestCreator(createDesktopDeviceTest);
     addTestCreator(createDeviceManagerTest);
     addTestCreator(createGccParserTest);

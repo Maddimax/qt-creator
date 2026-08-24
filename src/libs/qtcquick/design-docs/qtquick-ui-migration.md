@@ -1196,8 +1196,8 @@ method, and the manual-run dialog builds a widget from it too, so the page
 naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
-all`, minus `QmlDesigner` and `UpdateInfo`, see below): **76 aspect-driven
-pages, 75 with their own QML and rendered with Qt Quick, 1 still on widgets.**
+all`, minus `QmlDesigner` and `UpdateInfo`, see below): **77 aspect-driven
+pages, 76 with their own QML and rendered with Qt Quick, 1 still on widgets.**
 Gerrit is the first of the widget-creator pages below to have joined that
 count: it became aspect-driven and then got a form, which is the shape the rest
 of them take.
@@ -1207,7 +1207,7 @@ pages that hand over an `AspectContainer` through `setSettingsProvider()`.
 A page that calls `IOptionsPage::setWidgetCreator()` builds its own
 `IOptionsPageWidget` and answers nothing from `aspects()`, so the test skips it
 entirely: `isFullyRenderable()` is never asked and the page is not in the 73.
-There are **49 such call sites in 43 files** - General, Environment, Keyboard,
+There are **48 such call sites in 42 files** - General, Environment, Keyboard,
 Locator, the project settings pages, Beautifier's three, Clangd, Axivion - and
 they are pure QtWidgets from top to bottom. Gerrit was the 52nd; converting it
 took an `AspectContainer` that reads `GerritParameters` when the page is built
@@ -1272,6 +1272,22 @@ whole test run, so `-noload` it. `UpdateInfo` fails in a dev build for
 unrelated reasons and needs the same treatment. Also note that the pages a
 `-test` run sees are the tested plugin's dependency closure unless `-load` is
 given; the count was 4 before, and 21 with one extra plugin.
+
+**The remaining widget-creator pages are list managers, and they needed more
+than one row at a time.** `TableDelegate` selected a single row, and the widget
+tables it replaces used `ExtendedSelection`: Custom Output Parsers exports what
+is selected and removes what is selected, and Kits, Toolchains, Devices and
+Debuggers are the same shape. The delegate now sets
+`selectionMode: TableView.ExtendedSelection` and answers `selectedRows` in the
+aspect's own order; Remove takes them all, backwards, so that removing one does
+not move the next.
+
+A page reads the selection through its *aspect*, not through the page container:
+`aspects` in QML is the `NamedAspects` map, so `aspects.setSelectedRows(...)`
+is not a function and `aspects.Parsers.setSelectedRows(...)` is. That mistake
+was caught by the QML-warning check rather than by looking at the page, which is
+what that check is for - a missing binding is still not caught, only a
+malformed one.
 
 **A page whose value is what should still exist.** Macros deletes and renames,
 and the widget page kept two lists of pending changes beside a `QTreeWidget`.
