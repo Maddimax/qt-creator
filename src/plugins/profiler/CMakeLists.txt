@@ -29,6 +29,7 @@ if(WITH_TESTS)
     tests/tests.qrc
     tests/perfprofilertracefile_test.cpp tests/perfprofilertracefile_test.h
     tests/perfresourcecounter_test.cpp tests/perfresourcecounter_test.h
+    tests/perfconfigeventsmodel_test.cpp tests/perfconfigeventsmodel_test.h
     tests/perfnativemixed_test.cpp tests/perfnativemixed_test.h
     tests/perfprofilertests.qrc
   )
@@ -217,6 +218,7 @@ if(TARGET Profiler AND TARGET Qt::Quick)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      PerfSettingsPage.qml
       QmlProfilerSettingsPage.qml
   )
 endif()

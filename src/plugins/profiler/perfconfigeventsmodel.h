@@ -20,6 +20,7 @@ public:
     QVariant data(const QModelIndex &index, int role) const override;
     bool setData(const QModelIndex &index, const QVariant &value, int role) override;
     QVariant headerData(int section, Qt::Orientation orientation, int role) const override;
+    QHash<int, QByteArray> roleNames() const override;
     bool insertRows(int row, int count, const QModelIndex &parent) override;
     bool removeRows(int row, int count, const QModelIndex &parent) override;
     Qt::ItemFlags flags(const QModelIndex &index) const override;
@@ -110,6 +111,13 @@ public:
     static QString subTypeString(EventType eventType, SubType subType);
 
 private:
+    // What the cell offers: the choices it has, or the pattern its text has to
+    // match. Both depend on the row's event type, which is why they cannot live
+    // in a view.
+    QVariantList choicesFor(const QModelIndex &index) const;
+    QString validatorFor(const QModelIndex &index) const;
+    EventType eventTypeOf(int row) const;
+
     PerfSettings *m_settings;
     EventDescription parseEvent(const QString &event) const;
     QString generateEvent(const EventDescription &description) const;

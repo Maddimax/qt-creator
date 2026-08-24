@@ -5,12 +5,25 @@
 #include "perfprofilertr.h"
 
 #include <utils/algorithm.h>
+#include <utils/aspectpresentation.h>
 
 #include <QMetaEnum>
 
 using namespace Utils;
 
 namespace Profiler::Internal {
+
+// Undoes what data() wrote for a raw or breakpoint event, so that a view can
+// hand the text over as the user typed it.
+static quint64 numericEvent(const QVariant &value, const QString &prefix)
+{
+    if (value.typeId() != QMetaType::QString)
+        return value.toULongLong();
+    QString text = value.toString();
+    if (text.startsWith(prefix))
+        text = text.mid(prefix.size());
+    return text.toULongLong(nullptr, 16);
+}
 
 PerfConfigEventsModel::PerfConfigEventsModel(PerfSettings *settings, QObject *parent) :
     QAbstractTableModel(parent), m_settings(settings)
@@ -35,6 +48,12 @@ QVariant PerfConfigEventsModel::data(const QModelIndex &index, int role) const
     case Qt::DisplayRole:
     case Qt::EditRole:
         break; // Retrieve the actual value
+    case AspectTable::ChoicesRole:
+        return choicesFor(index);
+    case AspectTable::ValidatorRole:
+        return validatorFor(index);
+    case AspectTable::EditableRole:
+        return flags(index).testFlag(Qt::ItemIsEditable);
     default:
         return QVariant(); // ignore
     }
@@ -137,10 +156,10 @@ bool PerfConfigEventsModel::setData(const QModelIndex &dataIndex, const QVariant
             description.subType = qvariant_cast<SubType>(value);
             break;
         case EventTypeRaw:
-            description.numericEvent = value.toULongLong();
+            description.numericEvent = numericEvent(value, "r");
             break;
         case EventTypeBreakpoint:
-            description.numericEvent = value.toULongLong();
+            description.numericEvent = numericEvent(value, "0x");
             break;
         case EventTypeCustom:
             description.customEvent = value.toString();
@@ -215,7 +234,116 @@ bool PerfConfigEventsModel::removeRows(int row, int count, const QModelIndex &pa
 
 Qt::ItemFlags PerfConfigEventsModel::flags(const QModelIndex &index) const
 {
-    return QAbstractTableModel::flags(index) | Qt::ItemIsEditable;
+    const Qt::ItemFlags flags = QAbstractTableModel::flags(index);
+    const EventType eventType = eventTypeOf(index.row());
+
+    switch (index.column()) {
+    case ColumnEventType:
+        break;
+    case ColumnSubType:
+        if (eventType == EventTypeInvalid)
+            return flags;
+        break;
+    case ColumnOperation:
+        if (eventType != EventTypeCache && eventType != EventTypeBreakpoint)
+            return flags;
+        break;
+    case ColumnResult:
+        if (eventType != EventTypeCache)
+            return flags;
+        break;
+    default:
+        return flags;
+    }
+    return flags | Qt::ItemIsEditable;
+}
+
+QHash<int, QByteArray> PerfConfigEventsModel::roleNames() const
+{
+    return AspectTable::withRoleNames(QAbstractTableModel::roleNames());
+}
+
+PerfConfigEventsModel::EventType PerfConfigEventsModel::eventTypeOf(int row) const
+{
+    return qvariant_cast<EventType>(data(index(row, ColumnEventType), Qt::EditRole));
+}
+
+QVariantList PerfConfigEventsModel::choicesFor(const QModelIndex &cell) const
+{
+    const auto choice = [](const QString &display, const QVariant &id) {
+        return QVariant::fromValue(QVariantMap{{"display", display}, {"id", id}});
+    };
+    const EventType eventType = eventTypeOf(cell.row());
+
+    switch (cell.column()) {
+    case ColumnEventType: {
+        QVariantList choices;
+        const QMetaEnum meta = QMetaEnum::fromType<EventType>();
+        for (int i = 0; i < EventTypeInvalid; ++i) {
+            choices.append(choice(QString::fromLatin1(meta.valueToKey(i))
+                                      .mid(static_cast<int>(strlen("EventType"))).toLower(), i));
+        }
+        return choices;
+    }
+    case ColumnSubType: {
+        int first = SubTypeInvalid;
+        int end = SubTypeInvalid;
+        switch (eventType) {
+        case EventTypeHardware:
+            first = SubTypeEventTypeHardware;
+            end = SubTypeEventTypeSoftware;
+            break;
+        case EventTypeSoftware:
+            first = SubTypeEventTypeSoftware;
+            end = SubTypeEventTypeCache;
+            break;
+        case EventTypeCache:
+            first = SubTypeEventTypeCache;
+            end = SubTypeInvalid;
+            break;
+        default:
+            return {}; // Raw, breakpoint and custom events are written out.
+        }
+        QVariantList choices;
+        for (int i = first; i < end; ++i)
+            choices.append(choice(subTypeString(eventType, SubType(i)), i));
+        return choices;
+    }
+    case ColumnOperation:
+        if (eventType == EventTypeCache) {
+            return {choice("load", OperationLoad),
+                    choice("store", OperationStore),
+                    choice("prefetch", OperationPrefetch)};
+        }
+        if (eventType == EventTypeBreakpoint) {
+            return {choice("r", OperationLoad),
+                    choice("rw", OperationLoad | OperationStore),
+                    choice("rwx", OperationLoad | OperationStore | OperationExecute),
+                    choice("rx", OperationLoad | OperationExecute),
+                    choice("w", OperationStore),
+                    choice("wx", OperationStore | OperationExecute),
+                    choice("x", OperationExecute)};
+        }
+        return {};
+    case ColumnResult:
+        if (eventType == EventTypeCache)
+            return {choice("refs", ResultRefs), choice("misses", ResultMisses)};
+        return {};
+    default:
+        return {};
+    }
+}
+
+QString PerfConfigEventsModel::validatorFor(const QModelIndex &cell) const
+{
+    if (cell.column() != ColumnSubType)
+        return {};
+
+    switch (eventTypeOf(cell.row())) {
+    case EventTypeRaw:        return "r[0-9a-f]{3}";
+    case EventTypeBreakpoint: return "0x[0-9a-f]{16}";
+    default:                  return {};
+    }
 }
 
 QString PerfConfigEventsModel::subTypeString(EventType eventType, SubType subType)

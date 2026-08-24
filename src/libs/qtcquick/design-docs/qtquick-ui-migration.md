@@ -481,7 +481,7 @@ nothing - and waits on the signal rather than on a non-empty string, because an
 empty secret is a legitimate answer. `FontAspect` still carries the original
 version of this trap.
 
-#### The nine that are left, and what each one needs
+#### The eight that are left, and what each one needs
 
 Every one of these was read, not guessed at - the last three rounds each found
 that the widget collapsed to controls that already existed. These do not:
@@ -490,26 +490,17 @@ that the widget collapsed to controls that already existed. These do not:
 |---|---|
 | Code Style (x3) | `createValueEditor()` returns a per-language editor built by a factory, and the page puts a syntax-highlighted preview beside it |
 | Snippets, Font && Colors | an editor and a live preview, same shape |
-| CPU Usage | `PerfConfigEventsModel` splits each entry of a `StringListAspect` into columns for editing. The string list editor would carry the data and every operation, and lose the columns - a real downgrade for the one page that has it |
 | Debugger General | `DebuggerSourcePathMappingWidget`, a two-column table of source and target paths with add and remove |
 | Testing General | `FrameworksAspect` has no `presentation()` at all, and its tree is two check boxes per row - enabled, and grouped |
 | QML/JS Editing | `AnalyzerMessagesAspect`, a tree with two independent states per message - and its state *is* the tree: `apply()`, `cancel()` and `isDirty()` all read `m_view`, and `apply()` returns early when there is none. No other renderer can drive it until the aspect owns its own volatile value |
 
-Three shapes would cover them: an editable multi-column table (CPU Usage,
-Debugger General), rows of several check boxes (Testing, QML/JS Editing), and a
-hosted editor with a preview (Code Style, Snippets, Font && Colors). The third
-is the one worth deciding rather than building: those editors are large, and
-hosting the existing widget inside an otherwise-Quick page may be the right
-answer for a long time.
+Two shapes would cover them: rows of several check boxes (Testing, QML/JS
+Editing) and a hosted editor with a preview (Code Style, Snippets, Font &&
+Colors). Multi-column tables are now built - see below - and Debugger General
+needs only `SourcePathMapAspect` to own its value and hand out a model.
 
-Three of these were taken further than reading, and each stopped for the same
+Two of these were taken further than reading, and each stopped for the same
 reason - the cost is not in the QML:
-
-**CPU Usage** would work today with the string list editor. `PerfConfigEventsModel`
-splits each entry of `events`, a `StringListAspect`, into columns; a list of the
-raw event strings keeps the data and every operation and loses the columns. That
-is a visible downgrade for the only page that has that editor, so it wants
-someone's agreement, not a commit.
 
 **QML/JS Editing** cannot be drawn by anything but its own tree as it stands,
 because the tree holds the state rather than showing it. Making the aspect own a
@@ -525,11 +516,48 @@ exactly the same keys. But it means moving a plugin's persistence, `apply()` and
 dirty tracking out of a hand-written aspect, and the reward is a two-column
 table becoming a flat list. Risk without a win.
 
-#### What the 27 remaining layouters are
+#### Multi-column tables: the model says what each cell offers
+
+CPU Usage was the first page whose value is a table, and the thing worth keeping
+from it is where the knowledge went. Its editors are *context-dependent*: the
+counters a row offers depend on the row's event type, a cache event has an
+operation and a result where a hardware event has neither, and a raw or
+breakpoint event is typed rather than picked. All of that lived in a
+`QStyledItemDelegate`, which is to say in one view.
+
+So the contract is that the model answers it, in three roles (`AspectTable` in
+`aspectpresentation.h`): `ChoicesRole` gives the cell's choices as
+display/id pairs, empty where there is nothing to pick; `ValidatorRole` gives a
+pattern the text has to match; `EditableRole` repeats what `flags()` says,
+because a Qt Quick view cannot read `flags()`. `withRoleNames()` puts the three
+into a model's `roleNames()` so QML sees them as `model.choices`,
+`model.validator` and `model.editable`.
+
+`BaseAspect::tableModel()` hands the model out, and the aspect owns it, so the
+`QTableView` and the Quick `TableView` show the same rows. `TableDelegate.qml`
+builds a combo box where the cell offers a choice and a field otherwise; the
+`QStyledItemDelegate` now reads the same three roles and dropped from 110 lines
+to 25. The display forms are parsed back by the model too - `r0f3` and
+`0x0000000000401000` were being un-hexed in the widget delegate, which is why
+only that view could edit them.
+
+Two things to copy when the next table aspect arrives:
+
+- **A cell that offers nothing must say whether it is editable.** No choices and
+  no pattern describes both a free-text cell and a closed one. Answering
+  `EditableRole` from `flags()` is what tells them apart - and moving that into
+  `flags()` also stopped the widget from showing disabled combo boxes.
+- **A field must not write when its text has not changed.** A cell editor
+  outlives its row by exactly one focus event, and the write would land on
+  whichever row took its place. The test counts writes rather than comparing
+  values, because writing the same value back is invisible in the result - that
+  negative control did not bite until it counted.
+
+#### What the 26 remaining layouters are
 
 Worth knowing before hunting for dead ones, because most of these are not pages:
 
-- **9 are the pages above** (Code Style counts once here; its aspect serves all
+- **8 are the pages above** (Code Style counts once here; its aspect serves all
   three).
 - **5 are live nested containers**: `TabSettings`, `TypingSettings`,
   `StorageSettings`, `ExtraEncodingSettings` and `BehaviorSettings`. The Behavior
@@ -696,7 +724,7 @@ naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
 all`, minus `QmlDesigner` and `UpdateInfo`, see below): **73 aspect-driven
-pages, 64 with their own QML and rendered with Qt Quick, 9 still on widgets.**
+pages, 65 with their own QML and rendered with Qt Quick, 8 still on widgets.**
 Before the gate was narrowed, 65 pages rendered generically; the delegate work
 that made that possible is all still in place and is what the ports build on:
 `StringListAspect` (a real list editor), `IntegersAspect` (`Invisible`, because

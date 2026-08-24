@@ -177,6 +177,7 @@ QtcPlugin {
     QtcTestFiles {
         prefix: "tests/"
         files: [
+            "perfconfigeventsmodel_test.cpp", "perfconfigeventsmodel_test.h",
             "perfnativemixed_test.cpp", "perfnativemixed_test.h",
             "perfprofilertracefile_test.cpp", "perfprofilertracefile_test.h",
             "perfresourcecounter_test.cpp", "perfresourcecounter_test.h",

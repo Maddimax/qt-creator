@@ -9,6 +9,22 @@
 
 namespace Profiler {
 
+// The events to record, as rows rather than as the strings they are stored as.
+// The model does the translating; see Profiler::Internal::PerfConfigEventsModel.
+class PROFILER_EXPORT PerfEventsAspect final : public Utils::StringListAspect
+{
+public:
+    using StringListAspect::StringListAspect;
+
+    void setTableModel(QAbstractItemModel *model) { m_model = model; }
+    QAbstractItemModel *tableModel() override { return m_model; }
+
+    Utils::AspectPresentation presentation() const override;
+
+private:
+    QAbstractItemModel *m_model = nullptr;
+};
+
 class PROFILER_EXPORT PerfSettings final : public Utils::AspectContainer
 {
     Q_OBJECT
@@ -29,8 +45,9 @@ public:
     Utils::IntegerAspect stackSize{this};
     Utils::SelectionAspect sampleMode{this};
     Utils::SelectionAspect callgraphMode{this};
-    Utils::StringListAspect events{this};
+    PerfEventsAspect events{this};
     Utils::StringAspect extraArguments{this};
+    Utils::ActionAspect resetToDefaults{this};
 };
 
 PerfSettings &globalSettings();

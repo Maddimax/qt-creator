@@ -17,6 +17,7 @@
 
 #ifdef WITH_TESTS
 
+#include "tests/perfconfigeventsmodel_test.h"
 #include "tests/perfnativemixed_test.h"
 #include "tests/perfresourcecounter_test.h"
 
@@ -88,6 +89,7 @@ class ProfilerPlugin final : public ExtensionSystem::IPlugin
         addTest<QmlProfilerToolTest>();
         addTest<QmlProfilerTraceViewTest>();
 
+        addTestCreator(createPerfConfigEventsModelTest);
         addTestCreator(createPerfNativeMixedTest);
         addTestCreator(createPerfResourceCounterTest);
 #endif

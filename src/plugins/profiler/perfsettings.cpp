@@ -14,7 +14,7 @@
 #include <projectexplorer/devicesupport/idevice.h>
 #include <projectexplorer/target.h>
 
-#include <utils/aspectwidgets.h>
+#include <utils/aspectpresentation.h>
 #include <utils/aspects.h>
 #include <utils/guiutils.h>
 #include <utils/layoutbuilder.h>
@@ -26,8 +26,8 @@
 #include <QHeaderView>
 #include <QLineEdit>
 #include <QMessageBox>
-#include <QMetaEnum>
 #include <QPushButton>
+#include <QRegularExpressionValidator>
 #include <QStyledItemDelegate>
 #include <QTableView>
 
@@ -81,7 +81,7 @@ PerfConfigWidget::PerfConfigWidget(PerfSettings *settings, Target *target)
     eventsView->setEditTriggers(QAbstractItemView::AllEditTriggers);
     eventsView->setSelectionMode(QAbstractItemView::SingleSelection);
     eventsView->setSelectionBehavior(QAbstractItemView::SelectRows);
-    eventsView->setModel(new PerfConfigEventsModel(m_settings, this));
+    eventsView->setModel(m_settings->events.tableModel());
     eventsView->setItemDelegate(new SettingsDelegate(this));
     eventsView->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
 
@@ -206,118 +206,26 @@ QWidget *SettingsDelegate::createEditor(QWidget *parent, const QStyleOptionViewI
                                         const QModelIndex &index) const
 {
     Q_UNUSED(option)
-    const int row = index.row();
-    const int column = index.column();
-    const PerfConfigEventsModel *model = qobject_cast<const PerfConfigEventsModel *>(index.model());
-
-    auto getRowEventType = [&]() {
-        return qvariant_cast<PerfConfigEventsModel::EventType>(
-                    model->data(model->index(row, PerfConfigEventsModel::ColumnEventType),
-                                Qt::EditRole));
-    };
-
-    switch (column) {
-    case PerfConfigEventsModel::ColumnEventType: {
-        QComboBox *editor = new QComboBox(parent);
-        QMetaEnum meta = QMetaEnum::fromType<PerfConfigEventsModel::EventType>();
-        for (int i = 0; i < PerfConfigEventsModel::EventTypeInvalid; ++i) {
-            editor->addItem(QString::fromLatin1(meta.valueToKey(i)).mid(
-                                static_cast<int>(strlen("EventType"))).toLower(), i);
-        }
-        return editor;
-    }
-    case PerfConfigEventsModel::ColumnSubType: {
-        PerfConfigEventsModel::EventType eventType = getRowEventType();
-        switch (eventType) {
-        case PerfConfigEventsModel::EventTypeHardware: {
-            QComboBox *editor = new QComboBox(parent);
-            for (int i = PerfConfigEventsModel::SubTypeEventTypeHardware;
-                 i < PerfConfigEventsModel::SubTypeEventTypeSoftware; ++i) {
-                editor->addItem(PerfConfigEventsModel::subTypeString(PerfConfigEventsModel::EventTypeHardware,
-                                                     PerfConfigEventsModel::SubType(i)), i);
-            }
-            return editor;
-        }
-        case PerfConfigEventsModel::EventTypeSoftware: {
-            QComboBox *editor = new QComboBox(parent);
-            for (int i = PerfConfigEventsModel::SubTypeEventTypeSoftware;
-                 i < PerfConfigEventsModel::SubTypeEventTypeCache; ++i) {
-                editor->addItem(PerfConfigEventsModel::subTypeString(PerfConfigEventsModel::EventTypeSoftware,
-                                                     PerfConfigEventsModel::SubType(i)), i);
-            }
-            return editor;
-        }
-        case PerfConfigEventsModel::EventTypeCache: {
-            QComboBox *editor = new QComboBox(parent);
-            for (int i = PerfConfigEventsModel::SubTypeEventTypeCache;
-                 i < PerfConfigEventsModel::SubTypeInvalid; ++i) {
-                editor->addItem(PerfConfigEventsModel::subTypeString(PerfConfigEventsModel::EventTypeCache,
-                                                     PerfConfigEventsModel::SubType(i)), i);
-            }
-            return editor;
-        }
-        case PerfConfigEventsModel::EventTypeBreakpoint: {
-            QLineEdit *editor = new QLineEdit(parent);
-            editor->setText("0x0000000000000000");
-            editor->setValidator(new QRegularExpressionValidator(
-                                     QRegularExpression("0x[0-9a-f]{16}"), parent));
-            return editor;
-        }
-        case PerfConfigEventsModel::EventTypeCustom: {
-            QLineEdit *editor = new QLineEdit(parent);
-            return editor;
-        }
-        case PerfConfigEventsModel::EventTypeRaw: {
-            QLineEdit *editor = new QLineEdit(parent);
-            editor->setText("r000");
-            editor->setValidator(new QRegularExpressionValidator(
-                                     QRegularExpression("r[0-9a-f]{3}"), parent));
-            return editor;
-        }
-        case PerfConfigEventsModel::EventTypeInvalid:
-            return nullptr;
-        }
-        return nullptr; // Will never be reached, but GCC cannot figure this out.
-    }
-    case PerfConfigEventsModel::ColumnOperation: {
-        QComboBox *editor = new QComboBox(parent);
-        PerfConfigEventsModel::EventType eventType = getRowEventType();
-        if (eventType == PerfConfigEventsModel::EventTypeCache) {
-            editor->addItem("load", PerfConfigEventsModel::OperationLoad);
-            editor->addItem("store", PerfConfigEventsModel::OperationStore);
-            editor->addItem("prefetch", PerfConfigEventsModel::OperationPrefetch);
-        } else if (eventType == PerfConfigEventsModel::EventTypeBreakpoint) {
-            editor->addItem("r", PerfConfigEventsModel::OperationLoad);
-            editor->addItem("rw", PerfConfigEventsModel::OperationLoad
-                            | PerfConfigEventsModel::OperationStore);
-            editor->addItem("rwx", PerfConfigEventsModel::OperationLoad
-                            | PerfConfigEventsModel::OperationStore
-                            | PerfConfigEventsModel::OperationExecute);
-            editor->addItem("rx", PerfConfigEventsModel::OperationLoad
-                            | PerfConfigEventsModel::OperationExecute);
-            editor->addItem("w", PerfConfigEventsModel::OperationStore);
-            editor->addItem("wx", PerfConfigEventsModel::OperationStore
-                            | PerfConfigEventsModel::OperationExecute);
-            editor->addItem("x", PerfConfigEventsModel::OperationExecute);
-        } else {
-            editor->setEnabled(false);
-        }
-        return editor;
-    }
-    case PerfConfigEventsModel::ColumnResult: {
-        QComboBox *editor = new QComboBox(parent);
-        PerfConfigEventsModel::EventType eventType = getRowEventType();
-        if (eventType != PerfConfigEventsModel::EventTypeCache) {
-            editor->setEnabled(false);
-        } else {
-            editor->addItem("refs", PerfConfigEventsModel::ResultRefs);
-            editor->addItem("misses", PerfConfigEventsModel::ResultMisses);
-        }
-        return editor;
-    }
-    default:
+    if (!index.flags().testFlag(Qt::ItemIsEditable))
         return nullptr;
+
+    const QVariantList choices = index.data(AspectTable::ChoicesRole).toList();
+    if (!choices.isEmpty()) {
+        QComboBox *editor = new QComboBox(parent);
+        for (const QVariant &choice : choices) {
+            const QVariantMap map = choice.toMap();
+            editor->addItem(map.value("display").toString(), map.value("id"));
+        }
+        return editor;
     }
+
+    QLineEdit *editor = new QLineEdit(parent);
+    const QString validator = index.data(AspectTable::ValidatorRole).toString();
+    if (!validator.isEmpty()) {
+        editor->setValidator(
+            new QRegularExpressionValidator(QRegularExpression(validator), editor));
+    }
+    return editor;
 }
 
 void SettingsDelegate::setEditorData(QWidget *editor, const QModelIndex &index) const
@@ -341,28 +249,18 @@ void SettingsDelegate::setModelData(QWidget *editor, QAbstractItemModel *model,
     if (QComboBox *combo = qobject_cast<QComboBox *>(editor)) {
         model->setData(index, combo->currentData());
     } else if (QLineEdit *lineedit = qobject_cast<QLineEdit *>(editor)) {
-        QString text = lineedit->text();
-        QVariant type = model->data(model->index(index.row(),
-                                                 PerfConfigEventsModel::ColumnEventType),
-                                    Qt::EditRole);
-        switch (qvariant_cast<PerfConfigEventsModel::EventType>(type)) {
-        case PerfConfigEventsModel::EventTypeRaw:
-            model->setData(index, text.mid(static_cast<int>(strlen("r"))).toULongLong(nullptr, 16));
-            break;
-        case PerfConfigEventsModel::EventTypeBreakpoint:
-            model->setData(index,
-                           text.mid(static_cast<int>(strlen("0x"))).toULongLong(nullptr, 16));
-            break;
-        case PerfConfigEventsModel::EventTypeCustom:
-            model->setData(index, text);
-            break;
-        default:
-            break;
-        }
+        model->setData(index, lineedit->text());
     }
 }
 
 // PerfSettingsPage
+
+AspectPresentation PerfEventsAspect::presentation() const
+{
+    AspectPresentation p = StringListAspect::presentation();
+    p.control = AspectControls::Table;
+    return p;
+}
 
 PerfSettings &globalSettings()
 {
@@ -372,6 +270,7 @@ PerfSettings &globalSettings()
 
 PerfSettings::PerfSettings(ProjectExplorer::Target *target)
 {
+    Q_UNUSED(target)
     setAutoApply(false);
     setId(Constants::PerfSettingsId);
 
@@ -402,21 +301,23 @@ PerfSettings::PerfSettings(ProjectExplorer::Target *target)
 
     events.setSettingsKey("Analyzer.Perf.Events");
     events.setDefaultValue({"cpu-cycles"});
+    events.setLabelText(Tr::tr("Events:"));
+    events.setTableModel(new Internal::PerfConfigEventsModel(this, this));
 
     extraArguments.setSettingsKey("Analyzer.Perf.ExtraArguments");
     extraArguments.setDisplayStyle(StringAspect::DisplayStyle::LineEditDisplay);
     extraArguments.setLabelText(Tr::tr("Additional arguments:"));
     extraArguments.setSpan(4);
 
+    resetToDefaults.setQmlName("ResetToDefaults");
+    resetToDefaults.setActionText(Tr::tr("Reset"));
+    resetToDefaults.setAction([this] { reset(); });
+
     connect(&callgraphMode, &SelectionAspect::volatileValueChanged, this, [this] {
         stackSize.setEnabled(callgraphMode.volatileValue() == 0);
     });
 
-    Utils::AspectWidgets::setLayouter(this, [this, target] {
-        using namespace Layouting;
-        auto widget = new PerfConfigWidget(this, target);
-        return Column { widget };
-    });
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Profiler/PerfSettingsPage.qml"));
 
     readGlobalSettings();
     readSettings();
