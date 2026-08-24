@@ -26,16 +26,13 @@ AspectPage {
     BoolDelegate { aspect: aspects.EnableCors }
     TextDisplayDelegate { aspect: aspects.ServerStatus }
 
-    AspectGroupBox {
-        title: qsTr("Tools")
-
-        // One check box per registered tool, named and described by the tool
-        // itself. The widget editor drew this as a three-column table.
-        AspectItems { model: AspectModels.container(aspects.EnabledTools) }
-
-        RowLayout {
-            ButtonDelegate { aspect: aspects.ExportTools }
-            ButtonDelegate { aspect: aspects.ImportTools }
-        }
+    RowLayout {
+        ButtonDelegate { aspect: aspects.ExportTools }
+        ButtonDelegate { aspect: aspects.ImportTools }
     }
+
+    // One row per registered tool: a check box, the tool's name and what it
+    // does. The names live in the model, which is why a plain list of the
+    // per-tool aspects was a column of nameless check boxes.
+    TableDelegate { aspect: aspects.EnabledTools }
 }

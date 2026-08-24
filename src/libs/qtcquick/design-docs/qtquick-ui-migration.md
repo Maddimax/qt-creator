@@ -357,6 +357,10 @@ of their own because the names live in the table's model. Every aspect on that
 page is one the generic form knows, so the page was accepted - and rendered as a
 column of nameless check boxes with the table gone.
 
+(That page has its table back: `ToolEnablerAspect` hands out a model and its
+control is `Table`. The names live in the model again, and the aspects keep
+their labels for a renderer that lists them on their own.)
+
 The general point: **the layouter is what decides what a page shows.** It picks
 which aspects appear, arranges them, supplies labels of its own, and may build
 widgets that belong to no aspect. The generic form knows none of that - it shows
@@ -541,17 +545,53 @@ to 25. The display forms are parsed back by the model too - `r0f3` and
 `0x0000000000401000` were being un-hexed in the widget delegate, which is why
 only that view could edit them.
 
-Two things to copy when the next table aspect arrives:
+The MCP Server page was the second user and needed three more cell shapes, so
+`TableDelegate` now builds one of four things per cell: a check box where the
+model says `CheckableRole`, a combo box where there are choices, a field where
+the cell is writable, and a plain label where it is not. `AspectPresentation`
+gained `filterPlaceholderText`; naming it puts a filter field above the table,
+and `QtcQuick::TableFilterModel` - a `QSortFilterProxyModel` matching on every
+column - is always in the chain, so there is one index space whether or not the
+field is shown. That put the description column and the filter back, both of
+which the port to a flat list of check boxes had dropped.
 
-- **A cell that offers nothing must say whether it is editable.** No choices and
-  no pattern describes both a free-text cell and a closed one. Answering
-  `EditableRole` from `flags()` is what tells them apart - and moving that into
-  `flags()` also stopped the widget from showing disabled combo boxes.
+Things to copy when the next table aspect arrives:
+
+- **A cell that offers nothing must say whether it is writable.** No choices and
+  no pattern describes both a free-text cell and a closed one. `EditableRole`
+  answered through `AspectTable::isWritable()` is what tells them apart - a
+  field or a choice is editable, a check box is checkable, and either means the
+  user may change it. Moving that into `flags()` also stopped the widget from
+  showing disabled combo boxes.
 - **A field must not write when its text has not changed.** A cell editor
   outlives its row by exactly one focus event, and the write would land on
   whichever row took its place. The test counts writes rather than comparing
   values, because writing the same value back is invisible in the result - that
   negative control did not bite until it counted.
+- **`reuseItems` is off.** A reused cell keeps whatever its `Loader` built, and
+  a `text` binding the user has typed over is not restored - so the guard above
+  would compare stale text against a new row and write it there. These tables
+  are tens of rows; the saving is not worth that.
+
+#### Testing a TableView needs a window
+
+`createGenericAspectForm()` is enough to exercise every other delegate without
+showing anything, and that is how the rest of these tests work. A `TableView` is
+not: it creates its cells when it lays out, and it lays out when it has a
+window. In a form that was never shown the cells appear for a moment and then
+come away from the model, so `model.display` reads `undefined` inside a signal
+handler, `TableView.itemAtIndex()` returns nothing, and `TableView.rows` keeps
+whatever the abandoned pass left.
+
+The first version of these tests read those orphans. It went green, and its
+negative controls bit, so nothing said the writes it checked were not happening
+at all - `writes` stayed where it was and the assertion compared two numbers
+that were both wrong. `showForm()` shows the widget and waits for exposure,
+which is a real event rather than a delay. Two lessons: assert on the model the
+view was given rather than on `TableView.rows`, which does not follow the model
+after the first layout without a render pass; and find a cell control by
+`objectName` rather than by type, because a non-editable `ComboBox`'s content
+item is itself a `TextField`.
 
 #### What the 26 remaining layouters are
 

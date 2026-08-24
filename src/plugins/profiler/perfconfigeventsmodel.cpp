@@ -53,7 +53,7 @@ QVariant PerfConfigEventsModel::data(const QModelIndex &index, int role) const
     case AspectTable::ValidatorRole:
         return validatorFor(index);
     case AspectTable::EditableRole:
-        return flags(index).testFlag(Qt::ItemIsEditable);
+        return AspectTable::isWritable(flags(index));
     default:
         return QVariant(); // ignore
     }

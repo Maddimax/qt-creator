@@ -90,6 +90,7 @@ QVariantMap AspectModels::presentation(BaseAspect *aspect)
         {"minimum", p.minimum.isValid() ? p.minimum : widestBound(p.control, Lower)},
         {"maximum", p.maximum.isValid() ? p.maximum : widestBound(p.control, Upper)},
         {"step", p.singleStep.isValid() ? p.singleStep : QVariant(1)},
+        {"filterPlaceholderText", p.filterPlaceholderText},
         {"allowAdding", p.allowAdding},
         {"allowRemoving", p.allowRemoving},
         {"allowEditing", p.allowEditing},

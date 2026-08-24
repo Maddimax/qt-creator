@@ -119,10 +119,22 @@ enum Role {
     ChoicesRole = Qt::UserRole + 900,
     // A regular expression the cell's text has to match.
     ValidatorRole,
-    // Whether the cell can be written to. A widget view reads flags() for this,
-    // which a Qt Quick view cannot, so a table model answers both.
+    // Whether the user may change the cell. A widget view reads flags() for
+    // this, which a Qt Quick view cannot, so a table model answers both; see
+    // isWritable() for what it comes to.
     EditableRole,
+    // Whether the cell is a check box, reading and writing Qt::CheckStateRole.
+    // Also flags(), and also unreadable from QML.
+    CheckableRole,
 };
+
+// What EditableRole answers, from the cell's own flags: a field or a choice is
+// editable and a check box is checkable, and either means the user may change
+// what the cell holds.
+inline bool isWritable(Qt::ItemFlags flags)
+{
+    return flags.testAnyFlags(Qt::ItemIsEditable | Qt::ItemIsUserCheckable);
+}
 
 // The names the roles go by in QML. A table model adds them to its
 // roleNames(), so that a Qt Quick view can read them off the cell.
@@ -131,6 +143,10 @@ inline QHash<int, QByteArray> withRoleNames(QHash<int, QByteArray> names)
     names.insert(ChoicesRole, "choices");
     names.insert(ValidatorRole, "validator");
     names.insert(EditableRole, "editable");
+    names.insert(CheckableRole, "checkable");
+    // Qt's own, named here because QML addresses a role by name and the
+    // default roleNames() leaves this one out.
+    names.insert(Qt::CheckStateRole, "checkState");
     return names;
 }
 
@@ -195,7 +211,10 @@ public:
         = AspectControls::SizeAdjustPolicy::ToMinimumContentsLengthWithIcon;
     int minimumContentsLength = 0;
 
-    // StringList.
+    // Table. The text in an empty filter field; no filter where it is empty.
+    QString filterPlaceholderText;
+
+    // StringList and Table.
     bool allowAdding = true;
     bool allowRemoving = true;
     bool allowEditing = true;

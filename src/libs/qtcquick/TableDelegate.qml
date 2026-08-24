@@ -9,10 +9,10 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtCreator.Ui
 
-// Rows and columns, from the model the aspect hands out. What a cell offers -
-// a list of choices, or a pattern its text has to match - is the model's
-// answer, because it is the same answer for a QTableView and it usually
-// depends on the row's other cells. See Utils::AspectTable.
+// Rows and columns, from the model the aspect hands out. What a cell is - a
+// check box, a choice, a field, or text to read - is the model's answer,
+// because it is the same answer for a QTableView and it usually depends on the
+// row's other cells. See Utils::AspectTable.
 RowLayout {
     id: root
 
@@ -27,7 +27,14 @@ RowLayout {
     readonly property bool editable: (aspect?.enabled ?? false) && !(aspect?.readOnly ?? false)
 
     // The aspect owns the model, so it outlives any one page.
-    readonly property var tableModel: aspect?.tableModel() ?? null
+    readonly property var sourceModel: aspect?.tableModel() ?? null
+
+    // Narrowing the rows is the view's business; which rows there are and what
+    // they offer is the model's. Always in the chain, so there is one index
+    // space whether or not the filter field is shown.
+    readonly property TableFilterModel rows: TableFilterModel {
+        sourceModel: root.sourceModel
+    }
 
     Connections {
         target: root.aspect
@@ -51,6 +58,15 @@ RowLayout {
         spacing: Spacing.GapVXs
         Layout.fillWidth: true
 
+        TextField {
+            objectName: "tableFilterField"
+            placeholderText: root.pres.filterPlaceholderText ?? ""
+            visible: placeholderText !== ""
+            enabled: root.aspect?.enabled ?? false
+            Layout.fillWidth: true
+            onTextChanged: root.rows.setFilterFixedString(text)
+        }
+
         Frame {
             Layout.fillWidth: true
             Layout.preferredHeight: Metrics.formListHeight
@@ -68,7 +84,8 @@ RowLayout {
                 TableView {
                     id: view
 
-                    model: root.tableModel
+                    model: root.rows
+                    reuseItems: false
                     clip: true
                     boundsBehavior: Flickable.StopAtBounds
                     selectionBehavior: TableView.SelectRows
@@ -105,13 +122,34 @@ RowLayout {
                             id: editor
 
                             anchors.fill: parent
-                            sourceComponent: cell.choices.length > 0 ? chooser : plain
+                            sourceComponent: {
+                                if (cell.model.checkable ?? false)
+                                    return check
+                                if (cell.choices.length > 0)
+                                    return chooser
+                                return cell.cellEditable ? plain : readOnly
+                            }
+                        }
+
+                        Component {
+                            id: check
+
+                            CheckBox {
+                                objectName: "tableCellCheckBox"
+                                text: cell.cellText
+                                checked: cell.model.checkState === Qt.Checked
+                                enabled: cell.cellEditable
+                                onToggled: {
+                                    cell.model.checkState = checked ? Qt.Checked : Qt.Unchecked
+                                }
+                            }
                         }
 
                         Component {
                             id: chooser
 
                             ComboBox {
+                                objectName: "tableCellComboBox"
                                 textRole: "display"
                                 model: cell.choices
                                 enabled: cell.cellEditable
@@ -130,8 +168,8 @@ RowLayout {
                             id: plain
 
                             TextField {
+                                objectName: "tableCellField"
                                 text: cell.cellText
-                                enabled: cell.cellEditable
                                 validator: RegularExpressionValidator {
                                     regularExpression: new RegExp(cell.model.validator || ".*")
                                 }
@@ -147,6 +185,18 @@ RowLayout {
                                 }
                             }
                         }
+
+                        Component {
+                            id: readOnly
+
+                            Label {
+                                objectName: "tableCellLabel"
+                                text: cell.cellText
+                                elide: Text.ElideRight
+                                wrapMode: Text.WordWrap
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                        }
                     }
                 }
             }
@@ -154,19 +204,20 @@ RowLayout {
 
         RowLayout {
             spacing: Spacing.GapHXs
+            visible: root.pres.allowAdding || root.pres.allowRemoving
 
             Button {
                 text: qsTr("Add")
                 visible: root.pres.allowAdding
                 enabled: root.editable
-                onClicked: root.tableModel.insertRows(root.tableModel.rowCount(), 1)
+                onClicked: root.sourceModel.insertRows(root.sourceModel.rowCount(), 1)
             }
 
             Button {
                 text: qsTr("Remove")
                 visible: root.pres.allowRemoving
                 enabled: root.editable && view.currentRow >= 0
-                onClicked: root.tableModel.removeRows(view.currentRow, 1)
+                onClicked: root.rows.removeRows(view.currentRow, 1)
             }
 
             Item { Layout.fillWidth: true }

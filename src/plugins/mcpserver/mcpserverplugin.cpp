@@ -23,6 +23,7 @@
 
 #include <texteditor/textdocument.h>
 
+#include <utils/aspectpresentation.h>
 #include <utils/aspectwidgets.h>
 #include <utils/algorithm.h>
 #include <utils/aspects.h>
@@ -221,6 +222,102 @@ public:
     }
 };
 
+// The registered tools as rows: enabled, name, description. The check box
+// reads and writes the per-tool aspect's volatile value, which is what apply()
+// reads, so this is a view of the aspects rather than a second copy of them.
+class ToolTableModel : public QAbstractTableModel
+{
+public:
+    using QAbstractTableModel::QAbstractTableModel;
+
+    enum Column { ColumnEnabled, ColumnName, ColumnDescription, ColumnCount };
+
+    struct Entry
+    {
+        BoolAspect *aspect = nullptr;
+        QString name;
+        QString description;
+    };
+
+    void setEntries(const QList<Entry> &entries)
+    {
+        beginResetModel();
+        m_entries = entries;
+        endResetModel();
+    }
+
+    int rowCount(const QModelIndex &parent) const override
+    {
+        return parent.isValid() ? 0 : m_entries.size();
+    }
+
+    int columnCount(const QModelIndex &parent) const override
+    {
+        return parent.isValid() ? 0 : ColumnCount;
+    }
+
+    QVariant data(const QModelIndex &index, int role) const override
+    {
+        const Entry &entry = m_entries.at(index.row());
+        switch (role) {
+        case Qt::DisplayRole:
+            switch (index.column()) {
+            case ColumnName:        return entry.name;
+            case ColumnDescription: return entry.description;
+            default:                return {};
+            }
+        case Qt::CheckStateRole:
+            if (index.column() != ColumnEnabled)
+                return {};
+            return entry.aspect->volatileValue() ? Qt::Checked : Qt::Unchecked;
+        case Qt::ToolTipRole:
+            return index.column() == ColumnEnabled
+                       ? Tr::tr("Enable or disable this tool for MCP clients.")
+                       : entry.description;
+        case AspectTable::EditableRole:
+            return AspectTable::isWritable(flags(index));
+        case AspectTable::CheckableRole:
+            return flags(index).testFlag(Qt::ItemIsUserCheckable);
+        default:
+            return {};
+        }
+    }
+
+    bool setData(const QModelIndex &index, const QVariant &value, int role) override
+    {
+        if (role != Qt::CheckStateRole || index.column() != ColumnEnabled)
+            return false;
+        m_entries.at(index.row()).aspect->setVolatileValue(value.toInt() == Qt::Checked);
+        emit dataChanged(index, index, {Qt::CheckStateRole});
+        return true;
+    }
+
+    QVariant headerData(int section, Qt::Orientation orientation, int role) const override
+    {
+        if (orientation == Qt::Vertical || role != Qt::DisplayRole)
+            return {};
+        switch (section) {
+        case ColumnName:        return Tr::tr("Name");
+        case ColumnDescription: return Tr::tr("Description");
+        default:                return QString();
+        }
+    }
+
+    QHash<int, QByteArray> roleNames() const override
+    {
+        return AspectTable::withRoleNames(QAbstractTableModel::roleNames());
+    }
+
+    Qt::ItemFlags flags(const QModelIndex &index) const override
+    {
+        const Qt::ItemFlags flags = QAbstractTableModel::flags(index);
+        return index.column() == ColumnEnabled ? flags | Qt::ItemIsUserCheckable : flags;
+    }
+
+private:
+    QList<Entry> m_entries;
+};
+
 class ToolEnablerAspect : public AspectContainer
 {
 public:
@@ -241,6 +338,19 @@ public:
             ToolRegistry::enableTool(it.key(), it.value()->value());
     }
 
+    QAbstractItemModel *tableModel() override { return &m_model; }
+
+    AspectPresentation presentation() const override
+    {
+        AspectPresentation p = AspectContainer::presentation();
+        p.control = AspectControls::Table;
+        p.filterPlaceholderText = Tr::tr("Filter by name or description...");
+        // The rows are whatever registered itself.
+        p.allowAdding = false;
+        p.allowRemoving = false;
+        return p;
+    }
+
 private:
     void onToolRegistered()
     {
@@ -252,19 +362,37 @@ private:
             aspect->setSettingsKey(keyFromString(name));
             aspect->setLabelPlacement(BoolAspect::LabelPlacement::Compact);
             aspect->setDefaultValue(true);
-            // The table carried the name and the description in its own
-            // columns, so the aspects had neither and a plain list of them was
-            // a column of nameless check boxes.
+            // The table's Name and Description columns are what a reader sees;
+            // the aspect carries them too, for a renderer that lists it on its
+            // own.
             aspect->setLabelText(tool.title().value_or(name));
             aspect->setToolTip(tool.description().value_or(QString{}));
             const SettingsGroupNester nester({"McpServer", "EnabledTools"});
             aspect->readSettings();
             ToolRegistry::enableTool(name, aspect->value());
             m_toolAspects[name] = aspect;
+            m_toolMetadata[name] = tool;
         }
+        refreshModel();
+    }
+
+    // A QMap, so the rows come out sorted by name the way the widget table's
+    // were.
+    void refreshModel()
+    {
+        QList<ToolTableModel::Entry> entries;
+        for (auto it = m_toolAspects.cbegin(); it != m_toolAspects.cend(); ++it) {
+            const Schema::Tool &tool = m_toolMetadata[it.key()];
+            entries.append({it.value(),
+                            tool.title().value_or(it.key()),
+                            tool.description().value_or(QString{})});
+        }
+        m_model.setEntries(entries);
     }
 
     QMap<QString, BoolAspect *> m_toolAspects;
+    QMap<QString, Schema::Tool> m_toolMetadata;
+    ToolTableModel m_model{this};
 };
 
 class McpServerPluginSettings : public AspectContainer
@@ -638,6 +766,7 @@ McpServerPluginSettings::McpServerPluginSettings(McpServerPlugin *plugin)
     enableCors.setDefaultValue(false);
 
     enabledTools.setSettingsGroup("EnabledTools");
+    enabledTools.setLabelText(Tr::tr("Tools:"));
     enabledTools.setToolTip(Tr::tr("Select which tools to enable or disable"));
 
     // A settings group is not a settings key, so these derive no name for the

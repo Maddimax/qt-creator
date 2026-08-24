@@ -21,6 +21,7 @@ QtcLibrary {
         "qtciconprovider.cpp", "qtciconprovider.h",
         "qtcquick_global.h",
         "qtctokens.cpp", "qtctokens.h",
+        "tablefiltermodel.cpp", "tablefiltermodel.h",
         "qtcquickengine.cpp", "qtcquickengine.h",
         "qtcquickwidget.cpp", "qtcquickwidget.h",
     ]
