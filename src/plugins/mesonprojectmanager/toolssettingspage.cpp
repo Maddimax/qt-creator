@@ -12,16 +12,17 @@
 #include <projectexplorer/projectexplorerconstants.h>
 
 #include <utils/aspects.h>
-#include <utils/detailswidget.h>
-#include <utils/groupedview.h>
-#include <utils/guiutils.h>
-#include <utils/layoutbuilder.h>
+#include <utils/groupedlistaspect.h>
+#include <utils/groupedmodel.h>
 #include <utils/pathchooser.h>
 #include <utils/qtcassert.h>
+#include <utils/shutdownguard.h>
 #include <utils/stringutils.h>
 #include <utils/utilsicons.h>
 
-#include <QPushButton>
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
 
 using namespace Utils;
 
@@ -191,115 +192,100 @@ QString ToolsModel::uniqueName(const QString &baseName) const
     return Utils::makeUniquelyNumbered(baseName, names);
 }
 
-// ToolsSettingsWidget
+// ToolsSettingsAspects
 
-class ToolsSettingsWidget final : public Core::IOptionsPageWidget
+// What the Tools page edits. The tools themselves live in MesonTools, which
+// the rest of the plugin reads; ToolsModel is the editable copy, and applying
+// the page is applying it.
+class ToolsSettingsAspects final : public AspectContainer
 {
 public:
-    ToolsSettingsWidget();
+    ToolsSettingsAspects()
+    {
+        setAutoApply(false);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/MesonProjectManager/MesonToolsPage.qml"));
+
+        tools.setQmlName("Tools");
+        tools.setModel(&m_model);
+        tools.setShowsDefault(true);
+        tools.setToolTip(Tr::tr("Set as the default Meson executable to use "
+                                "when creating a new kit or when no value is set."));
+        // An auto-detected tool is not the user's to take away.
+        tools.setCanRemoveRow([this](int row) { return !m_model.item(row).autoDetected; });
+
+        add.setQmlName("Add");
+        add.setActionText(Tr::tr("Add"));
+        add.setAction([this] { tools.setCurrentRow(m_model.addMesonTool()); });
+
+        details.setQmlName("Details");
+        name.setQmlName("Name");
+        name.setDisplayStyle(StringAspect::LineEditDisplay);
+        name.setLabelText(Tr::tr("Name:"));
+        executable.setQmlName("Executable");
+        executable.setExpectedKind(PathChooserKind::ExistingCommand);
+        executable.setHistoryCompleter("Meson.Command.History");
+        executable.setLabelText(Tr::tr("Path:"));
+
+        // Behaviour, not layout: which tool the form shows, and whether it may
+        // be edited at all.
+        connect(&tools, &GroupedListAspect::currentRowChanged,
+                this, [this](int, int newRow) { showTool(newRow); });
+        name.addOnVolatileValueChanged(this, [this] { store(); });
+        executable.addOnVolatileValueChanged(this, [this] { store(); });
+        showTool(-1);
+    }
+
+    void apply() override
+    {
+        AspectContainer::apply();
+        m_model.apply();
+    }
+
+    void cancel() override
+    {
+        AspectContainer::cancel();
+        m_model.cancel();
+    }
+
+    bool isDirty() const override
+    {
+        return AspectContainer::isDirty() || m_model.isDirty();
+    }
+
+    GroupedListAspect tools{this};
+    ActionAspect add{this};
+    AspectContainer details{this};
+    StringAspect name{&details};
+    FilePathAspect executable{&details};
 
 private:
-    void apply() final { m_model.apply(); }
-    void cancel() final { m_model.cancel(); }
+    void showTool(int row)
+    {
+        const bool hasItem = row >= 0 && !m_model.isRemoved(row);
+        details.setVisible(hasItem);
+        if (!hasItem)
+            return;
+        const ToolItem it = m_model.item(row);
+        m_loading = true;
+        name.setEnabled(!it.autoDetected);
+        name.setValue(it.name);
+        executable.setEnabled(!it.autoDetected);
+        executable.setValue(it.executable);
+        m_loading = false;
+    }
 
-    bool isDirty() const final { return m_model.isDirty(); }
-
-    void currentMesonToolChanged(int oldRow, int newRow);
-    void store();
+    void store()
+    {
+        if (m_loading)
+            return;
+        const int row = tools.currentRow();
+        if (row >= 0 && !m_model.isRemoved(row))
+            m_model.updateItem(row, name.volatileValue(), executable.expandedVolatileValue());
+    }
 
     ToolsModel m_model;
-    GroupedView m_groupedView{m_model};
     bool m_loading = false;
-
-    QPushButton m_addButton;
-
-    DetailsWidget m_mesonDetails;
-    QWidget m_itemConfigWidget;
-    AspectContainer m_data;
-    StringAspect m_name{&m_data};
-    FilePathAspect m_executable{&m_data};
 };
-
-ToolsSettingsWidget::ToolsSettingsWidget()
-{
-    m_name.setDisplayStyle(StringAspect::LineEditDisplay);
-    m_name.setLabelText(Tr::tr("Name:"));
-
-    m_executable.setExpectedKind(PathChooserKind::ExistingCommand);
-    m_executable.setHistoryCompleter("Meson.Command.History");
-    m_executable.setLabelText(Tr::tr("Path:"));
-
-    using namespace Layouting;
-    Form {
-        m_name, br,
-        m_executable, br, noMargin
-    }.attachTo(&m_itemConfigWidget);
-
-    m_mesonDetails.setState(DetailsWidget::NoSummary);
-    m_mesonDetails.setVisible(false);
-    m_mesonDetails.setWidget(&m_itemConfigWidget);
-
-    m_addButton.setText(Tr::tr("Add"));
-    m_groupedView.makeDefaultButton().setToolTip(
-        Tr::tr("Set as the default Meson executable to use "
-               "when creating a new kit or when no value is set."));
-
-    Row {
-        Column {
-            m_groupedView.view(),
-            m_mesonDetails
-        },
-        Column {
-            m_addButton,
-            m_groupedView.cloneButton(),
-            m_groupedView.removeButton(),
-            m_groupedView.makeDefaultButton(),
-            st
-        }
-    }.attachTo(this);
-
-    connect(&m_groupedView, &GroupedView::currentRowChanged,
-            this, &ToolsSettingsWidget::currentMesonToolChanged);
-
-    m_name.addOnVolatileValueChanged(this, [this] { store(); });
-    m_executable.addOnVolatileValueChanged(this, [this] { store(); });
-
-    connect(&m_addButton, &QPushButton::clicked, this, [this] {
-        m_groupedView.selectRow(m_model.addMesonTool());
-    });
-    m_groupedView.setCanRemoveRow([this](int row) {
-        return !m_model.item(row).autoDetected;
-    });
-
-
-    connect(&m_data, &AspectContainer::changed, &checkSettingsDirty);
-}
-
-void ToolsSettingsWidget::store()
-{
-    if (m_loading)
-        return;
-    const int row = m_groupedView.currentRow();
-    if (row >= 0 && !m_model.isRemoved(row)) {
-        m_model.updateItem(row, m_name.volatileValue(), m_executable.expandedVolatileValue());
-    }
-}
-
-void ToolsSettingsWidget::currentMesonToolChanged(int, int newRow)
-{
-    const bool hasRow = newRow >= 0;
-    const bool hasItem = hasRow && !m_model.isRemoved(newRow);
-    m_loading = true;
-    if (hasItem) {
-        const ToolItem &it = m_model.item(newRow);
-        m_name.setEnabled(!it.autoDetected);
-        m_name.setValue(it.name);
-        m_executable.setEnabled(!it.autoDetected);
-        m_executable.setValue(it.executable);
-    }
-    m_loading = false;
-    m_mesonDetails.setVisible(hasItem);
-}
 
 class ToolsSettingsPage final : public Core::IOptionsPage
 {
@@ -309,9 +295,173 @@ public:
         setId(Constants::SettingsPage::TOOLS_ID);
         setDisplayName(Tr::tr("Tools"));
         setCategory(Constants::SettingsPage::CATEGORY);
-        setWidgetCreator([]() { return new ToolsSettingsWidget; });
+        setSettingsProvider([] {
+            static GuardedObject<ToolsSettingsAspects> theToolsAspects;
+            return theToolsAspects.get();
+        });
     }
 };
+
+#ifdef WITH_TESTS
+
+// The page's tools lived in a QTreeView's selection and a details widget, so
+// which one was being edited - and whether it could be - could only be read
+// back out of widgets.
+
+class ToolsSettingsTest : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testNoToolIsShownUntilOneIsPicked();
+    void testAnAutoDetectedToolIsShownButNotEditable();
+    void testEditingATextFieldUpdatesTheTool();
+    void testAnAutoDetectedToolCannotBeRemoved();
+    void testTheFormEmptiesWhenTheToolGoes();
+    void testShowingAToolDoesNotRewriteIt();
+
+private:
+    // The auto-detected tools are whatever this machine has, so a test picks
+    // its rows by what they are rather than by position.
+    static int rowWith(const ToolsSettingsAspects &page, bool autoDetected)
+    {
+        auto model = static_cast<ToolsModel *>(page.tools.model());
+        for (int row = 0; row < model->itemCount(); ++row) {
+            if (model->item(row).autoDetected == autoDetected)
+                return row;
+        }
+        return -1;
+    }
+};
+
+void ToolsSettingsTest::testNoToolIsShownUntilOneIsPicked()
+{
+    ToolsSettingsAspects page;
+    QVERIFY(!page.details.isVisible());
+    QCOMPARE(page.tools.currentRow(), -1);
+    QVERIFY(!page.tools.canClone());
+    QVERIFY(!page.tools.canRemove());
+
+    page.add.triggerAction();
+    // Adding selects what was added, and the form comes out to show it.
+    QVERIFY(page.tools.currentRow() >= 0);
+    QVERIFY(page.details.isVisible());
+    QVERIFY(page.name.volatileValue().startsWith("New Meson"));
+}
+
+void ToolsSettingsTest::testAnAutoDetectedToolIsShownButNotEditable()
+{
+    ToolsSettingsAspects page;
+    const int row = rowWith(page, /*autoDetected=*/true);
+    if (row < 0)
+        QSKIP("No Meson was found on this machine, so there is no auto-detected tool.");
+
+    page.tools.setCurrentRow(row);
+    QVERIFY(page.details.isVisible());
+    QVERIFY(!page.name.isEnabled());
+    QVERIFY(!page.executable.isEnabled());
+    // It is still worth copying, and the copy is the user's.
+    QVERIFY(page.tools.canClone());
+}
+
+void ToolsSettingsTest::testEditingATextFieldUpdatesTheTool()
+{
+    ToolsSettingsAspects page;
+    page.add.triggerAction();
+    const int row = page.tools.currentRow();
+    QVERIFY(row >= 0);
+    QVERIFY(page.name.isEnabled());
+
+    auto model = static_cast<ToolsModel *>(page.tools.model());
+
+    // Each field on its own: they store through the same call, so setting both
+    // before looking would let either one carry the other.
+    page.name.setVolatileValue(QString("Renamed"));
+    QCOMPARE(model->item(row).name, QString("Renamed"));
+    page.executable.setVolatileValue(QString("/first/meson"));
+    QCOMPARE(model->item(row).executable, FilePath::fromString("/first/meson"));
+
+    // Showing another tool must not write the one that was on screen into it.
+    // Loading the form field by field looks exactly like the user typing, and
+    // a half-loaded form is one tool's name beside another's path.
+    page.add.triggerAction();
+    const int second = page.tools.currentRow();
+    QVERIFY(second != row);
+    page.name.setVolatileValue(QString("Second"));
+    QCOMPARE(model->item(second).name, QString("Second"));
+    page.executable.setVolatileValue(QString("/second/meson"));
+    QCOMPARE(model->item(second).executable, FilePath::fromString("/second/meson"));
+    QCOMPARE(model->item(row).executable, FilePath::fromString("/first/meson"));
+
+    // And coming back shows what was left there, not what was on screen last.
+    page.tools.setCurrentRow(row);
+    QCOMPARE(page.name.volatileValue(), QString("Renamed"));
+    QCOMPARE(page.executable.volatileValue(), QString("/first/meson"));
+    QCOMPARE(model->item(row).name, QString("Renamed"));
+    QCOMPARE(model->item(row).executable, FilePath::fromString("/first/meson"));
+    QCOMPARE(model->item(second).name, QString("Second"));
+    QCOMPARE(model->item(second).executable, FilePath::fromString("/second/meson"));
+}
+
+void ToolsSettingsTest::testAnAutoDetectedToolCannotBeRemoved()
+{
+    ToolsSettingsAspects page;
+    const int row = rowWith(page, /*autoDetected=*/true);
+    if (row < 0)
+        QSKIP("No Meson was found on this machine, so there is no auto-detected tool.");
+
+    page.tools.setCurrentRow(row);
+    QVERIFY(!page.tools.canRemove());
+
+    page.add.triggerAction();
+    QVERIFY(page.tools.canRemove());
+}
+
+void ToolsSettingsTest::testTheFormEmptiesWhenTheToolGoes()
+{
+    ToolsSettingsAspects page;
+    page.add.triggerAction();
+    const int row = page.tools.currentRow();
+    QVERIFY(page.details.isVisible());
+
+    page.tools.setCurrentRow(row);
+    page.tools.removeCurrent();
+
+    // Either the selection moved to a tool that is staying, or there is none
+    // left; a tool on its way out is never shown.
+    const int now = page.tools.currentRow();
+    auto model = static_cast<ToolsModel *>(page.tools.model());
+    QVERIFY(now < 0 || !model->isRemoved(now));
+    QCOMPARE(page.details.isVisible(), now >= 0);
+}
+
+void ToolsSettingsTest::testShowingAToolDoesNotRewriteIt()
+{
+    ToolsSettingsAspects page;
+    page.add.triggerAction();
+    const int row = page.tools.currentRow();
+    QVERIFY(row >= 0);
+    auto model = static_cast<ToolsModel *>(page.tools.model());
+
+    // A path written with a variable in it stays as it was written. The form
+    // hands back the expanded path, so loading a tool into it must not store
+    // what it just read - merely looking at a tool would rewrite it.
+    const QString written = "/tools/%{HostOs:PathListSeparator}/meson";
+    model->updateItem(row, "With a variable", FilePath::fromString(written));
+    QVERIFY(page.executable.expandedVolatileValue() != FilePath::fromString(written));
+
+    page.tools.setCurrentRow(-1);
+    page.tools.setCurrentRow(row);
+
+    QCOMPARE(model->item(row).executable, FilePath::fromString(written));
+}
+
+QObject *createToolsSettingsTest()
+{
+    return new ToolsSettingsTest;
+}
+
+#endif // WITH_TESTS
 
 void setupToolsSettingsPage()
 {
@@ -319,3 +469,5 @@ void setupToolsSettingsPage()
 }
 
 } // namespace MesonProjectManager
+
+#include "toolssettingspage.moc"

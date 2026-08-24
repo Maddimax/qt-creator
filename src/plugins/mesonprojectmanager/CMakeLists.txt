@@ -61,6 +61,10 @@ file(RELATIVE_PATH RELATIVE_TEST_PATH "${PROJECT_BINARY_DIR}" "${CMAKE_CURRENT_B
 file(RELATIVE_PATH TEST_RELATIVE_LIBEXEC_PATH "/${RELATIVE_TEST_PATH}" "/${IDE_LIBEXEC_PATH}")
 
 if(WITH_TESTS)
+extend_qtc_plugin(MesonProjectManager
+  DEPENDS Qt::Test
+)
+
 add_qtc_test(tst_mesonwrapper
   EXCLUDE_FROM_PRECHECK
   INCLUDES
@@ -135,5 +139,6 @@ if(TARGET MesonProjectManager AND TARGET Qt::Quick)
     NO_PLUGIN
     QML_FILES
       MesonSettingsPage.qml
+      MesonToolsPage.qml
   )
 endif()

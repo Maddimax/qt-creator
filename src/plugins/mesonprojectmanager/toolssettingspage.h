@@ -3,8 +3,14 @@
 
 #pragma once
 
+#include <QObject>
+
 namespace MesonProjectManager::Internal {
 
 void setupToolsSettingsPage();
+
+#ifdef WITH_TESTS
+QObject *createToolsSettingsTest();
+#endif
 
 } // MesonProjectManager::Internal

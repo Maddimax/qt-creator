@@ -71,6 +71,10 @@ class MesonProjectPlugin final : public ExtensionSystem::IPlugin
 
         FileIconProvider::registerIconOverlayForFilename(Constants::Icons::MESON, "meson.build");
         FileIconProvider::registerIconOverlayForFilename(Constants::Icons::MESON, "meson_options.txt");
+
+#ifdef WITH_TESTS
+        addTestCreator(createToolsSettingsTest);
+#endif
     }
 };
 
