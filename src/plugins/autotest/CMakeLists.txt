@@ -83,6 +83,7 @@ extend_qtc_plugin(AutoTest
   CONDITION WITH_TESTS
   SOURCES
     autotestunittests.cpp autotestunittests.h
+    testsettings_test.cpp testsettings_test.h
   DEFINES
     QTCREATORDIR="${PROJECT_SOURCE_DIR}"
 )
@@ -110,6 +111,7 @@ if(TARGET AutoTest AND TARGET Qt::Quick)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      TestSettingsPage.qml
       boost/BoostTestSettingsPage.qml
       catch/CatchTestSettingsPage.qml
       ctest/CTestSettingsPage.qml

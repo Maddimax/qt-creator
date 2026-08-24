@@ -485,7 +485,7 @@ nothing - and waits on the signal rather than on a non-empty string, because an
 empty secret is a legitimate answer. `FontAspect` still carries the original
 version of this trap.
 
-#### The seven that are left, and what each one needs
+#### The six that are left, and what each one needs
 
 Every one of these was read, not guessed at - the last three rounds each found
 that the widget collapsed to controls that already existed. These do not:
@@ -494,14 +494,12 @@ that the widget collapsed to controls that already existed. These do not:
 |---|---|
 | Code Style (x3) | `createValueEditor()` returns a per-language editor built by a factory, and the page puts a syntax-highlighted preview beside it |
 | Snippets, Font && Colors | an editor and a live preview, same shape |
-| Testing General | `FrameworksAspect` has no `presentation()` at all, and its tree is two check boxes per row - enabled, and grouped |
 | QML/JS Editing | `AnalyzerMessagesAspect`, a tree with two independent states per message - and its state *is* the tree: `apply()`, `cancel()` and `isDirty()` all read `m_view`, and `apply()` returns early when there is none. No other renderer can drive it until the aspect owns its own volatile value |
 
-Two shapes would cover them: rows of several check boxes (Testing, QML/JS
-Editing) and a hosted editor with a preview (Code Style, Snippets, Font &&
-Colors). Both remaining check-box pages are held by the same thing as Debugger
-General was - an aspect that keeps its value in its widget - and that page is
-done, so they are the same job twice more.
+One shape is left: a hosted editor with a preview (Code Style, Snippets,
+Font && Colors). QML/JS Editing is rows of check boxes like Testing was, and
+held by the same thing - an aspect whose value lives in its widget - so it is
+that job once more.
 
 Two of these were taken further than reading, and each stopped for the same
 reason - the cost is not in the QML:
@@ -573,6 +571,38 @@ Things to copy when the next table aspect arrives:
   would compare stale text against a new row and write it there. These tables
   are tens of rows; the saving is not worth that.
 
+#### Testing General: two check boxes per row
+
+`FrameworksAspect` was the one with "no `presentation()` at all", and the
+check-box cells the MCP page needed turned it into an ordinary table: a row per
+registered framework and test tool, a check box that turns it on, and for a
+framework a second one that groups its tests. A test tool has no tests of its
+own, so its second cell is not a check box at all - `flags()` says so, and both
+renderers then leave it empty rather than showing one that does nothing.
+
+The state was the harder half. `isDirty()`, `cancel()` and `apply()` all read
+`extractData(m_frameworkTreeWidget->model())`, so all three only worked while
+the page was open. The aspect keeps two copies now - what was applied and what
+is ticked - and the model writes into the second. `isDirty()` compares them,
+`cancel()` copies back, and neither needs a widget to exist.
+
+Two things the layouter was carrying:
+
+- **Labels.** `scanThreadLimit` and `runAfterBuild` had no `labelText`; the
+  closure put a `QLabel` and a bare string next to them. An aspect that is only
+  ever labelled by its layout looks fine until the layout goes, and then it is
+  an unlabelled field. Worth checking for on every page: `setLabelText()` on the
+  aspect, not a label in the layout.
+- **The warning.** The `InfoLabel` under the tree is a `TextDisplay` aspect now,
+  and the settings object updates it from the framework aspect's
+  `volatileValueChanged()`. The condition (nothing ticked, or both a framework
+  and a tool) belongs to the aspect, which is why it answers `warning()` and
+  `warningToolTip()` rather than leaving each renderer to work it out.
+
+`apply()` writes settings and rebuilds the test tree, so the test leaves it
+alone and covers what the rewrite made pure: the rows, the flags, dirty
+tracking and cancelling, and the warning.
+
 #### Give the model a parent
 
 `BaseAspect::tableModel()` is `Q_INVOKABLE` and returns a `QObject *`. A QML
@@ -631,11 +661,11 @@ after the first layout without a render pass; and find a cell control by
 `objectName` rather than by type, because a non-editable `ComboBox`'s content
 item is itself a `TextField`.
 
-#### What the 25 remaining layouters are
+#### What the 24 remaining layouters are
 
 Worth knowing before hunting for dead ones, because most of these are not pages:
 
-- **7 are the pages above** (Code Style counts once here; its aspect serves all
+- **6 are the pages above** (Code Style counts once here; its aspect serves all
   three).
 - **5 are live nested containers**: `TabSettings`, `TypingSettings`,
   `StorageSettings`, `ExtraEncodingSettings` and `BehaviorSettings`. The Behavior
@@ -802,7 +832,7 @@ naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
 all`, minus `QmlDesigner` and `UpdateInfo`, see below): **73 aspect-driven
-pages, 66 with their own QML and rendered with Qt Quick, 7 still on widgets.**
+pages, 67 with their own QML and rendered with Qt Quick, 6 still on widgets.**
 Before the gate was narrowed, 65 pages rendered generically; the delegate work
 that made that possible is all still in place and is what the ports build on:
 `StringListAspect` (a real list editor), `IntegersAspect` (`Invisible`, because
@@ -811,7 +841,7 @@ its own choices now), index-valued selections with no options (an empty combo
 box is what the widget editor draws too), and `AspectList`'s
 list-with-details style.
 
-All seven remaining pages are held by aspects whose control is `Custom`
+All six remaining pages are held by aspects whose control is `Custom`
 because they build their own widget in `addToLayoutImpl`. Not all of them need
 porting one by one, though: `EnvironmentChangesAspect` turned out to be a
 summary plus one button, which is now the `TextWithAction` control, and

@@ -5,11 +5,9 @@
 
 #include <utils/aspects.h>
 
-#include <QTreeWidget>
-
-namespace Utils { class InfoLabel; }
-
 namespace Autotest::Internal {
+
+class FrameworksAspectPrivate;
 
 enum class RunAfterBuildMode
 {
@@ -18,10 +16,16 @@ enum class RunAfterBuildMode
     Selected
 };
 
+// Which test frameworks and tools are active, and which frameworks group their
+// tests. The frameworks register themselves, so the rows belong to the registry
+// and only the check states are the aspect's - see tableModel().
 class FrameworksAspect : public Utils::BaseAspect
 {
+    Q_OBJECT
+
 public:
     explicit FrameworksAspect(Utils::AspectContainer *container);
+    ~FrameworksAspect() override;
 
     bool framework(Utils::Id id) const;
     bool frameworkGrouping(Utils::Id id) const;
@@ -34,6 +38,15 @@ public:
         QHash<Utils::Id, bool> tools;
     };
 
+    Utils::AspectPresentation presentation() const override;
+    QAbstractItemModel *tableModel() override;
+
+    // What is wrong with what is ticked right now, and why. Empty when nothing
+    // is: no framework at all leaves the plugin with nothing to do, and mixing
+    // a framework with a tool duplicates run information.
+    QString warning() const;
+    QString warningToolTip() const;
+
 private:
     void apply() final;
     void cancel() final;
@@ -42,16 +55,7 @@ private:
     void writeSettings() const final;
     void readSettings() final;
 
-    void addToLayoutImpl(Layouting::Layout &parent) final;
-
-    void populateTreeWidget();
-    void onFrameworkItemChanged();
-    void updateWarning(bool init);
-    bool showWarning();
-
-    QTreeWidget *m_frameworkTreeWidget = nullptr;
-    Utils::InfoLabel *m_frameworksWarn = nullptr;
-    Data m_data;
+    FrameworksAspectPrivate *d = nullptr;
 };
 
 class TestSettings : public Utils::AspectContainer
@@ -76,6 +80,8 @@ public:
     Utils::BoolAspect showTreeFilterTextInput{this};
     Utils::SelectionAspect runAfterBuild{this};
     FrameworksAspect frameworks{this};
+    Utils::TextDisplay frameworksWarning{this};
+    Utils::ActionAspect resetChoiceCache{this};
 
     RunAfterBuildMode runAfterBuildMode() const;
 };

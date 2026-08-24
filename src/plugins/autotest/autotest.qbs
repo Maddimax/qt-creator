@@ -77,7 +77,7 @@ QtcPlugin {
     // qbs has no QML module support; the .qml files are built by CMake only.
     Group {
         name: "qml"
-        files: ["*/*.qml"]
+        files: ["*.qml", "*/*.qml"]
         fileTags: []
     }
 
@@ -140,6 +140,8 @@ QtcPlugin {
         files: [
             "autotestunittests.cpp",
             "autotestunittests.h",
+            "testsettings_test.cpp",
+            "testsettings_test.h",
         ]
         cpp.defines: outer.concat([ 'QTCREATORDIR="' + project.ide_source_tree + '"' ])
     }

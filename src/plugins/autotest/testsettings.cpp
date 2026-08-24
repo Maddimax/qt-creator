@@ -44,62 +44,272 @@ enum TestBaseInfo
     BaseType
 };
 
-static FrameworksAspect::Data extractData(const QAbstractItemModel *model)
+// A row per registered test framework and test tool: a check box that turns it
+// on, and for a framework a second one that groups its tests by folder. The
+// rows come from the registry; the check states are the aspect's volatile
+// value, which is why they are written straight into it.
+class FrameworksModel : public QAbstractTableModel
 {
-    QTC_ASSERT(model, return {});
-    const int itemCount = TestFrameworkManager::registeredFrameworks().size();
-    QTC_ASSERT(itemCount <= model->rowCount(), return {});
-    FrameworksAspect::Data data;
+public:
+    enum Column { ColumnActive, ColumnGrouping, ColumnCount };
 
-    for (int row = 0; row < itemCount; ++row) {
-        QModelIndex idx = model->index(row, 0);
-        const Id id = Id::fromSetting(idx.data(BaseId));
-        data.frameworks.insert(id, idx.data(Qt::CheckStateRole) == Qt::Checked);
-        idx = model->index(row, 1);
-        data.frameworksGrouping.insert(id, idx.data(Qt::CheckStateRole) == Qt::Checked);
+    struct Row
+    {
+        Id id;
+        QString name;
+        QString groupingToolTip;
+        bool isFramework = true;
+    };
+
+    FrameworksModel(FrameworksAspect::Data *data, QObject *parent)
+        : QAbstractTableModel(parent)
+        , m_data(data)
+    {}
+
+    // The registry is filled while the plugin starts up, so the rows are taken
+    // when the settings are read rather than in the constructor.
+    void refresh()
+    {
+        beginResetModel();
+        m_rows.clear();
+        for (const ITestFramework *framework : TestFrameworkManager::registeredFrameworks()) {
+            QString groupingToolTip = framework->groupingToolTip();
+            if (groupingToolTip.isEmpty())
+                groupingToolTip = Tr::tr("Enable or disable grouping of test cases by folder.");
+            m_rows.append({framework->id(), framework->displayName(), groupingToolTip, true});
+        }
+        for (const ITestTool *testTool : TestFrameworkManager::registeredTestTools())
+            m_rows.append({testTool->id(), testTool->displayName(), {}, false});
+        endResetModel();
     }
 
-    int row = TestFrameworkManager::registeredFrameworks().size();
-    const int end = model->rowCount();
-    QTC_ASSERT(row <= end, return {});
-    for ( ; row < end; ++row) {
-        const QModelIndex idx = model->index(row, 0);
-        const Id id = Id::fromSetting(idx.data(BaseId));
-        data.tools.insert(id, idx.data(Qt::CheckStateRole) == Qt::Checked);
+    void reread()
+    {
+        if (m_rows.isEmpty())
+            return;
+        emit dataChanged(index(0, ColumnActive),
+                         index(m_rows.size() - 1, ColumnGrouping),
+                         {Qt::CheckStateRole});
     }
 
-    return data;
+    // Whether anything is ticked, and whether both kinds are.
+    bool anyActive() const
+    {
+        return Utils::anyOf(m_rows, [this](const Row &row) { return isActive(row); });
+    }
+
+    bool mixesFrameworksAndTools() const
+    {
+        const bool framework = Utils::anyOf(m_rows, [this](const Row &row) {
+            return row.isFramework && isActive(row);
+        });
+        const bool tool = Utils::anyOf(m_rows, [this](const Row &row) {
+            return !row.isFramework && isActive(row);
+        });
+        return framework && tool;
+    }
+
+    int rowCount(const QModelIndex &parent) const override
+    {
+        return parent.isValid() ? 0 : m_rows.size();
+    }
+
+    int columnCount(const QModelIndex &parent) const override
+    {
+        return parent.isValid() ? 0 : ColumnCount;
+    }
+
+    QVariant data(const QModelIndex &index, int role) const override
+    {
+        const Row &row = m_rows.at(index.row());
+        switch (role) {
+        case Qt::DisplayRole:
+            return index.column() == ColumnActive ? row.name : QString();
+        case Qt::CheckStateRole:
+            if (!flags(index).testFlag(Qt::ItemIsUserCheckable))
+                return {};
+            return checkState(index) ? Qt::Checked : Qt::Unchecked;
+        case Qt::ToolTipRole:
+            if (index.column() == ColumnActive) {
+                return Tr::tr("Enable or disable test frameworks to be handled by the "
+                              "AutoTest plugin.");
+            }
+            return row.groupingToolTip;
+        case AspectTable::EditableRole:
+            return AspectTable::isWritable(flags(index));
+        case AspectTable::CheckableRole:
+            return flags(index).testFlag(Qt::ItemIsUserCheckable);
+        default:
+            return {};
+        }
+    }
+
+    bool setData(const QModelIndex &index, const QVariant &value, int role) override
+    {
+        if (role != Qt::CheckStateRole || !flags(index).testFlag(Qt::ItemIsUserCheckable))
+            return false;
+        const Row &row = m_rows.at(index.row());
+        const bool on = value.toInt() == Qt::Checked;
+        if (index.column() == ColumnGrouping)
+            m_data->frameworksGrouping.insert(row.id, on);
+        else if (row.isFramework)
+            m_data->frameworks.insert(row.id, on);
+        else
+            m_data->tools.insert(row.id, on);
+        emit dataChanged(index, index, {Qt::CheckStateRole});
+        return true;
+    }
+
+    QVariant headerData(int section, Qt::Orientation orientation, int role) const override
+    {
+        if (orientation == Qt::Vertical)
+            return {};
+        if (role == Qt::ToolTipRole) {
+            return section == ColumnActive
+                       ? Tr::tr("Selects the test frameworks to be handled by the AutoTest plugin.")
+                       : Tr::tr("Enables grouping of test cases.");
+        }
+        if (role != Qt::DisplayRole)
+            return {};
+        return section == ColumnActive ? Tr::tr("Framework") : Tr::tr("Group");
+    }
+
+    QHash<int, QByteArray> roleNames() const override
+    {
+        return AspectTable::withRoleNames(QAbstractTableModel::roleNames());
+    }
+
+    Qt::ItemFlags flags(const QModelIndex &index) const override
+    {
+        const Qt::ItemFlags flags = QAbstractTableModel::flags(index);
+        // A test tool has no tests to group, so its second cell is empty.
+        if (index.column() == ColumnGrouping && !m_rows.at(index.row()).isFramework)
+            return flags;
+        return flags | Qt::ItemIsUserCheckable;
+    }
+
+private:
+    bool isActive(const Row &row) const
+    {
+        return row.isFramework ? m_data->frameworks.value(row.id, false)
+                               : m_data->tools.value(row.id, false);
+    }
+
+    bool checkState(const QModelIndex &index) const
+    {
+        const Row &row = m_rows.at(index.row());
+        if (index.column() == ColumnGrouping)
+            return m_data->frameworksGrouping.value(row.id, false);
+        return isActive(row);
+    }
+
+    FrameworksAspect::Data *m_data = nullptr;
+    QList<Row> m_rows;
+};
+
+static bool operator==(const FrameworksAspect::Data &first, const FrameworksAspect::Data &second)
+{
+    return first.frameworks == second.frameworks
+           && first.frameworksGrouping == second.frameworksGrouping
+           && first.tools == second.tools;
 }
+
+class FrameworksAspectPrivate
+{
+public:
+    explicit FrameworksAspectPrivate(FrameworksAspect *aspect)
+        : m_model(&m_volatileData, aspect)
+    {}
+
+    // What was applied, and what the check boxes hold now.
+    FrameworksAspect::Data m_data;
+    FrameworksAspect::Data m_volatileData;
+    FrameworksModel m_model;
+};
 
 FrameworksAspect::FrameworksAspect(AspectContainer *container)
     : BaseAspect(container)
-{}
+    , d(new FrameworksAspectPrivate(this))
+{
+    setQmlName("Frameworks");
+    setToolTip(Tr::tr("Selects the test frameworks to be handled by the AutoTest plugin."));
+
+    // The warning depends on what is ticked, and a check box is ticked through
+    // the model, so the model says when to look again.
+    connect(&d->m_model, &QAbstractItemModel::dataChanged, this, [this] {
+        checkSettingsDirty();
+        emit volatileValueChanged();
+    });
+}
+
+FrameworksAspect::~FrameworksAspect()
+{
+    delete d;
+}
 
 bool FrameworksAspect::framework(Id id) const
 {
-    return m_data.frameworks.value(id, false);
+    return d->m_data.frameworks.value(id, false);
 }
 
 bool FrameworksAspect::frameworkGrouping(Id id) const
 {
-    return m_data.frameworksGrouping.value(id, false);
+    return d->m_data.frameworksGrouping.value(id, false);
 }
 
 bool FrameworksAspect::tool(Id id) const
 {
-    return m_data.tools.value(id, false);
+    return d->m_data.tools.value(id, false);
+}
+
+AspectPresentation FrameworksAspect::presentation() const
+{
+    AspectPresentation p = BaseAspect::presentation();
+    p.control = AspectControls::Table;
+    // The rows are whatever registered itself.
+    p.allowAdding = false;
+    p.allowRemoving = false;
+    return p;
+}
+
+QAbstractItemModel *FrameworksAspect::tableModel()
+{
+    return &d->m_model;
+}
+
+QString FrameworksAspect::warning() const
+{
+    if (!d->m_model.anyActive())
+        return Tr::tr("No active test frameworks or tools.");
+    if (d->m_model.mixesFrameworksAndTools())
+        return Tr::tr("Mixing test frameworks and test tools.");
+    return {};
+}
+
+QString FrameworksAspect::warningToolTip() const
+{
+    if (!d->m_model.anyActive()) {
+        return Tr::tr("You will not be able to use the AutoTest plugin "
+                      "without having at least one active test framework.");
+    }
+    if (d->m_model.mixesFrameworksAndTools()) {
+        return Tr::tr("Mixing test frameworks and test tools can lead "
+                      "to duplicating run information when using "
+                      "\"Run All Tests\", for example.");
+    }
+    return {};
 }
 
 void FrameworksAspect::apply()
 {
-    const Data tmp = Internal::extractData(m_frameworkTreeWidget->model());
+    const Data tmp = d->m_volatileData;
 
     const QList<Utils::Id> changedIds = Utils::filtered(tmp.frameworksGrouping.keys(),
        [this, &tmp](Id id) {
-        return tmp.frameworksGrouping[id] != m_data.frameworksGrouping[id];
+        return tmp.frameworksGrouping[id] != d->m_data.frameworksGrouping[id];
     });
 
-    m_data = tmp;
+    d->m_data = tmp;
 
     writeSettings();
 
@@ -119,25 +329,13 @@ void FrameworksAspect::apply()
 
 void FrameworksAspect::cancel()
 {
-    populateTreeWidget();
+    d->m_volatileData = d->m_data;
+    d->m_model.reread();
 }
 
 bool FrameworksAspect::isDirty() const
 {
-    const Data tmp = Internal::extractData(m_frameworkTreeWidget->model());
-
-    for (const Id id : tmp.frameworksGrouping.keys()) {
-        if (tmp.frameworksGrouping[id] != m_data.frameworksGrouping[id])
-            return true;
-        if (tmp.frameworks[id] != m_data.frameworks[id])
-            return true;
-    }
-    for (const Id id : tmp.tools.keys()) {
-        if (tmp.tools[id] != m_data.tools[id])
-            return true;
-    }
-
-    return false;
+    return !(d->m_volatileData == d->m_data);
 }
 
 void FrameworksAspect::writeSettings() const
@@ -146,13 +344,13 @@ void FrameworksAspect::writeSettings() const
     s.beginGroup(Constants::SETTINGSGROUP);
 
     // store frameworks and their current active and grouping state
-    for (auto it = m_data.frameworks.cbegin(); it != m_data.frameworks.cend(); ++it) {
+    for (auto it = d->m_data.frameworks.cbegin(); it != d->m_data.frameworks.cend(); ++it) {
         const Utils::Id &id = it.key();
         s.setValue(id.toKey(), it.value());
-        s.setValue(id.toKey() + groupSuffix, m_data.frameworksGrouping.value(id));
+        s.setValue(id.toKey() + groupSuffix, d->m_data.frameworksGrouping.value(id));
     }
     // ..and the testtools as well
-    for (auto it = m_data.tools.cbegin(); it != m_data.tools.cend(); ++it)
+    for (auto it = d->m_data.tools.cbegin(); it != d->m_data.tools.cend(); ++it)
         s.setValue(it.key().toKey(), it.value());
     s.endGroup();
 }
@@ -164,122 +362,29 @@ void FrameworksAspect::readSettings()
 
     // try to get settings for registered frameworks
     const TestFrameworks &registered = TestFrameworkManager::registeredFrameworks();
-    m_data.frameworks.clear();
-    m_data.frameworksGrouping.clear();
+    d->m_data.frameworks.clear();
+    d->m_data.frameworksGrouping.clear();
     for (const ITestFramework *framework : registered) {
         // get their active state
         const Id id = framework->id();
         const Key key = id.toKey();
-        m_data.frameworks.insert(id, s.value(key, framework->active()).toBool());
+        d->m_data.frameworks.insert(id, s.value(key, framework->active()).toBool());
         // and whether grouping is enabled
-        m_data.frameworksGrouping.insert(id, s.value(key + groupSuffix, framework->grouping()).toBool());
+        d->m_data.frameworksGrouping.insert(id,
+                                            s.value(key + groupSuffix, framework->grouping())
+                                                .toBool());
     }
     // ..and for test tools as well
     const TestTools &registeredTools = TestFrameworkManager::registeredTestTools();
-    m_data.tools.clear();
+    d->m_data.tools.clear();
     for (const ITestTool *testTool : registeredTools) {
         const Id id = testTool->id();
-        m_data.tools.insert(id, s.value(id.toKey(), testTool->active()).toBool());
+        d->m_data.tools.insert(id, s.value(id.toKey(), testTool->active()).toBool());
     }
     s.endGroup();
-}
 
-void FrameworksAspect::addToLayoutImpl(Layouting::Layout &parent)
-{
-    m_frameworkTreeWidget = Utils::AspectWidgets::createSubWidget<QTreeWidget>(this);
-    m_frameworkTreeWidget->setRootIsDecorated(false);
-    m_frameworkTreeWidget->setHeaderHidden(false);
-    m_frameworkTreeWidget->setColumnCount(2);
-    m_frameworkTreeWidget->header()->setDefaultSectionSize(150);
-    m_frameworkTreeWidget->setToolTip(Tr::tr("Selects the test frameworks to be handled by the AutoTest plugin."));
-
-    QTreeWidgetItem *item = m_frameworkTreeWidget->headerItem();
-    item->setText(0, Tr::tr("Framework"));
-    item->setToolTip(0, Tr::tr("Selects the test frameworks to be handled by the AutoTest plugin."));
-    item->setText(1, Tr::tr("Group"));
-    item->setToolTip(1, Tr::tr("Enables grouping of test cases."));
-
-    populateTreeWidget();
-
-    m_frameworksWarn = new InfoLabel;
-    m_frameworksWarn->setElideMode(Qt::ElideNone);
-    m_frameworksWarn->setType(InfoLabelType::Warning);
-    if (!showWarning())
-        m_frameworksWarn->setVisible(false);
-
-    connect(m_frameworkTreeWidget, &QTreeWidget::itemChanged,
-            this, &FrameworksAspect::onFrameworkItemChanged);
-
-    parent.addItem(m_frameworkTreeWidget);
-    parent.addItem(m_frameworksWarn);
-}
-
-void FrameworksAspect::populateTreeWidget()
-{
-    DirtySettingsGuard guard; // Prevent triggering dirty checks while populating
-
-    const TestFrameworks &registered = TestFrameworkManager::registeredFrameworks();
-    m_frameworkTreeWidget->clear();
-    for (const ITestFramework *framework : registered) {
-        const Id id = framework->id();
-        auto item = new QTreeWidgetItem(m_frameworkTreeWidget, {framework->displayName()});
-        item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsUserCheckable);
-        item->setCheckState(0, m_data.frameworks.value(id) ? Qt::Checked : Qt::Unchecked);
-        item->setData(0, BaseId, id.toSetting());
-        item->setData(0, BaseType, ITestBase::Framework);
-        item->setData(1, Qt::CheckStateRole, framework->grouping() ? Qt::Checked : Qt::Unchecked);
-        item->setToolTip(0, Tr::tr("Enable or disable test frameworks to be handled by the "
-                                   "AutoTest plugin."));
-        QString toolTip = framework->groupingToolTip();
-        if (toolTip.isEmpty())
-            toolTip = Tr::tr("Enable or disable grouping of test cases by folder.");
-        item->setToolTip(1, toolTip);
-    }
-    // ...and now the test tools
-    const TestTools &registeredTools = TestFrameworkManager::registeredTestTools();
-    for (const ITestTool *testTool : registeredTools) {
-        const Id id = testTool->id();
-        auto item = new QTreeWidgetItem(m_frameworkTreeWidget, {testTool->displayName()});
-        item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsUserCheckable);
-        item->setCheckState(0, m_data.tools.value(id) ? Qt::Checked : Qt::Unchecked);
-        item->setData(0, BaseId, id.toSetting());
-        item->setData(0, BaseType, ITestBase::Tool);
-    }
-}
-
-void FrameworksAspect::onFrameworkItemChanged()
-{
-    checkSettingsDirty();
-    m_frameworksWarn->setVisible(showWarning());
-}
-
-bool FrameworksAspect::showWarning()
-{
-    bool atLeastOneEnabled = false;
-    int mixed = ITestBase::None;
-    if (QAbstractItemModel *model = m_frameworkTreeWidget->model()) {
-        for (int row = 0, count = model->rowCount(); row < count; ++row) {
-            const QModelIndex idx = model->index(row, 0);
-            if (idx.data(Qt::CheckStateRole) == Qt::Checked) {
-                atLeastOneEnabled = true;
-                mixed |= idx.data(BaseType).toInt();
-            }
-        }
-    }
-
-    if (!atLeastOneEnabled || (mixed == (ITestBase::Framework | ITestBase::Tool))) {
-        if (!atLeastOneEnabled) {
-            m_frameworksWarn->setText(Tr::tr("No active test frameworks or tools."));
-            m_frameworksWarn->setToolTip(Tr::tr("You will not be able to use the AutoTest plugin "
-                                                "without having at least one active test framework."));
-        } else {
-            m_frameworksWarn->setText(Tr::tr("Mixing test frameworks and test tools."));
-            m_frameworksWarn->setToolTip(Tr::tr("Mixing test frameworks and test tools can lead "
-                                                "to duplicating run information when using "
-                                                "\"Run All Tests\", for example."));
-        }
-    }
-    return !atLeastOneEnabled || (mixed == (ITestBase::Framework | ITestBase::Tool));
+    d->m_volatileData = d->m_data;
+    d->m_model.refresh();
 }
 
 TestSettings::TestSettings()
@@ -292,6 +397,7 @@ TestSettings::TestSettings()
     scanThreadLimit.setDefaultValue(0);
     scanThreadLimit.setRange(0, QThread::idealThreadCount());
     scanThreadLimit.setSpecialValueText("Automatic");
+    scanThreadLimit.setLabelText(Tr::tr("Scan threads:"));
     scanThreadLimit.setToolTip(Tr::tr("Number of worker threads used when scanning for tests."));
 
     useTimeout.setSettingsKey("UseTimeout");
@@ -370,65 +476,42 @@ TestSettings::TestSettings()
 
     runAfterBuild.setSettingsKey("RunAfterBuild");
     runAfterBuild.setDisplayStyle(Utils::SelectionAspect::DisplayStyle::ComboBox);
+    runAfterBuild.setLabelText(Tr::tr("Automatically run:"));
     runAfterBuild.setToolTip(Tr::tr("Runs chosen tests automatically if a build succeeded."));
     runAfterBuild.addOption(Tr::tr("No Tests"));
     runAfterBuild.addOption(Tr::tr("All", "Run tests after build"));
     runAfterBuild.addOption(Tr::tr("Selected"));
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        auto scanThreadLabel = new QLabel(Tr::tr("Scan threads:"));
-        scanThreadLabel->setToolTip("Number of worker threads used when scanning for tests.");
+    frameworksWarning.setQmlName("FrameworksWarning");
+    frameworksWarning.setIconType(InfoType::Warning);
+    frameworksWarning.setWordWrap(true);
 
-        using namespace Layouting;
+    // The warning is about what is ticked, so it follows the aspect rather than
+    // being recomputed by whoever draws the page.
+    const auto updateFrameworksWarning = [this] {
+        frameworksWarning.setText(frameworks.warning());
+        frameworksWarning.setToolTip(frameworks.warningToolTip());
+        frameworksWarning.setVisible(!frameworks.warning().isEmpty());
+    };
+    connect(&frameworks, &BaseAspect::volatileValueChanged, this, updateFrameworksWarning);
 
-        PushButton resetChoicesButton {
-            text(Tr::tr("Reset Cached Choices")),
-            Layouting::toolTip(Tr::tr("Clear all cached choices of run configurations for "
-                           "tests where the executable could not be deduced.")),
-            onClicked(this, &clearChoiceCache)
-        };
+    resetChoiceCache.setQmlName("ResetChoiceCache");
+    resetChoiceCache.setActionText(Tr::tr("Reset Cached Choices"));
+    resetChoiceCache.setToolTip(Tr::tr("Clear all cached choices of run configurations for "
+                                       "tests where the executable could not be deduced."));
+    resetChoiceCache.setAction([] { clearChoiceCache(); });
 
-        Group generalGroup {
-            title(Tr::tr("General")),
-            Column {
-                Row { scanThreadLabel, scanThreadLimit, st },
-                omitInternalMsg,
-                omitRunConfigWarn,
-                limitResultOutput,
-                Row { limitResultDescription, resultDescriptionMaxSize, st },
-                popupOnStart,
-                popupOnFinish,
-                Row { Space(20), popupOnFail },
-                autoScroll,
-                displayApplication,
-                processArgs,
-                Row { Tr::tr("Automatically run"), runAfterBuild, st },
-                Row { useTimeout, timeout, st },
-                Row { resetChoicesButton, st }
-             }
-        };
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/AutoTest/TestSettingsPage.qml"));
 
-        Group activeFrameworks {
-            title(Tr::tr("Active Test Frameworks")),
-            Column {
-                frameworks
-            }
-        };
-
-        return Column {
-            Row {
-                Column { generalGroup, st },
-                Column { activeFrameworks, st }
-            },
-            st
-        };
-    });
 
     readSettings();
 
     timeout.setEnabler(&useTimeout);
     resultDescriptionMaxSize.setEnabler(&limitResultDescription);
     popupOnFail.setEnabler(&popupOnFinish);
+
+    // readSettings() filled the aspect, so the warning has something to say.
+    updateFrameworksWarning();
 }
 
 RunAfterBuildMode TestSettings::runAfterBuildMode() const

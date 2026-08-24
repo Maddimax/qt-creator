@@ -70,6 +70,7 @@
 
 #ifdef WITH_TESTS
 #include "autotestunittests.h"
+#include "testsettings_test.h"
 #endif
 
 using namespace Core;
@@ -567,6 +568,7 @@ public:
         dd = new AutotestPluginPrivate;
 #ifdef WITH_TESTS
         addTestCreator(createAutotestUnitTests);
+        addTestCreator(createTestSettingsTest);
 #endif
     }
 
