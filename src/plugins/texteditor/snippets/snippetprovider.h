@@ -22,16 +22,23 @@ public:
 
     static const QList<SnippetProvider> &snippetProviders();
     static void registerGroup(const QString &groupId, const QString &displayName,
-                              EditorDecorator editorDecorator = EditorDecorator());
+                              EditorDecorator editorDecorator = EditorDecorator(),
+                              const QString &mimeType = {});
 
     QString groupId() const;
     QString displayName() const;
+    // What a snippet in this group is written in. The decorator only tells a
+    // TextEditorWidget how to highlight itself; a renderer that has no widget
+    // needs the mime type to look a definition up by.
+    QString mimeType() const;
 
     static void decorateEditor(TextEditorWidget *editor, const QString &groupId);
+    static QString mimeTypeForGroup(const QString &groupId);
 
 private:
     QString m_groupId;
     QString m_displayName;
+    QString m_mimeType;
     EditorDecorator m_editorDecorator;
 };
 

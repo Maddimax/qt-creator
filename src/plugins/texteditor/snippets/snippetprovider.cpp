@@ -72,6 +72,24 @@ QString SnippetProvider::displayName() const
     return m_displayName;
 }
 
+QString SnippetProvider::mimeType() const
+{
+    return m_mimeType;
+}
+
+/*!
+    Returns what a snippet in \a groupId is written in, for a renderer that has
+    to look a highlight definition up rather than hand a widget to a decorator.
+*/
+QString SnippetProvider::mimeTypeForGroup(const QString &groupId)
+{
+    for (const SnippetProvider &provider : std::as_const(g_snippetProviders)) {
+        if (provider.m_groupId == groupId)
+            return provider.m_mimeType;
+    }
+    return {};
+}
+
 /*!
     Applies customizations such as highlighting or indentation to the snippet editor.
  */
@@ -87,11 +105,12 @@ void SnippetProvider::decorateEditor(TextEditorWidget *editor, const QString &gr
     Registers a snippet group with \a groupId, \a displayName and \a editorDecorator.
  */
 void SnippetProvider::registerGroup(const QString &groupId, const QString &displayName,
-                                     EditorDecorator editorDecorator)
+                                     EditorDecorator editorDecorator, const QString &mimeType)
 {
     SnippetProvider provider;
     provider.m_groupId = groupId;
     provider.m_displayName = displayName;
+    provider.m_mimeType = mimeType;
     provider.m_editorDecorator = editorDecorator;
     g_snippetProviders.append(provider);
 }

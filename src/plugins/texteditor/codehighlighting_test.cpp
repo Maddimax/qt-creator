@@ -9,6 +9,7 @@
 #include "codestylepool.h"
 #include "fontsettings.h"
 #include "icodestylepreferences.h"
+#include "snippets/snippetprovider.h"
 #include "tabsettings.h"
 
 #include <QQmlComponent>
@@ -34,6 +35,7 @@ private slots:
     void testFollowsTheEditorFont();
     void testIndentsAQuickDocument();
     void testUnknownLanguageLeavesTheTextAlone();
+    void testEverySnippetGroupSaysWhatItIsWrittenIn();
 };
 
 // The character formats a highlighter left on the first line, minus the
@@ -195,6 +197,30 @@ void CodeHighlightingTest::testUnknownLanguageLeavesTheTextAlone()
     QVERIFY(!indenting.isIndenting());
     indenting.reindent();
     QCOMPARE(edit->property("text").toString(), code);
+}
+
+void CodeHighlightingTest::testEverySnippetGroupSaysWhatItIsWrittenIn()
+{
+    // A group's decorator only tells a TextEditorWidget how to highlight
+    // itself. A renderer without a widget needs the mime type instead, so a
+    // group that does not name one cannot be shown highlighted at all.
+    const QList<SnippetProvider> providers = SnippetProvider::snippetProviders();
+    QVERIFY(!providers.isEmpty());
+
+    QStringList unnamed;
+    for (const SnippetProvider &provider : providers) {
+        const QString mimeType = SnippetProvider::mimeTypeForGroup(provider.groupId());
+        QCOMPARE(mimeType, provider.mimeType());
+        if (mimeType.isEmpty())
+            unnamed << provider.groupId();
+        else
+            QVERIFY2(mimeType.contains('/'), qPrintable(provider.groupId() + ": " + mimeType));
+    }
+    QVERIFY2(unnamed.isEmpty(),
+             qPrintable("snippet groups with no mime type: " + unnamed.join(", ")));
+
+    // And one that was never registered has none rather than something.
+    QVERIFY(SnippetProvider::mimeTypeForGroup("NoSuchGroup").isEmpty());
 }
 
 QObject *createCodeHighlightingTest()

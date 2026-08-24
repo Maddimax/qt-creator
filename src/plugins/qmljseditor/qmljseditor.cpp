@@ -1237,7 +1237,8 @@ void setupQmlJSEditor()
 
     TextEditor::SnippetProvider::registerGroup(Constants::QML_SNIPPETS_GROUP_ID,
                                                Tr::tr("QML", "SnippetProvider"),
-                                               &decorateEditor);
+                                               &decorateEditor,
+                                               "text/x-qml");
 
 }
 

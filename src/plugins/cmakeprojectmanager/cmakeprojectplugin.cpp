@@ -100,7 +100,9 @@ class CMakeProjectPlugin final : public ExtensionSystem::IPlugin
                                                          Constants::CMAKE_LISTS_TXT);
 
         TextEditor::SnippetProvider::registerGroup(Constants::CMAKE_SNIPPETS_GROUP_ID,
-                                                   Tr::tr("CMake", "SnippetProvider"));
+                                                   Tr::tr("CMake", "SnippetProvider"),
+                                                   TextEditor::SnippetProvider::EditorDecorator(),
+                                                   "text/x-cmake");
         const auto issuesGenerator = [](const Kit *k) {
             Tasks result;
             if (CMakeKitAspect::cmakeExecutable(k).isEmpty()) {

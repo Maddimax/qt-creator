@@ -698,9 +698,17 @@ contract. Only then did that control bite. Note it has to widen
 `currentPreferences()`, not the top-level object: the current settings come from
 whichever delegate is in effect.
 
-What is still missing for Code Style is the per-language value editor, and for
-Snippets an editable highlighted editor. Neither control is wired into a page
-yet - they are the pieces those pages are built from.
+Snippets needed one more thing before it could use either: **a snippet group had
+no mime type.** `SnippetProvider` carried a decorator, and a decorator is a
+`std::function<void(TextEditorWidget *)>` - it tells a widget how to highlight
+itself and is useless to anything that has no widget. So `registerGroup()` takes
+the mime type its snippets are written in, and the five registrations say what
+theirs are. The test walks every registered group and fails on one that names
+none, so a new group cannot quietly become unhighlightable.
+
+What is still missing for Code Style is the per-language value editor. Neither
+control is wired into a page yet - they are the pieces those pages are built
+from.
 
 #### Give the model a parent
 
