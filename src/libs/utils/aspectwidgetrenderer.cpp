@@ -178,8 +178,17 @@ public:
             return true;
         case AspectControls::Container:
             if (auto container = qobject_cast<AspectContainer *>(&aspect)) {
-                if (const AspectWidgets::Layouter l = AspectWidgets::layouter(container))
-                    parent.addItem(l());
+                if (const AspectWidgets::Layouter l = AspectWidgets::layouter(container)) {
+                    // In a widget of its own, so that a container can be shown
+                    // and hidden as a unit - one category of a code style at a
+                    // time. Added as a bare layout there is nothing to hide,
+                    // and setVisible() on the container did nothing.
+                    QWidget *widget = Layouting::Column{l(), Layouting::noMargin}.emerge();
+                    widget->setVisible(container->isVisible());
+                    QObject::connect(container, &BaseAspect::visibleChanged,
+                                     widget, &QWidget::setVisible);
+                    parent.addItem(widget);
+                }
                 return true;
             }
             return false;

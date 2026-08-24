@@ -799,6 +799,16 @@ What each of the three still needs, from reading them:
   rather than in the preferences. It is a port like the others, not an
   exception - no page keeps its widgets.
 
+**A container's visibility needs a widget to live on.** Showing one group at a
+time works in Qt Quick by binding to the container's `visible`, but in the
+widget path a nested container was added as a bare *layout*: nothing to hide, so
+`AspectContainer::setVisible()` did nothing and ClangFormat's embedded C++ panel
+showed all six categories at once. The renderer wraps a container in a widget
+now. Worth knowing because the two renderers do not fail the same way - the
+Quick side was right from the first try and the widget side was silently wrong,
+and the only reason it was noticed is that a widget page still embeds those
+aspects.
+
 Three things the C++ port turned up:
 
 - **A closure with a second caller cannot be deleted.** ClangFormat embeds
@@ -1012,10 +1022,16 @@ item is itself a `TextField`.
 
 Worth knowing before hunting for dead ones, because most of these are not pages:
 
-- **1 is the page above**: Code Style for ClangFormat, which lays out its own
-  selector and owns its deferred apply/cancel because its settings live in
-  `.clang-format` files. QML/JS and C++ moved; the page is per language, which
-  is what made that possible.
+- **1 is the page above**: Code Style for ClangFormat. It is not blocked on
+  aspects - `ClangFormatSettings` is already an `AspectContainer` of five, and
+  `ClangFormatGlobalConfigWidget` is 312 lines of widgets hand-wired to them.
+  It is blocked on the middle of the page being **a whole Qt Creator editor**:
+  `ClangFormatConfigWidget` builds one with `IEditorFactory::createEditor()`
+  over the `.clang-format` file, registers it with `LanguageClientManager` for
+  completion, and binds Ctrl+Space and Ctrl+S. `CodeHighlighting` and
+  `CodeIndenting` give a Qt Quick `TextEdit` colours and indenting; they do not
+  give it a document, a language client or completion. This page needs the
+  TextEditor-to-Quick work first, and is the reason that item is on the list.
 - **5 are live nested containers**: `TabSettings`, `TypingSettings`,
   `StorageSettings`, `ExtraEncodingSettings` and `BehaviorSettings`. The Behavior
   page lays their aspects out itself now, but the *per-project* Editor page
