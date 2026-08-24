@@ -788,12 +788,43 @@ What each of the three still needs, from reading them:
   `QmlCodeStyleWidgetBase` subclasses, the `QStackedWidget` and the
   `QStyledItemDelegate` are gone; `QmlFormatOptionsModel` stayed and grew the
   `AspectTable` roles, which is all a Qt Quick table needs from it.
-- **C++** is the biggest: `CppCodeStyleSettings` is a plain struct of
-  twenty-five bools with no aspects at all, laid out across tabs.
+- **C++ is done.** `CppCodeStyleAspects` holds the twenty bools, the statement
+  macros and `TabSettings`, grouped six ways. The widget page's `QTabWidget`
+  became a `Category` selection: the container shows one group at a time and
+  puts that category's snippet in the preview, which is what the tabs were for.
+  The twenty `QCheckBox` members, the `QPlainTextEdit` and the six
+  `SnippetEditorWidget`s are gone.
 - **ClangFormat** is self-managed: it lays out its own selector and owns its
   deferred apply/cancel, because its settings live in `.clang-format` files
   rather than in the preferences. It is a port like the others, not an
   exception - no page keeps its widgets.
+
+Three things the C++ port turned up:
+
+- **A closure with a second caller cannot be deleted.** ClangFormat embeds
+  `CppCodeStylePreferencesWidget` as its legacy indenter panel, so the widget
+  stayed - but as a shell over the same `CppCodeStyleAspects` rather than a
+  second definition of the same twenty check boxes. Aspects render in both
+  backends, which is what makes that possible; it is the pattern to reach for
+  when a page's controls are needed somewhere that is still a widget.
+- **`RefactoringFile` owns the document it is handed.** `~RefactoringFile()`
+  deletes `m_document`, so a stack `QTextDocument` passed to it is freed twice.
+  The pointer-declaration formatter now takes and returns a string and makes
+  the document on the heap, reading the result back before the file goes away
+  with it.
+- **`AspectPage` already has a `content` property**, being its default property
+  alias. A page declaring `readonly property var content` fails to load with
+  "content is a read-only property"; the QuickUi test catches it, but only
+  because it loads every page.
+
+**How the CppEditor plugin suite behaves here:** two runs of the same binary
+gave 2 and 66 failures, and a third aborted early on a pre-existing ASan
+use-after-free in `Core::DocumentModel::documentForFilePath`. It depends on
+indexing and is not a usable signal. Run one class with
+`-test CppEditor,CppCodeStyleAspectsTest`, and make a negative control require
+that the class *finished* - "no FAIL line" is also what a run that died before
+reaching the test looks like. Three controls read as passing that way before
+this was noticed.
 
 Four things the QML/JS port turned up, worth knowing before the next one:
 
@@ -834,7 +865,10 @@ go yet - the per-project Editor page still embeds it as a container.
 
 The preview those pages need is built and wired: `CodeStylePreview.qml` over
 `CodeHighlighting` and `CodeIndenting`, fed by the page's own
-`CodeStylePreviewAspect`. A form gets it with four bindings.
+`CodeStylePreviewAspect`. A form gets it in one line, and the language can
+vary it: `setPreviewFormatter()` for what an indenter would not do (qmlformat,
+the pointer-declaration formatter) and `setPreviewText()` for a form with more
+than one thing to demonstrate.
 
 #### Font && Colors: twenty aspects and one name collision
 
@@ -963,8 +997,10 @@ item is itself a `TextField`.
 
 Worth knowing before hunting for dead ones, because most of these are not pages:
 
-- **2 are the pages above**: Code Style for C++ and for ClangFormat. QML/JS
-  moved; the page is per language, which is what made that possible.
+- **1 is the page above**: Code Style for ClangFormat, which lays out its own
+  selector and owns its deferred apply/cancel because its settings live in
+  `.clang-format` files. QML/JS and C++ moved; the page is per language, which
+  is what made that possible.
 - **5 are live nested containers**: `TabSettings`, `TypingSettings`,
   `StorageSettings`, `ExtraEncodingSettings` and `BehaviorSettings`. The Behavior
   page lays their aspects out itself now, but the *per-project* Editor page
@@ -1130,7 +1166,7 @@ naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
 all`, minus `QmlDesigner` and `UpdateInfo`, see below): **73 aspect-driven
-pages, 71 with their own QML and rendered with Qt Quick, 2 still on widgets.**
+pages, 72 with their own QML and rendered with Qt Quick, 1 still on widgets.**
 Before the gate was narrowed, 65 pages rendered generically; the delegate work
 that made that possible is all still in place and is what the ports build on:
 `StringListAspect` (a real list editor), `IntegersAspect` (`Invisible`, because

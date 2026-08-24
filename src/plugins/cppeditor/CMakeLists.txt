@@ -138,6 +138,7 @@ extend_qtc_plugin(CppEditor
   CONDITION WITH_TESTS
   SOURCES
     compileroptionsbuilder_test.cpp compileroptionsbuilder_test.h
+    cppcodestyleaspects_test.cpp cppcodestyleaspects_test.h
     cppcodegen_test.cpp cppcodegen_test.h
     cppcompletion_test.cpp cppcompletion_test.h
     cppdoxygen_test.cpp cppdoxygen_test.h
@@ -191,6 +192,7 @@ if(TARGET CppEditor AND TARGET Qt::Quick)
     NO_PLUGIN
     QML_FILES
       CppCodeModelSettingsPage.qml
+      CppCodeStylePage.qml
       CppFileSettingsPage.qml
   )
 endif()

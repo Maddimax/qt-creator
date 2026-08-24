@@ -126,6 +126,10 @@ AspectPage {
                     StringDelegate { aspect: root.custom.CustomFormatterArguments }
                 }
             }
+
+            // The groups sit at the top; without this the column shares its
+            // spare height out between them and one group floats.
+            Item { Layout.fillHeight: true }
         }
 
         AspectGroupBox {

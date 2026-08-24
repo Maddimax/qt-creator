@@ -50,14 +50,9 @@ public:
         setPreviewText(QString::fromLatin1(Constants::DEFAULT_CODE_STYLE_SNIPPETS[0]));
         setIndenterCreator([](QTextDocument *doc) { return createCppQtStyleIndenter(doc); });
         setCodeStyleCreator([] { return new CppCodeStylePreferences; });
-        setValueEditorCreator([](ICodeStylePreferences *codeStyle) {
-            auto widget = new CppCodeStylePreferencesWidget(
-                static_cast<CppCodeStylePreferences *>(codeStyle));
-            widget->layout()->setContentsMargins(0, 0, 0, 0);
-            return widget;
-        });
-        // The widget brings its own previews.
-        setValueEditorHasPreview(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/CppEditor/CppCodeStylePage.qml"));
+        setSettingsAspectsCreator(&Internal::createCppCodeStyleAspects);
+        setPreviewFormatter(&Internal::formatCppPreview);
 
         setGlobalCodeStyleId(idKey);
         setDefaultCodeStyleId("qt");

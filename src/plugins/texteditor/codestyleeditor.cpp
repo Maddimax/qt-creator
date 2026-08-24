@@ -287,6 +287,13 @@ QString CodeStylePreviewAspect::mimeType() const
     return m_mimeType;
 }
 
+void CodeStylePreviewAspect::setPreviewText(const QString &text)
+{
+    // The value first: setDefaultValue() assigns it too, but says nothing.
+    setValue(text);
+    setDefaultVariantValue(text);
+}
+
 void CodeStylePreviewAspect::resetText()
 {
     setValue(defaultValue());
@@ -339,7 +346,8 @@ CodeStyleAspect::CodeStyleAspect(ICodeStylePreferences *codeStyle, Id languageId
             // copy so that Cancel still means something. The page names the
             // container, not the language: every form reaches its own settings
             // as AspectModels.named(aspects.Settings).
-            if (AspectContainer *settings = factory->createSettingsAspects(m_pageCodeStyle)) {
+            if (AspectContainer *settings
+                = factory->createSettingsAspects(m_pageCodeStyle, preview)) {
                 settings->setQmlName("Settings");
                 registerAspect(settings, /*takeOwnership=*/true);
             }

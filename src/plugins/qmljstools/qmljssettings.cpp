@@ -683,7 +683,8 @@ public:
         setIndenterCreator([](QTextDocument *doc) { return QmlJSEditor::createQmlJsIndenter(doc); });
         setCodeStyleCreator([] { return new QmlJSCodeStylePreferences; });
         setQmlSource(QUrl("qrc:/qt/qml/QtCreator/QmlJSTools/QmlJSCodeStylePage.qml"));
-        setSettingsAspectsCreator([](ICodeStylePreferences *codeStyle) {
+        setSettingsAspectsCreator([](ICodeStylePreferences *codeStyle,
+                                     TextEditor::CodeStylePreviewAspect *) {
             return new QmlJSCodeStyleAspects(
                 static_cast<QmlJSCodeStylePreferences *>(codeStyle));
         });

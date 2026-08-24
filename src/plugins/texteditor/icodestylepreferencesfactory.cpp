@@ -77,9 +77,9 @@ QWidget *ICodeStylePreferencesFactory::createValueEditor(ICodeStylePreferences *
 }
 
 Utils::AspectContainer *ICodeStylePreferencesFactory::createSettingsAspects(
-    ICodeStylePreferences *codeStyle) const
+    ICodeStylePreferences *codeStyle, CodeStylePreviewAspect *preview) const
 {
-    return m_settingsAspectsCreator ? m_settingsAspectsCreator(codeStyle) : nullptr;
+    return m_settingsAspectsCreator ? m_settingsAspectsCreator(codeStyle, preview) : nullptr;
 }
 
 void ICodeStylePreferencesFactory::setPreviewFormatter(const PreviewFormatter &formatter)

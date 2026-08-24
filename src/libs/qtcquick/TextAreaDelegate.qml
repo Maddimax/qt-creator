@@ -43,26 +43,33 @@ RowLayout {
         elide: Text.ElideRight
     }
 
-    ScrollView {
+    // Framed: the style dresses a TextField but not a TextArea, so without one
+    // a multi-line value is an invisible box under its label.
+    Frame {
         Layout.fillWidth: true
         Layout.preferredHeight: Metrics.formTextAreaHeight
 
-        TextArea {
-            id: area
+        ScrollView {
+            anchors.fill: parent
+            clip: true
 
-            text: delegate.aspect?.value ?? ""
-            placeholderText: delegate.pres.placeholderText ?? ""
-            enabled: delegate.aspect?.enabled ?? false
-            readOnly: delegate.aspect?.readOnly ?? true
-            wrapMode: TextEdit.NoWrap
-            ToolTip.text: delegate.toolTip
-            ToolTip.visible: hovered && delegate.toolTip !== ""
+            TextArea {
+                id: area
 
-            // TextArea has no editingFinished, and writing on every keystroke
-            // would make one undo step per character.
-            onActiveFocusChanged: {
-                if (!activeFocus && delegate.aspect && !area.readOnly)
-                    delegate.aspect.value = area.text
+                text: delegate.aspect?.value ?? ""
+                placeholderText: delegate.pres.placeholderText ?? ""
+                enabled: delegate.aspect?.enabled ?? false
+                readOnly: delegate.aspect?.readOnly ?? true
+                wrapMode: TextEdit.NoWrap
+                ToolTip.text: delegate.toolTip
+                ToolTip.visible: hovered && delegate.toolTip !== ""
+
+                // TextArea has no editingFinished, and writing on every keystroke
+                // would make one undo step per character.
+                onActiveFocusChanged: {
+                    if (!activeFocus && delegate.aspect && !area.readOnly)
+                        delegate.aspect.value = area.text
+                }
             }
         }
     }

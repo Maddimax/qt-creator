@@ -273,7 +273,7 @@ static Utils::AspectContainer *settingsAspectsFor(QmlJSCodeStylePreferences *pre
 {
     TextEditor::ICodeStylePreferencesFactory *factory
         = TextEditor::codeStyleFactory(::QmlJSTools::Constants::QML_JS_SETTINGS_ID);
-    return factory ? factory->createSettingsAspects(preferences) : nullptr;
+    return factory ? factory->createSettingsAspects(preferences, nullptr) : nullptr;
 }
 
 static Utils::BaseAspect *aspectNamed(const Utils::AspectContainer *container, const QString &name)

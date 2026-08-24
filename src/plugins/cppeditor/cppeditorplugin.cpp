@@ -5,6 +5,7 @@
 #include "cppautocompleter.h"
 #include "cppcodemodelinspectordialog.h"
 #include "cppcodemodelsettings.h"
+#include "cppcodestyleaspects_test.h"
 #include "cppcodestylesettingspage.h"
 #include "cppeditorconstants.h"
 #include "cppeditordocument.h"
@@ -612,6 +613,7 @@ void CppEditorPlugin::registerTests()
     addTestCreator(createFindParentImplTest);
     addTest<FunctionUtilsTest>();
     addTest<HeaderPathFilterTest>();
+    addTestCreator(createCppCodeStyleAspectsTest);
     addTestCreator(createCppHeaderSourceTest);
     addTestCreator(createIncludeGroupsTest);
     addTest<LocalSymbolsTest>();

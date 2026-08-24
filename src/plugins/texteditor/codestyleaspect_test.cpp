@@ -85,7 +85,8 @@ public:
         });
         setQmlSource(QUrl("qrc:/qt/qml/QtCreator/TextEditor/CodeStyleTestPage.qml"));
         // A form names aspects, so the factory hands over the ones it edits.
-        setSettingsAspectsCreator([](ICodeStylePreferences *codeStyle) {
+        setSettingsAspectsCreator([](ICodeStylePreferences *codeStyle,
+                                     CodeStylePreviewAspect *) {
             Q_UNUSED(codeStyle)
             auto settings = new Utils::AspectContainer;
             auto lineLength = new Utils::IntegerAspect(settings);

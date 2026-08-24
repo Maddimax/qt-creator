@@ -54,6 +54,14 @@ CppRefactoringFilePtr CppRefactoringChanges::file(
     return result;
 }
 
+CppRefactoringFilePtr CppRefactoringChanges::file(
+    QTextDocument *document, const FilePath &filePath, const Document::Ptr &cppDocument)
+{
+    CppRefactoringFilePtr result(new CppRefactoringFile(document, filePath));
+    result->setCppDocument(cppDocument);
+    return result;
+}
+
 TextEditor::RefactoringFilePtr CppRefactoringChanges::file(const FilePath &filePath) const
 {
     return cppFile(filePath);

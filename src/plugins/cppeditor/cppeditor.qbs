@@ -331,6 +331,8 @@ QtcPlugin {
             "cppmcpsupport_test.h",
             "cppmodelmanager_test.cpp",
             "cppmodelmanager_test.h",
+            "cppcodestyleaspects_test.cpp",
+            "cppcodestyleaspects_test.h",
             "cpppointerdeclarationformatter_test.cpp",
             "cpppointerdeclarationformatter_test.h",
             "cpprenaming_test.cpp",

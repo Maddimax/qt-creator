@@ -79,6 +79,12 @@ public:
 
     static CppRefactoringFilePtr file(TextEditor::TextEditorWidget *editor,
                                       const CPlusPlus::Document::Ptr &document);
+    // Over a plain document rather than an editor, for code that is not open in
+    // one - a settings page's preview. Takes ownership of \a document, as
+    // RefactoringFile does with any document it is handed.
+    static CppRefactoringFilePtr file(QTextDocument *document,
+                                      const Utils::FilePath &filePath,
+                                      const CPlusPlus::Document::Ptr &cppDocument);
     TextEditor::RefactoringFilePtr file(const Utils::FilePath &filePath) const override;
 
     CppRefactoringFilePtr cppFile(const Utils::FilePath &filePath) const;

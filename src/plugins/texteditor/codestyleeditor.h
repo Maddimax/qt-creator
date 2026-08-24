@@ -101,6 +101,10 @@ public:
     QString languageIdString() const;
     QString mimeType() const;
 
+    // What the preview shows, for a language whose form has more than one thing
+    // to demonstrate - C++ has a snippet per category. Becomes what Reset goes
+    // back to as well, so that it means the snippet on show.
+    void setPreviewText(const QString &text);
     // Puts the factory's preview text back, discarding whatever was typed.
     void resetText();
     // Runs the language's own formatter over it, where it has one. Where it has

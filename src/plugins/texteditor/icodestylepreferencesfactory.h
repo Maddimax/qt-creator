@@ -26,6 +26,7 @@ namespace Utils { class FilePath; }
 
 namespace TextEditor {
 class CodeStylePool;
+class CodeStylePreviewAspect;
 class ICodeStylePreferences;
 class Indenter;
 
@@ -60,7 +61,8 @@ public:
     // A form names aspects, so a language that has one has to hand them over -
     // the page itself knows nothing about any language's settings. The page
     // reaches them as aspects.Settings, whatever the language called them.
-    Utils::AspectContainer *createSettingsAspects(ICodeStylePreferences *codeStyle) const;
+    Utils::AspectContainer *createSettingsAspects(ICodeStylePreferences *codeStyle,
+                                                  CodeStylePreviewAspect *preview) const;
     Indenter *createIndenter(QTextDocument *doc) const;
     ICodeStylePreferences *createCodeStyle() const;
     // The language's value editor. Usually just the widgets that edit
@@ -81,7 +83,8 @@ public:
     void setQmlSource(const QUrl &qmlSource);
 
     using SettingsAspectsCreator
-        = std::function<Utils::AspectContainer *(ICodeStylePreferences *)>;
+        = std::function<Utils::AspectContainer *(ICodeStylePreferences *,
+                                                 CodeStylePreviewAspect *)>;
     void setSettingsAspectsCreator(const SettingsAspectsCreator &creator);
 
     // How this language formats the code style preview, where running its
