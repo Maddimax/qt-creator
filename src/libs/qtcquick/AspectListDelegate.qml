@@ -61,13 +61,45 @@ RowLayout {
                     // out, bold when it is new, as in the widget editor.
                     required property bool added
                     required property bool removed
+                    // What the list says about the item besides its name: the
+                    // icon it stands for, and the colour it means. Both unset
+                    // unless the aspect's listViewDataCallback answers them.
+                    required property url decoration
+                    required property var itemForeground
 
                     width: view.width
+                    // Not drawn - the content item below is - but read out, and
+                    // the delegate's own text is what an accessible name comes
+                    // from.
                     text: label
-                    font.strikeout: row.removed
-                    font.bold: row.added
                     highlighted: ListView.isCurrentItem
                     onClicked: view.currentIndex = row.index
+
+                    contentItem: RowLayout {
+                        spacing: Spacing.GapHXs
+
+                        Image {
+                            source: row.decoration
+                            visible: row.decoration != ""
+                            fillMode: Image.PreserveAspectFit
+                            sourceSize.width: Metrics.listRowIconSize
+                            sourceSize.height: Metrics.listRowIconSize
+                            Layout.preferredWidth: Metrics.listRowIconSize
+                            Layout.preferredHeight: Metrics.listRowIconSize
+                        }
+
+                        Label {
+                            objectName: "aspectListRowLabel"
+                            text: row.label
+                            // The list's own colour where it has one; a
+                            // keyword shown in the colour it marks code with.
+                            color: row.itemForeground ?? Tokens.textDefault
+                            font.strikeout: row.removed
+                            font.bold: row.added
+                            elide: Text.ElideRight
+                            Layout.fillWidth: true
+                        }
+                    }
                 }
             }
         }

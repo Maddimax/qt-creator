@@ -27,6 +27,8 @@ QtObject {
     // Shortest a table row may be, so a row of check boxes and a row of
     // wrapped text still look like the same table.
     readonly property int tableRowMinimumHeight: 24
+    // Side length of an icon beside a row's text in a list editor.
+    readonly property int listRowIconSize: 16
     // Side length of the color preview swatch in ColorDelegate.
     readonly property int colorSwatchSize: 24
 

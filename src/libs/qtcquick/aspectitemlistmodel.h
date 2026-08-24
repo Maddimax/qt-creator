@@ -41,6 +41,12 @@ public:
         // shows the first in bold and the second struck through.
         AddedRole,
         RemovedRole,
+        // The row's icon, as a URL an Image can load - the callback answers a
+        // QIcon, which QML cannot carry. See QtcQuick::iconUrl().
+        DecorationRole,
+        // What colour to write the row's label in, where the list means
+        // something by it. Unset leaves it the form's.
+        ForegroundRole,
     };
 
     explicit AspectItemListModel(Utils::AspectList *list, QObject *parent = nullptr);

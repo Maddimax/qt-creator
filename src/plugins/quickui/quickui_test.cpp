@@ -10,6 +10,7 @@
 #include <extensionsystem/pluginspec.h>
 
 #include <qtcquick/aspectmodels.h>
+#include <qtcquick/qtciconprovider.h>
 #include <qtcquick/qtcquickengine.h>
 #include <qtcquick/aspectcontainermodel.h>
 #include <qtcquick/aspectform.h>
@@ -29,6 +30,8 @@
 #include <QQmlError>
 #include <QStandardItem>
 #include <QFont>
+#include <QIcon>
+#include <QPixmap>
 #include <QPromise>
 #include <QRegularExpression>
 #include <QSignalSpy>
@@ -173,6 +176,7 @@ private slots:
     void testTableAspectRemovesEverySelectedRow();
     void testTableAspectFiltersItsRows();
     void testTableCellReadsInItsOwnColours();
+    void testListRowShowsWhatTheListSaysAboutTheItem();
     void testColourOffersToGoBackToItsDefault();
     void testColourWithNoResetHasNoButton();
 };
@@ -1479,9 +1483,9 @@ void QuickUiTest::testAspectListAddsRemovesAndShowsDetails()
     QVERIFY(row->property("removed").toBool());
     // On the text that is actually drawn: the style used to hard-code the font
     // on its content item, so the row's own font never reached the screen.
-    auto rowText = row->property("contentItem").value<QQuickItem *>();
-    QVERIFY(rowText);
-    QVERIFY(rowText->property("font").value<QFont>().strikeOut());
+    const QList<QQuickItem *> rowTexts = findQmlNamed(row, "aspectListRowLabel");
+    QCOMPARE(rowTexts.size(), 1);
+    QVERIFY(rowTexts.first()->property("font").value<QFont>().strikeOut());
 
     // And there is nothing left to remove on a row already on its way out.
     QVERIFY(!remove->property("enabled").toBool());
@@ -1926,6 +1930,78 @@ void QuickUiTest::testTableAspectRemovesEverySelectedRow()
     // The one that was not selected, and it is the one that was in the middle:
     // removing from the top would have shifted the others out from under it.
     QCOMPARE(table.m_model.words(), QStringList({"off/blue/two"}));
+}
+
+void QuickUiTest::testListRowShowsWhatTheListSaysAboutTheItem()
+{
+    // A list row is a name, and for a list where the items are told apart by
+    // how they look - To-Do's keywords - an icon and a colour as well. The
+    // callback answers a QIcon, which QML cannot carry; see QtcQuick::iconUrl().
+    Utils::AspectContainer page;
+    page.setAutoApply(false);
+    Utils::AspectList keywords(&page);
+    keywords.setLabelText("Keywords");
+    keywords.setDisplayStyle(Utils::AspectList::DisplayStyle::ListViewWithDetails);
+    keywords.setCreateItemFunction([] {
+        auto item = std::make_shared<Utils::AspectContainer>();
+        auto name = new Utils::StringAspect(item.get());
+        name->setLabelText("Name");
+        name->setDisplayStyle(Utils::StringAspect::LineEditDisplay);
+        name->setValue("TODO");
+        return item;
+    });
+    const QIcon icon = QIcon(QPixmap(16, 16));
+    keywords.listViewDataCallback = [&icon](Utils::AspectContainer *item, int role) -> QVariant {
+        auto name = static_cast<Utils::StringAspect *>(item->aspects().first());
+        switch (role) {
+        case Qt::DisplayRole:
+            return name->volatileValue();
+        case Qt::DecorationRole:
+            return icon;
+        case Qt::ForegroundRole:
+            return QColor(Qt::red);
+        }
+        return {};
+    };
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QVERIFY(quickWidget->rootObject());
+
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "AspectListDelegate"));
+    QQuickItem *add = findButton(delegate, "Add");
+    QVERIFY(add);
+    QMetaObject::invokeMethod(add, "clicked");
+
+    QQuickItem *row = nullptr;
+    QTRY_VERIFY(row = findQmlComponent(delegate, "ItemDelegate"));
+    QCOMPARE(row->property("label").toString(), QString("TODO"));
+
+    // The icon reaches QML as a URL the provider serves, and the provider
+    // gives back the pixmap that went in - not a placeholder, and not null.
+    const QUrl decoration = row->property("decoration").toUrl();
+    QVERIFY2(!decoration.isEmpty(), "the row was given no icon");
+    QCOMPARE(decoration.scheme(), QString("image"));
+    QCOMPARE(decoration.host(), QString::fromLatin1(QtcQuick::IconProvider::name()));
+    QtcQuick::IconProvider provider;
+    QSize served;
+    const QPixmap pixmap = provider.requestPixmap(decoration.path().mid(1), &served, {16, 16});
+    QVERIFY2(!pixmap.isNull(), "the provider did not serve the icon back");
+    QCOMPARE(served, QSize(16, 16));
+
+    QCOMPARE(row->property("itemForeground").value<QColor>(), QColor(Qt::red));
+
+    // And the row follows the item: the details pane is where the name is
+    // edited, and nothing else tells the list that it changed.
+    const QList<QQuickItem *> rowTexts = findQmlNamed(row, "aspectListRowLabel");
+    QCOMPARE(rowTexts.size(), 1);
+    QCOMPARE(rowTexts.first()->property("text").toString(), QString("TODO"));
+    auto item = static_cast<Utils::AspectContainer *>(keywords.volatileItems().first().get());
+    auto name = static_cast<Utils::StringAspect *>(item->aspects().first());
+    name->setVolatileValue("FIXME");
+    QTRY_COMPARE(rowTexts.first()->property("text").toString(), QString("FIXME"));
 }
 
 void QuickUiTest::testColourOffersToGoBackToItsDefault()

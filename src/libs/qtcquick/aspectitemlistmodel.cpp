@@ -4,6 +4,7 @@
 #include "aspectitemlistmodel.h"
 
 #include "aspectcontainermodel.h"
+#include "qtciconprovider.h"
 
 #include <utils/algorithm.h>
 #include <utils/aspectlist.h>
@@ -11,6 +12,7 @@
 #include <utils/qtcassert.h>
 
 #include <QFuture>
+#include <QIcon>
 
 using namespace Utils;
 
@@ -26,6 +28,13 @@ AspectItemListModel::AspectItemListModel(AspectList *list, QObject *parent)
     // Apply says changed(), not volatileItemListChanged(), and it is what makes
     // a removed row finally go away.
     connect(m_list, &AspectList::changed, this, &AspectItemListModel::reload);
+    // A row says what an item is called and what colour it means, both of
+    // which the details pane edits. Nothing else tells the row it changed, so
+    // renaming an item left the list showing the old name.
+    connect(m_list, &AspectList::volatileValueChanged, this, [this] {
+        if (!m_rows.isEmpty())
+            emit dataChanged(index(0), index(int(m_rows.size()) - 1));
+    });
 }
 
 void AspectItemListModel::reload()
@@ -99,6 +108,17 @@ QVariant AspectItemListModel::data(const QModelIndex &index, int role) const
         }
         return label;
     }
+    case DecorationRole: {
+        QTC_ASSERT(m_list->listViewDataCallback, return {});
+        const QVariant decoration = m_list->listViewDataCallback(item, Qt::DecorationRole);
+        if (decoration.canConvert<QIcon>())
+            return iconUrl(decoration.value<QIcon>());
+        return decoration;
+    }
+    case ForegroundRole: {
+        QTC_ASSERT(m_list->listViewDataCallback, return {});
+        return m_list->listViewDataCallback(item, Qt::ForegroundRole);
+    }
     case ItemModelRole: {
         auto container = qobject_cast<AspectContainer *>(item);
         if (!container)
@@ -120,6 +140,8 @@ QHash<int, QByteArray> AspectItemListModel::roleNames() const
         {ItemModelRole, "itemModel"},
         {AddedRole, "added"},
         {RemovedRole, "removed"},
+        {DecorationRole, "decoration"},
+        {ForegroundRole, "itemForeground"},
     };
 }
 

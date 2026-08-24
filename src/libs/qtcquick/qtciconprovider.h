@@ -7,7 +7,18 @@
 
 #include <QQuickImageProvider>
 
+QT_BEGIN_NAMESPACE
+class QIcon;
+QT_END_NAMESPACE
+
 namespace QtcQuick {
+
+// The URL an Image can load a ready-made QIcon from. QML has no QIcon, and a
+// model row that shows one - a kit, a device, a To-Do keyword - has an icon
+// rather than the mask and colour it was built from. The icon is kept for as
+// long as the application runs: the callers are rows showing icons that are
+// themselves static, so what accumulates is one entry per distinct icon.
+QTCQUICK_EXPORT QString iconUrl(const QIcon &icon);
 
 // Serves Qt Creator's icons to QML as
 //     image://qtcreator/<mask path>?color=<Theme::Color key>
