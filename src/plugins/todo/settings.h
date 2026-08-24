@@ -7,6 +7,7 @@
 #include "keyword.h"
 
 #include <QMetaType>
+#include <QObject>
 
 namespace Todo::Internal {
 
@@ -32,6 +33,10 @@ public:
 Settings &todoSettings();
 
 void setupTodoSettingsPage();
+
+#ifdef WITH_TESTS
+QObject *createTodoSettingsTest();
+#endif
 
 } // Todo::Internal
 

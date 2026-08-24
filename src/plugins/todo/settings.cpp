@@ -6,7 +6,8 @@
 
 #include "constants.h"
 #include "keyword.h"
-#include "keyworddialog.h"
+#include "lineparser.h"
+#include "todoicons.h"
 #include "todoitemsprovider.h"
 #include "todooutputpane.h"
 #include "todotr.h"
@@ -14,15 +15,18 @@
 #include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/icore.h>
 
-#include <utils/guiutils.h>
+#include <utils/aspectlist.h>
+#include <utils/aspects.h>
+#include <utils/aspectwidgets.h>
 #include <utils/layoutbuilder.h>
 #include <utils/qtcsettings.h>
+#include <utils/shutdownguard.h>
 #include <utils/theme/theme.h>
 
-#include <QGroupBox>
-#include <QListWidget>
-#include <QPushButton>
-#include <QRadioButton>
+#ifdef WITH_TESTS
+#include <QIcon>
+#include <QTest>
+#endif
 
 using namespace Core;
 using namespace Utils;
@@ -144,240 +148,175 @@ static bool operator==(const Settings &s1, const Settings &s2)
         && s1.keywordsEdited == s2.keywordsEdited;
 }
 
-class OptionsDialog final : public Core::IOptionsPageWidget
+// What the To-Do page edits. The settings themselves live in Settings, which
+// the scanner and the output pane read and which keeps its own settings keys,
+// so these aspects have none: they are read from it when the page is built and
+// written back on apply.
+
+class KeywordAspects final : public AspectContainer
 {
 public:
-    OptionsDialog();
-
-    void apply() final;
-
-    void setSettings(const Settings &settings);
-
-private:
-    void addKeywordButtonClicked();
-    void editKeywordButtonClicked();
-    void removeKeywordButtonClicked();
-    void resetKeywordsButtonClicked();
-    void setKeywordsButtonsEnabled();
-    Settings settingsFromUi();
-    void addToKeywordsList(const Keyword &keyword);
-    void editKeyword(QListWidgetItem *item);
-    QSet<QString> keywordNames();
-
-    QListWidget *m_keywordsList;
-    QPushButton *m_editKeywordButton;
-    QPushButton *m_removeKeywordButton;
-    QPushButton *resetKeywordsButton;
-    QRadioButton *m_scanInProjectRadioButton;
-    QRadioButton *m_scanInCurrentFileRadioButton;
-    QRadioButton *m_scanInSubprojectRadioButton;
-};
-
-OptionsDialog::OptionsDialog()
-{
-    m_keywordsList = new QListWidget;
-    m_keywordsList->setDragDropMode(QAbstractItemView::DragDrop);
-    m_keywordsList->setDefaultDropAction(Qt::MoveAction);
-    m_keywordsList->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_keywordsList->setSortingEnabled(false);
-
-    auto addKeywordButton = new QPushButton(Tr::tr("Add"));
-    m_editKeywordButton = new QPushButton(Tr::tr("Edit"));
-    m_removeKeywordButton = new QPushButton(Tr::tr("Remove"));
-    resetKeywordsButton = new QPushButton(Tr::tr("Reset"));
-
-    m_scanInProjectRadioButton = new QRadioButton(Tr::tr("Scan the whole active project"));
-    m_scanInProjectRadioButton->setEnabled(true);
-
-    m_scanInCurrentFileRadioButton = new QRadioButton(Tr::tr("Scan only the currently edited document"));
-    m_scanInCurrentFileRadioButton->setChecked(true);
-
-    m_scanInSubprojectRadioButton = new QRadioButton(Tr::tr("Scan the current subproject"));
-
-    using namespace Layouting;
-
-    Column {
-        Group {
-            title(Tr::tr("Keywords")),
-            Row {
-                m_keywordsList,
-                Column {
-                    addKeywordButton,
-                    m_editKeywordButton,
-                    m_removeKeywordButton,
-                    resetKeywordsButton,
-                    st
+    KeywordAspects()
+    {
+        name.setQmlName("Name");
+        name.setLabelText(Tr::tr("Keyword:"));
+        name.setDisplayStyle(StringAspect::LineEditDisplay);
+        // What LineParser::isKeywordSeparator() rejects, said once for the
+        // field rather than only after OK was pressed.
+        name.setValidationFunction([](const QString &text) -> Result<> {
+            const QString trimmed = text.trimmed();
+            if (trimmed.isEmpty())
+                return ResultError(Tr::tr("The keyword cannot be empty."));
+            for (const QChar c : trimmed) {
+                if (LineParser::isKeywordSeparator(c)) {
+                    return ResultError(Tr::tr("The keyword cannot contain spaces, colons, "
+                                              "slashes or asterisks."));
                 }
             }
-        },
-        Group {
-            title(Tr::tr("Scanning Scope")),
-            Column {
-                m_scanInProjectRadioButton,
-                m_scanInCurrentFileRadioButton,
-                m_scanInSubprojectRadioButton
+            return ResultOk;
+        });
+
+        iconType.setQmlName("IconType");
+        iconType.setLabelText(Tr::tr("Icon:"));
+        iconType.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
+        // In IconType's order, so the index is the enumerator.
+        iconType.addOption(Tr::tr("Information"));
+        iconType.addOption(Tr::tr("Error"));
+        iconType.addOption(Tr::tr("Warning"));
+        iconType.addOption(Tr::tr("Bug"));
+        iconType.addOption(Tr::tr("To-Do"));
+
+        color.setQmlName("Color");
+        color.setLabelText(Tr::tr("Color:"));
+        color.setAlphaAllowed(false);
+
+        Utils::AspectWidgets::setLayouter(this, [this] {
+            using namespace Layouting;
+            return Form { name, br, iconType, br, color };
+        });
+    }
+
+    Keyword keyword() const
+    {
+        Keyword result;
+        result.name = name.volatileValue().trimmed();
+        result.iconType = IconType(iconType.volatileValue());
+        result.color = color.volatileValue();
+        return result;
+    }
+
+    void setKeyword(const Keyword &keyword)
+    {
+        name.setValue(keyword.name);
+        iconType.setValue(int(keyword.iconType));
+        color.setValue(keyword.color);
+    }
+
+    StringAspect name{this};
+    SelectionAspect iconType{this};
+    ColorAspect color{this};
+};
+
+class TodoAspects final : public AspectContainer
+{
+public:
+    TodoAspects()
+    {
+        setAutoApply(false);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Todo/TodoSettingsPage.qml"));
+
+        keywords.setQmlName("Keywords");
+        keywords.setDisplayStyle(AspectList::DisplayStyle::ListViewWithDetails);
+        keywords.setCreateItemFunction([] { return std::make_shared<KeywordAspects>(); });
+        keywords.listViewDataCallback = [](KeywordAspects *item, int role) -> QVariant {
+            const Keyword keyword = item->keyword();
+            switch (role) {
+            case Qt::DisplayRole:
+                return keyword.name;
+            // The list is how the keywords are told apart, so it shows each one
+            // marked the way the code it marks will be.
+            case Qt::DecorationRole:
+                // Qualified: BaseAspect has an icon() of its own.
+                return Todo::Internal::icon(keyword.iconType);
+            case Qt::ForegroundRole:
+                return keyword.color;
             }
+            return {};
+        };
+        keywords.addExtraButton(Tr::tr("Reset"), [this] { setKeywords(defaultKeywords()); });
+
+        scanningScope.setQmlName("ScanningScope");
+        scanningScope.setLabelText(Tr::tr("Scanning Scope"));
+        scanningScope.setDisplayStyle(SelectionAspect::DisplayStyle::RadioButtons);
+        // In ScanningScope's order, so the index is the enumerator.
+        scanningScope.addOption(Tr::tr("Scan only the currently edited document"));
+        scanningScope.addOption(Tr::tr("Scan the whole active project"));
+        scanningScope.addOption(Tr::tr("Scan the current subproject"));
+
+        readFromSettings();
+    }
+
+    void apply() override
+    {
+        AspectContainer::apply();
+
+        Settings newSettings;
+        newSettings.scanningScope = ScanningScope(scanningScope());
+        for (const std::shared_ptr<BaseAspect> &item : keywords.items())
+            newSettings.keywords << static_cast<KeywordAspects *>(item.get())->keyword();
+        // "apply" itself is interpreted as "use these keywords, also for other
+        // themes".
+        newSettings.keywordsEdited = true;
+
+        if (newSettings == todoSettings())
+            return;
+
+        todoSettings() = newSettings;
+        todoSettings().save();
+
+        todoItemsProvider().settingsChanged();
+        todoOutputPane().setScanningScope(todoSettings().scanningScope);
+    }
+
+    void cancel() override
+    {
+        AspectContainer::cancel();
+        readFromSettings();
+    }
+
+private:
+    static KeywordList defaultKeywords()
+    {
+        Settings defaults;
+        defaults.setDefault();
+        return defaults.keywords;
+    }
+
+    void readFromSettings()
+    {
+        scanningScope.setValue(todoSettings().scanningScope);
+        setKeywords(todoSettings().keywords);
+        // What is stored is the page's starting point, not an edit of it: the
+        // list marks items added since the last apply, and every row would be
+        // shown as new otherwise. Reset does not do this, because there the
+        // rows really are pending - the old ones struck through, the defaults
+        // in bold, until Apply.
+        keywords.apply();
+    }
+
+    void setKeywords(const KeywordList &list)
+    {
+        keywords.clear();
+        for (const Keyword &keyword : list) {
+            auto item = std::make_shared<KeywordAspects>();
+            item->setKeyword(keyword);
+            keywords.addItem(item);
         }
-    }.attachTo(this);
-
-    m_keywordsList->setIconSize(QSize(16, 16));
-    setKeywordsButtonsEnabled();
-    connect(addKeywordButton, &QAbstractButton::clicked,
-            this, &OptionsDialog::addKeywordButtonClicked);
-    connect(m_removeKeywordButton, &QAbstractButton::clicked,
-            this, &OptionsDialog::removeKeywordButtonClicked);
-    connect(m_editKeywordButton, &QAbstractButton::clicked,
-            this, &OptionsDialog::editKeywordButtonClicked);
-    connect(resetKeywordsButton, &QAbstractButton::clicked,
-            this, &OptionsDialog::resetKeywordsButtonClicked);
-    connect(m_keywordsList, &QListWidget::itemDoubleClicked,
-            this, &OptionsDialog::editKeyword);
-    connect(m_keywordsList, &QListWidget::itemSelectionChanged,
-            this, &OptionsDialog::setKeywordsButtonsEnabled);
-
-    setSettings(todoSettings());
-
-    installMarkSettingsDirtyTriggerRecursively(this);
-    installMarkSettingsDirtyTrigger(m_scanInProjectRadioButton);
-    installMarkSettingsDirtyTrigger(m_scanInCurrentFileRadioButton);
-    installMarkSettingsDirtyTrigger(m_scanInSubprojectRadioButton);
-}
-
-void OptionsDialog::addToKeywordsList(const Keyword &keyword)
-{
-    auto item = new QListWidgetItem(icon(keyword.iconType), keyword.name);
-    item->setData(Qt::UserRole, static_cast<int>(keyword.iconType));
-    item->setForeground(keyword.color);
-    m_keywordsList->addItem(item);
-}
-
-QSet<QString> OptionsDialog::keywordNames()
-{
-    const KeywordList keywords = settingsFromUi().keywords;
-
-    QSet<QString> result;
-    for (const Keyword &keyword : keywords)
-        result << keyword.name;
-
-    return result;
-}
-
-void OptionsDialog::addKeywordButtonClicked()
-{
-    Keyword keyword;
-    KeywordDialog keywordDialog(keyword, keywordNames(), this);
-    if (keywordDialog.exec() == QDialog::Accepted) {
-        keyword = keywordDialog.keyword();
-        addToKeywordsList(keyword);
-        markSettingsDirty();
-    }
-}
-
-void OptionsDialog::editKeywordButtonClicked()
-{
-    QListWidgetItem *item = m_keywordsList->currentItem();
-    editKeyword(item);
-}
-
-void OptionsDialog::editKeyword(QListWidgetItem *item)
-{
-    Keyword originalKeyword;
-    originalKeyword.name = item->text();
-    originalKeyword.iconType = static_cast<IconType>(item->data(Qt::UserRole).toInt());
-    originalKeyword.color = item->foreground().color();
-
-    QSet<QString> keywordNamesButThis = keywordNames();
-    keywordNamesButThis.remove(originalKeyword.name);
-
-    KeywordDialog keywordDialog(originalKeyword, keywordNamesButThis, this);
-    if (keywordDialog.exec() == QDialog::Accepted) {
-        Keyword keyword = keywordDialog.keyword();
-        if (keyword != originalKeyword)
-            markSettingsDirty();
-        item->setIcon(icon(keyword.iconType));
-        item->setText(keyword.name);
-        item->setData(Qt::UserRole, static_cast<int>(keyword.iconType));
-        item->setForeground(keyword.color);
-    }
-}
-
-void OptionsDialog::removeKeywordButtonClicked()
-{
-    delete m_keywordsList->takeItem(m_keywordsList->currentRow());
-    markSettingsDirty();
-}
-
-void OptionsDialog::resetKeywordsButtonClicked()
-{
-    const Settings original = todoSettings();
-    Settings newSettings;
-    newSettings.setDefault();
-    setSettings(newSettings);
-    if (original != newSettings)
-        markSettingsDirty();
-}
-
-void OptionsDialog::setKeywordsButtonsEnabled()
-{
-    const bool isSomethingSelected = !m_keywordsList->selectedItems().isEmpty();
-    m_removeKeywordButton->setEnabled(isSomethingSelected);
-    m_editKeywordButton->setEnabled(isSomethingSelected);
-}
-
-void OptionsDialog::setSettings(const Settings &settings)
-{
-    m_scanInCurrentFileRadioButton->setChecked(settings.scanningScope == ScanningScopeCurrentFile);
-    m_scanInProjectRadioButton->setChecked(settings.scanningScope == ScanningScopeProject);
-    m_scanInSubprojectRadioButton->setChecked(settings.scanningScope == ScanningScopeSubProject);
-
-    m_keywordsList->clear();
-    for (const Keyword &keyword : std::as_const(settings.keywords))
-        addToKeywordsList(keyword);
-}
-
-Settings OptionsDialog::settingsFromUi()
-{
-    Settings settings;
-
-    if (m_scanInCurrentFileRadioButton->isChecked())
-        settings.scanningScope = ScanningScopeCurrentFile;
-    else if (m_scanInSubprojectRadioButton->isChecked())
-        settings.scanningScope = ScanningScopeSubProject;
-    else
-        settings.scanningScope = ScanningScopeProject;
-
-    settings.keywords.clear();
-    for (int i = 0; i < m_keywordsList->count(); ++i) {
-        QListWidgetItem *item = m_keywordsList->item(i);
-
-        Keyword keyword;
-        keyword.name = item->text();
-        keyword.iconType = static_cast<IconType>(item->data(Qt::UserRole).toInt());
-        keyword.color = item->foreground().color();
-
-        settings.keywords << keyword;
     }
 
-    return settings;
-}
-
-void OptionsDialog::apply()
-{
-    Settings newSettings = settingsFromUi();
-
-    // "apply" itself is interpreted as "use these keywords, also for other themes".
-    newSettings.keywordsEdited = true;
-
-    if (newSettings == todoSettings())
-        return;
-
-    todoSettings() = newSettings;
-
-    todoSettings().save();
-
-    todoItemsProvider().settingsChanged();
-    todoOutputPane().setScanningScope(todoSettings().scanningScope);
-}
+    AspectList keywords{this};
+    SelectionAspect scanningScope{this};
+};
 
 // TodoSettingsPage
 
@@ -389,7 +328,10 @@ public:
         setId(Constants::TODO_SETTINGS);
         setDisplayName(Tr::tr("To-Do"));
         setCategory("To-Do");
-        setWidgetCreator([] { return new OptionsDialog; });
+        setSettingsProvider([] {
+            static GuardedObject<TodoAspects> theTodoAspects;
+            return theTodoAspects.get();
+        });
     }
 };
 
@@ -401,5 +343,169 @@ void setupTodoSettingsPage()
                      [] { todoSettings().save(); });
 }
 
+#ifdef WITH_TESTS
+
+// The page's keywords used to live in the QListWidget it built and in a modal
+// dialog on top of it, so none of this could be checked without opening both.
+
+class TodoSettingsTest : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void init();
+    void cleanup();
+
+    void testThePageShowsTheKeywordsThatAreStored();
+    void testTheListSaysHowEachKeywordLooks();
+    void testEditingAKeywordAndApplyingKeepsIt();
+    void testCancelForgetsWhatWasTyped();
+    void testResetOffersTheDefaultKeywordsBack();
+    void testAKeywordCannotBeEmptyOrContainASeparator();
+
+private:
+    static KeywordAspects *itemAt(const AspectList &list, int index)
+    {
+        return static_cast<KeywordAspects *>(list.volatileItems().at(index).get());
+    }
+
+    static const AspectList &keywordsOf(const TodoAspects &page)
+    {
+        return static_cast<const AspectList &>(*page.aspects().first());
+    }
+
+    Settings m_original;
+};
+
+void TodoSettingsTest::init()
+{
+    m_original = todoSettings();
+
+    Settings settings;
+    Keyword keyword;
+    keyword.name = "HACK";
+    keyword.iconType = IconType::Bug;
+    keyword.color = QColor(Qt::red);
+    settings.keywords << keyword;
+    keyword.name = "XXX";
+    keyword.iconType = IconType::Warning;
+    keyword.color = QColor(Qt::blue);
+    settings.keywords << keyword;
+    settings.scanningScope = ScanningScopeProject;
+    todoSettings() = settings;
+}
+
+void TodoSettingsTest::cleanup()
+{
+    todoSettings() = m_original;
+}
+
+void TodoSettingsTest::testThePageShowsTheKeywordsThatAreStored()
+{
+    TodoAspects page;
+    const AspectList &keywords = keywordsOf(page);
+
+    QCOMPARE(keywords.volatileItems().size(), 2);
+    QCOMPARE(itemAt(keywords, 0)->keyword().name, QString("HACK"));
+    QCOMPARE(itemAt(keywords, 0)->keyword().iconType, IconType::Bug);
+    QCOMPARE(itemAt(keywords, 1)->keyword().color, QColor(Qt::blue));
+
+    // What is stored is where the page starts from, so there is nothing to
+    // apply and no row is marked new.
+    QVERIFY(!static_cast<const BaseAspect &>(page).isDirty());
+    QCOMPARE(keywords.items().size(), 2);
+}
+
+void TodoSettingsTest::testTheListSaysHowEachKeywordLooks()
+{
+    TodoAspects page;
+    const AspectList &keywords = keywordsOf(page);
+    BaseAspect *first = keywords.volatileItems().first().get();
+
+    QCOMPARE(keywords.listViewDataCallback(first, Qt::DisplayRole).toString(), QString("HACK"));
+    QCOMPARE(keywords.listViewDataCallback(first, Qt::ForegroundRole).value<QColor>(),
+             QColor(Qt::red));
+    // The icon the keyword marks code with, not a name to look one up by.
+    const QVariant decoration = keywords.listViewDataCallback(first, Qt::DecorationRole);
+    QVERIFY(decoration.canConvert<QIcon>());
+    QVERIFY(!decoration.value<QIcon>().isNull());
+    QCOMPARE(decoration.value<QIcon>().cacheKey(), icon(IconType::Bug).cacheKey());
+}
+
+void TodoSettingsTest::testEditingAKeywordAndApplyingKeepsIt()
+{
+    TodoAspects page;
+    const AspectList &keywords = keywordsOf(page);
+    itemAt(keywords, 0)->name.setVolatileValue(QString("TODO"));
+    QVERIFY(static_cast<const BaseAspect &>(page).isDirty());
+
+    static_cast<BaseAspect &>(page).apply();
+
+    QCOMPARE(todoSettings().keywords.size(), 2);
+    QCOMPARE(todoSettings().keywords.at(0).name, QString("TODO"));
+    QCOMPARE(todoSettings().keywords.at(0).iconType, IconType::Bug);
+    QCOMPARE(todoSettings().keywords.at(0).color, QColor(Qt::red));
+    QCOMPARE(todoSettings().scanningScope, ScanningScopeProject);
+    // Applying is what says the keywords are the user's now, whatever theme
+    // they were picked under.
+    QVERIFY(todoSettings().keywordsEdited);
+}
+
+void TodoSettingsTest::testCancelForgetsWhatWasTyped()
+{
+    TodoAspects page;
+    itemAt(keywordsOf(page), 0)->name.setVolatileValue(QString("TODO"));
+
+    static_cast<BaseAspect &>(page).cancel();
+
+    QCOMPARE(itemAt(keywordsOf(page), 0)->keyword().name, QString("HACK"));
+    QCOMPARE(todoSettings().keywords.at(0).name, QString("HACK"));
+}
+
+void TodoSettingsTest::testResetOffersTheDefaultKeywordsBack()
+{
+    TodoAspects page;
+    const AspectList &keywords = keywordsOf(page);
+    QCOMPARE(keywords.extraButtonTexts(), QStringList{Tr::tr("Reset")});
+
+    const_cast<AspectList &>(keywords).triggerExtraButton(0);
+
+    Settings defaults;
+    defaults.setDefault();
+    QCOMPARE(keywords.volatileItems().size(), defaults.keywords.size());
+    QCOMPARE(itemAt(keywords, 0)->keyword().name, defaults.keywords.at(0).name);
+
+    // Offered, not done: the stored keywords are still the stored ones until
+    // the page is applied.
+    QCOMPARE(todoSettings().keywords.size(), 2);
+    static_cast<BaseAspect &>(page).apply();
+    QCOMPARE(todoSettings().keywords.size(), defaults.keywords.size());
+}
+
+void TodoSettingsTest::testAKeywordCannotBeEmptyOrContainASeparator()
+{
+    TodoAspects page;
+    // Through the aspect, the way a control asks, rather than through the
+    // function itself: what a form shows is what this answers.
+    const BaseAspect &name = itemAt(keywordsOf(page), 0)->name;
+    QCOMPARE(name.validationMessage("TODO"), QString());
+    QVERIFY(!name.validationMessage("").isEmpty());
+    QVERIFY(!name.validationMessage("   ").isEmpty());
+    // What LineParser::isKeywordSeparator() rejects: the page used to say so
+    // only after OK was pressed, in a red label of its own.
+    QVERIFY(!name.validationMessage("TO DO").isEmpty());
+    QVERIFY(!name.validationMessage("TODO:").isEmpty());
+    QVERIFY(!name.validationMessage("TO/DO").isEmpty());
+    QVERIFY(!name.validationMessage("TO*DO").isEmpty());
+}
+
+QObject *createTodoSettingsTest()
+{
+    return new TodoSettingsTest;
+}
+
+#endif // WITH_TESTS
+
 } // Todo::Internal
 
+#include "settings.moc"

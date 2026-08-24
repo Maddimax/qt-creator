@@ -12,14 +12,19 @@ QtcPlugin {
     Depends { name: "ProjectExplorer" }
     Depends { name: "CppEditor" }
 
+    // qbs has no QML module support; the .qml files are built by CMake only.
+    Group {
+        name: "qml"
+        files: ["*.qml"]
+        fileTags: []
+    }
+
     files: [
         "constants.h",
         "cpptodoitemsscanner.cpp",
         "cpptodoitemsscanner.h",
         "keyword.cpp",
         "keyword.h",
-        "keyworddialog.cpp",
-        "keyworddialog.h",
         "lineparser.cpp",
         "lineparser.h",
         "projectfiletodoitemsscanner.cpp",

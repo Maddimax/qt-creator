@@ -2,6 +2,7 @@
 // Copyright (C) 2016 Vasiliy Sorokin
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
+#include "settings.h"
 #include "todooutputpane.h"
 #include "todoitemsprovider.h"
 #include "todoprojectpanel.h"
@@ -36,6 +37,10 @@ public:
         setupTodoSettingsPage();
 
         setupTodoProjectPanel();
+
+#ifdef WITH_TESTS
+        addTestCreator(createTodoSettingsTest);
+#endif
     }
 };
 

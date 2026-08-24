@@ -17,7 +17,6 @@ public:
     void setKeywordList(const KeywordList &keywordList);
     QList<TodoItem> parse(const QString &line);
 
-    // This can also be used from KeywordDialog to avoid code duplication
     static bool isKeywordSeparator(const QChar &ch);
 
 private:
