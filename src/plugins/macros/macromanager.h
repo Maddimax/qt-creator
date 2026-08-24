@@ -10,7 +10,7 @@ namespace Macros::Internal {
 
 class IMacroHandler;
 class Macro;
-class MacroOptionsWidget;
+class MacroSettings;
 
 class MacroManager final : public QObject
 {
@@ -37,7 +37,7 @@ signals:
     void macroAdded();
 
 private:
-    friend class Internal::MacroOptionsWidget;
+    friend class Internal::MacroSettings;
 
     void deleteMacro(const QString &name);
     void changeMacro(const QString &name, const QString &description);

@@ -1196,8 +1196,8 @@ method, and the manual-run dialog builds a widget from it too, so the page
 naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
-all`, minus `QmlDesigner` and `UpdateInfo`, see below): **75 aspect-driven
-pages, 74 with their own QML and rendered with Qt Quick, 1 still on widgets.**
+all`, minus `QmlDesigner` and `UpdateInfo`, see below): **76 aspect-driven
+pages, 75 with their own QML and rendered with Qt Quick, 1 still on widgets.**
 Gerrit is the first of the widget-creator pages below to have joined that
 count: it became aspect-driven and then got a form, which is the shape the rest
 of them take.
@@ -1207,7 +1207,7 @@ pages that hand over an `AspectContainer` through `setSettingsProvider()`.
 A page that calls `IOptionsPage::setWidgetCreator()` builds its own
 `IOptionsPageWidget` and answers nothing from `aspects()`, so the test skips it
 entirely: `isFullyRenderable()` is never asked and the page is not in the 73.
-There are **50 such call sites in 44 files** - General, Environment, Keyboard,
+There are **49 such call sites in 43 files** - General, Environment, Keyboard,
 Locator, the project settings pages, Beautifier's three, Clangd, Axivion - and
 they are pure QtWidgets from top to bottom. Gerrit was the 52nd; converting it
 took an `AspectContainer` that reads `GerritParameters` when the page is built
@@ -1273,15 +1273,25 @@ unrelated reasons and needs the same treatment. Also note that the pages a
 `-test` run sees are the tested plugin's dependency closure unless `-load` is
 given; the count was 4 before, and 21 with one extra plugin.
 
-**A plugin that is disabled by default cannot be checked.** ClearCase was the
-obvious next page - eleven settings in a plain struct, with real behaviour to
+**A page whose value is what should still exist.** Macros deletes and renames,
+and the widget page kept two lists of pending changes beside a `QTreeWidget`.
+`MacrosAspect`'s value is a name-to-description map of the macros that *should*
+be there, so a removal is a key that is gone and a rename is a value that
+differs - `apply()` works both out by comparing it with what `MacroManager`
+holds, and dirtiness comes from comparing two maps rather than from tracking
+edits. Worth reaching for whenever a page manages a list of things that live
+somewhere else.
+
+**Pick a page whose plugin runs, and check before writing it.** ClearCase was
+the obvious next one - eleven settings in a plain struct, with real behaviour to
 move into the constructor - and the port was written and then thrown away,
 because the page could not be made to appear. `-load all` does not cover a
 plugin whose `.json` says `DisabledByDefault`, `-load ClearCase` leaves it
 `resolved` rather than `running`, and a `-test` run uses its own settings path
-so `Plugins/ForceEnabled` in a scratch one is not read. Before picking a page,
-check that its plugin runs: with no page there is no screenshot and no walk over
-it, and the QuickUi count will not move to tell you either.
+so `Plugins/ForceEnabled` in a scratch one is not read. With no page there is no
+screenshot and no walk over it, and the QuickUi count does not move to tell you
+either. `list_plugins` over the MCP server says which plugins are running;
+intersect that with the `setWidgetCreator` call sites before choosing.
 
 **A choice can be there without being offered.** `AspectPresentation::Choice`
 carries `enabled` and the Quick delegates ignored it, so an option the aspect

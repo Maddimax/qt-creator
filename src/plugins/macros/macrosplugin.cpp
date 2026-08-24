@@ -3,6 +3,7 @@
 
 #include "macrolocatorfilter.h"
 #include "macromanager.h"
+#include "macrooptions_test.h"
 #include "macrooptionspage.h"
 #include "macrosconstants.h"
 #include "macrostr.h"
@@ -45,6 +46,10 @@ public:
     void initialize() final
     {
         d = new MacrosPluginPrivate;
+
+#ifdef WITH_TESTS
+        addTestCreator(createMacroOptionsTest);
+#endif
 
         Context textContext(TextEditor::Constants::C_TEXTEDITOR);
 

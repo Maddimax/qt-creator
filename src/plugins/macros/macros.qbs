@@ -35,4 +35,18 @@ QtcPlugin {
         "texteditormacrohandler.cpp",
         "texteditormacrohandler.h",
     ]
+
+    QtcTestFiles {
+        files: [
+            "macrooptions_test.cpp",
+            "macrooptions_test.h",
+        ]
+    }
+
+    // qbs has no QML module support; the .qml files are built by CMake only.
+    Group {
+        name: "qml"
+        files: ["*.qml"]
+        fileTags: []
+    }
 }

@@ -10,198 +10,261 @@
 
 #include <coreplugin/actionmanager/actionmanager.h>
 #include <coreplugin/actionmanager/command.h>
+#include <coreplugin/dialogs/ioptionspage.h>
 
 #include <texteditor/texteditorconstants.h>
 
-#include <utils/guiutils.h>
-#include <utils/layoutbuilder.h>
+#include <utils/aspectpresentation.h>
+#include <utils/aspects.h>
+#include <utils/id.h>
 
+#include <QAbstractTableModel>
 #include <QAction>
 #include <QDir>
 #include <QFileInfo>
-#include <QGroupBox>
-#include <QHeaderView>
-#include <QLabel>
-#include <QLineEdit>
-#include <QMap>
-#include <QPushButton>
-#include <QStringList>
-#include <QTreeWidget>
-#include <QTreeWidgetItem>
+
+using namespace Utils;
 
 namespace Macros::Internal {
 
-const int NAME_ROLE = Qt::UserRole;
-const int WRITE_ROLE = Qt::UserRole + 1;
+// The macros stored in the macros directory. Ones loaded from elsewhere are not
+// the user's to rename or remove, and the page never showed them.
+static QList<Macro *> ownMacros()
+{
+    QList<Macro *> macros;
+    const QDir dir(MacroManager::macrosDirectory());
+    for (Macro *macro : MacroManager::macros()) {
+        if (QFileInfo(macro->fileName()).absoluteDir() == dir.absolutePath())
+            macros.append(macro);
+    }
+    return macros;
+}
 
-class MacroOptionsWidget final : public Core::IOptionsPageWidget
+static MacroDescriptions descriptionsFromManager()
+{
+    MacroDescriptions descriptions;
+    for (Macro *macro : ownMacros())
+        descriptions.insert(macro->displayName(), macro->description());
+    return descriptions;
+}
+
+// What a macro is called, what it does and how it is invoked. The name and the
+// shortcut belong to the macro and to the action manager; only the description
+// is the page's to change, and only for a macro that can be written.
+class MacroTableModel final : public QAbstractTableModel
 {
 public:
-    MacroOptionsWidget();
+    enum Column : int { Name = 0, Description, Shortcut };
 
-    void initialize();
+    using QAbstractTableModel::QAbstractTableModel;
 
-    void apply() final;
+    void setDescriptions(const MacroDescriptions &descriptions)
+    {
+        beginResetModel();
+        m_names = descriptions.keys();
+        m_descriptions = descriptions;
+        endResetModel();
+    }
+
+    MacroDescriptions descriptions() const { return m_descriptions; }
+
+    int rowCount(const QModelIndex &parent = {}) const override
+    {
+        return parent.isValid() ? 0 : m_names.size();
+    }
+    int columnCount(const QModelIndex &parent = {}) const override
+    {
+        return parent.isValid() ? 0 : 3;
+    }
+
+    QVariant headerData(int section, Qt::Orientation orientation, int role) const override
+    {
+        if (orientation != Qt::Horizontal || role != Qt::DisplayRole)
+            return {};
+        switch (section) {
+        case Name: return Tr::tr("Name");
+        case Description: return Tr::tr("Description");
+        case Shortcut: return Tr::tr("Shortcut");
+        }
+        return {};
+    }
+
+    QVariant data(const QModelIndex &index, int role) const override
+    {
+        if (!index.isValid() || index.row() >= m_names.size())
+            return {};
+        const QString name = m_names.at(index.row());
+
+        if (role == Qt::DisplayRole || role == Qt::EditRole) {
+            switch (index.column()) {
+            case Name: return name;
+            case Description: return m_descriptions.value(name);
+            case Shortcut: return shortcutFor(name);
+            }
+        } else if (role == AspectTable::EditableRole) {
+            return AspectTable::isWritable(flags(index));
+        } else if (role == AspectTable::CheckableRole) {
+            return false;
+        }
+        return {};
+    }
+
+    bool setData(const QModelIndex &index, const QVariant &value, int role) override
+    {
+        if (role != Qt::EditRole || index.column() != Description
+            || index.row() >= m_names.size()) {
+            return false;
+        }
+        m_descriptions.insert(m_names.at(index.row()), value.toString());
+        emit dataChanged(index, index);
+        return true;
+    }
+
+    Qt::ItemFlags flags(const QModelIndex &index) const override
+    {
+        if (!index.isValid())
+            return Qt::NoItemFlags;
+        Qt::ItemFlags flags = Qt::ItemIsEnabled | Qt::ItemIsSelectable;
+        if (index.column() == Description && isWritable(m_names.value(index.row())))
+            flags |= Qt::ItemIsEditable;
+        return flags;
+    }
+
+    QHash<int, QByteArray> roleNames() const override
+    {
+        return AspectTable::withRoleNames(QAbstractTableModel::roleNames());
+    }
+
+    bool removeRows(int row, int count, const QModelIndex &parent = {}) override
+    {
+        if (parent.isValid() || row < 0 || row + count > m_names.size())
+            return false;
+        beginRemoveRows({}, row, row + count - 1);
+        for (int i = 0; i < count; ++i)
+            m_descriptions.remove(m_names.at(row + i));
+        m_names.remove(row, count);
+        endRemoveRows();
+        return true;
+    }
 
 private:
-    void remove();
-    void changeCurrentItem(QTreeWidgetItem *current);
+    static bool isWritable(const QString &name)
+    {
+        Macro *macro = MacroManager::macros().value(name);
+        return macro && macro->isWritable();
+    }
 
-    void createTable();
+    static QString shortcutFor(const QString &name)
+    {
+        const Id id = Id(Constants::PREFIX_MACRO).withSuffix(name);
+        Core::Command *command = Core::ActionManager::command(id);
+        if (!command || !command->action())
+            return {};
+        return command->action()->shortcut().toString(QKeySequence::NativeText);
+    }
 
-    void changeDescription(const QString &description);
-
-    QStringList m_macroToRemove;
-    bool m_changingCurrent = false;
-
-    QMap<QString, QString> m_macroToChange;
-
-    QTreeWidget *m_treeWidget;
-    QPushButton *m_removeButton;
-    QGroupBox *m_macroGroup;
-    QLineEdit *m_description;
+    QStringList m_names;
+    MacroDescriptions m_descriptions;
 };
 
-MacroOptionsWidget::MacroOptionsWidget()
+MacrosAspect::MacrosAspect(AspectContainer *container)
+    : TypedAspect<MacroDescriptions>(container)
+    // Parented: a model handed to QML from a Q_INVOKABLE with no parent is one
+    // QML takes ownership of and deletes.
+    , m_model(new MacroTableModel(this))
 {
-    m_treeWidget = new QTreeWidget;
-    m_treeWidget->setTextElideMode(Qt::ElideLeft);
-    m_treeWidget->setUniformRowHeights(true);
-    m_treeWidget->setSortingEnabled(true);
-    m_treeWidget->setColumnCount(3);
-    m_treeWidget->header()->setSortIndicatorShown(true);
-    m_treeWidget->header()->setStretchLastSection(true);
-    m_treeWidget->header()->setSortIndicator(0, Qt::AscendingOrder);
-    m_treeWidget->setHeaderLabels({Tr::tr("Name"), Tr::tr("Description"), Tr::tr("Shortcut")});
-
-    m_description = new QLineEdit;
-
-    m_removeButton = new QPushButton(Tr::tr("Remove"));
-
-    m_macroGroup = new QGroupBox(Tr::tr("Macro"), this);
-
-    using namespace Layouting;
-
-    Row {
-        Tr::tr("Description:"), m_description
-    }.attachTo(m_macroGroup);
-
-    Column {
-        Group {
-            title(Tr::tr("Preferences")),
-            Row {
-                m_treeWidget,
-                Column { m_removeButton, st },
-            }
-        },
-        m_macroGroup
-    }.attachTo(this);
-
-    connect(m_treeWidget, &QTreeWidget::currentItemChanged,
-            this, &MacroOptionsWidget::changeCurrentItem);
-    connect(m_removeButton, &QPushButton::clicked,
-            this, &MacroOptionsWidget::remove);
-    connect(m_description, &QLineEdit::textChanged,
-            this, &MacroOptionsWidget::changeDescription);
-
-    connect(MacroManager::instance(), &MacroManager::macroAdded,
-            this, &MacroOptionsWidget::initialize);
-
-    initialize();
+    setQmlName("Macros");
+    connect(m_model, &QAbstractItemModel::dataChanged, this, [this] { takeFromModel(); });
+    connect(m_model, &QAbstractItemModel::rowsRemoved, this, [this] { takeFromModel(); });
 }
 
-void MacroOptionsWidget::initialize()
+AspectPresentation MacrosAspect::presentation() const
 {
-    m_macroToRemove.clear();
-    m_macroToChange.clear();
-    m_treeWidget->clear();
-    changeCurrentItem(nullptr);
-
-    // Create the treeview
-    createTable();
+    AspectPresentation p = TypedAspect<MacroDescriptions>::presentation();
+    p.control = AspectControls::Table;
+    // A macro is recorded, not added here; removing one is what the page
+    // offered besides renaming it.
+    p.allowAdding = false;
+    p.allowRemoving = true;
+    return p;
 }
 
-void MacroOptionsWidget::createTable()
+QAbstractItemModel *MacrosAspect::tableModel()
 {
-    QDir dir(MacroManager::macrosDirectory());
-    const Utils::Id base = Utils::Id(Constants::PREFIX_MACRO);
-    for (Macro *macro : MacroManager::macros()) {
-        QFileInfo fileInfo(macro->fileName());
-        if (fileInfo.absoluteDir() == dir.absolutePath()) {
-            auto macroItem = new QTreeWidgetItem(m_treeWidget);
-            macroItem->setText(0, macro->displayName());
-            macroItem->setText(1, macro->description());
-            macroItem->setData(0, NAME_ROLE, macro->displayName());
-            macroItem->setData(0, WRITE_ROLE, macro->isWritable());
-
-            Core::Command *command =
-                    Core::ActionManager::command(base.withSuffix(macro->displayName()));
-            if (command && command->action()) {
-                macroItem->setText(2,
-                                   command->action()->shortcut().toString(QKeySequence::NativeText));
-            }
-        }
-    }
+    return m_model;
 }
 
-void MacroOptionsWidget::changeCurrentItem(QTreeWidgetItem *current)
+void MacrosAspect::volatileValueToGui()
 {
-    m_changingCurrent = true;
-    m_removeButton->setEnabled(current);
-    m_macroGroup->setEnabled(current);
-    if (!current) {
-        m_description->clear();
-    } else {
-        m_description->setText(current->text(1));
-        m_description->setEnabled(current->data(0, WRITE_ROLE).toBool());
-    }
-    m_changingCurrent = false;
-}
-
-void MacroOptionsWidget::remove()
-{
-    QTreeWidgetItem *current = m_treeWidget->currentItem();
-    m_macroToRemove.append(current->data(0, NAME_ROLE).toString());
-    delete current;
-    Utils::markSettingsDirty();
-}
-
-void MacroOptionsWidget::apply()
-{
-    // Remove macro
-    for (const QString &name : std::as_const(m_macroToRemove)) {
-        MacroManager::instance()->deleteMacro(name);
-        m_macroToChange.remove(name);
-    }
-
-    // Change macro
-    for (auto it = m_macroToChange.cbegin(), end = m_macroToChange.cend(); it != end; ++it)
-        MacroManager::instance()->changeMacro(it.key(), it.value());
-
-    // Reinitialize the page
-    initialize();
-}
-
-void MacroOptionsWidget::changeDescription(const QString &description)
-{
-    QTreeWidgetItem *current = m_treeWidget->currentItem();
-    if (m_changingCurrent || !current)
+    if (m_takingFromModel)
         return;
-
-    QString macroName = current->data(0, NAME_ROLE).toString();
-    m_macroToChange[macroName] = description;
-    current->setText(1, description);
-    QFont font = current->font(1);
-    font.setItalic(true);
-    current->setFont(1, font);
+    m_model->setDescriptions(m_volatileValue);
 }
+
+void MacrosAspect::takeFromModel()
+{
+    m_takingFromModel = true;
+    setVolatileValue(m_model->descriptions());
+    m_takingFromModel = false;
+}
+
+// What the Macros page edits. The macros themselves live in MacroManager, so
+// the aspect is a view of them: read when the page is built, and the removals
+// and renames worked out and applied on apply().
+class MacroSettings final : public AspectContainer
+{
+public:
+    MacroSettings()
+    {
+        setAutoApply(false);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Macros/MacroSettingsPage.qml"));
+
+        m_macros.setLabelText(Tr::tr("Macros:"));
+        readFromManager();
+
+        connect(MacroManager::instance(), &MacroManager::macroAdded,
+                this, &MacroSettings::readFromManager);
+    }
+
+    void apply() override
+    {
+        AspectContainer::apply();
+
+        const MacroDescriptions wanted = m_macros();
+        for (Macro *macro : ownMacros()) {
+            const QString name = macro->displayName();
+            if (!wanted.contains(name))
+                MacroManager::instance()->deleteMacro(name);
+            else if (wanted.value(name) != macro->description())
+                MacroManager::instance()->changeMacro(name, wanted.value(name));
+        }
+
+        readFromManager();
+    }
+
+    void cancel() override
+    {
+        AspectContainer::cancel();
+        readFromManager();
+    }
+
+private:
+    void readFromManager() { m_macros.setValue(descriptionsFromManager()); }
+
+    MacrosAspect m_macros{this};
+};
+
+// MacroOptionsPage
 
 MacroOptionsPage::MacroOptionsPage()
 {
     setId(Constants::M_OPTIONS_PAGE);
     setDisplayName(Tr::tr("Macros"));
     setCategory(TextEditor::Constants::TEXT_EDITOR_SETTINGS_CATEGORY);
-    setWidgetCreator([] { return new MacroOptionsWidget; });
+    setSettingsProvider([] {
+        static MacroSettings theSettings;
+        return &theSettings;
+    });
 }
 
 } // Macros::Internal
