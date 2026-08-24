@@ -2440,12 +2440,19 @@ QVariant SelectionAspect::itemValue() const
 
 void SelectionAspect::addOption(const QString &displayName, const QString &toolTip)
 {
-    d->m_options.append(Option(displayName, toolTip, {}));
+    addOption(Option(displayName, toolTip, {}));
 }
 
 void SelectionAspect::addOption(const Option &option)
 {
     d->m_options.append(option);
+    emit controlConfigurationChanged();
+}
+
+void SelectionAspect::clearOptions()
+{
+    d->m_options.clear();
+    emit controlConfigurationChanged();
 }
 
 int SelectionAspect::optionCount() const

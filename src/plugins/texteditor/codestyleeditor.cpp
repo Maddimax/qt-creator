@@ -21,14 +21,123 @@
 #include <utils/infolabel.h>
 #include <utils/layoutbuilder.h>
 
+#include <utils/filedialogs.h>
+#include <utils/fileutils.h>
+
 #include <QChar>
 #include <QFont>
+#include <QInputDialog>
 #include <QLabel>
+#include <QMessageBox>
+#include <QPushButton>
 #include <QTextBlock>
 
 using namespace Utils;
 
 namespace TextEditor {
+
+namespace CodeStyleActions {
+
+void copy(ICodeStylePreferences *codeStyle, QWidget *dialogParent)
+{
+    QTC_ASSERT(codeStyle, return);
+    CodeStylePool *pool = codeStyle->delegatingPool();
+    QTC_ASSERT(pool, return);
+
+    ICodeStylePreferences *current = codeStyle->currentPreferences();
+    bool ok = false;
+    const QString newName = QInputDialog::getText(
+        dialogParent,
+        Tr::tr("Copy Code Style"),
+        Tr::tr("Code style name:"),
+        QLineEdit::Normal,
+        Tr::tr("%1 (Copy)").arg(current->displayName()),
+        &ok);
+    if (!ok || newName.trimmed().isEmpty())
+        return;
+
+    if (ICodeStylePreferences *copy = pool->cloneCodeStyle(current)) {
+        copy->setDisplayName(newName);
+        emit codeStyle->aboutToBeCopied(current, copy);
+        codeStyle->setCurrentDelegate(copy);
+    }
+}
+
+void remove(ICodeStylePreferences *codeStyle, QWidget *dialogParent)
+{
+    QTC_ASSERT(codeStyle, return);
+    CodeStylePool *pool = codeStyle->delegatingPool();
+    QTC_ASSERT(pool, return);
+
+    QMessageBox messageBox(
+        QMessageBox::Warning,
+        Tr::tr("Delete Code Style"),
+        Tr::tr("Are you sure you want to delete this code style permanently?"),
+        QMessageBox::Discard | QMessageBox::Cancel,
+        dialogParent);
+
+    // Change the text and role of the discard button
+    auto deleteButton = static_cast<QPushButton *>(messageBox.button(QMessageBox::Discard));
+    deleteButton->setText(Tr::tr("Delete"));
+    messageBox.addButton(deleteButton, QMessageBox::AcceptRole);
+    messageBox.setDefaultButton(deleteButton);
+
+    QObject::connect(deleteButton, &QAbstractButton::clicked, &messageBox, &QDialog::accept);
+    if (messageBox.exec() == QDialog::Accepted)
+        pool->removeCodeStyle(codeStyle->currentPreferences());
+}
+
+void importFrom(ICodeStylePreferences *codeStyle, QWidget *dialogParent)
+{
+    QTC_ASSERT(codeStyle, return);
+    CodeStylePool *pool = codeStyle->delegatingPool();
+    QTC_ASSERT(pool, return);
+
+    const FilePath filePath = FileUtils::getOpenFilePath(
+        Tr::tr("Import Code Style"), {}, Tr::tr("Code styles (*.xml);;All files (*)"));
+    if (filePath.isEmpty())
+        return;
+
+    if (ICodeStylePreferences *imported = pool->importCodeStyle(filePath)) {
+        codeStyle->setCurrentDelegate(imported);
+    } else {
+        QMessageBox::warning(
+            dialogParent,
+            Tr::tr("Import Code Style"),
+            Tr::tr("Cannot import code style from \"%1\".").arg(filePath.toUserOutput()));
+    }
+}
+
+void exportTo(ICodeStylePreferences *codeStyle, QWidget *dialogParent)
+{
+    Q_UNUSED(dialogParent)
+    QTC_ASSERT(codeStyle, return);
+    CodeStylePool *pool = codeStyle->delegatingPool();
+    QTC_ASSERT(pool, return);
+
+    ICodeStylePreferences *current = codeStyle->currentPreferences();
+    const FilePath filePath = FileUtils::getSaveFilePath(
+        Tr::tr("Export Code Style"),
+        FileUtils::homePath().pathAppended(current->displayName() + ".xml"),
+        Tr::tr("Code styles (*.xml);;All files (*)"));
+    if (!filePath.isEmpty())
+        pool->exportCodeStyle(filePath, current);
+}
+
+} // namespace CodeStyleActions
+
+QString codeStyleDisplayName(const ICodeStylePreferences *codeStyle)
+{
+    QTC_ASSERT(codeStyle, return {});
+    QString name = codeStyle->displayName();
+    if (const ICodeStylePreferences *delegate = codeStyle->currentDelegate())
+        name = Tr::tr("%1 [proxy: %2]").arg(name, delegate->displayName());
+    if (codeStyle->isReadOnly())
+        name = Tr::tr("%1 [built-in]").arg(name);
+    else
+        name = Tr::tr("%1 [customizable]").arg(name);
+    return name;
+}
 
 void CodeStyleEditor::apply() {}
 
@@ -146,6 +255,41 @@ QWidget *createTakeEffectImmediatelyLabel()
     return Column { infoLabel, noMargin }.emerge();
 }
 
+CodeStylePreviewAspect::CodeStylePreviewAspect(AspectContainer *container,
+                                               const ICodeStylePreferencesFactory *factory,
+                                               ICodeStylePreferences *codeStyle)
+    : StringAspect(container)
+    , m_codeStyle(codeStyle)
+    , m_languageId(factory->languageId().toString())
+    , m_mimeType(SnippetProvider::mimeTypeForGroup(factory->snippetGroupId()))
+{
+    setQmlName("Preview");
+    setDisplayStyle(TextEditDisplay);
+    setDefaultValue(factory->previewText());
+    setValue(factory->previewText());
+    setLabelText(Tr::tr("Preview"));
+}
+
+QObject *CodeStylePreviewAspect::codeStyleObject() const
+{
+    return m_codeStyle;
+}
+
+QString CodeStylePreviewAspect::languageIdString() const
+{
+    return m_languageId;
+}
+
+QString CodeStylePreviewAspect::mimeType() const
+{
+    return m_mimeType;
+}
+
+void CodeStylePreviewAspect::resetText()
+{
+    setValue(defaultValue());
+}
+
 CodeStyleAspect::CodeStyleAspect(ICodeStylePreferences *codeStyle, Id languageId)
     : m_codeStyle(codeStyle)
     , m_languageId(languageId)
@@ -157,6 +301,10 @@ CodeStyleAspect::CodeStyleAspect(ICodeStylePreferences *codeStyle, Id languageId
         if (!factory->qmlSource().isEmpty()) {
             ensurePageCopy(factory);
             syncFromReal();
+            // Which style is being edited, and what it does to code: the page's
+            // own aspects, so that every language's form gets the same ones.
+            setupSelectorAspects(factory);
+            new CodeStylePreviewAspect(this, factory, m_pageCodeStyle);
             // The form names aspects, and the page knows none of this
             // language's - the factory hands them over, editing the page-local
             // copy so that Cancel still means something.
@@ -233,6 +381,113 @@ void CodeStyleAspect::ensurePageCopy(ICodeStylePreferencesFactory *factory)
     connect(m_pageCodeStyle, &ICodeStylePreferences::currentValueChanged, this, notify);
     connect(m_pageCodeStyle, &ICodeStylePreferences::currentTabSettingsChanged, this, notify);
     connect(m_pageCodeStyle, &ICodeStylePreferences::currentPreferencesChanged, this, notify);
+}
+
+void CodeStyleAspect::setupSelectorAspects(const ICodeStylePreferencesFactory *factory)
+{
+    Q_UNUSED(factory)
+
+    m_styleSelection = new SelectionAspect(this);
+    m_styleSelection->setQmlName("Style");
+    m_styleSelection->setLabelText(Tr::tr("Custom settings:"));
+    m_styleSelection->setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
+    connect(m_styleSelection, &BaseAspect::volatileValueChanged, this, [this] {
+        if (m_updatingSelector.isLocked())
+            return;
+        const int index = m_styleSelection->volatileValue();
+        if (index < 0 || index >= m_selectableStyles.size())
+            return;
+        m_pageCodeStyle->setCurrentDelegate(m_selectableStyles.at(index));
+    });
+
+    const auto addAction = [this](const QString &qmlName, const QString &text,
+                                  const std::function<void()> &action) {
+        auto aspect = new ActionAspect(this);
+        aspect->setQmlName(qmlName);
+        aspect->setActionText(text);
+        aspect->setAction(action);
+        return aspect;
+    };
+
+    QWidget *dialogParent = Core::ICore::dialogParent();
+    m_copyStyle = addAction("CopyStyle", Tr::tr("Copy..."), [this, dialogParent] {
+        CodeStyleActions::copy(m_pageCodeStyle, dialogParent);
+    });
+    m_removeStyle = addAction("RemoveStyle", Tr::tr("Remove"), [this, dialogParent] {
+        CodeStyleActions::remove(m_pageCodeStyle, dialogParent);
+    });
+    m_exportStyle = addAction("ExportStyle", Tr::tr("Export..."), [this, dialogParent] {
+        CodeStyleActions::exportTo(m_pageCodeStyle, dialogParent);
+    });
+    m_importStyle = addAction("ImportStyle", Tr::tr("Import..."), [this, dialogParent] {
+        CodeStyleActions::importFrom(m_pageCodeStyle, dialogParent);
+    });
+
+    m_readOnlyNote = new TextDisplay(
+        this,
+        Tr::tr("The selected configuration is read-only. Copy the configuration for editing."));
+    m_readOnlyNote->setQmlName("ReadOnlyNote");
+    m_readOnlyNote->setIconType(InfoType::Warning);
+
+    // Import and export need somewhere to put a style and somewhere to take one
+    // from; without a pool there is neither.
+    const bool hasPool = m_pageCodeStyle->delegatingPool() != nullptr;
+    m_importStyle->setEnabled(hasPool);
+    m_exportStyle->setEnabled(hasPool);
+
+    if (CodeStylePool *pool = m_pageCodeStyle->delegatingPool()) {
+        const auto refill = [this] { refillStyleOptions(); updateSelectorState(); };
+        connect(pool, &CodeStylePool::codeStyleAdded, this, refill);
+        connect(pool, &CodeStylePool::codeStyleRemoved, this, refill);
+    }
+    connect(m_pageCodeStyle, &ICodeStylePreferences::currentDelegateChanged, this, [this] {
+        refillStyleOptions();
+        updateSelectorState();
+    });
+
+    refillStyleOptions();
+    updateSelectorState();
+}
+
+void CodeStyleAspect::refillStyleOptions()
+{
+    if (!m_styleSelection)
+        return;
+
+    // Setting the index below is this code catching the combo box up, not the
+    // user picking a style, so it must not be routed back into the delegate.
+    const GuardLocker locker(m_updatingSelector);
+
+    m_styleSelection->clearOptions();
+    m_selectableStyles.clear();
+
+    if (CodeStylePool *pool = m_pageCodeStyle->delegatingPool()) {
+        const QList<ICodeStylePreferences *> styles = pool->codeStyles();
+        for (ICodeStylePreferences *style : styles) {
+            // A style cannot delegate to itself, and the page is global, so
+            // styles belonging to a project are not on offer either.
+            if (style == m_pageCodeStyle || style->id() == m_pageCodeStyle->id())
+                continue;
+            if (!style->project().isEmpty())
+                continue;
+            m_selectableStyles.append(style);
+            m_styleSelection->addOption(codeStyleDisplayName(style));
+        }
+    }
+
+    m_styleSelection->setValue(m_selectableStyles.indexOf(m_pageCodeStyle->currentDelegate()));
+}
+
+void CodeStyleAspect::updateSelectorState()
+{
+    if (!m_styleSelection)
+        return;
+
+    const ICodeStylePreferences *delegate = m_pageCodeStyle->currentDelegate();
+    // A built-in style cannot be deleted, and neither can one that is itself a
+    // proxy for another.
+    m_removeStyle->setEnabled(delegate && !delegate->isReadOnly() && !delegate->currentDelegate());
+    m_readOnlyNote->setVisible(delegate && delegate->isReadOnly());
 }
 
 CodeStyleAspect::~CodeStyleAspect()

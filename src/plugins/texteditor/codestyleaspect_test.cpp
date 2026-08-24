@@ -209,11 +209,79 @@ public:
     }
 };
 
+const char QML_POOL_TEST_LANGUAGE_ID[] = "TextEditor.CodeStyleAspectTest.QmlPool";
+
+// A Qt Quick language with a pool behind it, so that there is more than one
+// style to delegate to and the page's selector has something to offer.
+class QmlPoolTestCodeStyleFactory final : public ICodeStylePreferencesFactory
+{
+public:
+    QmlPoolTestCodeStyleFactory()
+        : ICodeStylePreferencesFactory(QML_POOL_TEST_LANGUAGE_ID)
+    {
+        setDisplayName(QString("Qml Pool Test"));
+        setPreviewText(QString("if (a) {\nb;\n}\n"));
+        setIndenterCreator([](QTextDocument *doc) { return new PlainTextIndenter(doc); });
+        setCodeStyleCreator([] {
+            auto prefs = new ICodeStylePreferences;
+            prefs->setSettingsSuffix("QmlPoolTestCodeStyle");
+            return prefs;
+        });
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/TextEditor/CodeStyleTestPage.qml"));
+        setGlobalCodeStyleId("QmlPoolTestGlobal");
+        setDefaultCodeStyleId("narrow");
+        setBuiltInCodeStyles([this](CodeStylePool *pool) {
+            m_narrow.setId("narrow");
+            m_narrow.setDisplayName(QString("Narrow"));
+            m_narrow.setReadOnly(true);
+            TabSettingsData narrow;
+            narrow.m_tabSize = 2;
+            narrow.m_indentSize = 2;
+            m_narrow.setTabSettings(narrow);
+            pool->addCodeStyle(&m_narrow);
+
+            m_wide.setId("wide");
+            m_wide.setDisplayName(QString("Wide"));
+            m_wide.setReadOnly(true);
+            TabSettingsData wide;
+            wide.m_tabSize = 8;
+            wide.m_indentSize = 8;
+            m_wide.setTabSettings(wide);
+            pool->addCodeStyle(&m_wide);
+        });
+        setupCodeStyles();
+    }
+
+private:
+    ICodeStylePreferences m_narrow;
+    ICodeStylePreferences m_wide;
+};
+
 class CodeStyleAspectTest final : public QObject
 {
     Q_OBJECT
 
 private:
+    // The page's aspects are reached by the name its QML uses.
+    static BaseAspect *aspectNamed(const AspectContainer *container, const QString &qmlName)
+    {
+        const QList<BaseAspect *> aspects = container->aspects();
+        for (BaseAspect *aspect : aspects) {
+            if (aspect->qmlName() == qmlName)
+                return aspect;
+        }
+        return nullptr;
+    }
+
+    static int indexOfStyleNamed(const SelectionAspect *style, const QString &displayName)
+    {
+        for (int i = 0, n = style->optionCount(); i < n; ++i) {
+            if (style->displayForIndex(i).contains(displayName))
+                return i;
+        }
+        return -1;
+    }
+
     // Locates the tab-size spin box by its (distinctive) current value.
     static QSpinBox *spinBoxWithValue(const QWidget *root, int value)
     {
@@ -256,9 +324,12 @@ private slots:
 
             // And the aspects its form names are on the page, since the page
             // knows nothing about any language's settings itself.
+            Utils::AspectContainer *settings = nullptr;
             const QList<BaseAspect *> aspects = aspect.aspects();
-            QCOMPARE(aspects.size(), 1);
-            auto settings = qobject_cast<Utils::AspectContainer *>(aspects.first());
+            for (BaseAspect *child : aspects) {
+                if (auto container = qobject_cast<Utils::AspectContainer *>(child))
+                    settings = container;
+            }
             QVERIFY(settings);
             QCOMPARE(settings->aspects().size(), 1);
             QCOMPARE(settings->aspects().first()->qmlName(), QString("LineLength"));
@@ -433,6 +504,108 @@ private slots:
         aspect.cancel();
         QVERIFY(!aspect.isDirty());
         QCOMPARE(delegate->tabSettings(), original);
+    }
+
+    // The selector is the page's, not the language's: every Qt Quick Code Style
+    // page gets the same one, over the styles its own pool holds.
+    void testAQuickPageOffersTheStylesToDelegateTo()
+    {
+        QmlPoolTestCodeStyleFactory factory;
+        CodeStyleAspect aspect(factory.globalCodeStyle(), QML_POOL_TEST_LANGUAGE_ID);
+
+        auto style = qobject_cast<SelectionAspect *>(aspectNamed(&aspect, "Style"));
+        QVERIFY(style);
+        QCOMPARE(style->optionCount(), 2);
+
+        // A style reads with what it is, so that a read-only one is recognisable
+        // before picking it.
+        const int narrow = indexOfStyleNamed(style, "Narrow");
+        const int wide = indexOfStyleNamed(style, "Wide");
+        QVERIFY(narrow >= 0);
+        QVERIFY(wide >= 0);
+        QVERIFY(style->displayForIndex(narrow).contains("built-in"));
+
+        // And it starts on whichever one the style actually delegates to.
+        QCOMPARE(style->value(), narrow);
+
+        // The rest of the selector is there too, and knows what may be done to
+        // a built-in: nothing.
+        QVERIFY(aspectNamed(&aspect, "CopyStyle"));
+        QVERIFY(aspectNamed(&aspect, "ImportStyle"));
+        QVERIFY(aspectNamed(&aspect, "ExportStyle"));
+        BaseAspect *remove = aspectNamed(&aspect, "RemoveStyle");
+        QVERIFY(remove);
+        QVERIFY(!remove->isEnabled());
+        BaseAspect *note = aspectNamed(&aspect, "ReadOnlyNote");
+        QVERIFY(note);
+        QVERIFY(note->isVisible());
+    }
+
+    void testPickingAStyleIsAnEditThatCancelReverts()
+    {
+        QmlPoolTestCodeStyleFactory factory;
+        ICodeStylePreferences *global = factory.globalCodeStyle();
+        const QByteArray originalDelegate = global->currentDelegateId();
+
+        CodeStyleAspect aspect(global, QML_POOL_TEST_LANGUAGE_ID);
+        auto style = qobject_cast<SelectionAspect *>(aspectNamed(&aspect, "Style"));
+        QVERIFY(style);
+        QVERIFY(!aspect.isDirty());
+
+        // What the form writes when the user picks from the combo box.
+        const int wide = indexOfStyleNamed(style, "Wide");
+        QVERIFY(wide >= 0);
+        style->setVolatileValue(wide);
+
+        // The page is now editing a different style, and says so - without
+        // having touched the real one.
+        QVERIFY(aspect.isDirty());
+        QCOMPARE(global->currentDelegateId(), originalDelegate);
+
+        aspect.cancel();
+        QVERIFY(!aspect.isDirty());
+        // And the selector went back with it, rather than staying on a style
+        // the page is no longer editing.
+        QCOMPARE(style->value(), indexOfStyleNamed(style, "Narrow"));
+
+        style->setVolatileValue(wide);
+        aspect.apply();
+        QCOMPARE(global->currentDelegateId(), QByteArray("wide"));
+        QVERIFY(!aspect.isDirty());
+    }
+
+    // The preview is a view of what the page is editing, not of what is saved.
+    void testAQuickPageBringsItsOwnPreview()
+    {
+        QmlPoolTestCodeStyleFactory factory;
+        ICodeStylePreferences *global = factory.globalCodeStyle();
+        CodeStyleAspect aspect(global, QML_POOL_TEST_LANGUAGE_ID);
+
+        auto preview = qobject_cast<CodeStylePreviewAspect *>(aspectNamed(&aspect, "Preview"));
+        QVERIFY(preview);
+        QCOMPARE(preview->value(), factory.previewText());
+        QCOMPARE(preview->languageIdString(), QString(QML_POOL_TEST_LANGUAGE_ID));
+
+        // The page's own copy of the preferences, so that the preview shows the
+        // edits being made. Showing the saved style would look almost right.
+        QVERIFY(preview->codeStyleObject());
+        QVERIFY(preview->codeStyleObject() != global);
+
+        preview->setValue(QString("something else"));
+        preview->resetText();
+        QCOMPARE(preview->value(), factory.previewText());
+    }
+
+    // A language that stayed on widgets gets none of it: there is no form to
+    // put a selector in.
+    void testAWidgetPageHasNoSelectorAspects()
+    {
+        TestCodeStyleFactory factory;
+        ICodeStylePreferences codeStyle;
+        CodeStyleAspect aspect(&codeStyle, TEST_LANGUAGE_ID);
+
+        QVERIFY(!aspectNamed(&aspect, "Style"));
+        QVERIFY(!aspectNamed(&aspect, "Preview"));
     }
 
     // Verifies the factory builds the pool + global and registers them.

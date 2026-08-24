@@ -754,6 +754,32 @@ of the preferences, so Cancel still means something. Since the page is per
 language, **a language can move on its own** and the others keep their widget
 editor until they do - three independent batches rather than one leap.
 
+The rest of the page is the page's, not the language's, and is in place too.
+`CodeStyleAspect::setupSelectorAspects()` contributes the selector as ordinary
+aspects - `Style` (a `SelectionAspect` over the page pool's styles), `CopyStyle`,
+`RemoveStyle`, `ImportStyle`, `ExportStyle` and a `ReadOnlyNote` - and a
+`CodeStylePreviewAspect` holds the preview text. `CodeStyleSelector.qml` and
+`CodeStylePreview.qml` lay them out, so every language's form gets the same
+selector and preview by naming two components.
+
+Three things that shaped it:
+
+- **QML only ever sees a page's aspects.** `CodeIndenting` needs the *page's
+  copy* of the preferences, which is not a setting and has no aspect of its own,
+  so `CodeStylePreviewAspect` carries it as a property alongside the language id
+  and the mime type. Anything a hand-written form needs that is not a value has
+  to arrive this way; there is no second channel.
+- **A selection over a list that changes needs `clearOptions()`.** The styles to
+  delegate to come and go as the user copies and removes them, so
+  `SelectionAspect` grew one, and `addOption()` now announces itself with
+  `controlConfigurationChanged()` like every other setter in that file - without
+  which a refilled combo box keeps showing the old choices.
+- **Two triggers for one refill means neither control bites.** Keeping the
+  selector in step after `syncFromReal()` was first done twice, by a scope guard
+  *and* by the `currentDelegateChanged` the sync itself emits. The scope guard's
+  negative control could not fail, which is what said it was dead; it was
+  removed rather than kept "for safety".
+
 What each of the three still needs, from reading them:
 
 - **QML/JS** is the most tractable. `QmlJSCodeStyleSettings` is five fields, and
@@ -764,15 +790,19 @@ What each of the three still needs, from reading them:
   `AspectTable` is for.
 - **C++** is the biggest: `CppCodeStyleSettings` is a plain struct of
   twenty-five bools with no aspects at all, laid out across tabs.
-- **ClangFormat** is self-managed and needs a decision rather than a port.
+- **ClangFormat** is self-managed: it lays out its own selector and owns its
+  deferred apply/cancel, because its settings live in `.clang-format` files
+  rather than in the preferences. It is a port like the others, not an
+  exception - no page keeps its widgets.
 
 One piece is shared by all three and is already done for them:
 `TextEditor::TabSettings` is an `AspectContainer` of five aspects plus a
 warning, so its form is a listing rather than a rewrite. Its *layouter* cannot
 go yet - the per-project Editor page still embeds it as a container.
 
-The preview those pages need is already built: `CodeView` for the highlighting
-and `CodeIndenting` for the re-indent on a settings change.
+The preview those pages need is built and wired: `CodeStylePreview.qml` over
+`CodeHighlighting` and `CodeIndenting`, fed by the page's own
+`CodeStylePreviewAspect`. A form gets it with four bindings.
 
 #### Font && Colors: twenty aspects and one name collision
 

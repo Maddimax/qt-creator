@@ -49,8 +49,6 @@ private:
 
     void updateName(ICodeStylePreferences *codeStyle);
 
-    QString displayName(ICodeStylePreferences *codeStyle) const;
-
     Utils::Guard m_ignoreChanges;
 
     QComboBox *m_delegateComboBox;

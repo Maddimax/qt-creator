@@ -74,6 +74,17 @@ void CodeIndenting::setCodeStyle(ICodeStylePreferences *codeStyle)
         return;
     d->m_codeStyle = codeStyle;
     reattach();
+    emit codeStyleChanged();
+}
+
+QObject *CodeIndenting::codeStyleObject() const
+{
+    return d->m_codeStyle;
+}
+
+void CodeIndenting::setCodeStyleObject(QObject *codeStyle)
+{
+    setCodeStyle(qobject_cast<ICodeStylePreferences *>(codeStyle));
 }
 
 bool CodeIndenting::isIndenting() const

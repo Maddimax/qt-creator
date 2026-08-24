@@ -30,6 +30,12 @@ class TEXTEDITOR_EXPORT CodeIndenting : public QObject
     Q_PROPERTY(QString languageId READ languageId WRITE setLanguageId NOTIFY languageIdChanged)
     // Whether an indenter was found. Without one the text is left as typed.
     Q_PROPERTY(bool indenting READ isIndenting NOTIFY indentingChanged)
+    // What the indenting is measured against: a page hands over its own
+    // editable copy of the preferences, so that the preview shows the edits
+    // being made rather than what is saved. A plain QObject because QML has no
+    // use for the type beyond passing it along.
+    Q_PROPERTY(QObject *codeStyle READ codeStyleObject WRITE setCodeStyleObject
+                   NOTIFY codeStyleChanged)
 
 public:
     explicit CodeIndenting(QObject *parent = nullptr);
@@ -41,10 +47,11 @@ public:
     QString languageId() const;
     void setLanguageId(const QString &languageId);
 
-    // What the indenting is measured against. Not a QML property: a page hands
-    // over its own editable copy of the preferences, which QML has no use for.
     ICodeStylePreferences *codeStyle() const;
     void setCodeStyle(ICodeStylePreferences *codeStyle);
+
+    QObject *codeStyleObject() const;
+    void setCodeStyleObject(QObject *codeStyle);
 
     bool isIndenting() const;
 
@@ -56,6 +63,7 @@ signals:
     void documentChanged();
     void languageIdChanged();
     void indentingChanged();
+    void codeStyleChanged();
 
 private:
     void reattach();

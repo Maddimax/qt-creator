@@ -730,6 +730,10 @@ public:
 
     void addOption(const QString &displayName, const QString &toolTip = {});
     void addOption(const Option &option);
+    // Drops all options, for a selection over a list that changes while the
+    // page is open. Like every other setter here it says so with
+    // controlConfigurationChanged(); the value is left alone.
+    void clearOptions();
     Q_INVOKABLE int optionCount() const;
     int indexForDisplay(const QString &displayName) const;
     Q_INVOKABLE QString displayForIndex(int index) const;

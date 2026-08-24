@@ -6,6 +6,7 @@
 #include "texteditor_global.h"
 
 #include <utils/aspects.h>
+#include <utils/guard.h>
 #include <utils/id.h>
 
 #include <QPointer>
@@ -61,6 +62,54 @@ TEXTEDITOR_EXPORT QLabel *createCodeStylePreviewNote();
 // (which apply live). Global pages defer to Apply/OK and must not use it.
 TEXTEDITOR_EXPORT QWidget *createTakeEffectImmediatelyLabel();
 
+// What a code style selector offers besides picking one, factored out so that
+// the widget selector and the Qt Quick one do the same thing. Each puts up its
+// own dialog, parented to \a dialogParent.
+namespace CodeStyleActions {
+TEXTEDITOR_EXPORT void copy(ICodeStylePreferences *codeStyle, QWidget *dialogParent);
+TEXTEDITOR_EXPORT void remove(ICodeStylePreferences *codeStyle, QWidget *dialogParent);
+TEXTEDITOR_EXPORT void importFrom(ICodeStylePreferences *codeStyle, QWidget *dialogParent);
+TEXTEDITOR_EXPORT void exportTo(ICodeStylePreferences *codeStyle, QWidget *dialogParent);
+} // namespace CodeStyleActions
+
+// How a code style reads in a selector: its name, plus what it delegates to and
+// whether it can be edited.
+TEXTEDITOR_EXPORT QString codeStyleDisplayName(const ICodeStylePreferences *codeStyle);
+
+// The preview shown beside a Code Style form. Its value is the code, so that
+// editing it is an ordinary aspect edit; the rest is what a Qt Quick preview
+// needs in order to colour and re-indent that code, which QML cannot get at
+// otherwise - it only ever sees a page's aspects. See CodeStylePreview.qml.
+class TEXTEDITOR_EXPORT CodeStylePreviewAspect : public Utils::StringAspect
+{
+    Q_OBJECT
+
+    // The preferences the preview is a view of: the page's own copy, not the
+    // saved style, so that it shows the edits being made.
+    Q_PROPERTY(QObject *codeStyle READ codeStyleObject CONSTANT)
+    // Which language's indenter re-indents it.
+    Q_PROPERTY(QString languageId READ languageIdString CONSTANT)
+    // What the code is, for looking up a highlight definition.
+    Q_PROPERTY(QString mimeType READ mimeType CONSTANT)
+
+public:
+    CodeStylePreviewAspect(Utils::AspectContainer *container,
+                           const ICodeStylePreferencesFactory *factory,
+                           ICodeStylePreferences *codeStyle);
+
+    QObject *codeStyleObject() const;
+    QString languageIdString() const;
+    QString mimeType() const;
+
+    // Puts the factory's preview text back, discarding whatever was typed.
+    Q_INVOKABLE void resetText();
+
+private:
+    ICodeStylePreferences *m_codeStyle = nullptr;
+    QString m_languageId;
+    QString m_mimeType;
+};
+
 // Reusable settings-page container for editing an ICodeStylePreferences with
 // deferred apply/cancel. A page-local copy of the style is its volatile state;
 // the language's code style editor edits that copy, and apply() commits it to
@@ -77,6 +126,9 @@ public:
 
 private:
     void ensurePageCopy(ICodeStylePreferencesFactory *factory);
+    void setupSelectorAspects(const ICodeStylePreferencesFactory *factory);
+    void refillStyleOptions();
+    void updateSelectorState();
     void syncFromReal();
     bool poolsDiffer() const;
     ICodeStylePreferences *addPageCopy(ICodeStylePreferences *realStyle);
@@ -87,6 +139,18 @@ private:
     ICodeStylePreferences *m_pageCodeStyle = nullptr;
     QPointer<CodeStyleEditor> m_editor;
     bool m_syncing = false;
+
+    // The selector, as aspects, for a language that draws its page with Qt
+    // Quick. Null for one that still uses CodeStyleSelectorWidget.
+    Utils::SelectionAspect *m_styleSelection = nullptr;
+    Utils::ActionAspect *m_copyStyle = nullptr;
+    Utils::ActionAspect *m_removeStyle = nullptr;
+    Utils::ActionAspect *m_importStyle = nullptr;
+    Utils::ActionAspect *m_exportStyle = nullptr;
+    Utils::TextDisplay *m_readOnlyNote = nullptr;
+    // What each option in m_styleSelection stands for, in the same order.
+    QList<QPointer<ICodeStylePreferences>> m_selectableStyles;
+    Utils::Guard m_updatingSelector;
 };
 
 } // namespace TextEditor

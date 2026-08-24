@@ -3,25 +3,16 @@
 
 #include "codestyleselectorwidget.h"
 
+#include "codestyleeditor.h"
 #include "icodestylepreferences.h"
 #include "icodestylepreferencesfactory.h"
 #include "codestylepool.h"
 #include "texteditortr.h"
 
-#include <utils/filedialogs.h>
-#include <utils/fileutils.h>
 #include <utils/infolabel.h>
 #include <utils/layoutbuilder.h>
 
-#include <QApplication>
 #include <QComboBox>
-#include <QDebug>
-#include <QDialog>
-#include <QDialogButtonBox>
-#include <QFileDialog>
-#include <QInputDialog>
-#include <QLabel>
-#include <QMessageBox>
 #include <QPushButton>
 
 using namespace Utils;
@@ -153,82 +144,26 @@ void CodeStyleSelectorWidget::slotCurrentDelegateChanged(ICodeStylePreferences *
 
 void CodeStyleSelectorWidget::slotCopyClicked()
 {
-    if (!m_codeStyle)
-        return;
-
-    CodeStylePool *codeStylePool = m_codeStyle->delegatingPool();
-    ICodeStylePreferences *currentPreferences = m_codeStyle->currentPreferences();
-    bool ok = false;
-    const QString newName = QInputDialog::getText(this,
-                                                  Tr::tr("Copy Code Style"),
-                                                  Tr::tr("Code style name:"),
-                                                  QLineEdit::Normal,
-                                                  Tr::tr("%1 (Copy)").arg(currentPreferences->displayName()),
-                                                  &ok);
-    if (!ok || newName.trimmed().isEmpty())
-        return;
-    ICodeStylePreferences *copy = codeStylePool->cloneCodeStyle(currentPreferences);
-    if (copy) {
-        copy->setDisplayName(newName);
-        emit m_codeStyle->aboutToBeCopied(currentPreferences, copy);
-        m_codeStyle->setCurrentDelegate(copy);
-    }
+    if (m_codeStyle)
+        CodeStyleActions::copy(m_codeStyle, this);
 }
 
 void CodeStyleSelectorWidget::slotRemoveClicked()
 {
-    if (!m_codeStyle)
-        return;
-
-    CodeStylePool *codeStylePool = m_codeStyle->delegatingPool();
-    ICodeStylePreferences *currentPreferences = m_codeStyle->currentPreferences();
-
-    QMessageBox messageBox(QMessageBox::Warning,
-                           Tr::tr("Delete Code Style"),
-                           Tr::tr("Are you sure you want to delete this code style permanently?"),
-                           QMessageBox::Discard | QMessageBox::Cancel,
-                           this);
-
-    // Change the text and role of the discard button
-    auto deleteButton = static_cast<QPushButton*>(messageBox.button(QMessageBox::Discard));
-    deleteButton->setText(Tr::tr("Delete"));
-    messageBox.addButton(deleteButton, QMessageBox::AcceptRole);
-    messageBox.setDefaultButton(deleteButton);
-
-    connect(deleteButton, &QAbstractButton::clicked, &messageBox, &QDialog::accept);
-    if (messageBox.exec() == QDialog::Accepted)
-        codeStylePool->removeCodeStyle(currentPreferences);
+    if (m_codeStyle)
+        CodeStyleActions::remove(m_codeStyle, this);
 }
 
 void CodeStyleSelectorWidget::slotImportClicked()
 {
-    const FilePath fileName =
-            FileUtils::getOpenFilePath(Tr::tr("Import Code Style"), {},
-                                       Tr::tr("Code styles (*.xml);;All files (*)"));
-    if (!fileName.isEmpty()) {
-        CodeStylePool *codeStylePool = m_codeStyle->delegatingPool();
-        ICodeStylePreferences *importedStyle = codeStylePool->importCodeStyle(fileName);
-        if (importedStyle)
-            m_codeStyle->setCurrentDelegate(importedStyle);
-        else
-            QMessageBox::warning(this,
-                                 Tr::tr("Import Code Style"),
-                                 Tr::tr("Cannot import code style from \"%1\".")
-                                     .arg(fileName.toUserOutput()));
-    }
+    if (m_codeStyle)
+        CodeStyleActions::importFrom(m_codeStyle, this);
 }
 
 void CodeStyleSelectorWidget::slotExportClicked()
 {
-    ICodeStylePreferences *currentPreferences = m_codeStyle->currentPreferences();
-    const FilePath filePath = FileUtils::getSaveFilePath(
-        Tr::tr("Export Code Style"),
-        FileUtils::homePath().pathAppended(currentPreferences->displayName() + ".xml"),
-        Tr::tr("Code styles (*.xml);;All files (*)"));
-    if (!filePath.isEmpty()) {
-        CodeStylePool *codeStylePool = m_codeStyle->delegatingPool();
-        codeStylePool->exportCodeStyle(filePath, currentPreferences);
-    }
+    if (m_codeStyle)
+        CodeStyleActions::exportTo(m_codeStyle, this);
 }
 
 void CodeStyleSelectorWidget::slotCodeStyleAdded(ICodeStylePreferences *codeStylePreferences)
@@ -243,7 +178,7 @@ void CodeStyleSelectorWidget::slotCodeStyleAdded(ICodeStylePreferences *codeStyl
     }
 
     const QVariant data = QVariant::fromValue(codeStylePreferences);
-    const QString name = displayName(codeStylePreferences);
+    const QString name = codeStyleDisplayName(codeStylePreferences);
     m_delegateComboBox->addItem(name, data);
     m_delegateComboBox->setItemData(m_delegateComboBox->count() - 1, name, Qt::ToolTipRole);
     connect(codeStylePreferences, &ICodeStylePreferences::displayNameChanged,
@@ -286,22 +221,9 @@ void CodeStyleSelectorWidget::updateName(ICodeStylePreferences *codeStyle)
     if (idx < 0)
         return;
 
-    const QString name = displayName(codeStyle);
+    const QString name = codeStyleDisplayName(codeStyle);
     m_delegateComboBox->setItemText(idx, name);
     m_delegateComboBox->setItemData(idx, name, Qt::ToolTipRole);
-}
-
-QString CodeStyleSelectorWidget::displayName(ICodeStylePreferences *codeStyle) const
-{
-    QString name = codeStyle->displayName();
-    if (codeStyle->currentDelegate())
-        name = Tr::tr("%1 [proxy: %2]").arg(name).arg(codeStyle->currentDelegate()->displayName());
-    if (codeStyle->isReadOnly())
-        name = Tr::tr("%1 [built-in]").arg(name);
-    else
-        name = Tr::tr("%1 [customizable]").arg(name);
-
-    return name;
 }
 
 } // TextEditor
