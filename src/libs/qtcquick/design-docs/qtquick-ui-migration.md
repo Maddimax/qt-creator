@@ -895,6 +895,29 @@ vary it: `setPreviewFormatter()` for what an indenter would not do (qmlformat,
 the pointer-declaration formatter) and `setPreviewText()` for a form with more
 than one thing to demonstrate.
 
+#### The TextEditor in Qt Quick
+
+The last aspect-driven page needs an editor, not a text field: ClangFormat's
+page is a Qt Creator editor over the `.clang-format` file, with a language
+client attached for completion and Ctrl+S to save. `CodeHighlighting` and
+`CodeIndenting` cannot reach that - a highlighter and an indenter attach to any
+`QTextDocument`, but a file that is opened, saved and known to a language server
+has to *be* a `TextEditor::TextDocument`.
+
+**`QQuickTextDocument::setTextDocument()` is what makes it possible.** A Qt
+Quick `TextEdit` makes its own `QTextDocument` and, since Qt 6.7, will show
+another one instead. So `CodeDocument` opens a real `TextDocument` for a path
+and hands its `QTextDocument` to the `TextEdit`: the view is then showing the
+file, and everything the document carries - the highlighter, the indenter, the
+marks, `IDocument::save()` - is in the view with it. It is the substitution, not
+a copy: typing in the view modifies the file's document, and the file knows it
+has been changed.
+
+What is built and tested so far is that substitution, and saving through it.
+What is still to come, in the order the page needs it: attaching a language
+client (`LanguageClientManager` wants `documentOpened`/`editorOpened` with an
+`IEditor`, which a Quick view does not have), completion, and line numbers.
+
 #### Font && Colors: twenty aspects and one name collision
 
 `FontSettingsAspect` was one `Custom` aspect that owned the whole page. It is
