@@ -144,6 +144,7 @@ private slots:
     void testLabelChangeReachesTheControl();
     void testLabelDropsItsAcceleratorForQuick();
     void testPathAspectOffersSomewhereToBrowseFrom();
+    void testAChoiceCanBeThereWithoutBeingOffered();
     void testIdValuedSelectionRoundTrips();
     void testStringListEditorAddsRemovesAndEdits();
     void testStringSelectionOffersItsChoices();
@@ -1241,6 +1242,35 @@ void QuickUiTest::testPathAspectOffersSomewhereToBrowseFrom()
     for (QQuickItem *button : buttons)
         shown += button->isVisible() ? 1 : 0;
     QCOMPARE(shown, 1);
+}
+
+// A choice can be present and not selectable - an external diff where there is
+// no "diff" on the PATH. AspectPresentation::Choice has said so all along and
+// the Quick delegates were not reading it.
+void QuickUiTest::testAChoiceCanBeThereWithoutBeingOffered()
+{
+    Utils::AspectContainer page;
+    Utils::SelectionAspect choice(&page);
+    choice.setDisplayStyle(Utils::SelectionAspect::DisplayStyle::RadioButtons);
+    choice.setLabelText("Pick one");
+    choice.addOption("Available");
+    Utils::SelectionAspect::Option unavailable("Unavailable", {}, {});
+    unavailable.enabled = false;
+    choice.addOption(unavailable);
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QVERIFY(quickWidget->rootObject());
+
+    QQuickItem *group = nullptr;
+    QTRY_VERIFY(group = findQmlComponent(quickWidget->rootObject(), "RadioGroupDelegate"));
+
+    QList<QQuickItem *> buttons;
+    QTRY_VERIFY((buttons = findQmlComponents(group, "RadioButton")).size() == 2);
+    QVERIFY(buttons.at(0)->isEnabled());
+    QVERIFY(!buttons.at(1)->isEnabled());
 }
 
 // The shape EncodingSelectionAspect has: a ComboBox whose value is the id of

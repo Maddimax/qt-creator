@@ -88,6 +88,12 @@ QVariantMap AspectModels::presentation(BaseAspect *aspect)
                                                     [](const AspectPresentation::Choice &c) {
                                                         return c.id.toString();
                                                     })},
+        // A choice can be there but not offered - ClearCase's external diff
+        // where there is no "diff" on the PATH.
+        {"optionsEnabled", Utils::transform<QVariantList>(
+                               p.choices, [](const AspectPresentation::Choice &c) {
+                                   return QVariant(c.enabled);
+                               })},
         {"valueIsChoiceId", p.valueIsChoiceId},
         // An aspect with no bound presents an unset minimum or maximum. The
         // delegates bind these straight into SpinBox.from/to, so substitute the

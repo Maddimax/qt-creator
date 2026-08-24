@@ -61,6 +61,7 @@ ColumnLayout {
             autoExclusive: false
             enabled: (delegate.aspect?.enabled ?? false)
                      && !(delegate.aspect?.readOnly ?? false)
+                     && ((delegate.pres.optionsEnabled ?? [])[index] ?? true)
             ToolTip.text: delegate.toolTip
             ToolTip.visible: hovered && delegate.toolTip !== ""
             Layout.fillWidth: true

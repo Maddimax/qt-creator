@@ -11,75 +11,66 @@
 
 #include <projectexplorer/projectexplorerconstants.h>
 
-#include <utils/guiutils.h>
-#include <utils/layoutbuilder.h>
+#include <utils/aspects.h>
 
-#include <QCheckBox>
-#include <QLabel>
+#include <QDesktopServices>
+#include <QUrl>
 
-using namespace std::placeholders;
+using namespace Utils;
 
 namespace Ios::Internal {
 
-class IosSettingsWidget final : public Core::IOptionsPageWidget
+// What the iOS page edits. The setting lives in IosConfigurations, which the
+// rest of the plugin reads, so the aspect is a view of it: read when the page
+// is built, written back on apply.
+class IosSettings final : public AspectContainer
 {
 public:
-    IosSettingsWidget();
-    ~IosSettingsWidget() final;
+    IosSettings()
+    {
+        setAutoApply(false);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Ios/IosSettingsPage.qml"));
+
+        m_askAboutDevices.setQmlName("AskAboutDevices");
+        m_askAboutDevices.setLabel(Tr::tr("Ask about devices not in developer mode"),
+                                   BoolAspect::LabelPlacement::AtCheckBox);
+
+        m_xcodeNote.setQmlName("XcodeNote");
+        m_xcodeNote.setTextFormat(AspectControls::TextFormat::RichText);
+        m_xcodeNote.setWordWrap(true);
+        m_xcodeNote.setText(
+            Tr::tr("Configure available simulator devices in <a href=\"%1\">Xcode</a>.")
+                .arg("https://developer.apple.com/documentation/xcode/"
+                     "running-your-app-in-simulator-or-on-a-device/"
+                     "#Configure-the-list-of-simulated-devices"));
+        connect(&m_xcodeNote, &TextDisplay::linkActivated,
+                this, [](const QString &link) { QDesktopServices::openUrl(QUrl(link)); });
+
+        readFromConfigurations();
+    }
+
+    void apply() override
+    {
+        AspectContainer::apply();
+        IosConfigurations::setIgnoreAllDevices(!m_askAboutDevices());
+        IosConfigurations::updateAutomaticKitList();
+    }
+
+    void cancel() override
+    {
+        AspectContainer::cancel();
+        readFromConfigurations();
+    }
 
 private:
-    void apply() final;
+    void readFromConfigurations()
+    {
+        m_askAboutDevices.setValue(!IosConfigurations::ignoreAllDevices());
+    }
 
-    void saveSettings();
-
-private:
-    QCheckBox *m_deviceAskCheckBox;
+    BoolAspect m_askAboutDevices{this};
+    TextDisplay m_xcodeNote{this};
 };
-
-IosSettingsWidget::IosSettingsWidget()
-{
-    setWindowTitle(Tr::tr("iOS Configuration"));
-
-    m_deviceAskCheckBox = new QCheckBox(Tr::tr("Ask about devices not in developer mode"));
-    m_deviceAskCheckBox->setChecked(!IosConfigurations::ignoreAllDevices());
-
-    auto xcodeLabel = new QLabel(
-        Tr::tr("Configure available simulator devices in <a href=\"%1\">Xcode</a>.")
-            .arg("https://developer.apple.com/documentation/xcode/"
-                 "running-your-app-in-simulator-or-on-a-device/"
-                 "#Configure-the-list-of-simulated-devices"));
-    xcodeLabel->setOpenExternalLinks(true);
-
-    // clang-format off
-    using namespace Layouting;
-    Column {
-        Group {
-            title(Tr::tr("Devices")),
-            Row { m_deviceAskCheckBox }
-        },
-        Group {
-            title(Tr::tr("Simulator")),
-            Row { xcodeLabel }
-        },
-        st
-    }.attachTo(this);
-    // clang-format on
-
-    Utils::installMarkSettingsDirtyTriggerRecursively(this);
-}
-
-IosSettingsWidget::~IosSettingsWidget() = default;
-
-void IosSettingsWidget::apply()
-{
-    saveSettings();
-    IosConfigurations::updateAutomaticKitList();
-}
-
-void IosSettingsWidget::saveSettings()
-{
-    IosConfigurations::setIgnoreAllDevices(!m_deviceAskCheckBox->isChecked());
-}
 
 // IosSettingsPage
 
@@ -91,7 +82,10 @@ public:
         setId(Constants::IOS_SETTINGS_ID);
         setDisplayName(Tr::tr("iOS"));
         setCategory(ProjectExplorer::Constants::DEVICE_SETTINGS_CATEGORY);
-        setWidgetCreator([] { return new IosSettingsWidget; });
+        setSettingsProvider([] {
+            static IosSettings theSettings;
+            return &theSettings;
+        });
     }
 };
 
@@ -101,4 +95,3 @@ void setupIosSettingsPage()
 }
 
 } // Ios::Internal
-
