@@ -493,7 +493,8 @@ that the widget collapsed to controls that already existed. These do not:
 | page | the widget, and why it does not collapse |
 |---|---|
 | Code Style (x3) | `createValueEditor()` returns a per-language editor built by a factory, and the page puts a syntax-highlighted preview beside it |
-| Snippets, Font && Colors | an editor and a live preview, same shape |
+| Snippets | an editable highlighted editor and a live preview |
+| Font && Colors | not a text editor at all: a list that renders each item in its own format, plus the one `Custom` aspect that owns the whole page |
 
 One shape is left: a hosted editor with a preview (Code Style, Snippets,
 Font && Colors). Everything else is ported, so the remaining work is the Qt
@@ -644,6 +645,48 @@ The lesson is not "write more delegate tests". Two of these five are invisible
 to any test that reads properties off items: a label that is clipped out of view
 still has its `text`, and an item at its implicit size still reports the size it
 asked for. **Look at the page.**
+
+#### The text editor: a highlighter does not need a TextEditorWidget
+
+The three pages that are left - Code Style, Snippets, Font && Colors - were
+recorded as waiting on "the TextEditor ported to Qt Quick", which sounded like
+reimplementing the editor. Two things make it much smaller than that.
+
+**Font && Colors needs no text editor at all.** `ColorSchemeEdit` is a list of
+format descriptions with colour pickers and style boxes for the selected one -
+the list-with-details shape, not a code view. What makes it expensive is
+something else: the list renders each item *in its own format*, and the aspect
+that owns the page is one `Custom` aspect covering both the font group and the
+scheme editor, so it is all-or-nothing.
+
+**A highlighter works on a `QTextDocument`, and a Qt Quick `TextEdit` has one.**
+`TextEditor::SyntaxHighlighter` takes a `QTextDocument *`, not a `QTextEdit`, and
+`QQuickTextDocument::textDocument()` hands one over. So `CodeHighlighting`
+(`texteditor/codehighlighting.{h,cpp}`, a QML element) attaches a real
+`Highlighter` with the definition for a mime type to a `TextEdit`'s document -
+the same four calls `HighlighterHelper::highlightCode()` makes - and
+`CodeView.qml` is a `ScrollView` around a `TextEdit`. None of `TextEditorWidget`
+is involved. There is a test that the document really ends up in several format
+runs, not merely that the object was built.
+
+Two things to copy:
+
+- **The font and the colours come from the editor, not from the design tokens.**
+  A code view that used `Fonts.body2` and `Tokens.textDefault` would look like
+  the form around it instead of like the editor, so `CodeHighlighting` exposes
+  `font`, `textColor` and `backgroundColor` from `globalFontSettings()`. The
+  test compares them against the settings: a default `QFont` has a family too,
+  so "not empty" passed whatever the getter returned - that control did not bite
+  until it compared.
+- **Attaching a highlighter with no definition is fatal**, so the "did we find
+  one?" check is load-bearing rather than defensive. `highlighting` is a
+  readable property for exactly that reason: a view with no definition shows
+  plain text, which is worth being able to tell apart from a broken one.
+
+What is still missing for Code Style is the *indenter* - its preview re-indents
+as the settings change, and the preview is editable - and for Snippets, an
+editable highlighted editor. Both are additions to this control rather than new
+machinery.
 
 #### Give the model a parent
 

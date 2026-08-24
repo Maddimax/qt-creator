@@ -38,6 +38,7 @@
 #include "codeassist/codeassist_test.h"
 #include "codestyleaspect_test.h"
 #include "formattexteditor.h"
+#include "codehighlighting_test.h"
 #include "highlighter_test.h"
 #include "mergeconflict_test.h"
 #include "snippets/snippet.h"
@@ -100,6 +101,7 @@ public:
 void TextEditorPlugin::initialize()
 {
 #ifdef WITH_TESTS
+    addTestCreator(createCodeHighlightingTest);
     addTestCreator(createFormatTextTest);
     addTestCreator(createTextDocumentTest);
     addTestCreator(createTextEditorTest);

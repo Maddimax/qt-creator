@@ -42,6 +42,8 @@ Project {
             "circularclipboardassist.h",
             "codecchooser.cpp",
             "codecchooser.h",
+            "codehighlighting.cpp",
+            "codehighlighting.h",
             "codestyleeditor.cpp",
             "codestyleeditor.h",
             "codestylepool.cpp",
@@ -227,6 +229,8 @@ Project {
             files: [
                 "codeassist/codeassist_test.cpp",
                 "codeassist/codeassist_test.h",
+                "codehighlighting_test.cpp",
+                "codehighlighting_test.h",
                 "codestyleaspect_test.cpp",
                 "codestyleaspect_test.h",
                 "highlighter_test.cpp",

@@ -154,6 +154,21 @@ else ()
   endif ()
 endif ()
 
+# Syntax highlighting for a Qt Quick TextEdit. Needs Qt::Quick, which the
+# plugin does not otherwise depend on.
+extend_qtc_plugin(TextEditor
+  CONDITION TARGET Qt::Quick
+  DEPENDS Qt::Quick
+  SOURCES
+    codehighlighting.cpp codehighlighting.h
+)
+
+extend_qtc_plugin(TextEditor
+  CONDITION WITH_TESTS AND TARGET Qt::Quick
+  SOURCES
+    codehighlighting_test.cpp codehighlighting_test.h
+)
+
 # Settings pages' Qt Quick forms. A module rather than a plain resource so that
 # qmllint and qmlcachegen see the files; qbs cannot build QML modules, so it
 # only lists them - the same split qtcquick already lives with.
@@ -165,6 +180,7 @@ if(TARGET TextEditor AND TARGET Qt::Quick)
     NO_PLUGIN
     QML_FILES
       BehaviorSettingsPage.qml
+      CodeView.qml
       CommentsSettingsPage.qml
       CompletionSettingsPage.qml
       DisplaySettingsPage.qml
