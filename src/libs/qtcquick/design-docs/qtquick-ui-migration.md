@@ -1276,8 +1276,8 @@ method, and the manual-run dialog builds a widget from it too, so the page
 naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
-all`, minus `QmlDesigner` and `UpdateInfo`, see below): **80 aspect-driven
-pages, all 80 with their own QML and rendered with Qt Quick, none still on
+all`, minus `QmlDesigner` and `UpdateInfo`, see below): **81 aspect-driven
+pages, all 81 with their own QML and rendered with Qt Quick, none still on
 widgets.** Gerrit is the first of the widget-creator pages below to have joined
 that count: it became aspect-driven and then got a form, which is the shape the
 rest of them take.
@@ -1332,14 +1332,15 @@ pages that hand over an `AspectContainer` through `setSettingsProvider()`.
 A page that calls `IOptionsPage::setWidgetCreator()` builds its own
 `IOptionsPageWidget` and answers nothing from `aspects()`, so the test skips it
 entirely: `isFullyRenderable()` is never asked and the page is not in the 73.
-There are **35 such call sites in 32 files** - Keyboard, Locator, MIME Types,
+There are **34 such call sites in 31 files** - Keyboard, Locator, MIME Types,
 the toolchain, kit and device pages, Beautifier's three, Clangd, Axivion - and
 they are pure QtWidgets from top to bottom. Counted with
 
     grep -rn setWidgetCreator src/plugins src/libs --include='*.cpp'
 
 minus the mode files, which are `IMode::setWidgetCreator()` and a different
-thing. Gerrit, To-Do and GitLab went this way; converting any of them took an
+thing. Gerrit, To-Do, GitLab and Meson's Tools went this way; converting any of them
+took an
 `AspectContainer` that reads the plugin's own settings struct when the page is
 built and writes it back on apply, which is the same shape the Code Style pages
 use and needs no change to what the rest of the plugin reads.
@@ -1364,7 +1365,43 @@ piece: `ConfigurationPanel`, a combo of named configurations with Add, Edit and
 Remove opening `ConfigurationDialog`. That is the list-with-details shape
 again, and converting it moves all three pages at once - but the dialog's value
 editor is `ConfigurationEditor`, a code editor completing the tool's documented
-options, so it wants the Quick editor and a completion provider of its own.
+options and showing the documentation for the word under the cursor, so it
+wants the Quick editor plus a completion provider and a cursor-word signal of
+its own.
+
+### The tree the grouped pages needed
+
+**Seven pages share `Utils::GroupedView`**: CMake tools, Debuggers, GN tools,
+Meson tools, Kits, Toolchains and Qt Versions. All of them are the same thing -
+what was found and what the user added, in two groups, with Clone, Remove and
+Make Default acting on whichever is current, and a details form beside it. That
+is a fifth of the remaining backlog behind one missing piece, so the piece was
+worth building rather than working around.
+
+`GroupedView` turned out to be almost entirely behaviour: which item is
+current, whether it may be cloned or removed, where to go once it has been
+removed, and how to find the current item again after the tree is rebuilt. None
+of that is a view's business, and it is the same answer for a `QTreeView` and a
+Qt Quick `TreeView`. It now lives in **`Utils::GroupedSelection`**, which
+`GroupedView` drives and which `tst_utils_groupedselection` can check without a
+window. **`Utils::GroupedListAspect`** gives it an aspect face -
+`displayModel()`, `currentRow`, `canClone`/`canRemove`/`canMakeDefault` and the
+three actions - and `GroupedListDelegate.qml` draws it.
+
+Two things bit while doing it, both worth knowing:
+
+- `displayModel()` is a `Q_INVOKABLE` returning a `QObject *`, and the tree it
+  returns had no parent, so QML's GC took it as its own and freed it. The
+  totals were green and the process exited 134. `GroupedModel::DisplayModel` is
+  parented to the model it is a view of now. This is the third time an
+  unparented `QObject *` out of an invokable has cost a session; look for it
+  first when a page crashes only on shutdown.
+- `GroupedView` holds its tree and its three buttons **by value**. Putting them
+  into a layout whose widget then owns them means that widget tries to delete
+  what it never allocated. The pages get away with it because their
+  `GroupedView` is a member destroyed before `~QWidget` runs; anything else has
+  to arrange the same, which is what `GroupedListWidget` in
+  `groupedlistaspect.cpp` does.
 
 One thing to watch: a `SelectionAspect` over a list that is being edited holds
 a *position*. GitLab's default server has to be remembered by id and looked up
