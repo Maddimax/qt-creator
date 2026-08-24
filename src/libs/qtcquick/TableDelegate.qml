@@ -157,6 +157,11 @@ RowLayout {
 
                         readonly property var choices: model.choices ?? []
                         readonly property string cellText: model.display ?? ""
+                        // A row the model wants read in its own colours says so.
+                        // Unset means the form's, not transparent or black.
+                        readonly property var cellForeground: model.foreground ?? undefined
+                        readonly property var cellBackground: model.background ?? undefined
+                        readonly property var ownFont: model.cellFont ?? undefined
                         // A cell with neither choices nor a pattern can still be
                         // one the model does not want written to, so it says.
                         readonly property bool cellEditable:
@@ -169,6 +174,12 @@ RowLayout {
                         // long description gets the lines it needs.
                         implicitHeight: Math.max(Metrics.tableRowMinimumHeight,
                                                  editor.implicitHeight)
+
+                        Rectangle {
+                            anchors.fill: parent
+                            visible: cell.cellBackground !== undefined
+                            color: cell.cellBackground ?? "transparent"
+                        }
 
                         Loader {
                             id: editor
@@ -250,6 +261,8 @@ RowLayout {
                             Label {
                                 objectName: "tableCellLabel"
                                 text: cell.cellText
+                                color: cell.cellForeground ?? Tokens.textDefault
+                                font: cell.ownFont ?? Fonts.body2
                                 // Line up with the text in an editable cell,
                                 // and keep two columns of text apart.
                                 leftPadding: Spacing.PaddingHS

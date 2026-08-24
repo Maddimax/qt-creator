@@ -160,6 +160,7 @@ private slots:
     void testTableAspectDrawsWhatItsModelOffers();
     void testTableAspectAddsAndRemovesRows();
     void testTableAspectFiltersItsRows();
+    void testTableCellReadsInItsOwnColours();
 };
 
 void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
@@ -1496,6 +1497,10 @@ public:
             return Utils::AspectTable::isWritable(flags(index));
         case Utils::AspectTable::CheckableRole:
             return flags(index).testFlag(Qt::ItemIsUserCheckable);
+        case Qt::ForegroundRole:
+            return index.column() == ColumnLocked ? QVariant(QColor(Qt::red)) : QVariant();
+        case Qt::BackgroundRole:
+            return index.column() == ColumnLocked ? QVariant(QColor(Qt::yellow)) : QVariant();
         default:
             return {};
         }
@@ -1722,6 +1727,43 @@ void QuickUiTest::testTableAspectAddsAndRemovesRows()
 
     QMetaObject::invokeMethod(remove, "clicked");
     QCOMPARE(table.m_model.words(), QStringList({"on/red/one", "on/red/new"}));
+}
+
+void QuickUiTest::testTableCellReadsInItsOwnColours()
+{
+    // A list of syntax formats is meant to be read in the colours it is
+    // describing, so a model that answers Qt::ForegroundRole and
+    // Qt::BackgroundRole has to be believed. Neither is in the default
+    // roleNames(), so without naming them QML cannot see either.
+    Utils::AspectContainer page;
+    TestTableAspect table(&page);
+    table.setLabelText("Rows");
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+
+    QQuickItem *view = nullptr;
+    QTRY_VERIFY(view = tableViewOf(quickWidget->rootObject()));
+
+    // The locked column says what it wants; the others say nothing and keep the
+    // form's colours.
+    QList<QQuickItem *> labels;
+    QTRY_COMPARE((labels = findQmlNamed(view, "tableCellLabel")).size(), 2);
+    for (QQuickItem *label : labels)
+        QCOMPARE(label->property("color").value<QColor>(), QColor(Qt::red));
+
+    const QList<QQuickItem *> fields = findQmlNamed(view, "tableCellField");
+    QVERIFY(!fields.isEmpty());
+    QVERIFY(fields.first()->property("color").value<QColor>() != QColor(Qt::red));
+
+    // The background is drawn behind the cell rather than tinting its text.
+    int painted = 0;
+    for (QQuickItem *rect : findQmlComponents(view, "QQuickRectangle")) {
+        if (rect->isVisible() && rect->property("color").value<QColor>() == QColor(Qt::yellow))
+            ++painted;
+    }
+    QCOMPARE(painted, 2);
 }
 
 void QuickUiTest::testTableAspectFiltersItsRows()

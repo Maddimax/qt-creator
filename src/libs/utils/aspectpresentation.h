@@ -155,8 +155,12 @@ inline QHash<int, QByteArray> withRoleNames(QHash<int, QByteArray> names)
     names.insert(EditableRole, "editable");
     names.insert(CheckableRole, "checkable");
     // Qt's own, named here because QML addresses a role by name and the
-    // default roleNames() leaves this one out.
+    // default roleNames() leaves these out. A row that is meant to be read in
+    // its own colours - a list of syntax formats, say - answers the last three.
     names.insert(Qt::CheckStateRole, "checkState");
+    names.insert(Qt::ForegroundRole, "foreground");
+    names.insert(Qt::BackgroundRole, "background");
+    names.insert(Qt::FontRole, "cellFont");
     return names;
 }
 

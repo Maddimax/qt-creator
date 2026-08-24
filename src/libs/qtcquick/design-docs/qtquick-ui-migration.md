@@ -737,6 +737,19 @@ Two things worth copying:
   That is the third time this shape has come up - test frameworks, analyzer
   messages, snippet groups - and it is always the same fix.
 
+#### A row read in its own colours
+
+Font && Colors lists the syntax formats, and each row is drawn *in the format it
+describes* - that is how the list is legible at all. `Qt::ForegroundRole`,
+`Qt::BackgroundRole` and `Qt::FontRole` are not in the default `roleNames()`, so
+QML could not see any of them; `withRoleNames()` names them (`foreground`,
+`background`, `cellFont`) and `TableDelegate` honours them per cell, painting
+the background behind the cell rather than tinting its text.
+
+Unset means the form's colours, not black on transparent - which is why the
+cell reads `?? undefined` and falls back to the tokens rather than defaulting the
+role to a colour.
+
 #### Give the model a parent
 
 `BaseAspect::tableModel()` is `Q_INVOKABLE` and returns a `QObject *`. A QML
