@@ -13,9 +13,19 @@ RowLayout {
     id: root
 
     required property Aspect aspect
+    // The descriptor. This delegate had none, so nothing it says was read -
+    // the reset button it asks for was simply missing.
+    property var pres: aspect ? AspectModels.presentation(aspect) : ({})
     readonly property string labelText: aspect?.labelText ?? ""
     readonly property string toolTip: aspect?.toolTip ?? ""
     readonly property bool aspectVisible: aspect?.visible ?? true
+
+    Connections {
+        target: root.aspect
+        function onControlConfigurationChanged() {
+            root.pres = AspectModels.presentation(root.aspect)
+        }
+    }
 
     readonly property color currentColor: root.aspect?.value ?? Tokens.backgroundMuted
     readonly property bool controlsEnabled:
@@ -97,6 +107,19 @@ RowLayout {
         onValueModified: if (root.aspect)
             root.aspect.value = Qt.rgba(redBox.value / 255, greenBox.value / 255,
                                         value / 255, root.currentColor.a)
+    }
+
+    // A colour that can be put back to its default offers a button for it, the
+    // way the widget picker does. This is the "unset" beside a syntax format's
+    // colour, so it is not decoration.
+    Button {
+        objectName: "colorResetButton"
+        text: qsTr("Reset")
+        visible: root.pres.withResetButton ?? false
+        enabled: root.controlsEnabled
+        ToolTip.text: qsTr("Reset to default.", "Color")
+        ToolTip.visible: hovered
+        onClicked: root.aspect?.resetToDefault()
     }
 
     Item { Layout.fillWidth: true }

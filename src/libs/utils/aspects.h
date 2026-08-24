@@ -108,6 +108,10 @@ public:
     virtual void setVariantValue(const QVariant &value, Announcement = DoEmit);
 
     virtual QVariant defaultVariantValue() const;
+    // Puts the value back to the default, which is what a control's reset
+    // button does. Goes through the volatile value, so a page with a Cancel
+    // still has one.
+    Q_INVOKABLE void resetToDefault();
     virtual void setDefaultVariantValue(const QVariant &value);
     virtual bool isDefaultValue() const;
 

@@ -777,6 +777,16 @@ QAbstractItemModel *BaseAspect::tableModel()
 }
 
 /*!
+    Puts this aspect's value back to its default, as a control's reset button
+    does. Goes through the volatile value, so that a page's Cancel still undoes
+    it.
+*/
+void BaseAspect::resetToDefault()
+{
+    setVolatileVariantValueFromGui(defaultVariantValue());
+}
+
+/*!
     Performs this aspect's one action, for a TextWithAction control. Does
     nothing unless an aspect gives it a meaning.
 */

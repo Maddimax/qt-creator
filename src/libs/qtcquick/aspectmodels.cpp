@@ -94,6 +94,9 @@ QVariantMap AspectModels::presentation(BaseAspect *aspect)
         {"allowAdding", p.allowAdding},
         {"allowRemoving", p.allowRemoving},
         {"allowEditing", p.allowEditing},
+        // ColorPicker and LineEdit: a control that can be put back to its
+        // default offers a button for it.
+        {"withResetButton", p.withResetButton},
         {"actionText", p.actionText},
         // A password shares the String kind, and so the delegate, with an
         // ordinary line edit: it differs only in not echoing what it holds.

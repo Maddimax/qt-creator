@@ -750,6 +750,24 @@ Unset means the form's colours, not black on transparent - which is why the
 cell reads `?? undefined` and falls back to the tokens rather than defaulting the
 role to a colour.
 
+#### A delegate with no descriptor reads nothing
+
+`ColorDelegate` had no `pres` property at all. Everything its aspect said was
+therefore ignored, and the symptom was invisible: `ColorAspect` asks for a reset
+button *by default* - it is how a syntax format's colour is unset - and the Quick
+picker simply had none. `alphaAllowed` and `minimumSize` were being dropped the
+same way.
+
+Worth knowing how it hid. The first fix bound `visible:
+root.pres.withResetButton ?? false` to a `pres` that did not exist, so the
+binding threw a TypeError, failed, and left `visible` at its default of **true**.
+A button appeared, which looked like success. A failed binding does not fall back
+to the right-hand side of `??` - it leaves the property alone.
+
+`BaseAspect::resetToDefault()` is what the button calls, going through the
+volatile value so a page's Cancel still undoes it. That is what both widget
+renderers already did by hand.
+
 #### Give the model a parent
 
 `BaseAspect::tableModel()` is `Q_INVOKABLE` and returns a `QObject *`. A QML

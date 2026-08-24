@@ -161,6 +161,8 @@ private slots:
     void testTableAspectAddsAndRemovesRows();
     void testTableAspectFiltersItsRows();
     void testTableCellReadsInItsOwnColours();
+    void testColourOffersToGoBackToItsDefault();
+    void testColourWithNoResetHasNoButton();
 };
 
 void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
@@ -1727,6 +1729,57 @@ void QuickUiTest::testTableAspectAddsAndRemovesRows()
 
     QMetaObject::invokeMethod(remove, "clicked");
     QCOMPARE(table.m_model.words(), QStringList({"on/red/one", "on/red/new"}));
+}
+
+void QuickUiTest::testColourOffersToGoBackToItsDefault()
+{
+    // ColorAspect asks for a reset button by default - it is how a syntax
+    // format's colour is unset - and the Quick picker had none at all, so every
+    // colour on every ported page had lost it.
+    Utils::AspectContainer page;
+    Utils::ColorAspect colour(&page);
+    colour.setLabelText("Ink");
+    colour.setDefaultValue(QColor(Qt::blue));
+    colour.setValue(QColor(Qt::red));
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QVERIFY(quickWidget->rootObject());
+
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "ColorDelegate"));
+    QQuickItem *reset = nullptr;
+    QTRY_VERIFY(reset = findQmlNamed(delegate, "colorResetButton").value(0, nullptr));
+    QVERIFY(reset->isVisible());
+
+    QMetaObject::invokeMethod(reset, "clicked");
+    QCOMPARE(colour.volatileValue(), QColor(Qt::blue));
+
+}
+
+void QuickUiTest::testColourWithNoResetHasNoButton()
+{
+    // Its own form: two colours in one test would leave which delegate is
+    // whose to chance.
+    Utils::AspectContainer page;
+    Utils::ColorAspect fixed(&page);
+    fixed.setLabelText("Ink");
+    fixed.setWithResetButton(false);
+    QVERIFY(!fixed.presentation().withResetButton);
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QVERIFY(quickWidget->rootObject());
+
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "ColorDelegate"));
+    const QList<QQuickItem *> buttons = findQmlNamed(delegate, "colorResetButton");
+    QCOMPARE(buttons.size(), 1);
+    QVERIFY(!buttons.first()->isVisible());
 }
 
 void QuickUiTest::testTableCellReadsInItsOwnColours()
