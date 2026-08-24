@@ -50,6 +50,8 @@ RowLayout {
     Label {
         text: root.labelText
         Layout.preferredWidth: Metrics.formLabelWidth
+        // An aspect with no label of its own reserves no room for one.
+        visible: text !== ""
         elide: Text.ElideRight
         Layout.alignment: Qt.AlignTop
     }
@@ -92,12 +94,31 @@ RowLayout {
                     selectionModel: ItemSelectionModel { model: view.model }
                     ToolTip.text: root.toolTip
                     ToolTip.visible: false
-                    // Fill the width even when the contents do not need it, the
-                    // way the widget table's stretched header sections do.
+                    // Each column as wide as it needs to be, and the last one
+                    // takes what is left - the way the widget table stretched
+                    // its last header section. Dividing the width evenly gave a
+                    // check box as much room as a description.
+                    // Every column as wide as its contents want, up to a cap,
+                    // and the last one takes what is left. Without the cap a
+                    // long description made its column wider than the table,
+                    // which scrolled the centred header label out of the
+                    // clipped header - the column looked unnamed.
                     columnWidthProvider: function (column) {
-                        return Math.max(view.implicitColumnWidth(column),
-                                        view.width / Math.max(1, view.columns))
+                        const capped = function (i) {
+                            return Math.min(view.implicitColumnWidth(i),
+                                            Metrics.tableColumnMaxWidth)
+                        }
+                        if (column < view.columns - 1)
+                            return capped(column)
+                        let used = 0
+                        for (let i = 0; i < view.columns - 1; ++i)
+                            used += capped(i)
+                        return Math.max(Metrics.lineEditWidth, view.width - used)
                     }
+                    // A width the provider already answered for is cached, so
+                    // the last column has to be asked again when the table is
+                    // resized.
+                    onWidthChanged: Qt.callLater(view.forceLayout)
                     Layout.fillWidth: true
                     Layout.fillHeight: true
 
@@ -192,9 +213,20 @@ RowLayout {
                             Label {
                                 objectName: "tableCellLabel"
                                 text: cell.cellText
+                                // Line up with the text in an editable cell,
+                                // and keep two columns of text apart.
+                                leftPadding: Spacing.PaddingHS
+                                rightPadding: Spacing.PaddingHS
+                                // One line per cell: rows are a uniform height,
+                                // so wrapping spills out of the row instead of
+                                // making it taller. The tool tip has the rest.
                                 elide: Text.ElideRight
-                                wrapMode: Text.WordWrap
+                                wrapMode: Text.NoWrap
                                 verticalAlignment: Text.AlignVCenter
+                                ToolTip.text: cell.cellText
+                                ToolTip.visible: cellHover.hovered && text !== ""
+
+                                HoverHandler { id: cellHover }
                             }
                         }
                     }

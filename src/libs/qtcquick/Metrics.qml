@@ -20,6 +20,10 @@ QtObject {
     // Height of a multi-line text editor in a settings form. Shorter than a
     // list: what goes in one is usually a handful of lines.
     readonly property int formTextAreaHeight: 90
+    // Widest a table column may get from its contents. Past this the text
+    // elides: a column wider than the table scrolls the header label out of
+    // view, and a long description would take the whole width.
+    readonly property int tableColumnMaxWidth: 320
     // Side length of the color preview swatch in ColorDelegate.
     readonly property int colorSwatchSize: 24
 

@@ -31,6 +31,12 @@ RowLayout {
     // controlConfigurationChanged().
     property var pres: aspect ? AspectModels.presentation(aspect) : ({})
 
+    // The value is stored scaled up: a timeout is kept in milliseconds and
+    // shown in seconds. Never zero, so it is always safe to divide by.
+    readonly property int scale: Math.max(1, delegate.pres.displayScaleFactor ?? 1)
+    readonly property int base: delegate.pres.displayIntegerBase ?? 10
+    readonly property string specialValueText: delegate.pres.specialValueText ?? ""
+
     visible: aspectVisible
     spacing: Spacing.GapHM
     Layout.fillWidth: true
@@ -38,6 +44,8 @@ RowLayout {
     Label {
         text: delegate.labelText
         Layout.preferredWidth: Metrics.formLabelWidth
+        // An aspect with no label of its own reserves no room for one.
+        visible: text !== ""
         elide: Text.ElideRight
     }
 
@@ -47,18 +55,35 @@ RowLayout {
     }
 
     SpinBox {
+        id: box
+
         editable: true
         enabled: (delegate.aspect?.enabled ?? false) && !(delegate.aspect?.readOnly ?? false)
         // A delegate can outlive its aspect: the property goes null and pres
         // becomes empty, so every bound needs a value of the right type.
-        from: delegate.pres.minimum ?? 0
-        to: delegate.pres.maximum ?? 0
+        from: Math.round((delegate.pres.minimum ?? 0) / delegate.scale)
+        to: Math.round((delegate.pres.maximum ?? 0) / delegate.scale)
         stepSize: delegate.pres.step ?? 1
-        value: delegate.aspect?.value ?? 0
+        value: Math.round((delegate.aspect?.value ?? 0) / delegate.scale)
         ToolTip.text: delegate.toolTip
         ToolTip.visible: hovered && delegate.toolTip !== ""
 
-        onValueModified: if (delegate.aspect) delegate.aspect.value = value
+        // A QSpinBox groups no digits and can write another base; Qt Quick's
+        // formats for the locale, which turns a port number into "46.327".
+        textFromValue: function(value, locale) {
+            if (delegate.specialValueText !== "" && value === box.from)
+                return delegate.specialValueText
+            return value.toString(delegate.base)
+        }
+
+        valueFromText: function(text, locale) {
+            if (delegate.specialValueText !== "" && text === delegate.specialValueText)
+                return box.from
+            const parsed = parseInt(text, delegate.base)
+            return isNaN(parsed) ? box.value : parsed
+        }
+
+        onValueModified: if (delegate.aspect) delegate.aspect.value = value * delegate.scale
     }
 
     Label {

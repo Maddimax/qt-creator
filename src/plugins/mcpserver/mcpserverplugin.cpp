@@ -76,11 +76,13 @@ public:
         addressType.addOption("any", Tr::tr("Any (0.0.0.0)"));
         addressType.addOption("custom", Tr::tr("Custom"));
         addressType.setDefaultValue("localhost");
+        addressType.setLabelText(Tr::tr("Listen address:"));
         addressType.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
 
         customAddress.setSettingsKey("CustomAddress");
         customAddress.setEnabled(false);
         customAddress.setDefaultValue("127.0.0.1");
+        customAddress.setLabelText(Tr::tr("Custom address:"));
         customAddress.setDisplayStyle(StringAspect::DisplayStyle::LineEditDisplay);
         customAddress.setValidationFunction([](const QString &s) -> Result<> {
             QHostAddress addr;

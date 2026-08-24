@@ -28,6 +28,23 @@ T.TextField {
     selectedTextColor: Tokens.textOnAccent
     verticalAlignment: T.TextField.AlignVCenter
 
+    // A T.TextField draws its own content but no placeholder; a style has to
+    // supply one, and this one had none - so no placeholder text showed
+    // anywhere in the UI.
+    Text {
+        x: control.leftPadding
+        y: control.topPadding
+        width: control.width - (control.leftPadding + control.rightPadding)
+        height: control.height - (control.topPadding + control.bottomPadding)
+        text: control.placeholderText
+        font: control.font
+        color: control.placeholderTextColor
+        verticalAlignment: control.verticalAlignment
+        visible: control.length === 0 && control.preeditText.length === 0
+        elide: Text.ElideRight
+        renderType: control.renderType
+    }
+
     background: Rectangle {
         implicitWidth: 120
         implicitHeight: Fonts.body2LineHeight + 2 * Spacing.PaddingVXs

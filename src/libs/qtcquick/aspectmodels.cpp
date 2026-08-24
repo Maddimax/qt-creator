@@ -103,6 +103,13 @@ QVariantMap AspectModels::presentation(BaseAspect *aspect)
         // delegates put them beside it.
         {"prefix", p.prefix},
         {"suffix", p.suffix},
+        // SpinBox. What a QSpinBox does with these, a Qt Quick SpinBox has to
+        // be told: the stored value is displayScaleFactor times what is shown,
+        // the minimum shows specialValueText instead of a number, and
+        // displayIntegerBase is the base to write it in.
+        {"specialValueText", p.specialValueText},
+        {"displayScaleFactor", qlonglong(p.displayScaleFactor)},
+        {"displayIntegerBase", p.displayIntegerBase},
         // As a name rather than a number, so the delegates can read it.
         {"infoType", QString::fromLatin1(
                          QMetaEnum::fromType<AspectControls::InfoType>().valueToKey(

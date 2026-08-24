@@ -78,7 +78,9 @@ static QWidget *showForm(Utils::AspectContainer *page)
     QWidget *form = QtcQuick::createGenericAspectForm(page);
     if (!form)
         return nullptr;
-    form->resize(600, 400);
+    // Wide enough that the last column is stretched rather than sized to its
+    // contents, which is where the header stopped showing its text.
+    form->resize(1400, 400);
     form->show();
     if (!QTest::qWaitForWindowExposed(form)) {
         delete form;
@@ -1436,7 +1438,14 @@ public:
             switch (index.column()) {
             case ColumnColour: return row.colour;
             case ColumnWord:   return row.word;
-            case ColumnLocked: return QString("locked");
+            case ColumnLocked:
+                // Long on purpose: a column sized to this would be wider than
+                // the table, which used to leave its header unnamed.
+                return QString("locked, and long enough that a column sized to it "
+                               "is wider than the whole table - which used to "
+                               "scroll the centred header label out of the "
+                               "clipped header and leave the column looking "
+                               "unnamed, even though the model named it");
             default:           return {};
             }
         case Qt::CheckStateRole:
@@ -1477,10 +1486,10 @@ public:
         if (orientation == Qt::Vertical || role != Qt::DisplayRole)
             return {};
         switch (section) {
-        case ColumnColour: return QString("Colour");
-        case ColumnWord:   return QString("Word");
-        case ColumnLocked: return QString("Locked");
-        default:           return QString();
+        case ColumnEnabled: return QString("On");
+        case ColumnColour:  return QString("Colour");
+        case ColumnWord:    return QString("Word");
+        default:            return QString("Locked");
         }
     }
 
@@ -1562,10 +1571,29 @@ void QuickUiTest::testTableAspectDrawsWhatItsModelOffers()
     QVERIFY(form);
     auto quickWidget = form->findChild<QQuickWidget *>();
 
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "TableDelegate"));
     QQuickItem *view = nullptr;
     QTRY_VERIFY(view = tableViewOf(quickWidget->rootObject()));
     QTRY_COMPARE(view->property("rows").toInt(), 2);
     QCOMPARE(view->property("columns").toInt(), TestTableModel::ColumnCount);
+
+    // Every column says what it is. The header reads that off the model, and
+    // the last column is the one that gets forgotten - it is the one a
+    // stretched width is computed for.
+    QQuickItem *header = nullptr;
+    QTRY_VERIFY(header = findQmlComponent(delegate, "HorizontalHeaderView"));
+    QList<QQuickItem *> headings;
+    QTRY_COMPARE((headings = findQmlComponents(header, "HorizontalHeaderViewDelegate")).size(),
+                 TestTableModel::ColumnCount);
+    QStringList headingTexts;
+    for (QQuickItem *heading : headings) {
+        // The heading's text is in its content item, not on the delegate.
+        const QList<QQuickItem *> labels = findQmlComponents(heading, "Label");
+        headingTexts << (labels.isEmpty() ? QString("<none>")
+                                         : labels.first()->property("text").toString());
+    }
+    QCOMPARE(headingTexts, QStringList({"On", "Colour", "Word", "Locked"}));
 
     // A checkable cell is a check box showing the cell's state.
     QList<QQuickItem *> checks;
@@ -1590,7 +1618,7 @@ void QuickUiTest::testTableAspectDrawsWhatItsModelOffers()
     QCOMPARE(fields.at(0)->property("text").toString(), QString("one"));
     const QList<QQuickItem *> labels = findQmlNamed(view, "tableCellLabel");
     QCOMPARE(labels.size(), 2);
-    QCOMPARE(labels.at(0)->property("text").toString(), QString("locked"));
+    QVERIFY(labels.at(0)->property("text").toString().startsWith("locked"));
 
     // Ticking a check box writes through Qt::CheckStateRole.
     checks.at(1)->setProperty("checked", true);
