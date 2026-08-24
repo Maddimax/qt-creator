@@ -1196,8 +1196,8 @@ method, and the manual-run dialog builds a widget from it too, so the page
 naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
-all`, minus `QmlDesigner` and `UpdateInfo`, see below): **77 aspect-driven
-pages, 76 with their own QML and rendered with Qt Quick, 1 still on widgets.**
+all`, minus `QmlDesigner` and `UpdateInfo`, see below): **78 aspect-driven
+pages, 77 with their own QML and rendered with Qt Quick, 1 still on widgets.**
 Gerrit is the first of the widget-creator pages below to have joined that
 count: it became aspect-driven and then got a form, which is the shape the rest
 of them take.
@@ -1207,7 +1207,7 @@ pages that hand over an `AspectContainer` through `setSettingsProvider()`.
 A page that calls `IOptionsPage::setWidgetCreator()` builds its own
 `IOptionsPageWidget` and answers nothing from `aspects()`, so the test skips it
 entirely: `isFullyRenderable()` is never asked and the page is not in the 73.
-There are **48 such call sites in 42 files** - General, Environment, Keyboard,
+There are **47 such call sites in 41 files** - General, Environment, Keyboard,
 Locator, the project settings pages, Beautifier's three, Clangd, Axivion - and
 they are pure QtWidgets from top to bottom. Gerrit was the 52nd; converting it
 took an `AspectContainer` that reads `GerritParameters` when the page is built
@@ -1272,6 +1272,11 @@ whole test run, so `-noload` it. `UpdateInfo` fails in a dev build for
 unrelated reasons and needs the same treatment. Also note that the pages a
 `-test` run sees are the tested plugin's dependency closure unless `-load` is
 given; the count was 4 before, and 21 with one extra plugin.
+
+**A table cell carries its model's tooltip.** `withRoleNames()` names
+`Qt::ToolTipRole` as `cellToolTip`, and a read-only cell shows it in preference
+to its own text. Documentation lists namespaces and keeps the file path in the
+tooltip; without this the path was simply gone.
 
 **The remaining widget-creator pages are list managers, and they needed more
 than one row at a time.** `TableDelegate` selected a single row, and the widget

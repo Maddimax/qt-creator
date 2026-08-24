@@ -44,6 +44,8 @@ Project {
             "codecchooser.h",
             "codehighlighting.cpp",
             "codehighlighting.h",
+            "codedocument.cpp",
+            "codedocument.h",
             "codeindenting.cpp",
             "codeindenting.h",
             "codestyleeditor.cpp",

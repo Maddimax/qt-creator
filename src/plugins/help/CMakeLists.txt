@@ -96,6 +96,7 @@ if(TARGET Help AND TARGET Qt::Quick)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      DocSettingsPage.qml
       HelpSettingsPage.qml
   )
 endif()

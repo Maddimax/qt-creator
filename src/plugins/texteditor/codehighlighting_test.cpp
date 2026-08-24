@@ -5,12 +5,17 @@
 
 #include "codehighlighting.h"
 
+#include "codedocument.h"
+#include "textdocument.h"
+
 #include "codeindenting.h"
 #include "codestylepool.h"
 #include "fontsettings.h"
 #include "icodestylepreferences.h"
 #include "snippets/snippetprovider.h"
 #include "tabsettings.h"
+
+#include <utils/temporarydirectory.h>
 
 #include <QQmlComponent>
 #include <QQmlEngine>
@@ -36,6 +41,8 @@ private slots:
     void testIndentsAQuickDocument();
     void testUnknownLanguageLeavesTheTextAlone();
     void testEverySnippetGroupSaysWhatItIsWrittenIn();
+    void testAQuickEditShowsCreatorsOwnDocument();
+    void testEditingThroughTheViewSavesTheFile();
 };
 
 // The character formats a highlighter left on the first line, minus the
@@ -60,6 +67,67 @@ static std::unique_ptr<QQuickItem> textEdit(QQmlEngine *engine, const QString &t
 static QQuickTextDocument *documentOf(QQuickItem *edit)
 {
     return edit->property("textDocument").value<QQuickTextDocument *>();
+}
+
+// A Qt Quick TextEdit makes its own QTextDocument, which is nobody's file. The
+// last settings page that is still on widgets needs one that is: opened from a
+// path, saved back to it, and the kind of document a language client can be
+// attached to. CodeDocument puts one behind the TextEdit instead.
+void CodeHighlightingTest::testAQuickEditShowsCreatorsOwnDocument()
+{
+    Utils::TemporaryDirectory dir("codedocument-test");
+    QVERIFY(dir.isValid());
+    const Utils::FilePath file = dir.filePath("sample.cpp");
+    QVERIFY(file.writeFileContents("int main() { return 0; }\n"));
+
+    QQmlEngine engine;
+    const std::unique_ptr<QQuickItem> edit = textEdit(&engine, "not the file");
+    QVERIFY(edit);
+    QQuickTextDocument *quickDocument = documentOf(edit.get());
+    QVERIFY(quickDocument);
+    QTextDocument *ownDocument = quickDocument->textDocument();
+    QVERIFY(ownDocument);
+
+    CodeDocument document;
+    document.setDocument(quickDocument);
+    document.setFilePath(file);
+    QVERIFY(document.isOpened());
+
+    // The edit is showing the file, and showing it through the document Qt
+    // Creator opened rather than the one the TextEdit made for itself.
+    QVERIFY(document.textDocument());
+    QCOMPARE(quickDocument->textDocument(), document.textDocument()->document());
+    QVERIFY(quickDocument->textDocument() != ownDocument);
+    QCOMPARE(quickDocument->textDocument()->toPlainText(), QString("int main() { return 0; }\n"));
+}
+
+void CodeHighlightingTest::testEditingThroughTheViewSavesTheFile()
+{
+    Utils::TemporaryDirectory dir("codedocument-save-test");
+    QVERIFY(dir.isValid());
+    const Utils::FilePath file = dir.filePath("sample.txt");
+    QVERIFY(file.writeFileContents("before\n"));
+
+    QQmlEngine engine;
+    const std::unique_ptr<QQuickItem> edit = textEdit(&engine, {});
+    QVERIFY(edit);
+    CodeDocument document;
+    document.setDocument(documentOf(edit.get()));
+    document.setFilePath(file);
+    QVERIFY(document.isOpened());
+    QVERIFY(!document.isModified());
+
+    // What typing in the view comes to: the document is the view's, so the
+    // edit is on the file's document and the file knows it has changed.
+    QTextCursor cursor(document.textDocument()->document());
+    cursor.select(QTextCursor::Document);
+    cursor.insertText("after\n");
+    QVERIFY(document.isModified());
+    QCOMPARE(file.fileContents().value_or(QByteArray()), QByteArray("before\n"));
+
+    QVERIFY(document.save());
+    QVERIFY(!document.isModified());
+    QCOMPARE(file.fileContents().value_or(QByteArray()), QByteArray("after\n"));
 }
 
 void CodeHighlightingTest::testHighlightsAQuickDocument()

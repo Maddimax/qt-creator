@@ -299,8 +299,11 @@ RowLayout {
                                 // which is how rows came to overlap.
                                 wrapMode: Text.WordWrap
                                 verticalAlignment: Text.AlignTop
-                                ToolTip.text: cell.cellText
-                                ToolTip.visible: cellHover.hovered && text !== ""
+                                // What the model says, where it says anything;
+                                // otherwise the text, which is worth having
+                                // when it is elided.
+                                ToolTip.text: cell.model.cellToolTip || cell.cellText
+                                ToolTip.visible: cellHover.hovered && ToolTip.text !== ""
 
                                 HoverHandler { id: cellHover }
                             }

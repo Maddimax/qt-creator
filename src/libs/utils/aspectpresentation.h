@@ -174,6 +174,10 @@ inline QHash<int, QByteArray> withRoleNames(QHash<int, QByteArray> names)
     names.insert(Qt::ForegroundRole, "foreground");
     names.insert(Qt::BackgroundRole, "background");
     names.insert(Qt::FontRole, "cellFont");
+    // What a QTableView would have shown on hover. A cell whose text is elided,
+    // or which stands for something longer - a name for a file path - has more
+    // to say than it shows.
+    names.insert(Qt::ToolTipRole, "cellToolTip");
     return names;
 }
 
