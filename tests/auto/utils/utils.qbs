@@ -19,6 +19,7 @@ Project {
         "fileutils/fileutils.qbs",
         "fsengine/fsengine.qbs",
         "fuzzymatcher/fuzzymatcher.qbs",
+        "groupedselection/groupedselection.qbs",
         "guiutils/guiutils.qbs",
         "icon/icon.qbs",
         "id/id.qbs",

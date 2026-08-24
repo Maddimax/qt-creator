@@ -178,6 +178,8 @@ QtcLibrary {
         "globaltasktree.h",
         "groupedmodel.cpp",
         "groupedmodel.h",
+        "groupedselection.cpp",
+        "groupedselection.h",
         "groupedview.cpp",
         "groupedview.h",
         "guard.cpp",
