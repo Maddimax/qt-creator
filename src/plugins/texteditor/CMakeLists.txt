@@ -161,6 +161,7 @@ extend_qtc_plugin(TextEditor
   DEPENDS Qt::Quick
   SOURCES
     codehighlighting.cpp codehighlighting.h
+    codeindenting.cpp codeindenting.h
 )
 
 extend_qtc_plugin(TextEditor

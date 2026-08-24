@@ -646,7 +646,7 @@ to any test that reads properties off items: a label that is clipped out of view
 still has its `text`, and an item at its implicit size still reports the size it
 asked for. **Look at the page.**
 
-#### The text editor: a highlighter does not need a TextEditorWidget
+#### The text editor: a highlighter and an indenter need no TextEditorWidget
 
 The three pages that are left - Code Style, Snippets, Font && Colors - were
 recorded as waiting on "the TextEditor ported to Qt Quick", which sounded like
@@ -683,10 +683,24 @@ Two things to copy:
   readable property for exactly that reason: a view with no definition shows
   plain text, which is worth being able to tell apart from a broken one.
 
-What is still missing for Code Style is the *indenter* - its preview re-indents
-as the settings change, and the preview is editable - and for Snippets, an
-editable highlighted editor. Both are additions to this control rather than new
-machinery.
+The indenter came the same way. `ICodeStylePreferencesFactory::createIndenter()`
+takes a `QTextDocument *` too, and `Indenter::indentBlock()` takes a
+`QTextBlock` and a `TabSettingsData` - no editor anywhere. So `CodeIndenting`
+attaches one and re-indents every line whenever the code style changes, which is
+what makes a preview a preview.
+
+Its test is the one worth copying. "Something got indented" passes with any
+settings at all: replacing the code style's tab settings with a default
+`TabSettingsData` left the output identical, because the default indent happens
+to be the configured one. The test widens the style's indent by three and
+expects the preview to follow, *without* asking it to - which is the actual
+contract. Only then did that control bite. Note it has to widen
+`currentPreferences()`, not the top-level object: the current settings come from
+whichever delegate is in effect.
+
+What is still missing for Code Style is the per-language value editor, and for
+Snippets an editable highlighted editor. Neither control is wired into a page
+yet - they are the pieces those pages are built from.
 
 #### Give the model a parent
 
