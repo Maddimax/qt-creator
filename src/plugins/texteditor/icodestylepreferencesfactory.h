@@ -7,6 +7,8 @@
 
 #include <utils/id.h>
 
+namespace Utils { class AspectContainer; }
+
 #include <QString>
 #include <QUrl>
 
@@ -52,6 +54,11 @@ public:
     // language moves to Quick by naming one; the rest keep their widget editor
     // until they do, since the page is per language.
     QUrl qmlSource() const;
+
+    // The aspects that form edits, for the page-local copy of the preferences.
+    // A form names aspects, so a language that has one has to hand them over -
+    // the page itself knows nothing about any language's settings.
+    Utils::AspectContainer *createSettingsAspects(ICodeStylePreferences *codeStyle) const;
     Indenter *createIndenter(QTextDocument *doc) const;
     ICodeStylePreferences *createCodeStyle() const;
     // The language's value editor. Usually just the widgets that edit
@@ -70,6 +77,10 @@ public:
     void setSnippetGroupId(const QString &snippetGroupId);
     void setPreviewText(const QString &previewText);
     void setQmlSource(const QUrl &qmlSource);
+
+    using SettingsAspectsCreator
+        = std::function<Utils::AspectContainer *(ICodeStylePreferences *)>;
+    void setSettingsAspectsCreator(const SettingsAspectsCreator &creator);
     void setIndenterCreator(const IndenterCreator &creator);
     void setCodeStyleCreator(const CodeStyleCreator &creator);
     void setValueEditorCreator(const ValueEditorCreator &creator);
@@ -93,6 +104,7 @@ private:
     QString m_displayName;
     QString m_snippetGroupId;
     QUrl m_qmlSource;
+    SettingsAspectsCreator m_settingsAspectsCreator;
     QString m_previewText;
     IndenterCreator m_indenterCreator;
     CodeStyleCreator m_codeStyleCreator;

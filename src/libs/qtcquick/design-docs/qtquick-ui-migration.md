@@ -745,11 +745,31 @@ widget over a plain struct of twenty-five bools, for QML/JS a formatter picker
 with three stacked settings widgets, for ClangFormat a self-managed editor.
 None of them is small, and none is aspect-based.
 
-What is in place is the seam: a factory can name a Qt Quick form
-(`setQmlSource()`), and `CodeStyleAspect` renders it when there is one. Since
-the page is per language, **a language can move on its own** and the others keep
-their widget editor until they do - so the three editors are three independent
-batches rather than one leap.
+What is in place is the seam, in two halves. A factory can name a Qt Quick form
+(`setQmlSource()`), and it can hand over the aspects that form edits
+(`setSettingsAspectsCreator()`) - the page itself knows nothing about any
+language's settings, so a form that names `aspects.LineLength` needs the factory
+to contribute it. `CodeStyleAspect` registers them against the *page-local* copy
+of the preferences, so Cancel still means something. Since the page is per
+language, **a language can move on its own** and the others keep their widget
+editor until they do - three independent batches rather than one leap.
+
+What each of the three still needs, from reading them:
+
+- **QML/JS** is the most tractable. `QmlJSCodeStyleSettings` is five fields, and
+  the three formatter widgets already keep them in aspects
+  (`SelectionAspect`, `IntegerAspect`, `FilePathAspect`, `StringAspect`) - they
+  need hoisting into a container rather than rewriting. The qmlformat half is an
+  options table with a context-dependent cell editor, which is what
+  `AspectTable` is for.
+- **C++** is the biggest: `CppCodeStyleSettings` is a plain struct of
+  twenty-five bools with no aspects at all, laid out across tabs.
+- **ClangFormat** is self-managed and needs a decision rather than a port.
+
+One piece is shared by all three and is already done for them:
+`TextEditor::TabSettings` is an `AspectContainer` of five aspects plus a
+warning, so its form is a listing rather than a rewrite. Its *layouter* cannot
+go yet - the per-project Editor page still embeds it as a container.
 
 The preview those pages need is already built: `CodeView` for the highlighting
 and `CodeIndenting` for the re-indent on a settings change.

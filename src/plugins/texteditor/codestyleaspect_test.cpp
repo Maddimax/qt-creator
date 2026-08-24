@@ -83,6 +83,16 @@ public:
             return prefs;
         });
         setQmlSource(QUrl("qrc:/qt/qml/QtCreator/TextEditor/CodeStyleTestPage.qml"));
+        // A form names aspects, so the factory hands over the ones it edits.
+        setSettingsAspectsCreator([](ICodeStylePreferences *codeStyle) {
+            Q_UNUSED(codeStyle)
+            auto settings = new Utils::AspectContainer;
+            auto lineLength = new Utils::IntegerAspect(settings);
+            lineLength->setQmlName("LineLength");
+            lineLength->setRange(0, 999);
+            lineLength->setValue(80);
+            return settings;
+        });
     }
 };
 
@@ -243,6 +253,24 @@ private slots:
             CodeStyleAspect aspect(&codeStyle, QML_TEST_LANGUAGE_ID);
             QCOMPARE(aspect.qmlSource(),
                      QUrl("qrc:/qt/qml/QtCreator/TextEditor/CodeStyleTestPage.qml"));
+
+            // And the aspects its form names are on the page, since the page
+            // knows nothing about any language's settings itself.
+            const QList<BaseAspect *> aspects = aspect.aspects();
+            QCOMPARE(aspects.size(), 1);
+            auto settings = qobject_cast<Utils::AspectContainer *>(aspects.first());
+            QVERIFY(settings);
+            QCOMPARE(settings->aspects().size(), 1);
+            QCOMPARE(settings->aspects().first()->qmlName(), QString("LineLength"));
+        }
+
+        // A language with no form contributes no aspects either: nothing is
+        // built for a page that is not going to show it.
+        {
+            TestCodeStyleFactory plain;
+            ICodeStylePreferences codeStyle;
+            CodeStyleAspect aspect(&codeStyle, TEST_LANGUAGE_ID);
+            QVERIFY(aspect.aspects().isEmpty());
         }
     }
 

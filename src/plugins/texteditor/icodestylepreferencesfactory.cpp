@@ -76,6 +76,17 @@ QWidget *ICodeStylePreferencesFactory::createValueEditor(ICodeStylePreferences *
     return m_valueEditorCreator ? m_valueEditorCreator(codeStyle) : nullptr;
 }
 
+Utils::AspectContainer *ICodeStylePreferencesFactory::createSettingsAspects(
+    ICodeStylePreferences *codeStyle) const
+{
+    return m_settingsAspectsCreator ? m_settingsAspectsCreator(codeStyle) : nullptr;
+}
+
+void ICodeStylePreferencesFactory::setSettingsAspectsCreator(const SettingsAspectsCreator &creator)
+{
+    m_settingsAspectsCreator = creator;
+}
+
 QUrl ICodeStylePreferencesFactory::qmlSource() const
 {
     return m_qmlSource;

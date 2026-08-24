@@ -157,6 +157,11 @@ CodeStyleAspect::CodeStyleAspect(ICodeStylePreferences *codeStyle, Id languageId
         if (!factory->qmlSource().isEmpty()) {
             ensurePageCopy(factory);
             syncFromReal();
+            // The form names aspects, and the page knows none of this
+            // language's - the factory hands them over, editing the page-local
+            // copy so that Cancel still means something.
+            if (AspectContainer *settings = factory->createSettingsAspects(m_pageCodeStyle))
+                registerAspect(settings, /*takeOwnership=*/true);
             setQmlSource(factory->qmlSource());
         }
     }
