@@ -8,22 +8,20 @@
 
 #include <coreplugin/icore.h>
 
+#include <utils/aspectlist.h>
 #include <utils/aspects.h>
-#include <utils/guiutils.h>
+#include <utils/aspectwidgets.h>
 #include <utils/layoutbuilder.h>
 #include <utils/pathchooser.h>
-#include <utils/qtcassert.h>
+#include <utils/shutdownguard.h>
 
 #include <vcsbase/vcsbaseconstants.h>
 
-#include <QAction>
-#include <QComboBox>
-#include <QDialog>
-#include <QDialogButtonBox>
-#include <QFormLayout>
-#include <QLabel>
-#include <QPushButton>
 #include <QRegularExpression>
+
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
 
 using namespace Utils;
 
@@ -45,261 +43,180 @@ static bool hostValid(const QString &host)
     return (host == "localhost") || dn.match(host).hasMatch();
 }
 
-class GitLabServerWidget : public QWidget
+// What the GitLab page edits. The servers themselves live in
+// GitLabParameters, which the rest of the plugin reads and which keeps its own
+// settings format, so these aspects have none: they are read from it when the
+// page is built and written back on apply.
+
+class GitLabServerAspects final : public AspectContainer
 {
 public:
-    enum Mode { Display, Edit };
-    explicit GitLabServerWidget(Mode m, QWidget *parent = nullptr);
+    GitLabServerAspects()
+    {
+        host.setQmlName("Host");
+        host.setLabelText(Tr::tr("Host:"));
+        host.setDisplayStyle(StringAspect::LineEditDisplay);
+        host.setValidationFunction([](const QString &text) -> Result<> {
+            if (hostValid(text))
+                return ResultOk;
+            return ResultError(Tr::tr("Not a host name or an IP address."));
+        });
 
-    GitLabServer gitLabServer() const;
-    void setGitLabServer(const GitLabServer &server);
+        description.setQmlName("Description");
+        description.setLabelText(Tr::tr("Description:"));
+        description.setDisplayStyle(StringAspect::LineEditDisplay);
+
+        token.setQmlName("Token");
+        token.setLabelText(Tr::tr("Access token:"));
+        token.setDisplayStyle(StringAspect::LineEditDisplay);
+
+        port.setQmlName("Port");
+        port.setLabelText(Tr::tr("Port:"));
+        port.setRange(1, 65535);
+        port.setValue(GitLabServer::defaultPort);
+
+        secure.setQmlName("Secure");
+        secure.setLabelText(Tr::tr("HTTPS:"));
+        secure.setLabelPlacement(BoolAspect::LabelPlacement::InExtraLabel);
+        secure.setDefaultValue(true);
+
+        Utils::AspectWidgets::setLayouter(this, [this] {
+            using namespace Layouting;
+            return Form { host, br, description, br, token, br, port, br, secure };
+        });
+    }
+
+    GitLabServer server() const
+    {
+        GitLabServer result;
+        // Kept, not generated: the default server is named by id, and a server
+        // that got a new one every time it was read would stop being it.
+        result.id = m_id;
+        result.host = host.volatileValue();
+        result.description = description.volatileValue();
+        result.token = token.volatileValue();
+        result.port = port.volatileValue();
+        result.secure = secure.volatileValue();
+        return result;
+    }
+
+    void setServer(const GitLabServer &server)
+    {
+        m_id = server.id;
+        host.setValue(server.host);
+        description.setValue(server.description);
+        token.setValue(server.token);
+        port.setValue(server.port);
+        secure.setValue(server.secure);
+    }
+
+    StringAspect host{this};
+    StringAspect description{this};
+    StringAspect token{this};
+    IntegerAspect port{this};
+    BoolAspect secure{this};
 
 private:
-    Mode m_mode = Display;
-    Id m_id;
-    StringAspect m_host;
-    StringAspect m_description;
-    StringAspect m_token;
-    IntegerAspect m_port;
-    BoolAspect m_secure;
+    Id m_id = Id::generate();
 };
 
-GitLabServerWidget::GitLabServerWidget(Mode m, QWidget *parent)
-    : QWidget(parent)
-    , m_mode(m)
-{
-    m_host.setLabelText(Tr::tr("Host:"));
-    m_host.setDisplayStyle(m == Display ? StringAspect::LabelDisplay
-                                        : StringAspect::LineEditDisplay);
-    m_host.setValidationFunction([](const QString &text) -> Result<> {
-        if (hostValid(text))
-            return ResultOk;
-        return ResultError(QString());
-    });
-
-    m_description.setLabelText(Tr::tr("Description:"));
-    m_description.setDisplayStyle(m == Display ? StringAspect::LabelDisplay
-                                               : StringAspect::LineEditDisplay);
-
-    m_token.setLabelText(Tr::tr("Access token:"));
-    m_token.setDisplayStyle(m == Display ? StringAspect::LabelDisplay
-                                         : StringAspect::LineEditDisplay);
-    m_token.setVisible(m == Edit);
-
-    m_port.setLabelText(Tr::tr("Port:"));
-    m_port.setRange(1, 65535);
-    m_port.setValue(GitLabServer::defaultPort);
-    m_port.setEnabled(m == Edit);
-    m_secure.setLabelText(Tr::tr("HTTPS:"));
-    m_secure.setLabelPlacement(BoolAspect::LabelPlacement::InExtraLabel);
-    m_secure.setDefaultValue(true);
-    m_secure.setEnabled(m == Edit);
-
-    using namespace Layouting;
-
-    Row {
-        Form {
-            m_host, br,
-            m_description, br,
-            m_token, br,
-            m_port, br,
-            m_secure,
-            m == Edit ? &Layout::setNormalMargins : &Layout::setNoMargins
-        },
-    }.attachTo(this);
-}
-
-GitLabServer GitLabServerWidget::gitLabServer() const
-{
-    GitLabServer result;
-    result.id = m_mode == Edit ? Id::generate() : m_id;
-    result.host = m_host();
-    result.description = m_description();
-    result.token = m_token();
-    result.port = m_port();
-    result.secure = m_secure();
-    return result;
-}
-
-void GitLabServerWidget::setGitLabServer(const GitLabServer &server)
-{
-    m_id = server.id;
-    m_host.setValue(server.host);
-    m_description.setValue(server.description);
-    m_token.setValue(server.token);
-    m_port.setValue(server.port);
-    m_secure.setValue(server.secure);
-}
-
-class GitLabOptionsWidget : public Core::IOptionsPageWidget
+class GitLabSettingsAspects final : public AspectContainer
 {
 public:
-    GitLabOptionsWidget();
+    GitLabSettingsAspects()
+    {
+        setAutoApply(false);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/GitLab/GitLabSettingsPage.qml"));
 
-private:
-    void showEditServerDialog();
-    void showAddServerDialog();
-    void removeCurrentTriggered();
-    void addServer(const GitLabServer &newServer);
-    void modifyCurrentServer(const GitLabServer &newServer);
-    void updateButtonsState();
+        servers.setQmlName("Servers");
+        servers.setLabelText(Tr::tr("Servers"));
+        servers.setDisplayStyle(AspectList::DisplayStyle::ListViewWithDetails);
+        servers.setCreateItemFunction([] { return std::make_shared<GitLabServerAspects>(); });
+        servers.listViewDataCallback = [](GitLabServerAspects *item, int role) -> QVariant {
+            if (role == Qt::DisplayRole)
+                return item->server().displayString();
+            return {};
+        };
 
-    GitLabParameters *m_parameters = nullptr;
-    GitLabServerWidget *m_gitLabServerWidget = nullptr;
-    QPushButton *m_edit = nullptr;
-    QPushButton *m_remove = nullptr;
-    QPushButton *m_add = nullptr;
-    QComboBox *m_defaultGitLabServer = nullptr;
-    FilePathAspect m_curl;
-};
+        defaultServer.setQmlName("DefaultServer");
+        defaultServer.setLabelText(Tr::tr("Default:"));
+        defaultServer.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
 
-GitLabOptionsWidget::GitLabOptionsWidget()
-    : m_parameters(&gitLabParameters())
-{
-    auto defaultLabel = new QLabel(Tr::tr("Default:"), this);
-    m_defaultGitLabServer = new QComboBox(this);
-    m_curl.setLabelText(Tr::tr("curl:"));
-    m_curl.setExpectedKind(PathChooserKind::ExistingCommand);
+        curl.setQmlName("Curl");
+        curl.setLabelText(Tr::tr("curl:"));
+        curl.setExpectedKind(PathChooserKind::ExistingCommand);
 
-    m_gitLabServerWidget = new GitLabServerWidget(GitLabServerWidget::Display, this);
+        // Which servers there are to be the default one is the list's answer,
+        // and it changes as the list is edited - a server is named in the combo
+        // by the host that was just typed into it.
+        connect(&servers, &AspectList::volatileItemListChanged,
+                this, &GitLabSettingsAspects::refreshServerChoices);
+        connect(&servers, &BaseAspect::volatileValueChanged,
+                this, &GitLabSettingsAspects::refreshServerChoices);
 
-    m_edit = new QPushButton(Tr::tr("Edit..."), this);
-    m_edit->setToolTip(Tr::tr("Edit current selected GitLab server configuration."));
-    m_remove = new QPushButton(Tr::tr("Remove"), this);
-    m_remove->setToolTip(Tr::tr("Remove current selected GitLab server configuration."));
-    m_add = new QPushButton(Tr::tr("Add..."), this);
-    m_add->setToolTip(Tr::tr("Add new GitLab server configuration."));
-
-    using namespace Layouting;
-
-    Grid {
-        Form {
-            defaultLabel, m_defaultGitLabServer, br,
-            Row { Group { Column { m_gitLabServerWidget, Space(1) } } }, br,
-            m_curl, br,
-        }, Column { m_add, m_edit, m_remove, st },
-    }.attachTo(this);
-
-    m_curl.setValue(m_parameters->curl);
-
-    for (const auto &gitLabServer : std::as_const(m_parameters->gitLabServers)) {
-        m_defaultGitLabServer->addItem(gitLabServer.displayString(),
-                                       QVariant::fromValue(gitLabServer));
+        readFromParameters();
     }
 
-    const GitLabServer found = m_parameters->currentDefaultServer();
-    if (found.id.isValid()) {
-        m_defaultGitLabServer->setCurrentIndex(m_defaultGitLabServer->findData(
-                                                   QVariant::fromValue(found)));
-        m_gitLabServerWidget->setGitLabServer(found);
-    }
-    updateButtonsState();
+    void apply() override
+    {
+        AspectContainer::apply();
 
-    connect(m_edit, &QPushButton::clicked, this, &GitLabOptionsWidget::showEditServerDialog);
-    connect(m_remove, &QPushButton::clicked, this, &GitLabOptionsWidget::removeCurrentTriggered);
-    connect(m_add, &QPushButton::clicked, this, &GitLabOptionsWidget::showAddServerDialog);
-    connect(m_defaultGitLabServer, &QComboBox::currentIndexChanged, this, [this] {
-        m_gitLabServerWidget->setGitLabServer(
-                    m_defaultGitLabServer->currentData().value<GitLabServer>());
-    });
-
-    setOnApply([this] {
         GitLabParameters result;
-        // get all configured gitlabservers
-        for (int i = 0, end = m_defaultGitLabServer->count(); i < end; ++i)
-            result.gitLabServers.append(m_defaultGitLabServer->itemData(i).value<GitLabServer>());
-        if (m_defaultGitLabServer->count())
-            result.defaultGitLabServer = m_defaultGitLabServer->currentData().value<GitLabServer>().id;
-        result.curl = m_curl();
+        for (const std::shared_ptr<BaseAspect> &item : servers.items())
+            result.gitLabServers.append(static_cast<GitLabServerAspects *>(item.get())->server());
+        result.defaultGitLabServer = Id::fromSetting(defaultServer.itemValue());
+        result.curl = curl();
 
-        if (result != *m_parameters) {
-            m_parameters->assign(result);
-            m_parameters->toSettings(Core::ICore::settings());
-            emit m_parameters->changed();
+        if (result == gitLabParameters())
+            return;
+
+        gitLabParameters().assign(result);
+        gitLabParameters().toSettings(Core::ICore::settings());
+        emit gitLabParameters().changed();
+    }
+
+    void cancel() override
+    {
+        AspectContainer::cancel();
+        readFromParameters();
+    }
+
+private:
+    void readFromParameters()
+    {
+        const GitLabParameters &p = gitLabParameters();
+        curl.setValue(p.curl);
+        servers.clear();
+        for (const GitLabServer &server : p.gitLabServers) {
+            auto item = std::make_shared<GitLabServerAspects>();
+            item->setServer(server);
+            servers.addItem(item);
         }
-    });
+        // What is stored is where the page starts from, not an edit of it.
+        servers.apply();
+        refreshServerChoices();
+        defaultServer.setValue(defaultServer.indexForItemValue(p.defaultGitLabServer.toSetting()));
+    }
 
-    installMarkSettingsDirtyTriggerRecursively(this);
-}
+    void refreshServerChoices()
+    {
+        // Which server is the default is remembered by id across the rebuild.
+        // A selection aspect holds a position, and adding or removing a server
+        // moves the rest of them.
+        const QVariant wanted = defaultServer.itemValue();
+        defaultServer.clearOptions();
+        for (const std::shared_ptr<BaseAspect> &item : servers.volatileItems()) {
+            const GitLabServer server = static_cast<GitLabServerAspects *>(item.get())->server();
+            defaultServer.addOption({server.displayString(), {}, server.id.toSetting()});
+        }
+        const int index = defaultServer.indexForItemValue(wanted);
+        defaultServer.setValue(index < 0 ? 0 : index);
+    }
 
-void GitLabOptionsWidget::showEditServerDialog()
-{
-    const GitLabServer old = m_defaultGitLabServer->currentData().value<GitLabServer>();
-    QDialog d;
-    d.setWindowTitle(Tr::tr("Edit Server..."));
-    QVBoxLayout *layout = new QVBoxLayout;
-    GitLabServerWidget *serverWidget = new GitLabServerWidget(GitLabServerWidget::Edit, this);
-    serverWidget->setGitLabServer(old);
-    layout->addWidget(serverWidget);
-    auto buttons = new QDialogButtonBox(QDialogButtonBox::Cancel, this);
-    auto modifyButton = buttons->addButton(Tr::tr("Modify"), QDialogButtonBox::AcceptRole);
-    connect(modifyButton, &QPushButton::clicked, &d, &QDialog::accept);
-    connect(buttons->button(QDialogButtonBox::Cancel), &QPushButton::clicked, &d, &QDialog::reject);
-    layout->addWidget(buttons);
-    d.setLayout(layout);
-    if (d.exec() != QDialog::Accepted)
-        return;
-
-    const GitLabServer server = serverWidget->gitLabServer();
-    if (server != old && hostValid(server.host))
-        modifyCurrentServer(server);
-}
-
-void GitLabOptionsWidget::showAddServerDialog()
-{
-    QDialog d;
-    d.setWindowTitle(Tr::tr("Add Server..."));
-    QVBoxLayout *layout = new QVBoxLayout;
-    GitLabServerWidget *serverWidget = new GitLabServerWidget(GitLabServerWidget::Edit, this);
-    layout->addWidget(serverWidget);
-    auto buttons = new QDialogButtonBox(QDialogButtonBox::Cancel, this);
-    auto addButton = buttons->addButton(Tr::tr("Add"), QDialogButtonBox::AcceptRole);
-    connect(addButton, &QPushButton::clicked, &d, &QDialog::accept);
-    connect(buttons->button(QDialogButtonBox::Cancel), &QPushButton::clicked, &d, &QDialog::reject);
-    layout->addWidget(buttons);
-    d.setLayout(layout);
-    if (d.exec() != QDialog::Accepted)
-        return;
-
-    const GitLabServer server = serverWidget->gitLabServer();
-    if (hostValid(server.host))
-        addServer(server);
-}
-
-void GitLabOptionsWidget::removeCurrentTriggered()
-{
-    int current = m_defaultGitLabServer->currentIndex();
-    if (current > -1)
-        m_defaultGitLabServer->removeItem(current);
-    updateButtonsState();
-}
-
-void GitLabOptionsWidget::addServer(const GitLabServer &newServer)
-{
-    QTC_ASSERT(newServer.id.isValid(), return);
-    const QVariant variant = QVariant::fromValue(newServer);
-    m_defaultGitLabServer->addItem(newServer.displayString(), variant);
-    int index = m_defaultGitLabServer->findData(variant);
-    m_defaultGitLabServer->setCurrentIndex(index);
-    m_gitLabServerWidget->setGitLabServer(newServer);
-    updateButtonsState();
-}
-
-void GitLabOptionsWidget::modifyCurrentServer(const GitLabServer &newServer)
-{
-    int current = m_defaultGitLabServer->currentIndex();
-    if (current > -1)
-        m_defaultGitLabServer->setItemData(current, newServer.displayString(), Qt::DisplayRole);
-    m_defaultGitLabServer->setItemData(current, QVariant::fromValue(newServer));
-    m_gitLabServerWidget->setGitLabServer(newServer);
-}
-
-void GitLabOptionsWidget::updateButtonsState()
-{
-    const bool hasItems = m_defaultGitLabServer->count() > 0;
-    m_edit->setEnabled(hasItems);
-    m_remove->setEnabled(hasItems);
-}
+    AspectList servers{this};
+    SelectionAspect defaultServer{this};
+    FilePathAspect curl{this};
+};
 
 // GitLabOptionsPage
 
@@ -308,7 +225,178 @@ GitLabOptionsPage::GitLabOptionsPage()
     setId(Constants::GITLAB_SETTINGS);
     setDisplayName(Tr::tr("GitLab"));
     setCategory(VcsBase::Constants::VCS_SETTINGS_CATEGORY);
-    setWidgetCreator([] { return new GitLabOptionsWidget; });
+    setSettingsProvider([] {
+        static GuardedObject<GitLabSettingsAspects> theAspects;
+        return theAspects.get();
+    });
 }
 
+#ifdef WITH_TESTS
+
+// The page's servers used to live in a QComboBox's item data, edited in a
+// modal dialog, so what it held could only be read back out of widgets.
+
+class GitLabSettingsTest : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void init();
+    void cleanup();
+
+    void testThePageShowsTheServersThatAreStored();
+    void testTheDefaultIsPickedByIdAndNotByPosition();
+    void testRenamingAServerRenamesItEverywhere();
+    void testAddingAServerGivesItAnIdAndApplyingStoresIt();
+    void testApplyingWritesTheParametersBack();
+    void testAHostThatIsNeitherANameNorAnAddressIsRefused();
+
+private:
+    static GitLabServerAspects *itemAt(const AspectList &list, int index)
+    {
+        return static_cast<GitLabServerAspects *>(list.volatileItems().at(index).get());
+    }
+    static const AspectList &serversOf(const GitLabSettingsAspects &page)
+    {
+        return static_cast<const AspectList &>(*page.aspects().first());
+    }
+    static SelectionAspect &defaultOf(const GitLabSettingsAspects &page)
+    {
+        return static_cast<SelectionAspect &>(*page.aspects().at(1));
+    }
+
+    GitLabParameters m_original;
+    Id m_secondId;
+    Id m_defaultId;
+};
+
+void GitLabSettingsTest::init()
+{
+    m_original.assign(gitLabParameters());
+
+    GitLabParameters stored;
+    stored.gitLabServers.append(
+        GitLabServer(Id::generate(), "gitlab.com", "The public one", "abc", 443, true));
+    m_secondId = Id::generate();
+    stored.gitLabServers.append(
+        GitLabServer(m_secondId, "10.0.0.1", {}, "def", 8443, false));
+    m_defaultId = Id::generate();
+    stored.gitLabServers.append(
+        GitLabServer(m_defaultId, "gitlab.example.org", "Ours", "ghi", 443, true));
+    // The last one, so that a default remembered by position would land on the
+    // wrong server as soon as one in front of it goes.
+    stored.defaultGitLabServer = m_defaultId;
+    stored.curl = FilePath::fromString("/usr/bin/curl");
+    gitLabParameters().assign(stored);
+}
+
+void GitLabSettingsTest::cleanup()
+{
+    gitLabParameters().assign(m_original);
+}
+
+void GitLabSettingsTest::testThePageShowsTheServersThatAreStored()
+{
+    GitLabSettingsAspects page;
+    const AspectList &servers = serversOf(page);
+
+    QCOMPARE(servers.volatileItems().size(), 3);
+    QCOMPARE(itemAt(servers, 0)->host.volatileValue(), QString("gitlab.com"));
+    QCOMPARE(itemAt(servers, 1)->port.volatileValue(), 8443);
+    QCOMPARE(itemAt(servers, 1)->secure.volatileValue(), false);
+    QCOMPARE(itemAt(servers, 0)->token.volatileValue(), QString("abc"));
+
+    // Stored is where the page starts from, so there is nothing to apply.
+    QVERIFY(!static_cast<const BaseAspect &>(page).isDirty());
+}
+
+void GitLabSettingsTest::testTheDefaultIsPickedByIdAndNotByPosition()
+{
+    GitLabSettingsAspects page;
+    SelectionAspect &fallback = defaultOf(page);
+
+    QCOMPARE(fallback.optionCount(), 3);
+    QCOMPARE(fallback.itemValue(), m_defaultId.toSetting());
+
+    // Removing one in front of it leaves it the default, which storing a
+    // position would not: it is at 2 before and at 1 after.
+    const_cast<AspectList &>(serversOf(page)).removeItem(serversOf(page).volatileItems().first());
+    QCOMPARE(fallback.optionCount(), 2);
+    QCOMPARE(fallback.itemValue(), m_defaultId.toSetting());
+    QCOMPARE(fallback.value(), 1);
+}
+
+void GitLabSettingsTest::testRenamingAServerRenamesItEverywhere()
+{
+    GitLabSettingsAspects page;
+    const AspectList &servers = serversOf(page);
+    QCOMPARE(servers.listViewDataCallback(itemAt(servers, 0), Qt::DisplayRole).toString(),
+             QString("gitlab.com (The public one)"));
+
+    itemAt(servers, 0)->host.setVolatileValue(QString("gitlab.example.com"));
+
+    QCOMPARE(servers.listViewDataCallback(itemAt(servers, 0), Qt::DisplayRole).toString(),
+             QString("gitlab.example.com (The public one)"));
+    // And in the combo, which names the servers the list holds.
+    QCOMPARE(defaultOf(page).displayForIndex(0), QString("gitlab.example.com (The public one)"));
+}
+
+void GitLabSettingsTest::testAddingAServerGivesItAnIdAndApplyingStoresIt()
+{
+    GitLabSettingsAspects page;
+    const AspectList &servers = serversOf(page);
+    auto added = static_cast<GitLabServerAspects *>(
+        const_cast<AspectList &>(servers).createAndAddItem().get());
+    added->host.setVolatileValue(QString("gitlab.internal"));
+
+    const Id addedId = added->server().id;
+    QVERIFY(addedId.isValid());
+    QVERIFY(addedId != m_defaultId);
+
+    static_cast<BaseAspect &>(page).apply();
+
+    QCOMPARE(gitLabParameters().gitLabServers.size(), 4);
+    QCOMPARE(gitLabParameters().serverForId(addedId).host, QString("gitlab.internal"));
+    // Reading a server back must not give it a new id, or it would stop being
+    // the one the default names.
+    QCOMPARE(gitLabParameters().defaultGitLabServer, m_defaultId);
+}
+
+void GitLabSettingsTest::testApplyingWritesTheParametersBack()
+{
+    GitLabSettingsAspects page;
+    itemAt(serversOf(page), 0)->description.setVolatileValue(QString("Renamed"));
+    defaultOf(page).setValue(0);
+
+    static_cast<BaseAspect &>(page).apply();
+
+    QCOMPARE(gitLabParameters().gitLabServers.at(0).description, QString("Renamed"));
+    QCOMPARE(gitLabParameters().defaultGitLabServer,
+             gitLabParameters().gitLabServers.at(0).id);
+    QCOMPARE(gitLabParameters().curl, FilePath::fromString("/usr/bin/curl"));
+}
+
+void GitLabSettingsTest::testAHostThatIsNeitherANameNorAnAddressIsRefused()
+{
+    GitLabSettingsAspects page;
+    const BaseAspect &host = itemAt(serversOf(page), 0)->host;
+
+    QCOMPARE(host.validationMessage("gitlab.com"), QString());
+    QCOMPARE(host.validationMessage("localhost"), QString());
+    QCOMPARE(host.validationMessage("10.0.0.1"), QString());
+    // The dialog used to drop what was typed without saying anything.
+    QVERIFY(!host.validationMessage("not a host").isEmpty());
+    QVERIFY(!host.validationMessage("999.1.1.1").isEmpty());
+    QVERIFY(!host.validationMessage("").isEmpty());
+}
+
+QObject *createGitLabSettingsTest()
+{
+    return new GitLabSettingsTest;
+}
+
+#endif // WITH_TESTS
+
 } // namespace GitLab
+
+#include "gitlaboptionspage.moc"

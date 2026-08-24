@@ -15,4 +15,8 @@ public:
     GitLabOptionsPage();
 };
 
+#ifdef WITH_TESTS
+QObject *createGitLabSettingsTest();
+#endif
+
 } // GitLab

@@ -98,6 +98,10 @@ class GitLabPlugin final : public ExtensionSystem::IPlugin
         connect(ProjectExplorer::ProjectManager::instance(),
                 &ProjectExplorer::ProjectManager::startupProjectChanged,
                 this, &GitLabPlugin::onStartupProjectChanged);
+
+#ifdef WITH_TESTS
+        addTestCreator(createGitLabSettingsTest);
+#endif
     }
 
     void openView()
