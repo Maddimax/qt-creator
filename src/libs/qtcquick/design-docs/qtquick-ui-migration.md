@@ -736,6 +736,24 @@ Two things worth copying:
   That is the third time this shape has come up - test frameworks, analyzer
   messages, snippet groups - and it is always the same fix.
 
+#### Code Style: three editors behind one seam
+
+Code Style is the last of the pages, and it is three jobs rather than one. There
+is a page per language - C++, QML/JS, Nim - and each renders whatever
+`ICodeStylePreferencesFactory::createValueEditor()` hands it: for C++ a tabbed
+widget over a plain struct of twenty-five bools, for QML/JS a formatter picker
+with three stacked settings widgets, for ClangFormat a self-managed editor.
+None of them is small, and none is aspect-based.
+
+What is in place is the seam: a factory can name a Qt Quick form
+(`setQmlSource()`), and `CodeStyleAspect` renders it when there is one. Since
+the page is per language, **a language can move on its own** and the others keep
+their widget editor until they do - so the three editors are three independent
+batches rather than one leap.
+
+The preview those pages need is already built: `CodeView` for the highlighting
+and `CodeIndenting` for the re-indent on a settings change.
+
 #### Font && Colors: twenty aspects and one name collision
 
 `FontSettingsAspect` was one `Custom` aspect that owned the whole page. It is

@@ -8,6 +8,7 @@
 #include <utils/id.h>
 
 #include <QString>
+#include <QUrl>
 
 #include <functional>
 
@@ -47,6 +48,10 @@ public:
     QString displayName() const;
     QString snippetGroupId() const;
     QString previewText() const;
+    // The Qt Quick form for this language's settings, where it has one. A
+    // language moves to Quick by naming one; the rest keep their widget editor
+    // until they do, since the page is per language.
+    QUrl qmlSource() const;
     Indenter *createIndenter(QTextDocument *doc) const;
     ICodeStylePreferences *createCodeStyle() const;
     // The language's value editor. Usually just the widgets that edit
@@ -64,6 +69,7 @@ public:
     void setDisplayName(const QString &displayName);
     void setSnippetGroupId(const QString &snippetGroupId);
     void setPreviewText(const QString &previewText);
+    void setQmlSource(const QUrl &qmlSource);
     void setIndenterCreator(const IndenterCreator &creator);
     void setCodeStyleCreator(const CodeStyleCreator &creator);
     void setValueEditorCreator(const ValueEditorCreator &creator);
@@ -86,6 +92,7 @@ private:
     Utils::Id m_languageId;
     QString m_displayName;
     QString m_snippetGroupId;
+    QUrl m_qmlSource;
     QString m_previewText;
     IndenterCreator m_indenterCreator;
     CodeStyleCreator m_codeStyleCreator;

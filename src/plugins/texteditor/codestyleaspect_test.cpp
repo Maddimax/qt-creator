@@ -65,6 +65,27 @@ public:
     }
 };
 
+// A language that has a Qt Quick form, and one that has not. The Code Style
+// page is per language, so the two have to be able to differ.
+const char QML_TEST_LANGUAGE_ID[] = "TextEditor.CodeStyleAspectTest.Qml";
+
+class QmlTestCodeStyleFactory final : public ICodeStylePreferencesFactory
+{
+public:
+    QmlTestCodeStyleFactory()
+        : ICodeStylePreferencesFactory(QML_TEST_LANGUAGE_ID)
+    {
+        setDisplayName(QString("Qml Test"));
+        setIndenterCreator([](QTextDocument *doc) { return new PlainTextIndenter(doc); });
+        setCodeStyleCreator([] {
+            auto prefs = new ICodeStylePreferences;
+            prefs->setSettingsSuffix("QmlTestCodeStyle");
+            return prefs;
+        });
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/TextEditor/CodeStyleTestPage.qml"));
+    }
+};
+
 const char LIVE_TEST_LANGUAGE_ID[] = "TextEditor.CodeStyleAspectTest.Live";
 
 // A code style editor that writes edits straight through to its preferences
@@ -203,6 +224,28 @@ private:
     }
 
 private slots:
+    void testALanguageMovesToQuickOnItsOwn()
+    {
+        // A language that names no form keeps its widget editor, so the page
+        // declines it and nothing changes for the others.
+        {
+            TestCodeStyleFactory plain;
+            ICodeStylePreferences codeStyle;
+            CodeStyleAspect aspect(&codeStyle, TEST_LANGUAGE_ID);
+            QVERIFY(aspect.qmlSource().isEmpty());
+        }
+
+        // One that does is rendered from it. Which language it is decides,
+        // because the page is per language.
+        {
+            QmlTestCodeStyleFactory quick;
+            ICodeStylePreferences codeStyle;
+            CodeStyleAspect aspect(&codeStyle, QML_TEST_LANGUAGE_ID);
+            QCOMPARE(aspect.qmlSource(),
+                     QUrl("qrc:/qt/qml/QtCreator/TextEditor/CodeStyleTestPage.qml"));
+        }
+    }
+
     void testUnopenedPageIsNotDirty()
     {
         TestCodeStyleFactory factory;

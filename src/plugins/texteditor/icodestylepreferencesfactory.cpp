@@ -76,6 +76,16 @@ QWidget *ICodeStylePreferencesFactory::createValueEditor(ICodeStylePreferences *
     return m_valueEditorCreator ? m_valueEditorCreator(codeStyle) : nullptr;
 }
 
+QUrl ICodeStylePreferencesFactory::qmlSource() const
+{
+    return m_qmlSource;
+}
+
+void ICodeStylePreferencesFactory::setQmlSource(const QUrl &qmlSource)
+{
+    m_qmlSource = qmlSource;
+}
+
 bool ICodeStylePreferencesFactory::valueEditorHasPreview() const
 {
     return m_valueEditorHasPreview;

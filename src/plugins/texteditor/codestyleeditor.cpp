@@ -150,6 +150,17 @@ CodeStyleAspect::CodeStyleAspect(ICodeStylePreferences *codeStyle, Id languageId
     : m_codeStyle(codeStyle)
     , m_languageId(languageId)
 {
+    // The page is per language, so a language moves to Qt Quick on its own: it
+    // names a form and this page renders it. The rest keep the widget editor
+    // below until they do.
+    if (ICodeStylePreferencesFactory *factory = codeStyleFactory(m_languageId)) {
+        if (!factory->qmlSource().isEmpty()) {
+            ensurePageCopy(factory);
+            syncFromReal();
+            setQmlSource(factory->qmlSource());
+        }
+    }
+
     Utils::AspectWidgets::setLayouter(this, [this] {
         ICodeStylePreferencesFactory *factory = codeStyleFactory(m_languageId);
         ensurePageCopy(factory);
