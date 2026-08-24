@@ -1352,6 +1352,20 @@ usual habit of dropping what was typed without saying why - GitLab's Add
 silently discarded a bad host - because the check becomes the aspect's
 validation.
 
+Two of the remaining ones are not this shape at all and are worth knowing
+about before picking a batch: **Help > Filters** is a `QHelpFilterSettingsWidget`
+from QtHelp with a `QHelpFilterEngine` behind it, and **Designer** embeds Qt
+Designer's own option pages. Neither is Qt Creator's UI to rewrite; both need
+the widget replaced with a form written against the engine's API, which is a
+piece of work of its own rather than a port.
+
+**Beautifier's three** pages are already aspect-driven apart from one shared
+piece: `ConfigurationPanel`, a combo of named configurations with Add, Edit and
+Remove opening `ConfigurationDialog`. That is the list-with-details shape
+again, and converting it moves all three pages at once - but the dialog's value
+editor is `ConfigurationEditor`, a code editor completing the tool's documented
+options, so it wants the Quick editor and a completion provider of its own.
+
 One thing to watch: a `SelectionAspect` over a list that is being edited holds
 a *position*. GitLab's default server has to be remembered by id and looked up
 again whenever the choices are rebuilt, or it follows the wrong server as soon
