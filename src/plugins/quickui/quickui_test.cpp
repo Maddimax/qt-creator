@@ -18,6 +18,7 @@
 
 #include <QAbstractButton>
 #include <QAbstractItemView>
+#include <QItemSelectionModel>
 #include <QCheckBox>
 #include <QFile>
 #include <QQmlError>
@@ -121,6 +122,8 @@ private slots:
     void testPageQmlReachesANestedContainersAspects();
     void testMultiLineStringGetsATextArea();
     void testSecretIsFetchedBeforeItCanBeEdited();
+    void testTableAspectDrawsWhatItsModelOffers();
+    void testTableAspectAddsAndRemovesRows();
 };
 
 void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
@@ -284,6 +287,7 @@ void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
                     {"AspectListDelegate", {Kind::AspectList}},
                     {"MultiSelectionDelegate", {Kind::MultiSelection}},
                     {"FilePathListDelegate", {Kind::FilePathList}},
+                    {"TableDelegate", {Kind::Table}},
                 };
                 for (auto it = serves.cbegin(); it != serves.cend(); ++it) {
                     if (!drawn.startsWith(it.key()))
@@ -1347,6 +1351,216 @@ void QuickUiTest::testAspectListLabelArrivingLate()
     promise.addResult(QVariant("Named later"));
     promise.finish();
     QTRY_COMPARE(row->property("text").toString(), QString("Named later"));
+}
+
+// A table of the shape AspectTable describes, to check that a view builds the
+// editor each cell asks for. Rows are "colour/word": the first column offers a
+// choice, the second is free text with a pattern, the third is read-only.
+class TestTableModel : public QAbstractTableModel
+{
+public:
+    QStringList rows{"red/one", "blue/two"};
+    // Writing the same value back is invisible in rows, so count the writes.
+    int writes = 0;
+
+    enum Column { ColumnColour, ColumnWord, ColumnLocked, ColumnCount };
+
+    int rowCount(const QModelIndex &parent) const override
+    {
+        return parent.isValid() ? 0 : rows.size();
+    }
+    int columnCount(const QModelIndex &parent) const override
+    {
+        return parent.isValid() ? 0 : ColumnCount;
+    }
+
+    static QVariantList colours()
+    {
+        return {QVariantMap{{"display", "red"}, {"id", "red"}},
+                QVariantMap{{"display", "blue"}, {"id", "blue"}}};
+    }
+
+    QVariant data(const QModelIndex &index, int role) const override
+    {
+        const QStringList parts = rows.at(index.row()).split('/');
+        switch (role) {
+        case Qt::DisplayRole:
+        case Qt::EditRole:
+            switch (index.column()) {
+            case ColumnColour: return parts.value(0);
+            case ColumnWord:   return parts.value(1);
+            default:           return QString("locked");
+            }
+        case Utils::AspectTable::ChoicesRole:
+            return index.column() == ColumnColour ? colours() : QVariantList();
+        case Utils::AspectTable::ValidatorRole:
+            return index.column() == ColumnWord ? QString("[a-z]*") : QString();
+        case Utils::AspectTable::EditableRole:
+            return flags(index).testFlag(Qt::ItemIsEditable);
+        default:
+            return {};
+        }
+    }
+
+    bool setData(const QModelIndex &index, const QVariant &value, int role) override
+    {
+        if (role != Qt::EditRole)
+            return false;
+        QStringList parts = rows.at(index.row()).split('/');
+        if (index.column() >= ColumnLocked)
+            return false;
+        parts[index.column()] = value.toString();
+        rows[index.row()] = parts.join('/');
+        ++writes;
+        emit dataChanged(index, index);
+        return true;
+    }
+
+    QVariant headerData(int section, Qt::Orientation orientation, int role) const override
+    {
+        if (orientation == Qt::Vertical || role != Qt::DisplayRole)
+            return {};
+        switch (section) {
+        case ColumnColour: return QString("Colour");
+        case ColumnWord:   return QString("Word");
+        default:           return QString("Locked");
+        }
+    }
+
+    QHash<int, QByteArray> roleNames() const override
+    {
+        return Utils::AspectTable::withRoleNames(QAbstractTableModel::roleNames());
+    }
+
+    Qt::ItemFlags flags(const QModelIndex &index) const override
+    {
+        const Qt::ItemFlags flags = QAbstractTableModel::flags(index);
+        return index.column() >= ColumnLocked ? flags : flags | Qt::ItemIsEditable;
+    }
+
+    bool insertRows(int row, int count, const QModelIndex &parent) override
+    {
+        beginInsertRows(parent, row, row + count - 1);
+        for (int i = 0; i < count; ++i)
+            rows.insert(row, "red/new");
+        endInsertRows();
+        return true;
+    }
+
+    bool removeRows(int row, int count, const QModelIndex &parent) override
+    {
+        beginRemoveRows(parent, row, row + count - 1);
+        for (int i = 0; i < count; ++i)
+            rows.removeAt(row);
+        endRemoveRows();
+        return true;
+    }
+};
+
+class TestTableAspect : public Utils::StringListAspect
+{
+public:
+    using StringListAspect::StringListAspect;
+
+    QAbstractItemModel *tableModel() override { return &m_model; }
+
+    Utils::AspectPresentation presentation() const override
+    {
+        Utils::AspectPresentation p = StringListAspect::presentation();
+        p.control = Utils::AspectControls::Table;
+        return p;
+    }
+
+    TestTableModel m_model;
+};
+
+void QuickUiTest::testTableAspectDrawsWhatItsModelOffers()
+{
+    Utils::AspectContainer page;
+    TestTableAspect table(&page);
+    table.setLabelText("Rows");
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    form->resize(600, 400);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QVERIFY(quickWidget->rootObject());
+
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "TableDelegate"));
+
+    QQuickItem *view = nullptr;
+    QTRY_VERIFY(view = findQmlComponent(delegate, "QQuickTableView"));
+    QTRY_COMPARE(view->property("rows").toInt(), 2);
+    QCOMPARE(view->property("columns").toInt(), TestTableModel::ColumnCount);
+
+    // A cell that offers a choice gets a combo box showing the cell's value.
+    QList<QQuickItem *> combos;
+    QTRY_COMPARE((combos = findQmlComponents(view, "ComboBox")).size(), 2);
+    QCOMPARE(combos.at(0)->property("count").toInt(), 2);
+    QCOMPARE(combos.at(0)->property("currentText").toString(), QString("red"));
+
+    // Everything else is a field, and the one the model locked is not editable.
+    QList<QQuickItem *> fields;
+    QTRY_COMPARE((fields = findQmlComponents(view, "TextField")).size(), 4);
+    const auto enabled = [](QQuickItem *item) { return item->property("enabled").toBool(); };
+    QCOMPARE(Utils::filtered(fields, enabled).size(), 2);
+    QCOMPARE(Utils::filtered(fields, std::not_fn(enabled)).size(), 2);
+
+    // Choosing writes the choice's id back through the model.
+    QMetaObject::invokeMethod(combos.at(0), "activated", Q_ARG(int, 1));
+    QCOMPARE(table.m_model.rows, QStringList({"blue/one", "blue/two"}));
+
+    // A field writes its text back, and only when it changed. A field that
+    // lost focus untouched must not write at all: by then the row it was built
+    // for may be gone, and the write would land on whichever row took its
+    // place.
+    QQuickItem *word = Utils::filtered(fields, enabled).at(0);
+    QCOMPARE(word->property("text").toString(), QString("one"));
+    const int writes = table.m_model.writes;
+    QMetaObject::invokeMethod(word, "editingFinished");
+    QCOMPARE(table.m_model.writes, writes);
+
+    word->setProperty("text", "three");
+    QMetaObject::invokeMethod(word, "editingFinished");
+    QCOMPARE(table.m_model.writes, writes + 1);
+    QCOMPARE(table.m_model.rows, QStringList({"blue/three", "blue/two"}));
+}
+
+void QuickUiTest::testTableAspectAddsAndRemovesRows()
+{
+    Utils::AspectContainer page;
+    TestTableAspect table(&page);
+    table.setLabelText("Rows");
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    form->resize(600, 400);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QVERIFY(quickWidget->rootObject());
+
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "TableDelegate"));
+    QQuickItem *view = nullptr;
+    QTRY_VERIFY(view = findQmlComponent(delegate, "QQuickTableView"));
+
+    QQuickItem *add = findButton(delegate, "Add");
+    QVERIFY(add);
+    QMetaObject::invokeMethod(add, "clicked");
+    QCOMPARE(table.m_model.rows, QStringList({"red/one", "blue/two", "red/new"}));
+
+    // Nothing is selected, so there is nothing to remove yet.
+    QQuickItem *remove = findButton(delegate, "Remove");
+    QVERIFY(remove);
+    QVERIFY(!remove->property("enabled").toBool());
+
+    auto selection = view->property("selectionModel").value<QItemSelectionModel *>();
+    QVERIFY(selection);
+    selection->setCurrentIndex(table.m_model.index(1, 0), QItemSelectionModel::SelectCurrent);
+    QTRY_VERIFY(remove->property("enabled").toBool());
+
+    QMetaObject::invokeMethod(remove, "clicked");
+    QCOMPARE(table.m_model.rows, QStringList({"red/one", "red/new"}));
 }
 
 QObject *createQuickUiTest()

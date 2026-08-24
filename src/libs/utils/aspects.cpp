@@ -768,6 +768,15 @@ void BaseAspect::requestDisplayText()
 {}
 
 /*!
+    Returns the rows this aspect holds, for one whose control is
+    \c AspectControls::Table. Anything else has none.
+*/
+QAbstractItemModel *BaseAspect::tableModel()
+{
+    return nullptr;
+}
+
+/*!
     Performs this aspect's one action, for a TextWithAction control. Does
     nothing unless an aspect gives it a meaning.
 */

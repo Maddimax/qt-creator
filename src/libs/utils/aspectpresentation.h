@@ -5,6 +5,7 @@
 
 #include "utils_global.h"
 
+#include <QHash>
 #include <QList>
 #include <QObject>
 #include <QPixmap>
@@ -54,6 +55,9 @@ enum Control {
     // and got - a secret from the keychain. Written like a line edit, read
     // through displayText() once requestDisplayText() has delivered it.
     Secret,
+    // Rows and columns, from the model the aspect hands out. See
+    // BaseAspect::tableModel() and AspectTable below.
+    Table,
 };
 Q_ENUM_NS(Control)
 
@@ -101,6 +105,36 @@ Q_DECLARE_FLAGS(FontFilters, FontFilter)
 Q_FLAG_NS(FontFilters)
 
 } // namespace AspectControls
+
+// What a table aspect's model tells a view about a cell, beyond its text. The
+// knowledge of which cells offer a choice, and of what, belongs to the model:
+// it is the same for a QTableView and for a Qt Quick TableView, and it often
+// depends on the row's other cells.
+namespace AspectTable {
+
+enum Role {
+    // The cell's choices, as a list of maps with a "display" and an "id". A
+    // view offers a combo box where this is not empty and a plain field
+    // otherwise, and writes the id of what was picked, not its text.
+    ChoicesRole = Qt::UserRole + 900,
+    // A regular expression the cell's text has to match.
+    ValidatorRole,
+    // Whether the cell can be written to. A widget view reads flags() for this,
+    // which a Qt Quick view cannot, so a table model answers both.
+    EditableRole,
+};
+
+// The names the roles go by in QML. A table model adds them to its
+// roleNames(), so that a Qt Quick view can read them off the cell.
+inline QHash<int, QByteArray> withRoleNames(QHash<int, QByteArray> names)
+{
+    names.insert(ChoicesRole, "choices");
+    names.insert(ValidatorRole, "validator");
+    names.insert(EditableRole, "editable");
+    return names;
+}
+
+} // namespace AspectTable
 
 using InfoType = AspectControls::InfoType;
 

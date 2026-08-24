@@ -84,6 +84,10 @@ ColumnLayout {
                 SecretDelegate {}
             }
             DelegateChoice {
+                roleValue: AspectContainerModel.Table
+                TableDelegate {}
+            }
+            DelegateChoice {
                 roleValue: AspectContainerModel.Invisible
                 Item {}
             }

@@ -60,6 +60,7 @@ public:
         Radio,
         Text,
         Secret,
+        Table,
         // Shows nothing at all, which some aspects legitimately do.
         Invisible,
         Unsupported,

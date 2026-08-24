@@ -20,6 +20,7 @@
 
 QT_BEGIN_NAMESPACE
 class QAbstractButton;
+class QAbstractItemModel;
 class QAbstractSpinBox;
 class QAction;
 class QComboBox;
@@ -175,6 +176,12 @@ public:
     // go and get it. Says so with displayTextChanged() when it arrives; does
     // nothing where there is nothing to fetch.
     Q_INVOKABLE virtual void requestDisplayText();
+
+    // The rows an aspect whose control is Table holds. Give it a parent: the
+    // aspect owning the model is what lets both renderers show the same thing,
+    // and QML collects an unparented one. See AspectTable for what a cell can
+    // say about itself.
+    Q_INVOKABLE virtual QAbstractItemModel *tableModel();
 
     AspectContainer *container() const;
 
