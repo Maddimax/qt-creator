@@ -4,8 +4,14 @@
 
 #pragma once
 
+#include <QObject>
+
 namespace GNProjectManager::Internal {
 
 void setupGNToolsSettingsPage();
+
+#ifdef WITH_TESTS
+QObject *createGNToolsSettingsTest();
+#endif
 
 } // namespace GNProjectManager::Internal

@@ -48,6 +48,10 @@ class GNProjectPlugin final : public ExtensionSystem::IPlugin
             registerIconOverlayForFilename(":/projectexplorer/images/build.png", "BUILD.gn");
         FileIconProvider::
             registerIconOverlayForFilename(":/projectexplorer/images/build.png", ".gn");
+
+#ifdef WITH_TESTS
+        addTestCreator(createGNToolsSettingsTest);
+#endif
     }
 };
 

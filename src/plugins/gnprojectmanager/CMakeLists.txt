@@ -33,3 +33,22 @@ add_qtc_plugin(GNProjectManager
     ninjaparser.cpp
     ninjaparser.h
 )
+
+extend_qtc_plugin(GNProjectManager
+  CONDITION WITH_TESTS
+  DEPENDS Qt::Test
+)
+
+# The settings page's Qt Quick form. A module rather than a plain resource so
+# that qmllint and qmlcachegen see the file; qbs cannot build QML modules, so
+# it only lists it - the same split qtcquick already lives with.
+if(TARGET GNProjectManager AND TARGET Qt::Quick)
+  qt_add_qml_module(GNProjectManager
+    URI QtCreator.GNProjectManager
+    VERSION 1.0
+    RESOURCE_PREFIX "/qt/qml"
+    NO_PLUGIN
+    QML_FILES
+      GNToolsPage.qml
+  )
+endif()
