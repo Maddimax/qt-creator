@@ -177,6 +177,7 @@ private slots:
     void testTableAspectFiltersItsRows();
     void testTableCellReadsInItsOwnColours();
     void testListRowShowsWhatTheListSaysAboutTheItem();
+    void testFieldSaysWhatIsWrongAndKeepsItOut();
     void testColourOffersToGoBackToItsDefault();
     void testColourWithNoResetHasNoButton();
 };
@@ -1930,6 +1931,52 @@ void QuickUiTest::testTableAspectRemovesEverySelectedRow()
     // The one that was not selected, and it is the one that was in the middle:
     // removing from the top would have shifted the others out from under it.
     QCOMPARE(table.m_model.words(), QStringList({"off/blue/two"}));
+}
+
+void QuickUiTest::testFieldSaysWhatIsWrongAndKeepsItOut()
+{
+    // An aspect's validation function is the widget renderer's to read, so a
+    // page that set one had no validation at all once it moved to Qt Quick.
+    Utils::AspectContainer page;
+    page.setAutoApply(false);
+    Utils::StringAspect keyword(&page);
+    keyword.setLabelText("Keyword");
+    keyword.setDisplayStyle(Utils::StringAspect::LineEditDisplay);
+    keyword.setValue("TODO");
+    keyword.setValidationFunction([](const QString &text) -> Utils::Result<> {
+        if (text.contains(' '))
+            return Utils::ResultError(QString("No spaces, please."));
+        return Utils::ResultOk;
+    });
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QVERIFY(quickWidget->rootObject());
+
+    QQuickItem *field = nullptr;
+    QTRY_VERIFY(field = findQmlComponent(quickWidget->rootObject(), "TextField"));
+    const QList<QQuickItem *> messages = findQmlNamed(quickWidget->rootObject(),
+                                                      "validationMessage");
+    QCOMPARE(messages.size(), 1);
+    QQuickItem *message = messages.first();
+
+    // Nothing wrong with what is in it, so nothing is said.
+    QCOMPARE(field->property("text").toString(), QString("TODO"));
+    QVERIFY(!message->property("visible").toBool());
+
+    // A value the aspect rejects is shown as rejected, and does not reach it.
+    field->setProperty("text", "TO DO");
+    QTRY_VERIFY(message->property("visible").toBool());
+    QCOMPARE(message->property("text").toString(), QString("No spaces, please."));
+    QMetaObject::invokeMethod(field, "editingFinished");
+    QCOMPARE(keyword.volatileValue(), QString("TODO"));
+
+    // And one it accepts does, with nothing left over from the last complaint.
+    field->setProperty("text", "FIXME");
+    QMetaObject::invokeMethod(field, "editingFinished");
+    QCOMPARE(keyword.volatileValue(), QString("FIXME"));
+    QTRY_VERIFY(!message->property("visible").toBool());
 }
 
 void QuickUiTest::testListRowShowsWhatTheListSaysAboutTheItem()

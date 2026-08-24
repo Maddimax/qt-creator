@@ -192,6 +192,11 @@ public:
     // say about itself.
     Q_INVOKABLE virtual QAbstractItemModel *tableModel();
 
+    // What is wrong with a value the user has typed, or an empty string when
+    // nothing is. A renderer that cannot reach the aspect's validation
+    // function - QML holds a BaseAspect and nothing more - asks this instead.
+    Q_INVOKABLE virtual QString validationMessage(const QVariant &candidate) const;
+
     AspectContainer *container() const;
 
     virtual void fromMap(const Store &map);
@@ -849,6 +854,8 @@ public:
     void setAutoApplyOnEditingFinished(bool applyOnEditingFinished);
     void setElideMode(Qt::TextElideMode elideMode);
 
+    QString validationMessage(const QVariant &candidate) const override;
+
     void makeCheckable(CheckBoxPlacement checkBoxPlacement, const QString &optionalLabel, const Key &optionalBaseKey);
     bool isChecked() const;
     void setChecked(bool checked);
@@ -973,6 +980,11 @@ public:
     void setAutoApplyOnEditingFinished(bool applyOnEditingFinished);
 
     void validateInput();
+
+    // Only what setValidationFunction() added: whether the path exists on the
+    // device it names is answered asynchronously, and this is what a control
+    // asks while the user types.
+    QString validationMessage(const QVariant &candidate) const override;
 
     void makeCheckable(CheckBoxPlacement checkBoxPlacement, const QString &optionalLabel, const Key &optionalBaseKey);
     bool isChecked() const;

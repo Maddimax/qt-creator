@@ -783,6 +783,34 @@ QAbstractItemModel *BaseAspect::tableModel()
 }
 
 /*!
+    Returns what is wrong with \a candidate, or an empty string when nothing is.
+
+    An aspect that has been given a validation function answers it here, so
+    that a renderer holding nothing but a BaseAspect can ask. Aspects with no
+    validation of their own accept everything.
+*/
+// What a validation function that can be run without a control says about
+// \a candidate. The other two shapes cannot answer here: one is handed a
+// FancyLineEdit, and one answers a QFuture. Both are the widget renderer's.
+static QString validationMessageFor(const std::optional<ValidationFunction> &validator,
+                                    const QVariant &candidate)
+{
+    if (!validator)
+        return {};
+    if (auto simple = std::get_if<SimpleSynchronousValidationFunction>(&*validator)) {
+        const Result<> result = (*simple)(candidate.toString());
+        return result ? QString() : result.error();
+    }
+    return {};
+}
+
+QString BaseAspect::validationMessage(const QVariant &candidate) const
+{
+    Q_UNUSED(candidate)
+    return {};
+}
+
+/*!
     Puts this aspect's value back to its default, as a control's reset button
     does. Goes through the volatile value, so that a page's Cancel still undoes
     it.
@@ -1356,6 +1384,11 @@ std::optional<ValidationFunction> StringAspect::validationFunction() const
     return d->m_validator;
 }
 
+QString StringAspect::validationMessage(const QVariant &candidate) const
+{
+    return validationMessageFor(d->m_validator, candidate);
+}
+
 std::function<QValidator *(QObject *)> StringAspect::validatorFactory() const
 {
     return d->m_validatorFactory;
@@ -1852,6 +1885,11 @@ Key FilePathAspect::historyCompleterKey() const
 std::optional<ValidationFunction> FilePathAspect::validationFunction() const
 {
     return d->m_validator;
+}
+
+QString FilePathAspect::validationMessage(const QVariant &candidate) const
+{
+    return validationMessageFor(d->m_validator, candidate);
 }
 
 Environment FilePathAspect::environment() const

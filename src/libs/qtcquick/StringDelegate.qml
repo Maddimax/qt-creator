@@ -48,16 +48,45 @@ RowLayout {
         elide: Text.ElideRight
     }
 
-    TextField {
-        text: delegate.aspect?.value ?? ""
-        echoMode: delegate.pres.password ? TextInput.Password : TextInput.Normal
-        enabled: delegate.aspect?.enabled ?? false
-        readOnly: delegate.aspect?.readOnly ?? true
-        ToolTip.text: delegate.toolTip
-        ToolTip.visible: hovered && delegate.toolTip !== ""
+    ColumnLayout {
+        spacing: Spacing.GapVXs
         Layout.fillWidth: true
 
-        onEditingFinished: if (delegate.aspect) delegate.aspect.value = text
+        TextField {
+            id: field
+
+            // What is wrong with what is in the field, from the aspect: QML
+            // cannot reach a validation function, so it asks. Empty when the
+            // aspect has none, which is most of them.
+            readonly property string error:
+                delegate.aspect?.validationMessage(text) ?? ""
+
+            text: delegate.aspect?.value ?? ""
+            echoMode: delegate.pres.password ? TextInput.Password : TextInput.Normal
+            enabled: delegate.aspect?.enabled ?? false
+            readOnly: delegate.aspect?.readOnly ?? true
+            ToolTip.text: delegate.toolTip
+            ToolTip.visible: hovered && delegate.toolTip !== ""
+            Layout.fillWidth: true
+
+            // A value the aspect has said is wrong does not go into it. The
+            // text stays in the field with the reason under it, so nothing is
+            // lost and nothing invalid is stored.
+            onEditingFinished: {
+                if (delegate.aspect && field.error === "")
+                    delegate.aspect.value = text
+            }
+        }
+
+        Label {
+            objectName: "validationMessage"
+            text: field.error
+            visible: field.error !== "" && field.enabled
+            color: Tokens.notificationDangerDefault
+            font: Fonts.body2
+            wrapMode: Text.WordWrap
+            Layout.fillWidth: true
+        }
     }
 
     Button {
