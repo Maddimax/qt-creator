@@ -46,6 +46,9 @@ RowLayout {
     visible: aspectVisible
     spacing: Spacing.GapHM
     Layout.fillWidth: true
+    // A table is the tall thing on a page, so it takes the room the page has
+    // rather than sitting in a box the height of a list editor.
+    Layout.fillHeight: true
 
     Label {
         text: root.labelText
@@ -57,21 +60,36 @@ RowLayout {
     }
 
     ColumnLayout {
+        id: column
+
         spacing: Spacing.GapVXs
         Layout.fillWidth: true
+        Layout.fillHeight: true
 
-        TextField {
-            objectName: "tableFilterField"
-            placeholderText: root.pres.filterPlaceholderText ?? ""
-            visible: placeholderText !== ""
-            enabled: root.aspect?.enabled ?? false
+        // Above the table and out of the way of it, the way a search field sits
+        // over a list.
+        RowLayout {
+            spacing: 0
+            visible: filter.placeholderText !== ""
             Layout.fillWidth: true
-            onTextChanged: root.rows.setFilterFixedString(text)
+
+            Item { Layout.fillWidth: true }
+
+            TextField {
+                id: filter
+
+                objectName: "tableFilterField"
+                placeholderText: root.pres.filterPlaceholderText ?? ""
+                enabled: root.aspect?.enabled ?? false
+                Layout.preferredWidth: Math.round(column.width / 4)
+                onTextChanged: root.rows.setFilterFixedString(text)
+            }
         }
 
         Frame {
             Layout.fillWidth: true
-            Layout.preferredHeight: Metrics.formListHeight
+            Layout.fillHeight: true
+            Layout.minimumHeight: Metrics.formListHeight
 
             ColumnLayout {
                 anchors.fill: parent
@@ -218,10 +236,13 @@ RowLayout {
                                 leftPadding: Spacing.PaddingHS
                                 rightPadding: Spacing.PaddingHS
                                 // One line per cell: rows are a uniform height,
-                                // so wrapping spills out of the row instead of
-                                // making it taller. The tool tip has the rest.
+                                // so anything taller spills into the row below.
+                                // A value can have newlines of its own, which
+                                // NoWrap does not help with. The tool tip has
+                                // the rest.
                                 elide: Text.ElideRight
                                 wrapMode: Text.NoWrap
+                                maximumLineCount: 1
                                 verticalAlignment: Text.AlignVCenter
                                 ToolTip.text: cell.cellText
                                 ToolTip.visible: cellHover.hovered && text !== ""

@@ -20,18 +20,52 @@ GroupBox {
 
     readonly property bool checked: !checkAspect || checkAspect.value === true
 
+    default property alias groupContent: contents.data
+
     Layout.fillWidth: true
 
-    label: CheckBox {
-        id: check
+    // A group that checks nothing still has a title to show, so the label is
+    // the check box only when there is something to check.
+    label: Loader {
+        x: root.leftPadding
+        width: root.availableWidth
+        sourceComponent: root.checkAspect ? checkLabel : titleLabel
 
-        visible: root.checkAspect !== null
-        text: root.title
-        checked: root.checked
-        enabled: root.checkAspect?.enabled ?? true
-        onToggled: if (root.checkAspect) root.checkAspect.value = checked
+        Component {
+            id: checkLabel
+
+            CheckBox {
+                text: root.title
+                checked: root.checked
+                enabled: root.checkAspect?.enabled ?? true
+                onToggled: if (root.checkAspect) root.checkAspect.value = checked
+            }
+        }
+
+        Component {
+            id: titleLabel
+
+            Label {
+                text: root.title
+                font: Fonts.h6
+                elide: Text.ElideRight
+            }
+        }
     }
 
-    // Only the contents grey out; the check box has to stay usable.
-    contentItem.enabled: root.checked
+    // A GroupBox does not lay its children out - they keep their implicit size,
+    // so a row of delegates stayed as narrow as its labels and a paragraph of
+    // text ran off the page. Stack them and let each fill the width, which is
+    // what the Column inside the widget Group did.
+    contentItem: ColumnLayout {
+        id: contents
+
+        spacing: Spacing.GapVS
+        enabled: root.checked
+
+        onChildrenChanged: {
+            for (let i = 0; i < children.length; ++i)
+                children[i].Layout.fillWidth = true
+        }
+    }
 }
