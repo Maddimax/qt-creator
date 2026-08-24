@@ -1198,6 +1198,24 @@ naming QML does not free it. Check for other callers before deleting one.
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
 all`, minus `QmlDesigner` and `UpdateInfo`, see below): **73 aspect-driven
 pages, 72 with their own QML and rendered with Qt Quick, 1 still on widgets.**
+
+**What that count does not include, and it is the bigger half.** It counts
+pages that hand over an `AspectContainer` through `setSettingsProvider()`.
+A page that calls `IOptionsPage::setWidgetCreator()` builds its own
+`IOptionsPageWidget` and answers nothing from `aspects()`, so the test skips it
+entirely: `isFullyRenderable()` is never asked and the page is not in the 73.
+There are **52 such call sites in 46 files** - General, Environment, Keyboard,
+Locator, the project settings pages, Beautifier's three, Clangd, Axivion - and
+they are pure QtWidgets from top to bottom.
+
+So the settings-page migration is complete for the pages that were *already
+aspect-driven*. The remaining work is a different shape: those pages have to
+become aspect-driven first, which is a rewrite of what each one stores and not
+a matter of writing a `.qml` for it. `setLayouter` is down to 21 call sites,
+and none of them is a page's own layout any more - they are the containers that
+a widget page still embeds (`TabSettings` and the four other Behavior groups in
+the per-project Editor page, `CodeStyleAspect` for ClangFormat, the profiler
+samplers, Lua-scripted settings).
 Before the gate was narrowed, 65 pages rendered generically; the delegate work
 that made that possible is all still in place and is what the ports build on:
 `StringListAspect` (a real list editor), `IntegersAspect` (`Invisible`, because
