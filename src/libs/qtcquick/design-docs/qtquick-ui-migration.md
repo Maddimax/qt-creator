@@ -485,7 +485,7 @@ nothing - and waits on the signal rather than on a non-empty string, because an
 empty secret is a legitimate answer. `FontAspect` still carries the original
 version of this trap.
 
-#### The four that are left, and what each one needs
+#### The three that are left, and what each one needs
 
 Every one of these was read, not guessed at - the last three rounds each found
 that the widget collapsed to controls that already existed. These do not:
@@ -493,7 +493,6 @@ that the widget collapsed to controls that already existed. These do not:
 | page | the widget, and why it does not collapse |
 |---|---|
 | Code Style (x3) | `createValueEditor()` returns a per-language editor built by a factory, and the page puts a syntax-highlighted preview beside it |
-| Font && Colors | not a text editor at all: a list that renders each item in its own format, plus the one `Custom` aspect that owns the whole page |
 
 One shape is left: a hosted editor with a preview (Code Style, Snippets,
 Font && Colors). Everything else is ported, so the remaining work is the Qt
@@ -737,6 +736,40 @@ Two things worth copying:
   That is the third time this shape has come up - test frameworks, analyzer
   messages, snippet groups - and it is always the same fix.
 
+#### Font && Colors: twenty aspects and one name collision
+
+`FontSettingsAspect` was one `Custom` aspect that owned the whole page. It is
+twenty siblings now - the font group, the scheme group with four
+`ActionAspect`s, and the ten properties of the selected format as a detail pane
+over the formats list, each shown only where `FormatDescription::showControl()`
+says the format has it.
+
+Three things worth carrying forward:
+
+- **A modal dialog in a constructor hangs the tests.** `maybeSaveColorScheme()`
+  asks whether to keep changes when the scheme is switched. Building the page
+  fills the scheme picker, which counts as switching, so it asked before there
+  was anything to ask about - and `exec()` blocked with nobody to answer. The
+  guard that says "this is the list being filled, not the user choosing" has to
+  cover the whole refresh, not just the assignment.
+- **Two classes with one name in one namespace is an ODR violation, and the
+  linker picks one.** The new formats model was called `FormatsModel`, which
+  `colorschemeedit.cpp` already had. The build was clean and the page looked
+  almost right, but calls landed in the other class. It surfaced as a *negative
+  control that would not bite*: sabotaging the model changed nothing, because
+  the sabotaged code was not the code being run.
+- **Check that the sabotage compiled.** The first pass at those controls piped
+  `ninja` to /dev/null without testing its exit code, so a sabotage that failed
+  to build ran the previous binary and looked like a passing control. Three
+  "controls" were meaningless for that reason before the ODR bug was even
+  visible.
+
+One thing the test cannot cover: `showFormat()` fills the ten controls with
+`setValue()`, which does not emit `volatileValueChanged` - the signal they write
+back on. So showing a format cannot edit it, and there is no guard to sabotage.
+The assertion is still worth having; it just holds by construction rather than
+by a check.
+
 #### A row read in its own colours
 
 Font && Colors lists the syntax formats, and each row is drawn *in the format it
@@ -830,8 +863,7 @@ item is itself a `TextField`.
 
 Worth knowing before hunting for dead ones, because most of these are not pages:
 
-- **4 are the pages above** (Code Style counts once here; its aspect serves all
-  three).
+- **3 are the pages above**: Code Style, whose one aspect serves all three.
 - **5 are live nested containers**: `TabSettings`, `TypingSettings`,
   `StorageSettings`, `ExtraEncodingSettings` and `BehaviorSettings`. The Behavior
   page lays their aspects out itself now, but the *per-project* Editor page
@@ -997,7 +1029,7 @@ naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
 all`, minus `QmlDesigner` and `UpdateInfo`, see below): **73 aspect-driven
-pages, 69 with their own QML and rendered with Qt Quick, 4 still on widgets.**
+pages, 70 with their own QML and rendered with Qt Quick, 3 still on widgets.**
 Before the gate was narrowed, 65 pages rendered generically; the delegate work
 that made that possible is all still in place and is what the ports build on:
 `StringListAspect` (a real list editor), `IntegersAspect` (`Invisible`, because
@@ -1006,7 +1038,7 @@ its own choices now), index-valued selections with no options (an empty combo
 box is what the widget editor draws too), and `AspectList`'s
 list-with-details style.
 
-All four remaining pages are held by aspects whose control is `Custom`
+All three remaining pages are held by aspects whose control is `Custom`
 because they build their own widget in `addToLayoutImpl`. Not all of them need
 porting one by one, though: `EnvironmentChangesAspect` turned out to be a
 summary plus one button, which is now the `TextWithAction` control, and
@@ -1017,7 +1049,6 @@ declined page:
 | page | blocked by |
 |---|---|
 | Clang Tools | `ClangDiagnosticConfigIdAspect` - a combo plus a manage button |
-| Font && Colors | the colour-scheme editor |
 | Snippets | the snippets editor |
 | General (x4) | `FontAspect`, an `AspectList` inline style, two unnamed `Custom` aspects |
 

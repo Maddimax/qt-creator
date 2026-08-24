@@ -185,6 +185,7 @@ if(TARGET TextEditor AND TARGET Qt::Quick)
       CommentsSettingsPage.qml
       CompletionSettingsPage.qml
       DisplaySettingsPage.qml
+      FontSettingsPage.qml
       HighlighterSettingsPage.qml
       SnippetEditor.qml
       SnippetsSettingsPage.qml

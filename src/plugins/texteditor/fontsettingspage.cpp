@@ -10,6 +10,7 @@
 #include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/icore.h>
 
+#include <utils/aspectpresentation.h>
 #include <utils/aspectwidgets.h>
 #include <utils/filedialogs.h>
 #include <utils/aspects.h>
@@ -34,6 +35,7 @@
 #include <QInputDialog>
 #include <QLabel>
 #include <QMessageBox>
+#include <QTest>
 #include <QPalette>
 #include <QPointer>
 #include <QPushButton>
@@ -103,172 +105,200 @@ private:
     QList<ColorSchemeEntry> m_colorSchemes;
 };
 
-class FontSettingsAspect final : public BaseAspect
+// The syntax formats of the scheme being edited, as rows read in the format
+// each one describes - which is what makes the list legible. The scheme is the
+// aspect's value; which row is current is the page's business.
+class FormatListModel final : public QAbstractTableModel
 {
 public:
-    explicit FontSettingsAspect(const FormatDescriptions &fd, AspectContainer *container = nullptr)
-        : BaseAspect(container)
-        , m_value(globalFontSettings().data())
-        , m_descriptions(fd)
+    explicit FormatListModel(QObject *parent)
+        : QAbstractTableModel(parent)
+    {}
+
+    void setFormatDescriptions(const FormatDescriptions *descriptions)
     {
-        m_lastValue = m_value;
-        setAutoApply(false);
+        beginResetModel();
+        m_descriptions = descriptions;
+        endResetModel();
     }
 
-    void addToLayoutImpl(Layouting::Layout &parent) final
+    void setColorScheme(const ColorScheme *scheme) { m_scheme = scheme; refresh(); }
+    void setBaseFont(const QFont &font) { m_baseFont = font; refresh(); }
+
+    void refresh()
     {
-        m_antialias = Utils::AspectWidgets::createSubWidget<QCheckBox>(this, Tr::tr("Antialias"));
-        m_antialias->setChecked(m_value.antialias());
-
-        m_zoomSpinBox = Utils::AspectWidgets::createSubWidget<QSpinBox>(this);
-        m_zoomSpinBox->setSuffix(Tr::tr("%"));
-        m_zoomSpinBox->setRange(10, 3000);
-        m_zoomSpinBox->setSingleStep(10);
-        m_zoomSpinBox->setValue(m_value.fontZoom());
-
-        m_lineSpacingSpinBox = Utils::AspectWidgets::createSubWidget<QSpinBox>(this);
-        m_lineSpacingSpinBox->setSuffix(Tr::tr("%"));
-        m_lineSpacingSpinBox->setRange(50, 3000);
-        m_lineSpacingSpinBox->setValue(m_value.relativeLineSpacing());
-
-        m_lineSpacingWarningLabel = Utils::AspectWidgets::createSubWidget<QLabel>(this);
-        m_lineSpacingWarningLabel->setPixmap(Utils::Icons::WARNING.pixmap());
-        m_lineSpacingWarningLabel->setToolTip(
-                    Tr::tr("A line spacing value other than 100% disables text wrapping.\n"
-                           "A value less than 100% can result in overlapping and misaligned graphics."));
-        if (m_value.relativeLineSpacing() == 100)
-            m_lineSpacingWarningLabel->setVisible(false);
-
-        m_fontComboBox = Utils::AspectWidgets::createSubWidget<QFontComboBox>(this);
-        m_fontComboBox->setCurrentFont(m_value.family());
-
-        m_sizeComboBox = Utils::AspectWidgets::createSubWidget<QComboBox>(this);
-        m_sizeComboBox->setEditable(true);
-        auto sizeValidator = new QIntValidator(m_sizeComboBox);
-        sizeValidator->setBottom(0);
-        m_sizeComboBox->setValidator(sizeValidator);
-
-        m_copyButton = Utils::AspectWidgets::createSubWidget<QPushButton>(this, Tr::tr("Copy..."));
-        m_deleteButton = Utils::AspectWidgets::createSubWidget<QPushButton>(this, Tr::tr("Delete"));
-        m_deleteButton->setEnabled(false);
-
-        auto importButton = new QPushButton(Tr::tr("Import"));
-        auto exportButton = new QPushButton(Tr::tr("Export"));
-
-        m_schemeComboBox = Utils::AspectWidgets::createSubWidget<QComboBox>(this);
-        m_schemeComboBox->setModel(&m_schemeListModel);
-        m_schemeComboBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-
-        m_schemeEdit = Utils::AspectWidgets::createSubWidget<ColorSchemeEdit>(this);
-        m_schemeEdit->setFormatDescriptions(m_descriptions);
-        m_schemeEdit->setBaseFont(m_value.font());
-        m_schemeEdit->setColorScheme(m_value.colorScheme());
-
-        using namespace Layouting;
-        parent.addItem(
-            Column {
-               Group {
-                   title(Tr::tr("Font")),
-                   Column {
-                       Row {
-                           Tr::tr("Family:"), m_fontComboBox, Space(20),
-                           Tr::tr("Size:"), m_sizeComboBox, Space(20),
-                           Tr::tr("Zoom:"), m_zoomSpinBox, Space(20),
-                           Tr::tr("Line spacing:"), m_lineSpacingSpinBox, m_lineSpacingWarningLabel, st
-                       },
-                       m_antialias
-                   }
-               },
-               Group {
-                   title(Tr::tr("Color Scheme for Theme \"%1\"")
-                   .arg(Utils::creatorTheme()->displayName())),
-                   Column {
-                       Row { m_schemeComboBox, m_copyButton, m_deleteButton, importButton, exportButton },
-                       m_schemeEdit
-                   }
-               }
-           }
-        );
-
-        connect(m_fontComboBox, &QFontComboBox::currentFontChanged,
-                this, &FontSettingsAspect::fontSelected);
-        connect(m_sizeComboBox, &QComboBox::currentIndexChanged,
-                this, &FontSettingsAspect::fontSizeSelected);
-        connect(m_zoomSpinBox, &QSpinBox::valueChanged,
-                this, &FontSettingsAspect::fontZoomChanged);
-        connect(m_antialias, &QCheckBox::toggled,
-                this, &FontSettingsAspect::antialiasChanged);
-        connect(m_lineSpacingSpinBox, &QSpinBox::valueChanged,
-                this, &FontSettingsAspect::lineSpacingChanged);
-        connect(m_schemeComboBox, &QComboBox::currentIndexChanged,
-                this, &FontSettingsAspect::colorSchemeSelected);
-        connect(m_copyButton, &QPushButton::clicked,
-                this, &FontSettingsAspect::openCopyColorSchemeDialog);
-        connect(m_schemeEdit, &ColorSchemeEdit::copyScheme,
-                this, &FontSettingsAspect::openCopyColorSchemeDialog);
-        connect(m_deleteButton, &QPushButton::clicked,
-                this, &FontSettingsAspect::confirmDeleteColorScheme);
-        connect(importButton, &QPushButton::clicked,
-                this, &FontSettingsAspect::importScheme);
-        connect(exportButton, &QPushButton::clicked,
-                this, &FontSettingsAspect::exportScheme);
-        connect(&globalFontSettings(), &FontSettings::changed,
-                this, [this] { updateFontZoom(globalFontSettings().data()); });
-
-        updatePointSizes();
-        refreshColorSchemeList();
-
-        installMarkSettingsDirtyTrigger(m_antialias);
-        installMarkSettingsDirtyTrigger(m_zoomSpinBox);
-        installMarkSettingsDirtyTrigger(m_lineSpacingSpinBox);
-        installMarkSettingsDirtyTrigger(m_fontComboBox);
-        installMarkSettingsDirtyTrigger(m_sizeComboBox);
-        installMarkSettingsDirtyTrigger(m_schemeComboBox);
-        connect(m_schemeEdit, &ColorSchemeEdit::dirty, [] { markSettingsDirty(); });
+        if (m_descriptions && !m_descriptions->empty())
+            emit dataChanged(index(0, 0), index(int(m_descriptions->size()) - 1, 0));
     }
 
-    void apply() final;
-    void cancel() final;
-    bool isDirty() const final;
+    int rowCount(const QModelIndex &parent) const override
+    {
+        return (parent.isValid() || !m_descriptions) ? 0 : int(m_descriptions->size());
+    }
+
+    int columnCount(const QModelIndex &parent) const override
+    {
+        return parent.isValid() ? 0 : 1;
+    }
+
+    QVariant data(const QModelIndex &index, int role) const override
+    {
+        if (!m_descriptions || !m_scheme)
+            return {};
+
+        const FormatDescription &description = m_descriptions->at(index.row());
+        const Format format = m_scheme->formatFor(description.id());
+
+        switch (role) {
+        case Qt::DisplayRole:
+            return description.displayName();
+        case Qt::ToolTipRole:
+            return description.tooltipText();
+        case Qt::ForegroundRole: {
+            const QColor foreground = format.foreground();
+            return foreground.isValid() ? foreground : m_scheme->formatFor(C_TEXT).foreground();
+        }
+        case Qt::BackgroundRole: {
+            const QColor background = format.background();
+            return background.isValid() ? QVariant(background) : QVariant();
+        }
+        case Qt::FontRole: {
+            QFont font = m_baseFont;
+            font.setBold(format.bold());
+            font.setItalic(format.italic());
+            font.setUnderline(format.underlineStyle() != QTextCharFormat::NoUnderline);
+            return font;
+        }
+        case AspectTable::EditableRole:
+            return false;
+        default:
+            return {};
+        }
+    }
+
+    QVariant headerData(int section, Qt::Orientation orientation, int role) const override
+    {
+        if (orientation == Qt::Vertical || role != Qt::DisplayRole || section != 0)
+            return {};
+        return Tr::tr("Format");
+    }
+
+    QHash<int, QByteArray> roleNames() const override
+    {
+        return AspectTable::withRoleNames(QAbstractTableModel::roleNames());
+    }
 
 private:
-    void saveSettings();
-    void fontSelected(const QFont &font);
-    void fontSizeSelected(int index);
-    void fontZoomChanged();
-    void lineSpacingChanged(const int &value);
-    void antialiasChanged();
-    void colorSchemeSelected(int index);
-    void openCopyColorSchemeDialog();
-    void copyColorScheme(const QString &name);
-    void confirmDeleteColorScheme();
-    void importScheme();
-    void exportScheme();
-    void deleteColorScheme();
-
-    void maybeSaveColorScheme();
-    void updatePointSizes();
-    void updateFontZoom(const FontSettingsData &fontSettings);
-    QList<int> pointSizesForSelectedFont() const;
-    void refreshColorSchemeList();
-
-    bool m_refreshingSchemeList = false;
-    FontSettingsData m_value;
-    FontSettingsData m_lastValue;
-    SchemeListModel m_schemeListModel;
-    FormatDescriptions m_descriptions;
-
-    QPointer<QCheckBox> m_antialias;
-    QPointer<QSpinBox> m_zoomSpinBox;
-    QPointer<QSpinBox> m_lineSpacingSpinBox;
-    QPointer<QLabel> m_lineSpacingWarningLabel;
-    QPointer<QFontComboBox> m_fontComboBox;
-    QPointer<QComboBox> m_sizeComboBox;
-    QPointer<QComboBox> m_schemeComboBox;
-    QPointer<ColorSchemeEdit> m_schemeEdit;
-    QPointer<QPushButton> m_deleteButton;
-    QPointer<QPushButton> m_copyButton;
+    const FormatDescriptions *m_descriptions = nullptr;
+    const ColorScheme *m_scheme = nullptr;
+    QFont m_baseFont;
 };
+
+// The scheme's formats, and which one the page is showing the properties of.
+class FormatsAspect final : public BaseAspect
+{
+    Q_OBJECT
+
+public:
+    FormatsAspect(AspectContainer *container, const FormatDescriptions &descriptions)
+        : BaseAspect(container)
+        , m_descriptions(descriptions)
+    {
+        // Handed to QML, which frees an unparented QObject it is given.
+        m_model.setParent(this);
+        m_model.setFormatDescriptions(&m_descriptions);
+        m_model.setColorScheme(&m_scheme);
+        setQmlName("Formats");
+        setLabelText(Tr::tr("Formats:"));
+    }
+
+    QAbstractItemModel *tableModel() override { return &m_model; }
+
+    AspectPresentation presentation() const override
+    {
+        AspectPresentation p = BaseAspect::presentation();
+        p.control = AspectControls::Table;
+        // The rows are the known format descriptions.
+        p.allowAdding = false;
+        p.allowRemoving = false;
+        return p;
+    }
+
+    // The group's title, which names the theme the scheme is for. The page
+    // asks rather than hard-coding it.
+    Q_PROPERTY(QString groupTitle READ groupTitle CONSTANT)
+
+    QString groupTitle() const
+    {
+        return Tr::tr("Color Scheme for Theme \"%1\"").arg(Utils::creatorTheme()->displayName());
+    }
+
+    Q_INVOKABLE void setCurrentRow(int row)
+    {
+        const int clamped = row >= 0 && row < int(m_descriptions.size()) ? row : -1;
+        if (m_currentRow == clamped)
+            return;
+        m_currentRow = clamped;
+        emit currentFormatChanged();
+    }
+
+    int currentRow() const { return m_currentRow; }
+
+    const FormatDescription *currentDescription() const
+    {
+        if (m_currentRow < 0 || m_currentRow >= int(m_descriptions.size()))
+            return nullptr;
+        return &m_descriptions.at(m_currentRow);
+    }
+
+    Format currentFormat() const
+    {
+        const FormatDescription *description = currentDescription();
+        return description ? m_scheme.formatFor(description->id()) : Format();
+    }
+
+    void setCurrentFormat(const Format &format)
+    {
+        const FormatDescription *description = currentDescription();
+        if (!description || m_scheme.formatFor(description->id()) == format)
+            return;
+        m_scheme.setFormatFor(description->id(), format);
+        m_model.refresh();
+        emit schemeEdited();
+    }
+
+    const ColorScheme &colorScheme() const { return m_scheme; }
+
+    void setColorScheme(const ColorScheme &scheme)
+    {
+        m_scheme = scheme;
+        m_model.setColorScheme(&m_scheme);
+        emit currentFormatChanged();
+    }
+
+    void setBaseFont(const QFont &font) { m_model.setBaseFont(font); }
+
+    bool isReadOnly() const { return m_readOnly; }
+    void setReadOnly(bool readOnly)
+    {
+        if (m_readOnly == readOnly)
+            return;
+        m_readOnly = readOnly;
+        emit currentFormatChanged();
+    }
+
+signals:
+    void currentFormatChanged();
+    void schemeEdited();
+
+private:
+    FormatDescriptions m_descriptions;
+    ColorScheme m_scheme;
+    FormatListModel m_model{this};
+    int m_currentRow = -1;
+    bool m_readOnly = false;
+};
+
 
 } // namespace Internal
 
@@ -444,376 +474,562 @@ bool FormatDescription::showControl(FormatDescription::ShowControls showControl)
 
 namespace Internal {
 
-void FontSettingsAspect::fontSelected(const QFont &font)
+// The page. The font settings are the value; each control on the page is an
+// aspect of its own, and the properties of the selected format are a detail
+// pane over the formats list - the shape the Snippets page uses.
+class FontSettingsPageContainer final : public AspectContainer
 {
-    m_value.setFamily(font.family());
-    m_schemeEdit->setBaseFont(font);
-    updatePointSizes();
-}
+public:
+    explicit FontSettingsPageContainer(const FormatDescriptions &fd);
 
-void FontSettingsAspect::updatePointSizes()
+    void apply() override;
+    void cancel() override;
+    bool isDirty() const override;
+
+    FontFamilyAspect family{this};
+    SelectionAspect size{this};
+    IntegerAspect zoom{this};
+    IntegerAspect lineSpacing{this};
+    TextDisplay lineSpacingWarning{this};
+    BoolAspect antialias{this};
+
+    SelectionAspect scheme{this};
+    ActionAspect copyScheme{this};
+    ActionAspect deleteScheme{this};
+    ActionAspect importScheme{this};
+    ActionAspect exportScheme{this};
+
+    FormatsAspect formats;
+    TextDisplay builtinSchemeNote{this};
+
+    ColorAspect foreground{this};
+    ColorAspect background{this};
+    DoubleAspect foregroundSaturation{this};
+    DoubleAspect foregroundLightness{this};
+    DoubleAspect backgroundSaturation{this};
+    DoubleAspect backgroundLightness{this};
+    BoolAspect bold{this};
+    BoolAspect italic{this};
+    ColorAspect underlineColor{this};
+    SelectionAspect underlineStyle{this};
+
+private:
+    void refreshPointSizes();
+    void refreshSchemeList();
+    void showFormat();
+    void writeFormatBack();
+    void selectScheme();
+    void maybeSaveColorScheme();
+    void doCopyScheme(const QString &name);
+    void doDeleteScheme();
+
+    FontSettingsData m_value;
+    FontSettingsData m_lastValue;
+    QList<ColorSchemeEntry> m_schemes;
+    FormatDescriptions m_descriptions;
+    // Set while a control is being filled in from the model, so that filling it
+    // in is not mistaken for the user editing it.
+    bool m_showing = false;
+    bool m_refreshingSchemeList = false;
+};
+
+FontSettingsPageContainer::FontSettingsPageContainer(const FormatDescriptions &fd)
+    : formats(this, fd)
+    , m_value(globalFontSettings().data())
+    , m_descriptions(fd)
 {
-    // Update point sizes
-    const int oldSize = m_value.fontSize();
-    m_sizeComboBox->clear();
-    const QList<int> sizeLst = pointSizesForSelectedFont();
-    int idx = -1;
-    int i = 0;
-    for (; i < sizeLst.count(); ++i) {
-        if (idx == -1 && sizeLst.at(i) >= oldSize) {
-            idx = i;
-            if (sizeLst.at(i) != oldSize)
-                m_sizeComboBox->addItem(QString::number(oldSize));
-        }
-        m_sizeComboBox->addItem(QString::number(sizeLst.at(i)));
-    }
-    if (idx != -1)
-        m_sizeComboBox->setCurrentIndex(idx);
-}
+    setAutoApply(false);
+    m_lastValue = m_value;
 
-void FontSettingsAspect::updateFontZoom(const FontSettingsData &fontSettings)
-{
-    m_zoomSpinBox->setValue(fontSettings.fontZoom());
-}
+    family.setQmlName("Family");
+    family.setLabelText(Tr::tr("Family:"));
+    family.setValue(m_value.family());
 
-QList<int> FontSettingsAspect::pointSizesForSelectedFont() const
-{
-    const QString familyName = m_fontComboBox->currentFont().family();
-    QList<int> sizeLst = QFontDatabase::pointSizes(familyName);
-    if (!sizeLst.isEmpty())
-        return sizeLst;
+    size.setQmlName("Size");
+    size.setLabelText(Tr::tr("Size:"));
+    size.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
 
-    QStringList styles = QFontDatabase::styles(familyName);
-    if (!styles.isEmpty())
-        sizeLst = QFontDatabase::pointSizes(familyName, styles.first());
-    if (sizeLst.isEmpty())
-        sizeLst = QFontDatabase::standardSizes();
+    zoom.setQmlName("Zoom");
+    zoom.setLabelText(Tr::tr("Zoom:"));
+    zoom.setSuffix(Tr::tr("%"));
+    zoom.setRange(10, 3000);
+    zoom.setSingleStep(10);
+    zoom.setValue(m_value.fontZoom());
 
-    return sizeLst;
-}
+    lineSpacing.setQmlName("LineSpacing");
+    lineSpacing.setLabelText(Tr::tr("Line spacing:"));
+    lineSpacing.setSuffix(Tr::tr("%"));
+    lineSpacing.setRange(50, 3000);
+    lineSpacing.setValue(m_value.relativeLineSpacing());
 
-void FontSettingsAspect::fontSizeSelected(int index)
-{
-    const QString sizeString = m_sizeComboBox->itemText(index);
-    bool ok = true;
-    const int size = sizeString.toInt(&ok);
-    if (ok) {
-        m_value.setFontSize(size);
-        m_schemeEdit->setBaseFont(m_value.font());
-    }
-}
+    lineSpacingWarning.setQmlName("LineSpacingWarning");
+    lineSpacingWarning.setIconType(InfoType::Warning);
+    lineSpacingWarning.setWordWrap(true);
+    lineSpacingWarning.setText(
+        Tr::tr("A line spacing value other than 100% disables text wrapping. "
+               "A value less than 100% can result in overlapping and misaligned graphics."));
+    lineSpacingWarning.setVisible(m_value.relativeLineSpacing() != 100);
 
-void FontSettingsAspect::fontZoomChanged()
-{
-    m_value.setFontZoom(m_zoomSpinBox->value());
-}
+    antialias.setQmlName("Antialias");
+    antialias.setLabelText(Tr::tr("Antialias"));
+    antialias.setValue(m_value.antialias());
 
-void FontSettingsAspect::antialiasChanged()
-{
-    m_value.setAntialias(m_antialias->isChecked());
-    m_schemeEdit->setBaseFont(m_value.font());
-}
+    scheme.setQmlName("Scheme");
+    scheme.setLabelText(Tr::tr("Scheme:"));
+    scheme.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
 
-void FontSettingsAspect::lineSpacingChanged(const int &value)
-{
-    m_value.setRelativeLineSpacing(value);
-    m_lineSpacingWarningLabel->setVisible(value != 100);
-}
+    copyScheme.setQmlName("CopyScheme");
+    copyScheme.setActionText(Tr::tr("Copy..."));
+    copyScheme.setAction([this] {
+        auto dialog = new QInputDialog(Core::ICore::dialogParent());
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        dialog->setInputMode(QInputDialog::TextInput);
+        dialog->setWindowTitle(Tr::tr("Copy Color Scheme"));
+        dialog->setLabelText(Tr::tr("Color scheme name:"));
+        dialog->setTextValue(Tr::tr("%1 (copy)").arg(m_value.colorScheme().displayName()));
+        connect(dialog, &QInputDialog::textValueSelected,
+                this, [this](const QString &name) { doCopyScheme(name); });
+        dialog->open();
+    });
 
-void FontSettingsAspect::colorSchemeSelected(int index)
-{
-    bool readOnly = true;
-    if (index != -1) {
-        // Check whether we're switching away from a changed color scheme
-        if (!m_refreshingSchemeList)
-            maybeSaveColorScheme();
+    deleteScheme.setQmlName("DeleteScheme");
+    deleteScheme.setActionText(Tr::tr("Delete"));
+    deleteScheme.setEnabled(false);
+    deleteScheme.setAction([this] {
+        const int index = scheme.volatileValue();
+        if (index < 0 || index >= m_schemes.size() || m_schemes.at(index).readOnly)
+            return;
+        auto messageBox = new QMessageBox(
+            QMessageBox::Warning,
+            Tr::tr("Delete Color Scheme"),
+            Tr::tr("Are you sure you want to delete this color scheme permanently?"),
+            QMessageBox::Discard | QMessageBox::Cancel,
+            Core::ICore::dialogParent());
+        auto deleteButton = static_cast<QPushButton *>(messageBox->button(QMessageBox::Discard));
+        deleteButton->setText(Tr::tr("Delete"));
+        messageBox->addButton(deleteButton, QMessageBox::AcceptRole);
+        messageBox->setDefaultButton(deleteButton);
+        connect(messageBox, &QDialog::accepted, this, [this] { doDeleteScheme(); });
+        messageBox->setAttribute(Qt::WA_DeleteOnClose);
+        messageBox->open();
+    });
 
-        const ColorSchemeEntry &entry = m_schemeListModel.colorSchemeAt(index);
-        readOnly = entry.readOnly;
-        m_value.loadColorScheme(entry.filePath, m_descriptions);
-        m_schemeEdit->setColorScheme(m_value.colorScheme());
-    }
-    m_copyButton->setEnabled(index != -1);
-    m_deleteButton->setEnabled(!readOnly);
-    m_schemeEdit->setReadOnly(readOnly);
-}
+    importScheme.setQmlName("ImportScheme");
+    importScheme.setActionText(Tr::tr("Import"));
+    importScheme.setAction([this] {
+        const FilePath importedFile
+            = Utils::FileUtils::getOpenFilePath(Tr::tr("Import Color Scheme"), {},
+                                                Tr::tr("Color scheme (*.xml);;All files (*)"));
+        if (importedFile.isEmpty())
+            return;
 
-void FontSettingsAspect::openCopyColorSchemeDialog()
-{
-    QInputDialog *dialog = new QInputDialog(m_copyButton->window());
-    dialog->setAttribute(Qt::WA_DeleteOnClose);
-    dialog->setInputMode(QInputDialog::TextInput);
-    dialog->setWindowTitle(Tr::tr("Copy Color Scheme"));
-    dialog->setLabelText(Tr::tr("Color scheme name:"));
-    dialog->setTextValue(Tr::tr("%1 (copy)").arg(m_value.colorScheme().displayName()));
-
-    connect(dialog, &QInputDialog::textValueSelected, this, &FontSettingsAspect::copyColorScheme);
-    dialog->open();
-}
-
-void FontSettingsAspect::copyColorScheme(const QString &name)
-{
-    int index = m_schemeComboBox->currentIndex();
-    if (index == -1)
-        return;
-
-    const ColorSchemeEntry &entry = m_schemeListModel.colorSchemeAt(index);
-
-    QString baseFileName = entry.filePath.completeBaseName();
-    baseFileName += QLatin1String("_copy%1.xml");
-    FilePath filePath = createColorSchemeFileName(baseFileName);
-
-    if (!filePath.isEmpty()) {
-        // Ask about saving any existing modifications
         maybeSaveColorScheme();
 
-        // Make sure we're copying the current version
-        m_value.setColorScheme(m_schemeEdit->colorScheme());
+        auto dialog = new QInputDialog(Core::ICore::dialogParent());
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        dialog->setInputMode(QInputDialog::TextInput);
+        dialog->setWindowTitle(Tr::tr("Import Color Scheme"));
+        dialog->setLabelText(Tr::tr("Color scheme name:"));
+        dialog->setTextValue(importedFile.baseName());
+        connect(dialog, &QInputDialog::textValueSelected, this,
+                [this, importedFile](const QString &name) {
+                    const FilePath saveFileName = createColorSchemeFileName(
+                        importedFile.baseName() + "%1." + importedFile.suffix());
+                    ColorScheme imported;
+                    if (imported.load(importedFile)) {
+                        imported.setDisplayName(name);
+                        imported.save(saveFileName);
+                        m_value.loadColorScheme(saveFileName, m_descriptions);
+                    } else {
+                        qWarning() << "Failed to import color scheme:" << importedFile;
+                    }
+                    refreshSchemeList();
+                });
+        dialog->open();
+    });
 
-        ColorScheme scheme = m_value.colorScheme();
-        scheme.setDisplayName(name);
-        if (scheme.save(filePath))
-            m_value.setColorSchemeFileName(filePath);
+    exportScheme.setQmlName("ExportScheme");
+    exportScheme.setActionText(Tr::tr("Export"));
+    exportScheme.setAction([this] {
+        const int index = scheme.volatileValue();
+        if (index < 0 || index >= m_schemes.size())
+            return;
+        const FilePath filePath
+            = Utils::FileUtils::getSaveFilePath(Tr::tr("Export Color Scheme"),
+                                                m_schemes.at(index).filePath,
+                                                Tr::tr("Color scheme (*.xml);;All files (*)"));
+        if (!filePath.isEmpty())
+            formats.colorScheme().save(filePath);
+    });
 
-        refreshColorSchemeList();
-        markSettingsDirty();
+    builtinSchemeNote.setQmlName("BuiltinSchemeNote");
+    builtinSchemeNote.setIconType(InfoType::Information);
+    builtinSchemeNote.setWordWrap(true);
+    builtinSchemeNote.setText(
+        Tr::tr("Copy this color scheme to edit it."));
+    builtinSchemeNote.setVisible(false);
+
+    // The properties of the selected format. Which of them apply depends on the
+    // format, so their visibility follows the selection.
+    foreground.setQmlName("Foreground");
+    foreground.setLabelText(Tr::tr("Foreground:"));
+    background.setQmlName("Background");
+    background.setLabelText(Tr::tr("Background:"));
+    underlineColor.setQmlName("UnderlineColor");
+    underlineColor.setLabelText(Tr::tr("Underline color:"));
+
+    const auto saturation = [](DoubleAspect &aspect, const QString &label, const QString &name) {
+        aspect.setQmlName(name);
+        aspect.setLabelText(label);
+        aspect.setRange(-1.0, 1.0);
+        aspect.setSingleStep(0.1);
+    };
+    saturation(foregroundSaturation, Tr::tr("Foreground saturation:"), "ForegroundSaturation");
+    saturation(foregroundLightness, Tr::tr("Foreground lightness:"), "ForegroundLightness");
+    saturation(backgroundSaturation, Tr::tr("Background saturation:"), "BackgroundSaturation");
+    saturation(backgroundLightness, Tr::tr("Background lightness:"), "BackgroundLightness");
+
+    bold.setQmlName("Bold");
+    bold.setLabelText(Tr::tr("Bold"));
+    italic.setQmlName("Italic");
+    italic.setLabelText(Tr::tr("Italic"));
+
+    underlineStyle.setQmlName("UnderlineStyle");
+    underlineStyle.setLabelText(Tr::tr("Underline style:"));
+    underlineStyle.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
+    // Same list the widget picker offers, in the same order.
+    const QList<std::pair<QString, QTextCharFormat::UnderlineStyle>> styles = {
+        {Tr::tr("No Underline"), QTextCharFormat::NoUnderline},
+        {Tr::tr("Single Underline"), QTextCharFormat::SingleUnderline},
+        {Tr::tr("Wave Underline"), QTextCharFormat::WaveUnderline},
+        {Tr::tr("Dot Underline"), QTextCharFormat::DotLine},
+        {Tr::tr("Dash Underline"), QTextCharFormat::DashUnderline},
+        {Tr::tr("Dash-Dot Underline"), QTextCharFormat::DashDotLine},
+        {Tr::tr("Dash-Dot-Dot Underline"), QTextCharFormat::DashDotDotLine},
+    };
+    for (const auto &[name, style] : styles)
+        underlineStyle.addOption({name, {}, int(style)});
+
+    // Behaviour. None of this belongs to a layout: it is what the page does.
+    connect(&family, &BaseAspect::volatileValueChanged, this, [this] {
+        if (m_showing)
+            return;
+        m_value.setFamily(family.volatileValue());
+        refreshPointSizes();
+        formats.setBaseFont(m_value.font());
+    });
+    connect(&size, &BaseAspect::volatileValueChanged, this, [this] {
+        if (m_showing)
+            return;
+        const int points = size.itemValue().toInt();
+        if (points > 0) {
+            m_value.setFontSize(points);
+            formats.setBaseFont(m_value.font());
+        }
+    });
+    connect(&zoom, &BaseAspect::volatileValueChanged, this, [this] {
+        m_value.setFontZoom(zoom.volatileValue());
+    });
+    connect(&antialias, &BaseAspect::volatileValueChanged, this, [this] {
+        m_value.setAntialias(antialias.volatileValue());
+        formats.setBaseFont(m_value.font());
+    });
+    connect(&lineSpacing, &BaseAspect::volatileValueChanged, this, [this] {
+        m_value.setRelativeLineSpacing(lineSpacing.volatileValue());
+        lineSpacingWarning.setVisible(lineSpacing.volatileValue() != 100);
+    });
+    connect(&globalFontSettings(), &FontSettings::changed, this, [this] {
+        zoom.setValue(globalFontSettings().data().fontZoom());
+    });
+
+    connect(&scheme, &BaseAspect::volatileValueChanged, this, [this] { selectScheme(); });
+    connect(&formats, &FormatsAspect::currentFormatChanged, this, [this] { showFormat(); });
+    connect(&formats, &FormatsAspect::schemeEdited, this, [] { markSettingsDirty(); });
+
+    for (BaseAspect *aspect : QList<BaseAspect *>{&foreground, &background,
+                                                  &foregroundSaturation, &foregroundLightness,
+                                                  &backgroundSaturation, &backgroundLightness,
+                                                  &bold, &italic,
+                                                  &underlineColor, &underlineStyle}) {
+        connect(aspect, &BaseAspect::volatileValueChanged, this, [this] { writeFormatBack(); });
     }
+
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/TextEditor/FontSettingsPage.qml"));
+
+    refreshPointSizes();
+    refreshSchemeList();
+    showFormat();
 }
 
-void FontSettingsAspect::confirmDeleteColorScheme()
+void FontSettingsPageContainer::refreshPointSizes()
 {
-    const int index = m_schemeComboBox->currentIndex();
-    if (index == -1)
-        return;
-
-    const ColorSchemeEntry &entry = m_schemeListModel.colorSchemeAt(index);
-    if (entry.readOnly)
-        return;
-
-    QMessageBox *messageBox = new QMessageBox(QMessageBox::Warning,
-                                              Tr::tr("Delete Color Scheme"),
-                                              Tr::tr("Are you sure you want to delete this color scheme permanently?"),
-                                              QMessageBox::Discard | QMessageBox::Cancel,
-                                              m_deleteButton->window());
-
-    // Change the text and role of the discard button
-    auto deleteButton = static_cast<QPushButton*>(messageBox->button(QMessageBox::Discard));
-    deleteButton->setText(Tr::tr("Delete"));
-    messageBox->addButton(deleteButton, QMessageBox::AcceptRole);
-    messageBox->setDefaultButton(deleteButton);
-
-    connect(messageBox, &QDialog::accepted, this, &FontSettingsAspect::deleteColorScheme);
-    messageBox->setAttribute(Qt::WA_DeleteOnClose);
-    messageBox->open();
-}
-
-void FontSettingsAspect::deleteColorScheme()
-{
-    const int index = m_schemeComboBox->currentIndex();
-    QTC_ASSERT(index != -1, return);
-
-    const ColorSchemeEntry &entry = m_schemeListModel.colorSchemeAt(index);
-    QTC_ASSERT(!entry.readOnly, return);
-
-    if (entry.filePath.removeFile())
-        m_schemeListModel.removeColorScheme(index);
-}
-
-void FontSettingsAspect::importScheme()
-{
-    const FilePath importedFile
-        = Utils::FileUtils::getOpenFilePath(Tr::tr("Import Color Scheme"),
-                                            {},
-                                            Tr::tr("Color scheme (*.xml);;All files (*)"));
-
-    if (importedFile.isEmpty())
-        return;
-
-    // Ask about saving any existing modifications
-    maybeSaveColorScheme();
-
-    QInputDialog *dialog = new QInputDialog(m_copyButton->window());
-    dialog->setAttribute(Qt::WA_DeleteOnClose);
-    dialog->setInputMode(QInputDialog::TextInput);
-    dialog->setWindowTitle(Tr::tr("Import Color Scheme"));
-    dialog->setLabelText(Tr::tr("Color scheme name:"));
-    dialog->setTextValue(importedFile.baseName());
-
-    connect(dialog,
-            &QInputDialog::textValueSelected,
-            this,
-            [this, importedFile](const QString &name) {
-                const Utils::FilePath saveFileName = createColorSchemeFileName(
-                    importedFile.baseName() + "%1." + importedFile.suffix());
-
-                ColorScheme scheme;
-                if (scheme.load(importedFile)) {
-                    scheme.setDisplayName(name);
-                    scheme.save(saveFileName);
-                    m_value.loadColorScheme(saveFileName, m_descriptions);
-                } else {
-                    qWarning() << "Failed to import color scheme:" << importedFile;
-                }
-
-                refreshColorSchemeList();
-            });
-
-    dialog->open();
-}
-
-void FontSettingsAspect::exportScheme()
-{
-    int index = m_schemeComboBox->currentIndex();
-    if (index == -1)
-        return;
-
-    const ColorSchemeEntry &entry = m_schemeListModel.colorSchemeAt(index);
-
-    const FilePath filePath
-        = Utils::FileUtils::getSaveFilePath(Tr::tr("Export Color Scheme"),
-                                            entry.filePath,
-                                            Tr::tr("Color scheme (*.xml);;All files (*)"));
-
-    if (!filePath.isEmpty())
-        m_value.colorScheme().save(filePath);
-}
-
-void FontSettingsAspect::maybeSaveColorScheme()
-{
-    if (m_value.colorScheme() == m_schemeEdit->colorScheme())
-        return;
-
-    QMessageBox
-        messageBox(QMessageBox::Warning,
-                   Tr::tr("Color Scheme Changed"),
-                   Tr::tr("The color scheme \"%1\" was modified, do you want to save the changes?")
-                       .arg(m_schemeEdit->colorScheme().displayName()),
-                   QMessageBox::Discard | QMessageBox::Save,
-                   m_schemeComboBox->window());
-
-    // Change the text of the discard button
-    auto discardButton = static_cast<QPushButton*>(messageBox.button(QMessageBox::Discard));
-    discardButton->setText(Tr::tr("Discard"));
-    messageBox.addButton(discardButton, QMessageBox::DestructiveRole);
-    messageBox.setDefaultButton(QMessageBox::Save);
-
-    if (messageBox.exec() == QMessageBox::Save) {
-        const ColorScheme &scheme = m_schemeEdit->colorScheme();
-        scheme.save(m_value.colorSchemeFileName());
+    const QString familyName = family.volatileValue();
+    QList<int> sizes = QFontDatabase::pointSizes(familyName);
+    if (sizes.isEmpty()) {
+        const QStringList styles = QFontDatabase::styles(familyName);
+        if (!styles.isEmpty())
+            sizes = QFontDatabase::pointSizes(familyName, styles.first());
     }
+    if (sizes.isEmpty())
+        sizes = QFontDatabase::standardSizes();
+
+    // The size in use is always offered, even where the family does not list
+    // it - otherwise selecting a family would silently change the size.
+    const int current = m_value.fontSize();
+    if (!sizes.contains(current)) {
+        sizes.append(current);
+        std::sort(sizes.begin(), sizes.end());
+    }
+
+    // SelectionAspect keeps its options, so the list is rewritten in place and
+    // any surplus entries are made unreachable rather than removed.
+    for (int i = 0; i < sizes.size(); ++i) {
+        const SelectionAspect::Option option{QString::number(sizes.at(i)), {}, sizes.at(i)};
+        if (i < size.optionCount())
+            size.setOptionForIndex(i, option);
+        else
+            size.addOption(option);
+    }
+    for (int i = sizes.size(); i < size.optionCount(); ++i)
+        size.setOptionForIndex(i, {QString::number(current), {}, current});
+
+    m_showing = true;
+    size.setValue(std::max(0, int(sizes.indexOf(current))));
+    m_showing = false;
 }
 
-void FontSettingsAspect::refreshColorSchemeList()
+void FontSettingsPageContainer::refreshSchemeList()
 {
-    QList<ColorSchemeEntry> colorSchemes;
+    m_schemes.clear();
 
     const FilePath styleDir = Core::ICore::resourcePath("styles");
-
     FilePaths schemeList = styleDir.dirEntries(FileFilter({"*.xml"}, DirFilterFlag::Files));
     const FilePath defaultScheme = FontSettingsData::defaultSchemeFileName();
-
     if (schemeList.removeAll(defaultScheme))
         schemeList.prepend(defaultScheme);
 
     int selected = 0;
-
     for (const FilePath &file : std::as_const(schemeList)) {
         if (m_value.colorSchemeFileName().fileName() == file.fileName())
-            selected = colorSchemes.size();
-        colorSchemes.append(ColorSchemeEntry(file, true));
+            selected = m_schemes.size();
+        m_schemes.append(ColorSchemeEntry(file, true));
     }
-
-    if (colorSchemes.isEmpty())
+    if (m_schemes.isEmpty())
         qWarning() << "Warning: no color schemes found in path:" << styleDir.toUserOutput();
 
-    const FilePaths files = customStylesPath().dirEntries(FileFilter({"*.xml"}, DirFilterFlag::Files));
+    const FilePaths files
+        = customStylesPath().dirEntries(FileFilter({"*.xml"}, DirFilterFlag::Files));
     for (const FilePath &file : files) {
         if (m_value.colorSchemeFileName().fileName() == file.fileName())
-            selected = colorSchemes.size();
-        colorSchemes.append(ColorSchemeEntry(file, false));
+            selected = m_schemes.size();
+        m_schemes.append(ColorSchemeEntry(file, false));
     }
 
+    for (int i = 0; i < m_schemes.size(); ++i) {
+        const SelectionAspect::Option option{m_schemes.at(i).name, {}, i};
+        if (i < scheme.optionCount())
+            scheme.setOptionForIndex(i, option);
+        else
+            scheme.addOption(option);
+    }
+
+    // The flag stays set across selectScheme() too: refreshing the list is not
+    // the user switching schemes, and maybeSaveColorScheme() would put up a
+    // modal dialog asking about changes nobody made.
     m_refreshingSchemeList = true;
-    m_schemeListModel.setColorSchemes(colorSchemes);
-    m_schemeComboBox->setCurrentIndex(selected);
+    scheme.setValue(selected);
+    selectScheme();
     m_refreshingSchemeList = false;
 }
 
-bool FontSettingsAspect::isDirty() const
+void FontSettingsPageContainer::selectScheme()
 {
-    return m_value != m_lastValue
-        || (m_schemeEdit && m_value.colorScheme() != m_schemeEdit->colorScheme());
+    const int index = scheme.volatileValue();
+    bool readOnly = true;
+    if (index >= 0 && index < m_schemes.size()) {
+        if (!m_refreshingSchemeList)
+            maybeSaveColorScheme();
+        const ColorSchemeEntry &entry = m_schemes.at(index);
+        readOnly = entry.readOnly;
+        m_value.loadColorScheme(entry.filePath, m_descriptions);
+        formats.setColorScheme(m_value.colorScheme());
+        formats.setBaseFont(m_value.font());
+    }
+    copyScheme.setEnabled(index >= 0);
+    deleteScheme.setEnabled(!readOnly);
+    formats.setReadOnly(readOnly);
+    builtinSchemeNote.setVisible(readOnly);
+    showFormat();
 }
 
-void FontSettingsAspect::apply()
+void FontSettingsPageContainer::showFormat()
 {
-    if (m_schemeEdit && m_value.colorScheme() != m_schemeEdit->colorScheme()) {
+    const FormatDescription *description = formats.currentDescription();
+    const Format format = formats.currentFormat();
+    const bool editable = description && !formats.isReadOnly();
+
+    // setValue(), deliberately: it does not emit volatileValueChanged, which is
+    // what the controls write back on. Filling ten of them in one at a time
+    // would otherwise compose a format from a mix of the old values and the new
+    // and write that back, so showing a format would edit it.
+    m_showing = true;
+
+    foreground.setValue(format.foreground());
+    background.setValue(format.background());
+    foregroundSaturation.setValue(format.relativeForegroundSaturation());
+    foregroundLightness.setValue(format.relativeForegroundLightness());
+    backgroundSaturation.setValue(format.relativeBackgroundSaturation());
+    backgroundLightness.setValue(format.relativeBackgroundLightness());
+    bold.setValue(format.bold());
+    italic.setValue(format.italic());
+    underlineColor.setValue(format.underlineColor());
+    underlineStyle.setValue(
+        std::max(0, underlineStyle.indexForItemValue(int(format.underlineStyle()))));
+
+    const auto show = [&](BaseAspect &aspect, FormatDescription::ShowControls flag) {
+        aspect.setVisible(description && description->showControl(flag));
+        aspect.setEnabled(editable);
+    };
+    show(foreground, FormatDescription::ShowForegroundControl);
+    show(background, FormatDescription::ShowBackgroundControl);
+    show(foregroundSaturation, FormatDescription::ShowRelativeForegroundControl);
+    show(foregroundLightness, FormatDescription::ShowRelativeForegroundControl);
+    show(backgroundSaturation, FormatDescription::ShowRelativeBackgroundControl);
+    show(backgroundLightness, FormatDescription::ShowRelativeBackgroundControl);
+    show(bold, FormatDescription::ShowFontControls);
+    show(italic, FormatDescription::ShowFontControls);
+    show(underlineColor, FormatDescription::ShowUnderlineControl);
+    show(underlineStyle, FormatDescription::ShowUnderlineControl);
+
+    m_showing = false;
+}
+
+void FontSettingsPageContainer::writeFormatBack()
+{
+    if (formats.isReadOnly())
+        return;
+
+    Format format = formats.currentFormat();
+    format.setForeground(foreground.volatileValue());
+    format.setBackground(background.volatileValue());
+    format.setRelativeForegroundSaturation(foregroundSaturation.volatileValue());
+    format.setRelativeForegroundLightness(foregroundLightness.volatileValue());
+    format.setRelativeBackgroundSaturation(backgroundSaturation.volatileValue());
+    format.setRelativeBackgroundLightness(backgroundLightness.volatileValue());
+    format.setBold(bold.volatileValue());
+    format.setItalic(italic.volatileValue());
+    format.setUnderlineColor(underlineColor.volatileValue());
+    format.setUnderlineStyle(
+        QTextCharFormat::UnderlineStyle(underlineStyle.itemValue().toInt()));
+    formats.setCurrentFormat(format);
+}
+
+void FontSettingsPageContainer::maybeSaveColorScheme()
+{
+    if (m_value.colorScheme() == formats.colorScheme())
+        return;
+
+    QMessageBox messageBox(
+        QMessageBox::Warning,
+        Tr::tr("Color Scheme Changed"),
+        Tr::tr("The color scheme \"%1\" was modified, do you want to save the changes?")
+            .arg(formats.colorScheme().displayName()),
+        QMessageBox::Discard | QMessageBox::Save,
+        Core::ICore::dialogParent());
+
+    auto discardButton = static_cast<QPushButton *>(messageBox.button(QMessageBox::Discard));
+    discardButton->setText(Tr::tr("Discard"));
+    messageBox.addButton(discardButton, QMessageBox::DestructiveRole);
+    messageBox.setDefaultButton(QMessageBox::Save);
+
+    if (messageBox.exec() == QMessageBox::Save)
+        formats.colorScheme().save(m_value.colorSchemeFileName());
+}
+
+void FontSettingsPageContainer::doCopyScheme(const QString &name)
+{
+    const int index = scheme.volatileValue();
+    if (index < 0 || index >= m_schemes.size())
+        return;
+
+    QString baseFileName = m_schemes.at(index).filePath.completeBaseName();
+    baseFileName += QLatin1String("_copy%1.xml");
+    const FilePath filePath = createColorSchemeFileName(baseFileName);
+    if (filePath.isEmpty())
+        return;
+
+    maybeSaveColorScheme();
+
+    m_value.setColorScheme(formats.colorScheme());
+    ColorScheme copy = m_value.colorScheme();
+    copy.setDisplayName(name);
+    if (copy.save(filePath))
+        m_value.setColorSchemeFileName(filePath);
+
+    refreshSchemeList();
+    markSettingsDirty();
+}
+
+void FontSettingsPageContainer::doDeleteScheme()
+{
+    const int index = scheme.volatileValue();
+    QTC_ASSERT(index >= 0 && index < m_schemes.size(), return);
+    QTC_ASSERT(!m_schemes.at(index).readOnly, return);
+
+    if (m_schemes.at(index).filePath.removeFile())
+        refreshSchemeList();
+}
+
+bool FontSettingsPageContainer::isDirty() const
+{
+    return m_value != m_lastValue || m_value.colorScheme() != formats.colorScheme()
+           || AspectContainer::isDirty();
+}
+
+void FontSettingsPageContainer::apply()
+{
+    if (m_value.colorScheme() != formats.colorScheme()) {
         // Update the scheme and save it under the name it already has
-        m_value.setColorScheme(m_schemeEdit->colorScheme());
+        m_value.setColorScheme(formats.colorScheme());
         m_value.colorScheme().save(m_value.colorSchemeFileName());
     }
 
-    if (m_sizeComboBox) {
-        bool ok;
-        const int fontSize = m_sizeComboBox->currentText().toInt(&ok);
-        if (ok && m_value.fontSize() != fontSize) {
-            m_value.setFontSize(fontSize);
-            if (m_schemeEdit)
-                m_schemeEdit->setBaseFont(m_value.font());
-        }
+    const int points = size.itemValue().toInt();
+    if (points > 0 && m_value.fontSize() != points) {
+        m_value.setFontSize(points);
+        formats.setBaseFont(m_value.font());
     }
 
-    if (m_schemeComboBox) {
-        const int index = m_schemeComboBox->currentIndex();
-        if (index != -1) {
-            const ColorSchemeEntry &entry = m_schemeListModel.colorSchemeAt(index);
-            if (entry.filePath != m_value.colorSchemeFileName())
-                m_value.loadColorScheme(entry.filePath, m_descriptions);
-        }
+    const int index = scheme.volatileValue();
+    if (index >= 0 && index < m_schemes.size()) {
+        const ColorSchemeEntry &entry = m_schemes.at(index);
+        if (entry.filePath != m_value.colorSchemeFileName())
+            m_value.loadColorScheme(entry.filePath, m_descriptions);
     }
 
-    saveSettings();
-}
+    AspectContainer::apply();
 
-void FontSettingsAspect::saveSettings()
-{
     m_lastValue = m_value;
     globalFontSettings().setData(m_value);
     globalFontSettings().apply();
 }
 
-void FontSettingsAspect::cancel()
+void FontSettingsPageContainer::cancel()
 {
+    AspectContainer::cancel();
+
     m_value = m_lastValue;
-    if (m_antialias)
-        m_antialias->setChecked(m_value.antialias());
-    if (m_zoomSpinBox)
-        m_zoomSpinBox->setValue(m_value.fontZoom());
-    if (m_lineSpacingSpinBox)
-        m_lineSpacingSpinBox->setValue(m_value.relativeLineSpacing());
-    if (m_fontComboBox)
-        m_fontComboBox->setCurrentFont(m_value.family());
-    if (m_sizeComboBox)
-        updatePointSizes();
-    if (m_schemeComboBox)
-        refreshColorSchemeList();
+    m_showing = true;
+    family.setValue(m_value.family());
+    zoom.setValue(m_value.fontZoom());
+    lineSpacing.setValue(m_value.relativeLineSpacing());
+    antialias.setValue(m_value.antialias());
+    m_showing = false;
+
+    refreshPointSizes();
+    refreshSchemeList();
 }
 
-class FontSettingsPageContainer final : public AspectContainer
-{
-public:
-    explicit FontSettingsPageContainer(const FormatDescriptions &fd)
-        : m_aspect(fd, this)
-    {
-        Utils::AspectWidgets::setLayouter(this, [this] {
-            using namespace Layouting;
-            return Column { &m_aspect, noMargin };
-        });
-    }
-
-private:
-    FontSettingsAspect m_aspect;
-};
 
 class FontSettingsPage final : public Core::IOptionsPage
 {
@@ -837,5 +1053,119 @@ void setupFontSettingsPage()
     static FontSettingsPage theFontSettingsPage;
 }
 
+#ifdef WITH_TESTS
+
+// The formats list is read in the colours it describes, and the properties
+// below it are those of the selected format. Both used to live in the widgets
+// the page built.
+class FontSettingsTest : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testFormatsAreReadInTheirOwnColours();
+    void testSelectingAFormatShowsOnlyWhatItHas();
+};
+
+void FontSettingsTest::testFormatsAreReadInTheirOwnColours()
+{
+    FontSettingsPageContainer page(initialFormats());
+    QAbstractItemModel *model = page.formats.tableModel();
+    QVERIFY(model->rowCount({}) > 1);
+
+    // Every row names a format and says what colour to read it in - that is
+    // what makes the list legible at all.
+    for (int row = 0; row < model->rowCount({}); ++row) {
+        const QModelIndex index = model->index(row, 0);
+        QVERIFY2(!index.data(Qt::DisplayRole).toString().isEmpty(),
+                 qPrintable(QString("row %1 has no name").arg(row)));
+        const QVariant foreground = index.data(Qt::ForegroundRole);
+        QVERIFY2(foreground.value<QColor>().isValid(),
+                 qPrintable(QString("row %1 has no colour to be read in").arg(row)));
+    }
+
+    // And not all the same colour: a list where every row looks alike is the
+    // bug this replaces.
+    QSet<QRgb> colours;
+    for (int row = 0; row < model->rowCount({}); ++row)
+        colours.insert(model->index(row, 0).data(Qt::ForegroundRole).value<QColor>().rgb());
+    QVERIFY2(colours.size() > 1, "every format is drawn in the same colour");
+}
+
+void FontSettingsTest::testSelectingAFormatShowsOnlyWhatItHas()
+{
+    FontSettingsPageContainer page(initialFormats());
+
+    // Nothing selected: no properties to show.
+    page.formats.setCurrentRow(-1);
+    QVERIFY(!page.foreground.isVisible());
+    QVERIFY(!page.bold.isVisible());
+
+    // A format that does not offer every property, so that "what this one has"
+    // and "everything" are told apart. Checking a format that happens to offer
+    // all of them proves nothing.
+    const FormatDescriptions all = initialFormats();
+    int restricted = -1;
+    for (int row = 0; row < int(all.size()); ++row) {
+        if (!all.at(row).showControl(FormatDescription::ShowFontControls)) {
+            restricted = row;
+            break;
+        }
+    }
+    QVERIFY2(restricted != -1, "no format without font controls - the test needs one");
+
+    page.formats.setCurrentRow(restricted);
+    const FormatDescription *description = page.formats.currentDescription();
+    QVERIFY(description);
+    QVERIFY(!description->showControl(FormatDescription::ShowFontControls));
+    QVERIFY(!page.bold.isVisible());
+    QVERIFY(!page.italic.isVisible());
+    QCOMPARE(page.foreground.isVisible(),
+             description->showControl(FormatDescription::ShowForegroundControl));
+    QCOMPARE(page.underlineStyle.isVisible(),
+             description->showControl(FormatDescription::ShowUnderlineControl));
+
+    page.formats.setCurrentRow(0);
+
+    // The values shown are the format's own.
+    QVERIFY(page.formats.currentDescription());
+    QCOMPARE(page.foreground.value(), page.formats.currentFormat().foreground());
+    QCOMPARE(page.bold.value(), page.formats.currentFormat().bold());
+
+    // Showing a format is not editing it. Ten controls each write back when
+    // they change, so filling them in has to be told apart from the user
+    // touching them - otherwise merely looking at the page dirties the scheme.
+    QVERIFY(!page.isDirty());
+    page.formats.setCurrentRow(1);
+    page.formats.setCurrentRow(0);
+    QVERIFY(!page.isDirty());
+
+    // The scheme that comes with Qt Creator is read-only, so its controls are
+    // not usable and an edit that reached them anyway is refused.
+    QVERIFY(page.formats.isReadOnly());
+    QVERIFY(!page.bold.isEnabled());
+    const bool wasBold = page.formats.currentFormat().bold();
+    page.bold.setVolatileValue(!wasBold);
+    QCOMPARE(page.formats.currentFormat().bold(), wasBold);
+
+    // On a scheme that can be edited, the same change lands. Through the
+    // volatile value, which is the path a control takes - setValue() is the
+    // page filling the control in.
+    page.formats.setReadOnly(false);
+    QVERIFY(page.bold.isEnabled());
+    page.bold.setVolatileValue(!wasBold);
+    QCOMPARE(page.formats.currentFormat().bold(), !wasBold);
+    QVERIFY(page.isDirty());
+}
+
+QObject *createFontSettingsTest()
+{
+    return new FontSettingsTest;
+}
+
+#endif // WITH_TESTS
+
 } // namespace Internal
 } // namespace TextEditor
+
+#include "fontsettingspage.moc"
