@@ -45,6 +45,7 @@
 #include <QPushButton>
 #include <QSortFilterProxyModel>
 #include <QStyledItemDelegate>
+#include <QScopeGuard>
 #include <QTcpServer>
 #include <QThread>
 
@@ -459,6 +460,11 @@ class McpServerPlugin final : public ExtensionSystem::IPlugin
     Q_OBJECT
     Q_PLUGIN_METADATA(IID "org.qt-project.Qt.QtCreatorPlugin" FILE "McpServer.json")
 
+signals:
+    // The settings page says whether the server is up, and that changes without
+    // anyone touching the page.
+    void serverStateChanged();
+
 public:
     ~McpServerPlugin() final {}
 
@@ -555,6 +561,9 @@ public:
 
     void restartServer()
     {
+        // Whichever way this ends - disabled, failed to bind, or listening.
+        const auto notify = qScopeGuard([this] { emit serverStateChanged(); });
+
         qCDebug(mcpPlugin) << "(Re)-starting MCP server...";
         qDeleteAll(m_server.boundTcpServers());
 
@@ -777,6 +786,8 @@ McpServerPluginSettings::McpServerPluginSettings(McpServerPlugin *plugin)
     listenAddress.setQmlName("ListenAddress");
     enabledTools.setQmlName("EnabledTools");
     serverStatus.setQmlName("ServerStatus");
+    // The address is written as a markdown link so that it can be copied.
+    serverStatus.setTextFormat(Utils::AspectControls::TextFormat::MarkdownText);
 
     const Core::SettingsTransfer transfer{
         this,
@@ -809,6 +820,9 @@ McpServerPluginSettings::McpServerPluginSettings(McpServerPlugin *plugin)
     };
     updateStatus();
     connect(this, &AspectContainer::applied, this, updateStatus);
+    // The settings are built before the server starts, so the first answer is
+    // always "not running" and something has to say when that changes.
+    connect(plugin, &McpServerPlugin::serverStateChanged, this, updateStatus);
     // The address is a link only so that it can be copied.
     connect(&serverStatus, &Utils::TextDisplay::linkActivated, this, [](const QString &link) {
         Utils::setClipboardAndSelection(link);

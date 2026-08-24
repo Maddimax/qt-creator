@@ -151,6 +151,7 @@ private slots:
     void testAspectQmlNamesAreUsableAndUnique();
     void testActionAspectIsAButtonOnEitherRenderer();
     void testTextDisplayShowsItsMessage();
+    void testTextDisplaySaysHowToReadItsMessage();
     void testRadioStyledBoolIsARadioButton();
     void testSpinBoxDrawsItsPrefixAndSuffix();
     void testPageQmlReachesANestedContainersAspects();
@@ -794,6 +795,41 @@ void QuickUiTest::testTextDisplayShowsItsMessage()
     QCOMPARE(links.size(), 1);
     QCOMPARE(links.first().first().toString(),
              QString("http://download.qt.io/official_releases/jom/"));
+}
+
+void QuickUiTest::testTextDisplaySaysHowToReadItsMessage()
+{
+    // Markdown is never detected from the text, so a message written in it read
+    // out as its own source: the MCP server's address showed the brackets and
+    // parentheses of the link rather than a link. The layouter used to set the
+    // format on the label it built, which is exactly the kind of thing that
+    // goes missing when the layouter does.
+    Utils::AspectContainer page;
+    Utils::TextDisplay message(&page);
+    message.setText("Listening on [127.0.0.1:1234](127.0.0.1:1234).");
+    message.setTextFormat(Utils::AspectControls::TextFormat::MarkdownText);
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QVERIFY(quickWidget->rootObject());
+
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "TextDisplayDelegate"));
+    QQuickItem *drawn = nullptr;
+    for (QQuickItem *label : findQmlComponents(delegate, "Label")) {
+        if (label->property("text").toString().startsWith("Listening"))
+            drawn = label;
+    }
+    QVERIFY(drawn);
+    QCOMPARE(drawn->property("textFormat").toInt(), int(Qt::MarkdownText));
+
+    // The default is left to detection, which handles the rich text an aspect
+    // writes as HTML.
+    Utils::TextDisplay plain(&page);
+    plain.setText("Nothing special.");
+    QCOMPARE(plain.presentation().textFormat, Utils::AspectControls::TextFormat::AutoText);
 }
 
 void QuickUiTest::testRadioStyledBoolIsARadioButton()

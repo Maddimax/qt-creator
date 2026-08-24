@@ -1261,6 +1261,7 @@ public:
     void addToLayoutImpl(Layouting::Layout &parent) override;
 
     void setIconType(InfoType type);
+    void setTextFormat(AspectControls::TextFormat format);
     void setText(const QString &message);
     void setWordWrap(bool on);
 

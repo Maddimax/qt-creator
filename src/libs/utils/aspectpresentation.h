@@ -85,6 +85,16 @@ enum class InfoType {
 };
 Q_ENUM_NS(InfoType)
 
+// Label. Mirrors Qt::TextFormat. Markdown is never auto-detected, so an aspect
+// whose message is written in it has to say so.
+enum class TextFormat {
+    AutoText,
+    PlainText,
+    RichText,
+    MarkdownText,
+};
+Q_ENUM_NS(TextFormat)
+
 // ComboBox. Mirrors QComboBox::SizeAdjustPolicy, with only the two values
 // aspects ask for.
 enum class SizeAdjustPolicy {
@@ -222,6 +232,7 @@ public:
     // Label.
     AspectControls::InfoType infoType = AspectControls::InfoType::None;
     bool wordWrap = false;
+    AspectControls::TextFormat textFormat = AspectControls::TextFormat::AutoText;
 
     // ColorPicker.
     bool alphaAllowed = true;

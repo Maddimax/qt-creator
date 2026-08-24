@@ -807,6 +807,17 @@ private:
         return InfoLabelType::None;
     }
 
+    static Qt::TextFormat textFormat(AspectControls::TextFormat format)
+    {
+        switch (format) {
+        case AspectControls::TextFormat::PlainText:    return Qt::PlainText;
+        case AspectControls::TextFormat::RichText:     return Qt::RichText;
+        case AspectControls::TextFormat::MarkdownText: return Qt::MarkdownText;
+        case AspectControls::TextFormat::AutoText:     break;
+        }
+        return Qt::AutoText;
+    }
+
     static void renderTextDisplay(TextDisplay *aspect, Layout &parent,
                                   const AspectPresentation &pres)
     {
@@ -817,6 +828,7 @@ private:
         QObject::connect(label, &QLabel::linkActivated, aspect, &TextDisplay::linkActivated);
         label->setElideMode(Qt::ElideNone);
         label->setWordWrap(pres.wordWrap);
+        label->setTextFormat(textFormat(pres.textFormat));
         // Do not use label->setVisible(isVisible()) unconditionally, it
         // does not have a QWidget parent yet when used in a LayoutBuilder.
         if (!pres.visible)
@@ -830,6 +842,7 @@ private:
                              const AspectPresentation p = aspect->presentation();
                              label->setType(infoLabelType(p.infoType));
                              label->setWordWrap(p.wordWrap);
+                             label->setTextFormat(textFormat(p.textFormat));
                          });
         parent.addItem(label);
     }

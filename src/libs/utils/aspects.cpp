@@ -957,6 +957,7 @@ public:
     QString m_message;
     InfoType m_type = InfoType::None;
     bool m_wordWrap = true;
+    AspectControls::TextFormat m_textFormat = AspectControls::TextFormat::AutoText;
 };
 
 class ActionAspectPrivate
@@ -3270,6 +3271,7 @@ AspectPresentation TextDisplay::presentation() const
     p.control = AspectControls::Label;
     p.infoType = d->m_type;
     p.wordWrap = d->m_wordWrap;
+    p.textFormat = d->m_textFormat;
     return p;
 }
 
@@ -3349,6 +3351,17 @@ void TextDisplay::addToLayoutImpl(Layout &parent)
 void TextDisplay::setIconType(InfoType type)
 {
     d->m_type = type;
+    emit controlConfigurationChanged();
+}
+
+/*!
+    Sets how the message is to be read - as plain text, as rich text, or as
+    \a format. Markdown is never detected from the text itself, so a message
+    written in it says so here.
+*/
+void TextDisplay::setTextFormat(AspectControls::TextFormat format)
+{
+    d->m_textFormat = format;
     emit controlConfigurationChanged();
 }
 

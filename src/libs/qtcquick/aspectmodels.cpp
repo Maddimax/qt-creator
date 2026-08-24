@@ -114,6 +114,10 @@ QVariantMap AspectModels::presentation(BaseAspect *aspect)
         {"infoType", QString::fromLatin1(
                          QMetaEnum::fromType<AspectControls::InfoType>().valueToKey(
                              int(p.infoType)))},
+        {"textFormat", QString::fromLatin1(
+                           QMetaEnum::fromType<AspectControls::TextFormat>().valueToKey(
+                               int(p.textFormat)))},
+        {"wordWrap", p.wordWrap},
     };
 }
 

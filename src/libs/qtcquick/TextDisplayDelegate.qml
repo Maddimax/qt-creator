@@ -47,7 +47,21 @@ RowLayout {
     Label {
         text: root.displayText
         visible: root.displayText !== ""
-        wrapMode: Text.WordWrap
+        wrapMode: root.pres.wordWrap ?? true ? Text.WordWrap : Text.NoWrap
+        // Markdown is never detected from the text, so an aspect whose message
+        // is written in it has to be asked.
+        textFormat: {
+            switch (root.pres.textFormat ?? "AutoText") {
+            case "PlainText":
+                return Text.PlainText
+            case "RichText":
+                return Text.RichText
+            case "MarkdownText":
+                return Text.MarkdownText
+            default:
+                return Text.AutoText
+            }
+        }
         color: {
             switch (root.pres.infoType ?? "None") {
             case "Error":
