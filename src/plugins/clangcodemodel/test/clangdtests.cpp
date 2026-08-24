@@ -3,6 +3,8 @@
 
 #include "clangdtests.h"
 
+#include <texteditor/codeassist/assisttarget.h>
+
 #include "../clangdclient.h"
 #include "../clangdfollowsymbol.h"
 #include "../clangmodelmanagersupport.h"
@@ -1727,7 +1729,8 @@ void ClangdTestCompletion::testCompleteGlobals()
     const AssistProposalItemInterface * const item = getItem(proposal, " globalFunction()", "void");
     QVERIFY(item);
     auto editor = TextEditorWidget::currentTextEditorWidget();
-    item->apply(editor, cursorPos);
+    TextEditor::WidgetAssistTarget target(editor);
+    item->apply(target, cursorPos);
     QCOMPARE(editor->textDocument()->blockText(6), "   globalFunction() /* COMPLETE HERE */");
     QCOMPARE(editor->lineColumn(), Text::Position({7, 19}));
     QVERIFY(editor->autoCompleteHighlightPosition().isNull());
@@ -1747,7 +1750,8 @@ void ClangdTestCompletion::testCompleteMembers()
     const AssistProposalItemInterface * const item = getItem(proposal, " member", "int");
     QVERIFY(item);
     auto editor = TextEditorWidget::currentTextEditorWidget();
-    item->apply(editor, cursorPos);
+    TextEditor::WidgetAssistTarget target(editor);
+    item->apply(target, cursorPos);
     QCOMPARE(editor->textDocument()->blockText(6), "    s.member /* COMPLETE HERE */");
     QCOMPARE(editor->lineColumn(), Text::Position({7, 12}));
     QVERIFY(editor->autoCompleteHighlightPosition().isNull());
@@ -1765,7 +1769,8 @@ void ClangdTestCompletion::testCompleteMembersFromInside()
     const AssistProposalItemInterface * const item = getItem(proposal, " privateFunc()", "void");
     QVERIFY(item);
     auto editor = TextEditorWidget::currentTextEditorWidget();
-    item->apply(editor, cursorPos);
+    TextEditor::WidgetAssistTarget target(editor);
+    item->apply(target, cursorPos);
     QCOMPARE(editor->textDocument()->blockText(3), "        privateFunc() /* COMPLETE HERE */");
     QCOMPARE(editor->lineColumn(), Text::Position({4, 21}));
     QVERIFY(editor->autoCompleteHighlightPosition().isNull());
@@ -1783,7 +1788,8 @@ void ClangdTestCompletion::testCompleteMembersFromOutside()
     const AssistProposalItemInterface * const item = getItem(proposal, " publicFunc()", "void");
     QVERIFY(item);
     auto editor = TextEditorWidget::currentTextEditorWidget();
-    item->apply(editor, cursorPos);
+    TextEditor::WidgetAssistTarget target(editor);
+    item->apply(target, cursorPos);
     QCOMPARE(editor->textDocument()->blockText(12), "    c.publicFunc() /* COMPLETE HERE */");
     QCOMPARE(editor->lineColumn(), Text::Position({13, 18}));
     QVERIFY(editor->autoCompleteHighlightPosition().isNull());
@@ -1801,7 +1807,8 @@ void ClangdTestCompletion::testCompleteMembersFromFriend()
     const AssistProposalItemInterface * const item = getItem(proposal, " privateFunc()", "void");
     QVERIFY(item);
     auto editor = TextEditorWidget::currentTextEditorWidget();
-    item->apply(editor, cursorPos);
+    TextEditor::WidgetAssistTarget target(editor);
+    item->apply(target, cursorPos);
     QCOMPARE(editor->textDocument()->blockText(13), "    C().privateFunc() /* COMPLETE HERE */");
     QCOMPARE(editor->lineColumn(), Text::Position({14, 21}));
     QVERIFY(editor->autoCompleteHighlightPosition().isNull());
@@ -1818,7 +1825,8 @@ void ClangdTestCompletion::testFunctionAddress()
     const AssistProposalItemInterface * const item = getItem(proposal, " memberFunc()", "void");
     QVERIFY(item);
     auto editor = TextEditorWidget::currentTextEditorWidget();
-    item->apply(editor, cursorPos);
+    TextEditor::WidgetAssistTarget target(editor);
+    item->apply(target, cursorPos);
     QCOMPARE(editor->textDocument()->blockText(6), "    const auto p = &S::memberFunc /* COMPLETE HERE */;");
     QCOMPARE(editor->lineColumn(), Text::Position({7, 33}));
     QVERIFY(editor->autoCompleteHighlightPosition().isNull());
@@ -1885,7 +1893,8 @@ void ClangdTestCompletion::testCompleteClassAndConstructor()
             = getItem(proposal, QString::fromUtf8(" Foo(…)"), "[2 overloads]");
     QVERIFY(item);
     auto editor = TextEditorWidget::currentTextEditorWidget();
-    item->apply(editor, cursorPos);
+    TextEditor::WidgetAssistTarget target(editor);
+    item->apply(target, cursorPos);
     QCOMPARE(editor->textDocument()->blockText(6), "    Foo( /* COMPLETE HERE */");
     QCOMPARE(editor->lineColumn(), Text::Position({7, 8}));
     QVERIFY(editor->autoCompleteHighlightPosition().isNull());
@@ -1913,7 +1922,8 @@ void ClangdTestCompletion::testCompleteWithDotToArrowCorrection()
     const AssistProposalItemInterface * const item = getItem(proposal, " member", "int");
     QVERIFY(item);
     auto editor = TextEditorWidget::currentTextEditorWidget();
-    item->apply(editor, cursorPos);
+    TextEditor::WidgetAssistTarget target(editor);
+    item->apply(target, cursorPos);
     QCOMPARE(editor->textDocument()->blockText(3), "    bar->member /* COMPLETE HERE */");
     QCOMPARE(editor->lineColumn(), Text::Position({4, 15}));
     QVERIFY(editor->autoCompleteHighlightPosition().isNull());
@@ -1944,7 +1954,8 @@ void ClangdTestCompletion::testCompleteCodeInGeneratedUiFile()
                 proposal, " setupUi(QMainWindow *MainWindow)", "void");
     QVERIFY(item);
     auto editor = TextEditorWidget::currentTextEditorWidget();
-    item->apply(editor, cursorPos);
+    TextEditor::WidgetAssistTarget target(editor);
+    item->apply(target, cursorPos);
     QCOMPARE(editor->textDocument()->blockText(33), "    ui->setupUi( /* COMPLETE HERE */");
     QCOMPARE(editor->lineColumn(), Text::Position({34, 16}));
     QVERIFY(editor->autoCompleteHighlightPosition().isNull());
@@ -1963,7 +1974,8 @@ void ClangdTestCompletion::testLambdaCompletion()
                 proposal, " lambda() const", "");
     QVERIFY(item);
     auto editor = TextEditorWidget::currentTextEditorWidget();
-    item->apply(editor, cursorPos);
+    TextEditor::WidgetAssistTarget target(editor);
+    item->apply(target, cursorPos);
     QCOMPARE(editor->textDocument()->blockText(3), "    return lambda() /* COMPLETE HERE */");
     QCOMPARE(editor->lineColumn(), Text::Position({4, 19}));
     QVERIFY(editor->autoCompleteHighlightPosition().isNull());
@@ -1982,7 +1994,8 @@ void ClangdTestCompletion::testMacroCompletion()
                 proposal, " VAL(x)", "");
     QVERIFY(item);
     auto editor = TextEditorWidget::currentTextEditorWidget();
-    item->apply(editor, cursorPos);
+    TextEditor::WidgetAssistTarget target(editor);
+    item->apply(target, cursorPos);
     QCOMPARE(editor->textDocument()->blockText(4), "    return VAL( /* COMPLETE HERE */");
     QCOMPARE(editor->lineColumn(), Text::Position({5, 15}));
     QVERIFY(editor->autoCompleteHighlightPosition().isNull());

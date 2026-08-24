@@ -14,6 +14,8 @@ QT_END_NAMESPACE
 
 namespace TextEditor {
 
+class AssistTarget;
+
 class TextEditorWidget;
 
 class TEXTEDITOR_EXPORT AssistProposalItemInterface
@@ -38,7 +40,8 @@ public:
     virtual QString filterText() const { return text(); }
     virtual bool implicitlyApplies() const = 0;
     virtual bool prematurelyApplies(const QChar &typedCharacter) const = 0;
-    virtual void apply(TextEditorWidget *editorWidget, int basePosition) const = 0;
+    // What is showing the text, not necessarily a widget: see AssistTarget.
+    virtual void apply(AssistTarget &target, int basePosition) const = 0;
     virtual QIcon icon() const = 0;
     virtual QString detail() const = 0;
     virtual bool isKeyword() const { return false; }

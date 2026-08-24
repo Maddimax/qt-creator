@@ -32,7 +32,7 @@ class QmlJSAssistProposalItem final : public TextEditor::AssistProposalItem
 {
 public:
     bool prematurelyApplies(const QChar &c) const final;
-    void applyContextualContent(TextEditor::TextEditorWidget *editorWidget,
+    void applyContextualContent(TextEditor::AssistTarget &target,
                                 int basePosition) const final;
 };
 

@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "qmljscompletionassist.h"
+
+#include <texteditor/codeassist/assisttarget.h>
 #include "qmljseditor.h"
 #include "qmljseditorconstants.h"
 #include "qmljsreuse.h"
@@ -350,12 +352,11 @@ bool QmlJSAssistProposalItem::prematurelyApplies(const QChar &c) const
             || (text().endsWith(QLatin1Char('.')) && c == QLatin1Char('.'));
 }
 
-void QmlJSAssistProposalItem::applyContextualContent(TextEditorWidget *editorWidget,
+void QmlJSAssistProposalItem::applyContextualContent(AssistTarget &target,
                                                      int basePosition) const
 {
-    QTC_ASSERT(editorWidget, return);
-    const int currentPosition = editorWidget->position();
-    editorWidget->replace(basePosition, currentPosition - basePosition, QString());
+    const int currentPosition = target.position();
+    target.replace(basePosition, currentPosition - basePosition, QString());
 
     QString content = text();
     int cursorOffset = 0;
@@ -373,17 +374,17 @@ void QmlJSAssistProposalItem::applyContextualContent(TextEditorWidget *editorWid
     int replacedLength = 0;
     for (int i = 0; i < replaceable.size(); ++i) {
         const QChar a = replaceable.at(i);
-        const QChar b = editorWidget->characterAt(editorWidget->position() + i);
+        const QChar b = target.characterAt(target.position() + i);
         if (a == b)
             ++replacedLength;
         else
             break;
     }
-    const int length = editorWidget->position() - basePosition + replacedLength;
-    editorWidget->replace(basePosition, length, content);
+    const int length = target.position() - basePosition + replacedLength;
+    target.replace(basePosition, length, content);
     if (cursorOffset) {
-        editorWidget->setCursorPosition(editorWidget->position() + cursorOffset);
-        editorWidget->setAutoCompleteSkipPosition(editorWidget->textCursor());
+        target.setCursorPosition(target.position() + cursorOffset);
+        target.setAutoCompleteSkipPosition(target.textCursor());
     }
 }
 

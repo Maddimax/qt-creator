@@ -3,6 +3,8 @@
 
 #include "clangdcompletion.h"
 
+#include <texteditor/codeassist/assisttarget.h>
+
 #include "clangcodemodeltr.h"
 #include "clangcompletioncontextanalyzer.h"
 #include "clangdclient.h"
@@ -48,23 +50,23 @@ namespace ClangCodeModel::Internal {
 static Q_LOGGING_CATEGORY(clangdLogCompletion, "qtc.clangcodemodel.clangd.completion",
                           QtWarningMsg);
 
-static void moveToPreviousChar(TextEditor::TextEditorWidget *editorWidget, QTextCursor &cursor)
+static void moveToPreviousChar(TextEditor::AssistTarget &target, QTextCursor &cursor)
 {
     cursor.movePosition(QTextCursor::PreviousCharacter);
-    while (editorWidget->characterAt(cursor.position()).isSpace())
+    while (target.characterAt(cursor.position()).isSpace())
         cursor.movePosition(QTextCursor::PreviousCharacter);
 }
 
-static bool matchPreviousWord(TextEditor::TextEditorWidget *editorWidget, QTextCursor cursor, QString pattern)
+static bool matchPreviousWord(TextEditor::AssistTarget &target, QTextCursor cursor, QString pattern)
 {
     cursor.movePosition(QTextCursor::PreviousWord);
-    while (editorWidget->characterAt(cursor.position()) == ':')
+    while (target.characterAt(cursor.position()) == ':')
         cursor.movePosition(QTextCursor::PreviousWord, QTextCursor::MoveAnchor, 2);
 
     int previousWordStart = cursor.position();
     cursor.movePosition(QTextCursor::NextWord);
-    moveToPreviousChar(editorWidget, cursor);
-    QString toMatch = editorWidget->textAt(previousWordStart, cursor.position() - previousWordStart + 1);
+    moveToPreviousChar(target, cursor);
+    QString toMatch = target.textAt(previousWordStart, cursor.position() - previousWordStart + 1);
 
     pattern = pattern.simplified();
     while (!pattern.isEmpty() && pattern.endsWith(toMatch)) {
@@ -76,36 +78,36 @@ static bool matchPreviousWord(TextEditor::TextEditorWidget *editorWidget, QTextC
             cursor.movePosition(QTextCursor::PreviousWord);
             previousWordStart = cursor.position();
             cursor.movePosition(QTextCursor::NextWord);
-            moveToPreviousChar(editorWidget, cursor);
-            toMatch = editorWidget->textAt(previousWordStart, cursor.position() - previousWordStart + 1);
+            moveToPreviousChar(target, cursor);
+            toMatch = target.textAt(previousWordStart, cursor.position() - previousWordStart + 1);
         }
     }
     return pattern.isEmpty();
 }
 
-static QString textUntilPreviousStatement(TextEditor::TextEditorWidget *editorWidget,
+static QString textUntilPreviousStatement(TextEditor::AssistTarget &target,
     int startPosition)
 {
     static const QString stopCharacters(";{}#");
 
     int endPosition = 0;
     for (int i = startPosition; i >= 0 ; --i) {
-        if (stopCharacters.contains(editorWidget->characterAt(i))) {
+        if (stopCharacters.contains(target.characterAt(i))) {
             endPosition = i + 1;
             break;
         }
     }
 
-    return editorWidget->textAt(endPosition, startPosition - endPosition);
+    return target.textAt(endPosition, startPosition - endPosition);
 }
 
 // 7.3.3: using typename(opt) nested-name-specifier unqualified-id ;
-static bool isAtUsingDeclaration(TextEditor::TextEditorWidget *editorWidget, int basePosition)
+static bool isAtUsingDeclaration(TextEditor::AssistTarget &target, int basePosition)
 {
     using namespace CPlusPlus;
     SimpleLexer lexer;
     lexer.setLanguageFeatures(LanguageFeatures::defaultFeatures());
-    const QString textToLex = textUntilPreviousStatement(editorWidget, basePosition);
+    const QString textToLex = textUntilPreviousStatement(target, basePosition);
     const Tokens tokens = lexer(textToLex);
     if (tokens.empty())
         return false;
@@ -118,10 +120,10 @@ static bool isAtUsingDeclaration(TextEditor::TextEditorWidget *editorWidget, int
     return contains(tokens, [](const Token &token) { return token.kind() == T_USING; });
 }
 
-static void moveToPreviousWord(TextEditor::TextEditorWidget *editorWidget, QTextCursor &cursor)
+static void moveToPreviousWord(TextEditor::AssistTarget &target, QTextCursor &cursor)
 {
     cursor.movePosition(QTextCursor::PreviousWord);
-    while (editorWidget->characterAt(cursor.position()) == ':')
+    while (target.characterAt(cursor.position()) == ':')
         cursor.movePosition(QTextCursor::PreviousWord, QTextCursor::MoveAnchor, 2);
 }
 
@@ -155,7 +157,7 @@ class ClangdCompletionItem : public LanguageClientCompletionItem
 {
 public:
     using LanguageClientCompletionItem::LanguageClientCompletionItem;
-    void apply(TextEditorWidget *editorWidget, int basePosition) const override;
+    void apply(AssistTarget &target, int basePosition) const override;
 
     enum class SpecialQtType { Signal, Slot, None };
     static SpecialQtType getQtType(const CompletionItem &item);
@@ -332,10 +334,9 @@ bool ClangdCompletionAssistProvider::isInCommentOrString(const AssistInterface *
     return CppEditor::isInCommentOrString(interface, features);
 }
 
-void ClangdCompletionItem::apply(TextEditorWidget *editorWidget,
+void ClangdCompletionItem::apply(AssistTarget &target,
     int /*basePosition*/) const
 {
-    QTC_ASSERT(editorWidget, return);
 
     const CompletionItem item = this->item();
     QChar typedChar = triggeredCommitCharacter();
@@ -376,8 +377,8 @@ void ClangdCompletionItem::apply(TextEditorWidget *editorWidget,
     int extraLength = 0;
     int cursorOffset = 0;
     bool setAutoCompleteSkipPos = false;
-    int currentPos = editorWidget->position();
-    const QTextDocument * const doc = editorWidget->document();
+    int currentPos = target.position();
+    const QTextDocument * const doc = target.document();
     const Range range = edit->range();
     const int rangeStart = range.start().toPositionInDocument(doc);
     if (isFunctionLike && globalCompletionSettings().autoInsertBrackets()) {
@@ -385,20 +386,20 @@ void ClangdCompletionItem::apply(TextEditorWidget *editorWidget,
         // in which case it would be annoying if we put the cursor after the already automatically
         // inserted closing parenthesis.
         const bool skipClosingParenthesis = typedChar != '(';
-        QTextCursor cursor = editorWidget->textCursorAt(rangeStart);
+        QTextCursor cursor = target.textCursorAt(rangeStart);
 
         bool abandonParen = false;
-        if (matchPreviousWord(editorWidget, cursor, "&")) {
-            moveToPreviousWord(editorWidget, cursor);
-            moveToPreviousChar(editorWidget, cursor);
-            const QChar prevChar = editorWidget->characterAt(cursor.position());
+        if (matchPreviousWord(target, cursor, "&")) {
+            moveToPreviousWord(target, cursor);
+            moveToPreviousChar(target, cursor);
+            const QChar prevChar = target.characterAt(cursor.position());
             cursor.setPosition(rangeStart);
             abandonParen = QString("(;,{}=").contains(prevChar);
         }
         if (!abandonParen)
-            abandonParen = isAtUsingDeclaration(editorWidget, rangeStart);
+            abandonParen = isAtUsingDeclaration(target, rangeStart);
         if (!abandonParen && !isMacroCall && !isLambdaCall && !detail.isEmpty()
-            && matchPreviousWord(editorWidget, cursor, detail)) {
+            && matchPreviousWord(target, cursor, detail)) {
             abandonParen = true; // function definition
         }
         if (!abandonParen) {
@@ -410,7 +411,7 @@ void ClangdCompletionItem::apply(TextEditorWidget *editorWidget,
 
             // If the function doesn't return anything, automatically place the semicolon,
             // unless we're doing a scope completion (then it might be function definition).
-            const QChar characterAtCursor = editorWidget->characterAt(currentPos);
+            const QChar characterAtCursor = target.characterAt(currentPos);
             bool endWithSemicolon = typedChar == ';';
             const QChar semicolon = typedChar.isNull() ? QLatin1Char(';') : typedChar;
             if (endWithSemicolon && characterAtCursor == semicolon) {
@@ -426,7 +427,7 @@ void ClangdCompletionItem::apply(TextEditorWidget *editorWidget,
                     typedChar = {};
                 }
             } else {
-                const QChar lookAhead = editorWidget->characterAt(currentPos + 1);
+                const QChar lookAhead = target.characterAt(currentPos + 1);
                 if (MatchingText::shouldInsertMatchingText(lookAhead)) {
                     extraCharacters += ')';
                     --cursorOffset;
@@ -451,13 +452,13 @@ void ClangdCompletionItem::apply(TextEditorWidget *editorWidget,
     // Avoid inserting characters that are already there
     // For include file completions, also consider a possibly pre-existing
     // closing quote or angle bracket.
-    QTextCursor cursor = editorWidget->textCursorAt(rangeStart);
+    QTextCursor cursor = target.textCursorAt(rangeStart);
     cursor.movePosition(QTextCursor::EndOfWord);
     if (kind == CompletionItemKind::File && !textToBeInserted.isEmpty()
-        && textToBeInserted.right(1) == editorWidget->textAt(cursor.position(), 1)) {
+        && textToBeInserted.right(1) == target.textAt(cursor.position(), 1)) {
         cursor.setPosition(cursor.position() + 1);
     }
-    const QString textAfterCursor = editorWidget->textAt(currentPos, cursor.position() - currentPos);
+    const QString textAfterCursor = target.textAt(currentPos, cursor.position() - currentPos);
     if (currentPos < cursor.position()
             && textToBeInserted != textAfterCursor
             && textToBeInserted.indexOf(textAfterCursor, currentPos - rangeStart) >= 0) {
@@ -465,7 +466,7 @@ void ClangdCompletionItem::apply(TextEditorWidget *editorWidget,
     }
     for (int i = 0; i < extraCharacters.size(); ++i) {
         const QChar a = extraCharacters.at(i);
-        const QChar b = editorWidget->characterAt(currentPos + i);
+        const QChar b = target.characterAt(currentPos + i);
         if (a == b)
             ++extraLength;
         else
@@ -474,19 +475,19 @@ void ClangdCompletionItem::apply(TextEditorWidget *editorWidget,
 
     textToBeInserted += extraCharacters;
     const int length = currentPos - rangeStart + extraLength;
-    const int oldRevision = editorWidget->document()->revision();
-    editorWidget->replace(rangeStart, length, textToBeInserted);
-    editorWidget->setCursorPosition(rangeStart + textToBeInserted.size());
-    if (editorWidget->document()->revision() != oldRevision) {
+    const int oldRevision = target.document()->revision();
+    target.replace(rangeStart, length, textToBeInserted);
+    target.setCursorPosition(rangeStart + textToBeInserted.size());
+    if (target.document()->revision() != oldRevision) {
         if (cursorOffset)
-            editorWidget->setCursorPosition(editorWidget->position() + cursorOffset);
+            target.setCursorPosition(target.position() + cursorOffset);
         if (setAutoCompleteSkipPos)
-            editorWidget->setAutoCompleteSkipPosition(editorWidget->textCursor());
+            target.setAutoCompleteSkipPosition(target.textCursor());
     }
 
     if (const auto additionalEdits = item.additionalTextEdits()) {
         for (const auto &edit : *additionalEdits)
-            applyTextEdit(editorWidget, edit);
+            applyTextEdit(target, edit);
     }
 }
 

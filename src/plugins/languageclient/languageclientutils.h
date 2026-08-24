@@ -13,6 +13,7 @@
 namespace Core { class IEditor; }
 
 namespace TextEditor {
+class AssistTarget;
 class TextDocument;
 class TextDocumentManipulator;
 } // namespace TextEditor
@@ -36,7 +37,7 @@ bool LANGUAGECLIENT_EXPORT applyTextEdits(const Client *client,
                                           const QList<LanguageServerProtocol::TextEdit> &edits);
 bool LANGUAGECLIENT_EXPORT applyDocumentChange(const Client *client,
                                                const LanguageServerProtocol::DocumentChange &change);
-void LANGUAGECLIENT_EXPORT applyTextEdit(TextEditor::TextEditorWidget *editorWidget,
+void LANGUAGECLIENT_EXPORT applyTextEdit(TextEditor::AssistTarget &target,
                                          const LanguageServerProtocol::TextEdit &edit,
                                          bool newTextIsSnippet = false);
 void LANGUAGECLIENT_EXPORT

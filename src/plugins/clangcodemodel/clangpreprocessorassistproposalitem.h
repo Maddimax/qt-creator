@@ -16,7 +16,7 @@ public:
     ~ClangPreprocessorAssistProposalItem() noexcept override = default;
     bool prematurelyApplies(const QChar &typedChar) const final;
     bool implicitlyApplies() const final;
-    void apply(TextEditor::TextEditorWidget *editorWidget, int basePosition) const final;
+    void apply(TextEditor::AssistTarget &target, int basePosition) const final;
 
     void setText(const QString &text);
     QString text() const final;

@@ -3,6 +3,8 @@
 
 #include "codeassistant.h"
 
+#include "assisttarget.h"
+
 #include "assistinterface.h"
 #include "assistproposaliteminterface.h"
 #include "completionassistprovider.h"
@@ -305,7 +307,8 @@ void CodeAssistantPrivate::displayProposal(IAssistProposal *newProposal, AssistR
 void CodeAssistantPrivate::processProposalItem(AssistProposalItemInterface *proposalItem)
 {
     QTC_ASSERT(m_proposalWidget, return);
-    proposalItem->apply(m_editorWidget, m_proposalWidget->basePosition());
+    WidgetAssistTarget target(m_editorWidget);
+    proposalItem->apply(target, m_proposalWidget->basePosition());
     destroyContext();
     m_editorWidget->encourageApply();
     if (!proposalItem->isSnippet())

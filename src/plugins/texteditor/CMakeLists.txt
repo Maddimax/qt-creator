@@ -30,6 +30,7 @@ add_qtc_plugin(TextEditor
     codeassist/assistinterface.cpp codeassist/assistinterface.h
     codeassist/assistproposalitem.cpp codeassist/assistproposalitem.h
     codeassist/assistproposaliteminterface.h
+    codeassist/assisttarget.cpp codeassist/assisttarget.h
     codeassist/asyncprocessor.cpp codeassist/asyncprocessor.h
     codeassist/codeassistant.cpp codeassist/codeassistant.h
     codeassist/completionassistprovider.cpp codeassist/completionassistprovider.h

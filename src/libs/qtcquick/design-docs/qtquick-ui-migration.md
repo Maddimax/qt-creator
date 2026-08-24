@@ -929,9 +929,24 @@ out of the pool, puts a spy in under the same name, and restores it after. That
 is the only way to see the announcement: without a configured server, a real
 manager does nothing observable.
 
-What is still to come, in the order the page needs it: completion (the widget
-path runs `TextEditorWidget::invokeAssist()`, and `CodeAssistant` lives on the
-widget, so this is the large remaining piece), and line numbers.
+**Accepting a completion no longer needs a widget.** This was the one hard
+dependency: `AssistProposalItemInterface::apply()` took a `TextEditorWidget *`,
+so nothing but a widget could ever accept a proposal. What the items actually do
+with it is a closed set - replace a range, insert a snippet, move the cursor,
+read a character - so `AssistTarget` names those and `apply()` takes one.
+`WidgetAssistTarget` is the widget's, and the widget path is unchanged.
+
+It was much smaller than it looked: one interface declaration, six overrides and
+**one call site**, in `CodeAssistant`. What made it look bigger was a handful of
+file-static helpers in clangd and C++ completion that passed the widget around
+purely to reach `characterAt()` and `textAt()`. Two things genuinely still need
+a widget and were left alone: `IAssistProposal::makeCorrection()`, and pasting
+in the circular-clipboard assist, which reaches the widget through a
+`dynamic_cast` on the target.
+
+What is still to come: running the assist processor from a Quick view and
+showing the proposals (the model side is widget-free already - `IAssistProvider`
+takes an `AssistInterface` built from a cursor and a path), and line numbers.
 
 #### Font && Colors: twenty aspects and one name collision
 

@@ -3,6 +3,8 @@
 
 #include "keywordscompletionassist.h"
 
+#include "assisttarget.h"
+
 #include <texteditor/codeassist/assistinterface.h>
 #include <texteditor/codeassist/genericproposal.h>
 #include <texteditor/codeassist/functionhintproposal.h>
@@ -69,20 +71,19 @@ bool KeywordsAssistProposalItem::prematurelyApplies(const QChar &c) const
     return c == QLatin1Char('(') && m_isFunction;
 }
 
-void KeywordsAssistProposalItem::applyContextualContent(TextEditorWidget *editorWidget,
+void KeywordsAssistProposalItem::applyContextualContent(AssistTarget &target,
                                                         int basePosition) const
 {
-    QTC_ASSERT(editorWidget, return);
 
-    int replaceLength = editorWidget->position() - basePosition;
+    int replaceLength = target.position() - basePosition;
     QString toInsert = text();
     int cursorOffset = 0;
-    const QChar characterAtCurrentPosition = editorWidget->characterAt(editorWidget->position());
+    const QChar characterAtCurrentPosition = target.characterAt(target.position());
     bool setAutoCompleteSkipPosition = false;
 
     if (m_isFunction && globalCompletionSettings().autoInsertBrackets()) {
         if (globalCompletionSettings().spaceAfterFunctionName()) {
-            if (editorWidget->textAt(editorWidget->position(), 2) == QLatin1String(" (")) {
+            if (target.textAt(target.position(), 2) == QLatin1String(" (")) {
                 cursorOffset = 2;
             } else if ( characterAtCurrentPosition == QLatin1Char('(')
                        || characterAtCurrentPosition == QLatin1Char(' ')) {
@@ -104,11 +105,11 @@ void KeywordsAssistProposalItem::applyContextualContent(TextEditorWidget *editor
         }
     }
 
-    editorWidget->replace(basePosition, replaceLength, toInsert);
+    target.replace(basePosition, replaceLength, toInsert);
     if (cursorOffset)
-        editorWidget->setCursorPosition(editorWidget->position() + cursorOffset);
+        target.setCursorPosition(target.position() + cursorOffset);
     if (setAutoCompleteSkipPosition)
-        editorWidget->setAutoCompleteSkipPosition(editorWidget->textCursor());
+        target.setAutoCompleteSkipPosition(target.textCursor());
 }
 
 // -------------------------

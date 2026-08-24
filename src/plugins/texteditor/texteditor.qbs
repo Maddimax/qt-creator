@@ -170,6 +170,8 @@ Project {
                 "assistproposalitem.cpp",
                 "assistproposalitem.h",
                 "assistproposaliteminterface.h",
+                "assisttarget.cpp",
+                "assisttarget.h",
                 "asyncprocessor.cpp",
                 "asyncprocessor.h",
                 "codeassistant.cpp",

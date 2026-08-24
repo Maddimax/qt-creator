@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "circularclipboardassist.h"
+
+#include "codeassist/assisttarget.h"
 #include "codeassist/assistinterface.h"
 #include "codeassist/iassistprocessor.h"
 #include "codeassist/iassistproposal.h"
@@ -36,9 +38,8 @@ public:
         setText(text);
     }
 
-    void apply(TextEditorWidget *editorWidget, int /*basePosition*/) const final
+    void apply(AssistTarget &target, int /*basePosition*/) const final
     {
-        QTC_ASSERT(editorWidget, return);
 
         //Move to last in circular clipboard
         if (CircularClipboard * clipboard = CircularClipboard::instance()) {
@@ -51,7 +52,8 @@ public:
                     TextEditorWidget::duplicateMimeData(m_mimeData.get()));
 
         //Paste
-        editorWidget->paste();
+        if (auto widgetTarget = dynamic_cast<WidgetAssistTarget *>(&target))
+            widgetTarget->widget()->paste();
     }
 
 private:

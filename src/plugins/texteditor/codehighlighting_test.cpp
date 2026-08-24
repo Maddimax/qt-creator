@@ -6,6 +6,8 @@
 #include "codehighlighting.h"
 
 #include "codedocument.h"
+#include "codeassist/assistproposalitem.h"
+#include "codeassist/assisttarget.h"
 #include "textdocument.h"
 
 #include "codeindenting.h"
@@ -50,6 +52,54 @@ private slots:
     void testAQuickEditShowsCreatorsOwnDocument();
     void testEditingThroughTheViewSavesTheFile();
     void testALanguageServerIsToldAboutTheFileOnlyWhenAsked();
+    void testACompletionCanBeAppliedWithoutAWidget();
+};
+
+// An AssistTarget over a plain document and a cursor, which is what a Qt Quick
+// view has. The operations are the ones the proposal items were calling on
+// TextEditorWidget; none of them needs a widget to mean something.
+class DocumentAssistTarget final : public AssistTarget
+{
+public:
+    explicit DocumentAssistTarget(QTextDocument *document)
+        : m_document(document)
+        , m_cursor(document)
+    {}
+
+    QTextDocument *document() const override { return m_document; }
+    int position() const override { return m_cursor.position(); }
+    QChar characterAt(int position) const override { return m_document->characterAt(position); }
+    QString textAt(int position, int length) const override
+    {
+        QTextCursor cursor(m_document);
+        cursor.setPosition(position);
+        cursor.setPosition(position + length, QTextCursor::KeepAnchor);
+        return cursor.selectedText();
+    }
+    QTextCursor textCursor() const override { return m_cursor; }
+    QTextCursor textCursorAt(int position) const override
+    {
+        QTextCursor cursor(m_document);
+        cursor.setPosition(position);
+        return cursor;
+    }
+    void setCursorPosition(int position) override { m_cursor.setPosition(position); }
+    void replace(int position, int length, const QString &text) override
+    {
+        QTextCursor cursor(m_document);
+        cursor.setPosition(position);
+        cursor.setPosition(position + length, QTextCursor::KeepAnchor);
+        cursor.insertText(text);
+        m_cursor = cursor;
+    }
+    void insertCodeSnippet(int basePosition, const QString &snippet, const SnippetParser &) override
+    {
+        replace(basePosition, m_cursor.position() - basePosition, snippet);
+    }
+
+private:
+    QTextDocument *m_document = nullptr;
+    QTextCursor m_cursor;
 };
 
 // Stands in for the language client manager, which is reached by object name
@@ -205,6 +255,27 @@ void CodeHighlightingTest::testALanguageServerIsToldAboutTheFileOnlyWhenAsked()
     // And it is taken back when the document goes, so the server is not left
     // tracking a file nothing is showing.
     QCOMPARE(spy.closed.size(), 1);
+}
+
+// Accepting a completion used to take a TextEditorWidget, which is why nothing
+// but a widget could ever offer one. What the items actually do is replace a
+// range of text, so a target over a plain document is enough.
+void CodeHighlightingTest::testACompletionCanBeAppliedWithoutAWidget()
+{
+    // The word being completed does not start the document, so that replacing
+    // from the base position and replacing from the beginning are not the same
+    // thing - which is the mistake worth catching.
+    QTextDocument document("using QStr");
+    DocumentAssistTarget target(&document);
+    target.setCursorPosition(10);
+
+    AssistProposalItem item;
+    item.setText("QString");
+
+    item.apply(target, 6);
+
+    QCOMPARE(document.toPlainText(), QString("using QString"));
+    QCOMPARE(target.position(), 13);
 }
 
 void CodeHighlightingTest::testHighlightsAQuickDocument()

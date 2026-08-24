@@ -3,6 +3,8 @@
 
 #include "languageclientcompletionassist.h"
 
+#include <texteditor/codeassist/assisttarget.h>
+
 #include "client.h"
 #include "languageclientutils.h"
 #include "snippet.h"
@@ -57,24 +59,23 @@ bool LanguageClientCompletionItem::prematurelyApplies(const QChar &typedCharacte
     return false;
 }
 
-void LanguageClientCompletionItem::apply(TextEditorWidget *editorWidget,
+void LanguageClientCompletionItem::apply(AssistTarget &target,
                                          int /*basePosition*/) const
 {
-    QTC_ASSERT(editorWidget, return);
     if (auto edit = m_item.textEdit()) {
-        applyTextEdit(editorWidget, *edit, isSnippet());
+        applyTextEdit(target, *edit, isSnippet());
     } else {
-        const int pos = editorWidget->position();
+        const int pos = target.position();
         const QString textToInsert(m_item.insertText().value_or(text()));
         int length = 0;
         for (auto it = textToInsert.crbegin(), end = textToInsert.crend(); it != end; ++it) {
-            if (it->toLower() != editorWidget->characterAt(pos - length - 1).toLower()) {
+            if (it->toLower() != target.characterAt(pos - length - 1).toLower()) {
                 length = 0;
                 break;
             }
             ++length;
         }
-        QTextCursor cursor = editorWidget->textCursorAt(pos);
+        QTextCursor cursor = target.textCursorAt(pos);
         cursor.movePosition(QTextCursor::StartOfLine, QTextCursor::KeepAnchor);
         const QString blockTextUntilPosition = cursor.selectedText();
         static const QRegularExpression identifier("[a-zA-Z_][a-zA-Z0-9_]*$");
@@ -82,19 +83,19 @@ void LanguageClientCompletionItem::apply(TextEditorWidget *editorWidget,
         int matchLength = match.hasMatch() ? match.capturedLength(0) : 0;
         length = qMax(length, matchLength);
         if (isSnippet()) {
-            editorWidget->replace(pos - length, length, {});
-            editorWidget->insertCodeSnippet(pos - length, textToInsert, &parseSnippet);
+            target.replace(pos - length, length, {});
+            target.insertCodeSnippet(pos - length, textToInsert, &parseSnippet);
         } else {
-            editorWidget->replace(pos - length, length, textToInsert);
+            target.replace(pos - length, length, textToInsert);
         }
     }
 
     if (auto additionalEdits = m_item.additionalTextEdits()) {
         for (const auto &edit : *additionalEdits)
-            applyTextEdit(editorWidget, edit);
+            applyTextEdit(target, edit);
     }
     if (!m_triggeredCommitCharacter.isNull())
-        editorWidget->insertCodeSnippet(editorWidget->position(),
+        target.insertCodeSnippet(target.position(),
                                       m_triggeredCommitCharacter,
                                       &Snippet::parse);
 }

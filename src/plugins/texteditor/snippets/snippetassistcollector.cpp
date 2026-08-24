@@ -3,6 +3,8 @@
 
 #include "snippetassistcollector.h"
 
+#include <texteditor/codeassist/assisttarget.h>
+
 #include "../codeassist/assistproposaliteminterface.h"
 #include "snippetscollection.h"
 
@@ -26,10 +28,9 @@ public:
     }
     bool implicitlyApplies() const override { return false; }
     bool prematurelyApplies(const QChar &) const override { return false; }
-    void apply(TextEditorWidget *editorWidget, int basePosition) const override
+    void apply(AssistTarget &target, int basePosition) const override
     {
-        QTC_ASSERT(editorWidget, return);
-        editorWidget->insertCodeSnippet(basePosition, m_snippet.content(), &Snippet::parse);
+        target.insertCodeSnippet(basePosition, m_snippet.content(), &Snippet::parse);
     }
     QIcon icon() const override { return m_icon; }
     QString detail() const override { return m_snippet.generateTip(); }

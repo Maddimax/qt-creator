@@ -3,6 +3,8 @@
 
 #include "clangpreprocessorassistproposalitem.h"
 
+#include <texteditor/codeassist/assisttarget.h>
+
 #include <texteditor/texteditor.h>
 
 #include <cplusplus/Token.h>
@@ -27,11 +29,10 @@ bool ClangPreprocessorAssistProposalItem::implicitlyApplies() const
     return true;
 }
 
-void ClangPreprocessorAssistProposalItem::apply(TextEditor::TextEditorWidget *editorWidget,
+void ClangPreprocessorAssistProposalItem::apply(TextEditor::AssistTarget &target,
                                                 int basePosition) const
 {
     // TODO move in an extra class under tests
-    QTC_ASSERT(editorWidget, return);
 
     QString textToBeInserted = text();
 
@@ -51,13 +52,13 @@ void ClangPreprocessorAssistProposalItem::apply(TextEditor::TextEditorWidget *ed
         extraCharacters += m_typedCharacter;
 
     // Avoid inserting characters that are already there
-    QTextCursor c = editorWidget->textCursor();
+    QTextCursor c = target.textCursor();
     c.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
     const QString existingText = c.selectedText();
     int existLength = 0;
     if (!existingText.isEmpty()) {
         // Calculate the exist length in front of the extra chars
-        existLength = textToBeInserted.size() - (editorWidget->position() - basePosition);
+        existLength = textToBeInserted.size() - (target.position() - basePosition);
         while (!existingText.startsWith(textToBeInserted.right(existLength))) {
             if (--existLength == 0)
                 break;
@@ -65,7 +66,7 @@ void ClangPreprocessorAssistProposalItem::apply(TextEditor::TextEditorWidget *ed
     }
     for (int i = 0; i < extraCharacters.size(); ++i) {
         const QChar a = extraCharacters.at(i);
-        const QChar b = editorWidget->characterAt(editorWidget->position() + i + existLength);
+        const QChar b = target.characterAt(target.position() + i + existLength);
         if (a == b)
             ++extraLength;
         else
@@ -75,9 +76,9 @@ void ClangPreprocessorAssistProposalItem::apply(TextEditor::TextEditorWidget *ed
     textToBeInserted += extraCharacters;
 
     // Insert the remainder of the name
-    const int length = editorWidget->position() - basePosition + existLength + extraLength;
+    const int length = target.position() - basePosition + existLength + extraLength;
 
-    editorWidget->replace(basePosition, length, textToBeInserted);
+    target.replace(basePosition, length, textToBeInserted);
 }
 
 void ClangPreprocessorAssistProposalItem::setText(const QString &text)

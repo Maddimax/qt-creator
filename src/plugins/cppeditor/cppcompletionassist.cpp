@@ -3,6 +3,8 @@
 
 #include "cppcompletionassist.h"
 
+#include <texteditor/codeassist/assisttarget.h>
+
 #include "builtineditordocumentparser.h"
 #include "cppdoxygen.h"
 #include "cppmodelmanager.h"
@@ -58,7 +60,7 @@ class CppAssistProposalItem final : public AssistProposalItem
 public:
     ~CppAssistProposalItem() noexcept override = default;
     bool prematurelyApplies(const QChar &c) const override;
-    void applyContextualContent(TextEditorWidget *editorWidget, int basePosition) const override;
+    void applyContextualContent(TextEditor::AssistTarget &target, int basePosition) const override;
 
     bool isOverloaded() const { return m_isOverloaded; }
     void markAsOverloaded() { m_isOverloaded = true; }
@@ -137,9 +139,9 @@ bool CppAssistProposalItem::prematurelyApplies(const QChar &typedChar) const
     return false;
 }
 
-static bool isDereferenced(TextEditorWidget *editorWidget, int basePosition)
+static bool isDereferenced(TextEditor::AssistTarget &target, int basePosition)
 {
-    QTextCursor cursor = editorWidget->textCursorAt(basePosition);
+    QTextCursor cursor = target.textCursorAt(basePosition);
     cursor.setPosition(basePosition);
 
     BackwardsScanner scanner(cursor, LanguageFeatures());
@@ -167,9 +169,8 @@ quint64 CppAssistProposalItem::hash() const
     return 0;
 }
 
-void CppAssistProposalItem::applyContextualContent(TextEditorWidget *editorWidget, int basePosition) const
+void CppAssistProposalItem::applyContextualContent(TextEditor::AssistTarget &target, int basePosition) const
 {
-    QTC_ASSERT(editorWidget, return);
 
     Symbol *symbol = nullptr;
 
@@ -219,7 +220,7 @@ void CppAssistProposalItem::applyContextualContent(TextEditorWidget *editorWidge
                     if (function->argumentCount() == 0)
                         extraChars += QLatin1Char('<');
 #endif
-                } else if (!isDereferenced(editorWidget, basePosition) && !function->isAmbiguous()) {
+                } else if (!isDereferenced(target, basePosition) && !function->isAmbiguous()) {
                     // When the user typed the opening parenthesis, he'll likely also type the closing one,
                     // in which case it would be annoying if we put the cursor after the already automatically
                     // inserted closing parenthesis.
@@ -233,7 +234,7 @@ void CppAssistProposalItem::applyContextualContent(TextEditorWidget *editorWidge
 
                     // If the function doesn't return anything, automatically place the semicolon,
                     // unless we're doing a scope completion (then it might be function definition).
-                    const QChar characterAtCursor = editorWidget->characterAt(editorWidget->position());
+                    const QChar characterAtCursor = target.characterAt(target.position());
                     bool endWithSemicolon = m_typedChar == QLatin1Char(';')
                             || (function->returnType()->asVoidType() && m_completionOperator != T_COLON_COLON);
                     const QChar semicolon = m_typedChar.isNull() ? QLatin1Char(';') : m_typedChar;
@@ -251,7 +252,7 @@ void CppAssistProposalItem::applyContextualContent(TextEditorWidget *editorWidge
                             m_typedChar = QChar();
                         }
                     } else if (autoParenthesesEnabled) {
-                        const QChar lookAhead = editorWidget->characterAt(editorWidget->position() + 1);
+                        const QChar lookAhead = target.characterAt(target.position() + 1);
                         if (MatchingText::shouldInsertMatchingText(lookAhead)) {
                             extraChars += QLatin1Char(')');
                             --cursorOffset;
@@ -289,10 +290,10 @@ void CppAssistProposalItem::applyContextualContent(TextEditorWidget *editorWidge
     }
 
     // Avoid inserting characters that are already there
-    int currentPosition = editorWidget->position();
-    QTextCursor cursor = editorWidget->textCursorAt(basePosition);
+    int currentPosition = target.position();
+    QTextCursor cursor = target.textCursorAt(basePosition);
     cursor.movePosition(QTextCursor::EndOfWord);
-    const QString textAfterCursor = editorWidget->textAt(currentPosition,
+    const QString textAfterCursor = target.textAt(currentPosition,
                                                        cursor.position() - currentPosition);
     if (toInsert != textAfterCursor
             && toInsert.indexOf(textAfterCursor, currentPosition - basePosition) >= 0) {
@@ -301,7 +302,7 @@ void CppAssistProposalItem::applyContextualContent(TextEditorWidget *editorWidge
 
     for (int i = 0; i < extraChars.size(); ++i) {
         const QChar a = extraChars.at(i);
-        const QChar b = editorWidget->characterAt(currentPosition + i);
+        const QChar b = target.characterAt(currentPosition + i);
         if (a == b)
             ++extraLength;
         else
@@ -312,12 +313,12 @@ void CppAssistProposalItem::applyContextualContent(TextEditorWidget *editorWidge
 
     // Insert the remainder of the name
     const int length = currentPosition - basePosition + extraLength;
-    editorWidget->replace(basePosition, length, toInsert);
-    editorWidget->setCursorPosition(basePosition + toInsert.size());
+    target.replace(basePosition, length, toInsert);
+    target.setCursorPosition(basePosition + toInsert.size());
     if (cursorOffset)
-        editorWidget->setCursorPosition(editorWidget->position() + cursorOffset);
+        target.setCursorPosition(target.position() + cursorOffset);
     if (setAutoCompleteSkipPos)
-        editorWidget->setAutoCompleteSkipPosition(editorWidget->textCursor());
+        target.setAutoCompleteSkipPosition(target.textCursor());
 }
 
 // --------------------

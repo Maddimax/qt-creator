@@ -3,6 +3,8 @@
 
 #include "languageclientutils.h"
 
+#include <texteditor/codeassist/assisttarget.h>
+
 #include "client.h"
 #include "languageclient_global.h"
 #include "languageclientmanager.h"
@@ -91,17 +93,17 @@ bool applyTextEdits(const Client *client,
     return file->apply(editsToChangeSet(edits, file->document()));
 }
 
-void applyTextEdit(TextEditorWidget *editorWidget, const TextEdit &edit, bool newTextIsSnippet)
+void applyTextEdit(AssistTarget &target, const TextEdit &edit, bool newTextIsSnippet)
 {
     const Range range = edit.range();
-    const QTextDocument *doc = editorWidget->document();
+    const QTextDocument *doc = target.document();
     const int start = range.start().toPositionInDocument(doc);
     const int end = range.end().toPositionInDocument(doc);
     if (newTextIsSnippet) {
-        editorWidget->replace(start, end - start, {});
-        editorWidget->insertCodeSnippet(start, edit.newText(), &parseSnippet);
+        target.replace(start, end - start, {});
+        target.insertCodeSnippet(start, edit.newText(), &parseSnippet);
     } else {
-        editorWidget->replace(start, end - start, edit.newText());
+        target.replace(start, end - start, edit.newText());
     }
 }
 

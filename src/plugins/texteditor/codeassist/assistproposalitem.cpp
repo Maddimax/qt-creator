@@ -3,6 +3,8 @@
 
 #include "assistproposalitem.h"
 
+#include "assisttarget.h"
+
 #include <texteditor/quickfix.h>
 #include <texteditor/snippets/snippet.h>
 #include <texteditor/texteditor.h>
@@ -105,35 +107,32 @@ bool AssistProposalItem::prematurelyApplies(const QChar &c) const
     return false;
 }
 
-void AssistProposalItem::apply(TextEditorWidget *editorWidget, int basePosition) const
+void AssistProposalItem::apply(AssistTarget &target, int basePosition) const
 {
-    QTC_ASSERT(editorWidget, return);
     if (data().canConvert<QString>()) {
-        applySnippet(editorWidget, basePosition);
+        applySnippet(target, basePosition);
     } else if (data().canConvert<QuickFixOperation::Ptr>()) {
-        applyQuickFix(editorWidget, basePosition);
+        applyQuickFix(target, basePosition);
     } else {
-        applyContextualContent(editorWidget, basePosition);
-        editorWidget->encourageApply();
+        applyContextualContent(target, basePosition);
+        target.encourageApply();
     }
 }
 
-void AssistProposalItem::applyContextualContent(TextEditorWidget *editorWidget, int basePosition) const
+void AssistProposalItem::applyContextualContent(AssistTarget &target, int basePosition) const
 {
-    QTC_ASSERT(editorWidget, return);
-    const int currentPosition = editorWidget->position();
-    editorWidget->replace(basePosition, currentPosition - basePosition, text());
+        const int currentPosition = target.position();
+    target.replace(basePosition, currentPosition - basePosition, text());
 }
 
-void AssistProposalItem::applySnippet(TextEditorWidget *editorWidget, int basePosition) const
+void AssistProposalItem::applySnippet(AssistTarget &target, int basePosition) const
 {
-    QTC_ASSERT(editorWidget, return);
-    editorWidget->insertCodeSnippet(basePosition, data().toString(), &Snippet::parse);
+        target.insertCodeSnippet(basePosition, data().toString(), &Snippet::parse);
 }
 
-void AssistProposalItem::applyQuickFix(TextEditorWidget *editorWidget, int basePosition) const
+void AssistProposalItem::applyQuickFix(AssistTarget &target, int basePosition) const
 {
-    Q_UNUSED(editorWidget)
+    Q_UNUSED(target)
     Q_UNUSED(basePosition)
 
     QuickFixOperation::Ptr op = data().value<QuickFixOperation::Ptr>();
