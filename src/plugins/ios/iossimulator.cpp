@@ -39,12 +39,14 @@ IosSimulator::IosSimulator()
 
 IDevice::DeviceInfo IosSimulator::deviceInformation() const
 {
-    return IDevice::DeviceInfo();
-}
-
-IDeviceWidget *IosSimulator::createWidget()
-{
-    return nullptr;
+    // The simulator page was empty: no widget and nothing reported, so
+    // selecting it showed a blank box. It says what it is now, which is what
+    // every other kind does.
+    return {
+        {Tr::tr("Device name:"), displayName()},
+        {Tr::tr("Type:"), displayType()},
+        {Tr::tr("Free ports:"), freePorts().toString()},
+    };
 }
 
 ExecutableItem IosSimulator::portsGatheringRecipe(const Storage<PortsOutputData> &output) const
