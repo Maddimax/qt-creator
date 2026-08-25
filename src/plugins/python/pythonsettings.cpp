@@ -57,6 +57,7 @@
 #include <QLoggingCategory>
 #include <QPointer>
 #include <QPushButton>
+#include <QScopeGuard>
 #include <QSettings>
 #include <QStackedWidget>
 #include <QTreeView>
@@ -428,131 +429,162 @@ static const QStringList &plugins()
     return plugins;
 }
 
-class PyLSConfigureWidget : public Core::IOptionsPageWidget
+// The Python language server's configuration. The JSON is what is stored; the
+// plugin check boxes are a reading of it, and writing one rewrites the JSON -
+// which is why "neither" is a state they can be in, for a plugin the JSON says
+// nothing about.
+class PyLSAspects : public AspectContainer
 {
 public:
-    PyLSConfigureWidget()
-        : m_editor(LanguageClient::createJsonEditor(this))
-        , m_advancedLabel(new QLabel)
-        , m_pluginsGroup(new QGroupBox(Tr::tr("Plugins:")))
-        , m_mainGroup(new QGroupBox(Tr::tr("Use Python Language Server")))
+    PyLSAspects()
     {
-        m_mainGroup->setCheckable(true);
+        setAutoApply(false);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Python/PyLSSettingsPage.qml"));
 
-        auto mainGroupLayout = new QVBoxLayout;
+        m_enabled.setQmlName("Enabled");
+        m_enabled.setLabelText(Tr::tr("Use Python Language Server"));
 
-        auto pluginsLayout = new QVBoxLayout;
-        m_pluginsGroup->setLayout(pluginsLayout);
-        m_pluginsGroup->setFlat(true);
+        m_plugins.setQmlName("Plugins");
         for (const QString &plugin : plugins()) {
-            auto checkBox = new QCheckBox(plugin, this);
-            connect(checkBox, &QCheckBox::clicked, this, [this, plugin, checkBox]() {
-                updatePluginEnabled(checkBox->checkState(), plugin);
+            auto aspect = new TriStateAspect(&m_plugins);
+            aspect->setUseCheckBox(true);
+            aspect->setLabelText(plugin);
+            aspect->setQmlName(plugin);
+            aspect->addOnVolatileValueChanged(this, [this, plugin, aspect] {
+                // The volatile value: a page that is not applied yet has the
+                // user's answer there, and value() still has the old one.
+                if (!m_reading)
+                    writePluginIntoConfiguration(
+                        plugin, TriState::fromInt(aspect->volatileValue()));
             });
-            m_checkBoxes[plugin] = checkBox;
-            pluginsLayout->addWidget(checkBox);
+            m_pluginAspects.insert(plugin, aspect);
         }
 
-        mainGroupLayout->addWidget(m_pluginsGroup);
+        m_advanced.setQmlName("Advanced");
+        m_advanced.setLabelText(Tr::tr("Advanced"));
 
-        const QString labelText = Tr::tr("For a complete list of available options, consult the "
-                                         "[Python LSP Server configuration documentation](%1).")
-                                      .arg("https://github.com/python-lsp/python-lsp-server/blob/"
-                                           "develop/CONFIGURATION.md");
-        m_advancedLabel->setTextFormat(Qt::MarkdownText);
-        m_advancedLabel->setText(labelText);
-        m_advancedLabel->setOpenExternalLinks(true);
-        mainGroupLayout->addWidget(m_advancedLabel);
-        mainGroupLayout->addWidget(m_editor->editorWidget(), 1);
+        m_documentation.setQmlName("Documentation");
+        m_documentation.setTextFormat(AspectControls::TextFormat::MarkdownText);
+        m_documentation.setText(
+            Tr::tr("For a complete list of available options, consult the "
+                   "[Python LSP Server configuration documentation](%1).")
+                .arg("https://github.com/python-lsp/python-lsp-server/blob/"
+                     "develop/CONFIGURATION.md"));
 
-        mainGroupLayout->addStretch();
+        m_configuration.setQmlName("Configuration");
+        m_configuration.setDisplayStyle(StringAspect::TextEditDisplay);
 
-        auto advanced = new QCheckBox(Tr::tr("Advanced"));
-        setIgnoreForDirtyHook(advanced);
-        advanced->setChecked(false);
-        mainGroupLayout->addWidget(advanced);
+        m_error.setQmlName("Error");
+        m_error.setIconType(InfoType::Error);
 
-        m_mainGroup->setLayout(mainGroupLayout);
+        // Behaviour, not layout.
+        m_configuration.addOnVolatileValueChanged(this, [this] {
+            readPluginsFromConfiguration();
+            checkConfiguration();
+        });
+        m_advanced.addOnVolatileValueChanged(this, [this] { updateVisibility(); });
 
-        QVBoxLayout *mainLayout = new QVBoxLayout;
-        mainLayout->addWidget(m_mainGroup);
-        setLayout(mainLayout);
-
-        m_editor->textDocument()->setPlainText(PythonSettings::pylsConfiguration());
-        m_mainGroup->setChecked(PythonSettings::pylsEnabled());
-        updateCheckboxes();
-
-        setAdvanced(false);
-
-        connect(advanced,
-                &QCheckBox::toggled,
-                this,
-                &PyLSConfigureWidget::setAdvanced);
-
-        installMarkSettingsDirtyTriggerRecursively(this);
-        connect(m_editor->textDocument(), &TextEditor::TextDocument::contentsChangedWithPosition,
-                this, markSettingsDirty);
+        m_enabled.setValue(PythonSettings::pylsEnabled());
+        m_configuration.setValue(PythonSettings::pylsConfiguration());
+        m_advanced.setValue(false);
+        readPluginsFromConfiguration();
+        checkConfiguration();
+        updateVisibility();
     }
 
     void apply() override
     {
-        PythonSettings::setPylsEnabled(m_mainGroup->isChecked());
-        PythonSettings::setPyLSConfiguration(m_editor->textDocument()->plainText());
-    }
-private:
-    void setAdvanced(bool advanced)
-    {
-        m_editor->editorWidget()->setVisible(advanced);
-        m_advancedLabel->setVisible(advanced);
-        m_pluginsGroup->setVisible(!advanced);
-        updateCheckboxes();
+        AspectContainer::apply();
+        PythonSettings::setPylsEnabled(m_enabled.volatileValue());
+        PythonSettings::setPyLSConfiguration(m_configuration.volatileValue());
     }
 
-    void updateCheckboxes()
+private:
+    void updateVisibility()
+    {
+        const bool advanced = m_advanced.volatileValue();
+        m_plugins.setVisible(!advanced);
+        m_documentation.setVisible(advanced);
+        m_configuration.setVisible(advanced);
+        m_error.setVisible(advanced && !m_error.text().isEmpty());
+    }
+
+    // What the JSON says about each plugin. Nothing at all is a state of its
+    // own: the server's own default applies, and saying "off" instead would be
+    // a decision the user never made.
+    void readPluginsFromConfiguration()
     {
         const QJsonDocument document = QJsonDocument::fromJson(
-            m_editor->textDocument()->plainText().toUtf8());
-        if (document.isObject()) {
-            const QJsonObject pluginsObject
-                = document.object()["pylsp"].toObject()["plugins"].toObject();
-            for (const QString &plugin : plugins()) {
-                auto checkBox = m_checkBoxes[plugin];
-                if (!checkBox)
-                    continue;
-                const QJsonValue enabled = pluginsObject[plugin].toObject()["enabled"];
-                if (!enabled.isBool())
-                    checkBox->setCheckState(Qt::PartiallyChecked);
-                else
-                    checkBox->setCheckState(enabled.toBool(false) ? Qt::Checked : Qt::Unchecked);
-            }
+            m_configuration.volatileValue().toUtf8());
+        if (!document.isObject())
+            return;
+        const QJsonObject pluginsObject
+            = document.object()["pylsp"].toObject()["plugins"].toObject();
+        // Reading the JSON into the boxes is not the user ticking them, and a
+        // box that writes back would rewrite the JSON under the cursor.
+        m_reading = true;
+        const QScopeGuard done([this] { m_reading = false; });
+        for (auto it = m_pluginAspects.cbegin(); it != m_pluginAspects.cend(); ++it) {
+            const QJsonValue enabled = pluginsObject[it.key()].toObject()["enabled"];
+            const TriState state = !enabled.isBool()
+                                       ? TriState::Default
+                                       : (enabled.toBool(false) ? TriState::Enabled
+                                                                : TriState::Disabled);
+            it.value()->setValue(state);
         }
     }
 
-    void updatePluginEnabled(Qt::CheckState check, const QString &plugin)
+    void writePluginIntoConfiguration(const QString &plugin, TriState state)
     {
-        if (check == Qt::PartiallyChecked)
+        if (state == TriState::Default)
             return;
         QJsonDocument document = QJsonDocument::fromJson(
-            m_editor->textDocument()->plainText().toUtf8());
+            m_configuration.volatileValue().toUtf8());
         QJsonObject config;
         if (!document.isNull())
             config = document.object();
         QJsonObject pylsp = config["pylsp"].toObject();
-        QJsonObject plugins = pylsp["plugins"].toObject();
-        QJsonObject pluginValue = plugins[plugin].toObject();
-        pluginValue.insert("enabled", check == Qt::Checked);
-        plugins.insert(plugin, pluginValue);
-        pylsp.insert("plugins", plugins);
+        QJsonObject pluginsObject = pylsp["plugins"].toObject();
+        QJsonObject pluginValue = pluginsObject[plugin].toObject();
+        pluginValue.insert("enabled", state == TriState::Enabled);
+        pluginsObject.insert(plugin, pluginValue);
+        pylsp.insert("plugins", pluginsObject);
         config.insert("pylsp", pylsp);
         document.setObject(config);
-        m_editor->textDocument()->setPlainText(QString::fromUtf8(document.toJson()));
+        m_configuration.setValue(QString::fromUtf8(document.toJson()));
     }
 
-    QMap<QString, QCheckBox *> m_checkBoxes;
-    TextEditor::BaseTextEditor *m_editor = nullptr;
-    QLabel *m_advancedLabel = nullptr;
-    QGroupBox *m_pluginsGroup = nullptr;
-    QGroupBox *m_mainGroup = nullptr;
+    // What the widget editor put on the line as a text mark. A settings page
+    // has one place to say it, so it says it there.
+    void checkConfiguration()
+    {
+        const QString content = m_configuration.volatileValue().trimmed();
+        QString message;
+        if (!content.isEmpty()) {
+            QJsonParseError error;
+            QJsonDocument::fromJson(content.toUtf8(), &error);
+            if (error.error != QJsonParseError::NoError)
+                message = Tr::tr("JSON Error: %1").arg(error.errorString());
+        }
+        m_error.setText(message);
+        m_error.setVisible(m_advanced.volatileValue() && !message.isEmpty());
+    }
+
+    QMap<QString, TriStateAspect *> m_pluginAspects;
+    bool m_reading = false;
+
+public:
+    TriStateAspect *pluginAspect(const QString &name) const
+    {
+        return m_pluginAspects.value(name);
+    }
+
+    BoolAspect m_enabled{this};
+    AspectContainer m_plugins{this};
+    BoolAspect m_advanced{this};
+    TextDisplay m_documentation{this};
+    StringAspect m_configuration{this};
+    TextDisplay m_error{this};
 };
 
 
@@ -564,7 +596,10 @@ public:
         setId(Constants::C_PYLSCONFIGURATION_PAGE_ID);
         setDisplayName(Tr::tr("Language Server Configuration"));
         setCategory(Constants::C_PYTHON_SETTINGS_CATEGORY);
-        setWidgetCreator([] {return new PyLSConfigureWidget();});
+        setSettingsProvider([] {
+            static GuardedObject<PyLSAspects> theAspects;
+            return theAspects.get();
+        });
     }
 };
 
@@ -1452,6 +1487,84 @@ void PythonInterpretersTest::testApplyingHandsTheListOver()
     QVERIFY2(Utils::anyOf(PythonSettings::interpreters(),
                           [](const Interpreter &i) { return i.name == "Applied"; }),
              "the interpreter did not reach PythonSettings");
+}
+
+class PyLSSettingsTest : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void cleanup()
+    {
+        if (PyLSAspects *p = page())
+            static_cast<BaseAspect *>(p)->cancel();
+    }
+
+    void testTheBoxesAndTheJsonSayTheSameThing()
+    {
+        // The check boxes are a reading of the configuration, and ticking one
+        // rewrites it. A plugin the JSON says nothing about is neither on nor
+        // off - saying "off" would be a decision the user never made.
+        PyLSAspects *p = page();
+        QVERIFY(p);
+        TriStateAspect *flake8 = p->pluginAspect("flake8");
+        TriStateAspect *pylint = p->pluginAspect("pylint");
+        QVERIFY(flake8);
+        QVERIFY(pylint);
+
+        p->m_configuration.setValue(
+            R"({"pylsp": {"plugins": {"flake8": {"enabled": true},
+                                      "pylint": {"enabled": false}}}})");
+        QCOMPARE(TriState::fromInt(flake8->volatileValue()), TriState::Enabled);
+        QCOMPARE(TriState::fromInt(pylint->volatileValue()), TriState::Disabled);
+
+        p->m_configuration.setValue("{}");
+        QCOMPARE(TriState::fromInt(flake8->volatileValue()), TriState::Default);
+        QCOMPARE(TriState::fromInt(pylint->volatileValue()), TriState::Default);
+
+        // And the other way: a box that is ticked says so in the JSON.
+        flake8->setValue(TriState::Enabled);
+        const QJsonObject enabled
+            = QJsonDocument::fromJson(p->m_configuration.volatileValue().toUtf8())
+                  .object()["pylsp"].toObject()["plugins"].toObject();
+        QCOMPARE(enabled["flake8"].toObject()["enabled"].toBool(), true);
+        // The one that was never touched is still not mentioned.
+        QVERIFY(!enabled.contains("pylint"));
+    }
+
+    void testBadJsonSaysWhatIsWrongWithIt()
+    {
+        // The widget editor put this on the line as a text mark; a settings
+        // page has one place to say it.
+        PyLSAspects *p = page();
+        QVERIFY(p);
+        p->m_configuration.setValue("{}");
+        QVERIFY(p->m_error.text().isEmpty());
+
+        p->m_configuration.setValue("{ not json");
+        QVERIFY(!p->m_error.text().isEmpty());
+
+        p->m_configuration.setValue("{}");
+        QVERIFY(p->m_error.text().isEmpty());
+    }
+
+private:
+    static PyLSAspects *page()
+    {
+        Core::IOptionsPage *found = Utils::findOrDefault(
+            Core::IOptionsPage::allOptionsPages(), [](Core::IOptionsPage *p) {
+                return p->id() == Constants::C_PYLSCONFIGURATION_PAGE_ID;
+            });
+        if (!found)
+            return nullptr;
+        const std::optional<AspectContainer *> aspects = found->aspects();
+        return aspects ? static_cast<PyLSAspects *>(*aspects) : nullptr;
+    }
+};
+
+QObject *createPyLSSettingsTest()
+{
+    return new PyLSSettingsTest;
 }
 
 QObject *createPythonInterpretersTest()

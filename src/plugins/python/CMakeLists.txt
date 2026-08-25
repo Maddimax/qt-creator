@@ -61,5 +61,6 @@ if(TARGET Python AND TARGET Qt::Quick)
     NO_PLUGIN
     QML_FILES
       PythonInterpretersPage.qml
+      PyLSSettingsPage.qml
   )
 endif()

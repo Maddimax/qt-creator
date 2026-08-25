@@ -100,6 +100,7 @@ void prunePylspInstallations(const Utils::FilePath &pylspRoot, const QStringList
 
 #ifdef WITH_TESTS
 QObject *createPythonInterpretersTest();
+QObject *createPyLSSettingsTest();
 #endif
 
 class InterpreterModel final : public Utils::ListModel<PythonSettings::Interpreter>
