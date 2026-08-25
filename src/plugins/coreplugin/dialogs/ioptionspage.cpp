@@ -37,6 +37,22 @@ void setAspectFormFactory(const AspectFormFactory &factory)
     s_aspectFormFactory = factory;
 }
 
+QWidget *createAspectForm(AspectContainer *container)
+{
+    QTC_ASSERT(container, return nullptr);
+
+    if (s_aspectFormFactory) {
+        if (QWidget *form = s_aspectFormFactory(container))
+            return form;
+    }
+
+    const AspectWidgets::Layouter layouter = AspectWidgets::layouter(container);
+    QTC_ASSERT(layouter, return nullptr);
+    auto form = new QWidget;
+    layouter().attachTo(form);
+    return form;
+}
+
 namespace Internal {
 
 using WidgetCreator = std::function<IOptionsPageWidget *()>;
@@ -510,23 +526,13 @@ IOptionsPageWidget *IOptionsPagePrivate::createWidget()
         AspectContainer *container = m_settingsProvider();
         QTC_ASSERT(container, return nullptr);
 
-        if (s_aspectFormFactory) {
-            if (QWidget *form = s_aspectFormFactory(container)) {
-                m_widget = new IOptionsPageWidget;
-                m_widget->d->setAspects(container);
-                auto layout = new QVBoxLayout(m_widget);
-                layout->setContentsMargins(0, 0, 0, 0);
-                layout->addWidget(form);
-                return m_widget;
-            }
-        }
-
-        const Utils::AspectWidgets::Layouter layouter
-            = Utils::AspectWidgets::layouter(container);
-        QTC_ASSERT(layouter, return nullptr);
+        QWidget *form = createAspectForm(container);
+        QTC_ASSERT(form, return nullptr);
         m_widget = new IOptionsPageWidget;
         m_widget->d->setAspects(container);
-        layouter().attachTo(m_widget);
+        auto layout = new QVBoxLayout(m_widget);
+        layout->setContentsMargins(0, 0, 0, 0);
+        layout->addWidget(form);
     } else {
         QTC_CHECK(false);
         return nullptr;

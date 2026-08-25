@@ -48,6 +48,12 @@ private:
 using AspectFormFactory = std::function<QWidget *(Utils::AspectContainer *)>;
 CORE_EXPORT void setAspectFormFactory(const AspectFormFactory &factory);
 
+// A settings form for a container, for the places that are not options pages -
+// a project panel showing the same settings per project. Uses the factory
+// where it takes the container and the container's own layouter otherwise, so
+// that both surfaces show the same thing.
+CORE_EXPORT QWidget *createAspectForm(Utils::AspectContainer *container);
+
 class CORE_EXPORT IOptionsPage
 {
     Q_DISABLE_COPY_MOVE(IOptionsPage)
