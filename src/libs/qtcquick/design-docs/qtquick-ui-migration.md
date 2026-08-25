@@ -1276,8 +1276,8 @@ method, and the manual-run dialog builds a widget from it too, so the page
 naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
-all`, minus `QmlDesigner` and `UpdateInfo`, see below): **90 aspect-driven
-pages, all 90 with their own QML and rendered with Qt Quick, none still on
+all`, minus `QmlDesigner` and `UpdateInfo`, see below): **91 aspect-driven
+pages, all 91 with their own QML and rendered with Qt Quick, none still on
 widgets.** Gerrit is the first of the widget-creator pages below to have joined
 that count: it became aspect-driven and then got a form, which is the shape the
 rest of them take.
@@ -1351,7 +1351,7 @@ pages that hand over an `AspectContainer` through `setSettingsProvider()`.
 A page that calls `IOptionsPage::setWidgetCreator()` builds its own
 `IOptionsPageWidget` and answers nothing from `aspects()`, so the test skips it
 entirely: `isFullyRenderable()` is never asked and the page is not in the 73.
-There are **23 such call sites in 21 files** - Keyboard, Locator, MIME Types,
+There are **22 such call sites in 20 files** - Keyboard, Locator, MIME Types,
 the toolchain, kit and device pages, Beautifier's three, Clangd, Axivion - and
 they are pure QtWidgets from top to bottom. Counted with
 
@@ -1359,8 +1359,8 @@ they are pure QtWidgets from top to bottom. Counted with
 
 minus the mode files, which are `IMode::setWidgetCreator()` and a different
 thing - `debuggerplugin.cpp` is one of those, not a page. Gerrit, To-Do, GitLab, Beautifier's three, Clangd, Debuggers, FakeVim's User
-Command Mapping, MIME Types, qbs Profiles and the Meson, GN and CMake Tools
-pages went this way; converting any of them took an
+Command Mapping, MIME Types, Python's Interpreters, qbs Profiles and the Meson,
+GN and CMake Tools pages went this way; converting any of them took an
 `AspectContainer` that reads the plugin's own settings struct when the page is
 built and writes it back on apply, which is the same shape the Code Style pages
 use and needs no change to what the rest of the plugin reads.
@@ -1455,6 +1455,13 @@ decide what to store. That round trip happened to be lossless, so it was not a
 bug; it did mean the truth about a debugger lived in a string on screen, and a
 page that keeps it as its own state is one less thing to get wrong. Expect the
 same shape in the pages that are left.
+
+**Every one of these pages wrote the form back twice**, and only one of the two
+ever does anything. Python wrote each field as it changed *and* wrote the whole
+form back when the selection moved on; CMake had a `m_loading` bool beside a
+cleared id; Beautifier's `reload()` remembered a selection every caller
+overwrote. Each was found the same way, by a negative control that stayed
+green. Aim one at both halves before copying the pair across.
 
 **The guard that guards nothing.** All three ported pages load a tool into a
 form and store what the user types, and all three carried *two* flags for it -
