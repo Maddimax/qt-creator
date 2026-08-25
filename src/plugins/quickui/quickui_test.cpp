@@ -426,6 +426,7 @@ void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
                     {"AspectInlineListDelegate", {Kind::AspectInlineList}},
                     {"GroupedListDelegate", {Kind::GroupedList}},
                     {"InlineGroupDelegate", {Kind::InlineGroup}},
+                    {"FlattenedGroupDelegate", {Kind::FlattenedGroup}},
                     {"TreeDelegate", {Kind::Tree}},
                     {"FontFamilyDelegate", {Kind::FontFamily}},
                 };

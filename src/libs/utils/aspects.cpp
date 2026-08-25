@@ -3584,6 +3584,7 @@ public:
     std::shared_ptr<void> m_backendData;
     QUrl m_qmlSource;
     bool m_inlineRow = false;
+    bool m_flattened = false;
 };
 
 #ifdef WITH_TESTS
@@ -3627,6 +3628,7 @@ AspectPresentation AspectContainer::presentation() const
     AspectPresentation p = BaseAspect::presentation();
     p.control = AspectControls::Container;
     p.inlineRow = d->m_inlineRow;
+    p.flattened = d->m_flattened;
     return p;
 }
 
@@ -3640,6 +3642,14 @@ void AspectContainer::setInlineRow(bool on)
     if (d->m_inlineRow == on)
         return;
     d->m_inlineRow = on;
+    emit controlConfigurationChanged();
+}
+
+void AspectContainer::setFlattened(bool on)
+{
+    if (d->m_flattened == on)
+        return;
+    d->m_flattened = on;
     emit controlConfigurationChanged();
 }
 

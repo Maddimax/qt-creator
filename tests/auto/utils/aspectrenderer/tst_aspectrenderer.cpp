@@ -32,6 +32,7 @@
 #include <QTest>
 #include <QTextEdit>
 #include <QTreeWidget>
+#include <QFormLayout>
 #include <QVBoxLayout>
 #include <QUndoStack>
 
@@ -188,6 +189,8 @@ private slots:
     void comboBoxKeepsAnIdAcrossARefill();
     void aHiddenAspectIsStillBuilt_data() { addRendererRows(); }
     void aHiddenAspectIsStillBuilt();
+    void containerWithNoBoxOfItsOwn_data() { addRendererRows(); }
+    void containerWithNoBoxOfItsOwn();
 };
 
 void tst_AspectRenderer::initTestCase()
@@ -1587,6 +1590,108 @@ void tst_AspectRenderer::aHiddenAspectIsStillBuilt()
 
     warning.setVisible(false);
     QVERIFY(!label->isVisibleTo(widget.get()));
+}
+
+void tst_AspectRenderer::containerWithNoBoxOfItsOwn()
+{
+    QFETCH(bool, withRenderer);
+    setRendererInstalled(withRenderer);
+
+    // An executable and the alternative to it on a device: one thing to
+    // whatever runs them, so one aspect, but two rows of the page around them
+    // rather than a group of two settings.
+    const auto build = [](AspectContainer &page, bool flattened) {
+        auto executable = new AspectContainer(&page);
+        executable->setFlattened(flattened);
+        for (const char *name : {"Executable:", "Alternate executable on device:"}) {
+            auto path = new StringAspect(executable);
+            path->setLabelText(QString::fromLatin1(name));
+            path->setDisplayStyle(StringAspect::LineEditDisplay);
+        }
+        auto after = new StringAspect(&page);
+        after->setLabelText("Arguments:");
+        after->setDisplayStyle(StringAspect::LineEditDisplay);
+
+        // A form, as a build or run panel is: a label column and a field
+        // column, which is what there is to line up with in the first place.
+        AspectWidgets::setLayouter(&page, [&page] {
+            Layouting::Form form;
+            for (BaseAspect * const aspect : page.aspects()) {
+                form.addItem(aspect);
+                form.addItem(Layouting::br);
+            }
+            return form;
+        });
+        return executable;
+    };
+
+    // The labels a page shows, and what each one was put in. A field is no use
+    // here: FancyLineEdit holds another FancyLineEdit, so counting them counts
+    // everything twice.
+    const QStringList wanted{"Executable:", "Alternate executable on device:", "Arguments:"};
+    const auto rows = [&wanted](QWidget *widget) {
+        QList<QPair<QString, QWidget *>> found;
+        // Only the labels this test asked for: a line edit brings its own -
+        // the macro expander's "Select a variable to insert."
+        for (QLabel * const label : widget->findChildren<QLabel *>()) {
+            if (wanted.contains(label->text()))
+                found.append({label->text(), label->parentWidget()});
+        }
+        return found;
+    };
+
+    AspectContainer flatPage;
+    build(flatPage, true);
+    const std::unique_ptr<QWidget> flat = render(flatPage);
+    QVERIFY(flat);
+
+    AspectContainer boxedPage;
+    build(boxedPage, false);
+    const std::unique_ptr<QWidget> boxed = render(boxedPage);
+    QVERIFY(boxed);
+
+    const QList<QPair<QString, QWidget *>> flatRows = rows(flat.get());
+    if (!withRenderer) {
+        QVERIFY(flatRows.isEmpty());
+        return;
+    }
+
+    // In order, and all three in the same widget: the two inside the container
+    // are rows of the page, not of a box of their own.
+    QCOMPARE(Utils::transform(flatRows, &QPair<QString, QWidget *>::first), wanted);
+    QCOMPARE(flatRows.at(1).second, flatRows.at(0).second);
+    QCOMPARE(flatRows.at(2).second, flatRows.at(0).second);
+
+    // Three rows of the form, not one row holding two of them: what the
+    // container lists are settings in their own right, they just belong
+    // together.
+    auto form = flat->findChild<QFormLayout *>();
+    QVERIFY(form);
+    QCOMPARE(form->rowCount(), 3);
+
+    // Without it, the container is a widget of its own and its rows are not
+    // the page's - which is what every other nested container wants, and what
+    // made this worth saying.
+    const QList<QPair<QString, QWidget *>> boxedRows = rows(boxed.get());
+    QCOMPARE(boxedRows.size(), 3);
+    QCOMPARE(boxedRows.at(1).second, boxedRows.at(0).second);
+    QVERIFY(boxedRows.at(2).second != boxedRows.at(0).second);
+
+    // A container that was given a layout of its own means it: saying both is
+    // saying the layout, because there is nowhere else for it to go.
+    AspectContainer bothPage;
+    AspectContainer * const both = build(bothPage, true);
+    AspectWidgets::setLayouter(both, [both] {
+        Layouting::Column column;
+        for (BaseAspect * const aspect : both->aspects())
+            column.addItem(aspect);
+        return column;
+    });
+    const std::unique_ptr<QWidget> withLayout = render(bothPage);
+    QVERIFY(withLayout);
+    const QList<QPair<QString, QWidget *>> bothRows = rows(withLayout.get());
+    QCOMPARE(bothRows.size(), 3);
+    QVERIFY(bothRows.at(2).second != bothRows.at(0).second);
 }
 
 void tst_AspectRenderer::filePathLiveReconfiguration()

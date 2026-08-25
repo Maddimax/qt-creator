@@ -80,6 +80,8 @@ AspectContainerModel::Kind AspectContainerModel::kindOf(const BaseAspect *aspect
         return Unsupported;
     if (kind == Container && p.inlineRow)
         return InlineGroup;
+    if (kind == Container && p.flattened)
+        return FlattenedGroup;
 
     return kind;
 }
@@ -93,7 +95,7 @@ bool AspectContainerModel::isFullyRenderable(const AspectContainer *container)
         const Kind kind = kindOf(aspect);
         if (kind == Unsupported)
             return false;
-        if (kind == Container || kind == InlineGroup) {
+        if (kind == Container || kind == InlineGroup || kind == FlattenedGroup) {
             auto nested = qobject_cast<const AspectContainer *>(aspect);
             if (!nested || !isFullyRenderable(nested))
                 return false;

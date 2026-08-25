@@ -210,6 +210,16 @@ public:
                     parent.addItem(row);
                     return true;
                 }
+                // No box of its own: what it holds belongs to the layout
+                // around it, so that its rows line up with everything else's
+                // rather than in a widget of their own.
+                if (pres.flattened && !AspectWidgets::hasLayouter(container)) {
+                    for (BaseAspect * const child : container->aspects()) {
+                        parent.addItem(child);
+                        parent.flush();
+                    }
+                    return true;
+                }
                 if (const AspectWidgets::Layouter l = AspectWidgets::layouter(container)) {
                     // In a widget of its own, so that a container can be shown
                     // and hidden as a unit - one category of a code style at a

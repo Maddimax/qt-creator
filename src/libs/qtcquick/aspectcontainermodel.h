@@ -58,6 +58,7 @@ public:
         // A container whose aspects read as one value: drawn as one row, with
         // no group box around it. See AspectContainer::setInlineRow().
         InlineGroup,
+        FlattenedGroup,
         AspectList,
         AspectInlineList,
         TextWithAction,

@@ -196,7 +196,11 @@ public:
     EnableCategoriesFilterAspect(Utils::AspectContainer *container = nullptr);
 };
 
-class PROJECTEXPLORER_EXPORT ExecutableAspect : public Utils::BaseAspect
+// An executable, and on a device the alternative to it: two settings that are
+// one thing to whatever runs them, so a container rather than an aspect that
+// draws two of its own. Flattened, because the two are rows of the page around
+// them and not a group.
+class PROJECTEXPLORER_EXPORT ExecutableAspect : public Utils::AspectContainer
 {
     Q_OBJECT
 
@@ -213,7 +217,6 @@ public:
     void setDeviceSelector(Kit *kit, ExecutionDeviceSelector selector);
     void setSettingsKey(const Utils::Key &key);
     void makeOverridable(const Utils::Key &overridingKey, const Utils::Key &useOverridableKey);
-    void addToLayoutImpl(Layouting::Layout &parent) override;
     void setLabelText(const QString &labelText);
     void setPlaceHolderText(const QString &placeHolderText);
     void setHistoryCompleter(const Utils::Key &historyCompleterKey);
@@ -227,10 +230,6 @@ public:
     {
         Utils::FilePath executable;
     };
-
-protected:
-    void fromMap(const Utils::Store &map) override;
-    void toMap(Utils::Store &map) const override;
 
 private:
     QString executableText() const;

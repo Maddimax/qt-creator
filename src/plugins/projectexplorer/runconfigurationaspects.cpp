@@ -490,17 +490,20 @@ void ArgumentsAspect::setFocusToInputField()
 */
 
 ExecutableAspect::ExecutableAspect(AspectContainer *container)
-    : BaseAspect(container)
+    : AspectContainer(container)
 {
     setDisplayName(Tr::tr("Executable"));
     setId("ExecutableAspect");
     setReadOnly(true);
+    // No box around them: they are rows of whatever page lists this aspect.
+    setFlattened(true);
     addDataExtractor(this, &ExecutableAspect::executable, &Data::executable);
 
     m_executable.setPlaceHolderText(Tr::tr("Enter the path to the executable"));
     m_executable.setLabelText(Tr::tr("Executable:"));
-
-    connect(&m_executable, &StringAspect::changed, this, &ExecutableAspect::changed);
+    // Not owned - it is a member. Registering forwards its changes and reads
+    // and writes it, which this aspect used to do by hand.
+    registerAspect(&m_executable);
     // A build can turn a path that did not exist into one that does.
     connect(BuildManager::instance(), &BuildManager::buildQueueFinished,
             &m_executable, &FilePathAspect::validateInput);
@@ -522,11 +525,7 @@ static IDevice::ConstPtr executionDevice(const Kit *k,
     return DeviceManager::defaultDesktopDevice();
 }
 
-ExecutableAspect::~ExecutableAspect()
-{
-    delete m_alternativeExecutable;
-    m_alternativeExecutable = nullptr;
-}
+ExecutableAspect::~ExecutableAspect() = default;
 
 void ExecutableAspect::setDeviceSelector(Kit *kit, ExecutionDeviceSelector selector)
 {
@@ -605,8 +604,7 @@ void ExecutableAspect::makeOverridable(const Key &overridingKey, const Key &useO
     m_alternativeExecutable->setSettingsKey(overridingKey);
     m_alternativeExecutable->makeCheckable(CheckBoxPlacement::Right,
                                            Tr::tr("Use this command instead"), useOverridableKey);
-    connect(m_alternativeExecutable, &StringAspect::changed,
-            this, &ExecutableAspect::changed);
+    registerAspect(m_alternativeExecutable, /*takeOwnership=*/true);
 }
 
 /*!
@@ -626,18 +624,6 @@ FilePath ExecutableAspect::executable() const
         exe = dev->rootPath().withNewMappedPath(exe);
 
     return exe;
-}
-
-/*!
-    \reimp
-*/
-void ExecutableAspect::addToLayoutImpl(Layout &builder)
-{
-    builder.addItem(m_executable);
-    if (m_alternativeExecutable) {
-        builder.flush();
-        builder.addItem(m_alternativeExecutable);
-    }
 }
 
 /*!
@@ -678,26 +664,6 @@ void ExecutableAspect::setSettingsKey(const Key &key)
 {
     BaseAspect::setSettingsKey(key);
     m_executable.setSettingsKey(key);
-}
-
-/*!
-  \reimp
-*/
-void ExecutableAspect::fromMap(const Store &map)
-{
-    m_executable.fromMap(map);
-    if (m_alternativeExecutable)
-        m_alternativeExecutable->fromMap(map);
-}
-
-/*!
-   \reimp
-*/
-void ExecutableAspect::toMap(Store &map) const
-{
-    m_executable.toMap(map);
-    if (m_alternativeExecutable)
-        m_alternativeExecutable->toMap(map);
 }
 
 /*!

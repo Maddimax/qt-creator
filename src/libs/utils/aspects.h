@@ -1475,6 +1475,9 @@ public:
     // Whether what is inside reads as one value rather than as a list of
     // settings, and so is drawn as one row without a group box around it.
     void setInlineRow(bool on);
+    // No box of its own: what it holds goes into the layout around it, a row
+    // each. See AspectPresentation::flattened.
+    void setFlattened(bool on);
 
     // Called when whatever draws this container is actually shown, which is
     // not when it is built: a page census builds every page and shows none, so

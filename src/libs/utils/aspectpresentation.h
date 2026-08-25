@@ -302,6 +302,13 @@ public:
     // read as one value - the parts of an ABI - are one row, not five.
     bool inlineRow = false;
 
+    // Container. Whether what it holds goes straight into the layout around
+    // it, a row each, rather than into a box of its own. An executable and the
+    // alternative to it on a device are two rows of the form they sit in, not
+    // a group of two settings. Ignored where inlineRow is set: that is the
+    // same question answered the other way.
+    bool flattened = false;
+
     // GroupedList. Whether one of the items is the default one, which not
     // every such list has - a list of toolchains does not.
     bool showsDefault = false;

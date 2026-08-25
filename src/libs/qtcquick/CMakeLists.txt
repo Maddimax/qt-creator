@@ -53,6 +53,7 @@ if(TARGET QtcQuick)
       FontFamilyDelegate.qml
       GroupDelegate.qml
       InlineGroupDelegate.qml
+      FlattenedGroupDelegate.qml
       GroupedListDelegate.qml
       IntegerDelegate.qml
       KeySequenceDelegate.qml

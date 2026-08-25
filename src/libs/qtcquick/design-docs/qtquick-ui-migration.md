@@ -2165,7 +2165,7 @@ installs a message handler and asserts nothing says SOFT ASSERT. The first
 version of it passed against a build with the guard removed, which is the only
 reason it was rewritten.
 
-**What this does not do.** The virtual has to stay: nine aspects in
+**What this does not do.** The virtual has to stay: eight aspects in
 `src/plugins` and five more in Utils still override it. They are not one
 group. Most are run-configuration, build-step and kit aspects - project
 panels rather than preferences pages, which is a surface the migration has not
@@ -2504,7 +2504,7 @@ anyway, because the closure was holding state - a widget's `customConfigs()`, a
 label's text - that nothing else did. Both are now gone. `EnvVarSeparatorAspect` was
 a sixth of exactly the same kind - see below.
 
-What still overrides `addToLayoutImpl()` in `src/plugins` is nine aspects,
+What still overrides `addToLayoutImpl()` in `src/plugins` is eight aspects,
 and they are mostly the project surface: run configurations, build steps and
 build settings. Three are not - `KitAspect` and `DeviceToolAspect` on the Kits
 and Devices pages, and `LibrarySelectionAspect` - and those are the ones to
@@ -2693,6 +2693,40 @@ were shown". And even then, removing the initial hide from
 Removing both does - which is how the redundancy was found, and it is worth
 knowing that a control that does not bite can mean two guards rather than a
 weak test.
+
+### A container with no box of its own
+
+`ExecutableAspect` is two `FilePathAspect`s - the executable, and on a device
+the alternative to it - held by a `BaseAspect` that laid them out itself,
+read and wrote them itself, and forwarded their `changed()` itself. All three
+are what `AspectContainer` does, so it is one now. `fromMap()`, `toMap()`, the
+`connect`s and the closure are gone, and the alternative is owned by the
+container rather than deleted by hand.
+
+What stopped this being a container before is that a nested one draws in a
+widget of its own - the group box, or a bare `Column` where it has no title -
+and these two are *rows of the page around them*. A box would indent them and
+stop them lining up with the settings above and below.
+
+So `AspectPresentation` gains **`flattened`**, the other answer to the question
+`inlineRow` asks. `inlineRow` means "one row, no box"; `flattened` means "my
+rows, no box". A container that was given a layouter of its own means the
+layouter: saying both says the layout, because there is nowhere else for it to
+go. On the Qt Quick side it is `FlattenedGroupDelegate.qml`, which is
+`GroupDelegate` without the `GroupBox`.
+
+**Three things the tests had to be argued into saying.**
+
+`findChildren<FancyLineEdit *>()` counts every field twice, because
+`FancyLineEdit` holds another one. Counting labels instead is not enough
+either: a line edit brings its own label along - the macro expander's *Select a
+variable to insert.* - so the test names the labels it is looking for.
+
+And the first version rendered into a `Column`, where a missing row break
+cannot be seen. `parent.flush()` after each child only matters in a `Form`,
+which is what a build or run panel is, so the test builds one and counts
+`QFormLayout::rowCount()`. Without the flush the two rows become one, and a
+control that had not been biting starts to.
 
 ### What the census could not see, and now can
 

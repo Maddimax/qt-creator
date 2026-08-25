@@ -154,6 +154,10 @@ GridLayout {
                 roleValue: AspectContainerModel.InlineGroup
                 InlineGroupDelegate {}
             }
+            DelegateChoice {
+                roleValue: AspectContainerModel.FlattenedGroup
+                FlattenedGroupDelegate {}
+            }
             DelegateChoice { UnsupportedDelegate {} }
         }
     }
