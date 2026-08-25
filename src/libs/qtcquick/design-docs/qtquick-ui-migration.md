@@ -1302,8 +1302,8 @@ method, and the manual-run dialog builds a widget from it too, so the page
 naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
-all`, minus `QmlDesigner` and `UpdateInfo`, see below): **95 aspect-driven
-pages, all 95 with their own QML and rendered with Qt Quick, none still on
+all`, minus `QmlDesigner` and `UpdateInfo`, see below): **96 aspect-driven
+pages, all 96 with their own QML and rendered with Qt Quick, none still on
 widgets.** The count goes up as widget-creator pages become aspect-driven, so
 it is a running total rather than a target. Gerrit is the first of the widget-creator pages below to have joined
 that count: it became aspect-driven and then got a form, which is the shape the
@@ -1393,9 +1393,9 @@ pages that hand over an `AspectContainer` through `setSettingsProvider()`.
 A page that calls `IOptionsPage::setWidgetCreator()` builds its own
 `IOptionsPageWidget` and answers nothing from `aspects()`, so the test skips it
 entirely: `isFullyRenderable()` is never asked and the page is not in the 73.
-There are **20 such call sites in 19 files** - Keyboard, Locator, External
-Tools, the toolchain, kit and device pages, Axivion, Designer, Help's filters,
-MCU Support, CDB, BareMetal - and they are pure QtWidgets from top to bottom.
+There are **19 such call sites in 18 files** - Keyboard, Locator, External
+Tools, the toolchain, kit and device pages, Designer, Help's filters, MCU
+Support, CDB, BareMetal - and they are pure QtWidgets from top to bottom.
 Counted with
 
     grep -rn setWidgetCreator src/plugins src/libs --include='*.cpp'
@@ -1417,15 +1417,32 @@ usual habit of dropping what was typed without saying why - GitLab's Add
 silently discarded a bad host - because the check becomes the aspect's
 validation.
 
-**Axivion is the next one of that shape, and it needs one thing first.** Its
-path mappings are a three-column tree with Add, Delete, Move Up and Move Down
-beside it and a details form under it, and `PathMappingDetails` is already an
-`AspectContainer` of three - so the list itself is an `AspectList` with
-`ListViewWithDetails`, and `addExtraButton()` and the item decoration
-`AspectListDelegate` already draws cover the rest. What is missing is order:
-`AspectList` has no way to move an item and no notion of which one is current,
-so Move Up and Move Down have nothing to act on. Its servers combo and the two
-dialogs behind it can stay dialogs, the way Qt Versions' Link with Qt did.
+**Axivion was the next one of that shape, and it needed two things first.**
+Its path mappings are a three-column tree with Add, Delete, Move Up and Move
+Down and a details form under it - a list of sub-aspects with a details pane,
+which `PathMappingDetails` already was.
+
+- *Order.* `AspectList` could neither move an item nor say which one is
+  current, so Move Up and Move Down had nothing to act on. Which item is
+  current is the aspect's answer now, not the view's, so the widget list and
+  the Quick one agree on what may be moved where; a page says `setOrdered(true)`
+  and both grow the two buttons. The Quick row order came from the *applied*
+  list rather than the volatile one, so a move showed nothing until Apply -
+  worth knowing, because that is where an added row is marked and a removed one
+  is struck through, and only the surviving rows' order is the user's.
+- *Somewhere to put a settings object the page does not own.* Axivion's page
+  shows five aspects that belong to `AxivionSettings`, and naming them as
+  sub-aspects would re-home them: `registerAspect()` calls
+  `setContainer()`, and an aspect's container is what its settings key is
+  resolved against, so the settings would quietly move in the file.
+  `Utils::ContainerAspect` - the thing Qt Versions grew for the opposite reason,
+  extra settings it *does* own - hands a container over either way. It parents
+  only what it owns, forwards the container's changes so the preferences dialog
+  sees them, and answers `isDirty()` from it.
+
+Its servers stayed a combo box with a dialog behind it, the way Qt Versions'
+Link with Qt did: what a server is is the dialog's business, and the page only
+picks the default one.
 
 Two of the remaining ones are not this shape at all and are worth knowing
 about before picking a batch: **Help > Filters** is a `QHelpFilterSettingsWidget`
