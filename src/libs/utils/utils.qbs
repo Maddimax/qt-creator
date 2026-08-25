@@ -332,6 +332,8 @@ QtcLibrary {
         "stylehelper.h",
         "stylehelperpainting.cpp",
         "stylehelperpainting.h",
+        "summaryaspect.cpp",
+        "summaryaspect.h",
         "summarywidget.cpp",
         "summarywidget.h",
         "synchronizedvalue.h",

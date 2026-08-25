@@ -24,6 +24,7 @@
 #include <utils/groupedlistaspect.h>
 #include <utils/groupedmodel.h>
 #include <utils/pathvalidation.h>
+#include <utils/summaryaspect.h>
 #include <utils/treemodel.h>
 #include <utils/widgets.h>
 #include <utils/layoutbuilder.h>
@@ -186,6 +187,7 @@ private slots:
     void testAButtonCanActAndStillOffer();
     void testAContainerRefilledAfterTheFormIsBuiltRedrawsIt();
     void testAFieldWithADefaultOffersToGoBackToIt();
+    void testASummarySaysWhichCheckFailedAndWhy();
     void testTextDisplayShowsItsMessage();
     void testTextDisplaySaysHowToReadItsMessage();
     void testRadioStyledBoolIsARadioButton();
@@ -1329,6 +1331,76 @@ void QuickUiTest::testAFieldWithADefaultOffersToGoBackToIt()
     QTRY_VERIFY(findQmlComponent(plainQuick->rootObject(), "StringDelegate"));
     QQuickItem * const noReset = findButton(plainQuick->rootObject(), "Reset");
     QVERIFY(!noReset || !noReset->isVisible());
+}
+
+void QuickUiTest::testASummarySaysWhichCheckFailedAndWhy()
+{
+    // A page that has to be set up - a JDK here, an SDK there - used to say so
+    // with SummaryWidget: a line of prose and a list of check marks inside an
+    // expander. The line is the container's label and each check is a row, so
+    // both renderers draw it and neither needs to know it is a summary.
+    enum { HasJdk = 0, HasSdk, HasTools };
+    Utils::AspectContainer page;
+    Utils::SummaryAspect summary(&page,
+                                 {{HasJdk, "JDK path exists."},
+                                  {HasSdk, "Android SDK path exists."},
+                                  {HasTools, "Command-line tools installed."}},
+                                 "Android settings are OK.",
+                                 "Android settings have errors.");
+    summary.setQmlName("Summary");
+
+    // Nothing has been checked yet, so nothing is in order.
+    QVERIFY(!summary.allRowsOk());
+    QCOMPARE(summary.labelText(), QString("Android settings have errors."));
+    QCOMPARE(summary.aspects().size(), 3);
+
+    QSignalSpy okSpy(&summary, &Utils::SummaryAspect::allRowsOkChanged);
+    summary.setPointValid(HasJdk, true);
+    summary.setPointValid(HasSdk, false, "No such directory: /nowhere");
+    summary.setPointValid(HasTools, true);
+    QVERIFY(!summary.allRowsOk());
+    QVERIFY(summary.rowsOk({HasJdk, HasTools}));
+    QVERIFY(!summary.rowsOk({HasSdk}));
+    QCOMPARE(okSpy.count(), 0);
+
+    const auto rowAt = [&summary](int i) {
+        return qobject_cast<Utils::TextDisplay *>(summary.aspects().at(i));
+    };
+    // A failed check reads as why it failed, not as what it was checking - the
+    // whole point of the control.
+    QCOMPARE(rowAt(HasSdk)->text(), QString("No such directory: /nowhere"));
+    QCOMPARE(rowAt(HasSdk)->presentation().infoType, Utils::InfoType::NotOk);
+    QCOMPARE(rowAt(HasJdk)->text(), QString("JDK path exists."));
+    QCOMPARE(rowAt(HasJdk)->presentation().infoType, Utils::InfoType::Ok);
+
+    // And putting it right says so once, not once per row.
+    summary.setPointValid(HasSdk, true);
+    QVERIFY(summary.allRowsOk());
+    QCOMPARE(okSpy.count(), 1);
+    QCOMPARE(okSpy.last().first().toBool(), true);
+    QCOMPARE(rowAt(HasSdk)->text(), QString("Android SDK path exists."));
+    QCOMPARE(summary.labelText(), QString("Android settings are OK."));
+
+    summary.setInfoText("(SDK 34)");
+    QCOMPARE(summary.labelText(), QString("Android settings are OK. (SDK 34)"));
+
+    // While the checks are running the summary reports neither answer.
+    summary.setInProgressText("Checking");
+    QCOMPARE(summary.labelText(), QString("Checking..."));
+
+    // The rows are drawn like any other, so a page needs no delegate of its own.
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QQuickItem *rootItem = nullptr;
+    QTRY_VERIFY(rootItem = quickWidget->rootObject());
+    QStringList drawn;
+    QTRY_COMPARE(findQmlComponents(rootItem, "TextDisplayDelegate").size(), 3);
+    for (QQuickItem *item : findQmlComponents(rootItem, "TextDisplayDelegate"))
+        drawn << item->property("displayText").toString();
+    QCOMPARE(drawn, (QStringList{"JDK path exists.", "Android SDK path exists.",
+                                 "Command-line tools installed."}));
 }
 
 void QuickUiTest::testTextDisplayShowsItsMessage()

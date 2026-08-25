@@ -107,6 +107,7 @@ class AndroidPlugin final : public ExtensionSystem::IPlugin
         addTestCreator(createAndroidSdkManagerOutputParserTest);
         addTestCreator(createAndroidQtVersionTest);
         addTestCreator(createAndroidConfigurationsTest);
+        addTestCreator(Internal::createAndroidSettingsPageTest);
         addTestCreator(createAndroidLogcatCrashParserTest);
 #endif
     }

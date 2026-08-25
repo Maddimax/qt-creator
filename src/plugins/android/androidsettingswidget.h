@@ -3,8 +3,14 @@
 
 #pragma once
 
+#include <QObject>
+
 namespace Android::Internal {
 
 void setupAndroidSettingsPage();
+
+#ifdef WITH_TESTS
+QObject *createAndroidSettingsPageTest();
+#endif
 
 } // Android::Internal

@@ -2049,6 +2049,52 @@ would not run either. What verified it instead:
   cannot see and `qmllint` cannot either: `aspects.Foo` is a property map
   lookup, so a name that does not exist is not a type error.
 
+### A summary is a group whose title is the verdict
+
+`Utils::SummaryWidget` is how a page that has to be *set up* - a JDK here, an
+SDK there - says whether it is: a line of prose and a list of check marks,
+inside a `DetailsWidget` that collapses once everything is in order. Two pages
+use it, Android and the Windows App SDK.
+
+There is nothing in it a container cannot say. `Utils::SummaryAspect` is an
+`AspectContainer` whose **label text is the verdict** and whose rows are
+`TextDisplay`s with an `InfoType` each, so a page draws it with the group
+delegate it already has and neither renderer needs to know it is a summary.
+A failing check reads as *why* it failed rather than as what it was checking -
+the whole point of the control - and `allRowsOkChanged()` fires once when the
+verdict flips rather than once per row.
+
+The collapse is gone with the `DetailsWidget`. A group that says "Android
+settings are OK." and then lists eight green lines is not worth hiding, and a
+group that says they have errors is exactly what should stay open.
+
+### Android, and the last page that could be reached from here
+
+The biggest remaining page and the last `setWidgetCreator` one that this
+machine can open. Its parts were already close to aspects - two path choosers
+with async validation, a check box, eight buttons - so most of it is a
+declaration. Three things needed thought:
+
+**The NDK list said two things with a font and an icon.** A lock icon meant
+"installed by the SDK manager, not yours to remove" and italics meant "every
+kit is forced onto this one". A Qt Quick cell draws neither, so the source is
+a second column - **NDK** | **Source**, reading "SDK Manager" or "Custom" - and
+the forced one has `(default)` after its path. The path the buttons act on is
+kept beside the text rather than parsed back out of it; a negative control
+that removes that distinction produces the file path `/ndk/22 (default)`.
+
+**The icon-only tool buttons became words.** Three `QToolButton`s with a
+download icon and a tooltip are `Download JDK`, `Download SDK` and
+`Download NDK`.
+
+**`showEvent()` was doing a package scan.** It is `pageShown()` now, for the
+reason that hook exists: the census builds every page, and building this one
+used to be a `sdkmanager` run.
+
+What made this one verifiable where Bare Metal was not: the SDK is actually
+installed here, so the page comes up with its eight checks green, its NDK list
+filled and its summary reading "Android settings are OK. (SDK Version: 21.0)".
+
 ### What the census could not see, and now can
 
 Two holes, both found the hard way in the same session.
@@ -2275,11 +2321,14 @@ A page that calls `IOptionsPage::setWidgetCreator()` builds its own
 `IOptionsPageWidget` and answers nothing from `aspects()`, so the test skips it
 entirely: `isFullyRenderable()` is never asked and the page is not in the 73.
 There were **15 such call sites in 14 files**, and none of them is a page that
-fits in one batch any more. **Eight page call sites are left, in eight
-files**, after Toolchains, Kits, Devices, MCU, Language Client, Bare Metal and
-Update - counted with the grep below, minus `IMode::setWidgetCreator()` and
-`ioptionspage.cpp` itself. Of the eight, four are Windows-only, three embed a
-widget from outside Qt Creator, and the last is the Android SDK page. What each is waiting on, checked rather than
+fits in one batch any more. **Seven page call sites are left, in six files**,
+after Toolchains, Kits, Devices, MCU, Language Client, Bare Metal, Update and
+Android - counted with the grep below, minus `IMode::setWidgetCreator()` and
+`ioptionspage.cpp` itself. Three are Windows-only (CDB twice, Windows App
+SDK), three embed a widget from outside Qt Creator (Designer, Help's Filters,
+Extension Manager's Browse), and **one is reachable and not yet done**:
+ClearCase, which registers its page on every platform. It was listed with the
+Windows-only ones above, which was wrong. What each is waiting on, checked rather than
 remembered:
 
 - **Toolchains** - done. `ToolchainConfigWidget` had **9 implementations**
@@ -2298,12 +2347,9 @@ remembered:
 - **MCU Support** - done. `McuAbstractPackage::widget()` looked like an
   extension point and had one implementation; the package and the page moved
   together.
-- **Android SDK** - not an extension point, but its first-show work is an SDK
-  package reload. A settings *provider*'s container is built when the page
-  census builds it, so moving that into the constructor would make every test
-  run spawn `sdkmanager`. It needed a "the page is being shown" hook that the
-  census does not trigger; `AspectContainer::pageShown()` is that hook, and
-  this page is unblocked.
+- **Android SDK** - done, and it was the last of these that can be opened on a
+  Mac. Its first-show package reload is `pageShown()`, and the summary widget
+  it shared with the Windows App SDK page is `Utils::SummaryAspect`.
 - **Designer** and **Help's Filters** embed a widget from outside Qt Creator -
   `QDesignerOptionsPageInterface::createPage()` and
   `QHelpFilterSettingsWidget`. Neither has aspects to draw.
