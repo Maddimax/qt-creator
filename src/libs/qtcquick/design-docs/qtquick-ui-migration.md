@@ -1332,6 +1332,32 @@ is the same measurement the `AspectGroupBox` note describes. Worth repeating
 after a batch: it is the only thing that sees a warning the page census cannot,
 and it also confirmed that no page has a binding loop left.
 
+### Starting Toolchains from the bottom
+
+Nine `ToolchainConfigWidget` subclasses have to move before the Toolchains page
+can, because a Qt Quick page cannot host a `QWidget` for the ones that have
+not. There is no first batch that ports the page - but there is one that makes
+every later batch smaller.
+
+What *every* toolchain is asked is the same: what it is called, where its
+compilers are, and whether the C++ one was given by hand rather than derived
+from the C one. That lived in the widgets showing it. `ToolchainConfigAspects`
+holds it now, and `ToolchainConfigWidget` draws those aspects into the same
+`QFormLayout` the subclasses add their own rows to - so none of the nine
+changed, and each can move on its own.
+
+This is the second workstream's shape, not the first's: no page moved, but the
+state stopped living in a widget. The same step is what Kits (16 `KitAspect`
+implementations) and Devices (13 `IDeviceWidget`s) need first.
+
+**The part worth testing was the part with no test.** Deriving the C++ compiler
+command from the C one is the only real logic in the base, and it is easy to
+get subtly wrong - it must not run when the user has said "provide manually",
+and it must run when the C command changes. Aspects made it reachable without
+a window, and the first version of the test was vacuous: it compared the
+derived value to what the factory would derive, which is true whether or not
+anything derived it. Clobbering the field first is what made the control bite.
+
 ### What the census could not see, and now can
 
 Two holes, both found the hard way in the same session.
