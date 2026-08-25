@@ -1480,8 +1480,9 @@ chooses between a combo box and radio buttons.
 "Mark as Mutable", so a kit aspect writes `addControl<FilePathAspect>()` and
 gets a control that both renderers draw and that carries the right-click.
 
-Only **Environment** is still drawing entirely in widgets - two buttons and a
-check box in one row - and MCU Dependencies, which deliberately draws nothing.
+Environment followed: two `ActionAspect`s and, on Windows, a `BoolAspect`.
+Seventeen of the eighteen rows describe themselves; the last is MCU
+Dependencies, which deliberately draws nothing.
 
 **Saying what control you want is not the same as a renderer having a case for
 it.** The widget renderer had no `TextWithAction` case at all: the five aspects
@@ -1495,6 +1496,32 @@ So the test builds each row's widgets and asks whether anything on it can be
 clicked or typed into. That is the assertion the descriptor-level ones could
 not make, and it bites when the renderer case is removed. The renderer has the
 case now, which the five hand-built ones can drop into later.
+
+**Embedding was the last thing only a widget could do.** A Qt row shows the
+mkspec inside it and a device row shows its type, and that worked by one aspect
+reaching into another - `other->addToInnerLayout(box)` - plus a poke at the
+resulting combo box's size policy. Nothing about it was visible to a second
+renderer.
+
+The row takes the controls over now: `setAspectsToEmbed()` moves the embedded
+aspect's controls into this one's container, and `embedIndex()` says where -
+a device shows the type before the device it narrows down. `AspectContainer`
+grew `insertAspect()` for that. Both `addToInnerLayout` overrides are gone.
+
+Two things had to be got right, and the first version of each was wrong:
+
+- **The row draws what it holds, not what it made.** `addListAspectsToLayout()`
+  iterated the aspect's own list specs, so the embedded controls were in the
+  container and never drawn: the device rows showed a label and nothing.
+- **Several controls are one cell, not several.** Added to the detail grid as
+  separate items they gave those two rows four columns where every other row
+  has two, and a `QGridLayout` sizes a column across all of its rows - so the
+  whole form got wider and the buttons beside the kit list fell off the edge.
+  They go in one `Row` between the label and the Manage button.
+
+Neither was visible to a test that reads descriptors, and neither produced a
+warning. Both were found by opening the page and comparing it with the
+screenshot from before the change.
 
 **Two things travelled in the model and would have been lost silently.**
 
@@ -1754,9 +1781,9 @@ remembered:
   not move until every one of them did, because a Qt Quick page cannot host a
   `QWidget` for the ones that have not. Qt Versions' extension point moved in a
   single batch because it had exactly one implementation; this one took four.
-- **Kits** - the same shape with **16 `KitAspect` implementations**. Sixteen of
-  the eighteen rows describe themselves; only Environment still draws in
-  widgets. The page itself is what is left.
+- **Kits** - the same shape with **16 `KitAspect` implementations**. All of
+  them are converted: seventeen of the eighteen rows describe themselves and
+  the last draws nothing on purpose. The page itself is what is left.
 - **Devices** - **13 `IDeviceWidget` implementations**.
 - **BareMetal's Debug Server Providers** - **30 config-widget classes**, all of
   them for hardware this machine does not have.
