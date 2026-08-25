@@ -370,6 +370,7 @@ if(TARGET Core AND TARGET Qt::Quick)
     QML_FILES
       CustomLanguageModelsPage.qml
       GeneralSettingsPage.qml
+      LocatorSettingsPage.qml
       MimeTypesPage.qml
       SystemSettingsPage.qml
       mcp/McpSettingsPage.qml

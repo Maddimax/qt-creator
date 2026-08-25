@@ -12,25 +12,13 @@
 #include "../coreplugintr.h"
 
 #include <utils/algorithm.h>
-#include <utils/categorysortfiltermodel.h>
-#include <utils/fancylineedit.h>
+#include <utils/aspectpresentation.h>
 #include <utils/guiutils.h>
-#include <utils/itemviews.h>
-#include <utils/layoutbuilder.h>
+#include <utils/shutdownguard.h>
 #include <utils/qtcassert.h>
 #include <utils/treemodel.h>
-#include <utils/widgets.h>
 
-#include <QAbstractTextDocumentLayout>
-#include <QCheckBox>
 #include <QHash>
-#include <QHeaderView>
-#include <QLabel>
-#include <QMenu>
-#include <QPainter>
-#include <QPushButton>
-#include <QSpinBox>
-#include <QStyledItemDelegate>
 
 using namespace Utils;
 
@@ -152,308 +140,193 @@ CategoryItem::CategoryItem(const QString &name, int order)
 
 QVariant CategoryItem::data(int column, int role) const
 {
-    Q_UNUSED(column)
     if (role == SortRole)
         return m_order;
-    if (role == Qt::DisplayRole)
+    // The name once, not once per column: a widget view spanned the heading
+    // across the row, and a Qt Quick tree draws each cell where it is.
+    if (role == Qt::DisplayRole && column == 0)
         return m_name;
     return QVariant();
 }
 
-class RichTextDelegate : public QStyledItemDelegate
+// The filters, as a Qt Quick view reads them: which cells may be written to
+// and which are check boxes are answered from the items' own flags, the same
+// way a QTreeView reads them.
+class FilterTreeModel : public TreeModel<>
 {
 public:
-    RichTextDelegate(QObject *parent);
-    ~RichTextDelegate();
+    using TreeModel::TreeModel;
 
-    QTextDocument &doc() { return m_doc; }
+    QVariant data(const QModelIndex &index, int role) const override
+    {
+        switch (role) {
+        case AspectTable::EditableRole:
+            return AspectTable::isWritable(flags(index));
+        case AspectTable::CheckableRole:
+            return flags(index).testFlag(Qt::ItemIsUserCheckable);
+        default:
+            return TreeModel::data(index, role);
+        }
+    }
 
-    void setIndentation(int indentation);
-    void setMaxWidth(int width);
-    int maxWidth() const;
-
-private:
-    void paint(QPainter *painter,
-               const QStyleOptionViewItem &option,
-               const QModelIndex &index) const override;
-    QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override;
-    void updateDocumentForIndex(const QModelIndex &index) const;
-
-    int m_indentation = 0;
-    int m_maxWidth = -1;
-    mutable QTextDocument m_doc;
+    QHash<int, QByteArray> roleNames() const override
+    {
+        return AspectTable::withRoleNames(TreeModel::roleNames());
+    }
 };
 
-RichTextDelegate::RichTextDelegate(QObject *parent)
-    : QStyledItemDelegate(parent)
+// The filters, as the page shows them: two categories with the filters under
+// them, a prefix to type in and a check box for each. Which of those cells may
+// be written to is the model's answer - see FilterItem::flags().
+class FilterTreeAspect final : public BaseAspect
 {
-    QTextOption textOption;
-    textOption.setWrapMode(QTextOption::WordWrap);
-    m_doc.setDefaultTextOption(textOption);
-}
+    Q_OBJECT
 
-void RichTextDelegate::setIndentation(int indentation)
-{
-    m_indentation = indentation;
-}
-
-void RichTextDelegate::setMaxWidth(int width)
-{
-    m_maxWidth = width;
-    emit sizeHintChanged({});
-}
-
-int RichTextDelegate::maxWidth() const
-{
-    return m_maxWidth;
-}
-
-RichTextDelegate::~RichTextDelegate() = default;
-
-void RichTextDelegate::paint(QPainter *painter,
-                             const QStyleOptionViewItem &option,
-                             const QModelIndex &index) const
-{
-    QStyleOptionViewItem options = option;
-    initStyleOption(&options, index);
-    updateDocumentForIndex(index);
-
-    painter->save();
-    options.text = "";
-    options.widget->style()->drawControl(QStyle::CE_ItemViewItem, &options, painter, options.widget);
-    painter->translate(options.rect.left(), options.rect.top());
-    QRect clip(0, 0, options.rect.width(), options.rect.height());
-    QAbstractTextDocumentLayout::PaintContext paintContext;
-    paintContext.palette = options.palette;
-    painter->setClipRect(clip);
-    paintContext.clip = clip;
-    m_doc.documentLayout()->draw(painter, paintContext);
-    painter->restore();
-}
-
-QSize RichTextDelegate::sizeHint([[maybe_unused]] const QStyleOptionViewItem &option,
-                                 const QModelIndex &index) const
-{
-    updateDocumentForIndex(index);
-    return {qCeil(m_doc.idealWidth()), qCeil(m_doc.size().height())};
-}
-
-void RichTextDelegate::updateDocumentForIndex(const QModelIndex &index) const
-{
-    int level = 0;
-    QModelIndex parent = index;
-    while (parent.isValid()) {
-        ++level;
-        parent = parent.parent();
-    }
-    m_doc.setTextWidth(m_maxWidth - level * m_indentation);
-    m_doc.setHtml(index.data(Qt::DisplayRole).toString());
-}
-
-class LocatorSettingsWidget : public IOptionsPageWidget
-{
 public:
-    LocatorSettingsWidget()
+    using BaseAspect::BaseAspect;
+
+    AspectPresentation presentation() const override
     {
-        m_plugin = Locator::instance();
-        m_filters = Locator::filters();
-        m_customFilters = m_plugin->customFilters();
-
-        auto addButton = new QPushButton(Tr::tr("Add..."));
-
-        auto filterEdit = new FancyLineEdit;
-        filterEdit->setFiltering(true);
-
-        m_filterList = new TreeView;
-        m_filterList->setUniformRowHeights(false);
-        m_filterList->setSelectionMode(QAbstractItemView::SingleSelection);
-        m_filterList->setSelectionBehavior(QAbstractItemView::SelectRows);
-        m_filterList->setSortingEnabled(true);
-        m_filterList->setActivationMode(Utils::DoubleClickActivation);
-        m_filterList->setAlternatingRowColors(true);
-        auto nameDelegate = new RichTextDelegate(m_filterList);
-        nameDelegate->setIndentation(m_filterList->indentation());
-        connect(m_filterList->header(),
-                &QHeaderView::sectionResized,
-                nameDelegate,
-                [nameDelegate](int col, [[maybe_unused]] int old, int updated) {
-                    if (col == 0)
-                        nameDelegate->setMaxWidth(updated);
-                });
-        m_filterList->setItemDelegateForColumn(0, nameDelegate);
-        m_model = new TreeModel<>(m_filterList);
-        initializeModel();
-        m_proxyModel = new CategorySortFilterModel(m_filterList);
-        m_proxyModel->setSourceModel(m_model);
-        m_proxyModel->setSortRole(SortRole);
-        m_proxyModel->setFilterKeyColumn(-1/*all*/);
-        m_filterList->setModel(m_proxyModel);
-        m_filterList->expandAll();
-
-        new HeaderViewStretcher(m_filterList->header(), FilterName);
-        m_filterList->header()->setSortIndicator(FilterName, Qt::AscendingOrder);
-
-        m_removeButton = new QPushButton(Tr::tr("Remove"));
-        m_removeButton->setEnabled(false);
-
-        m_editButton = new QPushButton(Tr::tr("Edit..."));
-        m_editButton->setEnabled(false);
-
-        const LocatorSettings &settings = locatorSettings();
-
-        using namespace Layouting;
-
-        Column buttons{addButton, m_removeButton, m_editButton, st};
-
-        // clang-format off
-        Grid {
-            filterEdit, br,
-            m_filterList, buttons, br,
-            Column {
-                Row {settings.refreshInterval, st},
-                settings.relativePaths
-            }
-        }.attachTo(this);
-        // clang-format on
-
-        connect(filterEdit, &FancyLineEdit::filterChanged, this, &LocatorSettingsWidget::setFilter);
-        connect(m_filterList->selectionModel(),
-                &QItemSelectionModel::currentChanged,
-                this,
-                &LocatorSettingsWidget::updateButtonStates);
-        connect(m_filterList,
-                &Utils::TreeView::activated,
-                this,
-                &LocatorSettingsWidget::configureFilter);
-        connect(m_model,
-                &QAbstractItemModel::dataChanged,
-                this,
-                &markSettingsDirty);
-        connect(m_editButton, &QPushButton::clicked, this, [this] {
-            configureFilter(m_filterList->currentIndex());
-        });
-        connect(m_removeButton,
-                &QPushButton::clicked,
-                this,
-                &LocatorSettingsWidget::removeCustomFilter);
-
-        auto addMenu = new QMenu(addButton);
-        addMenu->addAction(Tr::tr("Files in Directories"), this, [this] {
-            addCustomFilter(new DirectoryFilter(Utils::Id(Constants::CUSTOM_DIRECTORY_FILTER_BASEID)
-                                                    .withSuffix(m_customFilters.size() + 1)));
-        });
-        addMenu->addAction(Tr::tr("URL Template"), this, [this] {
-            auto filter = new UrlLocatorFilter(
-                Utils::Id(Constants::CUSTOM_URL_FILTER_BASEID)
-                    .withSuffix(m_customFilters.size() + 1));
-            filter->setIsCustomFilter(true);
-            addCustomFilter(filter);
-        });
-        addButton->setMenu(addMenu);
-
-        saveFilterStates();
-
-        connect(&settings, &BaseAspect::volatileValueChanged, &markSettingsDirty);
+        AspectPresentation p = BaseAspect::presentation();
+        p.control = AspectControls::Tree;
+        p.filterPlaceholderText = Tr::tr("Filter");
+        return p;
     }
 
-    void apply() final;
-    void cancel() final;
+    QAbstractItemModel *tableModel() override { return &m_model; }
+
+    // Which filter the buttons act on. The view says so; the page reads it.
+    // Null where a category heading is current, or nothing is.
+    Q_INVOKABLE void setCurrentIndex(const QModelIndex &index)
+    {
+        auto item = dynamic_cast<FilterItem *>(m_model.itemForIndex(index));
+        ILocatorFilter *filter = item ? item->filter() : nullptr;
+        if (filter == m_current)
+            return;
+        m_current = filter;
+        m_currentItem = item;
+        emit currentChanged();
+    }
+
+    ILocatorFilter *current() const { return m_current; }
+    FilterItem *currentItem() const { return m_currentItem; }
+
+    void clear()
+    {
+        m_model.clear();
+        m_current = nullptr;
+        m_currentItem = nullptr;
+        emit currentChanged();
+    }
+
+    FilterTreeModel &model() { return m_model; }
+
+signals:
+    void currentChanged();
 
 private:
+    FilterTreeModel m_model{this};
+    ILocatorFilter *m_current = nullptr;
+    FilterItem *m_currentItem = nullptr;
+};
+
+class LocatorSettingsAspects final : public AspectContainer
+{
+public:
+    LocatorSettingsAspects();
+
+    void apply() override;
+    void cancel() override;
+
+private:
+    void initializeModel();
     void updateButtonStates();
-    void configureFilter(const QModelIndex &proxyIndex);
+    void configureCurrentFilter();
     void addCustomFilter(ILocatorFilter *filter);
     void removeCustomFilter();
-    void initializeModel();
+    void requestRefresh();
     void saveFilterStates();
     void restoreFilterStates();
-    void requestRefresh();
-    void setFilter(const QString &text);
 
-    Utils::TreeView *m_filterList;
-    QPushButton *m_removeButton;
-    QPushButton *m_editButton;
     Locator *m_plugin = nullptr;
-    Utils::TreeModel<> *m_model = nullptr;
-    QSortFilterProxyModel *m_proxyModel = nullptr;
-    Utils::TreeItem *m_customFilterRoot = nullptr;
+    TreeItem *m_customFilterRoot = nullptr;
     QList<ILocatorFilter *> m_filters;
     QList<ILocatorFilter *> m_addedFilters;
     QList<ILocatorFilter *> m_removedFilters;
     QList<ILocatorFilter *> m_customFilters;
     QList<ILocatorFilter *> m_refreshFilters;
     QHash<ILocatorFilter *, QByteArray> m_filterStates;
+
+    ContainerAspect m_settings{this};
+    FilterTreeAspect m_tree{this};
+    ActionAspect m_addDirectory{this};
+    ActionAspect m_addUrl{this};
+    ActionAspect m_remove{this};
+    ActionAspect m_edit{this};
 };
 
-void LocatorSettingsWidget::apply()
+LocatorSettingsAspects::LocatorSettingsAspects()
 {
-    // Delete removed filters and clear added filters
-    qDeleteAll(m_removedFilters);
-    m_removedFilters.clear();
-    m_addedFilters.clear();
+    setAutoApply(false);
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Core/LocatorSettingsPage.qml"));
 
-    // Pass the new configuration on to the plugin
-    m_plugin->setFilters(m_filters);
-    m_plugin->setCustomFilters(m_customFilters);
-    locatorSettings().apply();
-    requestRefresh();
-    m_plugin->saveSettings();
+    m_plugin = Locator::instance();
+    m_filters = Locator::filters();
+    m_customFilters = m_plugin->customFilters();
+
+    // The Locator's own settings, shown here rather than copied: see
+    // Utils::ContainerAspect.
+    m_settings.setQmlName("Settings");
+    m_settings.setContainer(&locatorSettings());
+
+    m_tree.setQmlName("Filters");
+
+    // What a new filter is made of is a dialog's business, and there are two
+    // kinds of them, so there are two buttons rather than a menu.
+    m_addDirectory.setQmlName("AddDirectory");
+    m_addDirectory.setActionText(Tr::tr("Files in Directories..."));
+    m_addDirectory.setAction([this] {
+        addCustomFilter(new DirectoryFilter(
+            Utils::Id(Constants::CUSTOM_DIRECTORY_FILTER_BASEID)
+                .withSuffix(m_customFilters.size() + 1)));
+    });
+
+    m_addUrl.setQmlName("AddUrl");
+    m_addUrl.setActionText(Tr::tr("URL Template..."));
+    m_addUrl.setAction([this] {
+        auto filter = new UrlLocatorFilter(
+            Utils::Id(Constants::CUSTOM_URL_FILTER_BASEID).withSuffix(m_customFilters.size() + 1));
+        filter->setIsCustomFilter(true);
+        addCustomFilter(filter);
+    });
+
+    m_remove.setQmlName("Remove");
+    m_remove.setActionText(Tr::tr("Remove"));
+    m_remove.setAction([this] { removeCustomFilter(); });
+
+    m_edit.setQmlName("Edit");
+    m_edit.setActionText(Tr::tr("Edit..."));
+    m_edit.setAction([this] { configureCurrentFilter(); });
+
+    // Behaviour, not layout.
+    connect(&m_tree, &FilterTreeAspect::currentChanged, this, [this] { updateButtonStates(); });
+    connect(&m_tree.model(), &QAbstractItemModel::dataChanged, this, &markSettingsDirty);
+
+    initializeModel();
+    updateButtonStates();
     saveFilterStates();
 }
 
-void LocatorSettingsWidget::cancel()
+void LocatorSettingsAspects::initializeModel()
 {
-    // If settings were applied, this shouldn't change anything. Otherwise it
-    // makes sure the filter states aren't changed permanently.
-    restoreFilterStates();
-
-    // Delete added filters and clear removed filters
-    qDeleteAll(m_addedFilters);
-    m_addedFilters.clear();
-    m_removedFilters.clear();
-
-    // Further cleanup
-    m_filters.clear();
-    m_customFilters.clear();
-    m_refreshFilters.clear();
-}
-
-void LocatorSettingsWidget::requestRefresh()
-{
-    if (!m_refreshFilters.isEmpty())
-        m_plugin->refresh(m_refreshFilters);
-}
-
-void LocatorSettingsWidget::setFilter(const QString &text)
-{
-    m_proxyModel->setFilterRegularExpression(
-        QRegularExpression(QRegularExpression::escape(text),
-                           QRegularExpression::CaseInsensitiveOption));
-    m_filterList->expandAll();
-}
-
-void LocatorSettingsWidget::saveFilterStates()
-{
-    m_filterStates.clear();
-    for (ILocatorFilter *filter : std::as_const(m_filters))
-        m_filterStates.insert(filter, filter->saveState());
-}
-
-void LocatorSettingsWidget::restoreFilterStates()
-{
-    for (auto it = m_filterStates.cbegin(); it != m_filterStates.cend(); ++it)
-        it.key()->restoreState(*it);
-}
-
-void LocatorSettingsWidget::initializeModel()
-{
-    m_model->setHeader({Tr::tr("Name"), Tr::tr("Prefix"), Tr::tr("Default")});
-    m_model->setHeaderToolTip({
+    FilterTreeModel &model = m_tree.model();
+    model.setHeader({Tr::tr("Name"), Tr::tr("Prefix"), Tr::tr("Default")});
+    model.setHeaderToolTip({
         QString(),
         ILocatorFilter::msgPrefixToolTip(),
         ILocatorFilter::msgIncludeByDefaultToolTip()
     });
-    m_model->clear();
+    m_tree.clear();
     QSet<ILocatorFilter *> customFilterSet = Utils::toSet(m_customFilters);
     auto builtIn = new CategoryItem(Tr::tr("Built-in"), 0/*order*/);
     for (ILocatorFilter *filter : std::as_const(m_filters))
@@ -463,36 +336,27 @@ void LocatorSettingsWidget::initializeModel()
     for (ILocatorFilter *customFilter : std::as_const(m_customFilters))
         m_customFilterRoot->appendChild(new FilterItem(customFilter));
 
-    m_model->rootItem()->appendChild(builtIn);
-    m_model->rootItem()->appendChild(m_customFilterRoot);
+    model.rootItem()->appendChild(builtIn);
+    model.rootItem()->appendChild(m_customFilterRoot);
 }
 
-void LocatorSettingsWidget::updateButtonStates()
+void LocatorSettingsAspects::updateButtonStates()
 {
-    const QModelIndex currentIndex = m_proxyModel->mapToSource(m_filterList->currentIndex());
-    bool selected = currentIndex.isValid();
-    ILocatorFilter *filter = nullptr;
-    if (selected) {
-        auto item = dynamic_cast<FilterItem *>(m_model->itemForIndex(currentIndex));
-        if (item)
-            filter = item->filter();
-    }
-    m_editButton->setEnabled(filter && filter->isConfigurable());
-    m_removeButton->setEnabled(filter && m_customFilters.contains(filter));
+    ILocatorFilter *filter = m_tree.current();
+    m_edit.setEnabled(filter && filter->isConfigurable());
+    m_remove.setEnabled(filter && m_customFilters.contains(filter));
 }
 
-void LocatorSettingsWidget::configureFilter(const QModelIndex &proxyIndex)
+void LocatorSettingsAspects::configureCurrentFilter()
 {
-    const QModelIndex index = m_proxyModel->mapToSource(proxyIndex);
-    QTC_ASSERT(index.isValid(), return);
-    auto item = dynamic_cast<FilterItem *>(m_model->itemForIndex(index));
-    QTC_ASSERT(item, return);
-    ILocatorFilter *filter = item->filter();
+    ILocatorFilter *filter = m_tree.current();
+    FilterItem *item = m_tree.currentItem();
+    QTC_ASSERT(filter && item, return);
     QTC_ASSERT(filter->isConfigurable(), return);
-    bool includedByDefault = filter->isIncludedByDefault();
-    QString shortcutString = filter->shortcutString();
+    const bool includedByDefault = filter->isIncludedByDefault();
+    const QString shortcutString = filter->shortcutString();
     bool needsRefresh = false;
-    filter->openConfigDialog(this, needsRefresh);
+    filter->openConfigDialog(Utils::dialogParent(), needsRefresh);
     if (needsRefresh && !m_refreshFilters.contains(filter)) {
         m_refreshFilters.append(filter);
         markSettingsDirty();
@@ -503,28 +367,29 @@ void LocatorSettingsWidget::configureFilter(const QModelIndex &proxyIndex)
         item->updateColumn(FilterPrefix);
 }
 
-void LocatorSettingsWidget::addCustomFilter(ILocatorFilter *filter)
+void LocatorSettingsAspects::addCustomFilter(ILocatorFilter *filter)
 {
     bool needsRefresh = false;
-    if (filter->openConfigDialog(this, needsRefresh)) {
+    if (filter->openConfigDialog(Utils::dialogParent(), needsRefresh)) {
         m_filters.append(filter);
         m_addedFilters.append(filter);
         m_customFilters.append(filter);
         m_refreshFilters.append(filter);
         m_customFilterRoot->appendChild(new FilterItem(filter));
         markSettingsDirty();
+    } else {
+        delete filter;
     }
 }
 
-void LocatorSettingsWidget::removeCustomFilter()
+void LocatorSettingsAspects::removeCustomFilter()
 {
-    QModelIndex currentIndex = m_proxyModel->mapToSource(m_filterList->currentIndex());
-    QTC_ASSERT(currentIndex.isValid(), return);
-    auto item = dynamic_cast<FilterItem *>(m_model->itemForIndex(currentIndex));
-    QTC_ASSERT(item, return);
-    ILocatorFilter *filter = item->filter();
+    ILocatorFilter *filter = m_tree.current();
+    FilterItem *item = m_tree.currentItem();
+    QTC_ASSERT(filter && item, return);
     QTC_ASSERT(m_customFilters.contains(filter), return);
-    m_model->destroyItem(item);
+    m_tree.setCurrentIndex({});
+    m_tree.model().destroyItem(item);
     m_filters.removeAll(filter);
     m_customFilters.removeAll(filter);
     m_refreshFilters.removeAll(filter);
@@ -537,6 +402,67 @@ void LocatorSettingsWidget::removeCustomFilter()
     markSettingsDirty();
 }
 
+void LocatorSettingsAspects::requestRefresh()
+{
+    if (!m_refreshFilters.isEmpty())
+        m_plugin->refresh(m_refreshFilters);
+}
+
+void LocatorSettingsAspects::saveFilterStates()
+{
+    m_filterStates.clear();
+    for (ILocatorFilter *filter : std::as_const(m_filters))
+        m_filterStates.insert(filter, filter->saveState());
+}
+
+void LocatorSettingsAspects::restoreFilterStates()
+{
+    for (auto it = m_filterStates.cbegin(); it != m_filterStates.cend(); ++it)
+        it.key()->restoreState(*it);
+}
+
+void LocatorSettingsAspects::apply()
+{
+    // Delete removed filters and clear added filters
+    qDeleteAll(m_removedFilters);
+    m_removedFilters.clear();
+    m_addedFilters.clear();
+
+    // Pass the new configuration on to the plugin
+    m_plugin->setFilters(m_filters);
+    m_plugin->setCustomFilters(m_customFilters);
+    AspectContainer::apply();
+    locatorSettings().apply();
+    requestRefresh();
+    m_plugin->saveSettings();
+    saveFilterStates();
+}
+
+void LocatorSettingsAspects::cancel()
+{
+    // If settings were applied, this shouldn't change anything. Otherwise it
+    // makes sure the filter states aren't changed permanently.
+    restoreFilterStates();
+
+    // Delete added filters and clear removed filters
+    qDeleteAll(m_addedFilters);
+    m_addedFilters.clear();
+    m_removedFilters.clear();
+
+    AspectContainer::cancel();
+    locatorSettings().cancel();
+
+    // The page is built once, so it starts again from what the plugin has
+    // rather than from what was being edited.
+    m_filters = Locator::filters();
+    m_customFilters = m_plugin->customFilters();
+    m_refreshFilters.clear();
+    initializeModel();
+    updateButtonStates();
+    saveFilterStates();
+}
+
+
 // LocatorSettingsPage
 
 LocatorSettingsPage::LocatorSettingsPage()
@@ -544,8 +470,11 @@ LocatorSettingsPage::LocatorSettingsPage()
     setId(Constants::FILTER_OPTIONS_PAGE);
     setDisplayName(Tr::tr(Constants::FILTER_OPTIONS_PAGE));
     setCategory(Constants::SETTINGS_CATEGORY_CORE);
-    setWidgetCreator([] { return new LocatorSettingsWidget; });
-    // Building the widget means building the filter list, and the filters are
+    setSettingsProvider([] {
+        static GuardedObject<LocatorSettingsAspects> theAspects;
+        return theAspects.get();
+    });
+    // Building the page means building the filter list, and the filters are
     // in a model that the search does not see anyway.
     setFixedKeywords({Tr::tr("Refresh interval:"),
                       Tr::tr("Show Paths in Relation to Active Project"),
@@ -555,3 +484,5 @@ LocatorSettingsPage::LocatorSettingsPage()
 }
 
 } // Core::Internal
+
+#include "locatorsettingspage.moc"
