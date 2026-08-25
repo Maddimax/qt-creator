@@ -858,6 +858,11 @@ void BaseAspect::resetToDefault()
     Performs this aspect's one action, for a TextWithAction control. Does
     nothing unless an aspect gives it a meaning.
 */
+void BaseAspect::setFocusToInputField()
+{
+    emit controlFocusRequested();
+}
+
 void BaseAspect::triggerContextAction(bool checked)
 {
     Q_UNUSED(checked)
@@ -1054,6 +1059,7 @@ public:
     std::function<void(const QVariant &)> m_onChoice;
     std::function<QString()> m_summaryProvider;
     QString m_summary;
+    QIcon m_actionIcon;
 };
 
 } // Internal
@@ -1784,11 +1790,6 @@ void FilePathAspect::volatileFromMap(const Store &map)
     d->m_checkerImpl.volatileFromMap(map);
     if (!skipSave())
         setVolatileValue(map.value(settingsKey(), defaultValue()).toString());
-}
-
-void FilePathAspect::setFocusToInputField()
-{
-    emit controlFocusRequested();
 }
 
 void FilePathAspect::setPromptDialogFilter(const QString &filter)
@@ -3516,6 +3517,12 @@ void ActionAspect::setOnChoice(const std::function<void(const QVariant &)> &onCh
     d->m_onChoice = onChoice;
 }
 
+void ActionAspect::setActionIcon(const QIcon &icon)
+{
+    d->m_actionIcon = icon;
+    emit controlConfigurationChanged();
+}
+
 void ActionAspect::setSummaryProvider(const std::function<QString()> &provider)
 {
     d->m_summaryProvider = provider;
@@ -3563,6 +3570,7 @@ AspectPresentation ActionAspect::presentation() const
     p.control = d->m_summaryProvider ? AspectControls::TextWithAction
                                      : AspectControls::Button;
     p.actionText = d->m_actionText;
+    p.actionIcon = d->m_actionIcon;
     p.choices = d->m_choices;
     return p;
 }
@@ -3692,6 +3700,11 @@ AspectPresentation AspectContainer::presentation() const
     p.control = AspectControls::Container;
     p.inlineRow = d->m_inlineRow;
     return p;
+}
+
+void AspectContainer::pageShown()
+{
+    emit shown();
 }
 
 void AspectContainer::setInlineRow(bool on)

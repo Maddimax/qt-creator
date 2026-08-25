@@ -329,6 +329,7 @@ private:
     {
         auto button = AspectWidgets::createSubWidget<QPushButton>(aspect);
         button->setText(pres.actionText);
+        button->setIcon(pres.actionIcon);
         button->setToolTip(pres.toolTip);
         button->setEnabled(pres.enabled);
         button->setVisible(pres.visible);
@@ -718,6 +719,10 @@ private:
                          });
         QObject::connect(aspect, &StringAspect::placeholderTextChanged,
                          lineEdit, &FancyLineEdit::setPlaceholderText);
+        QObject::connect(aspect, &BaseAspect::controlFocusRequested, lineEdit, [lineEdit] {
+            lineEdit->selectAll();
+            lineEdit->setFocus();
+        });
 
         if (const std::optional<ValidationFunction> validator = aspect->validationFunction())
             lineEdit->setValidationFunction(*validator);

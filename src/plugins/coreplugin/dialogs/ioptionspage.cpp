@@ -37,6 +37,30 @@ void setAspectFormFactory(const AspectFormFactory &factory)
     s_aspectFormFactory = factory;
 }
 
+namespace {
+
+// Building a page is not showing it: the page census builds every one of them
+// and shows none. See AspectContainer::pageShown().
+class ShowReportingWidget final : public QWidget
+{
+public:
+    explicit ShowReportingWidget(AspectContainer *container)
+        : m_container(container)
+    {}
+
+private:
+    void showEvent(QShowEvent *event) override
+    {
+        QWidget::showEvent(event);
+        if (m_container)
+            m_container->pageShown();
+    }
+
+    const QPointer<AspectContainer> m_container;
+};
+
+} // namespace
+
 QWidget *createAspectForm(AspectContainer *container)
 {
     QTC_ASSERT(container, return nullptr);
@@ -48,7 +72,7 @@ QWidget *createAspectForm(AspectContainer *container)
 
     const AspectWidgets::Layouter layouter = AspectWidgets::layouter(container);
     QTC_ASSERT(layouter, return nullptr);
-    auto form = new QWidget;
+    auto form = new ShowReportingWidget(container);
     layouter().attachTo(form);
     return form;
 }

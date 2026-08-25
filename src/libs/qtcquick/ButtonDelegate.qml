@@ -49,6 +49,7 @@ RowLayout {
         readonly property var options: root.pres.options ?? []
 
         text: root.pres.actionText ?? ""
+        icon.source: root.pres.actionIcon ?? ""
         enabled: (root.aspect?.enabled ?? false) && !(root.aspect?.readOnly ?? false)
         ToolTip.text: root.toolTip
         ToolTip.visible: hovered && root.toolTip !== ""

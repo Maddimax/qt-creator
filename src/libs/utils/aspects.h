@@ -195,6 +195,9 @@ public:
 
     // What the button of a TextWithAction control does. Nothing by default.
     Q_INVOKABLE virtual void triggerAction();
+    // Puts the cursor in whatever this aspect is drawn as, for a page that
+    // has just made something for the user to name.
+    void setFocusToInputField();
     // The control's context-menu entry was toggled. See
     // AspectPresentation::contextActionText.
     Q_INVOKABLE virtual void triggerContextAction(bool checked);
@@ -1052,7 +1055,6 @@ public:
     void volatileToMap(Utils::Store &map) const override;
     void volatileFromMap(const Utils::Store &map) override;
 
-    void setFocusToInputField();
 
 signals:
     void validChanged(bool validState);
@@ -1392,6 +1394,9 @@ public:
     ~ActionAspect() override;
 
     void setActionText(const QString &text);
+    // What the button shows instead of a label. A button that stands for
+    // something with a picture of its own - the kit icon - has one.
+    void setActionIcon(const QIcon &icon);
     void setAction(const std::function<void()> &action);
     // What the control says beside the button. A value that is edited in a
     // dialog rather than in place is shown as a summary of itself and one
@@ -1487,6 +1492,13 @@ public:
     // settings, and so is drawn as one row without a group box around it.
     void setInlineRow(bool on);
 
+    // Called when whatever draws this container is actually shown, which is
+    // not when it is built: a page census builds every page and shows none, so
+    // work that costs something - re-reading what another page just changed,
+    // asking an SDK manager what it has - belongs here rather than in the
+    // constructor. May be called more than once.
+    void pageShown();
+
     void setSettingsGroup(const QString &groupKey);
     void setSettingsGroups(const QString &groupKey, const QString &subGroupKey);
     QStringList settingsGroups() const;
@@ -1552,6 +1564,8 @@ signals:
     void applied();
     void fromMapFinished();
     void subAspectChanged(BaseAspect *aspect);
+    // What draws this container is on screen. See pageShown().
+    void shown();
 
 private:
     std::unique_ptr<Internal::AspectContainerPrivate> d;

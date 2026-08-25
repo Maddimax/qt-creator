@@ -11,15 +11,42 @@
 #include <utils/environment.h>
 #include <utils/qtcassert.h>
 
+#include <QPointer>
 #include <QQuickWidget>
+#include <QShowEvent>
 
 namespace QtcQuick {
+
+namespace {
+
+// Tells the container it is on screen. Building a page is not showing it: the
+// page census builds every one of them and shows none, so work that costs
+// something must not happen at construction. See AspectContainer::pageShown().
+class ShowReportingQuickWidget final : public QuickWidget
+{
+public:
+    explicit ShowReportingQuickWidget(Utils::AspectContainer *container)
+        : m_container(container)
+    {}
+
+private:
+    void showEvent(QShowEvent *event) override
+    {
+        QuickWidget::showEvent(event);
+        if (m_container)
+            m_container->pageShown();
+    }
+
+    const QPointer<Utils::AspectContainer> m_container;
+};
+
+} // namespace
 
 QWidget *createGenericAspectForm(Utils::AspectContainer *container)
 {
     QTC_ASSERT(container, return nullptr);
 
-    auto widget = new QuickWidget;
+    auto widget = new ShowReportingQuickWidget(container);
     auto model = new AspectContainerModel(container, widget);
     widget->quickWidget()->setInitialProperties({{"model", QVariant::fromValue(model)}});
     widget->setSource(QUrl("qrc:/qt/qml/QtCreator/Ui/AspectForm.qml"));
@@ -32,7 +59,7 @@ QWidget *createAspectForm(Utils::AspectContainer *container)
 
     // A page with its own QML lays itself out and reaches its aspects by name.
     if (const QUrl source = container->qmlSource(); !source.isEmpty()) {
-        auto widget = new QuickWidget;
+        auto widget = new ShowReportingQuickWidget(container);
         auto named = new NamedAspects(container, widget);
         widget->quickWidget()->setInitialProperties({{"aspects", QVariant::fromValue(named)}});
         widget->setSource(source);

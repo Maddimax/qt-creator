@@ -17,6 +17,10 @@ QtObject {
     // Height of a list editor in a settings form: enough rows to be worth
     // scrolling, not enough to dominate the page.
     readonly property int formListHeight: 120
+    // Height of the list at the top of a page whose lower half is what the
+    // current item is made of - kits, toolchains. Enough rows to pick from
+    // without a long detail form squeezing the list away.
+    readonly property int chooserListHeight: 180
     // Height of a multi-line text editor in a settings form. Shorter than a
     // list: what goes in one is usually a handful of lines.
     readonly property int formTextAreaHeight: 90

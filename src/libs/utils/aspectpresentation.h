@@ -265,8 +265,11 @@ public:
     QVariant maximum;
     QVariant singleStep;
 
-    // TextWithAction. The button's label.
+    // TextWithAction and Button. The button's label, and what it shows instead
+    // of - or beside - it. Only a button that stands for something with a
+    // picture has an icon: the kit icon, which is also what its menu changes.
     QString actionText;
+    QIcon actionIcon;
 
     QString prefix;
     QString suffix;

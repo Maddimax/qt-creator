@@ -1547,6 +1547,48 @@ it is now used where this migration created the pattern. There are others in
 the tree that predate it - `codestyleeditor.cpp`, `qmlprofilersampler.cpp`,
 `combinedsampler.cpp`, `idevice.cpp` - which are not this batch's to change.
 
+### The Kits page, and the bug that had been there all along
+
+The page moved: `KitsPage.qml`, a `GroupedListAspect` for the list, three
+`ActionAspect`s for Add and the two settings filters, and a `ContainerAspect`
+over the eighteen kit-aspect rows. The kit's name and the icon that stands for
+it are one inline row. Kits, Toolchains and Qt Versions are the same page three
+times now.
+
+Two things it needed that did not exist:
+
+- **A button can show a picture instead of a name.** The kit icon button was a
+  `QToolButton` with an icon and a tool tip and no text.
+  `AspectPresentation::actionIcon` carries it. The page census asserts that no
+  button is nameless, because a nameless button is invisible to every other
+  check; it takes an explained icon as a name now, and skips a button that is
+  not shown at all.
+- **A hook for "the page is being shown".** The plan said there was none and
+  that it blocked the Android SDK page. `AspectContainer::pageShown()` is it,
+  called by the widget that draws the form - which the census never shows, so
+  work that costs something still does not happen there. The Kits page uses it
+  the way its `showEvent` did: another page may have changed what a kit can be
+  pointed at while this one was off screen.
+
+Its icon menu also swallowed the button's context menu: "Reset to Device
+Default Icon" is one of the entries now rather than a right-click of its own,
+since a button that already opens a menu having a second, different menu is
+not worth keeping.
+
+**And the page found a bug in every combo box the Quick renderer draws.** A Qt
+Quick `ComboBox` puts `currentIndex` back to 0 when its model changes, and the
+binding to the aspect only runs again when the aspect's *value* changes -
+which refilling a list with the same entry selected does not do. So a list
+that is refilled while the page is open quietly showed its first entry while
+the aspect held the right one. The kit's device type showed "Android Device"
+for a desktop kit.
+
+`SelectionDelegate` binds `currentIndex` again on `onModelChanged`. This was
+never about Kits: the toolchain ABI lists, the parent-toolchain combo and the
+device lists all refill themselves. Nothing caught it because every test set a
+value and read it back, and that path was never broken. The test that catches
+it refills with the *same* value selected, which is the only case that fails.
+
 ### What the census could not see, and now can
 
 Two holes, both found the hard way in the same session.
@@ -1781,9 +1823,8 @@ remembered:
   not move until every one of them did, because a Qt Quick page cannot host a
   `QWidget` for the ones that have not. Qt Versions' extension point moved in a
   single batch because it had exactly one implementation; this one took four.
-- **Kits** - the same shape with **16 `KitAspect` implementations**. All of
-  them are converted: seventeen of the eighteen rows describe themselves and
-  the last draws nothing on purpose. The page itself is what is left.
+- **Kits** - done. All 16 `KitAspect` implementations are converted and the
+  page is `KitsPage.qml`.
 - **Devices** - **13 `IDeviceWidget` implementations**.
 - **BareMetal's Debug Server Providers** - **30 config-widget classes**, all of
   them for hardware this machine does not have.
@@ -1791,8 +1832,9 @@ remembered:
 - **Android SDK** - not an extension point, but its first-show work is an SDK
   package reload. A settings *provider*'s container is built when the page
   census builds it, so moving that into the constructor would make every test
-  run spawn `sdkmanager`. It needs a "the page is being shown" hook that the
-  census does not trigger, and there is none.
+  run spawn `sdkmanager`. It needed a "the page is being shown" hook that the
+  census does not trigger; `AspectContainer::pageShown()` is that hook, and
+  this page is unblocked.
 - **Designer** and **Help's Filters** embed a widget from outside Qt Creator -
   `QDesignerOptionsPageInterface::createPage()` and
   `QHelpFilterSettingsWidget`. Neither has aspects to draw.
