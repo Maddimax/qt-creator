@@ -9,10 +9,10 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtCreator.Ui
 
-// A tree of what an aspect has to show, from the model it hands out. Read-only:
-// this is for values a page reports rather than ones it lets the user set - a
-// qbs profile's properties, say. Editing lives in TableDelegate, and a list
-// with groups and buttons in GroupedListDelegate.
+// A tree of what an aspect has to show, from the model it hands out. The cells
+// are TableDelegate's, so a tree can be written to where the model says so -
+// the Locator's prefixes are edited in one. A list with groups and buttons is
+// GroupedListDelegate.
 RowLayout {
     id: root
 
@@ -20,6 +20,7 @@ RowLayout {
     readonly property string labelText: aspect?.plainLabelText ?? ""
     readonly property string toolTip: aspect?.toolTip ?? ""
     readonly property bool aspectVisible: aspect?.visible ?? true
+    readonly property bool editable: (aspect?.enabled ?? false) && !(aspect?.readOnly ?? false)
 
     property var pres: aspect ? AspectModels.presentation(aspect) : ({})
 
@@ -132,26 +133,28 @@ RowLayout {
                     required property int column
 
                     implicitWidth: Math.max(Metrics.lineEditWidth, implicitContentWidth)
-                    implicitHeight: Metrics.tableRowMinimumHeight
+                    implicitHeight: Math.max(Metrics.tableRowMinimumHeight,
+                                             implicitContentHeight)
                     // Only the first column carries the indent and the branch
                     // handle; the rest line up with the header.
                     indentation: cell.column === 0 ? 12 : 0
+                    // Not drawn - the content item below is - but read out,
+                    // and the delegate's own text is what an accessible name
+                    // comes from.
                     text: cell.model.display ?? ""
                     // TreeViewDelegate's own content item binds straight to
                     // model.display, which is undefined for a cell the model
                     // says nothing about - a group heading has no second
-                    // column. The delegate's text has already dealt with
-                    // that, so it is what gets drawn.
-                    contentItem: Label {
-                        text: cell.text
-                        font: cell.font
-                        elide: Text.ElideRight
-                        color: cell.highlighted ? cell.palette.highlightedText
-                                            : cell.palette.buttonText
+                    // column. The shared cell asks the model what it is
+                    // instead, so an editable one is a field and a checkable
+                    // one a check box.
+                    contentItem: AspectTableCell {
+                        model: cell.model
+                        editable: root.editable
+                        // A tree reports what the page found unless its model
+                        // says a cell may be written to.
+                        editableByDefault: false
                     }
-
-                    ToolTip.text: cell.model.toolTip ?? ""
-                    ToolTip.visible: cell.hovered && ToolTip.text !== ""
                 }
             }
         }

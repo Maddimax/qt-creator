@@ -190,6 +190,7 @@ private slots:
     void testListRowShowsWhatTheListSaysAboutTheItem();
     void testGroupedListShowsItsGroupsAndActsOnTheCurrentItem();
     void testTreeShowsWhatTheAspectHandsOut();
+    void testATreeCellIsWrittenToWhereItsModelSaysSo();
     void testFieldSaysWhatIsWrongAndKeepsItOut();
     void testFieldWaitsForAnAnswerItHasToFetch();
     void testAFieldCompletesAgainstWhatTheAspectOffers();
@@ -2522,10 +2523,12 @@ void QuickUiTest::testTreeShowsWhatTheAspectHandsOut()
     QTRY_COMPARE(view->property("rows").toInt(), 4);
 
     // On the cells, not just the row count: a delegate that fails to build
-    // leaves the view saying it has rows and drawing none of them.
+    // leaves the view saying it has rows and drawing none of them. Read off
+    // what is drawn rather than off the delegate, whose own text is only the
+    // accessible name.
     QStringList drawn;
-    for (QQuickItem *cell : findQmlComponents(view, "TreeViewDelegate"))
-        drawn << cell->property("text").toString();
+    for (QQuickItem *label : findQmlNamed(view, "tableCellLabel"))
+        drawn << label->property("text").toString();
     QVERIFY2(!drawn.isEmpty(), "the tree drew no cells at all");
     QVERIFY2(drawn.contains("cxxLanguageVersion"),
              qPrintable("drawn: " + drawn.join(", ")));
@@ -2541,6 +2544,159 @@ void QuickUiTest::testTreeShowsWhatTheAspectHandsOut()
     QCOMPARE(filtered->rowCount(filtered->index(0, 0)), 1);
     filtered->setFilterFixedString({});
     QCOMPARE(filtered->rowCount({}), 2);
+}
+
+namespace {
+
+// A row of a tree whose second cell may be typed in and whose third is a check
+// box - the Locator's filters are this shape.
+class EditableRowItem : public Utils::TreeItem
+{
+public:
+    EditableRowItem(const QString &name, const QString &prefix, bool included)
+        : m_name(name), m_prefix(prefix), m_included(included)
+    {}
+
+    QVariant data(int column, int role) const override
+    {
+        switch (column) {
+        case 0:
+            return role == Qt::DisplayRole ? m_name : QVariant();
+        case 1:
+            return role == Qt::DisplayRole || role == Qt::EditRole ? m_prefix : QVariant();
+        case 2:
+            if (role == Qt::CheckStateRole)
+                return m_included ? Qt::Checked : Qt::Unchecked;
+            return {};
+        }
+        return {};
+    }
+
+    Qt::ItemFlags flags(int column) const override
+    {
+        if (column == 1)
+            return Qt::ItemIsSelectable | Qt::ItemIsEnabled | Qt::ItemIsEditable;
+        if (column == 2)
+            return Qt::ItemIsSelectable | Qt::ItemIsEnabled | Qt::ItemIsUserCheckable;
+        return Qt::ItemIsSelectable | Qt::ItemIsEnabled;
+    }
+
+    bool setData(int column, const QVariant &value, int role) override
+    {
+        if (column == 1 && role == Qt::EditRole) {
+            m_prefix = value.toString();
+            return true;
+        }
+        if (column == 2 && role == Qt::CheckStateRole) {
+            m_included = value.toInt() == Qt::Checked;
+            return true;
+        }
+        return false;
+    }
+
+    QString m_name;
+    QString m_prefix;
+    bool m_included = false;
+};
+
+class EditableTreeModel : public Utils::TreeModel<Utils::TreeItem, EditableRowItem>
+{
+public:
+    using TreeModel::TreeModel;
+
+    QVariant data(const QModelIndex &index, int role) const override
+    {
+        switch (role) {
+        case Utils::AspectTable::EditableRole:
+            return Utils::AspectTable::isWritable(flags(index));
+        case Utils::AspectTable::CheckableRole:
+            return flags(index).testFlag(Qt::ItemIsUserCheckable);
+        default:
+            return TreeModel::data(index, role);
+        }
+    }
+
+    QHash<int, QByteArray> roleNames() const override
+    {
+        return Utils::AspectTable::withRoleNames(TreeModel::roleNames());
+    }
+};
+
+// The same shape as TreeReportingAspect, but with rows the user may change.
+class EditableTreeAspect : public Utils::BaseAspect
+{
+public:
+    EditableTreeAspect()
+    {
+        m_model.setHeader({"Filter", "Prefix", "Default"});
+        m_model.rootItem()->appendChild(new EditableRowItem("Files", "f", true));
+        m_model.rootItem()->appendChild(new EditableRowItem("Classes", "c", false));
+    }
+
+    Utils::AspectPresentation presentation() const override
+    {
+        Utils::AspectPresentation p = BaseAspect::presentation();
+        p.control = Utils::AspectControls::Tree;
+        return p;
+    }
+
+    QAbstractItemModel *tableModel() override { return &m_model; }
+
+    EditableRowItem *row(int index) const
+    {
+        return static_cast<EditableRowItem *>(m_model.rootItem()->childAt(index));
+    }
+
+private:
+    mutable EditableTreeModel m_model{this};
+};
+
+} // namespace
+
+void QuickUiTest::testATreeCellIsWrittenToWhereItsModelSaysSo()
+{
+    // A tree reports what a page found, until its model says a cell may be
+    // written to - the Locator's prefixes are edited in the tree that lists
+    // them. Which cells those are is the model's answer, the same one a
+    // QTreeView reads out of flags().
+    Utils::AspectContainer page;
+    page.setAutoApply(false);
+    EditableTreeAspect filters;
+    filters.setLabelText("Filters");
+    page.registerAspect(&filters);
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "TreeDelegate"));
+    QQuickItem *view = findQmlNamed(delegate, "aspectTree").value(0);
+    QVERIFY(view);
+    QTRY_COMPARE(view->property("rows").toInt(), 2);
+
+    // The first column reports, the second is a field, the third a check box.
+    QList<QQuickItem *> labels;
+    QTRY_COMPARE((labels = findQmlNamed(view, "tableCellLabel")).size(), 2);
+    QCOMPARE(labels.at(0)->property("text").toString(), QString("Files"));
+
+    QList<QQuickItem *> fields;
+    QTRY_COMPARE((fields = findQmlNamed(view, "tableCellField")).size(), 2);
+    QCOMPARE(fields.at(0)->property("text").toString(), QString("f"));
+
+    QList<QQuickItem *> checks;
+    QTRY_COMPARE((checks = findQmlNamed(view, "tableCellCheckBox")).size(), 2);
+    QCOMPARE(checks.at(0)->property("checked").toBool(), true);
+    QCOMPARE(checks.at(1)->property("checked").toBool(), false);
+
+    // And what is typed and ticked reaches the model.
+    fields.at(0)->setProperty("text", "fi");
+    QMetaObject::invokeMethod(fields.at(0), "editingFinished");
+    QCOMPARE(filters.row(0)->m_prefix, QString("fi"));
+
+    QMetaObject::invokeMethod(checks.at(1), "toggle");
+    QMetaObject::invokeMethod(checks.at(1), "toggled");
+    QCOMPARE(filters.row(1)->m_included, true);
 }
 
 void QuickUiTest::testAFieldCompletesAgainstWhatTheAspectOffers()

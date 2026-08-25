@@ -40,6 +40,7 @@ if(TARGET QtcQuick)
       AspectGroupBox.qml
       AspectItems.qml
       AspectListDelegate.qml
+      AspectTableCell.qml
       AspectPage.qml
       BoolDelegate.qml
       ButtonDelegate.qml
