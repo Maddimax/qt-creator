@@ -367,6 +367,10 @@ public:
     Utils::StringSelectionAspect linkDevice{this};
     Utils::BoolAspect sshForwardDebugServerPort{this};
     Utils::PortListAspect freePortsAspect{this};
+    // Shown when no port is left to hand out. Which ports a device has is the
+    // device's business, and so is saying that it has none; two widgets used
+    // to work it out and draw the label themselves.
+    Utils::TextDisplay freePortsWarning{this};
 
 protected:
     IDevice();

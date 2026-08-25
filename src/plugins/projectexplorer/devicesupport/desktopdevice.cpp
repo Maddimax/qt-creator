@@ -3,6 +3,8 @@
 
 #include "desktopdevice.h"
 
+#include "idevicefactory.h"
+
 #include "../projectexplorerconstants.h"
 #include "../projectexplorertr.h"
 #include "devicemanager.h"
@@ -226,51 +228,22 @@ public:
     explicit DesktopDeviceConfigurationWidget(const IDevicePtr &device)
         : IDeviceWidget(device)
     {
-        m_freePortsLineEdit = new QLineEdit;
-        m_portsWarningLabel = new InfoLabel(
-            Tr::tr("You will need at least one port for QML debugging."),
-            InfoLabelType::Warning);
+        QTC_CHECK(device->machineType() == IDevice::Hardware);
 
         using namespace Layouting;
         Form {
             Tr::tr("Machine type:"), Tr::tr("Physical Device"), br,
-            Tr::tr("Free ports:"), m_freePortsLineEdit, br,
-            empty, m_portsWarningLabel, br,
+            device->freePortsAspect, br,
+            empty, device->freePortsWarning, br,
             noMargin,
             device->deviceToolsGui(),
             device->autoDetectGui(),
         }.attachTo(this);
 
-        connect(m_freePortsLineEdit, &QLineEdit::textChanged,
-                this, &DesktopDeviceConfigurationWidget::updateFreePorts);
-
-        QTC_CHECK(device->machineType() == IDevice::Hardware);
-        m_freePortsLineEdit->setPlaceholderText(
-                    QString::fromLatin1("eg: %1-%2").arg(DESKTOP_PORT_START).arg(DESKTOP_PORT_END));
-        const auto portsValidator = new QRegularExpressionValidator(
-            QRegularExpression(PortList::regularExpression()), this);
-        m_freePortsLineEdit->setValidator(portsValidator);
-
-        m_freePortsLineEdit->setText(device->freePorts().toString());
-        updateFreePorts();
-
         installMarkSettingsDirtyTriggerRecursively(this);
     }
 
-    void updateDeviceFromUi() final
-    {
-        updateFreePorts();
-    }
-
-private:
-    void updateFreePorts()
-    {
-        device()->setFreePorts(PortList::fromString(m_freePortsLineEdit->text()));
-        m_portsWarningLabel->setVisible(!device()->freePorts().hasMore());
-    }
-
-    QLineEdit *m_freePortsLineEdit;
-    QLabel *m_portsWarningLabel;
+    void updateDeviceFromUi() final {}
 };
 
 class DesktopDevicePrivate
@@ -455,6 +428,33 @@ private slots:
         if (!known)
             QFAIL(qPrintable(known.error()));
         QCOMPARE(known->toStringList(), Environment::systemEnvironment().toStringList());
+    }
+
+    void testADeviceSaysWhenItHasNoPortsToHandOut()
+    {
+        // Which ports a device has is the device's business, and so is saying
+        // that it has none. Two widgets used to work that out and draw the
+        // label themselves, so neither renderer could see it and the two
+        // disagreed on what it said.
+        IDeviceFactory * const factory = IDeviceFactory::find(Constants::DESKTOP_DEVICE_TYPE);
+        QVERIFY(factory);
+        const IDevice::Ptr device = factory->construct();
+        QVERIFY(device);
+
+        device->freePortsAspect.setValue(QString("30000-30010"));
+        QVERIFY(!device->freePortsWarning.isVisible());
+
+        device->freePortsAspect.setValue(QString());
+        QVERIFY(device->freePortsWarning.isVisible());
+        QVERIFY(!device->freePortsWarning.text().isEmpty());
+        QCOMPARE(device->freePortsWarning.presentation().infoType, InfoType::Warning);
+
+        device->freePortsAspect.setValue(QString("30000"));
+        QVERIFY(!device->freePortsWarning.isVisible());
+
+        // And the field says what a port list looks like, which was the one
+        // widget's placeholder rather than the aspect's.
+        QVERIFY(!device->freePortsAspect.presentation().placeholderText.isEmpty());
     }
 
     void testScriptSourcing()

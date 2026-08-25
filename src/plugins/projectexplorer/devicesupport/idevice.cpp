@@ -668,6 +668,18 @@ IDevice::IDevice()
     freePortsAspect.setToolTip(
         Tr::tr("Enter lists and ranges like this: \"1024,1026-1028,1030\"."));
     freePortsAspect.setHistoryCompleter("PortRange");
+    freePortsAspect.setPlaceHolderText(
+        QString::fromLatin1("eg: %1-%2")
+            .arg(Constants::DESKTOP_PORT_START)
+            .arg(Constants::DESKTOP_PORT_END));
+
+    freePortsWarning.setIconType(Utils::InfoType::Warning);
+    freePortsWarning.setText(Tr::tr("You will need at least one port."));
+    const auto updatePortsWarning = [this] {
+        freePortsWarning.setVisible(freePortsAspect.volatileValue().isEmpty());
+    };
+    updatePortsWarning();
+    freePortsAspect.addOnVolatileValueChanged(this, updatePortsWarning);
 }
 
 IDevice::~IDevice() = default;

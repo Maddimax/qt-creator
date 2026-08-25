@@ -1589,6 +1589,29 @@ device lists all refill themselves. Nothing caught it because every test set a
 value and read it back, and that path was never broken. The test that catches
 it refills with the *same* value selected, which is the only case that fails.
 
+### Devices, and how few of them there turned out to be
+
+The plan said thirteen `IDeviceWidget` implementations. There are **seven**,
+and four of them are already nothing but a `Layouting::Form` over the device's
+own aspects - `IDevice` is an `AspectContainer`, and Linux, Windows, Docker and
+Qdb (which rides on Linux) had already been written that way. Three more
+devices return no widget at all.
+
+So the batch that mattered was the one widget that kept its state outside the
+device: the desktop one hand-rolled a `QLineEdit` with a port-list validator,
+seeded it from `freePorts()` and pushed it back in `updateDeviceFromUi()` -
+while `IDevice::freePortsAspect` already existed and the Linux widget was
+using it directly. It is the aspect now, and the only non-empty
+`updateDeviceFromUi()` in the tree is gone.
+
+**Two widgets were working out the same thing and drawing it themselves.**
+"You will need at least one port" was a `QLabel` in one and an `InfoLabel` in
+the other, with two different texts and two different conditions, neither
+visible to any renderer but the one that built it. Which ports a device has is
+the device's business and so is saying that it has none:
+`IDevice::freePortsWarning` is a `TextDisplay` beside the port field, and both
+widgets just place it.
+
 ### What the census could not see, and now can
 
 Two holes, both found the hard way in the same session.
@@ -1825,7 +1848,10 @@ remembered:
   single batch because it had exactly one implementation; this one took four.
 - **Kits** - done. All 16 `KitAspect` implementations are converted and the
   page is `KitsPage.qml`.
-- **Devices** - **13 `IDeviceWidget` implementations**.
+- **Devices** - **7 `IDeviceWidget` implementations**, not the 13 first
+  counted. Four are already pure aspect layout; the desktop one has been
+  converted. What is left is two read-only info dumps (iOS, Android), Docker's
+  detection log, and BareMetal's embedded provider chooser.
 - **BareMetal's Debug Server Providers** - **30 config-widget classes**, all of
   them for hardware this machine does not have.
 - **MCU Support** - `McuAbstractPackage::widget()`, one per package kind.

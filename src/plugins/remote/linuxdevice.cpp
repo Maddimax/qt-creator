@@ -120,24 +120,12 @@ LinuxDeviceConfigurationWidget::LinuxDeviceConfigurationWidget(
 
     using namespace Layouting;
 
-    auto portWarningLabel = new QLabel(
-        QString("<font color=\"red\">%1</font>").arg(Tr::tr("You will need at least one port.")));
-
-    auto updatePortWarningLabel = [portWarningLabel, device]() {
-        portWarningLabel->setVisible(device->freePortsAspect.volatileValue().isEmpty());
-    };
-
-    updatePortWarningLabel();
-
-    connect(&device->freePortsAspect, &PortListAspect::volatileValueChanged, this, updatePortWarningLabel);
-
-
     SshParametersAspectContainer &ssh = device->sshParametersAspectContainer();
     // clang-format off
     Form {
         Tr::tr("Machine type:"), machineType, st, br,
         ssh.host, ssh.port, ssh.hostKeyCheckingMode, st, br,
-        device->freePortsAspect, portWarningLabel, ssh.timeout, st, br,
+        device->freePortsAspect, device->freePortsWarning, ssh.timeout, st, br,
         ssh.userName, st, br,
         ssh.useKeyFile, st, br,
         ssh.privateKeyFile, createKeyButton, br,
