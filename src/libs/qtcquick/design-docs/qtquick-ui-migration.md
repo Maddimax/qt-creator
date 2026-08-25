@@ -1446,6 +1446,51 @@ a window, and the first version of the test was vacuous: it compared the
 derived value to what the factory would derive, which is true whether or not
 anything derived it. Clobbering the field first is what made the control bite.
 
+### Starting Kits from the bottom, the same way
+
+Sixteen `KitAspect` implementations stand between the Kits page and Qt Quick,
+and the first batch is the one that makes every later batch smaller: what every
+kit aspect *is*.
+
+Every one of them is one row - what it is called, what it holds, and the page
+that manages the things it offers. That is an inline-row `AspectContainer`, so
+`KitAspect` is one now, and the two pieces the base built as widgets are
+aspects: the list is a `SelectionAspect` instead of a `QComboBox` the aspect
+held a pointer to, and "Manage..." is an `ActionAspect` instead of a
+`QPushButton`. `addToLayoutImpl` keeps its shape, so all sixteen still draw and
+each can move on its own.
+
+Six of the sixteen needed no change at all: their whole contract was already
+model plus getter plus setter. Two more shrank, because what they were doing to
+the combo box - poking its size policy - was about the widget rather than about
+the value. The toolchain one lost its hand-built `QGridLayout`: each of its
+lists carries its own label now, so the grid is what they land in rather than
+something built around them.
+
+**Two things travelled in the model and would have been lost silently.**
+
+- **Icons.** The device types are told apart by a picture as much as by a name,
+  and that came in as `Qt::DecorationRole`. A descriptor with no icon in it
+  would have dropped them with nothing to say so, so
+  `AspectPresentation::Choice` carries one, and QML gets it as a URL through
+  the provider that already existed for `AspectItemListModel`.
+- **"Mark as Mutable".** Whether a kit aspect may be changed per run
+  configuration is about the *setting*, not about which item is picked, so it
+  is a right-click rather than a control. It was a `QAction` put on a
+  `QComboBox`, which no other renderer could see. It is
+  `AspectPresentation::contextActionText` now, and `AspectContextMenu.qml` is
+  the Quick half. A subclass that still draws its own widgets keeps
+  `addMutableAction()`.
+
+**A container frees only what it was told to own.** `new SomeAspect(container)`
+registers the aspect there and nothing more: no ownership, and not a QObject
+child either, so every one of those in a container that is not a singleton
+leaks. Reading `registerAspect()` was not enough to be sure of this, so
+`tst_aspects` says it out loud. `registerAspect(aspect, true)` is the fix, and
+it is now used where this migration created the pattern. There are others in
+the tree that predate it - `codestyleeditor.cpp`, `qmlprofilersampler.cpp`,
+`combinedsampler.cpp`, `idevice.cpp` - which are not this batch's to change.
+
 ### What the census could not see, and now can
 
 Two holes, both found the hard way in the same session.
@@ -1680,7 +1725,9 @@ remembered:
   not move until every one of them did, because a Qt Quick page cannot host a
   `QWidget` for the ones that have not. Qt Versions' extension point moved in a
   single batch because it had exactly one implementation; this one took four.
-- **Kits** - the same shape with **16 `KitAspect` implementations**.
+- **Kits** - the same shape with **16 `KitAspect` implementations**. The base
+  is converted: every kit aspect is an inline-row container whose list is a
+  `SelectionAspect`. The ten that draw their own widgets are what is left.
 - **Devices** - **13 `IDeviceWidget` implementations**.
 - **BareMetal's Debug Server Providers** - **30 config-widget classes**, all of
   them for hardware this machine does not have.
