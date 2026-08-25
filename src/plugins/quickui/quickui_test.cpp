@@ -4,6 +4,8 @@
 #include "quickui_test.h"
 
 #include <coreplugin/dialogs/ioptionspage.h>
+
+#include <utils/aspectwidgets.h>
 #include <coreplugin/secretaspect.h>
 
 #include <extensionsystem/pluginmanager.h>
@@ -170,6 +172,7 @@ private slots:
     void testTextWithActionShowsSummaryAndActs();
     void testAspectListLabelArrivingLate();
     void testPageWithoutItsOwnQmlIsDeclined();
+    void testBuildingAPageIsNotShowingIt();
     void testPasswordAspectDoesNotEchoItsValue();
     void testAspectListOffersItsExtraButtons();
     void testAnOrderedListMovesTheCurrentItem();
@@ -609,6 +612,55 @@ void QuickUiTest::testPageWithoutItsOwnQmlIsDeclined()
     QVERIFY(quickWidget);
     QVERIFY(quickWidget->rootObject());
     QVERIFY(findQmlComponent(quickWidget->rootObject(), "BoolDelegate"));
+}
+
+void QuickUiTest::testBuildingAPageIsNotShowingIt()
+{
+    // Work that costs something - reloading SDK packages, re-reading what
+    // another page just changed - belongs to the page being looked at, not to
+    // the page being built. The census below builds every page in the
+    // application and shows none of them, so a hook that fired at construction
+    // would make a test run spawn an SDK manager.
+    Utils::AspectContainer page;
+    Utils::BoolAspect flag(&page);
+    flag.setLabelText("Flag");
+    flag.setQmlName("Flag");
+
+    int shown = 0;
+    QObject::connect(&page, &Utils::AspectContainer::shown, &page, [&shown] { ++shown; });
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    QVERIFY(form);
+    QCOMPARE(shown, 0);
+
+    form->resize(400, 300);
+    form->show();
+    QVERIFY(QTest::qWaitForWindowExposed(form.get()));
+    QCOMPARE(shown, 1);
+
+    // The widget path says the same thing, so a page that has not been ported
+    // behaves the same way.
+    Utils::AspectContainer widgetPage;
+    Utils::BoolAspect widgetFlag(&widgetPage);
+    widgetFlag.setLabelText("Flag");
+    Utils::AspectWidgets::setLayouter(&widgetPage, [&widgetFlag] {
+        return Layouting::Column{&widgetFlag};
+    });
+
+    int widgetShown = 0;
+    QObject::connect(&widgetPage, &Utils::AspectContainer::shown, &widgetPage,
+                     [&widgetShown] { ++widgetShown; });
+
+    // Declined by the Quick factory, so this is the widget layout.
+    const std::unique_ptr<QWidget> widgetForm(Core::createAspectForm(&widgetPage));
+    QVERIFY(widgetForm);
+    QVERIFY(!widgetForm->findChild<QQuickWidget *>());
+    QCOMPARE(widgetShown, 0);
+
+    widgetForm->resize(400, 300);
+    widgetForm->show();
+    QVERIFY(QTest::qWaitForWindowExposed(widgetForm.get()));
+    QCOMPARE(widgetShown, 1);
 }
 
 void QuickUiTest::testPasswordAspectDoesNotEchoItsValue()
