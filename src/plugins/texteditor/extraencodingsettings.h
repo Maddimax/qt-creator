@@ -10,8 +10,6 @@
 
 namespace TextEditor {
 
-class CodecChooser;
-
 class TEXTEDITOR_EXPORT ExtraEncodingSettingsData
 {
 public:
@@ -38,10 +36,7 @@ public:
     void setValue(const Utils::TextEncoding &value);
 
 private:
-    void addToLayoutImpl(Layouting::Layout &parent) override;
     Utils::AspectPresentation presentation() const override;
-
-    CodecChooser *m_codecChooser = nullptr;
 };
 
 class TEXTEDITOR_EXPORT ExtraEncodingSettings : public Utils::AspectContainer

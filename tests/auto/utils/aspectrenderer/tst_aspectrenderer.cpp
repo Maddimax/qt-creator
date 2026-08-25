@@ -949,6 +949,7 @@ public:
         p.control = AspectControls::ComboBox;
         p.labelText = "Launcher:";
         p.valueIsChoiceId = true;
+        p.minimumContentsLength = 12;
         for (const QString &id : m_ids)
             p.choices.append({id.toUpper(), {}, true, id});
         return p;
@@ -989,6 +990,13 @@ void tst_AspectRenderer::comboBoxForAnAspectValuedByChoiceId()
     QVERIFY(combo);
     QCOMPARE(combo->count(), 3);
     QCOMPARE(combo->itemText(0), QString("ALPHA"));
+
+    // How wide it may get is the descriptor's to say. A list of encodings is
+    // the reason: their names are long enough that a combo sized to its
+    // contents pushes the page wider than the screen.
+    QCOMPARE(combo->sizeAdjustPolicy(), QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    QCOMPARE(combo->minimumContentsLength(), 12);
+
     // The value is an id, so the entry shown is the one whose id it is - not
     // the entry at index 1 by coincidence of both being "beta".
     QCOMPARE(combo->currentIndex(), 1);

@@ -4,7 +4,6 @@
 #include "extraencodingsettings.h"
 
 #include "texteditortr.h"
-#include "codecchooser.h"
 
 #include <coreplugin/coreconstants.h>
 #include <coreplugin/editormanager/editormanager.h>
@@ -22,23 +21,14 @@ EncodingSelectionAspect::EncodingSelectionAspect(AspectContainer *container)
     : ByteArrayAspect(container)
 {}
 
-void EncodingSelectionAspect::addToLayoutImpl(Layouting::Layout &parent)
-{
-    m_codecChooser = Utils::AspectWidgets::createSubWidget<CodecChooser>(this);
-    m_codecChooser->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
-    m_codecChooser->setAssignedEncoding(value());
-    parent.addItem(m_codecChooser);
-
-    connect(m_codecChooser, &CodecChooser::encodingChanged, this, [this] {
-        setVolatileValue(m_codecChooser->currentEncoding().name());
-    });
-}
-
 AspectPresentation EncodingSelectionAspect::presentation() const
 {
     AspectPresentation p = ByteArrayAspect::presentation();
     p.control = AspectControls::ComboBox;
     p.valueIsChoiceId = true; // The value is the encoding name, not an index.
+    // Encoding names are long. Sized to its contents the combo would push the
+    // page wider than the screen, which is what CodecChooser said too.
+    p.sizeAdjustPolicy = AspectControls::SizeAdjustPolicy::ToMinimumContentsLengthWithIcon;
     for (const TextEncoding &encoding : TextEncoding::availableEncodings())
         p.choices.append({encoding.fullDisplayName(), {}, true, encoding.name()});
     return p;
@@ -47,8 +37,6 @@ AspectPresentation EncodingSelectionAspect::presentation() const
 void EncodingSelectionAspect::setValue(const TextEncoding &encoding)
 {
     ByteArrayAspect::setValue(encoding.name());
-    if (m_codecChooser)
-        m_codecChooser->setAssignedEncoding(encoding);
 }
 
 TextEncoding EncodingSelectionAspect::operator()() const

@@ -590,6 +590,7 @@ private:
             comboBox->addItem(choice.icon, choice.display);
             comboBox->setItemData(comboBox->count() - 1, choice.toolTip, Qt::ToolTipRole);
         }
+        applyComboBoxSizing(comboBox, pres);
         comboBox->setCurrentIndex(indexForValue(pres, aspect->volatileVariantValue()));
         addContextAction(aspect, comboBox, pres);
         AspectWidgets::addLabeledItem(aspect, parent, comboBox);

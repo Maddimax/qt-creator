@@ -2171,8 +2171,9 @@ group. Most are run-configuration, build-step and kit aspects - project
 panels rather than preferences pages, which is a surface the migration has not
 reached. The rest are aspects on pages that *have* been migrated and
 describe a control the widget renderer had no case for, so they kept a closure
-to draw it: `MimeTypesAspect`, `SuppressionAspect`, `EncodingSelectionAspect`,
-`ClangDiagnosticConfigIdAspect`. `SecretAspect` was the fifth - see below.
+to draw it: `MimeTypesAspect`, `SuppressionAspect`,
+`ClangDiagnosticConfigIdAspect`. `SecretAspect` and
+`EncodingSelectionAspect` were two more - see below.
 `aspects.{h,cpp}` reach no QtWidgets header and no `layoutbuilder.h` either;
 what keeps them on the widget side of the split metric is that virtual's
 signature naming `Layouting::Layout`, and the project panels are what has to
@@ -2387,6 +2388,36 @@ fails, by hand, so the moment before it arrives is a moment the test can look
 at. That is the moment the field must be read-only in, and an empty field is no
 evidence of it - an empty secret is a legitimate answer, which is exactly what
 made the old `arrived` flag necessary in the first place.
+
+### An encoding is a combo box with a long name
+
+`EncodingSelectionAspect` already described itself as a combo box whose value
+is the chosen entry's id - the encoding's name, not its position - and still
+built a `CodecChooser` of its own. The two lists were the same list:
+`TextEncoding::availableEncodings()`, shown by `fullDisplayName()`. The closure
+is gone and the `CodecChooser *` member with it; the class stays, because the
+binary editor uses it as a plain widget.
+
+**One thing the descriptor said and nobody read.**
+`AspectPresentation::sizeAdjustPolicy` and `minimumContentsLength` were applied
+by `renderStringSelection()` only - the generic combo path built by
+`renderSelection()` ignored both, so every `SelectionAspect` combo got
+`QComboBox`'s own `AdjustToContentsOnFirstShow` no matter what its aspect
+asked for. That had gone unnoticed because no aspect set them; `CodecChooser`
+set `AdjustToMinimumContentsLengthWithIcon` by hand, which is exactly the kind
+of thing that stops being possible when the closure goes. The generic path
+applies them now, and the aspect asks for it in its descriptor.
+
+This is the same shape as `setInlineRow()`: a field on the descriptor that one
+renderer honoured and the other quietly dropped. So the rest were checked, by
+matching every field of `AspectPresentation` against both backends. What is
+left unread is unread for a reason: `pathKind`, `promptDialogTitle`,
+`completions` and `defaultValue` are read by the widget backend off the typed
+aspect instead, and `filterPlaceholderText`, `showsDefault` and
+`allowReordering` belong to `Table`, `GroupedList` and `AspectList`, which that
+backend does not draw at all. One genuine hole is left: **`spanY` is read by
+neither**, so `setSpan()`'s second argument has never meant anything. `spanX`
+is honoured, in `AspectWidgets::addLabeledItem()`.
 
 ### What the census could not see, and now can
 
