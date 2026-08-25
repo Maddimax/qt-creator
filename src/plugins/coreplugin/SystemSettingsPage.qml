@@ -10,24 +10,13 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
-    id: root
-
-    // The terminal command is a container of its own three fields.
-    readonly property var terminal: AspectModels.named(aspects.Terminal)
-
     TextWithActionDelegate { aspect: aspects.EnvironmentChanges }
     TextWithActionDelegate { aspect: aspects.EnvVarSeparators }
 
-    AspectGroupBox {
-        title: qsTr("Terminal")
-        visible: aspects.Terminal.visible
-
-        ColumnLayout {
-            StringDelegate { aspect: root.terminal.Command }
-            StringDelegate { aspect: root.terminal.OpenOptions }
-            StringDelegate { aspect: root.terminal.ExecuteOptions }
-        }
-    }
+    // One row: what the three fields come to, the button that opens them, and
+    // the emulators this machine has. The fields are in a container of their
+    // own that is hidden here and shown by the dialog.
+    InlineGroupDelegate { aspect: aspects.Terminal }
 
     StringDelegate { aspect: aspects.FileBrowser }
     BoolDelegate { aspect: aspects.SupportDbusFileManagers }

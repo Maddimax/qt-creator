@@ -2166,7 +2166,7 @@ version of it passed against a build with the guard removed, which is the only
 reason it was rewritten.
 
 **What this does not do.** The virtual has to stay: six aspects in
-`src/plugins` and two more in Utils still override it. They are not one
+`src/plugins`, and `AspectList` in Utils, still override it. They are not one
 group. Most are run-configuration, build-step and kit aspects - project
 panels rather than preferences pages, which is a surface the migration has not
 reached. There were six more on pages that *have* been migrated,
@@ -2853,6 +2853,41 @@ the point of having written it when the aspect was made.
 `AspectList` is the last of this kind in Utils, and it is not a move: its two
 layout bodies run to about a hundred and ninety lines and hold state between
 them.
+
+### The terminal row, where the two backends showed different things
+
+`TerminalCommandAspect` had a 64-line closure building an eliding summary, a
+**Customize...** button that opened a dialog over its three fields, and a
+**Presets** button with a menu of the emulators the machine has. The Qt Quick
+page did not have any of that: `SystemSettingsPage.qml` drew a group box with
+the three fields in it. Two backends, two different settings pages, and
+whichever one you saw depended on `QTC_QUICK_SETTINGS`.
+
+Converging meant choosing, and the choice was the widget one: the Presets menu
+fills all three fields at once, and dropping it would have been a functional
+loss to save writing some QML.
+
+**Nothing new had to be invented.** `ActionAspect` already carries a summary
+(`setSummaryProvider()`) and a menu (`setChoices()`, `setOnChoice()`), and
+`setInlineRow()` already means "these read as one row". So the aspect is a
+container of a summary-and-button, a menu-button, and the three fields - and
+the page is one line, `InlineGroupDelegate { aspect: aspects.Terminal }`.
+
+**The fields are hidden, not absent, and that distinction is the whole design.**
+They cannot be children of the row - they would be drawn in it - and they
+cannot be `setVisible(false)` themselves, because the dialog draws *them* and
+would draw them hidden. A container in between solves it: hide the container
+where it is listed, and the dialog still draws what it holds. That is what the
+nested `command` container is for, and the test says so, because it is the sort
+of thing that reads like an accident.
+
+**One test found its own blind spot twice.** Counting the buttons on the page
+found three, not two: a `PathChooser` brings a **Browse** along, and the hidden
+fields are still in the widget tree - so the count is of *visible* buttons.
+And the control for "one row rather than a column" did not bite until the test
+actually said what a row is: the summary and both buttons in one
+`QHBoxLayout`, checked with `indexOf`. Asserting the parts exist is not
+asserting the shape they are in.
 
 ### What the census could not see, and now can
 

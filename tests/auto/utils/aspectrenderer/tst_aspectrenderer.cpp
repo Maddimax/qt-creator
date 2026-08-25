@@ -8,6 +8,7 @@
 #include <utils/elidinglabel.h>
 #include <utils/fancylineedit.h>
 #include <utils/environmentchangesaspect.h>
+#include <utils/terminalcommandaspect.h>
 #include <utils/groupedlistaspect.h>
 #include <utils/groupedmodel.h>
 #include <utils/infolabel.h>
@@ -20,6 +21,7 @@
 #include <QCheckBox>
 #include <QDir>
 #include <QGroupBox>
+#include <QHBoxLayout>
 #include <QComboBox>
 #include <QFontComboBox>
 #include <QLabel>
@@ -196,6 +198,8 @@ private slots:
     void checkBoxWithALabelOfItsOwn();
     void environmentChangesReadAsASummary_data() { addRendererRows(); }
     void environmentChangesReadAsASummary();
+    void terminalCommandIsOneRow_data() { addRendererRows(); }
+    void terminalCommandIsOneRow();
 };
 
 void tst_AspectRenderer::initTestCase()
@@ -1808,6 +1812,81 @@ void tst_AspectRenderer::environmentChangesReadAsASummary()
     }
     QVERIFY(button);
     QCOMPARE(button->text(), aspect.presentation().actionText);
+}
+
+void tst_AspectRenderer::terminalCommandIsOneRow()
+{
+    QFETCH(bool, withRenderer);
+    setRendererInstalled(withRenderer);
+
+    TerminalCommandAspect aspect(nullptr);
+    aspect.setLabelText("Terminal:");
+
+    const std::unique_ptr<QWidget> widget = render(aspect);
+    QVERIFY(widget);
+
+    // Only what is on the page: the hidden dialog fields bring buttons of
+    // their own along - a path chooser has a Browse.
+    QStringList buttons;
+    for (QPushButton * const b : widget->findChildren<QPushButton *>()) {
+        if (!b->text().isEmpty() && b->isVisibleTo(widget.get()))
+            buttons << b->text();
+    }
+    if (!withRenderer) {
+        QVERIFY(buttons.isEmpty());
+        return;
+    }
+
+    // One row: a summary of what the three fields come to, the button that
+    // opens them and the menu of what this machine has.
+    QCOMPARE(buttons.size(), 2);
+    QVERIFY2(buttons.contains(aspect.customize.presentation().actionText),
+             qPrintable(buttons.join(" | ")));
+    QVERIFY2(buttons.contains(aspect.presets.presentation().actionText),
+             qPrintable(buttons.join(" | ")));
+
+    // The fields themselves are the dialog's. They are in a container that is
+    // hidden here - hidden, not absent, because the dialog draws them and a
+    // hidden aspect would be hidden there too.
+    QVERIFY(!aspect.command.isVisible());
+    QVERIFY(aspect.terminalEmulator.isVisible());
+    for (QLabel * const label : widget->findChildren<QLabel *>()) {
+        if (label->text() == aspect.terminalOpenArgs.labelText())
+            QVERIFY2(!label->isVisibleTo(widget.get()), "a dialog field is on the page");
+    }
+
+    // The summary is derived from all three, so none of them knows on its own
+    // that it has changed.
+    auto summary = widget->findChild<ElidingLabel *>();
+    QVERIFY(summary);
+
+    // And it is one row: the summary and both buttons sit in the same
+    // horizontal layout, rather than a row each under one another.
+    bool foundRow = false;
+    for (QHBoxLayout * const row : widget->findChildren<QHBoxLayout *>()) {
+        if (row->indexOf(summary) < 0)
+            continue;
+        int found = 0;
+        for (QPushButton * const b : widget->findChildren<QPushButton *>()) {
+            if (buttons.contains(b->text()) && row->indexOf(b) >= 0)
+                ++found;
+        }
+        if (found == 2)
+            foundRow = true;
+    }
+    QVERIFY2(foundRow, "the summary and its buttons are not in one row");
+    aspect.terminalOpenArgs.setVolatileValue("--from-the-test");
+    QVERIFY2(summary->text().contains("--from-the-test"), qPrintable(summary->text()));
+
+    // A preset is one choice that sets all three at once, which is the whole
+    // reason the menu is there.
+    const QList<AspectPresentation::Choice> choices = aspect.presets.presentation().choices;
+    if (choices.isEmpty())
+        QSKIP("This machine reports no terminal emulators to choose between");
+    aspect.presets.triggerChoice(choices.last().id);
+    QCOMPARE(FilePath::fromUserInput(aspect.terminalEmulator.volatileValue()).toUserOutput(),
+             choices.last().display);
+    QVERIFY(!summary->text().contains("--from-the-test"));
 }
 
 void tst_AspectRenderer::filePathLiveReconfiguration()

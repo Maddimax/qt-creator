@@ -3,11 +3,10 @@
 
 #include "terminalcommandaspect.h"
 
-#include "aspectwidgets.h"
 #include "commandline.h"
-#include "elidinglabel.h"
 #include "guiutils.h"
 #include "hostosinfo.h"
+#include "qtcassert.h"
 #include "layoutbuilder.h"
 #include "pathchooser.h"
 #include "terminalcommand.h"
@@ -15,8 +14,6 @@
 
 #include <QDialog>
 #include <QDialogButtonBox>
-#include <QMenu>
-#include <QPushButton>
 
 namespace Utils {
 
@@ -48,71 +45,69 @@ TerminalCommandAspect::TerminalCommandAspect(AspectContainer *parentContainer)
     terminalExecuteArgs.setLabelText(Tr::tr("\"Run in Terminal\" arguments:"));
     terminalExecuteArgs.setDisplayStyle(StringAspect::LineEditDisplay);
     terminalExecuteArgs.setDefaultValue(TerminalCommand::defaultTerminalEmulator().executeArgs);
-}
 
-void TerminalCommandAspect::addToLayoutImpl(Layouting::Layout &parent)
-{
-    using namespace Layouting;
+    // The fields are the dialog's; the page shows what they come to.
+    command.setVisible(false);
+    setInlineRow(true);
 
-    auto detailLabel = new ElidingLabel;
-    auto updateDetails = [this, detailLabel]() {
-        const FilePath exe = terminalEmulator.expandedVolatileValue();
-        detailLabel->setText(
-            QString("%1: %2, %3: %4")
-                .arg(msgTerminalHereAction())
-                .arg(CommandLine(exe, terminalOpenArgs.volatileValue(), CommandLine::Raw)
-                         .toUserOutput())
-                .arg(Tr::tr("Run in Terminal"))
-                .arg(CommandLine(exe, terminalExecuteArgs.volatileValue(), CommandLine::Raw)
-                         .toUserOutput()));
-    };
-    updateDetails();
-    connect(&terminalEmulator, &BaseAspect::volatileValueChanged, detailLabel, updateDetails);
-    connect(&terminalOpenArgs, &BaseAspect::volatileValueChanged, detailLabel, updateDetails);
-    connect(&terminalExecuteArgs, &BaseAspect::volatileValueChanged, detailLabel, updateDetails);
-
-    QPushButton *changeButton = new QPushButton(Tr::tr("Customize..."));
-    changeButton->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Preferred);
-
-    QPushButton *presetButton = new QPushButton(Tr::tr("Presets"));
-    auto presetMenu = new QMenu(presetButton);
-    presetButton->setMenu(presetMenu);
-    presetButton->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Preferred);
-
-    for (const TerminalCommand &term : TerminalCommand::availableTerminalEmulators()) {
-        QAction *action = presetMenu->addAction(term.command.toUserOutput());
-        connect(action, &QAction::triggered, this, [this, term] {
-            terminalEmulator.setVolatileValue(term.command.toUrlishString());
-            terminalOpenArgs.setVolatileValue(term.openArgs);
-            terminalExecuteArgs.setVolatileValue(term.executeArgs);
-        });
+    customize.setActionText(Tr::tr("Customize..."));
+    customize.setSummaryProvider([this] { return summary(); });
+    customize.setAction([this] { openDialog(); });
+    // The summary is worked out from three other aspects, so none of them
+    // knows on its own that it has changed.
+    const QList<BaseAspect *> fields{&terminalEmulator, &terminalOpenArgs, &terminalExecuteArgs};
+    for (BaseAspect * const field : fields) {
+        connect(field, &BaseAspect::volatileValueChanged,
+                &customize, &ActionAspect::updateSummary);
     }
 
-    connect(changeButton, &QPushButton::clicked, this, [this] {
-        auto buttons = new QDialogButtonBox(QDialogButtonBox::Ok);
-
-        // clang-format off
-        auto layout = Column {
-            Form {
-                terminalEmulator, br,
-                terminalOpenArgs, br,
-                terminalExecuteArgs, br,
-            },
-            buttons
-        };
-        // clang-format on
-
-        QDialog *dialog = new QDialog(Utils::dialogParent());
-        dialog->setWindowTitle(Tr::tr("Select Terminal Emulator"));
-        dialog->setModal(true);
-        layout.attachTo(dialog);
-        connect(buttons, &QDialogButtonBox::accepted, dialog, &QDialog::accept);
-        dialog->show();
+    presets.setActionText(Tr::tr("Presets"));
+    QList<AspectPresentation::Choice> choices;
+    const QList<TerminalCommand> available = TerminalCommand::availableTerminalEmulators();
+    for (int i = 0, n = int(available.size()); i < n; ++i)
+        choices.append({available.at(i).command.toUserOutput(), {}, true, i});
+    presets.setChoices(choices);
+    presets.setOnChoice([this, available](const QVariant &id) {
+        const int index = id.toInt();
+        QTC_ASSERT(index >= 0 && index < available.size(), return);
+        const TerminalCommand &term = available.at(index);
+        terminalEmulator.setVolatileValue(term.command.toUrlishString());
+        terminalOpenArgs.setVolatileValue(term.openArgs);
+        terminalExecuteArgs.setVolatileValue(term.executeArgs);
     });
+}
 
-    AspectWidgets::addLabeledItem(this, parent, detailLabel);
-    parent.addItem(changeButton);
-    parent.addItem(presetButton);
+QString TerminalCommandAspect::summary() const
+{
+    const FilePath exe = terminalEmulator.expandedVolatileValue();
+    return QString("%1: %2, %3: %4")
+        .arg(msgTerminalHereAction())
+        .arg(CommandLine(exe, terminalOpenArgs.volatileValue(), CommandLine::Raw).toUserOutput())
+        .arg(Tr::tr("Run in Terminal"))
+        .arg(CommandLine(exe, terminalExecuteArgs.volatileValue(), CommandLine::Raw).toUserOutput());
+}
+
+void TerminalCommandAspect::openDialog()
+{
+    auto buttons = new QDialogButtonBox(QDialogButtonBox::Ok);
+
+    // clang-format off
+    auto layout = Layouting::Column {
+        Layouting::Form {
+            terminalEmulator, Layouting::br,
+            terminalOpenArgs, Layouting::br,
+            terminalExecuteArgs, Layouting::br,
+        },
+        buttons
+    };
+    // clang-format on
+
+    QDialog *dialog = new QDialog(Utils::dialogParent());
+    dialog->setWindowTitle(Tr::tr("Select Terminal Emulator"));
+    dialog->setModal(true);
+    layout.attachTo(dialog);
+    connect(buttons, &QDialogButtonBox::accepted, dialog, &QDialog::accept);
+    dialog->show();
 }
 
 } // Utils
