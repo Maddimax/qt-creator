@@ -114,9 +114,6 @@ private:
         if (const QList<KitAspect *> embedded = aspectsToEmbed(); !embedded.isEmpty()) {
             Layouting::Layout box(new QHBoxLayout);
             KitAspect::addToInnerLayout(box);
-            QSizePolicy p = comboBoxes().first()->sizePolicy();
-            p.setHorizontalStretch(2);
-            comboBoxes().first()->setSizePolicy(p);
             box.addItem(Utils::AspectWidgets::createSubWidget<QLabel>(this, Tr::tr("Mkspec:")));
             embedded.first()->addToInnerLayout(box);
             layout.addItem(box);

@@ -118,6 +118,10 @@ public:
             };
             auto resetModel = [model] { model->reset(); };
             addListAspectSpec({model, std::move(getter), std::move(setter), std::move(resetModel)});
+            // One list per language category, each saying which it is: this
+            // aspect is several rows where every other one is a single row.
+            listAspects().last()->setLabelText(
+                ToolchainManager::displayNameOfLanguageCategory(lc) + ':');
         }
 
         connect(ToolchainManager::instance(), &ToolchainManager::toolchainUpdated,
@@ -129,24 +133,16 @@ public:
 private:
     void addToInnerLayout(Layouting::Layout &layout) override
     {
-        const auto mainWidget = Utils::AspectWidgets::createSubWidget<QWidget>(this);
-        mainWidget->setContentsMargins(0, 0, 0, 0);
-
-        const auto grid = new QGridLayout(mainWidget);
-        grid->setContentsMargins(0, 0, 0, 0);
-        grid->setColumnStretch(1, 2);
-
-        int row = 0;
-        const QList<QComboBox *> cbList = comboBoxes();
-        QTC_ASSERT(cbList.size() == m_sortedLanguageCategories.size(), return);
-        for (const LanguageCategory &lc : std::as_const(m_sortedLanguageCategories)) {
-            grid->addWidget(
-                new QLabel(ToolchainManager::displayNameOfLanguageCategory(lc) + ':'), row, 0);
-            grid->addWidget(cbList.at(row), row, 1);
-            ++row;
+        // Each selection draws its own label, so the grid is what they land in
+        // rather than something built around them.
+        Layouting::Grid grid{Layouting::noMargin};
+        const QList<Utils::SelectionAspect *> selections = listAspects();
+        QTC_ASSERT(selections.size() == m_sortedLanguageCategories.size(), return);
+        for (Utils::SelectionAspect * const selection : selections) {
+            grid.addItem(selection);
+            grid.addItem(Layouting::br);
         }
-        addMutableAction(mainWidget);
-        layout.addItem(mainWidget);
+        layout.addItem(grid);
     }
 
     QList<LanguageCategory> m_sortedLanguageCategories;

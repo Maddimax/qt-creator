@@ -19,7 +19,6 @@
 
 QT_BEGIN_NAMESPACE
 class QAction;
-class QComboBox;
 QT_END_NAMESPACE
 
 namespace Utils {
@@ -202,7 +201,11 @@ private:
     bool m_essential = false;
 };
 
-class PROJECTEXPLORER_EXPORT KitAspect : public Utils::BaseAspect
+// One row of the Kits page: what the aspect is called, what it holds, and the
+// page that manages the things it offers. An AspectContainer so that what it
+// holds is aspects rather than widgets - a Qt Quick page cannot host a
+// QComboBox, and neither can anything else that wants to draw a kit.
+class PROJECTEXPLORER_EXPORT KitAspect : public Utils::AspectContainer
 {
     Q_OBJECT
 
@@ -225,6 +228,9 @@ public:
     Kit *kit() const;
     const KitAspectFactory *factory() const;
     QAction *mutableAction() const;
+    // For a subclass that still draws its own widgets: the widget renderer
+    // puts this on the controls it builds for an aspect, and a hand-built one
+    // has to ask.
     void addMutableAction(QWidget *child);
     void setManagingPage(Utils::Id pageId);
 
@@ -234,10 +240,18 @@ public:
     void makeStickySubWidgetsReadOnly();
     void reload();
 
-    // For layouting purposes only.
-    QList<QComboBox *> comboBoxes() const;
+    // The selections this aspect offers, one per list it was given. An aspect
+    // that draws another one beside its own - Qt draws qmake's, a device draws
+    // its type's - reaches them here.
+    QList<Utils::SelectionAspect *> listAspects() const;
 
     virtual void addToInnerLayout(Layouting::Layout &layout);
+
+    // Whether the setting may be changed per run configuration. A state about
+    // the setting rather than about its value, so a right-click rather than a
+    // control of its own; offered by whatever this aspect ends up drawn as.
+    bool offersMutability() const;
+    void triggerContextAction(bool checked) override;
 
 protected:
     virtual void makeReadOnly(bool readOnly);
@@ -247,8 +261,8 @@ protected:
     void addListAspectsToLayout(Layouting::Layout &layout);
     void addManageButtonToLayout(Layouting::Layout &layout);
 
-    // Convenience for aspects that provide a list model from which one value can be chosen.
-    // It will be exposed via a QComboBox.
+    // Convenience for aspects that provide a list model from which one value
+    // can be chosen. It becomes a SelectionAspect, which either renderer draws.
     class ListAspectSpec
     {
     public:
@@ -278,5 +292,9 @@ private:
     class Private;
     Private * const d;
 };
+
+#ifdef WITH_TESTS
+QObject *createKitAspectTest();
+#endif
 
 } // namespace ProjectExplorer

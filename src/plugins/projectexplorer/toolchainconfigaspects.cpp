@@ -60,7 +60,8 @@ ToolchainConfigAspects::ToolchainConfigAspects(const ToolchainBundle &bundle)
 
     const bool onlyOne = int(bundle.toolchains().size()) == 1;
     bundle.forEach<Toolchain>([&](const Toolchain &tc) {
-        auto command = new FilePathAspect(this);
+        auto command = new FilePathAspect;
+        registerAspect(command, /*takeOwnership=*/true);
         command->setQmlName(tc.language().toString());
         command->setLabelText(onlyOne
                                   ? Tr::tr("&Compiler path")
@@ -76,7 +77,8 @@ ToolchainConfigAspects::ToolchainConfigAspects(const ToolchainBundle &bundle)
 
         if (tc.language() == Constants::CXX_LANGUAGE_ID
             && bundle.factory()->supportedLanguages().contains(Constants::C_LANGUAGE_ID)) {
-            d->manualCxxCompiler = new BoolAspect(this);
+            d->manualCxxCompiler = new BoolAspect;
+            registerAspect(d->manualCxxCompiler, /*takeOwnership=*/true);
             d->manualCxxCompiler->setQmlName("ManualCxxCompiler");
             d->manualCxxCompiler->setLabelText(Tr::tr("Provide manually"));
             d->manualCxxCompiler->setLabelPlacement(BoolAspect::LabelPlacement::AtCheckBox);

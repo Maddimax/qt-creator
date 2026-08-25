@@ -104,9 +104,6 @@ private:
             embedded.first()->addToInnerLayout(box);
             box.addItem(Utils::AspectWidgets::createSubWidget<QLabel>(this, Tr::tr("Device:")));
             KitAspect::addToInnerLayout(box);
-            QSizePolicy p = comboBoxes().first()->sizePolicy();
-            p.setHorizontalStretch(1);
-            comboBoxes().first()->setSizePolicy(p);
             layout.addItem(box);
         } else {
             KitAspect::addToInnerLayout(layout);

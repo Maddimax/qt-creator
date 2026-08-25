@@ -1833,7 +1833,8 @@ public:
         m_targetTriple.setLabelText(Tr::tr("Target triple:"));
 
         if (isClangOnWindows(bundle)) {
-            m_parentToolchain = new SelectionAspect(this);
+            m_parentToolchain = new SelectionAspect;
+            registerAspect(m_parentToolchain, /*takeOwnership=*/true);
             m_parentToolchain->setQmlName("ParentToolchain");
             m_parentToolchain->setLabelText(Tr::tr("Parent toolchain:"));
             m_parentToolchain->setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);

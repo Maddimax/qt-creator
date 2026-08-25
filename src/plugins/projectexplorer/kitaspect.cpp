@@ -27,6 +27,10 @@
 #include <utility>
 
 using namespace Core;
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
 using namespace Utils;
 
 static const char DETECTIONSOURCETYPE[] = "DetectionSource.type";
@@ -69,6 +73,36 @@ public:
             setToolTip(itemData(currentIndex(), Qt::ToolTipRole).toString());
         return QComboBox::event(e);
     }
+};
+
+// The selection a KitAspect offers. A SelectionAspect that also carries the
+// aspect's "Mark as Mutable", which is about the setting rather than about
+// which item is picked, so both renderers put it on the control's right-click.
+class KitSelectionAspect final : public SelectionAspect
+{
+public:
+    // Registered by the owner rather than here: a container frees only what it
+    // was told to own, and a kit aspect is made afresh for every kit.
+    explicit KitSelectionAspect(KitAspect *owner)
+        : m_owner(owner)
+    {}
+
+    AspectPresentation presentation() const override
+    {
+        AspectPresentation p = SelectionAspect::presentation();
+        if (m_owner->offersMutability()) {
+            const QAction * const action = m_owner->mutableAction();
+            p.contextActionText = action->text();
+            p.contextActionChecked = action->isChecked();
+            p.contextActionEnabled = action->isEnabled();
+        }
+        return p;
+    }
+
+    void triggerContextAction(bool checked) override { m_owner->triggerContextAction(checked); }
+
+private:
+    KitAspect * const m_owner;
 };
 
 class KitAspectSortModel final : public SortModel
@@ -168,18 +202,22 @@ public:
     const KitAspectFactory * const factory;
     QAction *mutableAction = nullptr;
     Id managingPageId;
-    QPushButton *manageButton = nullptr;
+    ActionAspect *manageButton = nullptr;
     Guard ignoreChanges;
     QList<KitAspect *> aspectsToEmbed;
 
     struct ListAspect
     {
-        ListAspect(const ListAspectSpec &spec, QComboBox *comboBox)
+        ListAspect(const ListAspectSpec &spec, SelectionAspect *selection, SortModel *sorted)
             : spec(spec)
-            , comboBox(comboBox)
+            , selection(selection)
+            , sorted(sorted)
         {}
         ListAspectSpec spec;
-        QComboBox *comboBox;
+        SelectionAspect *selection;
+        // The model in the order it is shown in, which is not the order it
+        // comes in: see KitAspectSortModel.
+        SortModel *sorted;
     };
     QList<ListAspect> listAspects;
 
@@ -189,6 +227,11 @@ public:
 KitAspect::KitAspect(Kit *k, const KitAspectFactory *factory)
     : d(new Private(k, factory))
 {
+    // One row: what it is called, what it holds, and the page that manages it.
+    setInlineRow(true);
+    setLabelText(factory->displayName() + ':');
+    setToolTip(factory->description());
+
     connect(KitManager::instance(), &KitManager::kitRemoved, this, [this](Kit *k) {
         if (k == d->kit)
             d->kit = nullptr;
@@ -222,23 +265,34 @@ void KitAspect::refresh()
         return;
 
     for (const Private::ListAspect &la : std::as_const(d->listAspects)) {
-        // Prevent dirtying by the QComboBox::model()::reset and setCurrentIndex below.
+        // Refilling the list and picking what the kit already says is not the
+        // user changing anything.
         DirtySettingsGuard guard;
 
         la.spec.resetModel();
-        la.comboBox->model()->sort(0);
+        la.sorted->sort(0);
+        la.selection->clearOptions();
+        for (int row = 0, n = la.sorted->rowCount(); row < n; ++row) {
+            const QModelIndex index = la.sorted->index(row, 0);
+            SelectionAspect::Option option{index.data(Qt::DisplayRole).toString(),
+                                           index.data(Qt::ToolTipRole).toString(),
+                                           index.data(IdRole)};
+            option.icon = index.data(Qt::DecorationRole).value<QIcon>();
+            la.selection->addOption(option);
+        }
+
         const QVariant itemId = la.spec.getter(*k);
-        int idx = la.comboBox->findData(itemId, IdRole);
+        int idx = la.selection->indexForItemValue(itemId);
         if (idx == -1) {
-            idx = la.comboBox->count() - 1;
+            idx = la.selection->optionCount() - 1;
             if (QTC_UNEXPECTED(itemId.isValid())) {
                 qWarning() << factory()->displayName();
-                const QVariant newId = idx < 0 ? QVariant() : la.comboBox->itemData(idx, IdRole);
+                const QVariant newId = idx < 0 ? QVariant() : la.selection->itemValueForIndex(idx);
                 la.spec.setter(*kit(), newId);
             }
         }
-        la.comboBox->setCurrentIndex(idx);
-        la.comboBox->setEnabled(!d->readOnly && la.comboBox->count() > 1);
+        la.selection->setValue(qMax(0, idx));
+        la.selection->setEnabled(!d->readOnly && la.selection->optionCount() > 1);
     }
 }
 
@@ -277,7 +331,7 @@ void KitAspect::reload()
 void KitAspect::makeReadOnly(bool readOnly)
 {
     for (const Private::ListAspect &la : std::as_const(d->listAspects))
-        la.comboBox->setEnabled(!readOnly);
+        la.selection->setEnabled(!readOnly);
 }
 
 void KitAspect::addToInnerLayout(Layouting::Layout &layout)
@@ -287,33 +341,31 @@ void KitAspect::addToInnerLayout(Layouting::Layout &layout)
 
 void KitAspect::addListAspectSpec(const ListAspectSpec &listAspectSpec)
 {
-    const auto comboBox = Utils::AspectWidgets::createSubWidget<KitAspectComboBox>(this);
+    const auto selection = new KitSelectionAspect(this);
+    registerAspect(selection, /*takeOwnership=*/true);
+    selection->setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
     const auto sortModel = new KitAspectSortModel(this);
     sortModel->setSourceModel(listAspectSpec.model);
-    comboBox->setModel(sortModel);
-    comboBox->setMinimumContentsLength(15);
-    comboBox->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
-    d->listAspects.emplaceBack(listAspectSpec, comboBox);
+    d->listAspects.emplaceBack(listAspectSpec, selection, sortModel);
 
     refresh();
 
-    connect(comboBox, &QComboBox::currentIndexChanged,
-        this, [this, listAspectSpec, comboBox] {
-            if (d->ignoreChanges.isLocked())
-                return;
+    selection->addOnVolatileValueChanged(this, [this, listAspectSpec, selection] {
+        if (d->ignoreChanges.isLocked())
+            return;
 
-            if (Kit *k = kit())
-                listAspectSpec.setter(*k, comboBox->itemData(comboBox->currentIndex(), IdRole));
-        });
+        if (Kit *k = kit())
+            listAspectSpec.setter(*k, selection->itemValue());
+    });
     connect(listAspectSpec.model, &QAbstractItemModel::modelAboutToBeReset,
             this, [this] { d->ignoreChanges.lock(); });
     connect(listAspectSpec.model, &QAbstractItemModel::modelReset,
             this, [this] { d->ignoreChanges.unlock(); });
 }
 
-QList<QComboBox *> KitAspect::comboBoxes() const
+QList<SelectionAspect *> KitAspect::listAspects() const
 {
-    return Utils::transform(d->listAspects, &Private::ListAspect::comboBox);
+    return Utils::transform(d->listAspects, &Private::ListAspect::selection);
 }
 
 void KitAspect::addLabelToLayout(Layouting::Layout &layout)
@@ -329,22 +381,14 @@ void KitAspect::addLabelToLayout(Layouting::Layout &layout)
 
 void KitAspect::addListAspectsToLayout(Layouting::Layout &layout)
 {
-    for (const Private::ListAspect &la : std::as_const(d->listAspects)) {
-        addMutableAction(la.comboBox);
-        layout.addItem(la.comboBox);
-    }
+    for (const Private::ListAspect &la : std::as_const(d->listAspects))
+        layout.addItem(la.selection);
 }
 
 void KitAspect::addManageButtonToLayout(Layouting::Layout &layout)
 {
-    if (d->managingPageId.isValid()) {
-        d->manageButton = Utils::AspectWidgets::createSubWidget<QPushButton>(this, msgManage());
-        setIgnoreForDirtyHook(d->manageButton);
-        connect(d->manageButton, &QPushButton::clicked, this, [this] {
-            Core::ICore::showSettings(d->managingPageId, settingsPageItemToPreselect());
-        });
+    if (d->manageButton)
         layout.addItem(d->manageButton);
-    }
 }
 
 void KitAspect::addToLayoutImpl(Layouting::Layout &layout)
@@ -356,18 +400,38 @@ void KitAspect::addToLayoutImpl(Layouting::Layout &layout)
     layout.flush();
 }
 
+// The run device is the one thing a run configuration may not override.
+bool KitAspect::offersMutability() const
+{
+    return factory()->id() != RunDeviceKitAspect::id() && d->mutableAction;
+}
+
 void KitAspect::addMutableAction(QWidget *child)
 {
     QTC_ASSERT(child, return);
-    if (factory()->id() == RunDeviceKitAspect::id())
+    if (!offersMutability())
         return;
     child->addAction(d->mutableAction);
     child->setContextMenuPolicy(Qt::ActionsContextMenu);
 }
 
+void KitAspect::triggerContextAction(bool checked)
+{
+    QTC_ASSERT(d->mutableAction, return);
+    d->mutableAction->setChecked(checked);
+}
+
 void KitAspect::setManagingPage(Id pageId)
 {
     d->managingPageId = pageId;
+    if (!pageId.isValid())
+        return;
+    d->manageButton = new ActionAspect;
+    registerAspect(d->manageButton, /*takeOwnership=*/true);
+    d->manageButton->setActionText(msgManage());
+    d->manageButton->setAction([this] {
+        Core::ICore::showSettings(d->managingPageId, settingsPageItemToPreselect());
+    });
 }
 
 void KitAspect::setAspectsToEmbed(const QList<KitAspect *> &aspects)
@@ -643,6 +707,144 @@ void listAutoDetected(const IDeviceConstPtr &device, const LogCallback &logCallb
         factory->listAutoDetected(detectionSource, logCallback);
 }
 
+#ifdef WITH_TESTS
+class KitAspectTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testAKitAspectOffersItsListAsAnAspect()
+    {
+        // What a kit aspect holds used to live in the QComboBox it built, so
+        // only a widget page could show it. It is a SelectionAspect now, and
+        // says what the kit says.
+        Kit * const kit = anyKit();
+        if (!kit)
+            QSKIP("No kits are configured here");
+        const std::unique_ptr<KitAspect> aspect = aspectWithAList(kit);
+        if (!aspect)
+            QSKIP("No kit aspect here offers a list");
+
+        const QList<Utils::SelectionAspect *> lists = aspect->listAspects();
+        QVERIFY(!lists.isEmpty());
+        Utils::SelectionAspect * const list = lists.first();
+        QVERIFY(list->optionCount() > 0);
+        // Every entry carries the id it stands for, not just its text: what is
+        // written back has to survive the list being refilled.
+        for (int i = 0; i < list->optionCount(); ++i)
+            QVERIFY(list->itemValueForIndex(i).isValid() || i == list->optionCount() - 1);
+
+        // And the aspect is one row of the page, which is what makes a
+        // renderer able to draw it without knowing what it is.
+        const Utils::AspectPresentation p = aspect->presentation();
+        QCOMPARE(p.control, Utils::AspectControls::Container);
+        QVERIFY(p.inlineRow);
+        QVERIFY(!p.labelText.isEmpty());
+    }
+
+    void testPickingFromTheListWritesToTheKit()
+    {
+        Kit * const kit = anyKit();
+        if (!kit)
+            QSKIP("No kits are configured here");
+        const std::unique_ptr<KitAspect> aspect = aspectWithAList(kit, AtLeastTwoOptions);
+        if (!aspect)
+            QSKIP("No kit aspect here offers a choice");
+
+        Utils::SelectionAspect * const list = aspect->listAspects().first();
+        const int was = list->volatileValue();
+        const int other = was == 0 ? 1 : 0;
+        const QVariant otherId = list->itemValueForIndex(other);
+
+        list->setValue(other);
+        // The kit is what holds the value; the aspect is only how it is picked.
+        QCOMPARE(aspect->listAspects().first()->itemValue(), otherId);
+        aspect->refresh();
+        QCOMPARE(aspect->listAspects().first()->itemValue(), otherId);
+
+        list->setValue(was);
+    }
+
+    void testTheListOffersMarkAsMutable()
+    {
+        // "Mark as Mutable" is about the setting rather than about which item
+        // is picked, so it is a right-click on the control. It used to be a
+        // QAction put on a QComboBox, which no other renderer could see.
+        Kit * const kit = anyKit();
+        if (!kit)
+            QSKIP("No kits are configured here");
+        const std::unique_ptr<KitAspect> aspect = aspectWithAList(kit, AnyOptions, Mutable);
+        if (!aspect)
+            QSKIP("No kit aspect here can be marked mutable");
+
+        Utils::SelectionAspect * const list = aspect->listAspects().first();
+        const Utils::AspectPresentation p = list->presentation();
+        QVERIFY(!p.contextActionText.isEmpty());
+
+        const Utils::Id id = aspect->factory()->id();
+        const bool was = kit->isMutable(id);
+        list->triggerContextAction(!was);
+        QCOMPARE(kit->isMutable(id), !was);
+        list->triggerContextAction(was);
+        QCOMPARE(kit->isMutable(id), was);
+    }
+
+    void testADeviceTypeIsToldApartByMoreThanItsName()
+    {
+        // The device types are drawn with an icon each. That travelled as a
+        // model role into a QComboBox; a descriptor with no icon in it would
+        // have lost it silently.
+        Kit * const kit = anyKit();
+        if (!kit)
+            QSKIP("No kits are configured here");
+
+        for (KitAspectFactory * const factory : KitManager::kitAspectFactories()) {
+            const std::unique_ptr<KitAspect> aspect(factory->createKitAspect(kit));
+            if (!aspect || aspect->listAspects().isEmpty())
+                continue;
+            const Utils::AspectPresentation p = aspect->listAspects().first()->presentation();
+            const bool anyIcon = Utils::anyOf(p.choices, [](const auto &c) {
+                return !c.icon.isNull();
+            });
+            if (anyIcon)
+                return;
+        }
+        QFAIL("No kit aspect offers a choice with an icon");
+    }
+
+private:
+    enum OptionCount { AnyOptions, AtLeastTwoOptions };
+    enum Mutability { AnyMutability, Mutable };
+
+    static Kit *anyKit()
+    {
+        const QList<Kit *> kits = KitManager::kits();
+        return kits.isEmpty() ? nullptr : kits.first();
+    }
+
+    static std::unique_ptr<KitAspect> aspectWithAList(
+        Kit *kit, OptionCount count = AnyOptions, Mutability mutability = AnyMutability)
+    {
+        for (KitAspectFactory * const factory : KitManager::kitAspectFactories()) {
+            std::unique_ptr<KitAspect> aspect(factory->createKitAspect(kit));
+            if (!aspect || aspect->listAspects().isEmpty())
+                continue;
+            if (count == AtLeastTwoOptions && aspect->listAspects().first()->optionCount() < 2)
+                continue;
+            if (mutability == Mutable && !aspect->offersMutability())
+                continue;
+            return aspect;
+        }
+        return {};
+    }
+};
+
+QObject *createKitAspectTest()
+{
+    return new KitAspectTest;
+}
+#endif // WITH_TESTS
+
 QDebug operator<<(QDebug dbg, const DetectionSource &source)
 {
     dbg.nospace() << "DetectionSource(";
@@ -654,3 +856,7 @@ QDebug operator<<(QDebug dbg, const DetectionSource &source)
 }
 
 } // namespace ProjectExplorer
+
+#ifdef WITH_TESTS
+#include "kitaspect.moc"
+#endif
