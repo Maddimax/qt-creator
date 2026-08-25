@@ -67,33 +67,31 @@ private:
     bool m_userSet = false;
 };
 
-class PROJECTEXPLORER_EXPORT WorkingDirectoryAspect : public Utils::BaseAspect
+class PROJECTEXPLORER_EXPORT WorkingDirectoryAspect : public Utils::FilePathAspect
 {
     Q_OBJECT
 
 public:
     explicit WorkingDirectoryAspect(Utils::AspectContainer *container = nullptr);
 
-    void addToLayoutImpl(Layouting::Layout &parent) override;
-
+    // The directory with macros and environment variables expanded, which is
+    // what a run needs. FilePathAspect::operator()() expands only macros.
     Utils::FilePath operator()() const { return workingDirectory(); }
     Utils::FilePath workingDirectory() const;
     Utils::FilePath defaultWorkingDirectory() const;
     Utils::FilePath unexpandedWorkingDirectory() const;
     void setDefaultWorkingDirectory(const Utils::FilePath &defaultWorkingDirectory);
+
+    // The environment the directory is expanded in follows a run
+    // configuration's own, which is an aspect rather than a value.
+    using Utils::FilePathAspect::setEnvironment;
     void setEnvironment(EnvironmentAspect *envAspect);
 
 private:
     void fromMap(const Utils::Store &map) override;
     void toMap(Utils::Store &map) const override;
 
-    void resetPath();
-
     EnvironmentAspect *m_envAspect = nullptr;
-    Utils::FilePath m_workingDirectory;
-    Utils::FilePath m_defaultWorkingDirectory;
-    QPointer<Utils::PathChooser> m_chooser;
-    QPointer<QToolButton> m_resetButton;
 };
 
 class PROJECTEXPLORER_EXPORT ArgumentsAspect : public Utils::BaseAspect
@@ -333,5 +331,9 @@ public:
 
     QString display() const;
 };
+
+#ifdef WITH_TESTS
+QObject *createWorkingDirectoryAspectTest();
+#endif
 
 } // namespace ProjectExplorer

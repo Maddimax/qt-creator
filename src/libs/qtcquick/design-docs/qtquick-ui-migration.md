@@ -2165,9 +2165,14 @@ installs a message handler and asserts nothing says SOFT ASSERT. The first
 version of it passed against a build with the guard removed, which is the only
 reason it was rewritten.
 
-**What this does not do.** The virtual has to stay: seven aspects outside Utils
-still override it - the run-configuration and build-settings aspects, which
-are project panels rather than preferences pages and have not been migrated.
+**What this does not do.** The virtual has to stay: twenty aspects in
+`src/plugins` and five more in Utils still override it. They are not one
+group. Most are run-configuration, build-step and kit aspects - project
+panels rather than preferences pages, which is a surface the migration has not
+reached. The rest are aspects on pages that *have* been migrated but hold a
+control the descriptor cannot yet name: `SecretAspect`, `MimeTypesAspect`,
+`SuppressionAspect`, `EncodingSelectionAspect`,
+`ClangDiagnosticConfigIdAspect`.
 `aspects.{h,cpp}` reach no QtWidgets header and no `layoutbuilder.h` either;
 what keeps them on the widget side of the split metric is that virtual's
 signature naming `Layouting::Layout`, and the project panels are what has to
@@ -2230,12 +2235,13 @@ plain one (a run configuration applies as it is edited, so there is no separate
 value being typed), and `emit volatileValueChanged()` where it used to poke the
 widget. The closure, the `QPointer` and the four pushes are gone.
 
-**Eight to go, and they are not all the same.** `LauncherAspect` went the same
-way as this one - see below. The rest hold controls that are more than their
-value: `WorkingDirectoryAspect` has a chooser and a reset button, and
-`ArgumentsAspect` a chooser plus an expand button and a multi-line editor. Each needs its control described before
-its closure can go, which is workstream 2 applied to the run-configuration
-surface rather than to a settings page.
+**Eight to go, and they are not all the same.** `LauncherAspect`,
+`RunAsAspect` and `WorkingDirectoryAspect` went the same way as this one - see
+below - leaving six. What is left holds controls that are more than their
+value: `ArgumentsAspect` has a chooser plus an expand button and a multi-line
+editor. Each needs its control described before its closure can go, which is
+workstream 2 applied to the run-configuration surface rather than to a
+settings page.
 
 ### A combo box for whatever asked for one
 
@@ -2311,6 +2317,39 @@ an aspect that wants two plain rows can rely on it rather than writing them.
 `toMap()` currently read and write its sub-aspect by hand; registering the
 sub-aspect would put `AspectContainer` in that path too, and that is a change
 about persistence rather than about layout.
+
+### A working directory is a path with a reset button
+
+`WorkingDirectoryAspect` was a `BaseAspect` holding two `FilePath`s, a
+`PathChooser` and a `QToolButton`, and pushing values between them. All four
+are one `FilePathAspect`: the directory is its value, the default is its
+default value, and `setUseResetButton()` - added for the Qt for MCUs packages -
+is the button. The closure is gone.
+
+The tool button becomes a **Reset** with a word on it rather than an icon with
+a tooltip, which is the same trade the Android download buttons made.
+
+**`setDefaultValue()` writes the value too**, and that is what made this worth
+a test rather than a read-through. `TypedAspect::setDefaultValue()` is
+
+    m_default = value;
+    m_value = value;
+
+because it is meant to be called once, before anything is set. But
+`setDefaultWorkingDirectory()` is called *again* whenever the template on the
+Build & Run page changes, and a run configuration that had chosen its own
+directory would have had it silently replaced. The aspect reads the current
+value first and puts it back unless it was following the default anyway.
+
+The first version of this conversion had that bug. The test found it, and it
+is the assertion worth keeping: set a directory, change the default, and the
+directory is still what was set.
+
+**What the storage still says.** A directory that equals the default is stored
+as nothing, so that a later change to the default reaches a configuration that
+never overrode it. That is why `toMap()` and `fromMap()` stay: the value is
+conditional on the default, which `AspectContainer`'s own persistence does not
+express.
 
 ### What the census could not see, and now can
 

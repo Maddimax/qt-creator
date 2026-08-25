@@ -3,6 +3,10 @@
 
 #include "runconfigurationaspects.h"
 
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
 #include "buildmanager.h"
 #include "buildpropertiessettings.h"
 #include "devicesupport/devicekitaspects.h"
@@ -168,12 +172,19 @@ bool TerminalAspect::isUserSet() const
 */
 
 WorkingDirectoryAspect::WorkingDirectoryAspect(AspectContainer *container)
-    : BaseAspect(container)
+    : FilePathAspect(container)
 {
     setDisplayName(Tr::tr("Working Directory"));
     setLabelText(Tr::tr("Working directory:"));
     setId("WorkingDirectoryAspect");
     setSettingsKey("RunConfiguration.WorkingDirectory");
+    setExpectedKind(Utils::PathChooserKind::ExistingDirectory);
+    setPromptDialogTitle(Tr::tr("Select Working Directory"));
+    setHistoryCompleter(settingsKey());
+    // What the reset goes back to is the default, which is a value the
+    // descriptor already carries. The icon-only tool button that used to sit
+    // beside the chooser says "Reset" in words now.
+    setUseResetButton();
     setDefaultWorkingDirectory(
         FilePath::fromUserInput(buildPropertiesSettings().workingDirectoryTemplate.value()));
 }
@@ -181,59 +192,12 @@ WorkingDirectoryAspect::WorkingDirectoryAspect(AspectContainer *container)
 void WorkingDirectoryAspect::setEnvironment(EnvironmentAspect *envAspect)
 {
     m_envAspect = envAspect;
-}
-
-/*!
-    \reimp
-*/
-void WorkingDirectoryAspect::addToLayoutImpl(Layout &builder)
-{
-    QTC_CHECK(!m_chooser);
-    m_chooser = new PathChooser;
-    if (QTC_GUARD(macroExpander()))
-        m_chooser->setMacroExpander(macroExpander());
-    m_chooser->setHistoryCompleter(settingsKey());
-    m_chooser->setExpectedKind(Utils::PathChooserKind::ExistingDirectory);
-    m_chooser->setPromptDialogTitle(Tr::tr("Select Working Directory"));
-    m_chooser->setBaseDirectory(m_defaultWorkingDirectory);
-    m_chooser->setFilePath(m_workingDirectory.isEmpty() ? m_defaultWorkingDirectory : m_workingDirectory);
-    connect(m_chooser.data(), &PathChooser::textChanged, this, [this] {
-        m_workingDirectory = m_chooser->unexpandedFilePath();
-        m_resetButton->setEnabled(m_workingDirectory != m_defaultWorkingDirectory);
+    if (!m_envAspect)
+        return;
+    connect(m_envAspect, &EnvironmentAspect::environmentChanged, this, [this] {
+        FilePathAspect::setEnvironment(m_envAspect->environment());
     });
-
-    m_resetButton = new QToolButton;
-    m_resetButton->setToolTip(Tr::tr("Reset to Default"));
-    m_resetButton->setIcon(Utils::Icons::RESET.icon());
-    connect(m_resetButton.data(), &QAbstractButton::clicked, this, &WorkingDirectoryAspect::resetPath);
-    m_resetButton->setEnabled(m_workingDirectory != m_defaultWorkingDirectory);
-
-    if (m_envAspect) {
-        // The chooser is the context, so a torn-down panel stops asking instead
-        // of outliving its widgets. Evaluating the environment still reaches into
-        // device and kit machinery that can tear the tree down while it runs,
-        // hence the check after it and not before.
-        connect(m_envAspect, &EnvironmentAspect::environmentChanged, m_chooser,
-                [envAspect = m_envAspect, chooser = QPointer(m_chooser.data())] {
-            const Environment env = envAspect->environment();
-            if (chooser)
-                chooser->setEnvironment(env);
-        });
-        m_chooser->setEnvironment(m_envAspect->environment());
-    }
-
-    m_chooser->setReadOnly(isReadOnly());
-    m_resetButton->setEnabled(!isReadOnly());
-
-    Utils::AspectWidgets::registerSubWidget(this, m_chooser);
-    Utils::AspectWidgets::registerSubWidget(this, m_resetButton);
-
-    Utils::AspectWidgets::addLabeledItems(this, builder, {m_chooser.data(), m_resetButton.data()});
-}
-
-void WorkingDirectoryAspect::resetPath()
-{
-    m_chooser->setFilePath(m_defaultWorkingDirectory);
+    FilePathAspect::setEnvironment(m_envAspect->environment());
 }
 
 /*!
@@ -241,14 +205,13 @@ void WorkingDirectoryAspect::resetPath()
 */
 void WorkingDirectoryAspect::fromMap(const Store &map)
 {
-    m_workingDirectory = FilePath::fromString(map.value(settingsKey()).toString());
-    m_defaultWorkingDirectory = FilePath::fromString(map.value(settingsKey() + ".default").toString());
+    setDefaultPathValue(
+        FilePath::fromString(map.value(settingsKey() + ".default").toString()));
 
-    if (m_workingDirectory.isEmpty())
-        m_workingDirectory = m_defaultWorkingDirectory;
-
-    if (m_chooser)
-        m_chooser->setFilePath(m_workingDirectory.isEmpty() ? m_defaultWorkingDirectory : m_workingDirectory);
+    FilePath workingDir = FilePath::fromString(map.value(settingsKey()).toString());
+    if (workingDir.isEmpty())
+        workingDir = defaultWorkingDirectory();
+    setValue(workingDir, BeQuiet);
 }
 
 /*!
@@ -256,10 +219,15 @@ void WorkingDirectoryAspect::fromMap(const Store &map)
 */
 void WorkingDirectoryAspect::toMap(Store &data) const
 {
-    const QString wd = m_workingDirectory == m_defaultWorkingDirectory
-        ? QString() : m_workingDirectory.toUrlishString();
+    // Nothing where it is still the default, so that a default that changes -
+    // a new template on the Build & Run page - reaches a configuration that
+    // never overrode it.
+    const FilePath workingDir = unexpandedWorkingDirectory();
+    const QString wd = workingDir == defaultWorkingDirectory()
+        ? QString() : workingDir.toUrlishString();
     saveToMap(data, wd, QString(), settingsKey());
-    saveToMap(data, m_defaultWorkingDirectory.toUrlishString(), QString(), settingsKey() + ".default");
+    saveToMap(data, defaultWorkingDirectory().toUrlishString(), QString(),
+              settingsKey() + ".default");
 }
 
 /*!
@@ -269,7 +237,7 @@ void WorkingDirectoryAspect::toMap(Store &data) const
 */
 FilePath WorkingDirectoryAspect::workingDirectory() const
 {
-    const FilePath workingDir = macroExpander()->expand(m_workingDirectory);
+    const FilePath workingDir = expandedValue();
     if (m_envAspect)
         return m_envAspect->environment().expandVariables(workingDir);
     return workingDir.deviceEnvironment().expandVariables(workingDir);
@@ -277,7 +245,7 @@ FilePath WorkingDirectoryAspect::workingDirectory() const
 
 FilePath WorkingDirectoryAspect::defaultWorkingDirectory() const
 {
-    return m_defaultWorkingDirectory;
+    return FilePath::fromString(defaultValue());
 }
 
 /*!
@@ -287,7 +255,7 @@ FilePath WorkingDirectoryAspect::defaultWorkingDirectory() const
 */
 FilePath WorkingDirectoryAspect::unexpandedWorkingDirectory() const
 {
-    return m_workingDirectory;
+    return FilePath::fromString(value());
 }
 
 /*!
@@ -295,21 +263,21 @@ FilePath WorkingDirectoryAspect::unexpandedWorkingDirectory() const
 */
 void WorkingDirectoryAspect::setDefaultWorkingDirectory(const FilePath &defaultWorkingDir)
 {
-    if (defaultWorkingDir == m_defaultWorkingDirectory)
+    const FilePath oldDefaultDir = defaultWorkingDirectory();
+    if (defaultWorkingDir == oldDefaultDir)
         return;
 
-    Utils::FilePath oldDefaultDir = m_defaultWorkingDirectory;
-    m_defaultWorkingDirectory = defaultWorkingDir;
-    if (m_chooser)
-        m_chooser->setBaseDirectory(m_defaultWorkingDirectory);
+    // A configuration that never said otherwise follows the default; one that
+    // did keeps what it said. Read before setting, because setDefaultValue()
+    // writes the value as well.
+    const FilePath current = unexpandedWorkingDirectory();
+    const bool wasFollowingTheDefault = current.isEmpty() || current == oldDefaultDir;
 
-    if (m_workingDirectory.isEmpty() || m_workingDirectory == oldDefaultDir) {
-        if (m_chooser)
-            m_chooser->setFilePath(m_defaultWorkingDirectory);
-        m_workingDirectory = defaultWorkingDir;
-    }
+    setDefaultPathValue(defaultWorkingDir);
+    setBaseDirectory(defaultWorkingDir);
+    if (!wasFollowingTheDefault)
+        setValue(current);
 }
-
 
 /*!
     \class ProjectExplorer::ArgumentsAspect
@@ -1121,4 +1089,98 @@ MainScriptAspect::MainScriptAspect(AspectContainer *container)
     : FilePathAspect(container)
 {}
 
+#ifdef WITH_TESTS
+class WorkingDirectoryAspectTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testItFollowsTheDefaultUntilSomethingElseIsSaid()
+    {
+        // The aspect is a path with a reset button now, so the two values it
+        // used to keep by hand - the directory and the default - are the
+        // aspect's value and its default value.
+        WorkingDirectoryAspect wd;
+        const FilePath first = FilePath::fromUserInput("/first");
+        const FilePath second = FilePath::fromUserInput("/second");
+
+        wd.setDefaultWorkingDirectory(first);
+        QCOMPARE(wd.defaultWorkingDirectory(), first);
+        // Nothing was said, so it is the default.
+        QCOMPARE(wd.unexpandedWorkingDirectory(), first);
+
+        // A new default reaches a configuration that never overrode it - which
+        // is what changing the template on the Build & Run page has to do.
+        wd.setDefaultWorkingDirectory(second);
+        QCOMPARE(wd.unexpandedWorkingDirectory(), second);
+
+        // Once something else is said, the default no longer moves it.
+        const FilePath chosen = FilePath::fromUserInput("/chosen");
+        wd.setValue(chosen);
+        wd.setDefaultWorkingDirectory(first);
+        QCOMPARE(wd.unexpandedWorkingDirectory(), chosen);
+        QCOMPARE(wd.defaultWorkingDirectory(), first);
+    }
+
+    void testTheResetGoesBackToTheDefault()
+    {
+        // The reset used to be an icon-only tool button this aspect built and
+        // wired itself. It is the descriptor's now, so the button and what it
+        // goes back to are one statement.
+        WorkingDirectoryAspect wd;
+        wd.setDefaultWorkingDirectory(FilePath::fromUserInput("/default"));
+        wd.setValue(FilePath::fromUserInput("/elsewhere"));
+
+        const AspectPresentation p = wd.presentation();
+        QVERIFY(p.withResetButton);
+        QCOMPARE(FilePath::fromString(p.defaultValue.toString()),
+                 FilePath::fromUserInput("/default"));
+        QCOMPARE(p.pathKind, AspectControls::PathKind::ExistingDirectory);
+    }
+
+    void testWhatIsStoredIsWhatWasOverridden()
+    {
+        // A directory that is still the default is stored as nothing, so that
+        // a later change to the default is picked up rather than frozen in.
+        WorkingDirectoryAspect wd;
+        wd.setSettingsKey("RunConfiguration.WorkingDirectory");
+        wd.setDefaultWorkingDirectory(FilePath::fromUserInput("/default"));
+
+        Store store;
+        static_cast<BaseAspect &>(wd).toMap(store);
+        QCOMPARE(store.value("RunConfiguration.WorkingDirectory").toString(), QString());
+        QCOMPARE(store.value("RunConfiguration.WorkingDirectory.default").toString(),
+                 QString("/default"));
+
+        wd.setValue(FilePath::fromUserInput("/elsewhere"));
+        store.clear();
+        static_cast<BaseAspect &>(wd).toMap(store);
+        QCOMPARE(store.value("RunConfiguration.WorkingDirectory").toString(),
+                 QString("/elsewhere"));
+
+        // And it comes back as what was stored.
+        WorkingDirectoryAspect restored;
+        restored.setSettingsKey("RunConfiguration.WorkingDirectory");
+        static_cast<BaseAspect &>(restored).fromMap(store);
+        QCOMPARE(restored.unexpandedWorkingDirectory(), FilePath::fromUserInput("/elsewhere"));
+        QCOMPARE(restored.defaultWorkingDirectory(), FilePath::fromUserInput("/default"));
+
+        // One that stored nothing comes back on the default.
+        Store defaulted;
+        defaulted.insert("RunConfiguration.WorkingDirectory.default", "/default");
+        WorkingDirectoryAspect untouched;
+        untouched.setSettingsKey("RunConfiguration.WorkingDirectory");
+        static_cast<BaseAspect &>(untouched).fromMap(defaulted);
+        QCOMPARE(untouched.unexpandedWorkingDirectory(), FilePath::fromUserInput("/default"));
+    }
+};
+
+QObject *createWorkingDirectoryAspectTest()
+{
+    return new WorkingDirectoryAspectTest;
+}
+#endif // WITH_TESTS
+
 } // namespace ProjectExplorer
+
+#include "runconfigurationaspects.moc"
