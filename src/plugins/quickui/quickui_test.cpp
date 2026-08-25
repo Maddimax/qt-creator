@@ -43,6 +43,7 @@
 #include <QQmlEngine>
 #include <QQmlError>
 #include <QQuickItem>
+#include <QMimeData>
 #include <QScopeGuard>
 #include <QQuickWidget>
 #include <QLineEdit>
@@ -192,6 +193,7 @@ private slots:
     void testGroupedListShowsItsGroupsAndActsOnTheCurrentItem();
     void testTreeShowsWhatTheAspectHandsOut();
     void testATreeCellIsWrittenToWhereItsModelSaysSo();
+    void testAReorderableTreeMovesARowThroughItsModel();
     void testFieldSaysWhatIsWrongAndKeepsItOut();
     void testFieldWaitsForAnAnswerItHasToFetch();
     void testAFieldCompletesAgainstWhatTheAspectOffers();
@@ -2659,6 +2661,38 @@ public:
     {
         return Utils::AspectTable::withRoleNames(TreeModel::roleNames());
     }
+
+    // As a model that may be reordered answers: what is being moved goes into
+    // the mime data, and the drop puts it where it was asked for.
+    Qt::DropActions supportedDropActions() const override { return Qt::MoveAction; }
+
+    QStringList mimeTypes() const override { return {"application/x-test-row"}; }
+
+    QMimeData *mimeData(const QModelIndexList &indexes) const override
+    {
+        if (indexes.isEmpty())
+            return nullptr;
+        auto data = new QMimeData;
+        data->setData("application/x-test-row", QByteArray::number(indexes.first().row()));
+        return data;
+    }
+
+    bool dropMimeData(const QMimeData *data, Qt::DropAction action, int row, int,
+                      const QModelIndex &parent) override
+    {
+        if (action != Qt::MoveAction || parent.isValid())
+            return false;
+        const int from = data->data("application/x-test-row").toInt();
+        if (from < 0 || from >= rootItem()->childCount() || row < 0)
+            return false;
+        if (row == from || row == from + 1)
+            return false;
+        beginMoveRows({}, from, from, {}, row);
+        Utils::TreeItem *item = takeItem(rootItem()->childAt(from));
+        rootItem()->insertChild(row > from ? row - 1 : row, item);
+        endMoveRows();
+        return true;
+    }
 };
 
 // The same shape as TreeReportingAspect, but with rows the user may change.
@@ -2676,8 +2710,11 @@ public:
     {
         Utils::AspectPresentation p = BaseAspect::presentation();
         p.control = Utils::AspectControls::Tree;
+        p.allowReordering = m_reorderable;
         return p;
     }
+
+    void setReorderable(bool reorderable) { m_reorderable = reorderable; }
 
     QAbstractItemModel *tableModel() override { return &m_model; }
 
@@ -2687,6 +2724,7 @@ public:
     }
 
 private:
+    bool m_reorderable = false;
     mutable EditableTreeModel m_model{this};
 };
 
@@ -2758,6 +2796,53 @@ void QuickUiTest::testATreeCellIsWrittenToWhereItsModelSaysSo()
     QMetaObject::invokeMethod(checks.at(1), "toggle");
     QMetaObject::invokeMethod(checks.at(1), "toggled");
     QCOMPARE(filters.row(1)->m_included, true);
+}
+
+void QuickUiTest::testAReorderableTreeMovesARowThroughItsModel()
+{
+    // Some trees are in the order the user put them in - External Tools is -
+    // and a row is dragged somewhere else. The move goes through the model's
+    // own mimeData()/dropMimeData(), which is how a QTreeView does an internal
+    // move and where a model puts whatever else it needs to know.
+    Utils::AspectContainer page;
+    page.setAutoApply(false);
+    EditableTreeAspect filters;
+    filters.setReorderable(true);
+    filters.setLabelText("Filters");
+    page.registerAspect(&filters);
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "TreeDelegate"));
+    QVERIFY2(delegate->property("reorderable").toBool(),
+             "the tree was not told its order is the user's");
+
+    QAbstractItemModel *model = filters.tableModel();
+    QCOMPARE(model->index(0, 0).data().toString(), QString("Files"));
+    QCOMPARE(model->index(1, 0).data().toString(), QString("Classes"));
+
+    // The gesture is not what is measured here - it needs a window and a
+    // pointer - but what it ends up calling is.
+    QtcQuick::AspectModels models;
+    QVERIFY(models.moveRow(model, model->index(0, 0), {}, 2));
+    QCOMPARE(model->index(0, 0).data().toString(), QString("Classes"));
+    QCOMPARE(model->index(1, 0).data().toString(), QString("Files"));
+
+    // A tree that says nothing about its order does not offer to move a row.
+    Utils::AspectContainer plain;
+    plain.setAutoApply(false);
+    EditableTreeAspect fixed;
+    fixed.setLabelText("Filters");
+    plain.registerAspect(&fixed);
+    const std::unique_ptr<QWidget> plainForm(showForm(&plain));
+    QVERIFY(plainForm);
+    QQuickItem *plainDelegate = nullptr;
+    QTRY_VERIFY(plainDelegate = findQmlComponent(
+                    plainForm->findChild<QQuickWidget *>()->rootObject(), "TreeDelegate"));
+    QVERIFY(!plainDelegate->property("reorderable").toBool());
 }
 
 void QuickUiTest::testAFieldCompletesAgainstWhatTheAspectOffers()

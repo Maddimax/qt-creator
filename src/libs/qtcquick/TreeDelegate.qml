@@ -54,6 +54,44 @@ RowLayout {
     // so that what is filtered and what the field says stay the same thing.
     function setFilter(text: string): void { filter.text = text }
 
+    // Whether the rows may be dragged into a different order or under a
+    // different branch. The model does the move through its own
+    // mimeData()/dropMimeData(); see AspectModels.moveRow().
+    readonly property bool reorderable: root.pres.allowReordering ?? false
+
+    // Where a row being dragged would land. Kept here rather than on a
+    // delegate: the row it is over is not the row it started on.
+    property var dragIndex: null
+    property var dropParent: null
+    property int dropRow: -1
+
+    function dropAt(index: var, below: bool): void {
+        if (!index || !index.valid) {
+            root.dropParent = null
+            root.dropRow = -1
+            return
+        }
+        const source = root.rows.mapToSource(index)
+        // Onto a branch is into it; onto a leaf is beside it.
+        if (root.treeModel.hasChildren(source) || root.rows.rowCount(index) > 0) {
+            root.dropParent = source
+            root.dropRow = 0
+        } else {
+            root.dropParent = source.parent
+            root.dropRow = source.row + (below ? 1 : 0)
+        }
+    }
+
+    function finishDrag(): void {
+        if (root.dragIndex && root.dropRow >= 0) {
+            AspectModels.moveRow(root.treeModel, root.rows.mapToSource(root.dragIndex),
+                                 root.dropParent, root.dropRow)
+        }
+        root.dragIndex = null
+        root.dropParent = null
+        root.dropRow = -1
+    }
+
     visible: aspectVisible
     spacing: Spacing.GapHM
     Layout.fillWidth: true
@@ -92,10 +130,17 @@ RowLayout {
                 onTextChanged: root.rows.setFilterFixedString(text)
             }
 
-            HorizontalHeaderView {
-                syncView: view
-                clip: true
+            // Built only where there are column names to put in it, the same
+            // as TableDelegate: a one-column tree has none, and the style's
+            // own heading warns on a name the model does not have.
+            Loader {
+                active: AspectModels.namesItsColumns(root.treeModel)
                 Layout.fillWidth: true
+
+                sourceComponent: HorizontalHeaderView {
+                    syncView: view
+                    clip: true
+                }
             }
 
             TreeView {
@@ -163,6 +208,34 @@ RowLayout {
                         // A tree reports what the page found unless its model
                         // says a cell may be written to.
                         editableByDefault: false
+                    }
+
+                    // Dragging a row somewhere else. Only where the tree says
+                    // its order is the user's, and only from the first column
+                    // - the row is dragged, not the cell.
+                    DragHandler {
+                        enabled: root.reorderable && root.editable && cell.column === 0
+                        target: null
+                        onActiveChanged: {
+                            if (active)
+                                root.dragIndex = view.index(cell.row, 0)
+                            else
+                                root.finishDrag()
+                        }
+                        onCentroidChanged: {
+                            if (!active)
+                                return
+                            const point = cell.mapToItem(view, centroid.position.x,
+                                                         centroid.position.y)
+                            const over = view.cellAtPosition(point.x, point.y, true)
+                            if (over.y < 0)
+                                return
+                            const overIndex = view.index(over.y, 0)
+                            const cellY = view.mapToItem(view.contentItem, point.x, point.y).y
+                            root.dropAt(overIndex,
+                                        cellY % Metrics.tableRowMinimumHeight
+                                            > Metrics.tableRowMinimumHeight / 2)
+                        }
                     }
                 }
             }

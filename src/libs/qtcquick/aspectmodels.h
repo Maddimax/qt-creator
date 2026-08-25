@@ -56,6 +56,15 @@ public:
     // returns, and its collector then frees a model the aspect still holds.
     Q_INVOKABLE QAbstractItemModel *tableModel(Utils::BaseAspect *aspect);
 
+    // Moves a row inside a model that says it may be reordered, through the
+    // model's own mimeData()/dropMimeData() - which is how a QTreeView does an
+    // internal move, and where a model puts whatever else it needs to know
+    // about what is being moved. Answers whether the model took it.
+    Q_INVOKABLE bool moveRow(QAbstractItemModel *model,
+                             const QModelIndex &from,
+                             const QModelIndex &toParent,
+                             int toRow);
+
     // Whether a table's model names any of its columns. A one-column list does
     // not, and a header bar with nothing in it is neither what the widget view
     // showed nor something the style's own delegate copes with: it assigns the

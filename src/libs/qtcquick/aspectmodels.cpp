@@ -13,6 +13,8 @@
 
 #include <utils/qtcassert.h>
 
+#include <QMimeData>
+
 #include <QMetaEnum>
 
 #include <limits>
@@ -76,6 +78,21 @@ QAbstractItemModel *AspectModels::tableModel(BaseAspect *aspect)
     if (model)
         QQmlEngine::setObjectOwnership(model, QQmlEngine::CppOwnership);
     return model;
+}
+
+bool AspectModels::moveRow(QAbstractItemModel *model,
+                           const QModelIndex &from,
+                           const QModelIndex &toParent,
+                           int toRow)
+{
+    QTC_ASSERT(model, return false);
+    if (!from.isValid())
+        return false;
+
+    const std::unique_ptr<QMimeData> data(model->mimeData({from}));
+    if (!data)
+        return false;
+    return model->dropMimeData(data.get(), Qt::MoveAction, toRow, 0, toParent);
 }
 
 bool AspectModels::namesItsColumns(QAbstractItemModel *model)
