@@ -12,15 +12,16 @@
 #include <nanotrace/nanotrace.h>
 
 #include <projectexplorer/devicesupport/devicemanager.h>
-#include <projectexplorer/devicesupport/devicemanagermodel.h>
+#include <projectexplorer/devicesupport/deviceselectionaspect.h>
+#include <projectexplorer/devicesupport/idevice.h>
 #include <projectexplorer/kitaspect.h>
 #include <projectexplorer/projectexplorerconstants.h>
 
 #include <utils/algorithm.h>
 #include <utils/async.h>
-#include <utils/detailswidget.h>
 #include <utils/environment.h>
-#include <utils/groupedview.h>
+#include <utils/groupedlistaspect.h>
+#include <utils/groupedmodel.h>
 #include <utils/hostosinfo.h>
 #include <utils/layoutbuilder.h>
 #include <utils/pathchooser.h>
@@ -29,6 +30,10 @@
 #include <utils/qtcprocess.h>
 #include <utils/shutdownguard.h>
 #include <utils/winutils.h>
+
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
 
 #include <QDebug>
 #include <QDir>
@@ -794,103 +799,90 @@ void DebuggerItemManager::deregisterDebugger(const QVariant &id)
     return debuggerModel().deregisterDebugger(id);
 }
 
-// DebuggerSettingsPageWidget
+// DebuggerAspects
 
-class DebuggerSettingsPageWidget : public IOptionsPageWidget
+// What the Debuggers page edits. The debuggers themselves live in
+// DebuggerItemManager; debuggerModel() is the editable copy, and applying the
+// page is applying it.
+//
+// What a debugger is - its ABIs, its version, its engine - is found by running
+// it, so those are shown and not typed. The widget page read them back out of
+// the labels it had put them in; they are the page's own state here.
+class DebuggerAspects final : public AspectContainer
 {
 public:
-    DebuggerSettingsPageWidget()
+    DebuggerAspects()
     {
-        m_binaryChooser.setExpectedKind(PathChooserKind::ExistingCommand);
-        m_binaryChooser.setMinimumWidth(400);
-        m_binaryChooser.setHistoryCompleter("DebuggerPaths");
-        m_binaryChooser.setValidationFunction(
-            [this](const QString &text) -> FancyLineEdit::AsyncValidationFuture {
-                return m_binaryChooser.defaultValidationFunction()(text).then(
-                    [](const FancyLineEdit::AsyncValidationResult &result)
-                        -> FancyLineEdit::AsyncValidationResult {
-                        if (!result)
-                            return result;
+        setAutoApply(false);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Debugger/DebuggersPage.qml"));
 
-                        DebuggerItem item;
-                        item.setCommand(FilePath::fromUserInput(*result));
-                        QString errorMessage;
-                        item.reinitializeFromFile(&errorMessage);
+        device.setQmlName("Device");
 
-                        if (!errorMessage.isEmpty())
-                            return make_unexpected(errorMessage);
-
-                        return *result;
-                    });
-            });
-        m_binaryChooser.setAllowPathFromDevice(true);
-
-        m_workingDirectoryChooser.setExpectedKind(PathChooserKind::Directory);
-        m_workingDirectoryChooser.setMinimumWidth(400);
-        m_workingDirectoryChooser.setHistoryCompleter("DebuggerPaths");
-
-        const auto setupInteractiveLabel = [](QLabel &label) {
-            label.setTextInteractionFlags(Qt::TextEditorInteraction | Qt::TextBrowserInteraction);
-            label.setOpenExternalLinks(true);
-        };
-        setupInteractiveLabel(m_cdbLabel);
-        setupInteractiveLabel(m_version);
-        setupInteractiveLabel(m_abis);
-        setupInteractiveLabel(m_type);
-
-        connect(&m_binaryChooser, &PathChooser::textChanged,
-                this, &DebuggerSettingsPageWidget::redetect);
-        connect(&m_workingDirectoryChooser, &PathChooser::textChanged,
-                this, &DebuggerSettingsPageWidget::store);
-        connect(&m_displayNameLineEdit, &QLineEdit::textChanged,
-                this, &DebuggerSettingsPageWidget::store);
-
-        // clang-format off
-        using namespace Layouting;
-        Form {
-            fieldGrowthPolicy(int(QFormLayout::AllNonFixedFieldsGrow)),
-            Tr::tr("Name:"), &m_displayNameLineEdit, br,
-            Tr::tr("Path:"), &m_binaryChooser, br,
-            &m_cdbLabel, br,
-            Tr::tr("Type:"), &m_type, br,
-            Tr::tr("ABIs:"), &m_abis, br,
-            Tr::tr("Version:"), &m_version, br,
-            Tr::tr("Working directory:"), &m_workingDirectoryChooser, br,
-        }.attachTo(&m_itemConfigWidget);
-        // clang-format on
-
-        m_addButton.setText(Tr::tr("Add"));
-        m_detectButton.setText(Tr::tr("Re-detect"));
-
-        m_container.setState(DetailsWidget::NoSummary);
-        m_container.setVisible(false);
-        m_container.setWidget(&m_itemConfigWidget);
-
-        Column {
-            Row { Tr::tr("Device:"), m_deviceComboBox, st },
-            Row {
-                Column { m_groupedView.view(), m_container },
-                Column { m_addButton, m_groupedView.cloneButton(), m_groupedView.removeButton(), m_detectButton, st },
-            },
-        }.attachTo(this);
-
-        m_groupedView.setCanRemoveRow([](int row) {
+        debuggers.setQmlName("Debuggers");
+        debuggers.setModel(&debuggerModel());
+        debuggers.setCanRemoveRow([](int row) {
             return !debuggerModel().item(row).detectionSource().isAutoDetected();
         });
-        m_groupedView.setCanCloneRow([](int row) {
-            return debuggerModel().item(row).canClone();
-        });
+        debuggers.setCanCloneRow([](int row) { return debuggerModel().item(row).canClone(); });
 
-        connect(&m_groupedView, &GroupedView::currentRowChanged,
-                this, [this](int, int) { currentItemChanged(); }, Qt::QueuedConnection);
-        connect(&m_addButton, &QAbstractButton::clicked,
-                this, &DebuggerSettingsPageWidget::addDebugger, Qt::QueuedConnection);
-        connect(&m_detectButton, &QAbstractButton::clicked, this, [this] {
-            for (const IDeviceConstPtr &dev : m_deviceComboBox.selectedDevices())
+        add.setQmlName("Add");
+        add.setActionText(Tr::tr("Add"));
+        add.setAction([this] { addDebugger(); });
+
+        detect.setQmlName("Redetect");
+        detect.setActionText(Tr::tr("Re-detect"));
+        detect.setAction([this] {
+            for (const IDeviceConstPtr &dev : device.selectedDevices())
                 debuggerModel().detectDebuggers(dev, dev->toolSearchPaths());
         });
 
-        m_deviceComboBox.setOnDeviceChanged([](const FilePath &deviceRoot) {
+        details.setQmlName("Details");
+
+        displayName.setQmlName("DisplayName");
+        displayName.setDisplayStyle(StringAspect::LineEditDisplay);
+        displayName.setLabelText(Tr::tr("Name:"));
+
+        binary.setQmlName("Binary");
+        binary.setLabelText(Tr::tr("Path:"));
+        binary.setExpectedKind(PathChooserKind::ExistingCommand);
+        binary.setHistoryCompleter("DebuggerPaths");
+        binary.setAllowPathFromDevice(true);
+        // Beyond "is there a file there": whether it is a debugger at all is
+        // decided by running it, so the answer arrives later.
+        binary.setValidationFunction(AsyncValidationFunction([this](const QString &text) {
+            return binary.defaultValidationFunction()(text).then(
+                [](const AsyncValidationResult &result) -> AsyncValidationResult {
+                    if (!result)
+                        return result;
+                    DebuggerItem item;
+                    item.setCommand(FilePath::fromUserInput(*result));
+                    QString errorMessage;
+                    item.reinitializeFromFile(&errorMessage);
+                    if (!errorMessage.isEmpty())
+                        return make_unexpected(errorMessage);
+                    return *result;
+                });
+        }));
+
+        cdbHint.setQmlName("CdbHint");
+        cdbHint.setTextFormat(AspectControls::TextFormat::RichText);
+
+        type.setQmlName("Type");
+        type.setLabelText(Tr::tr("Type:"));
+        abis.setQmlName("Abis");
+        abis.setLabelText(Tr::tr("ABIs:"));
+        version.setQmlName("Version");
+        version.setLabelText(Tr::tr("Version:"));
+
+        workingDirectory.setQmlName("WorkingDirectory");
+        workingDirectory.setLabelText(Tr::tr("Working directory:"));
+        workingDirectory.setExpectedKind(PathChooserKind::Directory);
+        workingDirectory.setHistoryCompleter("DebuggerPaths");
+
+        // Behaviour, not layout.
+        connect(&device, &DeviceSelectionAspect::currentDeviceChanged, this, [this] {
+            const IDeviceConstPtr dev = device.currentDevice();
+            const FilePath deviceRoot = dev ? dev->rootPath() : FilePath();
             debuggerModel().setExtraFilter(deviceRoot.isEmpty()
                 ? GroupedModel::Filter{}
                 : GroupedModel::Filter{[deviceRoot](int row) {
@@ -899,143 +891,147 @@ public:
                   }});
         });
 
-        currentItemChanged();
+        connect(&debuggers, &GroupedListAspect::currentRowChanged,
+                this, [this](int, int newRow) { showDebugger(newRow); });
+        binary.addOnVolatileValueChanged(this, [this] { redetect(); });
+        workingDirectory.addOnVolatileValueChanged(this, [this] { store(); });
+        displayName.addOnVolatileValueChanged(this, [this] { store(); });
+        showDebugger(-1);
     }
 
-    void apply() final { debuggerModel().apply(); }
-    void cancel() final { debuggerModel().cancel(); }
-    bool isDirty() const final { return debuggerModel().isDirty(); }
+    void apply() override
+    {
+        AspectContainer::apply();
+        debuggerModel().apply();
+    }
 
-    void addDebugger();
-    void currentItemChanged();
+    void cancel() override
+    {
+        AspectContainer::cancel();
+        debuggerModel().cancel();
+    }
+
+    bool isDirty() const override
+    {
+        return AspectContainer::isDirty() || debuggerModel().isDirty();
+    }
+
+    DeviceSelectionAspect device{this};
+    GroupedListAspect debuggers{this};
+    ActionAspect add{this};
+    ActionAspect detect{this};
+    AspectContainer details{this};
+    StringAspect displayName{&details};
+    FilePathAspect binary{&details};
+    TextDisplay cdbHint{&details};
+    TextDisplay type{&details};
+    TextDisplay abis{&details};
+    TextDisplay version{&details};
+    FilePathAspect workingDirectory{&details};
 
 private:
-    void redetect();
-    DebuggerItem currentItem() const;
-    void setAbis(const QStringList &abiNames);
-    void load(const DebuggerItem &item);
-    void store();
-
-    DeviceComboBox m_deviceComboBox;
-    GroupedView m_groupedView{debuggerModel()};
-    QPushButton m_addButton;
-    QPushButton m_detectButton;
-    DetailsWidget m_container;
-
-    QWidget m_itemConfigWidget;
-    QLineEdit m_displayNameLineEdit;
-    QLabel m_cdbLabel;
-    PathChooser m_binaryChooser;
-    QLabel m_abis;
-    QLabel m_version;
-    QLabel m_type;
-    PathChooser m_workingDirectoryChooser;
-    DetectionSource m_detectionSource;
-    DebuggerEngineType m_engineType = NoEngineType;
-    QVariant m_id;
-    QString m_loadedUnexpandedDisplayName;
-    QSingleTaskTreeRunner m_taskTreeRunner;
-};
-
-DebuggerItem DebuggerSettingsPageWidget::currentItem() const
-{
-    static const QRegularExpression noAbi("[^A-Za-z0-9-_]+");
-
-    DebuggerItem item(m_id);
-    // The name field is read-only for auto-detected items, so keep the value loaded
-    // for them (which may be empty, meaning the display name is derived on the fly).
-    item.setUnexpandedDisplayName(m_detectionSource.isAutoDetected()
-                                      ? m_loadedUnexpandedDisplayName
-                                      : m_displayNameLineEdit.text());
-    item.setCommand(m_binaryChooser.filePath());
-    item.setWorkingDirectory(m_workingDirectoryChooser.filePath());
-    item.setDetectionSource(m_detectionSource);
-    Abis abiList;
-    const QStringList abis = m_abis.text().split(noAbi);
-    for (const QString &a : abis) {
-        if (a.isNull())
-            continue;
-        abiList << Abi::fromString(a);
-    }
-    item.setAbis(abiList);
-    item.setVersion(m_version.text());
-    item.setEngineType(m_engineType);
-    return item;
-}
-
-void DebuggerSettingsPageWidget::store()
-{
-    if (!m_id.isNull())
-        debuggerModel().updateDebugger(currentItem());
-}
-
-void DebuggerSettingsPageWidget::setAbis(const QStringList &abiNames)
-{
-    m_abis.setText(abiNames.join(", "));
-}
-
-void DebuggerSettingsPageWidget::load(const DebuggerItem &item)
-{
-    m_id = QVariant(); // Avoid intermediate signal handling.
-    if (!item)
-        return;
-
-    // Set values:
-    m_detectionSource = item.detectionSource();
-
-    m_loadedUnexpandedDisplayName = item.unexpandedDisplayName();
-    m_displayNameLineEdit.setEnabled(!item.detectionSource().isAutoDetected());
-    m_displayNameLineEdit.setText(item.detectionSource().isAutoDetected()
-                                      ? item.displayName() : item.unexpandedDisplayName());
-
-    m_type.setText(item.engineTypeName());
-
-    m_binaryChooser.setReadOnly(item.detectionSource().isAutoDetected());
-    m_binaryChooser.setFilePath(item.command());
-    m_binaryChooser.setExpectedKind(
-        item.isGeneric() ? PathChooserKind::Any : PathChooserKind::ExistingCommand);
-
-    m_workingDirectoryChooser.setReadOnly(item.detectionSource().isAutoDetected());
-    m_workingDirectoryChooser.setFilePath(item.workingDirectory());
-
-    QString text;
-    QString versionCommand;
-    if (item.engineType() == CdbEngineType) {
-        const bool is64bit = is64BitWindowsSystem();
-        const QString versionString = is64bit ? Tr::tr("64-bit version") : Tr::tr("32-bit version");
-        //: Label text for path configuration. %2 is "x-bit version".
-        text = "<html><body><p>"
-                + Tr::tr("Specify the path to the "
-                     "<a href=\"%1\">Windows Console Debugger executable</a>"
-                     " (%2) here.").arg(QLatin1String(debuggingToolsWikiLinkC), versionString)
-                + "</p></body></html>";
-        versionCommand = "-version";
-    } else {
-        versionCommand = "--version";
+    DebuggerItem currentItem() const
+    {
+        DebuggerItem item(m_id);
+        // The name is read-only for an auto-detected debugger, so what was
+        // loaded is kept - it may be empty, meaning the name is worked out on
+        // the fly.
+        item.setUnexpandedDisplayName(m_detectionSource.isAutoDetected()
+                                          ? m_loadedUnexpandedDisplayName
+                                          : displayName.volatileValue());
+        item.setCommand(binary.expandedVolatileValue());
+        item.setWorkingDirectory(workingDirectory.expandedVolatileValue());
+        item.setDetectionSource(m_detectionSource);
+        item.setAbis(m_abis);
+        item.setVersion(m_version);
+        item.setEngineType(m_engineType);
+        return item;
     }
 
-    m_cdbLabel.setText(text);
-    m_cdbLabel.setVisible(!text.isEmpty());
-    m_binaryChooser.setCommandVersionArguments(QStringList(versionCommand));
-    m_version.setText(item.version());
-    setAbis(item.abiNames());
-    m_engineType = item.engineType();
-    m_id = item.id();
+    void setFoundOut(const DebuggerItem &item)
+    {
+        m_abis = item.abis();
+        m_version = item.version();
+        m_engineType = item.engineType();
+        abis.setText(item.abiNames().join(", "));
+        version.setText(item.version());
+        type.setText(item.engineTypeName());
+    }
 
-    // trigger a re-detection
-    if (m_engineType == NoEngineType && m_binaryChooser.filePath().isExecutableFile())
-        redetect();
-}
+    void showDebugger(int row)
+    {
+        const DebuggerItem item = row >= 0 ? debuggerModel().item(row) : DebuggerItem{};
+        details.setVisible(bool(item));
+        // Nothing is current while the form is being filled in, so nothing the
+        // fields say on the way is written back. See store().
+        m_id = QVariant();
+        if (!item)
+            return;
 
-void DebuggerSettingsPageWidget::redetect()
-{
-    // Ignore change if this is no valid DebuggerItem
-    if (!m_id.isValid())
-        return;
+        m_detectionSource = item.detectionSource();
+        const bool autoDetected = m_detectionSource.isAutoDetected();
 
-    m_taskTreeRunner.reset();
+        m_loadedUnexpandedDisplayName = item.unexpandedDisplayName();
+        displayName.setEnabled(!autoDetected);
+        displayName.setValue(autoDetected ? item.displayName() : item.unexpandedDisplayName());
 
-    if (m_binaryChooser.filePath().isExecutableFile()) {
+        binary.setReadOnly(autoDetected);
+        binary.setValue(item.command());
+        binary.setExpectedKind(item.isGeneric() ? PathChooserKind::Any
+                                                : PathChooserKind::ExistingCommand);
+
+        workingDirectory.setReadOnly(autoDetected);
+        workingDirectory.setValue(item.workingDirectory());
+
+        QString hint;
+        QString versionCommand = "--version";
+        if (item.engineType() == CdbEngineType) {
+            const QString versionString = is64BitWindowsSystem() ? Tr::tr("64-bit version")
+                                                                 : Tr::tr("32-bit version");
+            //: Label text for path configuration. %2 is "x-bit version".
+            hint = "<html><body><p>"
+                   + Tr::tr("Specify the path to the "
+                            "<a href=\"%1\">Windows Console Debugger executable</a>"
+                            " (%2) here.").arg(QLatin1String(debuggingToolsWikiLinkC),
+                                               versionString)
+                   + "</p></body></html>";
+            versionCommand = "-version";
+        }
+        cdbHint.setText(hint);
+        cdbHint.setVisible(!hint.isEmpty());
+        binary.setCommandVersionArguments({versionCommand});
+
+        setFoundOut(item);
+        if (const IDeviceConstPtr dev = device.currentDevice())
+            binary.setInitialBrowsePathBackup(dev->rootPath());
+        m_id = item.id();
+
+        // Nothing is known about it yet, and there is something to run.
+        if (m_engineType == NoEngineType && binary.expandedVolatileValue().isExecutableFile())
+            redetect();
+    }
+
+    void store()
+    {
+        if (!m_id.isNull())
+            debuggerModel().updateDebugger(currentItem());
+    }
+
+    // What the binary turns out to be. Runs it, so the answer arrives later;
+    // meanwhile the page may well have moved to another debugger.
+    void redetect()
+    {
+        if (!m_id.isValid())
+            return;
+
+        m_taskTreeRunner.reset();
+
+        if (!binary.expandedVolatileValue().isExecutableFile()) {
+            setFoundOut(DebuggerItem{});
+            store();
+            return;
+        }
+
         const auto onSetup = [this](Async<DebuggerItem> &task) {
             task.setConcurrentCallData([tmp = currentItem()]() mutable {
                 tmp.reinitializeFromFile();
@@ -1045,59 +1041,194 @@ void DebuggerSettingsPageWidget::redetect()
         const auto onDone = [this, id = m_id](const Async<DebuggerItem> &task) {
             if (!task.isResultAvailable())
                 return;
-
-            const DebuggerItem tmp = task.result();
+            const DebuggerItem found = task.result();
             if (m_id == id) {
-                setAbis(tmp.abiNames());
-                m_version.setText(tmp.version());
-                m_engineType = tmp.engineType();
-                m_type.setText(tmp.engineTypeName());
+                setFoundOut(found);
                 store();
                 return;
             }
-            // Switched to a different item. update only the data so that
-            // name/path/workdir edits made in the meantime are kept.
+            // Another debugger is being shown now, so only what was found goes
+            // back; a name or a path edited in the meantime stays.
             DebuggerItem item = DebuggerItemManager::findById(id);
             if (!item)
                 return;
-            item.setEngineType(tmp.engineType());
-            item.setAbis(tmp.abis());
-            item.setVersion(tmp.version());
+            item.setEngineType(found.engineType());
+            item.setAbis(found.abis());
+            item.setVersion(found.version());
             debuggerModel().updateDebugger(item);
         };
         m_taskTreeRunner.start({AsyncTask<DebuggerItem>(onSetup, onDone)});
-    } else {
-        const DebuggerItem tmp;
-        setAbis(tmp.abiNames());
-        m_version.setText(tmp.version());
-        m_engineType = tmp.engineType();
-        m_type.setText(tmp.engineTypeName());
+        store();
     }
 
-    store();
-}
+    void addDebugger()
+    {
+        DebuggerItem item;
+        item.createId();
+        item.setEngineType(NoEngineType);
+        item.setUnexpandedDisplayName(debuggerModel().uniqueDisplayName(Tr::tr("New Debugger")));
+        debuggers.setCurrentRow(debuggerModel().appendVolatileItem(item));
+    }
 
-void DebuggerSettingsPageWidget::addDebugger()
+    // The debugger the form is showing, and nothing while it is being filled
+    // in.
+    QVariant m_id;
+    DetectionSource m_detectionSource;
+    DebuggerEngineType m_engineType = NoEngineType;
+    QString m_loadedUnexpandedDisplayName;
+    Abis m_abis;
+    QString m_version;
+    QSingleTaskTreeRunner m_taskTreeRunner;
+};
+
+#ifdef WITH_TESTS
+
+// The page's debuggers lived in a QTreeView's selection and a details widget,
+// and what a debugger *is* - its ABIs, its version, its engine - was read back
+// out of the labels it had been written into. None of that could be checked
+// without opening the page.
+
+class DebuggersSettingsTest : public QObject
 {
-    DebuggerItem itm;
-    itm.createId();
-    itm.setEngineType(NoEngineType);
-    itm.setUnexpandedDisplayName(debuggerModel().uniqueDisplayName(Tr::tr("New Debugger")));
-    m_groupedView.selectRow(debuggerModel().appendVolatileItem(itm));
-}
+    Q_OBJECT
 
-void DebuggerSettingsPageWidget::currentItemChanged()
+private slots:
+    void cleanup() { debuggerModel().cancel(); }
+
+    void testNoDebuggerIsShownUntilOneIsPicked();
+    void testEditingTheNameUpdatesTheDebugger();
+    void testShowingADebuggerDoesNotRewriteIt();
+    void testWhatWasFoundOutSurvivesAnEdit();
+    void testAnAutoDetectedDebuggerIsShownButNotEditable();
+
+private:
+    static int rowThatIsAutoDetected()
+    {
+        for (int row = 0; row < debuggerModel().itemCount(); ++row) {
+            if (debuggerModel().item(row).detectionSource().isAutoDetected())
+                return row;
+        }
+        return -1;
+    }
+};
+
+void DebuggersSettingsTest::testNoDebuggerIsShownUntilOneIsPicked()
 {
-    const int row = m_groupedView.currentRow();
-    const DebuggerItem itm = row >= 0 ? debuggerModel().item(row) : DebuggerItem{};
+    DebuggerAspects page;
+    QVERIFY(!page.details.isVisible());
+    QCOMPARE(page.debuggers.currentRow(), -1);
+    QVERIFY(!page.debuggers.canClone());
+    QVERIFY(!page.debuggers.canRemove());
 
-    load(itm);
-    const IDeviceConstPtr dev = m_deviceComboBox.currentDevice();
-    if (dev)
-        m_binaryChooser.setInitialBrowsePathBackup(dev->rootPath());
-    m_container.setVisible(bool(itm));
+    page.add.triggerAction();
+    QVERIFY(page.debuggers.currentRow() >= 0);
+    QVERIFY(page.details.isVisible());
+    QVERIFY(page.displayName.volatileValue().startsWith("New Debugger"));
+    // One the user added is theirs to edit and to take away again.
+    QVERIFY(page.displayName.isEnabled());
+    QVERIFY(page.debuggers.canRemove());
 }
 
+void DebuggersSettingsTest::testEditingTheNameUpdatesTheDebugger()
+{
+    DebuggerAspects page;
+    page.add.triggerAction();
+    const int row = page.debuggers.currentRow();
+    QVERIFY(row >= 0);
+
+    page.displayName.setVolatileValue(QString("Renamed"));
+    QCOMPARE(debuggerModel().item(row).unexpandedDisplayName(), QString("Renamed"));
+
+    // Showing another debugger must not write the one that was on screen into
+    // it, and coming back shows what was left there.
+    page.add.triggerAction();
+    const int second = page.debuggers.currentRow();
+    QVERIFY(second != row);
+    page.displayName.setVolatileValue(QString("Second"));
+    QCOMPARE(debuggerModel().item(second).unexpandedDisplayName(), QString("Second"));
+    QCOMPARE(debuggerModel().item(row).unexpandedDisplayName(), QString("Renamed"));
+
+    page.debuggers.setCurrentRow(row);
+    QCOMPARE(page.displayName.volatileValue(), QString("Renamed"));
+}
+
+void DebuggersSettingsTest::testShowingADebuggerDoesNotRewriteIt()
+{
+    DebuggerAspects page;
+    page.add.triggerAction();
+    const int row = page.debuggers.currentRow();
+    QVERIFY(row >= 0);
+
+    // A path written with a variable in it stays as it was written. The field
+    // hands back the expanded path, so loading a debugger into it must not
+    // store what it just read.
+    const QString written = "/tools/%{HostOs:PathListSeparator}/gdb";
+    DebuggerItem item = debuggerModel().item(row);
+    item.setCommand(FilePath::fromString(written));
+    debuggerModel().updateDebugger(item);
+    QVERIFY(page.binary.expandedVolatileValue() != FilePath::fromString(written));
+
+    page.debuggers.setCurrentRow(-1);
+    page.debuggers.setCurrentRow(row);
+
+    QCOMPARE(debuggerModel().item(row).command(), FilePath::fromString(written));
+}
+
+void DebuggersSettingsTest::testWhatWasFoundOutSurvivesAnEdit()
+{
+    DebuggerAspects page;
+    page.add.triggerAction();
+    const int row = page.debuggers.currentRow();
+    QVERIFY(row >= 0);
+
+    // What a debugger is comes from running it, so an edit to what the user
+    // can type must carry the rest along untouched. The page holds it; the
+    // widget page went back to its own labels for it, which worked but meant
+    // the truth about a debugger lived in a string on screen.
+    DebuggerItem item = debuggerModel().item(row);
+    item.setAbis({Abi::fromString("x86-linux-generic-elf-64bit"),
+                  Abi::fromString("arm-linux-generic-elf-64bit")});
+    item.setVersion("13.2 (Debian 13.2-1)");
+    item.setEngineType(GdbEngineType);
+    debuggerModel().updateDebugger(item);
+
+    page.debuggers.setCurrentRow(-1);
+    page.debuggers.setCurrentRow(row);
+    page.displayName.setVolatileValue(QString("Edited"));
+
+    const DebuggerItem stored = debuggerModel().item(row);
+    QCOMPARE(stored.unexpandedDisplayName(), QString("Edited"));
+    QCOMPARE(stored.abis().size(), 2);
+    QCOMPARE(stored.abis(), item.abis());
+    QCOMPARE(stored.version(), QString("13.2 (Debian 13.2-1)"));
+    QCOMPARE(stored.engineType(), GdbEngineType);
+}
+
+void DebuggersSettingsTest::testAnAutoDetectedDebuggerIsShownButNotEditable()
+{
+    const int row = rowThatIsAutoDetected();
+    if (row < 0)
+        QSKIP("No debugger was found on this machine, so there is no auto-detected one.");
+
+    DebuggerAspects page;
+    page.debuggers.setCurrentRow(row);
+    QVERIFY(page.details.isVisible());
+    QVERIFY(!page.displayName.isEnabled());
+    QVERIFY(page.binary.isReadOnly());
+    QVERIFY(page.workingDirectory.isReadOnly());
+    QVERIFY(!page.debuggers.canRemove());
+
+    // Only CDB has anything to say in the hint, and this one is not it.
+    if (debuggerModel().item(row).engineType() != CdbEngineType)
+        QVERIFY(!page.cdbHint.isVisible());
+}
+
+QObject *createDebuggersSettingsTest()
+{
+    return new DebuggersSettingsTest;
+}
+
+#endif // WITH_TESTS
 
 // DebuggerSettingsPage
 
@@ -1108,10 +1239,15 @@ public:
         setId(ProjectExplorer::Constants::DEBUGGER_SETTINGS_PAGE_ID);
         setDisplayName(Tr::tr("Debuggers"));
         setCategory(ProjectExplorer::Constants::KITS_SETTINGS_CATEGORY);
-        setWidgetCreator([] { return new DebuggerSettingsPageWidget; });
+        setSettingsProvider([] {
+            static GuardedObject<DebuggerAspects> theDebuggerAspects;
+            return theDebuggerAspects.get();
+        });
     }
 };
 
 const DebuggerSettingsPage settingsPage;
 
 } // namespace Debugger
+
+#include "debuggeritemmanager.moc"

@@ -2153,6 +2153,7 @@ Result<> DebuggerPlugin::initialize(const QStringList &arguments)
 #ifdef WITH_TESTS
     addTestCreator(createDebuggerTest);
     addTestCreator(createSourcePathMapTest);
+    addTestCreator(Debugger::createDebuggersSettingsTest);
 #endif
 
     return ResultOk;

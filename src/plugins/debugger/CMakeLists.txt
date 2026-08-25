@@ -171,6 +171,7 @@ if(TARGET Debugger AND TARGET Qt::Quick)
     NO_PLUGIN
     QML_FILES
       CommonSettingsPage.qml
+      DebuggersPage.qml
       GdbSettingsPage.qml
       LocalsAndExpressionsSettingsPage.qml
   )

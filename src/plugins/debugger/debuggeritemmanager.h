@@ -50,4 +50,9 @@ Utils::Result<QtTaskTree::ExecutableItem> createAspectFromJson(
     const ProjectExplorer::LogCallback &logCallback);
 
 } // Internal
+
+#ifdef WITH_TESTS
+QObject *createDebuggersSettingsTest();
+#endif
+
 } // Debugger

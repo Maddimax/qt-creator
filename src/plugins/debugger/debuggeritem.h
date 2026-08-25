@@ -116,7 +116,9 @@ private:
     ProjectExplorer::DetectionSource m_detectionSource;
     QDateTime m_lastModified;
 
-    friend class DebuggerSettingsPageWidget;
+    // The Debuggers page builds one from an id it already holds, which is how
+    // it turns what is in the form back into an item.
+    friend class DebuggerAspects;
 };
 
 } // namespace Debugger
