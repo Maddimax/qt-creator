@@ -82,12 +82,6 @@
  */
 
 /*!
- * \fn ProjectExplorer::IDeviceWidget *ProjectExplorer::IDevice::createWidget()
- * Creates a widget that displays device information not part of the IDevice base class.
- *        The widget can also be used to let the user change these attributes.
- */
-
-/*!
  * \fn void ProjectExplorer::IDevice::addDeviceAction(const DeviceAction &deviceAction)
  * Adds an actions that can be run on this device.
  * These actions will be available in the \gui Devices options page.
@@ -251,6 +245,9 @@ public:
     // one of its settings, and a settings page that walked the device's
     // aspects would otherwise try to save it.
     AspectContainer deviceInfoAspects;
+    // Which of the device's aspects a settings page shows, and in what order.
+    // Not registered on the device: an ordering is not one of its settings.
+    AspectContainer settingsAspects;
 };
 
 } // namespace Internal
@@ -953,6 +950,49 @@ void IDevice::setFileAccess(DeviceFileAccessPtr fileAccess, bool announce)
 void IDevice::setFileAccessFactory(std::function<DeviceFileAccessPtr()> fileAccessFactory)
 {
     d->fileAccessFactory = fileAccessFactory;
+}
+
+AspectContainer &IDevice::settingsAspects()
+{
+    return d->settingsAspects;
+}
+
+void IDevice::fillSettingsAspects()
+{
+    d->settingsAspects.clear();
+    addSettingsRows(d->settingsAspects);
+
+    // One row each, which is what every device widget's Form did.
+    Utils::AspectWidgets::setLayouter(&d->settingsAspects, [this] {
+        Layouting::Form form{Layouting::noMargin};
+        for (Utils::BaseAspect * const row : d->settingsAspects.aspects()) {
+            form.addItem(row);
+            form.addItem(Layouting::br);
+        }
+        return form;
+    });
+}
+
+void IDevice::addSettingsRows(AspectContainer &rows)
+{
+    Q_UNUSED(rows)
+}
+
+AspectContainer *IDevice::addRow(AspectContainer &rows, const QList<BaseAspect *> &controls)
+{
+    const auto row = new AspectContainer;
+    row->setInlineRow(true);
+    for (BaseAspect * const control : controls)
+        row->registerAspect(control);
+    rows.registerAspect(row, /*takeOwnership=*/true);
+    return row;
+}
+
+void IDevice::addToolGroups(AspectContainer &rows)
+{
+    rows.registerAspect(&runToolsGroup);
+    rows.registerAspect(&sourceAndBuildToolsGroup);
+    rows.registerAspect(&autoDetectionGroup);
 }
 
 AspectContainer &IDevice::deviceInfoAspects()

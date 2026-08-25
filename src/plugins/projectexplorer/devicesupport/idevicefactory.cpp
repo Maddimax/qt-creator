@@ -71,6 +71,7 @@ IDevice::Ptr IDeviceFactory::create() const
     if (!device) // e.g. Cancel used on the dialog to create a device
         return {};
     device->initDeviceToolAspects();
+    device->fillSettingsAspects();
     return device;
 }
 
@@ -83,6 +84,7 @@ IDevice::Ptr IDeviceFactory::construct() const
     QTC_ASSERT(device, return {});
     device->setDisplayName(displayName());
     device->initDeviceToolAspects();
+    device->fillSettingsAspects();
     return device;
 }
 

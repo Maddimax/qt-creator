@@ -61,7 +61,6 @@ add_qtc_plugin(ProjectExplorer
     devicesupport/idevice.cpp devicesupport/idevice.h
     devicesupport/idevicefactory.cpp devicesupport/idevicefactory.h
     devicesupport/idevicefwd.h
-    devicesupport/idevicewidget.h
     devicesupport/processlist.cpp devicesupport/processlist.h
     devicesupport/sshparameters.cpp devicesupport/sshparameters.h
     devicesupport/sshsettings.cpp devicesupport/sshsettings.h

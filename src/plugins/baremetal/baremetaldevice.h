@@ -19,7 +19,6 @@ public:
 
     static QString defaultDisplayName();
 
-    ProjectExplorer::IDeviceWidget *createWidget() final;
 
     QString debugServerProviderId() const;
     void setDebugServerProviderId(const QString &id);
@@ -29,6 +28,7 @@ private:
     friend class BareMetalDeviceWidget;
     friend class BareMetalDeviceTest;
 
+    void addSettingsRows(Utils::AspectContainer &rows) override;
     void fromMap(const Utils::Store &map) final;
 
     BareMetalDevice();

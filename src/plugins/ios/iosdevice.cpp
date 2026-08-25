@@ -16,7 +16,6 @@
 
 #include <projectexplorer/devicesupport/devicemanager.h>
 #include <projectexplorer/devicesupport/idevicefactory.h>
-#include <projectexplorer/devicesupport/idevicewidget.h>
 #include <projectexplorer/environmentkitaspect.h>
 
 #include <utils/algorithm.h>
@@ -632,13 +631,6 @@ IosDevice::IosDevice(const QString &uid)
 IDevice::DeviceInfo IosDevice::deviceInformation() const
 {
     return m_extraInfo.toDeviceInfo();
-}
-
-// Nothing to set: a device that is only reported on says so through
-// deviceInformation(), which any renderer can draw.
-IDeviceWidget *IosDevice::createWidget()
-{
-    return nullptr;
 }
 
 void IosDevice::fromMap(const Store &map)

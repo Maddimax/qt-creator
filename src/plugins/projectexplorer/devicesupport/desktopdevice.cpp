@@ -7,6 +7,7 @@
 
 #include <coreplugin/dialogs/ioptionspage.h>
 
+#include <QFormLayout>
 #include <QGroupBox>
 #include <QLabel>
 
@@ -14,7 +15,6 @@
 #include "../projectexplorertr.h"
 #include "devicemanager.h"
 #include "idevice.h"
-#include "idevicewidget.h"
 
 #include <coreplugin/fileutils.h>
 
@@ -227,31 +227,6 @@ static Result<> doSignalOperation(const SignalOperationData &data)
     return result;
 }
 
-class DesktopDeviceConfigurationWidget final : public IDeviceWidget
-{
-public:
-    explicit DesktopDeviceConfigurationWidget(const IDevicePtr &device)
-        : IDeviceWidget(device)
-    {
-        QTC_CHECK(device->machineType() == IDevice::Hardware);
-
-        using namespace Layouting;
-        Form {
-            Tr::tr("Machine type:"), Tr::tr("Physical Device"), br,
-            device->freePortsAspect, br,
-            empty, device->freePortsWarning, br,
-            noMargin,
-            device->runToolsGroup, br,
-            device->sourceAndBuildToolsGroup, br,
-            device->autoDetectionGroup, br,
-        }.attachTo(this);
-
-        installMarkSettingsDirtyTriggerRecursively(this);
-    }
-
-    void updateDeviceFromUi() final {}
-};
-
 class DesktopDevicePrivate
 {
 public:
@@ -336,11 +311,6 @@ IDevice::DeviceInfo DesktopDevice::deviceInformation() const
     return {};
 }
 
-IDeviceWidget *DesktopDevice::createWidget()
-{
-    return new DesktopDeviceConfigurationWidget(shared_from_this());
-}
-
 bool DesktopDevice::canCreateProcessModel() const
 {
     return true;
@@ -406,6 +376,14 @@ FilePath DesktopDevice::rootPath() const
     if (id() == DESKTOP_DEVICE_ID)
         return HostOsInfo::root();
     return IDevice::rootPath();
+}
+
+void DesktopDevice::addSettingsRows(AspectContainer &rows)
+{
+    rows.registerAspect(&machineTypeDisplay);
+    rows.registerAspect(&freePortsAspect);
+    rows.registerAspect(&freePortsWarning);
+    addToolGroups(rows);
 }
 
 void DesktopDevice::initDeviceToolAspects()
@@ -594,6 +572,64 @@ private slots:
         device->setMachineType(IDevice::Emulator);
         QVERIFY2(device->machineTypeDisplay.text() != hardware,
                  "an emulator says the same as a physical device");
+    }
+
+    void testEveryKindOfDeviceSaysWhichRowsItHas()
+    {
+        // A Qt Quick page can host no QWidget, so the rows a device shows have
+        // to be something it names rather than a widget it builds. Checked for
+        // every kind that can be constructed here, since only two or three of
+        // them exist on any one machine.
+        QStringList checked;
+        QStringList silent;
+        QStringList unsupported;
+        for (IDeviceFactory * const factory : IDeviceFactory::allDeviceFactories()) {
+            const IDevice::Ptr device = factory->construct();
+            if (!device)
+                continue;
+            checked << factory->displayName();
+
+            const QList<BaseAspect *> rows = device->settingsAspects().aspects();
+            if (rows.isEmpty()) {
+                // A kind with nothing to set still has to say something.
+                if (device->deviceInformation().isEmpty())
+                    silent << factory->displayName();
+                continue;
+            }
+
+            // Nothing on a row may be a control no renderer knows.
+            std::function<void(const AspectContainer *)> walk =
+                [&](const AspectContainer *container) {
+                    for (BaseAspect * const row : container->aspects()) {
+                        if (auto nested = qobject_cast<AspectContainer *>(row)) {
+                            walk(nested);
+                            continue;
+                        }
+                        if (row->presentation().control == AspectControls::Custom) {
+                            unsupported << factory->displayName() + ": "
+                                               + QString::fromLatin1(
+                                                   row->metaObject()->className());
+                        }
+                    }
+                };
+            walk(&device->settingsAspects());
+
+            // And they draw as rows: the page asks for a form and places it.
+            // A container with nothing to say about its layout still yields a
+            // widget - a bare column of controls - so this asks for the form.
+            const std::unique_ptr<QWidget> form(
+                Core::createAspectForm(&device->settingsAspects()));
+            QVERIFY2(form, qPrintable(factory->displayName() + " cannot be drawn"));
+            QVERIFY2(qobject_cast<QFormLayout *>(form->layout()),
+                     qPrintable(factory->displayName() + " does not draw its rows as rows"));
+        }
+
+        qInfo().noquote() << "device kinds checked:" << checked.join(", ");
+        QVERIFY(!checked.isEmpty());
+        QVERIFY2(unsupported.isEmpty(),
+                 qPrintable("no renderer draws these: " + unsupported.join(", ")));
+        QVERIFY2(silent.isEmpty(),
+                 qPrintable("these say nothing at all: " + silent.join(", ")));
     }
 
     void testScriptSourcing()

@@ -15,7 +15,6 @@
 
 #include <projectexplorer/devicesupport/devicemanager.h>
 #include <projectexplorer/devicesupport/idevicefactory.h>
-#include <projectexplorer/devicesupport/idevicewidget.h>
 #include <projectexplorer/environmentkitaspect.h>
 #include <projectexplorer/projectexplorerconstants.h>
 #include <projectexplorer/projectmanager.h>
@@ -680,13 +679,6 @@ IDevice::DeviceInfo AndroidDevice::deviceInformation() const
         info.append({Tr::tr("OpenGL status:"), openGLStatus()});
     }
     return info;
-}
-
-// Nothing to set: a device that is only reported on says so through
-// deviceInformation(), which any renderer can draw.
-IDeviceWidget *AndroidDevice::createWidget()
-{
-    return nullptr;
 }
 
 ExecutableItem AndroidDevice::signalOperationRecipeImpl(

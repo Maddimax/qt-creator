@@ -26,7 +26,7 @@ public:
 
     static Ptr create() { return Ptr(new WindowsDevice); }
 
-    ProjectExplorer::IDeviceWidget *createWidget() override;
+    void addSettingsRows(Utils::AspectContainer &rows) override;
     void runAutoDetect(
         const ProjectExplorer::ToolDetectionLogger &logger,
         const std::function<void()> &onDone) override;

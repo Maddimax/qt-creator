@@ -106,7 +106,7 @@ public:
     Utils::CommandLine createCommandLine() const;
     Utils::CommandLine createCommandLineForDisplay() const;
 
-    ProjectExplorer::IDeviceWidget *createWidget() override;
+    void addSettingsRows(Utils::AspectContainer &rows) override;
     QList<ProjectExplorer::Task> validate() const override;
 
     Utils::ProcessInterface *createProcessInterface() const override;
@@ -212,6 +212,10 @@ private:
     ContainerToolSettings *m_settings = nullptr;
     Utils::SynchronizedValue<std::vector<std::weak_ptr<DockerDevice>>> m_existingDevices;
 };
+
+#ifdef WITH_TESTS
+QObject *createDockerDeviceAspectsTest();
+#endif
 
 } // namespace Internal
 } // namespace Docker

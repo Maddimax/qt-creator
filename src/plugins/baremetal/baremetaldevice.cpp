@@ -15,7 +15,6 @@
 
 #include <projectexplorer/devicesupport/idevice.h>
 #include <projectexplorer/devicesupport/idevicefactory.h>
-#include <projectexplorer/devicesupport/idevicewidget.h>
 
 #include <utils/algorithm.h>
 #include <utils/guiutils.h>
@@ -36,28 +35,6 @@ using namespace ProjectExplorer;
 using namespace Utils;
 
 namespace BareMetal::Internal {
-
-class BareMetalDeviceWidget final : public IDeviceWidget
-{
-public:
-    explicit BareMetalDeviceWidget(const IDevicePtr &deviceConfig)
-        : IDeviceWidget(deviceConfig)
-    {
-        const auto dev = std::static_pointer_cast<BareMetalDevice>(device());
-        QTC_ASSERT(dev, return);
-
-        using namespace Layouting;
-        Form {
-            dev->m_debugServerProviderId, dev->m_manageProviders, br,
-            noMargin,
-        }.attachTo(this);
-
-        installMarkSettingsDirtyTriggerRecursively(this);
-    }
-
-private:
-    void updateDeviceFromUi() final {}
-};
 
 
 // BareMetalDevice
@@ -121,6 +98,12 @@ void BareMetalDevice::unregisterDebugServerProvider(const QString &providerId) c
         m_debugServerProviderId.setValue(QString());
 }
 
+void BareMetalDevice::addSettingsRows(AspectContainer &rows)
+{
+    // One row: which debug server provider, and the page that manages them.
+    addRow(rows, {&m_debugServerProviderId, &m_manageProviders});
+}
+
 void BareMetalDevice::fromMap(const Store &map)
 {
     IDevice::fromMap(map);
@@ -135,11 +118,6 @@ void BareMetalDevice::fromMap(const Store &map)
             setDebugServerProviderId(provider->id());
         }
     }
-}
-
-IDeviceWidget *BareMetalDevice::createWidget()
-{
-    return new BareMetalDeviceWidget(shared_from_this());
 }
 
 //  BareMetalDeviceConfigurationWizardSetupPage

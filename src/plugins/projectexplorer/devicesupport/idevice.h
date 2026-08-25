@@ -73,7 +73,6 @@ class Task;
 
 namespace Internal { class IDevicePrivate; }
 
-class IDeviceWidget;
 class DeviceTester;
 
 class PROJECTEXPLORER_EXPORT DeviceToolAspect : public Utils::FilePathAspect
@@ -196,6 +195,13 @@ public:
     Utils::AspectContainer &deviceInfoAspects();
     void refreshDeviceInfoAspects();
 
+    // The device's own settings, in the order they should be shown. This is
+    // what a device widget used to be: which aspects, and in what order. A
+    // device with nothing to set leaves it empty and says what it is through
+    // deviceInformation() instead.
+    Utils::AspectContainer &settingsAspects();
+    void fillSettingsAspects();
+
     Utils::Id type() const;
     void setType(Utils::Id type);
 
@@ -208,7 +214,6 @@ public:
     QString displayType() const;
     Utils::OsType osType() const;
 
-    virtual IDeviceWidget *createWidget() = 0;
 
     struct DeviceAction
     {
@@ -419,6 +424,17 @@ protected:
     // Retrieves the environment in the background, so that later requests,
     // including the ones that must not block, are answered from the cache.
     void warmSystemEnvironment() const;
+    // What this kind of device asks. Rows are added in the order they are
+    // shown; a row that holds several controls is one made by addRow().
+    virtual void addSettingsRows(Utils::AspectContainer &rows);
+    // A row of several controls that read as one line - the SSH host, its
+    // port and the host key check. Owned by the row list, which is rebuilt
+    // whenever the device is asked again.
+    static Utils::AspectContainer *addRow(Utils::AspectContainer &rows,
+                                          const QList<Utils::BaseAspect *> &controls);
+    // The three groups below a device's own settings. Not every kind shows
+    // them: a bare metal device has no tools of its own to run.
+    void addToolGroups(Utils::AspectContainer &rows);
 
     Utils::Result<Utils::Environment> getUnixEnvironment(
         const Utils::FilePath &scriptToSource = {}) const;

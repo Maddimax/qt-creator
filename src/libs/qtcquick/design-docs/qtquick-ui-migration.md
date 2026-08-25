@@ -1749,6 +1749,35 @@ With that, **no device widget contains a `new` anything.** All four are a list
 of aspect names and nothing else, which is what has to become a per-device QML
 file - or a list the page reads - before the Devices page can move.
 
+### IDeviceWidget is gone
+
+A device says which of its aspects a page shows, and in what order:
+`addSettingsRows()` fills a container, `addRow()` makes a row that holds
+several controls - the SSH host, its port and the host key check are one line -
+and `addToolGroups()` appends the three groups a kind that runs tools wants.
+The Devices page draws that container, and `IDevice::createWidget()`,
+`IDeviceWidget` and all seven of its subclasses are deleted.
+
+This is the same answer the toolchain kinds got with
+`createConfigurationAspects()`, and it took the same route: every widget had to
+stop holding state, stop building controls and stop embedding foreign ones
+before the extension point could be replaced by a list of names.
+
+**The census found a page that had always been blank.** Asking every device
+kind that can be constructed here - fifteen of them - whether it says anything
+turned up `IosSimulator`, which returned no widget *and* no information, so
+selecting it showed an empty box. That has been true for as long as the page
+has existed; it says its name, type and ports now.
+
+**A control that cannot fail, again.** The first version asserted that the rows
+can be drawn - `createAspectForm()` returning a widget - which is never false,
+because `AspectWidgets::layouter()` falls back to a column for a container that
+says nothing. The assertion that bites is that the rows are drawn *as rows*:
+the emerged widget's layout is a `QFormLayout`. That is the second time this
+exact fallback has made an assertion vacuous; it is worth remembering that
+"the form exists" and "the form is what the container asked for" are different
+claims.
+
 ### What the census could not see, and now can
 
 Two holes, both found the hard way in the same session.
@@ -1990,8 +2019,7 @@ remembered:
   converted, and the two read-only ones (iOS, Android) are deleted in favour of
   `deviceInformation()`, and BareMetal no longer embeds a foreign chooser. Every
   one that is left is pure aspect layout - nothing but a list of which aspects
-  to show. What remains is teaching each device to name its rows, and the
-  page's own split Add button.
+  to show. What remains is the page's own split Add button.
 - **BareMetal's Debug Server Providers** - **30 config-widget classes**, all of
   them for hardware this machine does not have.
 - **MCU Support** - `McuAbstractPackage::widget()`, one per package kind.

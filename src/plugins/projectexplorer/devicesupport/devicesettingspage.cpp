@@ -10,7 +10,6 @@
 #include "devicetestdialog.h"
 #include "idevice.h"
 #include "idevicefactory.h"
-#include "idevicewidget.h"
 
 #include "../kitaspect.h"
 #include "../projectexplorerconstants.h"
@@ -147,7 +146,7 @@ class DeviceSettingsWidget final : public Core::IOptionsPageWidget
 {
 public:
     DeviceSettingsWidget();
-    ~DeviceSettingsWidget() final { delete m_configWidget; delete m_deviceInfoWidget; }
+    ~DeviceSettingsWidget() final { delete m_deviceInfoWidget; }
 
 private:
     void apply() final;
@@ -179,9 +178,9 @@ private:
     DeviceManagerModel m_deviceManagerModel;
     DeviceProxyModel m_deviceProxyModel;
     QList<QPushButton *> m_additionalActionButtons;
-    IDeviceWidget *m_configWidget = nullptr;
-    // What a device with no settings of its own reports about itself.
+    // What the current device asks, or what it reports where it asks nothing.
     QWidget *m_deviceInfoWidget = nullptr;
+    IDeviceConstPtr m_shownDevice;
 
     QLabel *m_configurationLabel;
     QComboBox *m_configurationComboBox;
@@ -227,9 +226,6 @@ bool DeviceSettingsWidget::isDirty() const
         if (m_deviceManagerModel.device(i)->isDirty())
             return true;
     }
-
-    if (m_configWidget && m_configWidget->isDirty())
-        return true;
 
     // The base default returns true (no aspect container / dirty checker here),
     // so fall back to "clean" once the checks above have run.
@@ -476,9 +472,10 @@ void DeviceSettingsWidget::setDeviceInfoWidgetsEnabled(bool enable)
 
 void DeviceSettingsWidget::updateDeviceFromUi()
 {
+    // Everything a device shows is one of its own aspects now, so applying
+    // the device is all there is to do; there is no widget holding a value
+    // back.
     currentDevice()->doApply();
-    if (m_configWidget)
-        m_configWidget->updateDeviceFromUi();
 }
 
 void DeviceSettingsWidget::saveSettings()
@@ -527,11 +524,10 @@ void DeviceSettingsWidget::handleDeviceUpdated(Id id)
 
 void DeviceSettingsWidget::currentDeviceChanged(int index)
 {
-    const bool didChangeDevice = !m_configWidget || m_configWidget->device() != currentDevice();
+    const bool didChangeDevice = m_shownDevice != currentDevice();
+    m_shownDevice = currentDevice();
 
     if (didChangeDevice) {
-        delete m_configWidget;
-        m_configWidget = nullptr;
         delete m_deviceInfoWidget;
         m_deviceInfoWidget = nullptr;
     }
@@ -595,17 +591,17 @@ void DeviceSettingsWidget::currentDeviceChanged(int index)
 
     if (didChangeDevice) {
         const IDevice::Ptr mutableDevice = DeviceManager::mutableDevice(device->id());
-        m_configWidget = mutableDevice->createWidget();
-        if (m_configWidget) {
-            m_osSpecificGroupBox->layout()->addWidget(m_configWidget);
-        } else {
-            // A device with nothing to set still has something to say. What it
-            // reports is aspects, so either renderer can draw it.
+        // What a device asks, in the order it says. A kind with nothing to ask
+        // still has something to say, which is what it reports.
+        mutableDevice->fillSettingsAspects();
+        AspectContainer *shown = &mutableDevice->settingsAspects();
+        if (shown->aspects().isEmpty()) {
             mutableDevice->refreshDeviceInfoAspects();
-            m_deviceInfoWidget = Core::createAspectForm(&mutableDevice->deviceInfoAspects());
-            if (m_deviceInfoWidget)
-                m_osSpecificGroupBox->layout()->addWidget(m_deviceInfoWidget);
+            shown = &mutableDevice->deviceInfoAspects();
         }
+        m_deviceInfoWidget = Core::createAspectForm(shown);
+        if (m_deviceInfoWidget)
+            m_osSpecificGroupBox->layout()->addWidget(m_deviceInfoWidget);
     }
     displayCurrent();
 }

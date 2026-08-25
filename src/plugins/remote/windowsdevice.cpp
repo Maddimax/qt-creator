@@ -26,7 +26,6 @@
 #include <projectexplorer/devicesupport/devicekitaspects.h>
 #include <projectexplorer/devicesupport/devicemanager.h>
 #include <projectexplorer/projectexplorerconstants.h>
-#include <projectexplorer/devicesupport/idevicewidget.h>
 #include <projectexplorer/devicesupport/sshparameters.h>
 #include <projectexplorer/devicesupport/sshsettings.h>
 #include <projectexplorer/abi.h>
@@ -1518,16 +1517,6 @@ void WindowsDevice::postLoad()
     }});
 }
 
-// WindowsDeviceConfigurationWidget
-
-class WindowsDeviceConfigurationWidget final : public IDeviceWidget
-{
-public:
-    explicit WindowsDeviceConfigurationWidget(const IDevicePtr &device);
-
-private:
-    void updateDeviceFromUi() override {}
-};
 
 // Locates cdb.exe (from the Windows SDK "Debugging Tools for Windows") on the device, preferring
 // the architecture matching the device but falling back to the others. Returns an empty path when
@@ -1599,37 +1588,17 @@ static void registerDeviceCdb(const WindowsDevice::Ptr &device,
         logger.logTopLevel(Tr::tr("Registered CDB debugger \"%1\".").arg(cdb.toUserOutput()));
 }
 
-WindowsDeviceConfigurationWidget::WindowsDeviceConfigurationWidget(const IDevicePtr &device)
-    : IDeviceWidget(device)
+void WindowsDevice::addSettingsRows(AspectContainer &rows)
 {
-    auto windowsDevice = std::dynamic_pointer_cast<WindowsDevice>(device);
-    QTC_ASSERT(windowsDevice, return);
-
-    SshParametersAspectContainer &ssh = device->sshParametersAspectContainer();
-
-    using namespace Layouting;
-    // clang-format off
-    Form {
-        ssh.host, ssh.port, ssh.hostKeyCheckingMode, st, br,
-        ssh.timeout, st, br,
-        ssh.userName, st, br,
-        ssh.useKeyFile, st, br,
-        ssh.privateKeyFile, ssh.createKey, br,
-        windowsDevice->autoConnectOnStartup, br,
-        windowsDevice->cdbExtensionDirectory, br,
-        device->runToolsGroup, br,
-        device->sourceAndBuildToolsGroup, br,
-        device->autoDetectionGroup, br,
-    }.attachTo(this);
-    // clang-format on
-
-    connect(device.get(), &AspectContainer::volatileValueChanged, this, &checkSettingsDirty);
-    connect(&ssh, &AspectContainer::volatileValueChanged, this, &checkSettingsDirty);
-}
-
-IDeviceWidget *WindowsDevice::createWidget()
-{
-    return new WindowsDeviceConfigurationWidget(shared_from_this());
+    SshParametersAspectContainer &ssh = sshParametersAspectContainer();
+    addRow(rows, {&ssh.host, &ssh.port, &ssh.hostKeyCheckingMode});
+    rows.registerAspect(&ssh.timeout);
+    rows.registerAspect(&ssh.userName);
+    rows.registerAspect(&ssh.useKeyFile);
+    addRow(rows, {&ssh.privateKeyFile, &ssh.createKey});
+    rows.registerAspect(&autoConnectOnStartup);
+    rows.registerAspect(&cdbExtensionDirectory);
+    addToolGroups(rows);
 }
 
 void WindowsDevice::runAutoDetect(

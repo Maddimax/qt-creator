@@ -183,11 +183,6 @@ IDevice::Ptr HarmonyOsDevice::create()
     return IDevice::Ptr(new HarmonyOsDevice);
 }
 
-IDeviceWidget *HarmonyOsDevice::createWidget()
-{
-    return nullptr;
-}
-
 DeviceTester *HarmonyOsDevice::createDeviceTester()
 {
     return createHarmonyOsDeviceTester(shared_from_this());

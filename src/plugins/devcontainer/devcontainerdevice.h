@@ -30,7 +30,6 @@ public:
 
     void setProject(ProjectExplorer::Project *project) { m_project = project; }
 
-    ProjectExplorer::IDeviceWidget *createWidget() override;
 
     void up(InstanceConfig instanceConfig, std::function<void(Utils::Result<>)> callback);
     Utils::Result<> down();

@@ -46,7 +46,6 @@ public:
     using Ptr = std::shared_ptr<IosSimulator>;
     ProjectExplorer::IDevice::DeviceInfo deviceInformation() const override;
 
-    ProjectExplorer::IDeviceWidget *createWidget() override;
 
 private:
     QtTaskTree::ExecutableItem portsGatheringRecipe(

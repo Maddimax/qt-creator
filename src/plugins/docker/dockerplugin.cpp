@@ -4,7 +4,6 @@
 #include "dockerapi.h"
 #include "dockerconstants.h"
 #include "dockerdevice.h"
-#include "dockerdevicewidget.h"
 #include "dockersettings.h"
 #ifdef WITH_TESTS
 #include "dockerdebuggertest.h"

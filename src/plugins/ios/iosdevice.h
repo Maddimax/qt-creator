@@ -33,7 +33,6 @@ public:
     enum class Handler { IosTool, DeviceCtl };
 
     ProjectExplorer::IDevice::DeviceInfo deviceInformation() const override;
-    ProjectExplorer::IDeviceWidget *createWidget() override;
 
     QString uniqueDeviceID() const;
     const IosDeviceInfo &iosDeviceInformation() const;

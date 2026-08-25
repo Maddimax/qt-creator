@@ -22,7 +22,6 @@
 #include <projectexplorer/buildconfiguration.h>
 #include <projectexplorer/devicesupport/devicemanager.h>
 #include <projectexplorer/devicesupport/idevice.h>
-#include <projectexplorer/devicesupport/idevicewidget.h>
 #include <projectexplorer/devicesupport/sshparameters.h>
 #include <projectexplorer/devicesupport/sshsettings.h>
 #include <projectexplorer/kitmanager.h>
@@ -95,49 +94,6 @@ static QString killCommandForPath(const FilePath &filePath)
         fi)").arg(filePath.path()).arg(globalProjectExplorerSettings().reaperTimeoutInSeconds());
 }
 
-// LinuxDeviceConfigurationWidget
-
-class LinuxDeviceConfigurationWidget final : public IDeviceWidget
-{
-public:
-    explicit LinuxDeviceConfigurationWidget(const IDevicePtr &device);
-
-private:
-    void updateDeviceFromUi() override {}
-};
-
-LinuxDeviceConfigurationWidget::LinuxDeviceConfigurationWidget(
-    const IDevice::Ptr &device)
-    : IDeviceWidget(device)
-{
-    auto linuxDevice = std::dynamic_pointer_cast<LinuxDevice>(device);
-    QTC_ASSERT(linuxDevice, return);
-
-    using namespace Layouting;
-
-    SshParametersAspectContainer &ssh = device->sshParametersAspectContainer();
-    // clang-format off
-    Form {
-        device->machineTypeDisplay, st, br,
-        ssh.host, ssh.port, ssh.hostKeyCheckingMode, st, br,
-        device->freePortsAspect, device->freePortsWarning, ssh.timeout, st, br,
-        ssh.userName, st, br,
-        ssh.useKeyFile, st, br,
-        ssh.privateKeyFile, ssh.createKey, br,
-        linuxDevice->autoConnectOnStartup, br,
-        linuxDevice->sourceProfile, br,
-        device->sshForwardDebugServerPort, br,
-        device->linkDevice, br,
-        linuxDevice->mounts.labelText(), linuxDevice->mounts, br,
-        device->runToolsGroup, br,
-        device->sourceAndBuildToolsGroup, br,
-        device->autoDetectionGroup, br,
-    }.attachTo(this);
-    // clang-format on
-
-    connect(device.get(), &AspectContainer::volatileValueChanged, this, &checkSettingsDirty);
-    connect(&ssh, &AspectContainer::volatileValueChanged, this, &checkSettingsDirty);
-}
 
 // LinuxDevicePrivate
 
@@ -828,9 +784,21 @@ LinuxDevice::~LinuxDevice()
     delete d;
 }
 
-IDeviceWidget *LinuxDevice::createWidget()
+void LinuxDevice::addSettingsRows(AspectContainer &rows)
 {
-    return new LinuxDeviceConfigurationWidget(shared_from_this());
+    SshParametersAspectContainer &ssh = sshParametersAspectContainer();
+    rows.registerAspect(&machineTypeDisplay);
+    addRow(rows, {&ssh.host, &ssh.port, &ssh.hostKeyCheckingMode});
+    addRow(rows, {&freePortsAspect, &freePortsWarning, &ssh.timeout});
+    rows.registerAspect(&ssh.userName);
+    rows.registerAspect(&ssh.useKeyFile);
+    addRow(rows, {&ssh.privateKeyFile, &ssh.createKey});
+    rows.registerAspect(&autoConnectOnStartup);
+    rows.registerAspect(&sourceProfile);
+    rows.registerAspect(&sshForwardDebugServerPort);
+    rows.registerAspect(&linkDevice);
+    rows.registerAspect(&mounts);
+    addToolGroups(rows);
 }
 
 DeviceTester *LinuxDevice::createDeviceTester()

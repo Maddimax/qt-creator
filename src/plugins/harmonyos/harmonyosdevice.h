@@ -20,7 +20,6 @@ public:
 
     static ProjectExplorer::IDevice::Ptr create();
 
-    ProjectExplorer::IDeviceWidget *createWidget() final;
     bool hasDeviceTester() const final { return true; }
     ProjectExplorer::DeviceTester *createDeviceTester() final;
     Utils::ProcessInterface *createProcessInterface() const final;

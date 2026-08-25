@@ -114,11 +114,6 @@ QdbDevice::QdbDevice()
     }});
 }
 
-ProjectExplorer::IDeviceWidget *QdbDevice::createWidget()
-{
-    return Remote::LinuxDevice::createWidget();
-}
-
 ProcessInterface *QdbDevice::createProcessInterface() const
 {
     return new QdbProcessImpl(shared_from_this());

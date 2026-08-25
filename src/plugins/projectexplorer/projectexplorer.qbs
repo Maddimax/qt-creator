@@ -226,7 +226,6 @@ QtcPlugin {
             "idevice.cpp", "idevice.h",
             "idevicefactory.cpp", "idevicefactory.h",
             "idevicefwd.h",
-            "idevicewidget.h",
             "processlist.cpp", "processlist.h",
             "sshparameters.cpp", "sshparameters.h",
             "sshsettings.cpp", "sshsettings.h",

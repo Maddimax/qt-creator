@@ -15,7 +15,6 @@ public:
 
     static Ptr create() { return Ptr(new QdbDevice); }
 
-    ProjectExplorer::IDeviceWidget *createWidget() final;
 
     Utils::ProcessInterface *createProcessInterface() const override;
 

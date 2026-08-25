@@ -58,11 +58,6 @@ Device::Device()
 
 Device::~Device() {} // Necessary for forward declared unique_ptr
 
-IDeviceWidget *Device::createWidget()
-{
-    return nullptr;
-}
-
 Result<> Device::handlesFile(const FilePath &filePath) const
 {
     const FilePath root = rootPath();

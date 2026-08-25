@@ -6,7 +6,6 @@
 #include "dockerapi.h"
 #include "dockerconstants.h"
 #include "dockercontainerthread.h"
-#include "dockerdevicewidget.h"
 #include "dockertr.h"
 
 #include <coreplugin/icore.h>
@@ -14,7 +13,6 @@
 
 #include <projectexplorer/buildconfiguration.h>
 #include <projectexplorer/devicesupport/devicemanager.h>
-#include <projectexplorer/devicesupport/idevicewidget.h>
 #include <projectexplorer/devicesupport/processlist.h>
 #include <projectexplorer/environmentkitaspect.h>
 #include <projectexplorer/kitaspect.h>
@@ -39,6 +37,10 @@
 #include <utils/macroexpander.h>
 #include <utils/pathlisteditor.h>
 #include <utils/utilsicons.h>
+
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
 #include <utils/port.h>
 #include <utils/processinfo.h>
 #include <utils/processinterface.h>
@@ -1478,9 +1480,29 @@ CommandLine DockerDevice::createCommandLineForDisplay() const
     return d->createCommandLine(d->volatileParams());
 }
 
-IDeviceWidget *DockerDevice::createWidget()
+void DockerDevice::addSettingsRows(AspectContainer &rows)
 {
-    return new DockerDeviceWidget(shared_from_this());
+    rows.registerAspect(&repo);
+    rows.registerAspect(&tag);
+    rows.registerAspect(&imageId);
+    rows.registerAspect(&daemonState);
+    rows.registerAspect(&useLocalUidGid);
+    rows.registerAspect(&keepEntryPoint);
+    rows.registerAspect(&enableLldbFlags);
+    rows.registerAspect(&mountCmdBridge);
+    rows.registerAspect(&enableX11Forwarding);
+    rows.registerAspect(&x11Display);
+    addRow(rows, {&network, &refreshNetworks});
+    rows.registerAspect(&extraArgs);
+    rows.registerAspect(&environment);
+    rows.registerAspect(&mounts);
+    rows.registerAspect(&mountsWarning);
+    rows.registerAspect(&portMappings);
+    rows.registerAspect(&createCommandLineDisplay);
+    rows.registerAspect(&runToolsGroup);
+    rows.registerAspect(&sourceAndBuildToolsGroup);
+    addRow(rows, {&autoDetectKitItems, &removeAutoDetectedKitItems, &listAutoDetectedKitItems});
+    rows.registerAspect(&detectionLog);
 }
 
 Tasks DockerDevice::validate() const
@@ -1505,6 +1527,11 @@ DockerDevice::DockerDevice(ContainerToolSettings *settings)
                    : Tr::tr("%1 daemon not running.").arg(api->displayType());
     });
     daemonState.setAction([this] { DockerApi::recheckDaemon(type()); });
+    if (DockerApi * const api = DockerApi::instance(settings->typeId())) {
+        refreshNetworks.setToolTip(Tr::tr("Refresh %1 networks").arg(api->displayType()));
+        QObject::connect(api, &DockerApi::dockerDaemonAvailableChanged, this,
+                         [this] { daemonState.updateSummary(); });
+    }
 
     mountsWarning.setIconType(Utils::InfoType::Warning);
     const auto updateMountsWarning = [this] {
@@ -1988,4 +2015,102 @@ ExecutableItem DockerDevice::signalOperationRecipeImpl(
     // clang-format on
 }
 
+#ifdef WITH_TESTS
+namespace Internal {
+
+class DockerDeviceAspectsTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheDeviceSaysWhatItKnowsAboutItself()
+    {
+        // Four things the settings widget worked out and drew itself: whether
+        // the daemon is up, that there is nothing to mount, what the docker
+        // create call comes to, and the button that re-asks for networks.
+        // Nothing but that widget could see any of them.
+        const DockerDevice::Ptr device = DockerDevice::create(&dockerSettings());
+        QVERIFY(device);
+
+        // The daemon state is a summary plus the button that has it looked at
+        // again - not a label, a tool button and a hand-written update.
+        const AspectPresentation daemon = device->daemonState.presentation();
+        QCOMPARE(daemon.control, AspectControls::TextWithAction);
+        QVERIFY(!daemon.labelText.isEmpty());
+        device->daemonState.updateSummary();
+        QVERIFY2(!device->daemonState.displayText().isEmpty(),
+                 "the device says nothing about its daemon");
+
+        // The warning follows the mounts, whichever way round they go.
+        device->mounts.setValue(QStringList{});
+        QVERIFY(device->mountsWarning.isVisible());
+        device->mounts.setValue(QStringList{"/tmp"});
+        QVERIFY(!device->mountsWarning.isVisible());
+
+        // What the settings come to, kept up as they change.
+        device->createCommandLineDisplay.setText({});
+        device->repo.setValue("alpine");
+        QVERIFY2(!device->createCommandLineDisplay.text().isEmpty(),
+                 "the device does not say what it would run");
+        QVERIFY(!device->createCommandLineDisplay.labelText().isEmpty());
+
+        // A button that says what it does with a picture: it had a reload icon
+        // and no text.
+        const AspectPresentation refresh = device->refreshNetworks.presentation();
+        QCOMPARE(refresh.control, AspectControls::Button);
+        QVERIFY2(!refresh.actionIcon.isNull(), "the refresh button has nothing to show");
+    }
+
+    void testDetectingKitItemsIsSomethingTheDeviceDoes()
+    {
+        // The detection recipe, the three buttons that start it and the log it
+        // writes to lived in the settings widget, so they went away with it and
+        // only a widget page could show any of them.
+        const DockerDevice::Ptr device = DockerDevice::create(&dockerSettings());
+        QVERIFY(device);
+
+        for (const ActionAspect * const button : {&device->autoDetectKitItems,
+                                                  &device->removeAutoDetectedKitItems,
+                                                  &device->listAutoDetectedKitItems}) {
+            const AspectPresentation p = button->presentation();
+            QCOMPARE(p.control, AspectControls::Button);
+            QVERIFY(!p.actionText.isEmpty());
+            QVERIFY(button->isEnabled());
+        }
+
+        // The log is read, not typed into.
+        const AspectPresentation log = device->detectionLog.presentation();
+        QCOMPARE(log.control, AspectControls::TextEdit);
+        QVERIFY(log.readOnly);
+        QVERIFY(!log.labelText.isEmpty());
+
+        // A run starts from a clean log rather than appending to what the last
+        // one said. What it finds depends on the machine; that it starts over
+        // does not. Listing is the one that needs no container to run.
+        device->detectionLog.setValue("what the last run said");
+        device->listAutoDetectedKitItems.triggerAction();
+        QVERIFY2(!device->detectionLog.volatileValue().contains("what the last run said"),
+                 "a run appended to the previous run's log");
+
+        // Auto-detect says why it cannot start rather than nothing at all: on
+        // a machine with no daemon it fails at the container.
+        device->detectionLog.setValue({});
+        device->autoDetectKitItems.triggerAction();
+        QVERIFY2(!device->detectionLog.volatileValue().isEmpty(),
+                 "auto-detect said nothing about what it did");
+    }
+};
+
+QObject *createDockerDeviceAspectsTest()
+{
+    return new DockerDeviceAspectsTest;
+}
+
+} // namespace Internal
+#endif // WITH_TESTS
+
 } // namespace Docker
+
+#ifdef WITH_TESTS
+#include "dockerdevice.moc"
+#endif

@@ -21,8 +21,6 @@ QtcPlugin {
         "dockerdevice.h",
         "dockerdeviceenvironmentaspect.cpp",
         "dockerdeviceenvironmentaspect.h",
-        "dockerdevicewidget.cpp",
-        "dockerdevicewidget.h",
         "dockerplugin.cpp",
         "dockersettings.cpp",
         "dockersettings.h",

@@ -30,7 +30,7 @@ public:
 
     static Ptr create() { return Ptr(new LinuxDevice); }
 
-    ProjectExplorer::IDeviceWidget *createWidget() override;
+    void addSettingsRows(Utils::AspectContainer &rows) override;
 
     bool canCreateProcessModel() const override { return true; }
     bool hasDeviceTester() const override { return true; }

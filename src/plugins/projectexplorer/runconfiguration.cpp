@@ -1012,7 +1012,6 @@ namespace Internal {
 
 class DummyDevice : public IDevice
 {
-    IDeviceWidget *createWidget() override { return nullptr; }
 };
 
 class RunConfigurationTest : public QObject

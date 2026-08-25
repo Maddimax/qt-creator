@@ -636,7 +636,6 @@ public:
     static Id testTypeId() { return "TestType"; }
 
 private:
-    IDeviceWidget *createWidget() override { return nullptr; }
 };
 
 class TestDeviceFactory final : public IDeviceFactory

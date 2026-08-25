@@ -71,7 +71,6 @@ protected:
 
 private:
     ProjectExplorer::IDevice::DeviceInfo deviceInformation() const override;
-    ProjectExplorer::IDeviceWidget *createWidget() override;
     QtTaskTree::ExecutableItem signalOperationRecipeImpl(
         const ProjectExplorer::SignalOperationData &data,
         const QtTaskTree::Storage<Utils::Result<>> &resultStorage) const final;

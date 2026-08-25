@@ -28,7 +28,6 @@ public:
 
     IDevice::DeviceInfo deviceInformation() const override;
 
-    IDeviceWidget *createWidget() override;
     bool canCreateProcessModel() const override;
     QUrl toolControlChannel(const ControlChannelHint &) const override;
 
@@ -42,6 +41,7 @@ public:
     Utils::FilePath filePath(const QString &pathOnDevice) const override;
 
     void initDeviceToolAspects() override;
+    void addSettingsRows(Utils::AspectContainer &rows) override;
 
 protected:
     DesktopDevice();
