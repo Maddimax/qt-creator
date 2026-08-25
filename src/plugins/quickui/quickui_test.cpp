@@ -2689,7 +2689,29 @@ void QuickUiTest::testATreeCellIsWrittenToWhereItsModelSaysSo()
     QCOMPARE(checks.at(0)->property("checked").toBool(), true);
     QCOMPARE(checks.at(1)->property("checked").toBool(), false);
 
-    // And what is typed and ticked reaches the model.
+    // Which row is current is answered in the aspect's own model, not the
+    // filtered one: a page looks the row up in the model it owns, and an index
+    // from the proxy finds nothing there.
+    auto filtered = qobject_cast<QSortFilterProxyModel *>(
+        view->property("model").value<QAbstractItemModel *>());
+    QVERIFY(filtered);
+    filtered->setFilterFixedString("Classes");
+    QTRY_COMPARE(view->property("rows").toInt(), 1);
+    auto selection = view->property("selectionModel").value<QItemSelectionModel *>();
+    QVERIFY(selection);
+    selection->setCurrentIndex(filtered->index(0, 0), QItemSelectionModel::ClearAndSelect);
+    const auto current = delegate->property("currentIndex").value<QModelIndex>();
+    QVERIFY(current.isValid());
+    QCOMPARE(current.model(), filters.tableModel());
+    QCOMPARE(current.data().toString(), QString("Classes"));
+    filtered->setFilterFixedString({});
+    QTRY_COMPARE(view->property("rows").toInt(), 2);
+
+    // And what is typed and ticked reaches the model. Asked for again:
+    // filtering destroys the cells and builds them anew, so the ones from
+    // before it are gone.
+    QTRY_COMPARE((fields = findQmlNamed(view, "tableCellField")).size(), 2);
+    QTRY_COMPARE((checks = findQmlNamed(view, "tableCellCheckBox")).size(), 2);
     fields.at(0)->setProperty("text", "fi");
     QMetaObject::invokeMethod(fields.at(0), "editingFinished");
     QCOMPARE(filters.row(0)->m_prefix, QString("fi"));

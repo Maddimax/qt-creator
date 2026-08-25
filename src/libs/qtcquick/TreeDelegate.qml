@@ -35,10 +35,14 @@ RowLayout {
         sourceModel: root.treeModel
     }
 
-    // Which row is being looked at, in the aspect's own model. A page showing
-    // a detail of it - the expression a command is mapped to - reads this; an
-    // invalid index means nothing is picked.
-    readonly property var currentIndex: view.selectionModel.currentIndex
+    // Which row is being looked at, in the aspect's own model rather than the
+    // filtered one: a page showing a detail of it - the expression a command
+    // is mapped to - looks the row up in the model it owns, and an index from
+    // the proxy finds nothing there. An invalid index means nothing is picked.
+    readonly property var currentIndex: {
+        const index = view.selectionModel.currentIndex
+        return index && index.valid ? root.rows.mapToSource(index) : index
+    }
 
     // A page showing a tree usually wants to offer these, and they are the
     // view's business rather than the aspect's.
