@@ -25,6 +25,7 @@
 #include <utils/groupedmodel.h>
 #include <utils/pathvalidation.h>
 #include <utils/treemodel.h>
+#include <utils/widgets.h>
 #include <utils/layoutbuilder.h>
 
 #include <QAbstractButton>
@@ -182,6 +183,7 @@ private slots:
     void testAspectQmlNamesAreUsableAndUnique();
     void testActionAspectIsAButtonOnEitherRenderer();
     void testAButtonCanOfferAMenuInsteadOfActing();
+    void testAButtonCanActAndStillOffer();
     void testTextDisplayShowsItsMessage();
     void testTextDisplaySaysHowToReadItsMessage();
     void testRadioStyledBoolIsARadioButton();
@@ -1129,6 +1131,112 @@ void QuickUiTest::testAButtonCanOfferAMenuInsteadOfActing()
     QTRY_VERIFY(plainButton = findButton(plainQuick->rootObject(), "Re-detect"));
     QMetaObject::invokeMethod(plainButton, "clicked");
     QCOMPARE(acted, 1);
+}
+
+void QuickUiTest::testAButtonCanActAndStillOffer()
+{
+    // Adding a device runs the wizard, and the menu beside it is the shortcut
+    // to one kind. The button therefore has to do both, which the toolchain
+    // Add - a menu and nothing else - never needed.
+    QVariant picked;
+    int acted = 0;
+    Utils::AspectContainer page;
+    Utils::ActionAspect add(&page);
+    add.setActionText("Add...");
+    add.setQmlName("Add");
+    add.setAction([&acted] { ++acted; });
+    add.setChoices({{"Desktop", {}, true, "DesktopDevice"},
+                    {"Docker", {}, true, "DockerDevice"}});
+    add.setOnChoice([&picked](const QVariant &id) { picked = id; });
+    add.setActionIsDefault(true);
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QVERIFY(quickWidget->rootObject());
+
+    QQuickItem *button = nullptr;
+    QTRY_VERIFY(button = findButton(quickWidget->rootObject(), "Add..."));
+
+    // Having choices no longer swallows the click.
+    QMetaObject::invokeMethod(button, "clicked");
+    QCOMPARE(acted, 1);
+
+    const QString arrowText = QString(QChar(0x25be));
+    QQuickItem * const arrow = findButton(quickWidget->rootObject(), arrowText);
+    QVERIFY(arrow);
+    QVERIFY(arrow->isVisible());
+
+    QQuickItem * const delegate = findQmlComponent(quickWidget->rootObject(), "ButtonDelegate");
+    QVERIFY(delegate);
+    QObject * const menuObject = delegate->property("menu").value<QObject *>();
+    QVERIFY(menuObject);
+    QCOMPARE(menuObject->property("count").toInt(), 2);
+    QQuickItem *item = nullptr;
+    QMetaObject::invokeMethod(menuObject, "itemAt", Q_RETURN_ARG(QQuickItem *, item),
+                              Q_ARG(int, 1));
+    QVERIFY(item);
+    QMetaObject::invokeMethod(item, "triggered");
+    QCOMPARE(picked.toString(), QString("DockerDevice"));
+    QCOMPARE(acted, 1);
+
+    // A button that only offers keeps its arrow to itself: there is nothing
+    // beside it, because the button *is* the menu.
+    Utils::AspectContainer menuOnlyPage;
+    Utils::ActionAspect menuOnly(&menuOnlyPage);
+    menuOnly.setActionText("Add");
+    menuOnly.setQmlName("AddKind");
+    // Given an action so that "clicking it does nothing" is a statement about
+    // the wiring rather than about there being nothing to run.
+    menuOnly.setAction([&acted] { ++acted; });
+    menuOnly.setChoices({{"GCC", {}, true, "Gcc"}});
+    const std::unique_ptr<QWidget> menuOnlyForm(QtcQuick::createGenericAspectForm(&menuOnlyPage));
+    auto menuOnlyQuick = menuOnlyForm->findChild<QQuickWidget *>();
+    QVERIFY(menuOnlyQuick);
+    QTRY_VERIFY(findButton(menuOnlyQuick->rootObject(), "Add"));
+    QQuickItem * const noArrow = findButton(menuOnlyQuick->rootObject(), arrowText);
+    QVERIFY(!noArrow || !noArrow->isVisible());
+
+    // And in widgets, where the split is an OptionPushButton: a plain
+    // setMenu() would have eaten the click there too.
+    Layouting::Column column{&add};
+    const std::unique_ptr<QWidget> widget(column.emerge());
+    QVERIFY(widget);
+    QAbstractButton *pushButton = nullptr;
+    for (QAbstractButton *candidate : widget->findChildren<QAbstractButton *>()) {
+        if (candidate->text() == "Add...")
+            pushButton = candidate;
+    }
+    QVERIFY(pushButton);
+    // An OptionPushButton, which pops its menu from the indicator only. A
+    // plain QPushButton with a menu drops it down on press instead, so the
+    // wizard would be unreachable.
+    QVERIFY(dynamic_cast<Utils::OptionPushButton *>(pushButton));
+    pushButton->click();
+    QCOMPARE(acted, 2);
+
+    QMenu * const menu = pushButton->findChild<QMenu *>();
+    QVERIFY(menu);
+    QCOMPARE(menu->actions().size(), 2);
+    picked = {};
+    menu->actions().at(0)->trigger();
+    QCOMPARE(picked.toString(), QString("DesktopDevice"));
+    QCOMPARE(acted, 2);
+
+    // The offer-only button is the other half of that: a plain QPushButton,
+    // and clicking it runs no action because it has none to run.
+    Layouting::Column menuOnlyColumn{&menuOnly};
+    const std::unique_ptr<QWidget> menuOnlyWidget(menuOnlyColumn.emerge());
+    QAbstractButton *menuOnlyPush = nullptr;
+    for (QAbstractButton *candidate : menuOnlyWidget->findChildren<QAbstractButton *>()) {
+        if (candidate->text() == "Add")
+            menuOnlyPush = candidate;
+    }
+    QVERIFY(menuOnlyPush);
+    QVERIFY(!dynamic_cast<Utils::OptionPushButton *>(menuOnlyPush));
+    menuOnlyPush->click();
+    QCOMPARE(acted, 2);
 }
 
 void QuickUiTest::testTextDisplayShowsItsMessage()

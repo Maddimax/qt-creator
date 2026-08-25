@@ -54,11 +54,25 @@ RowLayout {
         ToolTip.text: root.toolTip
         ToolTip.visible: hovered && root.toolTip !== ""
         onClicked: {
-            if (button.options.length === 0)
+            // A button that also acts keeps its click; one that only offers
+            // opens the menu instead.
+            if (button.options.length === 0 || (root.pres.actionIsDefault ?? false))
                 root.aspect?.triggerAction()
             else
                 menu.popup(button, 0, button.height)
         }
+    }
+
+    // The arrow beside a button that does something of its own: what it offers
+    // is a shortcut, not the only way in.
+    Button {
+        id: arrow
+
+        visible: button.options.length > 0 && (root.pres.actionIsDefault ?? false)
+        enabled: button.enabled
+        text: "\u25be"
+        Layout.preferredWidth: implicitHeight
+        onClicked: menu.popup(arrow, 0, arrow.height)
     }
 
     Menu {

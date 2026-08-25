@@ -1778,6 +1778,32 @@ exact fallback has made an assertion vacuous; it is worth remembering that
 "the form exists" and "the form is what the container asked for" are different
 claims.
 
+### A button that acts and offers at the same time
+
+The Devices page needs one control nothing before it did. Its **Add** runs the
+new-device wizard when clicked, and the arrow beside it is a shortcut straight
+to one kind. `ActionAspect` could describe an action *or* a menu, never both:
+`setChoices()` replaced the click rather than joining it, because the only
+caller so far - the Toolchains **Add** - is a menu and nothing else.
+
+`AspectPresentation::actionIsDefault` says which of the two a button is, and
+each renderer already had the right control to draw it. Widgets has
+`Utils::OptionPushButton`, which pops its menu from the indicator only; Quick
+gets a second `Button` beside the first, visible only when there are choices
+*and* the button acts.
+
+Two things worth writing down:
+
+- **`setOptionalMenu()` does set the button's `menu()`.** It differs from
+  `setMenu()` by disconnecting `pressed`, which is what stops the menu from
+  eating the click. An assertion that the split button has no `menu()` is
+  therefore false, and the first version of the test failed on it. What
+  separates the two in a way a test can see is the type, and whether
+  `clicked()` reaches the action at all.
+- **The offer-only button needs an action for the test to mean anything.**
+  Asserting that clicking it runs nothing is vacuous while it has nothing to
+  run. Give it one, then assert the count does not move.
+
 ### What the census could not see, and now can
 
 Two holes, both found the hard way in the same session.

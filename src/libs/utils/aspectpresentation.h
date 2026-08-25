@@ -270,6 +270,10 @@ public:
     // picture has an icon: the kit icon, which is also what its menu changes.
     QString actionText;
     QIcon actionIcon;
+    // Button. Whether the button does something of its own as well as offering
+    // the choices below: clicking it acts, and the arrow beside it opens the
+    // menu. Adding a device starts a wizard; the menu is the shortcut per kind.
+    bool actionIsDefault = false;
 
     QString prefix;
     QString suffix;

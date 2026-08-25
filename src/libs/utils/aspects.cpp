@@ -1057,6 +1057,7 @@ public:
     std::function<void()> m_onShown;
     QList<AspectPresentation::Choice> m_choices;
     std::function<void(const QVariant &)> m_onChoice;
+    bool m_actionIsDefault = false;
     std::function<QString()> m_summaryProvider;
     QString m_summary;
     QIcon m_actionIcon;
@@ -3512,6 +3513,12 @@ void ActionAspect::setChoices(const QList<AspectPresentation::Choice> &choices)
     emit controlConfigurationChanged();
 }
 
+void ActionAspect::setActionIsDefault(bool on)
+{
+    d->m_actionIsDefault = on;
+    emit controlConfigurationChanged();
+}
+
 void ActionAspect::setOnChoice(const std::function<void(const QVariant &)> &onChoice)
 {
     d->m_onChoice = onChoice;
@@ -3571,6 +3578,7 @@ AspectPresentation ActionAspect::presentation() const
                                      : AspectControls::Button;
     p.actionText = d->m_actionText;
     p.actionIcon = d->m_actionIcon;
+    p.actionIsDefault = d->m_actionIsDefault;
     p.choices = d->m_choices;
     return p;
 }

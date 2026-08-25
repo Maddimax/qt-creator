@@ -1410,6 +1410,9 @@ public:
     // it hands back by id. An empty list is a plain button. Adding toolchains
     // is the case - one entry per kind that can be created.
     void setChoices(const QList<AspectPresentation::Choice> &choices);
+    // Whether the button still does its own action when clicked, with the
+    // choices behind an arrow beside it, rather than the menu replacing it.
+    void setActionIsDefault(bool on);
     void setOnChoice(const std::function<void(const QVariant &)> &onChoice);
     Q_INVOKABLE void triggerChoice(const QVariant &id);
     // Called when the action is first drawn, for one whose label reports state

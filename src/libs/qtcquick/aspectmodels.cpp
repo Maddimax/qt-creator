@@ -166,6 +166,7 @@ QVariantMap AspectModels::presentation(BaseAspect *aspect)
         {"withResetButton", p.withResetButton},
         {"actionText", p.actionText},
         {"actionIcon", p.actionIcon.isNull() ? QString() : iconUrl(p.actionIcon)},
+        {"actionIsDefault", p.actionIsDefault},
         // A password shares the String kind, and so the delegate, with an
         // ordinary line edit: it differs only in not echoing what it holds.
         {"password", p.control == AspectControls::PasswordLineEdit},

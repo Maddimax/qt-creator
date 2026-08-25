@@ -21,6 +21,7 @@
 #include "qtcolorbutton.h"
 #include "stylehelper.h"
 #include "utilstr.h"
+#include "widgets.h"
 
 #include <QButtonGroup>
 #include <QCheckBox>
@@ -332,17 +333,22 @@ private:
 
     static void renderButton(BaseAspect *aspect, Layout &parent, const AspectPresentation &pres)
     {
-        auto button = AspectWidgets::createSubWidget<QPushButton>(aspect);
+        // An OptionPushButton where the button both acts and offers: it keeps
+        // its own click and shows the menu only from the arrow.
+        QPushButton *button = pres.actionIsDefault
+            ? AspectWidgets::createSubWidget<OptionPushButton>(aspect)
+            : AspectWidgets::createSubWidget<QPushButton>(aspect);
         button->setText(pres.actionText);
         button->setIcon(pres.actionIcon);
         button->setToolTip(pres.toolTip);
         button->setEnabled(pres.enabled);
         button->setVisible(pres.visible);
-        if (pres.choices.isEmpty()) {
+        if (pres.choices.isEmpty() || pres.actionIsDefault) {
             QObject::connect(button, &QAbstractButton::clicked, aspect, [aspect] {
                 aspect->triggerAction();
             });
-        } else {
+        }
+        if (!pres.choices.isEmpty()) {
             // A button that offers rather than does: one entry per choice, each
             // handed back by id.
             auto menu = new QMenu(button);
@@ -354,7 +360,12 @@ private:
                     static_cast<ActionAspect *>(aspect)->triggerChoice(id);
                 });
             }
-            button->setMenu(menu);
+            // A button that also acts keeps its click and puts the menu
+            // behind the arrow; one that only offers is the menu.
+            if (pres.actionIsDefault)
+                static_cast<OptionPushButton *>(button)->setOptionalMenu(menu);
+            else
+                button->setMenu(menu);
             if (HostOsInfo::isMacHost())
                 button->setStyleSheet("text-align:center;");
         }
