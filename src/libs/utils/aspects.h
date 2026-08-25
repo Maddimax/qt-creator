@@ -1467,6 +1467,9 @@ public:
     void addToLayoutImpl(Layouting::Layout &parent) override;
 
     void registerAspect(BaseAspect *aspect, bool takeOwnership = false);
+    // Same, but at a chosen place in the order the aspects are drawn in. For a
+    // row that shows a control belonging to another aspect before its own.
+    void insertAspect(int index, BaseAspect *aspect, bool takeOwnership = false);
     void registerAspects(const AspectContainer &aspects);
 
     void fromMap(const Utils::Store &map) override;

@@ -3714,10 +3714,15 @@ void AspectContainer::addToLayoutImpl(Layouting::Layout &parent)
 */
 void AspectContainer::registerAspect(BaseAspect *aspect, bool takeOwnership)
 {
+    insertAspect(int(d->m_items.size()), aspect, takeOwnership);
+}
+
+void AspectContainer::insertAspect(int index, BaseAspect *aspect, bool takeOwnership)
+{
     aspect->setContainer(this);
     aspect->setAutoApply(isAutoApply());
     aspect->setEnabled(aspect->isEnabled() && isEnabled());
-    d->m_items.append(aspect);
+    d->m_items.insert(qBound(0, index, int(d->m_items.size())), aspect);
     if (takeOwnership)
         d->m_ownedItems.append(aspect);
 
