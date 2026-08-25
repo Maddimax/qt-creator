@@ -234,7 +234,10 @@ public:
     void addMutableAction(QWidget *child);
     void setManagingPage(Utils::Id pageId);
 
-    void setAspectsToEmbed(const QList<KitAspect *> &aspects);
+    // Which other kit aspects this one shows inside its own row - a Qt shows
+    // the mkspec, a device shows its type. The embedded aspect is not a row of
+    // its own; its controls become part of this one.
+    virtual void setAspectsToEmbed(const QList<KitAspect *> &aspects);
     QList<KitAspect *> aspectsToEmbed() const;
 
     void makeStickySubWidgetsReadOnly();
@@ -248,6 +251,14 @@ public:
     // where there is no such page. Not a control of the setting itself, so a
     // view that lays the row out itself puts it at the end.
     Utils::ActionAspect *manageButton() const;
+    // What this row draws: everything it holds except the "Manage..." button,
+    // which is not a control of the setting. Includes the controls of any
+    // aspect embedded in this one.
+    QList<Utils::BaseAspect *> controls() const;
+    // Where an embedded aspect's controls go among this row's own. -1 puts
+    // them at the end; a device shows the type before the device it narrows
+    // down.
+    virtual int embedIndex() const { return -1; }
 
     virtual void addToInnerLayout(Layouting::Layout &layout);
 
@@ -268,6 +279,7 @@ protected:
     virtual Utils::Id settingsPageItemToPreselect() const { return {}; }
 
     void addLabelToLayout(Layouting::Layout &layout);
+    void addControlsToLayout(Layouting::Layout &layout);
     void addListAspectsToLayout(Layouting::Layout &layout);
     void addManageButtonToLayout(Layouting::Layout &layout);
 

@@ -109,17 +109,17 @@ public:
     }
 
 private:
-    void addToInnerLayout(Layouting::Layout &layout) override
+    // The mkspec goes after the Qt version it belongs to, which is where
+    // embedded controls land anyway; it only has to say what it is.
+    void setAspectsToEmbed(const QList<KitAspect *> &aspects) override
     {
-        if (const QList<KitAspect *> embedded = aspectsToEmbed(); !embedded.isEmpty()) {
-            Layouting::Layout box(new QHBoxLayout);
-            KitAspect::addToInnerLayout(box);
-            box.addItem(Utils::AspectWidgets::createSubWidget<QLabel>(this, Tr::tr("Mkspec:")));
-            embedded.first()->addToInnerLayout(box);
-            layout.addItem(box);
-        } else {
-            KitAspect::addToInnerLayout(layout);
+        for (KitAspect * const aspect : aspects) {
+            for (Utils::BaseAspect * const control : aspect->aspects()) {
+                if (control != aspect->manageButton())
+                    control->setLabelText(Tr::tr("Mkspec:"));
+            }
         }
+        KitAspect::setAspectsToEmbed(aspects);
     }
 };
 } // namespace Internal

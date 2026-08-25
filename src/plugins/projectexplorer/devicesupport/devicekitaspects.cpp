@@ -96,19 +96,20 @@ public:
 private:
     Id settingsPageItemToPreselect() const override { return DeviceAspect::deviceId(kit()); }
 
-    void addToInnerLayout(Layouting::Layout &layout) override
+    // The type comes before the device it narrows down, so the embedded
+    // controls go at the front rather than at the end.
+    void setAspectsToEmbed(const QList<KitAspect *> &aspects) override
     {
-        if (const QList<KitAspect *> embedded = aspectsToEmbed(); !embedded.isEmpty()) {
-            Layouting::Layout box(new QHBoxLayout);
-            box.addItem(Utils::AspectWidgets::createSubWidget<QLabel>(this, Tr::tr("Type:")));
-            embedded.first()->addToInnerLayout(box);
-            box.addItem(Utils::AspectWidgets::createSubWidget<QLabel>(this, Tr::tr("Device:")));
-            KitAspect::addToInnerLayout(box);
-            layout.addItem(box);
-        } else {
-            KitAspect::addToInnerLayout(layout);
+        for (KitAspect * const aspect : aspects) {
+            for (Utils::SelectionAspect * const list : aspect->listAspects())
+                list->setLabelText(Tr::tr("Type:"));
         }
+        for (Utils::SelectionAspect * const list : listAspects())
+            list->setLabelText(Tr::tr("Device:"));
+        KitAspect::setAspectsToEmbed(aspects);
     }
+
+    int embedIndex() const override { return 0; }
 
     DeviceManagerModel m_model;
 };

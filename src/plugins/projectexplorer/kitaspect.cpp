@@ -312,6 +312,32 @@ void KitAspect::addToInnerLayout(Layouting::Layout &layout)
     addListAspectsToLayout(layout);
 }
 
+void KitAspect::addControlsToLayout(Layouting::Layout &layout)
+{
+    const QList<BaseAspect *> cs = controls();
+    if (cs.size() < 2) {
+        for (BaseAspect * const control : cs)
+            layout.addItem(control);
+        return;
+    }
+    // Several controls are one cell between the row's label and its Manage
+    // button, not several: the detail form is a grid, and a row with more
+    // columns than the rest would widen every other row's field column.
+    Layouting::Row row{Layouting::noMargin};
+    for (BaseAspect * const control : cs)
+        row.addItem(control);
+    row.addItem(Layouting::st);
+    layout.addItem(row);
+}
+
+// Everything the row holds except the button that manages what it offers,
+// which goes at the end. Embedded controls are in here too: a device row draws
+// its type's control as well as its own.
+QList<BaseAspect *> KitAspect::controls() const
+{
+    return Utils::filtered(aspects(), [this](BaseAspect *a) { return a != d->manageButton; });
+}
+
 void KitAspect::addListAspectSpec(const ListAspectSpec &listAspectSpec)
 {
     const auto selection = addControl<SelectionAspect>();
@@ -358,8 +384,7 @@ void KitAspect::addLabelToLayout(Layouting::Layout &layout)
 
 void KitAspect::addListAspectsToLayout(Layouting::Layout &layout)
 {
-    for (const Private::ListAspect &la : std::as_const(d->listAspects))
-        layout.addItem(la.selection);
+    addControlsToLayout(layout);
 }
 
 void KitAspect::addManageButtonToLayout(Layouting::Layout &layout)
@@ -423,6 +448,13 @@ void KitAspect::setManagingPage(Id pageId)
 void KitAspect::setAspectsToEmbed(const QList<KitAspect *> &aspects)
 {
     d->aspectsToEmbed = aspects;
+    // The embedded aspect is not a row of its own: what it holds becomes part
+    // of this row, so that whatever draws this row draws all of it.
+    for (KitAspect * const aspect : aspects) {
+        int index = embedIndex() < 0 ? int(this->aspects().size()) : embedIndex();
+        for (BaseAspect * const control : aspect->controls())
+            insertAspect(index++, control);
+    }
 }
 
 QList<KitAspect *> KitAspect::aspectsToEmbed() const
@@ -790,6 +822,80 @@ private slots:
         QCOMPARE(kit->isMutable(id), was);
     }
 
+    void testAnEmbeddedAspectBecomesPartOfTheRowThatShowsIt()
+    {
+        // A device row shows the type before the device it narrows down, and a
+        // Qt row shows the mkspec after the version. Those were widgets one
+        // aspect reached into another to build; the row holds them now, so
+        // whatever draws the row draws all of it.
+        Kit * const kit = anyKit();
+        if (!kit)
+            QSKIP("No kits are configured here");
+
+        QHash<Utils::Id, KitAspect *> byId;
+        QList<std::shared_ptr<KitAspect>> owned;
+        for (KitAspectFactory * const factory : KitManager::kitAspectFactories()) {
+            if (KitAspect * const aspect = factory->createKitAspect(kit)) {
+                owned.append(std::shared_ptr<KitAspect>(aspect));
+                byId.insert(factory->id(), aspect);
+            }
+        }
+
+        int checked = 0;
+        int devicesChecked = 0;
+        for (const std::shared_ptr<KitAspect> &aspect : owned) {
+            const QList<Utils::Id> embeddableIds = aspect->factory()->embeddableAspects();
+            if (embeddableIds.isEmpty())
+                continue;
+            QList<KitAspect *> embeddables;
+            for (const Utils::Id &id : embeddableIds) {
+                if (KitAspect * const embeddable = byId.value(id))
+                    embeddables << embeddable;
+            }
+            if (embeddables.isEmpty())
+                continue;
+
+            const QList<Utils::BaseAspect *> before = aspect->controls();
+            const QList<Utils::BaseAspect *> embedded = embeddables.first()->controls();
+            QVERIFY(!embedded.isEmpty());
+            aspect->setAspectsToEmbed(embeddables);
+
+            const QList<Utils::BaseAspect *> after = aspect->controls();
+            QCOMPARE(after.size(), before.size() + embedded.size());
+            for (Utils::BaseAspect * const control : embedded) {
+                QVERIFY2(after.contains(control),
+                         qPrintable(aspect->factory()->displayName()
+                                    + " does not hold what it embeds"));
+                // And it says what it is, or the row reads as two nameless
+                // controls side by side.
+                QVERIFY2(!control->labelText().isEmpty(),
+                         qPrintable(aspect->factory()->displayName()
+                                    + " embeds a control with no label"));
+            }
+            // Where they go is the row's to say - a device shows the type
+            // first, a Qt shows the mkspec last - but they go together, and at
+            // one end or the other rather than interleaved with the row's own.
+            // They go together rather than interleaved with the row's own.
+            const int firstEmbedded = after.indexOf(embedded.first());
+            QVERIFY2(firstEmbedded == 0 || firstEmbedded == before.size(),
+                     qPrintable(aspect->factory()->displayName()
+                                + " puts what it embeds in the middle of its own"));
+
+            // And a device shows the type before the device it narrows down,
+            // which is a decision about that row rather than about embedding.
+            if (aspect->factory()->id() == BuildDeviceKitAspect::id()
+                || aspect->factory()->id() == RunDeviceKitAspect::id()) {
+                QCOMPARE(firstEmbedded, 0);
+                ++devicesChecked;
+            }
+            for (int i = 0; i < embedded.size(); ++i)
+                QCOMPARE(after.at(firstEmbedded + i), embedded.at(i));
+            ++checked;
+        }
+        QVERIFY2(checked > 0, "No kit aspect embeds another one");
+        QVERIFY2(devicesChecked > 0, "No device row was checked");
+    }
+
     void testEveryKitAspectAsksForAControlARendererKnows()
     {
         // A Qt Quick Kits page can host no QWidget, so every kit aspect has to
@@ -813,15 +919,7 @@ private slots:
             QVERIFY2(row.inlineRow, qPrintable(factory->displayName()));
             QVERIFY2(!row.labelText.isEmpty(), qPrintable(factory->displayName()));
 
-            // The "Manage..." button is not a control of the setting; a kind
-            // whose only aspect is that one has nothing of its own to draw
-            // with. Told apart by identity rather than by which control it
-            // asks for: a kind whose own controls are buttons - Environment
-            // opens two dialogs - is not one of those.
-            const QList<Utils::BaseAspect *> controls = Utils::filtered(
-                aspect->aspects(), [manage = aspect->manageButton()](Utils::BaseAspect *a) {
-                    return a != manage;
-                });
+            const QList<Utils::BaseAspect *> controls = aspect->controls();
             if (controls.isEmpty()) {
                 nothingToDrawWith << factory->displayName();
                 continue;
@@ -857,10 +955,8 @@ private slots:
                 continue;
             // A kind with nothing to ask draws nothing. MCU dependencies is
             // the one.
-            if (Utils::allOf(aspect->aspects(), [manage = aspect->manageButton()](
-                                                    Utils::BaseAspect *a) { return a == manage; })) {
+            if (aspect->controls().isEmpty())
                 continue;
-            }
 
             Layouting::Grid grid{Layouting::noMargin};
             aspect->addToLayout(grid);
