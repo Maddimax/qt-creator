@@ -21,6 +21,20 @@ add_qtc_plugin(Axivion
     singlefileanalysis.cpp singlefileanalysis.h
 )
 
+# Settings pages' Qt Quick forms. A module rather than a plain resource so that
+# qmllint and qmlcachegen see the files; qbs cannot build QML modules, so it
+# only lists them - the same split qtcquick already lives with.
+if(TARGET Axivion AND TARGET Qt::Quick)
+  qt_add_qml_module(Axivion
+    URI QtCreator.Axivion
+    VERSION 1.0
+    RESOURCE_PREFIX "/qt/qml"
+    NO_PLUGIN
+    QML_FILES
+      AxivionSettingsPage.qml
+  )
+endif()
+
 file(GLOB_RECURSE images RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} images/*)
 qtc_add_resources(Axivion "images"
   PREFIX "/axivion"

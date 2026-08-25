@@ -20,13 +20,14 @@
 #include <utils/fileutils.h>
 #include <utils/guiutils.h>
 #include <utils/id.h>
+#include <utils/aspectlist.h>
 #include <utils/layoutbuilder.h>
+#include <utils/shutdownguard.h>
 #include <utils/pathchooser.h>
 #include <utils/qtcprocess.h>
 #include <utils/stringutils.h>
 #include <utils/utilsicons.h>
 
-#include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QJsonArray>
@@ -36,7 +37,6 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QRegularExpression>
-#include <QTreeWidget>
 #include <QVBoxLayout>
 
 using namespace Core;
@@ -657,213 +657,145 @@ private:
     FilePathAspect m_localPath{this};
 };
 
-class AxivionSettingsWidget final : public IOptionsPageWidget
+// What the settings page edits. The dashboard servers and the path mappings
+// are lists the page keeps until Apply, which is where they are handed to the
+// settings; the settings themselves are shown as they are, through the
+// container the page holds rather than owns.
+class AxivionSettingsAspects final : public AspectContainer
 {
 public:
-    AxivionSettingsWidget();
+    AxivionSettingsAspects();
 
-    void apply() final;
-    void cancel() final;
+    void apply() override;
+    void cancel() override;
 
 private:
+    void refreshServers();
+    void setServerOptions();
     void showServerDialog(bool add);
-    void removeCurrentServerConfig();
-    void updateDashboardServers();
-    void updateEnabledStates();
-    void addMapping();
-    void deleteMapping();
-    void mappingChanged();
-    void currentChanged(const QModelIndex &index, const QModelIndex &previous);
-    void moveCurrentMapping(bool up);
-    void updateVersionAndBuildDate(QLabel *version, QLabel *buildDate);
+    void removeCurrentServer();
+    void loadMappings();
+    void updateVersionInfo();
+    PathMappingDetails *currentMapping() const;
 
-    QComboBox *m_dashboardServers = nullptr;
-    QPushButton *m_editServerButton = nullptr;
-    QPushButton *m_removeServerButton = nullptr;
-    QTreeWidget m_mappingTree;
-    PathMappingDetails m_details;
-    QWidget *m_detailsWidget = nullptr;
-    QPushButton *m_deleteMappingButton = nullptr;
-    QPushButton *m_moveUpMappingButton = nullptr;
-    QPushButton *m_moveDownMappingButton = nullptr;
+    // The servers as the page has them, which is what Apply writes.
+    QList<AxivionServer> m_servers;
+
+    ContainerAspect m_suite{this};
+    SelectionAspect m_server{this};
+    ActionAspect m_addServer{this};
+    ActionAspect m_editServer{this};
+    ActionAspect m_removeServer{this};
+    AspectList m_mappings{this};
+    TextDisplay m_version{this};
+    TextDisplay m_buildDate{this};
+    TextDisplay m_supportNote{this};
 };
 
-AxivionSettingsWidget::AxivionSettingsWidget()
+AxivionSettingsAspects::AxivionSettingsAspects()
 {
-    using namespace Layouting;
+    setAutoApply(false);
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Axivion/AxivionSettingsPage.qml"));
 
-    m_dashboardServers = new QComboBox(this);
-    m_dashboardServers->setSizeAdjustPolicy(QComboBox::AdjustToContents);
-    updateDashboardServers();
+    // The settings themselves are the plugin's own object, shown here rather
+    // than copied: naming them as sub-aspects would re-home them, and an
+    // aspect's container is what its settings key is resolved against.
+    m_suite.setQmlName("Suite");
+    m_suite.setContainer(&settings());
 
-    auto addServerButton = new QPushButton(Tr::tr("Add..."), this);
-    m_editServerButton = new QPushButton(Tr::tr("Edit..."), this);
-    m_removeServerButton = new QPushButton(Tr::tr("Remove"), this);
+    m_server.setQmlName("Server");
+    m_server.setLabelText(Tr::tr("Default dashboard server:"));
+    m_server.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
 
-    m_detailsWidget = new QWidget(this);
-    Utils::AspectWidgets::layouter(&m_details)().attachTo(m_detailsWidget);
-
-    m_mappingTree.setSelectionMode(QAbstractItemView::SingleSelection);
-    m_mappingTree.setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_mappingTree.setHeaderLabels({Tr::tr("Project Name"), Tr::tr("Analysis Path"),
-                                   Tr::tr("Local Path")});
-
-    auto addMappingButton = new QPushButton(Tr::tr("Add"), this);
-    m_deleteMappingButton = new QPushButton(Tr::tr("Delete"), this);
-    m_moveUpMappingButton = new QPushButton(Tr::tr("Move Up"), this);
-    m_moveDownMappingButton = new QPushButton(Tr::tr("Move Down"), this);
-
-    auto version = new QLabel(this);
-    auto build = new QLabel(this);
-
-    Column buttons { addMappingButton, m_deleteMappingButton, empty, m_moveUpMappingButton, m_moveDownMappingButton, st };
-
-    Column {
-        Layouting::Group {
-            title(Tr::tr("Dashboard Servers")),
-            Row {
-                Form { Tr::tr("Default dashboard server:"), m_dashboardServers, br },
-                st,
-                Column { addServerButton, m_editServerButton, m_removeServerButton },
-            },
-        },
-        Layouting::Group {
-            title(Tr::tr("Path Mapping")),
-            Column {
-                Row { &m_mappingTree, buttons },
-                m_detailsWidget
-            }
-        },
-        Layouting::Group {
-            title(Tr::tr("Local Analyses")),
-            Column {
-                Row { settings().axivionSuitePath },
-                Row { settings().saveOpenFiles },
-                Form {
-                    Tr::tr("Version:"), version, br,
-                    Tr::tr("Build date:"), build, br,
-                },
-                Row { Tr::tr("Contact support@axivion.com if you need assistance.") },
-                Space(20),
-                Form {
-                    settings().bauhausPython, br,
-                    settings().javaHome, br
-                },
-            }
-        },
-        Layouting::Group {
-            title(Tr::tr("Misc Options")),
-            Row {settings().highlightMarks },
-        },
-        st
-    }.attachTo(this);
-
-    connect(addServerButton, &QPushButton::clicked, this, [this] {
-        // add an empty item unconditionally, default to anon_auth
-        const auto serverVariant = QVariant::fromValue(AxivionServer{{}, {}, "anon_auth", true});
-        m_dashboardServers->addItem(Tr::tr("unset"), serverVariant);
-        m_dashboardServers->setCurrentIndex(m_dashboardServers->count() - 1);
+    m_addServer.setQmlName("AddServer");
+    m_addServer.setActionText(Tr::tr("Add..."));
+    m_addServer.setAction([this] {
+        // An empty item, defaulting to anonymous authentication, so that the
+        // dialog has something to edit and Cancel has something to take away.
+        m_servers.append(AxivionServer{{}, {}, "anon_auth", true});
+        m_server.setValue(int(m_servers.size()) - 1);
         showServerDialog(true);
     });
-    connect(m_editServerButton, &QPushButton::clicked, this, [this] { showServerDialog(false); });
-    connect(m_removeServerButton, &QPushButton::clicked,
-            this, &AxivionSettingsWidget::removeCurrentServerConfig);
 
+    m_editServer.setQmlName("EditServer");
+    m_editServer.setActionText(Tr::tr("Edit..."));
+    m_editServer.setAction([this] { showServerDialog(false); });
+
+    m_removeServer.setQmlName("RemoveServer");
+    m_removeServer.setActionText(Tr::tr("Remove"));
+    m_removeServer.setAction([this] { removeCurrentServer(); });
+
+    m_mappings.setQmlName("Mappings");
+    m_mappings.setDisplayStyle(AspectList::DisplayStyle::ListViewWithDetails);
+    // A file is looked up in the mappings in order, so the order is the user's.
+    m_mappings.setOrdered(true);
+    m_mappings.setCreateItemFunction([] { return std::make_shared<PathMappingDetails>(); });
+    m_mappings.listViewDataCallback = [](PathMappingDetails *item, int role) -> QVariant {
+        const PathMapping mapping = item->toPathMapping();
+        if (role == Qt::DisplayRole) {
+            return QString("%1: %2 \342\206\222 %3").arg(mapping.projectName,
+                                                         mapping.analysisPath.path(),
+                                                         mapping.localPath.toUserOutput());
+        }
+        // A mapping that would map nothing says so on its row, as the tree did.
+        if (role == Qt::DecorationRole && !mapping.isValid())
+            return Icons::CRITICAL.icon();
+        return {};
+    };
+
+    m_version.setQmlName("Version");
+    m_version.setLabelText(Tr::tr("Version:"));
+
+    m_buildDate.setQmlName("BuildDate");
+    m_buildDate.setLabelText(Tr::tr("Build date:"));
+
+    m_supportNote.setQmlName("Support");
+    m_supportNote.setText(Tr::tr("Contact support@axivion.com if you need assistance."));
+
+    // Behaviour, not layout.
     connect(&settings().axivionSuitePath, &BaseAspect::changed,
             &settings(), &AxivionSettings::validatePath);
-    connect(&settings(), &AxivionSettings::suitePathValidated, this,
-            [this, version, build] { updateVersionAndBuildDate(version, build); });
-    const QList<QTreeWidgetItem *> items = Utils::transform(pathMappingSettings().validPathMappings(),
-                                                            [this](const PathMapping &m) {
-        QTreeWidgetItem *item = new QTreeWidgetItem(&m_mappingTree,
-                                                    {m.projectName,
-                                                     m.analysisPath.path(),
-                                                     m.localPath.toUserOutput()});
-        if (!m.isValid())
-            item->setIcon(0, Icons::CRITICAL.icon());
-        return item;
+    connect(&settings(), &AxivionSettings::suitePathValidated,
+            this, [this] { updateVersionInfo(); });
+    connect(&m_server, &BaseAspect::volatileValueChanged, this, [this] {
+        const bool any = !m_servers.isEmpty();
+        m_editServer.setEnabled(any);
+        m_removeServer.setEnabled(any);
     });
-    m_mappingTree.addTopLevelItems(items);
 
-    m_deleteMappingButton->setEnabled(false);
-    m_moveUpMappingButton->setEnabled(false);
-    m_moveDownMappingButton->setEnabled(false);
-
-    m_detailsWidget->setVisible(false);
-
-    connect(addMappingButton, &QPushButton::clicked, this, &AxivionSettingsWidget::addMapping);
-    connect(m_deleteMappingButton, &QPushButton::clicked, this, &AxivionSettingsWidget::deleteMapping);
-    connect(m_moveUpMappingButton, &QPushButton::clicked, this, [this]{ moveCurrentMapping(true); });
-    connect(m_moveDownMappingButton, &QPushButton::clicked, this, [this]{ moveCurrentMapping(false); });
-    connect(m_mappingTree.selectionModel(), &QItemSelectionModel::currentChanged,
-            this, &AxivionSettingsWidget::currentChanged);
-    connect(&m_details, &AspectContainer::changed, this,
-            &AxivionSettingsWidget::mappingChanged);
-
-    updateEnabledStates();
+    refreshServers();
+    loadMappings();
+    updateVersionInfo();
     settings().validatePath();
 }
 
-void AxivionSettingsWidget::apply()
+void AxivionSettingsAspects::setServerOptions()
 {
-    QList<AxivionServer> servers;
-    for (int i = 0, end = m_dashboardServers->count(); i < end; ++i)
-        servers.append(m_dashboardServers->itemData(i).value<AxivionServer>());
-    const Id selected = servers.isEmpty() ? Id{}
-                                          : servers.at(m_dashboardServers->currentIndex()).id;
-    const bool dirty = settings().isDirty();
-    const bool dashboardServersChanged = settings().updateDashboardServers(servers, selected);
-    settings().apply();
-    if (dirty || dashboardServersChanged)
-        settings().toSettings();
-
-    const QList<PathMapping> oldMappings = settings().validPathMappings();
-    QList<PathMapping> newMappings;
-    for (int row = 0, count = m_mappingTree.topLevelItemCount(); row < count; ++row) {
-        const QTreeWidgetItem * const item = m_mappingTree.topLevelItem(row);
-        newMappings.append({item->text(0),
-                            FilePath::fromUserInput(item->text(1)),
-                            FilePath::fromUserInput(item->text(2))});
-    }
-    if (oldMappings != newMappings) {
-        pathMappingSettings().setVariantValue(pathMappingsToSetting(newMappings));
-        pathMappingSettings().writeSettings();
-    }
-
-    IOptionsPageWidget::apply();
+    m_server.clearOptions();
+    for (const AxivionServer &server : std::as_const(m_servers))
+        m_server.addOption(server.displayString());
 }
 
-void AxivionSettingsWidget::cancel()
+void AxivionSettingsAspects::refreshServers()
 {
-    settings().cancel();
-    pathMappingSettings().cancel();
-    IOptionsPageWidget::cancel();
+    m_servers = settings().allAvailableServers();
+    setServerOptions();
+    const int index = Utils::indexOf(m_servers,
+                                     [id = settings().defaultDashboardId()](const AxivionServer &s) {
+                                         return id == s.id;
+                                     });
+    m_server.setValue(m_servers.isEmpty() ? -1 : qMax(0, index));
+
+    const bool any = !m_servers.isEmpty();
+    m_editServer.setEnabled(any);
+    m_removeServer.setEnabled(any);
 }
 
-void AxivionSettingsWidget::updateDashboardServers()
+void AxivionSettingsAspects::removeCurrentServer()
 {
-    m_dashboardServers->clear();
-    const QList<AxivionServer> servers = settings().allAvailableServers();
-    for (const AxivionServer &server : servers)
-        m_dashboardServers->addItem(server.displayString(), QVariant::fromValue(server));
-    int index = Utils::indexOf(servers,
-                               [id = settings().defaultDashboardId()](const AxivionServer &s) {
-        return id == s.id;
-    });
-    if (index != -1)
-        m_dashboardServers->setCurrentIndex(index);
-}
-
-void AxivionSettingsWidget::updateEnabledStates()
-{
-    const bool enabled = m_dashboardServers->count();
-    m_editServerButton->setEnabled(enabled);
-    m_removeServerButton->setEnabled(enabled);
-}
-
-void AxivionSettingsWidget::removeCurrentServerConfig()
-{
-    const QString config = m_dashboardServers->currentData().value<AxivionServer>().displayString();
+    const int row = m_server.volatileValue();
+    QTC_ASSERT(row >= 0 && row < m_servers.size(), return);
+    const QString config = m_servers.at(row).displayString();
     if (QMessageBox::question(
             ICore::dialogParent(),
             Tr::tr("Remove Server Configuration"),
@@ -871,20 +803,24 @@ void AxivionSettingsWidget::removeCurrentServerConfig()
         != QMessageBox::Yes) {
         return;
     }
-    m_dashboardServers->removeItem(m_dashboardServers->currentIndex());
+    m_servers.removeAt(row);
+    setServerOptions();
+    m_server.setValue(m_servers.isEmpty() ? -1 : qMin(row, int(m_servers.size()) - 1));
     markSettingsDirty();
-    updateEnabledStates();
 }
 
-void AxivionSettingsWidget::showServerDialog(bool add)
+void AxivionSettingsAspects::showServerDialog(bool add)
 {
-    const AxivionServer old = m_dashboardServers->currentData().value<AxivionServer>();
-    QDialog dialog;
+    const int row = m_server.volatileValue();
+    QTC_ASSERT(row >= 0 && row < m_servers.size(), return);
+    const AxivionServer old = m_servers.at(row);
+
+    QDialog dialog(ICore::dialogParent());
     dialog.setWindowTitle(add ? Tr::tr("Add Dashboard Configuration")
-                         : Tr::tr("Edit Dashboard Configuration"));
-    auto buttons = new QDialogButtonBox(QDialogButtonBox::Cancel | QDialogButtonBox::Ok, this);
+                              : Tr::tr("Edit Dashboard Configuration"));
+    auto buttons = new QDialogButtonBox(QDialogButtonBox::Cancel | QDialogButtonBox::Ok, &dialog);
     auto ok = buttons->button(QDialogButtonBox::Ok);
-    auto dashboardWidget = new DashboardSettingsWidget(this, ok);
+    auto dashboardWidget = new DashboardSettingsWidget(&dialog, ok);
     dashboardWidget->setDashboardServer(old);
     ok->setEnabled(dashboardWidget->isValid());
     connect(buttons->button(QDialogButtonBox::Cancel), &QPushButton::clicked,
@@ -899,93 +835,75 @@ void AxivionSettingsWidget::showServerDialog(bool add)
 
     if (dialog.exec() != QDialog::Accepted) {
         if (add) { // if we canceled an add, remove the canceled item
-            m_dashboardServers->removeItem(m_dashboardServers->currentIndex());
-            updateEnabledStates();
+            m_servers.removeAt(row);
+            refreshServers();
         }
         return;
     }
     if (dashboardWidget->isValid()) {
         const AxivionServer server = dashboardWidget->dashboardServer();
         if (server != old) {
-            m_dashboardServers->setItemData(m_dashboardServers->currentIndex(),
-                                            QVariant::fromValue(server));
-            m_dashboardServers->setItemData(m_dashboardServers->currentIndex(),
-                                            server.displayString(), Qt::DisplayRole);
+            m_servers[row] = server;
+            setServerOptions();
+            m_server.setValue(row);
             markSettingsDirty();
         }
     }
-    updateEnabledStates();
 }
 
-void AxivionSettingsWidget::addMapping()
+void AxivionSettingsAspects::loadMappings()
 {
-    QTreeWidgetItem *item = new QTreeWidgetItem(&m_mappingTree, {"", "", ""});
-    m_mappingTree.setCurrentItem(item);
-    item->setIcon(0, Icons::CRITICAL.icon());
-}
-
-void AxivionSettingsWidget::deleteMapping()
-{
-    QTreeWidgetItem *item = m_mappingTree.currentItem();
-    QTC_ASSERT(item, return);
-    const QModelIndex index = m_mappingTree.indexFromItem(item);
-    if (!index.isValid())
-        return;
-    m_mappingTree.model()->removeRow(index.row());
-    markSettingsDirty();
-}
-
-void AxivionSettingsWidget::mappingChanged()
-{
-    QTreeWidgetItem *item = m_mappingTree.currentItem();
-    QTC_ASSERT(item, return);
-    PathMapping modified = m_details.toPathMapping();
-    item->setText(0, modified.projectName);
-    item->setText(1, modified.analysisPath.path());
-    item->setText(2, modified.localPath.toUserOutput());
-    item->setIcon(0, modified.isValid() ? QIcon{} : Icons::CRITICAL.icon());
-}
-
-void AxivionSettingsWidget::currentChanged(const QModelIndex &index,
-                                               const QModelIndex &/*previous*/)
-{
-    const bool indexValid = index.isValid();
-    const int row = index.row();
-    m_deleteMappingButton->setEnabled(indexValid);
-    m_moveUpMappingButton->setEnabled(indexValid && row > 0);
-    m_moveDownMappingButton->setEnabled(indexValid && row < m_mappingTree.topLevelItemCount() - 1);
-    m_detailsWidget->setVisible(indexValid);
-    if (indexValid) {
-        const QTreeWidgetItem * const item = m_mappingTree.itemFromIndex(index);
-        m_details.updateContent({item->text(0),
-                                 FilePath::fromUserInput(item->text(1)),
-                                 FilePath::fromUserInput(item->text(2))});
+    m_mappings.clear();
+    for (const PathMapping &mapping : settings().validPathMappings()) {
+        auto item = std::make_shared<PathMappingDetails>();
+        item->updateContent(mapping);
+        m_mappings.addItem(item);
     }
+    // What was loaded is what Cancel goes back to; an AspectList keeps the
+    // items that were added apart from the ones that were applied.
+    m_mappings.apply();
 }
 
-void AxivionSettingsWidget::moveCurrentMapping(bool up)
+void AxivionSettingsAspects::updateVersionInfo()
 {
-    const int itemCount = m_mappingTree.topLevelItemCount();
-    const QModelIndexList indexes = m_mappingTree.selectionModel()->selectedRows();
-    QTC_ASSERT(indexes.size() == 1, return);
-    const QModelIndex index = indexes.first();
-    QTC_ASSERT(index.isValid(), return);
-    const int row = index.row();
-    QTC_ASSERT(up ? row > 0 : row < itemCount - 1, return);
-
-    QTreeWidgetItem *item = m_mappingTree.takeTopLevelItem(row);
-    m_mappingTree.insertTopLevelItem(up ? row - 1 : row + 1, item);
-    m_mappingTree.setCurrentItem(item);
-    markSettingsDirty();
+    const std::optional<AxivionVersionInfo> info = settings().versionInfo();
+    m_version.setText(info ? info->versionNumber : QString{});
+    m_buildDate.setText(info ? info->dateTime : QString{});
 }
 
-void AxivionSettingsWidget::updateVersionAndBuildDate(QLabel *version, QLabel *buildDate)
+void AxivionSettingsAspects::apply()
 {
-    QTC_ASSERT(version && buildDate, return);
-    std::optional<AxivionVersionInfo> info = settings().versionInfo();
-    version->setText(info ? info->versionNumber : QString{});
-    buildDate->setText(info ? info->dateTime : QString{});
+    const int row = m_server.volatileValue();
+    const Id selected = row >= 0 && row < m_servers.size() ? m_servers.at(row).id : Id{};
+    const bool dirty = settings().isDirty();
+    const bool serversChanged = settings().updateDashboardServers(m_servers, selected);
+
+    AspectContainer::apply();
+    settings().apply();
+    if (dirty || serversChanged)
+        settings().toSettings();
+
+    const QList<PathMapping> oldMappings = settings().validPathMappings();
+    QList<PathMapping> newMappings;
+    m_mappings.forEachItem([&newMappings](const std::shared_ptr<PathMappingDetails> &item) {
+        newMappings.append(item->toPathMapping());
+    });
+    if (oldMappings != newMappings) {
+        pathMappingSettings().setVariantValue(pathMappingsToSetting(newMappings));
+        pathMappingSettings().writeSettings();
+    }
+    refreshServers();
 }
+
+void AxivionSettingsAspects::cancel()
+{
+    AspectContainer::cancel();
+    settings().cancel();
+    pathMappingSettings().cancel();
+    refreshServers();
+    loadMappings();
+}
+
 
 static PathMapping showPathMappingsDialog(const PathMapping &suggested)
 {
@@ -1121,7 +1039,10 @@ public:
         setId("Analyzer.Axivion.Settings");
         setDisplayName(Tr::tr("Axivion"));
         setCategory("T.Analyzer");
-        setWidgetCreator([] { return new AxivionSettingsWidget; });
+        setSettingsProvider([] {
+            static GuardedObject<AxivionSettingsAspects> theAspects;
+            return theAspects.get();
+        });
     }
 };
 
