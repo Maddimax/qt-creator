@@ -2165,7 +2165,7 @@ installs a message handler and asserts nothing says SOFT ASSERT. The first
 version of it passed against a build with the guard removed, which is the only
 reason it was rewritten.
 
-**What this does not do.** The virtual has to stay: six aspects in
+**What this does not do.** The virtual has to stay: five aspects in
 `src/plugins`, and `AspectList` in Utils, still override it. They are not one
 group. Most are run-configuration, build-step and kit aspects - project
 panels rather than preferences pages, which is a surface the migration has not
@@ -2925,6 +2925,43 @@ at the end of the last batch as a thing that "would" misalign, from reading
 inline one: `"Name:"` against `<none>`, and `SpanningRole` set on the second.
 Ten lines of throwaway code turned an argument into a fact, and the same ten
 lines became the test.
+
+### Which simulator to run on
+
+`IosDeviceTypeAspect`'s closure built a `QComboBox` over a `QStandardItemModel`
+of simulators, a label, and an **Update** button that asked the system to look
+again - and `updateValues()` did the filling, the selecting *and* the deciding
+whether the row should be shown at all.
+
+Every piece of it already existed by the time this batch reached it, which is
+the point:
+
+- `StringSelectionAspect` is the combo whose entries are refilled while the
+  page is open, with a fill callback and `refill()`. Its value is the chosen
+  item's *data*, so the list shows names and stores identifiers.
+- `ActionAspect` is the Update button.
+- `setInlineRow()` puts the two in one labelled row - and since the batch
+  before this one, in a row that lines up with the rows around it.
+
+So the aspect is a container of those two, and the closure is gone. Whether the
+row is shown follows the kit, in `updateVisibility()`, called from the
+constructor, from `fromMap()` and from `deviceChanges()` - not from the page
+being drawn, which is the third time this migration has moved that particular
+decision out of a layout.
+
+**Names are shown, identifiers are stored.** `simulatorItems()` is free, so a
+test can hand it two simulators it made up rather than whatever Xcode has
+installed on the machine running the tests. The two things worth pinning are
+that the text says which iOS as well as which device - "iPhone 16" alone is
+several simulators - and that what goes in the `.user` file is the identifier,
+because the names are not unique and change between Xcode versions.
+
+**A cut in the wrong direction, caught by an assertion.** Removing three
+functions between `addToLayoutImpl()` and `fromMap()` assumed they were in that
+order; `fromMap()` is a hundred lines *earlier*, so `s[:start] + s[end:]`
+would have duplicated a chunk of the file. The script asserted that what it was
+about to remove contained the names it expected, and stopped. Worth doing on
+any edit that deletes a range rather than a match.
 
 ### What the census could not see, and now can
 

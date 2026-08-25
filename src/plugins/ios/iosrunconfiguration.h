@@ -8,8 +8,6 @@
 #include <projectexplorer/runconfiguration.h>
 #include <projectexplorer/runconfigurationaspects.h>
 
-#include <QStandardItemModel>
-
 QT_BEGIN_NAMESPACE
 class QComboBox;
 class QPushButton;
@@ -19,7 +17,10 @@ namespace Ios::Internal {
 
 class IosRunConfiguration;
 
-class IosDeviceTypeAspect : public Utils::BaseAspect
+// Which simulator to run on, and a button to go and look again. One row: the
+// list and the button read as one setting, so they are a container rather than
+// an aspect that draws two controls of its own.
+class IosDeviceTypeAspect : public Utils::AspectContainer
 {
     Q_OBJECT
 
@@ -29,15 +30,17 @@ public:
 
     void fromMap(const Utils::Store &map) override;
     void toMap(Utils::Store &map) const override;
-    void addToLayoutImpl(Layouting::Layout &parent) override;
 
     IosDeviceType deviceType() const;
     void setDeviceType(const IosDeviceType &deviceType);
 
-    void updateValues();
-    void setDeviceTypeIndex(int devIndex);
     void deviceChanges();
     void updateDeviceType();
+
+    // The simulators to choose between, and the button that asks the system
+    // for them again.
+    Utils::StringSelectionAspect simulator{this};
+    Utils::ActionAspect refresh{this};
 
     class Data : public Utils::BaseAspect::Data
     {
@@ -53,12 +56,12 @@ private:
     QString applicationName() const;
     Utils::FilePath localExecutable() const;
 
+    // Whether the row is shown at all, and what the list holds. Both follow
+    // the kit rather than the page being opened.
+    void updateVisibility();
+
     IosDeviceType m_deviceType;
     IosRunConfiguration *m_runConfiguration = nullptr;
-    QStandardItemModel m_deviceTypeModel;
-    QLabel *m_deviceTypeLabel = nullptr;
-    QComboBox *m_deviceTypeComboBox = nullptr;
-    QPushButton *m_updateButton = nullptr;
 };
 
 class IosRunConfiguration : public ProjectExplorer::RunConfiguration
@@ -83,5 +86,9 @@ private:
 };
 
 void setupIosRunConfiguration();
+
+#ifdef WITH_TESTS
+QObject *createIosDeviceTypeTest();
+#endif
 
 } // Ios::Internal

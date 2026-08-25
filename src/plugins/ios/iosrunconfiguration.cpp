@@ -3,6 +3,10 @@
 
 #include "iosrunconfiguration.h"
 
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
 #include "iosconstants.h"
 #include "iosdevice.h"
 #include "iostr.h"
@@ -21,18 +25,16 @@
 #include <projectexplorer/target.h>
 
 #include <utils/algorithm.h>
+#include <utils/guardedcallback.h>
 #include <utils/filepath.h>
-#include <utils/layoutbuilder.h>
 #include <utils/qtcprocess.h>
 
 #include <QAction>
 #include <QApplication>
-#include <QComboBox>
 #include <QHeaderView>
-#include <QLabel>
 #include <QLineEdit>
 #include <QList>
-#include <QPushButton>
+#include <QStandardItem>
 #include <QVariant>
 #include <QWidget>
 
@@ -52,6 +54,21 @@ static QString displayName(const SimulatorInfo &device)
             Utils::transform(device.runtime.architectures, [](Abi::Architecture arch) {
                 return Abi::toString(arch);
             }).join(", "));
+}
+
+// The entries a device-type chooser offers: one simulator each, shown by name
+// and runtime and stored by the identifier the run configuration keeps. Free
+// so that it can be checked against a list of simulators rather than whatever
+// this machine happens to have installed.
+QList<QStandardItem *> simulatorItems(const QList<SimulatorInfo> &simulators)
+{
+    QList<QStandardItem *> items;
+    for (const SimulatorInfo &device : simulators) {
+        auto item = new QStandardItem(displayName(device));
+        item->setData(device.identifier);
+        items.append(item);
+    }
+    return items;
 }
 
 static IosDeviceType toIosDeviceType(const SimulatorInfo &device)
@@ -80,6 +97,7 @@ IosRunConfiguration::IosRunConfiguration(BuildConfiguration *bc, Id id)
 
 void IosDeviceTypeAspect::deviceChanges()
 {
+    updateVisibility();
     m_runConfiguration->update();
 }
 
@@ -197,6 +215,7 @@ void IosDeviceTypeAspect::fromMap(const Store &map)
     if (deviceTypeIsInt || !m_deviceType.fromMap(storeFromVariant(map.value(deviceTypeKey))))
         updateDeviceType();
 
+    updateVisibility();
     m_runConfiguration->update();
 }
 
@@ -288,7 +307,7 @@ void IosDeviceTypeAspect::setDeviceType(const IosDeviceType &deviceType)
 }
 
 IosDeviceTypeAspect::IosDeviceTypeAspect(AspectContainer *container, IosRunConfiguration *rc)
-    : BaseAspect(container), m_runConfiguration(rc)
+    : AspectContainer(container), m_runConfiguration(rc)
 {
     addDataExtractor(this, &IosDeviceTypeAspect::deviceType, &Data::deviceType);
     addDataExtractor(this, &IosDeviceTypeAspect::bundleDirectory, &Data::bundleDirectory);
@@ -299,82 +318,45 @@ IosDeviceTypeAspect::IosDeviceTypeAspect(AspectContainer *container, IosRunConfi
             this, &IosDeviceTypeAspect::deviceChanges);
     connect(KitManager::instance(), &KitManager::kitsChanged,
             this, &IosDeviceTypeAspect::deviceChanges);
-}
 
-void IosDeviceTypeAspect::addToLayoutImpl(Layouting::Layout &parent)
-{
-    m_deviceTypeComboBox = new QComboBox;
-    m_deviceTypeComboBox->setModel(&m_deviceTypeModel);
+    // One row: the list and the button are one setting.
+    setInlineRow(true);
+    setLabelText(Tr::tr("Device type:"));
 
-    m_deviceTypeLabel = new QLabel(Tr::tr("Device type:"));
-
-    m_updateButton = new QPushButton(Tr::tr("Update"));
-
-    parent.addItems({m_deviceTypeLabel, m_deviceTypeComboBox, m_updateButton, Layouting::st});
-
-    updateValues();
-
-    connect(m_deviceTypeComboBox, &QComboBox::currentIndexChanged,
-            this, &IosDeviceTypeAspect::setDeviceTypeIndex);
-    connect(m_updateButton, &QPushButton::clicked, this, [this] {
-        m_updateButton->setEnabled(false);
-        const auto doneHander = [thisPtr = QPointer(this)] {
-            if (!thisPtr)
-                return;
-            thisPtr->m_updateButton->setEnabled(true);
-            thisPtr->m_deviceTypeModel.clear();
-            thisPtr->updateValues();
-        };
-        SimulatorControl::updateAvailableSimulators(doneHander);
+    simulator.setFillCallback([](const StringSelectionAspect::ResultCallback &cb) {
+        cb(simulatorItems(SimulatorControl::availableSimulators()));
     });
+    simulator.addOnVolatileValueChanged(this, [this] {
+        const QString identifier = simulator.volatileValue();
+        if (identifier.isEmpty() || identifier == m_deviceType.identifier)
+            return;
+        const SimulatorInfo chosen = Utils::findOrDefault(
+            SimulatorControl::availableSimulators(),
+            Utils::equal(&SimulatorInfo::identifier, identifier));
+        if (!chosen.identifier.isEmpty())
+            setDeviceType(toIosDeviceType(chosen));
+    });
+
+    refresh.setActionText(Tr::tr("Update"));
+    refresh.setAction([this] {
+        refresh.setEnabled(false);
+        SimulatorControl::updateAvailableSimulators(guardedCallback(this, [this] {
+            simulator.refill();
+            refresh.setEnabled(true);
+        }));
+    });
+
+    // Whether there is anything to choose is the kit's answer, not the page's.
+    updateVisibility();
 }
 
-void IosDeviceTypeAspect::setDeviceTypeIndex(int devIndex)
+void IosDeviceTypeAspect::updateVisibility()
 {
-    QVariant selectedDev = m_deviceTypeModel.data(m_deviceTypeModel.index(devIndex, 0), Qt::UserRole + 1);
-    if (selectedDev.isValid())
-        setDeviceType(toIosDeviceType(selectedDev.value<SimulatorInfo>()));
+    // A real device runs what it runs; there is nothing to pick.
+    setVisible(deviceType().type != IosDeviceType::IosDevice);
+    simulator.setValue(deviceType().identifier);
 }
 
-
-void IosDeviceTypeAspect::updateValues()
-{
-    bool showDeviceSelector = deviceType().type != IosDeviceType::IosDevice;
-    m_deviceTypeLabel->setVisible(showDeviceSelector);
-    m_deviceTypeComboBox->setVisible(showDeviceSelector);
-    m_updateButton->setVisible(showDeviceSelector);
-    if (showDeviceSelector && m_deviceTypeModel.rowCount() == 0) {
-        const QList<SimulatorInfo> devices = SimulatorControl::availableSimulators();
-        for (const SimulatorInfo &device : devices) {
-            QStandardItem *item = new QStandardItem(Internal::displayName(device));
-            QVariant v;
-            v.setValue(device);
-            item->setData(v);
-            m_deviceTypeModel.appendRow(item);
-        }
-    }
-
-    IosDeviceType currentDType = deviceType();
-    QVariant currentData = m_deviceTypeComboBox->currentData();
-    if (currentDType.type == IosDeviceType::SimulatedDevice && !currentDType.identifier.isEmpty()
-            && (!currentData.isValid()
-                || currentDType != toIosDeviceType(currentData.value<SimulatorInfo>())))
-    {
-        bool didSet = false;
-        for (int i = 0; m_deviceTypeModel.hasIndex(i, 0); ++i) {
-            QVariant vData = m_deviceTypeModel.data(m_deviceTypeModel.index(i, 0), Qt::UserRole + 1);
-            SimulatorInfo dType = vData.value<SimulatorInfo>();
-            if (dType.identifier == currentDType.identifier) {
-                m_deviceTypeComboBox->setCurrentIndex(i);
-                didSet = true;
-                break;
-            }
-        }
-        if (!didSet) {
-            qCWarning(iosLog) << "could not set " << currentDType << " as it is not in model";
-        }
-    }
-}
 
 FilePath IosDeviceTypeAspect::bundleDirectory() const
 {
@@ -410,4 +392,61 @@ void setupIosRunConfiguration()
     static IosRunConfigurationFactory theIosRunConfigurationFactory;
 }
 
+#ifdef WITH_TESTS
+class IosDeviceTypeTest : public QObject
+{
+    Q_OBJECT
+
+    static SimulatorInfo simulator(const QString &name, const QString &id,
+                                   const QString &version)
+    {
+        SimulatorInfo info;
+        info.name = name;
+        info.identifier = id;
+        info.available = true;
+        info.state = "Shutdown";
+        info.runtime.version = version;
+        info.runtime.architectures = {Abi::ArmArchitecture};
+        return info;
+    }
+
+private slots:
+    void testTheEntriesAreNamedForPeopleAndStoredForTheRunConfiguration()
+    {
+        const QList<SimulatorInfo> simulators{simulator("iPhone 16", "AAAA-1111", "18.0"),
+                                              simulator("iPad Pro", "BBBB-2222", "17.4")};
+        const QList<QStandardItem *> items = simulatorItems(simulators);
+        QCOMPARE(items.size(), 2);
+
+        // What is shown says which simulator and which iOS, because "iPhone 16"
+        // on its own is several of them.
+        QVERIFY2(items.at(0)->text().contains("iPhone 16"), qPrintable(items.at(0)->text()));
+        QVERIFY2(items.at(0)->text().contains("18.0"), qPrintable(items.at(0)->text()));
+
+        // What is stored is the identifier: the names are not unique and they
+        // change between Xcode versions, and a run configuration keeps this in
+        // its .user file.
+        QCOMPARE(items.at(0)->data().toString(), QString("AAAA-1111"));
+        QCOMPARE(items.at(1)->data().toString(), QString("BBBB-2222"));
+        QVERIFY(items.at(1)->text() != items.at(0)->text());
+
+        qDeleteAll(items);
+    }
+
+    void testNoSimulatorsIsNoEntries()
+    {
+        QVERIFY(simulatorItems({}).isEmpty());
+    }
+};
+
+QObject *createIosDeviceTypeTest()
+{
+    return new IosDeviceTypeTest;
+}
+#endif // WITH_TESTS
+
 } // Ios::Internal
+
+#ifdef WITH_TESTS
+#include "iosrunconfiguration.moc"
+#endif
