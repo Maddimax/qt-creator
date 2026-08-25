@@ -88,7 +88,6 @@ public:
 
     using Utils::FilePathAspect::FilePathAspect;
 
-    void addToLayoutImpl(Layouting::Layout &parent) override;
 
     Utils::Id toolId() const;
     ToolTypes toolType() const;

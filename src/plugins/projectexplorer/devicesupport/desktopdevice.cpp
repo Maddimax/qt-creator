@@ -552,6 +552,14 @@ private slots:
         const QList<QGroupBox *> boxes = widget->findChildren<QGroupBox *>();
         QVERIFY2(!boxes.isEmpty(), "a titled group drew no group box");
         QCOMPARE(boxes.first()->title(), device->runToolsGroup.labelText());
+
+        // One tool per row. The group is what says so - it puts a br after
+        // each aspect it lists - and every tool used to flush the layout on
+        // its own as well, which is the sort of thing that goes unnoticed
+        // until somebody removes the wrong one of the two.
+        auto inner = boxes.first()->findChild<QFormLayout *>();
+        QVERIFY(inner);
+        QCOMPARE(inner->rowCount(), device->runToolsGroup.aspects().size());
     }
 
     void testADeviceSaysWhatKindOfMachineItIs()

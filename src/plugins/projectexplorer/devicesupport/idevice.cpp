@@ -283,12 +283,6 @@ void DeviceToolAspect::setToolDisplayName(const QString &displayName)
     m_toolName = displayName;
 }
 
-void DeviceToolAspect::addToLayoutImpl(Layouting::Layout &parent)
-{
-    FilePathAspect::addToLayoutImpl(parent);
-    parent.flush();
-}
-
 /*!
     Returns the display name of the tool to use for the detection log.
 */

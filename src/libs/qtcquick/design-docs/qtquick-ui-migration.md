@@ -2165,7 +2165,7 @@ installs a message handler and asserts nothing says SOFT ASSERT. The first
 version of it passed against a build with the guard removed, which is the only
 reason it was rewritten.
 
-**What this does not do.** The virtual has to stay: seven aspects in
+**What this does not do.** The virtual has to stay: six aspects in
 `src/plugins` and five more in Utils still override it. They are not one
 group. Most are run-configuration, build-step and kit aspects - project
 panels rather than preferences pages, which is a surface the migration has not
@@ -2504,7 +2504,7 @@ anyway, because the closure was holding state - a widget's `customConfigs()`, a
 label's text - that nothing else did. Both are now gone. `EnvVarSeparatorAspect` was
 a sixth of exactly the same kind - see below.
 
-What still overrides `addToLayoutImpl()` in `src/plugins` is seven aspects,
+What still overrides `addToLayoutImpl()` in `src/plugins` is six aspects,
 and they are mostly the project surface: run configurations, build steps and
 build settings. Three are not - `KitAspect` and `DeviceToolAspect` on the Kits
 and Devices pages, and `LibrarySelectionAspect` - and those are the ones to
@@ -2764,6 +2764,29 @@ control could not fail. The delegate uses `plainLabelText` like every other
 one, and the assertion moved to what actually matters: the label's `textFormat`
 is `StyledText`, because shown as plain text the link is angle brackets on the
 page and nothing to click.
+
+### Two lines that did nothing, and how to be sure
+
+`DeviceToolAspect::addToLayoutImpl()` was
+
+    FilePathAspect::addToLayoutImpl(parent);
+    parent.flush();
+
+- the base class, and a row break. The three groups that list these tools
+already put a `br` after each aspect, and `Layout::flush()` returns immediately
+when nothing is pending, so the second break was a no-op. That is easy to say
+and easy to be wrong about.
+
+So it was measured instead. `DesktopDeviceTest` already renders
+`runToolsGroup` into a form; it now also asserts one form row per tool. The
+assertion was added **first**, with the closure still in place, and passed;
+then the closure was deleted and it passed again with the same count. That is
+the evidence that the flush did nothing - not the reading of `flush()`.
+
+The negative control cannot be on the deletion: nothing can prove a no-op
+bites. It is on what the deletion now depends on - take the `br` out of the
+group's layouter and the two tools collapse into one row, which the assertion
+catches. So the row break has one owner, and the test says which.
 
 ### What the census could not see, and now can
 
