@@ -14,11 +14,14 @@
 #include "projectexplorertr.h"
 #include "task.h"
 
+#include <coreplugin/icore.h>
 #include <coreplugin/dialogs/ioptionspage.h>
 
 #include <utils/filedialogs.h>
 #include <utils/algorithm.h>
 #include <utils/fileutils.h>
+#include <utils/groupedlistaspect.h>
+#include <utils/groupedmodel.h>
 #include <utils/groupedview.h>
 #include <utils/guiutils.h>
 #include <utils/id.h>
@@ -26,6 +29,7 @@
 #include <utils/macroexpander.h>
 #include <utils/pathchooser.h>
 #include <utils/qtcassert.h>
+#include <utils/shutdownguard.h>
 #include <utils/stringutils.h>
 #include <utils/utilsicons.h>
 #include <utils/variablechooser.h>
@@ -336,7 +340,7 @@ bool KitModel::isNameUnique(int row) const
 
 // KitOptionsPageWidget
 
-class KitOptionsPageWidget : public Core::IOptionsPageWidget
+class KitOptionsPageWidget : public AspectContainer
 {
 public:
     KitOptionsPageWidget();
@@ -347,8 +351,8 @@ public:
     void updateState();
     void scrollToSelectedKit();
 
-    void apply() final;
-    bool isDirty() const final { return m_model.isDirty(); }
+    void apply() override;
+    bool isDirty() const override { return m_model.isDirty(); }
 
 private:
     void onDirty();
@@ -356,25 +360,32 @@ private:
     void load(const KitData &workingCopySrc, int row = -1);
 
     void updateVisibility();
-    void addAspectsToWorkingCopy(Layouting::Layout &parent);
-    void setIcon();
-    void resetIcon();
+    void collectKitAspects();
+    void chooseIcon(const QVariant &choice);
+    void refreshIconChoices();
     void setDisplayName();
     void setFileSystemFriendlyName();
     void workingCopyWasUpdated(Kit *k);
-    void showEvent(QShowEvent *event) final;
-
-    QPushButton m_addButton;
-    QPushButton m_filterButton;
-    QPushButton m_defaultFilterButton;
 
     KitModel m_model;
-    GroupedView m_groupedView{m_model};
 
-    QWidget m_detailWidget;
-    QToolButton m_iconButton;
-    QLineEdit m_nameEdit;
-    QLineEdit m_fileSystemFriendlyNameLineEdit;
+    GroupedListAspect m_kits{this};
+    ActionAspect m_addButton{this};
+    ActionAspect m_filterButton{this};
+    ActionAspect m_defaultFilterButton{this};
+
+    // Shown for the kit that is current, hidden when none is.
+    AspectContainer m_details{this};
+    // The name and the icon read as one thing, so they are one row.
+    AspectContainer m_nameRow{&m_details};
+    StringAspect m_nameEdit{&m_nameRow};
+    ActionAspect m_iconButton{&m_nameRow};
+    StringAspect m_fileSystemFriendlyNameLineEdit{&m_details};
+    // The eighteen kit aspect rows, which are the same objects whichever kit
+    // is current: selecting one reloads them rather than making new ones.
+    AspectContainer m_kitAspectRows;
+    ContainerAspect m_kitAspectsShown{&m_details};
+
     QList<KitAspect *> m_kitAspects;
     bool m_fixingKit = false;
     bool m_loading = false;
@@ -382,95 +393,86 @@ private:
 
 KitOptionsPageWidget::KitOptionsPageWidget()
 {
-    m_addButton.setText(Tr::tr("Add"));
-    m_filterButton.setText(Tr::tr("Settings Filter..."));
+    setAutoApply(false);
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/ProjectExplorer/KitsPage.qml"));
+
+    m_kits.setQmlName("Kits");
+    m_kits.setModel(&m_model);
+    m_kits.setShowsDefault(true);
+    // An SDK-provided kit is not the user's to take away.
+    m_kits.setCanRemoveRow(
+        [this](int row) { return !m_model.item(row).m_detectionSource.isSdkProvided(); });
+
+    m_addButton.setQmlName("Add");
+    m_addButton.setActionText(Tr::tr("Add"));
+    m_addButton.setAction([this] { addNewKit(); });
+
+    m_filterButton.setQmlName("Filter");
+    m_filterButton.setActionText(Tr::tr("Settings Filter..."));
     m_filterButton.setToolTip(Tr::tr("Choose which settings to display for this kit."));
-    m_defaultFilterButton.setText(Tr::tr("Default Settings Filter..."));
-    m_defaultFilterButton.setToolTip(Tr::tr("Choose which kit settings to display by default."));
+    m_filterButton.setAction([this] {
+        QTC_ASSERT(m_kits.currentRow() >= 0, return);
+        FilterKitAspectsDialog dlg(m_model.modifiedKit(), Core::ICore::dialogParent());
+        if (dlg.exec() == QDialog::Accepted) {
+            m_model.modifiedKit()->setIrrelevantAspects(dlg.irrelevantAspects());
+            updateVisibility();
+        }
+    });
 
-    connect(&m_model, &Internal::KitModel::kitStateChanged,
-            this, &KitOptionsPageWidget::updateState);
+    m_defaultFilterButton.setQmlName("DefaultFilter");
+    m_defaultFilterButton.setActionText(Tr::tr("Default Settings Filter..."));
+    m_defaultFilterButton.setToolTip(
+        Tr::tr("Choose which settings to display for all kits by default."));
+    m_defaultFilterButton.setAction([this] {
+        FilterKitAspectsDialog dlg(nullptr, Core::ICore::dialogParent());
+        if (dlg.exec() == QDialog::Accepted) {
+            KitManager::setIrrelevantAspects(dlg.irrelevantAspects());
+            updateVisibility();
+        }
+    });
 
-    // Build the kit detail panel
-    m_detailWidget.setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+    m_details.setQmlName("Details");
 
-    auto nameLabel = new QLabel(Tr::tr("Name:"));
-    nameLabel->setToolTip(Tr::tr("Kit name and icon."));
+    m_nameRow.setQmlName("NameRow");
+    m_nameRow.setInlineRow(true);
+    m_nameRow.setLabelText(Tr::tr("Name:"));
+    m_nameRow.setToolTip(Tr::tr("Kit name and icon."));
+
+    m_nameEdit.setQmlName("Name");
+    m_nameEdit.setDisplayStyle(StringAspect::LineEditDisplay);
+
+    m_iconButton.setQmlName("Icon");
+    m_iconButton.setToolTip(Tr::tr("Kit icon."));
+    m_iconButton.setOnChoice([this](const QVariant &choice) { chooseIcon(choice); });
 
     const QString fsToolTip =
         "<p>" + Tr::tr("The name of the kit suitable for generating "
                "directory names. This value is used for the variable %1, "
                "which for example determines the name of the shadow build directory.")
                .arg("<i>Kit:FileSystemName</i>") + "</p>";
+    m_fileSystemFriendlyNameLineEdit.setQmlName("FileSystemName");
+    m_fileSystemFriendlyNameLineEdit.setLabelText(Tr::tr("File system name:"));
+    m_fileSystemFriendlyNameLineEdit.setDisplayStyle(StringAspect::LineEditDisplay);
     m_fileSystemFriendlyNameLineEdit.setToolTip(fsToolTip);
-    static const QRegularExpression fileSystemFriendlyNameRegexp(QLatin1String("^[A-Za-z0-9_-]*$"));
-    QTC_CHECK(fileSystemFriendlyNameRegexp.isValid());
-    m_fileSystemFriendlyNameLineEdit.setValidator(
-        new QRegularExpressionValidator(fileSystemFriendlyNameRegexp,
-                                        &m_fileSystemFriendlyNameLineEdit));
+    m_fileSystemFriendlyNameLineEdit.setValidationFunction([](const QString &text) -> Result<> {
+        static const QRegularExpression allowed("^[A-Za-z0-9_-]*$");
+        if (allowed.match(text).hasMatch())
+            return ResultOk;
+        return ResultError(Tr::tr("Only letters, digits, dashes and underscores."));
+    });
 
-    auto fsLabel = new QLabel(Tr::tr("File system name:"));
-    fsLabel->setToolTip(fsToolTip);
-    connect(&m_fileSystemFriendlyNameLineEdit, &QLineEdit::textChanged,
-            this, &KitOptionsPageWidget::setFileSystemFriendlyName);
+    m_kitAspectsShown.setQmlName("KitAspects");
+    collectKitAspects();
+    m_kitAspectsShown.setContainer(&m_kitAspectRows);
+    // The button stands for the icon, so it has one before a kit is current.
+    refreshIconChoices();
 
-    m_iconButton.setToolTip(Tr::tr("Kit icon."));
-    auto setIconAction = new QAction(Tr::tr("Select Icon..."), this);
-    m_iconButton.addAction(setIconAction);
-    auto resetIconAction = new QAction(Tr::tr("Reset to Device Default Icon"), this);
-    m_iconButton.addAction(resetIconAction);
-
-    connect(&m_iconButton, &QAbstractButton::clicked,
-            this, &KitOptionsPageWidget::setIcon);
-    connect(setIconAction, &QAction::triggered,
-            this, &KitOptionsPageWidget::setIcon);
-    connect(resetIconAction, &QAction::triggered,
-            this, &KitOptionsPageWidget::resetIcon);
-    connect(&m_nameEdit, &QLineEdit::textChanged,
-            this, &KitOptionsPageWidget::setDisplayName);
-
+    // Behaviour, not layout.
+    connect(&m_model, &Internal::KitModel::kitStateChanged,
+            this, &KitOptionsPageWidget::updateState);
     connect(KitManager::instance(), &KitManager::unmanagedKitUpdated,
             this, &KitOptionsPageWidget::workingCopyWasUpdated);
-
-    auto chooser = new VariableChooser(this);
-    chooser->addSupportedWidget(&m_nameEdit);
-    chooser->addMacroExpanderProvider({this, [this] { return m_model.modifiedKit()->macroExpander(); }});
-
-    using namespace Layouting;
-    Grid detailPage {
-        withFormAlignment,
-        columnStretch(1, 2),
-        nameLabel, m_nameEdit, m_iconButton, br,
-        fsLabel, m_fileSystemFriendlyNameLineEdit, br,
-        noMargin
-    };
-
-    addAspectsToWorkingCopy(detailPage);
-    detailPage.attachTo(&m_detailWidget);
-
-    m_groupedView.makeDefaultButton().setToolTip(
-        Tr::tr("Set as the default kit to use when creating a new project."));
-
-    Column {
-        Row {
-            m_groupedView.view(),
-            Column {
-                noMargin,
-                m_addButton,
-                m_groupedView.cloneButton(),
-                m_groupedView.removeButton(),
-                m_groupedView.makeDefaultButton(),
-                m_filterButton,
-                m_defaultFilterButton,
-                st,
-            }
-        },
-        m_detailWidget
-    }.attachTo(this);
-
-    m_detailWidget.setVisible(false);
-
-    connect(&m_groupedView, &GroupedView::currentRowChanged,
+    connect(&m_kits, &GroupedListAspect::currentRowChanged,
             this, [this](int, int newRow) { kitSelectionChanged(newRow); });
     connect(KitManager::instance(), &KitManager::kitAdded,
             this, &KitOptionsPageWidget::updateState);
@@ -478,37 +480,35 @@ KitOptionsPageWidget::KitOptionsPageWidget()
             this, &KitOptionsPageWidget::updateState);
     connect(KitManager::instance(), &KitManager::kitUpdated, this, [this](Kit *k) {
         const int row = m_model.rowForOriginalKit(k);
-        const int currentRow = m_groupedView.currentRow();
+        const int currentRow = m_kits.currentRow();
         if (row == currentRow && currentRow >= 0)
             load(m_model.item(currentRow), currentRow);
         updateState();
     });
-
-    m_groupedView.setCanRemoveRow([this](int row) {
-        return !m_model.item(row).m_detectionSource.isSdkProvided();
-    });
-    connect(&m_groupedView, &GroupedView::currentCloned,
+    connect(&m_kits, &GroupedListAspect::currentCloned,
             this, &KitOptionsPageWidget::setFocusToName);
 
-    connect(&m_addButton, &QAbstractButton::clicked,
-            this, &KitOptionsPageWidget::addNewKit);
-    connect(&m_filterButton, &QAbstractButton::clicked, this, [this] {
-        QTC_ASSERT(m_groupedView.currentRow() >= 0, return);
-        FilterKitAspectsDialog dlg(m_model.modifiedKit(), this);
-        if (dlg.exec() == QDialog::Accepted) {
-            m_model.modifiedKit()->setIrrelevantAspects(dlg.irrelevantAspects());
-            updateVisibility();
-        }
-    });
-    connect(&m_defaultFilterButton, &QAbstractButton::clicked, this, [this] {
-        FilterKitAspectsDialog dlg(nullptr, this);
-        if (dlg.exec() == QDialog::Accepted) {
-            KitManager::setIrrelevantAspects(dlg.irrelevantAspects());
-            updateVisibility();
-        }
+    m_nameEdit.addOnVolatileValueChanged(this, [this] { setDisplayName(); });
+    m_fileSystemFriendlyNameLineEdit.addOnVolatileValueChanged(
+        this, [this] { setFileSystemFriendlyName(); });
+
+    // Another page may have changed what a kit can be pointed at while this
+    // one was not on screen, and building the page is not showing it.
+    connect(this, &AspectContainer::shown, this, [this] {
+        if (!m_details.isVisible())
+            return;
+        for (KitAspect *aspect : std::as_const(m_kitAspects))
+            aspect->refresh();
     });
 
+    // The name may name the kit's own variables, so it expands against
+    // whichever kit is being looked at.
+    m_nameEdit.setMacroExpander(m_model.modifiedKit()->macroExpander());
+
     scrollToSelectedKit();
+    // Nothing is current until something is picked, and then the details are
+    // about that kit rather than about the working copy they start on.
+    kitSelectionChanged(m_kits.currentRow());
     updateState();
 }
 
@@ -525,8 +525,7 @@ void KitOptionsPageWidget::scrollToSelectedKit()
 {
     const int row = m_model.rowForId(
         Core::preselectedOptionsPageItem(Constants::KITS_SETTINGS_PAGE_ID));
-    m_groupedView.selectRow(row);
-    m_groupedView.scrollToRow(row);
+    m_kits.setCurrentRow(row);
 }
 
 void KitOptionsPageWidget::apply()
@@ -539,10 +538,9 @@ void KitOptionsPageWidget::kitSelectionChanged(int newRow)
 {
     if (newRow >= 0) {
         load(m_model.item(newRow), newRow);
-        m_detailWidget.setVisible(true);
-        m_groupedView.scrollToRow(newRow);
+        m_details.setVisible(true);
     } else {
-        m_detailWidget.setVisible(false);
+        m_details.setVisible(false);
     }
 
     updateState();
@@ -551,25 +549,24 @@ void KitOptionsPageWidget::kitSelectionChanged(int newRow)
 void KitOptionsPageWidget::addNewKit()
 {
     const int row = m_model.markForAddition(nullptr);
-    m_groupedView.selectRow(row);
+    m_kits.setCurrentRow(row);
 
-    if (m_groupedView.currentRow() >= 0)
+    if (m_kits.currentRow() >= 0)
         setFocusToName();
 }
 
 
 void KitOptionsPageWidget::updateState()
 {
-    const int row = m_groupedView.currentRow();
+    const int row = m_kits.currentRow();
     const bool hasRow = row >= 0;
     const bool isRemoved = hasRow && m_model.isRemoved(row);
     m_filterButton.setEnabled(hasRow && !isRemoved);
-    m_groupedView.updateButtons();
 }
 
 void KitOptionsPageWidget::onDirty()
 {
-    const int row = m_groupedView.currentRow();
+    const int row = m_kits.currentRow();
     if (row < 0)
         return;
     m_loading = true;
@@ -582,8 +579,7 @@ void KitOptionsPageWidget::onDirty()
 
 void KitOptionsPageWidget::setFocusToName()
 {
-    m_nameEdit.selectAll();
-    m_nameEdit.setFocus();
+    m_nameEdit.setFocusToInputField();
 }
 
 void KitOptionsPageWidget::load(const KitData &workingCopySrc, int row)
@@ -594,9 +590,10 @@ void KitOptionsPageWidget::load(const KitData &workingCopySrc, int row)
     for (KitAspect *aspect : std::as_const(m_kitAspects))
         aspect->reload();
 
-    m_iconButton.setIcon(m_model.modifiedKit()->icon());
-    m_nameEdit.setText(m_model.modifiedKit()->unexpandedDisplayName());
-    m_fileSystemFriendlyNameLineEdit.setText(m_model.modifiedKit()->customFileSystemFriendlyName());
+    refreshIconChoices();
+    m_nameEdit.setValue(m_model.modifiedKit()->unexpandedDisplayName());
+    m_fileSystemFriendlyNameLineEdit.setValue(
+        m_model.modifiedKit()->customFileSystemFriendlyName());
 
     m_loading = false;
 
@@ -619,7 +616,7 @@ void KitOptionsPageWidget::load(const KitData &workingCopySrc, int row)
 }
 
 
-void KitOptionsPageWidget::addAspectsToWorkingCopy(Layouting::Layout &parent)
+void KitOptionsPageWidget::collectKitAspects()
 {
     QHash<Id, KitAspect *> aspectsById;
     for (KitAspectFactory *factory : KitManager::kitAspectFactories()) {
@@ -651,9 +648,10 @@ void KitOptionsPageWidget::addAspectsToWorkingCopy(Layouting::Layout &parent)
         aspect->setAspectsToEmbed(embeddables);
     }
 
+    // What is embedded is part of the row that shows it, not a row of its own.
     for (KitAspect * const aspect : std::as_const(m_kitAspects)) {
         if (!embedded.contains(aspect))
-            aspect->addToLayout(parent);
+            m_kitAspectRows.registerAspect(aspect);
     }
 }
 
@@ -663,11 +661,18 @@ void KitOptionsPageWidget::updateVisibility()
         aspect->setVisible(m_model.modifiedKit()->isAspectRelevant(aspect->factory()->id()));
 }
 
-void KitOptionsPageWidget::setIcon()
+// What the button offers: the default icon of every device kind that has one,
+// a file to pick, and the way back to the device default. The last was on the
+// button's context menu; there is one menu now.
+static const char BROWSE_ICON_ID[] = "PE.Kits.BrowseIcon";
+static const char RESET_ICON_ID[] = "PE.Kits.ResetIcon";
+
+void KitOptionsPageWidget::refreshIconChoices()
 {
     const Id deviceType = RunDeviceTypeKitAspect::deviceTypeId(m_model.modifiedKit());
     QList<IDeviceFactory *> allDeviceFactories = IDeviceFactory::allDeviceFactories();
     if (deviceType.isValid()) {
+        // The kind the kit builds for comes first.
         const auto less = [deviceType](const IDeviceFactory *f1, const IDeviceFactory *f2) {
             if (f1->deviceType() == deviceType)
                 return true;
@@ -677,59 +682,60 @@ void KitOptionsPageWidget::setIcon()
         };
         Utils::sort(allDeviceFactories, less);
     }
-    QMenu iconMenu;
+
+    QList<AspectPresentation::Choice> choices;
     for (const IDeviceFactory * const factory : std::as_const(allDeviceFactories)) {
         if (factory->icon().isNull())
             continue;
-        QAction *action = iconMenu.addAction(factory->icon(),
-                                             Tr::tr("Default for %1").arg(factory->displayName()),
-                                             [this, factory] {
-                                                 m_iconButton.setIcon(factory->icon());
-                                                 m_model.modifiedKit()->setDeviceTypeForIcon(
-                                                     factory->deviceType());
-                                                 onDirty();
-                                             });
-        action->setIconVisibleInMenu(true);
+        choices.append({Tr::tr("Default for %1").arg(factory->displayName()),
+                        {},
+                        true,
+                        factory->deviceType().toSetting(),
+                        factory->icon()});
     }
-    iconMenu.addSeparator();
-    iconMenu.addAction(PathChooser::browseButtonLabel(), [this] {
+    choices.append({PathChooser::browseButtonLabel(), {}, true, QString(BROWSE_ICON_ID)});
+    choices.append({Tr::tr("Reset to Device Default Icon"), {}, true, QString(RESET_ICON_ID)});
+
+    m_iconButton.setChoices(choices);
+    m_iconButton.setActionIcon(m_model.modifiedKit()->icon());
+}
+
+void KitOptionsPageWidget::chooseIcon(const QVariant &choice)
+{
+    const QString id = choice.toString();
+    if (id == QLatin1String(RESET_ICON_ID)) {
+        m_model.modifiedKit()->setIconPath({});
+    } else if (id == QLatin1String(BROWSE_ICON_ID)) {
         const FilePath path = FileUtils::getOpenFilePath(Tr::tr("Select Icon"),
                                                          m_model.modifiedKit()->iconPath(),
                                                          Tr::tr("Images (*.png *.xpm *.jpg)"));
         if (path.isEmpty())
             return;
-        const QIcon icon(path.toUrlishString());
-        if (icon.isNull())
+        if (QIcon(path.toUrlishString()).isNull())
             return;
-        m_iconButton.setIcon(icon);
         m_model.modifiedKit()->setIconPath(path);
-        onDirty();
-    });
-    iconMenu.exec(m_iconButton.mapToGlobal(QPoint(0, 0)));
-}
-
-void KitOptionsPageWidget::resetIcon()
-{
-    m_model.modifiedKit()->setIconPath({});
+    } else {
+        m_model.modifiedKit()->setDeviceTypeForIcon(Id::fromSetting(choice));
+    }
+    refreshIconChoices();
     onDirty();
 }
 
 void KitOptionsPageWidget::setDisplayName()
 {
-    int pos = m_nameEdit.cursorPosition();
-    m_model.modifiedKit()->setUnexpandedDisplayName(m_nameEdit.text());
-    m_nameEdit.setCursorPosition(pos);
+    // The cursor stays where it is: an aspect writes back to the control only
+    // when the value differs from what the control already shows.
+    m_model.modifiedKit()->setUnexpandedDisplayName(m_nameEdit.volatileValue());
     if (!m_loading)
         onDirty();
 }
 
 void KitOptionsPageWidget::setFileSystemFriendlyName()
 {
-    if (m_fileSystemFriendlyNameLineEdit.text() == m_model.modifiedKit()->customFileSystemFriendlyName())
+    const QString name = m_fileSystemFriendlyNameLineEdit.volatileValue();
+    if (name == m_model.modifiedKit()->customFileSystemFriendlyName())
         return;
-    const int pos = m_fileSystemFriendlyNameLineEdit.cursorPosition();
-    m_model.modifiedKit()->setCustomFileSystemFriendlyName(m_fileSystemFriendlyNameLineEdit.text());
-    m_fileSystemFriendlyNameLineEdit.setCursorPosition(pos);
+    m_model.modifiedKit()->setCustomFileSystemFriendlyName(name);
     if (!m_loading)
         onDirty();
 }
@@ -746,22 +752,13 @@ void KitOptionsPageWidget::workingCopyWasUpdated(Kit *k)
     for (KitAspect *w : std::as_const(m_kitAspects))
         w->refresh();
 
-    if (k->unexpandedDisplayName() != m_nameEdit.text())
-        m_nameEdit.setText(k->unexpandedDisplayName());
+    if (k->unexpandedDisplayName() != m_nameEdit.volatileValue())
+        m_nameEdit.setValue(k->unexpandedDisplayName());
 
-    m_fileSystemFriendlyNameLineEdit.setText(k->customFileSystemFriendlyName());
-    m_iconButton.setIcon(k->icon());
+    m_fileSystemFriendlyNameLineEdit.setValue(k->customFileSystemFriendlyName());
+    refreshIconChoices();
     updateVisibility();
     onDirty();
-}
-
-void KitOptionsPageWidget::showEvent(QShowEvent *event)
-{
-    Q_UNUSED(event)
-    if (m_detailWidget.isVisible()) {
-        for (KitAspect *aspect : std::as_const(m_kitAspects))
-            aspect->refresh();
-    }
 }
 
 // KitsSettingsPage
@@ -774,7 +771,10 @@ public:
         setId(Constants::KITS_SETTINGS_PAGE_ID);
         setDisplayName(Tr::tr("Kits"));
         setCategory(Constants::KITS_SETTINGS_CATEGORY);
-        setWidgetCreator([] { return new Internal::KitOptionsPageWidget; });
+        setSettingsProvider([] {
+            static GuardedObject<Internal::KitOptionsPageWidget> theAspects;
+            return theAspects.get();
+        });
     }
 };
 

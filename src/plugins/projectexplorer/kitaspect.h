@@ -259,6 +259,9 @@ public:
     // them at the end; a device shows the type before the device it narrows
     // down.
     virtual int embedIndex() const { return -1; }
+    // Where a control of this row's own goes: before the "Manage..." button,
+    // which stays at the end.
+    int controlIndex() const;
 
     virtual void addToInnerLayout(Layouting::Layout &layout);
 
@@ -341,7 +344,7 @@ private:
 template<class T> T *KitAspect::addControl()
 {
     const auto control = new KitAspectControl<T>(this);
-    registerAspect(control, /*takeOwnership=*/true);
+    insertAspect(controlIndex(), control, /*takeOwnership=*/true);
     return control;
 }
 

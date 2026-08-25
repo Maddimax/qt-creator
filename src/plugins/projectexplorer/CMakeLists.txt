@@ -237,6 +237,7 @@ if(TARGET ProjectExplorer AND TARGET Qt::Quick)
       BuildPropertiesSettingsPage.qml
       CompileOutputSettingsPage.qml
       CustomParsersSettingsPage.qml
+      KitsPage.qml
       ToolchainsPage.qml
       devicesupport/SshSettingsPage.qml
   )

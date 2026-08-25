@@ -13,7 +13,7 @@ AspectPage {
 
     contentFillsHeight: true
 
-    SelectionDelegate { aspect: root.aspects.Device }
+    readonly property var details: AspectModels.named(aspects.Details)
 
     RowLayout {
         spacing: Spacing.GapHM
@@ -21,7 +21,7 @@ AspectPage {
         Layout.fillHeight: true
 
         GroupedListDelegate {
-            aspect: root.aspects.Toolchains
+            aspect: root.aspects.Kits
             Layout.fillWidth: true
             Layout.fillHeight: true
             // What the current item is made of is long, and a layout that
@@ -29,9 +29,9 @@ AspectPage {
             Layout.minimumHeight: Metrics.chooserListHeight
         }
 
-        // Which kinds of toolchain there are is the page's business rather than
-        // the list's; the list's own Clone and Remove sit between Add and the
-        // three that act on all of them.
+        // Where kits come from is the page's business rather than the list's;
+        // the list's own Clone, Remove and Make Default sit between Add and
+        // the two that choose what a kit is asked.
         ColumnLayout {
             spacing: Spacing.GapVXs
             Layout.alignment: Qt.AlignTop
@@ -44,28 +44,36 @@ AspectPage {
             Item { Layout.preferredHeight: Spacing.GapVL }
 
             ButtonDelegate {
-                aspect: root.aspects.RemoveAll
+                aspect: root.aspects.Filter
                 Layout.fillWidth: false
             }
 
             ButtonDelegate {
-                aspect: root.aspects.Redetect
-                Layout.fillWidth: false
-            }
-
-            ButtonDelegate {
-                aspect: root.aspects.DetectionSettings
+                aspect: root.aspects.DefaultFilter
                 Layout.fillWidth: false
             }
         }
     }
 
-    // What the kind of toolchain being looked at asks for. Every kind answers
-    // with aspects, so there is nothing here the page has to know about them.
-    AspectItems {
+    // What the current kit is called and what it is made of. Hidden when no
+    // kit is current, which the container says rather than the page.
+    ColumnLayout {
+        spacing: Spacing.GapVS
+        visible: root.aspects.Details?.visible ?? false
         Layout.fillWidth: true
-        model: root.aspects.Configuration.container
-               ? AspectModels.container(root.aspects.Configuration.container)
-               : null
+
+        // The name and the icon that stands for it read as one thing.
+        InlineGroupDelegate { aspect: root.details.NameRow }
+
+        StringDelegate { aspect: root.details.FileSystemName }
+
+        // Whatever the kinds of thing a kit points at ask to be told. The page
+        // knows about none of them.
+        AspectItems {
+            Layout.fillWidth: true
+            model: root.details.KitAspects.container
+                   ? AspectModels.container(root.details.KitAspects.container)
+                   : null
+        }
     }
 }

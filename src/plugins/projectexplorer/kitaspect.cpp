@@ -371,6 +371,14 @@ ActionAspect *KitAspect::manageButton() const
     return d->manageButton;
 }
 
+// Where a control goes: before the button that manages what it offers, which
+// stays at the end however late a kind describes what it holds.
+int KitAspect::controlIndex() const
+{
+    const int index = d->manageButton ? int(aspects().indexOf(d->manageButton)) : -1;
+    return index < 0 ? int(aspects().size()) : index;
+}
+
 void KitAspect::addLabelToLayout(Layouting::Layout &layout)
 {
     auto label = Utils::AspectWidgets::createSubWidget<QLabel>(this, d->factory->displayName() + ':');
