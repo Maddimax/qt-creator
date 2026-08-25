@@ -1302,8 +1302,8 @@ method, and the manual-run dialog builds a widget from it too, so the page
 naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
-all`, minus `QmlDesigner` and `UpdateInfo`, see below): **97 aspect-driven
-pages, all 97 with their own QML and rendered with Qt Quick, none still on
+all`, minus `QmlDesigner` and `UpdateInfo`, see below): **98 aspect-driven
+pages, all 98 with their own QML and rendered with Qt Quick, none still on
 widgets.** The count goes up as widget-creator pages become aspect-driven, so
 it is a running total rather than a target. Gerrit is the first of the widget-creator pages below to have joined
 that count: it became aspect-driven and then got a form, which is the shape the
@@ -1331,6 +1331,35 @@ The warning was found by showing each page in a window and resizing it, which
 is the same measurement the `AspectGroupBox` note describes. Worth repeating
 after a batch: it is the only thing that sees a warning the page census cannot,
 and it also confirmed that no page has a binding loop left.
+
+### A setting that is neither on nor off
+
+The Python Language Server page is a JSON document and a reading of it:
+thirteen check boxes saying what the JSON says about each plugin, which rewrite
+it when ticked. A plugin the JSON says *nothing* about is the interesting case
+- the server's own default applies, and drawing that as unchecked would tell
+the user it is off.
+
+`TriStateAspect` existed for exactly this and was always drawn as three named
+options in a combo box, which is fine for one setting and unreadable for
+thirteen down a page. `setUseCheckBox()` draws it as one check box instead, in
+both renderers. Qt's own tri-state cycling goes through all three states;
+"neither" is what the setting says *before* anything has been decided and a
+click is a decision, so it is shown but never cycled to - `nextCheckState` in
+the delegate, `setTristate(true)` plus a two-state `clicked` handler in the
+widget one.
+
+**Adding a member to a widely included aspect needs a full build.** The new
+`bool` on `TriStateAspect` changed its size, and a targeted build left
+ProjectExplorer constructing the old layout - an ASan global-buffer-overflow in
+a constructor a mile from anything that was edited. Build everything after
+touching `aspects.h`.
+
+**Where an error goes when there is no line to put it on.** The widget editor
+marked a JSON parse error on the line it was on, which needs a `TextMark` and a
+`TextEditorWidget`. A settings page has one place to say it, so it says it
+there, in a `TextDisplay` with `InfoType::Error`. That is the second consumer
+of the Qt Quick editor after Snippets, and the first that is not a snippet.
 
 ### The Locator, and a tree that can be written to
 
@@ -1427,7 +1456,7 @@ pages that hand over an `AspectContainer` through `setSettingsProvider()`.
 A page that calls `IOptionsPage::setWidgetCreator()` builds its own
 `IOptionsPageWidget` and answers nothing from `aspects()`, so the test skips it
 entirely: `isFullyRenderable()` is never asked and the page is not in the 73.
-There are **18 such call sites in 17 files** - Keyboard, External Tools, the
+There are **17 such call sites in 16 files** - Keyboard, External Tools, the
 toolchain, kit and device pages, Designer, Help's filters, MCU Support, CDB,
 BareMetal - and they are pure QtWidgets from top to bottom. Counted with
 
