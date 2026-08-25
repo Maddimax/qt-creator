@@ -2963,6 +2963,44 @@ would have duplicated a chunk of the file. The script asserted that what it was
 about to remove contained the names it expected, and stopped. Worth doing on
 any edit that deletes a range rather than a match.
 
+### The net before the move
+
+`AspectList` is the last closure in Utils and the only one left that is a
+*move* rather than a port - about a hundred and ninety lines across two bodies,
+one per display style. `GroupedListAspect` went the same way and went smoothly,
+because it had a test asserting the tree, the buttons and the two-way current
+row before anything was touched.
+
+`AspectList` had no such test. Nothing exercised its widget path at all: the
+Qt Quick side is covered by QuickUi, and the widget side - the one that ships
+by default - was covered by nothing. So this batch is the net, and the move is
+next.
+
+`aspectListWithDetails()` and `aspectInlineList()` pin what the two bodies do:
+the tree and its model, Add making the new item current, Move Up taking the
+current item with it, Remove, and - for the inline style - an editor per item
+with a remove beside each and one add at the end.
+
+**Three things it got wrong first, all of them the code being right.**
+
+`sync()` does not take a removed row out of the model. It leaves it, struck
+through, until the page is applied, because a removal is something to undo
+rather than something to do twice - the same rule `GroupedSelection` follows.
+The test asserts the strike-out now, which is worth having written down.
+
+A `FancyLineEdit` contains another `FancyLineEdit`, and a *grand*child at that,
+so counting editors counts twice and counting buttons counts the macro
+expander's. Both are filtered by asking whether anything above them is a line
+edit.
+
+And the inline list rebuilds itself wholesale on `volatileItemListChanged`
+through `replaceLayoutOn()`, so a button held from before a click is not the
+button on screen afterwards. The test asks for them again after every change.
+
+**The control that matters** is the one that empties `addToLayoutImpl()`
+altogether: that is exactly what a move gone wrong looks like, and it fails
+both tests.
+
 ### What the census could not see, and now can
 
 Two holes, both found the hard way in the same session.

@@ -3,6 +3,7 @@
 
 #include <utils/algorithm.h>
 #include <utils/aspects.h>
+#include <utils/aspectlist.h>
 #include <utils/aspectwidgets.h>
 #include <utils/aspectwidgetrenderer.h>
 #include <utils/elidinglabel.h>
@@ -202,6 +203,10 @@ private slots:
     void terminalCommandIsOneRow_data() { addRendererRows(); }
     void terminalCommandIsOneRow();
     void inlineRowLinesUpWithTheRowsAroundIt();
+    void aspectListWithDetails_data() { addRendererRows(); }
+    void aspectListWithDetails();
+    void aspectInlineList_data() { addRendererRows(); }
+    void aspectInlineList();
 };
 
 void tst_AspectRenderer::initTestCase()
@@ -1940,6 +1945,162 @@ void tst_AspectRenderer::inlineRowLinesUpWithTheRowsAroundIt()
 
     // And what is in the field column is still the row of controls.
     QCOMPARE(widget->findChildren<QComboBox *>().size(), 2);
+}
+
+// The shape every AspectList has: a list of items, each of them an aspect that
+// the page knows how to make one more of.
+static void fillWithStrings(AspectList &list)
+{
+    list.setCreateItemFunction([] {
+        auto item = std::make_shared<StringAspect>();
+        item->setDisplayStyle(StringAspect::LineEditDisplay);
+        item->setLabelText("Name:");
+        item->setValue("new");
+        return item;
+    });
+    list.listViewDataCallback = [](BaseAspect *item, int) -> QVariant {
+        return static_cast<StringAspect *>(item)->value();
+    };
+}
+
+static QPushButton *buttonNamed(QWidget *widget, const QString &text)
+{
+    for (QPushButton * const b : widget->findChildren<QPushButton *>()) {
+        if (b->text() == text)
+            return b;
+    }
+    return nullptr;
+}
+
+void tst_AspectRenderer::aspectListWithDetails()
+{
+    QFETCH(bool, withRenderer);
+    setRendererInstalled(withRenderer);
+
+    AspectList list;
+    list.setDisplayStyle(AspectList::DisplayStyle::ListViewWithDetails);
+    list.setOrdered(true);
+    fillWithStrings(list);
+
+    const std::unique_ptr<QWidget> widget = render(list);
+    QVERIFY(widget);
+    auto view = widget->findChild<QTreeView *>();
+    if (!withRenderer) {
+        QVERIFY(!view);
+        return;
+    }
+
+    QVERIFY(view);
+    QVERIFY(view->model());
+    QCOMPARE(view->model()->rowCount({}), 0);
+
+    QPushButton * const add = buttonNamed(widget.get(), "Add");
+    QPushButton * const remove = buttonNamed(widget.get(), "Remove");
+    QVERIFY(add);
+    QVERIFY(remove);
+    // Ordered, so it offers to reorder. A list whose order means nothing does
+    // not - see setOrdered().
+    QPushButton * const up = buttonNamed(widget.get(), "Move Up");
+    QPushButton * const down = buttonNamed(widget.get(), "Move Down");
+    QVERIFY(up);
+    QVERIFY(down);
+    QVERIFY(!up->isEnabled());
+    QVERIFY(!down->isEnabled());
+
+    // Adding makes the new item the current one, so that the details pane is
+    // about what was just added.
+    add->click();
+    QCOMPARE(list.volatileItems().size(), 1);
+    QCOMPARE(view->model()->rowCount({}), 1);
+    QCOMPARE(list.currentIndex(), 0);
+    // And the pane is the item's own controls, not a copy of them.
+    QVERIFY(widget->findChild<FancyLineEdit *>());
+
+    add->click();
+    QCOMPARE(list.volatileItems().size(), 2);
+    QCOMPARE(list.currentIndex(), 1);
+    QVERIFY(up->isEnabled());
+    QVERIFY(!down->isEnabled());
+
+    // Which item is current is the aspect's answer: a move takes it with it.
+    const std::shared_ptr<BaseAspect> second = list.volatileItems().at(1);
+    up->click();
+    QCOMPARE(list.currentIndex(), 0);
+    QCOMPARE(list.volatileItems().at(0), second);
+
+    // Removing takes the item out of the list but leaves the row, struck
+    // through, until the page is applied: a removal is something to undo, not
+    // something to do twice. The Qt Quick side has to draw the same thing,
+    // which is why the model says so rather than the view.
+    remove->click();
+    QCOMPARE(list.volatileItems().size(), 1);
+    QCOMPARE(view->model()->rowCount({}), 2);
+    int struckThrough = 0;
+    for (int row = 0; row < view->model()->rowCount({}); ++row) {
+        const QFont font = view->model()->index(row, 0).data(Qt::FontRole).value<QFont>();
+        if (font.strikeOut())
+            ++struckThrough;
+    }
+    QCOMPARE(struckThrough, 1);
+}
+
+void tst_AspectRenderer::aspectInlineList()
+{
+    QFETCH(bool, withRenderer);
+    setRendererInstalled(withRenderer);
+
+    AspectList list;
+    list.setDisplayStyle(AspectList::DisplayStyle::InlineList);
+    fillWithStrings(list);
+    list.createAndAddItem();
+    list.createAndAddItem();
+
+    const std::unique_ptr<QWidget> widget = render(list);
+    QVERIFY(widget);
+    const QList<FancyLineEdit *> fields = widget->findChildren<FancyLineEdit *>();
+    if (!withRenderer) {
+        QVERIFY(fields.isEmpty());
+        return;
+    }
+
+    // Every item is drawn in full, rather than a list with a details pane
+    // beside it: two items, two editors. A FancyLineEdit holds another one -
+    // a grandchild, not a child - so count those with none above them.
+    const auto isNested = [](QWidget *field) {
+        for (QWidget *w = field->parentWidget(); w; w = w->parentWidget()) {
+            if (qobject_cast<FancyLineEdit *>(w))
+                return true;
+        }
+        return false;
+    };
+    int editors = 0;
+    for (FancyLineEdit * const field : fields) {
+        if (!isNested(field))
+            ++editors;
+    }
+    QCOMPARE(editors, 2);
+
+    // One remove beside each item, and one add at the end - and only those:
+    // a line edit brings buttons of its own, the macro expander's among them.
+    // Asked again after every change: the whole list is rebuilt when it
+    // changes, so a button held from before is not the one on screen.
+    const auto ownButtons = [&widget, &isNested] {
+        QList<QAbstractButton *> found;
+        for (QAbstractButton * const b : widget->findChildren<QAbstractButton *>()) {
+            if (!isNested(b) && b->isVisibleTo(widget.get()))
+                found << b;
+        }
+        return found;
+    };
+    QCOMPARE(ownButtons().size(), 3);
+
+    // The last one adds; the rest take their item out.
+    ownButtons().last()->click();
+    QCOMPARE(list.volatileItems().size(), 3);
+    QCOMPARE(ownButtons().size(), 4);
+
+    ownButtons().first()->click();
+    QCOMPARE(list.volatileItems().size(), 2);
 }
 
 void tst_AspectRenderer::filePathLiveReconfiguration()
