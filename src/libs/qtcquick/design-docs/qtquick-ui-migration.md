@@ -2169,11 +2169,10 @@ reason it was rewritten.
 `src/plugins` and five more in Utils still override it. They are not one
 group. Most are run-configuration, build-step and kit aspects - project
 panels rather than preferences pages, which is a surface the migration has not
-reached. The rest are aspects on pages that *have* been migrated and
-describe a control the widget renderer had no case for, so they kept a closure
-to draw it: `MimeTypesAspect` is the last of them. `SecretAspect`,
-`EncodingSelectionAspect`, `ClangDiagnosticConfigIdAspect` and
-`SuppressionAspect` were the other four - see below.
+reached. There were five more on pages that *have* been migrated,
+which described a control and kept a closure to draw it anyway -
+`SecretAspect`, `EncodingSelectionAspect`, `ClangDiagnosticConfigIdAspect`,
+`SuppressionAspect` and `MimeTypesAspect`. All five are done; see below.
 `aspects.{h,cpp}` reach no QtWidgets header and no `layoutbuilder.h` either;
 what keeps them on the widget side of the split metric is that virtual's
 signature naming `Layouting::Layout`, and the project panels are what has to
@@ -2480,6 +2479,29 @@ else would have noticed it change. Writing through
 `setVolatileVariantValueFromGui()` makes all of that the ordinary path: the
 project instance auto-applies because `setProjectSettings()` told it to, and
 the global one marks the page dirty like any other aspect.
+
+### The last of the five
+
+`MimeTypesAspect` was a `QLabel` holding the picked types joined by `;`, a
+**Set MIME Types...** beside it, and a dialog. It was also **its own storage**:
+`guiToVolatileValue()` split the label's text back apart, so the value lived in
+the label, and a row with no label built had no value to give.
+
+That is `TextWithAction`, which the descriptor has had all along and which
+`ClangDiagnosticConfigIdAspect` uses for the same reason: several hundred MIME
+types cannot be listed in place. `displayText()` is the join, `triggerAction()`
+is the dialog, and the label is gone.
+
+The list is worth spelling out, because the shape recurred: the five aspects
+that described a control *and* kept a closure to draw it were all in that
+position for one of two reasons. `SecretAspect` and `SuppressionAspect` asked
+for something the widget renderer could not draw (`Secret`; a `FilePathList`
+from an aspect that was not a `FilePathListAspect`).
+`EncodingSelectionAspect`, `ClangDiagnosticConfigIdAspect` and
+`MimeTypesAspect` asked for something it *could* draw and kept the closure
+anyway, because the closure was holding state - a widget's `customConfigs()`, a
+label's text - that nothing else did. Both are now gone, and nothing in
+`src/plugins` overrides `addToLayoutImpl()` on a preferences page.
 
 ### What the census could not see, and now can
 

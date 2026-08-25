@@ -9,24 +9,17 @@
 
 namespace LanguageClient {
 
-namespace Internal { class MimeTypesAspectPrivate; }
-
 class LANGUAGECLIENT_EXPORT MimeTypesAspect : public Utils::TypedAspect<QStringList>
 {
     Q_OBJECT
 
 public:
     explicit MimeTypesAspect(Utils::AspectContainer *container = nullptr);
-    ~MimeTypesAspect() override;
 
-    bool guiToVolatileValue() override;
-    void volatileValueToGui() override;
-    void addToLayoutImpl(Layouting::Layout &parent) override;
-
-private:
-    void showMimeTypeDialog();
-
-    std::unique_ptr<Internal::MimeTypesAspectPrivate> d;
+    // The types that were picked, and the dialog that picks them.
+    Utils::AspectPresentation presentation() const override;
+    QString displayText() const override;
+    void triggerAction() override;
 };
 
 } // namespace LanguageClient

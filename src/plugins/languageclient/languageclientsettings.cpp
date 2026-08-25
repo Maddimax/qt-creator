@@ -1314,6 +1314,28 @@ private slots:
             QSKIP("No client kind here can be added by hand");
         QCOMPARE(add->presentation().choices.size(), addable);
     }
+
+    void testTheMimeTypesReadAsTheirOwnSummary()
+    {
+        // Several hundred MIME types cannot be listed in place, so the row is
+        // a summary of what was picked plus the dialog that picks it. What the
+        // summary says is the aspect's to answer: both backends draw
+        // displayText() and neither knows what a MIME type is.
+        StdIOSettings client;
+        QCOMPARE(client.mimeTypes.presentation().control,
+                 Utils::AspectControls::TextWithAction);
+        QVERIFY(!client.mimeTypes.presentation().actionText.isEmpty());
+        QVERIFY(client.mimeTypes.displayText().isEmpty());
+
+        // The volatile value, not the applied one: on this page, which has
+        // Apply and Cancel, the summary has to show what is about to be
+        // applied. It used to be whatever text the label happened to hold,
+        // which is also where the value was read back from.
+        client.mimeTypes.setAutoApply(false);
+        client.mimeTypes.setVolatileValue({"text/x-c++src", "text/x-chdr"});
+        QCOMPARE(client.mimeTypes.displayText(), QString("text/x-c++src;text/x-chdr"));
+        QVERIFY(client.mimeTypes().isEmpty());
+    }
 };
 
 QObject *createLanguageClientSettingsPageTest()

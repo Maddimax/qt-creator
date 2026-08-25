@@ -6,20 +6,14 @@
 #include "languageclienttr.h"
 
 #include <coreplugin/icore.h>
-#include <utils/aspectwidgets.h>
 #include <utils/algorithm.h>
 #include <utils/fancylineedit.h>
 #include <utils/guiutils.h>
-#include <utils/layoutbuilder.h>
 #include <utils/mimeutils.h>
 
 #include <QDialog>
 #include <QDialogButtonBox>
-#include <QHBoxLayout>
-#include <QLabel>
 #include <QListView>
-#include <QPointer>
-#include <QPushButton>
 #include <QSortFilterProxyModel>
 #include <QStringListModel>
 #include <QVBoxLayout>
@@ -113,19 +107,8 @@ private:
     MimeTypeModel *m_mimeTypeModel = nullptr;
 };
 
-namespace Internal {
-
-class MimeTypesAspectPrivate
-{
-public:
-    QPointer<QLabel> m_displayLabel;
-};
-
-} // namespace Internal
-
 MimeTypesAspect::MimeTypesAspect(Utils::AspectContainer *container)
     : TypedAspect(container)
-    , d(new Internal::MimeTypesAspectPrivate)
 {
     setDefaultValue({});
     setLabelText(Tr::tr("Language:"));
@@ -134,52 +117,29 @@ MimeTypesAspect::MimeTypesAspect(Utils::AspectContainer *container)
     connect(this, &Utils::BaseAspect::volatileValueChanged, this, &Utils::markSettingsDirty);
 }
 
-MimeTypesAspect::~MimeTypesAspect() = default;
-
-void MimeTypesAspect::addToLayoutImpl(Layouting::Layout &parent)
+Utils::AspectPresentation MimeTypesAspect::presentation() const
 {
-    auto displayLabel = Utils::AspectWidgets::createSubWidget<QLabel>(this);
-    auto button = Utils::AspectWidgets::createSubWidget<QPushButton>(this, Tr::tr("Set MIME Types..."));
-
-    d->m_displayLabel = displayLabel;
-
-    connect(button, &QPushButton::pressed, this, &MimeTypesAspect::showMimeTypeDialog);
-
-    volatileValueToGui();
-
-    auto container = new QWidget;
-    auto hLayout = new QHBoxLayout(container);
-    hLayout->setContentsMargins(0, 0, 0, 0);
-    hLayout->addWidget(displayLabel);
-    hLayout->addStretch();
-    hLayout->addWidget(button);
-
-    Utils::AspectWidgets::addLabeledItem(this, parent, container);
+    Utils::AspectPresentation p = TypedAspect::presentation();
+    // A summary of what was picked, and the dialog that picks it. There are
+    // several hundred MIME types, so a control that lists them in place is not
+    // one of the options.
+    p.control = Utils::AspectControls::TextWithAction;
+    p.actionText = Tr::tr("Set MIME Types...");
+    return p;
 }
 
-bool MimeTypesAspect::guiToVolatileValue()
+QString MimeTypesAspect::displayText() const
 {
-    if (!d->m_displayLabel)
-        return false;
-    const QStringList newValue
-        = d->m_displayLabel->text().split(filterSeparator, Qt::SkipEmptyParts);
-    return updateStorage(m_volatileValue, newValue);
+    return volatileValue().join(filterSeparator);
 }
 
-void MimeTypesAspect::volatileValueToGui()
+void MimeTypesAspect::triggerAction()
 {
-    if (d->m_displayLabel)
-        d->m_displayLabel->setText(m_volatileValue.join(filterSeparator));
-}
-
-void MimeTypesAspect::showMimeTypeDialog()
-{
-    MimeTypeDialog dialog(m_volatileValue, Core::ICore::dialogParent());
+    MimeTypeDialog dialog(volatileValue(), Core::ICore::dialogParent());
     if (dialog.exec() == QDialog::Rejected)
         return;
-    if (d->m_displayLabel)
-        d->m_displayLabel->setText(dialog.mimeTypes().join(filterSeparator));
-    handleGuiChanged();
+    setVolatileValue(dialog.mimeTypes());
+    emit displayTextChanged();
 }
 
 } // namespace LanguageClient
