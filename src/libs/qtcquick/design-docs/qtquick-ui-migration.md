@@ -1276,8 +1276,8 @@ method, and the manual-run dialog builds a widget from it too, so the page
 naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
-all`, minus `QmlDesigner` and `UpdateInfo`, see below): **84 aspect-driven
-pages, all 84 with their own QML and rendered with Qt Quick, none still on
+all`, minus `QmlDesigner` and `UpdateInfo`, see below): **85 aspect-driven
+pages, all 85 with their own QML and rendered with Qt Quick, none still on
 widgets.** Gerrit is the first of the widget-creator pages below to have joined
 that count: it became aspect-driven and then got a form, which is the shape the
 rest of them take.
@@ -1351,15 +1351,15 @@ pages that hand over an `AspectContainer` through `setSettingsProvider()`.
 A page that calls `IOptionsPage::setWidgetCreator()` builds its own
 `IOptionsPageWidget` and answers nothing from `aspects()`, so the test skips it
 entirely: `isFullyRenderable()` is never asked and the page is not in the 73.
-There are **30 such call sites in 27 files** - Keyboard, Locator, MIME Types,
+There are **29 such call sites in 26 files** - Keyboard, Locator, MIME Types,
 the toolchain, kit and device pages, Beautifier's three, Clangd, Axivion - and
 they are pure QtWidgets from top to bottom. Counted with
 
     grep -rn setWidgetCreator src/plugins src/libs --include='*.cpp'
 
 minus the mode files, which are `IMode::setWidgetCreator()` and a different
-thing. Gerrit, To-Do, GitLab, Debuggers, qbs Profiles and the Meson, GN and CMake
-Tools pages went this way; converting any of them took an
+thing. Gerrit, To-Do, GitLab, Debuggers, MIME Types, qbs Profiles and the Meson, GN
+and CMake Tools pages went this way; converting any of them took an
 `AspectContainer` that reads the plugin's own settings struct when the page is
 built and writes it back on apply, which is the same shape the Code Style pages
 use and needs no change to what the rest of the plugin reads.
@@ -1479,12 +1479,43 @@ work to undo:
   buttons beyond Expand All and Collapse All. Driven by `tableModel()` like
   the table, because a tree model is one of those too.
 
+MIME Types is two `TableDelegate`s: the types with their handler column, and
+the magic rules that used to be `QTreeWidgetItem`s edited in a modal dialog.
+Editing them in place gained a Mask column - the dialog could set a mask and
+the tree never showed it - and lost the dialog's chance to say *why* a rule was
+refused. In place there is nowhere to say it, so the cell keeps what it had.
+
+**A filter matches what the rows show, which is not always what is typed into
+it.** Nobody looks for a MIME type by its name; they type `*.cpp`. The glob
+patterns are not a column, so `AspectTable::FilterTextRole` is how a model adds
+text a row should be found by.
+
 qbs Profiles is the first `TreeDelegate` page, and it found the limit that
 decides the shape: **a Qt Quick `TreeView` has no root index.** The widget page
 built every profile into one tree and pointed the view at a branch. There is no
 equivalent, so the model builds the one profile being looked at - which is all
 the page ever showed. Any page that reaches for `setRootIndex()` has to move
 that decision into the model instead.
+
+### Two traps in the tree delegates, both silent
+
+Worth reading before writing another one:
+
+- **Do not redeclare `row` or `model` on a `TreeViewDelegate`.** It requires
+  both already; redeclaring one shadows the base's, which the view then never
+  initialises, so *every cell fails to incubate*. The view still reports the
+  right number of rows and the tests still passed - they were looking at the
+  model and the row count, not at anything drawn. Both tree delegates shipped
+  this way for two rounds. The tests look at the cells now.
+- **`TreeViewDelegate`'s own content item binds straight to `model.display`**,
+  which is undefined for a cell the model says nothing about - a group heading
+  has no second column. Setting the delegate's `text` does not help, because
+  the default content item does not read it. Give it one that does.
+
+And the ownership trap for the fourth time: a model reached QML straight from
+`BaseAspect::tableModel()`, so the engine took it and freed it. That is why the
+delegates go through `AspectModels.tableModel()` now - one place that says the
+model is C++'s, for every table and tree there will ever be.
 
 One thing to watch: a `SelectionAspect` over a list that is being edited holds
 a *position*. GitLab's default server has to be remembered by id and looked up
