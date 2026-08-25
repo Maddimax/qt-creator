@@ -195,5 +195,6 @@ if(TARGET CppEditor AND TARGET Qt::Quick)
       CppCodeModelSettingsPage.qml
       CppCodeStylePage.qml
       CppFileSettingsPage.qml
+      CppQuickFixSettingsPage.qml
   )
 endif()

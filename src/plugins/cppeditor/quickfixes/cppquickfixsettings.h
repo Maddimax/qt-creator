@@ -171,6 +171,10 @@ CppQuickFixSettings *cppQuickFixSettingsForProject(ProjectExplorer::Project *pro
 void setupCppQuickFixSettings();
 void setupCppQuickFixProjectPanel();
 
+#ifdef WITH_TESTS
+QObject *createCppQuickFixSettingsTest();
+#endif
+
 } // Internal
 } // CppEditor
 
