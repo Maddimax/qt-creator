@@ -98,6 +98,10 @@ std::optional<QStringList> activePythonVersions(
     const QList<PythonSettings::Interpreter> &interpreters);
 void prunePylspInstallations(const Utils::FilePath &pylspRoot, const QStringList &keepVersions);
 
+#ifdef WITH_TESTS
+QObject *createPythonInterpretersTest();
+#endif
+
 class InterpreterModel final : public Utils::ListModel<PythonSettings::Interpreter>
 {
 public:
@@ -108,6 +112,11 @@ public:
     void setInterpreters(const QList<PythonSettings::Interpreter> &interpreters);
     QList<PythonSettings::Interpreter> interpreters() const;
     QList<PythonSettings::Interpreter> interpreterFrom(const QString &detectionSource) const;
+
+    // A Qt Quick view cannot read flags(), so the model says here that the
+    // rows are read - the name and the path are edited in the form below.
+    QVariant data(const QModelIndex &index, int role) const override;
+    QHash<int, QByteArray> roleNames() const override;
 };
 
 } // Python::Internal

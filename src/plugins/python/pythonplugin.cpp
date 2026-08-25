@@ -82,6 +82,7 @@ class PythonPlugin final : public ExtensionSystem::IPlugin
 #ifdef WITH_TESTS
         addTestCreator(createPylspPruneTest);
         addTestCreator(createPyProjectTomlTest);
+        addTestCreator(createPythonInterpretersTest);
 #endif
         Core::IOptionsPage::registerCategory(
             Constants::C_PYTHON_SETTINGS_CATEGORY,

@@ -29,6 +29,10 @@
 #include <texteditor/texteditor.h>
 
 #include <utils/algorithm.h>
+
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
 #include <utils/async.h>
 #include <utils/environment.h>
 #include <utils/guiutils.h>
@@ -145,137 +149,231 @@ Interpreter PythonSettings::createInterpreter(
     return result;
 }
 
-class InterpreterDetailsWidget : public QWidget
+// The interpreters, handed to whichever renderer is drawing the page. At file
+// scope because moc does not do signals in a nested class.
+class InterpreterListAspect final : public BaseAspect
 {
     Q_OBJECT
+
 public:
-    InterpreterDetailsWidget()
+    using BaseAspect::BaseAspect;
+
+    AspectPresentation presentation() const override
     {
-        m_executable.setExpectedKind(PathChooserKind::ExistingCommand);
-        m_executable.setAllowPathFromDevice(true);
-
-        connect(&m_name, &QLineEdit::textChanged, this, &InterpreterDetailsWidget::changed);
-        connect(&m_executable, &PathChooser::textChanged, this, &InterpreterDetailsWidget::changed);
-
-        using namespace Layouting;
-
-        Form {
-            Tr::tr("Name:"), &m_name, br,
-            Tr::tr("Executable:"), &m_executable,
-            noMargin
-        }.attachTo(this);
+        AspectPresentation p = BaseAspect::presentation();
+        p.control = AspectControls::Table;
+        // Adding one takes a name and a path, which the form below asks for;
+        // the list's own Add would give a blank row.
+        p.allowAdding = false;
+        p.allowRemoving = false;
+        return p;
     }
 
-    void updateInterpreter(const Interpreter &interpreter)
+    QAbstractItemModel *tableModel() override { return &interpreterModel(); }
+
+    // Which one the details below are about. The view says so; the page reads
+    // it. -1 when nothing is picked.
+    Q_INVOKABLE void setCurrentRow(int row)
     {
-        QSignalBlocker blocker(this); // do not emit changed when we change the controls here
-        m_currentInterpreter = interpreter;
-        m_name.setText(interpreter.name);
-        m_executable.setFilePath(interpreter.command);
+        if (row == m_currentRow)
+            return;
+        const int previous = m_currentRow;
+        m_currentRow = row;
+        emit currentRowChanged(previous, row);
     }
 
-    Interpreter toInterpreter()
-    {
-        m_currentInterpreter.command = m_executable.filePath();
-        m_currentInterpreter.name = m_name.text();
-        return m_currentInterpreter;
-    }
-    QLineEdit m_name;
-    PathChooser m_executable;
-    Interpreter m_currentInterpreter;
+    int currentRow() const { return m_currentRow; }
 
 signals:
-    void changed();
+    void currentRowChanged(int previous, int current);
+
+private:
+    int m_currentRow = -1;
 };
 
-
-class InterpreterOptionsWidget : public Core::IOptionsPageWidget
+// What the Interpreters page edits. The interpreters live in
+// interpreterModel(), which the rest of the plugin reads; applying the page is
+// handing that list to PythonSettings.
+class InterpretersAspects final : public AspectContainer
 {
 public:
-    InterpreterOptionsWidget();
+    InterpretersAspects()
+    {
+        setAutoApply(false);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Python/PythonInterpretersPage.qml"));
+
+        interpreters.setQmlName("Interpreters");
+
+        add.setQmlName("Add");
+        add.setActionText(Tr::tr("&Add"));
+        add.setAction([this] {
+            interpreterModel().appendItem({QUuid::createUuid().toString(), QString("Python"),
+                                           FilePath(), DetectionSource::Manual});
+            interpreters.setCurrentRow(interpreterModel().rowCount({}) - 1);
+            updateActions();
+        });
+
+        remove.setQmlName("Remove");
+        remove.setActionText(Tr::tr("&Delete"));
+        remove.setAction([this] {
+            const int row = interpreters.currentRow();
+            if (row < 0)
+                return;
+            interpreterModel().destroyItem(interpreterModel().itemAt(row));
+            interpreters.setCurrentRow(-1);
+            updateActions();
+        });
+
+        makeDefault.setQmlName("MakeDefault");
+        makeDefault.setActionText(Tr::tr("&Make Default"));
+        makeDefault.setAction([this] {
+            const int row = interpreters.currentRow();
+            if (row < 0)
+                return;
+            const QModelIndex was = interpreterModel().findIndex(
+                [](const Interpreter &i) { return i.id == s_defaultId; });
+            s_defaultId = interpreterModel().itemAt(row)->itemData.id;
+            const QModelIndex now = interpreterModel().index(row, 0);
+            emit interpreterModel().dataChanged(now, now, {Qt::FontRole});
+            if (was.isValid())
+                emit interpreterModel().dataChanged(was, was, {Qt::FontRole});
+            updateActions();
+        });
+
+        generateKit.setQmlName("GenerateKit");
+        generateKit.setActionText(Tr::tr("&Generate Kit"));
+        generateKit.setAction([this] {
+            const int row = interpreters.currentRow();
+            if (row >= 0)
+                PythonSettings::addKitsForInterpreter(interpreterModel().itemAt(row)->itemData, true);
+            updateActions();
+        });
+
+        cleanUp.setQmlName("CleanUp");
+        cleanUp.setActionText(Tr::tr("&Clean Up"));
+        cleanUp.setToolTip(Tr::tr("Remove all Python interpreters without a valid executable."));
+        cleanUp.setAction([this] {
+            interpreterModel().destroyItems(
+                [](const Interpreter &i) { return !i.command.isExecutableFile(); });
+            interpreters.setCurrentRow(-1);
+            updateActions();
+        });
+
+        details.setQmlName("Details");
+        name.setQmlName("Name");
+        name.setLabelText(Tr::tr("Name:"));
+        name.setDisplayStyle(StringAspect::LineEditDisplay);
+        executable.setQmlName("Executable");
+        executable.setLabelText(Tr::tr("Executable:"));
+        executable.setExpectedKind(PathChooserKind::ExistingCommand);
+        executable.setAllowPathFromDevice(true);
+
+        // Behaviour, not layout.
+        connect(&interpreters, &InterpreterListAspect::currentRowChanged,
+                this, [this](int previous, int current) { showInterpreter(previous, current); });
+        name.addOnVolatileValueChanged(this, [this] { store(); });
+        executable.addOnVolatileValueChanged(this, [this] { store(); });
+        showInterpreter(-1, -1);
+    }
 
     void apply() override
     {
+        AspectContainer::apply();
+        store();
         PythonSettings::setInterpreter(interpreterModel().interpreters(), s_defaultId);
     }
 
     void cancel() override
     {
+        AspectContainer::cancel();
         interpreterModel().setInterpreters(PythonSettings::interpreters());
         s_defaultId = PythonSettings::defaultInterpreterId();
+        interpreters.setCurrentRow(-1);
     }
 
-private:
-    void currentChanged(const QModelIndex &index, const QModelIndex &previous);
-    void detailsChanged();
-    void updateCleanButton();
-    void updateGenerateKitButton(const Interpreter &interpreter);
-    void addItem();
-    void deleteItem();
-    void makeDefault();
-    void generateKit();
-    void cleanUp();
+    InterpreterListAspect interpreters{this};
+    ActionAspect add{this};
+    ActionAspect remove{this};
+    ActionAspect makeDefault{this};
+    ActionAspect generateKit{this};
+    ActionAspect cleanUp{this};
+    AspectContainer details{this};
+    StringAspect name{&details};
+    FilePathAspect executable{&details};
 
-    QTreeView m_view;
-    InterpreterDetailsWidget m_detailsWidget;
-    QPushButton m_addButton;
-    QPushButton m_deleteButton;
-    QPushButton m_makeDefaultButton;
-    QPushButton m_generateKitButton;
-    QPushButton m_cleanButton;
+private:
+    // What was on screen has already been written back - every field stores as
+    // it changes - so there is nothing to save on the way out.
+    void showInterpreter(int previous, int current)
+    {
+        Q_UNUSED(previous)
+        const bool has = current >= 0 && current < interpreterModel().rowCount({});
+        details.setVisible(has);
+        remove.setEnabled(has);
+        makeDefault.setEnabled(has);
+        // Nothing is current while the form is being filled in.
+        m_loaded = -1;
+        if (has) {
+            const Interpreter interpreter = interpreterModel().itemAt(current)->itemData;
+            name.setValue(interpreter.name);
+            executable.setValue(interpreter.command);
+        }
+        m_loaded = has ? current : -1;
+        updateActions();
+    }
+
+    void store()
+    {
+        if (m_loaded < 0)
+            return;
+        writeInto(m_loaded);
+        updateActions();
+    }
+
+    void writeInto(int row)
+    {
+        if (row < 0 || row >= interpreterModel().rowCount({}))
+            return;
+        Interpreter interpreter = interpreterModel().itemAt(row)->itemData;
+        interpreter.name = name.volatileValue();
+        interpreter.command = executable.expandedVolatileValue();
+        interpreterModel().itemAt(row)->itemData = interpreter;
+        const QModelIndex index = interpreterModel().index(row, 0);
+        emit interpreterModel().dataChanged(index, index);
+    }
+
+    void updateActions()
+    {
+        cleanUp.setEnabled(Utils::anyOf(interpreterModel().allData(), [](const Interpreter &i) {
+            return !i.command.isExecutableFile();
+        }));
+        const int row = interpreters.currentRow();
+        if (row < 0 || row >= interpreterModel().rowCount({})) {
+            generateKit.setEnabled(false);
+            return;
+        }
+        // One kit per interpreter, and only for one that can be run.
+        const Interpreter interpreter = interpreterModel().itemAt(row)->itemData;
+        generateKit.setEnabled(!KitManager::kit(Id::fromString(interpreter.id))
+                               && (!interpreter.command.isLocal()
+                                   || interpreter.command.isExecutableFile()));
+    }
+
+    // The interpreter the form is showing, and nothing while it is being
+    // filled in.
+    int m_loaded = -1;
 };
 
-InterpreterOptionsWidget::InterpreterOptionsWidget()
+QVariant InterpreterModel::data(const QModelIndex &index, int role) const
 {
-    m_addButton.setText(Tr::tr("&Add"));
+    if (role == AspectTable::EditableRole)
+        return false;
+    return ListModel<Interpreter>::data(index, role);
+}
 
-    m_deleteButton.setText(Tr::tr("&Delete"));
-    m_deleteButton.setEnabled(false);
-    m_makeDefaultButton.setText(Tr::tr("&Make Default"));
-    m_makeDefaultButton.setEnabled(false);
-    m_generateKitButton.setText(Tr::tr("&Generate Kit"));
-    m_generateKitButton.setEnabled(false);
-
-    m_cleanButton.setText(Tr::tr("&Clean Up"));
-    m_cleanButton.setToolTip(Tr::tr("Remove all Python interpreters without a valid executable."));
-
-    using namespace Layouting;
-    Row {
-        Column {
-            m_view,
-            m_detailsWidget
-        },
-        Column {
-            m_addButton,
-            m_deleteButton,
-            m_makeDefaultButton,
-            m_generateKitButton,
-            m_cleanButton,
-            st
-        }
-    }.attachTo(this);
-
-    updateCleanButton();
-
-    m_detailsWidget.hide();
-
-    m_view.setModel(&interpreterModel());
-    m_view.setHeaderHidden(true);
-    m_view.setSelectionMode(QAbstractItemView::SingleSelection);
-    m_view.setSelectionBehavior(QAbstractItemView::SelectItems);
-
-    connect(&m_addButton, &QPushButton::pressed, this, &InterpreterOptionsWidget::addItem);
-    connect(&m_deleteButton, &QPushButton::pressed, this, &InterpreterOptionsWidget::deleteItem);
-    connect(&m_makeDefaultButton, &QPushButton::pressed, this, &InterpreterOptionsWidget::makeDefault);
-    connect(&m_generateKitButton, &QPushButton::pressed, this, &InterpreterOptionsWidget::generateKit);
-    connect(&m_cleanButton, &QPushButton::pressed, this, &InterpreterOptionsWidget::cleanUp);
-
-    connect(&m_detailsWidget, &InterpreterDetailsWidget::changed,
-            this, &InterpreterOptionsWidget::detailsChanged);
-    connect(m_view.selectionModel(), &QItemSelectionModel::currentChanged,
-            this, &InterpreterOptionsWidget::currentChanged);
-
-    installMarkSettingsDirtyTriggerRecursively(this);
+QHash<int, QByteArray> InterpreterModel::roleNames() const
+{
+    return AspectTable::withRoleNames(ListModel<Interpreter>::roleNames());
 }
 
 void InterpreterModel::addInterpreter(const Interpreter &interpreter)
@@ -310,71 +408,6 @@ QList<Interpreter> InterpreterModel::interpreterFrom(const QString &detectionSou
     return allData([&detectionSource](const Interpreter &interpreter) {
         return interpreter.detectionSource.id == detectionSource;
     });
-}
-
-void InterpreterOptionsWidget::currentChanged(const QModelIndex &index, const QModelIndex &previous)
-{
-    if (previous.isValid()) {
-        interpreterModel().itemAt(previous.row())->itemData = m_detailsWidget.toInterpreter();
-        emit interpreterModel().dataChanged(previous, previous);
-    }
-    if (index.isValid()) {
-        const Interpreter interpreter = interpreterModel().itemAt(index.row())->itemData;
-        m_detailsWidget.updateInterpreter(interpreter);
-        m_detailsWidget.show();
-        updateGenerateKitButton(interpreter);
-    } else {
-        m_detailsWidget.hide();
-        m_generateKitButton.setEnabled(false);
-    }
-    m_deleteButton.setEnabled(index.isValid());
-    m_makeDefaultButton.setEnabled(index.isValid());
-}
-
-void InterpreterOptionsWidget::detailsChanged()
-{
-    const QModelIndex &index = m_view.currentIndex();
-    if (index.isValid()) {
-        const Interpreter interpreter = m_detailsWidget.toInterpreter();
-        interpreterModel().itemAt(index.row())->itemData = interpreter;
-        emit interpreterModel().dataChanged(index, index);
-        updateGenerateKitButton(interpreter);
-    }
-    updateCleanButton();
-}
-
-void InterpreterOptionsWidget::updateCleanButton()
-{
-    m_cleanButton.setEnabled(Utils::anyOf(interpreterModel().allData(), [](const Interpreter &interpreter) {
-        return !interpreter.command.isExecutableFile();
-    }));
-}
-
-void InterpreterOptionsWidget::updateGenerateKitButton(const Interpreter &interpreter)
-{
-    bool enabled = !KitManager::kit(Id::fromString(interpreter.id))
-            && (!interpreter.command.isLocal() || interpreter.command.isExecutableFile());
-    m_generateKitButton.setEnabled(enabled);
-}
-
-void InterpreterOptionsWidget::addItem()
-{
-    const QModelIndex &index = interpreterModel().indexForItem(interpreterModel().appendItem(
-        {QUuid::createUuid().toString(), QString("Python"), FilePath(), DetectionSource::Manual}));
-    QTC_ASSERT(index.isValid(), return);
-    m_view.setCurrentIndex(index);
-    updateCleanButton();
-    markSettingsDirty();
-}
-
-void InterpreterOptionsWidget::deleteItem()
-{
-    const QModelIndex &index = m_view.currentIndex();
-    if (index.isValid()) {
-        interpreterModel().destroyItem(interpreterModel().itemAt(index.row()));
-        markSettingsDirty();
-    }
-    updateCleanButton();
 }
 
 static const QStringList &plugins()
@@ -539,38 +572,6 @@ static PyLSOptionsPage &pylspOptionsPage()
 {
     static PyLSOptionsPage page;
     return page;
-}
-
-void InterpreterOptionsWidget::makeDefault()
-{
-    const QModelIndex &index = m_view.currentIndex();
-    if (index.isValid()) {
-        QModelIndex defaultIndex = interpreterModel().findIndex([](const Interpreter &interpreter) {
-            return interpreter.id == s_defaultId;
-        });
-        s_defaultId = interpreterModel().itemAt(index.row())->itemData.id;
-        emit interpreterModel().dataChanged(index, index, {Qt::FontRole});
-        if (defaultIndex.isValid())
-            emit interpreterModel().dataChanged(defaultIndex, defaultIndex, {Qt::FontRole});
-        if (!defaultIndex.isValid() || defaultIndex != index)
-            markSettingsDirty();
-    }
-}
-
-void InterpreterOptionsWidget::generateKit()
-{
-    const QModelIndex &index = m_view.currentIndex();
-    if (index.isValid())
-        PythonSettings::addKitsForInterpreter(interpreterModel().itemAt(index.row())->itemData, true);
-    m_generateKitButton.setEnabled(false);
-}
-
-void InterpreterOptionsWidget::cleanUp()
-{
-    interpreterModel().destroyItems(
-        [](const Interpreter &interpreter) { return !interpreter.command.isExecutableFile(); });
-    updateCleanButton();
-    markSettingsDirty();
 }
 
 constexpr char settingsGroupKey[] = "Python";
@@ -1319,6 +1320,147 @@ Interpreter PythonSettings::interpreter(const QString &interpreterId)
                                 Utils::equal(&Interpreter::id, interpreterId));
 }
 
+#ifdef WITH_TESTS
+
+// The interpreters lived in a QTreeView's selection and a details widget that
+// was shown and hidden, so which one was being edited could only be read back
+// out of widgets.
+
+class PythonInterpretersTest : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void init() { m_original = PythonSettings::interpreters(); }
+    void cleanup()
+    {
+        if (InterpretersAspects *p = page())
+            static_cast<BaseAspect *>(p)->cancel();
+        PythonSettings::setInterpreter(m_original, PythonSettings::defaultInterpreterId());
+    }
+
+    void testNoInterpreterIsShownUntilOneIsPicked();
+    void testEditingAFieldUpdatesTheInterpreter();
+    void testShowingOneDoesNotWriteTheLastOneIntoIt();
+    void testCleanUpOnlyOffersWhenThereIsSomethingToRemove();
+    void testApplyingHandsTheListOver();
+
+private:
+    QList<Interpreter> m_original;
+
+    static InterpretersAspects *page()
+    {
+        Core::IOptionsPage *found = Utils::findOrDefault(
+            Core::IOptionsPage::allOptionsPages(), [](Core::IOptionsPage *p) {
+                return p->id() == Constants::C_PYTHONOPTIONS_PAGE_ID;
+            });
+        if (!found)
+            return nullptr;
+        const std::optional<AspectContainer *> aspects = found->aspects();
+        return aspects ? static_cast<InterpretersAspects *>(*aspects) : nullptr;
+    }
+};
+
+void PythonInterpretersTest::testNoInterpreterIsShownUntilOneIsPicked()
+{
+    InterpretersAspects *p = page();
+    QVERIFY(p);
+    p->interpreters.setCurrentRow(-1);
+    QVERIFY(!p->details.isVisible());
+    QVERIFY(!p->remove.isEnabled());
+    QVERIFY(!p->makeDefault.isEnabled());
+    QVERIFY(!p->generateKit.isEnabled());
+
+    p->add.triggerAction();
+    QVERIFY(p->interpreters.currentRow() >= 0);
+    QVERIFY(p->details.isVisible());
+    QCOMPARE(p->name.volatileValue(), QString("Python"));
+    QVERIFY(p->remove.isEnabled());
+    QVERIFY(p->makeDefault.isEnabled());
+
+    p->remove.triggerAction();
+    QVERIFY(!p->details.isVisible());
+}
+
+void PythonInterpretersTest::testEditingAFieldUpdatesTheInterpreter()
+{
+    InterpretersAspects *p = page();
+    QVERIFY(p);
+    p->add.triggerAction();
+    const int row = p->interpreters.currentRow();
+    QVERIFY(row >= 0);
+
+    // Each field on its own: they store through the same call, so setting both
+    // before looking would let either one carry the other.
+    p->name.setVolatileValue(QString("Renamed"));
+    QCOMPARE(interpreterModel().itemAt(row)->itemData.name, QString("Renamed"));
+    p->executable.setVolatileValue(QString("/usr/bin/python3"));
+    QCOMPARE(interpreterModel().itemAt(row)->itemData.command,
+             FilePath::fromString("/usr/bin/python3"));
+
+    p->remove.triggerAction();
+}
+
+void PythonInterpretersTest::testShowingOneDoesNotWriteTheLastOneIntoIt()
+{
+    InterpretersAspects *p = page();
+    QVERIFY(p);
+    p->add.triggerAction();
+    const int first = p->interpreters.currentRow();
+    p->name.setVolatileValue(QString("First"));
+    p->add.triggerAction();
+    const int second = p->interpreters.currentRow();
+    QVERIFY(second != first);
+    p->name.setVolatileValue(QString("Second"));
+
+    // Going back and forth must leave each one as it was: loading fills the
+    // form field by field, which looks exactly like the user typing.
+    p->interpreters.setCurrentRow(first);
+    QCOMPARE(p->name.volatileValue(), QString("First"));
+    p->interpreters.setCurrentRow(second);
+    QCOMPARE(p->name.volatileValue(), QString("Second"));
+    QCOMPARE(interpreterModel().itemAt(first)->itemData.name, QString("First"));
+    QCOMPARE(interpreterModel().itemAt(second)->itemData.name, QString("Second"));
+}
+
+void PythonInterpretersTest::testCleanUpOnlyOffersWhenThereIsSomethingToRemove()
+{
+    InterpretersAspects *p = page();
+    QVERIFY(p);
+    // One that names nothing runnable is exactly what Clean Up is for.
+    p->add.triggerAction();
+    const int row = p->interpreters.currentRow();
+    p->executable.setVolatileValue(QString("/nowhere/python"));
+    QVERIFY(p->cleanUp.isEnabled());
+
+    const int before = interpreterModel().rowCount({});
+    p->cleanUp.triggerAction();
+    QVERIFY(interpreterModel().rowCount({}) < before);
+    QVERIFY(!p->details.isVisible());
+    Q_UNUSED(row)
+}
+
+void PythonInterpretersTest::testApplyingHandsTheListOver()
+{
+    InterpretersAspects *p = page();
+    QVERIFY(p);
+    p->add.triggerAction();
+    p->name.setVolatileValue(QString("Applied"));
+
+    static_cast<BaseAspect *>(p)->apply();
+
+    QVERIFY2(Utils::anyOf(PythonSettings::interpreters(),
+                          [](const Interpreter &i) { return i.name == "Applied"; }),
+             "the interpreter did not reach PythonSettings");
+}
+
+QObject *createPythonInterpretersTest()
+{
+    return new PythonInterpretersTest;
+}
+
+#endif // WITH_TESTS
+
 void setupPythonSettings()
 {
     static GuardedObject thePythonSettings{new PythonSettings};
@@ -1334,7 +1476,10 @@ public:
         setId(Constants::C_PYTHONOPTIONS_PAGE_ID);
         setDisplayName(Tr::tr("Interpreters"));
         setCategory(Constants::C_PYTHON_SETTINGS_CATEGORY);
-        setWidgetCreator([] { return new InterpreterOptionsWidget; });
+        setSettingsProvider([] {
+            static GuardedObject<InterpretersAspects> theAspects;
+            return theAspects.get();
+        });
         setFixedKeywords({
             Tr::tr("Name:"),
             Tr::tr("Executable:"),
@@ -1353,3 +1498,4 @@ static InterpreterOptionsPage page;
 } // Python::Internal
 
 #include "pythonsettings.moc"
+
