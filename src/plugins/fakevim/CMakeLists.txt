@@ -36,5 +36,6 @@ if(TARGET FakeVim AND TARGET Qt::Quick)
     NO_PLUGIN
     QML_FILES
       FakeVimSettingsPage.qml
+      FakeVimUserCommandsPage.qml
   )
 endif()

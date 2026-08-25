@@ -56,6 +56,11 @@
 #include <utils/aggregate.h>
 #include <utils/algorithm.h>
 #include <utils/aspects.h>
+#include <utils/shutdownguard.h>
+
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
 #include <utils/environment.h>
 #include <utils/fancylineedit.h>
 #include <utils/guiutils.h>
@@ -806,7 +811,11 @@ const FakeVimExCommandsPage exCommandPage;
 class FakeVimUserCommandsModel : public QAbstractTableModel
 {
 public:
-    FakeVimUserCommandsModel() { m_commandMap = dd->m_userCommandMap; }
+    explicit FakeVimUserCommandsModel(QObject *parent = nullptr)
+        : QAbstractTableModel(parent)
+    {
+        m_commandMap = dd->m_userCommandMap;
+    }
 
     UserCommandMap commandMap() const { return m_commandMap; }
     int rowCount(const QModelIndex &parent) const final { return parent.isValid() ? 0 : 9; }
@@ -815,6 +824,10 @@ public:
     bool setData(const QModelIndex &index, const QVariant &data, int role) final;
     QVariant headerData(int section, Qt::Orientation orientation, int role) const final;
     Qt::ItemFlags flags(const QModelIndex &index) const final;
+    QHash<int, QByteArray> roleNames() const final
+    {
+        return AspectTable::withRoleNames(QAbstractTableModel::roleNames());
+    }
 
 private:
     UserCommandMap m_commandMap;
@@ -839,85 +852,147 @@ Qt::ItemFlags FakeVimUserCommandsModel::flags(const QModelIndex &index) const
     return QAbstractTableModel::flags(index);
 }
 
-class FakeVimUserCommandsDelegate final : public QItemDelegate
+// What the User Command Mapping page edits: nine commands, numbered, each a
+// line of Vim. The model is the page's, so it outlives the form.
+class FakeVimUserCommandsAspect final : public AspectContainer
 {
 public:
-    FakeVimUserCommandsDelegate() = default;
-
-    QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &,
-                          const QModelIndex &) const final
+    FakeVimUserCommandsAspect()
     {
-        auto lineEdit = new QLineEdit(parent);
-        lineEdit->setFrame(false);
-        return lineEdit;
+        setAutoApply(false);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/FakeVim/FakeVimUserCommandsPage.qml"));
+        commands.setQmlName("Commands");
     }
 
-    void setModelData(QWidget *editor, QAbstractItemModel *model,
-                      const QModelIndex &index) const final
+    void apply() override
     {
-        auto lineEdit = qobject_cast<QLineEdit *>(editor);
-        QTC_ASSERT(lineEdit, return);
-        model->setData(index, lineEdit->text(), Qt::EditRole);
+        AspectContainer::apply();
+        const UserCommandMap &current = commands.commandMap();
+        UserCommandMap &userMap = dd->m_userCommandMap;
+        if (current == userMap)
+            return;
+
+        QtcSettings *settings = ICore::settings();
+        settings->beginWriteArray(userCommandMapGroup);
+        int count = 0;
+        for (auto it = current.constBegin(), end = current.constEnd(); it != end; ++it) {
+            const int key = it.key();
+            const QString cmd = it.value();
+            const bool changed = dd->m_defaultUserCommandMap.contains(key)
+                                     ? dd->m_defaultUserCommandMap[key] != cmd
+                                     : !cmd.isEmpty();
+            if (changed) {
+                settings->setArrayIndex(count);
+                settings->setValue(idKey, key);
+                settings->setValue(cmdKey, cmd);
+                ++count;
+            }
+        }
+        settings->endArray();
+        userMap.clear();
+        userMap.insert(dd->m_defaultUserCommandMap);
+        userMap.insert(current);
     }
+
+    bool isDirty() const override
+    {
+        return AspectContainer::isDirty() || commands.commandMap() != dd->m_userCommandMap;
+    }
+
+    // The rows, handed to whichever renderer is drawing the page.
+    class CommandsAspect final : public BaseAspect
+    {
+    public:
+        using BaseAspect::BaseAspect;
+
+        AspectPresentation presentation() const override
+        {
+            AspectPresentation p = BaseAspect::presentation();
+            p.control = AspectControls::Table;
+            // Nine of them, always: they are numbered slots, not a list.
+            p.allowAdding = false;
+            p.allowRemoving = false;
+            return p;
+        }
+
+        QAbstractItemModel *tableModel() override { return &m_model; }
+        UserCommandMap commandMap() const { return m_model.commandMap(); }
+
+    private:
+        // Parented: a model handed to QML with no parent belongs to the engine.
+        FakeVimUserCommandsModel m_model{this};
+    };
+
+    CommandsAspect commands{this};
 };
 
-class FakeVimUserCommandsPageWidget final : public IOptionsPageWidget
+#ifdef WITH_TESTS
+
+// The commands lived in a QTreeView with an item delegate, so what the page
+// held could only be read back out of widgets.
+class FakeVimUserCommandsTest : public QObject
 {
-public:
-    FakeVimUserCommandsPageWidget()
-    {
-        m_view.setModel(&m_model);
-        m_view.resizeColumnToContents(0);
-        m_view.setItemDelegateForColumn(1, &m_delegate);
+    Q_OBJECT
 
-        using namespace Layouting;
-        Column { m_view }.attachTo(this);
-
-        connect(&m_model, &QAbstractItemModel::dataChanged, checkSettingsDirty);
-    }
+private slots:
+    void testTheCommandsAreNumberedSlots();
+    void testEditingACommandIsSomethingToApply();
 
 private:
-    void apply() final
+    static FakeVimUserCommandsAspect *page()
     {
-        // now save the mappings if necessary
-        const UserCommandMap &current = m_model.commandMap();
-        UserCommandMap &userMap = dd->m_userCommandMap;
-
-        if (current != userMap) {
-            QtcSettings *settings = ICore::settings();
-            settings->beginWriteArray(userCommandMapGroup);
-            int count = 0;
-            using Iterator = UserCommandMap::const_iterator;
-            const Iterator end = current.constEnd();
-            for (Iterator it = current.constBegin(); it != end; ++it) {
-                const int key = it.key();
-                const QString cmd = it.value();
-
-                if ((dd->m_defaultUserCommandMap.contains(key)
-                     && dd->m_defaultUserCommandMap[key] != cmd)
-                        || (!dd->m_defaultUserCommandMap.contains(key) && !cmd.isEmpty())) {
-                    settings->setArrayIndex(count);
-                    settings->setValue(idKey, key);
-                    settings->setValue(cmdKey, cmd);
-                    ++count;
-                }
-            }
-            settings->endArray();
-            userMap.clear();
-            userMap.insert(dd->m_defaultUserCommandMap);
-            userMap.insert(current);
-        }
+        Core::IOptionsPage *found = Utils::findOrDefault(
+            Core::IOptionsPage::allOptionsPages(),
+            [](Core::IOptionsPage *p) { return p->id() == SETTINGS_USER_CMDS_ID; });
+        if (!found)
+            return nullptr;
+        const std::optional<AspectContainer *> aspects = found->aspects();
+        return aspects ? static_cast<FakeVimUserCommandsAspect *>(*aspects) : nullptr;
     }
-
-    bool isDirty() const final
-    {
-        return m_model.commandMap() != dd->m_userCommandMap;
-    }
-
-    FakeVimUserCommandsModel m_model;
-    FakeVimUserCommandsDelegate m_delegate;
-    QTreeView m_view;
 };
+
+void FakeVimUserCommandsTest::testTheCommandsAreNumberedSlots()
+{
+    FakeVimUserCommandsAspect *p = page();
+    QVERIFY(p);
+    QAbstractItemModel *model = p->commands.tableModel();
+    QVERIFY(model);
+
+    // Nine of them, always: they are slots to fill in, not a list to add to.
+    QCOMPARE(model->rowCount({}), 9);
+    QCOMPARE(model->columnCount({}), 2);
+    QVERIFY(!p->commands.presentation().allowAdding);
+    QVERIFY(!p->commands.presentation().allowRemoving);
+
+    // The action names them and cannot be changed; the command is the user's.
+    QCOMPARE(model->index(0, 0).data().toString(), Tr::tr("User command #%1").arg(1));
+    QVERIFY(!model->index(0, 0).data(AspectTable::EditableRole).toBool());
+    QVERIFY(model->index(0, 1).data(AspectTable::EditableRole).toBool());
+}
+
+void FakeVimUserCommandsTest::testEditingACommandIsSomethingToApply()
+{
+    FakeVimUserCommandsAspect *p = page();
+    QVERIFY(p);
+    QAbstractItemModel *model = p->commands.tableModel();
+    const QString before = model->index(2, 1).data().toString();
+
+    QVERIFY(!static_cast<BaseAspect *>(p)->isDirty());
+    QVERIFY(model->setData(model->index(2, 1), QString(":wq")));
+    QCOMPARE(model->index(2, 1).data().toString(), QString(":wq"));
+    // The commands are not an aspect's value, so nothing else notices them.
+    QVERIFY(static_cast<BaseAspect *>(p)->isDirty());
+
+    QVERIFY(model->setData(model->index(2, 1), before));
+    QVERIFY(!static_cast<BaseAspect *>(p)->isDirty());
+}
+
+QObject *createFakeVimUserCommandsTest()
+{
+    return new FakeVimUserCommandsTest;
+}
+
+#endif // WITH_TESTS
 
 class FakeVimUserCommandsPage : public IOptionsPage
 {
@@ -927,7 +1002,10 @@ public:
         setId(SETTINGS_USER_CMDS_ID);
         setDisplayName(Tr::tr("User Command Mapping"));
         setCategory(SETTINGS_CATEGORY);
-        setWidgetCreator([] { return new FakeVimUserCommandsPageWidget; });
+        setSettingsProvider([] {
+            static GuardedObject<FakeVimUserCommandsAspect> theAspects;
+            return theAspects.get();
+        });
     }
 };
 
@@ -1104,6 +1182,10 @@ QVariant FakeVimUserCommandsModel::data(const QModelIndex &index, int role) cons
         }
     }
 
+    // A Qt Quick view cannot read flags(), so the model answers both.
+    if (role == AspectTable::EditableRole)
+        return AspectTable::isWritable(flags(index));
+
     return QVariant();
 }
 
@@ -1168,6 +1250,7 @@ FakeVimPlugin::FakeVimPlugin()
 
 #ifdef WITH_TESTS
     addTestCreator([] { return createFakeVimTester(&setupTest); });
+    addTestCreator(createFakeVimUserCommandsTest);
 #endif
 
     m_defaultExCommandMap[CppEditor::Constants::SWITCH_HEADER_SOURCE] = "^A$";
