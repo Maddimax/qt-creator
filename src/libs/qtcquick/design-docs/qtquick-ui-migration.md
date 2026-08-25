@@ -1467,6 +1467,35 @@ the value. The toolchain one lost its hand-built `QGridLayout`: each of its
 lists carries its own label now, so the grid is what they land in rather than
 something built around them.
 
+**Sixteen of the eighteen describe themselves now.** The five that were left
+after the base moved were all a control that already existed: the sysroot is a
+`FilePathAspect`, the mkspec a `StringAspect`, and qbs properties, the CMake
+generator and the CMake configuration are each a summary of a value edited in
+a dialog plus the one button that opens it - which is what `TextWithAction` is
+for. `ActionAspect` grew a summary provider and answers `TextWithAction` when
+it has one and `Button` when it does not, the same way `SelectionAspect`
+chooses between a combo box and radio buttons.
+
+`KitAspectControl<T>` is what made that cheap: any aspect, plus the row's own
+"Mark as Mutable", so a kit aspect writes `addControl<FilePathAspect>()` and
+gets a control that both renderers draw and that carries the right-click.
+
+Only **Environment** is still drawing entirely in widgets - two buttons and a
+check box in one row - and MCU Dependencies, which deliberately draws nothing.
+
+**Saying what control you want is not the same as a renderer having a case for
+it.** The widget renderer had no `TextWithAction` case at all: the five aspects
+that used it each built their own label and button in `addToLayoutImpl`, so the
+gap was invisible. The three kit rows converted to it drew a label and nothing
+else, and every test that read the descriptor was green. What said so was a
+`QTC_CHECK` in the running application - three soft asserts on
+`renderAspect()`, one per row - and looking at the page.
+
+So the test builds each row's widgets and asks whether anything on it can be
+clicked or typed into. That is the assertion the descriptor-level ones could
+not make, and it bites when the renderer case is removed. The renderer has the
+case now, which the five hand-built ones can drop into later.
+
 **Two things travelled in the model and would have been lost silently.**
 
 - **Icons.** The device types are told apart by a picture as much as by a name,
@@ -1725,9 +1754,9 @@ remembered:
   not move until every one of them did, because a Qt Quick page cannot host a
   `QWidget` for the ones that have not. Qt Versions' extension point moved in a
   single batch because it had exactly one implementation; this one took four.
-- **Kits** - the same shape with **16 `KitAspect` implementations**. The base
-  is converted: every kit aspect is an inline-row container whose list is a
-  `SelectionAspect`. The ten that draw their own widgets are what is left.
+- **Kits** - the same shape with **16 `KitAspect` implementations**. Sixteen of
+  the eighteen rows describe themselves; only Environment still draws in
+  widgets. The page itself is what is left.
 - **Devices** - **13 `IDeviceWidget` implementations**.
 - **BareMetal's Debug Server Providers** - **30 config-widget classes**, all of
   them for hardware this machine does not have.
