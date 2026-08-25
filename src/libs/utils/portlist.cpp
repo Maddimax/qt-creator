@@ -243,11 +243,6 @@ PortListAspect::PortListAspect(AspectContainer *container)
     });
 }
 
-void PortListAspect::addToLayoutImpl(Layouting::Layout &parent)
-{
-    StringAspect::addToLayoutImpl(parent);
-}
-
 void PortListAspect::setPortList(const PortList &ports)
 {
     setValue(ports.toString());

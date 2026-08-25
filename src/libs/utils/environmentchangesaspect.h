@@ -36,8 +36,6 @@ private:
     {
         setDefaultValue(EnvironmentChanges::createFromVariant(value));
     }
-
-    void addToLayoutImpl(Layouting::Layout &parent) override;
 };
 
 } // namespace Utils

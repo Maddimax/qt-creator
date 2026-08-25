@@ -7,6 +7,7 @@
 #include <utils/aspectwidgetrenderer.h>
 #include <utils/elidinglabel.h>
 #include <utils/fancylineedit.h>
+#include <utils/environmentchangesaspect.h>
 #include <utils/groupedlistaspect.h>
 #include <utils/groupedmodel.h>
 #include <utils/infolabel.h>
@@ -193,6 +194,8 @@ private slots:
     void containerWithNoBoxOfItsOwn();
     void checkBoxWithALabelOfItsOwn_data() { addRendererRows(); }
     void checkBoxWithALabelOfItsOwn();
+    void environmentChangesReadAsASummary_data() { addRendererRows(); }
+    void environmentChangesReadAsASummary();
 };
 
 void tst_AspectRenderer::initTestCase()
@@ -1754,6 +1757,57 @@ void tst_AspectRenderer::checkBoxWithALabelOfItsOwn()
     // And it is still a check box.
     box->click();
     QVERIFY(!aspect.volatileValue());
+}
+
+void tst_AspectRenderer::environmentChangesReadAsASummary()
+{
+    QFETCH(bool, withRenderer);
+    setRendererInstalled(withRenderer);
+
+    // The real aspect, not a stand-in: its closure built the same summary and
+    // the same button that TextWithAction does, and what is worth checking is
+    // that deleting it left the row saying the same thing.
+    EnvironmentChangesAspect aspect;
+    aspect.setLabelText("Environment:");
+    // So that the volatile value and the applied one can differ: on a page
+    // with Apply and Cancel the summary has to show what is about to be
+    // applied, not what already was.
+    aspect.setAutoApply(false);
+    aspect.setValue(EnvironmentChanges(
+        {EnvironmentItem("PATH", "/usr/bin"), EnvironmentItem("TERM", "dumb")}));
+
+    const std::unique_ptr<QWidget> widget = render(aspect);
+    QVERIFY(widget);
+    auto summary = widget->findChild<ElidingLabel *>();
+    if (!withRenderer) {
+        QVERIFY(!summary);
+        return;
+    }
+
+    QVERIFY(summary);
+    QCOMPARE(summary->text(), aspect.displayText());
+    QVERIFY2(summary->text().contains("PATH"), qPrintable(summary->text()));
+    // Elided rather than wrapped: a list of changes is as long as it is, and
+    // the row it sits in is one row.
+    QCOMPARE(summary->elideMode(), Qt::ElideRight);
+
+    // The summary follows the value, which is what the closure's own
+    // connection did - and it is the volatile one it follows.
+    aspect.setVolatileValue(EnvironmentChanges({EnvironmentItem("LANG", "C")}));
+    QCOMPARE(summary->text(), aspect.displayText());
+    QVERIFY2(summary->text().contains("LANG"), qPrintable(summary->text()));
+    QVERIFY2(!summary->text().contains("PATH"), qPrintable(summary->text()));
+    QCOMPARE(aspect.value().itemsFromUser().size(), 2);
+
+    // And the dialog is still one button away. Clicking it is not something a
+    // test can do - it is modal - so this is as far as it goes.
+    QPushButton *button = nullptr;
+    for (QPushButton * const b : widget->findChildren<QPushButton *>()) {
+        if (!b->text().isEmpty())
+            button = b;
+    }
+    QVERIFY(button);
+    QCOMPARE(button->text(), aspect.presentation().actionText);
 }
 
 void tst_AspectRenderer::filePathLiveReconfiguration()

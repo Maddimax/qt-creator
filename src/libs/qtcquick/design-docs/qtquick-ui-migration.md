@@ -2166,7 +2166,7 @@ version of it passed against a build with the guard removed, which is the only
 reason it was rewritten.
 
 **What this does not do.** The virtual has to stay: six aspects in
-`src/plugins` and five more in Utils still override it. They are not one
+`src/plugins` and three more in Utils still override it. They are not one
 group. Most are run-configuration, build-step and kit aspects - project
 panels rather than preferences pages, which is a surface the migration has not
 reached. There were six more on pages that *have* been migrated,
@@ -2787,6 +2787,37 @@ The negative control cannot be on the deletion: nothing can prove a no-op
 bites. It is on what the deletion now depends on - take the `br` out of the
 group's layouter and the two tools collapse into one row, which the assertion
 catches. So the row break has one owner, and the test says which.
+
+### The two in Utils that described themselves and drew themselves anyway
+
+`EnvironmentChangesAspect` said `TextWithAction` and kept a closure that built
+an `ElidingLabel` set to `ElideRight` with an Expanding size policy, a
+**Change...** button set to Maximum, `createLabel()` with `addEmpty == false`,
+and a connection keeping the label in step with the value. That is
+`renderTextWithAction()` line for line - written twice, once in Utils and once
+in Utils. The closure is gone.
+
+`PortListAspect::addToLayoutImpl()` was
+
+    StringAspect::addToLayoutImpl(parent);
+
+and nothing else. An override that calls the thing it overrides is a comment
+that the compiler enforces, and `StringAspect` has not had a body of its own
+since the base learned to render itself.
+
+**The test uses the real aspect.** The generic `TextWithAction` path already
+has one - `tst_AspectRenderer::textWithAction()`, written for a stand-in when
+the MIME types and the diagnostic configuration moved onto it. What that test
+cannot say is whether *this* aspect still says the same thing, which is the
+only question a deletion raises. So `environmentChangesReadAsASummary()`
+renders an `EnvironmentChangesAspect` and reads the summary off it.
+
+**And it had to be told to have two values.** The first version's control -
+make `displayText()` read the applied value rather than the volatile one -
+could not fail, because an aspect with no container auto-applies, so the two
+are never different. `setAutoApply(false)` is what makes "the summary shows
+what is about to be applied" a claim rather than a tautology. Same trap as the
+MIME types test, one page up.
 
 ### What the census could not see, and now can
 

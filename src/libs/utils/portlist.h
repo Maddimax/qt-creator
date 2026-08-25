@@ -64,7 +64,6 @@ class QTCREATOR_UTILS_EXPORT PortListAspect : public Utils::StringAspect
 public:
     PortListAspect(Utils::AspectContainer *container = nullptr);
 
-    void addToLayoutImpl(Layouting::Layout &parent) override;
 
     void setPortList(const PortList &ports);
     PortList portList() const;
