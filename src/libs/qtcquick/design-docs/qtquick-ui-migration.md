@@ -1276,8 +1276,8 @@ method, and the manual-run dialog builds a widget from it too, so the page
 naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
-all`, minus `QmlDesigner` and `UpdateInfo`, see below): **91 aspect-driven
-pages, all 91 with their own QML and rendered with Qt Quick, none still on
+all`, minus `QmlDesigner` and `UpdateInfo`, see below): **92 aspect-driven
+pages, all 92 with their own QML and rendered with Qt Quick, none still on
 widgets.** Gerrit is the first of the widget-creator pages below to have joined
 that count: it became aspect-driven and then got a form, which is the shape the
 rest of them take.
@@ -1351,7 +1351,7 @@ pages that hand over an `AspectContainer` through `setSettingsProvider()`.
 A page that calls `IOptionsPage::setWidgetCreator()` builds its own
 `IOptionsPageWidget` and answers nothing from `aspects()`, so the test skips it
 entirely: `isFullyRenderable()` is never asked and the page is not in the 73.
-There are **22 such call sites in 21 files** - Keyboard, Locator, MIME Types,
+There are **21 such call sites in 20 files** - Keyboard, Locator, MIME Types,
 the toolchain, kit and device pages, Beautifier's three, Clangd, Axivion - and
 they are pure QtWidgets from top to bottom. Counted with
 
@@ -1359,8 +1359,9 @@ they are pure QtWidgets from top to bottom. Counted with
 
 minus the mode files, which are `IMode::setWidgetCreator()` and a different
 thing - `debuggerplugin.cpp` is one of those, not a page. Gerrit, To-Do, GitLab, Beautifier's three, Clangd, Debuggers, FakeVim's User
-Command Mapping, MIME Types, Python's Interpreters, qbs Profiles and the Meson,
-GN and CMake Tools pages went this way; converting any of them took an
+Command Mapping and Ex Command Mapping, MIME Types, Python's Interpreters, qbs
+Profiles and the Meson, GN and CMake Tools pages went this way; converting any
+of them took an
 `AspectContainer` that reads the plugin's own settings struct when the page is
 built and writes it back on apply, which is the same shape the Code Style pages
 use and needs no change to what the rest of the plugin reads.
@@ -1460,8 +1461,10 @@ same shape in the pages that are left.
 ever does anything. Python wrote each field as it changed *and* wrote the whole
 form back when the selection moved on; CMake had a `m_loading` bool beside a
 cleared id; Beautifier's `reload()` remembered a selection every caller
-overwrote. Each was found the same way, by a negative control that stayed
-green. Aim one at both halves before copying the pair across.
+overwrote. FakeVim's Ex Command Mapping made four.
+Each was found the same way, by a negative control that stayed green. Aim one
+at both halves before copying the pair across - by now the safe assumption is
+that the second one is dead.
 
 **The guard that guards nothing.** All three ported pages load a tool into a
 form and store what the user types, and all three carried *two* flags for it -
@@ -1535,6 +1538,20 @@ page is out of date.
 it.** Nobody looks for a MIME type by its name; they type `*.cpp`. The glob
 patterns are not a column, so `AspectTable::FilterTextRole` is how a model adds
 text a row should be found by.
+
+`TreeDelegate` grew a filter and a current row for FakeVim's Ex Command
+Mapping, which is a tree of everything Qt Creator can do - unusable without
+one. Filtering a tree is not filtering a list: keeping only the top-level rows
+that match hides the branch holding what was looked for, so `TreeFilterModel`
+keeps a branch whose children match.
+
+That page was built on `Core::CommandMappings`, which the **Keyboard** page
+also uses, so it looked like another shared widget holding two pages. It was
+not: what the two have in common is a tree of commands and a filter, which the
+delegate now provides, and the rest of `CommandMappings` is import/export
+buttons the FakeVim page turned off. Keyboard still needs a key-sequence
+capture control, and nothing about `CommandMappings` was worth carrying over
+for it.
 
 qbs Profiles is the first `TreeDelegate` page, and it found the limit that
 decides the shape: **a Qt Quick `TreeView` has no root index.** The widget page
