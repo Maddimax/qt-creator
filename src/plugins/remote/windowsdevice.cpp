@@ -8,6 +8,7 @@
 #include "remotelinuxtr.h"
 #include "sshconnectionsharing.h"
 #include "sshdevicewizard.h"
+#include "sshkeycreation.h"
 #include "sshkeycreationdialog.h"
 #include "windowsdevicetester.h"
 
@@ -1366,6 +1367,7 @@ WindowsDevice::WindowsDevice()
     : d(new WindowsDevicePrivate(this))
 {
     setupId(IDevice::ManuallyAdded, Utils::Id());
+    Internal::setupSshKeyCreation(sshParametersAspectContainer());
     setDisplayType(Tr::tr("Remote Windows"));
     setOsType(OsTypeWindows);
     setDefaultDisplayName(Tr::tr("Remote Windows Device"));
@@ -1524,7 +1526,6 @@ public:
     explicit WindowsDeviceConfigurationWidget(const IDevicePtr &device);
 
 private:
-    void createNewKey();
     void updateDeviceFromUi() override {}
 };
 
@@ -1604,7 +1605,6 @@ WindowsDeviceConfigurationWidget::WindowsDeviceConfigurationWidget(const IDevice
     auto windowsDevice = std::dynamic_pointer_cast<WindowsDevice>(device);
     QTC_ASSERT(windowsDevice, return);
 
-    auto createKeyButton = new QPushButton(Tr::tr("Create New..."));
     SshParametersAspectContainer &ssh = device->sshParametersAspectContainer();
 
     using namespace Layouting;
@@ -1614,7 +1614,7 @@ WindowsDeviceConfigurationWidget::WindowsDeviceConfigurationWidget(const IDevice
         ssh.timeout, st, br,
         ssh.userName, st, br,
         ssh.useKeyFile, st, br,
-        ssh.privateKeyFile, createKeyButton, br,
+        ssh.privateKeyFile, ssh.createKey, br,
         windowsDevice->autoConnectOnStartup, br,
         windowsDevice->cdbExtensionDirectory, br,
         device->runToolsGroup, br,
@@ -1623,17 +1623,8 @@ WindowsDeviceConfigurationWidget::WindowsDeviceConfigurationWidget(const IDevice
     }.attachTo(this);
     // clang-format on
 
-    connect(createKeyButton, &QAbstractButton::clicked,
-            this, &WindowsDeviceConfigurationWidget::createNewKey);
     connect(device.get(), &AspectContainer::volatileValueChanged, this, &checkSettingsDirty);
     connect(&ssh, &AspectContainer::volatileValueChanged, this, &checkSettingsDirty);
-}
-
-void WindowsDeviceConfigurationWidget::createNewKey()
-{
-    SshKeyCreationDialog dialog(this);
-    if (dialog.exec() == QDialog::Accepted)
-        device()->sshParametersAspectContainer().privateKeyFile.setValue(dialog.privateKeyFilePath());
 }
 
 IDeviceWidget *WindowsDevice::createWidget()

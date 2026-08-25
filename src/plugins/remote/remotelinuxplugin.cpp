@@ -11,6 +11,7 @@
 #include "remotelinuxrunconfiguration.h"
 #include "remotelinuxtr.h"
 #include "sshconnectionsharing.h"
+#include "sshkeycreation.h"
 #include "tarpackagecreationstep.h"
 #include "tarpackagedeploystep.h"
 #include "windowsdevice.h"
@@ -77,6 +78,7 @@ public:
         setupKillAppStep();
 
 #ifdef WITH_TESTS
+        addTestCreator(createSshKeyCreationTest);
         addTest<AccessViaTest>();
         addTest<FileSystemAccessTest>();
         addTest<WindowsDeviceDetectionTest>();

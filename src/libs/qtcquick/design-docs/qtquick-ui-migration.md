@@ -1728,6 +1728,27 @@ them, and the groups packed two-across into the form with a horizontal
 scrollbar. Nothing failed - it was only visible by opening the page and
 comparing it with the screenshot from before.
 
+### The last two widgets in a device form
+
+Linux and Windows each built the same `QPushButton` labelled "Create New..."
+and wired it to the same `SshKeyCreationDialog`, and Linux and Desktop each
+worked out "Physical Device" or "Emulator" from `machineType()` and drew that
+row themselves - Desktop only ever saying "Physical Device", because that was
+all it expected to be.
+
+Both are aspects now. `IDevice::machineTypeDisplay` follows `setMachineType()`,
+so a device says what kind of machine it is once. The key button is
+`SshParametersAspectContainer::createKey`, which is interesting for where it
+had to be split: the *descriptor* belongs with the SSH settings in
+ProjectExplorer, but the dialog that makes a key is the remote plugin's. So the
+offer starts invisible and `Remote::Internal::setupSshKeyCreation()` installs
+the action and shows it - a container with no plugin behind it offers nothing,
+rather than a button that asserts when pressed.
+
+With that, **no device widget contains a `new` anything.** All four are a list
+of aspect names and nothing else, which is what has to become a per-device QML
+file - or a list the page reads - before the Devices page can move.
+
 ### What the census could not see, and now can
 
 Two holes, both found the hard way in the same session.

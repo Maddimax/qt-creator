@@ -59,6 +59,8 @@ QtcPlugin {
         "sshconnectionsharing.h",
         "sshdevicewizard.cpp",
         "sshdevicewizard.h",
+        "sshkeycreation.cpp",
+        "sshkeycreation.h",
         "sshkeycreationdialog.cpp",
         "sshkeycreationdialog.h",
         "tarpackagecreationstep.cpp",

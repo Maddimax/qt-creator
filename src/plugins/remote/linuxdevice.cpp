@@ -11,6 +11,7 @@
 #include "remotelinuxtr.h"
 #include "sshconnectionsharing.h"
 #include "sshdevicewizard.h"
+#include "sshkeycreation.h"
 #include "sshkeycreationdialog.h"
 
 #include <coreplugin/icore.h>
@@ -102,7 +103,6 @@ public:
     explicit LinuxDeviceConfigurationWidget(const IDevicePtr &device);
 
 private:
-    void createNewKey();
     void updateDeviceFromUi() override {}
 };
 
@@ -110,11 +110,6 @@ LinuxDeviceConfigurationWidget::LinuxDeviceConfigurationWidget(
     const IDevice::Ptr &device)
     : IDeviceWidget(device)
 {
-    auto createKeyButton = new QPushButton(Tr::tr("Create New..."));
-
-    const QString machineType = device->machineType() == IDevice::Hardware
-                                    ? Tr::tr("Physical Device")
-                                    : Tr::tr("Emulator");
     auto linuxDevice = std::dynamic_pointer_cast<LinuxDevice>(device);
     QTC_ASSERT(linuxDevice, return);
 
@@ -123,12 +118,12 @@ LinuxDeviceConfigurationWidget::LinuxDeviceConfigurationWidget(
     SshParametersAspectContainer &ssh = device->sshParametersAspectContainer();
     // clang-format off
     Form {
-        Tr::tr("Machine type:"), machineType, st, br,
+        device->machineTypeDisplay, st, br,
         ssh.host, ssh.port, ssh.hostKeyCheckingMode, st, br,
         device->freePortsAspect, device->freePortsWarning, ssh.timeout, st, br,
         ssh.userName, st, br,
         ssh.useKeyFile, st, br,
-        ssh.privateKeyFile, createKeyButton, br,
+        ssh.privateKeyFile, ssh.createKey, br,
         linuxDevice->autoConnectOnStartup, br,
         linuxDevice->sourceProfile, br,
         device->sshForwardDebugServerPort, br,
@@ -140,20 +135,8 @@ LinuxDeviceConfigurationWidget::LinuxDeviceConfigurationWidget(
     }.attachTo(this);
     // clang-format on
 
-    connect(createKeyButton, &QAbstractButton::clicked,
-            this, &LinuxDeviceConfigurationWidget::createNewKey);
-
     connect(device.get(), &AspectContainer::volatileValueChanged, this, &checkSettingsDirty);
     connect(&ssh, &AspectContainer::volatileValueChanged, this, &checkSettingsDirty);
-}
-
-void LinuxDeviceConfigurationWidget::createNewKey()
-{
-    SshKeyCreationDialog dialog(this);
-    if (dialog.exec() == QDialog::Accepted) {
-        device()->sshParametersAspectContainer().privateKeyFile.setValue(
-            dialog.privateKeyFilePath());
-    }
 }
 
 // LinuxDevicePrivate
@@ -723,6 +706,7 @@ LinuxDevice::LinuxDevice()
     : d(new LinuxDevicePrivate(this))
 {
     setupId(IDevice::ManuallyAdded, Utils::Id());
+    Internal::setupSshKeyCreation(sshParametersAspectContainer());
     setDisplayType(Tr::tr("Remote Linux"));
     setOsType(OsTypeLinux);
     setDefaultDisplayName(Tr::tr("Remote Linux Device"));
