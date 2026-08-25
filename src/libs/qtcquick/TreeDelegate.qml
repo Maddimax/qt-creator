@@ -22,7 +22,7 @@ RowLayout {
     readonly property bool aspectVisible: aspect?.visible ?? true
 
     // The aspect owns the model, so it outlives any one page.
-    readonly property var treeModel: aspect?.tableModel() ?? null
+    readonly property var treeModel: aspect ? AspectModels.tableModel(aspect) : null
 
     // A page showing a tree usually wants to offer these, and they are the
     // view's business rather than the aspect's.
@@ -96,7 +96,10 @@ RowLayout {
                 delegate: TreeViewDelegate {
                     id: cell
 
-                    required property var model
+                    // Only the column: TreeViewDelegate already requires row
+                    // and model, and redeclaring one of those shadows the
+                    // base's, which the view then never initialises - the
+                    // delegate fails to incubate and no row is drawn at all.
                     required property int column
 
                     implicitWidth: Math.max(Metrics.lineEditWidth, implicitContentWidth)
@@ -105,6 +108,19 @@ RowLayout {
                     // handle; the rest line up with the header.
                     indentation: cell.column === 0 ? 12 : 0
                     text: cell.model.display ?? ""
+                    // TreeViewDelegate's own content item binds straight to
+                    // model.display, which is undefined for a cell the model
+                    // says nothing about - a group heading has no second
+                    // column. The delegate's text has already dealt with
+                    // that, so it is what gets drawn.
+                    contentItem: Label {
+                        text: cell.text
+                        font: cell.font
+                        elide: Text.ElideRight
+                        color: cell.highlighted ? cell.palette.highlightedText
+                                            : cell.palette.buttonText
+                    }
+
                     ToolTip.text: cell.model.toolTip ?? ""
                     ToolTip.visible: cell.hovered && ToolTip.text !== ""
                 }

@@ -125,8 +125,10 @@ RowLayout {
                     delegate: TreeViewDelegate {
                         id: cell
 
-                        required property var model
-                        required property int row
+                        // Only the column: TreeViewDelegate already requires
+                        // row and model, and redeclaring one of those shadows
+                        // the base's, which the view then never initialises -
+                        // the delegate fails to incubate and no row is drawn.
                         required property int column
 
                         // A group heading is not an item: it has no source row
@@ -141,6 +143,19 @@ RowLayout {
                         indentation: cell.column === 0 ? 12 : 0
                         text: cell.model.display ?? ""
                         font.bold: !cell.isItem
+                        // TreeViewDelegate's own content item binds straight to
+                        // model.display, which is undefined for a cell the model
+                        // says nothing about - a group heading has no second
+                        // column. The delegate's text has already dealt with
+                        // that, so it is what gets drawn.
+                        contentItem: Label {
+                            text: cell.text
+                            font: cell.font
+                            elide: Text.ElideRight
+                            color: cell.highlighted ? cell.palette.highlightedText
+                                                    : cell.palette.buttonText
+                        }
+
                         ToolTip.text: cell.model.toolTip ?? ""
                         ToolTip.visible: cell.hovered && ToolTip.text !== ""
 

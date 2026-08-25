@@ -69,6 +69,15 @@ AspectContainerModel *AspectModels::container(BaseAspect *aspect)
     return new AspectContainerModel(container, container);
 }
 
+QAbstractItemModel *AspectModels::tableModel(BaseAspect *aspect)
+{
+    QTC_ASSERT(aspect, return nullptr);
+    QAbstractItemModel *model = aspect->tableModel();
+    if (model)
+        QQmlEngine::setObjectOwnership(model, QQmlEngine::CppOwnership);
+    return model;
+}
+
 QString AspectModels::localPath(const QUrl &url)
 {
     return url.toLocalFile();

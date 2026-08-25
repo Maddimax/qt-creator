@@ -2090,6 +2090,20 @@ void QuickUiTest::testGroupedListShowsItsGroupsAndActsOnTheCurrentItem()
     QVERIFY(remove->property("enabled").toBool());
     QVERIFY(!clone->property("enabled").toBool());
 
+    // On the cells, not just the aspect: a delegate that fails to build leaves
+    // the view saying it has rows and drawing none of them.
+    QStringList drawn;
+    for (QQuickItem *cell : findQmlComponents(delegate, "TreeViewDelegate"))
+        drawn << cell->property("text").toString();
+    QVERIFY2(!drawn.isEmpty(), "the list drew no cells at all");
+    // The two group headings and the two items under them. The default one
+    // says so in its name, which is the model's doing.
+    QVERIFY2(drawn.contains("Auto-detected") && drawn.contains("Manual"),
+             qPrintable("drawn: " + drawn.join(", ")));
+    QVERIFY2(Utils::anyOf(drawn, [](const QString &t) { return t.startsWith("found"); })
+                 && drawn.contains("mine"),
+             qPrintable("drawn: " + drawn.join(", ")));
+
     // Cloning selects the copy, which the view follows.
     tools.setCurrentRow(found);
     QMetaObject::invokeMethod(clone, "clicked");
@@ -2245,6 +2259,17 @@ void QuickUiTest::testTreeShowsWhatTheAspectHandsOut()
     QTRY_COMPARE(view->property("rows").toInt(), 2);
     QMetaObject::invokeMethod(delegate, "expandAll");
     QTRY_COMPARE(view->property("rows").toInt(), 4);
+
+    // On the cells, not just the row count: a delegate that fails to build
+    // leaves the view saying it has rows and drawing none of them.
+    QStringList drawn;
+    for (QQuickItem *cell : findQmlComponents(view, "TreeViewDelegate"))
+        drawn << cell->property("text").toString();
+    QVERIFY2(!drawn.isEmpty(), "the tree drew no cells at all");
+    QVERIFY2(drawn.contains("cxxLanguageVersion"),
+             qPrintable("drawn: " + drawn.join(", ")));
+    QVERIFY2(drawn.contains("c++20"), qPrintable("drawn: " + drawn.join(", ")));
+
     QMetaObject::invokeMethod(delegate, "collapseAll");
     QTRY_COMPARE(view->property("rows").toInt(), 2);
 }

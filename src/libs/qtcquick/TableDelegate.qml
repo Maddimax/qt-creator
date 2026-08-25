@@ -27,7 +27,7 @@ RowLayout {
     readonly property bool editable: (aspect?.enabled ?? false) && !(aspect?.readOnly ?? false)
 
     // The aspect owns the model, so it outlives any one page.
-    readonly property var sourceModel: aspect?.tableModel() ?? null
+    readonly property var sourceModel: aspect ? AspectModels.tableModel(aspect) : null
 
     // Which row is selected, in the aspect's own model rather than the filtered
     // one - a page showing a detail of the current row means that row, not the

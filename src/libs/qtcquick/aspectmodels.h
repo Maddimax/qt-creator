@@ -9,6 +9,7 @@
 // moc needs the metatype.
 #include "namedaspects.h"
 
+#include <QAbstractItemModel>
 #include <QObject>
 #include <QQmlEngine>
 #include <QUrl>
@@ -48,6 +49,12 @@ public:
     // rather than taken as model roles, because a hand-written page has no
     // roles to give.
     Q_INVOKABLE QVariantMap presentation(Utils::BaseAspect *aspect);
+
+    // The rows an aspect holds, from BaseAspect::tableModel(). Asked for here
+    // rather than straight from the aspect so that the engine is told the
+    // model is C++'s: QML takes ownership of a parentless QObject an invokable
+    // returns, and its collector then frees a model the aspect still holds.
+    Q_INVOKABLE QAbstractItemModel *tableModel(Utils::BaseAspect *aspect);
 
     // A file dialog hands back a URL and a path aspect stores a path. QML has
     // no conversion of its own that is not string surgery on "file://".
