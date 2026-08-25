@@ -9,6 +9,7 @@
 #include <utils/qtcassert.h>
 #include <utils/theme/theme.h>
 
+#include <QKeyEvent>
 #include <QQuickItem>
 #include <QQuickWidget>
 #include <QVBoxLayout>
@@ -16,9 +17,39 @@
 
 namespace QtcQuick {
 
+namespace {
+
+// A QQuickWidget hands Tab to the scene only when the scene has another item
+// to move the focus to. Where it has not - an editor that is the last
+// focusable thing on the page - the key goes to the widget focus chain
+// instead, and an item that meant to type with it never sees it. So the scene
+// is asked first, always, and the widget chain only gets what the scene
+// declined.
+class TabAwareQuickWidget : public QQuickWidget
+{
+public:
+    using QQuickWidget::QQuickWidget;
+
+protected:
+    bool focusNextPrevChild(bool next) override
+    {
+        const Qt::Key key = next ? Qt::Key_Tab : Qt::Key_Backtab;
+        QKeyEvent press(QEvent::KeyPress, key, Qt::NoModifier);
+        QCoreApplication::sendEvent(quickWindow(), &press);
+        if (press.isAccepted()) {
+            QKeyEvent release(QEvent::KeyRelease, key, Qt::NoModifier);
+            QCoreApplication::sendEvent(quickWindow(), &release);
+            return true;
+        }
+        return QQuickWidget::focusNextPrevChild(next);
+    }
+};
+
+} // namespace
+
 QuickWidget::QuickWidget(QWidget *parent)
     : QWidget(parent)
-    , m_quickWidget(new QQuickWidget(engine(), this))
+    , m_quickWidget(new TabAwareQuickWidget(engine(), this))
 {
     m_quickWidget->setResizeMode(QQuickWidget::SizeRootObjectToView);
     m_quickWidget->setClearColor(Utils::creatorColor(Utils::Theme::Token_Background_Default));

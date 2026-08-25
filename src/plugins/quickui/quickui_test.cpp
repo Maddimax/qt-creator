@@ -45,6 +45,8 @@
 #include <QQuickItem>
 #include <QScopeGuard>
 #include <QQuickWidget>
+#include <QLineEdit>
+#include <QScrollArea>
 #include <QVBoxLayout>
 #include <QTemporaryDir>
 #include <QTest>
@@ -2721,10 +2723,20 @@ static QQuickItem *showPage(const QString &displayName, std::unique_ptr<QWidget>
     if (!widget)
         return nullptr;
 
+    // As the preferences dialog embeds a page: inside a scroll area, with
+    // other focusable widgets around it. Both matter - a page on its own gets
+    // keys the real one does not, because the widget focus chain has nowhere
+    // else to go.
     auto host = std::make_unique<QWidget>();
     auto layout = new QVBoxLayout(host.get());
     layout->setContentsMargins(0, 0, 0, 0);
-    layout->addWidget(widget);
+    layout->addWidget(new QLineEdit);
+    auto area = new QScrollArea;
+    area->setFrameStyle(QFrame::NoFrame | QFrame::Plain);
+    area->setWidgetResizable(true);
+    area->setWidget(widget);
+    layout->addWidget(area);
+    layout->addWidget(new QLineEdit);
     host->resize(size);
     host->show();
     if (!QTest::qWaitForWindowExposed(host.get()))
