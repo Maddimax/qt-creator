@@ -1458,6 +1458,14 @@ Removing it also found a bug the flag had been hiding: reacting to the binary
 field during a load looked the tool up by an id that had just been cleared, and
 hid the form it was in the middle of filling in.
 
+**Update is not portable on a source build, and not because of its UI.**
+`UpdateInfoPlugin::initialize()` returns an error when it cannot find the
+maintenance tool, before it registers its page - which is what happens on any
+build that was not installed. So the page never exists, its QML is never
+loaded, and a test written against it does not run at all: `-test UpdateInfo`
+reports success having executed nothing. A port there cannot be checked even
+once here, which is worse than not doing it; one was written and reverted.
+
 **A page in a DisabledByDefault plugin is not in the census.** GN's is:
 `-load all` does not put such a plugin into the running state, so its pages are
 never registered and the QuickUi run that walks every page cannot see them -
