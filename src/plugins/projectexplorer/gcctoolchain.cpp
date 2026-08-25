@@ -22,6 +22,7 @@
 #include <utils/hostosinfo.h>
 #include <utils/pathchooser.h>
 #include <utils/qtcprocess.h>
+#include <utils/layoutbuilder.h>
 #include <utils/qtcassert.h>
 
 #include <QBuffer>
@@ -1793,44 +1794,71 @@ Toolchains GccToolchainFactory::autoDetectToolchain(const ToolchainDescription &
 // GccToolchainConfigWidget
 // --------------------------------------------------------------------------
 
-class TargetTripleWidget : public QWidget
+// The target triple the code model is told about: what the compiler reports,
+// unless the user overrides it. Only an overridden one is stored - an empty
+// explicit triple means "whatever the compiler says".
+class TargetTripleAspects : public AspectContainer
 {
-    Q_OBJECT
-
 public:
-    TargetTripleWidget(const ToolchainBundle &bundle)
+    explicit TargetTripleAspects(const ToolchainBundle &bundle)
     {
-        const auto layout = new QHBoxLayout(this);
-        layout->setContentsMargins(0, 0, 0, 0);
-        m_tripleLineEdit.setEnabled(false);
-        m_overrideCheckBox.setText(Tr::tr("Override for code model"));
-        m_overrideCheckBox.setToolTip(Tr::tr("Enable in the rare case that the code model\n"
-                "fails because Clang does not understand the target architecture."));
-        layout->addWidget(&m_tripleLineEdit, 1);
-        layout->addWidget(&m_overrideCheckBox);
-        layout->addStretch(1);
+        setAutoApply(false);
 
-        connect(&m_tripleLineEdit, &QLineEdit::textEdited, this, &TargetTripleWidget::valueChanged);
-        connect(&m_overrideCheckBox, &QCheckBox::toggled,
-                &m_tripleLineEdit, &QLineEdit::setEnabled);
+        m_triple.setQmlName("TargetTriple");
+        m_triple.setDisplayStyle(StringAspect::LineEditDisplay);
+        m_triple.setValue(bundle.get(&Toolchain::effectiveCodeModelTargetTriple));
 
-        m_tripleLineEdit.setText(bundle.get(&Toolchain::effectiveCodeModelTargetTriple));
-        m_overrideCheckBox.setChecked(!bundle.get(&Toolchain::explicitCodeModelTargetTriple).isEmpty());
+        m_override.setQmlName("OverrideTargetTriple");
+        m_override.setLabelText(Tr::tr("Override for code model"));
+        m_override.setLabelPlacement(BoolAspect::LabelPlacement::AtCheckBox);
+        m_override.setToolTip(Tr::tr("Enable in the rare case that the code model\n"
+                                     "fails because Clang does not understand the target "
+                                     "architecture."));
+        m_override.setValue(!bundle.get(&Toolchain::explicitCodeModelTargetTriple).isEmpty());
+
+        const auto updateEnabled = [this] { m_triple.setEnabled(m_override.volatileValue()); };
+        m_override.addOnVolatileValueChanged(this, updateEnabled);
+        updateEnabled();
     }
 
     QString explicitCodeModelTargetTriple() const
     {
-        if (m_overrideCheckBox.isChecked())
-            return m_tripleLineEdit.text();
-        return {};
+        return m_override.volatileValue() ? m_triple.volatileValue() : QString();
     }
 
-signals:
-    void valueChanged();
+    StringAspect &triple() { return m_triple; }
+    BoolAspect &override_() { return m_override; }
 
 private:
-    QLineEdit m_tripleLineEdit;
-    QCheckBox m_overrideCheckBox;
+    StringAspect m_triple{this};
+    BoolAspect m_override{this};
+};
+
+// One way of drawing the above, for the page that is still on widgets.
+class TargetTripleWidget : public QWidget
+{
+public:
+    TargetTripleWidget(const ToolchainBundle &bundle)
+        : m_aspects(bundle)
+    {
+        using namespace Layouting;
+        Row {
+            m_aspects.triple(),
+            m_aspects.override_(),
+            st,
+            noMargin,
+        }.attachTo(this);
+    }
+
+    QString explicitCodeModelTargetTriple() const
+    {
+        return m_aspects.explicitCodeModelTargetTriple();
+    }
+
+    TargetTripleAspects &aspects() { return m_aspects; }
+
+private:
+    TargetTripleAspects m_aspects;
 };
 }
 
@@ -1862,7 +1890,7 @@ GccToolchainConfigWidget::GccToolchainConfigWidget(const ToolchainBundle &bundle
     connect(m_platformLinkerFlagsLineEdit, &QLineEdit::editingFinished,
             this, &GccToolchainConfigWidget::handlePlatformLinkerFlagsChange);
     connect(m_abiWidget, &AbiWidget::abiChanged, this, &ToolchainConfigWidget::dirty);
-    connect(m_targetTripleWidget, &TargetTripleWidget::valueChanged,
+    connect(&m_targetTripleWidget->aspects(), &BaseAspect::volatileValueChanged,
             this, &ToolchainConfigWidget::dirty);
 
     if (m_subType == GccToolchain::Clang) {
@@ -2350,6 +2378,46 @@ private slots:
             QCOMPARE(al.at(i).toString(), abiList.at(i));
     }
 };
+
+#ifdef WITH_TESTS
+class TargetTripleAspectsTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testOnlyAnOverriddenTripleIsStored()
+    {
+        // An empty explicit triple means "whatever the compiler says", so the
+        // field is only worth reading when the box is ticked.
+        const QList<ToolchainBundle> bundles = ToolchainBundle::collectBundles(
+            ToolchainBundle::HandleMissing::CreateOnly);
+        if (bundles.isEmpty())
+            QSKIP("No toolchains are configured here");
+
+        TargetTripleAspects aspects(bundles.first());
+        aspects.override_().setValue(false);
+        QVERIFY(aspects.explicitCodeModelTargetTriple().isEmpty());
+        // And it is not the user's to type in while it says nothing.
+        QVERIFY(!aspects.triple().isEnabled());
+
+        aspects.override_().setValue(true);
+        QVERIFY(aspects.triple().isEnabled());
+        aspects.triple().setValue("x86_64-unknown-linux-gnu");
+        QCOMPARE(aspects.explicitCodeModelTargetTriple(),
+                 QString("x86_64-unknown-linux-gnu"));
+
+        // Turning it off again hides what was typed rather than losing it.
+        aspects.override_().setValue(false);
+        QVERIFY(aspects.explicitCodeModelTargetTriple().isEmpty());
+        QCOMPARE(aspects.triple().volatileValue(), QString("x86_64-unknown-linux-gnu"));
+    }
+};
+
+QObject *createTargetTripleAspectsTest()
+{
+    return new TargetTripleAspectsTest;
+}
+#endif // WITH_TESTS
 
 QObject *createGccToolchainTest()
 {

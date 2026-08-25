@@ -160,6 +160,7 @@ namespace Internal {
 void setupGccToolchains();
 #ifdef WITH_TESTS
 QObject *createGccToolchainTest();
+QObject *createTargetTripleAspectsTest();
 #endif
 } // namespace Internal
 
