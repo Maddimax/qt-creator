@@ -78,6 +78,20 @@ QAbstractItemModel *AspectModels::tableModel(BaseAspect *aspect)
     return model;
 }
 
+bool AspectModels::namesItsColumns(QAbstractItemModel *model)
+{
+    if (!model)
+        return false;
+    // Validity, not emptiness: a model that says nothing about its columns
+    // answers an invalid variant, where QAbstractItemModel's own default
+    // answers the column number.
+    for (int column = 0, count = model->columnCount(); column < count; ++column) {
+        if (model->headerData(column, Qt::Horizontal).isValid())
+            return true;
+    }
+    return false;
+}
+
 QString AspectModels::localPath(const QUrl &url)
 {
     return url.toLocalFile();

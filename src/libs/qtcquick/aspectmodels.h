@@ -56,6 +56,12 @@ public:
     // returns, and its collector then frees a model the aspect still holds.
     Q_INVOKABLE QAbstractItemModel *tableModel(Utils::BaseAspect *aspect);
 
+    // Whether a table's model names any of its columns. A one-column list does
+    // not, and a header bar with nothing in it is neither what the widget view
+    // showed nor something the style's own delegate copes with: it assigns the
+    // missing name to its label and the engine warns about it.
+    Q_INVOKABLE bool namesItsColumns(QAbstractItemModel *model);
+
     // A file dialog hands back a URL and a path aspect stores a path. QML has
     // no conversion of its own that is not string surgery on "file://".
     Q_INVOKABLE QString localPath(const QUrl &url);

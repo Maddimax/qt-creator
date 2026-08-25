@@ -122,10 +122,19 @@ RowLayout {
                 anchors.fill: parent
                 spacing: 0
 
-                HorizontalHeaderView {
-                    syncView: view
-                    clip: true
+                // Built only where there are column names to put in it. A
+                // one-column list has none, and an empty header bar is neither
+                // what the widget view showed nor something the style's own
+                // heading copes with - hiding it is not enough, because the
+                // heading is incubated first and warns on the way.
+                Loader {
+                    active: AspectModels.namesItsColumns(root.sourceModel)
                     Layout.fillWidth: true
+
+                    sourceComponent: HorizontalHeaderView {
+                        syncView: view
+                        clip: true
+                    }
                 }
 
                 TableView {

@@ -177,6 +177,7 @@ private slots:
     void testMultiLineStringGetsATextArea();
     void testSecretIsFetchedBeforeItCanBeEdited();
     void testTableAspectDrawsWhatItsModelOffers();
+    void testATableWithNoColumnNamesHasNoHeader();
     void testTableAspectAddsAndRemovesRows();
     void testTableAspectRemovesEverySelectedRow();
     void testTableAspectFiltersItsRows();
@@ -1931,6 +1932,76 @@ void QuickUiTest::testTableAspectDrawsWhatItsModelOffers()
     QMetaObject::invokeMethod(word, "editingFinished");
     QCOMPARE(table.m_model.writes, writes + 1);
     QCOMPARE(table.m_model.rows.at(0).word, QString("three"));
+}
+
+// One column and nothing to call it, which is what a plain list of items is -
+// Python's interpreters, a list of servers.
+class NamelessColumnModel : public QAbstractTableModel
+{
+public:
+    int rowCount(const QModelIndex &parent = {}) const override
+    {
+        return parent.isValid() ? 0 : 2;
+    }
+    int columnCount(const QModelIndex &parent = {}) const override
+    {
+        return parent.isValid() ? 0 : 1;
+    }
+    QVariant data(const QModelIndex &index, int role) const override
+    {
+        if (role != Qt::DisplayRole)
+            return {};
+        return index.row() == 0 ? QString("first") : QString("second");
+    }
+    // As Utils::TreeModel answers for a model that was never given a header,
+    // rather than QAbstractItemModel's own default of the column number.
+    QVariant headerData(int, Qt::Orientation, int) const override { return {}; }
+};
+
+class NamelessTableAspect : public Utils::StringListAspect
+{
+public:
+    using StringListAspect::StringListAspect;
+
+    QAbstractItemModel *tableModel() override { return &m_model; }
+
+    Utils::AspectPresentation presentation() const override
+    {
+        Utils::AspectPresentation p = StringListAspect::presentation();
+        p.control = Utils::AspectControls::Table;
+        return p;
+    }
+
+    NamelessColumnModel m_model;
+};
+
+void QuickUiTest::testATableWithNoColumnNamesHasNoHeader()
+{
+    // A header bar with nothing in it is not what the widget view showed, and
+    // the style's own heading assigns the missing name to its label - which the
+    // engine warns about and nothing else notices.
+    Utils::AspectContainer page;
+    NamelessTableAspect table(&page);
+    table.setLabelText("Rows");
+
+    QStringList warnings;
+    const QMetaObject::Connection connection = QObject::connect(
+        QtcQuick::engine(), &QQmlEngine::warnings, QtcQuick::engine(),
+        [&warnings](const QList<QQmlError> &errors) {
+            for (const QQmlError &error : errors)
+                warnings << error.toString();
+        });
+    const QScopeGuard disconnect([connection] { QObject::disconnect(connection); });
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QQuickItem *view = nullptr;
+    QTRY_VERIFY(view = tableViewOf(quickWidget->rootObject()));
+    QTRY_COMPARE(view->property("rows").toInt(), 2);
+
+    QVERIFY(!findQmlComponent(quickWidget->rootObject(), "HorizontalHeaderView"));
+    QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join("; ")));
 }
 
 void QuickUiTest::testTableAspectAddsAndRemovesRows()
