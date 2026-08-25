@@ -175,7 +175,8 @@ public:
     QString defaultDisplayName() const;
     void setDefaultDisplayName(const QString &name);
 
-    void addDisplayNameToLayout(Layouting::Layout &layout) const;
+    // The editable name, for a page that puts it in a form of its own.
+    Utils::BaseAspect *displayNameAspect();
 
     // Provide some information on the device suitable for formated
     // output, e.g. in tool tips. Get a list of name value pairs.

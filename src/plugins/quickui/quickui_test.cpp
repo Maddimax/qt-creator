@@ -1164,13 +1164,11 @@ void QuickUiTest::testAButtonCanActAndStillOffer()
     QMetaObject::invokeMethod(button, "clicked");
     QCOMPARE(acted, 1);
 
-    const QString arrowText = QString(QChar(0x25be));
-    QQuickItem * const arrow = findButton(quickWidget->rootObject(), arrowText);
-    QVERIFY(arrow);
-    QVERIFY(arrow->isVisible());
-
     QQuickItem * const delegate = findQmlComponent(quickWidget->rootObject(), "ButtonDelegate");
     QVERIFY(delegate);
+    QQuickItem * const arrow = delegate->property("arrowButton").value<QQuickItem *>();
+    QVERIFY(arrow);
+    QVERIFY(arrow->isVisible());
     QObject * const menuObject = delegate->property("menu").value<QObject *>();
     QVERIFY(menuObject);
     QCOMPARE(menuObject->property("count").toInt(), 2);
@@ -1196,8 +1194,13 @@ void QuickUiTest::testAButtonCanActAndStillOffer()
     auto menuOnlyQuick = menuOnlyForm->findChild<QQuickWidget *>();
     QVERIFY(menuOnlyQuick);
     QTRY_VERIFY(findButton(menuOnlyQuick->rootObject(), "Add"));
-    QQuickItem * const noArrow = findButton(menuOnlyQuick->rootObject(), arrowText);
-    QVERIFY(!noArrow || !noArrow->isVisible());
+    QQuickItem * const menuOnlyDelegate
+        = findQmlComponent(menuOnlyQuick->rootObject(), "ButtonDelegate");
+    QVERIFY(menuOnlyDelegate);
+    QQuickItem * const noArrow
+        = menuOnlyDelegate->property("arrowButton").value<QQuickItem *>();
+    QVERIFY(noArrow);
+    QVERIFY(!noArrow->isVisible());
 
     // And in widgets, where the split is an OptionPushButton: a plain
     // setMenu() would have eaten the click there too.

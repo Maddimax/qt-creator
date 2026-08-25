@@ -1823,6 +1823,46 @@ values, which `changed()` already covers - and the model resets on it. The
 signal goes out of `clear()` **before** the owned aspects are deleted, so
 whatever was drawing them has let go by the time they go away.
 
+### The Devices page, and the state a font used to carry
+
+The last of the three extension-point pages, and the one with the least left
+to do by the time it came round: the devices had already stopped holding
+widgets, so the page is a combo, a group of four read-only rows, the device's
+own container, and four buttons.
+
+Three things it needed that nothing before it did.
+
+**A button that acts and offers.** Add runs the wizard; the arrow beside it is
+a shortcut to a kind that needs none. See above.
+
+**A container that is refilled rather than swapped.** What the page says about
+a device is rebuilt each time the selection moves. See above.
+
+**A place to put what the font used to say.** `DeviceProxyModel` existed for
+one reason: to answer `Qt::FontRole` with italic for a device that is new and
+strike-out for one marked for removal. A descriptor has no font, and giving it
+one to carry two states would be the wrong shape - so the entry says it:
+`Name (new)`, `Name (to be removed)`. That is a visible change, and a
+deliberate one. A strike-out is invisible to anyone reading the list out, and
+the two states are exactly the ones a user has to know about before pressing
+Apply. The proxy model is gone with it, and the two sets it kept are the
+page's own.
+
+**What the device already answered.** The General group is the device's own
+display-name aspect - registered into the group, not copied out of it, so
+typing in the page is what makes the device dirty - plus three `TextDisplay`s.
+The last of them used to be a `QPixmap` the device handed over
+(`deviceStateIcon()`); it is an `InfoType` now, which is what a renderer needs
+in order to draw it in its own idiom. `IDevice::addDisplayNameToLayout()`, the
+last `Layouting` call left on `IDevice`, is replaced by
+`displayNameAspect()`.
+
+**A test that asks for Remove and gets Add.** `AspectContainer::aspect<T>()`
+hands back the first aspect of a type, and a page has four `ActionAspect`s.
+The first version of the page test triggered `Add` - which opened the
+new-device wizard and sat there until the 300-second timeout. Ask by qmlName
+on a page with more than one of anything.
+
 ### What the census could not see, and now can
 
 Two holes, both found the hard way in the same session.
@@ -2049,7 +2089,9 @@ A page that calls `IOptionsPage::setWidgetCreator()` builds its own
 `IOptionsPageWidget` and answers nothing from `aspects()`, so the test skips it
 entirely: `isFullyRenderable()` is never asked and the page is not in the 73.
 There were **15 such call sites in 14 files**, and none of them is a page that
-fits in one batch any more. What each is waiting on, checked rather than
+fits in one batch any more. **Eleven page call sites are left, in eleven
+files**, after Toolchains, Kits and Devices - counted with the grep below,
+minus `IMode::setWidgetCreator()` and `ioptionspage.cpp` itself. What each is waiting on, checked rather than
 remembered:
 
 - **Toolchains** - done. `ToolchainConfigWidget` had **9 implementations**
@@ -2059,12 +2101,9 @@ remembered:
   single batch because it had exactly one implementation; this one took four.
 - **Kits** - done. All 16 `KitAspect` implementations are converted and the
   page is `KitsPage.qml`.
-- **Devices** - **7 `IDeviceWidget` implementations**, not the 13 first
-  counted. Four are already pure aspect layout; the desktop one has been
-  converted, and the two read-only ones (iOS, Android) are deleted in favour of
-  `deviceInformation()`, and BareMetal no longer embeds a foreign chooser. Every
-  one that is left is pure aspect layout - nothing but a list of which aspects
-  to show. What remains is the page's own split Add button.
+- **Devices** - done. There were **7 `IDeviceWidget` implementations**, not
+  the 13 first counted; `IDeviceWidget` and all seven are deleted, and the page
+  is `DevicesPage.qml`. It is the last of the three extension-point pages.
 - **BareMetal's Debug Server Providers** - **30 config-widget classes**, all of
   them for hardware this machine does not have.
 - **MCU Support** - `McuAbstractPackage::widget()`, one per package kind.

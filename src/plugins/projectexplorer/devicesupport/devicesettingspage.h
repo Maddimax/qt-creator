@@ -13,4 +13,8 @@ public:
     DeviceSettingsPage();
 };
 
+#ifdef WITH_TESTS
+QObject *createDeviceSettingsPageTest();
+#endif
+
 } // ProjectExplorer::Internal

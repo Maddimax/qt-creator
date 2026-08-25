@@ -27,6 +27,9 @@ RowLayout {
     // What the button offers, empty where it just acts. A popup is not in the
     // item tree, so this is the only way to reach it from outside.
     readonly property alias menu: menu
+    // The button that opens that menu beside one which acts. Its glyph is an
+    // image, so there is no text to find it by.
+    readonly property alias arrowButton: arrow
 
     Connections {
         target: root.aspect
@@ -70,9 +73,18 @@ RowLayout {
 
         visible: button.options.length > 0 && (root.pres.actionIsDefault ?? false)
         enabled: button.enabled
-        text: "\u25be"
         Layout.preferredWidth: implicitHeight
         onClicked: menu.popup(arrow, 0, arrow.height)
+
+        // The glyph is an image rather than a character: U+25BE is not in
+        // every UI font, and the button came out blank where it is not.
+        contentItem: Image {
+            source: "image://qtcreator/utils/images/arrowdown.png?color=Token_Text_Muted"
+            fillMode: Image.Pad
+            horizontalAlignment: Image.AlignHCenter
+            verticalAlignment: Image.AlignVCenter
+            opacity: arrow.enabled ? 1.0 : Metrics.disabledIconOpacity
+        }
     }
 
     Menu {

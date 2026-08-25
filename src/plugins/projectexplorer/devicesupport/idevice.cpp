@@ -1330,9 +1330,9 @@ void IDevice::setDefaultDisplayName(const QString &name)
     d->displayName.setDefaultValue(name);
 }
 
-void IDevice::addDisplayNameToLayout(Layouting::Layout &layout) const
+BaseAspect *IDevice::displayNameAspect()
 {
-    d->displayName.addToLayout(layout);
+    return &d->displayName;
 }
 
 QString IDevice::deviceStateToString() const

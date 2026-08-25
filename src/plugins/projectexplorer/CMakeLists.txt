@@ -238,6 +238,7 @@ if(TARGET ProjectExplorer AND TARGET Qt::Quick)
       CustomParsersSettingsPage.qml
       KitsPage.qml
       ToolchainsPage.qml
+      devicesupport/DevicesPage.qml
       devicesupport/SshSettingsPage.qml
   )
 endif()

@@ -4185,6 +4185,9 @@ void StringSelectionAspect::ensureFilled() const
 
         self->volatileValueToGui();
         emit self->modelChange(false);
+        // Which entries there are is part of the descriptor, so a refill is a
+        // change to what should be drawn, not just to the widget's model.
+        emit self->controlConfigurationChanged();
     };
 
     connect(self, &StringSelectionAspect::refillRequested, self, [self, fill] {

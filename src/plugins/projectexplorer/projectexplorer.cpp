@@ -913,6 +913,7 @@ Result<> ProjectExplorerPlugin::initialize(const QStringList &arguments)
     addTestCreator(createTargetTripleAspectsTest);
     addTestCreator(createToolchainConfigAspectsTest);
     addTestCreator(Internal::createToolchainOptionsPageTest);
+    addTestCreator(Internal::createDeviceSettingsPageTest);
     addTestCreator(createGenericOutputParserTest);
     addTestCreator(createGnuMakeParserTest);
     addTestCreator(createJsonWizardTest);
