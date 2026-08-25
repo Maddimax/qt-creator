@@ -1571,6 +1571,10 @@ signals:
     void applied();
     void fromMapFinished();
     void subAspectChanged(BaseAspect *aspect);
+    // Which aspects are in here has changed, not what they hold. A container
+    // whose contents depend on something - the device a page is looking at -
+    // is refilled after whatever draws it was built, and that has to notice.
+    void aspectsChanged();
     // What draws this container is on screen. See pageShown().
     void shown();
 

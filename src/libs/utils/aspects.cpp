@@ -3750,6 +3750,7 @@ void AspectContainer::insertAspect(int index, BaseAspect *aspect, bool takeOwner
     connect(aspect, &BaseAspect::changed, this, &BaseAspect::changed);
     connect(aspect, &BaseAspect::changed, this, [this, aspect] { emit subAspectChanged(aspect); });
     connect(aspect, &BaseAspect::volatileValueChanged, this, &BaseAspect::volatileValueChanged);
+    emit aspectsChanged();
 }
 
 void AspectContainer::clear()
@@ -3759,6 +3760,9 @@ void AspectContainer::clear()
         disconnect(aspect, nullptr, this, nullptr);
     d->m_items.clear();
     d->m_ownedItems.clear();
+    // Announced before the owned aspects go, so that whatever was drawing them
+    // has let go by the time they are deleted.
+    emit aspectsChanged();
     qDeleteAll(owned);
     emit controlConfigurationChanged();
 }

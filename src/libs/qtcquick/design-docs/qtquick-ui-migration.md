@@ -1804,6 +1804,25 @@ Two things worth writing down:
   Asserting that clicking it runs nothing is vacuous while it has nothing to
   run. Give it one, then assert the count does not move.
 
+### A container that is not the same list all the way through
+
+`AspectContainerModel` read `container->aspects()` in its constructor and
+never again, and `AspectModels.container()` hands out one model per container
+and keeps it. Together those mean a container refilled while its page is open
+goes on being drawn as it was when the page was built.
+
+Nothing had needed it yet. Every page so far either lists a fixed set of
+aspects or, where the set changes with a selection, swaps `ContainerAspect`'s
+*pointer* - which is what Toolchains does with `Configuration`, and why the
+stale model was never visible. Devices cannot: what it shows about a device is
+rebuilt in place each time the selection moves, and one container per device
+kept alive for the session is the wrong shape.
+
+`AspectContainer::aspectsChanged()` says the membership changed - not the
+values, which `changed()` already covers - and the model resets on it. The
+signal goes out of `clear()` **before** the owned aspects are deleted, so
+whatever was drawing them has let go by the time they go away.
+
 ### What the census could not see, and now can
 
 Two holes, both found the hard way in the same session.

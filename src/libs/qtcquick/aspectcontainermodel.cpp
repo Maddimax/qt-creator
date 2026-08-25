@@ -21,6 +21,15 @@ AspectContainerModel::AspectContainerModel(AspectContainer *container, QObject *
 {
     QTC_ASSERT(container, return);
     m_aspects = container->aspects();
+
+    // A container that is refilled while a page is open - what a device asks
+    // changes with the device - would otherwise keep drawing the list it had
+    // when the page was built.
+    connect(container, &AspectContainer::aspectsChanged, this, [this, container] {
+        beginResetModel();
+        m_aspects = container->aspects();
+        endResetModel();
+    });
 }
 
 int AspectContainerModel::rowCount(const QModelIndex &parent) const

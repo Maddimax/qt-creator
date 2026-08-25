@@ -184,6 +184,7 @@ private slots:
     void testActionAspectIsAButtonOnEitherRenderer();
     void testAButtonCanOfferAMenuInsteadOfActing();
     void testAButtonCanActAndStillOffer();
+    void testAContainerRefilledAfterTheFormIsBuiltRedrawsIt();
     void testTextDisplayShowsItsMessage();
     void testTextDisplaySaysHowToReadItsMessage();
     void testRadioStyledBoolIsARadioButton();
@@ -1237,6 +1238,46 @@ void QuickUiTest::testAButtonCanActAndStillOffer()
     QVERIFY(!dynamic_cast<Utils::OptionPushButton *>(menuOnlyPush));
     menuOnlyPush->click();
     QCOMPARE(acted, 2);
+}
+
+void QuickUiTest::testAContainerRefilledAfterTheFormIsBuiltRedrawsIt()
+{
+    // What a device asks depends on which device is selected, so its container
+    // is refilled while the page is open. The model read the aspects once, at
+    // construction, and the page went on drawing the list it started with.
+    Utils::AspectContainer page;
+    Utils::AspectContainer group(&page);
+    group.setLabelText("Type Specific");
+    auto first = new Utils::TextDisplay;
+    first->setText("Desktop");
+    group.registerAspect(first, /*takeOwnership=*/true);
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QQuickItem * const rootItem = quickWidget->rootObject();
+    QVERIFY(rootItem);
+
+    const auto drawnTexts = [rootItem] {
+        QStringList texts;
+        for (QQuickItem *item : findQmlComponents(rootItem, "TextDisplayDelegate"))
+            texts << item->property("displayText").toString();
+        return texts;
+    };
+    QTRY_COMPARE(drawnTexts(), QStringList{"Desktop"});
+
+    // The same container, refilled - not a new one. A page that could only
+    // swap containers would need one alive per device for the session.
+    group.clear();
+    auto replacement = new Utils::TextDisplay;
+    replacement->setText("Docker");
+    group.registerAspect(replacement, /*takeOwnership=*/true);
+    auto extra = new Utils::TextDisplay;
+    extra->setText("ubuntu:24.04");
+    group.registerAspect(extra, /*takeOwnership=*/true);
+
+    QTRY_COMPARE(drawnTexts(), (QStringList{"Docker", "ubuntu:24.04"}));
 }
 
 void QuickUiTest::testTextDisplayShowsItsMessage()
