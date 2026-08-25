@@ -2584,6 +2584,41 @@ kit with an Android Qt on it cannot. It is also where the interesting case
 lives - a universal macOS build has two ABIs and no choice at all, which the
 `abis.size() <= 1` check alone would get wrong.
 
+### A combo box that is refilled while you are looking at it
+
+Chasing the next closure turned up a bug in the path all of these now go
+through. `SelectionAspect::addOption()` and `clearOptions()` emit
+`controlConfigurationChanged()`, and `renderSelection()` - the generic combo -
+never listened. It read `presentation()` once, captured the entries in its
+lambdas, and kept them for the life of the control.
+
+Three things follow from that, and only the first is visible:
+
+- the control goes on showing a list that is gone;
+- picking an entry writes back **the id at that position in the old list** -
+  so choosing "gamma" could store "alpha";
+- a value set from elsewhere is looked up in the old list, and lands on the
+  wrong entry or on none.
+
+The lambdas ask the aspect for its descriptor each time now. The refill needs
+a `QSignalBlocker`: `QComboBox::clear()` moves the current index, and without
+one that arrives as though the user had picked it - which is a second way to
+lose the value, and the one the test catches by asserting the aspect still
+holds what it held.
+
+`renderStringSelection()` had been following the signal all along, which is why
+`StringSelectionAspect` exists as a separate path: it is the aspect for a list
+that refills. It did not need to be. This is the same bug the Qt Quick side had
+in `SelectionDelegate.qml`, where a `ComboBox` reset its `currentIndex` on a
+model change and the binding never re-ran - so both backends have now been
+wrong about the same thing, separately.
+
+**The test that catches the write-back is the one that clicks afterwards.**
+Three of the four assertions here pass with the old captured-entries code left
+in one lambda; only picking an entry *after* a refill tells them apart. Worth
+remembering: a control that follows a refill is not the same claim as a control
+that writes back correctly after one.
+
 ### What the census could not see, and now can
 
 Two holes, both found the hard way in the same session.

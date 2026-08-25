@@ -586,21 +586,39 @@ private:
         }
         auto comboBox = AspectWidgets::createSubWidget<QComboBox>(aspect);
         comboBox->setObjectName(aspect->objectName());
-        for (const AspectPresentation::Choice &choice : pres.choices) {
-            comboBox->addItem(choice.icon, choice.display);
-            comboBox->setItemData(comboBox->count() - 1, choice.toolTip, Qt::ToolTipRole);
-        }
-        applyComboBoxSizing(comboBox, pres);
-        comboBox->setCurrentIndex(indexForValue(pres, aspect->volatileVariantValue()));
+
+        // The descriptor is read again each time rather than captured: an
+        // aspect refills its entries while the page is open - the launchers a
+        // device offers, the ABIs a toolchain has - and says so with
+        // controlConfigurationChanged(). A captured copy would leave the
+        // control showing a list that is gone, and, worse, would write back
+        // the id at that position in the old list.
+        const auto refill = [aspect, comboBox] {
+            const AspectPresentation now = aspect->presentation();
+            // clear() and addItem() move the current index, which would be
+            // written back as the user's doing.
+            const QSignalBlocker blocker(comboBox);
+            comboBox->clear();
+            for (const AspectPresentation::Choice &choice : now.choices) {
+                comboBox->addItem(choice.icon, choice.display);
+                comboBox->setItemData(comboBox->count() - 1, choice.toolTip, Qt::ToolTipRole);
+            }
+            applyComboBoxSizing(comboBox, now);
+            comboBox->setCurrentIndex(indexForValue(now, aspect->volatileVariantValue()));
+        };
+        refill();
+        QObject::connect(aspect, &BaseAspect::controlConfigurationChanged, comboBox, refill);
+
         addContextAction(aspect, comboBox, pres);
         AspectWidgets::addLabeledItem(aspect, parent, comboBox);
-        aspect->addOnVolatileValueChanged(comboBox, [comboBox, aspect, pres] {
-            comboBox->setCurrentIndex(indexForValue(pres, aspect->volatileVariantValue()));
+        aspect->addOnVolatileValueChanged(comboBox, [comboBox, aspect] {
+            comboBox->setCurrentIndex(
+                indexForValue(aspect->presentation(), aspect->volatileVariantValue()));
         });
         QObject::connect(comboBox, &QComboBox::currentIndexChanged, aspect,
-                         [aspect, comboBox, pres] {
+                         [aspect, comboBox] {
                              aspect->setVolatileVariantValueFromGui(
-                                 valueForIndex(pres, comboBox->currentIndex()));
+                                 valueForIndex(aspect->presentation(), comboBox->currentIndex()));
                          });
     }
 

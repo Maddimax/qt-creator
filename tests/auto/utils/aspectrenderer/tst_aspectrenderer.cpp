@@ -182,6 +182,10 @@ private slots:
     void filePathListForAnAspectThatIsNotOne();
     void textWithAction_data() { addRendererRows(); }
     void textWithAction();
+    void comboBoxFollowsARefill_data() { addRendererRows(); }
+    void comboBoxFollowsARefill();
+    void comboBoxKeepsAnIdAcrossARefill_data() { addRendererRows(); }
+    void comboBoxKeepsAnIdAcrossARefill();
 };
 
 void tst_AspectRenderer::initTestCase()
@@ -971,6 +975,14 @@ public:
         setVariantValue(value, a);
     }
 
+    // What a device does when its launchers change: the entries are replaced
+    // and the aspect says so, without its value having changed.
+    void refill(const QStringList &ids)
+    {
+        m_ids = ids;
+        emit controlConfigurationChanged();
+    }
+
     QStringList m_ids{"alpha", "beta", "gamma"};
     QString m_current;
 };
@@ -1452,6 +1464,86 @@ void tst_AspectRenderer::textWithAction()
     // reaches the summary without the aspect holding a pointer to it.
     button->click();
     QCOMPARE(summary->text(), QString("text/x-c++src"));
+}
+
+void tst_AspectRenderer::comboBoxFollowsARefill()
+{
+    QFETCH(bool, withRenderer);
+    setRendererInstalled(withRenderer);
+
+    SelectionAspect aspect;
+    aspect.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
+    aspect.setLabelText("Device type:");
+    aspect.addOption("first");
+    aspect.addOption("second");
+    aspect.setValue(1);
+
+    const std::unique_ptr<QWidget> widget = render(aspect);
+    QVERIFY(widget);
+    auto combo = widget->findChild<QComboBox *>();
+    if (!withRenderer) {
+        QVERIFY(!combo);
+        return;
+    }
+
+    QVERIFY(combo);
+    QCOMPARE(combo->count(), 2);
+    QCOMPARE(combo->currentIndex(), 1);
+
+    // Refilled while the page is open, which is what a list of device types or
+    // toolchain ABIs does. The entries used to be read once and captured, so
+    // the control went on showing a list that was gone.
+    aspect.clearOptions();
+    aspect.addOption("alpha");
+    aspect.addOption("beta");
+    aspect.addOption("gamma");
+
+    QCOMPARE(combo->count(), 3);
+    QCOMPARE(combo->itemText(0), QString("alpha"));
+    // And the refill is not an edit: clearing a combo moves its current index,
+    // which must not be written back as though the user had picked it.
+    QCOMPARE(aspect.volatileValue(), 1);
+    QCOMPARE(combo->currentIndex(), 1);
+}
+
+void tst_AspectRenderer::comboBoxKeepsAnIdAcrossARefill()
+{
+    QFETCH(bool, withRenderer);
+    setRendererInstalled(withRenderer);
+
+    ComboWithIdValueAspect aspect;
+    aspect.setVariantValue("beta");
+
+    const std::unique_ptr<QWidget> widget = render(aspect);
+    QVERIFY(widget);
+    auto combo = widget->findChild<QComboBox *>();
+    if (!withRenderer) {
+        QVERIFY(!combo);
+        return;
+    }
+    QVERIFY(combo);
+    QCOMPARE(combo->currentIndex(), 1);
+
+    // The same entry is still on offer, in a different place. Nothing the
+    // aspect holds has changed, so only the refill can move the control - and
+    // what it must follow is the id, not the position.
+    aspect.refill({"gamma", "delta", "beta"});
+    QCOMPARE(combo->count(), 3);
+    QCOMPARE(combo->currentIndex(), 2);
+    QCOMPARE(aspect.m_current, QString("beta"));
+
+    // Picking after a refill writes the id at that place in the list as it is
+    // now. Reading it off the list as it was when the control was built - the
+    // entries having been captured once - stores something else entirely.
+    combo->setCurrentIndex(0);
+    QCOMPARE(aspect.m_current, QString("gamma"));
+
+    // An entry that went away selects nothing rather than whatever moved into
+    // its place.
+    aspect.setVariantValue("beta");
+    aspect.refill({"gamma", "delta"});
+    QCOMPARE(combo->currentIndex(), -1);
+    QCOMPARE(aspect.m_current, QString("beta"));
 }
 
 void tst_AspectRenderer::filePathLiveReconfiguration()
