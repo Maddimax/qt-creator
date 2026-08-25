@@ -61,6 +61,9 @@ enum Control {
     // Items in named groups - what was found and what the user added - with
     // one of them current. See Utils::GroupedListAspect.
     GroupedList,
+    // A tree of values the page reports rather than lets the user set, from
+    // the model the aspect hands out. See BaseAspect::tableModel().
+    Tree,
 };
 Q_ENUM_NS(Control)
 

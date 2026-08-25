@@ -119,6 +119,7 @@ AspectContainerModel::Kind AspectContainerModel::kindOf(AspectControls::Control 
     case AspectControls::Secret:                 return Secret;
     case AspectControls::Table:                  return Table;
     case AspectControls::GroupedList:            return GroupedList;
+    case AspectControls::Tree:                   return Tree;
     // IntegersAspect draws nothing in the widget path either, so drawing
     // nothing here is parity rather than a gap.
     case AspectControls::IntegerList:            return Invisible;

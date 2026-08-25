@@ -63,6 +63,7 @@ public:
         Secret,
         Table,
         GroupedList,
+        Tree,
         // Shows nothing at all, which some aspects legitimately do.
         Invisible,
         Unsupported,

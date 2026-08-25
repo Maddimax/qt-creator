@@ -22,6 +22,7 @@
 #include <utils/groupedlistaspect.h>
 #include <utils/groupedmodel.h>
 #include <utils/pathvalidation.h>
+#include <utils/treemodel.h>
 #include <utils/layoutbuilder.h>
 
 #include <QAbstractButton>
@@ -180,6 +181,7 @@ private slots:
     void testTableCellReadsInItsOwnColours();
     void testListRowShowsWhatTheListSaysAboutTheItem();
     void testGroupedListShowsItsGroupsAndActsOnTheCurrentItem();
+    void testTreeShowsWhatTheAspectHandsOut();
     void testFieldSaysWhatIsWrongAndKeepsItOut();
     void testFieldWaitsForAnAnswerItHasToFetch();
     void testColourOffersToGoBackToItsDefault();
@@ -2177,6 +2179,74 @@ void QuickUiTest::testFieldWaitsForAnAnswerItHasToFetch()
 
     QTRY_COMPARE(binary.validationMessage("/second"), QString("About the new text."));
     QCOMPARE(validated.count(), 1);
+}
+
+namespace {
+
+// An aspect that reports a tree of values rather than letting one be set - a
+// qbs profile's properties are the first of these.
+class TreeReportingAspect : public Utils::BaseAspect
+{
+public:
+    TreeReportingAspect()
+    {
+        m_model.setHeader({"Key", "Value"});
+        auto branch = new Utils::StaticTreeItem(QStringList{"cpp", QString()});
+        branch->appendChild(new Utils::StaticTreeItem(QStringList{"cxxLanguageVersion", "c++20"}));
+        branch->appendChild(new Utils::StaticTreeItem(QStringList{"debugInformation", "true"}));
+        m_model.rootItem()->appendChild(branch);
+        m_model.rootItem()->appendChild(new Utils::StaticTreeItem(QStringList{"qbs", "3.0"}));
+    }
+
+    Utils::AspectPresentation presentation() const override
+    {
+        Utils::AspectPresentation p = BaseAspect::presentation();
+        p.control = Utils::AspectControls::Tree;
+        return p;
+    }
+
+    QAbstractItemModel *tableModel() override { return &m_model; }
+
+private:
+    Utils::TreeModel<Utils::TreeItem, Utils::StaticTreeItem> m_model{this};
+};
+
+} // namespace
+
+void QuickUiTest::testTreeShowsWhatTheAspectHandsOut()
+{
+    Utils::AspectContainer page;
+    page.setAutoApply(false);
+    TreeReportingAspect properties;
+    properties.setLabelText("Profile properties");
+    page.registerAspect(&properties);
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "TreeDelegate"));
+
+    // The aspect's own model, not a copy: what it shows follows what the page
+    // puts in it.
+    QQuickItem *view = findQmlNamed(delegate, "aspectTree").value(0);
+    QVERIFY(view);
+    QCOMPARE(view->property("model").value<QAbstractItemModel *>(), properties.tableModel());
+
+    // A tree, so the branch has rows under it rather than beside it.
+    QAbstractItemModel *tree = properties.tableModel();
+    QCOMPARE(tree->rowCount({}), 2);
+    QCOMPARE(tree->rowCount(tree->index(0, 0)), 2);
+    QCOMPARE(tree->columnCount({}), 2);
+
+    // Closed to begin with: only the two top-level rows are there to draw.
+    QTRY_COMPARE(view->property("rows").toInt(), 2);
+    QMetaObject::invokeMethod(delegate, "expandAll");
+    QTRY_COMPARE(view->property("rows").toInt(), 4);
+    QMetaObject::invokeMethod(delegate, "collapseAll");
+    QTRY_COMPARE(view->property("rows").toInt(), 2);
 }
 
 void QuickUiTest::testListRowShowsWhatTheListSaysAboutTheItem()
