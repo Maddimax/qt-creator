@@ -1332,6 +1332,27 @@ is the same measurement the `AspectGroupBox` note describes. Worth repeating
 after a batch: it is the only thing that sees a warning the page census cannot,
 and it also confirmed that no page has a binding loop left.
 
+### What is left of the GCC and Clang toolchain page
+
+Three pieces down, one to go. `ToolchainConfigAspects` holds what every
+toolchain is asked, `AbiAspects` holds the ABI, and `TargetTripleAspects` holds
+the code model's target triple. What is left of `GccToolchainConfigWidget` is
+two flag fields, Clang's parent-toolchain combo box, and the behaviour tying
+them together - detecting ABIs when the compiler command changes, and caching
+the macros it reported.
+
+The order matters: converting the *pieces* first means the widget subclass
+keeps working after each step, so every step is a commit that builds and runs.
+Converting the subclass first would have meant nine broken pages until the last
+one was done.
+
+**A page that still uses widgets can host a converted kind.** A settings page
+that is itself a `QWidget` can show `Core::createAspectForm(aspects)` for a
+toolchain that has converted and a `ToolchainConfigWidget` for one that has
+not, so the kinds can move one at a time and each one is real as soon as it
+lands. Only the *page* has to wait for the last of them, because a Qt Quick
+page cannot host a `QWidget` at all.
+
 ### The ABI, which six toolchains and qmake all pick
 
 After the shared settings, the next thing every toolchain page is made of is an
