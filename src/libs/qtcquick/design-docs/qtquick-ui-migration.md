@@ -966,6 +966,32 @@ order, so a highlighter declared first was left colouring a document nothing was
 showing. `CodeHighlighting` and `CodeIndenting` follow
 `QQuickTextDocument::textDocumentChanged` now.
 
+**Two things the editors got wrong, both reported from the running
+application rather than found by a test.**
+
+- *A ScrollView is as big as what it scrolls.* `ScrollView` reports the
+  implicit size of its content, and a `Frame` around it sizes to that - so a
+  preview holding more code than fits grew the whole page, and the page
+  scrolled instead of the editor. The editors give the ScrollView an implicit
+  size of nothing and take the height the layout hands them.
+  `testACodeEditorScrollsInsteadOfGrowingThePage` measures it on the real page:
+  the editor's content is taller than the editor, and the page's content is not
+  taller than the page.
+- *Tab typed a tab character.* Not "moved the focus", which is what it looks
+  like: a `TextEdit` inserts `\t` for Tab whatever the code style says, so on
+  the default spaces-only style it typed something the style would never
+  produce. `CodeIndenting::indentAt()` types what the style calls an indent.
+  Shift+Tab needed nothing - a control aimed at it stayed green, because the
+  text control already takes the indent back.
+
+**Sending the key to the right thing is most of testing this.**
+`QTest::keyClick(item->window(), ...)` reaches the Quick focus item directly and
+steps over the widget focus chain, which is exactly what takes Tab. The key has
+to go to the `QQuickWidget`, and the widget needs the focus as well as the item:
+a `QQuickWidget` hands a Tab to the scene from `focusNextPrevChild()`, which is
+only reached when the widget is the one being typed into. Two controls read as
+"not detected" that way before this was understood.
+
 What is left of the editor: nothing the last page needs. Line numbers are drawn
 against the lines rather than stacked as rows, which is what keeps them with the
 text when a line wraps - that is layout, so a screenshot is what checks it, not
