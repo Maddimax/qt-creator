@@ -686,6 +686,9 @@ IDevice::IDevice()
     updatePortsWarning();
     freePortsAspect.addOnVolatileValueChanged(this, updatePortsWarning);
 
+    machineTypeDisplay.setLabelText(Tr::tr("Machine type:"));
+    machineTypeDisplay.setText(Tr::tr("Physical Device"));
+
     runToolsGroup.setLabelText(Tr::tr("Run Tools on This Device"));
     sourceAndBuildToolsGroup.setLabelText(Tr::tr("Source and Build Tools on This Device"));
     autoDetectionGroup.setLabelText(Tr::tr("Auto-Detection"));
@@ -1363,6 +1366,8 @@ IDevice::MachineType IDevice::machineType() const
 void IDevice::setMachineType(MachineType machineType)
 {
     d->machineType = machineType;
+    machineTypeDisplay.setText(machineType == Hardware ? Tr::tr("Physical Device")
+                                                       : Tr::tr("Emulator"));
 }
 
 FilePath IDevice::deviceToolPath(Id toolId) const

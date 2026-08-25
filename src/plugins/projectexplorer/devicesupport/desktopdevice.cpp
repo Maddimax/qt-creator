@@ -576,6 +576,26 @@ private slots:
         QCOMPARE(boxes.first()->title(), device->runToolsGroup.labelText());
     }
 
+    void testADeviceSaysWhatKindOfMachineItIs()
+    {
+        // "Physical Device" or "Emulator" was worked out from machineType()
+        // and drawn by two widgets, which disagreed: one of them only ever
+        // said "Physical Device" because that was all it expected to be.
+        IDeviceFactory * const factory = IDeviceFactory::find(Constants::DESKTOP_DEVICE_TYPE);
+        QVERIFY(factory);
+        const IDevice::Ptr device = factory->construct();
+        QVERIFY(device);
+
+        QVERIFY(!device->machineTypeDisplay.labelText().isEmpty());
+        device->setMachineType(IDevice::Hardware);
+        const QString hardware = device->machineTypeDisplay.text();
+        QVERIFY(!hardware.isEmpty());
+
+        device->setMachineType(IDevice::Emulator);
+        QVERIFY2(device->machineTypeDisplay.text() != hardware,
+                 "an emulator says the same as a physical device");
+    }
+
     void testScriptSourcing()
     {
         if (!HostOsInfo::isAnyUnixHost())

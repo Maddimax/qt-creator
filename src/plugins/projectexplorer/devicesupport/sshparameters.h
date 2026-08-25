@@ -104,6 +104,10 @@ public:
     Utils::StringAspect host{this};
     Utils::IntegerAspect port{this};
     Utils::StringAspect userName{this};
+    // Makes a key and puts its path in privateKeyFile. What that takes is the
+    // remote plugin's business, so it installs the action; without one there
+    // is nothing to offer and the button is not shown.
+    Utils::ActionAspect createKey{this};
 };
 
 #ifdef WITH_TESTS

@@ -375,6 +375,9 @@ SshParameters SshParametersAspectContainer::sshParameters() const
 SshParametersAspectContainer::SshParametersAspectContainer(AspectContainer *container)
     : AspectContainer(container)
 {
+    createKey.setActionText(Tr::tr("Create New..."));
+    createKey.setVisible(false);
+
     useKeyFile.setDefaultValue(SshParameters::AuthenticationTypeAll);
     useKeyFile.setToolTip(Tr::tr("Enable to specify a private key file to use for authentication, "
                                  "otherwise the default mechanism is used for authentication "

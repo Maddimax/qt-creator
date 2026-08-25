@@ -375,6 +375,10 @@ public:
     // device's business, and so is saying that it has none; two widgets used
     // to work it out and draw the label themselves.
     Utils::TextDisplay freePortsWarning{this};
+    // Whether this is real hardware or an emulator. Two widgets worked that
+    // out from machineType() and drew the row themselves, and disagreed on
+    // whether an emulator was worth mentioning.
+    Utils::TextDisplay machineTypeDisplay{this};
 
     // The groups every device shows below its own settings: what it can run
     // tools with, what it builds from, and how it finds those out. Containers
