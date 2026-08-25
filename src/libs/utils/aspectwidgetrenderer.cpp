@@ -68,6 +68,12 @@ public:
                 return true;
             }
             return false;
+        case AspectControls::TriStateCheckBox:
+            if (auto triStateAspect = qobject_cast<TriStateAspect *>(&aspect)) {
+                renderTriState(triStateAspect, parent, pres);
+                return true;
+            }
+            return false;
         case AspectControls::FontFamilyPicker:
             if (auto fontFamilyAspect = qobject_cast<FontFamilyAspect *>(&aspect)) {
                 renderFontFamily(fontFamilyAspect, parent, pres);
@@ -325,6 +331,32 @@ private:
                                             AspectWidgets::createSubWidget<QRadioButton>(aspect))
                                       : AspectWidgets::createSubWidget<QCheckBox>(aspect);
         AspectWidgets::addButtonToLayout(aspect, parent, button);
+    }
+
+    // On, off, or neither, as one check box. Qt's own tri-state cycling goes
+    // through all three; "neither" is what the setting says when nothing has
+    // been decided, so it is shown but not cycled to.
+    static void renderTriState(TriStateAspect *aspect, Layout &parent,
+                               const AspectPresentation &pres)
+    {
+        auto button = AspectWidgets::createSubWidget<QCheckBox>(aspect);
+        button->setText(pres.labelText);
+        button->setTristate(true);
+
+        const auto toGui = [aspect, button] {
+            const TriState state = TriState::fromInt(aspect->volatileValue());
+            button->setCheckState(state == TriState::Enabled     ? Qt::Checked
+                                  : state == TriState::Disabled  ? Qt::Unchecked
+                                                                 : Qt::PartiallyChecked);
+        };
+        toGui();
+        QObject::connect(aspect, &BaseAspect::volatileValueChanged, button, toGui);
+        QObject::connect(button, &QCheckBox::clicked, aspect, [aspect, button] {
+            const TriState state = button->checkState() == Qt::Checked ? TriState::Enabled
+                                                                      : TriState::Disabled;
+            aspect->setVolatileVariantValueFromGui(state.toVariant());
+        });
+        parent.addItem(button);
     }
 
     static void renderFontFamily(FontFamilyAspect *aspect, Layout &parent,

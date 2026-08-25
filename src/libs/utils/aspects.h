@@ -1202,9 +1202,18 @@ public:
 
     void setOptionText(const TriState::Value tristate, const QString &display);
 
+    // Drawn as one check box that can say "neither" rather than as a choice of
+    // three. The three states then have no names of their own, so the aspect's
+    // label is what says what is being turned on.
+    void setUseCheckBox(bool useCheckBox);
+
+    AspectPresentation presentation() const override;
+
 private:
     void addOption(const QString &displayName, const QString &toolTip = {}) = delete;
     void addOption(const Option &option) = delete;
+
+    bool m_useCheckBox = false;
 };
 
 class QTCREATOR_UTILS_EXPORT StringListAspect : public TypedAspect<QStringList>

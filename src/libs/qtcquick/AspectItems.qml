@@ -32,6 +32,10 @@ ColumnLayout {
                 BoolDelegate {}
             }
             DelegateChoice {
+                roleValue: AspectContainerModel.TriStateBool
+                TriStateDelegate {}
+            }
+            DelegateChoice {
                 roleValue: AspectContainerModel.String
                 StringDelegate {}
             }

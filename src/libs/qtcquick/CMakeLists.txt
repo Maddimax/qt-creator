@@ -75,6 +75,7 @@ if(TARGET QtcQuick)
       TreeDelegate.qml
       TextDisplayDelegate.qml
       TextWithActionDelegate.qml
+      TriStateDelegate.qml
       UnsupportedDelegate.qml
   )
 endif()

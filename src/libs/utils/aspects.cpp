@@ -3004,6 +3004,19 @@ TriStateAspect::TriStateAspect(AspectContainer *container,
     setOptionText(TriState::DefaultValue, defaultDisplay);
 }
 
+void TriStateAspect::setUseCheckBox(bool useCheckBox)
+{
+    m_useCheckBox = useCheckBox;
+}
+
+AspectPresentation TriStateAspect::presentation() const
+{
+    AspectPresentation p = SelectionAspect::presentation();
+    if (m_useCheckBox)
+        p.control = AspectControls::TriStateCheckBox;
+    return p;
+}
+
 static QString defaultTristateDisplay(TriState::Value tristate)
 {
     switch (tristate) {

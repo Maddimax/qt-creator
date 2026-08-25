@@ -176,6 +176,7 @@ private slots:
     void testTextDisplayShowsItsMessage();
     void testTextDisplaySaysHowToReadItsMessage();
     void testRadioStyledBoolIsARadioButton();
+    void testATriStateSettingCanSayNeither();
     void testSpinBoxDrawsItsPrefixAndSuffix();
     void testPageQmlReachesANestedContainersAspects();
     void testAnAspectCanHandOutAContainerToDraw();
@@ -1077,6 +1078,44 @@ void QuickUiTest::testRadioStyledBoolIsARadioButton()
     QMetaObject::invokeMethod(radios.at(1), "toggled");
     QCOMPARE(chosen.volatileValue(), true);
     QCOMPARE(current.volatileValue(), true);
+}
+
+void QuickUiTest::testATriStateSettingCanSayNeither()
+{
+    // Some settings have a third state - a plugin the language server has not
+    // been told about, a project leaving a setting to the global one - and a
+    // choice of three named options is a poor way to say it. The check box
+    // shows "neither" without being able to be clicked into it.
+    Utils::AspectContainer page;
+    page.setAutoApply(false);
+    Utils::TriStateAspect plugin(&page);
+    plugin.setUseCheckBox(true);
+    plugin.setLabelText("pyflakes");
+    plugin.setValue(Utils::TriState::Default);
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "TriStateDelegate"));
+    QCOMPARE(delegate->property("text").toString(), QString("pyflakes"));
+    QCOMPARE(delegate->property("checkState").toInt(), int(Qt::PartiallyChecked));
+
+    // Clicking decides, and decides on one of the two states a click can mean.
+    QMetaObject::invokeMethod(delegate, "toggle");
+    QMetaObject::invokeMethod(delegate, "toggled");
+    QCOMPARE(delegate->property("checkState").toInt(), int(Qt::Checked));
+    QCOMPARE(plugin.volatileValue(), int(Utils::TriState::EnabledValue));
+
+    QMetaObject::invokeMethod(delegate, "toggle");
+    QMetaObject::invokeMethod(delegate, "toggled");
+    QCOMPARE(delegate->property("checkState").toInt(), int(Qt::Unchecked));
+    QCOMPARE(plugin.volatileValue(), int(Utils::TriState::DisabledValue));
+
+    // And the aspect can still say "neither" from C++.
+    plugin.setValue(Utils::TriState::Default);
+    QTRY_COMPARE(delegate->property("checkState").toInt(), int(Qt::PartiallyChecked));
 }
 
 void QuickUiTest::testSpinBoxDrawsItsPrefixAndSuffix()

@@ -41,6 +41,7 @@ public:
     // The control a generic editor should use for an aspect.
     enum Kind {
         Bool,
+        TriStateBool,
         String,
         FilePath,
         Integer,

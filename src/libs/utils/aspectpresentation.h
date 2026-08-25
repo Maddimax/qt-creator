@@ -26,6 +26,10 @@ enum Control {
     Container,
     Label,
     CheckBox,
+    // On, off, or neither - a setting a project may leave to the global one,
+    // a plugin the language server has not been told about. Only a check box
+    // can say "neither" without a label per state; see Utils::TriStateAspect.
+    TriStateCheckBox,
     RadioButton,
     Toggle,
     LineEdit,

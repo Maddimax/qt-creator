@@ -98,6 +98,7 @@ AspectContainerModel::Kind AspectContainerModel::kindOf(AspectControls::Control 
     case AspectControls::Label:                  return TextDisplay;
     case AspectControls::CheckBox:
     case AspectControls::Toggle:                 return Bool;
+    case AspectControls::TriStateCheckBox:       return TriStateBool;
     case AspectControls::RadioButton:            return Radio;
     case AspectControls::LineEdit:
     case AspectControls::PasswordLineEdit:       return String;
