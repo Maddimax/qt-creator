@@ -3,8 +3,18 @@
 
 #pragma once
 
+#include <QtGlobal>
+
+QT_BEGIN_NAMESPACE
+class QObject;
+QT_END_NAMESPACE
+
 namespace Core::Internal {
 
 void setupExternalToolSettings();
+
+#ifdef WITH_TESTS
+QObject *createExternalToolSettingsTest();
+#endif
 
 } // Core::Internal

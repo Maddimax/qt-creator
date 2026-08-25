@@ -22,6 +22,7 @@
 #include "idocument.h"
 #include "iwizardfactory.h"
 #include "locator/locator.h"
+#include "dialogs/externaltoolconfig.h"
 #include "dialogs/shortcutsettings.h"
 #include "mimetypesettings.h"
 #include "locator/locator_test.h"
@@ -527,6 +528,7 @@ Result<> CorePlugin::initialize(const QStringList &arguments)
     addTestCreator(createOutputFormatterTest);
     addTestCreator(createMimeTypeSettingsTest);
     addTestCreator(createShortcutSettingsTest);
+    addTestCreator(createExternalToolSettingsTest);
 #endif
 
     return ResultOk;

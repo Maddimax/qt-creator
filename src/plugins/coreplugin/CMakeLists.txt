@@ -367,6 +367,7 @@ if(TARGET Core AND TARGET Qt::Quick)
     NO_PLUGIN
     QML_FILES
       CustomLanguageModelsPage.qml
+      ExternalToolsPage.qml
       GeneralSettingsPage.qml
       KeyboardSettingsPage.qml
       LocatorSettingsPage.qml
