@@ -21,8 +21,23 @@ RowLayout {
     readonly property string toolTip: aspect?.toolTip ?? ""
     readonly property bool aspectVisible: aspect?.visible ?? true
 
+    property var pres: aspect ? AspectModels.presentation(aspect) : ({})
+
     // The aspect owns the model, so it outlives any one page.
     readonly property var treeModel: aspect ? AspectModels.tableModel(aspect) : null
+
+    // Narrowing the rows is the view's business; which rows there are is the
+    // model's. Always in the chain, so there is one index space whether or not
+    // the filter field is shown. A branch is kept when anything under it
+    // matches, which is what makes a filter useful on a tree.
+    readonly property TreeFilterModel rows: TreeFilterModel {
+        sourceModel: root.treeModel
+    }
+
+    // Which row is being looked at, in the aspect's own model. A page showing
+    // a detail of it - the expression a command is mapped to - reads this; an
+    // invalid index means nothing is picked.
+    readonly property var currentIndex: view.selectionModel.currentIndex
 
     // A page showing a tree usually wants to offer these, and they are the
     // view's business rather than the aspect's.
@@ -53,6 +68,20 @@ RowLayout {
             anchors.fill: parent
             spacing: 0
 
+            // Above the tree and out of the way of it, the way a search field
+            // sits over a list. No filter where the aspect names no
+            // placeholder for it.
+            TextField {
+                id: filter
+
+                objectName: "treeFilterField"
+                placeholderText: root.pres.filterPlaceholderText ?? ""
+                visible: placeholderText !== ""
+                enabled: root.aspect?.enabled ?? false
+                Layout.fillWidth: true
+                onTextChanged: root.rows.setFilterFixedString(text)
+            }
+
             HorizontalHeaderView {
                 syncView: view
                 clip: true
@@ -63,7 +92,7 @@ RowLayout {
                 id: view
 
                 objectName: "aspectTree"
-                model: root.treeModel
+                model: root.rows
                 clip: true
                 boundsBehavior: Flickable.StopAtBounds
                 selectionBehavior: TableView.SelectRows

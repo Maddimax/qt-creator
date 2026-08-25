@@ -22,6 +22,7 @@ QtcLibrary {
         "qtcquick_global.h",
         "qtctokens.cpp", "qtctokens.h",
         "tablefiltermodel.cpp", "tablefiltermodel.h",
+        "treefiltermodel.cpp", "treefiltermodel.h",
         "qtcquickengine.cpp", "qtcquickengine.h",
         "qtcquickwidget.cpp", "qtcquickwidget.h",
     ]

@@ -37,6 +37,7 @@
 #include <QPixmap>
 #include <QPromise>
 #include <QRegularExpression>
+#include <QSortFilterProxyModel>
 #include <QSignalSpy>
 #include <QMetaEnum>
 #include <QQmlEngine>
@@ -2246,10 +2247,15 @@ void QuickUiTest::testTreeShowsWhatTheAspectHandsOut()
     QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "TreeDelegate"));
 
     // The aspect's own model, not a copy: what it shows follows what the page
-    // puts in it.
+    // puts in it. The view sees it through the filter, which is always in the
+    // chain so that there is one index space either way.
     QQuickItem *view = findQmlNamed(delegate, "aspectTree").value(0);
     QVERIFY(view);
-    QCOMPARE(view->property("model").value<QAbstractItemModel *>(), properties.tableModel());
+    auto shown = view->property("model").value<QAbstractItemModel *>();
+    QVERIFY(shown);
+    auto filtered = qobject_cast<QSortFilterProxyModel *>(shown);
+    QVERIFY(filtered);
+    QCOMPARE(filtered->sourceModel(), properties.tableModel());
 
     // A tree, so the branch has rows under it rather than beside it.
     QAbstractItemModel *tree = properties.tableModel();
@@ -2274,6 +2280,14 @@ void QuickUiTest::testTreeShowsWhatTheAspectHandsOut()
 
     QMetaObject::invokeMethod(delegate, "collapseAll");
     QTRY_COMPARE(view->property("rows").toInt(), 2);
+
+    // Filtering a tree by its top-level rows alone would hide the branch that
+    // holds what was looked for, so a branch is kept when a child matches.
+    filtered->setFilterFixedString("cxxLanguage");
+    QCOMPARE(filtered->rowCount({}), 1);
+    QCOMPARE(filtered->rowCount(filtered->index(0, 0)), 1);
+    filtered->setFilterFixedString({});
+    QCOMPARE(filtered->rowCount({}), 2);
 }
 
 void QuickUiTest::testAFieldCompletesAgainstWhatTheAspectOffers()
