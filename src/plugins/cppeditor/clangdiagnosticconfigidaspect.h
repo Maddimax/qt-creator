@@ -10,11 +10,8 @@
 #include <utils/aspects.h>
 #include <utils/id.h>
 
-#include <QPointer>
-
 namespace CppEditor {
 
-class ClangDiagnosticConfigsSelectionWidget;
 class ClangDiagnosticConfigsWidget;
 
 // Aspect holding a ClangDiagnosticConfig identifier.
@@ -33,7 +30,16 @@ public:
     void setEditWidgetFactory(EditWidgetFactory factory);
 
     ClangDiagnosticConfigs customConfigs() const { return m_customConfigs; }
-    void setCustomConfigs(const ClangDiagnosticConfigs &configs) { m_customConfigs = configs; }
+    void setCustomConfigs(const ClangDiagnosticConfigs &configs)
+    {
+        m_customConfigs = configs;
+        m_customConfigsKnown = true;
+    }
+    // Whether the list above is this aspect's answer or just its empty
+    // starting state. A project's settings are loaded straight into the page's
+    // data and never reach the aspect, so saving them back from here would
+    // wipe them.
+    bool customConfigsAreKnown() const { return m_customConfigsKnown; }
 
     void setPersistCustomConfigs(bool persist) { m_persistCustomConfigs = persist; }
 
@@ -48,14 +54,9 @@ public:
     QString displayText() const final;
     void triggerAction() final;
 
-    void addToLayoutImpl(Layouting::Layout &parent) final;
-
     void refresh();
-    bool hasWidget() const;
 
 private:
-    bool guiToVolatileValue() final;
-    void volatileValueToGui() final;
     bool isDirty() const final;
     void apply() final;
 
@@ -64,7 +65,7 @@ private:
     ClangDiagnosticConfigs m_customConfigs;
     ClangDiagnosticConfigs m_committedCustomConfigs;
     bool m_persistCustomConfigs = false;
-    QPointer<ClangDiagnosticConfigsSelectionWidget> m_widget;
+    bool m_customConfigsKnown = false;
 };
 
 } // namespace CppEditor

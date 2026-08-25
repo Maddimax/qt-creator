@@ -2171,9 +2171,9 @@ group. Most are run-configuration, build-step and kit aspects - project
 panels rather than preferences pages, which is a surface the migration has not
 reached. The rest are aspects on pages that *have* been migrated and
 describe a control the widget renderer had no case for, so they kept a closure
-to draw it: `MimeTypesAspect`, `SuppressionAspect`,
-`ClangDiagnosticConfigIdAspect`. `SecretAspect` and
-`EncodingSelectionAspect` were two more - see below.
+to draw it: `MimeTypesAspect` and `SuppressionAspect`. `SecretAspect`,
+`EncodingSelectionAspect` and `ClangDiagnosticConfigIdAspect` were three more
+- see below.
 `aspects.{h,cpp}` reach no QtWidgets header and no `layoutbuilder.h` either;
 what keeps them on the widget side of the split metric is that virtual's
 signature naming `Layouting::Layout`, and the project panels are what has to
@@ -2418,6 +2418,30 @@ aspect instead, and `filterPlaceholderText`, `showsDefault` and
 backend does not draw at all. One genuine hole is left: **`spanY` is read by
 neither**, so `setSpan()`'s second argument has never meant anything. `spanX`
 is honoured, in `AspectWidgets::addLabeledItem()`.
+
+### The same dialog, written twice
+
+`ClangDiagnosticConfigIdAspect` described itself as `TextWithAction` - a name
+and a **Change...** that opens a dialog - and `triggerAction()` opened it. Its
+closure built a `ClangDiagnosticConfigsSelectionWidget` whose button opened
+*the same dialog*, out of a second copy of the same forty lines. The widget is
+gone and with it `guiToVolatileValue()`, `volatileValueToGui()` and the
+`QPointer` they moved values through.
+
+**The widget was also doing bookkeeping nobody had noticed.** Its
+`customConfigs()` was where `ClangdSettings::m_data.customDiagnosticConfigs`
+came from when the page was applied - so *opening* the page was what filled the
+list in, and the aspect never held it otherwise. Delete the closure without
+looking and applying the clangd page would have written an empty list over
+every custom diagnostic configuration the user had. The old code guarded that
+with `hasWidget()`, which reads as a lifetime check and is really "has anything
+put a list in here yet". It is `customConfigsAreKnown()` now, set where the
+list is actually set, and both call sites ask it.
+
+That is the second time in this migration that a closure turned out to be
+holding page state rather than drawing - `WorkingDirectoryAspect` was the
+first. It is worth assuming: before deleting one, ask what reads the widgets it
+builds.
 
 ### What the census could not see, and now can
 

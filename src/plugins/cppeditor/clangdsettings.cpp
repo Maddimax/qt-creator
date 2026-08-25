@@ -874,9 +874,9 @@ public:
 
     void save()
     {
-        // Only sync customConfigs from the widget when it has been shown;
-        // otherwise keep whatever was loaded from settings.
-        if (diagnosticConfigId.hasWidget())
+        // Only sync customConfigs from the aspect once it has some; otherwise
+        // keep whatever was loaded from settings.
+        if (diagnosticConfigId.customConfigsAreKnown())
             m_data.customDiagnosticConfigs = diagnosticConfigId.customConfigs();
         Store store;
         store.insert(useGlobalSettingsKey(), useGlobalSettings());
@@ -1144,7 +1144,12 @@ public:
     {
         AspectContainer::apply();
         ClangdSettings &s = ClangdSettings::instance();
-        s.m_data.customDiagnosticConfigs = s.diagnosticConfigId.customConfigs();
+        // Only where the aspect has some. It used to read them off a widget
+        // the page built, so opening the page was enough to fill them in;
+        // nothing builds one now, and applying a page whose dialog was never
+        // opened would otherwise store an empty list over them.
+        if (s.diagnosticConfigId.customConfigsAreKnown())
+            s.m_data.customDiagnosticConfigs = s.diagnosticConfigId.customConfigs();
         s.m_data.sessionsWithOneClangd = sessions.sessions();
         s.saveSettings();
         emit s.changed();
@@ -1233,6 +1238,8 @@ private slots:
     void testTheSameSessionCannotBeChosenTwice();
     void testTheWarningIsSilentUntilThereIsSomethingToWarnAbout();
     void testChangingTheSessionsIsSomethingToApply();
+    void testTheDiagnosticConfigShowsItsName();
+    void testApplyingKeepsTheCustomDiagnosticConfigs();
 
 private:
     const QStringList m_ownSessions{"clangd-test-alpha", "clangd-test-beta"};
@@ -1349,6 +1356,49 @@ void ClangdSettingsTest::testChangingTheSessionsIsSomethingToApply()
 
     QVERIFY(model->removeRows(before, 1));
     QVERIFY(!static_cast<BaseAspect *>(p)->isDirty());
+}
+
+void ClangdSettingsTest::testTheDiagnosticConfigShowsItsName()
+{
+    ClangdSettings &s = ClangdSettings::instance();
+    const Id stored = s.diagnosticConfigId.volatileValue();
+    const ClangDiagnosticConfigsModel model = ClangdSettings::diagnosticConfigsModel();
+
+    // What both backends draw on the button. The name is worked out from the
+    // id rather than stored beside it, so it is the aspect that has to answer.
+    QCOMPARE(s.diagnosticConfigId.displayText(), model.configWithId(stored).displayName());
+    QVERIFY(!s.diagnosticConfigId.displayText().isEmpty());
+
+    // An id that is no longer among the configurations - one the user deleted,
+    // or one written by a newer Creator - reads as the default rather than as
+    // a blank button.
+    s.diagnosticConfigId.setVolatileValue(Id("Some.Config.That.Went.Away"));
+    QCOMPARE(s.diagnosticConfigId.displayText(),
+             model.configWithId(s.diagnosticConfigId.defaultValue()).displayName());
+
+    s.diagnosticConfigId.setVolatileValue(stored);
+}
+
+void ClangdSettingsTest::testApplyingKeepsTheCustomDiagnosticConfigs()
+{
+    ClangdPageAspects *p = page();
+    QVERIFY(p);
+    ClangdSettings &s = ClangdSettings::instance();
+
+    ClangDiagnosticConfig custom;
+    custom.setId(Id("Test.Custom.Config"));
+    custom.setDisplayName("Test Custom Config");
+    custom.setIsReadOnly(false);
+    const ClangDiagnosticConfigs before{custom};
+    s.m_data.customDiagnosticConfigs = before;
+
+    // The aspect used to be handed the list by the widget the page built for
+    // it. Nothing builds one, so applying a page whose diagnostics dialog was
+    // never opened must leave them where they are rather than store the
+    // aspect's empty list over them.
+    QVERIFY(!s.diagnosticConfigId.customConfigsAreKnown());
+    static_cast<BaseAspect *>(p)->apply();
+    QCOMPARE(s.m_data.customDiagnosticConfigs, before);
 }
 
 QObject *createClangdSettingsTest()

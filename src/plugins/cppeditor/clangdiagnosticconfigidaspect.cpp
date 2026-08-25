@@ -8,109 +8,18 @@
 
 #include <coreplugin/icore.h>
 
-#include <utils/aspectwidgets.h>
 #include <utils/guiutils.h>
-#include <utils/layoutbuilder.h>
 #include <utils/qtcsettings.h>
 #include <utils/store.h>
 
 #include <QDialog>
 #include <QDialogButtonBox>
-#include <QPushButton>
 #include <QVBoxLayout>
 #include <QWidget>
 
 using namespace Utils;
 
 namespace CppEditor {
-
-class ClangDiagnosticConfigsSelectionWidget : public QWidget
-{
-    Q_OBJECT
-
-public:
-    ClangDiagnosticConfigsSelectionWidget()
-    {
-        using namespace Layouting;
-        Row {
-            Tr::tr("Diagnostic configuration:"),
-            &m_button,
-            st,
-            noMargin
-        }.attachTo(this);
-
-        connect(&m_button, &QPushButton::clicked,
-                this, &ClangDiagnosticConfigsSelectionWidget::onButtonClicked);
-    }
-
-    using CreateEditWidget
-        = std::function<ClangDiagnosticConfigsWidget *(const ClangDiagnosticConfigs &configs,
-                                                       const Id &configToSelect)>;
-
-    void refresh(const ClangDiagnosticConfigsModel &model,
-                 const Id &configToSelect,
-                 const CreateEditWidget &createEditWidget)
-    {
-        m_diagnosticConfigsModel = model;
-        m_currentConfigId = configToSelect;
-        m_createEditWidget = createEditWidget;
-
-        const ClangDiagnosticConfig config = m_diagnosticConfigsModel.configWithId(configToSelect);
-        m_button.setText(config.displayName());
-    }
-
-    Id currentConfigId() const
-    {
-        return m_currentConfigId;
-    }
-
-    ClangDiagnosticConfigs customConfigs() const
-    {
-        return m_diagnosticConfigsModel.customConfigs();
-    }
-
-    void onButtonClicked()
-    {
-        const ClangDiagnosticConfigs oldConfigs = m_diagnosticConfigsModel.allConfigs();
-        ClangDiagnosticConfigsWidget *widget = m_createEditWidget(oldConfigs, m_currentConfigId);
-        widget->sync();
-        widget->layout()->setContentsMargins(0, 0, 0, 0);
-
-        QDialog dialog;
-        dialog.setWindowTitle(Tr::tr("Diagnostic Configurations"));
-        dialog.setLayout(new QVBoxLayout);
-        dialog.layout()->addWidget(widget);
-        auto buttonsBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
-        dialog.layout()->addWidget(buttonsBox);
-
-        connect(buttonsBox, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-        connect(buttonsBox, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-
-        if (dialog.exec() == QDialog::Accepted) {
-            const Id origId = m_currentConfigId;
-            m_diagnosticConfigsModel = ClangDiagnosticConfigsModel(widget->configs());
-            m_currentConfigId = widget->currentConfig().id();
-            const QString origDisplayName = m_button.text();
-            m_button.setText(widget->currentConfig().displayName());
-
-            emit changed();
-            if (origId != m_currentConfigId || origDisplayName != m_button.text()
-                || oldConfigs != widget->configs()) {
-                Utils::checkSettingsDirty();
-            }
-        }
-    }
-
-signals:
-    void changed();
-
-private:
-    ClangDiagnosticConfigsModel m_diagnosticConfigsModel;
-    Utils::Id m_currentConfigId;
-
-    QPushButton m_button;
-    CreateEditWidget m_createEditWidget;
-};
 
 // ClangDiagnosticConfigIdAspect
 
@@ -181,38 +90,11 @@ void ClangDiagnosticConfigIdAspect::triggerAction()
     const bool anyChange = chosen != current || chosenConfigs != oldConfigs;
 
     m_customConfigs = ClangDiagnosticConfigsModel(chosenConfigs).customConfigs();
+    m_customConfigsKnown = true;
     setVolatileValue(chosen);
     emit displayTextChanged();
     if (anyChange)
         Utils::checkSettingsDirty();
-}
-
-void ClangDiagnosticConfigIdAspect::addToLayoutImpl(Layouting::Layout &parent)
-{
-    m_widget = Utils::AspectWidgets::createSubWidget<ClangDiagnosticConfigsSelectionWidget>(this);
-    if (m_modelFactory && m_editFactory) {
-        const ClangDiagnosticConfigsModel model = m_modelFactory();
-        const Id id = model.hasConfigWithId(volatileValue()) ? volatileValue() : defaultValue();
-        m_widget->refresh(model, id, m_editFactory);
-        m_committedCustomConfigs = m_customConfigs = m_widget->customConfigs();
-    }
-    connect(m_widget, &ClangDiagnosticConfigsSelectionWidget::changed, this, [this] {
-        if (m_widget)
-            handleGuiChanged();
-    });
-    parent.addItem(m_widget.data());
-}
-
-bool ClangDiagnosticConfigIdAspect::guiToVolatileValue()
-{
-    if (!m_widget)
-        return false;
-    const Id newId = m_widget->currentConfigId();
-    const ClangDiagnosticConfigs newConfigs = m_widget->customConfigs();
-    const bool changed = (newId != m_volatileValue) || (newConfigs != m_customConfigs);
-    m_volatileValue = newId;
-    m_customConfigs = newConfigs;
-    return changed;
 }
 
 bool ClangDiagnosticConfigIdAspect::isDirty() const
@@ -228,22 +110,9 @@ void ClangDiagnosticConfigIdAspect::apply()
 
 void ClangDiagnosticConfigIdAspect::refresh()
 {
-    volatileValueToGui();
-}
-
-bool ClangDiagnosticConfigIdAspect::hasWidget() const
-{
-    return m_widget != nullptr;
-}
-
-void ClangDiagnosticConfigIdAspect::volatileValueToGui()
-{
-    if (!m_widget || !m_modelFactory || !m_editFactory)
-        return;
-    const ClangDiagnosticConfigsModel model = m_modelFactory();
-    const Id id = model.hasConfigWithId(m_volatileValue) ? m_volatileValue : defaultValue();
-    m_widget->refresh(model, id, m_editFactory);
-    m_customConfigs = m_widget->customConfigs();
+    // The name is what is drawn, and it is worked out from the value rather
+    // than stored, so a value that changed behind the page's back has to say so.
+    emit displayTextChanged();
 }
 
 void ClangDiagnosticConfigIdAspect::fromMap(const Store &map)
@@ -264,8 +133,11 @@ void ClangDiagnosticConfigIdAspect::toMap(Store &map) const
 void ClangDiagnosticConfigIdAspect::readSettings()
 {
     TypedAspect<Id>::readSettings();
-    if (m_persistCustomConfigs)
-        m_customConfigs = diagnosticConfigsFromSettings(&Utils::userSettings());
+    if (m_persistCustomConfigs) {
+        m_customConfigs = m_committedCustomConfigs
+            = diagnosticConfigsFromSettings(&Utils::userSettings());
+        m_customConfigsKnown = true;
+    }
 }
 
 void ClangDiagnosticConfigIdAspect::writeSettings() const
