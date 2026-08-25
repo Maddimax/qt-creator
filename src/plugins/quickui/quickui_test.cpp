@@ -181,6 +181,7 @@ private slots:
     void testListRowShowsWhatTheListSaysAboutTheItem();
     void testGroupedListShowsItsGroupsAndActsOnTheCurrentItem();
     void testFieldSaysWhatIsWrongAndKeepsItOut();
+    void testFieldWaitsForAnAnswerItHasToFetch();
     void testColourOffersToGoBackToItsDefault();
     void testColourWithNoResetHasNoButton();
 };
@@ -2092,6 +2093,90 @@ void QuickUiTest::testGroupedListShowsItsGroupsAndActsOnTheCurrentItem()
     QMetaObject::invokeMethod(clone, "clicked");
     QCOMPARE(model.itemCount(), 3);
     QCOMPARE(tools.currentRow(), 2);
+}
+
+void QuickUiTest::testFieldWaitsForAnAnswerItHasToFetch()
+{
+    // Some checks cannot be made on the spot: whether the path a field holds
+    // is really a debugger is decided by running it. The aspect answers
+    // nothing until it knows, and says so when it does.
+    Utils::AspectContainer page;
+    page.setAutoApply(false);
+    Utils::FilePathAspect binary(&page);
+    binary.setLabelText("Path");
+    binary.setValue(QString("/good"));
+
+    QList<QPromise<Utils::AsyncValidationResult> *> promises;
+    binary.setValidationFunction(
+        Utils::AsyncValidationFunction([&promises](const QString &)
+                                       -> Utils::AsyncValidationFuture {
+            auto p = new QPromise<Utils::AsyncValidationResult>;
+            promises.append(p);
+            p->start();
+            return p->future();
+        }));
+    const QScopeGuard deletePromises([&promises] { qDeleteAll(promises); });
+
+    std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QVERIFY(quickWidget->rootObject());
+
+    QQuickItem *field = nullptr;
+    QTRY_VERIFY(field = findQmlComponent(quickWidget->rootObject(), "TextField"));
+    const QList<QQuickItem *> messages = findQmlNamed(quickWidget->rootObject(),
+                                                      "validationMessage");
+    QCOMPARE(messages.size(), 1);
+    QQuickItem *message = messages.first();
+
+    // Asked, and nothing said yet: a field that showed the last answer would
+    // be saying it about text that is no longer there.
+    field->setProperty("text", "/bad");
+    QTRY_VERIFY(!promises.isEmpty());
+    QVERIFY(!message->property("visible").toBool());
+
+    // The answer arrives, and the field says so without being asked again.
+    promises.last()->addResult(Utils::make_unexpected(QString("Not a debugger.")));
+    promises.last()->finish();
+    QTRY_VERIFY(message->property("visible").toBool());
+    QCOMPARE(message->property("text").toString(), QString("Not a debugger."));
+
+    // And a value the aspect has called wrong does not reach it.
+    QMetaObject::invokeMethod(field, "editingFinished");
+    QCOMPARE(binary.volatileValue(), QString("/good"));
+
+    // The rest is driven directly rather than through the field: how often a
+    // binding happens to re-evaluate is not the point being made. The form
+    // goes first - the aspect remembers one candidate, the one being asked
+    // about, and a field still on screen asks about its own text.
+
+    // Asked about something else, the aspect must forget what it knew - until
+    // the new answer lands there is nothing to say about it - and asking twice
+    // must not send it looking twice.
+    form.reset();
+
+    const int checksBefore = promises.size();
+    QCOMPARE(binary.validationMessage("/other"), QString());
+    QCOMPARE(binary.validationMessage("/other"), QString());
+    QCOMPARE(promises.size(), checksBefore + 1);
+
+    // An answer about a value that is no longer there is dropped. Both are
+    // finished here, oldest first, so waiting for the newer one's effect is
+    // proof that the older one has already been delivered - there is no moment
+    // to wait through and nothing to time out on.
+    QSignalSpy validated(&binary, &Utils::BaseAspect::validationMessageChanged);
+    const int inFlight = promises.size();
+    QCOMPARE(binary.validationMessage("/first"), QString());
+    QCOMPARE(binary.validationMessage("/second"), QString());
+    QCOMPARE(promises.size(), inFlight + 2);
+
+    promises.at(inFlight)->addResult(Utils::make_unexpected(QString("About the old text.")));
+    promises.at(inFlight)->finish();
+    promises.at(inFlight + 1)->addResult(Utils::make_unexpected(QString("About the new text.")));
+    promises.at(inFlight + 1)->finish();
+
+    QTRY_COMPARE(binary.validationMessage("/second"), QString("About the new text."));
+    QCOMPARE(validated.count(), 1);
 }
 
 void QuickUiTest::testListRowShowsWhatTheListSaysAboutTheItem()

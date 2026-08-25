@@ -29,10 +29,20 @@ RowLayout {
     readonly property bool wantsDirectory:
         pathKind === "ExistingDirectory" || pathKind === "Directory"
 
+    // An answer that had to be fetched has arrived, so the field asks again.
+    // Bumping a counter the binding reads is what makes it re-evaluate: what
+    // is wrong with a value is asked for, not a property to bind to.
+    property int validationTick: 0
+
     Connections {
         target: delegate.aspect
-        function onControlConfigurationChanged() {
+
+        function onControlConfigurationChanged(): void {
             delegate.pres = AspectModels.presentation(delegate.aspect)
+        }
+
+        function onValidationMessageChanged(): void {
+            delegate.validationTick++
         }
     }
 
@@ -58,8 +68,10 @@ RowLayout {
             // What is wrong with what is in the field, from the aspect: QML
             // cannot reach a validation function, so it asks. Empty when the
             // aspect has none, which is most of them.
-            readonly property string error:
-                delegate.aspect?.validationMessage(text) ?? ""
+            readonly property string error: {
+                delegate.validationTick // Re-ask once the aspect has been to look.
+                return delegate.aspect?.validationMessage(text) ?? ""
+            }
 
             text: delegate.aspect?.value ?? ""
             echoMode: delegate.pres.password ? TextInput.Password : TextInput.Normal

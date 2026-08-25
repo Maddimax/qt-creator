@@ -792,6 +792,9 @@ QAbstractItemModel *BaseAspect::tableModel()
 // What a validation function that can be run without a control says about
 // \a candidate. The other two shapes cannot answer here: one is handed a
 // FancyLineEdit, and one answers a QFuture. Both are the widget renderer's.
+// What a validation function says about \a candidate, where it can say it here
+// and now. The shape taking a FancyLineEdit is the widget renderer's and has
+// nothing to be handed; the asynchronous one goes through AsyncValidation.
 static QString validationMessageFor(const std::optional<ValidationFunction> &validator,
                                     const QVariant &candidate)
 {
@@ -801,6 +804,37 @@ static QString validationMessageFor(const std::optional<ValidationFunction> &val
         const Result<> result = (*simple)(candidate.toString());
         return result ? QString() : result.error();
     }
+    return {};
+}
+
+// An answer that has to be gone and got: whether the path a field holds is a
+// debugger, say, is decided by running it. The aspect remembers the answer for
+// one candidate - the one the field is showing - and says so when it arrives.
+//
+// Nothing is reported while a check is in flight. Showing the last answer
+// would be showing it about text the user has already changed.
+QString AsyncValidation::messageFor(const std::optional<ValidationFunction> &validator,
+                                    const QVariant &candidate,
+                                    BaseAspect *aspect)
+{
+    auto async = validator ? std::get_if<AsyncValidationFunction>(&*validator) : nullptr;
+    if (!async)
+        return {};
+
+    const QString text = candidate.toString();
+    if (text == m_candidate)
+        return m_message;
+
+    m_candidate = text;
+    m_message.clear();
+    (*async)(text).then(aspect, [this, aspect, text](const AsyncValidationResult &result) {
+        // A later candidate has been asked about since; this answer is about
+        // text that is no longer there.
+        if (text != m_candidate)
+            return;
+        m_message = result ? QString() : result.error();
+        emit aspect->validationMessageChanged();
+    });
     return {};
 }
 
@@ -1441,6 +1475,7 @@ public:
     FilePath m_initialBrowsePathBackup;
     StringAspect::ValueAcceptor m_valueAcceptor;
     std::optional<ValidationFunction> m_validator;
+    AsyncValidation m_asyncValidation;
     std::optional<FilePath> m_effectiveBinary;
     std::function<void()> m_openTerminal;
 
@@ -1889,7 +1924,10 @@ std::optional<ValidationFunction> FilePathAspect::validationFunction() const
 
 QString FilePathAspect::validationMessage(const QVariant &candidate) const
 {
-    return validationMessageFor(d->m_validator, candidate);
+    if (const QString message = validationMessageFor(d->m_validator, candidate); !message.isEmpty())
+        return message;
+    return d->m_asyncValidation.messageFor(d->m_validator, candidate,
+                                           const_cast<FilePathAspect *>(this));
 }
 
 Environment FilePathAspect::environment() const

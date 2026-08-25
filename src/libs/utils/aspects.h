@@ -72,6 +72,24 @@ class TextDisplayPrivate;
 class CheckableAspectImplementation;
 } // Internal
 
+class BaseAspect;
+
+// The last answer an asynchronous validation function gave, and about which
+// candidate. Held by the aspects that have one so that a control can ask for
+// the same value twice without starting the check again. See
+// BaseAspect::validationMessage().
+class QTCREATOR_UTILS_EXPORT AsyncValidation
+{
+public:
+    QString messageFor(const std::optional<ValidationFunction> &validator,
+                       const QVariant &candidate,
+                       BaseAspect *aspect);
+
+private:
+    QString m_candidate;
+    QString m_message;
+};
+
 class QTCREATOR_UTILS_EXPORT BaseAspect : public QObject
 {
     Q_OBJECT
@@ -195,6 +213,10 @@ public:
     // What is wrong with a value the user has typed, or an empty string when
     // nothing is. A renderer that cannot reach the aspect's validation
     // function - QML holds a BaseAspect and nothing more - asks this instead.
+    //
+    // An aspect that has to go and look - running the binary a path names, for
+    // one - answers nothing now and says validationMessageChanged() once it
+    // knows, so a control asks again.
     Q_INVOKABLE virtual QString validationMessage(const QVariant &candidate) const;
 
     AspectContainer *container() const;
@@ -302,6 +324,8 @@ signals:
     void visibleChanged(bool);
     void tooltipChanged(const QString &tooltip);
     void labelTextChanged();
+    // An answer to validationMessage() that had to be fetched has arrived.
+    void validationMessageChanged();
     void labelPixmapChanged();
     void displayTextChanged();
 
