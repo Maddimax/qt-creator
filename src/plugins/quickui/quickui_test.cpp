@@ -173,6 +173,7 @@ private slots:
     void testRadioStyledBoolIsARadioButton();
     void testSpinBoxDrawsItsPrefixAndSuffix();
     void testPageQmlReachesANestedContainersAspects();
+    void testAnAspectCanHandOutAContainerToDraw();
     void testMultiLineStringGetsATextArea();
     void testSecretIsFetchedBeforeItCanBeEdited();
     void testTableAspectDrawsWhatItsModelOffers();
@@ -1031,6 +1032,80 @@ AspectPage {
 
     // One object per container, so a page and the generic form agree on it.
     QCOMPARE(nested.findChildren<QtcQuick::NamedAspects *>().size(), 1);
+}
+
+// An aspect that hands out a whole container rather than a value, for settings
+// that are not known until something is picked: a Qt version's extra settings
+// are its own kind's - only QNX has any, and only an SDP path.
+class ContainerHandingAspect final : public Utils::BaseAspect
+{
+    Q_OBJECT
+
+    Q_PROPERTY(Utils::BaseAspect *container READ container CONSTANT)
+
+public:
+    using BaseAspect::BaseAspect;
+
+    Utils::AspectContainer *container() const { return m_container; }
+    void setContainer(Utils::AspectContainer *container) { m_container = container; }
+
+private:
+    Utils::AspectContainer *m_container = nullptr;
+};
+
+void QuickUiTest::testAnAspectCanHandOutAContainerToDraw()
+{
+    Utils::AspectContainer page;
+    ContainerHandingAspect extra(&page);
+    extra.setQmlName("Extra");
+
+    Utils::AspectContainer handedOver;
+    Utils::BoolAspect flag(&handedOver);
+    flag.setLabelText("The flag");
+    flag.setValue(true);
+    extra.setContainer(&handedOver);
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString pageQml = dir.filePath("HandOverPage.qml");
+    {
+        QFile file(pageQml);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write(R"(
+import QtQuick
+import QtQuick.Layouts
+import QtCreator.Ui
+
+AspectPage {
+    id: root
+    AspectItems {
+        Layout.fillWidth: true
+        model: root.aspects.Extra.container
+               ? AspectModels.container(root.aspects.Extra.container) : null
+    }
+}
+)");
+    }
+    page.setQmlSource(QUrl::fromLocalFile(pageQml));
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createAspectForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QQuickItem *rootItem = quickWidget->rootObject();
+    if (!rootItem) {
+        const QStringList errors = Utils::transform(quickWidget->errors(), &QQmlError::toString);
+        QFAIL(qPrintable(errors.join("; ")));
+    }
+
+    // The aspects of the handed-over container are drawn, not just reached: a
+    // name QML cannot resolve is undefined rather than an error, and the page
+    // then shows nothing and says nothing.
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(rootItem, "BoolDelegate"));
+    QCOMPARE(delegate->property("aspect").value<Utils::BaseAspect *>(), &flag);
+    QCOMPARE(delegate->property("text").toString(), QString("The flag"));
+    QCOMPARE(delegate->property("checked").toBool(), true);
 }
 
 void QuickUiTest::testMultiLineStringGetsATextArea()
