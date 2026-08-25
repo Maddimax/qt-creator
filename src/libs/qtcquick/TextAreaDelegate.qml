@@ -70,6 +70,47 @@ RowLayout {
                     if (!activeFocus && delegate.aspect && !area.readOnly)
                         delegate.aspect.value = area.text
                 }
+
+                // Several lines of text complete against the word the cursor
+                // is in, not against everything typed so far.
+                readonly property int wordStart: {
+                    let at = area.cursorPosition
+                    while (at > 0 && /[\w-]/.test(area.text.charAt(at - 1)))
+                        --at
+                    return at
+                }
+                readonly property string word:
+                    area.text.substring(area.wordStart, area.cursorPosition)
+
+                onTextChanged: if (area.activeFocus) completion.offer()
+
+                Keys.onPressed: (event) => {
+                    if (!completion.visible)
+                        return
+                    switch (event.key) {
+                    case Qt.Key_Down: completion.moveDown(); event.accepted = true; break
+                    case Qt.Key_Up: completion.moveUp(); event.accepted = true; break
+                    case Qt.Key_Return:
+                    case Qt.Key_Enter:
+                    case Qt.Key_Tab: completion.acceptCurrent(); event.accepted = true; break
+                    }
+                }
+
+                CompletionPopup {
+                    id: completion
+
+                    completions: delegate.pres.completions ?? []
+                    prefix: area.word
+                    x: area.cursorRectangle.x
+                    y: area.cursorRectangle.y + area.cursorRectangle.height
+
+                    onAccepted: (text) => {
+                        const before = area.text.substring(0, area.wordStart)
+                        const after = area.text.substring(area.cursorPosition)
+                        area.text = before + text + after
+                        area.cursorPosition = before.length + text.length
+                    }
+                }
             }
         }
     }

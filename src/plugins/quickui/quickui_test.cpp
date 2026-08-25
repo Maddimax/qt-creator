@@ -184,6 +184,8 @@ private slots:
     void testTreeShowsWhatTheAspectHandsOut();
     void testFieldSaysWhatIsWrongAndKeepsItOut();
     void testFieldWaitsForAnAnswerItHasToFetch();
+    void testAFieldCompletesAgainstWhatTheAspectOffers();
+    void testSeveralLinesCompleteTheWordTheCursorIsIn();
     void testColourOffersToGoBackToItsDefault();
     void testColourWithNoResetHasNoButton();
 };
@@ -2272,6 +2274,95 @@ void QuickUiTest::testTreeShowsWhatTheAspectHandsOut()
 
     QMetaObject::invokeMethod(delegate, "collapseAll");
     QTRY_COMPARE(view->property("rows").toInt(), 2);
+}
+
+void QuickUiTest::testAFieldCompletesAgainstWhatTheAspectOffers()
+{
+    // QtQuick.Controls has no completer, so the aspect's completions were
+    // simply not offered on a Quick page.
+    Utils::AspectContainer page;
+    page.setAutoApply(false);
+    Utils::StringAspect option(&page);
+    option.setLabelText("Option");
+    option.setDisplayStyle(Utils::StringAspect::LineEditDisplay);
+    option.setCompletions({"indent", "indent-classes", "indent-switches", "pad-oper"});
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+
+    QQuickItem *field = nullptr;
+    QTRY_VERIFY(field = findQmlComponent(quickWidget->rootObject(), "TextField"));
+    // A Popup is a QObject child of the field rather than an item in the
+    // scene, so it is not where findQmlNamed() looks.
+    QObject *popup = field->findChild<QObject *>("completionPopup");
+    QVERIFY(popup);
+
+    // Nothing typed, nothing offered: a popup over an empty field would be a
+    // list of everything.
+    QVERIFY(!popup->property("visible").toBool());
+    QCOMPARE(popup->property("matches").toStringList().size(), 0);
+
+    // What was typed narrows it, and what is already typed in full is not
+    // worth offering again.
+    popup->setProperty("prefix", "indent");
+    QCOMPARE(popup->property("matches").toStringList(),
+             QStringList({"indent-classes", "indent-switches"}));
+    popup->setProperty("prefix", "pad");
+    QCOMPARE(popup->property("matches").toStringList(), QStringList({"pad-oper"}));
+    popup->setProperty("prefix", "nothing-like-this");
+    QCOMPARE(popup->property("matches").toStringList().size(), 0);
+
+    // Choosing one puts it in the field whole.
+    field->setProperty("text", "pad");
+    popup->setProperty("prefix", "pad");
+    QMetaObject::invokeMethod(popup, "offer");
+    QTRY_VERIFY(popup->property("visible").toBool());
+    QMetaObject::invokeMethod(popup, "acceptCurrent");
+    QCOMPARE(field->property("text").toString(), QString("pad-oper"));
+    QTRY_VERIFY(!popup->property("visible").toBool());
+}
+
+void QuickUiTest::testSeveralLinesCompleteTheWordTheCursorIsIn()
+{
+    Utils::AspectContainer page;
+    page.setAutoApply(false);
+    Utils::StringAspect config(&page);
+    config.setLabelText("Configuration");
+    config.setDisplayStyle(Utils::StringAspect::TextEditDisplay);
+    config.setCompletions({"indent", "indent-classes", "pad-oper"});
+    config.setValue("style=allman\nind");
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+
+    // Through the ScrollView: searching for "TextArea" from further up matches
+    // TextAreaDelegate itself.
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "TextAreaDelegate"));
+    QQuickItem *scroll = findQmlComponent(delegate, "ScrollView");
+    QVERIFY(scroll);
+    QQuickItem *area = findQmlComponent(scroll, "TextArea");
+    QVERIFY(area);
+    QCOMPARE(area->property("text").toString(), QString("style=allman\nind"));
+    QObject *popup = area->findChild<QObject *>("completionPopup");
+    QVERIFY(popup);
+
+    // The word the cursor is in, not everything typed so far: a whole config
+    // file would match nothing.
+    area->setProperty("cursorPosition", area->property("text").toString().length());
+    QCOMPARE(area->property("word").toString(), QString("ind"));
+    QCOMPARE(popup->property("matches").toStringList(),
+             QStringList({"indent", "indent-classes"}));
+
+    // And what is chosen replaces that word, leaving the rest of the line.
+    QMetaObject::invokeMethod(popup, "offer");
+    QTRY_VERIFY(popup->property("visible").toBool());
+    QMetaObject::invokeMethod(popup, "acceptCurrent");
+    QCOMPARE(area->property("text").toString(), QString("style=allman\nindent"));
 }
 
 void QuickUiTest::testListRowShowsWhatTheListSaysAboutTheItem()

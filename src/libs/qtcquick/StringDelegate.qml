@@ -88,6 +88,35 @@ RowLayout {
                 if (delegate.aspect && field.error === "")
                     delegate.aspect.value = text
             }
+
+            // A one-line field completes against the whole of what it holds.
+            onTextEdited: completion.offer()
+
+            Keys.onPressed: (event) => {
+                if (!completion.visible)
+                    return
+                switch (event.key) {
+                case Qt.Key_Down: completion.moveDown(); event.accepted = true; break
+                case Qt.Key_Up: completion.moveUp(); event.accepted = true; break
+                case Qt.Key_Return:
+                case Qt.Key_Enter:
+                case Qt.Key_Tab: completion.acceptCurrent(); event.accepted = true; break
+                }
+            }
+
+            CompletionPopup {
+                id: completion
+
+                completions: delegate.pres.completions ?? []
+                prefix: field.text
+                y: field.height
+                width: field.width
+
+                onAccepted: (text) => {
+                    field.text = text
+                    field.cursorPosition = text.length
+                }
+            }
         }
 
         Label {

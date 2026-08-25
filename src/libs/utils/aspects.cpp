@@ -1268,6 +1268,7 @@ AspectPresentation StringAspect::presentation() const
     }
     p.placeholderText = d->m_placeHolderText;
     p.withResetButton = d->m_useResetButton;
+    p.completions = d->m_completions;
     return p;
 }
 

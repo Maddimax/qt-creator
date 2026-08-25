@@ -212,6 +212,10 @@ public:
     QString toolTip;
     QString placeholderText;
 
+    // LineEdit and TextEdit. What typing in the control completes against.
+    // Empty where the aspect offers no completion, which is most of them.
+    QStringList completions;
+
     // Object name for the control itself, for styling and for tests that
     // address it by name. Empty leaves whatever the renderer picked.
     QString objectName;

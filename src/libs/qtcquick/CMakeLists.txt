@@ -43,6 +43,7 @@ if(TARGET QtcQuick)
       BoolDelegate.qml
       ButtonDelegate.qml
       ColorDelegate.qml
+      CompletionPopup.qml
       DoubleDelegate.qml
       FilePathListDelegate.qml
       FontFamilyDelegate.qml
