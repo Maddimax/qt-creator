@@ -96,7 +96,10 @@ private:
     quint32 m_numberMask;
 
     typedef bool (MimeMagicRule::*MatchFunction)(const QByteArray &data) const;
-    MatchFunction m_matchFunction;
+    // isValid() is "there is something to match with", so it has to be null
+    // until init() has said otherwise - the constructor taking a Type does not
+    // set it, and init() returns early for a rule it cannot make.
+    MatchFunction m_matchFunction = nullptr;
 
 private:
     // match functions
