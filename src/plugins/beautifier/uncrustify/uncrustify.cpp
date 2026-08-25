@@ -8,7 +8,7 @@
 #include "../beautifierconstants.h"
 #include "../beautifiertool.h"
 #include "../beautifiertr.h"
-#include "../configurationpanel.h"
+#include "../configurationsaspect.h"
 
 #include <coreplugin/actionmanager/actioncontainer.h>
 #include <coreplugin/actionmanager/actionmanager.h>
@@ -83,6 +83,16 @@ public:
 
         customStyle.setSettingsKey("customStyle");
 
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Beautifier/UncrustifyPage.qml"));
+        command.setQmlName("Command");
+        supportedMimeTypes.setQmlName("SupportedMimeTypes");
+        useOtherFiles.setQmlName("UseOtherFiles");
+        useHomeFile.setQmlName("UseHomeFile");
+        useCustomStyle.setQmlName("UseCustomStyle");
+        useSpecificConfigFile.setQmlName("UseSpecificConfigFile");
+        specificConfigFile.setQmlName("SpecificConfigFile");
+        formatEntireFileFallback.setQmlName("FormatEntireFileFallback");
+
         formatEntireFileFallback.setSettingsKey("formatEntireFileFallback");
         formatEntireFileFallback.setDefaultValue(true);
         formatEntireFileFallback.setLabelText(Tr::tr("Format entire file if no text was selected"));
@@ -97,6 +107,27 @@ public:
                                     .pathAppended(SETTINGS_NAME).stringAppended(".xml");
 
         read();
+        configurations.reload();
+        configurations.setCurrentConfiguration(customStyle());
+
+        // Behaviour, not layout: nothing below the command can be set until
+        // there is a command that works.
+        command.addOnChanged(this, [this] { updateOptionsEnabled(); });
+        updateOptionsEnabled();
+    }
+
+    void apply() override
+    {
+        customStyle.setValue(configurations.currentConfiguration());
+        AbstractSettings::apply();
+        save();
+    }
+
+    void cancel() override
+    {
+        AbstractSettings::cancel();
+        configurations.reload();
+        configurations.setCurrentConfiguration(customStyle());
     }
 
     void createDocumentationFile() const final
@@ -171,6 +202,18 @@ public:
 
     FilePathAspect specificConfigFile{this};
     BoolAspect useSpecificConfigFile{this};
+    ConfigurationsAspect configurations{this};
+
+private:
+    void updateOptionsEnabled()
+    {
+        const bool usable = command.isValid();
+        const QList<BaseAspect *> options{&useOtherFiles, &useHomeFile, &useCustomStyle,
+                                          &useSpecificConfigFile, &specificConfigFile,
+                                          &formatEntireFileFallback, &configurations};
+        for (BaseAspect *aspect : options)
+            aspect->setEnabled(usable);
+    }
 };
 
 static UncrustifySettings &settings()
@@ -178,61 +221,6 @@ static UncrustifySettings &settings()
     static UncrustifySettings theSettings;
     return theSettings;
 }
-
-class UncrustifySettingsPageWidget : public Core::IOptionsPageWidget
-{
-public:
-    UncrustifySettingsPageWidget()
-    {
-        UncrustifySettings &s = settings();
-
-        auto configurations = new ConfigurationPanel(this);
-        configurations->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-        configurations->setSettings(&settings());
-        configurations->setCurrentConfiguration(settings().customStyle());
-
-        QGroupBox *options = nullptr;
-
-        using namespace Layouting;
-
-        Column {
-            Group {
-                title(Tr::tr("Configuration")),
-                Form {
-                    s.command, br,
-                    s.supportedMimeTypes,
-                }
-            },
-            Group {
-                title(Tr::tr("Options")),
-                bindTo(&options),
-                Column {
-                    s.useOtherFiles,
-                    Row { s.useSpecificConfigFile, s.specificConfigFile },
-                    s.useHomeFile,
-                    Row { s.useCustomStyle, configurations },
-                    s.formatEntireFileFallback
-                },
-            },
-            st
-        }.attachTo(this);
-
-        s.read();
-
-        connect(&s.command, &FilePathAspect::validChanged, options, &QWidget::setEnabled);
-        options->setEnabled(s.command.isValid());
-
-        setOnApply([&s, configurations] {
-            s.customStyle.setValue(configurations->currentConfiguration());
-            settings().apply();
-            s.save();
-        });
-
-        setOnCancel([] { settings().cancel(); });
-
-        installMarkSettingsDirtyTriggerRecursively(this);
-    }
-};
 
 // Uncrustify
 
@@ -399,7 +387,7 @@ public:
         setId("Uncrustify");
         setDisplayName(uDisplayName());
         setCategory(Constants::OPTION_CATEGORY);
-        setWidgetCreator([] { return new UncrustifySettingsPageWidget; });
+        setSettingsProvider([] { return &settings(); });
     }
 };
 

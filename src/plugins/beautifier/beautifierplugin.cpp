@@ -3,6 +3,7 @@
 
 #include "beautifierconstants.h"
 #include "beautifiertool.h"
+#include "configurationsaspect.h"
 #include "beautifiertr.h"
 #include "generalsettings.h"
 
@@ -72,6 +73,10 @@ class BeautifierPlugin final : public ExtensionSystem::IPlugin
         setupArtisticStyle();
         setupClangFormat();
         setupUncrustify();
+
+#ifdef WITH_TESTS
+        addTestCreator(createConfigurationsAspectTest);
+#endif
     }
 
     void extensionsInitialized() final

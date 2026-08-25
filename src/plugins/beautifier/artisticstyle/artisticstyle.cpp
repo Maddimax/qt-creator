@@ -8,7 +8,7 @@
 #include "../beautifierconstants.h"
 #include "../beautifiertool.h"
 #include "../beautifiertr.h"
-#include "../configurationpanel.h"
+#include "../configurationsaspect.h"
 
 #include <coreplugin/actionmanager/actioncontainer.h>
 #include <coreplugin/actionmanager/actionmanager.h>
@@ -85,6 +85,15 @@ public:
 
         customStyle.setSettingsKey("customStyle");
 
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Beautifier/ArtisticStylePage.qml"));
+        useOtherFiles.setQmlName("UseOtherFiles");
+        useSpecificConfigFile.setQmlName("UseSpecificConfigFile");
+        specificConfigFile.setQmlName("SpecificConfigFile");
+        useHomeFile.setQmlName("UseHomeFile");
+        useCustomStyle.setQmlName("UseCustomStyle");
+        command.setQmlName("Command");
+        supportedMimeTypes.setQmlName("SupportedMimeTypes");
+
         documentationFilePath =
             Core::ICore::userResourcePath(Beautifier::Constants::SETTINGS_DIRNAME)
                 .pathAppended(Beautifier::Constants::DOCUMENTATION_DIRNAME)
@@ -92,6 +101,27 @@ public:
                 .stringAppended(".xml");
 
         read();
+        configurations.reload();
+        configurations.setCurrentConfiguration(customStyle());
+
+        // Behaviour, not layout: nothing below the command can be set until
+        // there is a command that works.
+        command.addOnChanged(this, [this] { updateOptionsEnabled(); });
+        updateOptionsEnabled();
+    }
+
+    void apply() override
+    {
+        customStyle.setValue(configurations.currentConfiguration());
+        AbstractSettings::apply();
+        save();
+    }
+
+    void cancel() override
+    {
+        AbstractSettings::cancel();
+        configurations.reload();
+        configurations.setCurrentConfiguration(customStyle());
     }
 
     void createDocumentationFile() const final
@@ -174,6 +204,19 @@ public:
     BoolAspect useHomeFile{this};
     BoolAspect useCustomStyle{this};
     StringAspect customStyle{this};
+    ConfigurationsAspect configurations{this};
+
+private:
+    void updateOptionsEnabled()
+    {
+        const bool usable = command.isValid();
+        const QList<BaseAspect *> options{&useOtherFiles, &useSpecificConfigFile,
+                                          &specificConfigFile, &useHomeFile,
+                                          &useCustomStyle, &configurations};
+        for (BaseAspect *aspect : options)
+            aspect->setEnabled(usable);
+    }
+
 };
 
 static ArtisticStyleSettings &settings()
@@ -183,64 +226,6 @@ static ArtisticStyleSettings &settings()
 }
 
 // ArtisticStyleSettingsPage
-
-class ArtisticStyleSettingsPageWidget : public Core::IOptionsPageWidget
-{
-public:
-    ArtisticStyleSettingsPageWidget()
-    {
-        QGroupBox *options = nullptr;
-
-        auto configurations = new ConfigurationPanel(this);
-        configurations->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-        configurations->setSettings(&settings());
-        configurations->setCurrentConfiguration(settings().customStyle());
-
-        using namespace Layouting;
-
-        ArtisticStyleSettings &s = settings();
-
-        Column {
-            Group {
-                title(Tr::tr("Configuration")),
-                Form {
-                    s.command, br,
-                    s.supportedMimeTypes
-                }
-            },
-            Group {
-                title(Tr::tr("Options")),
-                bindTo(&options),
-                Column {
-                    s.useOtherFiles,
-                    Row { s.useSpecificConfigFile, s.specificConfigFile },
-                    s.useHomeFile,
-                    Row { s.useCustomStyle, configurations },
-                }
-            },
-            st
-        }.attachTo(this);
-
-        setOnApply([&s, configurations] {
-            s.customStyle.setValue(configurations->currentConfiguration());
-            s.apply();
-            s.save();
-        });
-        setOnCancel([&s, configurations] {
-            s.cancel();
-            s.read();
-            configurations->setSettings(&s);
-            configurations->setCurrentConfiguration(s.customStyle());
-        });
-
-        s.read();
-
-        connect(&s.command, &FilePathAspect::validChanged, options, &QWidget::setEnabled);
-        options->setEnabled(s.command.isValid());
-
-        installMarkSettingsDirtyTriggerRecursively(this);
-    }
-};
 
 // ArtisticStyle
 
@@ -365,7 +350,7 @@ public:
         setId("ArtisticStyle");
         setDisplayName(asDisplayName());
         setCategory(Constants::OPTION_CATEGORY);
-        setWidgetCreator([] { return new ArtisticStyleSettingsPageWidget; });
+        setSettingsProvider([] { return &settings(); });
     }
 };
 

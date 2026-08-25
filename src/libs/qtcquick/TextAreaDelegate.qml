@@ -24,6 +24,11 @@ RowLayout {
     readonly property string toolTip: aspect?.toolTip ?? ""
     readonly property bool aspectVisible: aspect?.visible ?? true
 
+    // The word the cursor is in. A page showing what the option under the
+    // cursor means - Beautifier's configuration editor - has no other way to
+    // ask: where the cursor is is the view's business and nothing else's.
+    readonly property string currentWord: area.word
+
     Connections {
         target: delegate.aspect
         function onControlConfigurationChanged() {

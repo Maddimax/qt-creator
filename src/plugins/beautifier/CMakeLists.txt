@@ -9,11 +9,14 @@ add_qtc_plugin(Beautifier
     beautifiertool.cpp beautifiertool.h
     beautifiertr.h
     clangformat/clangformat.cpp clangformat/clangformat.h
-    configurationdialog.cpp configurationdialog.h
-    configurationeditor.cpp configurationeditor.h
-    configurationpanel.cpp configurationpanel.h
+    configurationsaspect.cpp configurationsaspect.h
     generalsettings.cpp generalsettings.h
     uncrustify/uncrustify.cpp uncrustify/uncrustify.h
+)
+
+extend_qtc_plugin(Beautifier
+  CONDITION WITH_TESTS
+  DEPENDS Qt::Test
 )
 
 # Settings pages' Qt Quick forms. A module rather than a plain resource so that
@@ -26,6 +29,10 @@ if(TARGET Beautifier AND TARGET Qt::Quick)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      ArtisticStylePage.qml
+      BeautifierConfigurations.qml
       BeautifierSettingsPage.qml
+      ClangFormatPage.qml
+      UncrustifyPage.qml
   )
 endif()

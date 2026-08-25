@@ -8,7 +8,7 @@
 #include "../beautifierconstants.h"
 #include "../beautifiertool.h"
 #include "../beautifiertr.h"
-#include "../configurationpanel.h"
+#include "../configurationsaspect.h"
 
 #include <coreplugin/actionmanager/actioncontainer.h>
 #include <coreplugin/actionmanager/actionmanager.h>
@@ -85,11 +85,47 @@ public:
 
         customStyle.setSettingsKey("customStyle");
 
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Beautifier/ClangFormatPage.qml"));
+        command.setQmlName("Command");
+        supportedMimeTypes.setQmlName("SupportedMimeTypes");
+        usePredefinedStyle.setQmlName("UsePredefinedStyle");
+        // One of two: a predefined style, or a configuration of one's own.
+        usePredefinedStyle.setDisplayStyle(BoolAspect::DisplayStyle::RadionButton);
+        predefinedStyle.setQmlName("PredefinedStyle");
+        predefinedStyle.setLabelText(Tr::tr("Predefined style:"));
+        fallbackStyle.setQmlName("FallbackStyle");
+        fallbackStyle.setLabelText(Tr::tr("Fallback style:"));
+
         documentationFilePath = Core::ICore::userResourcePath(Constants::SETTINGS_DIRNAME)
                                     .pathAppended(Constants::DOCUMENTATION_DIRNAME)
                                     .pathAppended(SETTINGS_NAME).stringAppended(".xml");
 
         read();
+        configurations.reload();
+        configurations.setCurrentConfiguration(customStyle());
+
+        // Behaviour, not layout: a fallback style only means something for the
+        // predefined style "File", and the configurations only when the style
+        // is not a predefined one at all.
+        command.addOnChanged(this, [this] { updateOptionsEnabled(); });
+        usePredefinedStyle.addOnVolatileValueChanged(this, [this] { updateOptionsEnabled(); });
+        predefinedStyle.addOnVolatileValueChanged(this, [this] { updateOptionsEnabled(); });
+        updateOptionsEnabled();
+    }
+
+    void apply() override
+    {
+        customStyle.setValue(configurations.currentConfiguration());
+        AbstractSettings::apply();
+        save();
+    }
+
+    void cancel() override
+    {
+        AbstractSettings::cancel();
+        read();
+        configurations.reload();
+        configurations.setCurrentConfiguration(customStyle());
     }
 
     void createDocumentationFile() const final;
@@ -100,6 +136,23 @@ public:
     SelectionAspect predefinedStyle{this};
     SelectionAspect fallbackStyle{this};
     StringAspect customStyle{this};
+    ConfigurationsAspect configurations{this};
+
+    void updateOptionsEnabled()
+    {
+        const bool usable = command.isValid();
+        const QList<BaseAspect *> options{&usePredefinedStyle, &predefinedStyle,
+                                          &fallbackStyle, &configurations};
+        for (BaseAspect *aspect : options)
+            aspect->setEnabled(usable);
+        if (!usable)
+            return;
+        const bool predefined = usePredefinedStyle.volatileValue();
+        predefinedStyle.setEnabled(predefined);
+        // 5 is "File", the only predefined style that falls back to another.
+        fallbackStyle.setEnabled(predefined && predefinedStyle.volatileValue() == 5);
+        configurations.setEnabled(!predefined);
+    }
 
     Utils::FilePath styleFileName(const QString &key) const final;
 
@@ -232,93 +285,6 @@ static ClangFormatSettings &settings()
     static ClangFormatSettings theSettings;
     return theSettings;
 }
-
-class ClangFormatSettingsPageWidget : public Core::IOptionsPageWidget
-{
-public:
-    ClangFormatSettingsPageWidget()
-    {
-        ClangFormatSettings &s = settings();
-        QGroupBox *options = nullptr;
-
-        auto predefinedStyleButton = new QRadioButton;
-        auto customizedStyleButton = new QRadioButton(Tr::tr("Use customized style:"));
-
-        auto styleButtonGroup = new QButtonGroup;
-        styleButtonGroup->addButton(predefinedStyleButton);
-        styleButtonGroup->addButton(customizedStyleButton);
-
-        auto configurations = new ConfigurationPanel(this);
-        configurations->setSettings(&s);
-        configurations->setCurrentConfiguration(s.customStyle());
-
-        using namespace Layouting;
-
-        auto fallbackBlob = Row { noMargin, Tr::tr("Fallback style:"), s.fallbackStyle }.emerge();
-
-        auto predefinedBlob = Column { noMargin, s.predefinedStyle, fallbackBlob }.emerge();
-        // clang-format off
-        Column {
-            Group {
-                title(Tr::tr("Configuration")),
-                Form {
-                    s.command, br,
-                    s.supportedMimeTypes
-                }
-            },
-            Group {
-                title(Tr::tr("Options")),
-                bindTo(&options),
-                Form {
-                    Utils::AspectWidgets::adoptButton(&s.usePredefinedStyle,
-                                                     predefinedStyleButton),
-                    predefinedBlob, br,
-                    customizedStyleButton, configurations,
-                },
-            },
-            st
-        }.attachTo(this);
-        // clang-format on
-
-        if (s.usePredefinedStyle.value())
-            predefinedStyleButton->click();
-        else
-            customizedStyleButton->click();
-
-        const auto updateEnabled = [&s, styleButtonGroup, predefinedBlob, fallbackBlob,
-                                    configurations, predefinedStyleButton] {
-            const bool predefSelected = styleButtonGroup->checkedButton() == predefinedStyleButton;
-            predefinedBlob->setEnabled(predefSelected);
-            fallbackBlob->setEnabled(predefSelected && s.predefinedStyle.volatileValue() == 5); // File
-            configurations->setEnabled(!predefSelected);
-        };
-        updateEnabled();
-        connect(styleButtonGroup, &QButtonGroup::buttonClicked, this, updateEnabled);
-        connect(&s.predefinedStyle, &SelectionAspect::volatileValueChanged, this, updateEnabled);
-
-        setOnApply([configurations, customizedStyleButton] {
-            settings().usePredefinedStyle.setValue(!customizedStyleButton->isChecked());
-            settings().customStyle.setValue(configurations->currentConfiguration());
-            settings().apply();
-            settings().save();
-        });
-        setOnCancel([configurations] {
-            settings().cancel();
-            settings().read();
-            configurations->setSettings(&settings());
-            configurations->setCurrentConfiguration(settings().customStyle());
-        });
-
-        s.read();
-
-        connect(&s.command, &FilePathAspect::validChanged, options, &QWidget::setEnabled);
-        options->setEnabled(s.command.isValid());
-
-        installMarkSettingsDirtyTriggerRecursively(this);
-        installMarkSettingsDirtyTrigger(predefinedStyleButton);
-        installMarkSettingsDirtyTrigger(customizedStyleButton);
-    }
-};
 
 // ClangFormat
 
@@ -543,7 +509,7 @@ public:
         setId("ClangFormat");
         setDisplayName(Tr::tr("ClangFormat"));
         setCategory(Constants::OPTION_CATEGORY);
-        setWidgetCreator([] { return new ClangFormatSettingsPageWidget; });
+        setSettingsProvider([] { return &settings(); });
     }
 };
 
