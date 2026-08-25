@@ -340,6 +340,11 @@ QList<SelectionAspect *> KitAspect::listAspects() const
     return Utils::transform(d->listAspects, &Private::ListAspect::selection);
 }
 
+ActionAspect *KitAspect::manageButton() const
+{
+    return d->manageButton;
+}
+
 void KitAspect::addLabelToLayout(Layouting::Layout &layout)
 {
     auto label = Utils::AspectWidgets::createSubWidget<QLabel>(this, d->factory->displayName() + ':');
@@ -808,11 +813,14 @@ private slots:
             QVERIFY2(row.inlineRow, qPrintable(factory->displayName()));
             QVERIFY2(!row.labelText.isEmpty(), qPrintable(factory->displayName()));
 
-            // A "Manage..." button is not a control the aspect is; a kind whose
-            // only aspect is that one has nothing of its own to draw with.
+            // The "Manage..." button is not a control of the setting; a kind
+            // whose only aspect is that one has nothing of its own to draw
+            // with. Told apart by identity rather than by which control it
+            // asks for: a kind whose own controls are buttons - Environment
+            // opens two dialogs - is not one of those.
             const QList<Utils::BaseAspect *> controls = Utils::filtered(
-                aspect->aspects(), [](Utils::BaseAspect *a) {
-                    return a->presentation().control != Utils::AspectControls::Button;
+                aspect->aspects(), [manage = aspect->manageButton()](Utils::BaseAspect *a) {
+                    return a != manage;
                 });
             if (controls.isEmpty()) {
                 nothingToDrawWith << factory->displayName();
@@ -847,12 +855,10 @@ private slots:
             const std::unique_ptr<KitAspect> aspect(factory->createKitAspect(kit));
             if (!aspect)
                 continue;
-            // A kind with nothing to ask draws nothing, and says so by holding
-            // no control aspects. MCU dependencies is the one.
-            if (Utils::allOf(aspect->aspects(), [](Utils::BaseAspect *a) {
-                    return a->presentation().control == Utils::AspectControls::Button;
-                })
-                && aspect->aspects().size() <= 1) {
+            // A kind with nothing to ask draws nothing. MCU dependencies is
+            // the one.
+            if (Utils::allOf(aspect->aspects(), [manage = aspect->manageButton()](
+                                                    Utils::BaseAspect *a) { return a == manage; })) {
                 continue;
             }
 

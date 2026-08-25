@@ -244,6 +244,10 @@ public:
     // that draws another one beside its own - Qt draws qmake's, a device draws
     // its type's - reaches them here.
     QList<Utils::SelectionAspect *> listAspects() const;
+    // The button that opens the page managing what this aspect offers, or null
+    // where there is no such page. Not a control of the setting itself, so a
+    // view that lays the row out itself puts it at the end.
+    Utils::ActionAspect *manageButton() const;
 
     virtual void addToInnerLayout(Layouting::Layout &layout);
 
