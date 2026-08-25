@@ -25,6 +25,12 @@
 #include <projectexplorer/useglobalaspect.h>
 
 #include <utils/aspectwidgets.h>
+#include <utils/algorithm.h>
+#include <utils/shutdownguard.h>
+
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
 #include <utils/clangutils.h>
 #include <utils/guiutils.h>
 #include <utils/infolabel.h>
@@ -198,30 +204,20 @@ static Layouting::Layout clangdSettingsLayout(ClangdSettings *s)
     return Column {
         s->useClangd,
         Form {
-            Tr::tr("Path to executable:"),
-                s->clangdPath, br,
+            s->clangdPath, br,
             empty, versionWarning, br,
-            Tr::tr("Background indexing:"),
-                Row { s->indexingPriority, st }, br,
-            Tr::tr("Per-project index location:"),
-                s->projectIndexPathTemplate, br,
-            Tr::tr("Per-session index location:"),
-                s->sessionIndexPathTemplate, br,
-            Tr::tr("Header/source switch mode:"),
-                Row { s->headerSourceSwitchMode, st }, br,
-            Tr::tr("Worker thread count:"),
-                Row { s->workerThreadLimit, st }, br,
+            s->indexingPriority, br,
+            s->projectIndexPathTemplate, br,
+            s->sessionIndexPathTemplate, br,
+            s->headerSourceSwitchMode, br,
+            s->workerThreadLimit, br,
             empty, s->autoIncludeHeaders, br,
             empty, s->updateDependentSources, br,
             empty, s->useExternalCompilationDb, br,
-            Tr::tr("Completion results:"),
-                Row { s->completionResults, st }, br,
-            Tr::tr("Completion ranking model:"),
-                Row { s->completionRankingModel, st }, br,
-            Tr::tr("Completion style:"),
-                Row { s->completionStyle, st }, br,
-            Tr::tr("Document update threshold:"),
-                Row { s->documentUpdateThreshold, st }, br,
+            s->completionResults, br,
+            s->completionRankingModel, br,
+            s->completionStyle, br,
+            s->documentUpdateThreshold, br,
             s->sizeThresholdEnabled,
                 Row { s->sizeThresholdInKb, st }, br,
         },
@@ -236,25 +232,31 @@ ClangdSettings::ClangdSettings()
     setSettingsGroup("ClangdSettings");
 
     useClangd.setSettingsKey(useClangdKey());
+    useClangd.setQmlName("UseClangd");
     useClangd.setDefaultValue(true);
     useClangd.setLabelText(Tr::tr("Use clangd"));
 
     clangdPath.setSettingsKey(clangdPathKey());
+    clangdPath.setQmlName("ClangdPath");
+    clangdPath.setLabelText(Tr::tr("Path to executable:"));
     clangdPath.setExpectedKind(PathChooserKind::ExistingCommand);
     clangdPath.setAllowPathFromDevice(true);
     clangdPath.setCommandVersionArguments({"--version"});
 
     autoIncludeHeaders.setSettingsKey(clangdHeaderInsertionKey());
+    autoIncludeHeaders.setQmlName("AutoIncludeHeaders");
     autoIncludeHeaders.setDefaultValue(false);
     autoIncludeHeaders.setLabelText(Tr::tr("Insert header files on completion"));
     autoIncludeHeaders.setToolTip(
         Tr::tr("Controls whether clangd may insert header files as part of symbol completion."));
 
     sizeThresholdEnabled.setSettingsKey(clangdSizeThresholdEnabledKey());
+    sizeThresholdEnabled.setQmlName("SizeThresholdEnabled");
     sizeThresholdEnabled.setDefaultValue(false);
     sizeThresholdEnabled.setLabelText(Tr::tr("Ignore files greater than"));
 
     updateDependentSources.setSettingsKey(updateDependentSourcesKey());
+    updateDependentSources.setQmlName("UpdateDependentSources");
     updateDependentSources.setDefaultValue(false);
     updateDependentSources.setLabelText(Tr::tr("Update dependent sources"));
     updateDependentSources.setToolTip(Tr::tr(
@@ -266,6 +268,7 @@ ClangdSettings::ClangdSettings()
         "header file is saved.</p>"));
 
     useExternalCompilationDb.setSettingsKey(useExternalCompilationDbKey());
+    useExternalCompilationDb.setQmlName("UseExternalCompilationDb");
     useExternalCompilationDb.setDefaultValue(false);
     useExternalCompilationDb.setLabelText(
         Tr::tr("Use externally provided compilation database"));
@@ -277,6 +280,8 @@ ClangdSettings::ClangdSettings()
         "project state.</p>"));
 
     workerThreadLimit.setSettingsKey(clangdThreadLimitKey());
+    workerThreadLimit.setQmlName("WorkerThreadLimit");
+    workerThreadLimit.setLabelText(Tr::tr("Worker thread count:"));
     workerThreadLimit.setDefaultValue(0);
     workerThreadLimit.setSpecialValueText(Tr::tr("Automatic"));
     workerThreadLimit.setToolTip(Tr::tr(
@@ -284,6 +289,8 @@ ClangdSettings::ClangdSettings()
         "worker threads."));
 
     documentUpdateThreshold.setSettingsKey(clangdDocumentThresholdKey());
+    documentUpdateThreshold.setQmlName("DocumentUpdateThreshold");
+    documentUpdateThreshold.setLabelText(Tr::tr("Document update threshold:"));
     documentUpdateThreshold.setDefaultValue(500);
     documentUpdateThreshold.setRange(50, 10000);
     documentUpdateThreshold.setSingleStep(100);
@@ -296,6 +303,7 @@ ClangdSettings::ClangdSettings()
             .arg(QGuiApplication::applicationDisplayName()));
 
     sizeThresholdInKb.setSettingsKey(clangdSizeThresholdKey());
+    sizeThresholdInKb.setQmlName("SizeThresholdInKb");
     sizeThresholdInKb.setDefaultValue(1024);
     sizeThresholdInKb.setRange(1, std::numeric_limits<int>::max());
     sizeThresholdInKb.setSuffix(" KB");
@@ -307,6 +315,8 @@ ClangdSettings::ClangdSettings()
     sizeThresholdInKb.setToolTip(sizeThresholdToolTip);
 
     completionResults.setSettingsKey(completionResultsKey());
+    completionResults.setQmlName("CompletionResults");
+    completionResults.setLabelText(Tr::tr("Completion results:"));
     completionResults.setDefaultValue(Data::defaultCompletionResults());
     completionResults.setRange(0, std::numeric_limits<int>::max());
     completionResults.setSpecialValueText(Tr::tr("No limit"));
@@ -314,6 +324,8 @@ ClangdSettings::ClangdSettings()
         Tr::tr("The maximum number of completion results returned by clangd."));
 
     projectIndexPathTemplate.setSettingsKey(clangdProjectIndexPathKey());
+    projectIndexPathTemplate.setQmlName("ProjectIndexPathTemplate");
+    projectIndexPathTemplate.setLabelText(Tr::tr("Per-project index location:"));
     projectIndexPathTemplate.setDefaultValue(defaultProjectIndexPathTemplate());
     projectIndexPathTemplate.setDisplayStyle(StringAspect::LineEditDisplay);
     projectIndexPathTemplate.setUseResetButton();
@@ -322,6 +334,8 @@ ClangdSettings::ClangdSettings()
                "This is also where the compile_commands.json file will go."));
 
     sessionIndexPathTemplate.setSettingsKey(clangdSessionIndexPathKey());
+    sessionIndexPathTemplate.setQmlName("SessionIndexPathTemplate");
+    sessionIndexPathTemplate.setLabelText(Tr::tr("Per-session index location:"));
     sessionIndexPathTemplate.setDefaultValue(defaultSessionIndexPathTemplate());
     sessionIndexPathTemplate.setDisplayStyle(StringAspect::LineEditDisplay);
     sessionIndexPathTemplate.setUseResetButton();
@@ -332,6 +346,8 @@ ClangdSettings::ClangdSettings()
     // IndexingPriority: options added in enum-value order so stored int == index
     using Priority = IndexingPriority;
     indexingPriority.setSettingsKey(clangdIndexingPriorityKey());
+    indexingPriority.setQmlName("IndexingPriority");
+    indexingPriority.setLabelText(Tr::tr("Background indexing:"));
     indexingPriority.setDefaultValue(IndexingPriority::Low);
     indexingPriority.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
     for (Priority p : {Priority::Off, Priority::Background, Priority::Normal, Priority::Low})
@@ -349,6 +365,8 @@ ClangdSettings::ClangdSettings()
 
     using SwitchMode = HeaderSourceSwitchMode;
     headerSourceSwitchMode.setSettingsKey(clangdHeaderSourceSwitchModeKey());
+    headerSourceSwitchMode.setQmlName("HeaderSourceSwitchMode");
+    headerSourceSwitchMode.setLabelText(Tr::tr("Header/source switch mode:"));
     headerSourceSwitchMode.setDefaultValue(HeaderSourceSwitchMode::Both);
     headerSourceSwitchMode.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
     for (SwitchMode m : {SwitchMode::BuiltinOnly, SwitchMode::ClangdOnly, SwitchMode::Both})
@@ -362,6 +380,8 @@ ClangdSettings::ClangdSettings()
 
     using RankingModel = CompletionRankingModel;
     completionRankingModel.setSettingsKey(clangdCompletionRankingModelKey());
+    completionRankingModel.setQmlName("CompletionRankingModel");
+    completionRankingModel.setLabelText(Tr::tr("Completion ranking model:"));
     completionRankingModel.setDefaultValue(CompletionRankingModel::Default);
     completionRankingModel.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
     for (RankingModel m : {RankingModel::Default, RankingModel::DecisionForest,
@@ -380,6 +400,8 @@ ClangdSettings::ClangdSettings()
 
     using Style = CompletionStyle;
     completionStyle.setSettingsKey(clangdCompletionStyleKey());
+    completionStyle.setQmlName("CompletionStyle");
+    completionStyle.setLabelText(Tr::tr("Completion style:"));
     completionStyle.setDefaultValue(CompletionStyle::Default);
     completionStyle.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
     for (Style s : {Style::Default, Style::Detailed, Style::Bundled})
@@ -390,6 +412,7 @@ ClangdSettings::ClangdSettings()
                "together.</p>"));
 
     diagnosticConfigId.setSettingsKey(diagnosticConfigIdKey());
+    diagnosticConfigId.setQmlName("DiagnosticConfigId");
     diagnosticConfigId.setDefaultValue(initialClangDiagnosticConfigId());
     diagnosticConfigId.setModelFactory([] { return diagnosticConfigsModel(); });
     diagnosticConfigId.setEditWidgetFactory(
@@ -921,60 +944,181 @@ void clangdSetDiagnosticConfigId(Project *project, Id id)
 
 namespace Internal {
 
-class ClangdSettingsPageWidget final : public Core::IOptionsPageWidget
+// ClangdSessionsAspect
+
+// Which sessions share one clangd. A session is one of the ones there are, so
+// a row offers them as a choice - the widget page asked for it in a modal
+// combo box dialog, and offered nothing when they were all taken.
+class ClangdSessionsModel final : public QAbstractTableModel
 {
 public:
-    ClangdSettingsPageWidget()
+    using QAbstractTableModel::QAbstractTableModel;
+
+    int rowCount(const QModelIndex &parent = {}) const override
     {
+        return parent.isValid() ? 0 : int(m_sessions.size());
+    }
+
+    int columnCount(const QModelIndex &parent = {}) const override
+    {
+        Q_UNUSED(parent)
+        return 1;
+    }
+
+    QVariant headerData(int section, Qt::Orientation orientation, int role) const override
+    {
+        if (role != Qt::DisplayRole || orientation != Qt::Horizontal || section != 0)
+            return {};
+        return Tr::tr("Session");
+    }
+
+    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override
+    {
+        if (!index.isValid() || index.row() >= m_sessions.size())
+            return {};
+        if (role == Qt::DisplayRole || role == Qt::EditRole)
+            return m_sessions.at(index.row());
+        if (role == AspectTable::EditableRole)
+            return true;
+        if (role == AspectTable::ChoicesRole) {
+            QVariantList choices;
+            for (const QString &name : available(index.row()))
+                choices.append(QVariantMap{{"display", name}, {"id", name}});
+            return choices;
+        }
+        return {};
+    }
+
+    bool setData(const QModelIndex &index, const QVariant &value, int role = Qt::EditRole) override
+    {
+        if (role != Qt::EditRole || !index.isValid() || index.row() >= m_sessions.size())
+            return false;
+        const QString name = value.toString();
+        // The same session twice would mean nothing, and it is not on offer.
+        if (!available(index.row()).contains(name))
+            return false;
+        m_sessions[index.row()] = name;
+        emit dataChanged(index, index);
+        return true;
+    }
+
+    bool insertRows(int row, int count, const QModelIndex &parent = {}) override
+    {
+        if (parent.isValid() || count != 1)
+            return false;
+        const QStringList unused = available(-1);
+        if (unused.isEmpty())
+            return false;
+        beginInsertRows({}, row, row);
+        m_sessions.insert(row, unused.first());
+        endInsertRows();
+        return true;
+    }
+
+    bool removeRows(int row, int count, const QModelIndex &parent = {}) override
+    {
+        if (parent.isValid() || row < 0 || row + count > m_sessions.size())
+            return false;
+        beginRemoveRows({}, row, row + count - 1);
+        m_sessions.remove(row, count);
+        endRemoveRows();
+        return true;
+    }
+
+    QHash<int, QByteArray> roleNames() const override
+    {
+        return AspectTable::withRoleNames(QAbstractTableModel::roleNames());
+    }
+
+    void setSessions(const QStringList &sessions)
+    {
+        beginResetModel();
+        m_sessions = sessions;
+        m_sessions.sort();
+        endResetModel();
+    }
+
+    QStringList sessions() const { return m_sessions; }
+
+private:
+    // The sessions this row may name: the ones nobody has taken, and the one
+    // it holds already.
+    QStringList available(int row) const
+    {
+        QStringList names = Core::SessionManager::sessions();
+        for (int i = 0; i < m_sessions.size(); ++i) {
+            if (i != row)
+                names.removeOne(m_sessions.at(i));
+        }
+        names.sort();
+        return names;
+    }
+
+    QStringList m_sessions;
+};
+
+class ClangdSessionsAspect final : public BaseAspect
+{
+public:
+    using BaseAspect::BaseAspect;
+
+    AspectPresentation presentation() const override
+    {
+        AspectPresentation p = BaseAspect::presentation();
+        p.control = AspectControls::Table;
+        return p;
+    }
+
+    QAbstractItemModel *tableModel() override { return &m_model; }
+
+    void reload()
+    {
+        m_model.setSessions(ClangdSettings::instance().m_data.sessionsWithOneClangd);
+    }
+
+    QStringList sessions() const { return m_model.sessions(); }
+
+private:
+    // Parented: a model handed to QML with no parent belongs to the engine.
+    ClangdSessionsModel m_model{this};
+};
+
+// ClangdPageAspects
+
+// What the Clangd page shows besides the settings themselves: whether the
+// clangd that was named is one Qt Creator can use, which sessions share a
+// clangd, and where else clangd can be configured.
+//
+// The settings are ClangdSettings, which is already a container - the page
+// takes it in rather than copying it, because that singleton is what the rest
+// of the plugin reads.
+class ClangdPageAspects final : public AspectContainer
+{
+public:
+    ClangdPageAspects()
+    {
+        setAutoApply(false);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/CppEditor/ClangdSettingsPage.qml"));
+
         ClangdSettings &s = ClangdSettings::instance();
+        s.setQmlName("Settings");
+        registerAspect(&s, /*takeOwnership=*/false);
 
-        m_sessionsModel.setStringList(s.m_data.sessionsWithOneClangd);
-        m_sessionsModel.sort(0);
+        versionWarning.setQmlName("VersionWarning");
+        versionWarning.setIconType(InfoType::Warning);
+        versionWarning.setVisible(false);
 
-        auto sessionsView = new ListView;
-        sessionsView->setModel(&m_sessionsModel);
-        sessionsView->setToolTip(Tr::tr(
+        sessions.setQmlName("Sessions");
+        sessions.setLabelText(Tr::tr("Sessions:"));
+        sessions.setToolTip(Tr::tr(
             "By default, Qt Creator runs one clangd process per project.\n"
             "If you have sessions with tightly coupled projects that should be\n"
             "managed by the same clangd process, add them here."));
-        auto addButton = new QPushButton(Tr::tr("Add ..."));
-        auto removeButton = new QPushButton(Tr::tr("Remove"));
-        const auto updateRemove = [removeButton, sessionsView] {
-            removeButton->setEnabled(
-                sessionsView->selectionModel()->hasSelection());
-        };
-        connect(sessionsView->selectionModel(),
-                &QItemSelectionModel::selectionChanged,
-                this, updateRemove);
-        updateRemove();
-        connect(removeButton, &QPushButton::clicked, this,
-                [this, sessionsView] {
-                    const QItemSelection sel =
-                        sessionsView->selectionModel()->selection();
-                    QTC_ASSERT(!sel.isEmpty(), return);
-                    m_sessionsModel.removeRow(sel.indexes().first().row());
-                    checkSettingsDirty();
-                });
-        connect(addButton, &QPushButton::clicked, this,
-                [this, sessionsView] {
-                    QInputDialog dlg(sessionsView);
-                    QStringList sessions = Core::SessionManager::sessions();
-                    QStringList current = m_sessionsModel.stringList();
-                    for (const QString &s : std::as_const(current))
-                        sessions.removeOne(s);
-                    if (sessions.isEmpty())
-                        return;
-                    sessions.sort();
-                    dlg.setLabelText(Tr::tr("Choose a session:"));
-                    dlg.setComboBoxItems(sessions);
-                    if (dlg.exec() == QDialog::Accepted) {
-                        current << dlg.textValue();
-                        m_sessionsModel.setStringList(current);
-                        m_sessionsModel.sort(0);
-                        checkSettingsDirty();
-                    }
-                });
-        auto configFilesHelpLabel = new QLabel(
+
+        configFilesHelp.setQmlName("ConfigFilesHelp");
+        configFilesHelp.setTextFormat(AspectControls::TextFormat::RichText);
+        configFilesHelp.setWordWrap(true);
+        configFilesHelp.setText(
             Tr::tr("Additional settings are available via "
                    "<a href=\"https://clangd.llvm.org/config\">"
                    " clangd configuration files</a>.<br>"
@@ -982,57 +1126,62 @@ public:
                    "project-specific settings can be configured by putting"
                    " a .clangd file into the project source tree.")
                 .arg(ClangdSettings::clangdUserConfigFilePath().toUserOutput()));
-        configFilesHelpLabel->setWordWrap(true);
-        connect(configFilesHelpLabel, &QLabel::linkHovered,
-                configFilesHelpLabel, &QLabel::setToolTip);
-        connect(configFilesHelpLabel, &QLabel::linkActivated,
-                [](const QString &link) {
-                    if (link.startsWith("https"))
-                        QDesktopServices::openUrl(link);
-                    else
-                        Core::EditorManager::openEditor(FilePath::fromString(link));
-                });
-
-        using namespace Layouting;
-        Column {
-            s,
-            createHr(),
-            Group {
-                title(Tr::tr("Sessions with a Single Clangd Instance")),
-                Row {
-                    sessionsView,
-                    Column { addButton, removeButton, st },
-                },
-            },
-            createHr(),
-            configFilesHelpLabel,
-            st,
-        }.attachTo(this);
-
-        connect(&s, &AspectContainer::volatileValueChanged, this, [] { checkSettingsDirty(); });
-
-        setDirtyChecker([this] {
-            const ClangdSettings &s = ClangdSettings::instance();
-            if (s.isDirty())
-                return true;
-            QStringList stored = s.m_data.sessionsWithOneClangd;
-            stored.sort();
-            return m_sessionsModel.stringList() != stored;
+        connect(&configFilesHelp, &TextDisplay::linkActivated, this, [](const QString &link) {
+            if (link.startsWith("https"))
+                QDesktopServices::openUrl(link);
+            else
+                Core::EditorManager::openEditor(FilePath::fromString(link));
         });
+
+        // Behaviour, not layout: whether the clangd that was named is one that
+        // can be used is decided by running it.
+        s.clangdPath.addOnChanged(this, [this] { updateVersionWarning(); });
+        updateVersionWarning();
+        sessions.reload();
     }
 
-private:
-    void apply() final
+    void apply() override
     {
+        AspectContainer::apply();
         ClangdSettings &s = ClangdSettings::instance();
-        s.apply();
         s.m_data.customDiagnosticConfigs = s.diagnosticConfigId.customConfigs();
-        s.m_data.sessionsWithOneClangd = m_sessionsModel.stringList();
+        s.m_data.sessionsWithOneClangd = sessions.sessions();
         s.saveSettings();
         emit s.changed();
     }
 
-    QStringListModel m_sessionsModel;
+    void cancel() override
+    {
+        AspectContainer::cancel();
+        sessions.reload();
+    }
+
+    bool isDirty() const override
+    {
+        if (AspectContainer::isDirty())
+            return true;
+        QStringList stored = ClangdSettings::instance().m_data.sessionsWithOneClangd;
+        stored.sort();
+        return sessions.sessions() != stored;
+    }
+
+    TextDisplay versionWarning{this};
+    ClangdSessionsAspect sessions{this};
+    TextDisplay configFilesHelp{this};
+
+private:
+    void updateVersionWarning()
+    {
+        const FilePath path = ClangdSettings::instance().clangdPath();
+        if (path.isEmpty()) {
+            versionWarning.setVisible(false);
+            return;
+        }
+        const Result<> res = checkClangdVersion(path);
+        versionWarning.setVisible(!res);
+        if (!res)
+            versionWarning.setText(res.error());
+    }
 };
 
 class ClangdSettingsPage final : public Core::IOptionsPage
@@ -1043,9 +1192,171 @@ public:
         setId(Constants::CPP_CLANGD_SETTINGS_ID);
         setDisplayName(Tr::tr("Clangd"));
         setCategory(Constants::CPP_SETTINGS_CATEGORY);
-        setWidgetCreator([] { return new ClangdSettingsPageWidget; });
+        setSettingsProvider([] {
+            static GuardedObject<ClangdPageAspects> theAspects;
+            return theAspects.get();
+        });
     }
 };
+
+#ifdef WITH_TESTS
+
+// The page's sessions lived in a QStringListModel behind a QListView, and were
+// added through a modal combo box dialog that offered nothing once they were
+// all taken. Whether the clangd that was named is usable was an InfoLabel the
+// layout built, so neither could be read back without opening the page.
+
+class ClangdSettingsTest : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    // Two sessions of its own, so the tests do not depend on how many this
+    // machine happens to have - with one, every claim about choosing between
+    // them is true for want of anything to choose.
+    void initTestCase()
+    {
+        for (const QString &name : m_ownSessions)
+            QVERIFY(Core::SessionManager::createSession(name));
+    }
+
+    void cleanupTestCase() { Core::SessionManager::deleteSessions(m_ownSessions); }
+
+    void cleanup()
+    {
+        if (ClangdPageAspects *p = page())
+            static_cast<BaseAspect *>(p)->cancel();
+    }
+
+    void testTheSessionsAreTheOnesThatAreStored();
+    void testASessionIsPickedFromTheOnesThatAreLeft();
+    void testTheSameSessionCannotBeChosenTwice();
+    void testTheWarningIsSilentUntilThereIsSomethingToWarnAbout();
+    void testChangingTheSessionsIsSomethingToApply();
+
+private:
+    const QStringList m_ownSessions{"clangd-test-alpha", "clangd-test-beta"};
+
+    // The one the page hands over, rather than one of its own: the settings
+    // inside it are a singleton the rest of the plugin reads.
+    static ClangdPageAspects *page()
+    {
+        Core::IOptionsPage *found = Utils::findOrDefault(
+            Core::IOptionsPage::allOptionsPages(), [](Core::IOptionsPage *p) {
+                return p->id() == Constants::CPP_CLANGD_SETTINGS_ID;
+            });
+        if (!found)
+            return nullptr;
+        const std::optional<AspectContainer *> aspects = found->aspects();
+        return aspects ? static_cast<ClangdPageAspects *>(*aspects) : nullptr;
+    }
+};
+
+void ClangdSettingsTest::testTheSessionsAreTheOnesThatAreStored()
+{
+    ClangdPageAspects *p = page();
+    QVERIFY(p);
+    QStringList stored = ClangdSettings::instance().m_data.sessionsWithOneClangd;
+    stored.sort();
+    QCOMPARE(p->sessions.sessions(), stored);
+    QCOMPARE(p->sessions.tableModel()->rowCount({}), stored.size());
+}
+
+void ClangdSettingsTest::testASessionIsPickedFromTheOnesThatAreLeft()
+{
+    ClangdPageAspects *p = page();
+    QVERIFY(p);
+    QAbstractItemModel *model = p->sessions.tableModel();
+    const int before = model->rowCount({});
+
+    QStringList unused = Core::SessionManager::sessions();
+    for (const QString &taken : p->sessions.sessions())
+        unused.removeOne(taken);
+    QVERIFY(!unused.isEmpty());
+    unused.sort();
+
+    // Adding takes one that is free, rather than leaving a blank row for the
+    // user to fill in with something that is not a session at all.
+    QVERIFY(model->insertRows(before, 1));
+    QCOMPARE(model->rowCount({}), before + 1);
+    QCOMPARE(model->index(before, 0).data().toString(), unused.first());
+
+    // A second row takes the next one, not the same one again.
+    QVERIFY(model->insertRows(before + 1, 1));
+    QCOMPARE(model->index(before + 1, 0).data().toString(), unused.at(1));
+
+    // And a row offers the free ones plus the one it holds - never one that
+    // another row has taken.
+    QStringList offered;
+    for (const QVariant &choice :
+         model->index(before, 0).data(AspectTable::ChoicesRole).toList()) {
+        offered << choice.toMap().value("id").toString();
+    }
+    QVERIFY2(offered.contains(unused.first()), qPrintable(offered.join(", ")));
+    QVERIFY2(!offered.contains(unused.at(1)), qPrintable(offered.join(", ")));
+
+    QVERIFY(model->removeRows(before, 2));
+    QCOMPARE(model->rowCount({}), before);
+}
+
+void ClangdSettingsTest::testTheSameSessionCannotBeChosenTwice()
+{
+    ClangdPageAspects *p = page();
+    QVERIFY(p);
+    QAbstractItemModel *model = p->sessions.tableModel();
+    const int first = model->rowCount({});
+    QVERIFY(model->insertRows(first, 1));
+    QVERIFY(model->insertRows(first + 1, 1));
+    const QString taken = model->index(first, 0).data().toString();
+    const QString other = model->index(first + 1, 0).data().toString();
+    QVERIFY(taken != other);
+
+    // The dialog only ever offered what was free; a cell has to refuse the
+    // rest itself.
+    QVERIFY(!model->setData(model->index(first + 1, 0), taken));
+    QCOMPARE(model->index(first + 1, 0).data().toString(), other);
+}
+
+void ClangdSettingsTest::testTheWarningIsSilentUntilThereIsSomethingToWarnAbout()
+{
+    ClangdPageAspects *p = page();
+    QVERIFY(p);
+    ClangdSettings &s = ClangdSettings::instance();
+
+    s.clangdPath.setValue(FilePath());
+    QVERIFY(!p->versionWarning.isVisible());
+
+    // Something that is there and is not clangd: the page says so rather than
+    // letting the language server fail later.
+    s.clangdPath.setValue(FilePath::fromString(QCoreApplication::applicationFilePath()));
+    QVERIFY(p->versionWarning.isVisible());
+    QVERIFY(!p->versionWarning.text().isEmpty());
+
+    s.clangdPath.setValue(FilePath());
+    QVERIFY(!p->versionWarning.isVisible());
+}
+
+void ClangdSettingsTest::testChangingTheSessionsIsSomethingToApply()
+{
+    ClangdPageAspects *p = page();
+    QVERIFY(p);
+    QAbstractItemModel *model = p->sessions.tableModel();
+    QVERIFY(!static_cast<BaseAspect *>(p)->isDirty());
+    const int before = model->rowCount({});
+    QVERIFY(model->insertRows(before, 1));
+    // The sessions are not an aspect's value, so nothing else notices them.
+    QVERIFY(static_cast<BaseAspect *>(p)->isDirty());
+
+    QVERIFY(model->removeRows(before, 1));
+    QVERIFY(!static_cast<BaseAspect *>(p)->isDirty());
+}
+
+QObject *createClangdSettingsTest()
+{
+    return new ClangdSettingsTest;
+}
+
+#endif // WITH_TESTS
 
 void setupClangdSettingsPage()
 {
@@ -1099,3 +1410,5 @@ void setupClangdProjectSettingsPanel()
 
 } // namespace Internal
 } // namespace CppEditor
+
+#include "clangdsettings.moc"

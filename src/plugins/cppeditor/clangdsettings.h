@@ -146,6 +146,10 @@ CPPEDITOR_EXPORT void clangdSetDiagnosticConfigId(ProjectExplorer::Project *proj
 namespace Internal {
 void setupClangdProjectSettingsPanel();
 void setupClangdSettingsPage();
+
+#ifdef WITH_TESTS
+QObject *createClangdSettingsTest();
+#endif
 }
 
 } // namespace CppEditor

@@ -191,6 +191,7 @@ if(TARGET CppEditor AND TARGET Qt::Quick)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      ClangdSettingsPage.qml
       CppCodeModelSettingsPage.qml
       CppCodeStylePage.qml
       CppFileSettingsPage.qml
