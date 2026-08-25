@@ -6,6 +6,7 @@
 #include "icodestylepreferences.h"
 #include "icodestylepreferencesfactory.h"
 #include "indenter.h"
+#include "tabsettings.h"
 
 #include <QPointer>
 #include <QTextBlock>
@@ -23,6 +24,14 @@ public:
     // Owned here rather than by the document: an Indenter is not a QObject.
     std::unique_ptr<Indenter> m_indenter;
     QList<QMetaObject::Connection> m_styleConnections;
+
+    // What an indent is here. A preview measures against the style being
+    // edited; an editor with no style of its own uses the global settings, as
+    // the widget editors did.
+    TabSettingsData tabSettings() const
+    {
+        return m_codeStyle ? m_codeStyle->currentTabSettings() : globalTabSettings().data();
+    }
 };
 
 CodeIndenting::CodeIndenting(QObject *parent)
@@ -117,6 +126,19 @@ void CodeIndenting::reindent()
     for (QTextBlock block = target->firstBlock(); block.isValid(); block = block.next())
         d->m_indenter->indentBlock(block, QChar::Null, tabSettings);
     cursor.endEditBlock();
+}
+
+void CodeIndenting::indentAt(int position)
+{
+    QTextDocument *target = d->m_document ? d->m_document->textDocument() : nullptr;
+    if (!target)
+        return;
+
+    QTextCursor cursor(target);
+    cursor.setPosition(position);
+    const TabSettingsData tabs = d->tabSettings();
+    const int column = tabs.columnAtCursorPosition(cursor);
+    cursor.insertText(tabs.indentationString(column, tabs.indentedColumn(column, true), 0));
 }
 
 void CodeIndenting::reattach()

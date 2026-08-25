@@ -59,6 +59,13 @@ public:
     // call it after replacing the text.
     Q_INVOKABLE void reindent();
 
+    // What pressing Tab does in an editor: one indent's worth of spaces or a
+    // tab character, as the code style's tab settings say - the global ones
+    // where there is no code style. A Qt Quick TextEdit moves the focus on Tab
+    // instead, which is right for a form field and wrong for an editor, so
+    // every editor has to say so itself.
+    Q_INVOKABLE void indentAt(int position);
+
 signals:
     void documentChanged();
     void languageIdChanged();

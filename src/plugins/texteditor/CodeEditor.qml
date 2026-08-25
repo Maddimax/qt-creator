@@ -56,6 +56,14 @@ Item {
         codeDocument: document
     }
 
+    // No language, so nothing is re-indented; it is what says how wide a Tab
+    // is here, which is the global tab settings.
+    CodeIndenting {
+        id: indenting
+
+        document: edit.textDocument
+    }
+
     Frame {
         anchors.fill: parent
 
@@ -100,6 +108,10 @@ Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
+                // A ScrollView reports the implicit size of what it scrolls, so
+                // the editor would grow to fit the file rather than scroll it.
+                implicitWidth: 0
+                implicitHeight: 0
 
                 readonly property real contentY: ScrollBar.vertical.position * edit.height
 
@@ -127,6 +139,13 @@ Item {
                             event.accepted = true
                         } else if (event.key === Qt.Key_Escape && completion.active) {
                             completion.cancel()
+                            event.accepted = true
+                        } else if (event.key === Qt.Key_Tab) {
+                            // Tab types an indent, and what an indent is is
+                            // the code style's answer: a TextEdit types a tab
+                            // character whatever the style says. Shift+Tab
+                            // needs nothing: it already takes the indent back.
+                            indenting.indentAt(edit.cursorPosition)
                             event.accepted = true
                         }
                     }

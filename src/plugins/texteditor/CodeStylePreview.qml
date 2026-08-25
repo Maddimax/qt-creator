@@ -48,6 +48,12 @@ ColumnLayout {
         ScrollView {
             anchors.fill: parent
             clip: true
+            // A ScrollView reports the implicit size of what it scrolls, and
+            // the Frame around it sizes to that - so the preview grew the page
+            // to fit the code instead of scrolling it. The size it gets is the
+            // one the layout gives it.
+            implicitWidth: 0
+            implicitHeight: 0
 
             TextArea {
                 id: edit
@@ -58,6 +64,17 @@ ColumnLayout {
                 textFormat: TextEdit.PlainText
                 font: highlighting.font
                 color: highlighting.textColor
+
+                // Tab types an indent, and what an indent is is the code
+                // style's answer: a TextEdit types a tab character whatever
+                // the style says. Shift+Tab needs nothing: it already takes
+                // the indent back.
+                Keys.onPressed: (event) => {
+                    if (event.key === Qt.Key_Tab) {
+                        indenting_.indentAt(edit.cursorPosition)
+                        event.accepted = true
+                    }
+                }
 
                 // Written back when focus leaves, not on every keystroke: the
                 // indenter rewrites the document, and it must not do that
