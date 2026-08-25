@@ -55,6 +55,9 @@ public:
         FontFamily,
         TextDisplay,
         Container,
+        // A container whose aspects read as one value: drawn as one row, with
+        // no group box around it. See AspectContainer::setInlineRow().
+        InlineGroup,
         AspectList,
         AspectInlineList,
         TextWithAction,

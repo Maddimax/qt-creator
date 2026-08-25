@@ -285,6 +285,11 @@ public:
     // Table. The text in an empty filter field; no filter where it is empty.
     QString filterPlaceholderText;
 
+    // Container. Whether the aspects inside it go side by side rather than one
+    // under the other, and without a group box around them. Five choices that
+    // read as one value - the parts of an ABI - are one row, not five.
+    bool inlineRow = false;
+
     // GroupedList. Whether one of the items is the default one, which not
     // every such list has - a list of toolchains does not.
     bool showsDefault = false;

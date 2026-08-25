@@ -60,6 +60,8 @@ AbiAspects::AbiAspects(AspectContainer *container)
     : AspectContainer(container)
 {
     setAutoApply(false);
+    // Six choices that read as one ABI, not six settings.
+    setInlineRow(true);
 
     m_abi.setQmlName("Abi");
     m_abi.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);

@@ -155,6 +155,7 @@ private slots:
     void testNestedContainerIsAModelGroup();
     void testSelectionWithoutDescribedChoicesIsUnsupported();
     void testNestedContainerRendersAsGroup();
+    void testAContainerCanReadAsOneRow();
     void testQmlNameIsDerivedFromTheSettingsKey();
     void testPageQmlReachesItsAspectsByName();
     void testLabelChangeReachesTheControl();
@@ -414,6 +415,7 @@ void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
                     {"KeySequenceDelegate", {Kind::KeySequence}},
                     {"AspectInlineListDelegate", {Kind::AspectInlineList}},
                     {"GroupedListDelegate", {Kind::GroupedList}},
+                    {"InlineGroupDelegate", {Kind::InlineGroup}},
                     {"TreeDelegate", {Kind::Tree}},
                     {"FontFamilyDelegate", {Kind::FontFamily}},
                 };
@@ -1466,6 +1468,71 @@ void QuickUiTest::testSecretIsFetchedBeforeItCanBeEdited()
     field->setProperty("text", "hunter2");
     QMetaObject::invokeMethod(field, "editingFinished");
     QCOMPARE(secret.displayText(), QString("hunter2"));
+}
+
+void QuickUiTest::testAContainerCanReadAsOneRow()
+{
+    // Six choices that read as one ABI are one row, not six settings in a box.
+    // Which of the two it is, is the container's to say: a page that draws
+    // whatever a toolchain hands it cannot know.
+    const auto build = [](Utils::AspectContainer &page, bool inRow) {
+        auto group = new Utils::AspectContainer(&page);
+        group->setLabelText("ABI:");
+        group->setInlineRow(inRow);
+        for (const char *name : {"Architecture", "Os", "Format"}) {
+            auto part = new Utils::SelectionAspect(group);
+            part->setQmlName(QString::fromLatin1(name));
+            part->setDisplayStyle(Utils::SelectionAspect::DisplayStyle::ComboBox);
+            part->addOption("first");
+            part->addOption("second");
+        }
+    };
+
+    Utils::AspectContainer stacked;
+    build(stacked, false);
+    const std::unique_ptr<QWidget> stackedForm(QtcQuick::createGenericAspectForm(&stacked));
+    auto stackedQuick = stackedForm->findChild<QQuickWidget *>();
+    QVERIFY(stackedQuick);
+    QVERIFY(stackedQuick->rootObject());
+    stackedForm->resize(800, 600);
+    stackedForm->show();
+    QVERIFY(QTest::qWaitForWindowExposed(stackedForm.get()));
+
+    // A group box, and the parts one under the other.
+    QVERIFY(findQmlComponent(stackedQuick->rootObject(), "GroupDelegate"));
+    QVERIFY(!findQmlComponent(stackedQuick->rootObject(), "InlineGroupDelegate"));
+    const QList<QQuickItem *> stackedParts
+        = findQmlComponents(stackedQuick->rootObject(), "SelectionDelegate");
+    QCOMPARE(stackedParts.size(), 3);
+    QVERIFY(stackedParts.at(1)->y() > stackedParts.at(0)->y());
+    QCOMPARE(stackedParts.at(1)->x(), stackedParts.at(0)->x());
+
+    Utils::AspectContainer inline_;
+    build(inline_, true);
+    const std::unique_ptr<QWidget> inlineForm(QtcQuick::createGenericAspectForm(&inline_));
+    auto inlineQuick = inlineForm->findChild<QQuickWidget *>();
+    QVERIFY(inlineQuick);
+    QVERIFY(inlineQuick->rootObject());
+    inlineForm->resize(800, 600);
+    inlineForm->show();
+    QVERIFY(QTest::qWaitForWindowExposed(inlineForm.get()));
+
+    // No group box, and the parts side by side.
+    QVERIFY(!findQmlComponent(inlineQuick->rootObject(), "GroupDelegate"));
+    QQuickItem * const row = findQmlComponent(inlineQuick->rootObject(), "InlineGroupDelegate");
+    QVERIFY(row);
+    QCOMPARE(row->property("labelText").toString(), QString("ABI:"));
+    const QList<QQuickItem *> inlineParts
+        = findQmlComponents(inlineQuick->rootObject(), "SelectionDelegate");
+    QCOMPARE(inlineParts.size(), 3);
+    QVERIFY(inlineParts.at(1)->x() > inlineParts.at(0)->x());
+    QCOMPARE(inlineParts.at(1)->y(), inlineParts.at(0)->y());
+
+    // And it fits: a row of form-width controls is shrunk rather than pushing
+    // the page wider than it is.
+    QVERIFY(row->width() <= inlineQuick->rootObject()->width());
+    for (QQuickItem * const part : inlineParts)
+        QVERIFY(part->width() > 0);
 }
 
 void QuickUiTest::testQmlNameIsDerivedFromTheSettingsKey()

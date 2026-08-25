@@ -69,6 +69,8 @@ AspectContainerModel::Kind AspectContainerModel::kindOf(const BaseAspect *aspect
         return Unsupported;
     if (kind == MultiSelection && p.choices.isEmpty())
         return Unsupported;
+    if (kind == Container && p.inlineRow)
+        return InlineGroup;
 
     return kind;
 }
@@ -82,7 +84,7 @@ bool AspectContainerModel::isFullyRenderable(const AspectContainer *container)
         const Kind kind = kindOf(aspect);
         if (kind == Unsupported)
             return false;
-        if (kind == Container) {
+        if (kind == Container || kind == InlineGroup) {
             auto nested = qobject_cast<const AspectContainer *>(aspect);
             if (!nested || !isFullyRenderable(nested))
                 return false;

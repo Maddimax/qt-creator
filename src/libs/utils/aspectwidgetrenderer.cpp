@@ -185,6 +185,18 @@ public:
             return true;
         case AspectControls::Container:
             if (auto container = qobject_cast<AspectContainer *>(&aspect)) {
+                // A container that reads as one value has no layout of its own
+                // to give: what it holds goes in one row, labelled once.
+                if (pres.inlineRow && !AspectWidgets::layouter(container)) {
+                    Layouting::Row row{Layouting::noMargin};
+                    if (QLabel * const label = AspectWidgets::createLabel(&aspect))
+                        row.addItem(label);
+                    for (BaseAspect * const child : container->aspects())
+                        row.addItem(child);
+                    row.addItem(Layouting::st);
+                    parent.addItem(row);
+                    return true;
+                }
                 if (const AspectWidgets::Layouter l = AspectWidgets::layouter(container)) {
                     // In a widget of its own, so that a container can be shown
                     // and hidden as a unit - one category of a code style at a

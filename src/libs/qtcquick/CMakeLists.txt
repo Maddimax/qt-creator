@@ -51,6 +51,7 @@ if(TARGET QtcQuick)
       FilePathListDelegate.qml
       FontFamilyDelegate.qml
       GroupDelegate.qml
+      InlineGroupDelegate.qml
       GroupedListDelegate.qml
       IntegerDelegate.qml
       KeySequenceDelegate.qml

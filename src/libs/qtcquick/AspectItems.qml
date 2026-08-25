@@ -13,15 +13,26 @@ import QtCreator.Ui
 // The aspects of one AspectContainerModel, one delegate each. Split out of
 // AspectForm so that GroupDelegate can reuse it for a nested container, which
 // is what makes the nesting recursive.
-ColumnLayout {
+//
+// A GridLayout rather than a ColumnLayout so that the same file serves both
+// directions: a container whose aspects read as one value is drawn as a row.
+GridLayout {
     id: root
 
     // An AspectContainerModel, set from C++ or by GroupDelegate.
     required property var model
+    // Side by side rather than one under the other. See
+    // AspectContainer::setInlineRow() and InlineGroupDelegate.
+    property bool inRow: false
 
-    spacing: Spacing.GapVS
+    // One column is a column; as many columns as there are aspects is a row.
+    columns: inRow ? Math.max(1, repeater.count) : 1
+    columnSpacing: Spacing.GapHS
+    rowSpacing: Spacing.GapVS
 
     Repeater {
+        id: repeater
+
         model: root.model
 
         delegate: DelegateChooser {
@@ -138,6 +149,10 @@ ColumnLayout {
             DelegateChoice {
                 roleValue: AspectContainerModel.Container
                 GroupDelegate {}
+            }
+            DelegateChoice {
+                roleValue: AspectContainerModel.InlineGroup
+                InlineGroupDelegate {}
             }
             DelegateChoice { UnsupportedDelegate {} }
         }

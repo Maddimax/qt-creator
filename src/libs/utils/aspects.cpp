@@ -3613,6 +3613,7 @@ public:
     QStringList m_settingsGroup;
     std::shared_ptr<void> m_backendData;
     QUrl m_qmlSource;
+    bool m_inlineRow = false;
 };
 
 #ifdef WITH_TESTS
@@ -3655,7 +3656,16 @@ AspectPresentation AspectContainer::presentation() const
 {
     AspectPresentation p = BaseAspect::presentation();
     p.control = AspectControls::Container;
+    p.inlineRow = d->m_inlineRow;
     return p;
+}
+
+void AspectContainer::setInlineRow(bool on)
+{
+    if (d->m_inlineRow == on)
+        return;
+    d->m_inlineRow = on;
+    emit controlConfigurationChanged();
 }
 
 void AspectContainer::addToLayoutImpl(Layouting::Layout &parent)

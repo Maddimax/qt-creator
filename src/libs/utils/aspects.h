@@ -1466,6 +1466,10 @@ public:
     void volatileValueToGui() override;
     bool guiToVolatileValue() override;
 
+    // Whether what is inside reads as one value rather than as a list of
+    // settings, and so is drawn as one row without a group box around it.
+    void setInlineRow(bool on);
+
     void setSettingsGroup(const QString &groupKey);
     void setSettingsGroups(const QString &groupKey, const QString &subGroupKey);
     QStringList settingsGroups() const;
