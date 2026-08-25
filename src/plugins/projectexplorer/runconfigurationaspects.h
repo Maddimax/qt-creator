@@ -182,7 +182,6 @@ public:
 private:
     QVariant variantValue() const override { return user(); }
     void fromMap(const Utils::Store &map) override;
-    void addToLayoutImpl(Layouting::Layout &parent) override;
 
     void updateUserNameEnabled();
 

@@ -155,6 +155,8 @@ private slots:
     void checkBoxForAnAspectThatIsNotBool_data() { addRendererRows(); }
     void comboBoxForAnAspectValuedByChoiceId_data() { addRendererRows(); }
     void comboBoxForAnAspectValuedByChoiceId();
+    void containerThatReadsAsOneRow_data() { addRendererRows(); }
+    void containerThatReadsAsOneRow();
     void checkBoxForAnAspectThatIsNotBool();
     void aspectThatDescribesNoControlDrawsNothing_data() { addRendererRows(); }
     void aspectThatDescribesNoControlDrawsNothing();
@@ -999,6 +1001,93 @@ void tst_AspectRenderer::comboBoxForAnAspectValuedByChoiceId()
     // which is what a stale launcher looks like.
     aspect.setVariantValue("delta");
     QCOMPARE(combo->currentIndex(), -1);
+}
+
+void tst_AspectRenderer::containerThatReadsAsOneRow()
+{
+    QFETCH(bool, withRenderer);
+    setRendererInstalled(withRenderer);
+
+    // Some settings are several controls and one answer: which user to run as,
+    // and - only for "Other" - which name. setInlineRow() says so, and the
+    // renderer draws the label once with the controls after it. Aspects that
+    // used to write that row by hand can stop.
+    AspectContainer row;
+    row.setLabelText("Run as user:");
+    row.setInlineRow(true);
+
+    SelectionAspect which(&row);
+    which.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
+    which.addOption("Default");
+    which.addOption("Other");
+
+    StringAspect name(&row);
+    name.setDisplayStyle(StringAspect::DisplayStyle::LineEditDisplay);
+
+    const std::unique_ptr<QWidget> widget = render(row);
+    QVERIFY(widget);
+    if (!withRenderer) {
+        QVERIFY(widget->findChildren<QComboBox *>().isEmpty());
+        return;
+    }
+
+    auto combo = widget->findChild<QComboBox *>();
+    auto edit = widget->findChild<QLineEdit *>();
+    QVERIFY(combo);
+    QVERIFY(edit);
+    QCOMPARE(combo->count(), 2);
+
+    // One label for the row, not one per control: that is what "reads as one
+    // answer" means. Counting labels would count the variable chooser's own,
+    // so this asks for the row's and checks it is the only visible one on the
+    // row itself.
+    QLabel * const rowLabel = Utils::findOr(widget->findChildren<QLabel *>(), nullptr,
+                                            [](QLabel *l) { return l->text() == "Run as user:"; });
+    QVERIFY(rowLabel);
+
+    // One row, in order: the label, then the controls. Asked of the layout
+    // rather than of the geometry, which is all zeroes until the widget is
+    // shown - and showing it needs a window this test has no business wanting.
+    QHBoxLayout *rowLayout = nullptr;
+    for (QHBoxLayout *candidate : widget->findChildren<QHBoxLayout *>()) {
+        if (candidate->indexOf(rowLabel) >= 0)
+            rowLayout = candidate;
+    }
+    QVERIFY(rowLayout);
+    QVERIFY(rowLayout->indexOf(combo) >= 0);
+    QVERIFY(rowLayout->indexOf(edit) >= 0);
+    QVERIFY(rowLayout->indexOf(rowLabel) < rowLayout->indexOf(combo));
+    QVERIFY(rowLayout->indexOf(combo) < rowLayout->indexOf(edit));
+
+    // One label for the row, not one per control: that is what "reads as one
+    // answer" means. The variable chooser brings a label of its own, so this
+    // asks what is on the row rather than counting every label there is.
+    int labelsOnTheRow = 0;
+    for (int i = 0; i < rowLayout->count(); ++i) {
+        if (auto l = qobject_cast<QLabel *>(rowLayout->itemAt(i)->widget()); l && !l->text().isEmpty())
+            ++labelsOnTheRow;
+    }
+    QCOMPARE(labelsOnTheRow, 1);
+
+    // A container that says nothing about its layout and has none installed
+    // draws its aspects in order - which is what AspectItems does on the Quick
+    // side, and what an aspect that wants two plain rows can rely on instead
+    // of writing them.
+    AspectContainer plain;
+    BoolAspect first(&plain);
+    first.setLabel("First");
+    first.setLabelPlacement(BoolAspect::LabelPlacement::Compact);
+    BoolAspect second(&plain);
+    second.setLabel("Second");
+    second.setLabelPlacement(BoolAspect::LabelPlacement::Compact);
+    const std::unique_ptr<QWidget> stacked = render(plain);
+    QVERIFY(stacked);
+    if (!withRenderer)
+        return;
+    QStringList texts;
+    for (QCheckBox *box : stacked->findChildren<QCheckBox *>())
+        texts << box->text();
+    QCOMPARE(texts, (QStringList{"First", "Second"}));
 }
 
 void tst_AspectRenderer::aspectThatDescribesNoControlDrawsNothing()

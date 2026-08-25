@@ -192,7 +192,11 @@ public:
             if (auto container = qobject_cast<AspectContainer *>(&aspect)) {
                 // A container that reads as one value has no layout of its own
                 // to give: what it holds goes in one row, labelled once.
-                if (pres.inlineRow && !AspectWidgets::layouter(container)) {
+                // hasLayouter(), not layouter(): the latter falls back to a
+                // column of the aspects and so is never empty, which made
+                // this branch unreachable and setInlineRow() a Quick-only
+                // setting for as long as it has existed.
+                if (pres.inlineRow && !AspectWidgets::hasLayouter(container)) {
                     Layouting::Row row{Layouting::noMargin};
                     if (QLabel * const label = AspectWidgets::createLabel(&aspect))
                         row.addItem(label);

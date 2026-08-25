@@ -79,6 +79,10 @@ QTCREATOR_UTILS_EXPORT std::function<void(QObject *)> visibleController(BaseAspe
 using Layouter = std::function<Layouting::Layout()>;
 QTCREATOR_UTILS_EXPORT void setLayouter(AspectContainer *container, const Layouter &layouter);
 QTCREATOR_UTILS_EXPORT Layouter layouter(const AspectContainer *container);
+// Whether one was set. layouter() never hands back an empty function - it
+// falls back to a column of the aspects - so it cannot answer this, and a
+// caller that wants to know whether the container said anything has to ask.
+QTCREATOR_UTILS_EXPORT bool hasLayouter(const AspectContainer *container);
 
 template<class Widget, typename... Args>
 Widget *createSubWidget(BaseAspect *aspect, Args &&...args)

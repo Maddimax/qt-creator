@@ -216,6 +216,11 @@ void setLayouter(AspectContainer *container, const Layouter &layouter)
     container->setBackendData(std::make_shared<Layouter>(layouter));
 }
 
+bool hasLayouter(const AspectContainer *container)
+{
+    return bool(std::static_pointer_cast<Layouter>(container->backendData()));
+}
+
 Layouter layouter(const AspectContainer *container)
 {
     const std::shared_ptr<Layouter> stored

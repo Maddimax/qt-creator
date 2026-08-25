@@ -836,6 +836,9 @@ RunAsAspect::RunAsAspect(Utils::AspectContainer *container) : AspectContainer(co
     setId("RunAs");
     setDisplayName(Tr::tr("Run as User"));
     setLabelText(Tr::tr("Run as user:"));
+    // Which user, and - for "Other" - which name, read as one answer, so they
+    // are one row with one label. That is what this aspect's own layout did.
+    setInlineRow(true);
 
     m_selection.setId("RunAsSelection");
     m_selection.setSettingsKey("RunConfiguration.RunAsRoot"); // Backward compat.
@@ -884,11 +887,6 @@ void RunAsAspect::fromMap(const Utils::Store &map)
 {
     AspectContainer::fromMap(map);
     updateUserNameEnabled();
-}
-
-void RunAsAspect::addToLayoutImpl(Layouting::Layout &parent)
-{
-    parent.addItems({Utils::AspectWidgets::createLabel(this), m_selection, m_user, st});
 }
 
 void RunAsAspect::updateUserNameEnabled()

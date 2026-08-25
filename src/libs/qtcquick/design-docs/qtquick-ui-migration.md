@@ -2165,7 +2165,7 @@ installs a message handler and asserts nothing says SOFT ASSERT. The first
 version of it passed against a build with the guard removed, which is the only
 reason it was rewritten.
 
-**What this does not do.** The virtual has to stay: eight aspects outside Utils
+**What this does not do.** The virtual has to stay: seven aspects outside Utils
 still override it - the run-configuration and build-settings aspects, which
 are project panels rather than preferences pages and have not been migrated.
 `aspects.{h,cpp}` reach no QtWidgets header and no `layoutbuilder.h` either;
@@ -2272,6 +2272,45 @@ when its descriptor changes.
 a stale launcher id selects *nothing*, not the first entry. An index-keyed
 combo cannot express that, and silently showing the wrong launcher is exactly
 what the id keying is for.
+
+### setInlineRow() had never done anything in widgets
+
+The widget renderer has a branch for a container that reads as one value:
+label once, then the controls, then a stretch. It was guarded by
+
+    if (pres.inlineRow && !AspectWidgets::layouter(container))
+
+and **`layouter()` never returns an empty function.** It falls back to "lay the
+aspects out in order, which is all a Column of them would have done" - which is
+right for its callers, and makes the guard permanently false. The branch has
+been unreachable since it was written, and `setInlineRow()` has been a Qt Quick
+setting only: on the widget backend those ten containers drew as titled group
+boxes instead of as one row.
+
+`hasLayouter()` answers what the guard meant to ask - whether one was *set* -
+and the branch is reachable. Nothing else changes: `layouter()` keeps its
+fallback, because the AspectList details pane relies on it.
+
+**This is the third time that fallback has cost something.** It has already
+made two assertions vacuous - "the form was built" is always true when the
+builder cannot fail - and the migration plan says so twice. This time it hid a
+whole branch. The lesson is narrower than "beware fallbacks": a function that
+cannot fail must not be used as a question, and if callers need both answers,
+they need two functions.
+
+Found while converting `RunAsAspect`, whose layout closure was exactly what
+the branch draws - a label, a combo for which user, and a line edit for the
+name when it is "Other". With the branch reachable, `setInlineRow(true)` in the
+constructor replaces the closure, and the widget and Quick backends draw the
+same thing for the first time.
+
+**And a container that says nothing draws its aspects in order.** That is the
+`layouter()` fallback, and it is what `AspectItems` does on the Quick side, so
+an aspect that wants two plain rows can rely on it rather than writing them.
+`ExecutableAspect` is the next candidate for that, but its `fromMap()` and
+`toMap()` currently read and write its sub-aspect by hand; registering the
+sub-aspect would put `AspectContainer` in that path too, and that is a change
+about persistence rather than about layout.
 
 ### What the census could not see, and now can
 
