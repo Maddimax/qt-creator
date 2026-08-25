@@ -49,10 +49,20 @@ RowLayout {
         // What a QComboBox would show beside the text, empty for most lists.
         readonly property var icons: delegate.pres.optionIcons ?? []
 
+        // Which entry the aspect says is current. Named so that it can be
+        // bound again: a ComboBox puts currentIndex back to 0 when its model
+        // changes, and the binding only re-evaluates when the aspect's value
+        // changes - which refilling a list with the same value selected does
+        // not do. A list that is refilled while the page is open (the kit's
+        // device type, a toolchain's ABI) lost what was picked that way.
+        readonly property int wantedIndex: delegate.pres.valueIsChoiceId
+                                           ? delegate.pres.optionIds.indexOf(
+                                                 String(delegate.aspect?.value ?? ""))
+                                           : (delegate.aspect?.value ?? 0)
+
         enabled: (delegate.aspect?.enabled ?? false) && !(delegate.aspect?.readOnly ?? false)
-        currentIndex: delegate.pres.valueIsChoiceId
-                      ? delegate.pres.optionIds.indexOf(String(delegate.aspect?.value ?? ""))
-                      : (delegate.aspect?.value ?? 0)
+        currentIndex: wantedIndex
+        onModelChanged: currentIndex = Qt.binding(() => combo.wantedIndex)
         // The choice under the cursor has more to say than the aspect does,
         // where the list is of things that need telling apart.
         ToolTip.text: (delegate.pres.optionToolTips?.[combo.highlightedIndex] ?? "")

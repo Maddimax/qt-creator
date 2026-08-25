@@ -163,6 +163,7 @@ private slots:
     void testPathAspectOffersSomewhereToBrowseFrom();
     void testAChoiceCanBeThereWithoutBeingOffered();
     void testIdValuedSelectionRoundTrips();
+    void testARefilledListKeepsWhatWasPicked();
     void testStringListEditorAddsRemovesAndEdits();
     void testStringSelectionOffersItsChoices();
     void testAspectListAddsRemovesAndShowsDetails();
@@ -445,12 +446,25 @@ void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
                                         + " has no text beside it"));
                 }
 
-                if (drawn.startsWith("TextWithActionDelegate")
-                    || drawn.startsWith("ButtonDelegate")) {
+                // A button takes its label from the aspect's descriptor, so an
+                // aspect that has not said what its action is called gets a
+                // nameless button. Naming the delegate in a page's QML does not
+                // make the aspect describe itself.
+                // A button may say what it does with a picture instead - the
+                // kit icon - but then the tool tip is all there is to read.
+                // As above, a delegate that is not shown is not a page of
+                // nameless buttons: the aspect is not there on this platform,
+                // or nothing is selected for it to act on.
+                if ((drawn.startsWith("TextWithActionDelegate")
+                     || drawn.startsWith("ButtonDelegate"))
+                    && delegate->property("aspectVisible").toBool()) {
                     const QVariantMap pres = delegate->property("pres").toMap();
-                    QVERIFY2(!pres.value("actionText").toString().isEmpty(),
+                    const bool named = !pres.value("actionText").toString().isEmpty();
+                    const bool pictured = !pres.value("actionIcon").toString().isEmpty()
+                                          && !delegate->property("toolTip").toString().isEmpty();
+                    QVERIFY2(named || pictured,
                              qPrintable(page->displayName() + ": " + drawn
-                                        + "'s button has no label"));
+                                        + "'s button has neither a label nor an explained icon"));
                 }
             }
         }
@@ -1756,6 +1770,49 @@ void QuickUiTest::testIdValuedSelectionRoundTrips()
     // And a pick writes the id back, not the index.
     QMetaObject::invokeMethod(combo, "activated", Q_ARG(int, 0));
     QCOMPARE(selection.volatileValue(), QByteArray("first"));
+}
+
+void QuickUiTest::testARefilledListKeepsWhatWasPicked()
+{
+    // A list that is refilled while the page is open - the kit's device type,
+    // a toolchain's ABI - has the same thing picked afterwards. A Qt Quick
+    // ComboBox puts currentIndex back to 0 when its model changes, and the
+    // binding to the aspect only runs again when the aspect's value changes,
+    // which refilling does not do. So the control quietly showed the first
+    // entry while the aspect held the right one.
+    Utils::AspectContainer page;
+    Utils::SelectionAspect choice(&page);
+    choice.setQmlName("Choice");
+    choice.setLabelText("Device type:");
+    choice.setDisplayStyle(Utils::SelectionAspect::DisplayStyle::ComboBox);
+    const auto fill = [&choice] {
+        choice.clearOptions();
+        for (const char *name : {"Android Device", "Boot2Qt Device", "Desktop"})
+            choice.addOption(QLatin1String(name));
+    };
+    fill();
+    choice.setValue(2);
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QVERIFY(quickWidget->rootObject());
+
+    QQuickItem *combo = nullptr;
+    QTRY_VERIFY(combo = findQmlComponent(quickWidget->rootObject(), "ComboBox"));
+    QTRY_COMPARE(combo->property("currentIndex").toInt(), 2);
+
+    // Refilled with the same entry current: the aspect's value never changes,
+    // so nothing tells the control to look at it again.
+    fill();
+    choice.setValue(2);
+    QTRY_COMPARE(combo->property("currentIndex").toInt(), 2);
+    QCOMPARE(combo->property("count").toInt(), 3);
+
+    // And picking from the refilled list still writes back.
+    QMetaObject::invokeMethod(combo, "activated", Q_ARG(int, 0));
+    QCOMPARE(choice.volatileValue(), 0);
 }
 
 void QuickUiTest::testStringListEditorAddsRemovesAndEdits()
