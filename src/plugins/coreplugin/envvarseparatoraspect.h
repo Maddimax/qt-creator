@@ -18,8 +18,6 @@ public:
     QString displayText() const override;
     void triggerAction() override;
 
-    void addToLayoutImpl(Layouting::Layout &parent) override;
-
     void writeSettings() const override { Utils::StringListAspect::writeSettings(); }
     void readSettings() override { Utils::StringListAspect::readSettings(); }
 };

@@ -2165,14 +2165,15 @@ installs a message handler and asserts nothing says SOFT ASSERT. The first
 version of it passed against a build with the guard removed, which is the only
 reason it was rewritten.
 
-**What this does not do.** The virtual has to stay: twenty aspects in
+**What this does not do.** The virtual has to stay: fourteen aspects in
 `src/plugins` and five more in Utils still override it. They are not one
 group. Most are run-configuration, build-step and kit aspects - project
 panels rather than preferences pages, which is a surface the migration has not
-reached. There were five more on pages that *have* been migrated,
+reached. There were six more on pages that *have* been migrated,
 which described a control and kept a closure to draw it anyway -
 `SecretAspect`, `EncodingSelectionAspect`, `ClangDiagnosticConfigIdAspect`,
-`SuppressionAspect` and `MimeTypesAspect`. All five are done; see below.
+`SuppressionAspect`, `MimeTypesAspect` and `EnvVarSeparatorAspect`. All six are
+done; see below.
 `aspects.{h,cpp}` reach no QtWidgets header and no `layoutbuilder.h` either;
 what keeps them on the widget side of the split metric is that virtual's
 signature naming `Layouting::Layout`, and the project panels are what has to
@@ -2500,8 +2501,32 @@ from an aspect that was not a `FilePathListAspect`).
 `EncodingSelectionAspect`, `ClangDiagnosticConfigIdAspect` and
 `MimeTypesAspect` asked for something it *could* draw and kept the closure
 anyway, because the closure was holding state - a widget's `customConfigs()`, a
-label's text - that nothing else did. Both are now gone, and nothing in
-`src/plugins` overrides `addToLayoutImpl()` on a preferences page.
+label's text - that nothing else did. Both are now gone. `EnvVarSeparatorAspect` was
+a sixth of exactly the same kind - see below.
+
+What still overrides `addToLayoutImpl()` in `src/plugins` is fourteen aspects,
+and they are mostly the project surface: run configurations, build steps and
+build settings. Three are not - `KitAspect` and `DeviceToolAspect` on the Kits
+and Devices pages, and `LibrarySelectionAspect` - and those are the ones to
+look at next if the preferences pages are what matters.
+
+### A sixth, and the one thing that had never been tested
+
+`EnvVarSeparatorAspect` had `presentation()`, `displayText()` *and*
+`triggerAction()` - the whole `TextWithAction` description - and a closure that
+built the same summary label and the same **Change...** button beside it, with
+its own copy of the string formatting and its own copy of the dialog call. It
+was dead the day the descriptor was written. It is gone.
+
+Which is six of these, and none of them had a widget test:
+`renderTextWithAction()` was the one control path in `aspectwidgetrenderer.cpp`
+with no coverage at all, and it is now what MIME types, clangd's diagnostic
+configuration, the environment separators and the environment changes are all
+drawn by. `tst_AspectRenderer::textWithAction()` covers it: the summary follows
+`displayTextChanged()`, the button calls `triggerAction()`, and the aspect is
+asked for its summary as soon as there is somewhere to put it - the three
+things every one of those four depends on and none of them can test, because
+none of them can be asked to open a modal dialog.
 
 ### What the census could not see, and now can
 

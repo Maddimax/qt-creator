@@ -5,8 +5,6 @@
 
 #include "coreplugintr.h"
 
-#include <utils/aspectwidgets.h>
-#include <utils/elidinglabel.h>
 #include <utils/environment.h>
 #include <utils/guiutils.h>
 #include <utils/itemviews.h>
@@ -180,40 +178,6 @@ void EnvVarSeparatorAspect::triggerAction()
     const QStringList newValues = dlg.separators().toStringList();
     if (volatileValue() != newValues)
         setVolatileValue(newValues);
-}
-
-void EnvVarSeparatorAspect::addToLayoutImpl(Layouting::Layout &parent)
-{
-    auto label = Utils::AspectWidgets::createLabel(this);
-    if (label)
-        parent.addItem(label);
-
-    auto separatorsLabel = new ElidingLabel();
-    auto updateSeparatorsLabel = [this, separatorsLabel]() {
-        const NameValueDictionary seps = NameValueDictionary(volatileValue());
-        QStringList parts;
-        for (auto it = seps.begin(); it != seps.end(); ++it)
-            parts.append(QString("%1: \"%2\"").arg(it.key()).arg(it.value()));
-        separatorsLabel->setText(parts.join(", "));
-    };
-    updateSeparatorsLabel();
-    connect(this, &EnvVarSeparatorAspect::volatileValueChanged, this, updateSeparatorsLabel);
-
-    QPushButton *changeButton = new QPushButton(Tr::tr("Change..."));
-    changeButton->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Preferred);
-
-    connect(changeButton, &QPushButton::clicked, this, [this, changeButton]() {
-        EnvVarSeparatorsDialog dlg(NameValueDictionary(volatileValue()), changeButton);
-        if (dlg.exec() == QDialog::Accepted) {
-            const QStringList newValues = dlg.separators().toStringList();
-            if (volatileValue() == newValues)
-                return;
-            setVolatileValue(newValues);
-        }
-    });
-
-    parent.addItem(separatorsLabel);
-    parent.addItem(changeButton);
 }
 
 } // namespace Core

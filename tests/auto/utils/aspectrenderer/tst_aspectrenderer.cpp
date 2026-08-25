@@ -180,6 +180,8 @@ private slots:
     void secretThatCannotBeReadStaysReadOnly();
     void filePathListForAnAspectThatIsNotOne_data() { addRendererRows(); }
     void filePathListForAnAspectThatIsNotOne();
+    void textWithAction_data() { addRendererRows(); }
+    void textWithAction();
 };
 
 void tst_AspectRenderer::initTestCase()
@@ -1379,6 +1381,77 @@ void tst_AspectRenderer::filePathListForAnAspectThatIsNotOne()
     // which is what a list of search paths would want.
     QCOMPARE(editor->fileDialogFilter(), QString("Valgrind Suppression File (*.supp)"));
     QCOMPARE(editor->fileDialogTitle(), QString("Valgrind Suppression Files"));
+}
+
+// A value edited through a dialog rather than in place: the control is a
+// summary of it and a button that opens the dialog. Four aspects share this
+// shape - MIME types, clangd's diagnostic configuration, the environment
+// variable separators and the environment changes - and none of them can be
+// asked to open a modal dialog from a test, so what is tested here is
+// everything around it.
+class SummaryWithButtonAspect final : public BaseAspect
+{
+public:
+    SummaryWithButtonAspect() { setLabelText("MIME types:"); }
+
+    AspectPresentation presentation() const override
+    {
+        AspectPresentation p = BaseAspect::presentation();
+        p.control = AspectControls::TextWithAction;
+        p.labelText = labelText();
+        p.actionText = "Set MIME Types...";
+        return p;
+    }
+
+    QString displayText() const override { return m_types.join(';'); }
+    void requestDisplayText() override { m_wasAsked = true; }
+    void triggerAction() override
+    {
+        // Where the dialog would have been.
+        m_types = QStringList{"text/x-c++src"};
+        emit displayTextChanged();
+    }
+
+    bool m_wasAsked = false;
+    QStringList m_types;
+};
+
+void tst_AspectRenderer::textWithAction()
+{
+    QFETCH(bool, withRenderer);
+    setRendererInstalled(withRenderer);
+
+    SummaryWithButtonAspect aspect;
+    aspect.m_types = QStringList{"text/plain", "text/html"};
+
+    const std::unique_ptr<QWidget> widget = render(aspect);
+    QVERIFY(widget);
+    auto summary = widget->findChild<ElidingLabel *>();
+    if (!withRenderer) {
+        QVERIFY(!summary);
+        return;
+    }
+
+    QVERIFY(summary);
+    // Elided rather than wrapped: a list of MIME types is as long as it is,
+    // and the row it sits in is one row.
+    QCOMPARE(summary->text(), QString("text/plain;text/html"));
+
+    // Asked as soon as there is somewhere to put it, for the aspects whose
+    // summary has to be fetched.
+    QVERIFY(aspect.m_wasAsked);
+
+    QPushButton *button = nullptr;
+    for (QPushButton * const b : widget->findChildren<QPushButton *>()) {
+        if (b->text() == "Set MIME Types...")
+            button = b;
+    }
+    QVERIFY(button);
+
+    // The button does whatever the aspect says it does, and what comes back
+    // reaches the summary without the aspect holding a pointer to it.
+    button->click();
+    QCOMPARE(summary->text(), QString("text/x-c++src"));
 }
 
 void tst_AspectRenderer::filePathLiveReconfiguration()
