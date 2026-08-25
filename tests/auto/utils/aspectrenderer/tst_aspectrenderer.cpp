@@ -152,8 +152,6 @@ private slots:
     void boolAdoptedButton();
     void filePathValidity_data() { addRendererRows(); }
     void filePathValidity();
-    void filePathExtraButton_data() { addRendererRows(); }
-    void filePathExtraButton();
     void filePathLiveReconfiguration_data() { addRendererRows(); }
     void filePathLiveReconfiguration();
     void filePathFocusRequest_data() { addRendererRows(); }
@@ -859,34 +857,6 @@ void tst_AspectRenderer::filePathValidity()
     QTRY_VERIFY(!aspect.isValid());
     QCOMPARE(validSpy.count(), 2);
     QCOMPARE(validSpy.last().first().toBool(), false);
-}
-
-void tst_AspectRenderer::filePathExtraButton()
-{
-    QFETCH(bool, withRenderer);
-    setRendererInstalled(withRenderer);
-
-    FilePathAspect aspect;
-    aspect.setAutoApply(false);
-
-    int clicked = 0;
-    aspect.addButton("Install", &aspect, [&clicked] { ++clicked; });
-
-    const std::unique_ptr<QWidget> widget = render(aspect);
-    const QList<QPushButton *> before = widget->findChildren<QPushButton *>();
-    QPushButton *install = Utils::findOr(before, nullptr, [](QPushButton *b) {
-        return b->text() == "Install";
-    });
-    QVERIFY(install);
-    install->click();
-    QCOMPARE(clicked, 1);
-
-    // A button added after the control exists still reaches it, and the ones
-    // already there are not duplicated.
-    aspect.addButton("Later", &aspect, [] {});
-    const QList<QPushButton *> after = widget->findChildren<QPushButton *>();
-    QCOMPARE(after.size(), before.size() + 1);
-    QVERIFY(Utils::findOr(after, nullptr, [](QPushButton *b) { return b->text() == "Later"; }));
 }
 
 void tst_AspectRenderer::filePathLiveReconfiguration()

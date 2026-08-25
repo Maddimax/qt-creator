@@ -1962,7 +1962,9 @@ behaviour - the custom path is only editable when the custom option is chosen.
 All four move to `QmllsClientSettings`: the groups are two `AspectContainer`s
 it owns, the button an `ActionAspect`, the runner a member, and the behaviour
 goes in the constructor where it belongs. With that, the only caller of
-`FilePathAspect::addButton()` - an API the Quick renderer never drew - is gone.
+`FilePathAspect::addButton()` had no callers left, so it is deleted along with
+its widget-renderer branch: an API the Quick renderer never drew, removed
+rather than given a counterpart.
 
 **What a Qt Quick view cannot read off a cell.** The tree came up with a
 column header saying "1" and no check boxes. Both are things a `QTreeView` gets

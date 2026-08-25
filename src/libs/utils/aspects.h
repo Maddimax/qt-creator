@@ -1038,18 +1038,6 @@ public:
     // Wrap it to add a check of your own.
     AsyncValidationFunction defaultValidationFunction() const;
 
-    // An extra button next to the browse button, for example to install what
-    // the path is supposed to point at.
-    class Button
-    {
-    public:
-        QString text;
-        QPointer<QObject> context;
-        std::function<void()> callback;
-    };
-    void addButton(const QString &text, QObject *context,
-                   const std::function<void()> &callback);
-
     void addToLayoutImpl(Layouting::Layout &parent) override;
 
     void fromMap(const Utils::Store &map) override;
@@ -1094,7 +1082,6 @@ private:
     bool autoApplyOnEditingFinished() const;
     Guard &editFinishedGuard();
 
-    QList<Button> buttons() const;
     void setValid(bool valid);
 };
 

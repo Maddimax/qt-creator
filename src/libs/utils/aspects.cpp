@@ -1508,7 +1508,6 @@ public:
     bool m_valid = false;
     bool m_useResetButton = false;
     FilePaths m_valueAlternatives;
-    QList<FilePathAspect::Button> m_buttons;
 
     Guard m_editFinishedGuard;
 
@@ -1727,18 +1726,6 @@ void FilePathAspect::setUseResetButton()
 {
     d->m_useResetButton = true;
     emit controlConfigurationChanged();
-}
-
-void FilePathAspect::addButton(const QString &text, QObject *context,
-                               const std::function<void()> &callback)
-{
-    d->m_buttons.append({text, context, callback});
-    emit controlConfigurationChanged();
-}
-
-QList<FilePathAspect::Button> FilePathAspect::buttons() const
-{
-    return d->m_buttons;
 }
 
 void FilePathAspect::setVolatileVariantValueFromGui(const QVariant &value)

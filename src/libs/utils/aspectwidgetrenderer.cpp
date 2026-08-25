@@ -48,7 +48,6 @@ using namespace Layouting;
 
 namespace Utils::Internal {
 
-const char BUTTONS_ADDED[] = "QtcAspect.ButtonsAdded";
 
 // Rebuilds the widgets of the addToLayoutImpl() bodies in aspects.cpp. The
 // generic controls are driven by presentation() alone; the bespoke ones key on
@@ -249,15 +248,6 @@ private:
         pathChooser->setReadOnly(aspect->isReadOnly());
         pathChooser->lineEdit()->setValidatePlaceHolder(aspect->validatePlaceHolder());
         pathChooser->setValueAlternatives(aspect->valueAlternatives());
-
-        // addButton() has no counterpart, so only the ones not added yet.
-        const QList<FilePathAspect::Button> buttons = aspect->buttons();
-        const int added = pathChooser->property(BUTTONS_ADDED).toInt();
-        for (int i = added; i < buttons.size(); ++i) {
-            const FilePathAspect::Button &button = buttons.at(i);
-            pathChooser->addButton(button.text, button.context, button.callback);
-        }
-        pathChooser->setProperty(BUTTONS_ADDED, buttons.size());
     }
 
     static void applyComboBoxSizing(QComboBox *comboBox, const AspectPresentation &pres)
