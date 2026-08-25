@@ -22,6 +22,7 @@
 #include "idocument.h"
 #include "iwizardfactory.h"
 #include "locator/locator.h"
+#include "dialogs/shortcutsettings.h"
 #include "mimetypesettings.h"
 #include "locator/locator_test.h"
 #include "loggingviewer.h"
@@ -525,6 +526,7 @@ Result<> CorePlugin::initialize(const QStringList &arguments)
     addTestCreator(createTabbedEditorTest);
     addTestCreator(createOutputFormatterTest);
     addTestCreator(createMimeTypeSettingsTest);
+    addTestCreator(createShortcutSettingsTest);
 #endif
 
     return ResultOk;

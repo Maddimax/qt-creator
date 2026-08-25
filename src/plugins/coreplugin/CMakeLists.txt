@@ -14,8 +14,6 @@ add_qtc_plugin(Core
     actionmanager/command.cpp
     actionmanager/command.h
     actionmanager/command_p.h
-    actionmanager/commandmappings.cpp
-    actionmanager/commandmappings.h
     actionsfilter.cpp
     actionsfilter.h
     basefilewizard.cpp
@@ -370,6 +368,7 @@ if(TARGET Core AND TARGET Qt::Quick)
     QML_FILES
       CustomLanguageModelsPage.qml
       GeneralSettingsPage.qml
+      KeyboardSettingsPage.qml
       LocatorSettingsPage.qml
       MimeTypesPage.qml
       SystemSettingsPage.qml
