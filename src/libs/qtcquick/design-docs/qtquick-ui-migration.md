@@ -1302,8 +1302,8 @@ method, and the manual-run dialog builds a widget from it too, so the page
 naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
-all`, minus `QmlDesigner` and `UpdateInfo`, see below): **98 aspect-driven
-pages, all 98 with their own QML and rendered with Qt Quick, none still on
+all`, minus `QmlDesigner` and `UpdateInfo`, see below): **99 aspect-driven
+pages, all 99 with their own QML and rendered with Qt Quick, none still on
 widgets.** The count goes up as widget-creator pages become aspect-driven, so
 it is a running total rather than a target. Gerrit is the first of the widget-creator pages below to have joined
 that count: it became aspect-driven and then got a form, which is the shape the
@@ -1331,6 +1331,45 @@ The warning was found by showing each page in a window and resizing it, which
 is the same measurement the `AspectGroupBox` note describes. Worth repeating
 after a batch: it is the only thing that sees a warning the page census cannot,
 and it also confirmed that no page has a binding loop left.
+
+### The Keyboard page, and the last of CommandMappings
+
+Two controls were missing, and one of them was missing in a way nothing said.
+
+**`AspectList`'s inline style had no Qt Quick counterpart.** Only the
+list-with-details one did: `presentation()` left the control as `Custom` for
+the inline style, which is `Unsupported`, which the page census *skips*. So an
+aspect using it drew nothing and no test minded. It is
+`AspectInlineListDelegate` now - a column of items, each in full, with a remove
+beside it and an add at the end, which is what the widget renderer builds.
+
+That delegate has the same cycle `AspectListDelegate` has: `AspectItems`
+instantiates it and it draws `AspectItems`. Loading by URL is the way out, and
+the model has to be an *initial* property - `AspectItems.model` is `required`,
+and a Loader that assigns it after creation builds the item without one.
+
+**Recording a key sequence is not a control's job.** What is being recorded is
+exactly the keys that would otherwise be shortcuts, and those never reach the
+control they were meant for - they are taken with an application event filter.
+So `KeySequenceAspect` records, and `KeySequenceDelegate` is a field, a Record
+button, and nothing else.
+
+**A row that knows what it is.** The widget page reached into the tree from
+outside - `setModified()` on the item, `setForeground()` on the colliding
+column. The row answers `FontRole` and `ForegroundRole` from what it holds now,
+which is what makes a Qt Quick view and a `QTreeView` show the same thing
+without either of them being told.
+
+**A command is found by what it is mapped to.** Typing `Ctrl+K` in the filter
+finds the commands using it, which is also how "Show conflicts" works - it
+writes the colliding sequence into the field. The row does not *show* the
+portable text, so `TreeFilterModel` honours `FilterTextRole` now, the way
+`TableFilterModel` already did.
+
+With this page, `Core::CommandMappings` has no callers left: its two others -
+FakeVim's User Command Mapping and Ex Command Mapping - went earlier. What the
+three shared turned out to be a tree, a filter and some buttons, none of which
+needed a shared widget once the tree delegate existed.
 
 ### A setting that is neither on nor off
 
@@ -1456,9 +1495,9 @@ pages that hand over an `AspectContainer` through `setSettingsProvider()`.
 A page that calls `IOptionsPage::setWidgetCreator()` builds its own
 `IOptionsPageWidget` and answers nothing from `aspects()`, so the test skips it
 entirely: `isFullyRenderable()` is never asked and the page is not in the 73.
-There are **17 such call sites in 16 files** - Keyboard, External Tools, the
-toolchain, kit and device pages, Designer, Help's filters, MCU Support, CDB,
-BareMetal - and they are pure QtWidgets from top to bottom. Counted with
+There are **16 such call sites in 15 files** - External Tools, the toolchain,
+kit and device pages, Designer, Help's filters, MCU Support, CDB, BareMetal -
+and they are pure QtWidgets from top to bottom. Counted with
 
     grep -rn setWidgetCreator src/plugins src/libs --include='*.cpp'
 
