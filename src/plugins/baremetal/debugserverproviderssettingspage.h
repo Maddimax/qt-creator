@@ -45,4 +45,8 @@ private:
     QList<IDebugServerProvider *> m_providersToRemove;
 };
 
+#ifdef WITH_TESTS
+QObject *createDebugServerProvidersPageTest();
+#endif
+
 } // BareMetal::Internal

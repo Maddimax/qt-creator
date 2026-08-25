@@ -7,12 +7,6 @@
 
 #include <utils/commandline.h>
 
-QT_BEGIN_NAMESPACE
-class QComboBox;
-QT_END_NAMESPACE
-
-namespace Utils { class PathChooser; }
-
 namespace BareMetal::Internal {
 
 // GdbServerProvider
@@ -25,13 +19,9 @@ public:
         StartupOnPipe
     };
 
-    StartupMode startupMode() const;
-    Utils::FilePath peripheralDescriptionFile() const;
-    QString initCommands() const;
-    QString resetCommands() const;
-    bool useExtendedRemote() const;
-
     bool operator==(const IDebugServerProvider &other) const override;
+
+    void addSettingsRows(Utils::AspectContainer &rows) override;
 
     void toMap(Utils::Store &data) const override;
 
@@ -53,48 +43,22 @@ protected:
 
     explicit GdbServerProvider(const QString &id);
 
-    void setStartupMode(StartupMode);
-    void setPeripheralDescriptionFile(const Utils::FilePath &file);
-    void setInitCommands(const QString &);
-    void setResetCommands(const QString &);
-    void setUseExtendedRemote(bool);
+    // Which modes this kind supports is its own answer, and a virtual cannot
+    // be asked from the base's constructor - so every kind fills the list at
+    // the top of its own. Reading the aspect before it has options asserts.
+    void fillStartupModes();
 
     void fromMap(const Utils::Store &data) override;
 
-    StartupMode m_startupMode = StartupOnNetwork;
-    Utils::FilePath m_peripheralDescriptionFile;
-    QString m_initCommands;
-    QString m_resetCommands;
-    bool m_useExtendedRemote = false;
-    Utils::FilePath m_executableFile;
-    QString m_additionalArguments;
-
-    friend class GdbServerProviderConfigWidget;
-};
-
-// GdbServerProviderConfigWidget
-
-class GdbServerProviderConfigWidget : public IDebugServerProviderConfigWidget
-{
-public:
-    explicit GdbServerProviderConfigWidget(GdbServerProvider *provider);
-    void apply() override;
-    void discard() override;
-
-protected:
-    GdbServerProvider::StartupMode startupModeFromIndex(int idx) const;
-    GdbServerProvider::StartupMode startupMode() const;
-    void setStartupMode(GdbServerProvider::StartupMode mode);
-    void populateStartupModes();
-    Utils::FilePath peripheralDescriptionFile() const;
-    void setPeripheralDescriptionFile(const Utils::FilePath &file);
-    void setFromProvider();
-
-    static QString defaultInitCommandsTooltip();
-    static QString defaultResetCommandsTooltip();
-
-    QComboBox *m_startupModeComboBox = nullptr;
-    Utils::PathChooser *m_peripheralDescriptionFileChooser = nullptr;
+    // The rows every GDB-compatible provider has. Which of them a kind shows
+    // is its own business; see addSettingsRows().
+    Utils::TypedSelectionAspect<StartupMode> startupMode{this};
+    Utils::FilePathAspect peripheralDescriptionFile{this};
+    Utils::StringAspect initCommands{this};
+    Utils::StringAspect resetCommands{this};
+    Utils::BoolAspect useExtendedRemote{this};
+    Utils::FilePathAspect executableFile{this};
+    Utils::StringAspect additionalArguments{this};
 };
 
 } // BareMetal::Internal

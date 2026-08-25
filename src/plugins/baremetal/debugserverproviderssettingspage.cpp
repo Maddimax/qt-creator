@@ -11,6 +11,12 @@
 #include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/icore.h>
 
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
+#include <utils/shutdownguard.h>
+
 #include <projectexplorer/projectexplorerconstants.h>
 
 #include <utils/algorithm.h>
@@ -105,7 +111,6 @@ public:
     }
 
     IDebugServerProvider *provider = nullptr;
-    IDebugServerProviderConfigWidget *widget = nullptr;
     bool changed = false;
 };
 
@@ -156,8 +161,7 @@ void DebugServerProviderModel::apply()
             continue;
 
         QTC_CHECK(n->provider);
-        if (n->widget)
-            n->widget->apply();
+        n->provider->apply();
 
         n->changed = false;
         n->update();
@@ -222,9 +226,9 @@ DebugServerProviderNode *DebugServerProviderModel::createNode(
         IDebugServerProvider *provider, bool changed)
 {
     const auto node = new DebugServerProviderNode(provider, changed);
-    node->widget = provider->configurationWidget();
-    connect(node->widget, &IDebugServerProviderConfigWidget::dirty, this, [node] {
-        markSettingsDirty();
+    // What the page used to hear from the configuration widget it built: the
+    // provider's own aspects say it now.
+    connect(provider, &BaseAspect::volatileValueChanged, this, [node] {
         node->changed = true;
         node->update();
     });
@@ -250,178 +254,186 @@ void DebugServerProviderModel::removeProvider(IDebugServerProvider *provider)
     emit providerStateChanged();
 }
 
-// DebugServerProvidersSettingsWidget
+// The providers, as the page lists them: name, kind and engine. All of that
+// is the model's answer already.
+class ProviderTreeAspect final : public BaseAspect
+{
+    Q_OBJECT
 
-class DebugServerProvidersSettingsWidget final : public Core::IOptionsPageWidget
+public:
+    ProviderTreeAspect(AspectContainer *container, DebugServerProviderModel &model)
+        : BaseAspect(container)
+        , m_model(model)
+    {}
+
+    AspectPresentation presentation() const override
+    {
+        AspectPresentation p = BaseAspect::presentation();
+        p.control = AspectControls::Tree;
+        return p;
+    }
+
+    QAbstractItemModel *tableModel() override { return &m_model; }
+    DebugServerProviderModel &model() { return m_model; }
+
+    // Which provider the form beside the tree is about. The view says so; the
+    // page reads it.
+    Q_INVOKABLE void setCurrentIndex(const QModelIndex &index)
+    {
+        if (index == m_current)
+            return;
+        m_current = index;
+        emit currentChanged();
+    }
+
+    QModelIndex currentIndex() const { return m_current; }
+
+signals:
+    void currentChanged();
+
+private:
+    DebugServerProviderModel &m_model;
+    QPersistentModelIndex m_current;
+};
+
+class DebugServerProvidersSettingsWidget final : public AspectContainer
 {
 public:
     DebugServerProvidersSettingsWidget();
 
-    void providerSelectionChanged();
-    void removeProvider();
-    void updateState();
+    void apply() final { m_model.apply(); }
 
 private:
-    void addProviderToModel(IDebugServerProvider *p);
-    QModelIndex currentIndex() const;
+    void showCurrentProvider();
+    void updateState();
+    void addProviderToModel(IDebugServerProvider *provider);
 
     DebugServerProviderModel m_model;
-    QItemSelectionModel *m_selectionModel = nullptr;
-    QTreeView *m_providerView = nullptr;
-    Utils::DetailsWidget *m_container = nullptr;
-    QPushButton *m_addButton = nullptr;
-    QPushButton *m_cloneButton = nullptr;
-    QPushButton *m_delButton = nullptr;
+
+    AspectContainer m_group{this};
+    ProviderTreeAspect m_providers{&m_group, m_model};
+    ActionAspect m_add{&m_group};
+    ActionAspect m_clone{&m_group};
+    ActionAspect m_remove{&m_group};
+    // What the selected provider asks for. Rebuilt per selection, and owned so
+    // that the previous one goes when the next arrives.
+    ContainerAspect m_current{&m_group};
+
+    IDebugServerProvider *m_shown = nullptr;
 };
 
 DebugServerProvidersSettingsWidget::DebugServerProvidersSettingsWidget()
 {
-    m_providerView = new QTreeView(this);
-    m_providerView->setUniformRowHeights(true);
-    m_providerView->header()->setStretchLastSection(false);
+    setAutoApply(false);
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/BareMetal/DebugServerProvidersPage.qml"));
 
-    m_addButton = new QPushButton(Tr::tr("Add"), this);
-    m_cloneButton = new QPushButton(Tr::tr("Clone"), this);
-    m_delButton = new QPushButton(Tr::tr("Remove"), this);
+    m_group.setQmlName("Providers");
+    m_group.setLabelText(Tr::tr("Debug Server Providers"));
 
-    m_container = new Utils::DetailsWidget(this);
-    m_container->setState(Utils::DetailsWidget::NoSummary);
-    m_container->setMinimumWidth(500);
-    m_container->setVisible(false);
+    m_providers.setQmlName("List");
 
-    using namespace Layouting;
-    Column {
-        Group {
-            title(Tr::tr("Debug Server Providers")),
-            Row {
-                Column {
-                    m_providerView,
-                    Row { m_addButton, m_cloneButton, m_delButton, st },
-                },
-                m_container,
-            },
-        },
-    }.attachTo(this);
-
-    connect(&m_model, &DebugServerProviderModel::providerStateChanged,
-            this, &DebugServerProvidersSettingsWidget::updateState);
-
-    m_providerView->setModel(&m_model);
-
-    const auto headerView = m_providerView->header();
-    headerView->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-    headerView->setSectionResizeMode(1, QHeaderView::Stretch);
-    m_providerView->expandAll();
-
-    m_selectionModel = m_providerView->selectionModel();
-
-    connect(m_selectionModel, &QItemSelectionModel::selectionChanged,
-            this, &DebugServerProvidersSettingsWidget::providerSelectionChanged);
-
-    connect(DebugServerProviderManager::instance(), &DebugServerProviderManager::providersChanged,
-            this, &DebugServerProvidersSettingsWidget::providerSelectionChanged);
-
-    // Set up add menu:
-    const auto addMenu = new QMenu(m_addButton);
-
-    for (const IDebugServerProviderFactory *f : IDebugServerProviderFactory::factories()) {
-        const auto action = new QAction(addMenu);
-        action->setText(f->displayName());
-        connect(action, &QAction::triggered, this, [this, f] { addProviderToModel(f->create()); });
-        addMenu->addAction(action);
-    }
-
-    connect(m_cloneButton, &QAbstractButton::clicked, this, [this] {
-        if (const IDebugServerProvider *old = m_model.provider(currentIndex())) {
-            QString id = old->id();
-            for (const IDebugServerProviderFactory *f : IDebugServerProviderFactory::factories()) {
-                if (id.startsWith(f->id())) {
-                    IDebugServerProvider *p = f->create();
-                    Store map;
-                    old->toMap(map);
-                    p->fromMap(map);
-                    p->setDisplayName(Tr::tr("Clone of %1").arg(old->displayName()));
-                    p->resetId();
-                    addProviderToModel(p);
-                }
+    // Adding a provider is picking a kind, so the button offers rather than
+    // does. The kinds are fixed once the plugins are loaded.
+    m_add.setQmlName("Add");
+    m_add.setActionText(Tr::tr("Add"));
+    QList<AspectPresentation::Choice> kinds;
+    for (const IDebugServerProviderFactory *f : IDebugServerProviderFactory::factories())
+        kinds.append({f->displayName(), {}, true, f->id()});
+    m_add.setChoices(kinds);
+    m_add.setOnChoice([this](const QVariant &id) {
+        for (const IDebugServerProviderFactory *f : IDebugServerProviderFactory::factories()) {
+            if (f->id() == id.toString()) {
+                addProviderToModel(f->create());
+                return;
             }
         }
     });
 
-    m_addButton->setMenu(addMenu);
+    m_clone.setQmlName("Clone");
+    m_clone.setActionText(Tr::tr("Clone"));
+    m_clone.setAction([this] {
+        const IDebugServerProvider *old = m_model.provider(m_providers.currentIndex());
+        QTC_ASSERT(old, return);
+        for (const IDebugServerProviderFactory *f : IDebugServerProviderFactory::factories()) {
+            if (!old->id().startsWith(f->id()))
+                continue;
+            IDebugServerProvider *p = f->create();
+            Store map;
+            old->toMap(map);
+            p->fromMap(map);
+            p->setDisplayName(Tr::tr("Clone of %1").arg(old->displayName()));
+            p->resetId();
+            addProviderToModel(p);
+            return;
+        }
+    });
 
-    connect(m_delButton, &QPushButton::clicked,
-            this, &DebugServerProvidersSettingsWidget::removeProvider);
+    m_remove.setQmlName("Remove");
+    m_remove.setActionText(Tr::tr("Remove"));
+    m_remove.setAction([this] {
+        IDebugServerProvider * const p = m_model.provider(m_providers.currentIndex());
+        QTC_ASSERT(p, return);
+        showCurrentProvider();
+        m_providers.setCurrentIndex({});
+        m_model.markForRemoval(p);
+    });
+
+    m_current.setQmlName("Current");
+
+    // Behaviour, not layout.
+    connect(&m_providers, &ProviderTreeAspect::currentChanged, this, [this] {
+        showCurrentProvider();
+        updateState();
+    });
+    connect(&m_model, &DebugServerProviderModel::providerStateChanged,
+            this, &DebugServerProvidersSettingsWidget::updateState);
+    connect(DebugServerProviderManager::instance(),
+            &DebugServerProviderManager::providersChanged,
+            this, &DebugServerProvidersSettingsWidget::updateState);
 
     updateState();
-
-    setOnApply([this] { m_model.apply(); });
-
-    installMarkSettingsDirtyTriggerRecursively(this);
 }
 
-void DebugServerProvidersSettingsWidget::providerSelectionChanged()
+void DebugServerProvidersSettingsWidget::showCurrentProvider()
 {
-    if (!m_container)
+    IDebugServerProvider * const provider = m_model.provider(m_providers.currentIndex());
+    if (provider == m_shown)
         return;
-    const QModelIndex current = currentIndex();
-    QWidget *w = m_container->widget() ? m_container->takeWidget() : nullptr; // Prevent deletion.
-    if (w)
-        w->setVisible(false);
+    m_shown = provider;
 
-    const DebugServerProviderNode *node = m_model.nodeForIndex(current);
-    w = node ? node->widget : nullptr;
-    m_container->setWidget(w);
-    m_container->setVisible(w != nullptr);
-    updateState();
+    if (!provider) {
+        m_current.setOwnedContainer(nullptr);
+        return;
+    }
+
+    const auto rows = new AspectContainer;
+    // An ordering container has no opinion about applying, and the default is
+    // to apply at once - which on a page with Apply and Cancel is wrong.
+    rows->setAutoApply(false);
+    provider->addSettingsRows(*rows);
+    m_current.setOwnedContainer(rows);
 }
 
 void DebugServerProvidersSettingsWidget::addProviderToModel(IDebugServerProvider *provider)
 {
     QTC_ASSERT(provider, return);
     m_model.markForAddition(provider);
-
-    m_selectionModel->select(m_model.indexForProvider(provider),
-                             QItemSelectionModel::Clear
-                             | QItemSelectionModel::SelectCurrent
-                             | QItemSelectionModel::Rows);
-
-    markSettingsDirty();
-}
-
-void DebugServerProvidersSettingsWidget::removeProvider()
-{
-    if (IDebugServerProvider *p = m_model.provider(currentIndex()))
-        m_model.markForRemoval(p);
-
-    markSettingsDirty();
+    m_providers.setCurrentIndex(m_model.indexForProvider(provider));
+    showCurrentProvider();
+    updateState();
 }
 
 void DebugServerProvidersSettingsWidget::updateState()
 {
-    if (!m_cloneButton)
-        return;
-
     bool canCopy = false;
     bool canDelete = false;
-    if (const IDebugServerProvider *p = m_model.provider(currentIndex())) {
+    if (const IDebugServerProvider *p = m_model.provider(m_providers.currentIndex())) {
         canCopy = p->isValid();
         canDelete = true;
     }
 
-    m_cloneButton->setEnabled(canCopy);
-    m_delButton->setEnabled(canDelete);
-}
-
-QModelIndex DebugServerProvidersSettingsWidget::currentIndex() const
-{
-    if (!m_selectionModel)
-        return {};
-
-    const QModelIndexList rows = m_selectionModel->selectedRows();
-    if (rows.count() != 1)
-        return {};
-    return rows.at(0);
+    m_clone.setEnabled(canCopy);
+    m_remove.setEnabled(canDelete);
 }
 
 // DebugServerProvidersSettingsPage
@@ -434,10 +446,88 @@ public:
         setId(Constants::DEBUG_SERVER_PROVIDERS_SETTINGS_ID);
         setDisplayName(Tr::tr("Bare Metal"));
         setCategory(ProjectExplorer::Constants::DEVICE_SETTINGS_CATEGORY);
-        setWidgetCreator([] { return new DebugServerProvidersSettingsWidget; });
+        setSettingsProvider([] {
+            static GuardedObject<DebugServerProvidersSettingsWidget> theAspects;
+            return theAspects.get();
+        });
     }
 };
 
 static const DebugServerProvidersSettingsPage settingsPage;
 
+#ifdef WITH_TESTS
+class DebugServerProvidersPageTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testEveryKindOfProviderSaysWhatItAsks()
+    {
+        // The configuration widget was the extension point, with eleven
+        // classes behind it. A provider says which of its aspects a page shows
+        // instead, and every kind has to answer - a kind that says nothing
+        // draws an empty box, which is what the iOS device used to do.
+        const QList<IDebugServerProviderFactory *> factories
+            = IDebugServerProviderFactory::factories();
+        QVERIFY(!factories.isEmpty());
+
+        for (const IDebugServerProviderFactory *factory : factories) {
+            std::unique_ptr<IDebugServerProvider> provider(factory->create());
+            QVERIFY2(provider, qPrintable(factory->displayName()));
+
+            AspectContainer rows;
+            rows.setAutoApply(false);
+            provider->addSettingsRows(rows);
+
+            const QList<BaseAspect *> aspects = rows.aspects();
+            QVERIFY2(!aspects.isEmpty(), qPrintable(factory->displayName()));
+            // Every provider is asked its name, whatever kind it is.
+            QVERIFY2(Utils::anyOf(aspects, [](BaseAspect *a) {
+                         return a->settingsKey() == Key("DisplayName");
+                     }), qPrintable(factory->displayName()));
+            // And listing them must not turn them into aspects that apply as
+            // they are typed: this page has Apply and Cancel.
+            for (BaseAspect * const row : aspects) {
+                QVERIFY2(!row->isAutoApply(),
+                         qPrintable(factory->displayName() + ' ' + row->labelText()));
+            }
+        }
+    }
+
+    void testWhatAProviderHoldsSurvivesASaveAndReload()
+    {
+        // The values used to live in the provider's own members and the
+        // controls in a widget; they are aspects now, and toMap()/fromMap()
+        // go through them. The settings keys have to be the ones already on
+        // disk, or every configured provider comes back empty.
+        for (const IDebugServerProviderFactory *factory :
+             IDebugServerProviderFactory::factories()) {
+            std::unique_ptr<IDebugServerProvider> original(factory->create());
+            QVERIFY(original);
+            original->setDisplayName("A name nobody would pick");
+            original->setChannel("192.0.2.1", 4711);
+
+            Store store;
+            original->toMap(store);
+            QVERIFY2(!store.isEmpty(), qPrintable(factory->displayName()));
+
+            std::unique_ptr<IDebugServerProvider> restored(factory->restore(store));
+            QVERIFY2(restored, qPrintable(factory->displayName()));
+            QCOMPARE(restored->displayName(), QString("A name nobody would pick"));
+            QCOMPARE(restored->channel().host(), QString("192.0.2.1"));
+            QCOMPARE(restored->channel().port(), 4711);
+            // Same id, so a restored provider is the same provider.
+            QCOMPARE(restored->id(), original->id());
+        }
+    }
+};
+
+QObject *createDebugServerProvidersPageTest()
+{
+    return new DebugServerProvidersPageTest;
+}
+#endif // WITH_TESTS
+
 } // BareMetal::Internal
+
+#include "debugserverproviderssettingspage.moc"

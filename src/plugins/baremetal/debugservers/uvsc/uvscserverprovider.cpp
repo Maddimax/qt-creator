@@ -3,6 +3,8 @@
 
 #include "uvscserverprovider.h"
 
+#include <coreplugin/icore.h>
+
 #include "uvproject.h"
 #include "uvprojectwriter.h"
 #include "uvtargetdeviceviewer.h"
@@ -56,22 +58,162 @@ QString UvscServerProvider::adjustFlashAlgorithmProperty(const QString &property
     return property.startsWith("0x") ? property.mid(2) : property;
 }
 
+// UvSelectionAspect
+
+AspectPresentation UvSelectionAspect::presentation() const
+{
+    AspectPresentation p = BaseAspect::presentation();
+    p.control = AspectControls::TextWithAction;
+    p.actionText = m_actionText;
+    return p;
+}
+
+void UvSelectionAspect::triggerAction()
+{
+    if (m_onTrigger)
+        m_onTrigger();
+}
+
+void UvSelectionAspect::setSummary(const QString &summary)
+{
+    if (m_summary == summary)
+        return;
+    m_summary = summary;
+    emit displayTextChanged();
+}
+
+// UvTableAspect
+
+AspectPresentation UvTableAspect::presentation() const
+{
+    AspectPresentation p = BaseAspect::presentation();
+    p.control = AspectControls::Table;
+    return p;
+}
+
+// UvscServerProvider
+
 UvscServerProvider::UvscServerProvider(const QString &id)
     : IDebugServerProvider(id)
 {
     setEngineType(UvscEngineType);
     setChannel("localhost", defaultPortNumber);
     setToolsetNumber(ArmAdsToolsetNumber);
+
+    toolsIniFile.setSettingsKey(toolsIniKeyC);
+    toolsIniFile.setLabelText(Tr::tr("Tools file path:"));
+    toolsIniFile.setExpectedKind(PathChooserKind::File);
+    toolsIniFile.setPromptDialogFilter("tools.ini");
+
+    // A device can only be picked once uVision has been found.
+    const auto updateToolsAvailable = [this] {
+        const bool available = FilePath::fromUserInput(toolsIniFile.volatileValue()).exists();
+        deviceGroup.setEnabled(available);
+        driverGroup.setEnabled(available);
+    };
+
+    deviceGroup.setLabelText(Tr::tr("Target device"));
+    deviceSelector.setLabelText(Tr::tr("Device:"));
+    deviceSelector.setActionText(Tr::tr("Select..."));
+    deviceSelector.setOnTrigger([this] {
+        Uv::DeviceSelectionDialog dialog(FilePath::fromUserInput(toolsIniFile.volatileValue()),
+                                         Core::ICore::dialogParent());
+        if (dialog.exec() != QDialog::Accepted)
+            return;
+        m_deviceSelection = dialog.selection();
+        refreshDeviceDetails();
+    });
+    deviceVendor.setLabelText(Tr::tr("Vendor:"));
+    devicePackage.setLabelText(Tr::tr("Package:"));
+    deviceDesc.setLabelText(Tr::tr("Description:"));
+    deviceMemory.setLabelText(Tr::tr("Memory:"));
+    deviceMemory.setModel(new Uv::DeviceSelectionMemoryModel(m_deviceSelection, this));
+    deviceAlgorithm.setLabelText(Tr::tr("Flash algorithm:"));
+    deviceAlgorithm.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
+    connect(&deviceAlgorithm, &BaseAspect::volatileValueChanged, this, [this] {
+        m_deviceSelection.algorithmIndex = deviceAlgorithm.volatileValue();
+    });
+    devicePeripheralDescriptionFile.setLabelText(Tr::tr("Peripheral description file:"));
+    devicePeripheralDescriptionFile.setExpectedKind(PathChooserKind::File);
+    devicePeripheralDescriptionFile.setPromptDialogFilter(
+        Tr::tr("Peripheral description files (*.svd)"));
+    devicePeripheralDescriptionFile.setPromptDialogTitle(
+        Tr::tr("Select Peripheral Description File"));
+    connect(&devicePeripheralDescriptionFile, &BaseAspect::volatileValueChanged, this, [this] {
+        m_deviceSelection.svd = devicePeripheralDescriptionFile.volatileValue();
+    });
+
+    driverGroup.setLabelText(Tr::tr("Target driver"));
+    driverSelector.setLabelText(Tr::tr("Driver:"));
+    driverSelector.setActionText(Tr::tr("Select..."));
+    driverSelector.setOnTrigger([this] {
+        Uv::DriverSelectionDialog dialog(FilePath::fromUserInput(toolsIniFile.volatileValue()),
+                                         m_supportedDrivers, Core::ICore::dialogParent());
+        if (dialog.exec() != QDialog::Accepted)
+            return;
+        m_driverSelection = dialog.selection();
+        refreshDriverDetails();
+    });
+    driverDll.setLabelText(Tr::tr("Driver library:"));
+    driverCpuDll.setLabelText(Tr::tr("CPU library:"));
+    driverCpuDll.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
+    connect(&driverCpuDll, &BaseAspect::volatileValueChanged, this, [this] {
+        m_driverSelection.cpuDllIndex = driverCpuDll.volatileValue();
+    });
+
+    updateToolsAvailable();
+    connect(&toolsIniFile, &BaseAspect::volatileValueChanged, this, updateToolsAvailable);
 }
 
-void UvscServerProvider::setToolsIniFile(const FilePath &toolsIniFile)
+void UvscServerProvider::addSettingsRows(AspectContainer &rows)
 {
-    m_toolsIniFile = toolsIniFile;
+    IDebugServerProvider::addSettingsRows(rows);
+    refreshDeviceDetails();
+    refreshDriverDetails();
+    rows.registerAspect(&address);
+    rows.registerAspect(&toolsIniFile);
+    rows.registerAspect(&deviceGroup);
+    rows.registerAspect(&driverGroup);
 }
 
-FilePath UvscServerProvider::toolsIniFile() const
+static QString trimVendor(const QString &vendor)
 {
-    return m_toolsIniFile;
+    const int colonIndex = vendor.lastIndexOf(':');
+    return vendor.mid(0, colonIndex);
+}
+
+void UvscServerProvider::refreshDeviceDetails()
+{
+    deviceSelector.setSummary(m_deviceSelection.name.isEmpty()
+                                  ? Tr::tr("Target device not selected.")
+                                  : m_deviceSelection.name);
+    deviceVendor.setText(trimVendor(m_deviceSelection.vendorName));
+    devicePackage.setText(m_deviceSelection.package.name);
+    deviceDesc.setText(m_deviceSelection.desc);
+    if (auto model = static_cast<Uv::DeviceSelectionMemoryModel *>(deviceMemory.tableModel()))
+        model->refresh();
+    deviceAlgorithm.clearOptions();
+    for (const Uv::DeviceSelection::Algorithm &algorithm : m_deviceSelection.algorithms)
+        deviceAlgorithm.addOption(algorithm.path);
+    // A device that offers no algorithm has no index to select either.
+    if (deviceAlgorithm.optionCount() > 0)
+        deviceAlgorithm.setValue(qBound(0, m_deviceSelection.algorithmIndex,
+                                        deviceAlgorithm.optionCount() - 1));
+    devicePeripheralDescriptionFile.setValue(m_deviceSelection.svd);
+}
+
+void UvscServerProvider::refreshDriverDetails()
+{
+    driverSelector.setSummary(m_driverSelection.name.isEmpty()
+                                  ? Tr::tr("Target driver not selected.")
+                                  : m_driverSelection.name);
+    driverDll.setText(m_driverSelection.dll);
+    driverCpuDll.clearOptions();
+    for (const QString &dll : m_driverSelection.cpuDlls)
+        driverCpuDll.addOption(dll);
+    if (driverCpuDll.optionCount() > 0)
+        driverCpuDll.setValue(qBound(0, m_driverSelection.cpuDllIndex,
+                                     driverCpuDll.optionCount() - 1));
 }
 
 void UvscServerProvider::setDeviceSelection(const DeviceSelection &deviceSelection)
@@ -119,7 +261,7 @@ bool UvscServerProvider::operator==(const IDebugServerProvider &other) const
     if (!IDebugServerProvider::operator==(other))
         return false;
     const auto p = static_cast<const UvscServerProvider *>(&other);
-    return m_toolsIniFile == p->m_toolsIniFile
+    return toolsIniFile() == p->toolsIniFile()
             && m_deviceSelection == p->m_deviceSelection
             && m_driverSelection == p->m_driverSelection
             && m_toolsetNumber == p->m_toolsetNumber;
@@ -142,14 +284,13 @@ FilePath UvscServerProvider::buildOptionsFilePath(RunControl *runControl) const
 void UvscServerProvider::toMap(Store &data) const
 {
     IDebugServerProvider::toMap(data);
-    data.insert(toolsIniKeyC, m_toolsIniFile.toSettings());
     data.insert(deviceSelectionKeyC, variantFromStore(m_deviceSelection.toMap()));
     data.insert(driverSelectionKeyC, variantFromStore(m_driverSelection.toMap()));
 }
 
 bool UvscServerProvider::isValid() const
 {
-    return m_channel.isValid();
+    return channel().isValid();
 }
 
 Result<> UvscServerProvider::setupDebuggerRunParameters(DebuggerRunParameters &rp,
@@ -193,7 +334,7 @@ std::optional<BarrierKickerGetter> UvscServerProvider::serverRunner(RunControl *
     return [this, runControl](const QStoredBarrier &ready) {
         return runControl->processTaskWithModifier([this, runControl, ready](Process &process) {
             process.setCommand({DebuggerKitAspect::runnable(runControl->kit()).command.executable(),
-                                {"-j0", QStringLiteral("-s%1").arg(m_channel.port())}});
+                                {"-j0", QStringLiteral("-s%1").arg(channel().port())}});
             connectReadyBarrier(runControl, process, ready.activeStorage());
         });
     };
@@ -202,7 +343,6 @@ std::optional<BarrierKickerGetter> UvscServerProvider::serverRunner(RunControl *
 void UvscServerProvider::fromMap(const Store &data)
 {
     IDebugServerProvider::fromMap(data);
-    m_toolsIniFile = FilePath::fromSettings(data.value(toolsIniKeyC));
     m_deviceSelection.fromMap(storeFromVariant(data.value(deviceSelectionKeyC)));
     m_driverSelection.fromMap(storeFromVariant(data.value(driverSelectionKeyC)));
 }
@@ -232,97 +372,5 @@ public:
         setRegularExpression(re);
     }
 };
-
-// UvscServerProviderConfigWidget
-
-UvscServerProviderConfigWidget::UvscServerProviderConfigWidget(UvscServerProvider *provider)
-    : IDebugServerProviderConfigWidget(provider)
-{
-    m_hostWidget = new HostWidget;
-    m_mainLayout->addRow(Tr::tr("Host:"), m_hostWidget);
-    m_toolsIniChooser = new PathChooser;
-    m_toolsIniChooser->setExpectedKind(PathChooserKind::File);
-    m_toolsIniChooser->setPromptDialogFilter("tools.ini");
-    m_toolsIniChooser->setPromptDialogTitle(Tr::tr("Choose Keil Toolset Configuration File"));
-    m_mainLayout->addRow(Tr::tr("Tools file path:"), m_toolsIniChooser);
-    m_deviceSelector = new DeviceSelector;
-    m_mainLayout->addRow(Tr::tr("Target device:"), m_deviceSelector);
-    m_driverSelector = new DriverSelector(provider->supportedDrivers());
-    m_mainLayout->addRow(Tr::tr("Target driver:"), m_driverSelector);
-
-    setFromProvider();
-
-    connect(m_hostWidget, &HostWidget::dataChanged,
-            this, &UvscServerProviderConfigWidget::dirty);
-    connect(m_toolsIniChooser, &PathChooser::textChanged,
-            this, &UvscServerProviderConfigWidget::dirty);
-    connect(m_deviceSelector, &DeviceSelector::selectionChanged,
-            this, &UvscServerProviderConfigWidget::dirty);
-    connect(m_driverSelector, &DriverSelector::selectionChanged,
-            this, &UvscServerProviderConfigWidget::dirty);
-
-    auto updateSelectors = [this] {
-        const FilePath toolsIniFile = m_toolsIniChooser->filePath();
-        m_deviceSelector->setToolsIniFile(toolsIniFile);
-        m_driverSelector->setToolsIniFile(toolsIniFile);
-    };
-
-    connect(m_toolsIniChooser, &PathChooser::textChanged, this, updateSelectors);
-    updateSelectors();
-}
-
-void UvscServerProviderConfigWidget::apply()
-{
-    const auto p = static_cast<UvscServerProvider *>(m_provider);
-    p->setToolsIniFile(toolsIniFile());
-    p->setDeviceSelection(deviceSelection());
-    p->setDriverSelection(driverSelection());
-    IDebugServerProviderConfigWidget::apply();
-}
-
-void UvscServerProviderConfigWidget::discard()
-{
-    setFromProvider();
-    IDebugServerProviderConfigWidget::discard();
-}
-
-void UvscServerProviderConfigWidget::setToolsIniFile(const FilePath &toolsIniFile)
-{
-    m_toolsIniChooser->setFilePath(toolsIniFile);
-}
-
-FilePath UvscServerProviderConfigWidget::toolsIniFile() const
-{
-    return m_toolsIniChooser->filePath();
-}
-
-void UvscServerProviderConfigWidget::setDeviceSelection(const DeviceSelection &deviceSelection)
-{
-    m_deviceSelector->setSelection(deviceSelection);
-}
-
-DeviceSelection UvscServerProviderConfigWidget::deviceSelection() const
-{
-    return m_deviceSelector->selection();
-}
-
-void UvscServerProviderConfigWidget::setDriverSelection(const DriverSelection &driverSelection)
-{
-    m_driverSelector->setSelection(driverSelection);
-}
-
-DriverSelection UvscServerProviderConfigWidget::driverSelection() const
-{
-    return m_driverSelector->selection();
-}
-
-void UvscServerProviderConfigWidget::setFromProvider()
-{
-    const auto p = static_cast<UvscServerProvider *>(m_provider);
-    m_hostWidget->setChannel(p->channel());
-    m_toolsIniChooser->setFilePath(p->toolsIniFile());
-    m_deviceSelector->setSelection(p->deviceSelection());
-    m_driverSelector->setSelection(p->driverSelection());
-}
 
 } // BareMetal::Internal

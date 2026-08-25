@@ -12,11 +12,6 @@
 
 #include <utils/qtcassert.h>
 
-#include <QFormLayout>
-#include <QLabel>
-#include <QLineEdit>
-#include <QSpinBox>
-#include <QTimer>
 #include <QUuid>
 
 using namespace Debugger;
@@ -47,6 +42,28 @@ static QString createId(const QString &id)
 IDebugServerProvider::IDebugServerProvider(const QString &id)
     : m_id(createId(id))
 {
+    // A settings page applies on Apply, so nothing here writes itself
+    // through as it is typed.
+    setAutoApply(false);
+
+    providerName.setSettingsKey(displayNameKeyC);
+    providerName.setLabelText(Tr::tr("Name:"));
+    providerName.setToolTip(Tr::tr("Enter the name of the debugger server provider."));
+
+    address.setInlineRow(true);
+    address.setLabelText(Tr::tr("Host:"));
+    host.setSettingsKey(hostKeyC);
+    host.setToolTip(Tr::tr("Enter TCP/IP hostname of the debug server, "
+                           "like \"localhost\" or \"192.0.2.1\"."));
+    port.setSettingsKey(portKeyC);
+    port.setRange(0, 65535);
+    port.setToolTip(Tr::tr("Enter TCP/IP port which will be listened by "
+                           "the debug server."));
+}
+
+void IDebugServerProvider::addSettingsRows(AspectContainer &rows)
+{
+    rows.registerAspect(&providerName);
 }
 
 IDebugServerProvider::~IDebugServerProvider()
@@ -59,35 +76,39 @@ IDebugServerProvider::~IDebugServerProvider()
 
 QString IDebugServerProvider::displayName() const
 {
-    if (m_displayName.isEmpty())
+    if (providerName().isEmpty())
         return typeDisplayName();
-    return m_displayName;
+    return providerName();
 }
 
 void IDebugServerProvider::setDisplayName(const QString &name)
 {
-    if (m_displayName == name)
+    if (providerName() == name)
         return;
 
-    m_displayName = name;
+    providerName.setValue(name);
     providerUpdated();
 }
 
 void IDebugServerProvider::setChannel(const QUrl &channel)
 {
-    m_channel = channel;
+    host.setValue(channel.host());
+    port.setValue(channel.port());
 }
 
-void IDebugServerProvider::setChannel(const QString &host, int port)
+void IDebugServerProvider::setChannel(const QString &hostName, int portNumber)
 {
-    m_channel.setScheme("tcp");
-    m_channel.setHost(host);
-    m_channel.setPort(port);
+    host.setValue(hostName);
+    port.setValue(portNumber);
 }
 
 QUrl IDebugServerProvider::channel() const
 {
-    return m_channel;
+    QUrl url;
+    url.setScheme("tcp");
+    url.setHost(host());
+    url.setPort(port());
+    return url;
 }
 
 QString IDebugServerProvider::channelPipe() const
@@ -162,19 +183,12 @@ bool IDebugServerProvider::operator==(const IDebugServerProvider &other) const
     return id() == other.id();
 }
 
-IDebugServerProviderConfigWidget *IDebugServerProvider::configurationWidget() const
-{
-    QTC_ASSERT(m_configurationWidgetCreator, return nullptr);
-    return m_configurationWidgetCreator();
-}
-
 void IDebugServerProvider::toMap(Store &data) const
 {
+    AspectContainer::toMap(data);
+    // Neither is the user's to change, so neither is an aspect.
     data.insert(idKeyC, m_id);
-    data.insert(displayNameKeyC, m_displayName);
     data.insert(engineTypeKeyC, m_engineType);
-    data.insert(hostKeyC, m_channel.host());
-    data.insert(portKeyC, m_channel.port());
 }
 
 void IDebugServerProvider::providerUpdated()
@@ -189,17 +203,10 @@ void IDebugServerProvider::resetId()
 
 void IDebugServerProvider::fromMap(const Store &data)
 {
+    AspectContainer::fromMap(data);
     m_id = data.value(idKeyC).toString();
-    m_displayName = data.value(displayNameKeyC).toString();
     m_engineType = static_cast<DebuggerEngineType>(
                 data.value(engineTypeKeyC, NoEngineType).toInt());
-    m_channel.setHost(data.value(hostKeyC).toString());
-    m_channel.setPort(data.value(portKeyC).toInt());
-}
-
-void IDebugServerProvider::setConfigurationWidgetCreator(const std::function<IDebugServerProviderConfigWidget *()> &configurationWidgetCreator)
-{
-    m_configurationWidgetCreator = configurationWidgetCreator;
 }
 
 // IDebugServerProviderFactory
@@ -272,112 +279,6 @@ QString IDebugServerProviderFactory::idFromMap(const Store &data)
 void IDebugServerProviderFactory::idToMap(Store &data, const QString &id)
 {
     data.insert(idKeyC, id);
-}
-
-// IDebugServerProviderConfigWidget
-
-IDebugServerProviderConfigWidget::IDebugServerProviderConfigWidget(
-        IDebugServerProvider *provider)
-    : m_provider(provider)
-{
-    QTC_ASSERT(provider, return);
-
-    m_mainLayout = new QFormLayout(this);
-    m_mainLayout->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
-
-    m_nameLineEdit = new QLineEdit(this);
-    m_nameLineEdit->setToolTip(Tr::tr("Enter the name of the debugger server provider."));
-    m_mainLayout->addRow(Tr::tr("Name:"), m_nameLineEdit);
-
-    setFromProvider();
-
-    connect(m_nameLineEdit, &QLineEdit::textChanged,
-            this, &IDebugServerProviderConfigWidget::dirty);
-}
-
-void IDebugServerProviderConfigWidget::apply()
-{
-    m_provider->setDisplayName(m_nameLineEdit->text());
-}
-
-void IDebugServerProviderConfigWidget::discard()
-{
-    setFromProvider();
-}
-
-void IDebugServerProviderConfigWidget::addErrorLabel()
-{
-    if (!m_errorLabel) {
-        m_errorLabel = new QLabel;
-        m_errorLabel->setVisible(false);
-    }
-    m_mainLayout->addRow(m_errorLabel);
-}
-
-void IDebugServerProviderConfigWidget::setErrorMessage(const QString &m)
-{
-    QTC_ASSERT(m_errorLabel, return);
-    if (m.isEmpty()) {
-        clearErrorMessage();
-    } else {
-        m_errorLabel->setText(m);
-        m_errorLabel->setStyleSheet("background-color: \"red\"");
-        m_errorLabel->setVisible(true);
-    }
-}
-
-void IDebugServerProviderConfigWidget::clearErrorMessage()
-{
-    QTC_ASSERT(m_errorLabel, return);
-    m_errorLabel->clear();
-    m_errorLabel->setStyleSheet(QString());
-    m_errorLabel->setVisible(false);
-}
-
-void IDebugServerProviderConfigWidget::setFromProvider()
-{
-    const QSignalBlocker blocker(this);
-    m_nameLineEdit->setText(m_provider->displayName());
-}
-
-// HostWidget
-
-HostWidget::HostWidget(QWidget *parent)
-    : QWidget(parent)
-{
-    m_hostLineEdit = new QLineEdit(this);
-    m_hostLineEdit->setToolTip(Tr::tr("Enter TCP/IP hostname of the debug server, "
-                                      "like \"localhost\" or \"192.0.2.1\".\n\n"
-                                      "The debugger connects to this address itself, so it must "
-                                      "be valid where the debugger runs. That is not necessarily "
-                                      "the computer that starts the debug server."));
-    m_portSpinBox = new QSpinBox(this);
-    m_portSpinBox->setRange(0, 65535);
-    m_portSpinBox->setToolTip(Tr::tr("Enter TCP/IP port which will be listened by "
-                                     "the debug server."));
-    const auto layout = new QHBoxLayout(this);
-    layout->setContentsMargins(0, 0, 0, 0);
-    layout->addWidget(m_hostLineEdit);
-    layout->addWidget(m_portSpinBox);
-
-    connect(m_hostLineEdit, &QLineEdit::textChanged, this, &HostWidget::dataChanged);
-    connect(m_portSpinBox, &QSpinBox::valueChanged, this, &HostWidget::dataChanged);
-}
-
-void HostWidget::setChannel(const QUrl &channel)
-{
-    const QSignalBlocker blocker(this);
-    m_hostLineEdit->setText(channel.host());
-    m_portSpinBox->setValue(channel.port());
-}
-
-QUrl HostWidget::channel() const
-{
-    QUrl url;
-    url.setScheme("tcp");
-    url.setHost(m_hostLineEdit->text());
-    url.setPort(m_portSpinBox->value());
-    return url;
 }
 
 } // BareMetal::Internal

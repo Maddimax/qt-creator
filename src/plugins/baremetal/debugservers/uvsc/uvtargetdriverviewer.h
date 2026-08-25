@@ -21,64 +21,8 @@ class DriverSelectionModel;
 class DriverSelectionView;
 class DriverSelectionCpuDllView;
 
-// DriverSelector
 
-class DriverSelector final : public Utils::DetailsWidget
-{
-    Q_OBJECT
 
-public:
-    explicit DriverSelector(const QStringList &supportedDrivers, QWidget *parent = nullptr);
-
-    void setToolsIniFile(const Utils::FilePath &toolsIniFile);
-    Utils::FilePath toolsIniFile() const;
-
-    void setSelection(const DriverSelection &selection);
-    DriverSelection selection() const;
-
-signals:
-    void selectionChanged();
-
-private:
-    Utils::FilePath m_toolsIniFile;
-    DriverSelection m_selection;
-};
-
-// DriverSelectorToolPanel
-
-class DriverSelectorToolPanel final : public Utils::FadingPanel
-{
-    Q_OBJECT
-
-public:
-    explicit DriverSelectorToolPanel(QWidget *parent = nullptr);
-
-signals:
-    void clicked();
-
-private:
-    void fadeTo(qreal value) final;
-    void setOpacity(qreal value) final;
-};
-
-// DriverSelectorDetailsPanel
-
-class DriverSelectorDetailsPanel final : public QWidget
-{
-    Q_OBJECT
-
-public:
-    explicit DriverSelectorDetailsPanel(DriverSelection &selection, QWidget *parent = nullptr);
-    void refresh();
-
-signals:
-    void selectionChanged();
-
-private:
-    DriverSelection &m_selection;
-    QLineEdit *m_dllEdit = nullptr;
-    DriverSelectionCpuDllView *m_cpuDllView = nullptr;
-};
 
 // DriverSelectionDialog
 

@@ -7,6 +7,7 @@
 
 #include <QtTaskTree/QBarrier>
 
+#include <utils/aspects.h>
 #include <utils/filepath.h>
 #include <utils/qtcprocess.h>
 #include <utils/result.h>
@@ -14,14 +15,6 @@
 
 #include <QSet>
 #include <QUrl>
-#include <QWidget>
-
-QT_BEGIN_NAMESPACE
-class QFormLayout;
-class QLabel;
-class QLineEdit;
-class QSpinBox;
-QT_END_NAMESPACE
 
 namespace Debugger { class DebuggerRunParameters; }
 
@@ -30,19 +23,18 @@ namespace ProjectExplorer { class RunControl; }
 namespace BareMetal::Internal {
 
 class BareMetalDevice;
-class IDebugServerProviderConfigWidget;
 
 // IDebugServerProvider
 
-class IDebugServerProvider
+class IDebugServerProvider : public Utils::AspectContainer
 {
-    Q_DISABLE_COPY_MOVE(IDebugServerProvider)
+    Q_OBJECT
 
 protected:
     explicit IDebugServerProvider(const QString &id);
 
 public:
-    virtual ~IDebugServerProvider();
+    ~IDebugServerProvider() override;
 
     QString displayName() const;
     void setDisplayName(const QString &name);
@@ -59,9 +51,10 @@ public:
 
     virtual bool operator==(const IDebugServerProvider &other) const;
 
-    IDebugServerProviderConfigWidget *configurationWidget() const;
-    void setConfigurationWidgetCreator
-        (const std::function<IDebugServerProviderConfigWidget *()> &configurationWidgetCreator);
+    // The rows a page shows for this provider, in the order it wants them.
+    // This is what the configuration widget was: which settings, and in what
+    // order. Every kind answers with its own aspects.
+    virtual void addSettingsRows(Utils::AspectContainer &rows);
 
     virtual void toMap(Utils::Store &data) const;
     virtual void fromMap(const Utils::Store &data);
@@ -88,15 +81,18 @@ protected:
     void providerUpdated();
     void resetId();
 
+    // What every provider is asked, whatever kind it is.
+    Utils::StringAspect providerName{this};
+    // The host and the port read as one address, so they are one row.
+    Utils::AspectContainer address{this};
+    Utils::StringAspect host{&address};
+    Utils::IntegerAspect port{&address};
+
     QString m_id;
-    mutable QString m_displayName;
     QString m_typeDisplayName;
-    QUrl m_channel;
     Debugger::DebuggerEngineType m_engineType = Debugger::NoEngineType;
-    std::function<IDebugServerProviderConfigWidget *()> m_configurationWidgetCreator;
 
     friend class DebugServerProvidersSettingsWidget;
-    friend class IDebugServerProviderConfigWidget;
     friend class IDebugServerProviderFactory;
 };
 
@@ -135,56 +131,5 @@ private:
     QString m_id;
     std::function<IDebugServerProvider *()> m_creator;
 };
-
-// IDebugServerProviderConfigWidget
-
-class IDebugServerProviderConfigWidget : public QWidget
-{
-    Q_OBJECT
-
-public:
-    explicit IDebugServerProviderConfigWidget(IDebugServerProvider *provider);
-
-    virtual void apply();
-    virtual void discard();
-
-signals:
-    void dirty();
-
-protected:
-    void setErrorMessage(const QString &);
-    void clearErrorMessage();
-    void addErrorLabel();
-    void setFromProvider();
-
-    IDebugServerProvider *m_provider = nullptr;
-    QFormLayout *m_mainLayout = nullptr;
-    QLineEdit *m_nameLineEdit = nullptr;
-    QLabel *m_errorLabel = nullptr;
-};
-
-// HostWidget
-
-class HostWidget final : public QWidget
-{
-    Q_OBJECT
-
-public:
-    explicit HostWidget(QWidget *parent = nullptr);
-
-    void setChannel(const QUrl &host);
-    QUrl channel() const;
-
-signals:
-    void dataChanged();
-
-protected:
-    QLineEdit *m_hostLineEdit = nullptr;
-    QSpinBox *m_portSpinBox = nullptr;
-};
-
-#ifdef WITH_TESTS
-QObject *createDebugServerReadyTest();
-#endif // WITH_TESTS
 
 } // namespace BareMetal::Internal

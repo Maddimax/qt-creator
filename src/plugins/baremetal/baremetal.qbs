@@ -14,7 +14,14 @@ QtcPlugin {
 
     Group {
         name: "General"
-        files: [
+        // qbs has no QML module support; the .qml files are built by CMake only.
+    Group {
+        name: "qml"
+        files: ["**/*.qml"]
+        fileTags: []
+    }
+
+    files: [
             "baremetal.qrc",
             "baremetalconstants.h",
             "baremetaldebugsupport.cpp", "baremetaldebugsupport.h",

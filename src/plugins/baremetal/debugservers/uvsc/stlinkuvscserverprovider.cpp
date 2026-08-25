@@ -93,9 +93,16 @@ public:
 private:
     explicit StLinkUvscServerProvider();
 
+    void addSettingsRows(Utils::AspectContainer &rows) final;
+    void refreshSpeeds();
+
+    // Which wire the probe uses and how fast, as one row. The speeds on
+    // offer are the port's: JTAG and SWD do not share any of them.
+    Utils::AspectContainer adapterRow{this};
+    Utils::TypedSelectionAspect<StLinkUvscAdapterOptions::Port> adapterPort{&adapterRow};
+    Utils::TypedSelectionAspect<StLinkUvscAdapterOptions::Speed> adapterSpeed{&adapterRow};
     StLinkUvscAdapterOptions m_adapterOpts;
 
-    friend class StLinkUvscServerProviderConfigWidget;
     friend class StLinkUvscServerProviderFactory;
     friend class StLinkUvProjectOptions;
 };
@@ -144,58 +151,65 @@ bool StLinkUvscAdapterOptions::operator==(const StLinkUvscAdapterOptions &other)
     return port == other.port && speed == other.speed;
 }
 
-// StLinkUvscServerProviderConfigWidget
-
-class StLinkUvscAdapterOptionsWidget;
-class StLinkUvscServerProviderConfigWidget final : public UvscServerProviderConfigWidget
-{
-public:
-    explicit StLinkUvscServerProviderConfigWidget(StLinkUvscServerProvider *provider);
-
-private:
-    void apply() override;
-    void discard() override;
-
-    void setAdapterOpitons(const StLinkUvscAdapterOptions &adapterOpts);
-    StLinkUvscAdapterOptions adapterOptions() const;
-    void setFromProvider();
-
-    StLinkUvscAdapterOptionsWidget *m_adapterOptionsWidget = nullptr;
-};
-
-// StLinkUvscAdapterOptionsWidget
-
-class StLinkUvscAdapterOptionsWidget final : public QWidget
-{
-    Q_OBJECT
-
-public:
-    explicit StLinkUvscAdapterOptionsWidget(QWidget *parent = nullptr);
-    void setAdapterOptions(const StLinkUvscAdapterOptions &adapterOpts);
-    StLinkUvscAdapterOptions adapterOptions() const;
-
-signals:
-    void optionsChanged();
-
-private:
-    StLinkUvscAdapterOptions::Port portAt(int index) const;
-    StLinkUvscAdapterOptions::Speed speedAt(int index) const;
-
-    void populatePorts();
-    void populateSpeeds();
-
-    QComboBox *m_portBox = nullptr;
-    QComboBox *m_speedBox = nullptr;
-};
-
-// StLinkUvscServerProvider
-
 StLinkUvscServerProvider::StLinkUvscServerProvider()
     : UvscServerProvider(Constants::UVSC_STLINK_PROVIDER_ID)
 {
     setTypeDisplayName(Tr::tr("uVision St-Link"));
-    setConfigurationWidgetCreator([this] { return new StLinkUvscServerProviderConfigWidget(this); });
     setSupportedDrivers({"STLink\\ST-LINKIII-KEIL_SWO.dll"});
+
+    adapterRow.setInlineRow(true);
+    adapterRow.setLabelText(Tr::tr("Adapter options:"));
+    adapterPort.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
+    adapterPort.addOption({Tr::tr("JTAG"), {}, StLinkUvscAdapterOptions::JTAG});
+    adapterPort.addOption({Tr::tr("SWD"), {}, StLinkUvscAdapterOptions::SWD});
+    adapterSpeed.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
+
+    connect(&adapterPort, &BaseAspect::volatileValueChanged, this, [this] {
+        refreshSpeeds();
+        m_adapterOpts = {adapterPort.volatileValue(), adapterSpeed.volatileValue()};
+    });
+    connect(&adapterSpeed, &BaseAspect::volatileValueChanged, this, [this] {
+        m_adapterOpts = {adapterPort.volatileValue(), adapterSpeed.volatileValue()};
+    });
+
+    // Reading a selection that has no options asserts, and the speeds are the
+    // port's - so the list exists from the start rather than from first draw.
+    refreshSpeeds();
+}
+
+void StLinkUvscServerProvider::refreshSpeeds()
+{
+    using Opts = StLinkUvscAdapterOptions;
+    const QList<std::pair<QString, Opts::Speed>> jtag = {
+        {Tr::tr("9MHz"), Opts::Speed_9MHz}, {Tr::tr("4.5MHz"), Opts::Speed_4_5MHz},
+        {Tr::tr("2.25MHz"), Opts::Speed_2_25MHz}, {Tr::tr("1.12MHz"), Opts::Speed_1_12MHz},
+        {Tr::tr("560kHz"), Opts::Speed_560kHz}, {Tr::tr("280kHz"), Opts::Speed_280kHz},
+        {Tr::tr("140kHz"), Opts::Speed_140kHz}};
+    const QList<std::pair<QString, Opts::Speed>> swd = {
+        {Tr::tr("4MHz"), Opts::Speed_4MHz}, {Tr::tr("1.8MHz"), Opts::Speed_1_8MHz},
+        {Tr::tr("950kHz"), Opts::Speed_950kHz}, {Tr::tr("480kHz"), Opts::Speed_480kHz},
+        {Tr::tr("240kHz"), Opts::Speed_240kHz}, {Tr::tr("125kHz"), Opts::Speed_125kHz},
+        {Tr::tr("100kHz"), Opts::Speed_100kHz}, {Tr::tr("50kHz"), Opts::Speed_50kHz},
+        {Tr::tr("25kHz"), Opts::Speed_25kHz}, {Tr::tr("15kHz"), Opts::Speed_15kHz},
+        {Tr::tr("5kHz"), Opts::Speed_5kHz}};
+
+    adapterSpeed.clearOptions();
+    for (const auto &[text, speed] :
+         adapterPort.volatileValue() == Opts::JTAG ? jtag : swd) {
+        adapterSpeed.addOption({text, {}, speed});
+    }
+}
+
+void StLinkUvscServerProvider::addSettingsRows(AspectContainer &rows)
+{
+    UvscServerProvider::addSettingsRows(rows);
+    adapterPort.setValue(m_adapterOpts.port);
+    refreshSpeeds();
+    // The speeds on offer are the port's, so a stored speed from the other
+    // port is not one of them.
+    if (adapterSpeed.indexForItemValue(m_adapterOpts.speed) >= 0)
+        adapterSpeed.setValue(m_adapterOpts.speed);
+    rows.registerAspect(&adapterRow);
 }
 
 void StLinkUvscServerProvider::toMap(Store &data) const
@@ -231,154 +245,6 @@ FilePath StLinkUvscServerProvider::optionsFilePath(RunControl *runControl,
         return {};
     }
     return optionsPath;
-}
-
-// StLinkUvscServerProviderConfigWidget
-
-StLinkUvscServerProviderConfigWidget::StLinkUvscServerProviderConfigWidget(
-        StLinkUvscServerProvider *p)
-    : UvscServerProviderConfigWidget(p)
-{
-    Q_ASSERT(p);
-
-    m_adapterOptionsWidget = new StLinkUvscAdapterOptionsWidget;
-    m_mainLayout->addRow(Tr::tr("Adapter options:"), m_adapterOptionsWidget);
-
-    setFromProvider();
-
-    connect(m_adapterOptionsWidget, &StLinkUvscAdapterOptionsWidget::optionsChanged,
-            this, &StLinkUvscServerProviderConfigWidget::dirty);
-}
-
-void StLinkUvscServerProviderConfigWidget::apply()
-{
-    const auto p = static_cast<StLinkUvscServerProvider *>(m_provider);
-    Q_ASSERT(p);
-    p->m_adapterOpts = adapterOptions();
-    UvscServerProviderConfigWidget::apply();
-}
-
-void StLinkUvscServerProviderConfigWidget::discard()
-{
-    setFromProvider();
-    UvscServerProviderConfigWidget::discard();
-}
-
-void StLinkUvscServerProviderConfigWidget::setAdapterOpitons(
-        const StLinkUvscAdapterOptions &adapterOpts)
-{
-    m_adapterOptionsWidget->setAdapterOptions(adapterOpts);
-}
-
-StLinkUvscAdapterOptions StLinkUvscServerProviderConfigWidget::adapterOptions() const
-{
-    return m_adapterOptionsWidget->adapterOptions();
-}
-
-void StLinkUvscServerProviderConfigWidget::setFromProvider()
-{
-    const auto p = static_cast<StLinkUvscServerProvider *>(m_provider);
-    Q_ASSERT(p);
-    const QSignalBlocker blocker(this);
-    setAdapterOpitons(p->m_adapterOpts);
-}
-
-// StLinkUvscAdapterOptionsWidget
-
-StLinkUvscAdapterOptionsWidget::StLinkUvscAdapterOptionsWidget(QWidget *parent)
-    : QWidget(parent)
-{
-    const auto layout = new QHBoxLayout;
-    layout->setContentsMargins(0, 0, 0, 0);
-    layout->addWidget(new QLabel(Tr::tr("Port:")));
-    m_portBox = new QComboBox;
-    layout->addWidget(m_portBox);
-    layout->addWidget(new QLabel(Tr::tr("Speed:")));
-    m_speedBox = new QComboBox;
-    layout->addWidget(m_speedBox);
-    setLayout(layout);
-
-    populatePorts();
-
-    connect(m_portBox, &QComboBox::currentIndexChanged, this, [this] {
-        populateSpeeds();
-        emit optionsChanged();
-    });
-    connect(m_speedBox, &QComboBox::currentIndexChanged,
-            this, &StLinkUvscAdapterOptionsWidget::optionsChanged);
-}
-
-void StLinkUvscAdapterOptionsWidget::setAdapterOptions(
-        const StLinkUvscAdapterOptions &adapterOpts)
-{
-    for (auto index = 0; m_portBox->count(); ++index) {
-        const StLinkUvscAdapterOptions::Port port = portAt(index);
-        if (port == adapterOpts.port) {
-            m_portBox->setCurrentIndex(index);
-            break;
-        }
-    }
-
-    populateSpeeds();
-
-    for (auto index = 0; m_speedBox->count(); ++index) {
-        const StLinkUvscAdapterOptions::Speed speed = speedAt(index);
-        if (speed == adapterOpts.speed) {
-            m_speedBox->setCurrentIndex(index);
-            break;
-        }
-    }
-}
-
-StLinkUvscAdapterOptions StLinkUvscAdapterOptionsWidget::adapterOptions() const
-{
-    const auto port = portAt(m_portBox->currentIndex());
-    const auto speed = speedAt(m_speedBox->currentIndex());
-    return {port, speed};
-}
-
-StLinkUvscAdapterOptions::Port StLinkUvscAdapterOptionsWidget::portAt(int index) const
-{
-    return static_cast<StLinkUvscAdapterOptions::Port>(m_portBox->itemData(index).toInt());
-}
-
-StLinkUvscAdapterOptions::Speed StLinkUvscAdapterOptionsWidget::speedAt(int index) const
-{
-    return static_cast<StLinkUvscAdapterOptions::Speed>(m_speedBox->itemData(index).toInt());
-}
-
-void StLinkUvscAdapterOptionsWidget::populatePorts()
-{
-    m_portBox->addItem(Tr::tr("JTAG"), StLinkUvscAdapterOptions::JTAG);
-    m_portBox->addItem(Tr::tr("SWD"), StLinkUvscAdapterOptions::SWD);
-}
-
-void StLinkUvscAdapterOptionsWidget::populateSpeeds()
-{
-    m_speedBox->clear();
-
-    const auto port = portAt(m_portBox->currentIndex());
-    if (port == StLinkUvscAdapterOptions::JTAG) {
-        m_speedBox->addItem(Tr::tr("9MHz"), StLinkUvscAdapterOptions::Speed_9MHz);
-        m_speedBox->addItem(Tr::tr("4.5MHz"), StLinkUvscAdapterOptions::Speed_4_5MHz);
-        m_speedBox->addItem(Tr::tr("2.25MHz"), StLinkUvscAdapterOptions::Speed_2_25MHz);
-        m_speedBox->addItem(Tr::tr("1.12MHz"), StLinkUvscAdapterOptions::Speed_1_12MHz);
-        m_speedBox->addItem(Tr::tr("560kHz"), StLinkUvscAdapterOptions::Speed_560kHz);
-        m_speedBox->addItem(Tr::tr("280kHz"), StLinkUvscAdapterOptions::Speed_280kHz);
-        m_speedBox->addItem(Tr::tr("140kHz"), StLinkUvscAdapterOptions::Speed_140kHz);
-    } else if (port == StLinkUvscAdapterOptions::SWD) {
-        m_speedBox->addItem(Tr::tr("4MHz"), StLinkUvscAdapterOptions::Speed_4MHz);
-        m_speedBox->addItem(Tr::tr("1.8MHz"), StLinkUvscAdapterOptions::Speed_1_8MHz);
-        m_speedBox->addItem(Tr::tr("950kHz"), StLinkUvscAdapterOptions::Speed_950kHz);
-        m_speedBox->addItem(Tr::tr("480kHz"), StLinkUvscAdapterOptions::Speed_480kHz);
-        m_speedBox->addItem(Tr::tr("240kHz"), StLinkUvscAdapterOptions::Speed_240kHz);
-        m_speedBox->addItem(Tr::tr("125kHz"), StLinkUvscAdapterOptions::Speed_125kHz);
-        m_speedBox->addItem(Tr::tr("100kHz"), StLinkUvscAdapterOptions::Speed_100kHz);
-        m_speedBox->addItem(Tr::tr("50kHz"), StLinkUvscAdapterOptions::Speed_50kHz);
-        m_speedBox->addItem(Tr::tr("25kHz"), StLinkUvscAdapterOptions::Speed_25kHz);
-        m_speedBox->addItem(Tr::tr("15kHz"), StLinkUvscAdapterOptions::Speed_15kHz);
-        m_speedBox->addItem(Tr::tr("5kHz"), StLinkUvscAdapterOptions::Speed_5kHz);
-    }
 }
 
 // StLinkUvscServerProviderFactory

@@ -46,7 +46,7 @@ public:
     explicit SimulatorUvProjectOptions(const SimulatorUvscServerProvider *provider)
         : Uv::ProjectOptions(provider)
     {
-        m_debugOpt->appendProperty("sLrtime", int(provider->m_limitSpeed));
+        m_debugOpt->appendProperty("sLrtime", int(provider->limitSpeed()));
     }
 };
 
@@ -56,20 +56,28 @@ SimulatorUvscServerProvider::SimulatorUvscServerProvider()
     : UvscServerProvider(Constants::UVSC_SIMULATOR_PROVIDER_ID)
 {
     setTypeDisplayName(Tr::tr("uVision Simulator"));
-    setConfigurationWidgetCreator([this] { return new SimulatorUvscServerProviderConfigWidget(this); });
+
+    limitSpeed.setSettingsKey(limitSpeedKeyC);
+    limitSpeed.setLabelText(Tr::tr("Limit speed to real-time:"));
+    limitSpeed.setToolTip(Tr::tr("Limit speed to real-time."));
+    limitSpeed.setLabelPlacement(BoolAspect::LabelPlacement::Compact);
+}
+
+void SimulatorUvscServerProvider::addSettingsRows(AspectContainer &rows)
+{
+    UvscServerProvider::addSettingsRows(rows);
+    rows.registerAspect(&limitSpeed);
     setDriverSelection(defaultSimulatorDriverSelection());
 }
 
 void SimulatorUvscServerProvider::toMap(Store &data) const
 {
     UvscServerProvider::toMap(data);
-    data.insert(limitSpeedKeyC, m_limitSpeed);
 }
 
 void SimulatorUvscServerProvider::fromMap(const Store &data)
 {
     UvscServerProvider::fromMap(data);
-    m_limitSpeed = data.value(limitSpeedKeyC).toBool();
 }
 
 bool SimulatorUvscServerProvider::operator==(const IDebugServerProvider &other) const
@@ -77,7 +85,7 @@ bool SimulatorUvscServerProvider::operator==(const IDebugServerProvider &other) 
     if (!UvscServerProvider::operator==(other))
         return false;
     const auto p = static_cast<const SimulatorUvscServerProvider *>(&other);
-    return m_limitSpeed == p->m_limitSpeed;
+    return limitSpeed() == p->limitSpeed();
 }
 
 FilePath SimulatorUvscServerProvider::optionsFilePath(RunControl *runControl,
@@ -92,46 +100,6 @@ FilePath SimulatorUvscServerProvider::optionsFilePath(RunControl *runControl,
         return {};
     }
     return optionsPath;
-}
-
-// SimulatorUvscServerProviderConfigWidget
-
-SimulatorUvscServerProviderConfigWidget::SimulatorUvscServerProviderConfigWidget(
-        SimulatorUvscServerProvider *p)
-    : UvscServerProviderConfigWidget(p)
-{
-    Q_ASSERT(p);
-
-    m_limitSpeedCheckBox = new QCheckBox;
-    m_limitSpeedCheckBox->setToolTip(Tr::tr("Limit speed to real-time."));
-    m_mainLayout->addRow(Tr::tr("Limit speed to real-time:"), m_limitSpeedCheckBox);
-
-    setFromProvider();
-
-    connect(m_limitSpeedCheckBox, &QAbstractButton::clicked,
-            this, &SimulatorUvscServerProviderConfigWidget::dirty);
-}
-
-void SimulatorUvscServerProviderConfigWidget::apply()
-{
-    const auto p = static_cast<SimulatorUvscServerProvider *>(m_provider);
-    Q_ASSERT(p);
-    p->m_limitSpeed = m_limitSpeedCheckBox->isChecked();
-    UvscServerProviderConfigWidget::apply();
-}
-
-void SimulatorUvscServerProviderConfigWidget::discard()
-{
-    setFromProvider();
-    UvscServerProviderConfigWidget::discard();
-}
-
-void SimulatorUvscServerProviderConfigWidget::setFromProvider()
-{
-    const auto p = static_cast<SimulatorUvscServerProvider *>(m_provider);
-    Q_ASSERT(p);
-    const QSignalBlocker blocker(this);
-    m_limitSpeedCheckBox->setChecked(p->m_limitSpeed);
 }
 
 // SimulatorUvscServerProviderFactory

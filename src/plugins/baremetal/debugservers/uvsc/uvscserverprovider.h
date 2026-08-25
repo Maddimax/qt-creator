@@ -21,6 +21,46 @@ class DriverSelection;
 class DriverSelector;
 }
 
+// What has been picked, and the button that opens the dialog which picks it.
+// The dialog is the same one the old expander's tool panel opened.
+class UvSelectionAspect final : public Utils::BaseAspect
+{
+    Q_OBJECT
+
+public:
+    using BaseAspect::BaseAspect;
+
+    Utils::AspectPresentation presentation() const override;
+    QString displayText() const override { return m_summary; }
+    void triggerAction() override;
+
+    void setSummary(const QString &summary);
+    void setActionText(const QString &text) { m_actionText = text; }
+    void setOnTrigger(const std::function<void()> &onTrigger) { m_onTrigger = onTrigger; }
+
+private:
+    QString m_summary;
+    QString m_actionText;
+    std::function<void()> m_onTrigger;
+};
+
+// Rows that belong to somebody else's model - what a device says about its own
+// memory. The aspect only says how to draw them.
+class UvTableAspect final : public Utils::BaseAspect
+{
+    Q_OBJECT
+
+public:
+    using BaseAspect::BaseAspect;
+
+    Utils::AspectPresentation presentation() const override;
+    QAbstractItemModel *tableModel() override { return m_model; }
+    void setModel(QAbstractItemModel *model) { m_model = model; }
+
+private:
+    QAbstractItemModel *m_model = nullptr;
+};
+
 // UvscServerProvider
 
 class UvscServerProvider : public IDebugServerProvider
@@ -30,9 +70,6 @@ public:
         UnknownToolsetNumber = -1,
         ArmAdsToolsetNumber = 4 // ARM-ADS toolset
     };
-
-    void setToolsIniFile(const Utils::FilePath &toolsIniFile);
-    Utils::FilePath toolsIniFile() const;
 
     void setDeviceSelection(const Uv::DeviceSelection &deviceSelection);
     Uv::DeviceSelection deviceSelection() const;
@@ -73,42 +110,37 @@ protected:
     virtual Utils::FilePath optionsFilePath(ProjectExplorer::RunControl *runControl,
                                             QString &errorMessage) const = 0;
 
-    Utils::FilePath m_toolsIniFile;
+    void addSettingsRows(Utils::AspectContainer &rows) override;
+
+    // What the details under the picker say about the device that was picked.
+    void refreshDeviceDetails();
+    void refreshDriverDetails();
+
+    Utils::FilePathAspect toolsIniFile{this};
+
+    // The target device: which one, and what it is made of. The picker is a
+    // dialog; everything under it is what the chosen device reports.
+    Utils::AspectContainer deviceGroup{this};
+    UvSelectionAspect deviceSelector{&deviceGroup};
+    Utils::TextDisplay deviceVendor{&deviceGroup};
+    Utils::TextDisplay devicePackage{&deviceGroup};
+    Utils::TextDisplay deviceDesc{&deviceGroup};
+    UvTableAspect deviceMemory{&deviceGroup};
+    Utils::SelectionAspect deviceAlgorithm{&deviceGroup};
+    Utils::FilePathAspect devicePeripheralDescriptionFile{&deviceGroup};
+
+    // The driver that talks to it, and which CPU DLL that driver uses.
+    Utils::AspectContainer driverGroup{this};
+    UvSelectionAspect driverSelector{&driverGroup};
+    Utils::TextDisplay driverDll{&driverGroup};
+    Utils::SelectionAspect driverCpuDll{&driverGroup};
+
     Uv::DeviceSelection m_deviceSelection;
     Uv::DriverSelection m_driverSelection;
 
     // Note: Don't store it to the map!
     ToolsetNumber m_toolsetNumber = UnknownToolsetNumber;
     QStringList m_supportedDrivers;
-
-    friend class UvscServerProviderConfigWidget;
-};
-
-// UvscServerProviderConfigWidget
-
-class UvscServerProviderConfigWidget : public IDebugServerProviderConfigWidget
-{
-    Q_OBJECT
-
-public:
-    explicit UvscServerProviderConfigWidget(UvscServerProvider *provider);
-    void apply() override;
-    void discard() override;
-
-protected:
-    void setToolsIniFile(const Utils::FilePath &toolsIniFile);
-    Utils::FilePath toolsIniFile() const;
-    void setDeviceSelection(const Uv::DeviceSelection &deviceSelection);
-    Uv::DeviceSelection deviceSelection() const;
-    void setDriverSelection(const Uv::DriverSelection &driverSelection);
-    Uv::DriverSelection driverSelection() const;
-
-    void setFromProvider();
-
-    HostWidget *m_hostWidget = nullptr;
-    Utils::PathChooser *m_toolsIniChooser = nullptr;
-    Uv::DeviceSelector *m_deviceSelector = nullptr;
-    Uv::DriverSelector *m_driverSelector = nullptr;
 };
 
 } // namespace BareMetal::Internal

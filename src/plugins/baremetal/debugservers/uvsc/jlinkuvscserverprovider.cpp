@@ -154,9 +154,14 @@ public:
 private:
     explicit JLinkUvscServerProvider();
 
+    void addSettingsRows(Utils::AspectContainer &rows) final;
+
+    // Which wire the probe uses and how fast, as one row.
+    Utils::AspectContainer adapterRow{this};
+    Utils::TypedSelectionAspect<JLinkUvscAdapterOptions::Port> adapterPort{&adapterRow};
+    Utils::TypedSelectionAspect<JLinkUvscAdapterOptions::Speed> adapterSpeed{&adapterRow};
     JLinkUvscAdapterOptions m_adapterOpts;
 
-    friend class JLinkUvscServerProviderConfigWidget;
     friend class JLinkUvscServerProviderFactory;
     friend class JLinkUvProjectOptions;
 };
@@ -185,57 +190,48 @@ public:
     }
 };
 
-// JLinkUvscServerProviderFactory
-
-class JLinkUvscAdapterOptionsWidget;
-
-class JLinkUvscServerProviderConfigWidget final : public UvscServerProviderConfigWidget
-{
-public:
-    explicit JLinkUvscServerProviderConfigWidget(JLinkUvscServerProvider *provider);
-
-private:
-    void apply() override;
-    void discard() override;
-
-    void setAdapterOpitons(const JLinkUvscAdapterOptions &adapterOpts);
-    JLinkUvscAdapterOptions adapterOptions() const;
-    void setFromProvider();
-
-    JLinkUvscAdapterOptionsWidget *m_adapterOptionsWidget = nullptr;
-};
-
-// JLinkUvscAdapterOptionsWidget
-
-class JLinkUvscAdapterOptionsWidget final : public QWidget
-{
-    Q_OBJECT
-
-public:
-    explicit JLinkUvscAdapterOptionsWidget(QWidget *parent = nullptr);
-    void setAdapterOptions(const JLinkUvscAdapterOptions &adapterOpts);
-    JLinkUvscAdapterOptions adapterOptions() const;
-
-signals:
-    void optionsChanged();
-
-private:
-    JLinkUvscAdapterOptions::Port portAt(int index) const;
-    JLinkUvscAdapterOptions::Speed speedAt(int index) const;
-
-    void populatePorts();
-    void populateSpeeds();
-
-    QComboBox *m_portBox = nullptr;
-    QComboBox *m_speedBox = nullptr;
-};
-
 JLinkUvscServerProvider::JLinkUvscServerProvider()
     : UvscServerProvider(Constants::UVSC_JLINK_PROVIDER_ID)
 {
     setTypeDisplayName(Tr::tr("uVision JLink"));
-    setConfigurationWidgetCreator([this] { return new JLinkUvscServerProviderConfigWidget(this); });
     setSupportedDrivers({"Segger\\JL2CM3.dll"});
+
+    adapterRow.setInlineRow(true);
+    adapterRow.setLabelText(Tr::tr("Adapter options:"));
+    adapterPort.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
+    adapterPort.addOption({Tr::tr("JTAG"), {}, JLinkUvscAdapterOptions::JTAG});
+    adapterPort.addOption({Tr::tr("SWD"), {}, JLinkUvscAdapterOptions::SWD});
+    adapterSpeed.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
+    for (const auto &[text, speed] : QList<std::pair<QString, JLinkUvscAdapterOptions::Speed>>{
+             {Tr::tr("50MHz"), JLinkUvscAdapterOptions::Speed_50MHz},
+             {Tr::tr("33MHz"), JLinkUvscAdapterOptions::Speed_33MHz},
+             {Tr::tr("25MHz"), JLinkUvscAdapterOptions::Speed_25MHz},
+             {Tr::tr("20MHz"), JLinkUvscAdapterOptions::Speed_20MHz},
+             {Tr::tr("10MHz"), JLinkUvscAdapterOptions::Speed_10MHz},
+             {Tr::tr("5MHz"), JLinkUvscAdapterOptions::Speed_5MHz},
+             {Tr::tr("3MHz"), JLinkUvscAdapterOptions::Speed_3MHz},
+             {Tr::tr("2MHz"), JLinkUvscAdapterOptions::Speed_2MHz},
+             {Tr::tr("1MHz"), JLinkUvscAdapterOptions::Speed_1MHz},
+             {Tr::tr("500kHz"), JLinkUvscAdapterOptions::Speed_500kHz},
+             {Tr::tr("200kHz"), JLinkUvscAdapterOptions::Speed_200kHz},
+             {Tr::tr("100kHz"), JLinkUvscAdapterOptions::Speed_100kHz}}) {
+        adapterSpeed.addOption({text, {}, speed});
+    }
+
+    // The two are stored as one value, so they are written back together.
+    const auto updateAdapterOptions = [this] {
+        m_adapterOpts = {adapterPort.volatileValue(), adapterSpeed.volatileValue()};
+    };
+    connect(&adapterPort, &BaseAspect::volatileValueChanged, this, updateAdapterOptions);
+    connect(&adapterSpeed, &BaseAspect::volatileValueChanged, this, updateAdapterOptions);
+}
+
+void JLinkUvscServerProvider::addSettingsRows(AspectContainer &rows)
+{
+    UvscServerProvider::addSettingsRows(rows);
+    adapterPort.setValue(m_adapterOpts.port);
+    adapterSpeed.setValue(m_adapterOpts.speed);
+    rows.registerAspect(&adapterRow);
 }
 
 void JLinkUvscServerProvider::toMap(Store &data) const
@@ -271,143 +267,6 @@ FilePath JLinkUvscServerProvider::optionsFilePath(RunControl *runControl,
         return {};
     }
     return optionsPath;
-}
-
-// JLinkUvscServerProviderConfigWidget
-
-JLinkUvscServerProviderConfigWidget::JLinkUvscServerProviderConfigWidget(
-        JLinkUvscServerProvider *p)
-    : UvscServerProviderConfigWidget(p)
-{
-    Q_ASSERT(p);
-
-    m_adapterOptionsWidget = new JLinkUvscAdapterOptionsWidget;
-    m_mainLayout->addRow(Tr::tr("Adapter options:"), m_adapterOptionsWidget);
-
-    setFromProvider();
-
-    connect(m_adapterOptionsWidget, &JLinkUvscAdapterOptionsWidget::optionsChanged,
-            this, &JLinkUvscServerProviderConfigWidget::dirty);
-}
-
-void JLinkUvscServerProviderConfigWidget::apply()
-{
-    const auto p = static_cast<JLinkUvscServerProvider *>(m_provider);
-    Q_ASSERT(p);
-    p->m_adapterOpts = adapterOptions();
-    UvscServerProviderConfigWidget::apply();
-}
-
-void JLinkUvscServerProviderConfigWidget::discard()
-{
-    setFromProvider();
-    UvscServerProviderConfigWidget::discard();
-}
-
-void JLinkUvscServerProviderConfigWidget::setAdapterOpitons(
-        const JLinkUvscAdapterOptions &adapterOpts)
-{
-    m_adapterOptionsWidget->setAdapterOptions(adapterOpts);
-}
-
-JLinkUvscAdapterOptions JLinkUvscServerProviderConfigWidget::adapterOptions() const
-{
-    return m_adapterOptionsWidget->adapterOptions();
-}
-
-void JLinkUvscServerProviderConfigWidget::setFromProvider()
-{
-    const auto p = static_cast<JLinkUvscServerProvider *>(m_provider);
-    Q_ASSERT(p);
-    const QSignalBlocker blocker(this);
-    setAdapterOpitons(p->m_adapterOpts);
-}
-
-// JLinkUvscAdapterOptionsWidget
-
-JLinkUvscAdapterOptionsWidget::JLinkUvscAdapterOptionsWidget(QWidget *parent)
-    : QWidget(parent)
-{
-    const auto layout = new QHBoxLayout;
-    layout->setContentsMargins(0, 0, 0, 0);
-    layout->addWidget(new QLabel(Tr::tr("Port:")));
-    m_portBox = new QComboBox;
-    layout->addWidget(m_portBox);
-    layout->addWidget(new QLabel(Tr::tr("Speed:")));
-    m_speedBox = new QComboBox;
-    layout->addWidget(m_speedBox);
-    setLayout(layout);
-
-    populatePorts();
-
-    connect(m_portBox, &QComboBox::currentIndexChanged, this, [this] {
-        populateSpeeds();
-        emit optionsChanged();
-    });
-    connect(m_speedBox, &QComboBox::currentIndexChanged,
-            this, &JLinkUvscAdapterOptionsWidget::optionsChanged);
-}
-
-void JLinkUvscAdapterOptionsWidget::setAdapterOptions(
-        const JLinkUvscAdapterOptions &adapterOpts)
-{
-    for (auto index = 0; m_portBox->count(); ++index) {
-        const JLinkUvscAdapterOptions::Port port = portAt(index);
-        if (port == adapterOpts.port) {
-            m_portBox->setCurrentIndex(index);
-            break;
-        }
-    }
-
-    populateSpeeds();
-
-    for (auto index = 0; m_speedBox->count(); ++index) {
-        const JLinkUvscAdapterOptions::Speed speed = speedAt(index);
-        if (speed == adapterOpts.speed) {
-            m_speedBox->setCurrentIndex(index);
-            break;
-        }
-    }
-}
-
-JLinkUvscAdapterOptions JLinkUvscAdapterOptionsWidget::adapterOptions() const
-{
-    const auto port = portAt(m_portBox->currentIndex());
-    const auto speed = speedAt(m_speedBox->currentIndex());
-    return {port, speed};
-}
-
-JLinkUvscAdapterOptions::Port JLinkUvscAdapterOptionsWidget::portAt(int index) const
-{
-    return static_cast<JLinkUvscAdapterOptions::Port>(m_portBox->itemData(index).toInt());
-}
-
-JLinkUvscAdapterOptions::Speed JLinkUvscAdapterOptionsWidget::speedAt(int index) const
-{
-    return static_cast<JLinkUvscAdapterOptions::Speed>(m_speedBox->itemData(index).toInt());
-}
-
-void JLinkUvscAdapterOptionsWidget::populatePorts()
-{
-    m_portBox->addItem(Tr::tr("JTAG"), JLinkUvscAdapterOptions::JTAG);
-    m_portBox->addItem(Tr::tr("SWD"), JLinkUvscAdapterOptions::SWD);
-}
-
-void JLinkUvscAdapterOptionsWidget::populateSpeeds()
-{
-    m_speedBox->clear();
-    m_speedBox->addItem(Tr::tr("50MHz"), JLinkUvscAdapterOptions::Speed_50MHz);
-    m_speedBox->addItem(Tr::tr("33MHz"), JLinkUvscAdapterOptions::Speed_33MHz);
-    m_speedBox->addItem(Tr::tr("25MHz"), JLinkUvscAdapterOptions::Speed_25MHz);
-    m_speedBox->addItem(Tr::tr("20MHz"), JLinkUvscAdapterOptions::Speed_20MHz);
-    m_speedBox->addItem(Tr::tr("10MHz"), JLinkUvscAdapterOptions::Speed_10MHz);
-    m_speedBox->addItem(Tr::tr("5MHz"), JLinkUvscAdapterOptions::Speed_5MHz);
-    m_speedBox->addItem(Tr::tr("3MHz"), JLinkUvscAdapterOptions::Speed_3MHz);
-    m_speedBox->addItem(Tr::tr("2MHz"), JLinkUvscAdapterOptions::Speed_2MHz);
-    m_speedBox->addItem(Tr::tr("1MHz"), JLinkUvscAdapterOptions::Speed_1MHz);
-    m_speedBox->addItem(Tr::tr("500kHz"), JLinkUvscAdapterOptions::Speed_500kHz);
-    m_speedBox->addItem(Tr::tr("200kHz"), JLinkUvscAdapterOptions::Speed_200kHz);
-    m_speedBox->addItem(Tr::tr("100kHz"), JLinkUvscAdapterOptions::Speed_100kHz);
 }
 
 // JLinkUvscServerProviderFactory

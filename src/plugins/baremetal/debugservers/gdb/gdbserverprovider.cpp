@@ -15,10 +15,6 @@
 #include <utils/qtcprocess.h>
 #include <utils/result.h>
 
-#include <QComboBox>
-#include <QFormLayout>
-#include <QLineEdit>
-#include <QSpinBox>
 
 using namespace Debugger;
 using namespace ProjectExplorer;
@@ -41,63 +37,72 @@ GdbServerProvider::GdbServerProvider(const QString &id)
     : IDebugServerProvider(id)
 {
     setEngineType(Debugger::GdbEngineType);
+
+    startupMode.setSettingsKey(startupModeKeyC);
+    startupMode.setLabelText(Tr::tr("Startup mode:"));
+    startupMode.setToolTip(Tr::tr("Choose the desired startup mode "
+                                  "of the GDB server provider."));
+    startupMode.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
+
+    peripheralDescriptionFile.setSettingsKey(peripheralDescriptionFileKeyC);
+    peripheralDescriptionFile.setLabelText(Tr::tr("Peripheral description file:"));
+    peripheralDescriptionFile.setExpectedKind(PathChooserKind::File);
+    peripheralDescriptionFile.setPromptDialogFilter(
+        Tr::tr("Peripheral description files (*.svd)"));
+    peripheralDescriptionFile.setPromptDialogTitle(
+        Tr::tr("Select Peripheral Description File"));
+
+    initCommands.setSettingsKey(initCommandsKeyC);
+    initCommands.setLabelText(Tr::tr("Init commands:"));
+    initCommands.setDisplayStyle(StringAspect::DisplayStyle::TextEditDisplay);
+    initCommands.setToolTip(
+        Tr::tr("Enter GDB commands to reset the board "
+               "and to write the nonvolatile memory.\n\n"
+               "GDB runs them after it has connected to the debug server, which is what "
+               "lets them use \"monitor\" and \"load\". To set up the debug server itself, "
+               "use its own configuration file or command line, as it starts before GDB."));
+
+    resetCommands.setSettingsKey(resetCommandsKeyC);
+    resetCommands.setLabelText(Tr::tr("Reset commands:"));
+    resetCommands.setDisplayStyle(StringAspect::DisplayStyle::TextEditDisplay);
+    resetCommands.setToolTip(Tr::tr("Enter GDB commands to reset the hardware. "
+                                    "The MCU should be halted after these commands."));
+
+    useExtendedRemote.setSettingsKey(useExtendedRemoteKeyC);
+    useExtendedRemote.setLabelText(Tr::tr("Extended mode:"));
+    useExtendedRemote.setLabel(Tr::tr("Use extended mode to run the debugger server."));
+    useExtendedRemote.setLabelPlacement(BoolAspect::LabelPlacement::Compact);
+
+    executableFile.setSettingsKey(executableFileKeyC);
+    executableFile.setLabelText(Tr::tr("Executable file:"));
+    executableFile.setExpectedKind(PathChooserKind::ExistingCommand);
+
+    additionalArguments.setSettingsKey(additionalArgumentsKeyC);
+    additionalArguments.setLabelText(Tr::tr("Additional arguments:"));
+    additionalArguments.setDisplayStyle(StringAspect::DisplayStyle::LineEditDisplay);
 }
 
-GdbServerProvider::StartupMode GdbServerProvider::startupMode() const
+void GdbServerProvider::fillStartupModes()
 {
-    return m_startupMode;
+    startupMode.clearOptions();
+    for (const StartupMode mode : supportedStartupModes()) {
+        startupMode.addOption(
+            {mode == StartupOnNetwork ? Tr::tr("Startup in TCP/IP Mode")
+                                      : Tr::tr("Startup in Pipe Mode"), {}, mode});
+    }
 }
 
-FilePath GdbServerProvider::peripheralDescriptionFile() const
+void GdbServerProvider::addSettingsRows(AspectContainer &rows)
 {
-    return m_peripheralDescriptionFile;
-}
-
-void GdbServerProvider::setStartupMode(StartupMode m)
-{
-    m_startupMode = m;
-}
-
-void GdbServerProvider::setPeripheralDescriptionFile(const FilePath &file)
-{
-    m_peripheralDescriptionFile = file;
-}
-
-QString GdbServerProvider::initCommands() const
-{
-    return m_initCommands;
-}
-
-void GdbServerProvider::setInitCommands(const QString &cmds)
-{
-    m_initCommands = cmds;
-}
-
-bool GdbServerProvider::useExtendedRemote() const
-{
-    return m_useExtendedRemote;
-}
-
-void GdbServerProvider::setUseExtendedRemote(bool useExtendedRemote)
-{
-    m_useExtendedRemote = useExtendedRemote;
-}
-
-QString GdbServerProvider::resetCommands() const
-{
-    return m_resetCommands;
-}
-
-void GdbServerProvider::setResetCommands(const QString &cmds)
-{
-    m_resetCommands = cmds;
+    IDebugServerProvider::addSettingsRows(rows);
+    rows.registerAspect(&startupMode);
 }
 
 Utils::CommandLine GdbServerProvider::command() const
 {
-    if (m_executableFile.isEmpty())
+    if (executableFile().isEmpty())
         return {};
-    return CommandLine{m_executableFile, m_additionalArguments, CommandLine::Raw};
+    return CommandLine{executableFile(), additionalArguments(), CommandLine::Raw};
 }
 
 bool GdbServerProvider::operator==(const IDebugServerProvider &other) const
@@ -106,29 +111,22 @@ bool GdbServerProvider::operator==(const IDebugServerProvider &other) const
         return false;
 
     const auto p = static_cast<const GdbServerProvider *>(&other);
-    return m_startupMode == p->m_startupMode
-            && m_peripheralDescriptionFile == p->m_peripheralDescriptionFile
-            && m_initCommands == p->m_initCommands
-            && m_resetCommands == p->m_resetCommands
-            && m_useExtendedRemote == p->m_useExtendedRemote;
+    return startupMode() == p->startupMode()
+            && peripheralDescriptionFile() == p->peripheralDescriptionFile()
+            && initCommands() == p->initCommands()
+            && resetCommands() == p->resetCommands()
+            && useExtendedRemote() == p->useExtendedRemote();
 }
 
 void GdbServerProvider::toMap(Store &data) const
 {
     IDebugServerProvider::toMap(data);
-    data.insert(startupModeKeyC, m_startupMode);
-    data.insert(peripheralDescriptionFileKeyC, m_peripheralDescriptionFile.toSettings());
-    data.insert(initCommandsKeyC, m_initCommands);
-    data.insert(resetCommandsKeyC, m_resetCommands);
-    data.insert(useExtendedRemoteKeyC, m_useExtendedRemote);
-    data.insert(executableFileKeyC, m_executableFile.toSettings());
-    data.insert(additionalArgumentsKeyC, m_additionalArguments);
 }
 
 bool GdbServerProvider::isValid() const
 {
-    return (m_startupMode == GdbServerProvider::StartupOnNetwork && channel().isValid()) ||
-           (m_startupMode == GdbServerProvider::StartupOnPipe && !channelPipe().isEmpty());
+    return (startupMode() == GdbServerProvider::StartupOnNetwork && channel().isValid()) ||
+           (startupMode() == GdbServerProvider::StartupOnPipe && !channelPipe().isEmpty());
 }
 
 Result<> GdbServerProvider::setupDebuggerRunParameters(DebuggerRunParameters &rp,
@@ -153,21 +151,21 @@ Result<> GdbServerProvider::setupDebuggerRunParameters(DebuggerRunParameters &rp
     rp.setStartMode(AttachToRemoteServer);
     rp.setCommandsAfterConnect(initCommands());
     rp.setCommandsForReset(resetCommands());
-    if (m_startupMode == GdbServerProvider::StartupOnNetwork)
+    if (startupMode() == GdbServerProvider::StartupOnNetwork)
         rp.setRemoteChannel(channel().toString());
     else
         rp.setRemoteChannel(channelPipe());
     rp.setUseContinueInsteadOfRun(true);
     rp.setUseTargetAsync(useTargetAsync());
     rp.setUseExtendedRemote(useExtendedRemote());
-    rp.setPeripheralDescriptionFile(m_peripheralDescriptionFile);
+    rp.setPeripheralDescriptionFile(peripheralDescriptionFile());
     return ResultOk;
 }
 
 std::optional<BarrierKickerGetter> GdbServerProvider::serverRunner(RunControl *runControl) const
 {
     const CommandLine cmd = command();
-    if (m_startupMode != GdbServerProvider::StartupOnNetwork || cmd.isEmpty())
+    if (startupMode() != GdbServerProvider::StartupOnNetwork || cmd.isEmpty())
         return {};
 
     // Command arguments are in host OS style as the bare metal's GDB servers are launched
@@ -184,130 +182,6 @@ std::optional<BarrierKickerGetter> GdbServerProvider::serverRunner(RunControl *r
 void GdbServerProvider::fromMap(const Store &data)
 {
     IDebugServerProvider::fromMap(data);
-    m_startupMode = static_cast<StartupMode>(data.value(startupModeKeyC).toInt());
-    m_peripheralDescriptionFile = FilePath::fromSettings(data.value(peripheralDescriptionFileKeyC));
-    m_executableFile = FilePath::fromSettings(data.value(executableFileKeyC));
-    m_additionalArguments = data.value(additionalArgumentsKeyC).toString();
-    m_initCommands = data.value(initCommandsKeyC).toString();
-    m_resetCommands = data.value(resetCommandsKeyC).toString();
-    m_useExtendedRemote = data.value(useExtendedRemoteKeyC).toBool();
-}
-
-// GdbServerProviderConfigWidget
-
-GdbServerProviderConfigWidget::GdbServerProviderConfigWidget(GdbServerProvider *provider)
-    : IDebugServerProviderConfigWidget(provider)
-{
-    m_startupModeComboBox = new QComboBox(this);
-    m_startupModeComboBox->setToolTip(Tr::tr("Choose the desired startup mode "
-                                             "of the GDB server provider."));
-    m_mainLayout->addRow(Tr::tr("Startup mode:"), m_startupModeComboBox);
-
-    m_peripheralDescriptionFileChooser = new PathChooser(this);
-    m_peripheralDescriptionFileChooser->setExpectedKind(PathChooserKind::File);
-    m_peripheralDescriptionFileChooser->setPromptDialogFilter(
-                Tr::tr("Peripheral description files (*.svd)"));
-    m_peripheralDescriptionFileChooser->setPromptDialogTitle(
-                Tr::tr("Select Peripheral Description File"));
-    m_mainLayout->addRow(Tr::tr("Peripheral description file:"),
-                         m_peripheralDescriptionFileChooser);
-
-    populateStartupModes();
-    setFromProvider();
-
-    connect(m_startupModeComboBox, &QComboBox::currentIndexChanged,
-            this, &GdbServerProviderConfigWidget::dirty);
-    connect(m_peripheralDescriptionFileChooser, &PathChooser::textChanged,
-            this, &GdbServerProviderConfigWidget::dirty);
-}
-
-void GdbServerProviderConfigWidget::apply()
-{
-    const auto p = static_cast<GdbServerProvider *>(m_provider);
-    p->setStartupMode(startupMode());
-    p->setPeripheralDescriptionFile(peripheralDescriptionFile());
-    IDebugServerProviderConfigWidget::apply();
-}
-
-void GdbServerProviderConfigWidget::discard()
-{
-    setFromProvider();
-    IDebugServerProviderConfigWidget::discard();
-}
-
-GdbServerProvider::StartupMode GdbServerProviderConfigWidget::startupModeFromIndex(
-        int idx) const
-{
-    return static_cast<GdbServerProvider::StartupMode>(
-                m_startupModeComboBox->itemData(idx).toInt());
-}
-
-GdbServerProvider::StartupMode GdbServerProviderConfigWidget::startupMode() const
-{
-    const int idx = m_startupModeComboBox->currentIndex();
-    return startupModeFromIndex(idx);
-}
-
-void GdbServerProviderConfigWidget::setStartupMode(GdbServerProvider::StartupMode m)
-{
-    for (int idx = 0; idx < m_startupModeComboBox->count(); ++idx) {
-        if (m == startupModeFromIndex(idx)) {
-            m_startupModeComboBox->setCurrentIndex(idx);
-            break;
-        }
-    }
-}
-
-static QString startupModeName(GdbServerProvider::StartupMode m)
-{
-    switch (m) {
-    case GdbServerProvider::StartupOnNetwork:
-        return Tr::tr("Startup in TCP/IP Mode");
-    case GdbServerProvider::StartupOnPipe:
-        return Tr::tr("Startup in Pipe Mode");
-    default:
-        return {};
-    }
-}
-
-void GdbServerProviderConfigWidget::populateStartupModes()
-{
-    const QSet<GdbServerProvider::StartupMode> modes = static_cast<GdbServerProvider *>(
-                m_provider)->supportedStartupModes();
-    for (const auto mode : modes)
-        m_startupModeComboBox->addItem(startupModeName(mode), mode);
-}
-
-FilePath GdbServerProviderConfigWidget::peripheralDescriptionFile() const
-{
-    return m_peripheralDescriptionFileChooser->filePath();
-}
-
-void GdbServerProviderConfigWidget::setPeripheralDescriptionFile(const FilePath &file)
-{
-    m_peripheralDescriptionFileChooser->setFilePath(file);
-}
-
-void GdbServerProviderConfigWidget::setFromProvider()
-{
-    const auto p = static_cast<GdbServerProvider *>(m_provider);
-    setStartupMode(p->startupMode());
-    setPeripheralDescriptionFile(p->peripheralDescriptionFile());
-}
-
-QString GdbServerProviderConfigWidget::defaultInitCommandsTooltip()
-{
-    return Tr::tr("Enter GDB commands to reset the board "
-                  "and to write the nonvolatile memory.\n\n"
-                  "GDB runs them after it has connected to the debug server, which is what "
-                  "lets them use \"monitor\" and \"load\". To set up the debug server itself, "
-                  "use its own configuration file or command line, as it starts before GDB.");
-}
-
-QString GdbServerProviderConfigWidget::defaultResetCommandsTooltip()
-{
-    return Tr::tr("Enter GDB commands to reset the hardware. "
-                  "The MCU should be halted after these commands.");
 }
 
 } // BareMetal::Internal

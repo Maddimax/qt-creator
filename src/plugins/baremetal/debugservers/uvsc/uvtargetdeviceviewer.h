@@ -25,68 +25,8 @@ class DeviceSelectionView;
 class DeviceSelectionMemoryView;
 class DeviceSelectionAlgorithmView;
 
-// DeviceSelector
 
-class DeviceSelector final : public Utils::DetailsWidget
-{
-    Q_OBJECT
 
-public:
-    explicit DeviceSelector(QWidget *parent = nullptr);
-
-    void setToolsIniFile(const Utils::FilePath &toolsIniFile);
-    Utils::FilePath toolsIniFile() const;
-
-    void setSelection(const DeviceSelection &selection);
-    DeviceSelection selection() const;
-
-signals:
-    void selectionChanged();
-
-private:
-    Utils::FilePath m_toolsIniFile;
-    DeviceSelection m_selection;
-};
-
-// DeviceSelectorToolPanel
-
-class DeviceSelectorToolPanel final : public Utils::FadingPanel
-{
-    Q_OBJECT
-
-public:
-    explicit DeviceSelectorToolPanel(QWidget *parent = nullptr);
-
-signals:
-    void clicked();
-
-private:
-    void fadeTo(qreal value) final;
-    void setOpacity(qreal value) final;
-};
-
-// DeviceSelectorDetailsPanel
-
-class DeviceSelectorDetailsPanel final : public QWidget
-{
-    Q_OBJECT
-
-public:
-    explicit DeviceSelectorDetailsPanel(DeviceSelection &selection, QWidget *parent = nullptr);
-    void refresh();
-
-signals:
-    void selectionChanged();
-
-private:
-    DeviceSelection &m_selection;
-    QLineEdit *m_vendorEdit = nullptr;
-    QLineEdit *m_packageEdit = nullptr;
-    QPlainTextEdit *m_descEdit = nullptr;
-    DeviceSelectionMemoryView *m_memoryView = nullptr;
-    DeviceSelectionAlgorithmView *m_algorithmView = nullptr;
-    Utils::PathChooser *m_peripheralDescriptionFileChooser = nullptr;
-};
 
 // DeviceSelectionDialog
 

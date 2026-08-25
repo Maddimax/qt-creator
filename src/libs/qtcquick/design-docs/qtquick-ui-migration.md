@@ -1979,6 +1979,48 @@ Quick view until it answers those three.**
 Still widget-shaped here: `attachProjectSpecificSettingsToLayout(Project *,
 QLayout *)`, which is the project panel rather than this page.
 
+### Bare Metal, and eleven widgets that were the settings
+
+The largest extension point left, and the one where the widgets did not lay
+aspects out - they **were** the storage. `IDebugServerProviderConfigWidget`
+and its ten subclasses held a `QLineEdit` per setting and copied values into
+the provider on `apply()`; the provider held plain members. Nothing in that
+hierarchy was a list of what to draw.
+
+So every provider had to grow aspects before any of it could move: the root
+(name, host, port), the GDB base (startup mode, peripheral description file,
+init and reset commands, extended remote, executable, arguments), the uVision
+base (tools.ini, device, driver) and eight leaves. `toMap()`/`fromMap()` go
+through the aspects now, with the settings keys that are already on disk -
+which is what the round-trip test guards, because renaming one silently empties
+every configured provider on upgrade.
+
+**A summary and a button, twice.** The uVision device and driver pickers were
+`Utils::DetailsWidget`s: a summary line, a tool-panel button that opened a
+modal chooser, and an expander with the details. The summary and the button
+are one `TextWithAction` aspect; the details are aspects beside it, so the
+expander is gone and the memory table, the flash algorithm and the SVD path
+are simply rows. The chooser dialogs stay as they are.
+
+**Two aspects the page had to define.** `TextWithAction` and `Table` are
+controls, not aspect classes - a page that wants one writes a small
+`BaseAspect` subclass reporting that control, as External Tools does with
+`EnvironmentChangesAspect`. Bare Metal needed both, so `UvSelectionAspect` and
+`UvTableAspect` live next to the provider. Three pages have now written the
+same two by hand; a fourth is the point at which they belong in Utils.
+
+**Reading a selection with no options asserts.** `TypedSelectionAspect<T>::
+value()` maps the index back through `itemValueForIndex()`, which soft-asserts
+on an empty list. The GDB startup mode is filled from `supportedStartupModes()`
+- a virtual, so not callable from the base constructor - and filling it when
+the *page* asked was too late: `isValid()` and `command()` read it with no page
+in sight. Each kind fills it at the top of its own constructor instead. The
+same shape caught the ST-LINK speeds, whose list depends on the port.
+
+Nothing here can be exercised on this machine - it is all for hardware that is
+not attached - so what is verified is that every kind says what it asks, that
+what it holds survives a save and reload, and that the page draws.
+
 ### What the census could not see, and now can
 
 Two holes, both found the hard way in the same session.
@@ -2206,8 +2248,10 @@ A page that calls `IOptionsPage::setWidgetCreator()` builds its own
 entirely: `isFullyRenderable()` is never asked and the page is not in the 73.
 There were **15 such call sites in 14 files**, and none of them is a page that
 fits in one batch any more. **Nine page call sites are left, in nine files**,
-after Toolchains, Kits, Devices, MCU and Language Client - counted with the
-grep below, minus `IMode::setWidgetCreator()` and `ioptionspage.cpp` itself. What each is waiting on, checked rather than
+after Toolchains, Kits, Devices, MCU, Language Client and Bare Metal - counted
+with the grep below, minus `IMode::setWidgetCreator()` and `ioptionspage.cpp`
+itself. Of the nine, four are Windows-only or otherwise unreachable here, and
+three embed a widget from outside Qt Creator. What each is waiting on, checked rather than
 remembered:
 
 - **Toolchains** - done. `ToolchainConfigWidget` had **9 implementations**
@@ -2220,8 +2264,9 @@ remembered:
 - **Devices** - done. There were **7 `IDeviceWidget` implementations**, not
   the 13 first counted; `IDeviceWidget` and all seven are deleted, and the page
   is `DevicesPage.qml`. It is the last of the three extension-point pages.
-- **BareMetal's Debug Server Providers** - **30 config-widget classes**, all of
-  them for hardware this machine does not have.
+- **BareMetal's Debug Server Providers** - done. **Eleven** config-widget
+  classes, not the 30 first counted, and they held the settings rather than
+  laying them out.
 - **MCU Support** - done. `McuAbstractPackage::widget()` looked like an
   extension point and had one implementation; the package and the page moved
   together.

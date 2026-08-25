@@ -25,31 +25,6 @@ namespace BareMetal::Internal {
 const char rootScriptsDirKeyC[] = "RootScriptsDir";
 const char configurationFileKeyC[] = "ConfigurationPath";
 
-// OpenOcdGdbServerProviderConfigWidget
-
-class OpenOcdGdbServerProvider;
-
-class OpenOcdGdbServerProviderConfigWidget final : public GdbServerProviderConfigWidget
-{
-public:
-    explicit OpenOcdGdbServerProviderConfigWidget(OpenOcdGdbServerProvider *provider);
-
-private:
-    void apply() final;
-    void discard() final;
-
-    void startupModeChanged();
-    void setFromProvider();
-
-    HostWidget *m_hostWidget = nullptr;
-    Utils::PathChooser *m_executableFileChooser = nullptr;
-    Utils::PathChooser *m_rootScriptsDirChooser = nullptr;
-    Utils::PathChooser *m_configurationFileChooser = nullptr;
-    QLineEdit *m_additionalArgumentsLineEdit = nullptr;
-    QPlainTextEdit *m_initCommandsTextEdit = nullptr;
-    QPlainTextEdit *m_resetCommandsTextEdit = nullptr;
-};
-
 // OpenOcdGdbServerProvider
 
 class OpenOcdGdbServerProvider final : public GdbServerProvider
@@ -74,10 +49,11 @@ private:
     static QString defaultInitCommands();
     static QString defaultResetCommands();
 
-    Utils::FilePath m_rootScriptsDir;
-    Utils::FilePath m_configurationFile;
+    void addSettingsRows(Utils::AspectContainer &rows) final;
 
-    friend class OpenOcdGdbServerProviderConfigWidget;
+    Utils::FilePathAspect rootScriptsDir{this};
+    Utils::FilePathAspect configurationFile{this};
+
     friend class OpenOcdGdbServerProviderFactory;
 };
 
@@ -85,12 +61,41 @@ private:
 OpenOcdGdbServerProvider::OpenOcdGdbServerProvider()
     : GdbServerProvider(Constants::GDBSERVER_OPENOCD_PROVIDER_ID)
 {
-    m_executableFile = "openocd";
-    setInitCommands(defaultInitCommands());
-    setResetCommands(defaultResetCommands());
+    fillStartupModes();
+    executableFile.setValue(FilePath("openocd"));
+    executableFile.setCommandVersionArguments({"--version"});
+    initCommands.setValue(defaultInitCommands());
+    resetCommands.setValue(defaultResetCommands());
     setChannel("localhost", 3333);
     setTypeDisplayName(Tr::tr("OpenOCD"));
-    setConfigurationWidgetCreator([this] { return new OpenOcdGdbServerProviderConfigWidget(this); });
+
+    rootScriptsDir.setSettingsKey(rootScriptsDirKeyC);
+    rootScriptsDir.setLabelText(Tr::tr("Root scripts directory:"));
+    rootScriptsDir.setExpectedKind(PathChooserKind::Directory);
+
+    configurationFile.setSettingsKey(configurationFileKeyC);
+    configurationFile.setLabelText(Tr::tr("Configuration file:"));
+    configurationFile.setExpectedKind(PathChooserKind::File);
+    configurationFile.setPromptDialogFilter("*.cfg");
+
+    // Behaviour, not layout: in pipe mode there is no address to connect to.
+    const auto updateAddressVisible = [this] {
+        address.setVisible(startupMode.volatileValue() != StartupOnPipe);
+    };
+    updateAddressVisible();
+    connect(&startupMode, &BaseAspect::volatileValueChanged, this, updateAddressVisible);
+}
+
+void OpenOcdGdbServerProvider::addSettingsRows(AspectContainer &rows)
+{
+    GdbServerProvider::addSettingsRows(rows);
+    rows.registerAspect(&address);
+    rows.registerAspect(&executableFile);
+    rows.registerAspect(&rootScriptsDir);
+    rows.registerAspect(&configurationFile);
+    rows.registerAspect(&additionalArguments);
+    rows.registerAspect(&initCommands);
+    rows.registerAspect(&resetCommands);
 }
 
 QString OpenOcdGdbServerProvider::defaultInitCommands()
@@ -122,7 +127,7 @@ QString OpenOcdGdbServerProvider::channelPipe() const
 
 CommandLine OpenOcdGdbServerProvider::command() const
 {
-    CommandLine cmd{m_executableFile};
+    CommandLine cmd{executableFile()};
 
     cmd.addArg("-c");
     if (startupMode() == StartupOnPipe)
@@ -130,14 +135,14 @@ CommandLine OpenOcdGdbServerProvider::command() const
     else
         cmd.addArg("gdb_port " + QString::number(channel().port()));
 
-    if (!m_rootScriptsDir.isEmpty())
-        cmd.addArgs({"-s", m_rootScriptsDir.path()});
+    if (!rootScriptsDir().isEmpty())
+        cmd.addArgs({"-s", rootScriptsDir().path()});
 
-    if (!m_configurationFile.isEmpty())
-        cmd.addArgs({"-f", m_configurationFile.path()});
+    if (!configurationFile().isEmpty())
+        cmd.addArgs({"-f", configurationFile().path()});
 
-    if (!m_additionalArguments.isEmpty())
-        cmd.addArgs(m_additionalArguments, CommandLine::Raw);
+    if (!additionalArguments().isEmpty())
+        cmd.addArgs(additionalArguments(), CommandLine::Raw);
 
     return cmd;
 }
@@ -161,7 +166,7 @@ bool OpenOcdGdbServerProvider::isValid() const
     }
 
     if (m == StartupOnNetwork || m == StartupOnPipe) {
-        if (m_executableFile.isEmpty())
+        if (executableFile().isEmpty())
             return false;
     }
 
@@ -171,15 +176,11 @@ bool OpenOcdGdbServerProvider::isValid() const
 void OpenOcdGdbServerProvider::toMap(Store &data) const
 {
     GdbServerProvider::toMap(data);
-    data.insert(rootScriptsDirKeyC, m_rootScriptsDir.toSettings());
-    data.insert(configurationFileKeyC, m_configurationFile.toSettings());
 }
 
 void OpenOcdGdbServerProvider::fromMap(const Store &data)
 {
     GdbServerProvider::fromMap(data);
-    m_rootScriptsDir = FilePath::fromSettings(data.value(rootScriptsDirKeyC));
-    m_configurationFile = FilePath::fromSettings(data.value(configurationFileKeyC));
 }
 
 bool OpenOcdGdbServerProvider::operator==(const IDebugServerProvider &other) const
@@ -188,116 +189,10 @@ bool OpenOcdGdbServerProvider::operator==(const IDebugServerProvider &other) con
         return false;
 
     const auto p = static_cast<const OpenOcdGdbServerProvider *>(&other);
-    return m_executableFile == p->m_executableFile
-            && m_rootScriptsDir == p->m_rootScriptsDir
-            && m_configurationFile == p->m_configurationFile
-            && m_additionalArguments == p->m_additionalArguments;
-}
-
-// OpenOcdGdbServerProviderConfigWidget
-
-OpenOcdGdbServerProviderConfigWidget::OpenOcdGdbServerProviderConfigWidget(
-        OpenOcdGdbServerProvider *provider)
-    : GdbServerProviderConfigWidget(provider)
-{
-    Q_ASSERT(provider);
-
-    m_hostWidget = new HostWidget(this);
-    m_mainLayout->addRow(Tr::tr("Host:"), m_hostWidget);
-
-    m_executableFileChooser = new Utils::PathChooser;
-    m_executableFileChooser->setExpectedKind(Utils::PathChooserKind::ExistingCommand);
-    m_executableFileChooser->setCommandVersionArguments({"--version"});
-    m_mainLayout->addRow(Tr::tr("Executable file:"), m_executableFileChooser);
-
-    m_rootScriptsDirChooser = new Utils::PathChooser;
-    m_rootScriptsDirChooser->setExpectedKind(Utils::PathChooserKind::Directory);
-    m_mainLayout->addRow(Tr::tr("Root scripts directory:"), m_rootScriptsDirChooser);
-
-    m_configurationFileChooser = new Utils::PathChooser;
-    m_configurationFileChooser->setExpectedKind(Utils::PathChooserKind::File);
-    m_configurationFileChooser->setPromptDialogFilter("*.cfg");
-    m_mainLayout->addRow(Tr::tr("Configuration file:"), m_configurationFileChooser);
-
-    m_additionalArgumentsLineEdit = new QLineEdit(this);
-    m_mainLayout->addRow(Tr::tr("Additional arguments:"), m_additionalArgumentsLineEdit);
-
-    m_initCommandsTextEdit = new QPlainTextEdit(this);
-    m_initCommandsTextEdit->setToolTip(defaultInitCommandsTooltip());
-    m_mainLayout->addRow(Tr::tr("Init commands:"), m_initCommandsTextEdit);
-    m_resetCommandsTextEdit = new QPlainTextEdit(this);
-    m_resetCommandsTextEdit->setToolTip(defaultResetCommandsTooltip());
-    m_mainLayout->addRow(Tr::tr("Reset commands:"), m_resetCommandsTextEdit);
-
-    addErrorLabel();
-    setFromProvider();
-
-    const auto chooser = new VariableChooser(this);
-    chooser->addSupportedWidget(m_initCommandsTextEdit);
-    chooser->addSupportedWidget(m_resetCommandsTextEdit);
-
-    connect(m_hostWidget, &HostWidget::dataChanged,
-            this, &GdbServerProviderConfigWidget::dirty);
-    connect(m_executableFileChooser, &Utils::PathChooser::rawPathChanged,
-            this, &GdbServerProviderConfigWidget::dirty);
-    connect(m_rootScriptsDirChooser, &Utils::PathChooser::rawPathChanged,
-            this, &GdbServerProviderConfigWidget::dirty);
-    connect(m_configurationFileChooser, &Utils::PathChooser::rawPathChanged,
-            this, &GdbServerProviderConfigWidget::dirty);
-    connect(m_additionalArgumentsLineEdit, &QLineEdit::textChanged,
-            this, &GdbServerProviderConfigWidget::dirty);
-    connect(m_initCommandsTextEdit, &QPlainTextEdit::textChanged,
-            this, &GdbServerProviderConfigWidget::dirty);
-    connect(m_resetCommandsTextEdit, &QPlainTextEdit::textChanged,
-            this, &GdbServerProviderConfigWidget::dirty);
-
-    connect(m_startupModeComboBox, &QComboBox::currentIndexChanged,
-            this, &OpenOcdGdbServerProviderConfigWidget::startupModeChanged);
-}
-
-void OpenOcdGdbServerProviderConfigWidget::apply()
-{
-    const auto p = static_cast<OpenOcdGdbServerProvider *>(m_provider);
-    Q_ASSERT(p);
-
-    p->setChannel(m_hostWidget->channel());
-    p->m_executableFile = m_executableFileChooser->filePath();
-    p->m_rootScriptsDir = m_rootScriptsDirChooser->filePath();
-    p->m_configurationFile = m_configurationFileChooser->filePath();
-    p->m_additionalArguments = m_additionalArgumentsLineEdit->text();
-    p->setInitCommands(m_initCommandsTextEdit->toPlainText());
-    p->setResetCommands(m_resetCommandsTextEdit->toPlainText());
-    GdbServerProviderConfigWidget::apply();
-}
-
-void OpenOcdGdbServerProviderConfigWidget::discard()
-{
-    setFromProvider();
-    GdbServerProviderConfigWidget::discard();
-}
-
-void OpenOcdGdbServerProviderConfigWidget::startupModeChanged()
-{
-    const GdbServerProvider::StartupMode m = startupMode();
-    const bool isNetwork = m != GdbServerProvider::StartupOnPipe;
-    m_hostWidget->setVisible(isNetwork);
-    m_mainLayout->labelForField(m_hostWidget)->setVisible(isNetwork);
-}
-
-void OpenOcdGdbServerProviderConfigWidget::setFromProvider()
-{
-    const auto p = static_cast<OpenOcdGdbServerProvider *>(m_provider);
-    Q_ASSERT(p);
-
-    const QSignalBlocker blocker(this);
-    startupModeChanged();
-    m_hostWidget->setChannel(p->channel());
-    m_executableFileChooser->setFilePath(p->m_executableFile);
-    m_rootScriptsDirChooser->setFilePath(p->m_rootScriptsDir);
-    m_configurationFileChooser->setFilePath(p->m_configurationFile);
-    m_additionalArgumentsLineEdit->setText(p->m_additionalArguments);
-    m_initCommandsTextEdit->setPlainText(p->initCommands());
-    m_resetCommandsTextEdit->setPlainText(p->resetCommands());
+    return executableFile() == p->executableFile()
+            && rootScriptsDir() == p->rootScriptsDir()
+            && configurationFile() == p->configurationFile()
+            && additionalArguments() == p->additionalArguments();
 }
 
 // OpenOcdGdbServerProviderFactory

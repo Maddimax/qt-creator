@@ -7,6 +7,7 @@
 #include "baremetalrunconfiguration.h"
 
 #include "debugserverprovidermanager.h"
+#include "debugserverproviderssettingspage.h"
 
 #include "iarewparser.h"
 #include "iarewtoolchain.h"
@@ -59,6 +60,7 @@ class BareMetalPlugin final : public ExtensionSystem::IPlugin
 
 #ifdef WITH_TESTS
         addTestCreator(createBareMetalDeviceTest);
+        addTestCreator(Internal::createDebugServerProvidersPageTest);
         addTestCreator(createIarParserTest);
         addTestCreator(createKeilParserTest);
         addTestCreator(createSdccParserTest);

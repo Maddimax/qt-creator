@@ -5,10 +5,6 @@
 
 #include "uvscserverprovider.h"
 
-QT_BEGIN_NAMESPACE
-class QCheckBox;
-QT_END_NAMESPACE
-
 namespace BareMetal::Internal {
 
 // SimulatorUvscServerProvider
@@ -28,27 +24,12 @@ public:
 private:
     explicit SimulatorUvscServerProvider();
 
-    bool m_limitSpeed = false;
+    void addSettingsRows(Utils::AspectContainer &rows) final;
 
-    friend class SimulatorUvscServerProviderConfigWidget;
+    Utils::BoolAspect limitSpeed{this};
+
     friend class SimulatorUvscServerProviderFactory;
     friend class SimulatorUvProjectOptions;
-};
-
-// SimulatorUvscServerProviderConfigWidget
-
-class SimulatorUvscServerProviderConfigWidget final : public UvscServerProviderConfigWidget
-{
-public:
-    explicit SimulatorUvscServerProviderConfigWidget(SimulatorUvscServerProvider *provider);
-
-private:
-    void apply() override;
-    void discard() override;
-
-    void setFromProvider();
-
-    QCheckBox *m_limitSpeedCheckBox = nullptr;
 };
 
 void setupSimulatorUvscServerProvider();
