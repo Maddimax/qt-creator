@@ -33,6 +33,7 @@
 #include <QItemSelectionModel>
 #include <QLabel>
 #include <QListWidget>
+#include <QAction>
 #include <QMenu>
 #include <QPushButton>
 #include <QRadioButton>
@@ -411,6 +412,24 @@ private:
                          aspect, &BaseAspect::volatileValueChanged);
     }
 
+    // A checkable entry on the control's context menu, for a state that is
+    // about the setting rather than about its value.
+    static void addContextAction(BaseAspect *aspect, QWidget *control,
+                                 const AspectPresentation &pres)
+    {
+        if (pres.contextActionText.isEmpty())
+            return;
+        auto action = new QAction(pres.contextActionText, control);
+        action->setCheckable(true);
+        action->setChecked(pres.contextActionChecked);
+        action->setEnabled(pres.contextActionEnabled);
+        QObject::connect(action, &QAction::toggled, aspect, [aspect](bool checked) {
+            aspect->triggerContextAction(checked);
+        });
+        control->addAction(action);
+        control->setContextMenuPolicy(Qt::ActionsContextMenu);
+    }
+
     static void renderSelection(SelectionAspect *aspect, Layout &parent,
                                 const AspectPresentation &pres)
     {
@@ -449,9 +468,12 @@ private:
         }
         auto comboBox = AspectWidgets::createSubWidget<QComboBox>(aspect);
         comboBox->setObjectName(aspect->objectName());
-        for (const AspectPresentation::Choice &choice : pres.choices)
-            comboBox->addItem(choice.display);
+        for (const AspectPresentation::Choice &choice : pres.choices) {
+            comboBox->addItem(choice.icon, choice.display);
+            comboBox->setItemData(comboBox->count() - 1, choice.toolTip, Qt::ToolTipRole);
+        }
         comboBox->setCurrentIndex(aspect->volatileValue());
+        addContextAction(aspect, comboBox, pres);
         AspectWidgets::addLabeledItem(aspect, parent, comboBox);
         aspect->addOnVolatileValueChanged(comboBox, [comboBox, aspect] {
             comboBox->setCurrentIndex(aspect->volatileValue());

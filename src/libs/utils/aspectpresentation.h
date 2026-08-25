@@ -6,6 +6,7 @@
 #include "utils_global.h"
 
 #include <QHash>
+#include <QIcon>
 #include <QList>
 #include <QObject>
 #include <QPixmap>
@@ -248,6 +249,10 @@ public:
         QString toolTip;
         bool enabled = true;
         QVariant id;
+        // What a QComboBox would show beside the text. Only a list of things
+        // that are told apart by more than their names has one - the device
+        // types a kit can build for.
+        QIcon icon;
     };
     QList<Choice> choices;
 
@@ -317,6 +322,13 @@ public:
 
     // FontFamilyPicker.
     AspectControls::FontFilters fontFilters = AspectControls::AllFonts;
+
+    // A checkable entry on the control's context menu, for a state that is
+    // about the setting rather than about its value: whether a kit aspect may
+    // be changed per run configuration. Empty text means no menu.
+    QString contextActionText;
+    bool contextActionChecked = false;
+    bool contextActionEnabled = true;
 
     bool readOnly = false;
     bool visible = true;

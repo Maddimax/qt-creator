@@ -38,6 +38,7 @@ if(TARGET QtcQuick)
     QML_FILES
       AspectForm.qml
       AspectGroupBox.qml
+      AspectContextMenu.qml
       AspectItems.qml
       AspectInlineListDelegate.qml
       AspectListDelegate.qml

@@ -858,6 +858,12 @@ void BaseAspect::resetToDefault()
     Performs this aspect's one action, for a TextWithAction control. Does
     nothing unless an aspect gives it a meaning.
 */
+void BaseAspect::triggerContextAction(bool checked)
+{
+    Q_UNUSED(checked)
+    QTC_CHECK(false); // An aspect that offers one has to handle it.
+}
+
 void BaseAspect::triggerAction()
 {}
 
@@ -2443,8 +2449,10 @@ AspectPresentation SelectionAspect::presentation() const
     AspectPresentation p = TypedAspect::presentation();
     p.control = d->m_displayStyle == DisplayStyle::ComboBox ? AspectControls::ComboBox
                                                             : AspectControls::RadioButtonGroup;
-    for (const Option &option : std::as_const(d->m_options))
-        p.choices.append({option.displayName, option.tooltip, option.enabled, option.itemData});
+    for (const Option &option : std::as_const(d->m_options)) {
+        p.choices.append(
+            {option.displayName, option.tooltip, option.enabled, option.itemData, option.icon});
+    }
     return p;
 }
 

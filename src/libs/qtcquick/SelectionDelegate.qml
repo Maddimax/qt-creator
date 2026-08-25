@@ -44,21 +44,41 @@ RowLayout {
     }
 
     ComboBox {
+        id: combo
+
+        // What a QComboBox would show beside the text, empty for most lists.
+        readonly property var icons: delegate.pres.optionIcons ?? []
+
         enabled: (delegate.aspect?.enabled ?? false) && !(delegate.aspect?.readOnly ?? false)
         currentIndex: delegate.pres.valueIsChoiceId
                       ? delegate.pres.optionIds.indexOf(String(delegate.aspect?.value ?? ""))
                       : (delegate.aspect?.value ?? 0)
-        ToolTip.text: delegate.toolTip
-        ToolTip.visible: hovered && delegate.toolTip !== ""
+        // The choice under the cursor has more to say than the aspect does,
+        // where the list is of things that need telling apart.
+        ToolTip.text: (delegate.pres.optionToolTips?.[combo.highlightedIndex] ?? "")
+                      || delegate.toolTip
+        ToolTip.visible: hovered && ToolTip.text !== ""
         Layout.preferredWidth: Metrics.formControlWidth
 
         model: delegate.pres.options
+
+        delegate: ItemDelegate {
+            required property int index
+            required property string modelData
+
+            width: combo.width
+            highlighted: combo.highlightedIndex === index
+            icon.source: combo.icons[index] ?? ""
+            text: modelData
+        }
 
         onActivated: (index) => {
             if (!delegate.aspect)
                 return
             delegate.aspect.value = delegate.pres.valueIsChoiceId ? delegate.pres.optionIds[index] : index
         }
+
+        AspectContextMenu { aspect: delegate.aspect; pres: delegate.pres }
     }
 
     Item { Layout.fillWidth: true }

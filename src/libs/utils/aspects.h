@@ -195,6 +195,9 @@ public:
 
     // What the button of a TextWithAction control does. Nothing by default.
     Q_INVOKABLE virtual void triggerAction();
+    // The control's context-menu entry was toggled. See
+    // AspectPresentation::contextActionText.
+    Q_INVOKABLE virtual void triggerContextAction(bool checked);
     // A link in the aspect's text was activated. Declared here so that a
     // renderer holding only a BaseAspect can report it; what it means is the
     // aspect's business.
@@ -760,6 +763,9 @@ public:
         QString tooltip;
         QVariant itemData;
         bool enabled = true;
+        // What a combo box would show beside the text. Only a list of things
+        // that are told apart by more than their names has one.
+        QIcon icon;
     };
 
     void addOption(const QString &displayName, const QString &toolTip = {});

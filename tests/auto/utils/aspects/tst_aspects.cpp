@@ -4,6 +4,7 @@
 #include <utils/aspects.h>
 #include <utils/infolabel.h>
 
+#include <QPointer>
 #include <QSignalSpy>
 #include <QUndoStack>
 #include <QTest>
@@ -37,7 +38,32 @@ private slots:
     void integerScaleFactorKeepsStoredUnits();
     void doubleGuiWriteIsVolatileAndUndoable();
     void multiSelectionGuiWriteIsVolatileAndUndoable();
+    void aContainerOnlyFreesWhatItWasToldToOwn();
 };
+
+// Constructing an aspect with a container registers it there but does not hand
+// the container the job of freeing it, and does not make it a QObject child
+// either. Every `new SomeAspect(container)` in a container that is not a
+// singleton is a leak unless it says so. Written down because reading
+// registerAspect() is not enough to be sure.
+void tst_Aspects::aContainerOnlyFreesWhatItWasToldToOwn()
+{
+    QPointer<BoolAspect> registered;
+    QPointer<BoolAspect> owned;
+    {
+        AspectContainer container;
+        registered = new BoolAspect(&container);
+        owned = new BoolAspect;
+        container.registerAspect(owned, /*takeOwnership=*/true);
+        QCOMPARE(container.aspects().size(), 2);
+        // Neither is a QObject child of the container.
+        QCOMPARE(registered->parent(), nullptr);
+        QCOMPARE(owned->parent(), nullptr);
+    }
+    QVERIFY2(registered, "a container freed an aspect it was not given");
+    QVERIFY2(!owned, "a container did not free an aspect it was given");
+    delete registered;
+}
 
 // Writing the "value" property must not commit, so that a settings page can
 // still cancel.

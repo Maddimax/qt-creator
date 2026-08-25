@@ -6,6 +6,7 @@
 #include "aspectcontainermodel.h"
 #include "aspectitemlistmodel.h"
 #include "namedaspects.h"
+#include "qtciconprovider.h"
 
 #include <utils/algorithm.h>
 #include <utils/aspectlist.h>
@@ -134,6 +135,19 @@ QVariantMap AspectModels::presentation(BaseAspect *aspect)
                                p.choices, [](const AspectPresentation::Choice &c) {
                                    return QVariant(c.enabled);
                                })},
+        // As URLs: QML has no QIcon. Empty where a choice has none, which is
+        // most of them. See QtcQuick::iconUrl().
+        {"optionIcons", Utils::transform<QStringList>(
+                            p.choices, [](const AspectPresentation::Choice &c) {
+                                return c.icon.isNull() ? QString() : iconUrl(c.icon);
+                            })},
+        {"optionToolTips", Utils::transform<QStringList>(
+                               p.choices, &AspectPresentation::Choice::toolTip)},
+        // A control's context menu, for a state that is about the setting
+        // rather than about its value.
+        {"contextActionText", p.contextActionText},
+        {"contextActionChecked", p.contextActionChecked},
+        {"contextActionEnabled", p.contextActionEnabled},
         {"valueIsChoiceId", p.valueIsChoiceId},
         // An aspect with no bound presents an unset minimum or maximum. The
         // delegates bind these straight into SpinBox.from/to, so substitute the
