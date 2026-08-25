@@ -1276,9 +1276,10 @@ method, and the manual-run dialog builds a widget from it too, so the page
 naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
-all`, minus `QmlDesigner` and `UpdateInfo`, see below): **92 aspect-driven
-pages, all 92 with their own QML and rendered with Qt Quick, none still on
-widgets.** Gerrit is the first of the widget-creator pages below to have joined
+all`, minus `QmlDesigner` and `UpdateInfo`, see below): **95 aspect-driven
+pages, all 95 with their own QML and rendered with Qt Quick, none still on
+widgets.** The count goes up as widget-creator pages become aspect-driven, so
+it is a running total rather than a target. Gerrit is the first of the widget-creator pages below to have joined
 that count: it became aspect-driven and then got a form, which is the shape the
 rest of them take.
 
@@ -1289,6 +1290,21 @@ the backlog is empty the test asserts it is: a declined page is a regression.
 The one allowance is C++'s page where ClangFormat is built, since that factory
 replaces C++'s with a self-managed editor and no form; it is named by page id,
 so a rename fails safe rather than silently widening the hole.
+
+**A header bar for columns that have no names.** `TableDelegate` built a
+`HorizontalHeaderView` for every table, including the one-column lists that are
+most of them, and the style's own heading binds its label to a name the model
+does not have - one QML warning per column, on every such page. Making the
+header invisible does not help: the heading is incubated before `visible` is
+evaluated and warns on the way, so it is a `Loader` that is not active at all.
+What "has a name" means is whether `headerData()` answers a *valid* variant:
+`QAbstractItemModel`'s own default answers the column number, and only a model
+that overrides it - every model in this tree - says nothing.
+
+The warning was found by showing each page in a window and resizing it, which
+is the same measurement the `AspectGroupBox` note describes. Worth repeating
+after a batch: it is the only thing that sees a warning the page census cannot,
+and it also confirmed that no page has a binding loop left.
 
 ### Two holes the widget-creator pages walked into
 
