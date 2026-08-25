@@ -973,7 +973,10 @@ private:
                              label->setWordWrap(p.wordWrap);
                              label->setTextFormat(textFormat(p.textFormat));
                          });
-        parent.addItem(label);
+        // With its own label where it has one, which the Quick delegate has
+        // always done: a read-only "Version:" row is a name and a value, and
+        // this drew only the value.
+        AspectWidgets::addLabeledItem(aspect, parent, label);
     }
 
     static void renderStringListTree(StringListAspect *aspect, Layout &parent,

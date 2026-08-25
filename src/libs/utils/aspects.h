@@ -1476,6 +1476,10 @@ public:
     // row that shows a control belonging to another aspect before its own.
     void insertAspect(int index, BaseAspect *aspect, bool takeOwnership = false);
     void registerAspects(const AspectContainer &aspects);
+    // Drops every aspect, deleting the ones this container was given to own.
+    // For a container whose contents are not fixed: what a device says about
+    // itself is a different list once the device has come up.
+    void clear();
 
     void fromMap(const Utils::Store &map) override;
     void toMap(Utils::Store &map) const override;

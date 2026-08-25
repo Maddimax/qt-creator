@@ -3744,6 +3744,17 @@ void AspectContainer::insertAspect(int index, BaseAspect *aspect, bool takeOwner
     connect(aspect, &BaseAspect::volatileValueChanged, this, &BaseAspect::volatileValueChanged);
 }
 
+void AspectContainer::clear()
+{
+    const QList<BaseAspect *> owned = d->m_ownedItems;
+    for (BaseAspect * const aspect : std::as_const(d->m_items))
+        disconnect(aspect, nullptr, this, nullptr);
+    d->m_items.clear();
+    d->m_ownedItems.clear();
+    qDeleteAll(owned);
+    emit controlConfigurationChanged();
+}
+
 void AspectContainer::registerAspects(const AspectContainer &aspects)
 {
     for (BaseAspect *aspect : std::as_const(aspects.d->m_items))
