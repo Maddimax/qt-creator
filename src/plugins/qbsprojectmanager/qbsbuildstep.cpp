@@ -3,6 +3,10 @@
 
 #include "qbsbuildstep.h"
 
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
 #include "qbsbuildconfiguration.h"
 #include "qbsproject.h"
 #include "qbsprojectmanagerconstants.h"
@@ -57,35 +61,37 @@ ArchitecturesAspect::ArchitecturesAspect(AspectContainer *container)
         {ProjectExplorer::Constants::ANDROID_ABI_X86, "x86"},
         {ProjectExplorer::Constants::ANDROID_ABI_X86_64, "x86_64"}};
     setAllValues(m_abisToArchMap.keys());
+
+    // Behaviour, not layout. Whether there is anything to choose between is
+    // the kit's answer, and it used to be worked out only when somebody opened
+    // the build settings - which is also when isManagedByTarget() started
+    // telling the truth.
+    connect(KitManager::instance(), &KitManager::kitsChanged, this,
+            &ArchitecturesAspect::updateVisibility);
 }
 
-void ArchitecturesAspect::addToLayoutImpl(Layouting::Layout &parent)
+void ArchitecturesAspect::setKit(const Kit *kit)
 {
-    MultiSelectionAspect::addToLayoutImpl(parent);
-    const auto changeHandler = [this] {
-        const QtVersion *qtVersion = QtKitAspect::qtVersion(m_kit);
-        if (!qtVersion) {
-            setVisibleDynamic(false);
-            return;
-        }
-        const Abis abis = qtVersion->qtAbis();
-        if (abis.size() <= 1) {
-            setVisibleDynamic(false);
-            return;
-        }
-        bool isAndroid = Utils::anyOf(abis, [](const Abi &abi) {
-            return abi.osFlavor() == Abi::OSFlavor::AndroidLinuxFlavor;
-        });
-        if (!isAndroid) {
-            setVisibleDynamic(false);
-            return;
-        }
+    m_kit = kit;
+    updateVisibility();
+}
 
-        setVisibleDynamic(true);
-    };
-    connect(KitManager::instance(), &KitManager::kitsChanged, this, changeHandler);
-    connect(this, &ArchitecturesAspect::changed, this, changeHandler);
-    changeHandler();
+// Whether there is a choice of architecture to make. Only a Qt that builds for
+// several Android ABIs at once offers one: everything else builds for the one
+// ABI its Qt has, and qbs is told nothing.
+bool architecturesAreChosenPerBuild(const Abis &abis)
+{
+    if (abis.size() <= 1)
+        return false;
+    return Utils::anyOf(abis, [](const Abi &abi) {
+        return abi.osFlavor() == Abi::OSFlavor::AndroidLinuxFlavor;
+    });
+}
+
+void ArchitecturesAspect::updateVisibility()
+{
+    const QtVersion *qtVersion = QtKitAspect::qtVersion(m_kit);
+    setVisibleDynamic(qtVersion && architecturesAreChosenPerBuild(qtVersion->qtAbis()));
 }
 
 QStringList ArchitecturesAspect::selectedArchitectures() const
@@ -705,6 +711,61 @@ QbsBuildStepFactory::QbsBuildStepFactory()
     setSupportedConfiguration(Constants::QBS_BC_ID);
     setSupportedProjectType(Constants::PROJECT_ID);
 }
+
+#ifdef WITH_TESTS
+class QbsArchitecturesTest : public QObject
+{
+    Q_OBJECT
+
+    static Abi androidAbi(Abi::Architecture arch)
+    {
+        return Abi(arch, Abi::LinuxOS, Abi::AndroidLinuxFlavor, Abi::ElfFormat, 32);
+    }
+
+private slots:
+    void testOnlyAMultiAbiAndroidQtOffersAChoice()
+    {
+        // The ABIs are the Qt's, and only an Android Qt built for several of
+        // them leaves anything for the build step to choose. Everything else
+        // builds for the one ABI it has, and qbs is told nothing - which is
+        // what isManagedByTarget() stands for.
+        QVERIFY(!architecturesAreChosenPerBuild({}));
+        QVERIFY(!architecturesAreChosenPerBuild({androidAbi(Abi::ArmArchitecture)}));
+
+        // Several, and Android: a choice.
+        QVERIFY(architecturesAreChosenPerBuild(
+            {androidAbi(Abi::ArmArchitecture), androidAbi(Abi::X86Architecture)}));
+
+        // Several, but not Android - a universal macOS build is two ABIs and
+        // no choice at all.
+        const Abi mac64(Abi::X86Architecture, Abi::DarwinOS, Abi::GenericFlavor,
+                        Abi::MachOFormat, 64);
+        const Abi macArm(Abi::ArmArchitecture, Abi::DarwinOS, Abi::GenericFlavor,
+                         Abi::MachOFormat, 64);
+        QVERIFY(!architecturesAreChosenPerBuild({mac64, macArm}));
+    }
+
+    void testTheAspectFollowsTheKitRatherThanThePage()
+    {
+        // It used to work this out in addToLayoutImpl(), so an aspect nobody
+        // had drawn said it was managed by the target when it was not.
+        ArchitecturesAspect abis;
+        QVERIFY(!abis.isManagedByTarget());
+
+        // A kit with no Qt has no ABIs, so there is nothing to choose and the
+        // row is not shown - without anything having been drawn.
+        Kit bare;
+        abis.setKit(&bare);
+        QVERIFY(!abis.isManagedByTarget());
+        QVERIFY(!abis.isVisible());
+    }
+};
+
+QObject *createQbsArchitecturesTest()
+{
+    return new QbsArchitecturesTest;
+}
+#endif // WITH_TESTS
 
 } // namespace QbsProjectManager::Internal
 

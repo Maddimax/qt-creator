@@ -113,6 +113,7 @@ void QbsProjectManagerPlugin::initialize()
 
 #ifdef WITH_TESTS
     addTestCreator(createQbsProfilesSettingsTest);
+    addTestCreator(createQbsArchitecturesTest);
 #endif
 
     Core::IOptionsPage::registerCategory(

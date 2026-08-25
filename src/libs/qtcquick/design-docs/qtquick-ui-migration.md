@@ -2165,7 +2165,7 @@ installs a message handler and asserts nothing says SOFT ASSERT. The first
 version of it passed against a build with the guard removed, which is the only
 reason it was rewritten.
 
-**What this does not do.** The virtual has to stay: twelve aspects in
+**What this does not do.** The virtual has to stay: eleven aspects in
 `src/plugins` and five more in Utils still override it. They are not one
 group. Most are run-configuration, build-step and kit aspects - project
 panels rather than preferences pages, which is a surface the migration has not
@@ -2504,7 +2504,7 @@ anyway, because the closure was holding state - a widget's `customConfigs()`, a
 label's text - that nothing else did. Both are now gone. `EnvVarSeparatorAspect` was
 a sixth of exactly the same kind - see below.
 
-What still overrides `addToLayoutImpl()` in `src/plugins` is twelve aspects,
+What still overrides `addToLayoutImpl()` in `src/plugins` is eleven aspects,
 and they are mostly the project surface: run configurations, build steps and
 build settings. Three are not - `KitAspect` and `DeviceToolAspect` on the Kits
 and Devices pages, and `LibrarySelectionAspect` - and those are the ones to
@@ -2561,6 +2561,28 @@ Creator was built against, the only one a test run can count on. It has to
 `QtVersionManager::addVersion()` it: a kit stores its Qt's id and looks it up
 there, so a Qt the manager has not heard of is no Qt at all, and the first
 version of the test skipped itself for that reason rather than failing.
+
+### The same shape again, in the qbs build step
+
+`ArchitecturesAspect`'s closure was one line of drawing - the base class - and
+twenty lines deciding whether to show the row at all: only a Qt built for
+several Android ABIs at once leaves an architecture to choose. The decision
+moved to the constructor, to `setKit()` and to `KitManager::kitsChanged`, and
+the closure is gone.
+
+It carried the same latent bug as the Qt build aspects, one step worse:
+`setVisibleDynamic()` also sets `m_isManagedByTarget`, which
+`QbsBuildStepConfigWidget` reads in four places to decide whether qbs is told
+the architectures at all. That flag was false until `addToLayoutImpl()` ran. It
+happens to work, because the only readers are inside the widget that triggers
+the layout - but nothing said so, and an aspect that reports "not managed by
+the target" until somebody looks at it is not a thing to leave lying around.
+
+`architecturesAreChosenPerBuild(const Abis &)` is free, for the same reason the
+QML debugging warnings are: a list of ABIs can be written down in a test, and a
+kit with an Android Qt on it cannot. It is also where the interesting case
+lives - a universal macOS build has two ABIs and no choice at all, which the
+`abis.size() <= 1` check alone would get wrong.
 
 ### What the census could not see, and now can
 

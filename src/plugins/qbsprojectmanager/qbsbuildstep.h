@@ -19,14 +19,14 @@ class ArchitecturesAspect : public Utils::MultiSelectionAspect
 public:
     ArchitecturesAspect(Utils::AspectContainer *container = nullptr);
 
-    void setKit(const ProjectExplorer::Kit *kit) { m_kit = kit; }
-    void addToLayoutImpl(Layouting::Layout &parent) override;
+    void setKit(const ProjectExplorer::Kit *kit);
     QStringList selectedArchitectures() const;
     void setSelectedArchitectures(const QStringList& architectures);
     bool isManagedByTarget() const { return m_isManagedByTarget; }
 
 private:
     void setVisibleDynamic(bool visible);
+    void updateVisibility();
 
     const ProjectExplorer::Kit *m_kit = nullptr;
     QMap<QString, QString> m_abisToArchMap;
@@ -97,5 +97,9 @@ class QbsBuildStepFactory : public ProjectExplorer::BuildStepFactory
 public:
     QbsBuildStepFactory();
 };
+
+#ifdef WITH_TESTS
+QObject *createQbsArchitecturesTest();
+#endif
 
 } // namespace QbsProjectManager::Internal
