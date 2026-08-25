@@ -65,28 +65,14 @@ TerminalAspect::TerminalAspect(AspectContainer *container)
     });
 }
 
-/*!
-    \reimp
-*/
-void TerminalAspect::addToLayoutImpl(Layout &parent)
-{
-    QTC_CHECK(!m_checkBox);
-    m_checkBox = Utils::AspectWidgets::createSubWidget<QCheckBox>(this, Tr::tr("Run in terminal"));
-    m_checkBox->setChecked(m_useTerminal);
-    m_checkBox->setEnabled(isEnabled());
-    parent.addItems({empty, m_checkBox.data()});
-    connect(m_checkBox.data(), &QAbstractButton::clicked, this, [this] {
-        m_userSet = true;
-        m_useTerminal = m_checkBox->isChecked();
-        emit changed();
-    });
-}
-
 AspectPresentation TerminalAspect::presentation() const
 {
     AspectPresentation p = BaseAspect::presentation();
     p.control = AspectControls::CheckBox;
     p.labelText = Tr::tr("Run in terminal");
+    // The label is the box's own text, with the form's label column left
+    // empty - which is what the closure this replaced did by hand.
+    p.labelPlacement = AspectControls::LabelPlacement::AtControl;
     return p;
 }
 
@@ -102,8 +88,7 @@ void TerminalAspect::fromMap(const Store &map)
         m_userSet = false;
     }
 
-    if (m_checkBox)
-        m_checkBox->setChecked(m_useTerminal);
+    emit volatileValueChanged();
 }
 
 /*!
@@ -129,8 +114,7 @@ void TerminalAspect::calculateUseTerminal()
         m_useTerminal = useTerminal;
         emit changed();
     }
-    if (m_checkBox)
-        m_checkBox->setChecked(m_useTerminal);
+    emit volatileValueChanged();
 }
 
 /*!
@@ -162,8 +146,7 @@ void TerminalAspect::setVariantValue(const QVariant &value, Announcement howToAn
         return;
     m_userSet = true;
     m_useTerminal = useTerminal;
-    if (m_checkBox)
-        m_checkBox->setChecked(m_useTerminal);
+    emit volatileValueChanged();
     if (howToAnnounce == DoEmit)
         emit changed();
 }

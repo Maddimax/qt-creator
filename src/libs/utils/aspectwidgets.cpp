@@ -127,7 +127,8 @@ QWidget *createConfigWidget(BaseAspect *aspect)
     return configWidget;
 }
 
-void addButtonToLayout(BoolAspect *aspect, Layouting::Layout &parent, QAbstractButton *button)
+void addButtonToLayout(BaseAspect *aspect, Layouting::Layout &parent,
+                       QAbstractButton *button)
 {
     const AspectPresentation pres = aspect->presentation();
     switch (pres.labelPlacement) {
@@ -161,10 +162,13 @@ void addButtonToLayout(BoolAspect *aspect, Layouting::Layout &parent, QAbstractB
     QObject::connect(button, &QAbstractButton::clicked, aspect, [button, aspect] {
         aspect->setVolatileVariantValueFromGui(button->isChecked());
     });
+    // The variant, not BoolAspect::volatileValue(): a check box is what the
+    // descriptor asked for, and an aspect that asks for one need not be a
+    // BoolAspect. TerminalAspect is one that is not.
     aspect->addOnVolatileValueChanged(button, [button, aspect] {
-        button->setChecked(aspect->volatileValue());
+        button->setChecked(aspect->volatileVariantValue().toBool());
     });
-    button->setChecked(aspect->volatileValue());
+    button->setChecked(aspect->volatileVariantValue().toBool());
 }
 
 std::function<void(Layouting::Layout *)> adoptButton(BoolAspect *aspect, QAbstractButton *button)

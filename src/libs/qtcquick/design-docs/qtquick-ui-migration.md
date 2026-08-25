@@ -2165,7 +2165,7 @@ installs a message handler and asserts nothing says SOFT ASSERT. The first
 version of it passed against a build with the guard removed, which is the only
 reason it was rewritten.
 
-**What this does not do.** The virtual has to stay: ten aspects outside Utils
+**What this does not do.** The virtual has to stay: nine aspects outside Utils
 still override it - the run-configuration and build-settings aspects, which
 are project panels rather than preferences pages and have not been migrated.
 `aspects.{h,cpp}` reach no QtWidgets header and no `layoutbuilder.h` either;
@@ -2198,6 +2198,44 @@ end state is a Utils that publishes no `Qt::Widgets`, and every widget helper
 that stops having callers is a file that no longer has to be on that side.
 A sweep for others found none - the two headers with no includer,
 `guitest.h` and `widgetprompts.h`, are both reached from `src/app/main.cpp`.
+
+### A check box for something that is not a bool
+
+The first of the ten `addToLayoutImpl()` bodies outside Utils, and the one that
+shows why the others are still there.
+
+`TerminalAspect` already described itself: `presentation()` returned
+`CheckBox` with the label "Run in terminal". It still built its own check box,
+kept a `QPointer` to it, and pushed values into it from four places -
+`fromMap()`, `calculateUseTerminal()`, `setVariantValue()` and the preferences
+callback. The reason was one line in the renderer:
+
+    if (auto boolAspect = qobject_cast<BoolAspect *>(&aspect)) { ... }
+    return false;
+
+`TerminalAspect` is not a `BoolAspect` and cannot be one: it holds a bool *and*
+whether the user set it, so a run configuration that has never been touched
+follows the global terminal mode. Failing that cast meant the renderer declined
+and the aspect had to draw itself.
+
+**The descriptor is the contract, not the type.** The bool path reads and
+writes through `volatileVariantValue()`, which every aspect has, so the cast
+is gone: whatever asks for a check box gets one. That is what the Quick side
+already did - `BoolDelegate` binds `aspect.value`, which is that same variant -
+so this is the widget renderer catching up with it, the same shape as the Reset
+button and the `TextWithAction` case before it.
+
+With that, `TerminalAspect` needed only the volatile pair forwarding to the
+plain one (a run configuration applies as it is edited, so there is no separate
+value being typed), and `emit volatileValueChanged()` where it used to poke the
+widget. The closure, the `QPointer` and the four pushes are gone.
+
+**Nine to go, and they are not the same.** The rest hold controls that are more
+than their value: `WorkingDirectoryAspect` has a chooser and a reset button,
+`ArgumentsAspect` a chooser plus an expand button and a multi-line editor,
+`LauncherAspect` a combo it refills. Each needs its control described before
+its closure can go, which is workstream 2 applied to the run-configuration
+surface rather than to a settings page.
 
 ### What the census could not see, and now can
 

@@ -152,6 +152,8 @@ private slots:
     void boolAdoptedButton();
     void filePathValidity_data() { addRendererRows(); }
     void filePathValidity();
+    void checkBoxForAnAspectThatIsNotBool_data() { addRendererRows(); }
+    void checkBoxForAnAspectThatIsNotBool();
     void aspectThatDescribesNoControlDrawsNothing_data() { addRendererRows(); }
     void aspectThatDescribesNoControlDrawsNothing();
     void filePathLiveReconfiguration_data() { addRendererRows(); }
@@ -859,6 +861,72 @@ void tst_AspectRenderer::filePathValidity()
     QTRY_VERIFY(!aspect.isValid());
     QCOMPARE(validSpy.count(), 2);
     QCOMPARE(validSpy.last().first().toBool(), false);
+}
+
+// An aspect that asks for a check box without being a BoolAspect. This is
+// TerminalAspect's shape: it holds a bool of its own plus "did the user set
+// it", so it cannot be a TypedAspect<bool>, and it hands its value out as a
+// variant. The renderer used to require the type and drew nothing for it.
+class CheckBoxWithoutBoolAspect final : public BaseAspect
+{
+public:
+    AspectPresentation presentation() const override
+    {
+        AspectPresentation p = BaseAspect::presentation();
+        p.control = AspectControls::CheckBox;
+        p.labelText = "Run in terminal";
+        p.labelPlacement = AspectControls::LabelPlacement::AtControl;
+        return p;
+    }
+
+    QVariant variantValue() const override { return m_on; }
+    void setVariantValue(const QVariant &value, Announcement = DoEmit) override
+    {
+        m_on = value.toBool();
+        emit volatileValueChanged();
+    }
+    QVariant volatileVariantValue() const override { return variantValue(); }
+    void setVolatileVariantValue(const QVariant &value, Announcement a = DoEmit) override
+    {
+        setVariantValue(value, a);
+    }
+
+    bool m_on = false;
+};
+
+void tst_AspectRenderer::checkBoxForAnAspectThatIsNotBool()
+{
+    QFETCH(bool, withRenderer);
+    setRendererInstalled(withRenderer);
+
+    CheckBoxWithoutBoolAspect aspect;
+    aspect.setVariantValue(true);
+
+    const std::unique_ptr<QWidget> widget = render(aspect);
+    QVERIFY(widget);
+    auto box = widget->findChild<QCheckBox *>();
+    if (!withRenderer) {
+        // Without a renderer nothing is built, and the aspect has no layout of
+        // its own to fall back on any more.
+        QVERIFY(!box);
+        return;
+    }
+
+    QVERIFY(box);
+    QCOMPARE(box->text(), QString("Run in terminal"));
+    // What it shows is what the aspect holds, read as a variant.
+    QVERIFY(box->isChecked());
+
+    // Clicking writes back through the same variant.
+    box->click();
+    QVERIFY(!aspect.m_on);
+    QVERIFY(!box->isChecked());
+
+    // And a value set from elsewhere - a terminal mode changed on the
+    // preferences page - reaches the box, which is what the aspect's own
+    // pointer to it used to do.
+    aspect.setVariantValue(true);
+    QVERIFY(box->isChecked());
 }
 
 void tst_AspectRenderer::aspectThatDescribesNoControlDrawsNothing()

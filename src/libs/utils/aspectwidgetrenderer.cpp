@@ -65,11 +65,11 @@ public:
         switch (pres.control) {
         case AspectControls::CheckBox:
         case AspectControls::RadioButton:
-            if (auto boolAspect = qobject_cast<BoolAspect *>(&aspect)) {
-                renderBool(boolAspect, parent, pres);
-                return true;
-            }
-            return false;
+            // Whatever asked for a check box gets one. What it holds is read
+            // and written as a variant, so the aspect need not be a BoolAspect
+            // - a run configuration's TerminalAspect is not.
+            renderBool(&aspect, parent, pres);
+            return true;
         case AspectControls::TriStateCheckBox:
             if (auto triStateAspect = qobject_cast<TriStateAspect *>(&aspect)) {
                 renderTriState(triStateAspect, parent, pres);
@@ -393,7 +393,7 @@ private:
         aspect->requestDisplayText();
     }
 
-    static void renderBool(BoolAspect *aspect, Layout &parent, const AspectPresentation &pres)
+    static void renderBool(BaseAspect *aspect, Layout &parent, const AspectPresentation &pres)
     {
         QAbstractButton *button = pres.control == AspectControls::RadioButton
                                       ? static_cast<QAbstractButton *>(

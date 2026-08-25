@@ -30,7 +30,6 @@ class PROJECTEXPLORER_EXPORT TerminalAspect : public Utils::BaseAspect
 public:
     explicit TerminalAspect(Utils::AspectContainer *container = nullptr);
 
-    void addToLayoutImpl(Layouting::Layout &parent) override;
     Utils::AspectPresentation presentation() const override;
 
     bool useTerminal() const;
@@ -41,6 +40,15 @@ public:
     // Used by MCP, mirroring what toggling the check box does.
     QVariant variantValue() const override;
     void setVariantValue(const QVariant &value, Announcement howToAnnounce = DoEmit) override;
+
+    // A run configuration applies as it is edited, so there is no separate
+    // value being typed: what the control shows is what the aspect holds.
+    QVariant volatileVariantValue() const override { return variantValue(); }
+    void setVolatileVariantValue(const QVariant &value,
+                                 Announcement howToAnnounce = DoEmit) override
+    {
+        setVariantValue(value, howToAnnounce);
+    }
 
     struct Data : BaseAspect::Data
     {
@@ -57,7 +65,6 @@ private:
     bool m_useTerminalHint = false;
     bool m_useTerminal = false;
     bool m_userSet = false;
-    QPointer<QCheckBox> m_checkBox; // Owned by RunConfigWidget
 };
 
 class PROJECTEXPLORER_EXPORT WorkingDirectoryAspect : public Utils::BaseAspect

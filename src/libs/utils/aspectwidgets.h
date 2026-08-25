@@ -57,7 +57,7 @@ QTCREATOR_UTILS_EXPORT QWidget *createConfigWidget(BaseAspect *aspect);
 // Places an existing check box or radio button according to the aspect's label
 // placement and ties the two together. The renderer and adoptButton() differ
 // only in who creates the button.
-QTCREATOR_UTILS_EXPORT void addButtonToLayout(BoolAspect *aspect,
+QTCREATOR_UTILS_EXPORT void addButtonToLayout(BaseAspect *aspect,
                                               Layouting::Layout &parent,
                                               QAbstractButton *button);
 
