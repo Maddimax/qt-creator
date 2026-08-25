@@ -912,6 +912,7 @@ Result<> ProjectExplorerPlugin::initialize(const QStringList &arguments)
     addTestCreator(createGccToolchainTest);
     addTestCreator(createTargetTripleAspectsTest);
     addTestCreator(createToolchainConfigAspectsTest);
+    addTestCreator(Internal::createToolchainOptionsPageTest);
     addTestCreator(createGenericOutputParserTest);
     addTestCreator(createGnuMakeParserTest);
     addTestCreator(createJsonWizardTest);

@@ -17,4 +17,8 @@ public:
 
 QVariant toolchainBundleData(const std::optional<ToolchainBundle> &bundle, int column, int role);
 
+#ifdef WITH_TESTS
+QObject *createToolchainOptionsPageTest();
+#endif
+
 } // namespace ProjectExplorer::Internal

@@ -27,8 +27,6 @@
 #include <utils/treemodel.h>
 #include <utils/utilsicons.h>
 
-#include <QAction>
-#include <QApplication>
 #include <QCheckBox>
 #include <QCoreApplication>
 #include <QDialog>
@@ -36,9 +34,11 @@
 #include <QMap>
 #include <QMenu>
 #include <QMessageBox>
-#include <QPushButton>
-#include <QStackedWidget>
 #include <QVBoxLayout>
+
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
 
 using namespace Utils;
 
@@ -723,6 +723,96 @@ void ToolChainOptionsWidget::createToolchains(ToolchainFactory *factory, const Q
     m_toolchains.setCurrentRow(m_model.addBundle(bundle));
 }
 
+#ifdef WITH_TESTS
+class ToolchainOptionsPageTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheCurrentRowIsWhatThePageOffersToConfigure()
+    {
+        // The page draws whatever the current toolchain asks for and knows
+        // about no kind in particular, so what it hands to the form has to be
+        // that row's own aspects and has to follow the selection.
+        ToolChainOptionsWidget page;
+        auto configuration = page.aspect<ContainerAspect>();
+        QVERIFY(configuration);
+
+        auto list = page.aspect<GroupedListAspect>();
+        QVERIFY(list);
+        auto model = static_cast<ToolchainModel *>(list->model());
+        QVERIFY(model);
+        if (model->itemCount() < 2)
+            QSKIP("Fewer than two toolchains are configured here");
+
+        // Two rows that are actually shown: a filtered-out one cannot be made
+        // current, so asking for it would prove nothing.
+        QList<int> rows;
+        for (int row = 0; row < model->itemCount() && rows.size() < 2; ++row) {
+            if (model->mapFromSource(model->index(row, 0)).isValid())
+                rows << row;
+        }
+        if (rows.size() < 2)
+            QSKIP("Fewer than two toolchains are shown here");
+
+        list->setCurrentRow(rows.first());
+        AspectContainer * const first = configuration->container();
+        QVERIFY(first);
+        QCOMPARE(first, model->configAspects(rows.first()));
+
+        list->setCurrentRow(rows.last());
+        AspectContainer * const second = configuration->container();
+        QVERIFY(second);
+        QCOMPARE(second, model->configAspects(rows.last()));
+        QVERIFY(second != first);
+
+        // And going back gets the same aspects, not a fresh set: what was
+        // typed into a row is still there when the user returns to it.
+        list->setCurrentRow(rows.first());
+        QCOMPARE(configuration->container(), first);
+    }
+
+    void testTypingIntoAToolchainMarksItsRowChanged()
+    {
+        // Renaming a toolchain has to reach the row that names it and make
+        // Apply do something. The page sees that through the aspects rather
+        // than through a signal a widget used to emit.
+        ToolChainOptionsWidget page;
+        auto list = page.aspect<GroupedListAspect>();
+        QVERIFY(list);
+        auto model = static_cast<ToolchainModel *>(list->model());
+        QVERIFY(model);
+
+        int row = -1;
+        for (int r = 0; r < model->itemCount(); ++r) {
+            if (!model->mapFromSource(model->index(r, 0)).isValid())
+                continue;
+            if (ToolchainConfigAspects * const aspects = model->configAspects(r)) {
+                if (aspects->displayName().isEnabled()) {
+                    row = r;
+                    break;
+                }
+            }
+        }
+        if (row < 0)
+            QSKIP("No toolchain here can be renamed");
+
+        ToolchainConfigAspects * const aspects = model->configAspects(row);
+        QVERIFY(!model->isDirty());
+        aspects->displayName().setValue(aspects->displayName().volatileValue() + " (edited)");
+        QVERIFY(model->isDirty());
+        // And the list shows what is being typed, not what was saved.
+        QCOMPARE(model->index(row, 0).data(Qt::DisplayRole).toString(),
+                 aspects->displayName().volatileValue());
+    }
+};
+
+QObject *createToolchainOptionsPageTest()
+{
+    return new ToolchainOptionsPageTest;
+}
+#endif // WITH_TESTS
+
 // ToolChainOptionsPage
 
 ToolChainOptionsPage::ToolChainOptionsPage()
@@ -737,3 +827,8 @@ ToolChainOptionsPage::ToolChainOptionsPage()
 }
 
 } // namespace ProjectExplorer::Internal
+
+
+#ifdef WITH_TESTS
+#include "toolchainoptionspage.moc"
+#endif
