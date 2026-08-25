@@ -1276,8 +1276,8 @@ method, and the manual-run dialog builds a widget from it too, so the page
 naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
-all`, minus `QmlDesigner` and `UpdateInfo`, see below): **86 aspect-driven
-pages, all 86 with their own QML and rendered with Qt Quick, none still on
+all`, minus `QmlDesigner` and `UpdateInfo`, see below): **89 aspect-driven
+pages, all 89 with their own QML and rendered with Qt Quick, none still on
 widgets.** Gerrit is the first of the widget-creator pages below to have joined
 that count: it became aspect-driven and then got a form, which is the shape the
 rest of them take.
@@ -1351,15 +1351,16 @@ pages that hand over an `AspectContainer` through `setSettingsProvider()`.
 A page that calls `IOptionsPage::setWidgetCreator()` builds its own
 `IOptionsPageWidget` and answers nothing from `aspects()`, so the test skips it
 entirely: `isFullyRenderable()` is never asked and the page is not in the 73.
-There are **28 such call sites in 25 files** - Keyboard, Locator, MIME Types,
+There are **25 such call sites in 22 files** - Keyboard, Locator, MIME Types,
 the toolchain, kit and device pages, Beautifier's three, Clangd, Axivion - and
 they are pure QtWidgets from top to bottom. Counted with
 
     grep -rn setWidgetCreator src/plugins src/libs --include='*.cpp'
 
 minus the mode files, which are `IMode::setWidgetCreator()` and a different
-thing. Gerrit, To-Do, GitLab, Clangd, Debuggers, MIME Types, qbs Profiles and the
-Meson, GN and CMake Tools pages went this way; converting any of them took an
+thing. Gerrit, To-Do, GitLab, Beautifier's three, Clangd, Debuggers, MIME Types, qbs
+Profiles and the Meson, GN and CMake Tools pages went this way; converting any
+of them took an
 `AspectContainer` that reads the plugin's own settings struct when the page is
 built and writes it back on apply, which is the same shape the Code Style pages
 use and needs no change to what the rest of the plugin reads.
@@ -1379,14 +1380,24 @@ Designer's own option pages. Neither is Qt Creator's UI to rewrite; both need
 the widget replaced with a form written against the engine's API, which is a
 piece of work of its own rather than a port.
 
-**Beautifier's three** pages are already aspect-driven apart from one shared
-piece: `ConfigurationPanel`, a combo of named configurations with Add, Edit and
-Remove opening `ConfigurationDialog`. That is the list-with-details shape
-again, and converting it moves all three pages at once - but the dialog's value
-editor is `ConfigurationEditor`, a code editor completing the tool's documented
-options and showing the documentation for the word under the cursor, so it
-wants the Quick editor plus a completion provider and a cursor-word signal of
-its own.
+**Beautifier's three** are done, and they are the clearest case yet of one
+shared widget holding several pages back. `ConfigurationPanel` became
+`ConfigurationsAspect`, and all three moved together.
+
+What the dialog carried was worth keeping: completion over the options the tool
+documents, and what the option under the cursor means. Neither existed on the
+Quick side.
+
+- **`setCompletions()` was readable only by the widget renderer**, the same way
+  the validation function was. It is in the descriptor now, and
+  `CompletionPopup.qml` is the completer QtQuick.Controls does not have - a
+  one-line field completes against the whole of what it holds, several lines
+  complete the word the cursor is in.
+- **Where the cursor is is the view's business.** `TextAreaDelegate` reports
+  the word it is in, and the page hands that to the aspect, which is the only
+  one that knows what it means. That is the same shape as
+  `onCurrentRowChanged: aspect.setCurrentRow(...)` and belongs in the page's
+  QML for the same reason: nothing in C++ can see a cursor.
 
 ### The tree the grouped pages needed
 
