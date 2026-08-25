@@ -10,173 +10,77 @@
 #include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/icore.h>
 
+#include <utils/aspects.h>
 #include <utils/guiutils.h>
-#include <utils/progressindicator.h>
-#include <utils/layoutbuilder.h>
-#include <utils/progressindicator.h>
+#include <utils/shutdownguard.h>
 #include <utils/qtcassert.h>
 
-#include <QCheckBox>
-#include <QComboBox>
 #include <QDate>
-#include <QGroupBox>
-#include <QLabel>
 #include <QLocale>
-#include <QPointer>
-#include <QPushButton>
 
 using namespace Utils;
 
 namespace UpdateInfo::Internal {
 
-class UpdateInfoSettingsPageWidget final : public Core::IOptionsPageWidget
+// The message beside Check Now, and the button itself: one line that says
+// what the last check found, or that one is running.
+class CheckNowAspect final : public BaseAspect
+{
+    Q_OBJECT
+
+public:
+    using BaseAspect::BaseAspect;
+
+    AspectPresentation presentation() const override
+    {
+        AspectPresentation p = BaseAspect::presentation();
+        p.control = AspectControls::TextWithAction;
+        p.actionText = Tr::tr("Check Now");
+        return p;
+    }
+
+    QString displayText() const override { return m_message; }
+    void triggerAction() override { if (m_onTrigger) m_onTrigger(); }
+
+    void setMessage(const QString &message)
+    {
+        if (m_message == message)
+            return;
+        m_message = message;
+        emit displayTextChanged();
+    }
+
+    void setOnTrigger(const std::function<void()> &onTrigger) { m_onTrigger = onTrigger; }
+
+private:
+    QString m_message;
+    std::function<void()> m_onTrigger;
+};
+
+class UpdateInfoSettingsPageWidget final : public AspectContainer
 {
 public:
-    UpdateInfoSettingsPageWidget(UpdateInfoPlugin *plugin)
-        : m_plugin(plugin)
-    {
-        setWindowTitle(Tr::tr("Configure Filters"));
-
-        m_updatesGroupBox = new QGroupBox(Tr::tr("Automatic Check for Updates"));
-        m_updatesGroupBox->setCheckable(true);
-        m_updatesGroupBox->setChecked(true);
-
-        m_infoLabel = new QLabel(Tr::tr("Automatically runs a scheduled check for updates on "
-                                        "a time interval basis. The automatic check for updates "
-                                        "will be performed at the scheduled date, or the next "
-                                        "startup following it."));
-        m_infoLabel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
-        m_infoLabel->setWordWrap(true);
-
-        m_checkIntervalComboBox = new QComboBox;
-        m_nextCheckDateLabel = new QLabel;
-        m_checkForNewQtVersions = new QCheckBox(Tr::tr("Check for new Qt versions"));
-
-        using namespace Layouting;
-
-        Column {
-            m_infoLabel,
-            Row {
-                Form {
-                    new QLabel(Tr::tr("Check interval basis:")), m_checkIntervalComboBox, br,
-                    new QLabel(Tr::tr("Next check date:")), m_nextCheckDateLabel
-                },
-                st
-            },
-            m_checkForNewQtVersions
-        }.attachTo(m_updatesGroupBox);
-
-        m_lastCheckDateLabel = new QLabel;
-
-        m_checkNowButton = new QPushButton(Tr::tr("Check Now"));
-
-        m_messageLabel = new QLabel;
-
-        Column {
-            m_updatesGroupBox,
-            Row {
-                new QLabel(Tr::tr("Last check date:")),
-                m_lastCheckDateLabel,
-                st,
-                Row {
-                    m_messageLabel,
-                    st,
-                    m_checkNowButton
-                }
-            },
-            st
-        }.attachTo(this);
-
-        m_checkIntervalComboBox->setCurrentIndex(-1);
-
-        m_lastCheckDateLabel->setText(Tr::tr("Not checked yet"));
-
-        m_checkIntervalComboBox->addItem(Tr::tr("Daily"), UpdateInfoPlugin::DailyCheck);
-        m_checkIntervalComboBox->addItem(Tr::tr("Weekly"), UpdateInfoPlugin::WeeklyCheck);
-        m_checkIntervalComboBox->addItem(Tr::tr("Monthly"), UpdateInfoPlugin::MonthlyCheck);
-        UpdateInfoPlugin::CheckUpdateInterval interval = m_plugin->checkUpdateInterval();
-        for (int i = 0; i < m_checkIntervalComboBox->count(); i++) {
-            if (m_checkIntervalComboBox->itemData(i).toInt() == interval) {
-                m_checkIntervalComboBox->setCurrentIndex(i);
-                break;
-            }
-        }
-
-        m_updatesGroupBox->setChecked(m_plugin->isAutomaticCheck());
-        m_checkForNewQtVersions->setChecked(m_plugin->isCheckingForQtVersions());
-
-        updateLastCheckDate();
-        checkRunningChanged(m_plugin->isCheckForUpdatesRunning());
-
-        connect(m_checkNowButton, &QPushButton::clicked,
-                m_plugin, &UpdateInfoPlugin::startCheckForUpdates);
-        connect(m_checkIntervalComboBox, &QComboBox::currentIndexChanged,
-                this, &UpdateInfoSettingsPageWidget::updateNextCheckDate);
-        connect(m_plugin, &UpdateInfoPlugin::lastCheckDateChanged,
-                this, &UpdateInfoSettingsPageWidget::updateLastCheckDate);
-        connect(m_plugin, &UpdateInfoPlugin::checkForUpdatesRunningChanged,
-                this, &UpdateInfoSettingsPageWidget::checkRunningChanged);
-        connect(m_plugin, &UpdateInfoPlugin::newUpdatesAvailable,
-                this, &UpdateInfoSettingsPageWidget::newUpdatesAvailable);
-
-        Utils::installMarkSettingsDirtyTriggerRecursively(this);
-    }
+    UpdateInfoSettingsPageWidget(UpdateInfoPlugin *plugin);
 
     void apply() final;
 
 private:
-    void newUpdatesAvailable(bool available);
-    void checkRunningChanged(bool running);
     void updateLastCheckDate();
     void updateNextCheckDate();
     UpdateInfoPlugin::CheckUpdateInterval currentCheckInterval() const;
 
-    QPointer<Utils::ProgressIndicator> m_progressIndicator;
-
     UpdateInfoPlugin *m_plugin;
 
-    QGroupBox *m_updatesGroupBox;
-    QLabel *m_infoLabel;
-    QComboBox *m_checkIntervalComboBox;
-    QLabel *m_nextCheckDateLabel;
-    QCheckBox *m_checkForNewQtVersions;
-    QLabel *m_lastCheckDateLabel;
-    QPushButton *m_checkNowButton;
-    QLabel *m_messageLabel;
+    AspectContainer m_updatesGroup{this};
+    BoolAspect m_automaticCheck{this};
+    TextDisplay m_info{&m_updatesGroup};
+    TypedSelectionAspect<UpdateInfoPlugin::CheckUpdateInterval> m_checkInterval{&m_updatesGroup};
+    TextDisplay m_nextCheckDate{&m_updatesGroup};
+    BoolAspect m_checkForNewQtVersions{&m_updatesGroup};
+
+    TextDisplay m_lastCheckDate{this};
+    CheckNowAspect m_checkNow{this};
 };
-
-UpdateInfoPlugin::CheckUpdateInterval UpdateInfoSettingsPageWidget::currentCheckInterval() const
-{
-    return static_cast<UpdateInfoPlugin::CheckUpdateInterval>
-            (m_checkIntervalComboBox->itemData(m_checkIntervalComboBox->currentIndex()).toInt());
-}
-
-void UpdateInfoSettingsPageWidget::newUpdatesAvailable(bool available)
-{
-    const QString message = available
-            ? Tr::tr("New updates are available.")
-            : Tr::tr("No new updates are available.");
-    m_messageLabel->setText(message);
-}
-
-void UpdateInfoSettingsPageWidget::checkRunningChanged(bool running)
-{
-    m_checkNowButton->setDisabled(running);
-
-    if (running) {
-        if (!m_progressIndicator) {
-            m_progressIndicator = new Utils::ProgressIndicator(Utils::ProgressIndicatorSize::Large);
-            m_progressIndicator->attachToWidget(this);
-        }
-        m_progressIndicator->show();
-    } else {
-        delete m_progressIndicator;
-    }
-
-    const QString message = running
-            ? Tr::tr("Checking for updates...") : QString();
-    m_messageLabel->setText(message);
-}
 
 static QString localizedDate(const QDate &date)
 {
@@ -184,18 +88,79 @@ static QString localizedDate(const QDate &date)
     return locale.toString(date, locale.dateFormat());
 }
 
+UpdateInfoSettingsPageWidget::UpdateInfoSettingsPageWidget(UpdateInfoPlugin *plugin)
+    : m_plugin(plugin)
+{
+    setAutoApply(false);
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/UpdateInfo/UpdateSettingsPage.qml"));
+
+    m_automaticCheck.setQmlName("AutomaticCheck");
+    m_automaticCheck.setLabelText(Tr::tr("Automatic Check for Updates"));
+    m_automaticCheck.setValue(m_plugin->isAutomaticCheck());
+
+    m_updatesGroup.setQmlName("Updates");
+    m_updatesGroup.setLabelText(m_automaticCheck.labelText());
+
+    m_info.setQmlName("Info");
+    m_info.setText(Tr::tr("Automatically runs a scheduled check for updates on "
+                          "a time interval basis. The automatic check for updates "
+                          "will be performed at the scheduled date, or the next "
+                          "startup following it."));
+    m_info.setWordWrap(true);
+
+    m_checkInterval.setQmlName("Interval");
+    m_checkInterval.setLabelText(Tr::tr("Check interval basis:"));
+    m_checkInterval.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
+    m_checkInterval.addOption({Tr::tr("Daily"), {}, UpdateInfoPlugin::DailyCheck});
+    m_checkInterval.addOption({Tr::tr("Weekly"), {}, UpdateInfoPlugin::WeeklyCheck});
+    m_checkInterval.addOption({Tr::tr("Monthly"), {}, UpdateInfoPlugin::MonthlyCheck});
+    m_checkInterval.setValue(m_plugin->checkUpdateInterval());
+
+    m_nextCheckDate.setQmlName("NextCheckDate");
+    m_nextCheckDate.setLabelText(Tr::tr("Next check date:"));
+
+    m_checkForNewQtVersions.setQmlName("CheckForNewQtVersions");
+    m_checkForNewQtVersions.setLabel(Tr::tr("Check for new Qt versions"));
+    m_checkForNewQtVersions.setLabelPlacement(BoolAspect::LabelPlacement::Compact);
+    m_checkForNewQtVersions.setValue(m_plugin->isCheckingForQtVersions());
+
+    m_lastCheckDate.setQmlName("LastCheckDate");
+    m_lastCheckDate.setLabelText(Tr::tr("Last check date:"));
+
+    m_checkNow.setQmlName("CheckNow");
+    m_checkNow.setOnTrigger([this] { m_plugin->startCheckForUpdates(); });
+
+    // Behaviour, not layout.
+    const auto checkRunningChanged = [this](bool running) {
+        // The spinner the page used to overlay itself with said the same
+        // thing as the message beside the button, and only while the button
+        // was disabled anyway.
+        m_checkNow.setEnabled(!running);
+        m_checkNow.setMessage(running ? Tr::tr("Checking for updates...") : QString());
+    };
+    connect(&m_checkInterval, &BaseAspect::volatileValueChanged,
+            this, &UpdateInfoSettingsPageWidget::updateNextCheckDate);
+    connect(m_plugin, &UpdateInfoPlugin::lastCheckDateChanged,
+            this, &UpdateInfoSettingsPageWidget::updateLastCheckDate);
+    connect(m_plugin, &UpdateInfoPlugin::checkForUpdatesRunningChanged, this, checkRunningChanged);
+    connect(m_plugin, &UpdateInfoPlugin::newUpdatesAvailable, this, [this](bool available) {
+        m_checkNow.setMessage(available ? Tr::tr("New updates are available.")
+                                        : Tr::tr("No new updates are available."));
+    });
+
+    updateLastCheckDate();
+    checkRunningChanged(m_plugin->isCheckForUpdatesRunning());
+}
+
+UpdateInfoPlugin::CheckUpdateInterval UpdateInfoSettingsPageWidget::currentCheckInterval() const
+{
+    return m_checkInterval.volatileValue();
+}
+
 void UpdateInfoSettingsPageWidget::updateLastCheckDate()
 {
     const QDate date = m_plugin->lastCheckDate();
-    QString lastCheckDateString;
-    if (date.isValid()) {
-        lastCheckDateString = localizedDate(date);
-    } else {
-        lastCheckDateString = Tr::tr("Not checked yet");
-    }
-
-    m_lastCheckDateLabel->setText(lastCheckDateString);
-
+    m_lastCheckDate.setText(date.isValid() ? localizedDate(date) : Tr::tr("Not checked yet"));
     updateNextCheckDate();
 }
 
@@ -205,14 +170,15 @@ void UpdateInfoSettingsPageWidget::updateNextCheckDate()
     if (!date.isValid() || date < QDate::currentDate())
         date = QDate::currentDate();
 
-    m_nextCheckDateLabel->setText(localizedDate(date));
+    m_nextCheckDate.setText(localizedDate(date));
 }
 
 void UpdateInfoSettingsPageWidget::apply()
 {
     m_plugin->setCheckUpdateInterval(currentCheckInterval());
-    m_plugin->setAutomaticCheck(m_updatesGroupBox->isChecked());
-    m_plugin->setCheckingForQtVersions(m_checkForNewQtVersions->isChecked());
+    m_plugin->setAutomaticCheck(m_automaticCheck.volatileValue());
+    m_plugin->setCheckingForQtVersions(m_checkForNewQtVersions.volatileValue());
+    AspectContainer::apply();
 }
 
 // SettingsPage
@@ -225,7 +191,10 @@ public:
         setId(FILTER_OPTIONS_PAGE_ID);
         setCategory(Core::Constants::SETTINGS_CATEGORY_CORE);
         setDisplayName(Tr::tr("Update"));
-        setWidgetCreator([plugin] { return new UpdateInfoSettingsPageWidget(plugin); });
+        setSettingsProvider([plugin] {
+            static GuardedObject<UpdateInfoSettingsPageWidget> theAspects(plugin);
+            return theAspects.get();
+        });
     }
 };
 
@@ -235,3 +204,5 @@ void setupSettings(UpdateInfoPlugin *plugin)
 }
 
 } // UpdateInfoPlugin::Internal
+
+#include "updateinfosettings.moc"

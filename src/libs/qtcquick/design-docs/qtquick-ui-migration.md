@@ -2021,6 +2021,34 @@ Nothing here can be exercised on this machine - it is all for hardware that is
 not attached - so what is verified is that every kind says what it asks, that
 what it holds survives a save and reload, and that the page draws.
 
+### Update, and a page that cannot be reached from a test run
+
+Small and mechanical: a checkable group, a paragraph, an interval combo, two
+dates and a check box, plus a message and a **Check Now** button. The message
+and the button are one `TextWithAction` aspect - the third page to want one -
+and the group's check box is `AspectGroupBox`'s `checkAspect`.
+
+**The progress spinner is gone.** While a check ran the page overlaid itself
+with a `Utils::ProgressIndicator`, and the message beside the button said
+"Checking for updates..." at the same time. The message says it on its own now.
+
+**Nothing here runs in a test.** The plugin refuses to initialize without a
+maintenance tool - `Could not determine location of maintenance tool` - so it
+is `-noload`ed in the suite, its page is not in the census, and a plugin test
+would not run either. What verified it instead:
+
+- **`qmllint`.** `qt_add_qml_module` generates a `<Target>_qmllint` target per
+  plugin, and it does resolve the delegate types and their properties. Worth
+  running on every new page, not just this one.
+- **A real Creator, with the plugin made to start.** Writing any path into
+  `Updater/MaintenanceTool` in a scratch `-settingspath` is enough to get past
+  the check, after which the page draws and can be looked at.
+- **A negative control that is a screenshot.** Renaming the aspect's
+  `qmlName()` turns the button into an empty stub and puts two
+  `Unable to assign` lines in the log. That is the failure mode a page census
+  cannot see and `qmllint` cannot either: `aspects.Foo` is a property map
+  lookup, so a name that does not exist is not a type error.
+
 ### What the census could not see, and now can
 
 Two holes, both found the hard way in the same session.
@@ -2247,11 +2275,11 @@ A page that calls `IOptionsPage::setWidgetCreator()` builds its own
 `IOptionsPageWidget` and answers nothing from `aspects()`, so the test skips it
 entirely: `isFullyRenderable()` is never asked and the page is not in the 73.
 There were **15 such call sites in 14 files**, and none of them is a page that
-fits in one batch any more. **Nine page call sites are left, in nine files**,
-after Toolchains, Kits, Devices, MCU, Language Client and Bare Metal - counted
-with the grep below, minus `IMode::setWidgetCreator()` and `ioptionspage.cpp`
-itself. Of the nine, four are Windows-only or otherwise unreachable here, and
-three embed a widget from outside Qt Creator. What each is waiting on, checked rather than
+fits in one batch any more. **Eight page call sites are left, in eight
+files**, after Toolchains, Kits, Devices, MCU, Language Client, Bare Metal and
+Update - counted with the grep below, minus `IMode::setWidgetCreator()` and
+`ioptionspage.cpp` itself. Of the eight, four are Windows-only, three embed a
+widget from outside Qt Creator, and the last is the Android SDK page. What each is waiting on, checked rather than
 remembered:
 
 - **Toolchains** - done. `ToolchainConfigWidget` had **9 implementations**
@@ -2280,10 +2308,11 @@ remembered:
   `QDesignerOptionsPageInterface::createPage()` and
   `QHelpFilterSettingsWidget`. Neither has aspects to draw.
 - **Extension Manager's Browse** is a store front, not a settings form.
-- **CDB (two pages), Windows App SDK, ClearCase, Update** cannot be reached
-  here: Windows-only, or the plugin declines to register its page on this
-  machine. Two of them were written and reverted rather than shipped
-  unverified; see below.
+- **Update** - done, though it cannot be reached from a test run; see below
+  for what was used instead.
+- **CDB (two pages), Windows App SDK, ClearCase** cannot be reached here:
+  Windows-only, or the plugin declines to register its page on this machine.
+  Two of them were written and reverted rather than shipped unverified.
 
 They are pure QtWidgets from top to bottom. Counted with
 

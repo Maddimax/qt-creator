@@ -11,6 +11,13 @@ QtcPlugin {
     property bool enable: false
     pluginjson.replacements: ({"UPDATEINFO_EXPERIMENTAL_STR": (enable ? "false": "true")})
 
+    // qbs has no QML module support; the .qml files are built by CMake only.
+    Group {
+        name: "qml"
+        files: ["**/*.qml"]
+        fileTags: []
+    }
+
     files: [
         "updateinfoplugin.cpp",
         "updateinfoplugin.h",
