@@ -534,8 +534,23 @@ AspectContainer *BaseAspect::container() const
     Adds the visual representation of this aspect to the layout with the
     specified \a parent using a layout builder.
 */
-void BaseAspect::addToLayoutImpl(Layout &)
+// Defined below, next to the renderer it installs.
+static bool renderAspect(BaseAspect &aspect, Layout &parent);
+
+void BaseAspect::addToLayoutImpl(Layout &parent)
 {
+    // An aspect that says which control it wants is drawn by the renderer, and
+    // that is every aspect that has been described. Invisible means it draws
+    // nothing on purpose - a container whose contents the page lays out
+    // itself; Custom means it has not been described yet and builds its own
+    // control by overriding this.
+    const AspectControls::Control control = presentation().control;
+    if (control == AspectControls::Invisible || control == AspectControls::Custom)
+        return;
+
+    // Reaching the check means no renderer was installed; see
+    // installAspectWidgetRenderer().
+    QTC_CHECK(renderAspect(*this, parent));
 }
 
 /*!
@@ -1290,13 +1305,6 @@ AspectPresentation StringAspect::presentation() const
     return p;
 }
 
-void StringAspect::addToLayoutImpl(Layout &parent)
-{
-    // The widget renderer owns this control's construction. Reaching the
-    // check means no renderer was installed; see installAspectWidgetRenderer().
-    QTC_CHECK(renderAspect(*this, parent));
-}
-
 QString StringAspect::expandedValue() const
 {
     return operator()();
@@ -1751,13 +1759,6 @@ AspectPresentation FilePathAspect::presentation() const
     return p;
 }
 
-void FilePathAspect::addToLayoutImpl(Layouting::Layout &parent)
-{
-    // The widget renderer owns this control's construction. Reaching the
-    // check means no renderer was installed; see installAspectWidgetRenderer().
-    QTC_CHECK(renderAspect(*this, parent));
-}
-
 /*!
     \reimp
 */
@@ -2030,13 +2031,6 @@ AspectPresentation ColorAspect::presentation() const
     return p;
 }
 
-void ColorAspect::addToLayoutImpl(Layouting::Layout &parent)
-{
-    // The widget renderer owns this control's construction. Reaching the
-    // check means no renderer was installed; see installAspectWidgetRenderer().
-    QTC_CHECK(renderAspect(*this, parent));
-}
-
 void ColorAspect::setAlphaAllowed(bool allowed)
 {
     d->m_alphaAllowed = allowed;
@@ -2087,13 +2081,6 @@ AspectPresentation FontFamilyAspect::presentation() const
     p.control = AspectControls::FontFamilyPicker;
     p.fontFilters = AspectControls::FontFilters::fromInt(d->m_fontFilters.toInt());
     return p;
-}
-
-void FontFamilyAspect::addToLayoutImpl(Layouting::Layout &parent)
-{
-    // The widget renderer owns this control's construction. Reaching the
-    // check means no renderer was installed; see installAspectWidgetRenderer().
-    QTC_CHECK(renderAspect(*this, parent));
 }
 
 void FontFamilyAspect::setFontFilters(FontFilters fontFilters)
@@ -2327,13 +2314,6 @@ AspectPresentation BoolAspect::presentation() const
     return p;
 }
 
-void BoolAspect::addToLayoutImpl(Layouting::Layout &parent)
-{
-    // The widget renderer owns this control's construction. Reaching the
-    // check means no renderer was installed; see installAspectWidgetRenderer().
-    QTC_CHECK(renderAspect(*this, parent));
-}
-
 
 QAction *BoolAspect::action()
 {
@@ -2455,13 +2435,6 @@ AspectPresentation SelectionAspect::presentation() const
             {option.displayName, option.tooltip, option.enabled, option.itemData, option.icon});
     }
     return p;
-}
-
-void SelectionAspect::addToLayoutImpl(Layouting::Layout &parent)
-{
-    // The widget renderer owns this control's construction. Reaching the
-    // check means no renderer was installed; see installAspectWidgetRenderer().
-    QTC_CHECK(renderAspect(*this, parent));
 }
 
 bool SelectionAspect::guiToVolatileValue()
@@ -2646,13 +2619,6 @@ AspectPresentation MultiSelectionAspect::presentation() const
     return p;
 }
 
-void MultiSelectionAspect::addToLayoutImpl(Layout &builder)
-{
-    // The widget renderer owns this control's construction. Reaching the
-    // check means no renderer was installed; see installAspectWidgetRenderer().
-    QTC_CHECK(renderAspect(*this, builder));
-}
-
 bool Internal::MultiSelectionAspectPrivate::setValueSelectedHelper(const QString &val, bool on)
 {
     QStringList list = q->value();
@@ -2750,13 +2716,6 @@ AspectPresentation IntegerAspect::presentation() const
     p.displayIntegerBase = displayIntegerBase();
     p.displayScaleFactor = displayScaleFactor();
     return p;
-}
-
-void IntegerAspect::addToLayoutImpl(Layouting::Layout &parent)
-{
-    // The widget renderer owns this control's construction. Reaching the
-    // check means no renderer was installed; see installAspectWidgetRenderer().
-    QTC_CHECK(renderAspect(*this, parent));
 }
 
 bool IntegerAspect::guiToVolatileValue()
@@ -2913,13 +2872,6 @@ AspectPresentation DoubleAspect::presentation() const
     p.suffix = suffix();
     p.specialValueText = specialValueText();
     return p;
-}
-
-void DoubleAspect::addToLayoutImpl(Layout &builder)
-{
-    // The widget renderer owns this control's construction. Reaching the
-    // check means no renderer was installed; see installAspectWidgetRenderer().
-    QTC_CHECK(renderAspect(*this, builder));
 }
 
 bool DoubleAspect::guiToVolatileValue()
@@ -3142,13 +3094,6 @@ AspectPresentation StringListAspect::presentation() const
     return p;
 }
 
-void StringListAspect::addToLayoutImpl(Layout &parent)
-{
-    // The widget renderer owns this control's construction. Reaching the
-    // check means no renderer was installed; see installAspectWidgetRenderer().
-    QTC_CHECK(renderAspect(*this, parent));
-}
-
 void StringListAspect::appendValue(const QString &s, bool allowDuplicates)
 {
     QStringList val = value();
@@ -3272,13 +3217,6 @@ AspectPresentation FilePathListAspect::presentation() const
     return p;
 }
 
-void FilePathListAspect::addToLayoutImpl(Layout &parent)
-{
-    // The widget renderer owns this control's construction. Reaching the
-    // check means no renderer was installed; see installAspectWidgetRenderer().
-    QTC_CHECK(renderAspect(*this, parent));
-}
-
 void FilePathListAspect::setPlaceHolderText(const QString &placeHolderText)
 {
     if (placeHolderText == d->placeHolderText)
@@ -3355,13 +3293,6 @@ AspectPresentation IntegersAspect::presentation() const
     AspectPresentation p = TypedAspect::presentation();
     p.control = AspectControls::IntegerList;
     return p;
-}
-
-void IntegersAspect::addToLayoutImpl(Layouting::Layout &parent)
-{
-    // The widget renderer owns this control's construction. Reaching the
-    // check means no renderer was installed; see installAspectWidgetRenderer().
-    QTC_CHECK(renderAspect(*this, parent));
 }
 
 
@@ -3580,19 +3511,6 @@ AspectPresentation ActionAspect::presentation() const
     return p;
 }
 
-void ActionAspect::addToLayoutImpl(Layout &parent)
-{
-    // As TextDisplay: the widget renderer owns this control's construction.
-    QTC_CHECK(renderAspect(*this, parent));
-}
-
-void TextDisplay::addToLayoutImpl(Layout &parent)
-{
-    // The widget renderer owns this control's construction. Reaching the
-    // check means no renderer was installed; see installAspectWidgetRenderer().
-    QTC_CHECK(renderAspect(*this, parent));
-}
-
 /*!
     Sets \a t as the information label type for the visual representation
     of this aspect.
@@ -3718,13 +3636,6 @@ void AspectContainer::setInlineRow(bool on)
         return;
     d->m_inlineRow = on;
     emit controlConfigurationChanged();
-}
-
-void AspectContainer::addToLayoutImpl(Layouting::Layout &parent)
-{
-    // The widget renderer owns this control's construction. Reaching the
-    // check means no renderer was installed; see installAspectWidgetRenderer().
-    QTC_CHECK(renderAspect(*this, parent));
 }
 
 /*!
@@ -4227,13 +4138,6 @@ void StringSelectionAspect::setMinimumContentsLength(int characters)
     emit controlConfigurationChanged();
 }
 
-void StringSelectionAspect::addToLayoutImpl(Layouting::Layout &parent)
-{
-    // The widget renderer owns this control's construction. Reaching the
-    // check means no renderer was installed; see installAspectWidgetRenderer().
-    QTC_CHECK(renderAspect(*this, parent));
-}
-
 
 //
 // FontAspect
@@ -4281,13 +4185,6 @@ AspectPresentation FontAspect::presentation() const
     AspectPresentation p = AspectContainer::presentation();
     p.control = AspectControls::FontPicker;
     return p;
-}
-
-void FontAspect::addToLayoutImpl(Layouting::Layout &parent)
-{
-    // The widget renderer owns this control's construction. Reaching the
-    // check means no renderer was installed; see installAspectWidgetRenderer().
-    QTC_CHECK(renderAspect(*this, parent));
 }
 
 ByteArrayAspect::ByteArrayAspect(AspectContainer *container)

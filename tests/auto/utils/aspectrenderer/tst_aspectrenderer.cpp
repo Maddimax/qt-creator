@@ -152,6 +152,8 @@ private slots:
     void boolAdoptedButton();
     void filePathValidity_data() { addRendererRows(); }
     void filePathValidity();
+    void aspectThatDescribesNoControlDrawsNothing_data() { addRendererRows(); }
+    void aspectThatDescribesNoControlDrawsNothing();
     void filePathLiveReconfiguration_data() { addRendererRows(); }
     void filePathLiveReconfiguration();
     void filePathFocusRequest_data() { addRendererRows(); }
@@ -857,6 +859,60 @@ void tst_AspectRenderer::filePathValidity()
     QTRY_VERIFY(!aspect.isValid());
     QCOMPARE(validSpy.count(), 2);
     QCOMPARE(validSpy.last().first().toBool(), false);
+}
+
+void tst_AspectRenderer::aspectThatDescribesNoControlDrawsNothing()
+{
+    QFETCH(bool, withRenderer);
+    setRendererInstalled(withRenderer);
+
+    // Every aspect that names a control is drawn by the renderer, which is
+    // what BaseAspect::addToLayoutImpl() does now that no aspect overrides it.
+    // Two answers mean "not this one": Invisible is a container whose contents
+    // the page lays out itself, and Custom is an aspect that has not been
+    // described and builds its own control.
+    //
+    // Neither draws anything either way - the renderer does not know them, so
+    // it declines. What separates asking from not asking is the complaint:
+    // declining is reported as "no renderer could draw this", which is a soft
+    // assert in this build and a qFatal under QTC_FATAL_ASSERTS.
+    ContainerAspect invisible;
+    QCOMPARE(invisible.presentation().control, AspectControls::Invisible);
+
+    IdAspect custom;
+    QCOMPARE(custom.presentation().control, AspectControls::Custom);
+
+    QStringList complaints;
+    const auto previous = qInstallMessageHandler(nullptr);
+    static QStringList *sink = nullptr;
+    sink = &complaints;
+    qInstallMessageHandler([](QtMsgType, const QMessageLogContext &, const QString &msg) {
+        if (sink && msg.contains("SOFT ASSERT"))
+            *sink << msg;
+    });
+    const QScopeGuard restore([previous] {
+        sink = nullptr;
+        qInstallMessageHandler(previous);
+    });
+
+    for (BaseAspect *aspect : {static_cast<BaseAspect *>(&invisible),
+                               static_cast<BaseAspect *>(&custom)}) {
+        const std::unique_ptr<QWidget> widget(render(*aspect));
+        QVERIFY(widget);
+        QVERIFY2(widget->findChildren<QWidget *>().isEmpty(),
+                 QString::fromLatin1(aspect->metaObject()->className()).toUtf8());
+    }
+    QVERIFY2(complaints.isEmpty(), qPrintable(complaints.join("\n")));
+
+    // And an aspect that does name one is drawn, so the check above is not
+    // just "the renderer never draws anything".
+    BoolAspect described;
+    described.setLabel("Something");
+    const std::unique_ptr<QWidget> widget(render(described));
+    QVERIFY(widget);
+    if (withRenderer)
+        QVERIFY(!widget->findChildren<QCheckBox *>().isEmpty());
+    QVERIFY2(complaints.isEmpty(), qPrintable(complaints.join("\n")));
 }
 
 void tst_AspectRenderer::filePathLiveReconfiguration()

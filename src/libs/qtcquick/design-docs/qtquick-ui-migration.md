@@ -2131,9 +2131,46 @@ against `setQmlName()` in the neighbouring `.cpp` catches the one failure mode
 `qmllint` cannot see. Run across all 155 pages it reports 35, almost all false:
 an aspect that never calls `setQmlName()` derives its name from its settings
 key, and a text search cannot follow a key held in a constant. The real source
-of truth is `NamedAspects`, which knows every name at runtime - so the check
-belongs in the page census, which already builds every page, rather than in a
-script.
+of truth is what the delegates ended up bound to at runtime - and **the census
+already asserts that**: every delegate it finds must have a non-null `aspect`,
+and it fails on any QML warning. Renaming one `setQmlName()` on the Android
+page makes it fail with "ButtonDelegate_QMLTYPE_25 has no aspect". So the guard
+exists for every page the census can reach; a script is only needed for the
+pages it cannot, which are the six left.
+
+### Eighteen bodies that said the same thing
+
+Once the widget renderer took over control construction, every
+`addToLayoutImpl()` in `aspects.cpp` had collapsed to the same four lines:
+
+    QTC_CHECK(renderAspect(*this, parent));
+
+Eighteen of them, one per aspect, and each one a thing to remember when adding
+the nineteenth. The base does it instead, and the overrides are gone.
+
+**What decides is the descriptor, in one place.** The base renders when the
+aspect names a control, and returns when it says `Invisible` - a container
+whose contents the page lays out itself - or `Custom`, which means it has not
+been described yet and builds its own. `Custom` is also the *default*, so an
+aspect that never described itself behaves exactly as before: nothing draws it
+and nothing complains.
+
+**The assertion that made this testable was not the obvious one.** "Nothing is
+drawn for an Invisible aspect" passes with or without the guard: the renderer
+declines them anyway, because it has no case for them. What the guard actually
+prevents is the *complaint* - `QTC_CHECK(renderAspect(...))` failing, which is
+a soft assert here and a `qFatal` under `QTC_FATAL_ASSERTS`. So the test
+installs a message handler and asserts nothing says SOFT ASSERT. The first
+version of it passed against a build with the guard removed, which is the only
+reason it was rewritten.
+
+**What this does not do.** The virtual has to stay: ten aspects outside Utils
+still override it - the run-configuration and build-settings aspects, which
+are project panels rather than preferences pages and have not been migrated.
+`aspects.{h,cpp}` reach no QtWidgets header and no `layoutbuilder.h` either;
+what keeps them on the widget side of the split metric is that virtual's
+signature naming `Layouting::Layout`, and the project panels are what has to
+move before it can go.
 
 ### What the census could not see, and now can
 
