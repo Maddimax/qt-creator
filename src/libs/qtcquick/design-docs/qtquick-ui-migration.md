@@ -1687,9 +1687,18 @@ worked out and drew itself, none of which any other renderer could see:
 - **Re-asking the daemon for its networks.** A tool button with a reload icon
   and no text.
 
-All four are aspects on `DockerDevice`. What is left in the widget is the
-detection recipe, its three buttons and the log they write to - genuinely
-runtime state rather than settings, and the next thing to find a home for.
+All four are aspects on `DockerDevice`, and so is the fifth thing: the
+detection recipe, its three buttons and the log they write to. That one is
+genuinely runtime state rather than settings, and the widget was the wrong
+owner for a different reason - closing the settings dialog took the running
+recipe with it. The device is the thing being detected on, and it outlives
+whatever is drawing it.
+
+**Every `IDeviceWidget` left in the tree is now a list of which of the
+device's aspects to show and in what order.** Nothing else. That is what has
+to become a per-device QML file - or a list of names the page reads - before
+the Devices page itself can move, and it is the same question the toolchain
+kinds answered with `createConfigurationAspects()`.
 
 ### What the census could not see, and now can
 
@@ -1931,9 +1940,9 @@ remembered:
   counted. Four are already pure aspect layout; the desktop one has been
   converted, and the two read-only ones (iOS, Android) are deleted in favour of
   `deviceInformation()`, and BareMetal no longer embeds a foreign chooser. Every
-  one that is left is pure aspect layout except for Docker's detection log and
-  the recipe behind it; what remains after that is teaching each device to name
-  its rows.
+  one that is left is pure aspect layout - nothing but a list of which aspects
+  to show. What remains is teaching each device to name its rows, and the
+  page's own split Add button.
 - **BareMetal's Debug Server Providers** - **30 config-widget classes**, all of
   them for hardware this machine does not have.
 - **MCU Support** - `McuAbstractPackage::widget()`, one per package kind.

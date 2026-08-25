@@ -67,73 +67,6 @@ DockerDeviceWidget::DockerDeviceWidget(const IDevice::Ptr &device)
         };
         m_imageIdRunner.start({ProcessTask(onSetup, onDone)});
     });
-
-    auto logView = new QTextBrowser;
-
-    auto autoDetectButton = new QPushButton(Tr::tr("Auto-detect Kit Items"));
-    auto undoAutoDetectButton = new QPushButton(Tr::tr("Remove Auto-Detected Kit Items"));
-    auto listAutoDetectedButton = new QPushButton(Tr::tr("List Auto-Detected Kit Items"));
-    const QList<QWidget *> tempDisabledWidgets = {autoDetectButton, undoAutoDetectButton,
-                                                  listAutoDetectedButton};
-    connect(autoDetectButton,
-            &QPushButton::clicked,
-            this,
-            [this, logView, dockerDevice, tempDisabledWidgets] {
-                logView->clear();
-                Result<> startResult = dockerDevice->updateContainerAccess();
-
-                if (!startResult) {
-                    logView->append(Tr::tr("Failed to start container."));
-                    logView->append(startResult.error());
-                    return;
-                }
-
-                const auto log = [logView](const QString &msg) { logView->append(msg); };
-                // clang-format off
-                const QtTaskTree::Group recipe {
-                    dockerDevice->autoDetectDeviceToolsRecipe(),
-                    ProjectExplorer::removeDetectedKitsRecipe(dockerDevice, log),
-                    ProjectExplorer::kitDetectionRecipe(dockerDevice, DetectionSource::FromSystem, log)
-                };
-                // clang-format on
-
-                const auto onTaskTreeSetup = [logView, tempDisabledWidgets] {
-                    for (QWidget *widget : tempDisabledWidgets)
-                        widget->setEnabled(false);
-                    logView->append(Tr::tr("Starting auto-detection..."));
-                };
-
-                const auto onTaskTreeDone = [logView, tempDisabledWidgets] {
-                    for (QWidget *widget : tempDisabledWidgets)
-                        widget->setEnabled(true);
-                    logView->append(Tr::tr("Done."));
-                };
-
-                m_detectionRunner.start(recipe, onTaskTreeSetup, onTaskTreeDone);
-
-                if (m_api->dockerDaemonAvailable().value_or(false) == false)
-                    logView->append(
-                        Tr::tr("%1 daemon appears to be stopped.").arg(m_api->displayType()));
-                else
-                    logView->append(
-                        Tr::tr("%1 daemon appears to be running.").arg(m_api->displayType()));
-                dockerDevice->daemonState.updateSummary();
-            });
-
-    connect(undoAutoDetectButton, &QPushButton::clicked, this, [this, logView, device] {
-        logView->clear();
-        m_detectionRunner.start(
-            ProjectExplorer::removeDetectedKitsRecipe(device, [logView](const QString &msg) {
-                logView->append(msg);
-            })
-        );
-    });
-
-    connect(listAutoDetectedButton, &QPushButton::clicked, this, [logView, device] {
-        logView->clear();
-        listAutoDetected(device, [logView](const QString &msg) { logView->append(msg); });
-    });
-
     dockerDevice->refreshNetworks.setToolTip(
         Tr::tr("Refresh %1 networks").arg(m_api->displayType()));
 
@@ -163,12 +96,12 @@ DockerDeviceWidget::DockerDeviceWidget(const IDevice::Ptr &device)
             dockerDevice->createCommandLineDisplay, br,
             dockerDevice->deviceToolsGui(), br,
             Span(2, Row {
-                autoDetectButton,
-                undoAutoDetectButton,
-                listAutoDetectedButton,
+                dockerDevice->autoDetectKitItems,
+                dockerDevice->removeAutoDetectedKitItems,
+                dockerDevice->listAutoDetectedKitItems,
                 st,
             }), br,
-            Tr::tr("Detection log:"), logView
+            dockerDevice->detectionLog
         }, br,
     }.attachTo(this);
     // clang-format on
@@ -221,6 +154,45 @@ private slots:
         const AspectPresentation refresh = device->refreshNetworks.presentation();
         QCOMPARE(refresh.control, AspectControls::Button);
         QVERIFY2(!refresh.actionIcon.isNull(), "the refresh button has nothing to show");
+    }
+
+    void testDetectingKitItemsIsSomethingTheDeviceDoes()
+    {
+        // The detection recipe, the three buttons that start it and the log it
+        // writes to lived in the settings widget, so they went away with it and
+        // only a widget page could show any of them.
+        const DockerDevice::Ptr device = DockerDevice::create(&dockerSettings());
+        QVERIFY(device);
+
+        for (const ActionAspect * const button : {&device->autoDetectKitItems,
+                                                  &device->removeAutoDetectedKitItems,
+                                                  &device->listAutoDetectedKitItems}) {
+            const AspectPresentation p = button->presentation();
+            QCOMPARE(p.control, AspectControls::Button);
+            QVERIFY(!p.actionText.isEmpty());
+            QVERIFY(button->isEnabled());
+        }
+
+        // The log is read, not typed into.
+        const AspectPresentation log = device->detectionLog.presentation();
+        QCOMPARE(log.control, AspectControls::TextEdit);
+        QVERIFY(log.readOnly);
+        QVERIFY(!log.labelText.isEmpty());
+
+        // A run starts from a clean log rather than appending to what the last
+        // one said. What it finds depends on the machine; that it starts over
+        // does not. Listing is the one that needs no container to run.
+        device->detectionLog.setValue("what the last run said");
+        device->listAutoDetectedKitItems.triggerAction();
+        QVERIFY2(!device->detectionLog.volatileValue().contains("what the last run said"),
+                 "a run appended to the previous run's log");
+
+        // Auto-detect says why it cannot start rather than nothing at all: on
+        // a machine with no daemon it fails at the container.
+        device->detectionLog.setValue({});
+        device->autoDetectKitItems.triggerAction();
+        QVERIFY2(!device->detectionLog.volatileValue().isEmpty(),
+                 "auto-detect said nothing about what it did");
     }
 };
 

@@ -174,6 +174,14 @@ public:
     // Asks the daemon which networks it has, for the list above.
     Utils::ActionAspect refreshNetworks{this};
 
+    // Setting up kit items for what is in the container, and what that run
+    // has to say. The recipe is the device's: it is the thing being detected
+    // on, and it outlives whatever is drawing it.
+    Utils::ActionAspect autoDetectKitItems{this};
+    Utils::ActionAspect removeAutoDetectedKitItems{this};
+    Utils::ActionAspect listAutoDetectedKitItems{this};
+    Utils::StringAspect detectionLog{this};
+
 
 protected:
     void fromMap(const Utils::Store &map) final;

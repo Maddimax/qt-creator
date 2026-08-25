@@ -160,6 +160,76 @@ public:
         QObject::connect(q, &DockerDevice::applied, this, [this] { stopCurrentContainer(); });
     }
 
+    // Detecting what is in the container. The log is what the run says, and
+    // the buttons are off while one is in flight.
+    void log(const QString &message)
+    {
+        const QString soFar = q->detectionLog.volatileValue();
+        q->detectionLog.setValue(soFar.isEmpty() ? message : soFar + '\n' + message);
+    }
+
+    void setDetectionRunning(bool running)
+    {
+        for (Utils::ActionAspect * const button : {&q->autoDetectKitItems,
+                                                   &q->removeAutoDetectedKitItems,
+                                                   &q->listAutoDetectedKitItems}) {
+            button->setEnabled(!running);
+        }
+    }
+
+    void autoDetectKitItems()
+    {
+        q->detectionLog.setValue({});
+        const Result<> started = q->updateContainerAccess();
+        if (!started) {
+            log(Tr::tr("Failed to start container."));
+            log(started.error());
+            return;
+        }
+
+        const auto logger = [this](const QString &message) { log(message); };
+        const QtTaskTree::Group recipe {
+            q->autoDetectDeviceToolsRecipe(),
+            ProjectExplorer::removeDetectedKitsRecipe(q->shared_from_this(), logger),
+            ProjectExplorer::kitDetectionRecipe(q->shared_from_this(),
+                                                ProjectExplorer::DetectionSource::FromSystem,
+                                                logger)
+        };
+
+        const auto onSetup = [this] {
+            setDetectionRunning(true);
+            log(Tr::tr("Starting auto-detection..."));
+        };
+        const auto onDone = [this] {
+            setDetectionRunning(false);
+            log(Tr::tr("Done."));
+        };
+        m_detectionRunner.start(recipe, onSetup, onDone);
+
+        if (DockerApi * const api = DockerApi::instance(q->type())) {
+            log(api->dockerDaemonAvailable().value_or(false)
+                    ? Tr::tr("%1 daemon appears to be running.").arg(api->displayType())
+                    : Tr::tr("%1 daemon appears to be stopped.").arg(api->displayType()));
+        }
+        q->daemonState.updateSummary();
+    }
+
+    void removeAutoDetectedKitItems()
+    {
+        q->detectionLog.setValue({});
+        m_detectionRunner.start(ProjectExplorer::removeDetectedKitsRecipe(
+            q->shared_from_this(), [this](const QString &message) { log(message); }));
+    }
+
+    void listAutoDetectedKitItems()
+    {
+        q->detectionLog.setValue({});
+        ProjectExplorer::listAutoDetected(q->shared_from_this(),
+                                          [this](const QString &message) { log(message); });
+    }
+
+    QtTaskTree::QSingleTaskTreeRunner m_detectionRunner;
+
     ~DockerDevicePrivate() { stopCurrentContainer(); }
 
     Result<QString> updateContainerAccess();
@@ -1461,6 +1531,17 @@ DockerDevice::DockerDevice(ContainerToolSettings *settings)
         createCommandLineDisplay.setText(createCommandLineForDisplay().toUserOutput());
     };
     connect(this, &BaseAspect::volatileValueChanged, this, updateCreateCommandLine);
+
+    detectionLog.setLabelText(Tr::tr("Detection log:"));
+    detectionLog.setDisplayStyle(StringAspect::TextEditDisplay);
+    detectionLog.setReadOnly(true);
+
+    autoDetectKitItems.setActionText(Tr::tr("Auto-detect Kit Items"));
+    autoDetectKitItems.setAction([this] { d->autoDetectKitItems(); });
+    removeAutoDetectedKitItems.setActionText(Tr::tr("Remove Auto-Detected Kit Items"));
+    removeAutoDetectedKitItems.setAction([this] { d->removeAutoDetectedKitItems(); });
+    listAutoDetectedKitItems.setActionText(Tr::tr("List Auto-Detected Kit Items"));
+    listAutoDetectedKitItems.setAction([this] { d->listAutoDetectedKitItems(); });
 
     refreshNetworks.setActionIcon(Utils::Icons::RELOAD_TOOLBAR.icon());
     refreshNetworks.setAction([this] {

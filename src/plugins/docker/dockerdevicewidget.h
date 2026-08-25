@@ -6,8 +6,6 @@
 #include <projectexplorer/devicesupport/idevice.h>
 #include <projectexplorer/devicesupport/idevicewidget.h>
 
-#include <QtTaskTree/QSingleTaskTreeRunner>
-
 QT_BEGIN_NAMESPACE
 class QCheckBox;
 class QLabel;
@@ -28,7 +26,6 @@ public:
 
 private:
     DockerApi *m_api = nullptr;
-    QtTaskTree::QSingleTaskTreeRunner m_detectionRunner;
     QtTaskTree::QSingleTaskTreeRunner m_imageIdRunner;
 };
 
