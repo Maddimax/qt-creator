@@ -4,6 +4,7 @@
 #include "dockerapi.h"
 #include "dockerconstants.h"
 #include "dockerdevice.h"
+#include "dockerdevicewidget.h"
 #include "dockersettings.h"
 #ifdef WITH_TESTS
 #include "dockerdebuggertest.h"
@@ -98,6 +99,7 @@ private:
         setupDockerRunAndDebugSupport();
 #ifdef WITH_TESTS
         addTestCreator(createDockerMountTest);
+        addTestCreator(createDockerDeviceAspectsTest);
         addTestCreator(createDockerQmlChannelTest);
         addTestCreator(createDockerPortsGatheringTest);
 #endif

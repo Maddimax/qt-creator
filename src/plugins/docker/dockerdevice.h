@@ -161,6 +161,20 @@ public:
     Utils::BoolAspect enableX11Forwarding{this};
     Utils::StringAspect x11Display{this};
 
+    // What the device knows about itself rather than what it is told. These
+    // were labels and tool buttons the settings widget built and kept in step
+    // by hand, so only a widget page could show them.
+    //
+    // Whether the daemon is up, and the button that makes it be asked again.
+    Utils::ActionAspect daemonState{this};
+    // Shown when there is nothing to mount, which is not a useful container.
+    Utils::TextDisplay mountsWarning{this};
+    // The docker create call the settings above come to.
+    Utils::TextDisplay createCommandLineDisplay{this};
+    // Asks the daemon which networks it has, for the list above.
+    Utils::ActionAspect refreshNetworks{this};
+
+
 protected:
     void fromMap(const Utils::Store &map) final;
     void toMap(Utils::Store &map) const final;

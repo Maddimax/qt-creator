@@ -1669,6 +1669,28 @@ providers configured, so the loop never ran and the control that broke the id
 lookup passed. It registers a provider of its own now, and skips honestly if
 the plugin cannot make one.
 
+### What the Docker widget knew that the Docker device did not
+
+Docker's form was already all device aspects except for four things the widget
+worked out and drew itself, none of which any other renderer could see:
+
+- **Whether the daemon is up.** A `QLabel`, a `QToolButton` whose icon changed
+  with the state, and an `updateDaemonStateTexts()` the widget called from
+  four places. That is a summary plus the button that has it looked at again,
+  which is what `TextWithAction` is - and the icon that changes with the state
+  is what `actionIcon` was added for.
+- **That there is nothing to mount.** An `InfoLabel` standing in for the
+  `mounts` aspect's own label, turned to Warning when the list was empty. It is
+  a warning row beside the field now, like the free-ports one.
+- **What the `docker create` call comes to.** A word-wrapped label kept in step
+  with `volatileValueChanged`.
+- **Re-asking the daemon for its networks.** A tool button with a reload icon
+  and no text.
+
+All four are aspects on `DockerDevice`. What is left in the widget is the
+detection recipe, its three buttons and the log they write to - genuinely
+runtime state rather than settings, and the next thing to find a home for.
+
 ### What the census could not see, and now can
 
 Two holes, both found the hard way in the same session.
@@ -1909,8 +1931,9 @@ remembered:
   counted. Four are already pure aspect layout; the desktop one has been
   converted, and the two read-only ones (iOS, Android) are deleted in favour of
   `deviceInformation()`, and BareMetal no longer embeds a foreign chooser. Every
-  one that is left is pure aspect layout; what remains is teaching each device
-  to name its rows, and Docker's detection log.
+  one that is left is pure aspect layout except for Docker's detection log and
+  the recipe behind it; what remains after that is teaching each device to name
+  its rows.
 - **BareMetal's Debug Server Providers** - **30 config-widget classes**, all of
   them for hardware this machine does not have.
 - **MCU Support** - `McuAbstractPackage::widget()`, one per package kind.

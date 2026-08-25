@@ -25,14 +25,15 @@ public:
     explicit DockerDeviceWidget(const ProjectExplorer::IDevice::Ptr &device);
 
     void updateDeviceFromUi() final {}
-    void updateDaemonStateTexts();
 
 private:
     DockerApi *m_api = nullptr;
-    QLabel *m_daemonState;
-    QToolButton *m_daemonReset;
     QtTaskTree::QSingleTaskTreeRunner m_detectionRunner;
     QtTaskTree::QSingleTaskTreeRunner m_imageIdRunner;
 };
+
+#ifdef WITH_TESTS
+QObject *createDockerDeviceAspectsTest();
+#endif
 
 } // namespace Docker::Internal

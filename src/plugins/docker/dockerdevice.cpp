@@ -38,6 +38,7 @@
 #include <utils/layoutbuilder.h>
 #include <utils/macroexpander.h>
 #include <utils/pathlisteditor.h>
+#include <utils/utilsicons.h>
 #include <utils/port.h>
 #include <utils/processinfo.h>
 #include <utils/processinterface.h>
@@ -1420,6 +1421,54 @@ Tasks DockerDevice::validate() const
 DockerDevice::DockerDevice(ContainerToolSettings *settings)
     : d(new DockerDevicePrivate(this, settings))
 {
+    daemonState.setLabelText(Tr::tr("Daemon state:"));
+    daemonState.setToolTip(Tr::tr("Clears detected daemon state. "
+        "It will be automatically re-evaluated next time access is needed."));
+    daemonState.setSummaryProvider([this] {
+        DockerApi * const api = DockerApi::instance(type());
+        if (!api)
+            return QString();
+        const std::optional<bool> up = api->dockerDaemonAvailable();
+        if (!up)
+            return Tr::tr("Daemon state not evaluated.");
+        return *up ? Tr::tr("%1 daemon running.").arg(api->displayType())
+                   : Tr::tr("%1 daemon not running.").arg(api->displayType());
+    });
+    daemonState.setAction([this] { DockerApi::recheckDaemon(type()); });
+
+    mountsWarning.setIconType(Utils::InfoType::Warning);
+    const auto updateMountsWarning = [this] {
+        const QStringList entries = mounts.volatileValue();
+        QStringList warnings;
+        if (entries.isEmpty()) {
+            warnings.append(Tr::tr("Source directory list should not be empty."));
+        } else {
+            const QList<MountPair> pairs = parseMounts(entries, mounts.macroExpander());
+            for (int i = 0; i < entries.size(); ++i) {
+                if (const Result<> res = validateMount(pairs.at(i)); !res) {
+                    warnings.append(
+                        Tr::tr("\"%1\" is not mounted: %2").arg(entries.at(i), res.error()));
+                }
+            }
+        }
+        mountsWarning.setText(warnings.join('\n'));
+        mountsWarning.setVisible(!warnings.isEmpty());
+    };
+
+    createCommandLineDisplay.setLabelText(Tr::tr("Command line:"));
+    createCommandLineDisplay.setWordWrap(true);
+    const auto updateCreateCommandLine = [this] {
+        createCommandLineDisplay.setText(createCommandLineForDisplay().toUserOutput());
+    };
+    connect(this, &BaseAspect::volatileValueChanged, this, updateCreateCommandLine);
+
+    refreshNetworks.setActionIcon(Utils::Icons::RELOAD_TOOLBAR.icon());
+    refreshNetworks.setAction([this] {
+        if (DockerApi * const api = DockerApi::instance(type()))
+            api->refreshNetworks();
+    });
+    setIgnoreForDirtyHook(&refreshNetworks);
+
     imageId.setSettingsKey(DockerDeviceDataImageIdKey);
     imageId.setLabelText(Tr::tr("Image ID:"));
     imageId.setReadOnly(true);
@@ -1475,6 +1524,8 @@ DockerDevice::DockerDevice(ContainerToolSettings *settings)
         DeviceManager::instance()->deviceUpdated(id());
         d->stopCurrentContainer();
     });
+    mounts.addOnVolatileValueChanged(this, updateMountsWarning);
+    updateMountsWarning();
 
     extraArgs.setSettingsKey(DockerDeviceExtraArgs);
     extraArgs.setLabelText(Tr::tr("Extra arguments:"));

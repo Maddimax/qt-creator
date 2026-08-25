@@ -5,7 +5,12 @@
 
 #include "dockerapi.h"
 #include "dockerdevice.h"
+#include "dockersettings.h"
 #include "dockertr.h"
+
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
 
 #include <projectexplorer/kitaspect.h>
 
@@ -40,22 +45,12 @@ DockerDeviceWidget::DockerDeviceWidget(const IDevice::Ptr &device)
 
     using namespace Layouting;
 
-    auto daemonStateLabel = new QLabel(Tr::tr("Daemon state:"));
-    m_daemonReset = new QToolButton;
-    m_daemonReset->setToolTip(Tr::tr("Clears detected daemon state. "
-        "It will be automatically re-evaluated next time access is needed."));
-
-    m_daemonState = new QLabel;
-
-    connect(m_api, &DockerApi::dockerDaemonAvailableChanged, this, [this]{
-        updateDaemonStateTexts();
+    // What the daemon is doing is the device's to say; the button that makes
+    // it be asked again is part of the same row.
+    connect(m_api, &DockerApi::dockerDaemonAvailableChanged, this, [dockerDevice] {
+        dockerDevice->daemonState.updateSummary();
     });
-
-    updateDaemonStateTexts();
-
-    connect(m_daemonReset, &QToolButton::clicked, this, [dockerDevice] {
-        DockerApi::recheckDaemon(dockerDevice->type());
-    });
+    dockerDevice->daemonState.updateSummary();
 
     onFirstShow(this, [this, dockerDevice] {
         const FilePath dockerExe = m_api->dockerClient();
@@ -72,32 +67,6 @@ DockerDeviceWidget::DockerDeviceWidget(const IDevice::Ptr &device)
         };
         m_imageIdRunner.start({ProcessTask(onSetup, onDone)});
     });
-
-    auto pathListLabel = new InfoLabel(Tr::tr("Paths to mount:"));
-    pathListLabel->setElideMode(Qt::ElideNone);
-
-    auto markupMounts = [dockerDevice, pathListLabel] {
-        const QStringList entries = dockerDevice->mounts.volatileValue();
-        QStringList warnings;
-        if (entries.isEmpty()) {
-            warnings.append(Tr::tr("Source directory list should not be empty."));
-        } else {
-            const QList<MountPair> mounts
-                = parseMounts(entries, dockerDevice->mounts.macroExpander());
-            for (int i = 0; i < entries.size(); ++i) {
-                const Result<> res = validateMount(mounts.at(i));
-                if (!res) {
-                    warnings.append(
-                        Tr::tr("\"%1\" is not mounted: %2").arg(entries.at(i), res.error()));
-                }
-            }
-        }
-        pathListLabel->setType(warnings.isEmpty() ? InfoLabelType::None : InfoLabelType::Warning);
-        pathListLabel->setAdditionalToolTip(warnings.join('\n'));
-    };
-    markupMounts();
-
-    connect(&dockerDevice->mounts, &FilePathListAspect::volatileValueChanged, this, markupMounts);
 
     auto logView = new QTextBrowser;
 
@@ -148,7 +117,7 @@ DockerDeviceWidget::DockerDeviceWidget(const IDevice::Ptr &device)
                 else
                     logView->append(
                         Tr::tr("%1 daemon appears to be running.").arg(m_api->displayType()));
-                updateDaemonStateTexts();
+                dockerDevice->daemonState.updateSummary();
             });
 
     connect(undoAutoDetectButton, &QPushButton::clicked, this, [this, logView, device] {
@@ -165,17 +134,8 @@ DockerDeviceWidget::DockerDeviceWidget(const IDevice::Ptr &device)
         listAutoDetected(device, [logView](const QString &msg) { logView->append(msg); });
     });
 
-    auto createLineLabel = new QLabel(dockerDevice->createCommandLineForDisplay().toUserOutput());
-    createLineLabel->setWordWrap(true);
-    createLineLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-
-    auto refreshNetworksButton = new QToolButton();
-    setIgnoreForDirtyHook(refreshNetworksButton);
-    refreshNetworksButton->setIcon(Icons::RELOAD_TOOLBAR.icon());
-    refreshNetworksButton->setToolTip(Tr::tr("Refresh %1 networks").arg(m_api->displayType()));
-    connect(refreshNetworksButton, &QPushButton::clicked, this, [this] {
-        m_api->refreshNetworks();
-    });
+    dockerDevice->refreshNetworks.setToolTip(
+        Tr::tr("Refresh %1 networks").arg(m_api->displayType()));
 
     using namespace Layouting;
 
@@ -187,19 +147,20 @@ DockerDeviceWidget::DockerDeviceWidget(const IDevice::Ptr &device)
             dockerDevice->repo, br,
             dockerDevice->tag, br,
             dockerDevice->imageId, br,
-            daemonStateLabel, m_daemonReset, m_daemonState, br,
+            dockerDevice->daemonState, br,
             dockerDevice->useLocalUidGid, br,
             dockerDevice->keepEntryPoint, br,
             dockerDevice->enableLldbFlags, br,
             dockerDevice->mountCmdBridge, br,
             dockerDevice->enableX11Forwarding, br,
             dockerDevice->x11Display, br,
-            dockerDevice->network, refreshNetworksButton,br,
+            dockerDevice->network, dockerDevice->refreshNetworks, br,
             dockerDevice->extraArgs, br,
             dockerDevice->environment, br,
-            pathListLabel, dockerDevice->mounts, br,
+            dockerDevice->mounts, br,
+            empty, dockerDevice->mountsWarning, br,
             Tr::tr("Port mappings:"), dockerDevice->portMappings, br,
-            Tr::tr("Command line:"), createLineLabel, br,
+            dockerDevice->createCommandLineDisplay, br,
             dockerDevice->deviceToolsGui(), br,
             Span(2, Row {
                 autoDetectButton,
@@ -212,29 +173,65 @@ DockerDeviceWidget::DockerDeviceWidget(const IDevice::Ptr &device)
     }.attachTo(this);
     // clang-format on
 
-    connect(dockerDevice.get(), &BaseAspect::volatileValueChanged, this, [createLineLabel, dockerDevice] {
-        createLineLabel->setText(dockerDevice->createCommandLineForDisplay().toUserOutput());
-    });
-
     connect(&dockerDevice->mounts, &FilePathListAspect::volatileValueChanged,
             this, checkSettingsDirty);
 
     installMarkSettingsDirtyTriggerRecursively(this);
 }
 
-void DockerDeviceWidget::updateDaemonStateTexts()
+#ifdef WITH_TESTS
+class DockerDeviceAspectsTest final : public QObject
 {
-    std::optional<bool> daemonState = m_api->dockerDaemonAvailable();
-    if (!daemonState.has_value()) {
-        m_daemonReset->setIcon(Icons::INFO.icon());
-        m_daemonState->setText(Tr::tr("Daemon state not evaluated."));
-    } else if (*daemonState) {
-        m_daemonReset->setIcon(Icons::OK.icon());
-        m_daemonState->setText(Tr::tr("%1 daemon running.").arg(m_api->displayType()));
-    } else {
-        m_daemonReset->setIcon(Icons::CRITICAL.icon());
-        m_daemonState->setText(Tr::tr("%1 daemon not running.").arg(m_api->displayType()));
+    Q_OBJECT
+
+private slots:
+    void testTheDeviceSaysWhatItKnowsAboutItself()
+    {
+        // Four things the settings widget worked out and drew itself: whether
+        // the daemon is up, that there is nothing to mount, what the docker
+        // create call comes to, and the button that re-asks for networks.
+        // Nothing but that widget could see any of them.
+        const DockerDevice::Ptr device = DockerDevice::create(&dockerSettings());
+        QVERIFY(device);
+
+        // The daemon state is a summary plus the button that has it looked at
+        // again - not a label, a tool button and a hand-written update.
+        const AspectPresentation daemon = device->daemonState.presentation();
+        QCOMPARE(daemon.control, AspectControls::TextWithAction);
+        QVERIFY(!daemon.labelText.isEmpty());
+        device->daemonState.updateSummary();
+        QVERIFY2(!device->daemonState.displayText().isEmpty(),
+                 "the device says nothing about its daemon");
+
+        // The warning follows the mounts, whichever way round they go.
+        device->mounts.setValue(QStringList{});
+        QVERIFY(device->mountsWarning.isVisible());
+        device->mounts.setValue(QStringList{"/tmp"});
+        QVERIFY(!device->mountsWarning.isVisible());
+
+        // What the settings come to, kept up as they change.
+        device->createCommandLineDisplay.setText({});
+        device->repo.setValue("alpine");
+        QVERIFY2(!device->createCommandLineDisplay.text().isEmpty(),
+                 "the device does not say what it would run");
+        QVERIFY(!device->createCommandLineDisplay.labelText().isEmpty());
+
+        // A button that says what it does with a picture: it had a reload icon
+        // and no text.
+        const AspectPresentation refresh = device->refreshNetworks.presentation();
+        QCOMPARE(refresh.control, AspectControls::Button);
+        QVERIFY2(!refresh.actionIcon.isNull(), "the refresh button has nothing to show");
     }
+};
+
+QObject *createDockerDeviceAspectsTest()
+{
+    return new DockerDeviceAspectsTest;
 }
+#endif // WITH_TESTS
 
 } // namespace Docker::Internal
+
+#ifdef WITH_TESTS
+#include "dockerdevicewidget.moc"
+#endif
