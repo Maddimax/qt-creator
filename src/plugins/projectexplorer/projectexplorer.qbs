@@ -216,6 +216,7 @@ QtcPlugin {
             "devicekitaspects.cpp", "devicekitaspects.h",
             "devicemanager.cpp", "devicemanager.h",
             "devicemanagermodel.cpp", "devicemanagermodel.h",
+            "deviceselectionaspect.cpp", "deviceselectionaspect.h",
             "deviceprocessesdialog.cpp", "deviceprocessesdialog.h",
             "devicesettingspage.cpp", "devicesettingspage.h",
             "devicetestdialog.cpp", "devicetestdialog.h",
