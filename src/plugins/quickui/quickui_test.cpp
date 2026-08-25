@@ -1159,29 +1159,10 @@ AspectPage {
     QCOMPARE(nested.findChildren<QtcQuick::NamedAspects *>().size(), 1);
 }
 
-// An aspect that hands out a whole container rather than a value, for settings
-// that are not known until something is picked: a Qt version's extra settings
-// are its own kind's - only QNX has any, and only an SDP path.
-class ContainerHandingAspect final : public Utils::BaseAspect
-{
-    Q_OBJECT
-
-    Q_PROPERTY(Utils::BaseAspect *container READ container CONSTANT)
-
-public:
-    using BaseAspect::BaseAspect;
-
-    Utils::AspectContainer *container() const { return m_container; }
-    void setContainer(Utils::AspectContainer *container) { m_container = container; }
-
-private:
-    Utils::AspectContainer *m_container = nullptr;
-};
-
 void QuickUiTest::testAnAspectCanHandOutAContainerToDraw()
 {
     Utils::AspectContainer page;
-    ContainerHandingAspect extra(&page);
+    Utils::ContainerAspect extra(&page);
     extra.setQmlName("Extra");
 
     Utils::AspectContainer handedOver;

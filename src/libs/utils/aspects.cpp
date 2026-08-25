@@ -3356,6 +3356,61 @@ void IntegersAspect::addToLayoutImpl(Layouting::Layout &parent)
     Constructs a text display with the parent \a container. The display shows
     \a message and an icon representing the type \a type.
  */
+ContainerAspect::~ContainerAspect()
+{
+    if (m_owned) {
+        delete m_container;
+        m_container = nullptr;
+    }
+}
+
+AspectContainer *ContainerAspect::container() const
+{
+    return m_container;
+}
+
+void ContainerAspect::setOwnedContainer(AspectContainer *container)
+{
+    handOver(container, true);
+}
+
+void ContainerAspect::setContainer(AspectContainer *container)
+{
+    handOver(container, false);
+}
+
+bool ContainerAspect::isDirty() const
+{
+    return m_container && m_container->isDirty();
+}
+
+void ContainerAspect::handOver(AspectContainer *container, bool owned)
+{
+    if (m_container == container) {
+        m_owned = owned;
+        return;
+    }
+
+    if (m_container)
+        disconnect(m_container, nullptr, this, nullptr);
+    if (m_owned)
+        delete m_container;
+
+    m_container = container;
+    m_owned = owned;
+    if (m_container) {
+        // Only what the aspect owns is parented to it: a settings singleton
+        // handed over here outlives every page that shows it.
+        if (m_owned)
+            m_container->setParent(this);
+        // What the page shows is what it is dirty about, and the page's own
+        // container is what the preferences dialog watches.
+        connect(m_container, &BaseAspect::volatileValueChanged,
+                this, &BaseAspect::volatileValueChanged);
+    }
+    emit containerChanged();
+}
+
 TextDisplay::TextDisplay(AspectContainer *container, const QString &message)
     : BaseAspect(container), d(new Internal::TextDisplayPrivate)
 {

@@ -321,35 +321,6 @@ private:
     QString m_path;
 };
 
-// The extra settings of the version being looked at - QNX's SDP path is the
-// only kind there is. Which aspects those are changes with the version, so the
-// page hands over the whole container rather than naming what is in it.
-class ConfigurationAspect final : public BaseAspect
-{
-    Q_OBJECT
-
-    Q_PROPERTY(Utils::BaseAspect *container READ container NOTIFY containerChanged)
-
-public:
-    using BaseAspect::BaseAspect;
-
-    AspectContainer *container() const { return m_container.get(); }
-
-    void setContainer(AspectContainer *container)
-    {
-        m_container.reset(container);
-        if (container)
-            container->setParent(this);
-        emit containerChanged();
-    }
-
-signals:
-    void containerChanged();
-
-private:
-    std::unique_ptr<AspectContainer> m_container;
-};
-
 class QtSettingsPageWidget final : public AspectContainer
 {
     Q_OBJECT
@@ -384,7 +355,9 @@ public:
     BoolAspect m_showDetails{&m_details};
     TextDisplay m_infoBrowser{&m_details};
 
-    ConfigurationAspect m_configuration{&m_details};
+    // The extra settings of the version being looked at - QNX's SDP path is
+    // the only kind there is - which change with the version.
+    ContainerAspect m_configuration{&m_details};
 
 private:
     void updateDescriptionLabel();
@@ -974,11 +947,11 @@ void QtSettingsPageWidget::updateWidgets()
             connect(configuration, &AspectContainer::subAspectChanged,
                     this, [this] { updateDescriptionLabel(); });
         }
-        m_configuration.setContainer(configuration);
+        m_configuration.setOwnedContainer(configuration);
     } else {
         m_nameEdit.setValue({});
         m_qmakePath.setPath({});
-        m_configuration.setContainer(nullptr);
+        m_configuration.setOwnedContainer(nullptr);
     }
 
     updateButtons();

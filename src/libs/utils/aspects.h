@@ -1298,6 +1298,42 @@ public:
     using TypedAspect::TypedAspect;
 };
 
+// An aspect whose value is a whole container, for settings a page shows but
+// does not own: the extra settings of whichever Qt version is picked, a
+// plugin's own settings object laid out on its page. Reached from QML as
+// AspectModels.container(aspects.<name>.container), which is the only way to
+// draw a container the page container does not hold - naming it as a
+// sub-aspect would re-home it, and an aspect's container is what its settings
+// key is resolved against.
+class QTCREATOR_UTILS_EXPORT ContainerAspect : public BaseAspect
+{
+    Q_OBJECT
+
+    Q_PROPERTY(Utils::BaseAspect *container READ container NOTIFY containerChanged)
+
+public:
+    using BaseAspect::BaseAspect;
+    ~ContainerAspect() override;
+
+    AspectContainer *container() const;
+
+    // Hands over a container the aspect owns. The previous one is deleted.
+    void setOwnedContainer(AspectContainer *container);
+    // Hands over one that outlives the aspect - a plugin's settings singleton.
+    void setContainer(AspectContainer *container);
+
+    bool isDirty() const override;
+
+signals:
+    void containerChanged();
+
+private:
+    void handOver(AspectContainer *container, bool owned);
+
+    AspectContainer *m_container = nullptr;
+    bool m_owned = false;
+};
+
 class QTCREATOR_UTILS_EXPORT TextDisplay : public BaseAspect
 {
     Q_OBJECT
