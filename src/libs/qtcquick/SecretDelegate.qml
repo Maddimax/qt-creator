@@ -12,7 +12,8 @@ import QtCreator.Ui
 // A value the aspect does not keep: a secret out of the keychain. It is asked
 // for once the field exists and arrives later, so the field stays read-only
 // until it does - typing into it before then would overwrite what is stored
-// with nothing.
+// with nothing. The aspect is what knows: it starts read-only and stays that
+// way if the secret could not be read at all.
 RowLayout {
     id: delegate
 
@@ -20,11 +21,7 @@ RowLayout {
     readonly property string labelText: aspect?.plainLabelText ?? ""
     readonly property string toolTip: aspect?.toolTip ?? ""
     readonly property bool aspectVisible: aspect?.visible ?? true
-
-    // Whether the value has arrived. displayText is empty until it does, and
-    // an empty secret is a legitimate answer, so this follows the signal
-    // rather than the text.
-    property bool arrived: false
+    readonly property bool editable: !(aspect?.readOnly ?? true)
 
     visible: aspectVisible
     spacing: Spacing.GapHM
@@ -35,7 +32,6 @@ RowLayout {
     Connections {
         target: delegate.aspect
         function onDisplayTextChanged() {
-            delegate.arrived = true
             field.text = delegate.aspect?.displayText ?? ""
         }
     }
@@ -52,8 +48,10 @@ RowLayout {
         id: field
 
         echoMode: reveal.checked ? TextInput.Normal : TextInput.Password
-        enabled: (delegate.aspect?.enabled ?? false) && delegate.arrived
-        readOnly: (delegate.aspect?.readOnly ?? true) || !delegate.arrived
+        enabled: delegate.aspect?.enabled ?? false
+        readOnly: !delegate.editable
+        // Why it cannot be read, where it could not be.
+        placeholderText: delegate.aspect?.placeholderText ?? ""
         ToolTip.text: delegate.toolTip
         ToolTip.visible: hovered && delegate.toolTip !== ""
         Layout.fillWidth: true
@@ -65,6 +63,6 @@ RowLayout {
         id: reveal
 
         text: qsTr("Show")
-        enabled: delegate.arrived
+        enabled: delegate.editable
     }
 }

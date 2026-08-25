@@ -22,7 +22,6 @@ public:
 
     bool isDirty() const override;
 
-    void addToLayoutImpl(Layouting::Layout &parent) override;
     Utils::AspectPresentation presentation() const override;
 
     void requestValue(

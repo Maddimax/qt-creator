@@ -108,6 +108,7 @@ class QTCREATOR_UTILS_EXPORT BaseAspect : public QObject
     Q_PROPERTY(bool visible READ isVisible WRITE setVisible NOTIFY visibleChanged)
     Q_PROPERTY(bool readOnly READ isReadOnly WRITE setReadOnly NOTIFY readOnlyChanged)
     Q_PROPERTY(QString displayText READ displayText NOTIFY displayTextChanged)
+    Q_PROPERTY(QString placeholderText READ placeholderText NOTIFY placeholderTextChanged)
 
 public:
     BaseAspect(AspectContainer *container = nullptr);
@@ -192,6 +193,11 @@ public:
     // A summary of the value, for the controls that show one instead of an
     // editor. Empty unless the aspect has something to summarise.
     virtual QString displayText() const;
+
+    // What the control shows while it holds nothing. Read off the descriptor
+    // rather than kept here: the aspects that have one keep it in their own
+    // data, and only the descriptor is common to all of them.
+    QString placeholderText() const;
 
     // What the button of a TextWithAction control does. Nothing by default.
     Q_INVOKABLE virtual void triggerAction();
@@ -334,6 +340,7 @@ signals:
     void validationMessageChanged();
     void labelPixmapChanged();
     void displayTextChanged();
+    void placeholderTextChanged(const QString &placeholderText);
 
     // Renderer-facing. An aspect holds no control, so a setter that has to
     // reach a live one says what happened and lets whoever built the control
@@ -914,7 +921,6 @@ signals:
     void historyCompleterKeyChanged(const Key &historyCompleterKey);
     void acceptRichTextChanged(bool acceptRichText);
     void validationFunctionChanged(const ValidationFunction &validator);
-    void placeholderTextChanged(const QString &placeholderText);
     void rightSideIconClicked();
 
 protected:

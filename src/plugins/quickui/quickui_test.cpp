@@ -1792,9 +1792,12 @@ void QuickUiTest::testSecretIsFetchedBeforeItCanBeEdited()
     QQuickItem *field = findQmlComponent(delegate, "TextField");
     QVERIFY(field);
 
-    // The delegate asks on completion. Whether the keychain answers at all
-    // depends on the machine, so wait for the answer either way.
-    QTRY_VERIFY(delegate->property("arrived").toBool());
+    // The delegate asks on completion, and the aspect is what says the secret
+    // has arrived: it starts read-only and lifts that once it has read one.
+    // Whether the keychain answers at all depends on the machine, so wait for
+    // the answer either way.
+    QVERIFY(secret.isReadOnly());
+    QTRY_VERIFY(!secret.isReadOnly());
     QVERIFY(!field->property("readOnly").toBool());
 
     // Not echoed until asked for.

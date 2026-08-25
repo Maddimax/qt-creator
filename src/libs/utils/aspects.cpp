@@ -772,6 +772,11 @@ QString BaseAspect::displayText() const
     return {};
 }
 
+QString BaseAspect::placeholderText() const
+{
+    return presentation().placeholderText;
+}
+
 /*!
     Reports that \a link in the aspect's text was activated. Does nothing
     unless an aspect gives the links a meaning.

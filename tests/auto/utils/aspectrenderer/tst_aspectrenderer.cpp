@@ -174,6 +174,10 @@ private slots:
     void stringSelection();
     void fontPicker_data() { addRendererRows(); }
     void fontPicker();
+    void secretIsReadOnlyUntilItArrives_data() { addRendererRows(); }
+    void secretIsReadOnlyUntilItArrives();
+    void secretThatCannotBeReadStaysReadOnly_data() { addRendererRows(); }
+    void secretThatCannotBeReadStaysReadOnly();
 };
 
 void tst_AspectRenderer::initTestCase()
@@ -1142,6 +1146,151 @@ void tst_AspectRenderer::aspectThatDescribesNoControlDrawsNothing()
     if (withRenderer)
         QVERIFY(!widget->findChildren<QCheckBox *>().isEmpty());
     QVERIFY2(complaints.isEmpty(), qPrintable(complaints.join("\n")));
+}
+
+// A value the aspect does not hold: it is asked for and turns up later, which
+// is SecretAspect's shape without its keychain. Fetching is a step this test
+// takes by hand, so that the moment before the value arrives is a moment the
+// test can look at.
+class FetchedSecretAspect final : public BaseAspect
+{
+public:
+    FetchedSecretAspect()
+    {
+        setSettingsKey("Test.Token");
+        setLabelText("Token");
+        // Nothing may be typed in before the secret is there, exactly as
+        // SecretAspect starts out.
+        setReadOnly(true);
+    }
+
+    AspectPresentation presentation() const override
+    {
+        AspectPresentation p = BaseAspect::presentation();
+        p.control = AspectControls::Secret;
+        p.objectName = stringFromKey(settingsKey()) + ".secret";
+        p.placeholderText = m_error;
+        if (m_storageUnavailable)
+            p.infoType = AspectControls::InfoType::Warning;
+        return p;
+    }
+
+    QString displayText() const override { return m_secret; }
+    void requestDisplayText() override { m_wasAsked = true; }
+
+    // What the keychain would call back with.
+    void deliver(const QString &secret)
+    {
+        m_secret = secret;
+        setReadOnly(false);
+        emit displayTextChanged();
+    }
+
+    void fail(const QString &reason)
+    {
+        m_error = reason;
+        emit placeholderTextChanged(reason);
+        emit displayTextChanged();
+    }
+
+    QVariant volatileVariantValue() const override { return m_secret; }
+    void setVolatileVariantValue(const QVariant &value, Announcement = DoEmit) override
+    {
+        m_secret = value.toString();
+    }
+
+    bool m_wasAsked = false;
+    bool m_storageUnavailable = false;
+    QString m_secret;
+    QString m_error;
+};
+
+static ShowPasswordButton *findRevealButton(QWidget *widget)
+{
+    // ShowPasswordButton has no Q_OBJECT macro, so findChild cannot key on it.
+    for (QAbstractButton *button : widget->findChildren<QAbstractButton *>()) {
+        if (auto b = dynamic_cast<ShowPasswordButton *>(button))
+            return b;
+    }
+    return nullptr;
+}
+
+void tst_AspectRenderer::secretIsReadOnlyUntilItArrives()
+{
+    QFETCH(bool, withRenderer);
+    setRendererInstalled(withRenderer);
+
+    FetchedSecretAspect aspect;
+
+    const std::unique_ptr<QWidget> widget = render(aspect);
+    QVERIFY(widget);
+    auto field = widget->findChild<FancyLineEdit *>("Test.Token.secret");
+    if (!withRenderer) {
+        // Without a renderer nothing is built: the aspect has no layout of its
+        // own any more.
+        QVERIFY(!field);
+        return;
+    }
+
+    QVERIFY(field);
+    QCOMPARE(field->echoMode(), QLineEdit::Password);
+
+    // Asked for as soon as there is somewhere to put it.
+    QVERIFY(aspect.m_wasAsked);
+
+    // ... and until it turns up, nothing may be typed over it. An empty field
+    // is not evidence: an empty secret is a legitimate answer.
+    QVERIFY(field->isReadOnly());
+    ShowPasswordButton *reveal = findRevealButton(widget.get());
+    QVERIFY(reveal);
+    QVERIFY(!reveal->isEnabled());
+
+    aspect.deliver("hunter2");
+    QCOMPARE(field->text(), QString("hunter2"));
+    QVERIFY(!field->isReadOnly());
+    QVERIFY(reveal->isEnabled());
+
+    // The reveal shows it, and typing writes back.
+    reveal->click();
+    QCOMPARE(field->echoMode(), QLineEdit::Normal);
+    field->setText("s3cret");
+    QCOMPARE(aspect.volatileVariantValue().toString(), QString("s3cret"));
+}
+
+void tst_AspectRenderer::secretThatCannotBeReadStaysReadOnly()
+{
+    QFETCH(bool, withRenderer);
+    setRendererInstalled(withRenderer);
+
+    FetchedSecretAspect aspect;
+    aspect.m_storageUnavailable = true;
+    aspect.setToolTip("No secret storage");
+
+    const std::unique_ptr<QWidget> widget = render(aspect);
+    QVERIFY(widget);
+    auto field = widget->findChild<FancyLineEdit *>("Test.Token.secret");
+    if (!withRenderer) {
+        QVERIFY(!field);
+        return;
+    }
+    QVERIFY(field);
+
+    // The warning is a label beside the field, and what it says is the
+    // aspect's tool tip.
+    QLabel *warning = nullptr;
+    for (QLabel * const label : widget->findChildren<QLabel *>()) {
+        if (!label->pixmap().isNull())
+            warning = label;
+    }
+    QVERIFY(warning);
+    QCOMPARE(warning->toolTip(), QString("No secret storage"));
+
+    // A secret that could not be read says why, and stays read-only: typing
+    // into it would store nothing over a secret that is still there.
+    aspect.fail("Keychain refused");
+    QCOMPARE(field->placeholderText(), QString("Keychain refused"));
+    QVERIFY(field->isReadOnly());
+    QVERIFY(!findRevealButton(widget.get())->isEnabled());
 }
 
 void tst_AspectRenderer::filePathLiveReconfiguration()

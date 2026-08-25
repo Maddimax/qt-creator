@@ -12,6 +12,7 @@
 #include "guard.h"
 #include "guiutils.h"
 #include "hostosinfo.h"
+#include "utilsicons.h"
 #include "infolabel.h"
 #include "layoutbuilder.h"
 #include "passworddialog.h"
@@ -188,6 +189,9 @@ public:
         case AspectControls::TextWithAction:
             renderTextWithAction(&aspect, parent, pres);
             return true;
+        case AspectControls::Secret:
+            renderSecret(&aspect, parent, pres);
+            return true;
         case AspectControls::Container:
             if (auto container = qobject_cast<AspectContainer *>(&aspect)) {
                 // A container that reads as one value has no layout of its own
@@ -232,6 +236,53 @@ public:
     }
 
 private:
+    // A value the aspect does not keep and has to go and get. It arrives after
+    // the field exists, so the aspect says when the field may be typed in:
+    // read-only until then, because typing before the secret is there would
+    // store nothing over what is already in the keychain. Failing to read it
+    // leaves the field read-only with the reason as its placeholder.
+    static void renderSecret(BaseAspect *aspect, Layout &parent,
+                             const AspectPresentation &pres)
+    {
+        auto lineEdit = AspectWidgets::createSubWidget<FancyLineEdit>(aspect);
+        lineEdit->setObjectName(pres.objectName);
+        lineEdit->setEchoMode(QLineEdit::Password);
+        lineEdit->setPlaceholderText(pres.placeholderText);
+        lineEdit->setReadOnly(pres.readOnly);
+
+        auto reveal = AspectWidgets::createSubWidget<ShowPasswordButton>(aspect);
+        reveal->setEnabled(!pres.readOnly);
+        QObject::connect(reveal, &ShowPasswordButton::toggled, lineEdit, [reveal, lineEdit] {
+            lineEdit->setEchoMode(reveal->isChecked() ? QLineEdit::Normal : QLineEdit::Password);
+        });
+
+        QLabel *warning = nullptr;
+        if (pres.infoType != AspectControls::InfoType::None) {
+            warning = AspectWidgets::createSubWidget<QLabel>(aspect);
+            warning->setPixmap(Icons::WARNING.icon().pixmap(16, 16));
+            warning->setToolTip(pres.toolTip);
+        }
+
+        QObject::connect(aspect, &BaseAspect::readOnlyChanged, lineEdit,
+                         [aspect, lineEdit, reveal] {
+                             lineEdit->setReadOnly(aspect->isReadOnly());
+                             reveal->setEnabled(!aspect->isReadOnly());
+                         });
+        QObject::connect(aspect, &BaseAspect::placeholderTextChanged,
+                         lineEdit, &QLineEdit::setPlaceholderText);
+        QObject::connect(aspect, &BaseAspect::displayTextChanged, lineEdit, [aspect, lineEdit] {
+            if (lineEdit->text() != aspect->displayText())
+                lineEdit->setTextKeepingActiveCursor(aspect->displayText());
+        });
+        QObject::connect(lineEdit, &QLineEdit::textChanged, aspect, [aspect](const QString &text) {
+            aspect->setVolatileVariantValue(text);
+        });
+
+        AspectWidgets::addLabeledItem(aspect, parent,
+                                      Row{noMargin, lineEdit, warning, reveal}.emerge());
+        aspect->requestDisplayText();
+    }
+
     // Everything a FilePathAspect's setters can change after the control
     // exists. Idempotent: it runs at build time and again on every
     // controlConfigurationChanged().

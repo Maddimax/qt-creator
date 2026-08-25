@@ -2169,10 +2169,10 @@ reason it was rewritten.
 `src/plugins` and five more in Utils still override it. They are not one
 group. Most are run-configuration, build-step and kit aspects - project
 panels rather than preferences pages, which is a surface the migration has not
-reached. The rest are aspects on pages that *have* been migrated but hold a
-control the descriptor cannot yet name: `SecretAspect`, `MimeTypesAspect`,
-`SuppressionAspect`, `EncodingSelectionAspect`,
-`ClangDiagnosticConfigIdAspect`.
+reached. The rest are aspects on pages that *have* been migrated and
+describe a control the widget renderer had no case for, so they kept a closure
+to draw it: `MimeTypesAspect`, `SuppressionAspect`, `EncodingSelectionAspect`,
+`ClangDiagnosticConfigIdAspect`. `SecretAspect` was the fifth - see below.
 `aspects.{h,cpp}` reach no QtWidgets header and no `layoutbuilder.h` either;
 what keeps them on the widget side of the split metric is that virtual's
 signature naming `Layouting::Layout`, and the project panels are what has to
@@ -2350,6 +2350,43 @@ as nothing, so that a later change to the default reaches a configuration that
 never overrode it. That is why `toMap()` and `fromMap()` stay: the value is
 conditional on the default, which `AspectContainer`'s own persistence does not
 express.
+
+### A secret is a control, not a closure
+
+`SecretAspect` described itself as `AspectControls::Secret` and *also* kept a
+50-line `addToLayoutImpl()`, because the widget renderer had no case for that
+control. Five aspects are in that position; this is the first of them. The
+renderer has the case now and the closure is gone.
+
+Writing it once turned three differences between the two backends into one
+answer.
+
+**Who knows the secret has arrived.** The QML delegate kept an `arrived` flag
+and set it on the first `displayTextChanged()`. That is the delegate deciding
+something the aspect knows, and it got the failure case wrong: a keychain that
+refuses also emits the signal, so a secret that could not be read became an
+editable empty field - and typing into it would have stored nothing over a
+secret that is still there. The aspect answers it now. It starts `readOnly`,
+`requestDisplayText()` lifts that only on success, and both renderers just read
+`isReadOnly()`. The flag is gone from the QML and the QuickUi test asks the
+aspect rather than the delegate.
+
+**Why it could not be read.** The closure put the error in the field's
+placeholder; the delegate showed nothing. `placeholderText` moved from
+`StringAspect`'s signals to `BaseAspect`, with a property so QML can bind it,
+and the aspect sets it when the fetch fails.
+
+**That there is nowhere safe to put it.** The closure drew a warning icon
+beside the field when no keychain was available; the delegate dropped that too.
+It is `presentation().infoType` and the aspect's tool tip now, so the widget
+renderer draws the icon and Quick shows the text.
+
+**The test is the aspect's shape without a keychain.** `FetchedSecretAspect` in
+`tst_aspectrenderer.cpp` fetches nothing: the test delivers the value, or
+fails, by hand, so the moment before it arrives is a moment the test can look
+at. That is the moment the field must be read-only in, and an empty field is no
+evidence of it - an empty secret is a legitimate answer, which is exactly what
+made the old `arrived` flag necessary in the first place.
 
 ### What the census could not see, and now can
 

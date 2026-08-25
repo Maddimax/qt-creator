@@ -12,19 +12,8 @@
 #include <QtTaskTree/QParallelTaskTreeRunner>
 #include <QtTaskTree/QSingleTaskTreeRunner>
 
-#include <utils/aspectwidgets.h>
-#include <utils/fancylineedit.h>
-#include <utils/guardedcallback.h>
 #include <utils/hostosinfo.h>
-#include <utils/layoutbuilder.h>
-#include <utils/passworddialog.h>
 #include <utils/qtcsettings.h>
-#include <utils/utilsicons.h>
-
-#include <QIcon>
-#include <QLabel>
-#include <QLineEdit>
-#include <QPointer>
 
 using namespace QKeychain;
 using namespace QtTaskTree;
@@ -78,12 +67,21 @@ public:
     QString value;
     QString service;
     QString key;
+    // Why the last fetch failed, shown in the field instead of the secret.
+    QString fetchError;
 };
 
 SecretAspect::SecretAspect(AspectContainer *container)
     : Utils::BaseAspect(container)
     , d(new SecretAspectPrivate)
-{}
+{
+    // Nothing may be typed in until the secret has been read: what is typed
+    // replaces what is stored, and before the read there is nothing to
+    // replace it with. requestDisplayText() lifts this.
+    setReadOnly(true);
+    if (!isSecretStorageAvailable())
+        setToolTip(warningThatNoSecretStorageIsAvailable());
+}
 
 SecretAspect::~SecretAspect() = default;
 
@@ -201,54 +199,20 @@ bool SecretAspect::isDirty() const
     return d->wasEdited;
 }
 
-void SecretAspect::addToLayoutImpl(Layouting::Layout &parent)
-{
-    auto edit = Utils::AspectWidgets::createSubWidget<FancyLineEdit>(this);
-    edit->setObjectName(stringFromKey(settingsKey()) + ".secret");
-    edit->setEchoMode(QLineEdit::Password);
-    auto showPasswordButton = Utils::AspectWidgets::createSubWidget<Utils::ShowPasswordButton>(this);
-    // Keep read-only/disabled until we have retrieved the value.
-    edit->setReadOnly(true);
-    showPasswordButton->setEnabled(false);
-    QLabel *warningLabel = nullptr;
-
-    if (!QKeychain::isAvailable()) {
-        warningLabel = new QLabel();
-        warningLabel->setPixmap(Utils::Icons::WARNING.icon().pixmap(16, 16));
-        warningLabel->setToolTip(warningThatNoSecretStorageIsAvailable());
-        edit->setToolTip(warningThatNoSecretStorageIsAvailable());
-    }
-
-    requestValue(
-        guardedCallback(edit, [edit, showPasswordButton](const Utils::Result<QString> &value) {
-            if (!value) {
-                edit->setPlaceholderText(value.error());
-                return;
-            }
-
-            edit->setReadOnly(false);
-            showPasswordButton->setEnabled(true);
-            edit->setText(*value);
-        }));
-
-    connect(showPasswordButton, &ShowPasswordButton::toggled, edit, [showPasswordButton, edit] {
-        edit->setEchoMode(showPasswordButton->isChecked() ? QLineEdit::Normal : QLineEdit::Password);
-    });
-
-    connect(edit, &FancyLineEdit::textChanged, this, [this](const QString &text) {
-        d->value = text;
-        d->wasEdited = true;
-    });
-
-    Utils::AspectWidgets::addLabeledItem(this, parent, Layouting::Row{Layouting::noMargin, edit, warningLabel, showPasswordButton}.emerge());
-}
-
 AspectPresentation SecretAspect::presentation() const
 {
     AspectPresentation p = BaseAspect::presentation();
     // Its own control: the value is not kept here, it has to be fetched. See
     // displayText() and requestDisplayText().
     p.control = AspectControls::Secret;
+    // Named after the setting, so that a page with more than one secret on it
+    // can be told apart by a test.
+    p.objectName = stringFromKey(settingsKey()) + ".secret";
+    p.placeholderText = d->fetchError;
+    // A warning beside the field, not a message of its own: what it warns
+    // about is where the value goes, which is the field.
+    if (!isSecretStorageAvailable())
+        p.infoType = AspectControls::InfoType::Warning;
     return p;
 }
 
@@ -283,8 +247,17 @@ QString SecretAspect::displayText() const
 
 void SecretAspect::requestDisplayText()
 {
-    requestValue([this](const Utils::Result<QString> &) {
-        // requestValue() has already cached whatever it found.
+    requestValue([this](const Utils::Result<QString> &value) {
+        // requestValue() has already cached whatever it found. A secret that
+        // could not be read leaves the field read-only with the reason in it,
+        // so that typing does not overwrite a secret that is still there.
+        const QString error = value ? QString() : value.error();
+        if (d->fetchError != error) {
+            d->fetchError = error;
+            emit placeholderTextChanged(error);
+        }
+        if (value)
+            setReadOnly(false);
         emit displayTextChanged();
     });
 }
