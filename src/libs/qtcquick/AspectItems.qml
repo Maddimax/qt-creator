@@ -158,6 +158,10 @@ GridLayout {
                 roleValue: AspectContainerModel.FlattenedGroup
                 FlattenedGroupDelegate {}
             }
+            DelegateChoice {
+                roleValue: AspectContainerModel.BoolWithOwnLabel
+                BoolWithOwnLabelDelegate {}
+            }
             DelegateChoice { UnsupportedDelegate {} }
         }
     }

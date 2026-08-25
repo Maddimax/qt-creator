@@ -172,6 +172,7 @@ private slots:
     void testStringSelectionOffersItsChoices();
     void testAspectListAddsRemovesAndShowsDetails();
     void testTextWithActionShowsSummaryAndActs();
+    void testACheckBoxLabelCanBeALink();
     void testAspectListLabelArrivingLate();
     void testPageWithoutItsOwnQmlIsDeclined();
     void testBuildingAPageIsNotShowingIt();
@@ -427,6 +428,7 @@ void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
                     {"GroupedListDelegate", {Kind::GroupedList}},
                     {"InlineGroupDelegate", {Kind::InlineGroup}},
                     {"FlattenedGroupDelegate", {Kind::FlattenedGroup}},
+                    {"BoolWithOwnLabelDelegate", {Kind::BoolWithOwnLabel}},
                     {"TreeDelegate", {Kind::Tree}},
                     {"FontFamilyDelegate", {Kind::FontFamily}},
                 };
@@ -2357,6 +2359,70 @@ void QuickUiTest::testTextWithActionShowsSummaryAndActs()
     QVERIFY(button);
     QMetaObject::invokeMethod(button, "clicked");
     QCOMPARE(aspect.actions, 1);
+}
+
+// The shape UseGlobalAspect has: a check box whose label takes you to the page
+// the setting would otherwise come from.
+class CheckBoxWithLink final : public Utils::BoolAspect
+{
+public:
+    explicit CheckBoxWithLink(Utils::AspectContainer *container)
+        : Utils::BoolAspect(container)
+    {
+        setLabel("Use <a href=\"page\">global settings</a>",
+                 Utils::BoolAspect::LabelPlacement::BesideCheckBox);
+    }
+
+    void activateLink(const QString &link) override { followed = link; }
+
+    QString followed;
+};
+
+void QuickUiTest::testACheckBoxLabelCanBeALink()
+{
+    // A QtQuick CheckBox draws its own text and draws it plain, so a label
+    // that is more than text is a label of its own beside the box - which is
+    // a delegate of its own, so that every other check box is left alone.
+    Utils::AspectContainer page;
+    CheckBoxWithLink aspect(&page);
+    aspect.setValue(true);
+
+    QCOMPARE(int(QtcQuick::AspectContainerModel::kindOf(&aspect)),
+             int(QtcQuick::AspectContainerModel::BoolWithOwnLabel));
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QVERIFY(quickWidget->rootObject());
+
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate
+                = findQmlComponent(quickWidget->rootObject(), "BoolWithOwnLabelDelegate"));
+
+    // Named as the plain delegate names them, so a page that swapped one for
+    // the other reads the same.
+    QVERIFY(delegate->property("checked").toBool());
+
+    // The markup intact, and drawn as markup: shown as plain text the link
+    // would be angle brackets on the page and nothing to click.
+    QQuickItem * const label = findQmlComponent(delegate, "Label");
+    QVERIFY(label);
+    QVERIFY2(label->property("text").toString().contains("<a href="),
+             qPrintable(label->property("text").toString()));
+    const QMetaObject *mo = label->metaObject();
+    const QMetaEnum formats = mo->property(mo->indexOfProperty("textFormat")).enumerator();
+    QCOMPARE(label->property("textFormat").toInt(), formats.keyToValue("StyledText"));
+
+    // Following it is the aspect's business.
+    QMetaObject::invokeMethod(label, "linkActivated", Q_ARG(QString, "page"));
+    QCOMPARE(aspect.followed, QString("page"));
+
+    // And it is still a check box.
+    QQuickItem * const box = findQmlComponent(delegate, "CheckBox");
+    QVERIFY(box);
+    QMetaObject::invokeMethod(box, "toggle");
+    QMetaObject::invokeMethod(box, "toggled");
+    QVERIFY(!aspect.volatileValue());
 }
 
 void QuickUiTest::testAspectListLabelArrivingLate()

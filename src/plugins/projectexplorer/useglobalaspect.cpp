@@ -3,11 +3,9 @@
 
 #include "useglobalaspect.h"
 
+#include "projectexplorertr.h"
+
 #include <coreplugin/icore.h>
-
-#include <utils/layoutbuilder.h>
-
-#include <QLabel>
 
 using namespace Utils;
 
@@ -18,6 +16,10 @@ UseGlobalAspect::UseGlobalAspect(Id settingsPageId, AspectContainer *container)
     , m_settingsPageId(settingsPageId)
 {
     setDefaultValue(true);
+    // Beside the box rather than on it: the words "global settings" take you
+    // to the page they come from, and a check box's own text is plain.
+    setLabel(Tr::tr("Use <a href=\"page\">global settings</a>"),
+             LabelPlacement::BesideCheckBox);
 }
 
 void UseGlobalAspect::setSettingsPageId(Id settingsPageId)
@@ -25,19 +27,10 @@ void UseGlobalAspect::setSettingsPageId(Id settingsPageId)
     m_settingsPageId = settingsPageId;
 }
 
-void UseGlobalAspect::addToLayoutImpl(Layouting::Layout &parent)
+void UseGlobalAspect::activateLink(const QString &link)
 {
-    using namespace Layouting;
-    const auto label = new QLabel(QStringLiteral("Use <a href=\"dummy\">global settings</a>"));
-    QObject::connect(label, &QLabel::linkActivated, label, [id = m_settingsPageId] {
-        Core::ICore::showSettings(id);
-    });
-    Row row;
-    BoolAspect::addToLayoutImpl(row);
-    row.addItem(label);
-    st(&row);
-    parent.addItem(row);
-    hr(&parent);
+    Q_UNUSED(link)
+    Core::ICore::showSettings(m_settingsPageId);
 }
 
 } // namespace ProjectExplorer

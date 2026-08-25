@@ -79,6 +79,7 @@ public:
         using namespace Layouting;
         Column {
             ps->useGlobalSettings,
+            hr,
             Group {
                 bindTo(&excludesGroup),
                 title(Tr::tr("Excluded Files")),

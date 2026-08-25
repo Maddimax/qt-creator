@@ -2165,7 +2165,7 @@ installs a message handler and asserts nothing says SOFT ASSERT. The first
 version of it passed against a build with the guard removed, which is the only
 reason it was rewritten.
 
-**What this does not do.** The virtual has to stay: eight aspects in
+**What this does not do.** The virtual has to stay: seven aspects in
 `src/plugins` and five more in Utils still override it. They are not one
 group. Most are run-configuration, build-step and kit aspects - project
 panels rather than preferences pages, which is a surface the migration has not
@@ -2504,7 +2504,7 @@ anyway, because the closure was holding state - a widget's `customConfigs()`, a
 label's text - that nothing else did. Both are now gone. `EnvVarSeparatorAspect` was
 a sixth of exactly the same kind - see below.
 
-What still overrides `addToLayoutImpl()` in `src/plugins` is eight aspects,
+What still overrides `addToLayoutImpl()` in `src/plugins` is seven aspects,
 and they are mostly the project surface: run configurations, build steps and
 build settings. Three are not - `KitAspect` and `DeviceToolAspect` on the Kits
 and Devices pages, and `LibrarySelectionAspect` - and those are the ones to
@@ -2727,6 +2727,43 @@ cannot be seen. `parent.flush()` after each child only matters in a `Form`,
 which is what a build or run panel is, so the test builds one and counts
 `QFormLayout::rowCount()`. Without the flush the two rows become one, and a
 control that had not been biting starts to.
+
+### A check box whose label is a link
+
+`UseGlobalAspect` is the "Use *global settings*" row at the top of a dozen
+project panels, where the words are a link to the page those settings come
+from. Its closure built a `QCheckBox`, a rich-text `QLabel`, a stretch and a
+rule, and this was the last of the aspects blocked on something neither
+backend could say.
+
+The obstacle is small and exact: **a check box draws its own text and draws it
+plain.** `QCheckBox::setText()` takes no markup and neither does QtQuick's
+`CheckBox`, so a label with an `<a href>` in it cannot be the box's text. It
+has to be a label of its own, beside the box.
+
+That is a placement, and `LabelPlacement` is where placements live, so it is a
+fifth value - `BesideControl`, mirrored as `BoolAspect::LabelPlacement::
+BesideCheckBox`. The widget renderer draws `Row { box, label, st }` and reports
+clicks through `BaseAspect::activateLink()`, the virtual that exists so a
+renderer holding nothing but a `BaseAspect` can say what happened. Qt Quick
+gets `BoolWithOwnLabelDelegate.qml`, chosen by kind - so every other check box
+in Creator is left exactly as it was, which is the same trick
+`FlattenedGroupDelegate` uses.
+
+**The rule moved to the pages.** The closure ended with `hr(&parent)`, so every
+panel using this aspect got a divider whether it wanted one or not. A rule
+between sections is the page's furniture, not the setting's, so it is one `hr,`
+in each of the eleven `Column`s that list the aspect. More lines, but each one
+is where somebody can see it and change it.
+
+**A control that did not bite, for a change that was not real.** The delegate
+first read `aspect.labelText` rather than `plainLabelText`, on the theory that
+the plain one would strip the markup. It does not - `plainLabelText()` strips
+the mnemonic `&` and nothing else - so the two behave identically here and the
+control could not fail. The delegate uses `plainLabelText` like every other
+one, and the assertion moved to what actually matters: the label's `textFormat`
+is `StyledText`, because shown as plain text the link is angle brackets on the
+page and nothing to click.
 
 ### What the census could not see, and now can
 

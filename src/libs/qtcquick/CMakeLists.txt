@@ -45,6 +45,7 @@ if(TARGET QtcQuick)
       AspectTableCell.qml
       AspectPage.qml
       BoolDelegate.qml
+      BoolWithOwnLabelDelegate.qml
       ButtonDelegate.qml
       ColorDelegate.qml
       CompletionPopup.qml

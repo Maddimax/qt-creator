@@ -191,6 +191,8 @@ private slots:
     void aHiddenAspectIsStillBuilt();
     void containerWithNoBoxOfItsOwn_data() { addRendererRows(); }
     void containerWithNoBoxOfItsOwn();
+    void checkBoxWithALabelOfItsOwn_data() { addRendererRows(); }
+    void checkBoxWithALabelOfItsOwn();
 };
 
 void tst_AspectRenderer::initTestCase()
@@ -1692,6 +1694,66 @@ void tst_AspectRenderer::containerWithNoBoxOfItsOwn()
     const QList<QPair<QString, QWidget *>> bothRows = rows(withLayout.get());
     QCOMPARE(bothRows.size(), 3);
     QVERIFY(bothRows.at(2).second != bothRows.at(0).second);
+}
+
+// A check box whose label is a link: "Use <a>global settings</a>" takes you to
+// the page those settings come from. A QCheckBox draws its own text and draws
+// it plain, so the words have to be a label of their own.
+class LinkedCheckBoxAspect final : public BoolAspect
+{
+public:
+    LinkedCheckBoxAspect()
+    {
+        setLabel("Use <a href=\"page\">global settings</a>",
+                 BoolAspect::LabelPlacement::BesideCheckBox);
+    }
+
+    void activateLink(const QString &link) override { m_followed = link; }
+
+    QString m_followed;
+};
+
+void tst_AspectRenderer::checkBoxWithALabelOfItsOwn()
+{
+    QFETCH(bool, withRenderer);
+    setRendererInstalled(withRenderer);
+
+    LinkedCheckBoxAspect aspect;
+    aspect.setValue(true);
+
+    const std::unique_ptr<QWidget> widget = render(aspect);
+    QVERIFY(widget);
+    auto box = widget->findChild<QCheckBox *>();
+    if (!withRenderer) {
+        QVERIFY(!box);
+        return;
+    }
+
+    QVERIFY(box);
+    // Nothing on the box: what would be its text is beside it instead, and a
+    // box that drew it too would say it twice.
+    QVERIFY2(box->text().isEmpty(), qPrintable(box->text()));
+    QVERIFY(box->isChecked());
+
+    QLabel *label = nullptr;
+    for (QLabel * const candidate : widget->findChildren<QLabel *>()) {
+        if (candidate->text().contains("global settings"))
+            label = candidate;
+    }
+    QVERIFY(label);
+    // The markup intact, and reachable with the mouse - a link that cannot be
+    // clicked is just underlined text.
+    QVERIFY(label->text().contains("<a href="));
+    QVERIFY(label->textInteractionFlags().testFlag(Qt::LinksAccessibleByMouse));
+
+    // Following it is the aspect's business: the renderer holds a BaseAspect
+    // and has no idea what a settings page is.
+    emit label->linkActivated("page");
+    QCOMPARE(aspect.m_followed, QString("page"));
+
+    // And it is still a check box.
+    box->click();
+    QVERIFY(!aspect.volatileValue());
 }
 
 void tst_AspectRenderer::filePathLiveReconfiguration()

@@ -16,9 +16,11 @@ public:
 
     void setSettingsPageId(Utils::Id settingsPageId);
 
-private:
-    void addToLayoutImpl(Layouting::Layout &parent) override;
+    // The words "global settings" in the label are a link to the page they
+    // come from. Both backends report a click here.
+    void activateLink(const QString &link) override;
 
+private:
     Utils::Id m_settingsPageId;
 };
 

@@ -67,6 +67,7 @@ ProjectTestSettingsWidget::ProjectTestSettingsWidget(Project *project)
     using namespace Layouting;
     Column {
         m_projectSettings->useGlobalSettings,
+        hr,
         Widget {
             bindTo(&m_generalWidget),
             Column {

@@ -1433,6 +1433,7 @@ public:
 
         Column {
             ps->useGlobalSettings,
+            hr,
             settingsWidget,
             noMargin,
             st,

@@ -82,6 +82,10 @@ AspectContainerModel::Kind AspectContainerModel::kindOf(const BaseAspect *aspect
         return InlineGroup;
     if (kind == Container && p.flattened)
         return FlattenedGroup;
+    // A label that is more than text cannot be the box's own: see
+    // AspectControls::LabelPlacement::BesideControl.
+    if (kind == Bool && p.labelPlacement == AspectControls::LabelPlacement::BesideControl)
+        return BoolWithOwnLabel;
 
     return kind;
 }

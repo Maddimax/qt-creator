@@ -96,6 +96,10 @@ enum class LabelPlacement {
     AtControl,
     Compact,
     ShowTip,
+    // A label of its own, next to the control rather than on it. A check box
+    // draws its own text and draws it plain, so a label with a link in it -
+    // "Use <a href=...>global settings</a>" - cannot be the box's own text.
+    BesideControl,
 };
 Q_ENUM_NS(LabelPlacement)
 

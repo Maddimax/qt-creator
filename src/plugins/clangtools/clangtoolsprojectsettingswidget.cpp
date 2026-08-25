@@ -83,6 +83,7 @@ ClangToolsProjectSettingsWidget::ClangToolsProjectSettingsWidget(Project *projec
     using namespace Layouting;
     Column {
         m_projectSettings->useGlobalSettings,
+        hr,
         Row {
             &m_restoreGlobal, st, gotoClangTidyModeLabel, gotoClazyModeLabel
         },

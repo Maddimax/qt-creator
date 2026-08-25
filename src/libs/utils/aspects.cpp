@@ -2312,6 +2312,9 @@ AspectPresentation BoolAspect::presentation() const
     case LabelPlacement::InExtraLabel:
         p.labelPlacement = AspectControls::LabelPlacement::InExtraLabel;
         break;
+    case LabelPlacement::BesideCheckBox:
+        p.labelPlacement = AspectControls::LabelPlacement::BesideControl;
+        break;
     case LabelPlacement::ShowTip:
         p.labelPlacement = AspectControls::LabelPlacement::ShowTip;
         break;

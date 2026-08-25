@@ -395,6 +395,7 @@ public:
         using namespace Layouting;
         Column {
             ps->useGlobalSettings,
+            hr,
             ps->enableCopilot,
             st,
         }.attachTo(this);

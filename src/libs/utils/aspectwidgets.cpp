@@ -151,6 +151,23 @@ void addButtonToLayout(BaseAspect *aspect, Layouting::Layout &parent,
     case AspectControls::LabelPlacement::InExtraLabel:
         addLabeledItem(aspect, parent, button);
         break;
+    case AspectControls::LabelPlacement::BesideControl: {
+        // The box draws no text; the text is a label of its own so that what
+        // is in it - a link to the page these settings come from - is more
+        // than something to read.
+        auto label = new QLabel(pres.labelText);
+        label->setTextInteractionFlags(label->textInteractionFlags()
+                                       | Qt::LinksAccessibleByMouse
+                                       | Qt::TextSelectableByMouse);
+        label->setToolTip(pres.toolTip);
+        QObject::connect(label, &QLabel::linkActivated, aspect, [aspect](const QString &link) {
+            aspect->activateLink(link);
+        });
+        registerSubWidget(aspect, label);
+        parent.addItem(Layouting::empty);
+        parent.addItem(Layouting::Row{Layouting::noMargin, button, label, Layouting::st});
+        break;
+    }
     case AspectControls::LabelPlacement::ShowTip: {
         parent.addItem(Layouting::empty);
         button->setText(pres.labelText);

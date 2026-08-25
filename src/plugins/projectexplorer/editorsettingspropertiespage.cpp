@@ -69,6 +69,7 @@ EditorSettingsWidget::EditorSettingsWidget(Project *project)
 
     Column {
         config->useGlobalSettings,
+        hr,
         Row { &m_restoreButton, st },
         &m_displaySettings,
         &m_behaviorSettings,

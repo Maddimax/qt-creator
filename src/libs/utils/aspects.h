@@ -623,7 +623,9 @@ public:
 
     QAction *action() override;
 
-    enum class LabelPlacement { AtCheckBox, Compact, InExtraLabel, ShowTip };
+    // BesideCheckBox is a label of its own next to the box, for a label that
+    // is more than text - see AspectControls::LabelPlacement::BesideControl.
+    enum class LabelPlacement { AtCheckBox, Compact, InExtraLabel, ShowTip, BesideCheckBox };
     void setLabel(const QString &labelText,
                   LabelPlacement labelPlacement = LabelPlacement::InExtraLabel);
     void setLabelPlacement(LabelPlacement labelPlacement);

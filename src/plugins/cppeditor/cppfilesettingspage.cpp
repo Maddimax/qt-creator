@@ -479,6 +479,7 @@ public:
         using namespace Layouting;
         Column {
             ps->useGlobalSettings,
+            hr,
             *ps,
             noMargin
         }.attachTo(this);

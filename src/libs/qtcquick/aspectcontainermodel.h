@@ -59,6 +59,7 @@ public:
         // no group box around it. See AspectContainer::setInlineRow().
         InlineGroup,
         FlattenedGroup,
+        BoolWithOwnLabel,
         AspectList,
         AspectInlineList,
         TextWithAction,
