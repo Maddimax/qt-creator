@@ -139,8 +139,6 @@ QtcPlugin {
             "manhattanstyle.h",
             "messagemanager.cpp",
             "messagemanager.h",
-            "mimetypemagicdialog.cpp",
-            "mimetypemagicdialog.h",
             "mimetypesettings.cpp",
             "mimetypesettings.h",
             "minisplitter.cpp",

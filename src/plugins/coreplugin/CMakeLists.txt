@@ -223,8 +223,6 @@ add_qtc_plugin(Core
     mcp/mcpregistry.h
     messagemanager.cpp
     messagemanager.h
-    mimetypemagicdialog.cpp
-    mimetypemagicdialog.h
     mimetypesettings.cpp
     mimetypesettings.h
     minisplitter.cpp
@@ -372,6 +370,7 @@ if(TARGET Core AND TARGET Qt::Quick)
     QML_FILES
       CustomLanguageModelsPage.qml
       GeneralSettingsPage.qml
+      MimeTypesPage.qml
       SystemSettingsPage.qml
       mcp/McpSettingsPage.qml
   )

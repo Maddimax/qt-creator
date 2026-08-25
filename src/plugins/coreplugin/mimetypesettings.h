@@ -3,8 +3,14 @@
 
 #pragma once
 
+#include <QObject>
+
 namespace Core::Internal {
 
 void setupMimeTypeSettings();
+
+#ifdef WITH_TESTS
+QObject *createMimeTypeSettingsTest();
+#endif
 
 } // Core::Internal
