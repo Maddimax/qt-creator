@@ -90,5 +90,6 @@ if(TARGET CMakeProjectManager AND TARGET Qt::Quick)
     QML_FILES
       CMakeFormatterSettingsPage.qml
       CMakeSpecificSettingsPage.qml
+      CMakeToolsPage.qml
   )
 endif()

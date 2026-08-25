@@ -12,21 +12,23 @@
 #include <coreplugin/icore.h>
 
 #include <projectexplorer/devicesupport/devicemanager.h>
-#include <projectexplorer/devicesupport/devicemanagermodel.h>
+#include <projectexplorer/devicesupport/deviceselectionaspect.h>
+#include <projectexplorer/devicesupport/idevice.h>
 #include <projectexplorer/kitaspect.h>
 #include <projectexplorer/projectexplorerconstants.h>
 
-#include <utils/detailswidget.h>
-#include <utils/groupedview.h>
-#include <utils/guiutils.h>
-#include <utils/layoutbuilder.h>
+#include <utils/groupedlistaspect.h>
+#include <utils/groupedmodel.h>
 #include <utils/pathchooser.h>
 #include <utils/qtcassert.h>
+#include <utils/shutdownguard.h>
 #include <utils/stringutils.h>
 #include <utils/treemodel.h> // for FilePathRole
 #include <utils/utilsicons.h>
 
-#include <QPushButton>
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
 
 using namespace Utils;
 using namespace ProjectExplorer;
@@ -344,249 +346,229 @@ QString CMakeToolItemModel::uniqueDisplayName(const QString &base) const
 }
 
 //
-// CMakeToolConfigWidget
+// CMakeToolsAspects
 //
 
-class CMakeToolConfigWidget : public Core::IOptionsPageWidget
+// What the Tools page edits. The tools themselves live in CMakeToolManager,
+// which the rest of the plugin reads; CMakeToolItemModel is the editable copy,
+// and applying the page is applying it.
+class CMakeToolsAspects final : public AspectContainer
 {
 public:
-    CMakeToolConfigWidget()
+    CMakeToolsAspects()
     {
-        m_addButton.setText(Tr::tr("Add"));
+        setAutoApply(false);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/CMakeProjectManager/CMakeToolsPage.qml"));
 
-        m_detectButton.setText(Tr::tr("Re-detect"));
+        device.setQmlName("Device");
 
-        m_displayName.setDisplayStyle(StringAspect::LineEditDisplay);
-        m_displayName.setLabelText(Tr::tr("Name:"));
-
-        m_binary.setExpectedKind(PathChooserKind::ExistingCommand);
-        m_binary.setHistoryCompleter("Cmake.Command.History");
-        m_binary.setCommandVersionArguments({"--version"});
-        m_binary.setAllowPathFromDevice(true);
-        m_binary.setLabelText(Tr::tr("Path:"));
-
-        m_version.setDisplayStyle(StringAspect::LabelDisplay);
-        m_version.setLabelText(Tr::tr("Version:"));
-
-        m_qchFile.setExpectedKind(PathChooserKind::File);
-        m_qchFile.setHistoryCompleter("Cmake.qchFile.History");
-        m_qchFile.setPromptDialogFilter("*.qch");
-        m_qchFile.setPromptDialogTitle(Tr::tr("CMake .qch File"));
-        m_qchFile.setLabelText(Tr::tr("Help file:"));
-
-        m_container.setState(DetailsWidget::NoSummary);
-        m_container.setVisible(false);
-        m_container.setWidget(&m_itemConfigWidget);
-
-        using namespace Layouting;
-        Column {
-            Row { Tr::tr("Device:"), m_deviceComboBox, st },
-            Row {
-                Column {
-                    m_groupedView.view(),
-                    m_container,
-                },
-                Column {
-                    m_addButton,
-                    m_groupedView.cloneButton(),
-                    m_groupedView.removeButton(),
-                    m_groupedView.makeDefaultButton(),
-                    m_detectButton,
-                    st,
-                },
-            }}.attachTo(this);
-
-        m_groupedView.makeDefaultButton().setToolTip(
-            Tr::tr("Set as the default CMake Tool to use when "
-                   "creating a new kit or when no value is set."));
-
-        m_groupedView.setCanRemoveRow([this](int row) {
+        tools.setQmlName("Tools");
+        tools.setModel(&m_model);
+        tools.setShowsDefault(true);
+        tools.setToolTip(Tr::tr("Set as the default CMake Tool to use when "
+                                "creating a new kit or when no value is set."));
+        // An auto-detected tool is not the user's to take away.
+        tools.setCanRemoveRow([this](int row) {
             return !m_model.item(row).m_detectionSource.isAutoDetected();
         });
 
-        connect(&m_groupedView, &GroupedView::currentRowChanged,
-                this, &CMakeToolConfigWidget::currentCMakeToolChanged, Qt::QueuedConnection);
+        add.setQmlName("Add");
+        add.setActionText(Tr::tr("Add"));
+        add.setAction([this] { addCMakeTool(); });
 
-        connect(&m_addButton, &QAbstractButton::clicked,
-                this, &CMakeToolConfigWidget::addCMakeTool);
-        connect(&m_detectButton, &QAbstractButton::clicked,
-                this, &CMakeToolConfigWidget::redetect);
+        redetect.setQmlName("Redetect");
+        redetect.setActionText(Tr::tr("Re-detect"));
+        redetect.setAction([this] { redetectTools(); });
 
-        const auto updateDevice = [this](const FilePath &deviceRoot) {
-            m_model.setExtraFilter(deviceRoot.isEmpty()
-                ? GroupedModel::Filter{}
-                : GroupedModel::Filter{[this, deviceRoot](int row) {
-                      const FilePath path = m_model.item(row).m_executable;
-                      return path.isEmpty() || path.isSameDevice(deviceRoot);
-                  }});
-        };
-        m_deviceComboBox.setOnDeviceChanged(updateDevice);
+        details.setQmlName("Details");
+        displayName.setQmlName("DisplayName");
+        displayName.setDisplayStyle(StringAspect::LineEditDisplay);
+        displayName.setLabelText(Tr::tr("Name:"));
 
-        Form {
-            m_displayName, br,
-            m_binary, br,
-            m_version, br,
-            m_qchFile, br,
-            noMargin,
-        }.attachTo(&m_itemConfigWidget);
+        binary.setQmlName("Binary");
+        binary.setExpectedKind(PathChooserKind::ExistingCommand);
+        binary.setHistoryCompleter("Cmake.Command.History");
+        binary.setCommandVersionArguments({"--version"});
+        binary.setAllowPathFromDevice(true);
+        binary.setLabelText(Tr::tr("Path:"));
 
-        m_binary.addOnVolatileValueChanged(this, [this] { onBinaryPathEditingFinished(); });
-        m_qchFile.addOnVolatileValueChanged(this, [this] { store(); });
-        m_displayName.addOnVolatileValueChanged(this, [this] { store(); });
+        version.setQmlName("Version");
+        version.setDisplayStyle(StringAspect::LabelDisplay);
+        version.setLabelText(Tr::tr("Version:"));
 
-        connect(&m_data, &AspectContainer::changed, &checkSettingsDirty);
+        qchFile.setQmlName("QchFile");
+        qchFile.setExpectedKind(PathChooserKind::File);
+        qchFile.setHistoryCompleter("Cmake.qchFile.History");
+        qchFile.setPromptDialogFilter("*.qch");
+        qchFile.setPromptDialogTitle(Tr::tr("CMake .qch File"));
+        qchFile.setLabelText(Tr::tr("Help file:"));
+
+        // Behaviour, not layout.
+        connect(&device, &DeviceSelectionAspect::currentDeviceChanged,
+                this, &CMakeToolsAspects::applyDeviceFilter);
+        applyDeviceFilter();
+
+        connect(&tools, &GroupedListAspect::currentRowChanged,
+                this, [this](int, int newRow) { showTool(newRow); });
+        binary.addOnVolatileValueChanged(this, [this] { onBinaryChanged(); });
+        qchFile.addOnVolatileValueChanged(this, [this] { store(); });
+        displayName.addOnVolatileValueChanged(this, [this] { store(); });
+        showTool(-1);
     }
+
+    void apply() override
+    {
+        AspectContainer::apply();
+        m_model.apply();
+    }
+
+    void cancel() override
+    {
+        AspectContainer::cancel();
+        m_model.cancel();
+    }
+
+    bool isDirty() const override
+    {
+        return AspectContainer::isDirty() || m_model.isDirty();
+    }
+
+    DeviceSelectionAspect device{this};
+    GroupedListAspect tools{this};
+    ActionAspect add{this};
+    ActionAspect redetect{this};
+    AspectContainer details{this};
+    StringAspect displayName{&details};
+    FilePathAspect binary{&details};
+    StringAspect version{&details};
+    FilePathAspect qchFile{&details};
 
 private:
-    void apply() final { m_model.apply(); }
-    void cancel() final { m_model.cancel(); }
-    bool isDirty() const final { return m_model.isDirty(); }
+    // Only the tools that live on the selected device are listed; the entry
+    // for all devices takes the filter away again.
+    void applyDeviceFilter()
+    {
+        const IDeviceConstPtr dev = device.currentDevice();
+        const FilePath deviceRoot = dev ? dev->rootPath() : FilePath();
+        m_model.setExtraFilter(deviceRoot.isEmpty()
+            ? GroupedModel::Filter{}
+            : GroupedModel::Filter{[this, deviceRoot](int row) {
+                  const FilePath path = m_model.item(row).m_executable;
+                  return path.isEmpty() || path.isSameDevice(deviceRoot);
+              }});
+    }
 
+    void showTool(int row, bool updateCMakePath = true)
+    {
+        const bool hasItem = row >= 0 && row < m_model.itemCount();
+        details.setVisible(hasItem);
+        // No tool is current while the form is being filled in, so nothing the
+        // fields say on the way is written back. See store().
+        m_id = Id();
+        if (hasItem) {
+            const CMakeToolTreeItem it = m_model.item(row);
+            const bool autoDetected = it.m_detectionSource.isAutoDetected();
+            displayName.setEnabled(!autoDetected);
+            displayName.setValue(it.m_name);
+            binary.setReadOnly(autoDetected);
+            if (updateCMakePath)
+                binary.setValue(it.m_executable);
+            qchFile.setReadOnly(autoDetected);
+            qchFile.setBaseDirectory(it.m_executable.parentDir());
+            qchFile.setValue(it.m_qchFile);
+            version.setValue(it.m_versionDisplay);
+            m_id = it.m_id;
+            if (const IDeviceConstPtr dev = device.currentDevice())
+                binary.setInitialBrowsePathBackup(dev->rootPath());
+        }
+    }
 
-    void addCMakeTool();
-    void redetect();
-    void currentCMakeToolChanged(int oldRow, int newRow);
+    // Loading the form must not write it back: the fields hand over expanded
+    // paths, so merely looking at a tool would replace what the user wrote.
+    // showTool() clears the id for the duration, which is what stops that -
+    // there is nothing to write to until it has finished.
+    void store()
+    {
+        if (m_id.isValid()) {
+            m_model.updateCMakeTool(m_id,
+                                    displayName.volatileValue(),
+                                    binary.expandedVolatileValue(),
+                                    qchFile.expandedVolatileValue());
+        }
+    }
 
-    void load(const CMakeToolTreeItem *item, bool updateCMakePath);
-    void store();
+    // A new binary means a new version to show and, where none was named, the
+    // help file that sits beside it. Loading a tool into the form sets this
+    // field too, and reacting to that would hide the form it is loading - so
+    // it waits for the same thing store() does, there being no tool to act on
+    // until showTool() has finished.
+    void onBinaryChanged()
+    {
+        if (!m_id.isValid())
+            return;
+        if (qchFile().isEmpty())
+            qchFile.setValue(CMakeTool::searchQchFile(binary.expandedVolatileValue()));
+        store();
+        // Show what the tool became - the version comes from running it - and
+        // leave the path the user is typing alone.
+        showTool(m_model.rowForId(m_id), /*updateCMakePath=*/false);
+    }
 
-    void onBinaryPathEditingFinished();
-    void updateQchFilePath();
+    void addCMakeTool()
+    {
+        const CMakeToolTreeItem added = {
+            m_model.uniqueDisplayName(Tr::tr("New CMake")),
+            FilePath(),
+            FilePath(),
+            true,
+            DetectionSource::Manual
+        };
+        tools.setCurrentRow(m_model.appendVolatileItem(added));
+    }
+
+    void redetectTools()
+    {
+        // Step 1: Detect
+        std::vector<std::unique_ptr<CMakeTool>> toAdd;
+        for (const IDeviceConstPtr &dev : device.selectedDevices()) {
+            auto detected
+                = CMakeToolManager::autoDetectCMakeTools(dev->toolSearchPaths(), dev->rootPath());
+            for (auto &&tool : detected)
+                toAdd.push_back(std::move(tool));
+        }
+
+        // Step 2: Match existing against newly detected.
+        QList<Id> toRemove;
+        for (int row = 0; row < m_model.itemCount(); ++row) {
+            const CMakeToolTreeItem treeItem = m_model.item(row);
+            bool hasMatch = false;
+            for (auto it = toAdd.begin(); it != toAdd.end(); ++it) {
+                if ((*it)->filePath().isSameFile(treeItem.executable())) {
+                    hasMatch = true;
+                    toAdd.erase(it);
+                    break;
+                }
+            }
+            if (treeItem.detectionSource().isSystemDetected() && !hasMatch)
+                toRemove << treeItem.id();
+        }
+
+        // Step 3: Remove previously auto-detected that were not newly detected.
+        for (const Id &id : std::as_const(toRemove))
+            m_model.removeCMakeTool(id);
+
+        // Step 4: Add newly detected that haven't been present so far.
+        for (const auto &tool : toAdd) {
+            m_model.addCMakeTool(tool.get());
+            if (const int row = m_model.rowForId(tool->id()); row >= 0)
+                m_model.setChanged(row, true);
+        }
+    }
 
     CMakeToolItemModel m_model;
-    GroupedView m_groupedView{m_model};
-    DeviceComboBox m_deviceComboBox;
-    QPushButton m_addButton;
-    QPushButton m_detectButton;
-    DetailsWidget m_container;
-
-    QWidget m_itemConfigWidget;
-    AspectContainer m_data;
-    StringAspect m_displayName{&m_data};
-    FilePathAspect m_binary{&m_data};
-    StringAspect m_version{&m_data};
-    FilePathAspect m_qchFile{&m_data};
+    // The tool the form is showing, and nothing while it is being filled in.
     Id m_id;
-    bool m_loadingItem = false;
 };
-
-void CMakeToolConfigWidget::store()
-{
-    if (!m_loadingItem && m_id.isValid()) {
-        m_model.updateCMakeTool(m_id,
-                                m_displayName.volatileValue(),
-                                m_binary.expandedVolatileValue(),
-                                m_qchFile.expandedVolatileValue());
-    }
-}
-
-void CMakeToolConfigWidget::onBinaryPathEditingFinished()
-{
-    updateQchFilePath();
-    store();
-    const int row = m_model.rowForId(m_id);
-    if (row >= 0) {
-        const CMakeToolTreeItem it = m_model.item(row);
-        load(&it, false);
-    }
-}
-
-void CMakeToolConfigWidget::updateQchFilePath()
-{
-    if (m_qchFile().isEmpty())
-        m_qchFile.setValue(CMakeTool::searchQchFile(m_binary.expandedVolatileValue()));
-}
-
-void CMakeToolConfigWidget::load(const CMakeToolTreeItem *item, bool updateCMakePath)
-{
-    m_loadingItem = true; // avoid intermediate signal handling
-    m_id = Id();
-    if (!item) {
-        m_loadingItem = false;
-        return;
-    }
-
-    // Set values:
-    m_displayName.setEnabled(!item->m_detectionSource.isAutoDetected());
-    m_displayName.setValue(item->m_name);
-
-    m_binary.setReadOnly(item->m_detectionSource.isAutoDetected());
-    if (updateCMakePath)
-        m_binary.setValue(item->m_executable);
-
-    m_qchFile.setReadOnly(item->m_detectionSource.isAutoDetected());
-    m_qchFile.setBaseDirectory(item->m_executable.parentDir());
-    m_qchFile.setValue(item->m_qchFile);
-
-    m_version.setValue(item->m_versionDisplay);
-
-    m_id = item->m_id;
-    m_loadingItem = false;
-}
-
-void CMakeToolConfigWidget::addCMakeTool()
-{
-    const CMakeToolTreeItem added = {
-        m_model.uniqueDisplayName(Tr::tr("New CMake")),
-        FilePath(),
-        FilePath(),
-        true,
-        DetectionSource::Manual
-    };
-    m_groupedView.selectRow(m_model.appendVolatileItem(added));
-}
-
-void CMakeToolConfigWidget::redetect()
-{
-    // Step 1: Detect
-    std::vector<std::unique_ptr<CMakeTool>> toAdd;
-    for (const IDeviceConstPtr &dev : m_deviceComboBox.selectedDevices()) {
-        auto detected
-            = CMakeToolManager::autoDetectCMakeTools(dev->toolSearchPaths(), dev->rootPath());
-        for (auto &&tool : detected)
-            toAdd.push_back(std::move(tool));
-    }
-
-    // Step 2: Match existing against newly detected.
-    QList<Id> toRemove;
-    for (int row = 0; row < m_model.itemCount(); ++row) {
-        const CMakeToolTreeItem treeItem = m_model.item(row);
-        bool hasMatch = false;
-        for (auto it = toAdd.begin(); it != toAdd.end(); ++it) {
-            if ((*it)->filePath().isSameFile(treeItem.executable())) {
-                hasMatch = true;
-                toAdd.erase(it);
-                break;
-            }
-        }
-        if (treeItem.detectionSource().isSystemDetected() && !hasMatch)
-            toRemove << treeItem.id();
-    }
-
-    // Step 3: Remove previously auto-detected that were not newly detected.
-    for (const Id &id : std::as_const(toRemove))
-        m_model.removeCMakeTool(id);
-
-    // Step 4: Add newly detected that haven't been present so far.
-    for (const auto &tool : toAdd) {
-        m_model.addCMakeTool(tool.get());
-        if (const int row = m_model.rowForId(tool->id()); row >= 0)
-            m_model.setChanged(row, true);
-    }
-}
-
-void CMakeToolConfigWidget::currentCMakeToolChanged(int, int newRow)
-{
-    if (newRow >= 0 && newRow < m_model.itemCount()) {
-        const CMakeToolTreeItem it = m_model.item(newRow);
-        load(&it, true);
-        if (const IDeviceConstPtr dev = m_deviceComboBox.currentDevice())
-            m_binary.setInitialBrowsePathBackup(dev->rootPath());
-    } else {
-        load(nullptr, true);
-    }
-    m_container.setVisible(newRow >= 0 && newRow < m_model.itemCount());
-}
 
 // CMakeSettingsPage
 
@@ -598,9 +580,209 @@ public:
         setId(Constants::Settings::TOOLS_ID);
         setDisplayName(Tr::tr("Tools"));
         setCategory(Constants::Settings::CATEGORY);
-        setWidgetCreator([] { return new CMakeToolConfigWidget; });
+        setSettingsProvider([] {
+            static GuardedObject<CMakeToolsAspects> theToolsAspects;
+            return theToolsAspects.get();
+        });
     }
 };
+
+#ifdef WITH_TESTS
+
+// The page's tools lived in a QTreeView's selection and a details widget that
+// was shown and hidden, so which tool was being edited - and whether it could
+// be - could only be read back out of widgets.
+
+class CMakeToolsSettingsTest : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testNoToolIsShownUntilOneIsPicked();
+    void testEditingAFieldUpdatesTheTool();
+    void testShowingAToolDoesNotRewriteIt();
+    void testAnAutoDetectedToolIsShownButNotEditable();
+    void testTheDeviceSelectorOffersAllDevicesFirst();
+    void testNarrowingToADeviceLeavesOtherDevicesToolsOut();
+
+private:
+    static CMakeToolItemModel *modelOf(const CMakeToolsAspects &page)
+    {
+        return static_cast<CMakeToolItemModel *>(page.tools.model());
+    }
+
+    // How many tools the tree actually shows, which is what the device
+    // selector narrows - the model keeps every one of them.
+    static int shownRows(const CMakeToolsAspects &page)
+    {
+        QAbstractItemModel *tree = page.tools.displayModel();
+        int rows = 0;
+        for (int group = 0; group < tree->rowCount({}); ++group)
+            rows += tree->rowCount(tree->index(group, 0));
+        return rows;
+    }
+
+    static int rowThatIsAutoDetected(const CMakeToolsAspects &page)
+    {
+        CMakeToolItemModel *model = modelOf(page);
+        for (int row = 0; row < model->itemCount(); ++row) {
+            if (model->item(row).m_detectionSource.isAutoDetected())
+                return row;
+        }
+        return -1;
+    }
+};
+
+void CMakeToolsSettingsTest::testNoToolIsShownUntilOneIsPicked()
+{
+    CMakeToolsAspects page;
+    QVERIFY(!page.details.isVisible());
+    QCOMPARE(page.tools.currentRow(), -1);
+    QVERIFY(!page.tools.canClone());
+    QVERIFY(!page.tools.canRemove());
+
+    page.add.triggerAction();
+    QVERIFY(page.tools.currentRow() >= 0);
+    QVERIFY(page.details.isVisible());
+    QVERIFY(page.displayName.volatileValue().startsWith("New CMake"));
+    // A tool the user added is theirs to edit and to take away again.
+    QVERIFY(page.displayName.isEnabled());
+    QVERIFY(page.tools.canRemove());
+}
+
+void CMakeToolsSettingsTest::testEditingAFieldUpdatesTheTool()
+{
+    CMakeToolsAspects page;
+    page.add.triggerAction();
+    const int row = page.tools.currentRow();
+    QVERIFY(row >= 0);
+    CMakeToolItemModel *model = modelOf(page);
+
+    // Each field on its own: they store through the same call, so setting both
+    // before looking would let either one carry the other.
+    page.displayName.setVolatileValue(QString("Renamed"));
+    QCOMPARE(model->item(row).m_name, QString("Renamed"));
+    page.qchFile.setVolatileValue(QString("/help/cmake.qch"));
+    QCOMPARE(model->item(row).m_qchFile, FilePath::fromString("/help/cmake.qch"));
+
+    // Showing another tool must not write the one that was on screen into it.
+    page.add.triggerAction();
+    const int second = page.tools.currentRow();
+    QVERIFY(second != row);
+    page.displayName.setVolatileValue(QString("Second"));
+    QCOMPARE(model->item(second).m_name, QString("Second"));
+    QCOMPARE(model->item(row).m_name, QString("Renamed"));
+    QCOMPARE(model->item(row).m_qchFile, FilePath::fromString("/help/cmake.qch"));
+
+    page.tools.setCurrentRow(row);
+    QCOMPARE(page.displayName.volatileValue(), QString("Renamed"));
+    QCOMPARE(page.qchFile.volatileValue(), QString("/help/cmake.qch"));
+}
+
+void CMakeToolsSettingsTest::testShowingAToolDoesNotRewriteIt()
+{
+    CMakeToolsAspects page;
+    page.add.triggerAction();
+    const int row = page.tools.currentRow();
+    QVERIFY(row >= 0);
+    CMakeToolItemModel *model = modelOf(page);
+
+    // A path written with a variable in it stays as it was written. The fields
+    // hand back expanded paths, so loading a tool into them must not store
+    // what they just read.
+    const QString written = "/help/%{HostOs:PathListSeparator}/cmake.qch";
+    model->updateCMakeTool(model->item(row).m_id, "With a variable", {},
+                           FilePath::fromString(written));
+    QVERIFY(page.qchFile.expandedVolatileValue() != FilePath::fromString(written));
+
+    page.tools.setCurrentRow(-1);
+    page.tools.setCurrentRow(row);
+
+    QCOMPARE(model->item(row).m_qchFile, FilePath::fromString(written));
+}
+
+void CMakeToolsSettingsTest::testAnAutoDetectedToolIsShownButNotEditable()
+{
+    CMakeToolsAspects page;
+    const int row = rowThatIsAutoDetected(page);
+    if (row < 0)
+        QSKIP("No CMake was found on this machine, so there is no auto-detected tool.");
+
+    page.tools.setCurrentRow(row);
+    QVERIFY(page.details.isVisible());
+    QVERIFY(!page.displayName.isEnabled());
+    QVERIFY(page.binary.isReadOnly());
+    QVERIFY(page.qchFile.isReadOnly());
+    QVERIFY(!page.tools.canRemove());
+    // It is still worth copying, and the copy is the user's.
+    QVERIFY(page.tools.canClone());
+}
+
+void CMakeToolsSettingsTest::testTheDeviceSelectorOffersAllDevicesFirst()
+{
+    CMakeToolsAspects page;
+
+    // The entry for all of them comes first and is what a page starts on, so
+    // nothing is hidden until the user asks for it.
+    QVERIFY(page.device.optionCount() >= 1);
+    QCOMPARE(page.device.value(), 0);
+    QVERIFY(!page.device.itemValue().isValid());
+    QVERIFY(!page.device.currentDevice());
+    QCOMPARE(page.device.selectedDevices().size(), DeviceManager::deviceCount());
+
+    if (DeviceManager::deviceCount() == 0)
+        QSKIP("No devices are configured, so there is nothing to select.");
+    page.device.setValue(1);
+    QVERIFY(page.device.currentDevice());
+    QCOMPARE(page.device.selectedDevices().size(), 1);
+    QCOMPARE(page.device.selectedDevices().first()->id(), page.device.currentDevice()->id());
+
+    // The options are rebuilt whenever the device list changes, and what is
+    // selected is remembered by id: a position would put the page back on the
+    // entry for all devices, or on somebody else's device.
+    const Id chosen = page.device.currentDevice()->id();
+    QMetaObject::invokeMethod(DeviceManager::instance(), "deviceUpdated", Q_ARG(Utils::Id, chosen));
+    QVERIFY(page.device.currentDevice());
+    QCOMPARE(page.device.currentDevice()->id(), chosen);
+}
+
+void CMakeToolsSettingsTest::testNarrowingToADeviceLeavesOtherDevicesToolsOut()
+{
+    const IDeviceConstPtr desktop = DeviceManager::defaultDesktopDevice();
+    if (!desktop)
+        QSKIP("No desktop device is configured, so there is nothing to narrow to.");
+
+    CMakeToolsAspects page;
+    CMakeToolItemModel *model = modelOf(page);
+    page.add.triggerAction();
+    const int row = page.tools.currentRow();
+    // A path on some other machine, which is what the selector is for.
+    page.binary.setVolatileValue(QString("docker://abc/usr/bin/cmake"));
+    QCOMPARE(model->item(row).m_executable.host(), QString("abc"));
+
+    const int items = model->itemCount();
+    const int withAll = shownRows(page);
+    QVERIFY(withAll > 0);
+
+    page.device.setValue(page.device.indexForItemValue(desktop->id().toSetting()));
+    QCOMPARE(page.device.currentDevice()->id(), desktop->id());
+
+    // Out of the list, not out of the model: narrowing is a view of what is
+    // there, and applying the page must not lose the tool.
+    QCOMPARE(shownRows(page), withAll - 1);
+    QCOMPARE(model->itemCount(), items);
+
+    // And back again.
+    page.device.setValue(0);
+    QCOMPARE(shownRows(page), withAll);
+}
+
+QObject *createCMakeToolsSettingsTest()
+{
+    return new CMakeToolsSettingsTest;
+}
+
+#endif // WITH_TESTS
 
 void setupCMakeSettingsPage()
 {
@@ -608,3 +790,5 @@ void setupCMakeSettingsPage()
 }
 
 } // CMakeProjectManager::Internal
+
+#include "cmakesettingspage.moc"

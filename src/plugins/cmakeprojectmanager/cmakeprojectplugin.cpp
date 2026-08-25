@@ -93,6 +93,7 @@ class CMakeProjectPlugin final : public ExtensionSystem::IPlugin
         addTestCreator(createSourceFilesTest);
         addTestCreator(createCMakeUsagesTest);
         addTestCreator(createTestPresetsInheritanceTest);
+        addTestCreator(createCMakeToolsSettingsTest);
 #endif
 
         FileIconProvider::registerIconOverlayForSuffix(Constants::Icons::FILE_OVERLAY, "cmake");

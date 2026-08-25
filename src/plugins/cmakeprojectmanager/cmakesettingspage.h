@@ -3,8 +3,14 @@
 
 #pragma once
 
+#include <QObject>
+
 namespace CMakeProjectManager::Internal {
 
 void setupCMakeSettingsPage();
+
+#ifdef WITH_TESTS
+QObject *createCMakeToolsSettingsTest();
+#endif
 
 } // namespace CMakeProjectManager::Internal
