@@ -1276,8 +1276,8 @@ method, and the manual-run dialog builds a widget from it too, so the page
 naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
-all`, minus `QmlDesigner` and `UpdateInfo`, see below): **83 aspect-driven
-pages, all 83 with their own QML and rendered with Qt Quick, none still on
+all`, minus `QmlDesigner` and `UpdateInfo`, see below): **84 aspect-driven
+pages, all 84 with their own QML and rendered with Qt Quick, none still on
 widgets.** Gerrit is the first of the widget-creator pages below to have joined
 that count: it became aspect-driven and then got a form, which is the shape the
 rest of them take.
@@ -1351,15 +1351,15 @@ pages that hand over an `AspectContainer` through `setSettingsProvider()`.
 A page that calls `IOptionsPage::setWidgetCreator()` builds its own
 `IOptionsPageWidget` and answers nothing from `aspects()`, so the test skips it
 entirely: `isFullyRenderable()` is never asked and the page is not in the 73.
-There are **31 such call sites in 28 files** - Keyboard, Locator, MIME Types,
+There are **30 such call sites in 27 files** - Keyboard, Locator, MIME Types,
 the toolchain, kit and device pages, Beautifier's three, Clangd, Axivion - and
 they are pure QtWidgets from top to bottom. Counted with
 
     grep -rn setWidgetCreator src/plugins src/libs --include='*.cpp'
 
 minus the mode files, which are `IMode::setWidgetCreator()` and a different
-thing. Gerrit, To-Do, GitLab, Debuggers and the Meson, GN and CMake Tools pages went
-this way; converting any of them took an
+thing. Gerrit, To-Do, GitLab, Debuggers, qbs Profiles and the Meson, GN and CMake
+Tools pages went this way; converting any of them took an
 `AspectContainer` that reads the plugin's own settings struct when the page is
 built and writes it back on apply, which is the same shape the Code Style pages
 use and needs no change to what the rest of the plugin reads.
@@ -1465,6 +1465,26 @@ the count stays where it was and nothing says the new `.qml` was never loaded.
 `-test <plugin>` does run it, so the page carries its own check that its QML
 reaches Ready instead. ClearCase is in the same position. Before writing a
 page, read its plugin's `.json.in`.
+
+### Three kinds of many-rows
+
+There are now three delegates for rows, and picking the wrong one is a lot of
+work to undo:
+
+- **`TableDelegate`** - rows and columns the user edits, with Add and Remove.
+  What a cell is comes from the model; see `Utils::AspectTable`.
+- **`GroupedListDelegate`** - items in named groups with one of them current,
+  and Clone, Remove and Make Default acting on it. `Utils::GroupedListAspect`.
+- **`TreeDelegate`** - a tree the page *reports*: no editing, no selection, no
+  buttons beyond Expand All and Collapse All. Driven by `tableModel()` like
+  the table, because a tree model is one of those too.
+
+qbs Profiles is the first `TreeDelegate` page, and it found the limit that
+decides the shape: **a Qt Quick `TreeView` has no root index.** The widget page
+built every profile into one tree and pointed the view at a branch. There is no
+equivalent, so the model builds the one profile being looked at - which is all
+the page ever showed. Any page that reaches for `setRootIndex()` has to move
+that decision into the model instead.
 
 One thing to watch: a `SelectionAspect` over a list that is being edited holds
 a *position*. GitLab's default server has to be remembered by id and looked up
