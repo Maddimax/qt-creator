@@ -206,7 +206,12 @@ public:
                     // and hidden as a unit - one category of a code style at a
                     // time. Added as a bare layout there is nothing to hide,
                     // and setVisible() on the container did nothing.
-                    QWidget *widget = Layouting::Column{l(), Layouting::noMargin}.emerge();
+                    // With a group box around it where it has a title, which
+                    // GroupDelegate has always drawn: a named group of settings
+                    // that runs into the ones above it is not a group.
+                    QWidget *widget = pres.labelText.isEmpty()
+                        ? Layouting::Column{l(), Layouting::noMargin}.emerge()
+                        : Layouting::Group{Layouting::title(pres.labelText), l()}.emerge();
                     widget->setVisible(container->isVisible());
                     QObject::connect(container, &BaseAspect::visibleChanged,
                                      widget, &QWidget::setVisible);

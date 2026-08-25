@@ -685,6 +685,33 @@ IDevice::IDevice()
     };
     updatePortsWarning();
     freePortsAspect.addOnVolatileValueChanged(this, updatePortsWarning);
+
+    runToolsGroup.setLabelText(Tr::tr("Run Tools on This Device"));
+    sourceAndBuildToolsGroup.setLabelText(Tr::tr("Source and Build Tools on This Device"));
+    autoDetectionGroup.setLabelText(Tr::tr("Auto-Detection"));
+
+    runAutoDetection.setActionText(Tr::tr("Run Auto-Detection Now"));
+    runAutoDetection.setAction([this] { startAutoDetection(); });
+
+    autoDetectionLog.setDisplayStyle(StringAspect::TextEditDisplay);
+    autoDetectionLog.setReadOnly(true);
+    autoDetectionLog.setPlaceHolderText(
+        Tr::tr("Press \"Run Auto-Detection Now\" to detect tools."));
+}
+
+void IDevice::startAutoDetection()
+{
+    runAutoDetection.setEnabled(false);
+    autoDetectionLog.setValue({});
+    const ToolDetectionLogger logger([this](const QString &message) {
+        const QString soFar = autoDetectionLog.volatileValue();
+        autoDetectionLog.setValue(soFar.isEmpty() ? message : soFar + '\n' + message);
+    });
+    const auto onDone = [this, logger] {
+        runAutoDetection.setEnabled(true);
+        logger.logTopLevel(Tr::tr("Done."));
+    };
+    runAutoDetect(logger, onDone);
 }
 
 IDevice::~IDevice() = default;
@@ -697,6 +724,29 @@ void IDevice::initDeviceToolAspects()
         registerAspect(toolAspect, true);
         toolAspect->setBaseDirectory([this] { return rootPath(); });
         d->deviceToolAspects.insert(factory->toolId(), toolAspect);
+    }
+
+    // The groups the settings page shows. The tool aspects stay owned by the
+    // device, with the settings keys they already had; the groups only say
+    // which of them go together and in what order.
+    for (DeviceToolAspect * const tool : deviceToolAspects(DeviceToolAspect::RunTool))
+        runToolsGroup.registerAspect(tool);
+    for (DeviceToolAspect * const tool : deviceToolAspects(DeviceToolAspect::ToolTypes(
+             DeviceToolAspect::SourceTool | DeviceToolAspect::BuildTool))) {
+        sourceAndBuildToolsGroup.registerAspect(tool);
+    }
+
+    // One labelled row each, which is what the closure these replaced built.
+    for (Utils::AspectContainer * const group :
+         {&runToolsGroup, &sourceAndBuildToolsGroup, &autoDetectionGroup}) {
+        Utils::AspectWidgets::setLayouter(group, [group] {
+            Layouting::Form form{Layouting::noMargin};
+            for (Utils::BaseAspect * const row : group->aspects()) {
+                form.addItem(row);
+                form.addItem(Layouting::br);
+            }
+            return form;
+        });
     }
 }
 
@@ -1344,72 +1394,6 @@ QList<DeviceToolAspect *> IDevice::deviceToolAspects(DeviceToolAspect::ToolTypes
     return Utils::sorted(list, [](DeviceToolAspect *left, DeviceToolAspect *right) {
         return left->labelText().toCaseFolded() < right->labelText().toCaseFolded();
     });
-}
-
-std::function<void(Layouting::Layout *)> IDevice::deviceToolsGui()
-{
-    using namespace Layouting;
-    return [this](Layout *layout) {
-        layout->addItems({
-            Column { Space(20) }, br,
-            Layouting::Group {
-                title(Tr::tr("Run Tools on This Device")),
-                Form {
-                    deviceToolAspects(DeviceToolAspect::RunTool)
-                }
-            }, br,
-            Layouting::Group {
-                title(Tr::tr("Source and Build Tools on This Device")),
-                Form {
-                    deviceToolAspects(DeviceToolAspect::ToolTypes(
-                        DeviceToolAspect::SourceTool | DeviceToolAspect::BuildTool))
-                }
-            }, br,
-            Layouting::Group {
-                title(Tr::tr("Auto-Detection")),
-                Column {
-                    Grid {
-                        d->autoDetectInPath, br,
-                        d->autoDetectInQtInstallation, d->autoDetectQtInstallation, br,
-                        d->autoDetectInDirectories, d->autoDetectDirectories, br,
-                        d->autoCreateKits, br,
-                    },
-                }
-            }, br,
-        });
-    };
-}
-
-std::function<void(Layouting::Layout *)> IDevice::autoDetectGui()
-{
-    using namespace Layouting;
-    return [device = shared_from_this()](Layout *layout) {
-        auto button = new QPushButton(Tr::tr("Run Auto-Detection Now"));
-        auto logView = new QPlainTextEdit;
-        logView->setReadOnly(true);
-        logView->setMaximumHeight(120);
-        logView->setPlaceholderText(
-            Tr::tr("Press \"Run Auto-Detection Now\" to detect tools."));
-
-        QObject::connect(button, &QPushButton::clicked, button,
-            [device, button, lv = QPointer<QPlainTextEdit>(logView)] {
-                button->setEnabled(false);
-                if (lv)
-                    lv->clear();
-                const ToolDetectionLogger logger([lv](const QString &msg) {
-                    if (lv)
-                        lv->appendPlainText(msg);
-                });
-                const auto onDone = [btn = QPointer<QWidget>(button), logger] {
-                    if (btn)
-                        btn->setEnabled(true);
-                    logger.logTopLevel(Tr::tr("Done."));
-                };
-                device->runAutoDetect(logger, onDone);
-            });
-
-        layout->addItems({Row{button, st}, br, logView, br});
-    };
 }
 
 void IDevice::runAutoDetect(

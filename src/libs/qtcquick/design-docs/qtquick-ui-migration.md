@@ -1700,6 +1700,34 @@ to become a per-device QML file - or a list of names the page reads - before
 the Devices page itself can move, and it is the same question the toolchain
 kinds answered with `createConfigurationAspects()`.
 
+### The two closures every device carried
+
+`IDevice` handed out two `std::function<void(Layouting::Layout *)>`s that built
+widgets: `deviceToolsGui()` made three group boxes - what a device can run
+tools with, what it builds from, and how it finds those out - and
+`autoDetectGui()` made a "Run Auto-Detection Now" button beside a read-only
+log. All four device widgets dropped both into their forms, and no other
+renderer could see either.
+
+They are aspects now: three labelled `AspectContainer`s that *list* the tool
+aspects rather than owning them - the aspects stay on the device with the
+settings keys they had - plus an `ActionAspect` and a read-only `StringAspect`,
+the same shape Docker's detection log took.
+
+**A labelled container drew no group box in the widget renderer.** `GroupDelegate`
+has always drawn one. The widget side emerged a bare `Column`, so the three
+groups ran into the settings above them with no titles at all. That is the
+third renderer disagreement this migration has turned up by moving something
+across - after the missing `TextWithAction` case and the unlabelled
+`TextDisplay` - and the pattern is the same each time: the Quick delegate is
+the one that was right.
+
+**A `br` is part of the closure, not decoration.** `deviceToolsGui()` emitted
+one after each group; replacing the call with three container names dropped
+them, and the groups packed two-across into the form with a horizontal
+scrollbar. Nothing failed - it was only visible by opening the page and
+comparing it with the screenshot from before.
+
 ### What the census could not see, and now can
 
 Two holes, both found the hard way in the same session.

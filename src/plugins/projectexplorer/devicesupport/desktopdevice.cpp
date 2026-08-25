@@ -7,6 +7,7 @@
 
 #include <coreplugin/dialogs/ioptionspage.h>
 
+#include <QGroupBox>
 #include <QLabel>
 
 #include "../projectexplorerconstants.h"
@@ -240,8 +241,9 @@ public:
             device->freePortsAspect, br,
             empty, device->freePortsWarning, br,
             noMargin,
-            device->deviceToolsGui(),
-            device->autoDetectGui(),
+            device->runToolsGroup, br,
+            device->sourceAndBuildToolsGroup, br,
+            device->autoDetectionGroup, br,
         }.attachTo(this);
 
         installMarkSettingsDirtyTriggerRecursively(this);
@@ -526,6 +528,52 @@ private slots:
         QVERIFY2(shown.contains("Serial number:"), qPrintable(shown.join(" | ")));
         QVERIFY2(shown.contains("R58M12345"), qPrintable(shown.join(" | ")));
 
+    }
+
+    void testTheGroupsBelowADeviceAreContainersNotAClosure()
+    {
+        // What a device can run tools with, what it builds from, and how it
+        // finds those out were three groups built by a
+        // std::function<void(Layouting::Layout *)> on IDevice - widgets, so
+        // only the widget renderer could ever draw them.
+        IDeviceFactory * const factory = IDeviceFactory::find(Constants::DESKTOP_DEVICE_TYPE);
+        QVERIFY(factory);
+        const IDevice::Ptr device = factory->construct();
+        QVERIFY(device);
+
+        for (Utils::AspectContainer * const group : {&device->runToolsGroup,
+                                                     &device->sourceAndBuildToolsGroup,
+                                                     &device->autoDetectionGroup}) {
+            const Utils::AspectPresentation p = group->presentation();
+            QCOMPARE(p.control, Utils::AspectControls::Container);
+            QVERIFY2(!p.labelText.isEmpty(), "a group with no title is not a group");
+        }
+
+        // The tool aspects are the device's, listed by the groups rather than
+        // moved into them: their settings keys must not change.
+        QVERIFY(!device->runToolsGroup.aspects().isEmpty());
+        for (Utils::BaseAspect * const tool : device->runToolsGroup.aspects())
+            QVERIFY(device->aspects().contains(tool));
+
+        // Auto-detection is a button and what the run said, not a QPushButton
+        // and a QPlainTextEdit the closure made.
+        const Utils::AspectPresentation button = device->runAutoDetection.presentation();
+        QCOMPARE(button.control, Utils::AspectControls::Button);
+        QVERIFY(!button.actionText.isEmpty());
+        const Utils::AspectPresentation log = device->autoDetectionLog.presentation();
+        QCOMPARE(log.control, Utils::AspectControls::TextEdit);
+        QVERIFY(log.readOnly);
+        QVERIFY(!log.placeholderText.isEmpty());
+
+        // And placed in a form - which is how every device widget draws it -
+        // a titled group comes with its title on it. Only the Quick delegate
+        // used to do that; the widget renderer drew a bare column.
+        Layouting::Form form{device->runToolsGroup, Layouting::br, Layouting::noMargin};
+        const std::unique_ptr<QWidget> widget(form.emerge());
+        QVERIFY(widget);
+        const QList<QGroupBox *> boxes = widget->findChildren<QGroupBox *>();
+        QVERIFY2(!boxes.isEmpty(), "a titled group drew no group box");
+        QCOMPARE(boxes.first()->title(), device->runToolsGroup.labelText());
     }
 
     void testScriptSourcing()

@@ -94,7 +94,8 @@ DockerDeviceWidget::DockerDeviceWidget(const IDevice::Ptr &device)
             empty, dockerDevice->mountsWarning, br,
             Tr::tr("Port mappings:"), dockerDevice->portMappings, br,
             dockerDevice->createCommandLineDisplay, br,
-            dockerDevice->deviceToolsGui(), br,
+            dockerDevice->runToolsGroup, br,
+            dockerDevice->sourceAndBuildToolsGroup, br,
             Span(2, Row {
                 dockerDevice->autoDetectKitItems,
                 dockerDevice->removeAutoDetectedKitItems,

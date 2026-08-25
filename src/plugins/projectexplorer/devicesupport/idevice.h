@@ -289,8 +289,6 @@ public:
     Utils::FilePath deviceToolPath(Utils::Id toolId) const;
     QList<DeviceToolAspect *> deviceToolAspects(DeviceToolAspect::ToolTypes supportType) const;
 
-    std::function<void(Layouting::Layout *)> deviceToolsGui();
-    std::function<void(Layouting::Layout *)> autoDetectGui();
     virtual void runAutoDetect(const ToolDetectionLogger &logger,
                                const std::function<void()> &onDone);
 
@@ -377,6 +375,21 @@ public:
     // device's business, and so is saying that it has none; two widgets used
     // to work it out and draw the label themselves.
     Utils::TextDisplay freePortsWarning{this};
+
+    // The groups every device shows below its own settings: what it can run
+    // tools with, what it builds from, and how it finds those out. Containers
+    // rather than a std::function that builds widgets, so that whatever draws
+    // a device draws them. Filled once the tool aspects exist; see
+    // initDeviceToolAspects().
+    Utils::AspectContainer runToolsGroup{this};
+    Utils::AspectContainer sourceAndBuildToolsGroup{this};
+    Utils::AspectContainer autoDetectionGroup{this};
+    // Inside the auto-detection group: the button that looks now, and what the
+    // look said.
+    Utils::ActionAspect runAutoDetection{&autoDetectionGroup};
+    Utils::StringAspect autoDetectionLog{&autoDetectionGroup};
+
+    void startAutoDetection();
 
 protected:
     IDevice();

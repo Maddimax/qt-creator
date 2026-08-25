@@ -1617,8 +1617,9 @@ WindowsDeviceConfigurationWidget::WindowsDeviceConfigurationWidget(const IDevice
         ssh.privateKeyFile, createKeyButton, br,
         windowsDevice->autoConnectOnStartup, br,
         windowsDevice->cdbExtensionDirectory, br,
-        device->deviceToolsGui(),
-        device->autoDetectGui(),
+        device->runToolsGroup, br,
+        device->sourceAndBuildToolsGroup, br,
+        device->autoDetectionGroup, br,
     }.attachTo(this);
     // clang-format on
 
