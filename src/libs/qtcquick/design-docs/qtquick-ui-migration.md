@@ -1351,10 +1351,10 @@ pages that hand over an `AspectContainer` through `setSettingsProvider()`.
 A page that calls `IOptionsPage::setWidgetCreator()` builds its own
 `IOptionsPageWidget` and answers nothing from `aspects()`, so the test skips it
 entirely: `isFullyRenderable()` is never asked and the page is not in the 73.
-There are **21 such call sites in 20 files** - Keyboard, Locator, External
-Tools, C++ Quick Fixes, the toolchain, kit and device pages, Axivion, Designer,
-Help's filters, MCU Support, CDB, BareMetal - and they are pure QtWidgets from
-top to bottom. Counted with
+There are **20 such call sites in 19 files** - Keyboard, Locator, External
+Tools, the toolchain, kit and device pages, Axivion, Designer, Help's filters,
+MCU Support, CDB, BareMetal - and they are pure QtWidgets from top to bottom.
+Counted with
 
     grep -rn setWidgetCreator src/plugins src/libs --include='*.cpp'
 
@@ -1400,6 +1400,47 @@ Quick side.
   one that knows what it means. That is the same shape as
   `onCurrentRowChanged: aspect.setCurrentRow(...)` and belongs in the page's
   QML for the same reason: nothing in C++ can see a cursor.
+
+### The page whose settings were the widget
+
+C++ Quick Fixes kept every one of its twenty-odd settings in a line edit or a
+check box: `loadSettings()` wrote the struct into the controls and
+`saveSettings()` read it back out. That is the second workstream in its purest
+form, and porting it is mostly *not* about QML - it is about naming twenty
+aspects and writing the two functions once.
+
+**The mapping is where the bugs are, so that is where the test goes.**
+`testEverySettingSurvivesTheForm` loads a struct with every field set to
+something distinctive and saves it back into another. A field left out of
+either half is a setting the page silently resets, and nothing else in the
+tree notices. Three controls - one dropped save, one dropped load, one
+mis-joined list - all bit.
+
+**A list of sub-aspects does not remember what it was loaded with.**
+`AspectList` keeps `volatileItems` apart from `items`, and `cancel()` goes back
+to `items`, which `addItem()` never touches. Loading the custom templates
+without applying them meant Cancel emptied the list. `loadSettings()` calls
+`AspectList::apply()` at the end for that reason, and
+`testCancellingKeepsTheTemplatesThatWereLoaded` is aimed straight at it.
+
+**A page that shows up in two places needs one form, not two.**
+The same settings appear in a project panel, which is not an options page and
+so built its own widget. `Core::createAspectForm()` hands out what
+`IOptionsPage` already builds - the Quick form where the container names its
+own QML, the widget layout otherwise - so the panel and the page cannot drift.
+Anything else that embeds settings outside Preferences can use it.
+
+**A nameless check box is a hole in the page census.** The four function-location
+rules were a bare check box beside a grid label, and the census asserts a check
+box carries its own text - for good reason: a page of nameless boxes is
+invisible to every other assertion. Rather than weaken the rule, the check box
+took the row label ("Outside class:", "In .cpp file:") and the label column
+went.
+
+The same census caught nine line edits that were not: `StringAspect`'s default
+display style is `LabelDisplay`, so a field that is never told otherwise is
+drawn as text. `setDisplayStyle(StringAspect::LineEditDisplay)` is not
+optional, and the widget renderer never made anyone say it.
 
 ### The tree the grouped pages needed
 
