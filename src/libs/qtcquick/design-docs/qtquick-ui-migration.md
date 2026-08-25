@@ -1332,6 +1332,29 @@ is the same measurement the `AspectGroupBox` note describes. Worth repeating
 after a batch: it is the only thing that sees a warning the page census cannot,
 and it also confirmed that no page has a binding loop left.
 
+### The ABI, which six toolchains and qmake all pick
+
+After the shared settings, the next thing every toolchain page is made of is an
+`AbiWidget` - six kinds of toolchain use one, and so does the qmake step. It is
+`AbiAspects` now, and `AbiWidget` draws those aspects; no call site changed.
+
+What is being picked is one of the ABIs the toolchain reported, or the five
+parts of a custom one when none of them is right. Three things about it are
+easy to get wrong and none of them had a test, because none could be reached
+without a window:
+
+- the five parts are the user's only in custom mode,
+- which flavours are offered follows the operating system, and changes while
+  the page is open - the case `SelectionAspect::clearOptions()` exists for,
+- the `<custom>` entry keeps what was being assembled there while another ABI
+  is looked at.
+
+**Two of those tests were green whether or not the code did anything**, and
+were only found by aiming a control at each. One of them asserted behaviour the
+widget never had: going back to `<custom>` restores what was being *built*
+there, not the ABI picked in between. A conversion is not the place to change
+that, so the test says what the widget does.
+
 ### Starting Toolchains from the bottom
 
 Nine `ToolchainConfigWidget` subclasses have to move before the Toolchains page
