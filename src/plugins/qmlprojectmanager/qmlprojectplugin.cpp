@@ -6,6 +6,7 @@
 #include "buildsystem/qmlbuildsystem.h"
 #include "qdslandingpage.h"
 #include "qmlproject.h"
+#include "qmlmainfileaspect.h"
 #include "qmlprojectconstants.h"
 #include "qmlprojectmanagertr.h"
 #include "qmlprojectrunconfiguration.h"
@@ -330,6 +331,10 @@ void QmlProjectPlugin::initialize()
 {
     setupQmlProjectRunConfiguration();
     setupExternalDesignStudio();
+
+#ifdef WITH_TESTS
+    addTestCreator(createQmlMainFileTest);
+#endif
 
     if (!qmlDesignerEnabled()) {
         qdsSettings().setQdsSettingVisible(true);

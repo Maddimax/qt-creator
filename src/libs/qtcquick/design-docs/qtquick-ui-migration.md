@@ -2165,7 +2165,7 @@ installs a message handler and asserts nothing says SOFT ASSERT. The first
 version of it passed against a build with the guard removed, which is the only
 reason it was rewritten.
 
-**What this does not do.** The virtual has to stay: eleven aspects in
+**What this does not do.** The virtual has to stay: ten aspects in
 `src/plugins` and five more in Utils still override it. They are not one
 group. Most are run-configuration, build-step and kit aspects - project
 panels rather than preferences pages, which is a surface the migration has not
@@ -2504,7 +2504,7 @@ anyway, because the closure was holding state - a widget's `customConfigs()`, a
 label's text - that nothing else did. Both are now gone. `EnvVarSeparatorAspect` was
 a sixth of exactly the same kind - see below.
 
-What still overrides `addToLayoutImpl()` in `src/plugins` is eleven aspects,
+What still overrides `addToLayoutImpl()` in `src/plugins` is ten aspects,
 and they are mostly the project surface: run configurations, build steps and
 build settings. Three are not - `KitAspect` and `DeviceToolAspect` on the Kits
 and Devices pages, and `LibrarySelectionAspect` - and those are the ones to
@@ -2618,6 +2618,43 @@ Three of the four assertions here pass with the old captured-entries code left
 in one lambda; only picking an entry *after* a refill tells them apart. Worth
 remembering: a control that follows a refill is not the same claim as a control
 that writes back correctly after one.
+
+### The chooser that had nothing to choose from
+
+`QmlMainFileAspect` said `ComboBox` in its descriptor and built a `QComboBox`
+over a `QStandardItemModel` of its own, because the entries are rebuilt
+whenever the project's files change and the generic combo path could not follow
+that. It can now - see above - so the model and the combo are gone. What is
+left is `presentation()` filling `choices` from a `QStringList` of ids, with
+`valueIsChoiceId` set: the entries are rebuilt, so a position in them means
+nothing across a rebuild.
+
+**The list was empty, and had been all along.** Pulling the file-gathering out
+into `mainFileChoices()` so it could be tested made the first test fail with
+one entry where four were expected. The reason is one line:
+
+    relativeFiles += projectDir.relativeChildPath(fn);
+
+`relativeChildPath()` is `child.relativeChildPath(parent)` - it asks whether
+*this* is below the argument. Called the other way round it asks whether the
+project directory is inside `Main.qml`, answers an empty path for every file,
+and the `.qml` filter then drops all of them. **Qt Creator's "Main QML file"
+chooser has never offered anything but `<Current File>`.** The same file gets
+the idiom right three lines away, with `mainScript().relativePathFromDir(
+projectDir)`.
+
+That is worth spelling out as a method, not a curiosity. The conversion
+transcribed the bug faithfully - it is a straight copy of the loop - and it was
+lifting the logic into something a test could call *with a list of paths it
+wrote down itself* that surfaced it. A test that had gone through a real
+project would have agreed with the code: both would have asked the same wrong
+question.
+
+**One deliberate behaviour change.** When the stored file is no longer in the
+project, the old code left the combo on entry 0 - showing `<Current File>`
+while storing something else. It now selects nothing, which is what
+`comboBoxForAnAspectValuedByChoiceId` already establishes as the answer for a
+stale id.
 
 ### What the census could not see, and now can
 

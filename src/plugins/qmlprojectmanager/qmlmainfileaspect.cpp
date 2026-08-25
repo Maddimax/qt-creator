@@ -12,12 +12,14 @@
 
 #include <projectexplorer/projectexplorer.h>
 
-#include <utils/layoutbuilder.h>
 #include <utils/mimeconstants.h>
 #include <utils/mimeutils.h>
 #include <utils/qtcassert.h>
 
-#include <QComboBox>
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
 
 using namespace Core;
 using namespace ProjectExplorer;
@@ -47,32 +49,46 @@ QmlMainFileAspect::QmlMainFileAspect(AspectContainer *container)
     connect(ProjectExplorerPlugin::instance(),
             &ProjectExplorerPlugin::fileListChanged,
             this,
-            &QmlMainFileAspect::updateFileComboBox);
+            &QmlMainFileAspect::updateFileList);
 }
 
-QmlMainFileAspect::~QmlMainFileAspect()
-{
-    delete m_fileListCombo;
-}
-
-void QmlMainFileAspect::addToLayoutImpl(Layouting::Layout &parent)
-{
-    QTC_ASSERT(!m_fileListCombo, delete m_fileListCombo);
-    m_fileListCombo = new QComboBox;
-    m_fileListCombo->setModel(&m_fileListModel);
-
-    updateFileComboBox();
-    connect(m_fileListCombo, &QComboBox::activated, this, &QmlMainFileAspect::setMainScript);
-
-    parent.addItems({Tr::tr("Main QML file:"), m_fileListCombo.data()});
-}
+QmlMainFileAspect::~QmlMainFileAspect() = default;
 
 AspectPresentation QmlMainFileAspect::presentation() const
 {
     AspectPresentation p = BaseAspect::presentation();
     p.control = AspectControls::ComboBox;
     p.labelText = Tr::tr("Main QML file:");
+    // The stored value is the file, not a position: the list is rebuilt
+    // whenever the project's files change.
+    p.valueIsChoiceId = true;
+    for (const QString &id : m_fileList)
+        p.choices.append({id == QLatin1String(M_CURRENT_FILE) ? Tr::tr(CURRENT_FILE) : id,
+                          {}, true, id});
     return p;
+}
+
+QVariant QmlMainFileAspect::volatileVariantValue() const
+{
+    switch (mainScriptSource()) {
+    case FileInEditor:
+        return QString(M_CURRENT_FILE);
+    case FileInProjectFile:
+        // The .qmlproject said which file, and it is the only one on offer.
+        return m_fileList.value(0);
+    case FileInSettings:
+        break;
+    }
+    return m_scriptFile;
+}
+
+void QmlMainFileAspect::setVolatileVariantValue(const QVariant &value, Announcement)
+{
+    const QString id = value.toString();
+    if (id.isEmpty() || id == QLatin1String(M_CURRENT_FILE))
+        setScriptSource(FileInEditor);
+    else
+        setScriptSource(FileInSettings, id);
 }
 
 void QmlMainFileAspect::toMap(Store &map) const
@@ -92,58 +108,41 @@ void QmlMainFileAspect::fromMap(const Store &map)
         setScriptSource(FileInSettings, m_scriptFile);
 }
 
-void QmlMainFileAspect::updateFileComboBox()
+QStringList mainFileChoices(const FilePaths &projectFiles, const FilePath &projectDir)
+{
+    FilePaths relative;
+    for (const FilePath &fn : projectFiles) {
+        // fn relative to projectDir, not the other way round. Reversed, this
+        // answered an empty path for every file, and the chooser has offered
+        // nothing but the file in the editor for as long as it has existed.
+        relative += fn.relativeChildPath(projectDir);
+    }
+    std::stable_sort(relative.begin(), relative.end(), caseInsensitiveLessThan);
+
+    QStringList choices{QLatin1String(M_CURRENT_FILE)};
+    for (const FilePath &fn : std::as_const(relative)) {
+        if (fn.suffixView() == u"qml")
+            choices += fn.toUrlishString();
+    }
+    return choices;
+}
+
+void QmlMainFileAspect::updateFileList()
 {
     auto buildSystem = qmlBuildSystem();
     QTC_ASSERT(buildSystem, return);
     const FilePath projectDir = buildSystem->projectDirectory();
 
+    // A .qmlproject that names its main file leaves nothing to choose.
     if (mainScriptSource() == FileInProjectFile) {
-        const QString mainScriptInFilePath = mainScript().relativePathFromDir(projectDir);
-        m_fileListModel.clear();
-        m_fileListModel.appendRow(new QStandardItem(mainScriptInFilePath));
-        if (m_fileListCombo)
-            m_fileListCombo->setEnabled(false);
-        return;
+        m_fileList = {mainScript().relativePathFromDir(projectDir)};
+        setEnabled(false);
+    } else {
+        m_fileList = mainFileChoices(buildSystem->project()->files(Project::SourceFiles),
+                                     projectDir);
+        setEnabled(true);
     }
-
-    if (m_fileListCombo)
-        m_fileListCombo->setEnabled(true);
-    m_fileListModel.clear();
-    m_fileListModel.appendRow(new QStandardItem(CURRENT_FILE));
-    QModelIndex currentIndex;
-
-    FilePaths sortedFiles = buildSystem->project()->files(Project::SourceFiles);
-
-    // make paths relative to project directory
-    FilePaths relativeFiles;
-    for (const FilePath &fn : std::as_const(sortedFiles))
-        relativeFiles += projectDir.relativeChildPath(fn);
-    sortedFiles = relativeFiles;
-
-    std::stable_sort(sortedFiles.begin(), sortedFiles.end(), caseInsensitiveLessThan);
-
-    FilePath mainScriptPath;
-    if (mainScriptSource() != FileInEditor)
-        mainScriptPath = projectDir.relativeChildPath(mainScript());
-
-    for (const FilePath &fn : std::as_const(sortedFiles)) {
-        if (fn.suffixView() != u"qml")
-            continue;
-
-        auto item = new QStandardItem(fn.toUrlishString());
-        m_fileListModel.appendRow(item);
-
-        if (mainScriptPath == fn)
-            currentIndex = item->index();
-    }
-
-    if (m_fileListCombo) {
-        if (currentIndex.isValid())
-            m_fileListCombo->setCurrentIndex(currentIndex.row());
-        else
-            m_fileListCombo->setCurrentIndex(0);
-    }
+    emit controlConfigurationChanged();
 }
 
 QmlMainFileAspect::MainScriptSource QmlMainFileAspect::mainScriptSource() const
@@ -154,16 +153,6 @@ QmlMainFileAspect::MainScriptSource QmlMainFileAspect::mainScriptSource() const
     if (!m_mainScriptFilename.isEmpty())
         return FileInSettings;
     return FileInEditor;
-}
-
-void QmlMainFileAspect::setMainScript(int index)
-{
-    if (index == 0) {
-        setScriptSource(FileInEditor);
-    } else {
-        const QString path = m_fileListModel.data(m_fileListModel.index(index, 0)).toString();
-        setScriptSource(FileInSettings, path);
-    }
 }
 
 void QmlMainFileAspect::setScriptSource(MainScriptSource source, const QString &settingsPath)
@@ -181,7 +170,7 @@ void QmlMainFileAspect::setScriptSource(MainScriptSource source, const QString &
     }
 
     emit changed();
-    updateFileComboBox();
+    updateFileList();
 }
 
 /**
@@ -261,4 +250,68 @@ QmlBuildSystem *QmlMainFileAspect::qmlBuildSystem() const
     return qobject_cast<QmlBuildSystem *>(runConfig->buildSystem());
 }
 
+#ifdef WITH_TESTS
+class QmlMainFileTest : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheEntriesAreTheProjectsQmlFilesInReadingOrder()
+    {
+        const FilePath dir = FilePath::fromString("/project");
+        const FilePaths files = {
+            dir / "src" / "Zoo.qml",
+            dir / "main.cpp",             // Not QML, so not on offer.
+            dir / "Main.qml",
+            dir / "README.md",
+            dir / "src" / "apple.qml",
+        };
+
+        // "<Current File>" first, then the QML files sorted the way a reader
+        // would - apple before Zoo, which is not what sorting by byte does.
+        QCOMPARE(mainFileChoices(files, dir),
+                 QStringList({"CurrentFile", "Main.qml", "src/apple.qml", "src/Zoo.qml"}));
+    }
+
+    void testTheStoredValueIsTheFileRatherThanItsPlaceInTheList()
+    {
+        QmlMainFileAspect aspect;
+        aspect.m_fileList = {"CurrentFile", "Main.qml", "src/apple.qml"};
+
+        const AspectPresentation p = aspect.presentation();
+        QCOMPARE(p.control, AspectControls::ComboBox);
+        // The list is rebuilt whenever the project's files change, so a
+        // position in it means nothing across a rebuild.
+        QVERIFY(p.valueIsChoiceId);
+        QCOMPARE(p.choices.size(), 3);
+
+        // What is stored for the first entry is a sentinel; what is shown is
+        // a name for it.
+        QCOMPARE(p.choices.at(0).id.toString(), QString("CurrentFile"));
+        QVERIFY(p.choices.at(0).display != QLatin1String("CurrentFile"));
+        QVERIFY(!p.choices.at(0).display.isEmpty());
+
+        // The rest are stored as what they are.
+        QCOMPARE(p.choices.at(1).id.toString(), QString("Main.qml"));
+        QCOMPARE(p.choices.at(1).display, QString("Main.qml"));
+    }
+
+    void testAProjectWithNoQmlInItStillOffersTheEditorsFile()
+    {
+        const FilePath dir = FilePath::fromString("/project");
+        QCOMPARE(mainFileChoices({dir / "main.cpp"}, dir), QStringList("CurrentFile"));
+        QCOMPARE(mainFileChoices({}, dir), QStringList("CurrentFile"));
+    }
+};
+
+QObject *createQmlMainFileTest()
+{
+    return new QmlMainFileTest;
+}
+#endif // WITH_TESTS
+
 } // QmlProjectManager
+
+#ifdef WITH_TESTS
+#include "qmlmainfileaspect.moc"
+#endif
