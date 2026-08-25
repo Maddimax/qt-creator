@@ -1324,8 +1324,27 @@ It also keeps a rejected value out of the aspect, which the widget line edit
 does not - it colours the field and stores the value anyway. A page whose
 modal dialog used to refuse the value outright would otherwise start accepting
 it, which is what To-Do would have done with a keyword containing a space.
-Only the validation shape taking a `QString` can answer; the other two want a
-`FancyLineEdit` or return a `QFuture`.
+
+Some checks cannot be made on the spot, and those needed a second round.
+Whether the path a field holds is really a debugger is decided by *running*
+it, so `validationMessage()` has nothing to say when it is asked. The aspect
+now remembers the answer for the one candidate being asked about and says
+`validationMessageChanged()` once it has it; the delegate bumps a counter its
+binding reads, because what is wrong with a value is asked for rather than a
+property to bind to.
+
+Two rules fall out of holding one answer at a time, and both are worth keeping
+in mind if this is ever extended:
+
+- Nothing is reported while a check is in flight, and an answer that lands
+  after the value has moved on is dropped. Showing the last answer would be
+  showing it about text the user has already changed.
+- One aspect, one asker. A test that had a live field on screen *and* called
+  `validationMessage()` directly had the two fighting over the one candidate,
+  and the direct calls kept losing.
+
+The shape that is still unserved is the one handed a `FancyLineEdit`, which is
+the widget renderer's and has nothing to give it.
 
 **What the aspect-driven count does not include, and it is the bigger half.** It counts
 pages that hand over an `AspectContainer` through `setSettingsProvider()`.
@@ -1417,14 +1436,9 @@ use to narrow what they list and to choose what a re-detect runs over. It was a
 - **Kits** has the same shape with `KitAspect` widgets.
 - **Qt Versions** is the biggest of them: two `DetailsWidget`s, an expandable
   info pane, Link with Qt, Clean Up, and per-version warnings.
-- **Debuggers** is the one to do next, but it is not free either. Its details
-  pane is raw widgets rather than aspects, so it needs the same rewrite Gerrit
-  and GitLab had - and its path field validates **asynchronously**: it wraps
-  `FilePathAspect::defaultValidationFunction()` and then runs the binary to see
-  whether it is really a debugger. `BaseAspect::validationMessage()` answers
-  synchronously and returns nothing for that shape, so the field would take a
-  bad path in silence. An async validation channel to the delegate is what that
-  page wants first.
+- **Debuggers** is the one to do next. Its details pane is raw widgets rather
+  than aspects, so it needs the same rewrite Gerrit and GitLab had; the
+  asynchronous validation its path field wants is in place now.
 
 **The guard that guards nothing.** All three ported pages load a tool into a
 form and store what the user types, and all three carried *two* flags for it -
