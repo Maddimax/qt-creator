@@ -1351,9 +1351,10 @@ pages that hand over an `AspectContainer` through `setSettingsProvider()`.
 A page that calls `IOptionsPage::setWidgetCreator()` builds its own
 `IOptionsPageWidget` and answers nothing from `aspects()`, so the test skips it
 entirely: `isFullyRenderable()` is never asked and the page is not in the 73.
-There are **21 such call sites in 20 files** - Keyboard, Locator, MIME Types,
-the toolchain, kit and device pages, Beautifier's three, Clangd, Axivion - and
-they are pure QtWidgets from top to bottom. Counted with
+There are **21 such call sites in 20 files** - Keyboard, Locator, External
+Tools, C++ Quick Fixes, the toolchain, kit and device pages, Axivion, Designer,
+Help's filters, MCU Support, CDB, BareMetal - and they are pure QtWidgets from
+top to bottom. Counted with
 
     grep -rn setWidgetCreator src/plugins src/libs --include='*.cpp'
 
@@ -1440,15 +1441,13 @@ thing more: **`DeviceSelectionAspect`**, the device picker four of the seven
 use to narrow what they list and to choose what a re-detect runs over. It was a
 `DeviceComboBox` - a widget - so it blocked all four.
 
-**Four of the seven are done** - Meson, GN, CMake and Debuggers. What the
-other three still need is not the tree:
+**Five of the seven are done** - Meson, GN, CMake, Debuggers and Qt Versions.
+What the other two still need is not the tree:
 
 - **Toolchains** shows a `ToolchainConfigWidget` per toolchain type. That is a
   plugin extension point returning `QWidget`s, so the page cannot move until
   every toolchain implementation does.
 - **Kits** has the same shape with `KitAspect` widgets.
-- **Qt Versions** is the biggest of them: two `DetailsWidget`s, an expandable
-  info pane, Link with Qt, Clean Up, and per-version warnings.
 Debuggers was the fourth, and it brought one thing worth repeating: what a
 debugger *is* - its ABIs, its version, its engine - is found by running it, and
 the widget page read those back out of the labels it had written them into to
@@ -1456,6 +1455,42 @@ decide what to store. That round trip happened to be lossless, so it was not a
 bug; it did mean the truth about a debugger lived in a string on screen, and a
 page that keeps it as its own state is one less thing to get wrong. Expect the
 same shape in the pages that are left.
+
+### Qt Versions, and the settings a page does not know in advance
+
+Qt Versions had the same extension point Toolchains and Kits still have, but
+with one implementation: `QtVersion::createConfigurationWidget()` returned a
+`QtConfigWidget`, and the only one there was is QNX's SDP path. So the point
+moved instead of the pages waiting for it - **`createConfigurationAspects()`**
+returns a `Utils::AspectContainer`, `QnxConfigurationAspects` is that container,
+and `qtconfigwidget.{h,cpp}` is gone.
+
+That leaves a page having to draw aspects it does not know until a version is
+picked. `aspects.<name>` reaches what the container held when the form was
+built, which is the wrong shape for something that changes. The page keeps a
+small aspect whose value *is* a container:
+
+```qml
+AspectItems {
+    model: root.details.Configuration.container
+           ? AspectModels.container(root.details.Configuration.container) : null
+}
+```
+
+`AspectModels.container()` already caches one model per container, so this
+costs nothing per switch. The container is parented to the aspect that hands it
+out - a `Q_PROPERTY` does not give QML ownership the way an invokable does, but
+the page deletes it on the next switch and a parent is what keeps those two
+from racing. `testAnAspectCanHandOutAContainerToDraw` covers the whole path,
+because nothing else can: no QNX Qt version exists on a machine that is not
+building for QNX, so the page census never reaches this branch.
+
+**A page census cannot see a details pane that is empty.** Qt Versions hides
+nothing now - the form is there with no version picked, as the widget page's
+was - and that is what lets `testAspectDrivenPagesRenderWithQuick` report on the
+name, the qmake path and the info pane at all. A pane made `visible: false`
+until something is current is invisible to every assertion in that test, which
+is worth remembering before hiding one.
 
 **Every one of these pages wrote the form back twice**, and only one of the two
 ever does anything. Python wrote each field as it changed *and* wrote the whole
