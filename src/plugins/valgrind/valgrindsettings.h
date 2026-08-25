@@ -9,17 +9,14 @@ namespace Valgrind::Internal {
 
 inline constexpr char ANALYZER_VALGRIND_SETTINGS[] = "Analyzer.Valgrind.Settings";
 
-class SuppressionAspectPrivate;
-
 class SuppressionAspect final : public Utils::TypedAspect<Utils::FilePaths>
 {
     Q_OBJECT
 
 public:
-    SuppressionAspect(Utils::AspectContainer *container, bool global);
+    explicit SuppressionAspect(Utils::AspectContainer *container);
     ~SuppressionAspect() final;
 
-    void addToLayoutImpl(Layouting::Layout &parent) final;
     Utils::AspectPresentation presentation() const final;
 
     void fromMap(const Utils::Store &map) final;
@@ -28,16 +25,11 @@ public:
     void addSuppressionFile(const Utils::FilePath &suppressionFile);
 
 private:
-    void volatileValueToGui() override;
-    bool guiToVolatileValue() override;
-
     QVariant variantValue() const override;
     void setVariantValue(const QVariant &value, Announcement howToAnnounce) override;
     QVariant volatileVariantValue() const override;
 
     friend class ValgrindSettings;
-    friend class SuppressionAspectPrivate;
-    SuppressionAspectPrivate *d = nullptr;
 };
 
 /**
@@ -81,7 +73,6 @@ public:
     Utils::BoolAspect filterExternalIssues{this};
     Utils::IntegersAspect visibleErrorKinds{this};
 
-    Utils::FilePathAspect lastSuppressionDirectory{this}; // Global only
     Utils::StringAspect lastSuppressionHistory{this}; // Global only
 
     void setVisibleErrorKinds(const QList<int> &);

@@ -1272,9 +1272,6 @@ public:
     void appendValues(const FilePaths &values, bool allowDuplicates = true);
     void removeValues(const FilePaths &values);
 
-signals:
-    void placeHolderTextChanged(const QString &placeHolderText);
-
 private:
     std::unique_ptr<Internal::FilePathListAspectPrivate> d;
 };

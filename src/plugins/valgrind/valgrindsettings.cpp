@@ -10,22 +10,14 @@
 #include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/documentmanager.h>
 
-#include <utils/aspectwidgets.h>
-#include <utils/filedialogs.h>
-#include <utils/algorithm.h>
-#include <utils/fileutils.h>
 #include <utils/guiutils.h>
 #include <utils/hostosinfo.h>
-#include <utils/layoutbuilder.h>
 #include <utils/pathvalidation.h>
 #include <utils/qtcassert.h>
 #include <utils/shutdownguard.h>
 #include <utils/utilsicons.h>
 
-#include <QListView>
 #include <QMetaEnum>
-#include <QPushButton>
-#include <QStandardItemModel>
 
 using namespace Utils;
 
@@ -35,25 +27,6 @@ namespace Valgrind::Internal {
 // SuppressionAspect
 //
 
-class SuppressionAspectPrivate : public QObject
-{
-public:
-    SuppressionAspectPrivate(SuppressionAspect *q, bool global) : q(q), isGlobal(global) {}
-
-    void slotAddSuppression();
-    void slotRemoveSuppression();
-    void slotSuppressionSelectionChanged();
-
-    SuppressionAspect *q;
-    const bool isGlobal;
-
-    QPointer<QPushButton> addEntry;
-    QPointer<QPushButton> removeEntry;
-    QPointer<QListView> entryList;
-
-    QStandardItemModel m_model; // The volatile value of this aspect.
-};
-
 void SuppressionAspect::addSuppressionFile(const FilePath &suppression)
 {
     FilePaths val = value();
@@ -61,107 +34,24 @@ void SuppressionAspect::addSuppressionFile(const FilePath &suppression)
     setValue(val);
 }
 
-void SuppressionAspectPrivate::slotAddSuppression()
-{
-    const FilePaths files = FileUtils::getOpenFilePaths(
-        Tr::tr("Valgrind Suppression Files"),
-        globalSettings().lastSuppressionDirectory(),
-        Tr::tr("Valgrind Suppression File (*.supp)") + ";;"
-            + Core::DocumentManager::allFilesFilterString());
-    //dialog.setHistory(conf->lastSuppressionDialogHistory());
-    if (!files.isEmpty()) {
-        for (const FilePath &file : files)
-            m_model.appendRow(new QStandardItem(file.toUrlishString()));
-        q->guiToVolatileValue();
-        globalSettings().lastSuppressionDirectory.setValue(files.at(0).absolutePath());
-        //conf->setLastSuppressionDialogHistory(dialog.history());
-        if (!isGlobal)
-            q->apply();
-        else
-            markSettingsDirty();
-    }
-}
-
-void SuppressionAspectPrivate::slotRemoveSuppression()
-{
-    // remove from end so no rows get invalidated
-    QList<int> rows;
-
-    QStringList removed;
-    const QModelIndexList selected = entryList->selectionModel()->selectedIndexes();
-    for (const QModelIndex &index : selected) {
-        rows << index.row();
-        removed << index.data().toString();
-    }
-
-    Utils::sort(rows, std::greater<int>());
-
-    for (int row : std::as_const(rows))
-        m_model.removeRow(row);
-    q->guiToVolatileValue();
-
-    if (!isGlobal)
-        q->apply();
-    else
-        markSettingsDirty();
-}
-
-void SuppressionAspectPrivate::slotSuppressionSelectionChanged()
-{
-    removeEntry->setEnabled(entryList->selectionModel()->hasSelection());
-}
-
-//
-// SuppressionAspect
-//
-
-SuppressionAspect::SuppressionAspect(AspectContainer *container, bool global)
+SuppressionAspect::SuppressionAspect(AspectContainer *container)
     : TypedAspect(container)
 {
-    d = new SuppressionAspectPrivate(this, global);
     setSettingsKey("Analyzer.Valgrind.SuppressionFiles");
 }
 
-SuppressionAspect::~SuppressionAspect()
-{
-    delete d;
-}
-
-void SuppressionAspect::addToLayoutImpl(Layouting::Layout &parent)
-{
-    QTC_CHECK(!d->addEntry);
-    QTC_CHECK(!d->removeEntry);
-    QTC_CHECK(!d->entryList);
-
-    using namespace Layouting;
-
-    d->addEntry = new QPushButton(Tr::tr("Add..."));
-    d->removeEntry = new QPushButton(Tr::tr("Remove"));
-
-    d->entryList = Utils::AspectWidgets::createSubWidget<QListView>(this);
-    d->entryList->setModel(&d->m_model);
-    d->entryList->setSelectionMode(QAbstractItemView::MultiSelection);
-
-    connect(d->addEntry, &QPushButton::clicked,
-            d, &SuppressionAspectPrivate::slotAddSuppression);
-    connect(d->removeEntry, &QPushButton::clicked,
-            d, &SuppressionAspectPrivate::slotRemoveSuppression);
-    connect(d->entryList->selectionModel(), &QItemSelectionModel::selectionChanged,
-            d, &SuppressionAspectPrivate::slotSuppressionSelectionChanged);
-
-    parent.addItem(Column { Tr::tr("Suppression files:"), st });
-    Row group {
-        d->entryList.data(),
-        Column { d->addEntry.data(), d->removeEntry.data(), st }
-    };
-    parent.addItem(Span { 2, group });
-}
+SuppressionAspect::~SuppressionAspect() = default;
 
 AspectPresentation SuppressionAspect::presentation() const
 {
     AspectPresentation p = TypedAspect::presentation();
     p.control = AspectControls::FilePathList;
     p.labelText = Tr::tr("Suppression files:");
+    // Files, not directories, and only the ones valgrind reads.
+    p.pathKind = AspectControls::PathKind::File;
+    p.promptDialogTitle = Tr::tr("Valgrind Suppression Files");
+    p.promptDialogFilter = Tr::tr("Valgrind Suppression File (*.supp)") + ";;"
+                           + Core::DocumentManager::allFilesFilterString();
     return p;
 }
 
@@ -173,22 +63,6 @@ void SuppressionAspect::fromMap(const Store &map)
 void SuppressionAspect::toMap(Store &map) const
 {
     BaseAspect::toMap(map);
-}
-
-bool SuppressionAspect::guiToVolatileValue()
-{
-    const FilePaths old = m_volatileValue;
-    m_volatileValue.clear();
-    for (int i = 0; i < d->m_model.rowCount(); ++i)
-        m_volatileValue.append(FilePath::fromUserInput(d->m_model.item(i)->text()));
-    return m_volatileValue != old;
-}
-
-void SuppressionAspect::volatileValueToGui()
-{
-    d->m_model.clear();
-    for (const FilePath &file : std::as_const(m_volatileValue))
-        d->m_model.appendRow(new QStandardItem(file.toUserOutput()));
 }
 
 QVariant SuppressionAspect::variantValue() const
@@ -213,7 +87,7 @@ QVariant SuppressionAspect::volatileVariantValue() const
 //////////////////////////////////////////////////////////////////
 
 ValgrindSettings::ValgrindSettings(bool global)
-    : suppressions(this, global)
+    : suppressions(this)
 {
     setSettingsGroup("Analyzer");
     setAutoApply(false);
@@ -286,8 +160,6 @@ ValgrindSettings::ValgrindSettings(bool global)
     numCallers.setDefaultValue(25);
     numCallers.setLabelText(Tr::tr("Backtrace frame count:"));
 
-    lastSuppressionDirectory.setSettingsKey(base + "LastSuppressionDirectory");
-    lastSuppressionDirectory.setVisible(global);
 
     lastSuppressionHistory.setSettingsKey(base + "LastSuppressionHistory");
     lastSuppressionHistory.setVisible(global);

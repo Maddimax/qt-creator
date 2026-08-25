@@ -120,11 +120,11 @@ public:
             }
             return false;
         case AspectControls::FilePathList:
-            if (auto filePathListAspect = qobject_cast<FilePathListAspect *>(&aspect)) {
-                renderFilePathList(filePathListAspect, parent, pres);
-                return true;
-            }
-            return false;
+            // Whatever asked for a list of paths gets one. What it holds is
+            // read and written as a variant, so it need not be a
+            // FilePathListAspect - Valgrind's suppression files are not.
+            renderFilePathList(&aspect, parent, pres);
+            return true;
         case AspectControls::IntegerList:
             // Renders nothing, like IntegersAspect's own body.
             return qobject_cast<IntegersAspect *>(&aspect) != nullptr;
@@ -717,17 +717,18 @@ private:
         AspectWidgets::addLabeledItem(aspect, parent, lineEdit);
     }
 
-    static void renderFilePathList(FilePathListAspect *aspect, Layout &parent,
+    static void renderFilePathList(BaseAspect *aspect, Layout &parent,
                                    const AspectPresentation &pres)
     {
         PathListEditor *editor = AspectWidgets::createSubWidget<PathListEditor>(aspect);
-        editor->setPathList(aspect->value());
+        editor->setPathList(aspect->volatileVariantValue().toStringList());
         QObject::connect(editor, &PathListEditor::changed, aspect, [aspect, editor] {
             aspect->setVolatileVariantValueFromGui(editor->pathList());
         });
         aspect->addOnVolatileValueChanged(editor, [aspect, editor] {
-            if (editor->pathList() != aspect->volatileValue())
-                editor->setPathList(aspect->volatileValue());
+            const QStringList paths = aspect->volatileVariantValue().toStringList();
+            if (editor->pathList() != paths)
+                editor->setPathList(paths);
         });
         // Like the inline body: the editor's change signal is forwarded
         // unconditionally.
@@ -738,13 +739,20 @@ private:
         editor->setMaximumHeight(100);
         editor->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
         editor->setPlaceholderText(pres.placeholderText);
+        // A list of directories browses for one; a list of files says which
+        // files, and Insert... asks for those instead.
+        editor->setFileDialogTitle(pres.promptDialogTitle);
+        if (pres.pathKind == AspectControls::PathKind::File
+            || pres.pathKind == AspectControls::PathKind::SaveFile) {
+            editor->setFileDialogFilter(pres.promptDialogFilter);
+        }
 
         AspectWidgets::registerSubWidget(aspect, editor);
 
-        QObject::connect(aspect, &FilePathListAspect::placeHolderTextChanged,
+        QObject::connect(aspect, &BaseAspect::placeholderTextChanged,
                          editor, &PathListEditor::setPlaceholderText);
 
-        parent.addItem(editor);
+        AspectWidgets::addLabeledItem(aspect, parent, editor);
     }
 
     static QString displayedString(StringAspect *aspect)

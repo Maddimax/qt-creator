@@ -158,8 +158,9 @@ RowLayout {
 
         title: (delegate.pres.promptDialogTitle ?? "") !== ""
                ? delegate.pres.promptDialogTitle : qsTr("Choose File")
+        // Qt's filters are one ";;"-separated string; QML wants them one by one.
         nameFilters: (delegate.pres.promptDialogFilter ?? "") !== ""
-                     ? [delegate.pres.promptDialogFilter] : []
+                     ? delegate.pres.promptDialogFilter.split(";;") : []
         // A path that does not have to exist yet is being saved to, not opened.
         fileMode: delegate.pathKind === "SaveFile"
                   ? FileDialog.SaveFile : FileDialog.OpenFile

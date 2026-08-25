@@ -35,6 +35,10 @@ public:
     void setPathList(const QStringList &l);
     void setPathList(const QString &pathString);
     void setFileDialogTitle(const QString &l);
+    // What Insert... asks for. A directory where this is empty, which is what
+    // a list of search paths wants; the files this matches where it is set.
+    void setFileDialogFilter(const QString &filter);
+    QString fileDialogFilter() const;
     void setPlaceholderText(const QString &placeholder);
 
 signals:

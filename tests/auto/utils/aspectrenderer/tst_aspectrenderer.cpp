@@ -178,6 +178,8 @@ private slots:
     void secretIsReadOnlyUntilItArrives();
     void secretThatCannotBeReadStaysReadOnly_data() { addRendererRows(); }
     void secretThatCannotBeReadStaysReadOnly();
+    void filePathListForAnAspectThatIsNotOne_data() { addRendererRows(); }
+    void filePathListForAnAspectThatIsNotOne();
 };
 
 void tst_AspectRenderer::initTestCase()
@@ -1299,6 +1301,84 @@ void tst_AspectRenderer::secretThatCannotBeReadStaysReadOnly()
     QCOMPARE(field->placeholderText(), QString("Keychain refused"));
     QVERIFY(field->isReadOnly());
     QVERIFY(!findRevealButton(widget.get())->isEnabled());
+}
+
+// A list of paths held by something that is not a FilePathListAspect, and that
+// asks for files rather than directories. This is SuppressionAspect's shape:
+// valgrind's suppression files are FilePaths, not strings, and the aspect
+// stores them through its own variant conversion.
+class PathsWithoutFilePathListAspect final : public BaseAspect
+{
+public:
+    PathsWithoutFilePathListAspect()
+    {
+        setLabelText("Suppression files:");
+    }
+
+    AspectPresentation presentation() const override
+    {
+        AspectPresentation p = BaseAspect::presentation();
+        p.control = AspectControls::FilePathList;
+        p.labelText = labelText();
+        p.pathKind = AspectControls::PathKind::File;
+        p.promptDialogTitle = "Valgrind Suppression Files";
+        p.promptDialogFilter = "Valgrind Suppression File (*.supp)";
+        return p;
+    }
+
+    QVariant variantValue() const override { return m_paths.toSettings(); }
+    void setVariantValue(const QVariant &value, Announcement = DoEmit) override
+    {
+        m_paths = FilePaths::fromSettings(value);
+        emit volatileValueChanged();
+    }
+    QVariant volatileVariantValue() const override { return variantValue(); }
+    void setVolatileVariantValue(const QVariant &value, Announcement a = DoEmit) override
+    {
+        setVariantValue(value, a);
+    }
+
+    FilePaths m_paths;
+};
+
+void tst_AspectRenderer::filePathListForAnAspectThatIsNotOne()
+{
+    QFETCH(bool, withRenderer);
+    setRendererInstalled(withRenderer);
+
+    PathsWithoutFilePathListAspect aspect;
+
+    const std::unique_ptr<QWidget> widget = render(aspect);
+    QVERIFY(widget);
+    auto editor = widget->findChild<PathListEditor *>();
+    if (!withRenderer) {
+        // Without a renderer nothing is built: the aspect has no layout of its
+        // own any more.
+        QVERIFY(!editor);
+        return;
+    }
+
+    QVERIFY(editor);
+
+    // The label is the descriptor's, drawn beside the editor. It used to be
+    // whatever the aspect's closure put there, which is why the widget backend
+    // showed none and Qt Quick did.
+    QLabel *label = widget->findChild<QLabel *>();
+    QVERIFY(label);
+    QCOMPARE(label->text(), QString("Suppression files:"));
+
+    // What it holds is read and written as a variant, so the aspect need not
+    // be a FilePathListAspect.
+    editor->setPathList(QStringList("/tmp/one.supp")); // Fires changed(), like typing.
+    QCOMPARE(aspect.m_paths, FilePaths{FilePath::fromString("/tmp/one.supp")});
+
+    aspect.setVariantValue(FilePaths{FilePath::fromString("/tmp/two.supp")}.toSettings());
+    QCOMPARE(editor->pathList(), QStringList("/tmp/two.supp"));
+
+    // Insert... asks for the files the aspect named, not for a directory,
+    // which is what a list of search paths would want.
+    QCOMPARE(editor->fileDialogFilter(), QString("Valgrind Suppression File (*.supp)"));
+    QCOMPARE(editor->fileDialogTitle(), QString("Valgrind Suppression Files"));
 }
 
 void tst_AspectRenderer::filePathLiveReconfiguration()

@@ -2171,9 +2171,9 @@ group. Most are run-configuration, build-step and kit aspects - project
 panels rather than preferences pages, which is a surface the migration has not
 reached. The rest are aspects on pages that *have* been migrated and
 describe a control the widget renderer had no case for, so they kept a closure
-to draw it: `MimeTypesAspect` and `SuppressionAspect`. `SecretAspect`,
-`EncodingSelectionAspect` and `ClangDiagnosticConfigIdAspect` were three more
-- see below.
+to draw it: `MimeTypesAspect` is the last of them. `SecretAspect`,
+`EncodingSelectionAspect`, `ClangDiagnosticConfigIdAspect` and
+`SuppressionAspect` were the other four - see below.
 `aspects.{h,cpp}` reach no QtWidgets header and no `layoutbuilder.h` either;
 what keeps them on the widget side of the split metric is that virtual's
 signature naming `Layouting::Layout`, and the project panels are what has to
@@ -2442,6 +2442,44 @@ That is the second time in this migration that a closure turned out to be
 holding page state rather than drawing - `WorkingDirectoryAspect` was the
 first. It is worth assuming: before deleting one, ask what reads the widgets it
 builds.
+
+### A list of paths that knows what kind
+
+`SuppressionAspect` said `FilePathList` in its descriptor and drew something
+else: a `QListView` over a `QStandardItemModel`, with **Add...** opening a
+filtered file dialog and **Remove** taking the selection out. Neither backend
+drew that. The widget renderer refused the aspect outright - the case tested
+`qobject_cast<FilePathListAspect *>` and Valgrind's aspect is a
+`TypedAspect<FilePaths>` - so the closure was the only thing that ever ran, and
+Qt Quick gave it a semicolon-separated field with no way to browse at all.
+
+Three separate things had to be true before the closure could go.
+
+**A path list is a variant like everything else.** The case now takes any
+aspect and reads `volatileVariantValue().toStringList()`, the same
+generalisation the check box and the combo box got.
+
+**The list knows what it holds.** `pathKind`, `promptDialogTitle` and
+`promptDialogFilter` were already on the descriptor for `PathChooser`; a list
+of paths wants exactly the same three. `PathListEditor` browsed for a directory
+and only a directory, so it gained a file filter, and it starts the dialog in
+the directory of the last entry - the list is its own memory of where these
+things live, which is what the deleted `lastSuppressionDirectory` setting was
+for. `FilePathListDelegate.qml` grew an **Add...** that opens the file or
+folder dialog accordingly, so Qt Quick can now do what only the closure could.
+
+**The label was the closure's, not the descriptor's.** The widget backend added
+the bare editor, so `Paths to mount:` never appeared on the docker and remote
+device pages while Qt Quick drew it. It goes through `addLabeledItem()` now and
+both say the same thing.
+
+**What the closure was really for.** Every one of its four handlers ended in
+`q->guiToVolatileValue()` and then `apply()` or `markSettingsDirty()`, because
+the value lived in a `QStandardItemModel` the aspect did not own and nothing
+else would have noticed it change. Writing through
+`setVolatileVariantValueFromGui()` makes all of that the ordinary path: the
+project instance auto-applies because `setProjectSettings()` told it to, and
+the global one marks the page dirty like any other aspect.
 
 ### What the census could not see, and now can
 

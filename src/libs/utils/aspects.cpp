@@ -3228,7 +3228,7 @@ void FilePathListAspect::setPlaceHolderText(const QString &placeHolderText)
         return;
 
     d->placeHolderText = placeHolderText;
-    emit placeHolderTextChanged(placeHolderText);
+    emit placeholderTextChanged(placeHolderText);
 }
 
 QString FilePathListAspect::placeHolderText() const

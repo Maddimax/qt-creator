@@ -85,6 +85,7 @@ struct PathListEditorPrivate {
     QVBoxLayout *buttonLayout;
     QPlainTextEdit *edit;
     QString fileDialogTitle;
+    QString fileDialogFilter;
 };
 
 PathListEditorPrivate::PathListEditorPrivate()   :
@@ -105,9 +106,22 @@ PathListEditor::PathListEditor(QWidget *parent) :
 {
     setLayout(d->layout);
     addButton(Tr::tr("Insert..."), this, [this] {
-        const FilePath dir = FileUtils::getExistingDirectory(d->fileDialogTitle);
-        if (!dir.isEmpty())
-            insertPathAtCursor(dir.toUserOutput());
+        if (d->fileDialogFilter.isEmpty()) {
+            const FilePath dir = FileUtils::getExistingDirectory(d->fileDialogTitle);
+            if (!dir.isEmpty())
+                insertPathAtCursor(dir.toUserOutput());
+            return;
+        }
+        // Starting where the last one came from. The list is its own memory of
+        // where these things live, so there is nothing else to remember.
+        const QStringList paths = pathList();
+        const FilePath from = paths.isEmpty()
+                                  ? FilePath()
+                                  : FilePath::fromUserInput(paths.last()).absolutePath();
+        const FilePaths files = FileUtils::getOpenFilePaths(d->fileDialogTitle, from,
+                                                            d->fileDialogFilter);
+        for (const FilePath &file : files)
+            insertPathAtCursor(file.toUserOutput());
     });
     addButton(Tr::tr("Delete Line"), this, [this] { deletePathAtCursor(); });
     addButton(Tr::tr("Clear"), this, [this] { d->edit->clear(); });
@@ -165,6 +179,16 @@ void PathListEditor::setPathList(const QString &pathString)
         setPathList(pathString.split(HostOsInfo::pathListSeparator(),
                                      Qt::SkipEmptyParts));
     }
+}
+
+void PathListEditor::setFileDialogFilter(const QString &filter)
+{
+    d->fileDialogFilter = filter;
+}
+
+QString PathListEditor::fileDialogFilter() const
+{
+    return d->fileDialogFilter;
 }
 
 QString PathListEditor::fileDialogTitle() const

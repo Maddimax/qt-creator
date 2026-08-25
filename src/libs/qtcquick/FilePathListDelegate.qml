@@ -6,6 +6,7 @@ pragma FunctionSignatureBehavior: Enforced
 
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Dialogs
 import QtQuick.Layouts
 import QtCreator.Ui
 
@@ -13,9 +14,25 @@ RowLayout {
     id: root
 
     required property Aspect aspect
+    readonly property var pres: aspect ? AspectModels.presentation(aspect) : ({})
     readonly property string labelText: aspect?.plainLabelText ?? ""
     readonly property string toolTip: aspect?.toolTip ?? ""
     readonly property bool aspectVisible: aspect?.visible ?? true
+    readonly property bool editable:
+        (aspect?.enabled ?? false) && !(aspect?.readOnly ?? true)
+    // What the list holds, so that Add... asks for the right thing. A list of
+    // mount points wants directories; a list of valgrind suppressions wants
+    // the files that valgrind reads.
+    readonly property string pathKind: pres.pathKind ?? ""
+    readonly property bool wantsDirectory:
+        pathKind === "" || pathKind === "Any"
+        || pathKind === "ExistingDirectory" || pathKind === "Directory"
+
+    function append(paths: list<string>): void {
+        if (!root.aspect || paths.length === 0)
+            return
+        root.aspect.value = (root.aspect.value ?? []).concat(paths)
+    }
 
     visible: aspectVisible
     spacing: Spacing.GapHM
@@ -31,9 +48,10 @@ RowLayout {
 
     TextField {
         text: (root.aspect?.value ?? []).join("; ")
-        enabled: (root.aspect?.enabled ?? false) && !(root.aspect?.readOnly ?? false)
+        enabled: root.editable
         readOnly: root.aspect?.readOnly ?? true
-        placeholderText: qsTr("Semicolon-separated paths")
+        placeholderText: (root.pres.placeholderText ?? "") !== ""
+                         ? root.pres.placeholderText : qsTr("Semicolon-separated paths")
         ToolTip.text: root.toolTip
         ToolTip.visible: hovered && root.toolTip !== ""
         Layout.fillWidth: true
@@ -51,5 +69,40 @@ RowLayout {
             }
             root.aspect.value = values
         }
+    }
+
+    Button {
+        objectName: "addButton"
+        text: qsTr("Add...")
+        visible: root.pres.allowAdding ?? true
+        enabled: root.editable
+        onClicked: root.wantsDirectory ? folderDialog.open() : fileDialog.open()
+    }
+
+    FileDialog {
+        id: fileDialog
+
+        title: (root.pres.promptDialogTitle ?? "") !== ""
+               ? root.pres.promptDialogTitle : qsTr("Choose Files")
+        // Qt's filters are one ";;"-separated string; QML wants them one by one.
+        nameFilters: (root.pres.promptDialogFilter ?? "") !== ""
+                     ? root.pres.promptDialogFilter.split(";;") : []
+        fileMode: FileDialog.OpenFiles
+
+        onAccepted: {
+            const paths = []
+            for (let i = 0; i < selectedFiles.length; ++i)
+                paths.push(AspectModels.localPath(selectedFiles[i]))
+            root.append(paths)
+        }
+    }
+
+    FolderDialog {
+        id: folderDialog
+
+        title: (root.pres.promptDialogTitle ?? "") !== ""
+               ? root.pres.promptDialogTitle : qsTr("Choose Directory")
+
+        onAccepted: root.append([AspectModels.localPath(selectedFolder)])
     }
 }
