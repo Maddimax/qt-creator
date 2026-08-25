@@ -185,6 +185,7 @@ private slots:
     void testAButtonCanOfferAMenuInsteadOfActing();
     void testAButtonCanActAndStillOffer();
     void testAContainerRefilledAfterTheFormIsBuiltRedrawsIt();
+    void testAFieldWithADefaultOffersToGoBackToIt();
     void testTextDisplayShowsItsMessage();
     void testTextDisplaySaysHowToReadItsMessage();
     void testRadioStyledBoolIsARadioButton();
@@ -1281,6 +1282,53 @@ void QuickUiTest::testAContainerRefilledAfterTheFormIsBuiltRedrawsIt()
     group.registerAspect(extra, /*takeOwnership=*/true);
 
     QTRY_COMPARE(drawnTexts(), (QStringList{"Docker", "ubuntu:24.04"}));
+}
+
+void QuickUiTest::testAFieldWithADefaultOffersToGoBackToIt()
+{
+    // Four settings ask for a Reset button - Build & Run's two directory
+    // templates and Clangd's two index paths. The widget renderer draws one
+    // and the Quick delegate did not, so on those pages there was no way back
+    // to the default short of typing it out.
+    Utils::AspectContainer page;
+    Utils::StringAspect directory(&page);
+    directory.setQmlName("Directory");
+    directory.setDisplayStyle(Utils::StringAspect::LineEditDisplay);
+    directory.setDefaultValue("../%{JS: ...}-build");
+    directory.setUseResetButton();
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QVERIFY(quickWidget->rootObject());
+
+    QQuickItem *reset = nullptr;
+    QTRY_VERIFY(reset = findButton(quickWidget->rootObject(), "Reset"));
+    // Nothing to go back to while the value is the default.
+    QCOMPARE(directory.volatileValue(), directory.defaultValue());
+    QVERIFY(!reset->isEnabled());
+
+    directory.setValue("/somewhere/else");
+    QTRY_VERIFY(reset->isEnabled());
+
+    QMetaObject::invokeMethod(reset, "clicked");
+    QTRY_COMPARE(directory.volatileValue(), directory.defaultValue());
+    QVERIFY(!reset->isEnabled());
+
+    // An aspect that never asked for one does not get one, or every field on
+    // every page would grow a button.
+    Utils::AspectContainer plainPage;
+    Utils::StringAspect plain(&plainPage);
+    plain.setQmlName("Plain");
+    plain.setDisplayStyle(Utils::StringAspect::LineEditDisplay);
+    plain.setDefaultValue("something");
+    const std::unique_ptr<QWidget> plainForm(QtcQuick::createGenericAspectForm(&plainPage));
+    auto plainQuick = plainForm->findChild<QQuickWidget *>();
+    QVERIFY(plainQuick);
+    QTRY_VERIFY(findQmlComponent(plainQuick->rootObject(), "StringDelegate"));
+    QQuickItem * const noReset = findButton(plainQuick->rootObject(), "Reset");
+    QVERIFY(!noReset || !noReset->isVisible());
 }
 
 void QuickUiTest::testTextDisplayShowsItsMessage()

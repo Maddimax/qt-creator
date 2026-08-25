@@ -326,6 +326,10 @@ public:
     QSize minimumSize;
     // ColorPicker and LineEdit.
     bool withResetButton = false;
+    // What that button goes back to. Held here rather than asked of the aspect
+    // because a renderer has a BaseAspect and defaultValue() is the typed
+    // subclass's.
+    QVariant defaultValue;
 
     // FontFamilyPicker.
     AspectControls::FontFilters fontFilters = AspectControls::AllFonts;

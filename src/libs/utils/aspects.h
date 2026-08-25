@@ -1011,6 +1011,8 @@ public:
     void setHistoryCompleter(const Key &historyCompleterKey);
     void setShowToolTipOnLabel(bool show);
     void setAutoApplyOnEditingFinished(bool applyOnEditingFinished);
+    // Offers a way back to the default value beside the field.
+    void setUseResetButton();
 
     void validateInput();
 

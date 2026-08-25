@@ -130,6 +130,21 @@ RowLayout {
         }
     }
 
+    // A way back to what the setting is when nobody has touched it. Only for
+    // the aspects that ask; a default alone is not a reason to offer one.
+    Button {
+        objectName: "resetButton"
+        text: qsTr("Reset")
+        visible: delegate.pres.withResetButton ?? false
+        enabled: (delegate.aspect?.enabled ?? false)
+                 && !(delegate.aspect?.readOnly ?? true)
+                 && field.text !== String(delegate.pres.defaultValue ?? "")
+        onClicked: {
+            if (delegate.aspect)
+                delegate.aspect.value = delegate.pres.defaultValue ?? ""
+        }
+    }
+
     Button {
         objectName: "browseButton"
         text: qsTr("Browse...")

@@ -1285,6 +1285,7 @@ AspectPresentation StringAspect::presentation() const
     }
     p.placeholderText = d->m_placeHolderText;
     p.withResetButton = d->m_useResetButton;
+    p.defaultValue = defaultValue();
     p.completions = d->m_completions;
     return p;
 }
@@ -1505,6 +1506,7 @@ public:
     bool m_allowPathFromDevice = true;
     bool m_validatePlaceHolder = false;
     bool m_valid = false;
+    bool m_useResetButton = false;
     FilePaths m_valueAlternatives;
     QList<FilePathAspect::Button> m_buttons;
 
@@ -1721,6 +1723,12 @@ AsyncValidationFunction FilePathAspect::defaultValidationFunction() const
     };
 }
 
+void FilePathAspect::setUseResetButton()
+{
+    d->m_useResetButton = true;
+    emit controlConfigurationChanged();
+}
+
 void FilePathAspect::addButton(const QString &text, QObject *context,
                                const std::function<void()> &callback)
 {
@@ -1746,6 +1754,8 @@ AspectPresentation FilePathAspect::presentation() const
     AspectPresentation p = TypedAspect::presentation();
     p.control = AspectControls::PathChooser;
     p.placeholderText = d->m_placeHolderText;
+    p.withResetButton = d->m_useResetButton;
+    p.defaultValue = defaultValue();
     // The two enums are declared in the same order, and the descriptor's exists
     // so that it does not have to include pathvalidation.h.
     p.pathKind = static_cast<AspectControls::PathKind>(expectedKind());

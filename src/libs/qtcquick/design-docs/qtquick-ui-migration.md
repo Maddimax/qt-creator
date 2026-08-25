@@ -1863,6 +1863,28 @@ The first version of the page test triggered `Add` - which opened the
 new-device wizard and sat there until the 300-second timeout. Ask by qmlName
 on a page with more than one of anything.
 
+### A button the widget renderer drew and Quick did not
+
+`StringAspect::setUseResetButton()` puts a **Reset** beside the field, and four
+settings ask for it: Build & Run's build- and working-directory templates and
+Clangd's two index paths. All four pages are drawn with Qt Quick, and
+`StringDelegate.qml` never looked at `withResetButton` - so on the shipped
+Quick UI there was no way back to the default short of typing it out.
+
+Nothing said so. The descriptor field existed, `aspectmodels.cpp` exported it,
+and `ColorDelegate.qml` used it; only the line-edit delegate did not. A census
+that asks "does the page draw" cannot see a missing button on a control that
+does.
+
+The default value goes into the descriptor with it. A renderer holds a
+`BaseAspect`, and `defaultValue()` belongs to the typed subclass, so
+"what should this go back to" has to be handed over rather than asked for -
+the same reason `displayText()` exists.
+
+`FilePathAspect` gained the flag too. It is what a Qt for MCUs package path
+needs: a per-package **Reset** was one of two buttons its hand-built widget
+put beside a `PathChooser`.
+
 ### What the census could not see, and now can
 
 Two holes, both found the hard way in the same session.

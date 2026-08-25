@@ -164,6 +164,7 @@ QVariantMap AspectModels::presentation(BaseAspect *aspect)
         // ColorPicker and LineEdit: a control that can be put back to its
         // default offers a button for it.
         {"withResetButton", p.withResetButton},
+        {"defaultValue", p.defaultValue},
         {"actionText", p.actionText},
         {"actionIcon", p.actionIcon.isNull() ? QString() : iconUrl(p.actionIcon)},
         {"actionIsDefault", p.actionIsDefault},
