@@ -73,6 +73,7 @@
 #include "target.h"
 #include "taskfile.h"
 #include "taskhub.h"
+#include "toolchainconfigwidget.h"
 #include "toolchainmanager.h"
 #include "toolchainoptionspage.h"
 #include "windowsappsdksettings.h"
@@ -907,6 +908,7 @@ Result<> ProjectExplorerPlugin::initialize(const QStringList &arguments)
     addTestCreator(createDeviceManagerTest);
     addTestCreator(createGccParserTest);
     addTestCreator(createGccToolchainTest);
+    addTestCreator(createToolchainConfigAspectsTest);
     addTestCreator(createGenericOutputParserTest);
     addTestCreator(createGnuMakeParserTest);
     addTestCreator(createJsonWizardTest);
