@@ -1417,7 +1417,14 @@ use to narrow what they list and to choose what a re-detect runs over. It was a
 - **Kits** has the same shape with `KitAspect` widgets.
 - **Qt Versions** is the biggest of them: two `DetailsWidget`s, an expandable
   info pane, Link with Qt, Clean Up, and per-version warnings.
-- **Debuggers** is the one to do next; its details pane is an ordinary form.
+- **Debuggers** is the one to do next, but it is not free either. Its details
+  pane is raw widgets rather than aspects, so it needs the same rewrite Gerrit
+  and GitLab had - and its path field validates **asynchronously**: it wraps
+  `FilePathAspect::defaultValidationFunction()` and then runs the binary to see
+  whether it is really a debugger. `BaseAspect::validationMessage()` answers
+  synchronously and returns nothing for that shape, so the field would take a
+  bad path in silence. An async validation channel to the delegate is what that
+  page wants first.
 
 **The guard that guards nothing.** All three ported pages load a tool into a
 form and store what the user types, and all three carried *two* flags for it -
