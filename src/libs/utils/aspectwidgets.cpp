@@ -3,6 +3,7 @@
 
 #include "aspectwidgets.h"
 
+#include "dirtysettings.h"
 #include "guiutils.h"
 #include "layoutbuilder.h"
 #include "macroexpander.h"
@@ -24,6 +25,11 @@ void registerSubWidget(BaseAspect *aspect, QWidget *widget)
 {
     widget->setEnabled(aspect->isEnabled());
     widget->setToolTip(aspect->toolTip());
+
+    // An aspect that is not what a page is dirty about - a button that opens a
+    // dialog - says so on itself, not on a control it does not build.
+    if (isIgnoredForDirtyHook(aspect))
+        setIgnoreForDirtyHook(widget);
 
     // Visible is on by default. Not setting it explicitly avoid popping
     // it up when the parent is not set yet, the normal case.

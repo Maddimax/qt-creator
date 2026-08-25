@@ -1393,6 +1393,14 @@ public:
 
     void setActionText(const QString &text);
     void setAction(const std::function<void()> &action);
+    // What the control says beside the button. A value that is edited in a
+    // dialog rather than in place is shown as a summary of itself and one
+    // button that opens the dialog; without this it is a bare button.
+    void setSummaryProvider(const std::function<QString()> &provider);
+    // The summary is derived from something the aspect does not hold, so
+    // something else has to say when it has changed.
+    void updateSummary();
+    QString displayText() const override;
     // What the button offers instead of doing one thing: a menu, whose choices
     // it hands back by id. An empty list is a plain button. Adding toolchains
     // is the case - one entry per kind that can be created.

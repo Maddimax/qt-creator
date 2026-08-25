@@ -1052,6 +1052,8 @@ public:
     std::function<void()> m_onShown;
     QList<AspectPresentation::Choice> m_choices;
     std::function<void(const QVariant &)> m_onChoice;
+    std::function<QString()> m_summaryProvider;
+    QString m_summary;
 };
 
 } // Internal
@@ -3514,6 +3516,28 @@ void ActionAspect::setOnChoice(const std::function<void(const QVariant &)> &onCh
     d->m_onChoice = onChoice;
 }
 
+void ActionAspect::setSummaryProvider(const std::function<QString()> &provider)
+{
+    d->m_summaryProvider = provider;
+    updateSummary();
+}
+
+void ActionAspect::updateSummary()
+{
+    if (!d->m_summaryProvider)
+        return;
+    const QString summary = d->m_summaryProvider();
+    if (summary == d->m_summary)
+        return;
+    d->m_summary = summary;
+    emit displayTextChanged();
+}
+
+QString ActionAspect::displayText() const
+{
+    return d->m_summary;
+}
+
 void ActionAspect::triggerChoice(const QVariant &id)
 {
     QTC_ASSERT(d->m_onChoice, return);
@@ -3535,7 +3559,9 @@ void ActionAspect::requestDisplayText()
 AspectPresentation ActionAspect::presentation() const
 {
     AspectPresentation p = BaseAspect::presentation();
-    p.control = AspectControls::Button;
+    // A button with something to say beside it is a summary plus that button.
+    p.control = d->m_summaryProvider ? AspectControls::TextWithAction
+                                     : AspectControls::Button;
     p.actionText = d->m_actionText;
     p.choices = d->m_choices;
     return p;

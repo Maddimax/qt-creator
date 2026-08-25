@@ -184,6 +184,9 @@ public:
         case AspectControls::Button:
             renderButton(&aspect, parent, pres);
             return true;
+        case AspectControls::TextWithAction:
+            renderTextWithAction(&aspect, parent, pres);
+            return true;
         case AspectControls::Container:
             if (auto container = qobject_cast<AspectContainer *>(&aspect)) {
                 // A container that reads as one value has no layout of its own
@@ -352,6 +355,34 @@ private:
         parent.addItem(button);
         // Same as the Quick delegate: the aspect is being drawn, so let it find
         // out what its label should say.
+        aspect->requestDisplayText();
+    }
+
+    // A value that is edited elsewhere: a summary of it, and the one button
+    // that opens whatever edits it.
+    static void renderTextWithAction(BaseAspect *aspect, Layout &parent,
+                                     const AspectPresentation &pres)
+    {
+        auto summary = AspectWidgets::createSubWidget<ElidingLabel>(aspect);
+        summary->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        summary->setElideMode(Qt::ElideRight);
+        summary->setText(aspect->displayText());
+        QObject::connect(aspect, &BaseAspect::displayTextChanged, summary, [aspect, summary] {
+            summary->setText(aspect->displayText());
+        });
+        addContextAction(aspect, summary, pres);
+
+        auto button = AspectWidgets::createSubWidget<QPushButton>(aspect, pres.actionText);
+        button->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Preferred);
+        QObject::connect(button, &QAbstractButton::clicked, aspect, [aspect] {
+            aspect->triggerAction();
+        });
+
+        // createLabel() may return nullptr; addEmpty == false drops it then.
+        parent.addItems({AspectWidgets::createLabel(aspect), summary, button},
+                        /*addEmpty=*/false);
+        // As the Quick delegate: the aspect is being drawn, so let it find out
+        // what it should say.
         aspect->requestDisplayText();
     }
 
