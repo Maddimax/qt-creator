@@ -1351,7 +1351,7 @@ pages that hand over an `AspectContainer` through `setSettingsProvider()`.
 A page that calls `IOptionsPage::setWidgetCreator()` builds its own
 `IOptionsPageWidget` and answers nothing from `aspects()`, so the test skips it
 entirely: `isFullyRenderable()` is never asked and the page is not in the 73.
-There are **22 such call sites in 20 files** - Keyboard, Locator, MIME Types,
+There are **22 such call sites in 21 files** - Keyboard, Locator, MIME Types,
 the toolchain, kit and device pages, Beautifier's three, Clangd, Axivion - and
 they are pure QtWidgets from top to bottom. Counted with
 
