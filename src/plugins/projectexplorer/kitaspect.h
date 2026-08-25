@@ -251,7 +251,13 @@ public:
     // the setting rather than about its value, so a right-click rather than a
     // control of its own; offered by whatever this aspect ends up drawn as.
     bool offersMutability() const;
+    void decorateWithMutability(Utils::AspectPresentation &presentation) const;
     void triggerContextAction(bool checked) override;
+
+    // The control this kit aspect is: any aspect, plus the aspect's own
+    // "Mark as Mutable". Owned here, since a kit aspect is made afresh for
+    // every kit that is looked at.
+    template<class T> T *addControl();
 
 protected:
     virtual void makeReadOnly(bool readOnly);
@@ -292,6 +298,36 @@ private:
     class Private;
     Private * const d;
 };
+
+// A control on a kit aspect's row. Whatever aspect it wraps, it also offers
+// the row's "Mark as Mutable", so that either renderer draws it without
+// knowing what a kit is. See KitAspect::addControl().
+template<class T> class KitAspectControl final : public T
+{
+public:
+    explicit KitAspectControl(KitAspect *owner)
+        : m_owner(owner)
+    {}
+
+    Utils::AspectPresentation presentation() const override
+    {
+        Utils::AspectPresentation p = T::presentation();
+        m_owner->decorateWithMutability(p);
+        return p;
+    }
+
+    void triggerContextAction(bool checked) override { m_owner->triggerContextAction(checked); }
+
+private:
+    KitAspect * const m_owner;
+};
+
+template<class T> T *KitAspect::addControl()
+{
+    const auto control = new KitAspectControl<T>(this);
+    registerAspect(control, /*takeOwnership=*/true);
+    return control;
+}
 
 #ifdef WITH_TESTS
 QObject *createKitAspectTest();

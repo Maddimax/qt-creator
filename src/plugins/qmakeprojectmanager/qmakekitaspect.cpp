@@ -18,7 +18,6 @@
 #include <utils/qtcassert.h>
 
 #include <QDir>
-#include <QLineEdit>
 
 using namespace ProjectExplorer;
 using namespace Utils;
@@ -29,40 +28,31 @@ class QmakeKitAspectImpl final : public KitAspect
 {
 public:
     QmakeKitAspectImpl(Kit *k, const KitAspectFactory *ki)
-        : KitAspect(k, ki), m_lineEdit(Utils::AspectWidgets::createSubWidget<QLineEdit>(this))
+        : KitAspect(k, ki)
     {
+        m_mkspec = addControl<StringAspect>();
+        m_mkspec->setDisplayStyle(StringAspect::LineEditDisplay);
+        m_mkspec->setToolTip(ki->description());
         refresh(); // set up everything according to kit
-        m_lineEdit->setToolTip(ki->description());
-        QSizePolicy p = m_lineEdit->sizePolicy();
-        p.setHorizontalStretch(1);
-        m_lineEdit->setSizePolicy(p);
-        connect(m_lineEdit, &QLineEdit::textEdited, this, &QmakeKitAspectImpl::mkspecWasChanged);
+        m_mkspec->addOnVolatileValueChanged(this, [this] {
+            const GuardLocker locker(m_ignoreChanges);
+            QmakeKitAspect::setMkspec(
+                kit(), m_mkspec->volatileValue(), QmakeKitAspect::MkspecSource::User);
+        });
     }
-
-    ~QmakeKitAspectImpl() override { delete m_lineEdit; }
 
 private:
-    void addToInnerLayout(Layouting::Layout &layout) override
-    {
-        addMutableAction(m_lineEdit);
-        layout.addItem(m_lineEdit);
-    }
+    void addToInnerLayout(Layouting::Layout &layout) override { layout.addItem(m_mkspec); }
 
-    void makeReadOnly(bool readOnly) override { m_lineEdit->setEnabled(!readOnly); }
+    void makeReadOnly(bool readOnly) override { m_mkspec->setEnabled(!readOnly); }
 
     void refresh() override
     {
         if (!m_ignoreChanges.isLocked())
-            m_lineEdit->setText(QDir::toNativeSeparators(QmakeKitAspect::mkspec(kit())));
+            m_mkspec->setValue(QDir::toNativeSeparators(QmakeKitAspect::mkspec(kit())));
     }
 
-    void mkspecWasChanged(const QString &text)
-    {
-        const GuardLocker locker(m_ignoreChanges);
-        QmakeKitAspect::setMkspec(kit(), text, QmakeKitAspect::MkspecSource::User);
-    }
-
-    QLineEdit *m_lineEdit = nullptr;
+    StringAspect *m_mkspec = nullptr;
     Guard m_ignoreChanges;
 };
 

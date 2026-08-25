@@ -7,6 +7,7 @@
 #include "devicesupport/idevice.h"
 #include "kit.h"
 #include "kitmanager.h"
+#include "sysrootkitaspect.h"
 #include "projectexplorertr.h"
 
 #include <coreplugin/icore.h>
@@ -20,7 +21,9 @@
 #include <utils/treemodel.h>
 
 #include <QAction>
+#include <QAbstractButton>
 #include <QComboBox>
+#include <QLineEdit>
 #include <QLabel>
 #include <QPushButton>
 
@@ -73,36 +76,6 @@ public:
             setToolTip(itemData(currentIndex(), Qt::ToolTipRole).toString());
         return QComboBox::event(e);
     }
-};
-
-// The selection a KitAspect offers. A SelectionAspect that also carries the
-// aspect's "Mark as Mutable", which is about the setting rather than about
-// which item is picked, so both renderers put it on the control's right-click.
-class KitSelectionAspect final : public SelectionAspect
-{
-public:
-    // Registered by the owner rather than here: a container frees only what it
-    // was told to own, and a kit aspect is made afresh for every kit.
-    explicit KitSelectionAspect(KitAspect *owner)
-        : m_owner(owner)
-    {}
-
-    AspectPresentation presentation() const override
-    {
-        AspectPresentation p = SelectionAspect::presentation();
-        if (m_owner->offersMutability()) {
-            const QAction * const action = m_owner->mutableAction();
-            p.contextActionText = action->text();
-            p.contextActionChecked = action->isChecked();
-            p.contextActionEnabled = action->isEnabled();
-        }
-        return p;
-    }
-
-    void triggerContextAction(bool checked) override { m_owner->triggerContextAction(checked); }
-
-private:
-    KitAspect * const m_owner;
 };
 
 class KitAspectSortModel final : public SortModel
@@ -341,8 +314,7 @@ void KitAspect::addToInnerLayout(Layouting::Layout &layout)
 
 void KitAspect::addListAspectSpec(const ListAspectSpec &listAspectSpec)
 {
-    const auto selection = new KitSelectionAspect(this);
-    registerAspect(selection, /*takeOwnership=*/true);
+    const auto selection = addControl<SelectionAspect>();
     selection->setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
     const auto sortModel = new KitAspectSortModel(this);
     sortModel->setSourceModel(listAspectSpec.model);
@@ -404,6 +376,15 @@ void KitAspect::addToLayoutImpl(Layouting::Layout &layout)
 bool KitAspect::offersMutability() const
 {
     return factory()->id() != RunDeviceKitAspect::id() && d->mutableAction;
+}
+
+void KitAspect::decorateWithMutability(AspectPresentation &presentation) const
+{
+    if (!offersMutability())
+        return;
+    presentation.contextActionText = d->mutableAction->text();
+    presentation.contextActionChecked = d->mutableAction->isChecked();
+    presentation.contextActionEnabled = d->mutableAction->isEnabled();
 }
 
 void KitAspect::addMutableAction(QWidget *child)
@@ -713,6 +694,21 @@ class KitAspectTest final : public QObject
     Q_OBJECT
 
 private slots:
+    // A kit of this test's own, so that mutating one is not mutating the
+    // user's.
+    void initTestCase()
+    {
+        m_kit = KitManager::registerKit([](Kit *k) {
+            k->setUnexpandedDisplayName("KitAspectTestKit");
+        });
+    }
+
+    void cleanupTestCase()
+    {
+        if (m_kit)
+            KitManager::deregisterKit(m_kit);
+    }
+
     void testAKitAspectOffersItsListAsAnAspect()
     {
         // What a kit aspect holds used to live in the QComboBox it built, so
@@ -789,6 +785,144 @@ private slots:
         QCOMPARE(kit->isMutable(id), was);
     }
 
+    void testEveryKitAspectAsksForAControlARendererKnows()
+    {
+        // A Qt Quick Kits page can host no QWidget, so every kit aspect has to
+        // describe itself. The ones with nothing to describe are the ones that
+        // still draw entirely in widgets, which is the porting backlog.
+        Kit * const kit = anyKit();
+        if (!kit)
+            QSKIP("No kits are configured here");
+
+        QStringList nothingToDrawWith;
+        QStringList unsupported;
+        int described = 0;
+        for (KitAspectFactory * const factory : KitManager::kitAspectFactories()) {
+            const std::unique_ptr<KitAspect> aspect(factory->createKitAspect(kit));
+            if (!aspect)
+                continue;
+
+            // The row itself: what it is called and that it is one row.
+            const Utils::AspectPresentation row = aspect->presentation();
+            QCOMPARE(row.control, Utils::AspectControls::Container);
+            QVERIFY2(row.inlineRow, qPrintable(factory->displayName()));
+            QVERIFY2(!row.labelText.isEmpty(), qPrintable(factory->displayName()));
+
+            // A "Manage..." button is not a control the aspect is; a kind whose
+            // only aspect is that one has nothing of its own to draw with.
+            const QList<Utils::BaseAspect *> controls = Utils::filtered(
+                aspect->aspects(), [](Utils::BaseAspect *a) {
+                    return a->presentation().control != Utils::AspectControls::Button;
+                });
+            if (controls.isEmpty()) {
+                nothingToDrawWith << factory->displayName();
+                continue;
+            }
+            ++described;
+            for (Utils::BaseAspect * const control : controls) {
+                if (control->presentation().control == Utils::AspectControls::Custom)
+                    unsupported << factory->displayName();
+            }
+        }
+
+        qInfo().noquote() << "kit aspects that describe themselves:" << described
+                          << "\n  still drawing in widgets only:"
+                          << nothingToDrawWith.join(", ");
+        QVERIFY(described > 0);
+        QVERIFY2(unsupported.isEmpty(),
+                 qPrintable("no renderer draws these: " + unsupported.join(", ")));
+    }
+
+    void testEveryKitAspectDrawsSomethingToActOn()
+    {
+        // Saying what control you want is not the same as a renderer having a
+        // case for it. Three rows drew a label and nothing else when their
+        // control moved to TextWithAction, which the widget renderer did not
+        // handle - green in every test that only read the descriptor.
+        Kit * const kit = anyKit();
+        if (!kit)
+            QSKIP("No kits are configured here");
+
+        for (KitAspectFactory * const factory : KitManager::kitAspectFactories()) {
+            const std::unique_ptr<KitAspect> aspect(factory->createKitAspect(kit));
+            if (!aspect)
+                continue;
+            // A kind with nothing to ask draws nothing, and says so by holding
+            // no control aspects. MCU dependencies is the one.
+            if (Utils::allOf(aspect->aspects(), [](Utils::BaseAspect *a) {
+                    return a->presentation().control == Utils::AspectControls::Button;
+                })
+                && aspect->aspects().size() <= 1) {
+                continue;
+            }
+
+            Layouting::Grid grid{Layouting::noMargin};
+            aspect->addToLayout(grid);
+            const std::unique_ptr<QWidget> row(grid.emerge());
+            QVERIFY(row);
+            const QList<QWidget *> children = row->findChildren<QWidget *>();
+            const bool actionable = Utils::anyOf(children, [](const QWidget *w) {
+                return qobject_cast<const QAbstractButton *>(w)
+                       || qobject_cast<const QComboBox *>(w)
+                       || qobject_cast<const QLineEdit *>(w);
+            });
+            QVERIFY2(actionable,
+                     qPrintable(factory->displayName() + " draws no control at all"));
+        }
+    }
+
+    void testAValueEditedInADialogIsASummaryAndAButton()
+    {
+        // A kit setting that is edited in a dialog - qbs properties, the CMake
+        // generator - is a summary of itself plus the button that opens it.
+        // That was an ElidingLabel and a QPushButton the aspect held.
+        Kit * const kit = anyKit();
+        if (!kit)
+            QSKIP("No kits are configured here");
+
+        for (KitAspectFactory * const factory : KitManager::kitAspectFactories()) {
+            const std::unique_ptr<KitAspect> aspect(factory->createKitAspect(kit));
+            if (!aspect)
+                continue;
+            for (Utils::BaseAspect * const control : aspect->aspects()) {
+                const Utils::AspectPresentation p = control->presentation();
+                if (p.control != Utils::AspectControls::TextWithAction)
+                    continue;
+                QVERIFY(!p.actionText.isEmpty());
+                // And it offers the row's own "Mark as Mutable" like any other
+                // control on it does.
+                if (aspect->offersMutability())
+                    QVERIFY(!p.contextActionText.isEmpty());
+                return;
+            }
+        }
+        QFAIL("No kit setting is edited in a dialog: qbs and CMake both offer one, "
+              "so this can no longer be checked");
+    }
+
+    void testTypingASysrootWritesItToTheKit()
+    {
+        // The sysroot was a PathChooser the aspect held a pointer to, and what
+        // was typed reached the kit through the chooser's textChanged.
+        Kit * const kit = anyKit();
+        if (!kit)
+            QSKIP("No kits are configured here");
+        const std::unique_ptr<KitAspect> aspect = aspectFor(SysRootKitAspect::id(), kit);
+        QVERIFY(aspect);
+        auto path = aspect->aspect<Utils::FilePathAspect>();
+        QVERIFY(path);
+
+        const Utils::FilePath was = SysRootKitAspect::sysRoot(kit);
+        const Utils::FilePath typed = Utils::FilePath::fromString("/nonexistent/sysroot");
+        path->setValue(typed);
+        QCOMPARE(SysRootKitAspect::sysRoot(kit), typed);
+
+        // And the other way: what the kit says is what the control shows.
+        SysRootKitAspect::setSysRoot(kit, was);
+        aspect->refresh();
+        QCOMPARE(path->expandedVolatileValue(), was);
+    }
+
     void testADeviceTypeIsToldApartByMoreThanItsName()
     {
         // The device types are drawn with an icon each. That travelled as a
@@ -816,11 +950,18 @@ private:
     enum OptionCount { AnyOptions, AtLeastTwoOptions };
     enum Mutability { AnyMutability, Mutable };
 
-    static Kit *anyKit()
+    Kit *anyKit() const { return m_kit; }
+
+    static std::unique_ptr<KitAspect> aspectFor(Utils::Id factoryId, Kit *kit)
     {
-        const QList<Kit *> kits = KitManager::kits();
-        return kits.isEmpty() ? nullptr : kits.first();
+        for (KitAspectFactory * const factory : KitManager::kitAspectFactories()) {
+            if (factory->id() == factoryId)
+                return std::unique_ptr<KitAspect>(factory->createKitAspect(kit));
+        }
+        return {};
     }
+
+    Kit *m_kit = nullptr;
 
     static std::unique_ptr<KitAspect> aspectWithAList(
         Kit *kit, OptionCount count = AnyOptions, Mutability mutability = AnyMutability)

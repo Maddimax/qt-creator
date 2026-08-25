@@ -654,48 +654,29 @@ class CMakeGeneratorKitAspectImpl final : public KitAspect
 {
 public:
     CMakeGeneratorKitAspectImpl(Kit *kit, const KitAspectFactory *factory)
-        : KitAspect(kit, factory),
-          m_label(Utils::AspectWidgets::createSubWidget<ElidingLabel>(this)),
-          m_changeButton(Utils::AspectWidgets::createSubWidget<QPushButton>(this))
+        : KitAspect(kit, factory)
     {
         connect(this, &KitAspect::labelLinkActivated, this, [kit](const QString &) {
             CMakeKitAspect::openCMakeHelpUrl(kit, "%1/manual/cmake-generators.7.html");
         });
 
-        m_label->setToolTip(factory->description());
-        m_changeButton->setText(Tr::tr("Change..."));
+        // The generator is picked in a dialog, so the row is a summary of what
+        // was picked and the one button that opens it.
+        m_generator = addControl<Utils::ActionAspect>();
+        m_generator->setActionText(Tr::tr("Change..."));
+        m_generator->setToolTip(factory->description());
+        m_generator->setSummaryProvider([this] { return summary(); });
+        m_generator->setAction([this] { changeGenerator(); });
         refresh();
-        connect(m_changeButton, &QPushButton::clicked,
-                this, &CMakeGeneratorKitAspectImpl::changeGenerator);
-    }
-
-    ~CMakeGeneratorKitAspectImpl() override
-    {
-        delete m_label;
-        delete m_changeButton;
     }
 
 private:
-    // KitAspectWidget interface
-    void makeReadOnly(bool readOnly) override
-    {
-        m_changeButton->setEnabled(!readOnly);
-    }
+    void makeReadOnly(bool readOnly) override { m_generator->setEnabled(!readOnly); }
 
-    void addToInnerLayout(Layouting::Layout &layout) override
-    {
-        addMutableAction(m_label);
-        layout.addItem(m_label);
-        layout.addItem(m_changeButton);
-    }
+    void addToInnerLayout(Layouting::Layout &layout) override { layout.addItem(m_generator); }
 
-    void refresh() override
+    QString summary() const
     {
-        CMakeTool *const tool = cmakeTool(kit());
-        if (tool != m_currentTool)
-            m_currentTool = tool;
-
-        m_changeButton->setEnabled(m_currentTool);
         const QString generator = CMakeGeneratorKitAspect::generator(kit());
         const QString platform = CMakeGeneratorKitAspect::platform(kit());
         const QString toolset = CMakeGeneratorKitAspect::toolset(kit());
@@ -708,12 +689,20 @@ private:
         if (!toolset.isEmpty())
             messageLabel << ", " << Tr::tr("Toolset") << ": " << toolset;
 
-        m_label->setText(messageLabel.join(""));
+        return messageLabel.join("");
+    }
+
+    void refresh() override
+    {
+        m_currentTool = cmakeTool(kit());
+        // Nothing to pick from until there is a CMake to ask.
+        m_generator->setEnabled(m_currentTool);
+        m_generator->updateSummary();
     }
 
     void changeGenerator()
     {
-        QPointer<QDialog> changeDialog = new QDialog(m_changeButton);
+        QPointer<QDialog> changeDialog = new QDialog(Core::ICore::dialogParent());
 
         // Disable help button in titlebar on windows:
         Qt::WindowFlags flags = changeDialog->windowFlags();
@@ -794,8 +783,7 @@ private:
         }
     }
 
-    ElidingLabel *m_label;
-    QPushButton *m_changeButton;
+    Utils::ActionAspect *m_generator = nullptr;
     CMakeTool *m_currentTool = nullptr;
 };
 
@@ -1181,42 +1169,41 @@ class CMakeConfigurationKitAspectImpl final : public KitAspect
 {
 public:
     CMakeConfigurationKitAspectImpl(Kit *kit, const KitAspectFactory *factory)
-        : KitAspect(kit, factory),
-          m_summaryLabel(Utils::AspectWidgets::createSubWidget<ElidingLabel>(this)),
-          m_manageButton(Utils::AspectWidgets::createSubWidget<QPushButton>(this))
+        : KitAspect(kit, factory)
     {
+        // The configuration is edited in a dialog, so the row is a summary of
+        // it and the one button that opens it.
+        m_configuration = addControl<Utils::ActionAspect>();
+        m_configuration->setActionText(Tr::tr("Change..."));
+        m_configuration->setSummaryProvider([this] { return summary(); });
+        m_configuration->setAction([this] { editConfigurationChanges(); });
+        setIgnoreForDirtyHook(m_configuration);
         refresh();
-        m_manageButton->setText(Tr::tr("Change..."));
-        setIgnoreForDirtyHook(m_manageButton);
-        connect(m_manageButton, &QAbstractButton::clicked,
-                this, &CMakeConfigurationKitAspectImpl::editConfigurationChanges);
     }
 
 private:
-    // KitAspectWidget interface
-    void addToInnerLayout(Layouting::Layout &layout) override
-    {
-        addMutableAction(m_summaryLabel);
-        layout.addItem(m_summaryLabel);
-        layout.addItem(m_manageButton);
-    }
+    void addToInnerLayout(Layouting::Layout &layout) override { layout.addItem(m_configuration); }
 
     void makeReadOnly(bool readOnly) override
     {
-        m_manageButton->setEnabled(!readOnly);
+        m_configuration->setEnabled(!readOnly);
         if (readOnly && m_dialog)
             m_dialog->reject();
+    }
+
+    QString summary() const
+    {
+        const QStringList current = CMakeConfigurationKitAspect::toArgumentsList(kit());
+        const QString additionalText = CMakeConfigurationKitAspect::additionalConfiguration(kit());
+        return additionalText.isEmpty() ? current.join(' ')
+                                        : current.join(' ') + " " + additionalText;
     }
 
     void refresh() override
     {
         const QStringList current = CMakeConfigurationKitAspect::toArgumentsList(kit());
         const QString additionalText = CMakeConfigurationKitAspect::additionalConfiguration(kit());
-        const QString labelText = additionalText.isEmpty()
-                                      ? current.join(' ')
-                                      : current.join(' ') + " " + additionalText;
-
-        m_summaryLabel->setText(labelText);
+        m_configuration->updateSummary();
 
         if (m_editor)
             m_editor->setPlainText(current.join('\n'));
@@ -1235,7 +1222,7 @@ private:
 
         QTC_ASSERT(!m_editor, return);
 
-        m_dialog = new QDialog(m_summaryLabel->window());
+        m_dialog = new QDialog(Core::ICore::dialogParent());
         m_dialog->setWindowTitle(Tr::tr("Edit CMake Configuration"));
         auto layout = new QVBoxLayout(m_dialog);
         m_editor = new QPlainTextEdit;
@@ -1326,8 +1313,7 @@ private:
         closeChangesDialog();
     }
 
-    QLabel *m_summaryLabel;
-    QPushButton *m_manageButton;
+    Utils::ActionAspect *m_configuration = nullptr;
     QDialog *m_dialog = nullptr;
     QPlainTextEdit *m_editor = nullptr;
     QLineEdit *m_additionalEditor = nullptr;

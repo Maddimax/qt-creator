@@ -25,33 +25,32 @@ class QbsKitAspectImpl final : public KitAspect
 {
 public:
     QbsKitAspectImpl(Kit *kit, const KitAspectFactory *kitInfo)
-        : KitAspect(kit, kitInfo),
-          m_contentLabel(Utils::AspectWidgets::createSubWidget<Utils::ElidingLabel>(this)),
-          m_changeButton(Utils::AspectWidgets::createSubWidget<QPushButton>(this, Tr::tr("Change...")))
+        : KitAspect(kit, kitInfo)
     {
-        connect(m_changeButton, &QPushButton::clicked, this, &QbsKitAspectImpl::changeProperties);
+        // Properties are edited in a dialog, so the row is a summary of them
+        // and the one button that opens it.
+        m_properties = addControl<Utils::ActionAspect>();
+        m_properties->setActionText(Tr::tr("Change..."));
+        m_properties->setSummaryProvider([this] { return QbsKitAspect::representation(this->kit()); });
+        m_properties->setAction([this] { changeProperties(); });
     }
 
 private:
-    void makeReadOnly(bool readOnly) override { m_changeButton->setEnabled(!readOnly); }
-    void refresh() override { m_contentLabel->setText(QbsKitAspect::representation(kit())); }
+    void makeReadOnly(bool readOnly) override { m_properties->setEnabled(!readOnly); }
+    void refresh() override { m_properties->updateSummary(); }
 
-    void addToInnerLayout(Layouting::Layout &layout) override
-    {
-        addMutableAction(m_contentLabel);
-        layout.addItem(m_contentLabel);
-        layout.addItem(m_changeButton);
-    }
+    void addToInnerLayout(Layouting::Layout &layout) override { layout.addItem(m_properties); }
 
     void changeProperties()
     {
         CustomQbsPropertiesDialog dlg(QbsKitAspect::properties(kit()));
-        if (dlg.exec() == QDialog::Accepted)
+        if (dlg.exec() == QDialog::Accepted) {
             QbsKitAspect::setProperties(kit(), dlg.properties());
+            refresh();
+        }
     }
 
-    QLabel * const m_contentLabel;
-    QPushButton * const m_changeButton;
+    Utils::ActionAspect *m_properties = nullptr;
 };
 
 QString QbsKitAspect::representation(const Kit *kit)

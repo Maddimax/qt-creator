@@ -26,38 +26,29 @@ class SysRootKitAspectImpl : public KitAspect
 public:
     SysRootKitAspectImpl(Kit *k, const KitAspectFactory *factory) : KitAspect(k, factory)
     {
-        m_chooser = Utils::AspectWidgets::createSubWidget<PathChooser>(this);
-        m_chooser->setExpectedKind(PathChooserKind::ExistingDirectory);
-        m_chooser->setHistoryCompleter("PE.SysRoot.History");
-        m_chooser->setFilePath(SysRootKitAspect::sysRoot(k));
-        connect(m_chooser, &PathChooser::textChanged,
-                this, &SysRootKitAspectImpl::pathWasChanged);
+        m_path = addControl<FilePathAspect>();
+        m_path->setExpectedKind(PathChooserKind::ExistingDirectory);
+        m_path->setHistoryCompleter("PE.SysRoot.History");
+        m_path->setValue(SysRootKitAspect::sysRoot(k));
+        m_path->setSpan(2);
+        m_path->addOnVolatileValueChanged(this, [this] {
+            const GuardLocker locker(m_ignoreChanges);
+            SysRootKitAspect::setSysRoot(kit(), m_path->expandedVolatileValue());
+        });
     }
-
-    ~SysRootKitAspectImpl() override { delete m_chooser; }
 
 private:
-    void makeReadOnly(bool readOnly) override { m_chooser->setReadOnly(readOnly); }
+    void makeReadOnly(bool readOnly) override { m_path->setReadOnly(readOnly); }
 
-    void addToInnerLayout(Layouting::Layout &layout) override
-    {
-        addMutableAction(m_chooser);
-        layout.addItem(Layouting::Span(2, m_chooser));
-    }
+    void addToInnerLayout(Layouting::Layout &layout) override { layout.addItem(m_path); }
 
     void refresh() override
     {
         if (!m_ignoreChanges.isLocked())
-            m_chooser->setFilePath(SysRootKitAspect::sysRoot(kit()));
+            m_path->setValue(SysRootKitAspect::sysRoot(kit()));
     }
 
-    void pathWasChanged()
-    {
-        const GuardLocker locker(m_ignoreChanges);
-        SysRootKitAspect::setSysRoot(kit(), m_chooser->filePath());
-    }
-
-    PathChooser *m_chooser;
+    FilePathAspect *m_path = nullptr;
     Guard m_ignoreChanges;
 };
 
