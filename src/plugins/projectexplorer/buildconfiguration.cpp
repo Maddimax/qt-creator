@@ -514,13 +514,16 @@ QWidget *BuildConfiguration::createConfigWidget()
         widget = named;
     }
 
+    // Every aspect, not only the visible ones. A control knows to start
+    // hidden and to show itself later - the build directory's warnings appear
+    // as you type, and the Qt Quick compiler row when the kit changes - and an
+    // aspect left out of the form here could never come back while the page
+    // was open.
     Layouting::Form form;
     form.setNoMargins();
     for (BaseAspect *aspect : aspects()) {
-        if (aspect->isVisible()) {
-            form.addItem(aspect);
-            form.flush();
-        }
+        form.addItem(aspect);
+        form.flush();
     }
     form.attachTo(widget);
 

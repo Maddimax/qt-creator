@@ -93,6 +93,13 @@ QLabel *addLabeledItem(BaseAspect *aspect, Layouting::Layout &parent, QWidget *w
         parent.addItem(Layouting::Span(std::max(pres.spanX - 1, 1), widget));
         return l;
     }
+    // Without a label of its own the control starts in the label's column, so
+    // the whole span is its own. A warning under a setting says setSpan(2) and
+    // means both columns; before this it meant nothing at all here.
+    if (pres.spanX > 1) {
+        parent.addItem(Layouting::Span(pres.spanX, widget));
+        return {};
+    }
     parent.addItem(widget);
     return {};
 }

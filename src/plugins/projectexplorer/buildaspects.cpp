@@ -17,8 +17,6 @@
 #include <coreplugin/icore.h>
 
 #include <utils/algorithm.h>
-#include <utils/infolabel.h>
-#include <utils/layoutbuilder.h>
 #include <utils/pathchooser.h>
 
 #include <QDir>
@@ -30,22 +28,53 @@ namespace ProjectExplorer {
 class BuildDirectoryAspect::Private
 {
 public:
+    explicit Private(BuildConfiguration *bc)
+        : genericProblem(bc)
+        , specialProblemDisplay(bc)
+    {}
+
     FilePath sourceDir;
     FilePath savedShadowBuildDir;
     QString specialProblem;
-    QLabel *genericProblemSpacer = nullptr;
-    QLabel *specialProblemSpacer = nullptr;
-    QPointer<InfoLabel> genericProblemLabel;
-    QPointer<InfoLabel> specialProblemLabel;
+    // Two rows under the setting rather than two labels this aspect owns. The
+    // generic one is about the character that is wrong and where to stop being
+    // told about it; the special one is whatever the build system said.
+    TextDisplay genericProblem;
+    TextDisplay specialProblemDisplay;
 };
 
 BuildDirectoryAspect::BuildDirectoryAspect(BuildConfiguration *bc)
     : FilePathAspect(bc),
-      d(new Private)
+      d(new Private(bc))
 {
     setSettingsKey("ProjectExplorer.BuildConfiguration.BuildDirectory");
     setLabelText(Tr::tr("Build directory:"));
     setExpectedKind(Utils::PathChooserKind::Directory);
+
+    for (TextDisplay *problem : {&d->genericProblem, &d->specialProblemDisplay}) {
+        problem->setIconType(InfoType::Warning);
+        problem->setWordWrap(true);
+        // No label of its own, so it takes the label's column as well: a
+        // warning reads across the form rather than in the narrow half.
+        problem->setSpan(2);
+        problem->setVisible(false);
+    }
+    // The generic warning says where to turn itself off.
+    d->genericProblem.setTextFormat(AspectControls::TextFormat::RichText);
+    connect(&d->genericProblem, &TextDisplay::linkActivated, this, [] {
+        Core::ICore::showSettings(Constants::BUILD_AND_RUN_SETTINGS_PAGE_ID);
+    });
+
+    // Behaviour, not layout: where the build may be put follows the build
+    // device, which is the kit's and can change while the page is open.
+    const auto followBuildDevice = [this] {
+        const auto buildDevice = BuildDeviceKitAspect::device(buildConfiguration()->kit());
+        setAllowPathFromDevice(buildDevice
+                               && buildDevice->type()
+                                      != ProjectExplorer::Constants::DESKTOP_DEVICE_TYPE);
+    };
+    connect(bc, &BuildConfiguration::kitChanged, this, followBuildDevice);
+    followBuildDevice();
 
     setValidationFunction([this](QString text) -> FancyLineEdit::AsyncValidationFuture {
         const FilePath fixedDir = fixupDir(FilePath::fromUserInput(text));
@@ -86,6 +115,19 @@ void BuildDirectoryAspect::allowInSourceBuilds(const FilePath &sourceDir)
     d->sourceDir = sourceDir;
     makeCheckable(CheckBoxPlacement::Top, Tr::tr("Shadow build:"), Key());
     setChecked(d->sourceDir != expandedValue());
+
+    // Turning the shadow build off means building in the source directory, and
+    // turning it back on means going back to where it was. This used to be
+    // wired up when the page was drawn, so the check box did nothing until
+    // then.
+    connect(this, &StringAspect::checkedChanged, this, [this] {
+        if (isChecked()) {
+            setValue(d->savedShadowBuildDir.isEmpty() ? d->sourceDir : d->savedShadowBuildDir);
+        } else {
+            d->savedShadowBuildDir = expandedValue(); // FIXME: Check.
+            setValue(d->sourceDir);
+        }
+    });
 }
 
 bool BuildDirectoryAspect::isShadowBuild() const
@@ -126,40 +168,6 @@ FilePath BuildDirectoryAspect::absoluteBuildDir(const FilePath &rawPath) const
         bc->kit(), rawPath, bc->project()->projectDirectory(), *bc->macroExpander());
 }
 
-void BuildDirectoryAspect::addToLayoutImpl(Layouting::Layout &parent)
-{
-    FilePathAspect::addToLayoutImpl(parent);
-    d->genericProblemSpacer = new QLabel;
-    d->specialProblemSpacer = new QLabel;
-    d->genericProblemLabel = new InfoLabel({}, InfoLabelType::Warning);
-    d->genericProblemLabel->setElideMode(Qt::ElideNone);
-    connect(d->genericProblemLabel, &QLabel::linkActivated, this, [] {
-        Core::ICore::showSettings(Constants::BUILD_AND_RUN_SETTINGS_PAGE_ID);
-    });
-    d->specialProblemLabel = new InfoLabel({}, InfoLabelType::Warning);
-    d->specialProblemLabel->setElideMode(Qt::ElideNone);
-    parent.addItems({Layouting::br, d->genericProblemSpacer, d->genericProblemLabel.data()});
-    parent.addItems({Layouting::br, d->specialProblemSpacer, d->specialProblemLabel.data()});
-    updateProblemLabels();
-    if (!d->sourceDir.isEmpty()) {
-        connect(this, &StringAspect::checkedChanged, this, [this] {
-            if (isChecked()) {
-                setValue(d->savedShadowBuildDir.isEmpty()
-                            ? d->sourceDir : d->savedShadowBuildDir);
-            } else {
-                d->savedShadowBuildDir = expandedValue(); // FIXME: Check.
-                setValue(d->sourceDir);
-            }
-        });
-    }
-
-    const auto buildDevice = BuildDeviceKitAspect::device(buildConfiguration()->kit());
-    if (buildDevice && buildDevice->type() != ProjectExplorer::Constants::DESKTOP_DEVICE_TYPE)
-        setAllowPathFromDevice(true);
-    else
-        setAllowPathFromDevice(false);
-}
-
 void BuildDirectoryAspect::announceChanges(Changes changes, Announcement howToAnnounce)
 {
     if (changes.volatileValueFromValue && isCheckable())
@@ -187,17 +195,8 @@ FilePath BuildDirectoryAspect::fixupDir(const FilePath &dir)
     return {};
 }
 
-void BuildDirectoryAspect::updateProblemLabels()
-{
-    updateProblemLabelsHelper(absoluteBuildDir(FilePath::fromUserInput(value())).toFSPathString());
-}
-
 QString BuildDirectoryAspect::updateProblemLabelsHelper(const QString &value)
 {
-    if (!d->genericProblemLabel)
-        return {};
-    QTC_ASSERT(d->specialProblemLabel, return {});
-
     QString genericProblem;
     QString genericProblemLabelString;
     if (ProjectExplorerSettings::get(this).warnAgainstNonAsciiBuildDir()) {
@@ -212,14 +211,13 @@ QString BuildDirectoryAspect::updateProblemLabelsHelper(const QString &value)
         }
     }
 
-    auto updateRow = [](const QString &text, InfoLabel *label, QLabel *spacer) {
-        label->setText(text);
-        label->setVisible(!text.isEmpty());
-        spacer->setVisible(!text.isEmpty());
+    const auto updateRow = [](const QString &text, TextDisplay *row) {
+        row->setText(text);
+        row->setVisible(!text.isEmpty());
     };
 
-    updateRow(genericProblemLabelString, d->genericProblemLabel, d->genericProblemSpacer);
-    updateRow(d->specialProblem, d->specialProblemLabel, d->specialProblemSpacer);
+    updateRow(genericProblemLabelString, &d->genericProblem);
+    updateRow(d->specialProblem, &d->specialProblemDisplay);
 
     if (genericProblem.isEmpty() && d->specialProblem.isEmpty())
         return {};

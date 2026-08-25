@@ -23,7 +23,6 @@ public:
     bool isShadowBuild() const;
     void setProblem(const QString &description);
 
-    void addToLayoutImpl(Layouting::Layout &parent) override;
     void announceChanges(Changes changes, Announcement howToAnnounce) override;
 
     static Utils::FilePath fixupDir(const Utils::FilePath &dir);
@@ -33,7 +32,6 @@ private:
     void fromMap(const Utils::Store &map) override;
 
     Utils::FilePath absoluteBuildDir(const Utils::FilePath &rawPath) const;
-    void updateProblemLabels();
     QString updateProblemLabelsHelper(const QString &value);
     BuildConfiguration *buildConfiguration() const;
 

@@ -2165,7 +2165,7 @@ installs a message handler and asserts nothing says SOFT ASSERT. The first
 version of it passed against a build with the guard removed, which is the only
 reason it was rewritten.
 
-**What this does not do.** The virtual has to stay: ten aspects in
+**What this does not do.** The virtual has to stay: nine aspects in
 `src/plugins` and five more in Utils still override it. They are not one
 group. Most are run-configuration, build-step and kit aspects - project
 panels rather than preferences pages, which is a surface the migration has not
@@ -2504,7 +2504,7 @@ anyway, because the closure was holding state - a widget's `customConfigs()`, a
 label's text - that nothing else did. Both are now gone. `EnvVarSeparatorAspect` was
 a sixth of exactly the same kind - see below.
 
-What still overrides `addToLayoutImpl()` in `src/plugins` is ten aspects,
+What still overrides `addToLayoutImpl()` in `src/plugins` is nine aspects,
 and they are mostly the project surface: run configurations, build steps and
 build settings. Three are not - `KitAspect` and `DeviceToolAspect` on the Kits
 and Devices pages, and `LibrarySelectionAspect` - and those are the ones to
@@ -2655,6 +2655,44 @@ project, the old code left the combo on entry 0 - showing `<Current File>`
 while storing something else. It now selects nothing, which is what
 `comboBoxForAnAspectValuedByChoiceId` already establishes as the answer for a
 stale id.
+
+### Two warnings under the build directory, and the filter that would have eaten them
+
+`BuildDirectoryAspect`'s closure built four widgets - two spacer `QLabel`s and
+two `InfoLabel`s - and then did three things that were not drawing: it wired up
+the shadow-build check box, it asked the build device whether paths from a
+device are allowed, and it computed the warnings. The two warnings are
+`TextDisplay` rows now, the check box is wired in `allowInSourceBuilds()` where
+the source directory is actually known, and the build device is followed from
+the constructor and on `BuildConfiguration::kitChanged`.
+
+The shadow-build check box is the third of these to have been doing nothing
+until somebody opened the page: `connect(this, &StringAspect::checkedChanged,
+...)` lived in the closure, so unchecking it before the build settings had ever
+been drawn changed nothing.
+
+**The filter that made this not work.** `BuildConfiguration::createConfigWidget()`
+laid out `aspects()` with `if (aspect->isVisible())`. A warning starts hidden,
+so it was left out of the form, and nothing could bring it back while the page
+was open - which is the only time a warning about what you are typing is any
+use. The filter is gone: every aspect goes into the form, and the control
+handles its own visibility. `registerSubWidget()` has connected
+`visibleChanged` to `setVisible` all along.
+
+That filter also silently defeated `ArchitecturesAspect` and
+`QtQuickCompilerAspect`, both of which hide themselves and expect to come back
+when the kit changes.
+
+**Two assertions that were not assertions.** The first version of the test
+checked `label->isHidden()`. Nothing in a renderer test is ever shown, so every
+widget in the tree answers `isHidden() == true` and the check cannot fail;
+`isVisibleTo(topLevel)` is the predicate that means "would be visible if this
+were shown". And even then, removing the initial hide from
+`registerSubWidget()` did not make the test fail, because
+`renderTextDisplay()` hides it a second time. Neither control bites alone.
+Removing both does - which is how the redundancy was found, and it is worth
+knowing that a control that does not bite can mean two guards rather than a
+weak test.
 
 ### What the census could not see, and now can
 

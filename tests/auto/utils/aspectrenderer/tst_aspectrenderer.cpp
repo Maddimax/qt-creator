@@ -186,6 +186,8 @@ private slots:
     void comboBoxFollowsARefill();
     void comboBoxKeepsAnIdAcrossARefill_data() { addRendererRows(); }
     void comboBoxKeepsAnIdAcrossARefill();
+    void aHiddenAspectIsStillBuilt_data() { addRendererRows(); }
+    void aHiddenAspectIsStillBuilt();
 };
 
 void tst_AspectRenderer::initTestCase()
@@ -1544,6 +1546,47 @@ void tst_AspectRenderer::comboBoxKeepsAnIdAcrossARefill()
     aspect.refill({"gamma", "delta"});
     QCOMPARE(combo->currentIndex(), -1);
     QCOMPARE(aspect.m_current, QString("beta"));
+}
+
+void tst_AspectRenderer::aHiddenAspectIsStillBuilt()
+{
+    QFETCH(bool, withRenderer);
+    setRendererInstalled(withRenderer);
+
+    // A row that starts hidden and shows itself later - a warning under the
+    // build directory, the Qt Quick compiler row when the kit changes. The
+    // control has to exist all along: a page that only laid out the aspects
+    // that were visible when it opened could never bring one back.
+    TextDisplay warning(nullptr, "Build directory contains a space.");
+    warning.setIconType(InfoType::Warning);
+    warning.setVisible(false);
+
+    const std::unique_ptr<QWidget> widget = render(warning);
+    QVERIFY(widget);
+    // InfoLabel has no Q_OBJECT macro, so findChild cannot key on it.
+    InfoLabel *label = nullptr;
+    for (QLabel * const candidate : widget->findChildren<QLabel *>()) {
+        if (auto info = dynamic_cast<InfoLabel *>(candidate))
+            label = info;
+    }
+    if (!withRenderer) {
+        QVERIFY(!label);
+        return;
+    }
+
+    QVERIFY(label);
+    QCOMPARE(label->text(), QString("Build directory contains a space."));
+    // isVisibleTo(), not isHidden(): nothing here is shown, so isHidden() is
+    // true for every widget in the tree and asserts nothing.
+    QVERIFY(!label->isVisibleTo(widget.get()));
+
+    // And showing the aspect shows it, without anything having been laid out
+    // again.
+    warning.setVisible(true);
+    QVERIFY(label->isVisibleTo(widget.get()));
+
+    warning.setVisible(false);
+    QVERIFY(!label->isVisibleTo(widget.get()));
 }
 
 void tst_AspectRenderer::filePathLiveReconfiguration()
