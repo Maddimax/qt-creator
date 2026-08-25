@@ -17,6 +17,7 @@
 #include "../target.h"
 
 #include <utils/algorithm.h>
+#include <utils/aspectwidgets.h>
 #include <utils/async.h>
 #include <utils/commandline.h>
 #include <utils/devicefileaccess.h>
@@ -246,6 +247,10 @@ public:
     BoolAspect autoDetectInDirectories;
     StringAspect autoDetectDirectories;
     BoolAspect autoCreateKits;
+    // Not registered on the device: what a device reports about itself is not
+    // one of its settings, and a settings page that walked the device's
+    // aspects would otherwise try to save it.
+    AspectContainer deviceInfoAspects;
 };
 
 } // namespace Internal
@@ -895,6 +900,33 @@ void IDevice::setFileAccess(DeviceFileAccessPtr fileAccess, bool announce)
 void IDevice::setFileAccessFactory(std::function<DeviceFileAccessPtr()> fileAccessFactory)
 {
     d->fileAccessFactory = fileAccessFactory;
+}
+
+AspectContainer &IDevice::deviceInfoAspects()
+{
+    return d->deviceInfoAspects;
+}
+
+void IDevice::refreshDeviceInfoAspects()
+{
+    d->deviceInfoAspects.clear();
+    for (const DeviceInfoItem &item : deviceInformation()) {
+        const auto row = new Utils::TextDisplay;
+        row->setLabelText(item.key);
+        row->setText(item.value);
+        d->deviceInfoAspects.registerAspect(row, /*takeOwnership=*/true);
+    }
+
+    // One row each, whatever they turn out to be. A Qt Quick page draws the
+    // container directly and needs none of this.
+    Utils::AspectWidgets::setLayouter(&d->deviceInfoAspects, [this] {
+        Layouting::Form form{Layouting::noMargin};
+        for (Utils::BaseAspect * const row : d->deviceInfoAspects.aspects()) {
+            form.addItem(row);
+            form.addItem(Layouting::br);
+        }
+        return form;
+    });
 }
 
 IDevice::DeviceInfo IDevice::deviceInformation() const

@@ -190,6 +190,12 @@ public:
     using DeviceInfo = QList<DeviceInfoItem>;
     virtual DeviceInfo deviceInformation() const;
 
+    // What deviceInformation() reports, as one read-only row each, so that
+    // whatever draws a device draws it. Rebuilt on demand: a device that has
+    // come up says more than one that has not.
+    Utils::AspectContainer &deviceInfoAspects();
+    void refreshDeviceInfoAspects();
+
     Utils::Id type() const;
     void setType(Utils::Id type);
 

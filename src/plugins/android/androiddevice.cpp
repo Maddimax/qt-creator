@@ -280,23 +280,18 @@ static IDevice::Ptr createDeviceFromInfo(const CreateAvdInfo &info)
     return IDevice::Ptr(dev);
 }
 
-class AndroidDeviceWidget : public IDeviceWidget
-{
-public:
-    AndroidDeviceWidget(const IDevice::Ptr &device);
-
-    void updateDeviceFromUi() final {}
-    static QString dialogTitle();
-    static bool messageDialog(const QString &msg, QMessageBox::Icon icon);
-    static bool criticalDialog(const QString &error);
-    static bool infoDialog(const QString &msg);
-    static bool questionDialog(const QString &question);
-};
+// Message boxes the Android plugin puts up while managing devices. They used
+// to be static members of the device settings widget, which had nothing to do
+// with them.
+static QString dialogTitle();
+static bool criticalDialog(const QString &error);
+static bool infoDialog(const QString &msg);
+static bool questionDialog(const QString &question);
 
 static void setupWifiForDevice(const IDevice::Ptr &device)
 {
     if (device->deviceState() != IDevice::DeviceReadyToUse) {
-        AndroidDeviceWidget::infoDialog(
+        infoDialog(
             Tr::tr("The device has to be connected with ADB debugging "
                    "enabled to use this feature."));
         return;
@@ -308,7 +303,7 @@ static void setupWifiForDevice(const IDevice::Ptr &device)
     QStringList args = adbSelector;
     args.append({"tcpip", wifiDevicePort});
     if (!runAdbCommand(args).success) {
-        AndroidDeviceWidget::criticalDialog(
+        criticalDialog(
             Tr::tr("Opening connection port %1 failed.").arg(wifiDevicePort));
         return;
     }
@@ -319,7 +314,7 @@ static void setupWifiForDevice(const IDevice::Ptr &device)
         args.append({"shell", "ip", "route"});
         const SdkToolResult ipRes = runAdbCommand(args);
         if (!ipRes.success) {
-            AndroidDeviceWidget::criticalDialog(
+            criticalDialog(
                 Tr::tr("Retrieving the device IP address failed."));
             return;
         }
@@ -333,7 +328,7 @@ static void setupWifiForDevice(const IDevice::Ptr &device)
             ip = ipParts.last();
         }
         if (!ipRegex.match(ipParts.last()).hasMatch()) {
-            AndroidDeviceWidget::criticalDialog(
+            criticalDialog(
                 Tr::tr("The retrieved IP address is invalid."));
             return;
         }
@@ -342,72 +337,19 @@ static void setupWifiForDevice(const IDevice::Ptr &device)
         args = adbSelector;
         args.append({"connect", QString("%1:%2").arg(ip).arg(wifiDevicePort)});
         if (!runAdbCommand(args).success) {
-            AndroidDeviceWidget::criticalDialog(
+            criticalDialog(
                 Tr::tr("Connecting to the device IP \"%1\" failed.").arg(ip));
             return;
         }
     });
 }
 
-AndroidDeviceWidget::AndroidDeviceWidget(const IDevice::Ptr &device)
-    : IDeviceWidget(device)
-{
-    const auto dev = std::static_pointer_cast<AndroidDevice>(device);
-    const auto formLayout = new QFormLayout(this);
-    formLayout->setFormAlignment(Qt::AlignLeft);
-    formLayout->setContentsMargins(0, 0, 0, 0);
-    setLayout(formLayout);
-    formLayout->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
-
-    formLayout->addRow(Tr::tr("Device name:"), new QLabel(dev->displayName()));
-    formLayout->addRow(Tr::tr("Device type:"), new QLabel(dev->deviceTypeName()));
-
-    const QString serialNumber = dev->serialNumber();
-    auto serialNumberLabel = new QLabel(serialNumber.isEmpty() ? Tr::tr("Unknown")
-                                                               : serialNumber);
-    formLayout->addRow(Tr::tr("Serial number:"), serialNumberLabel);
-
-    const QString abis = dev->supportedAbis().join(", ");
-    formLayout->addRow(Tr::tr("CPU architecture:"), new QLabel(abis));
-
-    const auto osString = QString("%1 (SDK %2)").arg(dev->androidVersion()).arg(dev->sdkLevel());
-    formLayout->addRow(Tr::tr("OS version:"), new QLabel(osString));
-
-    if (dev->machineType() == IDevice::Hardware) {
-        const QString authorizedStr = dev->deviceState() == IDevice::DeviceReadyToUse
-                                          ? Tr::tr("Yes")
-                                          : Tr::tr("No");
-        formLayout->addRow(Tr::tr("Authorized:"), new QLabel(authorizedStr));
-    }
-
-    if (dev->machineType() == IDevice::Emulator) {
-        const QString targetName = dev->androidTargetName();
-        formLayout->addRow(Tr::tr("Android target flavor:"), new QLabel(targetName));
-        formLayout->addRow(Tr::tr("SD card size:"), new QLabel(dev->sdcardSize()));
-        formLayout->addRow(Tr::tr("Skin type:"), new QLabel(dev->skinName()));
-        const QString openGlStatus = dev->openGLStatus();
-        formLayout->addRow(Tr::tr("OpenGL status:"), new QLabel(openGlStatus));
-    }
-
-    // An emulator gets its serial once it is up, so refresh the label then.
-    connect(DeviceManager::instance(), &DeviceManager::deviceUpdated, serialNumberLabel,
-            [serialNumberLabel, dev](Id updatedId) {
-                if (updatedId != dev->id())
-                    return;
-                const QString serialNumber = dev->serialNumber();
-                serialNumberLabel->setText(serialNumber.isEmpty() ? Tr::tr("Unknown")
-                                                                  : serialNumber);
-            });
-
-    installMarkSettingsDirtyTriggerRecursively(this);
-}
-
-QString AndroidDeviceWidget::dialogTitle()
+QString dialogTitle()
 {
     return Tr::tr("Android Device Manager");
 }
 
-bool AndroidDeviceWidget::messageDialog(const QString &msg, QMessageBox::Icon icon)
+static bool messageDialog(const QString &msg, QMessageBox::Icon icon)
 {
     qCDebug(androidDeviceLog) << msg;
     QMessageBox box(Core::ICore::dialogParent());
@@ -418,17 +360,17 @@ bool AndroidDeviceWidget::messageDialog(const QString &msg, QMessageBox::Icon ic
     return box.exec();
 }
 
-bool AndroidDeviceWidget::criticalDialog(const QString &error)
+bool criticalDialog(const QString &error)
 {
     return messageDialog(error, QMessageBox::Critical);
 }
 
-bool AndroidDeviceWidget::infoDialog(const QString &message)
+bool infoDialog(const QString &message)
 {
     return messageDialog(message, QMessageBox::Information);
 }
 
-bool AndroidDeviceWidget::questionDialog(const QString &question)
+bool questionDialog(const QString &question)
 {
     QMessageBox box(Core::ICore::dialogParent());
     box.QDialog::setWindowTitle(dialogTitle());
@@ -717,12 +659,34 @@ void AndroidDevice::startAvd()
 
 IDevice::DeviceInfo AndroidDevice::deviceInformation() const
 {
-    return IDevice::DeviceInfo();
+    // What the device settings page used to draw itself. One list, so that
+    // everything showing a device shows the same thing.
+    const QString serial = serialNumber();
+    IDevice::DeviceInfo info{
+        {Tr::tr("Device name:"), displayName()},
+        {Tr::tr("Device type:"), deviceTypeName()},
+        {Tr::tr("Serial number:"), serial.isEmpty() ? Tr::tr("Unknown") : serial},
+        {Tr::tr("CPU architecture:"), supportedAbis().join(", ")},
+        {Tr::tr("OS version:"), QString("%1 (SDK %2)").arg(androidVersion()).arg(sdkLevel())},
+    };
+    if (machineType() == IDevice::Hardware) {
+        info.append({Tr::tr("Authorized:"),
+                     deviceState() == IDevice::DeviceReadyToUse ? Tr::tr("Yes") : Tr::tr("No")});
+    }
+    if (machineType() == IDevice::Emulator) {
+        info.append({Tr::tr("Android target flavor:"), androidTargetName()});
+        info.append({Tr::tr("SD card size:"), sdcardSize()});
+        info.append({Tr::tr("Skin type:"), skinName()});
+        info.append({Tr::tr("OpenGL status:"), openGLStatus()});
+    }
+    return info;
 }
 
+// Nothing to set: a device that is only reported on says so through
+// deviceInformation(), which any renderer can draw.
 IDeviceWidget *AndroidDevice::createWidget()
 {
-    return new AndroidDeviceWidget(shared_from_this());
+    return nullptr;
 }
 
 ExecutableItem AndroidDevice::signalOperationRecipeImpl(
@@ -1216,7 +1180,7 @@ void AndroidDeviceManagerInstance::eraseAvd(const IDevice::Ptr &device)
     const QString name = static_cast<const AndroidDevice *>(device.get())->avdName();
     const QString question
         = Tr::tr("Erase the Android AVD \"%1\"?\nThis cannot be undone.").arg(name);
-    if (!AndroidDeviceWidget::questionDialog(question))
+    if (!questionDialog(question))
         return;
 
     qCDebug(androidDeviceLog) << QString("Erasing Android AVD \"%1\" from the system.").arg(name);
@@ -1233,7 +1197,7 @@ void AndroidDeviceManagerInstance::eraseAvd(const IDevice::Ptr &device)
             // Remove the device from QtC after it's been removed using avdmanager.
             DeviceManager::removeDevice(device->id());
         } else {
-            AndroidDeviceWidget::criticalDialog(Tr::tr("An error occurred while removing the "
+            criticalDialog(Tr::tr("An error occurred while removing the "
                                                        "Android AVD \"%1\" using avdmanager tool.").arg(name));
         }
         m_removeAvdProcess.release()->deleteLater();
@@ -1327,7 +1291,7 @@ public:
         setConstructionFunction(&AndroidDevice::create);
         setCreator([] {
             if (!AndroidConfig::sdkToolsOk()) {
-                AndroidDeviceWidget::infoDialog(Tr::tr("Android support is not yet configured."));
+                infoDialog(Tr::tr("Android support is not yet configured."));
                 return IDevice::Ptr();
             }
 
@@ -1342,7 +1306,7 @@ public:
                 androidDev->addActionsIfNotFound();
                 return dev;
             }
-            AndroidDeviceWidget::criticalDialog(
+            criticalDialog(
                 Tr::tr("The device info returned from AvdDialog is invalid."));
             return IDevice::Ptr();
         });

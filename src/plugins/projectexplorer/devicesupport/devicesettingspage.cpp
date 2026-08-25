@@ -147,7 +147,7 @@ class DeviceSettingsWidget final : public Core::IOptionsPageWidget
 {
 public:
     DeviceSettingsWidget();
-    ~DeviceSettingsWidget() final { delete m_configWidget; }
+    ~DeviceSettingsWidget() final { delete m_configWidget; delete m_deviceInfoWidget; }
 
 private:
     void apply() final;
@@ -180,6 +180,8 @@ private:
     DeviceProxyModel m_deviceProxyModel;
     QList<QPushButton *> m_additionalActionButtons;
     IDeviceWidget *m_configWidget = nullptr;
+    // What a device with no settings of its own reports about itself.
+    QWidget *m_deviceInfoWidget = nullptr;
 
     QLabel *m_configurationLabel;
     QComboBox *m_configurationComboBox;
@@ -530,6 +532,8 @@ void DeviceSettingsWidget::currentDeviceChanged(int index)
     if (didChangeDevice) {
         delete m_configWidget;
         m_configWidget = nullptr;
+        delete m_deviceInfoWidget;
+        m_deviceInfoWidget = nullptr;
     }
 
     qDeleteAll(m_additionalActionButtons);
@@ -590,9 +594,18 @@ void DeviceSettingsWidget::currentDeviceChanged(int index)
         new QVBoxLayout(m_osSpecificGroupBox);
 
     if (didChangeDevice) {
-        m_configWidget = DeviceManager::mutableDevice(device->id())->createWidget();
-        if (m_configWidget)
+        const IDevice::Ptr mutableDevice = DeviceManager::mutableDevice(device->id());
+        m_configWidget = mutableDevice->createWidget();
+        if (m_configWidget) {
             m_osSpecificGroupBox->layout()->addWidget(m_configWidget);
+        } else {
+            // A device with nothing to set still has something to say. What it
+            // reports is aspects, so either renderer can draw it.
+            mutableDevice->refreshDeviceInfoAspects();
+            m_deviceInfoWidget = Core::createAspectForm(&mutableDevice->deviceInfoAspects());
+            if (m_deviceInfoWidget)
+                m_osSpecificGroupBox->layout()->addWidget(m_deviceInfoWidget);
+        }
     }
     displayCurrent();
 }

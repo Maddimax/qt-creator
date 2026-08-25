@@ -1612,6 +1612,33 @@ the device's business and so is saying that it has none:
 `IDevice::freePortsWarning` is a `TextDisplay` beside the port field, and both
 widgets just place it.
 
+### A device with nothing to set still has something to say
+
+The iOS and Android device widgets were read-only: a `Form` of five label/value
+pairs in one, a hand-rolled `QFormLayout` of five to nine in the other, both
+built from plain getters. `IDevice::deviceInformation()` already returns
+exactly that shape and is what a target's overlay icon shows in its tool tip -
+but iOS returned a *different* list and Android returned nothing, so the two
+disagreed with themselves.
+
+There is one list now. `deviceInformation()` says what a device reports,
+`refreshDeviceInfoAspects()` turns it into one read-only row each, and the
+settings page draws that where a device has no widget. Both widget classes are
+gone, and Android's four static message-box helpers - which had been sitting on
+the widget class with nothing to do with it - are free functions.
+
+`AspectContainer::clear()` is what made that possible: a container whose
+contents are not fixed, since a device that has come up reports more than one
+that has not.
+
+**A labelled `TextDisplay` drew only its value in the widget renderer.** The
+Quick delegate has always drawn the name beside it; `renderTextDisplay()` added
+the `InfoLabel` and nothing else, so "Serial number:" was simply missing. It
+went unnoticed because every aspect that sets a label on one - the debugger's
+type and version, Axivion's build date, qbs profiles - is on a page that had
+already moved to Quick. The renderer uses `addLabeledItem()` now, like every
+other control.
+
 ### What the census could not see, and now can
 
 Two holes, both found the hard way in the same session.
@@ -1850,8 +1877,9 @@ remembered:
   page is `KitsPage.qml`.
 - **Devices** - **7 `IDeviceWidget` implementations**, not the 13 first
   counted. Four are already pure aspect layout; the desktop one has been
-  converted. What is left is two read-only info dumps (iOS, Android), Docker's
-  detection log, and BareMetal's embedded provider chooser.
+  converted, and the two read-only ones (iOS, Android) are deleted in favour of
+  `deviceInformation()`. What is left is Docker's detection log and BareMetal's
+  embedded provider chooser.
 - **BareMetal's Debug Server Providers** - **30 config-widget classes**, all of
   them for hardware this machine does not have.
 - **MCU Support** - `McuAbstractPackage::widget()`, one per package kind.

@@ -603,27 +603,6 @@ void IosFileAccess::invalidateCache(const FilePath &filePath) const
     m_cache.writeLocked()->remove(filePath);
 }
 
-class IosDeviceInfoWidget final : public IDeviceWidget
-{
-public:
-    IosDeviceInfoWidget(const IDevice::Ptr &device)
-        : IDeviceWidget(device)
-    {
-        const IDevice::DeviceInfo info = device->deviceInformation();
-        using namespace Layouting;
-        Form form{noMargin};
-        for (const IDevice::DeviceInfoItem &item : info) {
-            //: %1 = label of device property like "Device name" or "Product type"
-            form.addRow({Tr::tr("%1:").arg(item.key), item.value});
-        }
-        form.attachTo(this);
-
-        installMarkSettingsDirtyTriggerRecursively(this);
-    }
-
-    void updateDeviceFromUi() final {}
-};
-
 IosDevice::IosDevice(CtorHelper)
 {
     setType(Constants::IOS_DEVICE_TYPE);
@@ -655,9 +634,11 @@ IDevice::DeviceInfo IosDevice::deviceInformation() const
     return m_extraInfo.toDeviceInfo();
 }
 
+// Nothing to set: a device that is only reported on says so through
+// deviceInformation(), which any renderer can draw.
 IDeviceWidget *IosDevice::createWidget()
 {
-    return new IosDeviceInfoWidget(shared_from_this());
+    return nullptr;
 }
 
 void IosDevice::fromMap(const Store &map)

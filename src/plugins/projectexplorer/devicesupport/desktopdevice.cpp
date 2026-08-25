@@ -5,6 +5,10 @@
 
 #include "idevicefactory.h"
 
+#include <coreplugin/dialogs/ioptionspage.h>
+
+#include <QLabel>
+
 #include "../projectexplorerconstants.h"
 #include "../projectexplorertr.h"
 #include "devicemanager.h"
@@ -416,6 +420,20 @@ namespace Internal {
 class DesktopDeviceTest : public QObject
 {
     Q_OBJECT
+private:
+    // DesktopDevice reports nothing of its own, so the rows are built from a
+    // list handed in - the same list deviceInformation() would return.
+    static void fillInfoAspects(const IDevice::Ptr &device, const IDevice::DeviceInfo &info)
+    {
+        device->deviceInfoAspects().clear();
+        for (const IDevice::DeviceInfoItem &item : info) {
+            const auto row = new TextDisplay;
+            row->setLabelText(item.key);
+            row->setText(item.value);
+            device->deviceInfoAspects().registerAspect(row, /*takeOwnership=*/true);
+        }
+    }
+
 private slots:
     // A device that answers without talking to anything must do so through
     // systemEnvironmentIfKnown() too, which callers in the middle of a device or
@@ -455,6 +473,59 @@ private slots:
         // And the field says what a port list looks like, which was the one
         // widget's placeholder rather than the aspect's.
         QVERIFY(!device->freePortsAspect.presentation().placeholderText.isEmpty());
+    }
+
+    void testWhatADeviceReportsBecomesRowsAnyRendererCanDraw()
+    {
+        // A device with nothing to set still has something to say. Two of them
+        // drew that themselves - a Form of QLabels in one, a hand-rolled
+        // QFormLayout in the other - so nothing but those widgets could show
+        // it, and deviceInformation() said something different again.
+        IDeviceFactory * const factory = IDeviceFactory::find(Constants::DESKTOP_DEVICE_TYPE);
+        QVERIFY(factory);
+        const IDevice::Ptr device = factory->construct();
+        QVERIFY(device);
+
+        // The real path first: a device is asked what it reports, and the
+        // container comes back drawable even when the answer is nothing.
+        device->refreshDeviceInfoAspects();
+        QCOMPARE(device->deviceInfoAspects().aspects().size(),
+                 device->deviceInformation().size());
+        const std::unique_ptr<QWidget> emptyForm(
+            Core::createAspectForm(&device->deviceInfoAspects()));
+        QVERIFY2(emptyForm, "the info container says nothing about how to draw it");
+
+        const IDevice::DeviceInfo info{{"Serial number:", "unknown"},
+                                       {"OS version:", "14 (SDK 34)"}};
+        fillInfoAspects(device, info);
+        QCOMPARE(device->deviceInfoAspects().aspects().size(), info.size());
+        for (int i = 0; i < info.size(); ++i) {
+            BaseAspect * const row = device->deviceInfoAspects().aspects().at(i);
+            QCOMPARE(row->labelText(), info.at(i).key);
+            QCOMPARE(row->displayText(), info.at(i).value);
+            // Reported, not set: nothing here is a control to type into.
+            QCOMPARE(row->presentation().control, AspectControls::Label);
+        }
+
+        // And what it says changes: a device that has come up reports more
+        // than one that has not, so the rows are replaced rather than added to.
+        const IDevice::DeviceInfo later{{"Serial number:", "R58M12345"}};
+        fillInfoAspects(device, later);
+        QCOMPARE(device->deviceInfoAspects().aspects().size(), later.size());
+        QCOMPARE(device->deviceInfoAspects().aspects().first()->displayText(),
+                 QString("R58M12345"));
+
+        // Drawn as a name and a value, not just a value: a row that says only
+        // "R58M12345" says nothing.
+        const std::unique_ptr<QWidget> form(
+            Core::createAspectForm(&device->deviceInfoAspects()));
+        QVERIFY(form);
+        QStringList shown;
+        for (const QLabel * const label : form->findChildren<QLabel *>())
+            shown << label->text();
+        QVERIFY2(shown.contains("Serial number:"), qPrintable(shown.join(" | ")));
+        QVERIFY2(shown.contains("R58M12345"), qPrintable(shown.join(" | ")));
+
     }
 
     void testScriptSourcing()
