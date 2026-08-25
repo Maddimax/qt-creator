@@ -11,15 +11,24 @@
 #include "debugserverprovidermanager.h"
 #include "idebugserverprovider.h"
 
+#include <coreplugin/icore.h>
+
 #include <projectexplorer/devicesupport/idevice.h>
 #include <projectexplorer/devicesupport/idevicefactory.h>
 #include <projectexplorer/devicesupport/idevicewidget.h>
 
+#include <utils/algorithm.h>
 #include <utils/guiutils.h>
+#include <utils/layoutbuilder.h>
 #include <utils/qtcassert.h>
 #include <utils/wizard.h>
 
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
 #include <QFormLayout>
+#include <QStandardItem>
 #include <QLineEdit>
 #include <QWizardPage>
 
@@ -34,37 +43,20 @@ public:
     explicit BareMetalDeviceWidget(const IDevicePtr &deviceConfig)
         : IDeviceWidget(deviceConfig)
     {
-        const auto dev = std::static_pointer_cast<const BareMetalDevice>(device());
+        const auto dev = std::static_pointer_cast<BareMetalDevice>(device());
         QTC_ASSERT(dev, return);
 
-        const auto formLayout = new QFormLayout(this);
-        formLayout->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
-
-        m_debugServerProviderChooser = new DebugServerProviderChooser(true, this);
-        m_debugServerProviderChooser->populate();
-        m_debugServerProviderChooser->setCurrentProviderId(dev->debugServerProviderId());
-        formLayout->addRow(Tr::tr("Debug server provider:"), m_debugServerProviderChooser);
-
-        connect(m_debugServerProviderChooser, &DebugServerProviderChooser::providerChanged,
-                this, &BareMetalDeviceWidget::debugServerProviderChanged);
+        using namespace Layouting;
+        Form {
+            dev->m_debugServerProviderId, dev->m_manageProviders, br,
+            noMargin,
+        }.attachTo(this);
 
         installMarkSettingsDirtyTriggerRecursively(this);
     }
 
 private:
-    void debugServerProviderChanged()
-    {
-        const auto dev = std::static_pointer_cast<BareMetalDevice>(device());
-        QTC_ASSERT(dev, return);
-        dev->setDebugServerProviderId(m_debugServerProviderChooser->currentProviderId());
-    }
-
-    void updateDeviceFromUi() final
-    {
-        debugServerProviderChanged();
-    }
-
-    DebugServerProviderChooser *m_debugServerProviderChooser = nullptr;
+    void updateDeviceFromUi() final {}
 };
 
 
@@ -76,6 +68,32 @@ BareMetalDevice::BareMetalDevice()
     setOsType(Utils::OsTypeOther);
 
     m_debugServerProviderId.setSettingsKey("IDebugServerProviderId");
+    m_debugServerProviderId.setLabelText(Tr::tr("Debug server provider:"));
+    m_debugServerProviderId.setFillCallback(
+        [](const StringSelectionAspect::ResultCallback &cb) {
+            QList<QStandardItem *> items;
+            const auto none = new QStandardItem(Tr::tr("None", "No debug server provider"));
+            none->setData(QString());
+            items.append(none);
+            for (const IDebugServerProvider * const provider :
+                 DebugServerProviderManager::providers()) {
+                if (!provider->isValid())
+                    continue;
+                const auto item = new QStandardItem(provider->displayName());
+                item->setData(provider->id());
+                items.append(item);
+            }
+            cb(items);
+        });
+    // Which providers there are changes while the page is open.
+    QObject::connect(DebugServerProviderManager::instance(),
+                     &DebugServerProviderManager::providersChanged,
+                     &m_debugServerProviderId,
+                     [this] { m_debugServerProviderId.refill(); });
+
+    m_manageProviders.setActionText(Tr::tr("Manage..."));
+    m_manageProviders.setAction(
+        [] { Core::ICore::showSettings(Utils::Id(Constants::DEBUG_SERVER_PROVIDERS_SETTINGS_ID)); });
 }
 
 BareMetalDevice::~BareMetalDevice() = default;
@@ -221,9 +239,103 @@ public:
     }
 };
 
+#ifdef WITH_TESTS
+class BareMetalDeviceTest final : public QObject
+{
+    Q_OBJECT
+
+private:
+    // A provider of any kind the plugin can make, so that the list has
+    // something in it on a machine with none configured.
+    static IDebugServerProvider *registerAProvider()
+    {
+        for (IDebugServerProviderFactory * const factory :
+             IDebugServerProviderFactory::factories()) {
+            IDebugServerProvider * const provider = factory->create();
+            if (!provider)
+                continue;
+            if (provider->isValid() && DebugServerProviderManager::registerProvider(provider))
+                return provider;
+            delete provider;
+        }
+        return nullptr;
+    }
+
+private slots:
+    void testTheProviderIsAChoiceTheDeviceOffers()
+    {
+        // The provider used to be picked with DebugServerProviderChooser, a
+        // combo box and a Manage button that only a widget page could show,
+        // syncing itself to the device by hand. The device offers the choice
+        // itself now.
+        const IDevice::Ptr device = BareMetalDevice::create();
+        QVERIFY(device);
+        const auto dev = std::static_pointer_cast<BareMetalDevice>(device);
+
+        const AspectPresentation p = dev->m_debugServerProviderId.presentation();
+        QCOMPARE(p.control, AspectControls::ComboBox);
+        QVERIFY(!p.labelText.isEmpty());
+
+        // "None" is always offered, and stands for no provider rather than for
+        // a provider called "None".
+        QVERIFY(!p.choices.isEmpty());
+        QCOMPARE(p.choices.first().id.toString(), QString());
+
+        // One entry per valid provider, by id: what is stored is the id, so
+        // refilling the list does not change which provider is picked. A
+        // provider of this test's own, since a machine with none configured
+        // would check nothing.
+        IDebugServerProvider * const mine = registerAProvider();
+        if (!mine)
+            QSKIP("No kind of debug server provider can be created here");
+
+        dev->m_debugServerProviderId.refill();
+        const AspectPresentation filled = dev->m_debugServerProviderId.presentation();
+        const QList<IDebugServerProvider *> valid = Utils::filtered(
+            DebugServerProviderManager::providers(),
+            [](const IDebugServerProvider *p) { return p->isValid(); });
+        QVERIFY(valid.contains(mine));
+        QCOMPARE(filled.choices.size(), valid.size() + 1);
+        for (const IDebugServerProvider * const provider : valid) {
+            QVERIFY2(Utils::anyOf(filled.choices,
+                                  [provider](const AspectPresentation::Choice &c) {
+                                      return c.id.toString() == provider->id();
+                                  }),
+                     qPrintable(provider->displayName() + " is not offered by its id"));
+        }
+        DebugServerProviderManager::deregisterProvider(mine);
+
+        // And the value is the id the device stores, not a position in a list
+        // that is rebuilt whenever a provider is added.
+        dev->setDebugServerProviderId("some.provider.id");
+        QCOMPARE(dev->debugServerProviderId(), QString("some.provider.id"));
+        dev->unregisterDebugServerProvider("some.provider.id");
+        QCOMPARE(dev->debugServerProviderId(), QString());
+    }
+
+    void testManagingProvidersIsSomethingTheDeviceOffers()
+    {
+        const IDevice::Ptr device = BareMetalDevice::create();
+        const auto dev = std::static_pointer_cast<BareMetalDevice>(device);
+        const AspectPresentation p = dev->m_manageProviders.presentation();
+        QCOMPARE(p.control, AspectControls::Button);
+        QVERIFY(!p.actionText.isEmpty());
+    }
+};
+
+QObject *createBareMetalDeviceTest()
+{
+    return new BareMetalDeviceTest;
+}
+#endif // WITH_TESTS
+
 void setupBareMetalDevice()
 {
     static BareMetalDeviceFactory theBareMetalDeviceFactory;
 }
 
 } // BareMetal::Internal
+
+#ifdef WITH_TESTS
+#include "baremetaldevice.moc"
+#endif

@@ -26,12 +26,23 @@ public:
     void unregisterDebugServerProvider(const QString &providerId) const;
 
 private:
+    friend class BareMetalDeviceWidget;
+    friend class BareMetalDeviceTest;
+
     void fromMap(const Utils::Store &map) final;
 
     BareMetalDevice();
-    mutable Utils::StringAspect m_debugServerProviderId{this};
+    // The provider, as the id it is stored by. A choice rather than a string:
+    // which providers there are is what the manager says, and it changes while
+    // a page is open.
+    mutable Utils::StringSelectionAspect m_debugServerProviderId{this};
+    Utils::ActionAspect m_manageProviders{this};
 };
 
 void setupBareMetalDevice();
+
+#ifdef WITH_TESTS
+QObject *createBareMetalDeviceTest();
+#endif
 
 } // BareMetal::Internal

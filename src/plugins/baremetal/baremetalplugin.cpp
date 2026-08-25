@@ -58,6 +58,7 @@ class BareMetalPlugin final : public ExtensionSystem::IPlugin
         setupBareMetalDebugSupport();
 
 #ifdef WITH_TESTS
+        addTestCreator(createBareMetalDeviceTest);
         addTestCreator(createIarParserTest);
         addTestCreator(createKeilParserTest);
         addTestCreator(createSdccParserTest);

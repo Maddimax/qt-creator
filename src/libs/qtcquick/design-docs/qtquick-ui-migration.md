@@ -1639,6 +1639,36 @@ type and version, Axivion's build date, qbs profiles - is on a page that had
 already moved to Quick. The renderer uses `addLabeledItem()` now, like every
 other control.
 
+### The last widget a device reached outside itself for
+
+BareMetal picked its debug server provider with `DebugServerProviderChooser` -
+a combo box and a Manage button in a `QWidget` of its own, populated from
+`DebugServerProviderManager`, kept in step with the device by hand in
+`debugServerProviderChanged()` and `updateDeviceFromUi()`. It was the one
+device widget that embedded something from outside the device, and the direct
+analogue of the kit-aspect embedding solved earlier.
+
+The device offers the choice itself now: `m_debugServerProviderId` is a
+`StringSelectionAspect` - the same stored value, the same settings key, so
+nothing about saved devices changes - filled from the manager and refilled when
+`providersChanged` fires. Manage is an `ActionAspect`. The widget is a
+`Layouting::Form` over those two, like Linux's and Windows's, and its
+`updateDeviceFromUi()` is empty like everyone else's.
+
+The chooser widget stays: the *wizard* that adds a bare-metal device still uses
+it, and a wizard is not a settings page.
+
+Every remaining `IDeviceWidget` is now nothing but a choice of which of the
+device's aspects to show and in what order. That is what has to become a
+per-device QML file - or a list of names the page reads - before the Devices
+page itself can move.
+
+**A test on a machine with none of the thing it tests proves nothing.** The
+first version asserted "one entry per valid provider" on a machine with zero
+providers configured, so the loop never ran and the control that broke the id
+lookup passed. It registers a provider of its own now, and skips honestly if
+the plugin cannot make one.
+
 ### What the census could not see, and now can
 
 Two holes, both found the hard way in the same session.
@@ -1878,8 +1908,9 @@ remembered:
 - **Devices** - **7 `IDeviceWidget` implementations**, not the 13 first
   counted. Four are already pure aspect layout; the desktop one has been
   converted, and the two read-only ones (iOS, Android) are deleted in favour of
-  `deviceInformation()`. What is left is Docker's detection log and BareMetal's
-  embedded provider chooser.
+  `deviceInformation()`, and BareMetal no longer embeds a foreign chooser. Every
+  one that is left is pure aspect layout; what remains is teaching each device
+  to name its rows, and Docker's detection log.
 - **BareMetal's Debug Server Providers** - **30 config-widget classes**, all of
   them for hardware this machine does not have.
 - **MCU Support** - `McuAbstractPackage::widget()`, one per package kind.
