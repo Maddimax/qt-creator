@@ -35,7 +35,8 @@ public:
     MOCK_METHOD(void, readFromSettings, ());
     MOCK_METHOD(QStringList, versions, (), (const));
 
-    MOCK_METHOD(QWidget *, widget, ());
+    MOCK_METHOD(void, addSettingsRows, (Utils::AspectContainer &) );
+    MOCK_METHOD(void, setExpandedDefaultPath, (const Utils::FilePath &) );
     MOCK_METHOD(const McuPackageVersionDetector *, getVersionDetector, (), (const));
 };
 

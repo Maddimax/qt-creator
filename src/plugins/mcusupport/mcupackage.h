@@ -7,7 +7,9 @@
 #include "mcusupportversiondetection.h"
 #include "settingshandler.h"
 
+#include <utils/aspects.h>
 #include <utils/filepath.h>
+#include <utils/guard.h>
 #include <utils/pathchooser.h>
 
 #include <QObject>
@@ -17,7 +19,6 @@ class Toolchain;
 }
 
 namespace Utils {
-class InfoLabel;
 class Id;
 } // namespace Utils
 
@@ -70,7 +71,8 @@ public:
     bool writeToSettings() const override;
     void readFromSettings() override;
 
-    QWidget *widget() override;
+    void addSettingsRows(Utils::AspectContainer &rows) override;
+    void setExpandedDefaultPath(const Utils::FilePath &path) override;
     const McuPackageVersionDetector *getVersionDetector() const override;
 
     void setPath(const Utils::FilePath &) override;
@@ -83,8 +85,11 @@ private:
 
     SettingsHandler::Ptr settingsHandler;
 
-    Utils::PathChooser *m_fileChooser = nullptr;
-    Utils::InfoLabel *m_infoLabel = nullptr;
+    // Where the path goes and what is wrong with it. Owned rather than built
+    // on demand: the page lists them, it does not construct them.
+    Utils::FilePathAspect m_pathAspect;
+    Utils::TextDisplay m_statusAspect;
+    Utils::Guard m_settingPath;
 
     const QString m_label;
     Utils::FilePath m_defaultPath;

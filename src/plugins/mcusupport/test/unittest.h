@@ -112,6 +112,9 @@ private slots:
 
     void test_expectedValueType();
 
+    void test_packageRowsAreTheOnesThePageDraws();
+    void test_resetGoesBackToTheExpandedDefault();
+
 private:
     QVersionNumber currentQulVersion{2, 0};
     PackageMock *freeRtosPackage{new PackageMock};

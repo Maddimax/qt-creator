@@ -6,6 +6,7 @@
 #include <QObject>
 
 namespace Utils {
+class AspectContainer;
 class FilePath;
 class FilePaths;
 class Key;
@@ -53,13 +54,18 @@ public:
     virtual bool writeToSettings() const = 0;
     virtual void readFromSettings() = 0;
 
-    virtual QWidget *widget() = 0;
+    // The rows a page shows for this package - where its path goes, and what
+    // is wrong with it - appended to whatever the page is listing. This is
+    // what widget() was: which controls, in what order.
+    virtual void addSettingsRows(Utils::AspectContainer &rows) = 0;
+    // What Reset goes back to. The page knows it with the target's macros
+    // expanded; the package only has the unexpanded one.
+    virtual void setExpandedDefaultPath(const Utils::FilePath &path) = 0;
     virtual const McuPackageVersionDetector *getVersionDetector() const = 0;
 
 signals:
     void changed();
     void statusChanged();
-    void reset();
 };
 
 } // namespace McuSupport::Internal

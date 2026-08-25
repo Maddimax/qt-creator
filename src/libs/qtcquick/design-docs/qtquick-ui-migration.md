@@ -1885,6 +1885,39 @@ the same reason `displayText()` exists.
 needs: a per-package **Reset** was one of two buttons its hand-built widget
 put beside a `PathChooser`.
 
+### MCU, and an extension point with one implementation
+
+`McuAbstractPackage::widget()` looked like the toolchain and device extension
+points and was not one: `McuPackage` is the only implementation, and
+`McuToolchainPackage` derives from it without touching the widget. So there was
+no round of "convert every implementation first" - the one implementation and
+the page moved together.
+
+A package says its rows now, the way a device does: `addSettingsRows()` appends
+a `FilePathAspect` labelled with the package name and a `TextDisplay` for what
+is wrong with it. The two `QWidget` pointers it used to hold - a `PathChooser`
+and an `InfoLabel`, built on demand and kept for `updateStatusUi()` to write
+into - are gone.
+
+**Reset, and who knows the default.** The chooser had a reset button on the
+line edit whose click the *page* caught, because only the page could expand the
+target's macros in `defaultPath()` before putting it back. That is a value, not
+an event: `setExpandedDefaultPath()` hands it over when the page lists the
+packages, `FilePathAspect::setUseResetButton()` draws the button, and the
+`reset()` signal on the interface is gone.
+
+**The download button became a link.** A package with a download URL had a
+tool button with an ONLINE icon beside the chooser, whose only explanation was
+its tooltip. The status line says it in words instead - the same rich-text
+link mechanism the page's own "add a CMake tool" message already used. That is
+a visible change, and a deliberate one.
+
+**A page that is a list.** Every element of the page is one aspect in
+declaration order, so `McuSupportPage.qml` is eight delegates and no layout;
+the two package groups are `AspectContainer`s refilled per target, which is
+what the container-refill fix above was written for. `showEvent()` - which
+asked the SDK what it had every time the page appeared - is `pageShown()`.
+
 ### What the census could not see, and now can
 
 Two holes, both found the hard way in the same session.
@@ -2111,9 +2144,9 @@ A page that calls `IOptionsPage::setWidgetCreator()` builds its own
 `IOptionsPageWidget` and answers nothing from `aspects()`, so the test skips it
 entirely: `isFullyRenderable()` is never asked and the page is not in the 73.
 There were **15 such call sites in 14 files**, and none of them is a page that
-fits in one batch any more. **Eleven page call sites are left, in eleven
-files**, after Toolchains, Kits and Devices - counted with the grep below,
-minus `IMode::setWidgetCreator()` and `ioptionspage.cpp` itself. What each is waiting on, checked rather than
+fits in one batch any more. **Ten page call sites are left, in ten files**,
+after Toolchains, Kits, Devices and MCU - counted with the grep below, minus
+`IMode::setWidgetCreator()` and `ioptionspage.cpp` itself. What each is waiting on, checked rather than
 remembered:
 
 - **Toolchains** - done. `ToolchainConfigWidget` had **9 implementations**
@@ -2128,7 +2161,9 @@ remembered:
   is `DevicesPage.qml`. It is the last of the three extension-point pages.
 - **BareMetal's Debug Server Providers** - **30 config-widget classes**, all of
   them for hardware this machine does not have.
-- **MCU Support** - `McuAbstractPackage::widget()`, one per package kind.
+- **MCU Support** - done. `McuAbstractPackage::widget()` looked like an
+  extension point and had one implementation; the package and the page moved
+  together.
 - **Android SDK** - not an extension point, but its first-show work is an SDK
   package reload. A settings *provider*'s container is built when the page
   census builds it, so moving that into the constructor would make every test

@@ -28,4 +28,17 @@ add_qtc_plugin(McuSupport
     mcusupportimportprovider.cpp mcusupportimportprovider.h
 )
 
+# qmllint and qmlcachegen see the files; qbs cannot build QML modules, so it
+# only lists them - the same split qtcquick already lives with.
+if(TARGET McuSupport AND TARGET Qt::Quick)
+  qt_add_qml_module(McuSupport
+    URI QtCreator.McuSupport
+    VERSION 1.0
+    RESOURCE_PREFIX "/qt/qml"
+    NO_PLUGIN
+    QML_FILES
+      McuSupportPage.qml
+  )
+endif()
+
 add_subdirectory(test)

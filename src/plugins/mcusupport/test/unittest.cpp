@@ -1855,4 +1855,62 @@ void McuSupportTest::test_expectedValueType()
              Utils::PathChooserKind::ExistingDirectory);
 }
 
+void McuSupportTest::test_packageRowsAreTheOnesThePageDraws()
+{
+    // A package used to hand the page a QWidget it had built itself and kept
+    // pointers into. It says which rows it wants instead: where the path goes,
+    // and what is wrong with it.
+    McuPackagePtr package{Legacy::createBoardSdkPackage(
+        settingsMockPtr, McuTargetDescription{parseDescriptionJson(armgcc_mimxrt1050_evk_freertos_json)})};
+    QVERIFY(package);
+
+    Utils::AspectContainer rows;
+    package->addSettingsRows(rows);
+    QCOMPARE(rows.aspects().size(), 2);
+
+    auto pathRow = qobject_cast<Utils::FilePathAspect *>(rows.aspects().at(0));
+    QVERIFY(pathRow);
+    // The label is the row's, not a QLabel the package kept beside a chooser.
+    QCOMPARE(pathRow->labelText(), package->label());
+    QCOMPARE(pathRow->presentation().pathKind,
+             Utils::AspectControls::PathKind::ExistingDirectory);
+
+    auto statusRow = qobject_cast<Utils::TextDisplay *>(rows.aspects().at(1));
+    QVERIFY(statusRow);
+    QCOMPARE(statusRow->text(), package->statusText());
+
+    // What is typed into the row is the package's path, both ways round.
+    const Utils::FilePath typed = Utils::FilePath::fromUserInput(QDir::tempPath());
+    pathRow->setValue(typed);
+    QCOMPARE(package->path(), typed.cleanPath());
+
+    package->setPath(Utils::FilePath::fromUserInput(QDir::rootPath()));
+    QCOMPARE(Utils::FilePath::fromUserInput(pathRow->value()), package->basePath());
+
+    // And the status follows the path rather than being written once.
+    QCOMPARE(statusRow->text(), package->statusText());
+}
+
+void McuSupportTest::test_resetGoesBackToTheExpandedDefault()
+{
+    // Reset used to be a button on the line edit whose click the page caught,
+    // so that it could expand the target's macros before putting the default
+    // back. The default is handed over instead, and the field resets itself.
+    McuPackagePtr package{Legacy::createBoardSdkPackage(
+        settingsMockPtr, McuTargetDescription{parseDescriptionJson(armgcc_mimxrt1050_evk_freertos_json)})};
+    QVERIFY(package);
+
+    Utils::AspectContainer rows;
+    package->addSettingsRows(rows);
+    auto pathRow = qobject_cast<Utils::FilePathAspect *>(rows.aspects().at(0));
+    QVERIFY(pathRow);
+    // A path with a macro left in it is not something to offer as a default.
+    QVERIFY(pathRow->presentation().withResetButton);
+
+    const Utils::FilePath expanded = Utils::FilePath::fromUserInput(QDir::tempPath());
+    package->setExpandedDefaultPath(expanded);
+    QCOMPARE(Utils::FilePath::fromUserInput(pathRow->presentation().defaultValue.toString()),
+             expanded);
+}
+
 } // namespace McuSupport::Internal::Test

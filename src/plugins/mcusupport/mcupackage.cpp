@@ -17,14 +17,11 @@
 #include <projectexplorer/toolchainmanager.h>
 #include <utils/algorithm.h>
 #include <utils/environment.h>
-#include <utils/infolabel.h>
 #include <utils/pathchooser.h>
 #include <utils/stringutils.h>
 #include <utils/utilsicons.h>
 
 #include <QDesktopServices>
-#include <QGridLayout>
-#include <QToolButton>
 
 using namespace ProjectExplorer;
 using namespace Utils;
@@ -73,6 +70,25 @@ McuPackage::McuPackage(const SettingsHandler::Ptr &settingsHandler,
     if (m_path.isEmpty()) {
         m_path = FilePath::fromUserInput(qtcEnvironmentVariable(m_environmentVariableName));
     }
+
+    m_pathAspect.setLabelText(m_label);
+    m_pathAspect.setExpectedKind(m_valueType);
+    m_pathAspect.setDefaultPathValue(m_defaultPath);
+    m_pathAspect.setUseResetButton();
+    m_pathAspect.setValue(m_path);
+    connect(&m_pathAspect, &FilePathAspect::changed, this, [this] {
+        if (!m_settingPath.isLocked())
+            setPath(m_pathAspect());
+    });
+
+    // The download link lives in the status line: the tool button that used to
+    // sit beside the chooser said where it went in a tooltip and nowhere else.
+    m_statusAspect.setTextFormat(AspectControls::TextFormat::RichText);
+    connect(&m_statusAspect, &TextDisplay::linkActivated, this, [this](const QString &link) {
+        if (link == "download")
+            QDesktopServices::openUrl(m_downloadUrl);
+    });
+    connect(this, &McuPackage::statusChanged, this, [this] { updateStatusUi(); });
 }
 
 QString McuPackage::label() const
@@ -148,6 +164,10 @@ void McuPackage::setPath(const FilePath &newPath)
         return;
 
     m_path = newPath;
+    {
+        const GuardLocker lock(m_settingPath);
+        m_pathAspect.setValue(m_path);
+    }
     updateStatus();
     emit changed();
 }
@@ -211,22 +231,27 @@ bool McuPackage::isValidStatus() const
 void McuPackage::updateStatusUi()
 {
     if (isOptionalAndEmpty()) {
-        m_infoLabel->setType(InfoLabelType::Ok);
+        m_statusAspect.setIconType(InfoType::Ok);
     } else {
         switch (m_status) {
         case Status::ValidPackage:
-            m_infoLabel->setType(InfoLabelType::Ok);
+            m_statusAspect.setIconType(InfoType::Ok);
             break;
         case Status::ValidPackageMismatchedVersion:
         case Status::ValidPackageVersionNotDetected:
-            m_infoLabel->setType(InfoLabelType::Warning);
+            m_statusAspect.setIconType(InfoType::Warning);
             break;
         default:
-                m_infoLabel->setType(InfoLabelType::NotOk);
+            m_statusAspect.setIconType(InfoType::NotOk);
             break;
         }
     }
-    m_infoLabel->setText(statusText());
+    QString text = statusText();
+    if (!m_downloadUrl.isEmpty()) {
+        text += QString(" <a href=\"download\">%1</a>")
+                    .arg(Tr::tr("Download from \"%1\".").arg(m_downloadUrl));
+    }
+    m_statusAspect.setText(text);
 }
 
 QString McuPackage::statusText() const
@@ -299,47 +324,16 @@ void McuPackage::readFromSettings()
     setPath(settingsHandler->getPath(m_settingsKey, QSettings::UserScope, m_defaultPath));
 }
 
-QWidget *McuPackage::widget()
+void McuPackage::addSettingsRows(AspectContainer &rows)
 {
-    auto *widget = new QWidget;
-    m_fileChooser = new PathChooser(widget);
-    m_fileChooser->setExpectedKind(m_valueType);
-    m_fileChooser->lineEdit()->setButtonIcon(FancyLineEdit::Right, Icons::RESET.icon());
-    m_fileChooser->lineEdit()->setButtonVisible(FancyLineEdit::Right, true);
-    connect(m_fileChooser->lineEdit(), &FancyLineEdit::rightButtonClicked, this, &McuPackage::reset);
-
-    auto layout = new QGridLayout(widget);
-    layout->setContentsMargins(0, 0, 0, 0);
-    m_infoLabel = new InfoLabel(widget);
-
-    if (!m_downloadUrl.isEmpty()) {
-        auto downLoadButton = new QToolButton(widget);
-        downLoadButton->setIcon(Icons::ONLINE.icon());
-        downLoadButton->setToolTip(Tr::tr("Download from \"%1\".").arg(m_downloadUrl));
-        QObject::connect(downLoadButton, &QToolButton::pressed, this, [this] {
-            QDesktopServices::openUrl(m_downloadUrl);
-        });
-        layout->addWidget(downLoadButton, 0, 2);
-    }
-
-    layout->addWidget(m_fileChooser, 0, 0, 1, 2);
-    layout->addWidget(m_infoLabel, 1, 0, 1, -1);
-
-    m_fileChooser->setFilePath(m_path);
-
-    QObject::connect(this, &McuPackage::statusChanged, widget, [this] { updateStatusUi(); });
-
-    QObject::connect(m_fileChooser, &PathChooser::textChanged, this, [this] {
-        setPath(m_fileChooser->unexpandedFilePath());
-    });
-
-    connect(this, &McuPackage::changed, m_fileChooser, [this] {
-        m_fileChooser->lineEdit()->button(FancyLineEdit::Right)->setEnabled(m_path != m_defaultPath);
-        m_fileChooser->setFilePath(m_path);
-    });
-
+    rows.registerAspect(&m_pathAspect);
+    rows.registerAspect(&m_statusAspect);
     updateStatus();
-    return widget;
+}
+
+void McuPackage::setExpandedDefaultPath(const FilePath &path)
+{
+    m_pathAspect.setDefaultPathValue(path);
 }
 
 const QMap<QString, QString> McuPackage::packageLabelTranslations {
