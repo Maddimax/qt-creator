@@ -1302,8 +1302,8 @@ method, and the manual-run dialog builds a widget from it too, so the page
 naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
-all`, minus `QmlDesigner` and `UpdateInfo`, see below): **96 aspect-driven
-pages, all 96 with their own QML and rendered with Qt Quick, none still on
+all`, minus `QmlDesigner` and `UpdateInfo`, see below): **97 aspect-driven
+pages, all 97 with their own QML and rendered with Qt Quick, none still on
 widgets.** The count goes up as widget-creator pages become aspect-driven, so
 it is a running total rather than a target. Gerrit is the first of the widget-creator pages below to have joined
 that count: it became aspect-driven and then got a form, which is the shape the
@@ -1331,6 +1331,40 @@ The warning was found by showing each page in a window and resizing it, which
 is the same measurement the `AspectGroupBox` note describes. Worth repeating
 after a batch: it is the only thing that sees a warning the page census cannot,
 and it also confirmed that no page has a binding loop left.
+
+### The Locator, and a tree that can be written to
+
+`ILocatorFilter::openConfigDialog()` had the Locator page on the blocked list,
+which was wrong: a dialog stays a dialog, the way Qt Versions' Link with Qt and
+Axivion's server editor do. What actually blocked it was that its filters are a
+*tree* whose prefixes are typed in and whose defaults are ticked, and
+`TreeDelegate` drew labels.
+
+**The cell moved.** `TableDelegate` already asked the model what each cell was
+- a check box, a choice, a field, or text - so that logic is `AspectTableCell`
+now and both use it. Which cells may be written to stays the model's answer,
+read out of the items' own flags. What a cell that says *nothing* about itself
+is is the view's answer, and the two differ: a table's rows are the user's to
+edit, a tree reports unless its model says otherwise. Without that distinction
+every read-only tree in the tree turned into a page of text fields.
+
+**A latent bug the same work uncovered.** `TreeDelegate.currentIndex` said it
+was an index into the model the aspect hands out and gave one into the filter
+proxy. `BaseTreeModel::itemForIndex()` refuses an index that is not its own, so
+the FakeVim Ex page stopped following the selection as soon as anything was
+typed into the filter field. Nothing said so, because the filter and the
+selection were only ever tested apart - which is worth remembering when a
+delegate grows a second feature.
+
+Two smaller things the port needed:
+
+- **Add was a button with a menu**, and there is no menu button to draw. It is
+  the two buttons the menu held; what a new filter is made of is a dialog's
+  business either way.
+- **A category heading answered its name for every column.** A widget view hid
+  that by spanning the first column across the row; a Qt Quick tree draws each
+  cell where it is, so the heading appeared three times. The item answers for
+  column 0 now.
 
 ### Two holes the widget-creator pages walked into
 
@@ -1393,10 +1427,9 @@ pages that hand over an `AspectContainer` through `setSettingsProvider()`.
 A page that calls `IOptionsPage::setWidgetCreator()` builds its own
 `IOptionsPageWidget` and answers nothing from `aspects()`, so the test skips it
 entirely: `isFullyRenderable()` is never asked and the page is not in the 73.
-There are **19 such call sites in 18 files** - Keyboard, Locator, External
-Tools, the toolchain, kit and device pages, Designer, Help's filters, MCU
-Support, CDB, BareMetal - and they are pure QtWidgets from top to bottom.
-Counted with
+There are **18 such call sites in 17 files** - Keyboard, External Tools, the
+toolchain, kit and device pages, Designer, Help's filters, MCU Support, CDB,
+BareMetal - and they are pure QtWidgets from top to bottom. Counted with
 
     grep -rn setWidgetCreator src/plugins src/libs --include='*.cpp'
 
