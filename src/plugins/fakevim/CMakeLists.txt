@@ -35,6 +35,7 @@ if(TARGET FakeVim AND TARGET Qt::Quick)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      FakeVimExCommandsPage.qml
       FakeVimSettingsPage.qml
       FakeVimUserCommandsPage.qml
   )

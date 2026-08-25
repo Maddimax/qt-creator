@@ -57,6 +57,7 @@
 #include <utils/algorithm.h>
 #include <utils/aspects.h>
 #include <utils/shutdownguard.h>
+#include <utils/treemodel.h>
 
 #ifdef WITH_TESTS
 #include <QTest>
@@ -552,221 +553,229 @@ const char reKey[] = "RegEx";
 const char cmdKey[] = "Cmd";
 const char idKey[] = "Command";
 
-class FakeVimExCommandsPageWidget final : public IOptionsPageWidget
+// The commands there are, in the sections their ids name, and the expression
+// each is reached by. A QTreeWidget carried all of this on its items, so the
+// page's state was the widget's.
+class ExCommandItem final : public TreeItem
 {
 public:
-    FakeVimExCommandsPageWidget();
-    void apply() final;
-    bool isDirty() const final;
+    ExCommandItem() = default; // The root, which is never drawn.
 
-    ExCommandMap exCommandMapFromWidget() const;
+    ExCommandItem(const QString &title) // A section.
+        : m_title(title)
+    {}
 
-    void commandChanged();
-    void resetToDefault();
-    void defaultAction();
+    ExCommandItem(const QString &id, const QString &shortId, const QString &description)
+        : m_id(id)
+        , m_title(shortId)
+        , m_description(description)
+    {}
 
-    void handleCurrentCommandChanged(QTreeWidgetItem *current);
+    QVariant data(int column, int role) const override
+    {
+        if (role == Qt::DisplayRole) {
+            switch (column) {
+            case 0: return m_title;
+            case 1: return m_description;
+            case 2: return m_regex;
+            }
+            return {};
+        }
+        // A section, and anything the user has changed, is shown in bold - the
+        // widget page called that "modified".
+        if (role == Qt::FontRole && (m_id.isEmpty() || isModified())) {
+            QFont font;
+            font.setBold(true);
+            return font;
+        }
+        return {};
+    }
 
-    CommandMappings m_mappings;
-    QGroupBox m_commandBox;
-    FancyLineEdit m_commandEdit;
-    InfoLabel m_infoLabel{Tr::tr("Invalid regular expression."), InfoLabelType::Error};
+    bool isModified() const
+    {
+        return !m_id.isEmpty() && m_regex != dd->m_defaultExCommandMap.value(m_id);
+    }
 
-    ExCommandMap m_originalMap; // for dirty handling
+    QString id() const { return m_id; }
+    QString regex() const { return m_regex; }
+    void setRegex(const QString &regex) { m_regex = regex; }
+    QString defaultRegex() const { return dd->m_defaultExCommandMap.value(m_id); }
+
+private:
+    QString m_id;
+    QString m_title;
+    QString m_description;
+    QString m_regex;
 };
 
-FakeVimExCommandsPageWidget::FakeVimExCommandsPageWidget()
+class ExCommandsAspect final : public BaseAspect
 {
-    m_mappings.setPageTitle(Tr::tr("Ex Command Mapping"));
-    m_mappings.setTargetHeader(Tr::tr("Ex Trigger Expression"));
-    m_mappings.setImportExportEnabled(false);
+    Q_OBJECT
 
-    m_commandBox.setTitle(Tr::tr("Ex Command"));
-    m_commandBox.setEnabled(false);
-
-    m_commandEdit.setFiltering(true);
-    m_commandEdit.setPlaceholderText({});
-    m_commandEdit.setValidationFunction([](const QString &text) -> Result<> {
-        if (QRegularExpression(text).isValid())
-            return ResultOk;
-        return ResultError(Tr::tr("The pattern \"%1\" is no valid regular expression.").arg(text));
-    });
-
-    m_infoLabel.setVisible(false);
-
-    QMap<QString, QTreeWidgetItem *> sections;
-
-    const QList<Command *> commands = ActionManager::commands();
-    for (Command *c : commands) {
-        if (c->action() && c->action()->isSeparator())
-            continue;
-
-        auto item = new QTreeWidgetItem;
-        const QString name = c->id().toString();
-        const int pos = name.indexOf('.');
-        const QString section = name.left(pos);
-        const QString subId = name.mid(pos + 1);
-        item->setData(0, CommandRole, name);
-
-        if (!sections.contains(section)) {
-            auto categoryItem = new QTreeWidgetItem(m_mappings.commandList(), { section });
-            QFont f = categoryItem->font(0);
-            f.setBold(true);
-            categoryItem->setFont(0, f);
-            sections.insert(section, categoryItem);
-            m_mappings.commandList()->expandItem(categoryItem);
-        }
-        sections[section]->addChild(item);
-
-        item->setText(0, subId);
-        item->setText(1, c->description());
-
-        QString regex;
-        if (dd->m_exCommandMap.contains(name))
-            regex = dd->m_exCommandMap[name];
-        item->setText(2, regex);
-
-        if (regex != dd->m_defaultExCommandMap[name])
-            m_mappings.setModified(item, true);
+public:
+    explicit ExCommandsAspect(AspectContainer *container)
+        : BaseAspect(container)
+        , m_model(this)
+    {
+        m_model.setHeader({Tr::tr("Command"), Tr::tr("Description"),
+                           Tr::tr("Ex Trigger Expression")});
+        reload();
     }
 
-    handleCurrentCommandChanged(nullptr);
+    AspectPresentation presentation() const override
+    {
+        AspectPresentation p = BaseAspect::presentation();
+        p.control = AspectControls::Tree;
+        p.filterPlaceholderText = Tr::tr("Filter");
+        return p;
+    }
 
-    using namespace Layouting;
+    QAbstractItemModel *tableModel() override { return &m_model; }
 
-    Column {
-        Row {
-            Tr::tr("Regular expression:"),
-            &m_commandEdit,
-            PushButton {
-                text(Tr::tr("Reset")),
-                Layouting::toolTip(Tr::tr("Reset to default.")),
-                onClicked(this, [this] { resetToDefault(); })
-            }
-        },
-        &m_infoLabel
-    }.attachTo(&m_commandBox);
-
-    Column {
-        m_mappings.widget(),
-        m_commandBox
-    }.attachTo(this);
-
-    connect(&m_mappings, &CommandMappings::defaultRequested,
-            this, &FakeVimExCommandsPageWidget::defaultAction);
-    connect(&m_mappings, &CommandMappings::currentCommandChanged,
-            this, &FakeVimExCommandsPageWidget::handleCurrentCommandChanged);
-
-    connect(&m_commandEdit, &FancyLineEdit::textChanged,
-            this, &FakeVimExCommandsPageWidget::commandChanged);
-    connect(&m_commandEdit, &FancyLineEdit::validChanged, this, [this](bool valid) {
-        m_infoLabel.setVisible(!valid);
-    });
-
-    connect(m_mappings.commandList()->model(), &QAbstractItemModel::dataChanged, checkSettingsDirty);
-
-    m_originalMap = exCommandMapFromWidget();
-    installCheckSettingsDirtyTrigger(m_mappings.commandList()->model());
-}
-
-ExCommandMap FakeVimExCommandsPageWidget::exCommandMapFromWidget() const
-{
-    ExCommandMap map;
-    int n = m_mappings.commandList()->topLevelItemCount();
-    for (int i = 0; i != n; ++i) {
-        QTreeWidgetItem *section = m_mappings.commandList()->topLevelItem(i);
-        int m = section->childCount();
-        for (int j = 0; j != m; ++j) {
-            QTreeWidgetItem *item = section->child(j);
-            const QString name = item->data(0, CommandRole).toString();
-            const QString regex = item->data(2, Qt::DisplayRole).toString();
-            const QString pattern = dd->m_defaultExCommandMap.value(name);
-            if ((regex.isEmpty() && pattern.isEmpty())
-                || (!regex.isEmpty() && pattern == regex))
+    void reload()
+    {
+        m_current = nullptr;
+        m_model.clear();
+        QHash<QString, ExCommandItem *> sections;
+        for (Command *c : ActionManager::commands()) {
+            if (c->action() && c->action()->isSeparator())
                 continue;
+            const QString name = c->id().toString();
+            const int pos = name.indexOf('.');
+            const QString section = name.left(pos);
+            auto item = new ExCommandItem(name, name.mid(pos + 1), c->description());
+            item->setRegex(dd->m_exCommandMap.value(name));
+            ExCommandItem *&parent = sections[section];
+            if (!parent) {
+                parent = new ExCommandItem(section);
+                m_model.rootItem()->appendChild(parent);
+            }
+            parent->appendChild(item);
+        }
+    }
+
+    // Which command the expression below is about. The view says so; the page
+    // reads it. Null when a section is picked, which has no expression.
+    Q_INVOKABLE void setCurrentIndex(const QModelIndex &index)
+    {
+        ExCommandItem *item = m_model.itemForIndex(index);
+        ExCommandItem *command = item && !item->id().isEmpty() ? item : nullptr;
+        if (command == m_current)
+            return;
+        m_current = command;
+        emit currentChanged();
+    }
+
+    ExCommandItem *current() const { return m_current; }
+
+    void setCurrentRegex(const QString &regex)
+    {
+        if (!m_current)
+            return;
+        m_current->setRegex(regex);
+        m_current->update();
+    }
+
+    void resetAll()
+    {
+        m_model.forAllItems([](ExCommandItem *item) {
+            if (!item->id().isEmpty()) {
+                item->setRegex(item->defaultRegex());
+                item->update();
+            }
+        });
+        emit currentChanged();
+    }
+
+    ExCommandMap mapping() const
+    {
+        ExCommandMap map;
+        m_model.forAllItems([&map](ExCommandItem *item) {
+            if (item->id().isEmpty())
+                return;
+            const QString regex = item->regex();
+            const QString pattern = item->defaultRegex();
+            if ((regex.isEmpty() && pattern.isEmpty()) || (!regex.isEmpty() && pattern == regex))
+                return;
             const QRegularExpression expression(regex);
             if (expression.isValid())
-                map[name] = expression.pattern();
-        }
+                map[item->id()] = expression.pattern();
+        });
+        return map;
     }
-    return map;
-}
 
-void FakeVimExCommandsPageWidget::handleCurrentCommandChanged(QTreeWidgetItem *current)
+signals:
+    void currentChanged();
+
+private:
+    // One item type all the way down: the sections and the commands under them
+    // differ by what they hold, not by what they are.
+    TreeModel<ExCommandItem> m_model;
+    ExCommandItem *m_current = nullptr;
+};
+
+// What the Ex Command Mapping page edits: which expression reaches which
+// command. The mapping itself lives in the plugin, so these aspects have no
+// settings keys of their own.
+class ExCommandsPageAspects final : public AspectContainer
 {
-    if (current) {
-        m_commandEdit.setText(current->text(2));
-        m_commandBox.setEnabled(true);
-    } else {
-        m_commandEdit.clear();
-        m_commandBox.setEnabled(false);
+public:
+    ExCommandsPageAspects()
+    {
+        setAutoApply(false);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/FakeVim/FakeVimExCommandsPage.qml"));
+
+        commands.setQmlName("Commands");
+
+        regex.setQmlName("Regex");
+        regex.setLabelText(Tr::tr("Regular expression:"));
+        regex.setDisplayStyle(StringAspect::LineEditDisplay);
+        regex.setValidationFunction([](const QString &text) -> Result<> {
+            if (QRegularExpression(text).isValid())
+                return ResultOk;
+            return ResultError(
+                Tr::tr("The pattern \"%1\" is no valid regular expression.").arg(text));
+        });
+
+        reset.setQmlName("Reset");
+        reset.setActionText(Tr::tr("Reset"));
+        reset.setToolTip(Tr::tr("Reset to default."));
+        reset.setAction([this] {
+            if (ExCommandItem *item = commands.current())
+                regex.setValue(item->defaultRegex());
+        });
+
+        resetAll.setQmlName("ResetAll");
+        resetAll.setActionText(Tr::tr("Reset All"));
+        resetAll.setAction([this] {
+            commands.resetAll();
+            showCurrent();
+        });
+
+        // Behaviour, not layout.
+        connect(&commands, &ExCommandsAspect::currentChanged, this, [this] { showCurrent(); });
+        regex.addOnVolatileValueChanged(this, [this] { store(); });
+        showCurrent();
+        m_original = commands.mapping();
     }
-}
 
-void FakeVimExCommandsPageWidget::commandChanged()
-{
-    QTreeWidgetItem *current = m_mappings.commandList()->currentItem();
-    if (!current)
-        return;
+    void apply() override
+    {
+        AspectContainer::apply();
+        const ExCommandMap mapping = commands.mapping();
+        ExCommandMap &global = dd->m_exCommandMap;
+        if (mapping == global)
+            return;
 
-    const QString name =  current->data(0, CommandRole).toString();
-    const QString regex = m_commandEdit.text();
-
-    if (current->data(0, Qt::UserRole).isValid())
-        current->setText(2, regex);
-
-    m_mappings.setModified(current, regex != dd->m_defaultExCommandMap[name]);
-}
-
-void FakeVimExCommandsPageWidget::resetToDefault()
-{
-    QTreeWidgetItem *current = m_mappings.commandList()->currentItem();
-    if (!current)
-        return;
-    const QString name = current->data(0, CommandRole).toString();
-    QString regex;
-    if (dd->m_defaultExCommandMap.contains(name))
-        regex = dd->m_defaultExCommandMap[name];
-    m_commandEdit.setText(regex);
-}
-
-void FakeVimExCommandsPageWidget::defaultAction()
-{
-    const int n = m_mappings.commandList()->topLevelItemCount();
-    for (int i = 0; i != n; ++i) {
-        QTreeWidgetItem *section = m_mappings.commandList()->topLevelItem(i);
-        const int m = section->childCount();
-        for (int j = 0; j != m; ++j) {
-            QTreeWidgetItem *item = section->child(j);
-            const QString name = item->data(0, CommandRole).toString();
-            QString regex;
-            if (dd->m_defaultExCommandMap.contains(name))
-                regex = dd->m_defaultExCommandMap[name];
-            m_mappings.setModified(item, false);
-            item->setText(2, regex);
-            if (item == m_mappings.commandList()->currentItem())
-                emit m_mappings.currentCommandChanged(item);
-        }
-    }
-}
-
-void FakeVimExCommandsPageWidget::apply()
-{
-    // now save the mappings if necessary
-    const ExCommandMap &newMapping = exCommandMapFromWidget();
-    ExCommandMap &globalCommandMapping = dd->m_exCommandMap;
-
-    if (newMapping != globalCommandMapping) {
-        const ExCommandMap &defaultMap = dd->m_defaultExCommandMap;
+        const ExCommandMap &defaults = dd->m_defaultExCommandMap;
         QtcSettings *settings = ICore::settings();
         settings->beginWriteArray(exCommandMapGroup);
         int count = 0;
-        for (auto it = newMapping.constBegin(), end = newMapping.constEnd(); it != end; ++it) {
+        for (auto it = mapping.constBegin(), end = mapping.constEnd(); it != end; ++it) {
             const QString id = it.key();
             const QString re = it.value();
-
-            if ((defaultMap.contains(id) && defaultMap[id] != re)
-                || (!defaultMap.contains(id) && !re.isEmpty())) {
+            const bool changed = defaults.contains(id) ? defaults[id] != re : !re.isEmpty();
+            if (changed) {
                 settings->setArrayIndex(count);
                 settings->setValue(idKey, id);
                 settings->setValue(reKey, re);
@@ -774,19 +783,45 @@ void FakeVimExCommandsPageWidget::apply()
             }
         }
         settings->endArray();
-        globalCommandMapping.clear();
-        globalCommandMapping.insert(defaultMap);
-        globalCommandMapping.insert(newMapping);
-
-        m_originalMap = newMapping;
+        global.clear();
+        global.insert(defaults);
+        global.insert(mapping);
+        m_original = mapping;
     }
-}
 
-bool FakeVimExCommandsPageWidget::isDirty() const
-{
-    const ExCommandMap newMapping = exCommandMapFromWidget();
-    return newMapping != m_originalMap;
-}
+    void cancel() override
+    {
+        AspectContainer::cancel();
+        commands.reload();
+        showCurrent();
+        m_original = commands.mapping();
+    }
+
+    bool isDirty() const override
+    {
+        return AspectContainer::isDirty() || commands.mapping() != m_original;
+    }
+
+    ExCommandsAspect commands{this};
+    StringAspect regex{this};
+    ActionAspect reset{this};
+    ActionAspect resetAll{this};
+
+private:
+    // Filling the field in writes the command's own expression straight back
+    // into it, so there is nothing to guard against here.
+    void showCurrent()
+    {
+        ExCommandItem *item = commands.current();
+        regex.setEnabled(item);
+        reset.setEnabled(item);
+        regex.setValue(item ? item->regex() : QString());
+    }
+
+    void store() { commands.setCurrentRegex(regex.volatileValue()); }
+
+    ExCommandMap m_original;
+};
 
 class FakeVimExCommandsPage : public IOptionsPage
 {
@@ -796,7 +831,10 @@ public:
         setId(SETTINGS_EX_CMDS_ID);
         setDisplayName(Tr::tr("Ex Command Mapping"));
         setCategory(SETTINGS_CATEGORY);
-        setWidgetCreator([] { return new FakeVimExCommandsPageWidget; });
+        setSettingsProvider([] {
+            static GuardedObject<ExCommandsPageAspects> theAspects;
+            return theAspects.get();
+        });
     }
 };
 
@@ -950,6 +988,149 @@ private:
         return aspects ? static_cast<FakeVimUserCommandsAspect *>(*aspects) : nullptr;
     }
 };
+
+// The commands lived on QTreeWidgetItems and the expression in a line edit
+// beside them, so the mapping could only be read back out of widgets.
+class FakeVimExCommandsTest : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void cleanup()
+    {
+        if (ExCommandsPageAspects *p = page())
+            static_cast<BaseAspect *>(p)->cancel();
+    }
+
+    void testTheCommandsAreGroupedByTheirSection();
+    void testNoExpressionIsOfferedUntilACommandIsPicked();
+    void testChangingAnExpressionIsSomethingToApply();
+    void testAnExpressionThatIsNoRegularExpressionIsRefused();
+    void testResetPutsTheDefaultBack();
+
+private:
+    static ExCommandsPageAspects *page()
+    {
+        Core::IOptionsPage *found = Utils::findOrDefault(
+            Core::IOptionsPage::allOptionsPages(),
+            [](Core::IOptionsPage *p) { return p->id() == SETTINGS_EX_CMDS_ID; });
+        if (!found)
+            return nullptr;
+        const std::optional<AspectContainer *> aspects = found->aspects();
+        return aspects ? static_cast<ExCommandsPageAspects *>(*aspects) : nullptr;
+    }
+
+    // The first command under the first section, which is what a user would
+    // click on.
+    static QModelIndex firstCommand(ExCommandsPageAspects *p)
+    {
+        QAbstractItemModel *model = p->commands.tableModel();
+        for (int section = 0; section < model->rowCount({}); ++section) {
+            const QModelIndex parent = model->index(section, 0);
+            if (model->rowCount(parent) > 0)
+                return model->index(0, 0, parent);
+        }
+        return {};
+    }
+};
+
+void FakeVimExCommandsTest::testTheCommandsAreGroupedByTheirSection()
+{
+    ExCommandsPageAspects *p = page();
+    QVERIFY(p);
+    QAbstractItemModel *model = p->commands.tableModel();
+    QVERIFY(model);
+    QCOMPARE(model->columnCount({}), 3);
+    QVERIFY(model->rowCount({}) > 0);
+
+    // Sections hold commands; a section with nothing under it would be a
+    // command drawn as a heading.
+    int commands = 0;
+    for (int section = 0; section < model->rowCount({}); ++section) {
+        const QModelIndex parent = model->index(section, 0);
+        QVERIFY2(model->rowCount(parent) > 0,
+                 qPrintable(parent.data().toString() + " has nothing under it"));
+        commands += model->rowCount(parent);
+    }
+    QVERIFY(commands > model->rowCount({}));
+}
+
+void FakeVimExCommandsTest::testNoExpressionIsOfferedUntilACommandIsPicked()
+{
+    ExCommandsPageAspects *p = page();
+    QVERIFY(p);
+    QAbstractItemModel *model = p->commands.tableModel();
+
+    p->commands.setCurrentIndex({});
+    QVERIFY(!p->regex.isEnabled());
+    QVERIFY(!p->reset.isEnabled());
+
+    // A section is not a command and has no expression either.
+    p->commands.setCurrentIndex(model->index(0, 0));
+    QVERIFY(!p->regex.isEnabled());
+
+    const QModelIndex command = firstCommand(p);
+    QVERIFY(command.isValid());
+    p->commands.setCurrentIndex(command);
+    QVERIFY(p->regex.isEnabled());
+    QVERIFY(p->reset.isEnabled());
+}
+
+void FakeVimExCommandsTest::testChangingAnExpressionIsSomethingToApply()
+{
+    ExCommandsPageAspects *p = page();
+    QVERIFY(p);
+    const QModelIndex command = firstCommand(p);
+    QVERIFY(command.isValid());
+    p->commands.setCurrentIndex(command);
+
+    QVERIFY(!static_cast<BaseAspect *>(p)->isDirty());
+    p->regex.setVolatileValue(QString("^zz$"));
+
+    // The expression is in the tree as well as in the field, and the mapping
+    // is not an aspect's value, so nothing else notices it.
+    const QModelIndex shown = p->commands.tableModel()->index(command.row(), 2, command.parent());
+    QCOMPARE(shown.data().toString(), QString("^zz$"));
+    QVERIFY(static_cast<BaseAspect *>(p)->isDirty());
+}
+
+void FakeVimExCommandsTest::testAnExpressionThatIsNoRegularExpressionIsRefused()
+{
+    ExCommandsPageAspects *p = page();
+    QVERIFY(p);
+    const BaseAspect &regex = p->regex;
+
+    QCOMPARE(regex.validationMessage("^foo$"), QString());
+    // The widget page put a red label under the field; the aspect says it.
+    QVERIFY(!regex.validationMessage("([unclosed").isEmpty());
+}
+
+void FakeVimExCommandsTest::testResetPutsTheDefaultBack()
+{
+    ExCommandsPageAspects *p = page();
+    QVERIFY(p);
+    const QModelIndex command = firstCommand(p);
+    QVERIFY(command.isValid());
+    p->commands.setCurrentIndex(command);
+    const QString original = p->regex.volatileValue();
+
+    p->regex.setVolatileValue(QString("^zz$"));
+    QVERIFY(static_cast<BaseAspect *>(p)->isDirty());
+
+    p->reset.triggerAction();
+    QCOMPARE(p->regex.volatileValue(), original);
+    QVERIFY(!static_cast<BaseAspect *>(p)->isDirty());
+
+    // And all of them at once.
+    p->regex.setVolatileValue(QString("^zz$"));
+    p->resetAll.triggerAction();
+    QVERIFY(!static_cast<BaseAspect *>(p)->isDirty());
+}
+
+QObject *createFakeVimExCommandsTest()
+{
+    return new FakeVimExCommandsTest;
+}
 
 void FakeVimUserCommandsTest::testTheCommandsAreNumberedSlots()
 {
@@ -1251,6 +1432,7 @@ FakeVimPlugin::FakeVimPlugin()
 #ifdef WITH_TESTS
     addTestCreator([] { return createFakeVimTester(&setupTest); });
     addTestCreator(createFakeVimUserCommandsTest);
+    addTestCreator(createFakeVimExCommandsTest);
 #endif
 
     m_defaultExCommandMap[CppEditor::Constants::SWITCH_HEADER_SOURCE] = "^A$";
