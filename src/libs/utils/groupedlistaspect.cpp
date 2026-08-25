@@ -4,11 +4,8 @@
 #include "groupedlistaspect.h"
 
 #include "groupedmodel.h"
-#include "groupedview.h"
-#include "layoutbuilder.h"
 #include "qtcassert.h"
 
-#include <QWidget>
 
 namespace Utils {
 
@@ -143,54 +140,6 @@ void GroupedListAspect::setCanCloneRow(std::function<bool(int)> predicate)
     m_canClone = predicate;
     if (m_selection)
         m_selection->setCanCloneRow(std::move(predicate));
-}
-
-// The tree and the buttons are members of the GroupedView rather than heap
-// allocations, so whatever holds them has to outlive the layout they are put
-// in - a widget deleting them as children would be freeing what it never
-// allocated. Holding the view by value gets that for nothing: members go
-// before ~QWidget deletes children, and each one detaches itself on the way.
-class GroupedListWidget : public QWidget
-{
-public:
-    explicit GroupedListWidget(GroupedModel &model)
-        : m_view(model)
-    {
-        using namespace Layouting;
-        Row {
-            &m_view.view(),
-            Column {
-                &m_view.cloneButton(),
-                &m_view.removeButton(),
-                &m_view.makeDefaultButton(),
-                st,
-            },
-            noMargin,
-        }.attachTo(this);
-    }
-
-    GroupedView &view() { return m_view; }
-
-private:
-    GroupedView m_view;
-};
-
-// The widget renderer draws this with the QTreeView the pages already used. It
-// is a view of its own rather than one built from the descriptor, so it is put
-// in whole; the aspect's own selection stays the one in charge.
-void GroupedListAspect::addToLayoutImpl(Layouting::Layout &parent)
-{
-    QTC_ASSERT(m_model, return);
-    auto widget = new GroupedListWidget(*m_model);
-    GroupedView &view = widget->view();
-    connect(&view, &GroupedView::currentRowChanged, this, [this](int, int newRow) {
-        setCurrentRow(newRow);
-    });
-    connect(this, &GroupedListAspect::currentRowChanged, &view, [&view](int, int newRow) {
-        if (view.currentRow() != newRow)
-            view.selectRow(newRow);
-    });
-    parent.addItem(widget);
 }
 
 } // namespace Utils

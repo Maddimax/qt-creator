@@ -10,6 +10,9 @@
 #include "environment.h"
 #include "fancylineedit.h"
 #include "guard.h"
+#include "groupedlistaspect.h"
+#include "groupedmodel.h"
+#include "groupedview.h"
 #include "guiutils.h"
 #include "hostosinfo.h"
 #include "utilsicons.h"
@@ -192,6 +195,12 @@ public:
         case AspectControls::Secret:
             renderSecret(&aspect, parent, pres);
             return true;
+        case AspectControls::GroupedList:
+            if (auto groupedList = qobject_cast<GroupedListAspect *>(&aspect)) {
+                renderGroupedList(groupedList, parent);
+                return true;
+            }
+            return false;
         case AspectControls::Container:
             if (auto container = qobject_cast<AspectContainer *>(&aspect)) {
                 // A container that reads as one value has no layout of its own
@@ -246,6 +255,55 @@ public:
     }
 
 private:
+    // The tree and the buttons are members of the GroupedView rather than heap
+    // allocations, so whatever holds them has to outlive the layout they are
+    // put in - a widget deleting them as children would be freeing what it
+    // never allocated. Holding the view by value gets that for nothing:
+    // members go before ~QWidget deletes children, and each one detaches
+    // itself on the way.
+    class GroupedListWidget : public QWidget
+    {
+    public:
+        explicit GroupedListWidget(GroupedModel &model)
+            : m_view(model)
+        {
+            using namespace Layouting;
+            Row {
+                &m_view.view(),
+                Column {
+                    &m_view.cloneButton(),
+                    &m_view.removeButton(),
+                    &m_view.makeDefaultButton(),
+                    st,
+                },
+                noMargin,
+            }.attachTo(this);
+        }
+
+        GroupedView &view() { return m_view; }
+
+    private:
+        GroupedView m_view;
+    };
+
+    // Items in named groups, drawn with the QTreeView the pages already used.
+    // A view of its own rather than one built from the descriptor, so it goes
+    // in whole; the aspect's own selection stays the one in charge.
+    static void renderGroupedList(GroupedListAspect *aspect, Layout &parent)
+    {
+        QTC_ASSERT(aspect->model(), return);
+        auto widget = new GroupedListWidget(*aspect->model());
+        GroupedView &view = widget->view();
+        QObject::connect(&view, &GroupedView::currentRowChanged, aspect,
+                         [aspect](int, int newRow) { aspect->setCurrentRow(newRow); });
+        QObject::connect(aspect, &GroupedListAspect::currentRowChanged, &view,
+                         [&view](int, int newRow) {
+                             if (view.currentRow() != newRow)
+                                 view.selectRow(newRow);
+                         });
+        parent.addItem(widget);
+    }
+
     // A value the aspect does not keep and has to go and get. It arrives after
     // the field exists, so the aspect says when the field may be typed in:
     // read-only until then, because typing before the secret is there would

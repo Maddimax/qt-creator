@@ -2166,7 +2166,7 @@ version of it passed against a build with the guard removed, which is the only
 reason it was rewritten.
 
 **What this does not do.** The virtual has to stay: six aspects in
-`src/plugins` and three more in Utils still override it. They are not one
+`src/plugins` and two more in Utils still override it. They are not one
 group. Most are run-configuration, build-step and kit aspects - project
 panels rather than preferences pages, which is a surface the migration has not
 reached. There were six more on pages that *have* been migrated,
@@ -2818,6 +2818,41 @@ could not fail, because an aspect with no container auto-applies, so the two
 are never different. `setAutoApply(false)` is what makes "the summary shows
 what is about to be applied" a claim rather than a tautology. Same trap as the
 MIME types test, one page up.
+
+### Moving a view rather than describing one
+
+`GroupedListAspect` is the toolchains, the Qt versions, the debuggers and the
+kits: items in named groups, one of them current, with Clone, Remove and Make
+Default beside them. It already said `AspectControls::GroupedList`, and the
+widget renderer had no case for it - the same position `SecretAspect` was in -
+so it kept a closure that built a `GroupedListWidget` and wired the current row
+both ways.
+
+This one is not generalised, it is **moved**. A `GroupedView` is a view of its
+own, not something to assemble from a descriptor: the tree, the three buttons
+and their enabling all belong together, and pulling them apart into
+`AspectPresentation` fields would describe nothing that any other aspect could
+use. What the move buys is only where the code lives - which is the renderer's
+own stated purpose:
+
+> the bespoke ones key on the aspect type and read the rest through friend
+> accessors - the point is where the widget code lives, not that it be generic.
+
+So `case AspectControls::GroupedList:` casts to the aspect and puts the view
+in whole. `GroupedListAspect` no longer includes `layoutbuilder.h`,
+`groupedview.h` or `QWidget`, and its header no longer has a public
+`addToLayoutImpl()` for callers to wonder about.
+
+**The test was already there and already bit.** `tst_AspectRenderer::
+groupedList()` asserts the tree, its model, three buttons, and that the aspect
+and the view agree on what is current whichever one set it. Deleting the
+closure without adding the case leaves it with no tree at all, which is the
+first thing it checks. Nothing new had to be written for this one - which is
+the point of having written it when the aspect was made.
+
+`AspectList` is the last of this kind in Utils, and it is not a move: its two
+layout bodies run to about a hundred and ninety lines and hold state between
+them.
 
 ### What the census could not see, and now can
 

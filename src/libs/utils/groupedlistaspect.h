@@ -67,8 +67,6 @@ public:
     // construction and keeps it to itself, so the page says so here.
     void setShowsDefault(bool on);
 
-    void addToLayoutImpl(Layouting::Layout &parent) override;
-
 signals:
     void currentRowChanged(int oldRow, int newRow);
     void actionsChanged();
