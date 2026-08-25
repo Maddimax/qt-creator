@@ -4,299 +4,79 @@
 #include "abiwidget.h"
 
 #include "abi.h"
-#include "projectexplorertr.h"
+#include "abiaspect.h"
 
-#include <utils/algorithm.h>
-#include <utils/guard.h>
 #include <utils/layoutbuilder.h>
-#include <utils/qtcassert.h>
-
-#include <QComboBox>
 
 /*!
     \class ProjectExplorer::AbiWidget
 
     \brief The AbiWidget class is a widget to set an ABI.
 
-    \sa ProjectExplorer::Abi
+    What it shows is AbiAspects; this is one way of drawing that, and the one
+    the settings pages still on widgets use.
+
+    \sa ProjectExplorer::Abi, ProjectExplorer::AbiAspects
 */
 
 namespace ProjectExplorer {
 namespace Internal {
 
-// --------------------------------------------------------------------------
-// AbiWidgetPrivate:
-// --------------------------------------------------------------------------
-
 class AbiWidgetPrivate
 {
 public:
-    bool isCustom() const
-    {
-        return m_abi->currentIndex() == 0;
-    }
-
-    Utils::Guard m_ignoreChanges;
-
-    Abi m_currentAbi = Abi::UnknownArchitecture;
-
-    QComboBox *m_abi = nullptr;
-
-    QComboBox *m_architectureComboBox = nullptr;
-    QComboBox *m_osComboBox = nullptr;
-    QComboBox *m_osFlavorComboBox = nullptr;
-    QComboBox *m_binaryFormatComboBox = nullptr;
-    QComboBox *m_wordWidthComboBox = nullptr;
+    AbiAspects m_aspects;
 };
 
 } // namespace Internal
 
-// --------------------------------------------------------------------------
-// AbiWidget
-// --------------------------------------------------------------------------
-
-static bool pairLessThan(const QPair<QString, int> &lhs, const QPair<QString, int> &rhs)
+AbiWidget::AbiWidget(QWidget *parent)
+    : QWidget(parent)
+    , d(std::make_unique<Internal::AbiWidgetPrivate>())
 {
-    if (lhs.first == "unknown")
-        return false;
-    if (rhs.first == "unknown")
-        return true;
-    return lhs.first < rhs.first;
-}
-
-template<typename E>
-void insertSorted(QComboBox *comboBox, E last)
-{
-    QList<QPair<QString, int>> abis;
-    for (int i = 0; i <= static_cast<int>(last); ++i)
-        abis << qMakePair(Abi::toString(static_cast<E>(i)), i);
-
-    Utils::sort(abis, &pairLessThan);
-
-    for (const auto &abiPair : std::as_const(abis))
-        comboBox->addItem(abiPair.first, abiPair.second);
-}
-
-static int findIndex(const QComboBox *combo, int data)
-{
-    const int result = combo->findData(data);
-    QTC_ASSERT(result != -1, return combo->count() - 1);
-    return result;
-}
-
-template<typename T>
-static void setIndex(QComboBox *combo, T value)
-{
-    combo->setCurrentIndex(findIndex(combo, static_cast<int>(value)));
-}
-
-AbiWidget::AbiWidget(QWidget *parent) : QWidget(parent),
-    d(std::make_unique<Internal::AbiWidgetPrivate>())
-{
-    d->m_abi = new QComboBox(this);
-    d->m_abi->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Preferred);
-    d->m_abi->setMinimumContentsLength(4);
-    connect(d->m_abi, &QComboBox::currentIndexChanged, this, &AbiWidget::mainComboBoxChanged);
-
-    d->m_architectureComboBox = new QComboBox(this);
-    insertSorted(d->m_architectureComboBox, Abi::UnknownArchitecture);
-    setIndex(d->m_architectureComboBox, Abi::UnknownArchitecture);
-    connect(d->m_architectureComboBox, &QComboBox::currentIndexChanged,
-            this, &AbiWidget::customComboBoxesChanged);
-
-    d->m_osComboBox = new QComboBox(this);
-    insertSorted(d->m_osComboBox, Abi::UnknownOS);
-    setIndex(d->m_osComboBox, Abi::UnknownOS);
-    connect(d->m_osComboBox, &QComboBox::currentIndexChanged,
-            this, &AbiWidget::customOsComboBoxChanged);
-
-    d->m_osFlavorComboBox = new QComboBox(this);
-    connect(d->m_osFlavorComboBox, &QComboBox::currentIndexChanged,
-            this, &AbiWidget::customComboBoxesChanged);
-
-    d->m_binaryFormatComboBox = new QComboBox(this);
-    insertSorted(d->m_binaryFormatComboBox, Abi::UnknownFormat);
-    setIndex(d->m_binaryFormatComboBox, Abi::UnknownFormat);
-    connect(d->m_binaryFormatComboBox, &QComboBox::currentIndexChanged,
-            this, &AbiWidget::customComboBoxesChanged);
-
-    d->m_wordWidthComboBox = new QComboBox(this);
-    d->m_wordWidthComboBox->addItem(Abi::toString(16), 16);
-    d->m_wordWidthComboBox->addItem(Abi::toString(32), 32);
-    d->m_wordWidthComboBox->addItem(Abi::toString(64), 64);
-    d->m_wordWidthComboBox->addItem(Abi::toString(0), 0);
-    // Setup current word width of 0 by default.
-    d->m_wordWidthComboBox->setCurrentIndex(d->m_wordWidthComboBox->count() - 1);
-    connect(d->m_wordWidthComboBox, &QComboBox::currentIndexChanged,
-            this, &AbiWidget::customComboBoxesChanged);
+    using namespace Layouting;
 
     const QLatin1String separator("-");
+    const QList<Utils::SelectionAspect *> parts = d->m_aspects.parts();
 
-    using namespace Layouting;
     Row {
-        d->m_abi,
-        d->m_architectureComboBox,
+        &d->m_aspects.choice(),
+        parts.at(0),
         separator,
-        d->m_osComboBox,
+        parts.at(1),
         separator,
-        d->m_osFlavorComboBox,
+        parts.at(2),
         separator,
-        d->m_binaryFormatComboBox,
+        parts.at(3),
         separator,
-        d->m_wordWidthComboBox,
+        parts.at(4),
         st,
         spacing(2), noMargin,
     }.attachTo(this);
 
-    setAbis(Abis(), Abi::hostAbi());
+    connect(&d->m_aspects, &AbiAspects::abiChanged, this, &AbiWidget::abiChanged);
 }
 
 AbiWidget::~AbiWidget() = default;
 
-static Abi selectAbi(const Abi &current, const Abis &abiList)
-{
-    if (!current.isNull())
-        return current;
-    if (!abiList.isEmpty())
-        return abiList.at(0);
-    return Abi::hostAbi();
-}
-
 void AbiWidget::setAbis(const Abis &abiList, const Abi &currentAbi)
 {
-    const Abi defaultAbi = selectAbi(currentAbi, abiList);
-    {
-        const Utils::GuardLocker locker(d->m_ignoreChanges);
-
-        // Initial setup of ABI combobox:
-        d->m_abi->clear();
-        d->m_abi->addItem(Tr::tr("<custom>"), defaultAbi.toString());
-        d->m_abi->setCurrentIndex(0);
-        d->m_abi->setVisible(!abiList.isEmpty());
-
-        // Add supported ABIs:
-        for (const Abi &abi : abiList) {
-            const QString abiString = abi.toString();
-
-            d->m_abi->addItem(abiString, abiString);
-            if (abi == defaultAbi)
-                d->m_abi->setCurrentIndex(d->m_abi->count() - 1);
-        }
-
-        setCustomAbiComboBoxes(defaultAbi);
-    }
-
-    // Update disabled state according to new automatically selected item in main ABI combobox.
-    // This will call emitAbiChanged with the actual selected ABI.
-    mainComboBoxChanged();
+    d->m_aspects.setAbis(abiList, currentAbi);
 }
 
 Abis AbiWidget::supportedAbis() const
 {
-    Abis result;
-    result.reserve(d->m_abi->count());
-    for (int i = 1; i < d->m_abi->count(); ++i)
-        result << Abi::fromString(d->m_abi->itemData(i).toString());
-    return result;
+    return d->m_aspects.supportedAbis();
 }
 
 bool AbiWidget::isCustomAbi() const
 {
-    return d->isCustom();
+    return d->m_aspects.isCustomAbi();
 }
 
 Abi AbiWidget::currentAbi() const
 {
-    return d->m_currentAbi;
-}
-
-static void updateOsFlavorCombobox(QComboBox *combo, const Abi::OS os)
-{
-    const QList<Abi::OSFlavor> flavors = Abi::flavorsForOs(os);
-    combo->clear();
-
-    QList<QPair<QString, int>> sortedFlavors = Utils::transform(flavors, [](Abi::OSFlavor flavor) {
-        return QPair<QString, int>{Abi::toString(flavor), static_cast<int>(flavor)};
-    });
-
-    Utils::sort(sortedFlavors, pairLessThan);
-
-    for (const auto &[str, idx] : std::as_const(sortedFlavors))
-        combo->addItem(str, idx);
-    combo->setCurrentIndex(0);
-}
-
-void AbiWidget::customOsComboBoxChanged()
-{
-    if (d->m_ignoreChanges.isLocked())
-        return;
-
-    {
-        const Utils::GuardLocker locker(d->m_ignoreChanges);
-        d->m_osFlavorComboBox->clear();
-        const Abi::OS os = static_cast<Abi::OS>(d->m_osComboBox->itemData(d->m_osComboBox->currentIndex()).toInt());
-        updateOsFlavorCombobox(d->m_osFlavorComboBox, os);
-    }
-
-    customComboBoxesChanged();
-}
-
-void AbiWidget::mainComboBoxChanged()
-{
-    if (d->m_ignoreChanges.isLocked())
-        return;
-
-    const Abi newAbi = Abi::fromString(d->m_abi->currentData().toString());
-    const bool customMode = d->isCustom();
-
-    d->m_architectureComboBox->setEnabled(customMode);
-    d->m_osComboBox->setEnabled(customMode);
-    d->m_osFlavorComboBox->setEnabled(customMode);
-    d->m_binaryFormatComboBox->setEnabled(customMode);
-    d->m_wordWidthComboBox->setEnabled(customMode);
-
-    setCustomAbiComboBoxes(newAbi);
-
-    if (customMode)
-        customComboBoxesChanged();
-    else
-        emitAbiChanged(Abi::fromString(d->m_abi->currentData().toString()));
-}
-
-void AbiWidget::customComboBoxesChanged()
-{
-    if (d->m_ignoreChanges.isLocked())
-        return;
-
-    const Abi current(static_cast<Abi::Architecture>(d->m_architectureComboBox->currentData().toInt()),
-                      static_cast<Abi::OS>(d->m_osComboBox->currentData().toInt()),
-                      static_cast<Abi::OSFlavor>(d->m_osFlavorComboBox->currentData().toInt()),
-                      static_cast<Abi::BinaryFormat>(d->m_binaryFormatComboBox->currentData().toInt()),
-                      static_cast<unsigned char>(d->m_wordWidthComboBox->currentData().toInt()));
-    d->m_abi->setItemData(0, current.toString()); // Save custom Abi
-    emitAbiChanged(current);
-}
-
-// Sets a custom ABI in the custom abi widgets.
-void AbiWidget::setCustomAbiComboBoxes(const Abi &current)
-{
-    const Utils::GuardLocker locker(d->m_ignoreChanges);
-
-    setIndex(d->m_architectureComboBox, current.architecture());
-    setIndex(d->m_osComboBox, current.os());
-    updateOsFlavorCombobox(d->m_osFlavorComboBox, current.os());
-    setIndex(d->m_osFlavorComboBox, current.osFlavor());
-    setIndex(d->m_binaryFormatComboBox, current.binaryFormat());
-    setIndex(d->m_wordWidthComboBox, current.wordWidth());
-}
-
-void AbiWidget::emitAbiChanged(const Abi &current)
-{
-    if (current == d->m_currentAbi)
-        return;
-
-    d->m_currentAbi = current;
-    emit abiChanged();
+    return d->m_aspects.currentAbi();
 }
 
 } // namespace ProjectExplorer

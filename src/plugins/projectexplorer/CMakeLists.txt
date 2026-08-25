@@ -4,6 +4,7 @@ add_qtc_plugin(ProjectExplorer
   PLUGIN_TEST_DEPENDS GenericProjectManager
   SOURCES
     abi.cpp abi.h
+    abiaspect.cpp abiaspect.h
     abiwidget.cpp abiwidget.h
     abstractprocessstep.cpp abstractprocessstep.h
     runconfigdialogs.cpp runconfigdialogs.h

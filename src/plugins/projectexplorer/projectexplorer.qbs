@@ -24,7 +24,8 @@ QtcPlugin {
         name: "General"
         files: [
             "abi.cpp", "abi.h",
-            "abiwidget.cpp", "abiwidget.h",
+            "abiaspect.cpp", "abiaspect.h",
+        "abiwidget.cpp", "abiwidget.h",
             "abstractprocessstep.cpp", "abstractprocessstep.h",
             "allprojectsfilter.cpp", "allprojectsfilter.h",
             "allprojectsfind.cpp", "allprojectsfind.h",

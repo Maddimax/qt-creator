@@ -37,14 +37,6 @@ signals:
     void abiChanged();
 
 private:
-    void mainComboBoxChanged();
-    void customOsComboBoxChanged();
-    void customComboBoxesChanged();
-
-    void setCustomAbiComboBoxes(const Abi &current);
-
-    void emitAbiChanged(const Abi &current);
-
     const std::unique_ptr<Internal::AbiWidgetPrivate> d;
 };
 

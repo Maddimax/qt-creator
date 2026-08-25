@@ -168,6 +168,7 @@
 
 #ifdef WITH_TESTS
 #include "abi.h"
+#include "abiaspect.h"
 #include "clangparser.h"
 #include "gccparser.h"
 #include "gnumakeparser.h"
@@ -900,6 +901,7 @@ Result<> ProjectExplorerPlugin::initialize(const QStringList &arguments)
 
 #ifdef WITH_TESTS
     addTestCreator(createAbiTest);
+    addTestCreator(createAbiAspectsTest);
     addTestCreator(createClangParserTest);
     addTestCreator(createClangClParserTest);
     addTestCreator(createCustomParserTest);
