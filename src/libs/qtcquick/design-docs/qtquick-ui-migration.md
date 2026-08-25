@@ -2095,6 +2095,46 @@ What made this one verifiable where Bare Metal was not: the SDK is actually
 installed here, so the page comes up with its eight checks green, its NDK list
 filled and its summary reading "Android settings are OK. (SDK Version: 21.0)".
 
+### ClearCase, and the first page shipped without being looked at
+
+Three groups over the plugin's own settings struct - the shape the doc
+describes above, and the twelfth page to take it. Read at construction,
+written back on apply.
+
+**A check box that had never done anything.** "&Prompt on check-in" was
+created, laid out and connected to the dirty trigger, and then neither
+initialized from the settings nor read in `apply()`. There is no ClearCase
+setting behind it: what it looks like it controls is
+`VersionControlBase::promptBeforeCommit()`, which is a VCS-wide setting with
+its own check box on the Version Control page. It is gone. Anyone who ticked
+it was changing nothing.
+
+**This one could not be looked at.** The plugin's metadata says
+`"Platform" : "^(Linux|Windows)"`, so it does not load on a Mac at all - not
+with `-load all`, not with `-load clearcase`. Its page is not in the census
+and its plugin tests do not run. What was done instead:
+
+- it compiles, and `ninja ClearCase_qmllint` is clean;
+- the names its `.qml` reaches for - `aspects.Configuration`, `aspects.Diff`,
+  `aspects.Misc` - were checked against the `setQmlName()` calls in the `.cpp`.
+  Everything below those three is drawn by `GroupDelegate` from the container,
+  which needs no names at all, and that is why the page is written that way.
+
+That is weaker than every other page in this document, and it is a departure
+from the earlier decision to revert two Windows-only pages rather than ship
+them unverified. It is here because converting everything and testing later
+was asked for explicitly; it is the page to look at first on a machine that
+can open it.
+
+**A sweep worth building properly.** Comparing `aspects.<Name>` in a `.qml`
+against `setQmlName()` in the neighbouring `.cpp` catches the one failure mode
+`qmllint` cannot see. Run across all 155 pages it reports 35, almost all false:
+an aspect that never calls `setQmlName()` derives its name from its settings
+key, and a text search cannot follow a key held in a constant. The real source
+of truth is `NamedAspects`, which knows every name at runtime - so the check
+belongs in the page census, which already builds every page, rather than in a
+script.
+
 ### What the census could not see, and now can
 
 Two holes, both found the hard way in the same session.
@@ -2321,14 +2361,14 @@ A page that calls `IOptionsPage::setWidgetCreator()` builds its own
 `IOptionsPageWidget` and answers nothing from `aspects()`, so the test skips it
 entirely: `isFullyRenderable()` is never asked and the page is not in the 73.
 There were **15 such call sites in 14 files**, and none of them is a page that
-fits in one batch any more. **Seven page call sites are left, in six files**,
-after Toolchains, Kits, Devices, MCU, Language Client, Bare Metal, Update and
-Android - counted with the grep below, minus `IMode::setWidgetCreator()` and
-`ioptionspage.cpp` itself. Three are Windows-only (CDB twice, Windows App
-SDK), three embed a widget from outside Qt Creator (Designer, Help's Filters,
-Extension Manager's Browse), and **one is reachable and not yet done**:
-ClearCase, which registers its page on every platform. It was listed with the
-Windows-only ones above, which was wrong. What each is waiting on, checked rather than
+fits in one batch any more. **Six page call sites are left, in five files**,
+after Toolchains, Kits, Devices, MCU, Language Client, Bare Metal, Update,
+Android and ClearCase - counted with the grep below, minus
+`IMode::setWidgetCreator()` and `ioptionspage.cpp` itself. Three are
+Windows-only (CDB twice, Windows App SDK) and three embed a widget from
+outside Qt Creator (Designer, Help's Filters, Extension Manager's Browse).
+**None of the six can be opened on a Mac**, and none is a page whose form is
+aspects. What each is waiting on, checked rather than
 remembered:
 
 - **Toolchains** - done. `ToolchainConfigWidget` had **9 implementations**

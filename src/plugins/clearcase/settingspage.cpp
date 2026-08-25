@@ -9,193 +9,175 @@
 #include "clearcasetr.h"
 #include <vcsbase/vcsbaseconstants.h>
 
+#include <utils/aspects.h>
 #include <utils/environment.h>
 #include <utils/guiutils.h>
 #include <utils/hostosinfo.h>
-#include <utils/layoutbuilder.h>
 #include <utils/pathchooser.h>
+#include <utils/shutdownguard.h>
 
-#include <QCheckBox>
 #include <QCoreApplication>
-#include <QLabel>
-#include <QLineEdit>
-#include <QRadioButton>
-#include <QSpinBox>
 
 using namespace Utils;
 
 namespace ClearCase::Internal {
 
-class SettingsPageWidget final : public Core::IOptionsPageWidget
+class SettingsPageWidget final : public AspectContainer
 {
 public:
     SettingsPageWidget();
 
-private:
     void apply() final;
 
-    Utils::PathChooser *commandPathChooser;
-    QRadioButton *graphicalDiffRadioButton;
-    QRadioButton *externalDiffRadioButton;
-    QLineEdit *diffArgsEdit;
-    QSpinBox *historyCountSpinBox;
-    QSpinBox *timeOutSpinBox;
-    QCheckBox *autoCheckOutCheckBox;
-    QCheckBox *promptCheckBox;
-    QCheckBox *disableIndexerCheckBox;
-    QLineEdit *indexOnlyVOBsEdit;
-    QCheckBox *autoAssignActivityCheckBox;
-    QCheckBox *noCommentCheckBox;
+private:
+    AspectContainer m_configuration{this};
+    FilePathAspect m_command{&m_configuration};
+
+    AspectContainer m_diff{this};
+    TypedSelectionAspect<DiffType> m_diffType{&m_diff};
+    StringAspect m_diffArgs{&m_diff};
+    TextDisplay m_diffWarning{&m_diff};
+
+    AspectContainer m_misc{this};
+    IntegerAspect m_historyCount{&m_misc};
+    IntegerAspect m_timeOut{&m_misc};
+    BoolAspect m_autoCheckOut{&m_misc};
+    BoolAspect m_autoAssignActivity{&m_misc};
+    BoolAspect m_noComment{&m_misc};
+    BoolAspect m_disableIndexer{&m_misc};
+    StringAspect m_indexOnlyVOBs{&m_misc};
+
+    bool m_extDiffAvailable = false;
 };
 
 SettingsPageWidget::SettingsPageWidget()
 {
-    commandPathChooser = new PathChooser;
-    commandPathChooser->setPromptDialogTitle(Tr::tr("ClearCase Command"));
-    commandPathChooser->setExpectedKind(PathChooserKind::ExistingCommand);
-    commandPathChooser->setHistoryCompleter("ClearCase.Command.History");
+    setAutoApply(false);
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/ClearCase/ClearCaseSettingsPage.qml"));
 
-    graphicalDiffRadioButton = new QRadioButton(Tr::tr("&Graphical (single file only)"));
-    graphicalDiffRadioButton->setChecked(true);
+    m_configuration.setQmlName("Configuration");
+    m_configuration.setLabelText(Tr::tr("Configuration"));
 
-    auto diffWidget = new QWidget;
-    diffWidget->setEnabled(false);
+    m_command.setQmlName("Command");
+    m_command.setLabelText(Tr::tr("Command:"));
+    m_command.setPromptDialogTitle(Tr::tr("ClearCase Command"));
+    m_command.setExpectedKind(PathChooserKind::ExistingCommand);
+    m_command.setHistoryCompleter("ClearCase.Command.History");
 
-    externalDiffRadioButton = new QRadioButton(Tr::tr("&External"));
-    QObject::connect(externalDiffRadioButton, &QRadioButton::toggled, diffWidget, &QWidget::setEnabled);
+    m_diff.setQmlName("Diff");
+    m_diff.setLabelText(Tr::tr("Diff"));
 
-    diffArgsEdit = new QLineEdit(diffWidget);
+    m_diffType.setQmlName("DiffType");
+    m_diffType.setDisplayStyle(SelectionAspect::DisplayStyle::RadioButtons);
+    m_diffType.addOption({Tr::tr("Graphical (single file only)"), {}, GraphicalDiff});
+    m_diffType.addOption({Tr::tr("External"), {}, ExternalDiff});
 
-    QPalette palette;
-    QBrush brush(QColor(255, 0, 0, 255));
-    brush.setStyle(Qt::SolidPattern);
-    palette.setBrush(QPalette::Active, QPalette::WindowText, brush);
-    palette.setBrush(QPalette::Inactive, QPalette::WindowText, brush);
-    QBrush brush1(QColor(68, 96, 92, 255));
-    brush1.setStyle(Qt::SolidPattern);
-    palette.setBrush(QPalette::Disabled, QPalette::WindowText, brush1);
+    m_diffArgs.setQmlName("DiffArgs");
+    m_diffArgs.setLabelText(Tr::tr("Arguments:"));
+    m_diffArgs.setDisplayStyle(StringAspect::DisplayStyle::LineEditDisplay);
 
-    auto diffWarningLabel = new QLabel;
-    diffWarningLabel->setPalette(palette);
-    diffWarningLabel->setWordWrap(true);
+    m_diffWarning.setQmlName("DiffWarning");
+    m_diffWarning.setIconType(InfoType::Warning);
+    m_diffWarning.setWordWrap(true);
 
-    historyCountSpinBox = new QSpinBox;
-    historyCountSpinBox->setMaximum(10000);
+    m_misc.setQmlName("Misc");
+    m_misc.setLabelText(Tr::tr("Miscellaneous"));
 
-    timeOutSpinBox = new QSpinBox;
-    timeOutSpinBox->setSuffix(Tr::tr("s", nullptr));
-    timeOutSpinBox->setRange(1, 360);
-    timeOutSpinBox->setValue(30);
+    m_historyCount.setQmlName("HistoryCount");
+    m_historyCount.setLabelText(Tr::tr("History count:"));
+    m_historyCount.setRange(0, 10000);
 
-    autoCheckOutCheckBox = new QCheckBox(Tr::tr("&Automatically check out files on edit"));
+    m_timeOut.setQmlName("TimeOut");
+    m_timeOut.setLabelText(Tr::tr("Timeout:"));
+    m_timeOut.setRange(1, 360);
+    m_timeOut.setSuffix(Tr::tr("s"));
 
-    promptCheckBox = new QCheckBox(Tr::tr("&Prompt on check-in"));
+    m_autoCheckOut.setQmlName("AutoCheckOut");
+    m_autoCheckOut.setLabel(Tr::tr("Automatically check out files on edit"));
+    m_autoCheckOut.setLabelPlacement(BoolAspect::LabelPlacement::Compact);
 
-    disableIndexerCheckBox = new QCheckBox(Tr::tr("Di&sable indexer"));
-
-    indexOnlyVOBsEdit = new QLineEdit;
-    indexOnlyVOBsEdit->setToolTip(Tr::tr("VOBs list, separated by comma. Indexer will only traverse "
-        "the specified VOBs. If left blank, all active VOBs will be indexed."));
-
-    autoAssignActivityCheckBox = new QCheckBox(Tr::tr("Aut&o assign activity names"));
-    autoAssignActivityCheckBox->setToolTip(Tr::tr("Check this if you have a trigger that renames "
+    m_autoAssignActivity.setQmlName("AutoAssignActivity");
+    m_autoAssignActivity.setLabel(Tr::tr("Auto assign activity names"));
+    m_autoAssignActivity.setLabelPlacement(BoolAspect::LabelPlacement::Compact);
+    m_autoAssignActivity.setToolTip(Tr::tr("Check this if you have a trigger that renames "
         "the activity automatically. You will not be prompted for activity name."));
 
-    noCommentCheckBox = new QCheckBox(Tr::tr("Do &not prompt for comment during checkout or check-in"));
-    noCommentCheckBox->setToolTip(Tr::tr("Check out or check in files with no comment (-nc, -ncomment)."));
+    m_noComment.setQmlName("NoComment");
+    m_noComment.setLabel(Tr::tr("Do not prompt for comment during checkout or check-in"));
+    m_noComment.setLabelPlacement(BoolAspect::LabelPlacement::Compact);
+    m_noComment.setToolTip(Tr::tr("Check out or check in files with no comment "
+                                  "(-nc, -ncomment)."));
 
-    using namespace Layouting;
+    m_disableIndexer.setQmlName("DisableIndexer");
+    m_disableIndexer.setLabel(Tr::tr("Disable indexer"));
+    m_disableIndexer.setLabelPlacement(BoolAspect::LabelPlacement::Compact);
 
-    Form {
-        Tr::tr("Arg&uments:"), diffArgsEdit, noMargin
-    }.attachTo(diffWidget);
-
-    Column {
-        Group {
-            title(Tr::tr("Configuration")),
-            Form {
-                Tr::tr("&Command:"), commandPathChooser
-            }
-        },
-
-        Group {
-            title(Tr::tr("Diff")),
-            Form {
-                graphicalDiffRadioButton, br,
-                externalDiffRadioButton, diffWidget, br,
-                Span(2, diffWarningLabel)
-            }
-        },
-
-        Group {
-            title(Tr::tr("Miscellaneous")),
-            Form {
-                Tr::tr("&History count:"), historyCountSpinBox, br,
-                Tr::tr("&Timeout:"), timeOutSpinBox, br,
-                autoCheckOutCheckBox, br,
-                autoAssignActivityCheckBox, br,
-                noCommentCheckBox, br,
-                promptCheckBox, br,
-                disableIndexerCheckBox, br,
-                Tr::tr("&Index only VOBs:"), indexOnlyVOBsEdit,
-             }
-        },
-        st
-    }.attachTo(this);
+    m_indexOnlyVOBs.setQmlName("IndexOnlyVOBs");
+    m_indexOnlyVOBs.setLabelText(Tr::tr("Index only VOBs:"));
+    m_indexOnlyVOBs.setDisplayStyle(StringAspect::DisplayStyle::LineEditDisplay);
+    m_indexOnlyVOBs.setToolTip(Tr::tr("VOBs list, separated by comma. Indexer will only traverse "
+        "the specified VOBs. If left blank, all active VOBs will be indexed."));
 
     const ClearCaseSettings &s = settings();
+    m_command.setValue(FilePath::fromString(s.ccCommand));
+    m_timeOut.setValue(s.timeOutS);
+    m_autoCheckOut.setValue(s.autoCheckOut);
+    m_noComment.setValue(s.noComment);
+    m_autoAssignActivity.setValue(s.autoAssignActivityName);
+    m_historyCount.setValue(s.historyCount);
+    m_disableIndexer.setValue(s.disableIndexer);
+    m_diffArgs.setValue(s.diffArgs);
+    m_indexOnlyVOBs.setValue(s.indexOnlyVOBs);
 
-    commandPathChooser->setFilePath(FilePath::fromString(s.ccCommand));
-    timeOutSpinBox->setValue(s.timeOutS);
-    autoCheckOutCheckBox->setChecked(s.autoCheckOut);
-    noCommentCheckBox->setChecked(s.noComment);
-    bool extDiffAvailable = !Environment::systemEnvironment().searchInPath(QLatin1String("diff")).isEmpty();
-    if (extDiffAvailable) {
-        diffWarningLabel->setVisible(false);
+    // Behaviour, not layout: an external diff needs a "diff" to run.
+    m_extDiffAvailable = !Environment::systemEnvironment().searchInPath("diff").isEmpty();
+    if (m_extDiffAvailable) {
+        m_diffWarning.setVisible(false);
     } else {
-        QString diffWarning = Tr::tr("In order to use External diff, \"diff\" command needs to be accessible.");
+        QString diffWarning = Tr::tr("In order to use External diff, \"diff\" command needs to be "
+                                     "accessible.");
         if (HostOsInfo::isWindowsHost()) {
-            diffWarning += QLatin1Char(' ');
+            diffWarning += ' ';
             diffWarning.append(Tr::tr("DiffUtils is available for free download at "
                                       "http://gnuwin32.sourceforge.net/packages/diffutils.htm. "
                                       "Extract it to a directory in your PATH."));
         }
-        diffWarningLabel->setText(diffWarning);
-        externalDiffRadioButton->setEnabled(false);
+        m_diffWarning.setText(diffWarning);
+        // Offering a choice that cannot be taken is worse than not offering it.
+        if (std::optional<SelectionAspect::Option> option
+            = m_diffType.optionForIndex(ExternalDiff)) {
+            option->enabled = false;
+            m_diffType.setOptionForIndex(ExternalDiff, *option);
+        }
     }
-    if (extDiffAvailable && s.diffType == ExternalDiff)
-        externalDiffRadioButton->setChecked(true);
-    else
-        graphicalDiffRadioButton->setChecked(true);
-    autoAssignActivityCheckBox->setChecked(s.autoAssignActivityName);
-    historyCountSpinBox->setValue(s.historyCount);
-    disableIndexerCheckBox->setChecked(s.disableIndexer);
-    diffArgsEdit->setText(s.diffArgs);
-    indexOnlyVOBsEdit->setText(s.indexOnlyVOBs);
+    m_diffType.setValue(m_extDiffAvailable && s.diffType == ExternalDiff ? ExternalDiff
+                                                                        : GraphicalDiff);
 
-    installMarkSettingsDirtyTriggerRecursively(this);
-    installMarkSettingsDirtyTrigger(graphicalDiffRadioButton);
-    installMarkSettingsDirtyTrigger(externalDiffRadioButton);
+    // The arguments are only worth typing for the diff that takes them.
+    const auto updateDiffArgsEnabled = [this] {
+        m_diffArgs.setEnabled(m_diffType.volatileValue() == ExternalDiff);
+    };
+    updateDiffArgsEnabled();
+    connect(&m_diffType, &BaseAspect::volatileValueChanged, this, updateDiffArgsEnabled);
 }
 
 void SettingsPageWidget::apply()
 {
+    AspectContainer::apply();
+
     ClearCaseSettings rc;
-    rc.ccCommand = commandPathChooser->unexpandedFilePath().toUserOutput();
-    rc.ccBinaryPath = commandPathChooser->filePath();
-    rc.timeOutS = timeOutSpinBox->value();
-    rc.autoCheckOut = autoCheckOutCheckBox->isChecked();
-    rc.noComment = noCommentCheckBox->isChecked();
-    if (graphicalDiffRadioButton->isChecked())
-        rc.diffType = GraphicalDiff;
-    else if (externalDiffRadioButton->isChecked())
-        rc.diffType = ExternalDiff;
-    rc.autoAssignActivityName = autoAssignActivityCheckBox->isChecked();
-    rc.historyCount = historyCountSpinBox->value();
-    rc.disableIndexer = disableIndexerCheckBox->isChecked();
-    rc.diffArgs = diffArgsEdit->text();
-    rc.indexOnlyVOBs = indexOnlyVOBsEdit->text();
-    rc.extDiffAvailable = externalDiffRadioButton->isEnabled();
+    rc.ccCommand = m_command().toUserOutput();
+    rc.ccBinaryPath = m_command.expandedValue();
+    rc.timeOutS = m_timeOut();
+    rc.autoCheckOut = m_autoCheckOut();
+    rc.noComment = m_noComment();
+    rc.diffType = m_diffType();
+    rc.autoAssignActivityName = m_autoAssignActivity();
+    rc.historyCount = m_historyCount();
+    rc.disableIndexer = m_disableIndexer();
+    rc.diffArgs = m_diffArgs();
+    rc.indexOnlyVOBs = m_indexOnlyVOBs();
+    rc.extDiffAvailable = m_extDiffAvailable;
 
     setSettings(rc);
 }
@@ -205,7 +187,10 @@ ClearCaseSettingsPage::ClearCaseSettingsPage()
     setId(ClearCase::Constants::VCS_ID_CLEARCASE);
     setDisplayName(Tr::tr("ClearCase"));
     setCategory(VcsBase::Constants::VCS_SETTINGS_CATEGORY);
-    setWidgetCreator([] { return new SettingsPageWidget; });
+    setSettingsProvider([] {
+        static GuardedObject<SettingsPageWidget> theAspects;
+        return theAspects.get();
+    });
 }
 
 } // ClearCase::Internal
