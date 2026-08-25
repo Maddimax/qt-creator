@@ -1469,6 +1469,16 @@ Removing it also found a bug the flag had been hiding: reacting to the binary
 field during a load looked the tool up by an id that had just been cleared, and
 hid the form it was in the middle of filling in.
 
+**ClearCase cannot be ported on macOS at all.** Its plugin declares
+`"Platform" : "^(Linux|Windows)"`, so the plugin manager filters it out before
+anything else applies - neither `-load ClearCase` nor `-test ClearCase` will
+make it run, and it registers no page and loads no QML. A port there is
+unverifiable here; one was written and reverted. The other two with a
+`"Platform"` line are `ios` (macOS only, so fine here) and `incredibuild`
+(Linux and Windows, same problem as ClearCase). Read the plugin's `.json.in`
+before starting: `DisabledByDefault` only costs the page its place in the
+census, but `Platform` costs it everything.
+
 **Update is not portable on a source build, and not because of its UI.**
 `UpdateInfoPlugin::initialize()` returns an error when it cannot find the
 maintenance tool, before it registers its page - which is what happens on any
@@ -1482,8 +1492,7 @@ once here, which is worse than not doing it; one was written and reverted.
 never registered and the QuickUi run that walks every page cannot see them -
 the count stays where it was and nothing says the new `.qml` was never loaded.
 `-test <plugin>` does run it, so the page carries its own check that its QML
-reaches Ready instead. ClearCase is in the same position. Before writing a
-page, read its plugin's `.json.in`.
+reaches Ready instead.
 
 ### Three kinds of many-rows
 
