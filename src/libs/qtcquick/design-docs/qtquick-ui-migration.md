@@ -1276,8 +1276,8 @@ method, and the manual-run dialog builds a widget from it too, so the page
 naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
-all`, minus `QmlDesigner` and `UpdateInfo`, see below): **82 aspect-driven
-pages, all 82 with their own QML and rendered with Qt Quick, none still on
+all`, minus `QmlDesigner` and `UpdateInfo`, see below): **83 aspect-driven
+pages, all 83 with their own QML and rendered with Qt Quick, none still on
 widgets.** Gerrit is the first of the widget-creator pages below to have joined
 that count: it became aspect-driven and then got a form, which is the shape the
 rest of them take.
@@ -1351,15 +1351,15 @@ pages that hand over an `AspectContainer` through `setSettingsProvider()`.
 A page that calls `IOptionsPage::setWidgetCreator()` builds its own
 `IOptionsPageWidget` and answers nothing from `aspects()`, so the test skips it
 entirely: `isFullyRenderable()` is never asked and the page is not in the 73.
-There are **32 such call sites in 29 files** - Keyboard, Locator, MIME Types,
+There are **31 such call sites in 28 files** - Keyboard, Locator, MIME Types,
 the toolchain, kit and device pages, Beautifier's three, Clangd, Axivion - and
 they are pure QtWidgets from top to bottom. Counted with
 
     grep -rn setWidgetCreator src/plugins src/libs --include='*.cpp'
 
 minus the mode files, which are `IMode::setWidgetCreator()` and a different
-thing. Gerrit, To-Do, GitLab and the Meson, GN and CMake Tools pages went this way;
-converting any of them took an
+thing. Gerrit, To-Do, GitLab, Debuggers and the Meson, GN and CMake Tools pages went
+this way; converting any of them took an
 `AspectContainer` that reads the plugin's own settings struct when the page is
 built and writes it back on apply, which is the same shape the Code Style pages
 use and needs no change to what the rest of the plugin reads.
@@ -1428,7 +1428,8 @@ thing more: **`DeviceSelectionAspect`**, the device picker four of the seven
 use to narrow what they list and to choose what a re-detect runs over. It was a
 `DeviceComboBox` - a widget - so it blocked all four.
 
-**What the last four still need, which is not the tree:**
+**Four of the seven are done** - Meson, GN, CMake and Debuggers. What the
+other three still need is not the tree:
 
 - **Toolchains** shows a `ToolchainConfigWidget` per toolchain type. That is a
   plugin extension point returning `QWidget`s, so the page cannot move until
@@ -1436,9 +1437,13 @@ use to narrow what they list and to choose what a re-detect runs over. It was a
 - **Kits** has the same shape with `KitAspect` widgets.
 - **Qt Versions** is the biggest of them: two `DetailsWidget`s, an expandable
   info pane, Link with Qt, Clean Up, and per-version warnings.
-- **Debuggers** is the one to do next. Its details pane is raw widgets rather
-  than aspects, so it needs the same rewrite Gerrit and GitLab had; the
-  asynchronous validation its path field wants is in place now.
+Debuggers was the fourth, and it brought one thing worth repeating: what a
+debugger *is* - its ABIs, its version, its engine - is found by running it, and
+the widget page read those back out of the labels it had written them into to
+decide what to store. That round trip happened to be lossless, so it was not a
+bug; it did mean the truth about a debugger lived in a string on screen, and a
+page that keeps it as its own state is one less thing to get wrong. Expect the
+same shape in the pages that are left.
 
 **The guard that guards nothing.** All three ported pages load a tool into a
 form and store what the user types, and all three carried *two* flags for it -
