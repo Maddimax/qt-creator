@@ -1375,6 +1375,16 @@ usual habit of dropping what was typed without saying why - GitLab's Add
 silently discarded a bad host - because the check becomes the aspect's
 validation.
 
+**Axivion is the next one of that shape, and it needs one thing first.** Its
+path mappings are a three-column tree with Add, Delete, Move Up and Move Down
+beside it and a details form under it, and `PathMappingDetails` is already an
+`AspectContainer` of three - so the list itself is an `AspectList` with
+`ListViewWithDetails`, and `addExtraButton()` and the item decoration
+`AspectListDelegate` already draws cover the rest. What is missing is order:
+`AspectList` has no way to move an item and no notion of which one is current,
+so Move Up and Move Down have nothing to act on. Its servers combo and the two
+dialogs behind it can stay dialogs, the way Qt Versions' Link with Qt did.
+
 Two of the remaining ones are not this shape at all and are worth knowing
 about before picking a batch: **Help > Filters** is a `QHelpFilterSettingsWidget`
 from QtHelp with a `QHelpFilterEngine` behind it, and **Designer** embeds Qt
