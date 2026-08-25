@@ -1302,8 +1302,8 @@ method, and the manual-run dialog builds a widget from it too, so the page
 naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
-all`, minus `QmlDesigner` and `UpdateInfo`, see below): **99 aspect-driven
-pages, all 99 with their own QML and rendered with Qt Quick, none still on
+all`, minus `QmlDesigner` and `UpdateInfo`, see below): **100 aspect-driven
+pages, all 100 with their own QML and rendered with Qt Quick, none still on
 widgets.** The count goes up as widget-creator pages become aspect-driven, so
 it is a running total rather than a target. Gerrit is the first of the widget-creator pages below to have joined
 that count: it became aspect-driven and then got a form, which is the shape the
@@ -1331,6 +1331,42 @@ The warning was found by showing each page in a window and resizing it, which
 is the same measurement the `AspectGroupBox` note describes. Worth repeating
 after a batch: it is the only thing that sees a warning the page census cannot,
 and it also confirmed that no page has a binding loop left.
+
+### External Tools, and a tree the user arranges
+
+The last page whose only obstacle was a control. Its tools are dragged between
+categories and into whatever order they are to be offered in, so the tree
+delegate grew that.
+
+**The move goes through the model, not around it.** `mimeData()` and
+`dropMimeData()` are how a `QTreeView` does an internal move, and they are
+where a model puts whatever else it needs to know - External Tools carries the
+category the tool came from, which no generic `moveRows()` would have. So
+`AspectModels.moveRow()` builds the mime data from the source index and hands
+it back to the model, and the delegate only decides *where*.
+
+The gesture itself is not tested: it needs a window and a pointer. What it ends
+up calling is, and so is a tree that never said its order was the user's not
+offering to move anything. That is the same line the line-number drawing sits
+on - a screenshot checks the gesture, a test checks the mechanism.
+
+**The fourth page that wrote its form back twice.** Every field writes into the
+tool as it changes *and* the form was written back when the selection moved on.
+Only the first does anything, and a control aimed at the second stayed green.
+By now this is the default assumption; the surprise would be a page where both
+halves matter.
+
+But the control that stayed green found a real hole next to it: the environment
+is edited in a *dialog*, and the aspect said so with `changed()` - which the
+container does not forward. So the one field that did need the write-back on
+the way out was the one that never got it. It says `volatileValueChanged()`
+from its setter now, which is what every other field says and what the page
+listens to.
+
+**Removing something you are standing on.** Remove deleted the tool and then
+cleared the selection, and clearing the selection writes the form back into the
+tool that is being left - which by then was freed. ASan caught it in the test;
+nothing in the UI would have, most of the time. The selection is cleared first.
 
 ### The Keyboard page, and the last of CommandMappings
 
@@ -1495,9 +1531,9 @@ pages that hand over an `AspectContainer` through `setSettingsProvider()`.
 A page that calls `IOptionsPage::setWidgetCreator()` builds its own
 `IOptionsPageWidget` and answers nothing from `aspects()`, so the test skips it
 entirely: `isFullyRenderable()` is never asked and the page is not in the 73.
-There are **16 such call sites in 15 files** - External Tools, the toolchain,
-kit and device pages, Designer, Help's filters, MCU Support, CDB, BareMetal -
-and they are pure QtWidgets from top to bottom. Counted with
+There are **15 such call sites in 14 files** - the toolchain, kit and device
+pages, Designer, Help's filters, MCU Support, CDB, BareMetal - and they are
+pure QtWidgets from top to bottom. Counted with
 
     grep -rn setWidgetCreator src/plugins src/libs --include='*.cpp'
 
