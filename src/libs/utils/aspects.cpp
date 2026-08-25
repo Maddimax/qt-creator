@@ -1044,6 +1044,8 @@ public:
     QString m_actionText;
     std::function<void()> m_action;
     std::function<void()> m_onShown;
+    QList<AspectPresentation::Choice> m_choices;
+    std::function<void(const QVariant &)> m_onChoice;
 };
 
 } // Internal
@@ -3493,6 +3495,23 @@ void ActionAspect::setOnShown(const std::function<void()> &onShown)
     d->m_onShown = onShown;
 }
 
+void ActionAspect::setChoices(const QList<AspectPresentation::Choice> &choices)
+{
+    d->m_choices = choices;
+    emit controlConfigurationChanged();
+}
+
+void ActionAspect::setOnChoice(const std::function<void(const QVariant &)> &onChoice)
+{
+    d->m_onChoice = onChoice;
+}
+
+void ActionAspect::triggerChoice(const QVariant &id)
+{
+    QTC_ASSERT(d->m_onChoice, return);
+    d->m_onChoice(id);
+}
+
 void ActionAspect::triggerAction()
 {
     QTC_ASSERT(d->m_action, return);
@@ -3510,6 +3529,7 @@ AspectPresentation ActionAspect::presentation() const
     AspectPresentation p = BaseAspect::presentation();
     p.control = AspectControls::Button;
     p.actionText = d->m_actionText;
+    p.choices = d->m_choices;
     return p;
 }
 

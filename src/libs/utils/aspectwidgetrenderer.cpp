@@ -11,6 +11,7 @@
 #include "fancylineedit.h"
 #include "guard.h"
 #include "guiutils.h"
+#include "hostosinfo.h"
 #include "infolabel.h"
 #include "layoutbuilder.h"
 #include "passworddialog.h"
@@ -315,9 +316,26 @@ private:
         button->setToolTip(pres.toolTip);
         button->setEnabled(pres.enabled);
         button->setVisible(pres.visible);
-        QObject::connect(button, &QAbstractButton::clicked, aspect, [aspect] {
-            aspect->triggerAction();
-        });
+        if (pres.choices.isEmpty()) {
+            QObject::connect(button, &QAbstractButton::clicked, aspect, [aspect] {
+                aspect->triggerAction();
+            });
+        } else {
+            // A button that offers rather than does: one entry per choice, each
+            // handed back by id.
+            auto menu = new QMenu(button);
+            for (const AspectPresentation::Choice &choice : pres.choices) {
+                QAction * const action = menu->addAction(choice.display);
+                action->setToolTip(choice.toolTip);
+                action->setEnabled(choice.enabled);
+                QObject::connect(action, &QAction::triggered, aspect, [aspect, id = choice.id] {
+                    static_cast<ActionAspect *>(aspect)->triggerChoice(id);
+                });
+            }
+            button->setMenu(menu);
+            if (HostOsInfo::isMacHost())
+                button->setStyleSheet("text-align:center;");
+        }
         parent.addItem(button);
         // Same as the Quick delegate: the aspect is being drawn, so let it find
         // out what its label should say.

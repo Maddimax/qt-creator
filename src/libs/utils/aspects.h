@@ -1387,6 +1387,12 @@ public:
 
     void setActionText(const QString &text);
     void setAction(const std::function<void()> &action);
+    // What the button offers instead of doing one thing: a menu, whose choices
+    // it hands back by id. An empty list is a plain button. Adding toolchains
+    // is the case - one entry per kind that can be created.
+    void setChoices(const QList<AspectPresentation::Choice> &choices);
+    void setOnChoice(const std::function<void(const QVariant &)> &onChoice);
+    Q_INVOKABLE void triggerChoice(const QVariant &id);
     // Called when the action is first drawn, for one whose label reports state
     // that costs something to find out. Copilot starts a language server here,
     // which is why it must not happen when the settings are constructed.

@@ -26,9 +26,11 @@
 #include <utils/layoutbuilder.h>
 
 #include <QAbstractButton>
+#include <QAction>
 #include <QAbstractItemView>
 #include <QItemSelectionModel>
 #include <QCheckBox>
+#include <QMenu>
 #include <QFile>
 #include <QQmlError>
 #include <QStandardItem>
@@ -174,6 +176,7 @@ private slots:
     void testAspectVisibilityReachesTheDrawnControl();
     void testAspectQmlNamesAreUsableAndUnique();
     void testActionAspectIsAButtonOnEitherRenderer();
+    void testAButtonCanOfferAMenuInsteadOfActing();
     void testTextDisplayShowsItsMessage();
     void testTextDisplaySaysHowToReadItsMessage();
     void testRadioStyledBoolIsARadioButton();
@@ -966,6 +969,98 @@ void QuickUiTest::testActionAspectIsAButtonOnEitherRenderer()
     QTRY_COMPARE(shown, 1);
     QQuickItem *lazyButton = findButton(lazyWidget->rootObject(), "Checking status...");
     QVERIFY(lazyButton);
+}
+
+void QuickUiTest::testAButtonCanOfferAMenuInsteadOfActing()
+{
+    // Adding a toolchain is picking a kind, so Add offers rather than does.
+    // The choices are the aspect's, so both renderers show the same menu and
+    // hand back the same id - what a QMenu built beside a closure could not.
+    QVariant picked;
+    int acted = 0;
+    Utils::AspectContainer page;
+    Utils::ActionAspect add(&page);
+    add.setActionText("Add");
+    add.setQmlName("Add");
+    add.setAction([&acted] { ++acted; });
+    add.setChoices({{"GCC", {}, true, "ProjectExplorer.ToolChain.Gcc"},
+                    {"Clang", {}, true, "ProjectExplorer.ToolChain.Clang"},
+                    {"MSVC", {}, false, "ProjectExplorer.ToolChain.Msvc"}});
+    add.setOnChoice([&picked](const QVariant &id) { picked = id; });
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QVERIFY(quickWidget->rootObject());
+
+    QQuickItem *button = nullptr;
+    QTRY_VERIFY(button = findButton(quickWidget->rootObject(), "Add"));
+
+    // A button with choices does not act on its own: clicking it opens the
+    // menu. Checked because the delegate has to tell the two apart, and a
+    // plain click would otherwise run the action nobody asked for.
+    QMetaObject::invokeMethod(button, "clicked");
+    QCOMPARE(acted, 0);
+
+    // The menu's items are the popup's, not the page's, so they are asked of
+    // the Menu rather than found in the item tree.
+    QQuickItem * const delegate = findQmlComponent(quickWidget->rootObject(), "ButtonDelegate");
+    QVERIFY(delegate);
+    QObject * const menuObject = delegate->property("menu").value<QObject *>();
+    QVERIFY(menuObject);
+    QCOMPARE(menuObject->property("count").toInt(), 3);
+    QList<QQuickItem *> items;
+    for (int i = 0; i < 3; ++i) {
+        QQuickItem *item = nullptr;
+        QMetaObject::invokeMethod(menuObject, "itemAt", Q_RETURN_ARG(QQuickItem *, item),
+                                  Q_ARG(int, i));
+        QVERIFY(item);
+        items << item;
+    }
+    QCOMPARE(items.at(0)->property("text").toString(), QString("GCC"));
+    // A kind that cannot be created is offered but not enabled.
+    QCOMPARE(items.at(2)->property("enabled").toBool(), false);
+
+    QMetaObject::invokeMethod(items.at(1), "triggered");
+    QCOMPARE(picked.toString(), QString("ProjectExplorer.ToolChain.Clang"));
+    QCOMPARE(acted, 0);
+
+    // And the same aspect in a widget layout, where the choices are a QMenu on
+    // the push button rather than its clicked() signal.
+    Layouting::Column column{&add};
+    const std::unique_ptr<QWidget> widget(column.emerge());
+    QVERIFY(widget);
+    QAbstractButton *pushButton = nullptr;
+    for (QAbstractButton *candidate : widget->findChildren<QAbstractButton *>()) {
+        if (candidate->text() == "Add")
+            pushButton = candidate;
+    }
+    QVERIFY(pushButton);
+    QMenu * const menu = pushButton->findChild<QMenu *>();
+    QVERIFY(menu);
+    const QList<QAction *> actions = menu->actions();
+    QCOMPARE(actions.size(), 3);
+    QCOMPARE(actions.at(0)->text(), QString("GCC"));
+    QVERIFY(!actions.at(2)->isEnabled());
+    picked = {};
+    actions.at(1)->trigger();
+    QCOMPARE(picked.toString(), QString("ProjectExplorer.ToolChain.Clang"));
+    QCOMPARE(acted, 0);
+
+    // A button with no choices still does what it is for.
+    Utils::AspectContainer plainPage;
+    Utils::ActionAspect plain(&plainPage);
+    plain.setActionText("Re-detect");
+    plain.setQmlName("Redetect");
+    plain.setAction([&acted] { ++acted; });
+    const std::unique_ptr<QWidget> plainForm(QtcQuick::createGenericAspectForm(&plainPage));
+    auto plainQuick = plainForm->findChild<QQuickWidget *>();
+    QVERIFY(plainQuick);
+    QQuickItem *plainButton = nullptr;
+    QTRY_VERIFY(plainButton = findButton(plainQuick->rootObject(), "Re-detect"));
+    QMetaObject::invokeMethod(plainButton, "clicked");
+    QCOMPARE(acted, 1);
 }
 
 void QuickUiTest::testTextDisplayShowsItsMessage()

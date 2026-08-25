@@ -24,6 +24,9 @@ RowLayout {
     property var pres: aspect ? AspectModels.presentation(aspect) : ({})
     readonly property string toolTip: aspect?.toolTip ?? ""
     readonly property bool aspectVisible: aspect?.visible ?? true
+    // What the button offers, empty where it just acts. A popup is not in the
+    // item tree, so this is the only way to reach it from outside.
+    readonly property alias menu: menu
 
     Connections {
         target: root.aspect
@@ -40,11 +43,39 @@ RowLayout {
     Component.onCompleted: root.aspect?.requestDisplayText()
 
     Button {
+        id: button
+
+        // A button that offers rather than does has one entry per choice.
+        readonly property var options: root.pres.options ?? []
+
         text: root.pres.actionText ?? ""
         enabled: (root.aspect?.enabled ?? false) && !(root.aspect?.readOnly ?? false)
         ToolTip.text: root.toolTip
         ToolTip.visible: hovered && root.toolTip !== ""
-        onClicked: root.aspect?.triggerAction()
+        onClicked: {
+            if (button.options.length === 0)
+                root.aspect?.triggerAction()
+            else
+                menu.popup(button, 0, button.height)
+        }
+    }
+
+    Menu {
+        id: menu
+
+        Instantiator {
+            model: root.pres.options ?? []
+            onObjectAdded: (index, object) => menu.insertItem(index, object as MenuItem)
+            onObjectRemoved: (index, object) => menu.removeItem(object as MenuItem)
+
+            delegate: MenuItem {
+                required property int index
+                required property string modelData
+                text: modelData
+                enabled: root.pres.optionsEnabled[index] ?? true
+                onTriggered: root.aspect?.triggerChoice(root.pres.optionIds[index])
+            }
+        }
     }
 
     Item { Layout.fillWidth: true }
