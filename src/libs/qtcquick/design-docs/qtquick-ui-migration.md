@@ -2165,7 +2165,7 @@ installs a message handler and asserts nothing says SOFT ASSERT. The first
 version of it passed against a build with the guard removed, which is the only
 reason it was rewritten.
 
-**What this does not do.** The virtual has to stay: fourteen aspects in
+**What this does not do.** The virtual has to stay: twelve aspects in
 `src/plugins` and five more in Utils still override it. They are not one
 group. Most are run-configuration, build-step and kit aspects - project
 panels rather than preferences pages, which is a surface the migration has not
@@ -2504,7 +2504,7 @@ anyway, because the closure was holding state - a widget's `customConfigs()`, a
 label's text - that nothing else did. Both are now gone. `EnvVarSeparatorAspect` was
 a sixth of exactly the same kind - see below.
 
-What still overrides `addToLayoutImpl()` in `src/plugins` is fourteen aspects,
+What still overrides `addToLayoutImpl()` in `src/plugins` is twelve aspects,
 and they are mostly the project surface: run configurations, build steps and
 build settings. Three are not - `KitAspect` and `DeviceToolAspect` on the Kits
 and Devices pages, and `LibrarySelectionAspect` - and those are the ones to
@@ -2527,6 +2527,40 @@ drawn by. `tst_AspectRenderer::textWithAction()` covers it: the summary follows
 asked for its summary as soon as there is somewhere to put it - the three
 things every one of those four depends on and none of them can test, because
 none of them can be asked to open a modal dialog.
+
+### A warning is a row, not a widget the setting owns
+
+`QmlDebuggingAspect` and `QtQuickCompilerAspect` are tri-state settings on the
+build configuration, each with a warning underneath. Both built that warning in
+their closure - an `InfoLabel` added as a second row - and hung the whole
+decision off it: whether the kit can do this at all, what to say about it, and
+**whether to force the value back to `Default`**.
+
+Splitting what they list from what they do moved all three out of the layout.
+The warning is a `Utils::TextDisplay` registered next to the setting, which is
+the row the closure was building and which both backends already draw;
+`MakeStep` was already doing this with its `MAKEFLAGS` note. The decision runs
+in the constructor and again on `KitManager::kitsChanged`,
+`BuildConfiguration::kitChanged` and the aspect's own `changed`.
+
+**That last move fixes something.** The decision used to run only when somebody
+opened the build settings page, because that is when `addToLayoutImpl()` was
+called. A kit that cannot debug QML left the setting reading *Enabled* -
+and the build would be configured that way - until the page was opened. Nothing
+about the closure said that was a layout-time question; it was there because
+that was where the label was.
+
+**Two free functions, so the answer can be tested.** `qmlDebuggingWarning()`
+and `qtQuickCompilerWarning()` take a `Kit` and the settings, and return the
+text plus whether it is supported. The aspects are what is left over. The
+alternative was a test that needs a `Project`, a `Target` and a
+`BuildConfiguration` to ask one question of a kit.
+
+The test builds its kit from `QLibraryInfo::path(BinariesPath)` - the Qt this
+Creator was built against, the only one a test run can count on. It has to
+`QtVersionManager::addVersion()` it: a kit stores its Qt's id and looks it up
+there, so a Qt the manager has not heard of is no Qt at all, and the first
+version of the test skipped itself for that reason rather than failing.
 
 ### What the census could not see, and now can
 

@@ -7,6 +7,7 @@
 #include "mcpsupport.h"
 #include "profilereader.h"
 #include "qscxmlcgenerator.h"
+#include "qtbuildaspects.h"
 #include "qtkitaspect.h"
 #include "qtoptionspage.h"
 #include "qtoutputformatter.h"
@@ -95,6 +96,7 @@ void QtSupportPlugin::initialize()
     addTestCreator(createQtOutputParserTest);
     addTestCreator(createQtTestParserTest);
     addTestCreator(createQtProjectImporterTest);
+    addTestCreator(createQtBuildAspectsTest);
 #endif
 
     setupQtVersionManager(this);
