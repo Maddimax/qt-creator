@@ -39,7 +39,7 @@ public:
 
     ProjectExplorer::Toolchains autoDetect(const ProjectExplorer::ToolchainDetector &detector) const final;
     ProjectExplorer::Toolchains detectForImport(const ProjectExplorer::ToolchainDescription &tcd) const final;
-    std::unique_ptr<ProjectExplorer::ToolchainConfigWidget> createConfigurationWidget(
+    std::unique_ptr<ProjectExplorer::ToolchainConfigAspects> createConfigurationAspects(
         const ProjectExplorer::ToolchainBundle &bundle) const final;
 };
 

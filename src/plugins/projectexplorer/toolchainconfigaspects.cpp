@@ -1,7 +1,7 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
-#include "toolchainconfigwidget.h"
+#include "toolchainconfigaspects.h"
 
 #include "toolchain.h"
 #include "projectexplorerconstants.h"
@@ -124,11 +124,6 @@ FilePathAspect *ToolchainConfigAspects::compilerCommand(Utils::Id language)
 BoolAspect *ToolchainConfigAspects::manualCxxCompiler()
 {
     return d->manualCxxCompiler;
-}
-
-TextDisplay &ToolchainConfigAspects::errorMessage()
-{
-    return m_errorMessage;
 }
 
 QList<std::pair<const Toolchain *, FilePathAspect *>> ToolchainConfigAspects::compilerCommands() const
@@ -293,6 +288,72 @@ private slots:
         QCOMPARE(cxx->expandedVolatileValue(), byHand);
     }
 
+    void testEveryKindOfToolchainAsksWithAspects()
+    {
+        // A Qt Quick page cannot hold a widget, so the Toolchains page can only
+        // draw a kind that describes itself. Checked by making one toolchain of
+        // each kind rather than by looking at what is installed: only two of
+        // the nine kinds exist on any one machine.
+        QStringList checked;
+        for (ToolchainFactory * const factory : ToolchainFactory::allToolchainFactories()) {
+            if (!factory->canCreate() || factory->supportedLanguages().isEmpty())
+                continue;
+
+            const Utils::Id bundleId = Utils::Id::generate();
+            Toolchains toolchains;
+            for (const Utils::Id language : factory->supportedLanguages()) {
+                Toolchain * const tc = factory->create();
+                QVERIFY(tc);
+                tc->setDetectionSource(DetectionSource::Manual);
+                tc->setLanguage(language);
+                tc->setBundleId(bundleId);
+                toolchains << tc;
+            }
+            const ToolchainBundle bundle(toolchains, ToolchainBundle::HandleMissing::CreateOnly);
+            const std::unique_ptr<ToolchainConfigAspects> aspects
+                = factory->createConfigurationAspects(bundle);
+            QVERIFY2(aspects, qPrintable(factory->displayName()
+                                         + " has nothing to configure it with"));
+
+            // Nothing in it may be a control no renderer knows: that is a
+            // control drawn as a placeholder, or as nothing at all.
+            std::function<void(const Utils::AspectContainer *)> walk =
+                [&](const Utils::AspectContainer *container) {
+                    for (Utils::BaseAspect * const aspect : container->aspects()) {
+                        if (auto nested = qobject_cast<Utils::AspectContainer *>(aspect)) {
+                            walk(nested);
+                            continue;
+                        }
+                        QVERIFY2(aspect->presentation().control != Utils::AspectControls::Custom,
+                                 qPrintable(factory->displayName() + ": "
+                                            + QString::fromLatin1(
+                                                aspect->metaObject()->className())
+                                            + " asks for no control"));
+                    }
+                };
+            walk(aspects.get());
+
+            // And what it holds is reachable from a page's QML by name, which
+            // needs the names to be there and to differ.
+            QSet<QString> names;
+            for (Utils::BaseAspect * const aspect : aspects->aspects()) {
+                if (aspect->qmlName().isEmpty())
+                    continue;
+                QVERIFY2(!names.contains(aspect->qmlName()),
+                         qPrintable(factory->displayName() + " uses the QML name "
+                                    + aspect->qmlName() + " twice"));
+                names.insert(aspect->qmlName());
+            }
+
+            qDeleteAll(toolchains);
+            checked << factory->displayName();
+        }
+        // Which kinds are registered depends on the platform and on which
+        // plugins are loaded, so the list is reported rather than counted.
+        qInfo().noquote() << "kinds checked:" << checked.join(", ");
+        QVERIFY(!checked.isEmpty());
+    }
+
 private:
     static std::optional<ToolchainBundle> anyBundle()
     {
@@ -328,103 +389,7 @@ QObject *createToolchainConfigAspectsTest()
 }
 #endif // WITH_TESTS
 
-ToolchainConfigWidget::ToolchainConfigWidget(const ToolchainBundle &bundle)
-    : m_aspects(bundle)
-{
-    auto centralWidget = new Utils::DetailsWidget;
-    centralWidget->setState(Utils::DetailsWidget::NoSummary);
-
-    setFrameShape(QFrame::NoFrame);
-    setWidgetResizable(true);
-    setFocusPolicy(Qt::NoFocus);
-
-    setWidget(centralWidget);
-
-    auto detailsBox = new QWidget();
-
-    m_mainLayout = new QFormLayout(detailsBox);
-    m_mainLayout->setContentsMargins(0, 0, 0, 0);
-    centralWidget->setWidget(detailsBox);
-    m_mainLayout->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow); // for the Macs...
-
-    Layouting::Form form;
-    form.addItem(&m_aspects.displayName());
-    form.addItem(Layouting::br);
-    form.attachTo(detailsBox);
-
-    setupCompilerPathChoosers();
-
-    connect(&m_aspects, &Utils::BaseAspect::volatileValueChanged,
-            this, &ToolchainConfigWidget::dirty);
-    for (const auto &[tc, command] : m_aspects.compilerCommands()) {
-        command->addOnVolatileValueChanged(this, [this, tc = tc] {
-            emit compilerCommandChanged(tc->language());
-        });
-    }
-}
-
-ToolchainConfigWidget::~ToolchainConfigWidget() = default;
-
-ToolchainConfigAspects &ToolchainConfigWidget::aspects()
-{
-    return m_aspects;
-}
-
-ToolchainBundle ToolchainConfigWidget::bundle() const
-{
-    return m_aspects.bundle();
-}
-
-QString ToolchainConfigWidget::currentDisplayName() const
-{
-    return const_cast<ToolchainConfigAspects &>(m_aspects).displayName().volatileValue();
-}
-
-bool ToolchainConfigWidget::isDirty() const
-{
-    return m_aspects.isDirty();
-}
-
-void ToolchainConfigWidget::apply()
-{
-    m_aspects.apply();
-    applyImpl();
-}
-
-void ToolchainConfigWidget::makeReadOnly()
-{
-    m_aspects.makeReadOnly();
-    makeReadOnlyImpl();
-}
-
-void ToolchainConfigWidget::setFallbackBrowsePath(const Utils::FilePath &path)
-{
-    m_aspects.setFallbackBrowsePath(path);
-}
-
-void ToolchainConfigWidget::addErrorLabel()
-{
-    if (m_errorLabelAdded)
-        return;
-    m_errorLabelAdded = true;
-    Layouting::Form form;
-    form.addItem(&m_aspects.errorMessage());
-    form.addItem(Layouting::br);
-    form.attachTo(m_mainLayout->parentWidget());
-}
-
-void ToolchainConfigWidget::setErrorMessage(const QString &m)
-{
-    m_aspects.errorMessage().setText(m);
-    m_aspects.errorMessage().setVisible(!m.isEmpty());
-}
-
-void ToolchainConfigWidget::clearErrorMessage()
-{
-    setErrorMessage({});
-}
-
-QStringList ToolchainConfigWidget::splitString(const QString &s)
+QStringList ToolchainConfigAspects::splitString(const QString &s)
 {
     ProcessArgs::SplitError splitError;
     const OsType osType = HostOsInfo::hostOs();
@@ -440,43 +405,6 @@ QStringList ToolchainConfigWidget::splitString(const QString &s)
     return res;
 }
 
-void ToolchainConfigWidget::setupCompilerPathChoosers()
-{
-    using namespace Layouting;
-    for (const auto &[tc, command] : m_aspects.compilerCommands()) {
-        Form form;
-        if (tc->language() == Constants::CXX_LANGUAGE_ID && m_aspects.manualCxxCompiler()) {
-            form.addItem(Row{command, m_aspects.manualCxxCompiler(), noMargin});
-        } else {
-            form.addItem(command);
-        }
-        form.addItem(br);
-        form.attachTo(m_mainLayout->parentWidget());
-    }
-}
-
-FilePath ToolchainConfigWidget::compilerCommand(Utils::Id language)
-{
-    if (FilePathAspect * const command = m_aspects.compilerCommand(language))
-        return command->expandedVolatileValue();
-    return {};
-}
-
-bool ToolchainConfigWidget::hasAnyCompiler() const
-{
-    return m_aspects.hasAnyCompiler();
-}
-
-void ToolchainConfigWidget::setCommandVersionArguments(const QStringList &args)
-{
-    m_aspects.setCommandVersionArguments(args);
-}
-
-void ToolchainConfigWidget::deriveCxxCompilerCommand()
-{
-    m_aspects.deriveCxxCompilerCommand();
-}
-
 } // namespace ProjectExplorer
 
-#include "toolchainconfigwidget.moc"
+#include "toolchainconfigaspects.moc"

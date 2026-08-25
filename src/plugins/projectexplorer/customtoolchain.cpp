@@ -3,7 +3,7 @@
 
 #include "customtoolchain.h"
 
-#include "abiwidget.h"
+#include "abiaspect.h"
 #include "gccparser.h"
 #include "clangparser.h"
 #include "gcctoolchain.h"
@@ -14,19 +14,13 @@
 #include "projectexplorertr.h"
 #include "projectmacro.h"
 #include "toolchain.h"
-#include "toolchainconfigwidget.h"
+#include "toolchainconfigaspects.h"
 
 #include <utils/algorithm.h>
-#include <utils/detailswidget.h>
 #include <utils/environment.h>
 #include <utils/pathchooser.h>
 #include <utils/stringutils.h>
 
-#include <QComboBox>
-#include <QFormLayout>
-#include <QHBoxLayout>
-#include <QLineEdit>
-#include <QPlainTextEdit>
 
 using namespace Utils;
 
@@ -334,194 +328,114 @@ QList<CustomToolchain::Parser> CustomToolchain::parsers()
     return result;
 }
 
-// --------------------------------------------------------------------------
-// Helper for ConfigWidget
-// --------------------------------------------------------------------------
-
-class TextEditDetailsWidget : public DetailsWidget
+class CustomToolchainAspects final : public ToolchainConfigAspects
 {
 public:
-    TextEditDetailsWidget(QPlainTextEdit *textEdit)
+    explicit CustomToolchainAspects(const ToolchainBundle &bundle)
+        : ToolchainConfigAspects(bundle)
     {
-        setWidget(textEdit);
+        m_makeCommand.setQmlName("MakeCommand");
+        m_makeCommand.setLabelText(Tr::tr("&Make path:"));
+        m_makeCommand.setExpectedKind(PathChooserKind::ExistingCommand);
+        m_makeCommand.setHistoryCompleter("PE.MakeCommand.History");
+
+        m_abi.setQmlName("Abi");
+        m_abi.setLabelText(Tr::tr("&ABI:"));
+
+        m_predefinedMacros.setQmlName("PredefinedMacros");
+        m_predefinedMacros.setLabelText(Tr::tr("&Predefined macros:"));
+        m_predefinedMacros.setDisplayStyle(StringAspect::TextEditDisplay);
+        m_predefinedMacros.setPlaceHolderText(Tr::tr("MACRO[=VALUE]"));
+        m_predefinedMacros.setToolTip(Tr::tr("Each line defines a macro. Format is MACRO[=VALUE]."));
+
+        m_headerPaths.setQmlName("HeaderPaths");
+        m_headerPaths.setLabelText(Tr::tr("&Header paths:"));
+        m_headerPaths.setDisplayStyle(StringAspect::TextEditDisplay);
+        m_headerPaths.setToolTip(Tr::tr("Each line adds a global header lookup path."));
+
+        m_cxx11Flags.setQmlName("Cxx11Flags");
+        m_cxx11Flags.setLabelText(Tr::tr("C++11 &flags:"));
+        m_cxx11Flags.setDisplayStyle(StringAspect::LineEditDisplay);
+        m_cxx11Flags.setToolTip(Tr::tr("Comma-separated list of flags that turn on C++11 support."));
+
+        m_mkspecs.setQmlName("Mkspecs");
+        m_mkspecs.setLabelText(Tr::tr("&Qt mkspecs:"));
+        m_mkspecs.setDisplayStyle(StringAspect::LineEditDisplay);
+        m_mkspecs.setToolTip(Tr::tr("Comma-separated list of mkspecs."));
+
+        m_errorParser.setQmlName("ErrorParser");
+        m_errorParser.setLabelText(Tr::tr("&Error parser:"));
+        m_errorParser.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
+        m_errorParser.setUseDataAsSavedValue();
+        for (const CustomToolchain::Parser &parser : CustomToolchain::parsers())
+            m_errorParser.addOption({parser.displayName, {}, parser.parserId.toSetting()});
+        for (const CustomParserSettings &settings : CustomParsers::get())
+            m_errorParser.addOption({settings.displayName, {}, settings.id.toSetting()});
+
+        showToolchain();
     }
 
-    QPlainTextEdit *textEditWidget() const
+    void apply() override
     {
-        return static_cast<QPlainTextEdit *>(widget());
+        ToolchainConfigAspects::apply();
+        if (bundle().detectionSource().isAutoDetected())
+            return;
+
+        bundle().setTargetAbi(m_abi.currentAbi());
+        const Macros macros = Utils::transform<QList>(
+            lines(m_predefinedMacros), [](const QString &m) { return Macro::fromKeyValue(m); });
+        bundle().forEach<CustomToolchain>([&](CustomToolchain &tc) {
+            tc.setMakeCommand(m_makeCommand.expandedVolatileValue());
+            tc.setPredefinedMacros(macros);
+            tc.setHeaderPaths(lines(m_headerPaths));
+            tc.setCxx11Flags(m_cxx11Flags.volatileValue().split(','));
+            tc.setMkspecs(m_mkspecs.volatileValue());
+            tc.setOutputParserId(Id::fromSetting(m_errorParser.itemValue()));
+        });
+
+        // What the toolchain made of the input - the macro parser rewrites it.
+        showToolchain();
     }
 
-    QStringList entries() const
+    void makeReadOnly() override
     {
-        return textEditWidget()->toPlainText().split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+        ToolchainConfigAspects::makeReadOnly();
+        for (BaseAspect *aspect : std::initializer_list<BaseAspect *>{
+                 &m_makeCommand, &m_abi, &m_predefinedMacros, &m_headerPaths,
+                 &m_cxx11Flags, &m_mkspecs, &m_errorParser}) {
+            aspect->setEnabled(false);
+        }
     }
-
-    QString text() const
-    {
-        return textEditWidget()->toPlainText();
-    }
-
-    // not accurate, counts empty lines (except last)
-    int entryCount() const
-    {
-        int count = textEditWidget()->blockCount();
-        QString text = textEditWidget()->toPlainText();
-        if (text.isEmpty() || text.endsWith(QLatin1Char('\n')))
-            --count;
-        return count;
-    }
-
-    void updateSummaryText()
-    {
-        int count = entryCount();
-        setSummaryText(count ? Tr::tr("%n entries", "", count) : Tr::tr("Empty"));
-    }
-};
-
-// --------------------------------------------------------------------------
-// CustomToolchainConfigWidget
-// --------------------------------------------------------------------------
-
-class CustomToolchainConfigWidget final : public ToolchainConfigWidget
-{
-public:
-    explicit CustomToolchainConfigWidget(const ToolchainBundle &bundle);
 
 private:
-    void updateSummaries(TextEditDetailsWidget *detailsWidget);
-    void errorParserChanged(int index = -1);
+    static QStringList lines(const StringAspect &aspect)
+    {
+        return const_cast<StringAspect &>(aspect).volatileValue().split('\n', Qt::SkipEmptyParts);
+    }
 
-    void applyImpl() override;
-    void makeReadOnlyImpl() override;
+    void showToolchain()
+    {
+        m_makeCommand.setValue(bundle().makeCommand(Environment()));
+        m_abi.setAbis(Abis(), bundle().targetAbi());
+        const QStringList macroLines = Utils::transform<QList>(
+            bundle().get(&CustomToolchain::rawPredefinedMacros),
+            [](const Macro &m) { return QString::fromUtf8(m.toKeyValue(QByteArray())); });
+        m_predefinedMacros.setValue(macroLines.join('\n'));
+        m_headerPaths.setValue(bundle().get(&CustomToolchain::headerPathsList).join('\n'));
+        m_cxx11Flags.setValue(bundle().get(&CustomToolchain::cxx11Flags).join(','));
+        m_mkspecs.setValue(bundle().get(&CustomToolchain::mkspecs));
+        m_errorParser.setValue(m_errorParser.indexForItemValue(
+            bundle().get(&CustomToolchain::outputParserId).toSetting()));
+    }
 
-    void setFromToolchain();
-
-    PathChooser *m_makeCommand;
-    AbiWidget *m_abiWidget;
-    QPlainTextEdit *m_predefinedMacros;
-    QPlainTextEdit *m_headerPaths;
-    TextEditDetailsWidget *m_predefinedDetails;
-    TextEditDetailsWidget *m_headerDetails;
-    QLineEdit *m_cxx11Flags;
-    QLineEdit *m_mkspecs;
-    QComboBox *m_errorParserComboBox;
+    FilePathAspect m_makeCommand{this};
+    AbiAspects m_abi{this};
+    StringAspect m_predefinedMacros{this};
+    StringAspect m_headerPaths{this};
+    StringAspect m_cxx11Flags{this};
+    StringAspect m_mkspecs{this};
+    SelectionAspect m_errorParser{this};
 };
-
-CustomToolchainConfigWidget::CustomToolchainConfigWidget(const ToolchainBundle &bundle) :
-    ToolchainConfigWidget(bundle),
-    m_makeCommand(new PathChooser),
-    m_abiWidget(new AbiWidget),
-    m_predefinedMacros(new QPlainTextEdit),
-    m_headerPaths(new QPlainTextEdit),
-    m_predefinedDetails(new TextEditDetailsWidget(m_predefinedMacros)),
-    m_headerDetails(new TextEditDetailsWidget(m_headerPaths)),
-    m_cxx11Flags(new QLineEdit),
-    m_mkspecs(new QLineEdit),
-    m_errorParserComboBox(new QComboBox)
-{
-    const QList<CustomToolchain::Parser> parsers = CustomToolchain::parsers();
-    for (const auto &parser : parsers)
-        m_errorParserComboBox->addItem(parser.displayName, parser.parserId.toString());
-    for (const CustomParserSettings &s : CustomParsers::get())
-        m_errorParserComboBox->addItem(s.displayName, s.id.toString());
-
-    auto parserLayoutWidget = new QWidget;
-    auto parserLayout = new QHBoxLayout(parserLayoutWidget);
-    parserLayout->setContentsMargins(0, 0, 0, 0);
-    m_predefinedMacros->setPlaceholderText(Tr::tr("MACRO[=VALUE]"));
-    m_predefinedMacros->setTabChangesFocus(true);
-    m_predefinedMacros->setToolTip(Tr::tr("Each line defines a macro. Format is MACRO[=VALUE]."));
-    m_headerPaths->setTabChangesFocus(true);
-    m_headerPaths->setToolTip(Tr::tr("Each line adds a global header lookup path."));
-    m_cxx11Flags->setToolTip(Tr::tr("Comma-separated list of flags that turn on C++11 support."));
-    m_mkspecs->setToolTip(Tr::tr("Comma-separated list of mkspecs."));
-    m_makeCommand->setExpectedKind(PathChooserKind::ExistingCommand);
-    m_makeCommand->setHistoryCompleter("PE.MakeCommand.History");
-    m_mainLayout->addRow(Tr::tr("&Make path:"), m_makeCommand);
-    m_mainLayout->addRow(Tr::tr("&ABI:"), m_abiWidget);
-    m_mainLayout->addRow(Tr::tr("&Predefined macros:"), m_predefinedDetails);
-    m_mainLayout->addRow(Tr::tr("&Header paths:"), m_headerDetails);
-    m_mainLayout->addRow(Tr::tr("C++11 &flags:"), m_cxx11Flags);
-    m_mainLayout->addRow(Tr::tr("&Qt mkspecs:"), m_mkspecs);
-    parserLayout->addWidget(m_errorParserComboBox);
-    m_mainLayout->addRow(Tr::tr("&Error parser:"), parserLayoutWidget);
-    addErrorLabel();
-
-    setFromToolchain();
-    m_predefinedDetails->updateSummaryText();
-    m_headerDetails->updateSummaryText();
-
-    connect(m_makeCommand, &PathChooser::rawPathChanged, this, &ToolchainConfigWidget::dirty);
-    connect(m_abiWidget, &AbiWidget::abiChanged, this, &ToolchainConfigWidget::dirty);
-    connect(m_predefinedMacros, &QPlainTextEdit::textChanged,
-            this, [this] { updateSummaries(m_predefinedDetails); });
-    connect(m_headerPaths, &QPlainTextEdit::textChanged,
-            this, [this] { updateSummaries(m_headerDetails); });
-    connect(m_cxx11Flags, &QLineEdit::textChanged, this, &ToolchainConfigWidget::dirty);
-    connect(m_mkspecs, &QLineEdit::textChanged, this, &ToolchainConfigWidget::dirty);
-    connect(m_errorParserComboBox, &QComboBox::currentIndexChanged,
-            this, &CustomToolchainConfigWidget::errorParserChanged);
-    errorParserChanged();
-}
-
-void CustomToolchainConfigWidget::updateSummaries(TextEditDetailsWidget *detailsWidget)
-{
-    detailsWidget->updateSummaryText();
-    emit dirty();
-}
-
-void CustomToolchainConfigWidget::errorParserChanged(int )
-{
-    emit dirty();
-}
-
-void CustomToolchainConfigWidget::applyImpl()
-{
-    if (bundle().detectionSource().isAutoDetected())
-        return;
-
-    bundle().setTargetAbi(m_abiWidget->currentAbi());
-    const Macros macros = Utils::transform<QList>(
-        m_predefinedDetails->text().split('\n', Qt::SkipEmptyParts),
-        [](const QString &m) {
-            return Macro::fromKeyValue(m);
-        });
-    bundle().forEach<CustomToolchain>([&](CustomToolchain &tc) {
-        tc.setMakeCommand(m_makeCommand->filePath());
-        tc.setPredefinedMacros(macros);
-        tc.setHeaderPaths(m_headerDetails->entries());
-        tc.setCxx11Flags(m_cxx11Flags->text().split(QLatin1Char(',')));
-        tc.setMkspecs(m_mkspecs->text());
-        tc.setOutputParserId(Id::fromSetting(m_errorParserComboBox->currentData()));
-    });
-
-    // Refresh with actual data from the toolchain. This shows what e.g. the
-    // macro parser did with the input.
-    setFromToolchain();
-}
-
-void CustomToolchainConfigWidget::setFromToolchain()
-{
-    // subwidgets are not yet connected!
-    QSignalBlocker blocker(this);
-    m_makeCommand->setFilePath(bundle().makeCommand(Environment()));
-    m_abiWidget->setAbis(Abis(), bundle().targetAbi());
-    const QStringList macroLines = Utils::transform<QList>(
-        bundle().get(&CustomToolchain::rawPredefinedMacros),
-        [](const Macro &m) { return QString::fromUtf8(m.toKeyValue(QByteArray())); });
-    m_predefinedMacros->setPlainText(macroLines.join('\n'));
-    m_headerPaths->setPlainText(bundle().get(&CustomToolchain::headerPathsList).join('\n'));
-    m_cxx11Flags->setText(bundle().get(&CustomToolchain::cxx11Flags).join(QLatin1Char(',')));
-    m_mkspecs->setText(bundle().get(&CustomToolchain::mkspecs));
-    const int index = m_errorParserComboBox->findData(
-        bundle().get(&CustomToolchain::outputParserId).toSetting());
-    m_errorParserComboBox->setCurrentIndex(index);
-}
-
-void CustomToolchainConfigWidget::makeReadOnlyImpl()
-{
-    m_mainLayout->setEnabled(false);
-}
 
 // CustomToolchainFactory
 
@@ -538,10 +452,10 @@ public:
     }
 
 private:
-    std::unique_ptr<ToolchainConfigWidget> createConfigurationWidget(
+    std::unique_ptr<ToolchainConfigAspects> createConfigurationAspects(
         const ToolchainBundle &bundle) const override
     {
-        return std::make_unique<CustomToolchainConfigWidget>(bundle);
+        return std::make_unique<CustomToolchainAspects>(bundle);
     }
 
     FilePath correspondingCompilerCommand(const FilePath &srcPath, Id targetLang) const override

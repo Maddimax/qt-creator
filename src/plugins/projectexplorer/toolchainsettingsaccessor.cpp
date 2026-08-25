@@ -19,7 +19,7 @@
 
 #ifdef WITH_TESTS
 #include "abi.h"
-#include "toolchainconfigwidget.h"
+#include "toolchainconfigaspects.h"
 
 #include <QSet>
 #include <QTest>
@@ -374,11 +374,6 @@ private slots:
             TestToolchainFactory() {
                 setSupportedToolchainType(TestToolChainType);
                 setToolchainConstructor([] { return new TTC; });
-            }
-            std::unique_ptr<ToolchainConfigWidget> createConfigurationWidget(
-                const ToolchainBundle &) const override
-            {
-                return nullptr;
             }
         };
 

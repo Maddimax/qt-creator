@@ -9,7 +9,7 @@
 #include <projectexplorer/kitmanager.h>
 #include <projectexplorer/toolchainmanager.h>
 #include <projectexplorer/projectexplorerconstants.h>
-#include <projectexplorer/toolchainconfigwidget.h>
+#include <projectexplorer/toolchainconfigaspects.h>
 
 #include <qtsupport/qtversionmanager.h>
 
@@ -257,10 +257,10 @@ public:
     }
 
 private:
-    std::unique_ptr<ToolchainConfigWidget> createConfigurationWidget(
+    std::unique_ptr<ToolchainConfigAspects> createConfigurationAspects(
         const ToolchainBundle &bundle) const final
     {
-        return GccToolchain::createConfigurationWidget(bundle);
+        return GccToolchain::createConfigurationAspects(bundle);
     }
 
     FilePath correspondingCompilerCommand(const FilePath &srcPath, Id targetLang) const override

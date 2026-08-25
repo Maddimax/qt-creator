@@ -7,10 +7,10 @@
 #include "baremetaltr.h"
 #include "iarewparser.h"
 
-#include <projectexplorer/abiwidget.h>
+#include <projectexplorer/abiaspect.h>
 #include <projectexplorer/projectexplorerconstants.h>
 #include <projectexplorer/projectmacro.h>
-#include <projectexplorer/toolchainconfigwidget.h>
+#include <projectexplorer/toolchainconfigaspects.h>
 #include <projectexplorer/toolchainmanager.h>
 
 #include <utils/algorithm.h>
@@ -22,9 +22,6 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
-#include <QFormLayout>
-#include <QLineEdit>
-#include <QPlainTextEdit>
 #include <QSettings>
 #include <QTemporaryFile>
 
@@ -248,26 +245,7 @@ static QString buildDisplayName(Abi::Architecture arch, const QString &version)
     return Tr::tr("IAREW %1 (%2)").arg(version, archName);
 }
 
-// IarToolchainConfigWidget
-
-class IarToolchainConfigWidget final : public ToolchainConfigWidget
-{
-public:
-    explicit IarToolchainConfigWidget(const ProjectExplorer::ToolchainBundle &bundle);
-
-private:
-    void applyImpl() final;
-    void makeReadOnlyImpl() final;
-
-    void setFromToolchain();
-    void handleCompilerCommandChange(Id language);
-    void handlePlatformCodeGenFlagsChange();
-
-    AbiWidget *m_abiWidget = nullptr;
-    QLineEdit *m_platformCodeGenFlagsLineEdit = nullptr;
-    Macros m_cMacros;
-    Macros m_cxxMacros;
-};
+class IarToolchainAspects;
 
 // IarToolchain
 
@@ -304,7 +282,7 @@ private:
     StringListAspect m_extraCodeModelFlags{this};
 
     friend class IarToolchainFactory;
-    friend class IarToolchainConfigWidget;
+    friend class IarToolchainAspects;
 };
 
 Toolchain::MacroInspectionRunner IarToolchain::createMacroInspectionRunner() const
@@ -404,7 +382,7 @@ public:
 
     Toolchains autoDetect(const ToolchainDetector &detector) const final;
     Toolchains detectForImport(const ToolchainDescription &tcd) const final;
-    std::unique_ptr<ToolchainConfigWidget> createConfigurationWidget(
+    std::unique_ptr<ToolchainConfigAspects> createConfigurationAspects(
         const ProjectExplorer::ToolchainBundle &bundle) const final;
 
 private:
@@ -496,12 +474,6 @@ Toolchains IarToolchainFactory::detectForImport(const ToolchainDescription &tcd)
     return { autoDetectToolchain({tcd.compilerPath, {}}, tcd.language) };
 }
 
-std::unique_ptr<ToolchainConfigWidget> IarToolchainFactory::createConfigurationWidget(
-    const ToolchainBundle &bundle) const
-{
-    return std::make_unique<IarToolchainConfigWidget>(bundle);
-}
-
 Toolchains IarToolchainFactory::autoDetectToolchains(
         const Candidates &candidates, const Toolchains &alreadyKnown) const
 {
@@ -552,94 +524,107 @@ Toolchains IarToolchainFactory::autoDetectToolchain(const Candidate &candidate, 
     return {tc};
 }
 
-// IarToolchainConfigWidget
+// IarToolchainAspects
 
-IarToolchainConfigWidget::IarToolchainConfigWidget(const ToolchainBundle &bundle) :
-    ToolchainConfigWidget(bundle),
-    m_abiWidget(new AbiWidget)
+class IarToolchainAspects final : public ToolchainConfigAspects
 {
-    m_platformCodeGenFlagsLineEdit = new QLineEdit(this);
-    m_platformCodeGenFlagsLineEdit->setText(ProcessArgs::joinArgs(bundle.extraCodeModelFlags()));
-    m_mainLayout->addRow(Tr::tr("Platform codegen flags:"), m_platformCodeGenFlagsLineEdit);
-    m_mainLayout->addRow(Tr::tr("&ABI:"), m_abiWidget);
+public:
+    explicit IarToolchainAspects(const ToolchainBundle &bundle)
+        : ToolchainConfigAspects(bundle)
+    {
+        m_codeGenFlags.setQmlName("PlatformCodeGenFlags");
+        m_codeGenFlags.setLabelText(Tr::tr("Platform codegen flags:"));
+        m_codeGenFlags.setDisplayStyle(StringAspect::LineEditDisplay);
 
-    m_abiWidget->setEnabled(false);
+        m_abi.setQmlName("Abi");
+        m_abi.setLabelText(Tr::tr("&ABI:"));
+        showToolchain();
 
-    addErrorLabel();
-    setFromToolchain();
-
-    connect(this, &ToolchainConfigWidget::compilerCommandChanged,
-            this, &IarToolchainConfigWidget::handleCompilerCommandChange);
-    connect(m_platformCodeGenFlagsLineEdit, &QLineEdit::editingFinished,
-            this, &IarToolchainConfigWidget::handlePlatformCodeGenFlagsChange);
-    connect(m_abiWidget, &AbiWidget::abiChanged,
-            this, &ToolchainConfigWidget::dirty);
-}
-
-void IarToolchainConfigWidget::applyImpl()
-{
-    if (bundle().detectionSource().isAutoDetected())
-        return;
-
-    bundle().forEach<IarToolchain>([this](IarToolchain &tc) {
-        tc.m_extraCodeModelFlags.setValue(splitString(m_platformCodeGenFlagsLineEdit->text()));
-    });
-    bundle().setTargetAbi(m_abiWidget->currentAbi());
-
-    if (m_cMacros.isEmpty() && m_cxxMacros.isEmpty())
-        return;
-
-    bundle().forEach<IarToolchain>([this](IarToolchain &tc) {
-        const Macros &macros = tc.language() == ProjectExplorer::Constants::C_LANGUAGE_ID
-            ? m_cMacros : m_cxxMacros;
-        const auto languageVersion = Toolchain::languageVersion(tc.language(), macros);
-        tc.predefinedMacrosCache()->insert({}, {macros, languageVersion});
-    });
-
-    setFromToolchain();
-}
-
-void IarToolchainConfigWidget::makeReadOnlyImpl()
-{
-    m_platformCodeGenFlagsLineEdit->setEnabled(false);
-    m_abiWidget->setEnabled(false);
-}
-
-void IarToolchainConfigWidget::setFromToolchain()
-{
-    const QSignalBlocker blocker(this);
-    m_platformCodeGenFlagsLineEdit->setText(ProcessArgs::joinArgs(bundle().extraCodeModelFlags()));
-    m_abiWidget->setAbis({}, bundle().targetAbi());
-    m_abiWidget->setEnabled(hasAnyCompiler() && !bundle().detectionSource().isAutoDetected());
-}
-
-void IarToolchainConfigWidget::handleCompilerCommandChange(Id language)
-{
-    const bool isC = language == ProjectExplorer::Constants::C_LANGUAGE_ID;
-    const FilePath compilerPath = compilerCommand(language);
-    Macros &macros = isC ? m_cMacros : m_cxxMacros;
-    const bool haveCompiler = compilerPath.isExecutableFile();
-    if (haveCompiler) {
-        const auto env = Environment::systemEnvironment();
-        const QStringList extraArgs = splitString(m_platformCodeGenFlagsLineEdit->text());
-        macros = dumpPredefinedMacros(compilerPath, extraArgs, language, env);
-        const Abi guessed = guessAbi(macros);
-        m_abiWidget->setAbis({}, guessed);
+        for (const auto &[tc, command] : compilerCommands()) {
+            command->addOnVolatileValueChanged(this, [this, language = tc->language()] {
+                handleCompilerCommandChange(language);
+            });
+        }
+        m_codeGenFlags.addOnVolatileValueChanged(this, [this] {
+            const QString normalised = ProcessArgs::joinArgs(codeGenFlags());
+            if (normalised != m_codeGenFlags.volatileValue()) {
+                m_codeGenFlags.setValue(normalised);
+                return; // The change it makes brings us back here.
+            }
+            handleCompilerCommandChange(ProjectExplorer::Constants::C_LANGUAGE_ID);
+            handleCompilerCommandChange(ProjectExplorer::Constants::CXX_LANGUAGE_ID);
+        });
     }
-    m_abiWidget->setEnabled(hasAnyCompiler() && !bundle().detectionSource().isAutoDetected());
-    emit dirty();
-}
 
-void IarToolchainConfigWidget::handlePlatformCodeGenFlagsChange()
-{
-    const QString str1 = m_platformCodeGenFlagsLineEdit->text();
-    const QString str2 = ProcessArgs::joinArgs(splitString(str1));
-    if (str1 != str2) {
-        m_platformCodeGenFlagsLineEdit->setText(str2);
-    } else {
-        handleCompilerCommandChange(ProjectExplorer::Constants::C_LANGUAGE_ID);
-        handleCompilerCommandChange(ProjectExplorer::Constants::CXX_LANGUAGE_ID);
+    void apply() override
+    {
+        ToolchainConfigAspects::apply();
+        if (bundle().detectionSource().isAutoDetected())
+            return;
+
+        const QStringList flags = codeGenFlags();
+        bundle().forEach<IarToolchain>(
+            [&flags](IarToolchain &tc) { tc.m_extraCodeModelFlags.setValue(flags); });
+        bundle().setTargetAbi(m_abi.currentAbi());
+
+        if (m_cMacros.isEmpty() && m_cxxMacros.isEmpty())
+            return;
+
+        bundle().forEach<IarToolchain>([this](IarToolchain &tc) {
+            const Macros &macros = tc.language() == ProjectExplorer::Constants::C_LANGUAGE_ID
+                                       ? m_cMacros : m_cxxMacros;
+            const LanguageVersion version = Toolchain::languageVersion(tc.language(), macros);
+            tc.predefinedMacrosCache()->insert({}, {macros, version});
+        });
+        showToolchain();
     }
+
+    void makeReadOnly() override
+    {
+        ToolchainConfigAspects::makeReadOnly();
+        m_codeGenFlags.setEnabled(false);
+        m_abi.setEnabled(false);
+    }
+
+private:
+    QStringList codeGenFlags() const
+    {
+        return splitString(const_cast<StringAspect &>(m_codeGenFlags).volatileValue());
+    }
+
+    void showToolchain()
+    {
+        m_codeGenFlags.setValue(ProcessArgs::joinArgs(bundle().extraCodeModelFlags()));
+        m_abi.setAbis({}, bundle().targetAbi());
+        m_abi.setEnabled(hasAnyCompiler() && !bundle().detectionSource().isAutoDetected());
+    }
+
+    void handleCompilerCommandChange(Id language)
+    {
+        FilePathAspect * const command = compilerCommand(language);
+        if (!command)
+            return;
+        const FilePath compilerPath = command->expandedVolatileValue();
+        Macros &macros = language == ProjectExplorer::Constants::C_LANGUAGE_ID ? m_cMacros
+                                                                              : m_cxxMacros;
+        if (compilerPath.isExecutableFile()) {
+            macros = dumpPredefinedMacros(compilerPath, codeGenFlags(), language,
+                                          Environment::systemEnvironment());
+            m_abi.setAbis({}, guessAbi(macros));
+        }
+        m_abi.setEnabled(hasAnyCompiler() && !bundle().detectionSource().isAutoDetected());
+    }
+
+    StringAspect m_codeGenFlags{this};
+    AbiAspects m_abi{this};
+    Macros m_cMacros;
+    Macros m_cxxMacros;
+};
+
+std::unique_ptr<ToolchainConfigAspects> IarToolchainFactory::createConfigurationAspects(
+    const ToolchainBundle &bundle) const
+{
+    return std::make_unique<IarToolchainAspects>(bundle);
 }
 
 } // BareMetal::Internal

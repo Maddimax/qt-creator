@@ -73,7 +73,7 @@
 #include "target.h"
 #include "taskfile.h"
 #include "taskhub.h"
-#include "toolchainconfigwidget.h"
+#include "toolchainconfigaspects.h"
 #include "toolchainmanager.h"
 #include "toolchainoptionspage.h"
 #include "windowsappsdksettings.h"

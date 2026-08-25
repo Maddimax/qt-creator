@@ -15,7 +15,7 @@
 namespace ProjectExplorer {
 
 namespace Internal {
-class GccToolchainConfigWidget;
+class GccToolchainAspects;
 class GccToolchainFactory;
 
 const QStringList gccPredefinedMacrosOptions(Utils::Id languageId);
@@ -33,7 +33,7 @@ public:
     GccToolchain(Utils::Id typeId, SubType subType = RealGcc);
     ~GccToolchain() override;
 
-    static std::unique_ptr<ToolchainConfigWidget> createConfigurationWidget(
+    static std::unique_ptr<ToolchainConfigAspects> createConfigurationAspects(
         const ToolchainBundle &bundle);
 
     QString originalTargetTriple() const override;
@@ -144,7 +144,7 @@ private:
     mutable QString m_version;
     mutable Utils::FilePath m_installDir;
 
-    friend class Internal::GccToolchainConfigWidget;
+    friend class Internal::GccToolchainAspects;
     friend class Internal::GccToolchainFactory;
 
     // "resolved" on macOS from /usr/bin/clang(++) etc to <DeveloperDir>/usr/bin/clang(++)

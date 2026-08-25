@@ -166,7 +166,7 @@ add_qtc_plugin(ProjectExplorer
     taskwindow.cpp taskwindow.h
     toolchain.cpp toolchain.h
     toolchaincache.h
-    toolchainconfigwidget.cpp toolchainconfigwidget.h
+    toolchainconfigaspects.cpp toolchainconfigaspects.h
     toolchainkitaspect.cpp toolchainkitaspect.h
     toolchainmanager.cpp toolchainmanager.h
     toolchainoptionspage.cpp toolchainoptionspage.h
@@ -237,6 +237,7 @@ if(TARGET ProjectExplorer AND TARGET Qt::Quick)
       BuildPropertiesSettingsPage.qml
       CompileOutputSettingsPage.qml
       CustomParsersSettingsPage.qml
+      ToolchainsPage.qml
       devicesupport/SshSettingsPage.qml
   )
 endif()

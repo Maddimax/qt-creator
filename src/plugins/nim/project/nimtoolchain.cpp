@@ -9,7 +9,7 @@
 
 #include <projectexplorer/abi.h>
 #include <projectexplorer/devicesupport/devicemanager.h>
-#include <projectexplorer/toolchainconfigwidget.h>
+#include <projectexplorer/toolchainconfigaspects.h>
 
 #include <utils/algorithm.h>
 #include <utils/environment.h>
@@ -17,7 +17,6 @@
 #include <utils/pathchooser.h>
 #include <utils/qtcprocess.h>
 
-#include <QFormLayout>
 #include <QRegularExpression>
 
 using namespace ProjectExplorer;
@@ -116,49 +115,37 @@ bool NimToolchain::parseVersion(const FilePath &path, std::tuple<int, int, int> 
     return true;
 }
 
-// NimToolchainConfigWidget
-
-class NimToolchainConfigWidget : public ToolchainConfigWidget
+class NimToolchainAspects : public ToolchainConfigAspects
 {
 public:
-    explicit NimToolchainConfigWidget(const ToolchainBundle &bundle)
-        : ToolchainConfigWidget(bundle)
-        , m_compilerVersion(new QLineEdit)
+    explicit NimToolchainAspects(const ToolchainBundle &bundle)
+        : ToolchainConfigAspects(bundle)
     {
-        // Create ui
         setCommandVersionArguments({"--version"});
-        m_compilerVersion->setReadOnly(true);
-        m_mainLayout->addRow(Tr::tr("&Compiler version:"), m_compilerVersion);
 
-        // Fill
-        fillUI();
+        m_compilerVersion.setQmlName("CompilerVersion");
+        m_compilerVersion.setLabelText(Tr::tr("&Compiler version:"));
+        m_compilerVersion.setDisplayStyle(StringAspect::LineEditDisplay);
+        m_compilerVersion.setReadOnly(true);
+        showCompilerVersion();
 
-        // Connect
-        connect(this, &ToolchainConfigWidget::compilerCommandChanged, this, [this] {
-            const FilePath path = compilerCommand(Constants::C_NIMLANGUAGE_ID);
-            this->bundle().setCompilerCommand(Constants::C_NIMLANGUAGE_ID, path);
-            fillUI();
-        });
+        if (FilePathAspect * const command = compilerCommand(Constants::C_NIMLANGUAGE_ID)) {
+            command->addOnVolatileValueChanged(this, [this, command] {
+                this->bundle().setCompilerCommand(Constants::C_NIMLANGUAGE_ID,
+                                                  command->expandedVolatileValue());
+                showCompilerVersion();
+            });
+        }
     }
 
-protected:
-    void applyImpl() final;
-    void makeReadOnlyImpl() final;
-
 private:
-    void fillUI();
+    void showCompilerVersion()
+    {
+        m_compilerVersion.setValue(bundle().get(&NimToolchain::compilerVersion));
+    }
 
-    QLineEdit *m_compilerVersion;
+    StringAspect m_compilerVersion{this};
 };
-
-void NimToolchainConfigWidget::applyImpl() {}
-
-void NimToolchainConfigWidget::makeReadOnlyImpl() {}
-
-void NimToolchainConfigWidget::fillUI()
-{
-    m_compilerVersion->setText(bundle().get(&NimToolchain::compilerVersion));
-}
 
 // NimToolchainFactory
 
@@ -206,10 +193,10 @@ Toolchains NimToolchainFactory::detectForImport(const ToolchainDescription &tcd)
     return result;
 }
 
-std::unique_ptr<ToolchainConfigWidget> NimToolchainFactory::createConfigurationWidget(
+std::unique_ptr<ToolchainConfigAspects> NimToolchainFactory::createConfigurationAspects(
     const ProjectExplorer::ToolchainBundle &bundle) const
 {
-    return std::make_unique<NimToolchainConfigWidget>(bundle);
+    return std::make_unique<NimToolchainAspects>(bundle);
 }
 
 } // Nim

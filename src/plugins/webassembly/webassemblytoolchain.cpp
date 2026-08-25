@@ -12,7 +12,7 @@
 #include <projectexplorer/gcctoolchain.h>
 #include <projectexplorer/kitmanager.h>
 #include <projectexplorer/projectexplorerconstants.h>
-#include <projectexplorer/toolchainconfigwidget.h>
+#include <projectexplorer/toolchainconfigaspects.h>
 #include <projectexplorer/toolchainmanager.h>
 
 #include <qtsupport/qtkitaspect.h>
@@ -193,10 +193,10 @@ private:
         return doAutoDetect(detector);
     }
 
-    std::unique_ptr<ToolchainConfigWidget> createConfigurationWidget(
+    std::unique_ptr<ToolchainConfigAspects> createConfigurationAspects(
         const ToolchainBundle &bundle) const override
     {
-        return GccToolchain::createConfigurationWidget(bundle);
+        return GccToolchain::createConfigurationAspects(bundle);
     }
 
     FilePath correspondingCompilerCommand(const FilePath &srcPath, Id targetLang) const override

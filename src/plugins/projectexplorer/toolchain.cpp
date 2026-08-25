@@ -684,6 +684,13 @@ ToolchainFactory *ToolchainFactory::factoryForType(Id typeId)
     });
 }
 
+std::unique_ptr<ToolchainConfigAspects> ToolchainFactory::createConfigurationAspects(
+    const ToolchainBundle &bundle) const
+{
+    Q_UNUSED(bundle)
+    return {};
+}
+
 Toolchains ToolchainFactory::autoDetect(const ToolchainDetector &detector) const
 {
     Q_UNUSED(detector)

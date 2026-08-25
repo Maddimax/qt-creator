@@ -10,39 +10,22 @@
 #include <debugger/debuggeritem.h>
 #include <debugger/debuggeritemmanager.h>
 
-#include <projectexplorer/abiwidget.h>
+#include <projectexplorer/abiaspect.h>
 #include <projectexplorer/devicesupport/devicemanager.h>
 #include <projectexplorer/devicesupport/idevice.h>
 #include <projectexplorer/projectexplorerconstants.h>
-#include <projectexplorer/toolchainconfigwidget.h>
+#include <projectexplorer/toolchainconfigaspects.h>
 
 #include <utils/algorithm.h>
 #include <utils/pathchooser.h>
 #include <utils/qtcassert.h>
-
-#include <QFormLayout>
 
 using namespace ProjectExplorer;
 using namespace Utils;
 
 namespace Qnx::Internal {
 
-// QnxToolchainConfigWidget
-
-class QnxToolchainConfigWidget : public ToolchainConfigWidget
-{
-public:
-    QnxToolchainConfigWidget(const ToolchainBundle &bundle);
-
-private:
-    void applyImpl() override;
-    void makeReadOnlyImpl() override { }
-
-    void handleSdpPathChange();
-
-    PathChooser *m_sdpPath;
-    ProjectExplorer::AbiWidget *m_abiWidget;
-};
+static Abis detectTargetAbis(const FilePath &sdpPath);
 
 static Abis detectTargetAbis(const FilePath &sdpPath)
 {
@@ -201,61 +184,73 @@ FilePath QnxToolchain::detectInstallDir() const
     return {};
 }
 
-//---------------------------------------------------------------------------------
-// QnxToolChainConfigWidget
-//---------------------------------------------------------------------------------
+// QnxToolchainAspects
 
-QnxToolchainConfigWidget::QnxToolchainConfigWidget(const ToolchainBundle &bundle)
-    : ToolchainConfigWidget(bundle)
-    , m_sdpPath(new PathChooser)
-    , m_abiWidget(new AbiWidget)
+class QnxToolchainAspects : public ToolchainConfigAspects
 {
-    m_sdpPath->setExpectedKind(PathChooserKind::ExistingDirectory);
-    m_sdpPath->setHistoryCompleter("Qnx.Sdp.History");
-    m_sdpPath->setFilePath(bundle.get<QnxToolchain>(&QnxToolchain::sdpPath)());
-    m_sdpPath->setEnabled(!bundle.detectionSource().isAutoDetected());
+public:
+    explicit QnxToolchainAspects(const ToolchainBundle &bundle)
+        : ToolchainConfigAspects(bundle)
+    {
+        //: SDP refers to 'Software Development Platform'.
+        m_sdpPath.setLabelText(Tr::tr("SDP path:"));
+        m_sdpPath.setQmlName("SdpPath");
+        m_sdpPath.setExpectedKind(PathChooserKind::ExistingDirectory);
+        m_sdpPath.setHistoryCompleter("Qnx.Sdp.History");
+        m_sdpPath.setValue(bundle.get<QnxToolchain>(&QnxToolchain::sdpPath)());
+        m_sdpPath.setEnabled(!bundle.detectionSource().isAutoDetected());
 
-    const Abis abiList = detectTargetAbis(m_sdpPath->filePath());
-    m_abiWidget->setAbis(abiList, bundle.targetAbi());
-    m_abiWidget->setEnabled(!bundle.detectionSource().isAutoDetected() && !abiList.isEmpty());
+        m_abi.setLabelText(Tr::tr("&ABI:"));
+        m_abi.setQmlName("Abi");
+        const Abis abiList = detectTargetAbis(m_sdpPath.expandedVolatileValue());
+        m_abi.setAbis(abiList, bundle.targetAbi());
+        m_abi.setEnabled(!bundle.detectionSource().isAutoDetected() && !abiList.isEmpty());
 
-    //: SDP refers to 'Software Development Platform'.
-    m_mainLayout->addRow(Tr::tr("SDP path:"), m_sdpPath);
-    m_mainLayout->addRow(Tr::tr("&ABI:"), m_abiWidget);
+        m_sdpPath.addOnVolatileValueChanged(this, [this] { handleSdpPathChange(); });
+    }
 
-    connect(m_sdpPath, &PathChooser::rawPathChanged,
-            this, &QnxToolchainConfigWidget::handleSdpPathChange);
-    connect(m_abiWidget, &AbiWidget::abiChanged, this, &ToolchainConfigWidget::dirty);
-}
+    void apply() override
+    {
+        ToolchainConfigAspects::apply();
+        if (bundle().detectionSource().isAutoDetected())
+            return;
 
-void QnxToolchainConfigWidget::applyImpl()
-{
-    if (bundle().detectionSource().isAutoDetected())
-        return;
+        bundle().setTargetAbi(m_abi.currentAbi());
+        bundle().forEach<QnxToolchain>([this](QnxToolchain &tc) {
+            tc.sdpPath.setValue(m_sdpPath.expandedVolatileValue());
+            if (FilePathAspect * const command = compilerCommand(tc.language()))
+                tc.resetToolchain(command->expandedVolatileValue());
+        });
+    }
 
-    bundle().setTargetAbi(m_abiWidget->currentAbi());
-    bundle().forEach<QnxToolchain>([this](QnxToolchain &tc) {
-        tc.sdpPath.setValue(m_sdpPath->filePath());
-        tc.resetToolchain(compilerCommand(tc.language()));
-    });
-}
+    void makeReadOnly() override
+    {
+        ToolchainConfigAspects::makeReadOnly();
+        m_sdpPath.setEnabled(false);
+        m_abi.setEnabled(false);
+    }
 
-void QnxToolchainConfigWidget::handleSdpPathChange()
-{
-    const Abi currentAbi = m_abiWidget->currentAbi();
-    const bool customAbi = m_abiWidget->isCustomAbi();
-    const Abis abiList = detectTargetAbis(m_sdpPath->filePath());
+private:
+    void handleSdpPathChange()
+    {
+        const Abi currentAbi = m_abi.currentAbi();
+        const bool customAbi = m_abi.isCustomAbi();
+        const Abis abiList = detectTargetAbis(m_sdpPath.expandedVolatileValue());
 
-    m_abiWidget->setEnabled(!abiList.isEmpty());
+        m_abi.setEnabled(!abiList.isEmpty());
 
-    // Find a good ABI for the new compiler:
-    Abi newAbi;
-    if (customAbi || abiList.contains(currentAbi))
-        newAbi = currentAbi;
+        // Keep the ABI where the new SDP still offers it, or where it was the
+        // user's own.
+        Abi newAbi;
+        if (customAbi || abiList.contains(currentAbi))
+            newAbi = currentAbi;
 
-    m_abiWidget->setAbis(abiList, newAbi);
-    emit dirty();
-}
+        m_abi.setAbis(abiList, newAbi);
+    }
+
+    FilePathAspect m_sdpPath{this};
+    AbiAspects m_abi{this};
+};
 
 // Resolve the SDP environment file on a device. Prefer the value of the
 // QnxSdpEnvFileToolAspect, but fall back to probing the well-known SDP install
@@ -353,10 +348,10 @@ public:
         return autoDetectFromEnvFile(qnxSdpEnvFile(detector.device), detector.alreadyKnown);
     }
 
-    std::unique_ptr<ProjectExplorer::ToolchainConfigWidget> createConfigurationWidget(
+    std::unique_ptr<ProjectExplorer::ToolchainConfigAspects> createConfigurationAspects(
         const ToolchainBundle &bundle) const override
     {
-        return std::make_unique<QnxToolchainConfigWidget>(bundle);
+        return std::make_unique<QnxToolchainAspects>(bundle);
     }
 };
 

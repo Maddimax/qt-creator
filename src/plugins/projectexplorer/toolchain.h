@@ -44,7 +44,6 @@ QString languageId(Language l);
 } // namespace Deprecated
 
 class GccToolchain;
-class ToolchainConfigWidget;
 class ToolchainFactory;
 class Kit;
 
@@ -364,6 +363,8 @@ public:
     const Utils::FilePaths searchPaths; // If empty use PATH.
 };
 
+class ToolchainConfigAspects;
+
 class PROJECTEXPLORER_EXPORT ToolchainFactory
 {
     ToolchainFactory(const ToolchainFactory &) = delete;
@@ -381,8 +382,10 @@ public:
 
     virtual Toolchains autoDetect(const ToolchainDetector &detector) const;
     virtual Toolchains detectForImport(const ToolchainDescription &tcd) const;
-    virtual std::unique_ptr<ToolchainConfigWidget> createConfigurationWidget(
-        const ToolchainBundle &bundle) const = 0;
+    // What the settings page asks a toolchain to be configured with. A kind
+    // with nothing of its own to ask answers nothing.
+    virtual std::unique_ptr<ToolchainConfigAspects> createConfigurationAspects(
+        const ToolchainBundle &bundle) const;
     virtual Utils::FilePath correspondingCompilerCommand(
         const Utils::FilePath &srcPath, Utils::Id targetLang) const;
 

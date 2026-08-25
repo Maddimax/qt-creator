@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "msvctoolchain.h"
-#include "toolchainconfigwidget.h"
+#include "toolchainconfigaspects.h"
 #include "toolchainmanager.h"
 
-#include "abiwidget.h"
+#include "abiaspect.h"
 #include "devicesupport/devicemanager.h"
 #include "devicesupport/idevice.h"
 #include "gcctoolchain.h"
@@ -1612,12 +1612,6 @@ MsvcToolchain::Platform MsvcToolchain::platform() const
     return Utils::HostOsInfo::hostArchitecture() == Utils::OsArchAMD64 ? amd64 : x86;
 }
 
-// --------------------------------------------------------------------------
-// MsvcBasedToolchainConfigWidget: Creates a simple GUI without error label
-// to display name and varsBat. Derived classes should add the error label and
-// call setFromMsvcToolchain().
-// --------------------------------------------------------------------------
-
 static QString msvcVarsToDisplay(const MsvcToolchain &tc)
 {
     QString varsBatDisplay = tc.varsBat().toUserOutput();
@@ -1633,264 +1627,256 @@ static QString msvcVarsToDisplay(const ToolchainBundle &bundle)
     return msvcVarsToDisplay(static_cast<const MsvcToolchain &>(*bundle.toolchains().first()));
 }
 
-class MsvcBasedToolchainConfigWidget : public ToolchainConfigWidget
+// --------------------------------------------------------------------------
+// MsvcBasedToolchainAspects: what every MSVC-family toolchain is asked, which
+// is little: MSVC is found rather than pointed at.
+// --------------------------------------------------------------------------
+
+class MsvcBasedToolchainAspects : public ToolchainConfigAspects
 {
 public:
-    explicit MsvcBasedToolchainConfigWidget(const ToolchainBundle &bundle)
-        : ToolchainConfigWidget(bundle)
-        , m_nameDisplayLabel(new QLabel(this))
-        , m_varsBatDisplayLabel(new QLabel(this))
+    explicit MsvcBasedToolchainAspects(const ToolchainBundle &bundle)
+        : ToolchainConfigAspects(bundle)
     {
-        m_nameDisplayLabel->setTextInteractionFlags(Qt::TextBrowserInteraction);
-        m_mainLayout->addRow(m_nameDisplayLabel);
-        m_varsBatDisplayLabel->setTextInteractionFlags(Qt::TextBrowserInteraction);
-        m_mainLayout->addRow(Tr::tr("Initialization:"), m_varsBatDisplayLabel);
         if (g_availableMsvcToolchains.isEmpty()) {
-            setErrorMessage(
-                Tr::tr(
-                    "No MSVC toolchains were found. You need to install Visual Studio or the "
-                    "Visual Studio Build Tools."));
+            errorMessage().setText(
+                Tr::tr("No MSVC toolchains were found. You need to install Visual Studio or the "
+                       "Visual Studio Build Tools."));
+            errorMessage().setVisible(true);
         }
     }
-
-protected:
-    void applyImpl() override {}
-    void makeReadOnlyImpl() override {}
-
-    void setFromMsvcToolChain()
-    {
-        m_varsBatDisplayLabel->setText(msvcVarsToDisplay(bundle()));
-    }
-
-protected:
-    QLabel *m_nameDisplayLabel;
-    QLabel *m_varsBatDisplayLabel;
 };
 
 // --------------------------------------------------------------------------
-// MsvcToolchainConfigWidget
+// MsvcToolchainAspects
 // --------------------------------------------------------------------------
 
-class MsvcToolchainConfigWidget final : public MsvcBasedToolchainConfigWidget
+class MsvcToolchainAspects final : public MsvcBasedToolchainAspects
 {
 public:
-    explicit MsvcToolchainConfigWidget(const ToolchainBundle &bundle)
-        : MsvcBasedToolchainConfigWidget(bundle)
-        , m_varsBatPathCombo(new QComboBox(this))
-        , m_varsBatArchCombo(new QComboBox(this))
-        , m_varsBatArgumentsEdit(new QLineEdit(this))
-        , m_abiWidget(new AbiWidget)
+    explicit MsvcToolchainAspects(const ToolchainBundle &bundle)
+        : MsvcBasedToolchainAspects(bundle)
     {
-        m_mainLayout->removeRow(m_mainLayout->rowCount() - 1);
-
-        QHBoxLayout *hLayout = new QHBoxLayout();
-        m_varsBatPathCombo->setObjectName("varsBatCombo");
-        m_varsBatPathCombo->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Fixed);
-        m_varsBatPathCombo->setEditable(true);
-        for (const MsvcToolchain *tmpTc : std::as_const(g_availableMsvcToolchains)) {
-            const QString nativeVcVars = tmpTc->varsBat().toUserOutput();
-            if (!tmpTc->varsBat().isEmpty()
-                && m_varsBatPathCombo->findText(nativeVcVars) == -1) {
-                m_varsBatPathCombo->addItem(nativeVcVars);
-            }
+        m_varsBat.setQmlName("VarsBat");
+        m_varsBat.setLabelText(Tr::tr("Initialization:"));
+        m_varsBat.setDisplayStyle(StringAspect::LineEditDisplay);
+        QStringList varsBats;
+        for (const MsvcToolchain *tc : std::as_const(g_availableMsvcToolchains)) {
+            const QString nativeVarsBat = tc->varsBat().toUserOutput();
+            if (!tc->varsBat().isEmpty() && !varsBats.contains(nativeVarsBat))
+                varsBats.append(nativeVarsBat);
         }
-        const bool isAmd64 = Utils::HostOsInfo::hostArchitecture() == Utils::OsArchAMD64;
-        // TODO: Add missing values to MsvcToolChain::Platform
-        m_varsBatArchCombo->addItem(Tr::tr("<empty>"), isAmd64 ? MsvcToolchain::amd64 : MsvcToolchain::x86);
-        m_varsBatArchCombo->addItem("x86", MsvcToolchain::x86);
-        m_varsBatArchCombo->addItem("amd64", MsvcToolchain::amd64);
-        m_varsBatArchCombo->addItem("arm", MsvcToolchain::arm);
-        m_varsBatArchCombo->addItem("x86_amd64", MsvcToolchain::x86_amd64);
-        m_varsBatArchCombo->addItem("x86_arm", MsvcToolchain::x86_arm);
-        m_varsBatArchCombo->addItem("x86_arm64", MsvcToolchain::x86_arm64);
-        m_varsBatArchCombo->addItem("amd64_x86", MsvcToolchain::amd64_x86);
-        m_varsBatArchCombo->addItem("amd64_arm", MsvcToolchain::amd64_arm);
-        m_varsBatArchCombo->addItem("amd64_arm64", MsvcToolchain::amd64_arm64);
-        m_varsBatArchCombo->addItem("ia64", MsvcToolchain::ia64);
-        m_varsBatArchCombo->addItem("x86_ia64", MsvcToolchain::x86_ia64);
-        m_varsBatArchCombo->addItem("arm64", MsvcToolchain::arm64);
-        m_varsBatArchCombo->addItem("arm64_x86", MsvcToolchain::arm64_x86);
-        m_varsBatArchCombo->addItem("arm64_amd64", MsvcToolchain::arm64_amd64);
-        m_varsBatArgumentsEdit->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
-        m_varsBatArgumentsEdit->setToolTip(Tr::tr("Additional arguments for the vcvarsall.bat call"));
-        hLayout->addWidget(m_varsBatPathCombo);
-        hLayout->addWidget(m_varsBatArchCombo);
-        hLayout->addWidget(m_varsBatArgumentsEdit);
-        m_mainLayout->addRow(Tr::tr("Initialization:"), hLayout);
-        m_mainLayout->addRow(Tr::tr("&ABI:"), m_abiWidget);
-        addErrorLabel();
-        setFromMsvcToolchain();
+        m_varsBat.setCompletions(varsBats);
 
-        connect(m_varsBatPathCombo, &QComboBox::currentTextChanged,
-                this, &MsvcToolchainConfigWidget::handleVcVarsChange);
-        connect(m_varsBatArchCombo, &QComboBox::currentTextChanged,
-                this, &MsvcToolchainConfigWidget::handleVcVarsArchChange);
-        connect(m_varsBatArgumentsEdit, &QLineEdit::textChanged,
-                this, &ToolchainConfigWidget::dirty);
-        connect(m_abiWidget, &AbiWidget::abiChanged, this, &ToolchainConfigWidget::dirty);
+        m_varsBatArch.setQmlName("VarsBatArch");
+        m_varsBatArch.setLabelText(Tr::tr("Architecture:"));
+        m_varsBatArch.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
+        const bool isAmd64 = HostOsInfo::hostArchitecture() == OsArchAMD64;
+        // TODO: Add missing values to MsvcToolchain::Platform
+        m_varsBatArch.addOption(
+            {Tr::tr("<empty>"), {}, isAmd64 ? MsvcToolchain::amd64 : MsvcToolchain::x86});
+        for (const auto &[name, platform] : {
+                 std::pair{"x86", MsvcToolchain::x86},
+                 {"amd64", MsvcToolchain::amd64},
+                 {"arm", MsvcToolchain::arm},
+                 {"x86_amd64", MsvcToolchain::x86_amd64},
+                 {"x86_arm", MsvcToolchain::x86_arm},
+                 {"x86_arm64", MsvcToolchain::x86_arm64},
+                 {"amd64_x86", MsvcToolchain::amd64_x86},
+                 {"amd64_arm", MsvcToolchain::amd64_arm},
+                 {"amd64_arm64", MsvcToolchain::amd64_arm64},
+                 {"ia64", MsvcToolchain::ia64},
+                 {"x86_ia64", MsvcToolchain::x86_ia64},
+                 {"arm64", MsvcToolchain::arm64},
+                 {"arm64_x86", MsvcToolchain::arm64_x86},
+                 {"arm64_amd64", MsvcToolchain::arm64_amd64},
+             }) {
+            m_varsBatArch.addOption({QLatin1String(name), {}, platform});
+        }
+
+        m_varsBatArguments.setQmlName("VarsBatArguments");
+        m_varsBatArguments.setLabelText(Tr::tr("Arguments:"));
+        m_varsBatArguments.setDisplayStyle(StringAspect::LineEditDisplay);
+        m_varsBatArguments.setToolTip(Tr::tr("Additional arguments for the vcvarsall.bat call"));
+
+        m_abi.setQmlName("Abi");
+        m_abi.setLabelText(Tr::tr("&ABI:"));
+
+        showToolchain();
+
+        m_varsBat.addOnVolatileValueChanged(this, [this] { updateAbis(); });
+        m_varsBatArch.addOnVolatileValueChanged(this, [this] { updateAbis(); });
+    }
+
+    void apply() override
+    {
+        MsvcBasedToolchainAspects::apply();
+        const FilePath varsBat = FilePath::fromUserInput(m_varsBat.volatileValue());
+        bundle().set(&MsvcToolchain::setupVarsBat, m_abi.currentAbi(), varsBat, varsBatArguments());
+        showToolchain();
+    }
+
+    void makeReadOnly() override
+    {
+        MsvcBasedToolchainAspects::makeReadOnly();
+        m_varsBat.setEnabled(false);
+        m_varsBatArch.setEnabled(false);
+        m_varsBatArguments.setEnabled(false);
+        m_abi.setEnabled(false);
     }
 
 private:
-    void applyImpl() final;
-    void makeReadOnlyImpl() final;
+    QString varsBatArguments() const
+    {
+        const int index = m_varsBatArch.volatileValue();
+        QString args = index == 0 ? QString() : m_varsBatArch.displayForIndex(index);
+        const QString extra = const_cast<StringAspect &>(m_varsBatArguments).volatileValue();
+        if (!extra.isEmpty())
+            args += ' ' + extra;
+        return args;
+    }
 
-    void setFromMsvcToolchain();
+    void showToolchain()
+    {
+        // The architecture is written into the argument string; take it back out.
+        QStringList args = bundle().get(&MsvcToolchain::varsBatArg).split(' ');
+        for (int i = 0; i < args.count(); ++i) {
+            const int index = m_varsBatArch.indexForDisplay(args.at(i).trimmed());
+            if (index != -1) {
+                args.removeAt(i);
+                m_varsBatArch.setValue(index);
+                break;
+            }
+        }
+        m_varsBat.setValue(bundle().get(&MsvcToolchain::varsBat).toUserOutput());
+        m_varsBatArguments.setValue(args.join(' '));
+        m_abi.setAbis(bundle().supportedAbis(), bundle().targetAbi());
+    }
 
-    void updateAbis();
-    void handleVcVarsChange(const QString &vcVars);
-    void handleVcVarsArchChange(const QString &arch);
+    void updateAbis()
+    {
+        const FilePath normalizedVarsBat = FilePath::fromUserInput(m_varsBat.volatileValue());
+        const auto platform = MsvcToolchain::Platform(m_varsBatArch.itemValue().toInt());
+        const Abi::Architecture arch = archForPlatform(platform);
+        const unsigned char wordWidth = wordWidthForPlatform(platform);
 
-    QString vcVarsArguments() const;
+        // Offer the ABIs of every detected MSVC that runs this vcvars bat, so
+        // that a toolchain with several is a choice rather than a guess.
+        Abis supportedAbis;
+        Abi targetAbi;
+        for (const MsvcToolchain *tc : std::as_const(g_availableMsvcToolchains)) {
+            if (tc->varsBat() == normalizedVarsBat && tc->targetAbi().wordWidth() == wordWidth
+                && tc->targetAbi().architecture() == arch) {
+                // Several toolchains can share an ABI - x86 and amd64_x86.
+                for (const Abi &abi : tc->supportedAbis()) {
+                    if (!supportedAbis.contains(abi))
+                        supportedAbis.append(abi);
+                }
+                targetAbi = tc->targetAbi();
+            }
+        }
 
-    QComboBox *m_varsBatPathCombo;
-    QComboBox *m_varsBatArchCombo;
-    QLineEdit *m_varsBatArgumentsEdit;
-    AbiWidget *m_abiWidget;
+        // No exact match: fall back on the vcvars bat alone, which is what a
+        // toolchain that does not support the chosen arch/word width leaves.
+        if (!targetAbi.isValid()) {
+            const MsvcToolchain *tc
+                = Utils::findOrDefault(g_availableMsvcToolchains,
+                                       [normalizedVarsBat](const MsvcToolchain *tc) {
+                                           return tc->varsBat() == normalizedVarsBat;
+                                       });
+            if (tc) {
+                targetAbi = Abi(arch,
+                                tc->targetAbi().os(),
+                                tc->targetAbi().osFlavor(),
+                                tc->targetAbi().binaryFormat(),
+                                wordWidth);
+            }
+        }
+
+        // Set them even when there are none, or the ABI shown is the old one.
+        m_abi.setAbis(supportedAbis, targetAbi);
+    }
+
+    StringAspect m_varsBat{this};
+    SelectionAspect m_varsBatArch{this};
+    StringAspect m_varsBatArguments{this};
+    AbiAspects m_abi{this};
 };
 
-void MsvcToolchainConfigWidget::applyImpl()
-{
-    const FilePath vcVars = FilePath::fromUserInput(m_varsBatPathCombo->currentText());
-    bundle().set(&MsvcToolchain::setupVarsBat, m_abiWidget->currentAbi(), vcVars, vcVarsArguments());
-    setFromMsvcToolchain();
-}
-
-void MsvcToolchainConfigWidget::makeReadOnlyImpl()
-{
-    m_varsBatPathCombo->setEnabled(false);
-    m_varsBatArchCombo->setEnabled(false);
-    m_varsBatArgumentsEdit->setEnabled(false);
-    m_abiWidget->setEnabled(false);
-}
-
-void MsvcToolchainConfigWidget::setFromMsvcToolchain()
-{
-    QString args = bundle().get(&MsvcToolchain::varsBatArg);
-    QStringList argList = args.split(' ');
-    for (int i = 0; i < argList.count(); ++i) {
-        if (m_varsBatArchCombo->findText(argList.at(i).trimmed()) != -1) {
-            const QString arch = argList.takeAt(i);
-            m_varsBatArchCombo->setCurrentText(arch);
-            args = argList.join(QLatin1Char(' '));
-            break;
-        }
-    }
-    m_varsBatPathCombo->setCurrentText(bundle().get(&MsvcToolchain::varsBat).toUserOutput());
-    m_varsBatArgumentsEdit->setText(args);
-    m_abiWidget->setAbis(bundle().supportedAbis(), bundle().targetAbi());
-}
-
-void MsvcToolchainConfigWidget::updateAbis()
-{
-    const FilePath normalizedVcVars = FilePath::fromUserInput(m_varsBatPathCombo->currentText());
-    const MsvcToolchain::Platform platform = m_varsBatArchCombo->currentData().value<MsvcToolchain::Platform>();
-    const Abi::Architecture arch = archForPlatform(platform);
-    const unsigned char wordWidth = wordWidthForPlatform(platform);
-
-    // Search the selected vcVars bat file in already detected MSVC compilers.
-    // For each variant of MSVC found, add its supported ABIs to the ABI widget so the user can
-    // choose one appropriately.
-    Abis supportedAbis;
-    Abi targetAbi;
-    for (const MsvcToolchain *tc : std::as_const(g_availableMsvcToolchains)) {
-        if (tc->varsBat() == normalizedVcVars && tc->targetAbi().wordWidth() == wordWidth
-            && tc->targetAbi().architecture() == arch) {
-            // We need to filter out duplicates as there might be multiple toolchains with
-            // same abi (like x86, amd64_x86 for example).
-            for (const Abi &abi : tc->supportedAbis()) {
-                if (!supportedAbis.contains(abi))
-                    supportedAbis.append(abi);
-            }
-            targetAbi = tc->targetAbi();
-        }
-    }
-
-    // If we didn't find an exact match, try to find a fallback according to varsBat only.
-    // This can happen when the toolchain does not support user-selected arch/wordWidth.
-    if (!targetAbi.isValid()) {
-        const MsvcToolchain *tc = Utils::findOrDefault(g_availableMsvcToolchains,
-                                                       [normalizedVcVars](const MsvcToolchain *tc) {
-                                                           return tc->varsBat() == normalizedVcVars;
-                                                       });
-        if (tc) {
-            targetAbi = Abi(arch,
-                            tc->targetAbi().os(),
-                            tc->targetAbi().osFlavor(),
-                            tc->targetAbi().binaryFormat(),
-                            wordWidth);
-        }
-    }
-
-    // Always set ABIs, even if none was found, to prevent stale data in the ABI widget.
-    // In that case, a custom ABI will be selected according to targetAbi.
-    m_abiWidget->setAbis(supportedAbis, targetAbi);
-
-    emit dirty();
-}
-
-void MsvcToolchainConfigWidget::handleVcVarsChange(const QString &)
-{
-    updateAbis();
-}
-
-void MsvcToolchainConfigWidget::handleVcVarsArchChange(const QString &)
-{
-    // supportedAbi list in the widget only contains matching ABIs to whatever arch was selected.
-    // We need to reupdate it from scratch with new arch parameters
-    updateAbis();
-}
-
-QString MsvcToolchainConfigWidget::vcVarsArguments() const
-{
-    QString varsBatArg
-            = m_varsBatArchCombo->currentText() == Tr::tr("<empty>")
-            ? "" : m_varsBatArchCombo->currentText();
-    if (!m_varsBatArgumentsEdit->text().isEmpty())
-        varsBatArg += QLatin1Char(' ') + m_varsBatArgumentsEdit->text();
-    return varsBatArg;
-}
-
 // --------------------------------------------------------------------------
-// ClangClToolChainConfigWidget
+// ClangClToolchainAspects
 // --------------------------------------------------------------------------
 
-class ClangClToolchainConfigWidget final : public MsvcBasedToolchainConfigWidget
+static Toolchains detectClangClToolChainInPath(const FilePath &clangClPath,
+                                               const Toolchains &alreadyKnown,
+                                               const QString &displayedVarsBat,
+                                               bool isDefault = false);
+
+class ClangClToolchainAspects final : public MsvcBasedToolchainAspects
 {
 public:
-    explicit ClangClToolchainConfigWidget(const ToolchainBundle &bundle)
-        : MsvcBasedToolchainConfigWidget(bundle)
-        , m_varsBatDisplayCombo(new QComboBox(this))
+    explicit ClangClToolchainAspects(const ToolchainBundle &bundle)
+        : MsvcBasedToolchainAspects(bundle)
     {
-        m_mainLayout->removeRow(m_mainLayout->rowCount() - 1);
-
-        m_varsBatDisplayCombo->setObjectName("varsBatCombo");
-        m_varsBatDisplayCombo->setSizeAdjustPolicy(QComboBox::AdjustToContents);
-        m_mainLayout->addRow(Tr::tr("Initialization:"), m_varsBatDisplayCombo);
-        setCommandVersionArguments(QStringList("--version"));
-        addErrorLabel();
-        setFromClangClToolchain();
+        m_varsBat.setQmlName("VarsBat");
+        m_varsBat.setLabelText(Tr::tr("Initialization:"));
+        m_varsBat.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
+        setCommandVersionArguments({"--version"});
+        showToolchain();
     }
 
-protected:
-    void applyImpl() final;
-    void makeReadOnlyImpl() final;
+    void apply() override
+    {
+        MsvcBasedToolchainAspects::apply();
+
+        const FilePath clangClPath = bundle().get(&ClangClToolchain::clangPath);
+        if (clangClPath.fileName() != "clang-cl.exe") {
+            bundle().set(&ClangClToolchain::resetVarsBat);
+            showToolchain();
+            return;
+        }
+
+        Toolchains results
+            = detectClangClToolChainInPath(clangClPath, {}, m_varsBat.stringValue());
+        const QList<ToolchainBundle> bundles
+            = ToolchainBundle::collectBundles(results, ToolchainBundle::HandleMissing::NotApplicable);
+
+        if (bundles.isEmpty()) {
+            bundle().set(&ClangClToolchain::resetVarsBat);
+        } else {
+            const ToolchainBundle &b = bundles.first();
+            bundle().set(&MsvcToolchain::setupVarsBat,
+                         b.targetAbi(),
+                         b.get(&MsvcToolchain::varsBat),
+                         b.get(&MsvcToolchain::varsBatArg));
+        }
+        qDeleteAll(results);
+        showToolchain();
+    }
+
+    void makeReadOnly() override
+    {
+        MsvcBasedToolchainAspects::makeReadOnly();
+        m_varsBat.setEnabled(false);
+    }
 
 private:
-    void setFromClangClToolchain();
-
-    QComboBox *m_varsBatDisplayCombo = nullptr;
-};
-
-void ClangClToolchainConfigWidget::setFromClangClToolchain()
-{
-    m_varsBatDisplayCombo->clear();
-    m_varsBatDisplayCombo->addItem(msvcVarsToDisplay(bundle()));
-    for (const MsvcToolchain *tc : std::as_const(g_availableMsvcToolchains)) {
-        const QString varsToDisplay = msvcVarsToDisplay(*tc);
-        if (m_varsBatDisplayCombo->findText(varsToDisplay) == -1)
-            m_varsBatDisplayCombo->addItem(varsToDisplay);
+    void showToolchain()
+    {
+        m_varsBat.clearOptions();
+        QStringList seen{msvcVarsToDisplay(bundle())};
+        for (const MsvcToolchain *tc : std::as_const(g_availableMsvcToolchains)) {
+            const QString varsToDisplay = msvcVarsToDisplay(*tc);
+            if (!seen.contains(varsToDisplay))
+                seen.append(varsToDisplay);
+        }
+        for (const QString &varsToDisplay : std::as_const(seen))
+            m_varsBat.addOption(varsToDisplay);
+        m_varsBat.setValue(0);
     }
-}
+
+    SelectionAspect m_varsBat{this};
+};
 
 class ClangClInfo
 {
@@ -1951,7 +1937,7 @@ static const MsvcToolchain *selectMsvcToolChain(const QString &displayedVarsBat,
 static Toolchains detectClangClToolChainInPath(const FilePath &clangClPath,
                                                const Toolchains &alreadyKnown,
                                                const QString &displayedVarsBat,
-                                               bool isDefault = false)
+                                               bool isDefault)
 {
     Toolchains res;
     const MsvcToolchain *toolChain = selectMsvcToolChain(displayedVarsBat, clangClPath);
@@ -1989,39 +1975,6 @@ static Toolchains detectClangClToolChainInPath(const FilePath &clangClPath,
         res << cltc;
     }
     return res;
-}
-
-void ClangClToolchainConfigWidget::applyImpl()
-{
-    const FilePath clangClPath = bundle().get(&ClangClToolchain::clangPath);
-    if (clangClPath.fileName() != "clang-cl.exe") {
-        bundle().set(&ClangClToolchain::resetVarsBat);
-        setFromClangClToolchain();
-        return;
-    }
-
-    const QString displayedVarsBat = m_varsBatDisplayCombo->currentText();
-    Toolchains results = detectClangClToolChainInPath(clangClPath, {}, displayedVarsBat);
-    const QList<ToolchainBundle> bundles
-        = ToolchainBundle::collectBundles(results, ToolchainBundle::HandleMissing::NotApplicable);
-
-    if (bundles.isEmpty()) {
-        bundle().set(&ClangClToolchain::resetVarsBat);
-    } else {
-        const ToolchainBundle &b = bundles.first();
-        bundle().set(
-            &MsvcToolchain::setupVarsBat,
-            b.targetAbi(),
-            b.get(&MsvcToolchain::varsBat),
-            b.get(&MsvcToolchain::varsBatArg));
-    }
-    qDeleteAll(results);
-    setFromClangClToolchain();
-}
-
-void ClangClToolchainConfigWidget::makeReadOnlyImpl()
-{
-    m_varsBatDisplayCombo->setEnabled(false);
 }
 
 // --------------------------------------------------------------------------
@@ -2193,10 +2146,10 @@ public:
 
     Toolchains autoDetect(const ToolchainDetector &detector) const final;
 
-    std::unique_ptr<ToolchainConfigWidget> createConfigurationWidget(
+    std::unique_ptr<ToolchainConfigAspects> createConfigurationAspects(
         const ToolchainBundle &bundle) const override
     {
-        return std::make_unique<MsvcToolchainConfigWidget>(bundle);
+        return std::make_unique<MsvcToolchainAspects>(bundle);
     }
 
     static FilePath vcVarsBatFor(const FilePath &basePath,
@@ -2482,10 +2435,10 @@ public:
     }
 
     Toolchains autoDetect(const ToolchainDetector &detector) const final;
-    std::unique_ptr<ToolchainConfigWidget> createConfigurationWidget(
+    std::unique_ptr<ToolchainConfigAspects> createConfigurationAspects(
         const ToolchainBundle &bundle) const override
     {
-        return std::make_unique<ClangClToolchainConfigWidget>(bundle);
+        return std::make_unique<ClangClToolchainAspects>(bundle);
     }
 };
 

@@ -151,7 +151,7 @@ QtcPlugin {
             "taskwindow.cpp", "taskwindow.h",
             "toolchain.cpp", "toolchain.h",
             "toolchaincache.h",
-            "toolchainconfigwidget.cpp", "toolchainconfigwidget.h",
+            "toolchainconfigaspects.cpp", "toolchainconfigaspects.h",
             "toolchainkitaspect.cpp", "toolchainkitaspect.h",
             "toolchainmanager.cpp", "toolchainmanager.h",
             "toolchainoptionspage.cpp", "toolchainoptionspage.h",
