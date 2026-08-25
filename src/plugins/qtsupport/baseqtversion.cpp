@@ -5,7 +5,6 @@
 
 #include "profilereader.h"
 #include "qtabiextractor.h"
-#include "qtconfigwidget.h"
 #include "qtkitaspect.h"
 #include "qtsupportconstants.h"
 #include "qtsupporttr.h"
@@ -37,6 +36,7 @@
 #include <projectexplorer/toolchainmanager.h>
 
 #include <utils/algorithm.h>
+#include <utils/aspects.h>
 #include <utils/async.h>
 #include <utils/displayname.h>
 #include <utils/fileinprojectfinder.h>
@@ -1877,7 +1877,7 @@ Tasks QtVersion::reportIssues(const FilePath &proFile, const FilePath &buildDir)
     return Utils::sorted(reportIssuesImpl(proFile, buildDir));
 }
 
-QtConfigWidget *QtVersion::createConfigurationWidget() const
+AspectContainer *QtVersion::createConfigurationAspects()
 {
     return nullptr;
 }

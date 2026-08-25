@@ -3,7 +3,6 @@
 
 #include "qtoptionspage.h"
 
-#include "qtconfigwidget.h"
 #include "qtsupportconstants.h"
 #include "qtsupporttr.h"
 #include "qtsupportutils.h"
@@ -14,32 +13,30 @@
 #include <coreplugin/icore.h>
 
 #include <projectexplorer/devicesupport/devicemanager.h>
-#include <projectexplorer/devicesupport/devicemanagermodel.h>
+#include <projectexplorer/devicesupport/deviceselectionaspect.h>
 #include <projectexplorer/devicesupport/idevice.h>
 #include <projectexplorer/kitaspect.h>
 #include <projectexplorer/projectexplorerconstants.h>
 #include <projectexplorer/toolchain.h>
 #include <projectexplorer/toolchainmanager.h>
 
-#include <utils/filedialogs.h>
 #include <utils/algorithm.h>
-#include <utils/guiutils.h>
-#include <utils/detailswidget.h>
+#include <utils/filedialogs.h>
 #include <utils/fileutils.h>
-#include <utils/groupedview.h>
+#include <utils/groupedlistaspect.h>
+#include <utils/groupedmodel.h>
+#include <utils/guiutils.h>
 #include <utils/hostosinfo.h>
-#include <utils/treemodel.h>
 #include <utils/layoutbuilder.h>
 #include <utils/pathchooser.h>
 #include <utils/qtcassert.h>
+#include <utils/shutdownguard.h>
+#include <utils/treemodel.h>
 #include <utils/utilsicons.h>
-#include <utils/variablechooser.h>
 
-#include <QComboBox>
 #include <QDesktopServices>
 #include <QDialogButtonBox>
 #include <QDir>
-#include <QFormLayout>
 #include <QGuiApplication>
 #include <QLabel>
 #include <QMessageBox>
@@ -287,24 +284,109 @@ public:
 
 // QtSettingsPageWidget
 
-class QtSettingsPageWidget final : public IOptionsPageWidget
+// The qmake path of the version being looked at, and the button that changes
+// it: picking a different qmake replaces the version rather than editing a
+// field, so it is a summary with an action and not a path chooser.
+class QmakePathAspect final : public BaseAspect
 {
+    Q_OBJECT
+
+public:
+    using BaseAspect::BaseAspect;
+
+    AspectPresentation presentation() const override
+    {
+        AspectPresentation p = BaseAspect::presentation();
+        p.control = AspectControls::TextWithAction;
+        p.actionText = PathChooser::browseButtonLabel();
+        return p;
+    }
+
+    QString displayText() const override { return m_path; }
+
+    void setPath(const QString &path)
+    {
+        if (path == m_path)
+            return;
+        m_path = path;
+        emit displayTextChanged();
+    }
+
+    void triggerAction() override { emit actionTriggered(); }
+
+signals:
+    void actionTriggered();
+
+private:
+    QString m_path;
+};
+
+// The extra settings of the version being looked at - QNX's SDP path is the
+// only kind there is. Which aspects those are changes with the version, so the
+// page hands over the whole container rather than naming what is in it.
+class ConfigurationAspect final : public BaseAspect
+{
+    Q_OBJECT
+
+    Q_PROPERTY(Utils::BaseAspect *container READ container NOTIFY containerChanged)
+
+public:
+    using BaseAspect::BaseAspect;
+
+    AspectContainer *container() const { return m_container.get(); }
+
+    void setContainer(AspectContainer *container)
+    {
+        m_container.reset(container);
+        if (container)
+            container->setParent(this);
+        emit containerChanged();
+    }
+
+signals:
+    void containerChanged();
+
+private:
+    std::unique_ptr<AspectContainer> m_container;
+};
+
+class QtSettingsPageWidget final : public AspectContainer
+{
+    Q_OBJECT
+
 public:
     QtSettingsPageWidget();
     ~QtSettingsPageWidget() final;
 
     static void linkWithQt();
 
-private:
-    void apply() final;
-    void cancel() final;
+    void apply() override;
+    void cancel() override;
 
-    bool isDirty() const final
+    bool isDirty() const override
     {
-        return m_model.isDirty()
-               || m_documentationSetting.currentIndex() != m_initialDocumentationIndex;
+        return m_model.isDirty() || m_documentationSetting.volatileValue() != m_initialDocumentation;
     }
 
+    DeviceSelectionAspect m_deviceComboBox{this};
+    GroupedListAspect m_versions{this};
+    ActionAspect m_addButton{this};
+    ActionAspect m_redetectButton{this};
+    ActionAspect m_linkWithQtButton{this};
+    ActionAspect m_cleanUpButton{this};
+    SelectionAspect m_documentationSetting{this};
+
+    AspectContainer m_details{this};
+    StringAspect m_nameEdit{&m_details};
+    QmakePathAspect m_qmakePath{&m_details};
+    TextDisplay m_errorLabel{&m_details};
+    TextDisplay m_description{&m_details};
+    BoolAspect m_showDetails{&m_details};
+    TextDisplay m_infoBrowser{&m_details};
+
+    ConfigurationAspect m_configuration{&m_details};
+
+private:
     void updateDescriptionLabel();
     void userChangedCurrentVersion();
     void updateWidgets();
@@ -339,143 +421,98 @@ private:
 
     bool isNameUnique(const QtVersion *version);
 
-    int m_initialDocumentationIndex = 0;
+    int m_initialDocumentation = 0;
     QString m_loadedVersionName;
     bool m_preEditChanged = false;
     bool m_applyingVersions = false;
     QtVersionModel m_model;
-    GroupedView m_groupedView{m_model};
 
     // Rows whose qmake query is still running; polled so the row is refreshed once its
     // version information becomes available instead of blocking the GUI on open.
     QSet<int> m_pendingInfoIds;
     QTimer m_infoPollTimer;
-
-    DeviceComboBox m_deviceComboBox;
-    DetailsWidget m_versionInfoWidget;
-    DetailsWidget m_infoWidget;
-    QComboBox m_documentationSetting;
-    QPushButton m_addButton;
-    QPushButton m_redetectButton;
-    QPushButton m_linkWithQtButton;
-    QPushButton m_cleanUpButton;
-
-    QTextBrowser m_infoBrowser;
-    QtConfigWidget *m_configurationWidget = nullptr;
-
-    QLineEdit m_nameEdit;
-    QLabel m_qmakePath;
-    QPushButton m_editPathPushButton;
-    QLabel m_errorLabel;
-    QFormLayout *m_formLayout = nullptr;
 };
 
 QtSettingsPageWidget::QtSettingsPageWidget()
 {
-    m_groupedView.view().setObjectName("qtDirList");
+    setAutoApply(false);
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/QtSupport/QtVersionsPage.qml"));
 
-    m_addButton.setText(Tr::tr("Add..."));
-    m_redetectButton.setText(Tr::tr("Re-detect"));
-    m_linkWithQtButton.setText(Tr::tr("Link with Qt..."));
-    m_cleanUpButton.setText(Tr::tr("Clean Up"));
+    m_deviceComboBox.setQmlName("Device");
 
-    m_qmakePath.setObjectName("qmakePath"); // for Squish
-    m_qmakePath.setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    m_qmakePath.setTextInteractionFlags(Qt::LinksAccessibleByMouse|Qt::TextSelectableByMouse);
-
-    m_errorLabel.setTextInteractionFlags(Qt::LinksAccessibleByMouse|Qt::TextSelectableByMouse);
-
-    m_editPathPushButton.setText(PathChooser::browseButtonLabel());
-
-    using namespace Layouting;
-
-    auto versionInfoWidget = new QWidget;
-    // clang-format off
-    Form {
-        Tr::tr("Name:"), m_nameEdit, br,
-        Tr::tr("qmake path:"), Row { m_qmakePath, m_editPathPushButton }, br,
-        Span(2, m_errorLabel),
-        noMargin
-    }.attachTo(versionInfoWidget);
-    // clang-format on
-
-    m_formLayout = qobject_cast<QFormLayout*>(versionInfoWidget->layout());
-
-    // clang-format off
-    Column {
-        Row { Tr::tr("Device:"), m_deviceComboBox, st },
-        Row {
-            Column {
-                m_groupedView.view(),
-                m_versionInfoWidget,
-                m_infoWidget,
-                Row { Tr::tr("Register documentation:"), m_documentationSetting, st }
-            },
-            Column {
-                m_addButton,
-                m_groupedView.cloneButton(),
-                m_groupedView.removeButton(),
-                m_redetectButton,
-                Space(20),
-                m_linkWithQtButton,
-                m_cleanUpButton,
-                st,
-            }
-        }
-    }.attachTo(this);
-    // clang-format on
-
-    m_infoBrowser.setOpenLinks(false);
-    m_infoBrowser.setTextInteractionFlags(Qt::TextBrowserInteraction);
-    connect(&m_infoBrowser, &QTextBrowser::anchorClicked,
-            this, &QtSettingsPageWidget::infoAnchorClicked);
-    m_infoWidget.setWidget(&m_infoBrowser);
-    connect(&m_infoWidget, &DetailsWidget::expanded,
-            this, &QtSettingsPageWidget::setInfoWidgetVisibility);
-
-    m_versionInfoWidget.setWidget(versionInfoWidget);
-    m_versionInfoWidget.setState(DetailsWidget::NoSummary);
-
-    m_groupedView.view().setFirstColumnSpanned(0, QModelIndex(), true);
-    m_groupedView.view().setFirstColumnSpanned(1, QModelIndex(), true);
-    m_groupedView.view().setTextElideMode(Qt::ElideMiddle);
-
-    m_documentationSetting.addItem(Tr::tr("Highest Version Only"),
-                                   int(QtVersionManager::DocumentationSetting::HighestOnly));
-    m_documentationSetting.addItem(
-        Tr::tr("All", "All documentation"), int(QtVersionManager::DocumentationSetting::All));
-    m_documentationSetting.addItem(
-        Tr::tr("None", "No documentation"), int(QtVersionManager::DocumentationSetting::None));
-    const int selectedIndex = m_documentationSetting.findData(
-        int(QtVersionManager::documentationSetting()));
-    if (selectedIndex >= 0)
-        m_documentationSetting.setCurrentIndex(selectedIndex);
-    m_initialDocumentationIndex = m_documentationSetting.currentIndex();
-
-    connect(&m_documentationSetting, &QComboBox::currentIndexChanged,
-            this, [] { checkSettingsDirty(); });
-
-    QList<int> additions = transform(QtVersionManager::versions(), &QtVersion::uniqueId);
-    updateQtVersions(additions, QList<int>(), QList<int>());
-
-    connect(&m_nameEdit, &QLineEdit::textEdited,
-            this, &QtSettingsPageWidget::updateCurrentQtName);
-    connect(&m_editPathPushButton, &QAbstractButton::clicked,
-            this, &QtSettingsPageWidget::editPath);
-    connect(&m_addButton, &QAbstractButton::clicked, this, &QtSettingsPageWidget::addQtDir);
-    m_groupedView.setCanRemoveRow([this](int row) {
+    m_versions.setQmlName("Versions");
+    m_versions.setModel(&m_model);
+    // An auto-detected Qt version is not the user's to take away.
+    m_versions.setCanRemoveRow([this](int row) {
         const QtVersion *version = m_model.item(row).version();
         return version && !version->detectionSource().isAutoDetected();
     });
 
-    connect(&m_groupedView, &GroupedView::currentRemoved,
-            this, &QtSettingsPageWidget::updateButtons);
-    connect(&m_linkWithQtButton, &QPushButton::clicked, this, &LinkWithQtSupport::linkWithQt);
-    connect(&m_redetectButton, &QAbstractButton::clicked, this, &QtSettingsPageWidget::redetect);
-    connect(&m_groupedView, &GroupedView::currentRowChanged,
-            this, &QtSettingsPageWidget::userChangedCurrentVersion);
-    connect(&m_cleanUpButton, &QAbstractButton::clicked,
-            this, &QtSettingsPageWidget::cleanUpQtVersions);
+    m_addButton.setQmlName("Add");
+    m_addButton.setActionText(Tr::tr("Add..."));
+    m_addButton.setAction([this] { addQtDir(); });
+
+    m_redetectButton.setQmlName("Redetect");
+    m_redetectButton.setActionText(Tr::tr("Re-detect"));
+    m_redetectButton.setAction([this] { redetect(); });
+
+    m_linkWithQtButton.setQmlName("LinkWithQt");
+    m_linkWithQtButton.setActionText(Tr::tr("Link with Qt..."));
+    m_linkWithQtButton.setAction([] { LinkWithQtSupport::linkWithQt(); });
+
+    m_cleanUpButton.setQmlName("CleanUp");
+    m_cleanUpButton.setActionText(Tr::tr("Clean Up"));
+    m_cleanUpButton.setAction([this] { cleanUpQtVersions(); });
+
+    m_documentationSetting.setQmlName("Documentation");
+    m_documentationSetting.setLabelText(Tr::tr("Register documentation:"));
+    m_documentationSetting.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
+    // In DocumentationSetting's order, so the index is the enumerator.
+    m_documentationSetting.addOption(Tr::tr("Highest Version Only"));
+    m_documentationSetting.addOption(Tr::tr("All", "All documentation"));
+    m_documentationSetting.addOption(Tr::tr("None", "No documentation"));
+    m_documentationSetting.setValue(int(QtVersionManager::documentationSetting()));
+    m_initialDocumentation = m_documentationSetting.volatileValue();
+
+    m_details.setQmlName("Details");
+    m_configuration.setQmlName("Configuration");
+
+    m_nameEdit.setQmlName("Name");
+    m_nameEdit.setLabelText(Tr::tr("Name:"));
+    m_nameEdit.setDisplayStyle(StringAspect::LineEditDisplay);
+
+    m_qmakePath.setQmlName("QmakePath");
+    m_qmakePath.setLabelText(Tr::tr("qmake path:"));
+
+    m_errorLabel.setQmlName("Error");
+    m_errorLabel.setIconType(InfoType::Error);
+    m_errorLabel.setWordWrap(true);
+
+    m_description.setQmlName("Description");
+
+    m_showDetails.setQmlName("ShowDetails");
+    m_showDetails.setLabelText(Tr::tr("Details"));
+
+    m_infoBrowser.setQmlName("Info");
+    m_infoBrowser.setTextFormat(AspectControls::TextFormat::RichText);
+    m_infoBrowser.setWordWrap(true);
+    connect(&m_infoBrowser, &TextDisplay::linkActivated,
+            this, [](const QString &link) { QDesktopServices::openUrl(QUrl(link)); });
+
+    // Behaviour, not layout.
+    connect(&m_versions, &GroupedListAspect::currentRowChanged,
+            this, [this] { userChangedCurrentVersion(); });
+    connect(&m_versions, &GroupedListAspect::currentRemoved,
+            this, [this] { updateButtons(); });
+    m_nameEdit.addOnVolatileValueChanged(this, [this] { updateCurrentQtName(); });
+    connect(&m_qmakePath, &QmakePathAspect::actionTriggered, this, [this] { editPath(); });
+    connect(&m_showDetails, &BaseAspect::volatileValueChanged,
+            this, [this] { setInfoWidgetVisibility(); });
+    connect(&m_deviceComboBox, &DeviceSelectionAspect::currentDeviceChanged,
+            this, [this] { updateLinkWithQtButton(); });
+
+    QList<int> additions = transform(QtVersionManager::versions(), &QtVersion::uniqueId);
+    updateQtVersions(additions, QList<int>(), QList<int>());
 
     userChangedCurrentVersion();
 
@@ -488,14 +525,13 @@ QtSettingsPageWidget::QtSettingsPageWidget()
     connect(ProjectExplorer::ToolchainManager::instance(), &ToolchainManager::toolchainsChanged,
             this, &QtSettingsPageWidget::toolChainsUpdated);
 
-    auto chooser = new VariableChooser(this);
-    chooser->addSupportedWidget(&m_nameEdit, "Qt:Name");
-    chooser->addMacroExpanderProvider({this, [this] {
-        QtVersion *version = currentVersion();
-        return version ? version->macroExpander() : nullptr;
-    }});
+    // The name may name the version's own variables, so the field expands
+    // against whichever version is being looked at.
+    m_nameEdit.setMacroExpander(nullptr);
 
-    m_deviceComboBox.setOnDeviceChanged([this](const FilePath &deviceRoot) {
+    connect(&m_deviceComboBox, &DeviceSelectionAspect::currentDeviceChanged, this, [this] {
+        const IDeviceConstPtr dev = m_deviceComboBox.currentDevice();
+        const FilePath deviceRoot = dev ? dev->rootPath() : FilePath();
         m_model.setExtraFilter(deviceRoot.isEmpty()
             ? GroupedModel::Filter{}
             : GroupedModel::Filter{[this, deviceRoot](int row) {
@@ -503,14 +539,13 @@ QtSettingsPageWidget::QtSettingsPageWidget()
                   const FilePath path = it.version() ? it.version()->qtFilePath() : FilePath{};
                   return path.isEmpty() || path.isSameDevice(deviceRoot);
               }});
-        updateLinkWithQtButton();
     });
-
+    updateLinkWithQtButton();
 }
 
 QtVersion *QtSettingsPageWidget::currentVersion() const
 {
-    const int row = m_groupedView.currentRow();
+    const int row = m_versions.currentRow();
     if (row < 0)
         return nullptr;
     return m_model.item(row).version();
@@ -571,7 +606,7 @@ void QtSettingsPageWidget::cleanUpQtVersions()
 
 void QtSettingsPageWidget::toolChainsUpdated()
 {
-    const int curRow = m_groupedView.currentRow();
+    const int curRow = m_versions.currentRow();
     for (int row = 0; row < m_model.itemCount(); ++row) {
         if (row == curRow)
             updateDescriptionLabel();
@@ -582,15 +617,12 @@ void QtSettingsPageWidget::toolChainsUpdated()
 
 void QtSettingsPageWidget::setInfoWidgetVisibility()
 {
-    bool isExpanded = m_infoWidget.state() == DetailsWidget::Expanded;
-    if (isExpanded && m_infoBrowser.toPlainText().isEmpty()) {
-        const QtVersion *version = currentVersion();
-        if (version)
-            m_infoBrowser.setHtml(version->toHtml(true));
+    const bool expanded = m_showDetails.volatileValue();
+    if (expanded && m_infoBrowser.text().isEmpty()) {
+        if (const QtVersion *version = currentVersion())
+            m_infoBrowser.setText(version->toHtml(true));
     }
-
-    m_versionInfoWidget.setVisible(!isExpanded);
-    m_infoWidget.setVisible(true);
+    m_infoBrowser.setVisible(expanded);
 }
 
 void QtSettingsPageWidget::infoAnchorClicked(const QUrl &url)
@@ -730,7 +762,7 @@ void QtSettingsPageWidget::scheduleVersionInfoUpdates()
 
 void QtSettingsPageWidget::refreshLoadingRows()
 {
-    const int currentRow = m_groupedView.currentRow();
+    const int currentRow = m_versions.currentRow();
     bool currentRefreshed = false;
     for (int row = 0; row < m_model.itemCount(); ++row) {
         QtVersion *v = m_model.item(row).version();
@@ -750,10 +782,7 @@ void QtSettingsPageWidget::refreshLoadingRows()
         m_infoPollTimer.stop();
 }
 
-QtSettingsPageWidget::~QtSettingsPageWidget()
-{
-    delete m_configurationWidget;
-}
+QtSettingsPageWidget::~QtSettingsPageWidget() = default;
 
 void QtSettingsPageWidget::addQtDir()
 {
@@ -782,7 +811,7 @@ void QtSettingsPageWidget::addQtDir()
 
     if (alreadyExists) {
         // Already exist
-        QMessageBox::warning(this, Tr::tr("Qt Version Already Known"),
+        QMessageBox::warning(ICore::dialogParent(), Tr::tr("Qt Version Already Known"),
                              Tr::tr("This Qt version was already registered as \"%1\".")
                              .arg(otherName));
         return;
@@ -793,13 +822,11 @@ void QtSettingsPageWidget::addQtDir()
     if (version) {
         QtVersionItem item(version);
         item.setIsNameUnique([this](QtVersion *v) { return isNameUnique(v); });
-        m_groupedView.selectRow(m_model.appendVolatileItem(item));
-        m_nameEdit.setFocus();
-        m_nameEdit.selectAll();
+        m_versions.setCurrentRow(m_model.appendVolatileItem(item));
     } else {
         const QString qtFileName = qtVersion.fileName();
         QMessageBox::warning(
-            this,
+            ICore::dialogParent(),
             Tr::tr("%1 Not Executable").arg(qtFileName),
             Tr::tr("The %1 executable %2 could not be added: %3")
                 .arg(qtFileName)
@@ -834,7 +861,7 @@ void QtSettingsPageWidget::redetect()
 
 void QtSettingsPageWidget::editPath()
 {
-    const int row = m_groupedView.currentRow();
+    const int row = m_versions.currentRow();
     QTC_ASSERT(row >= 0, return);
     QtVersion *current = m_model.item(row).version();
     QTC_ASSERT(current, return);
@@ -852,7 +879,7 @@ void QtSettingsPageWidget::editPath()
     // Same type? then replace!
     if (current->type() != version->type()) {
         // not the same type, error out
-        QMessageBox::critical(this, Tr::tr("Incompatible Qt Versions"),
+        QMessageBox::critical(ICore::dialogParent(), Tr::tr("Incompatible Qt Versions"),
                               Tr::tr("The Qt version selected must match the device type."),
                               QMessageBox::Ok);
         delete version;
@@ -900,62 +927,58 @@ void QtSettingsPageWidget::userChangedCurrentVersion()
 
 void QtSettingsPageWidget::updateDescriptionLabel()
 {
-    const int row = m_groupedView.currentRow();
+    const int row = m_versions.currentRow();
     const QtVersion *version = row >= 0 ? m_model.item(row).version() : nullptr;
 
     if (version && !version->isVersionInfoAvailable()) {
         // The qmake query is still running; do not block on validInformation(). The panel
         // is refreshed once the information arrives (see refreshLoadingRows()).
         m_errorLabel.setVisible(false);
-        m_infoWidget.setSummaryText(Tr::tr("Reading Qt version information..."));
-        m_infoBrowser.clear();
-        m_versionInfoWidget.setVisible(false);
-        m_infoWidget.setVisible(true);
+        m_description.setText(Tr::tr("Reading Qt version information..."));
+        m_description.setVisible(true);
+        m_infoBrowser.setText({});
+        m_infoBrowser.setVisible(false);
         return;
     }
 
     const ValidityInfo info = validInformation(version);
-    if (info.message.isEmpty()) {
-        m_errorLabel.setVisible(false);
-    } else {
-        m_errorLabel.setVisible(true);
+    m_errorLabel.setVisible(!info.message.isEmpty());
+    if (!info.message.isEmpty()) {
         m_errorLabel.setText(info.message);
         m_errorLabel.setToolTip(info.toolTip);
     }
-    m_infoWidget.setSummaryText(info.description);
+    m_description.setText(info.description);
+    m_description.setVisible(version != nullptr);
     if (row >= 0)
         m_model.notifyRowChanged(row);
 
-    m_infoBrowser.clear();
-    if (version) {
+    m_infoBrowser.setText({});
+    if (version)
         setInfoWidgetVisibility();
-    } else {
-        m_versionInfoWidget.setVisible(false);
-        m_infoWidget.setVisible(false);
-    }
+    else
+        m_infoBrowser.setVisible(false);
 }
 
 void QtSettingsPageWidget::updateWidgets()
 {
-    delete m_configurationWidget;
-    m_configurationWidget = nullptr;
-    const int row = m_groupedView.currentRow();
+    const int row = m_versions.currentRow();
     QtVersion *version = currentVersion();
     m_loadedVersionName = version ? version->unexpandedDisplayName() : QString{};
     m_preEditChanged = row >= 0 && m_model.isChanged(row);
     if (version) {
-        m_nameEdit.setText(version->unexpandedDisplayName());
-        m_qmakePath.setText(version->qtFilePath().toUserOutput());
-        m_configurationWidget = version->createConfigurationWidget();
-        if (m_configurationWidget) {
-            m_formLayout->addRow(m_configurationWidget);
-            m_configurationWidget->setEnabled(!version->detectionSource().isAutoDetected());
-            connect(m_configurationWidget, &QtConfigWidget::changed,
-                    this, &QtSettingsPageWidget::updateDescriptionLabel);
+        m_nameEdit.setValue(version->unexpandedDisplayName());
+        m_qmakePath.setPath(version->qtFilePath().toUserOutput());
+        AspectContainer *configuration = version->createConfigurationAspects();
+        if (configuration) {
+            configuration->setEnabled(!version->detectionSource().isAutoDetected());
+            connect(configuration, &AspectContainer::subAspectChanged,
+                    this, [this] { updateDescriptionLabel(); });
         }
+        m_configuration.setContainer(configuration);
     } else {
-        m_nameEdit.clear();
-        m_qmakePath.clear();
+        m_nameEdit.setValue({});
+        m_qmakePath.setPath({});
+        m_configuration.setContainer(nullptr);
     }
 
     updateButtons();
@@ -966,7 +989,7 @@ void QtSettingsPageWidget::updateButtons()
     const QtVersion *version = currentVersion();
     const bool isAutodetected = version && version->detectionSource().isAutoDetected();
     m_nameEdit.setEnabled(version != nullptr);
-    m_editPathPushButton.setEnabled(version && !isAutodetected);
+    m_qmakePath.setEnabled(version && !isAutodetected);
 }
 
 static FilePath settingsFile(const QString &baseDir)
@@ -1043,12 +1066,12 @@ void QtSettingsPageWidget::updateLinkWithQtButton()
 
 void QtSettingsPageWidget::updateCurrentQtName()
 {
-    const int row = m_groupedView.currentRow();
+    const int row = m_versions.currentRow();
     if (row < 0 || !m_model.item(row).version())
         return;
 
-    m_model.item(row).version()->setUnexpandedDisplayName(m_nameEdit.text());
-    const bool nameChanged = m_nameEdit.text() != m_loadedVersionName;
+    m_model.item(row).version()->setUnexpandedDisplayName(m_nameEdit.volatileValue());
+    const bool nameChanged = m_nameEdit.volatileValue() != m_loadedVersionName;
     m_model.setChanged(row, nameChanged || m_preEditChanged);
 
     updateDescriptionLabel();
@@ -1057,9 +1080,10 @@ void QtSettingsPageWidget::updateCurrentQtName()
 
 void QtSettingsPageWidget::apply()
 {
-    m_initialDocumentationIndex = m_documentationSetting.currentIndex();
+    AspectContainer::apply();
+    m_initialDocumentation = m_documentationSetting.volatileValue();
     QtVersionManager::setDocumentationSetting(
-        QtVersionManager::DocumentationSetting(m_documentationSetting.currentData().toInt()));
+        QtVersionManager::DocumentationSetting(m_documentationSetting.volatileValue()));
 
     QtVersions versions;
     for (int row = 0; row < m_model.itemCount(); ++row) {
@@ -1077,6 +1101,7 @@ void QtSettingsPageWidget::apply()
 
 void QtSettingsPageWidget::cancel()
 {
+    AspectContainer::cancel();
     m_model.cancel();
 }
 
@@ -1234,7 +1259,10 @@ public:
         setId(Constants::QTVERSION_SETTINGS_PAGE_ID);
         setDisplayName(Tr::tr("Qt Versions"));
         setCategory(ProjectExplorer::Constants::KITS_SETTINGS_CATEGORY);
-        setWidgetCreator([] { return new QtSettingsPageWidget; });
+        setSettingsProvider([] {
+            static GuardedObject<QtSettingsPageWidget> theAspects;
+            return theAspects.get();
+        });
         setFixedKeywords({
             Tr::tr("Add..."),
             Tr::tr("Remove"),
@@ -1281,3 +1309,5 @@ void LinkWithQtSupport::linkWithQt()
 }
 
 } // QtSupport
+
+#include "qtoptionspage.moc"

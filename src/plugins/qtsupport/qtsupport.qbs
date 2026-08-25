@@ -67,8 +67,6 @@ QtcPlugin {
         "qtabiextractor.h",
         "qtbuildaspects.cpp",
         "qtbuildaspects.h",
-        "qtconfigwidget.cpp",
-        "qtconfigwidget.h",
         "qtcppkitinfo.cpp",
         "qtcppkitinfo.h",
         "qtprojectimporter.cpp",

@@ -33,7 +33,7 @@ public:
     void addToBuildEnvironment(const ProjectExplorer::Kit *k, Utils::Environment &env) const override;
     void setupQmakeRunEnvironment(Utils::Environment &env) const override;
 
-    QtSupport::QtConfigWidget *createConfigurationWidget() const override;
+    Utils::AspectContainer *createConfigurationAspects() override;
 
     bool isValid() const override;
     QString invalidReason() const override;

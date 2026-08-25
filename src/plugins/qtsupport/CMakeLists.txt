@@ -16,7 +16,6 @@ add_qtc_plugin(QtSupport
     qscxmlcgenerator.cpp qscxmlcgenerator.h
     qtabiextractor.cpp qtabiextractor.h
     qtbuildaspects.cpp qtbuildaspects.h
-    qtconfigwidget.cpp qtconfigwidget.h
     qtcppkitinfo.cpp qtcppkitinfo.h
     qtkitaspect.cpp qtkitaspect.h
     qtoptionspage.cpp qtoptionspage.h
@@ -48,5 +47,6 @@ if(TARGET QtSupport AND TARGET Qt::Quick)
     NO_PLUGIN
     QML_FILES
       CodeGenSettingsPage.qml
+      QtVersionsPage.qml
   )
 endif()

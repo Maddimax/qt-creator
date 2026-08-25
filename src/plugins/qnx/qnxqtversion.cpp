@@ -7,7 +7,6 @@
 #include "qnxtr.h"
 #include "qnxutils.h"
 
-#include <qtsupport/qtconfigwidget.h>
 #include <qtsupport/qtsupportconstants.h>
 
 #include <utils/environment.h>
@@ -28,26 +27,26 @@ const char QNX_TARGET_KEY[] = "QNX_TARGET";
 const char QNX_HOST_KEY[]   = "QNX_HOST";
 const char QNX_QNX_FEATURE[] = "QtSupport.Wizards.FeatureQNX";
 
-class QnxBaseQtConfigWidget : public QtSupport::QtConfigWidget
+// What a QNX Qt version has that others do not. The page shows these under the
+// name and the path; the version owns what they hold.
+class QnxConfigurationAspects final : public AspectContainer
 {
 public:
-    explicit QnxBaseQtConfigWidget(QnxQtVersion *version)
+    explicit QnxConfigurationAspects(QnxQtVersion *version)
     {
         QTC_ASSERT(version, return);
-
-        auto layout = new QHBoxLayout(this);
-        auto sdpPathChooser(new PathChooser);
-        layout->addWidget(sdpPathChooser);
-
-        sdpPathChooser->setExpectedKind(PathChooserKind::ExistingDirectory);
-        sdpPathChooser->setHistoryCompleter("Qnx.Sdp.History");
-        sdpPathChooser->setFilePath(version->sdpPath());
-
-        connect(sdpPathChooser, &PathChooser::rawPathChanged, this, [this, version, sdpPathChooser] {
-            version->setSdpPath(sdpPathChooser->filePath());
-            emit changed();
+        m_sdpPath.setQmlName("SdpPath");
+        m_sdpPath.setLabelText(Tr::tr("SDP path:"));
+        m_sdpPath.setExpectedKind(PathChooserKind::ExistingDirectory);
+        m_sdpPath.setHistoryCompleter("Qnx.Sdp.History");
+        m_sdpPath.setValue(version->sdpPath());
+        m_sdpPath.addOnVolatileValueChanged(this, [this, version] {
+            version->setSdpPath(m_sdpPath.expandedVolatileValue());
         });
     }
+
+private:
+    FilePathAspect m_sdpPath{this};
 };
 
 QnxQtVersion::QnxQtVersion() = default;
@@ -139,9 +138,9 @@ void QnxQtVersion::setupQmakeRunEnvironment(Environment &env) const
     env.modify(m_qnxEnv);
 }
 
-QtSupport::QtConfigWidget *QnxQtVersion::createConfigurationWidget() const
+AspectContainer *QnxQtVersion::createConfigurationAspects()
 {
-    return new QnxBaseQtConfigWidget(const_cast<QnxQtVersion *>(this));
+    return new QnxConfigurationAspects(this);
 }
 
 bool QnxQtVersion::isValid() const

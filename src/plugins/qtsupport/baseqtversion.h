@@ -23,6 +23,7 @@ class QMakeGlobals;
 QT_END_NAMESPACE
 
 namespace Utils {
+class AspectContainer;
 class Environment;
 class FileInProjectFinder;
 } // Utils
@@ -36,7 +37,6 @@ class Toolchain;
 
 namespace QtSupport {
 
-class QtConfigWidget;
 class QtVersion;
 
 namespace Internal {
@@ -158,7 +158,11 @@ public:
 
     bool hasQmlDumpWithRelocatableFlag() const;
 
-    virtual QtConfigWidget *createConfigurationWidget() const;
+    // Settings a particular kind of Qt version has beyond the ones every
+    // version has - QNX's SDP path is the only one there is. The page shows
+    // them under the name and the path, and owns what comes back; null where
+    // there is nothing more to set.
+    virtual Utils::AspectContainer *createConfigurationAspects();
 
     QString defaultUnexpandedDisplayName() const;
 
