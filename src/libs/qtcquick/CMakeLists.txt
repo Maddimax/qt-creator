@@ -39,6 +39,7 @@ if(TARGET QtcQuick)
       AspectForm.qml
       AspectGroupBox.qml
       AspectItems.qml
+      AspectInlineListDelegate.qml
       AspectListDelegate.qml
       AspectTableCell.qml
       AspectPage.qml
@@ -52,6 +53,7 @@ if(TARGET QtcQuick)
       GroupDelegate.qml
       GroupedListDelegate.qml
       IntegerDelegate.qml
+      KeySequenceDelegate.qml
       Metrics.qml
       MultiSelectionDelegate.qml
       QtcBadge.qml

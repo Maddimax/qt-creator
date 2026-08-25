@@ -460,10 +460,9 @@ AspectList::~AspectList() = default;
 AspectPresentation AspectList::presentation() const
 {
     AspectPresentation p = BaseAspect::presentation();
-    // Only the list-with-details style is described; the inline style builds a
-    // row of controls per item and has no counterpart yet.
-    if (d->displayStyle == DisplayStyle::ListViewWithDetails)
-        p.control = AspectControls::AspectList;
+    p.control = d->displayStyle == DisplayStyle::ListViewWithDetails
+                    ? AspectControls::AspectList
+                    : AspectControls::AspectInlineList;
     p.allowReordering = d->ordered;
     return p;
 }

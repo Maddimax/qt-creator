@@ -49,6 +49,11 @@ RowLayout {
     function expandAll(): void { view.expandRecursively(-1, -1) }
     function collapseAll(): void { view.collapseRecursively() }
 
+    // A page that filters the tree on the user's behalf - "show me what else
+    // uses this shortcut" - writes into the field rather than into the proxy,
+    // so that what is filtered and what the field says stay the same thing.
+    function setFilter(text: string): void { filter.text = text }
+
     visible: aspectVisible
     spacing: Spacing.GapHM
     Layout.fillWidth: true

@@ -72,6 +72,10 @@ ColumnLayout {
                 AspectListDelegate {}
             }
             DelegateChoice {
+                roleValue: AspectContainerModel.AspectInlineList
+                AspectInlineListDelegate {}
+            }
+            DelegateChoice {
                 roleValue: AspectContainerModel.TextWithAction
                 TextWithActionDelegate {}
             }
@@ -86,6 +90,10 @@ ColumnLayout {
             DelegateChoice {
                 roleValue: AspectContainerModel.Text
                 TextAreaDelegate {}
+            }
+            DelegateChoice {
+                roleValue: AspectContainerModel.KeySequence
+                KeySequenceDelegate {}
             }
             DelegateChoice {
                 roleValue: AspectContainerModel.Secret

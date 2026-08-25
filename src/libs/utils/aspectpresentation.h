@@ -50,11 +50,20 @@ enum Control {
     IntegerList,
     // A list of sub-aspects with a details pane, add and remove.
     AspectList,
+    // A list of sub-aspects one under the other, each drawn in full, with a
+    // remove beside each and an add at the end. For a short list whose items
+    // are one control each - the key sequences a command is mapped to.
+    AspectInlineList,
     // A summary of the value plus one button that acts on it, for an aspect
     // edited through a dialog rather than in place.
     TextWithAction,
     // One button and nothing else, for a page action that has no value.
     Button,
+    // A key sequence, typed in or recorded. A field with a button that starts
+    // recording; what is being recorded is exactly the keys that would
+    // otherwise be shortcuts, so the aspect takes them itself. See
+    // BaseAspect::isRecording().
+    KeySequence,
     // A field for a value that is not kept in the aspect and has to be gone
     // and got - a secret from the keychain. Written like a line edit, read
     // through displayText() once requestDisplayText() has delivered it.

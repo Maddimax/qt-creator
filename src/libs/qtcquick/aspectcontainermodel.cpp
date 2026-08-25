@@ -115,8 +115,10 @@ AspectContainerModel::Kind AspectContainerModel::kindOf(AspectControls::Control 
     case AspectControls::FontFamilyPicker:       return FontFamily;
     case AspectControls::StringList:             return StringListEditor;
     case AspectControls::AspectList:             return AspectList;
+    case AspectControls::AspectInlineList:       return AspectInlineList;
     case AspectControls::TextWithAction:         return TextWithAction;
     case AspectControls::Button:                 return Button;
+    case AspectControls::KeySequence:            return KeySequence;
     case AspectControls::Secret:                 return Secret;
     case AspectControls::Table:                  return Table;
     case AspectControls::GroupedList:            return GroupedList;
