@@ -1276,8 +1276,8 @@ method, and the manual-run dialog builds a widget from it too, so the page
 naming QML does not free it. Check for other callers before deleting one.
 
 Measured by loading every plugin into the QuickUi test (`-test QuickUi -load
-all`, minus `QmlDesigner` and `UpdateInfo`, see below): **81 aspect-driven
-pages, all 81 with their own QML and rendered with Qt Quick, none still on
+all`, minus `QmlDesigner` and `UpdateInfo`, see below): **82 aspect-driven
+pages, all 82 with their own QML and rendered with Qt Quick, none still on
 widgets.** Gerrit is the first of the widget-creator pages below to have joined
 that count: it became aspect-driven and then got a form, which is the shape the
 rest of them take.
@@ -1332,14 +1332,14 @@ pages that hand over an `AspectContainer` through `setSettingsProvider()`.
 A page that calls `IOptionsPage::setWidgetCreator()` builds its own
 `IOptionsPageWidget` and answers nothing from `aspects()`, so the test skips it
 entirely: `isFullyRenderable()` is never asked and the page is not in the 73.
-There are **33 such call sites in 30 files** - Keyboard, Locator, MIME Types,
+There are **32 such call sites in 29 files** - Keyboard, Locator, MIME Types,
 the toolchain, kit and device pages, Beautifier's three, Clangd, Axivion - and
 they are pure QtWidgets from top to bottom. Counted with
 
     grep -rn setWidgetCreator src/plugins src/libs --include='*.cpp'
 
 minus the mode files, which are `IMode::setWidgetCreator()` and a different
-thing. Gerrit, To-Do, GitLab and the Meson and GN Tools pages went this way;
+thing. Gerrit, To-Do, GitLab and the Meson, GN and CMake Tools pages went this way;
 converting any of them took an
 `AspectContainer` that reads the plugin's own settings struct when the page is
 built and writes it back on apply, which is the same shape the Code Style pages
@@ -1403,10 +1403,34 @@ Two things bit while doing it, both worth knowing:
   to arrange the same, which is what `GroupedListWidget` in
   `groupedlistaspect.cpp` does.
 
-Meson's and GN's Tools pages are the first two of the seven. They are the same
-page twice, so the second one took minutes; CMake tools should be the same
-again, and Debuggers, Kits, Toolchains and Qt Versions differ only in what
-their details form holds.
+Meson's, GN's and CMake's Tools pages are the first three of the seven. The
+first two are the same page twice, so the second took minutes. CMake needed one
+thing more: **`DeviceSelectionAspect`**, the device picker four of the seven
+use to narrow what they list and to choose what a re-detect runs over. It was a
+`DeviceComboBox` - a widget - so it blocked all four.
+
+**What the last four still need, which is not the tree:**
+
+- **Toolchains** shows a `ToolchainConfigWidget` per toolchain type. That is a
+  plugin extension point returning `QWidget`s, so the page cannot move until
+  every toolchain implementation does.
+- **Kits** has the same shape with `KitAspect` widgets.
+- **Qt Versions** is the biggest of them: two `DetailsWidget`s, an expandable
+  info pane, Link with Qt, Clean Up, and per-version warnings.
+- **Debuggers** is the one to do next; its details pane is an ordinary form.
+
+**The guard that guards nothing.** All three ported pages load a tool into a
+form and store what the user types, and all three carried *two* flags for it -
+a `m_loading` bool and a check that a tool is current. On Meson and GN the bool
+is what does the work, because `store()` reads the current row, which is valid
+throughout a load. On CMake it is not: `showTool()` clears the tool's id for
+the duration, so nothing can be written back anyway, and every control aimed at
+the bool came back green. The bool is gone there and the id says what it means.
+Worth checking which one is load-bearing rather than copying both across.
+
+Removing it also found a bug the flag had been hiding: reacting to the binary
+field during a load looked the tool up by an id that had just been cleared, and
+hid the form it was in the middle of filling in.
 
 **A page in a DisabledByDefault plugin is not in the census.** GN's is:
 `-load all` does not put such a plugin into the running state, so its pages are
