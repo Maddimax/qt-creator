@@ -1864,7 +1864,11 @@ void McuSupportTest::test_packageRowsAreTheOnesThePageDraws()
         settingsMockPtr, McuTargetDescription{parseDescriptionJson(armgcc_mimxrt1050_evk_freertos_json)})};
     QVERIFY(package);
 
+    // As the page lists them: a settings page applies on Apply, so what the
+    // field holds while it is being typed is the volatile value, and changed()
+    // does not fire at all.
     Utils::AspectContainer rows;
+    rows.setAutoApply(false);
     package->addSettingsRows(rows);
     QCOMPARE(rows.aspects().size(), 2);
 
@@ -1880,12 +1884,13 @@ void McuSupportTest::test_packageRowsAreTheOnesThePageDraws()
     QCOMPARE(statusRow->text(), package->statusText());
 
     // What is typed into the row is the package's path, both ways round.
+    QVERIFY(!pathRow->isAutoApply());
     const Utils::FilePath typed = Utils::FilePath::fromUserInput(QDir::tempPath());
-    pathRow->setValue(typed);
+    pathRow->setVolatileValue(typed.toUserOutput());
     QCOMPARE(package->path(), typed.cleanPath());
 
     package->setPath(Utils::FilePath::fromUserInput(QDir::rootPath()));
-    QCOMPARE(Utils::FilePath::fromUserInput(pathRow->value()), package->basePath());
+    QCOMPARE(Utils::FilePath::fromUserInput(pathRow->volatileValue()), package->basePath());
 
     // And the status follows the path rather than being written once.
     QCOMPARE(statusRow->text(), package->statusText());
@@ -1901,6 +1906,7 @@ void McuSupportTest::test_resetGoesBackToTheExpandedDefault()
     QVERIFY(package);
 
     Utils::AspectContainer rows;
+    rows.setAutoApply(false);
     package->addSettingsRows(rows);
     auto pathRow = qobject_cast<Utils::FilePathAspect *>(rows.aspects().at(0));
     QVERIFY(pathRow);

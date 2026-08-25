@@ -76,9 +76,12 @@ McuPackage::McuPackage(const SettingsHandler::Ptr &settingsHandler,
     m_pathAspect.setDefaultPathValue(m_defaultPath);
     m_pathAspect.setUseResetButton();
     m_pathAspect.setValue(m_path);
-    connect(&m_pathAspect, &FilePathAspect::changed, this, [this] {
+    // The volatile value, not changed(): on a settings page nothing is applied
+    // until Apply, and the status under the field has to follow what is being
+    // typed - which is what the chooser's textChanged() used to do.
+    connect(&m_pathAspect, &FilePathAspect::volatileValueChanged, this, [this] {
         if (!m_settingPath.isLocked())
-            setPath(m_pathAspect());
+            setPath(FilePath::fromUserInput(m_pathAspect.volatileValue()));
     });
 
     // The download link lives in the status line: the tool button that used to
@@ -167,6 +170,7 @@ void McuPackage::setPath(const FilePath &newPath)
     {
         const GuardLocker lock(m_settingPath);
         m_pathAspect.setValue(m_path);
+        m_pathAspect.setVolatileValue(m_path.toUserOutput());
     }
     updateStatus();
     emit changed();

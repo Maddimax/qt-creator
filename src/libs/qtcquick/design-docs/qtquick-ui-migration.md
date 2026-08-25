@@ -1918,6 +1918,31 @@ the two package groups are `AspectContainer`s refilled per target, which is
 what the container-refill fix above was written for. `showEvent()` - which
 asked the SDK what it had every time the page appeared - is `pageShown()`.
 
+### A container that only orders still says how to apply
+
+`AspectContainer::registerAspect()` hands the container's `autoApply` down to
+the aspect, and a bare `AspectContainer` starts out **auto-applying**. So a
+container made only to say *in what order to draw these* turned every aspect it
+listed into one that writes itself through as it is typed - on a settings page
+with Apply and Cancel, which is the opposite of what those buttons mean.
+
+`IDevice::fillSettingsAspects()` and `addRow()` did exactly that, and had since
+they replaced `IDeviceWidget`. Every device aspect a page listed came back
+auto-applying, so editing an SSH host and pressing Cancel kept the edit.
+
+Nothing caught it. The census asks whether a page draws; a page that draws and
+applies too early looks identical. The assertion that finds it is on the
+aspects themselves - `!isAutoApply()` for every row a device lists - and it is
+cheap, so it is worth writing for every new "ordering container".
+
+The same trap in the other direction: an aspect that *is* under a settings page
+does not emit `changed()` while it is being typed into, only on Apply. A Qt for
+MCUs package listened to `changed()` to update the status under the field and
+so said nothing until Apply, where the `PathChooser::textChanged` it replaced
+had reported every keystroke. `volatileValueChanged` is the signal, and a test
+that builds its rows in an auto-applying container cannot tell the two apart -
+`rows.setAutoApply(false)` is what makes it the page's configuration.
+
 ### What the census could not see, and now can
 
 Two holes, both found the hard way in the same session.

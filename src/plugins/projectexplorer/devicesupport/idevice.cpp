@@ -960,6 +960,11 @@ AspectContainer &IDevice::settingsAspects()
 void IDevice::fillSettingsAspects()
 {
     d->settingsAspects.clear();
+    // A container that only says in which order to draw things has no opinion
+    // about applying, and registerAspect() hands its own down. Left at the
+    // default it would turn every aspect it lists into one that writes itself
+    // through as it is typed, and Cancel would have nothing to undo.
+    d->settingsAspects.setAutoApply(isAutoApply());
     addSettingsRows(d->settingsAspects);
 
     // One row each, which is what every device widget's Form did.
@@ -982,6 +987,7 @@ AspectContainer *IDevice::addRow(AspectContainer &rows, const QList<BaseAspect *
 {
     const auto row = new AspectContainer;
     row->setInlineRow(true);
+    row->setAutoApply(rows.isAutoApply());
     for (BaseAspect * const control : controls)
         row->registerAspect(control);
     rows.registerAspect(row, /*takeOwnership=*/true);
@@ -1003,6 +1009,7 @@ AspectContainer &IDevice::deviceInfoAspects()
 void IDevice::refreshDeviceInfoAspects()
 {
     d->deviceInfoAspects.clear();
+    d->deviceInfoAspects.setAutoApply(isAutoApply());
     for (const DeviceInfoItem &item : deviceInformation()) {
         const auto row = new Utils::TextDisplay;
         row->setLabelText(item.key);

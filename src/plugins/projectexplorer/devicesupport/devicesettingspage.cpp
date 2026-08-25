@@ -550,6 +550,30 @@ private slots:
         QVERIFY(!typeSpecific->container()->aspects().isEmpty());
     }
 
+    void testListingADevicesAspectsDoesNotMakeThemApplyThemselves()
+    {
+        // registerAspect() hands the container's autoApply to the aspect, and
+        // a bare AspectContainer starts out auto-applying. So listing a
+        // device's own aspects on a page could flip every one of them to
+        // "write it through as it is typed", which is the opposite of what a
+        // settings page with Apply and Cancel means.
+        DeviceSettingsWidget page;
+        auto selection = aspectNamed<StringSelectionAspect>(page, "Device");
+        QVERIFY(selection);
+        const IDevicePtr device = DeviceManager::find(Id::fromString(selection->volatileValue()));
+        if (!device)
+            QSKIP("No devices are configured here");
+
+        QVERIFY(!device->displayNameAspect()->isAutoApply());
+        for (BaseAspect * const row : device->settingsAspects().aspects()) {
+            QVERIFY2(!row->isAutoApply(), qPrintable(row->labelText()));
+            if (auto container = qobject_cast<AspectContainer *>(row)) {
+                for (BaseAspect * const control : container->aspects())
+                    QVERIFY2(!control->isAutoApply(), qPrintable(control->labelText()));
+            }
+        }
+    }
+
     void testRemovingADeviceSaysSoBeforeItHappens()
     {
         // Remove does not remove: it marks, so that Cancel can put the device
