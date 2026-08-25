@@ -1370,6 +1370,25 @@ aspects, that nothing in them asks for a control no renderer knows
 (`AspectControls::Custom`), and that the QML names are there and differ. Ten
 kinds on macOS, including all three BareMetal ones and QNX.
 
+**Running the page found what no test did.** The census builds every page and
+asserts every delegate found its aspect, and it was green while the ABI was
+drawn as six combo boxes stacked one under the other, each on its own row -
+because "six aspects, six delegates" is exactly what the generic form is for.
+The widget drew them as one row, and nothing in the descriptor said so.
+
+`AspectContainer::setInlineRow()` says it: a container whose aspects read as
+one value is drawn as one labelled row with no group box, by
+`InlineGroupDelegate` rather than `GroupDelegate`. `AspectItems` became a
+`GridLayout` so that one file serves both directions - one column is a column,
+as many columns as there are aspects is a row.
+
+The row has to be told to fill: six form-width controls side by side are wider
+than the page, and a row that keeps its implicit width pushes the page out
+rather than being shrunk into it. That is what made the toolchain list's last
+column disappear off the right edge, and it is invisible to a test that only
+asks whether the delegates exist - so the test asks where they are and how
+wide.
+
 **A page that still uses widgets can host a converted kind.** That was the
 staging plan and it turned out not to be needed - the last kind and the page
 landed together. It still holds for Kits (16 `KitAspect`s) and Devices (13
