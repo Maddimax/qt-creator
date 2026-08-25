@@ -1332,6 +1332,32 @@ is the same measurement the `AspectGroupBox` note describes. Worth repeating
 after a batch: it is the only thing that sees a warning the page census cannot,
 and it also confirmed that no page has a binding loop left.
 
+### What the census could not see, and now can
+
+Two holes, both found the hard way in the same session.
+
+**An aspect no renderer knows was walked straight past.** `kindOf()` answers
+`Unsupported` for `AspectControls::Custom`, and the census skipped those the
+way it skips `Invisible` ones - so a page could lose a whole control and
+nothing said so. That is exactly how `AspectList`'s inline style went
+unnoticed: it answered `Custom`, and every page using it drew nothing where the
+list should be.
+
+Saying nothing and *meaning* nothing are two different answers now.
+`AspectControls::Invisible` is what an aspect that means to show nothing says -
+`ContainerAspect`, whose contents the page draws itself - and `Custom` is what
+one that has not been described yet says. The census reports the second and
+passes over the first. Measured before asserting: across all pages the only
+`Unsupported` aspects were the three `ContainerAspect`s, so the assertion is
+one the tree can actually hold.
+
+**The delegate-to-kind map had not kept up.** `serves` maps a delegate's name
+to the kinds it may draw, so that a page naming a check box for a string aspect
+is caught. Six kinds added since it was written - `GroupedList`, `Tree`,
+`AspectInlineList`, `TriStateBool`, `KeySequence`, `FontFamily` - were not in
+it, and a delegate the map does not know is simply not checked. A new kind
+belongs in three places, not two: `kindOf()`, `AspectItems.qml`, and here.
+
 ### External Tools, and a tree the user arranges
 
 The last page whose only obstacle was a control. Its tools are dragged between
@@ -1531,9 +1557,35 @@ pages that hand over an `AspectContainer` through `setSettingsProvider()`.
 A page that calls `IOptionsPage::setWidgetCreator()` builds its own
 `IOptionsPageWidget` and answers nothing from `aspects()`, so the test skips it
 entirely: `isFullyRenderable()` is never asked and the page is not in the 73.
-There are **15 such call sites in 14 files** - the toolchain, kit and device
-pages, Designer, Help's filters, MCU Support, CDB, BareMetal - and they are
-pure QtWidgets from top to bottom. Counted with
+There are **15 such call sites in 14 files**, and none of them is a page that
+fits in one batch any more. What each is waiting on, checked rather than
+remembered:
+
+- **Toolchains** - `ToolchainConfigWidget` has **9 implementations** across
+  ProjectExplorer, Nim, QNX, Android and BareMetal. The page cannot move until
+  every one of them does, because a Qt Quick page cannot host a `QWidget` for
+  the ones that have not. Qt Versions' extension point moved in a single batch
+  because it had exactly one implementation; this one does not.
+- **Kits** - the same shape with **16 `KitAspect` implementations**.
+- **Devices** - **13 `IDeviceWidget` implementations**.
+- **BareMetal's Debug Server Providers** - **30 config-widget classes**, all of
+  them for hardware this machine does not have.
+- **MCU Support** - `McuAbstractPackage::widget()`, one per package kind.
+- **Android SDK** - not an extension point, but its first-show work is an SDK
+  package reload. A settings *provider*'s container is built when the page
+  census builds it, so moving that into the constructor would make every test
+  run spawn `sdkmanager`. It needs a "the page is being shown" hook that the
+  census does not trigger, and there is none.
+- **Designer** and **Help's Filters** embed a widget from outside Qt Creator -
+  `QDesignerOptionsPageInterface::createPage()` and
+  `QHelpFilterSettingsWidget`. Neither has aspects to draw.
+- **Extension Manager's Browse** is a store front, not a settings form.
+- **CDB (two pages), Windows App SDK, ClearCase, Update** cannot be reached
+  here: Windows-only, or the plugin declines to register its page on this
+  machine. Two of them were written and reverted rather than shipped
+  unverified; see below.
+
+They are pure QtWidgets from top to bottom. Counted with
 
     grep -rn setWidgetCreator src/plugins src/libs --include='*.cpp'
 
