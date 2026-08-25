@@ -39,28 +39,13 @@ class JLSSettings final : public StdIOSettings
 public:
     JLSSettings();
 
-    bool applyFromSettingsWidget(QWidget *widget) final;
-    QWidget *createSettingsWidget(QWidget *parent) final;
+    bool applySettings() final;
+    void addSettingsRows(Utils::AspectContainer &rows) final;
     bool isValid() const final;
     Client *createClient(BaseClientInterface *interface) const final;
     BaseClientInterface *createInterface(BuildConfiguration *) const final;
 
     FilePathAspect languageServer{this};
-};
-
-class JLSSettingsWidget : public QWidget
-{
-public:
-    JLSSettingsWidget(const JLSSettings *settings, QWidget *parent)
-        : QWidget(parent)
-    {
-        using namespace Layouting;
-        Form {
-            settings->name, br,
-            settings->executable, br,
-            settings->languageServer
-        }.attachTo(this);
-    }
 };
 
 JLSSettings::JLSSettings()
@@ -83,9 +68,9 @@ JLSSettings::JLSSettings()
         executable.setValue(javaPath);
 }
 
-bool JLSSettings::applyFromSettingsWidget(QWidget *widget)
+bool JLSSettings::applySettings()
 {
-    bool changed = StdIOSettings::applyFromSettingsWidget(widget);
+    bool changed = StdIOSettings::applySettings();
 
     QString args = "-Declipse.application=org.eclipse.jdt.ls.core.id1 "
                    "-Dosgi.bundles.defaultStartLevel=4 "
@@ -116,9 +101,13 @@ bool JLSSettings::applyFromSettingsWidget(QWidget *widget)
     return changed;
 }
 
-QWidget *JLSSettings::createSettingsWidget(QWidget *parent)
+void JLSSettings::addSettingsRows(Utils::AspectContainer &rows)
 {
-    return new JLSSettingsWidget(this, parent);
+    // Not the base's list: the arguments are worked out from the launcher jar
+    // rather than typed, and the mime types are fixed for Java.
+    rows.registerAspect(&name);
+    rows.registerAspect(&executable);
+    rows.registerAspect(&languageServer);
 }
 
 bool JLSSettings::isValid() const

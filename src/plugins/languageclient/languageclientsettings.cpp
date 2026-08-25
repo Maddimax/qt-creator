@@ -22,6 +22,8 @@
 #include <texteditor/plaintexteditorfactory.h>
 #include <texteditor/textmark.h>
 
+#include <utils/aspectpresentation.h>
+#include <utils/shutdownguard.h>
 #include <utils/algorithm.h>
 #include <utils/fancylineedit.h>
 #include <utils/guiutils.h>
@@ -41,18 +43,15 @@
 #include <QFileInfo>
 #include <QFormLayout>
 #include <QGroupBox>
-#include <QHeaderView>
-#include <QItemSelectionModel>
 #include <QJsonDocument>
 #include <QLabel>
-#include <QMenu>
 #include <QMimeData>
-#include <QPushButton>
 #include <QSortFilterProxyModel>
+
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
 #include <QStyledItemDelegate>
-#include <QToolButton>
-#include <QTreeView>
-#include <QTreeWidget>
 
 constexpr char typeIdKey[] = "typeId";
 constexpr char enabledKey[] = "enabled";
@@ -77,6 +76,13 @@ public:
 
     // QAbstractItemModel interface
     int rowCount(const QModelIndex &/*parent*/ = QModelIndex()) const final { return m_settings.count(); }
+    // The one column has no name; the widget view hid the header instead.
+    QVariant headerData(int, Qt::Orientation, int) const final { return {}; }
+    // What a Qt Quick view reads off a cell, which it cannot take from flags().
+    QHash<int, QByteArray> roleNames() const final
+    {
+        return AspectTable::withRoleNames(QAbstractItemModel::roleNames());
+    }
     QVariant data(const QModelIndex &index, int role) const final;
     bool removeRows(int row, int count = 1, const QModelIndex &parent = QModelIndex()) final;
     bool insertRows(int row, int count = 1, const QModelIndex &parent = QModelIndex()) final;
@@ -151,49 +157,95 @@ private:
     LanguageClientSettingsModel &m_settings;
 };
 
-class LanguageClientSettingsPageWidget : public Core::IOptionsPageWidget
+// The clients, as the page lists them: each renamed and switched on in place,
+// and dragged into the order they are tried in. All of that is the model's
+// answer already; the aspect only says the tree may be reordered.
+class ClientTreeAspect final : public BaseAspect
+{
+    Q_OBJECT
+
+public:
+    ClientTreeAspect(AspectContainer *container, LanguageClientSettingsModel &model)
+        : BaseAspect(container)
+        , m_proxy(model)
+    {}
+
+    AspectPresentation presentation() const override
+    {
+        AspectPresentation p = BaseAspect::presentation();
+        p.control = AspectControls::Tree;
+        p.allowReordering = true;
+        return p;
+    }
+
+    QAbstractItemModel *tableModel() override { return &m_proxy; }
+    FilterProxy &proxy() { return m_proxy; }
+
+    // Which client the form beside the tree is about. The view says so; the
+    // page reads it.
+    Q_INVOKABLE void setCurrentIndex(const QModelIndex &index)
+    {
+        if (index == m_current)
+            return;
+        m_current = index;
+        emit currentChanged();
+    }
+
+    QModelIndex currentIndex() const { return m_current; }
+    BaseSettings *currentSetting() const { return m_proxy.settingForIndex(m_current); }
+
+signals:
+    void currentChanged();
+
+private:
+    FilterProxy m_proxy;
+    QPersistentModelIndex m_current;
+};
+
+class LanguageClientSettingsPageWidget final : public AspectContainer
 {
 public:
     LanguageClientSettingsPageWidget(LanguageClientSettingsModel &settings,
                                      QSet<QString> &changedSettings);
-
-    void currentChanged(const QModelIndex &index);
-    int currentRow() const;
-    void resetCurrentSettings(int row);
-    void applyCurrentSettings();
 
     void apply() final
     {
         applyCurrentSettings();
         LanguageClientManager::applySettings();
 
-        for (BaseSettings *setting : m_settings.removed()) {
+        for (BaseSettings *setting : m_clients.proxy().removed()) {
             for (Client *client : LanguageClientManager::clientsForSetting(setting))
                 LanguageClientManager::shutdownClient(client);
         }
 
-        int row = currentRow();
-        m_settings.reset(LanguageClientManager::currentSettings());
-        resetCurrentSettings(row);
+        const int row = m_clients.currentIndex().row();
+        m_clients.proxy().reset(LanguageClientManager::currentSettings());
+        showCurrentSettings(m_clients.proxy().index(row, 0));
     }
-    void cancel() override
+
+    void cancel() final
     {
-        m_settings.reset(LanguageClientManager::currentSettings());
+        m_clients.proxy().reset(LanguageClientManager::currentSettings());
         m_changedSettings.clear();
+        showCurrentSettings({});
     }
 
 private:
-    QTreeView *m_view = nullptr;
-    struct CurrentSettings {
-        BaseSettings *setting = nullptr;
-        QWidget *widget = nullptr;
-    } m_currentSettings;
-
+    void showCurrentSettings(const QModelIndex &index);
+    void applyCurrentSettings();
     void addItem(const Id &clientTypeId);
     void deleteItem();
 
-    FilterProxy m_settings;
+    LanguageClientSettingsModel &m_model;
     QSet<QString> &m_changedSettings;
+
+    ClientTreeAspect m_clients{this, m_model};
+    ActionAspect m_add{this};
+    ActionAspect m_delete{this};
+    // What the selected client asks for. Rebuilt per selection, and owned so
+    // that the previous one goes when the next arrives.
+    ContainerAspect m_current{this};
+    BaseSettings *m_shown = nullptr;
 };
 
 static QMap<Id, ClientType> &clientTypes()
@@ -202,102 +254,74 @@ static QMap<Id, ClientType> &clientTypes()
     return types;
 }
 
-LanguageClientSettingsPageWidget::LanguageClientSettingsPageWidget(LanguageClientSettingsModel &settings,
-                                                                   QSet<QString> &changedSettings)
-    : m_view(new QTreeView())
-    , m_settings(settings)
+LanguageClientSettingsPageWidget::LanguageClientSettingsPageWidget(
+    LanguageClientSettingsModel &settings, QSet<QString> &changedSettings)
+    : m_model(settings)
     , m_changedSettings(changedSettings)
 {
-    QObject::connect(
-        &m_settings,
-        &LanguageClientSettingsModel::dataChanged,
-        this,
-        [](const QModelIndex &, const QModelIndex &, const QList<int> roles) {
-            if (roles.contains(Qt::CheckStateRole))
-                markSettingsDirty();
-        }
-    );
+    setAutoApply(false);
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/LanguageClient/LanguageClientsPage.qml"));
 
-    auto mainLayout = new QVBoxLayout();
-    auto layout = new QHBoxLayout();
+    m_clients.setQmlName("Clients");
 
-    m_view->setModel(&m_settings);
-    m_view->setHeaderHidden(true);
-    m_view->setSelectionMode(QAbstractItemView::SingleSelection);
-    m_view->setSelectionBehavior(QAbstractItemView::SelectItems);
-    m_view->setDragEnabled(true);
-    m_view->viewport()->setAcceptDrops(true);
-    m_view->setDropIndicatorShown(true);
-    m_view->setDragDropMode(QAbstractItemView::InternalMove);
-    connect(m_view->selectionModel(), &QItemSelectionModel::currentChanged,
-            this, &LanguageClientSettingsPageWidget::currentChanged);
-    auto buttonLayout = new QVBoxLayout();
-    auto addButton = new QPushButton(Tr::tr("&Add"));
-    auto addMenu = new QMenu(this);
-    addMenu->clear();
+    // Adding a client is picking a kind, so the button offers rather than
+    // does. The kinds are fixed once the plugins are loaded.
+    m_add.setQmlName("Add");
+    m_add.setActionText(Tr::tr("Add"));
+    QList<AspectPresentation::Choice> kinds;
     for (const ClientType &type : clientTypes()) {
         if (!type.userAddable)
             continue;
-        auto action = new QAction(type.name, this);
-        connect(action, &QAction::triggered, this, [this, id = type.id]() { addItem(id); });
-        addMenu->addAction(action);
+        kinds.append({type.name, {}, true, type.id.toSetting()});
     }
-    addButton->setMenu(addMenu);
-    auto deleteButton = new QPushButton(Tr::tr("&Delete"));
-    connect(deleteButton, &QPushButton::pressed, this, &LanguageClientSettingsPageWidget::deleteItem);
-    mainLayout->addLayout(layout);
-    setLayout(mainLayout);
-    layout->addWidget(m_view);
-    layout->addLayout(buttonLayout);
-    buttonLayout->addWidget(addButton);
-    buttonLayout->addWidget(deleteButton);
-    buttonLayout->addStretch(10);
+    m_add.setChoices(kinds);
+    m_add.setOnChoice([this](const QVariant &id) { addItem(Id::fromSetting(id)); });
+
+    m_delete.setQmlName("Delete");
+    m_delete.setActionText(Tr::tr("Delete"));
+    m_delete.setAction([this] { deleteItem(); });
+
+    m_current.setQmlName("Current");
+
+    // Behaviour, not layout.
+    connect(&m_clients, &ClientTreeAspect::currentChanged, this, [this] {
+        showCurrentSettings(m_clients.currentIndex());
+    });
+    connect(&m_model, &LanguageClientSettingsModel::dataChanged, this,
+            [](const QModelIndex &, const QModelIndex &, const QList<int> roles) {
+                if (roles.contains(Qt::CheckStateRole))
+                    markSettingsDirty();
+            });
 }
 
-void LanguageClientSettingsPageWidget::currentChanged(const QModelIndex &index)
+void LanguageClientSettingsPageWidget::showCurrentSettings(const QModelIndex &index)
 {
-    if (m_currentSettings.widget) {
-        applyCurrentSettings();
-        layout()->removeWidget(m_currentSettings.widget);
-        delete m_currentSettings.widget;
+    applyCurrentSettings();
+
+    m_shown = m_clients.proxy().settingForIndex(index);
+    if (!m_shown) {
+        m_current.setOwnedContainer(nullptr);
+        m_delete.setEnabled(false);
+        return;
     }
 
-    if (index.isValid()) {
-        m_currentSettings.setting = m_settings.settingForIndex(index);
-        m_currentSettings.widget = m_currentSettings.setting->createSettingsWidget(this);
-        layout()->addWidget(m_currentSettings.widget);
-        installMarkSettingsDirtyTriggerRecursively(m_currentSettings.widget);
-    } else {
-        m_currentSettings.setting = nullptr;
-        m_currentSettings.widget = nullptr;
-    }
-}
-
-int LanguageClientSettingsPageWidget::currentRow() const
-{
-    return m_settings.indexForSetting(m_currentSettings.setting).row();
-}
-
-void LanguageClientSettingsPageWidget::resetCurrentSettings(int row)
-{
-    if (m_currentSettings.widget) {
-        layout()->removeWidget(m_currentSettings.widget);
-        delete m_currentSettings.widget;
-    }
-
-    m_currentSettings.setting = nullptr;
-    m_currentSettings.widget = nullptr;
-    m_view->setCurrentIndex(m_settings.index(row, 0));
+    const auto rows = new AspectContainer;
+    // An ordering container has no opinion about applying, and the default is
+    // to apply at once - which on a page with Apply and Cancel is wrong.
+    rows->setAutoApply(false);
+    m_shown->addSettingsRows(*rows);
+    m_current.setOwnedContainer(rows);
+    m_delete.setEnabled(true);
 }
 
 void LanguageClientSettingsPageWidget::applyCurrentSettings()
 {
-    if (!m_currentSettings.setting)
+    if (!m_shown)
         return;
 
-    if (m_currentSettings.setting->applyFromSettingsWidget(m_currentSettings.widget)) {
-        auto index = m_settings.indexForSetting(m_currentSettings.setting);
-        emit m_settings.sourceModel()->dataChanged(index, index);
+    if (m_shown->applySettings()) {
+        const QModelIndex index = m_clients.proxy().indexForSetting(m_shown);
+        emit m_model.dataChanged(m_model.index(index.row(), 0), m_model.index(index.row(), 0));
     }
 }
 
@@ -315,18 +339,19 @@ void LanguageClientSettingsPageWidget::addItem(const Id &clientTypeId)
 {
     auto newSettings = generateSettings(clientTypeId);
     QTC_ASSERT(newSettings, return);
-    markSettingsDirty();
-    m_view->setCurrentIndex(m_settings.insertSettings(newSettings));
+    m_clients.setCurrentIndex(m_clients.proxy().insertSettings(newSettings));
 }
 
 void LanguageClientSettingsPageWidget::deleteItem()
 {
-    auto index = m_view->currentIndex();
+    const QModelIndex index = m_clients.currentIndex();
     if (!index.isValid())
         return;
 
-    m_settings.removeRow(index.row());
-    markSettingsDirty();
+    // The rows being shown are the ones about to go.
+    showCurrentSettings({});
+    m_clients.setCurrentIndex({});
+    m_clients.proxy().removeRow(index.row());
 }
 
 class LanguageClientSettingsPage : public Core::IOptionsPage
@@ -353,7 +378,11 @@ LanguageClientSettingsPage::LanguageClientSettingsPage()
     setId(Constants::LANGUAGECLIENT_SETTINGS_PAGE);
     setDisplayName(Tr::tr("General"));
     setCategory(Constants::LANGUAGECLIENT_SETTINGS_CATEGORY);
-    setWidgetCreator([this] { return new LanguageClientSettingsPageWidget(m_model, m_changedSettings); });
+    setSettingsProvider([this] {
+        static GuardedObject<LanguageClientSettingsPageWidget> theAspects(m_model,
+                                                                          m_changedSettings);
+        return theAspects.get();
+    });
     QObject::connect(&m_model, &LanguageClientSettingsModel::dataChanged, [this](const QModelIndex &index) {
         if (BaseSettings *setting = m_model.settingForIndex(index))
             m_changedSettings << setting->id();
@@ -405,6 +434,12 @@ QVariant LanguageClientSettingsModel::data(const QModelIndex &index, int role) c
     BaseSettings *setting = settingForIndex(index);
     if (!setting)
         return QVariant();
+    // A widget view reads flags() for these two; a Qt Quick view cannot, so
+    // they are answered as roles as well.
+    if (role == AspectTable::EditableRole)
+        return AspectTable::isWritable(flags(index));
+    if (role == AspectTable::CheckableRole)
+        return true;
     if (role == Qt::DisplayRole)
         return setting->name();
     else if (role == Qt::CheckStateRole)
@@ -630,16 +665,20 @@ QJsonValue BaseSettings::configurationAsJson() const
     return {};
 }
 
-bool BaseSettings::applyFromSettingsWidget(QWidget *)
+bool BaseSettings::applySettings()
 {
-    bool changed = isDirty();
+    const bool changed = isDirty();
     AspectContainer::apply();
     return changed;
 }
 
-QWidget *BaseSettings::createSettingsWidget(QWidget *parent)
+void BaseSettings::addSettingsRows(AspectContainer &rows)
 {
-    return new BaseSettingsWidget(this, parent);
+    rows.registerAspect(&name);
+    rows.registerAspect(&mimeTypes);
+    rows.registerAspect(&filePattern);
+    rows.registerAspect(&startBehavior);
+    rows.registerAspect(&initializationOptions);
 }
 
 BaseSettings *BaseSettings::copy() const
@@ -872,12 +911,11 @@ StdIOSettings::StdIOSettings()
 
 StdIOSettings::~StdIOSettings() = default;
 
-QWidget *StdIOSettings::createSettingsWidget(QWidget *parent)
+void StdIOSettings::addSettingsRows(AspectContainer &rows)
 {
-    return new BaseSettingsWidget(this, parent, [this](Layouting::Layout *layout) {
-        layout->addRow({&executable});
-        layout->addRow({&arguments});
-    });
+    BaseSettings::addSettingsRows(rows);
+    rows.registerAspect(&executable);
+    rows.registerAspect(&arguments);
 }
 
 bool StdIOSettings::isValid() const
@@ -918,28 +956,6 @@ public:
         return result;
     }
 };
-
-BaseSettingsWidget::BaseSettingsWidget(
-    const BaseSettings *settings, QWidget *parent, Layouting::LayoutModifier additionalItems)
-    : QWidget(parent)
-{
-    using namespace Layouting;
-
-    // clang-format off
-    auto form = Form {
-        settings->name, br,
-        settings->mimeTypes, br,
-        settings->filePattern, br,
-        settings->startBehavior, br,
-        settings->initializationOptions, br
-    };
-
-    if (additionalItems)
-        additionalItems(&form);
-
-    form.attachTo(this);
-    // clang-format on
-}
 
 static bool inheritsAnyMimeType(const MimeType &mimeType, const QStringList &mimeTypes)
 {
@@ -1208,4 +1224,104 @@ void setupLanguageClientProjectPanel()
     static LanguageClientProjectPanelFactory theLanguageClientProjectPanelFactory;
 }
 
+#ifdef WITH_TESTS
+class LanguageClientSettingsPageTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheRowsAreTheClientsOwnAndFollowTheSelection()
+    {
+        // The page draws whatever the current client asks for and knows about
+        // no kind in particular. What each kind asks is its own list of
+        // aspects, which is what createSettingsWidget() used to build by hand.
+        LanguageClientSettingsModel model;
+        QSet<QString> changed;
+        LanguageClientSettingsPageWidget page(model, changed);
+
+        auto clients = page.aspect<ClientTreeAspect>();
+        QVERIFY(clients);
+        auto current = page.aspect<ContainerAspect>();
+        QVERIFY(current);
+        // Nothing is selected to start with, so there is nothing to draw.
+        QVERIFY(!current->container());
+
+        StdIOSettings one;
+        one.name.setValue("First");
+        one.showInSettings.setValue(true);
+        StdIOSettings two;
+        two.name.setValue("Second");
+        two.showInSettings.setValue(true);
+        // reset() copies, so the settings the page shows are the model's own.
+        clients->proxy().reset({&one, &two});
+        QCOMPARE(clients->proxy().rowCount(), 2);
+
+        const auto shown = [clients](int row) {
+            return static_cast<StdIOSettings *>(
+                clients->proxy().settingForIndex(clients->proxy().index(row, 0)));
+        };
+        StdIOSettings * const first = shown(0);
+        StdIOSettings * const second = shown(1);
+        QVERIFY(first);
+        QVERIFY(second);
+
+        clients->setCurrentIndex(clients->proxy().index(0, 0));
+        AspectContainer * const firstRows = current->container();
+        QVERIFY(firstRows);
+        // A stdio client shows what every client does and its own two on top.
+        QVERIFY(firstRows->aspects().contains(&first->name));
+        QVERIFY(firstRows->aspects().contains(&first->executable));
+        QVERIFY(firstRows->aspects().contains(&first->arguments));
+        QVERIFY(!firstRows->aspects().contains(&second->name));
+
+        // Listing them must not turn them into aspects that apply as they are
+        // typed: this page has Apply and Cancel.
+        for (BaseAspect * const row : firstRows->aspects())
+            QVERIFY2(!row->isAutoApply(), qPrintable(row->labelText()));
+
+        clients->setCurrentIndex(clients->proxy().index(1, 0));
+        AspectContainer * const secondRows = current->container();
+        QVERIFY(secondRows);
+        QVERIFY(secondRows != firstRows);
+        QVERIFY(secondRows->aspects().contains(&second->name));
+        QVERIFY(!secondRows->aspects().contains(&first->name));
+
+        // The rows go when the model's settings do, so the page holds no
+        // pointer into them afterwards.
+        clients->setCurrentIndex({});
+        QVERIFY(!current->container());
+        clients->proxy().reset({});
+    }
+
+    void testAddOffersOneEntryPerKindThatCanBeAdded()
+    {
+        // Adding a client is picking a kind, so the button offers rather than
+        // does - what a QMenu built beside the button could not be asked.
+        LanguageClientSettingsModel model;
+        QSet<QString> changed;
+        LanguageClientSettingsPageWidget page(model, changed);
+
+        auto add = page.aspect<ActionAspect>();
+        QVERIFY(add);
+        QCOMPARE(add->qmlName(), QString("Add"));
+
+        int addable = 0;
+        for (const ClientType &type : clientTypes()) {
+            if (type.userAddable)
+                ++addable;
+        }
+        if (addable == 0)
+            QSKIP("No client kind here can be added by hand");
+        QCOMPARE(add->presentation().choices.size(), addable);
+    }
+};
+
+QObject *createLanguageClientSettingsPageTest()
+{
+    return new LanguageClientSettingsPageTest;
+}
+#endif // WITH_TESTS
+
 } // namespace LanguageClient
+
+#include "languageclientsettings.moc"

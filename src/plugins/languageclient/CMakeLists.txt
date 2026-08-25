@@ -49,4 +49,17 @@ qt_add_resources(LanguageClient lc_images_rcc
     images/settingscategory_languageclient@2x.png
 )
 
+# qmllint and qmlcachegen see the files; qbs cannot build QML modules, so it
+# only lists them - the same split qtcquick already lives with.
+if(TARGET LanguageClient AND TARGET Qt::Quick)
+  qt_add_qml_module(LanguageClient
+    URI QtCreator.LanguageClient
+    VERSION 1.0
+    RESOURCE_PREFIX "/qt/qml"
+    NO_PLUGIN
+    QML_FILES
+      LanguageClientsPage.qml
+  )
+endif()
+
 add_subdirectory(lualanguageclient)

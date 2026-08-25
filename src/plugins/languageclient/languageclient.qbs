@@ -15,6 +15,13 @@ QtcPlugin {
     Depends { name: "TextEditor" }
     Depends { name: "McpServerLib" }
 
+    // qbs has no QML module support; the .qml files are built by CMake only.
+    Group {
+        name: "qml"
+        files: ["**/*.qml"]
+        fileTags: []
+    }
+
     files: [
         "callandtypehierarchy.cpp",
         "callandtypehierarchy.h",

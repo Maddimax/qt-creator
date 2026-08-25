@@ -86,8 +86,10 @@ public:
     QJsonObject initializationOptionsAsJson() const;
     QJsonValue configurationAsJson() const;
 
-    virtual bool applyFromSettingsWidget(QWidget *widget);
-    virtual QWidget *createSettingsWidget(QWidget *parent = nullptr);
+    // The rows a page shows for this client, in the order it wants them. This
+    // is what createSettingsWidget() was: which aspects, and in what order.
+    virtual void addSettingsRows(Utils::AspectContainer &rows);
+    virtual bool applySettings();
     virtual BaseSettings *copy() const;
     virtual BaseSettings *create() const = 0;
     virtual bool isValid() const;
@@ -113,7 +115,7 @@ public:
     StdIOSettings();
     ~StdIOSettings() override;
 
-    QWidget *createSettingsWidget(QWidget *parent = nullptr) override;
+    void addSettingsRows(Utils::AspectContainer &rows) override;
     BaseSettings *create() const override { return new StdIOSettings; }
     bool isValid() const override;
 
@@ -160,18 +162,6 @@ public:
     static void setOutlineComboBoxSorted(bool sorted);
 };
 
-class LANGUAGECLIENT_EXPORT BaseSettingsWidget : public QWidget
-{
-    Q_OBJECT
-public:
-    explicit BaseSettingsWidget(
-        const BaseSettings *settings,
-        QWidget *parent = nullptr,
-        Layouting::LayoutModifier additionalItems = {});
-
-    ~BaseSettingsWidget() override = default;
-};
-
 class ProjectSettings
 {
 public:
@@ -199,5 +189,9 @@ private:
 LANGUAGECLIENT_EXPORT TextEditor::BaseTextEditor *createJsonEditor(QObject *parent = nullptr);
 
 void setupLanguageClientProjectPanel();
+
+#ifdef WITH_TESTS
+QObject *createLanguageClientSettingsPageTest();
+#endif
 
 } // namespace LanguageClient

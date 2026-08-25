@@ -1943,6 +1943,40 @@ had reported every keystroke. `volatileValueChanged` is the signal, and a test
 that builds its rows in an auto-applying container cannot tell the two apart -
 `rows.setAutoApply(false)` is what makes it the page's configuration.
 
+### Language servers, and five kinds of client
+
+`BaseSettings::createSettingsWidget()` was the extension point, with **five
+implementations** - the base, `StdIOSettings`, and one each for Java, Lua and
+qmlls. Four of the five were pure aspect layout: a `Form` over aspects the
+settings object already owned, wrapped in a `QWidget` that held nothing. They
+say `addSettingsRows()` now, and `BaseSettingsWidget` is deleted.
+
+`applyFromSettingsWidget(QWidget *)` took a widget it never looked at - two of
+the three overrides passed it straight to the base and ignored it. It is
+`applySettings()`.
+
+**The fifth had a page inside it.** `QmllsClientSettingsWidget` was two
+labelled groups, a "Download latest standalone qmlls" button on the executable
+field, a `QSingleTaskTreeRunner` to run the download, and one piece of
+behaviour - the custom path is only editable when the custom option is chosen.
+All four move to `QmllsClientSettings`: the groups are two `AspectContainer`s
+it owns, the button an `ActionAspect`, the runner a member, and the behaviour
+goes in the constructor where it belongs. With that, the only caller of
+`FilePathAspect::addButton()` - an API the Quick renderer never drew - is gone.
+
+**What a Qt Quick view cannot read off a cell.** The tree came up with a
+column header saying "1" and no check boxes. Both are things a `QTreeView` gets
+without asking: `setHeaderHidden(true)` was a property of the *view*, and
+check state comes out of `flags()`, which QML cannot reach. A model drawn by
+`TreeDelegate` has to answer `headerData()` with nothing and
+`AspectTable::CheckableRole`/`EditableRole` as roles, and hand back
+`AspectTable::withRoleNames()`. That is the third model to need this and it is
+worth saying plainly: **a model that worked in a QTreeView is not ready for a
+Quick view until it answers those three.**
+
+Still widget-shaped here: `attachProjectSpecificSettingsToLayout(Project *,
+QLayout *)`, which is the project panel rather than this page.
+
 ### What the census could not see, and now can
 
 Two holes, both found the hard way in the same session.
@@ -2169,9 +2203,9 @@ A page that calls `IOptionsPage::setWidgetCreator()` builds its own
 `IOptionsPageWidget` and answers nothing from `aspects()`, so the test skips it
 entirely: `isFullyRenderable()` is never asked and the page is not in the 73.
 There were **15 such call sites in 14 files**, and none of them is a page that
-fits in one batch any more. **Ten page call sites are left, in ten files**,
-after Toolchains, Kits, Devices and MCU - counted with the grep below, minus
-`IMode::setWidgetCreator()` and `ioptionspage.cpp` itself. What each is waiting on, checked rather than
+fits in one batch any more. **Nine page call sites are left, in nine files**,
+after Toolchains, Kits, Devices, MCU and Language Client - counted with the
+grep below, minus `IMode::setWidgetCreator()` and `ioptionspage.cpp` itself. What each is waiting on, checked rather than
 remembered:
 
 - **Toolchains** - done. `ToolchainConfigWidget` had **9 implementations**

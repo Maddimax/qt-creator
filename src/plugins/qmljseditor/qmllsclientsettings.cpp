@@ -159,6 +159,9 @@ static QmllsForBuildConfiguration evaluateLatestQmlls()
     return {latestQmlls, latestVersion};
 }
 
+// Defined below, next to the rest of what fetching a qmlls involves.
+static GroupItem downloadGithubQmlls();
+
 QmllsClientSettings::QmllsClientSettings()
 {
     setAutoApply(false);
@@ -228,6 +231,36 @@ QmllsClientSettings::QmllsClientSettings()
     extraArguments.setSettingsKey(extraArgumentsKey);
     extraArguments.setHistoryCompleter("Qmlls.ExtraArguments.History");
     extraArguments.setDisplayStyle(StringAspect::DisplayStyle::LineEditDisplay);
+
+    downloadQmlls.setActionText(Tr::tr("Download latest standalone qmlls"));
+    downloadQmlls.setAction([this] {
+        m_qmllsDownloader.start({downloadGithubQmlls()}, {}, [this] {
+            if (const FilePath path = evaluateGithubQmlls().first; !path.isEmpty())
+                executable.setVolatileValue(path.toUserOutput());
+        });
+    });
+
+    optionsGroup.setLabelText(Tr::tr("Options"));
+    optionsGroup.registerAspect(&ignoreMinimumQmllsVersion);
+    optionsGroup.registerAspect(&disableBuiltinCodemodel);
+    optionsGroup.registerAspect(&useQmllsSemanticHighlighting);
+    optionsGroup.registerAspect(&generateQmllsIniFiles);
+    optionsGroup.registerAspect(&enableCMakeBuilds);
+    optionsGroup.registerAspect(&extraArguments);
+
+    executableGroup.setLabelText(Tr::tr("Executable selection for qmlls"));
+    executableGroup.registerAspect(&executableSelection);
+    executableGroup.registerAspect(&executable);
+    executableGroup.registerAspect(&downloadQmlls);
+
+    // Behaviour, not layout: a custom path is only worth typing when the
+    // custom option is the one chosen.
+    const auto updateExecutableEnabled = [this] {
+        executable.setEnabled(executableSelection.volatileValue() == FromUser);
+    };
+    updateExecutableEnabled();
+    connect(&executableSelection, &BaseAspect::volatileValueChanged, this,
+            updateExecutableEnabled);
 }
 
 // Estimates the version of qmlls to avoid passing unknown options to qmlls in
@@ -819,66 +852,10 @@ static GroupItem downloadGithubQmlls()
     // clang-format on
 }
 
-class QmllsClientSettingsWidget : public QWidget
+void QmllsClientSettings::addSettingsRows(Utils::AspectContainer &rows)
 {
-public:
-    explicit QmllsClientSettingsWidget(QmllsClientSettings *settings, QWidget *parent = nullptr)
-        : QWidget(parent)
-    {
-        using namespace Layouting;
-        // clang-format off
-        auto form = Column {
-            Layouting::Group {
-                title(Tr::tr("Options")),
-                Form {
-                    settings->ignoreMinimumQmllsVersion, br,
-                    settings->disableBuiltinCodemodel, br,
-                    settings->useQmllsSemanticHighlighting, br,
-                    settings->generateQmllsIniFiles, br,
-                    settings->enableCMakeBuilds, br,
-                    settings->extraArguments, br,
-                }
-            },
-            Layouting::Group {
-                title(Tr::tr("Executable selection for qmlls")),
-                Column {
-                    settings->executableSelection, br,
-                    settings->executable, br,
-                }
-            },
-        };
-        // clang-format on
-
-        settings->executable.addButton(
-            Tr::tr("Download latest standalone qmlls"), this, [this, settings = QPointer(settings)] {
-                m_qmllsDownloader.start({downloadGithubQmlls()}, {}, [settings] {
-                    if (!settings)
-                        return;
-                    if (const Utils::FilePath path = evaluateGithubQmlls().first; !path.isEmpty()) {
-                        const_cast<QmllsClientSettings *>(settings.data())
-                            ->executable.setVolatileValue(path.toUserOutput());
-                    }
-                });
-            });
-
-        auto updateExecutableEnabled = [settings]() {
-            const bool enabled = settings->executableSelection.volatileValue() == QmllsClientSettings::FromUser;
-            settings->executable.setEnabled(enabled);
-        };
-        updateExecutableEnabled();
-        connect(&settings->executableSelection, &BaseAspect::volatileValueChanged, this, updateExecutableEnabled);
-
-
-        form.attachTo(this);
-    }
-
-private:
-    QSingleTaskTreeRunner m_qmllsDownloader;
-};
-
-QWidget *QmllsClientSettings::createSettingsWidget(QWidget *parent)
-{
-    return new QmllsClientSettingsWidget(this, parent);
+    rows.registerAspect(&optionsGroup);
+    rows.registerAspect(&executableGroup);
 }
 
 } // namespace QmlJSEditor

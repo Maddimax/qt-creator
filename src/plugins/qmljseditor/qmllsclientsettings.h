@@ -7,6 +7,8 @@
 
 #include <utils/aspects.h>
 
+#include <QtTaskTree/QSingleTaskTreeRunner>
+
 #include <QVersionNumber>
 #include <QWidget>
 
@@ -21,7 +23,7 @@ public:
     QmllsClientSettings();
     BaseSettings *create() const override { return new QmllsClientSettings; }
 
-    QWidget *createSettingsWidget(QWidget *parent = nullptr) override;
+    void addSettingsRows(Utils::AspectContainer &rows) override;
 
     void fromMap(const Utils::Store &map) override;
 
@@ -42,6 +44,17 @@ public:
     Utils::BoolAspect enableCMakeBuilds{this};
     Utils::FilePathAspect executable{this};
     Utils::StringAspect extraArguments{this};
+    // Fetching a standalone qmlls is what the page offers beside the path; the
+    // download itself is the settings object's, not a widget's.
+    Utils::ActionAspect downloadQmlls{this};
+
+    // The two groups the page shows, which are the settings object's own so
+    // that a page listing them needs to know nothing about qmlls.
+    Utils::AspectContainer optionsGroup{this};
+    Utils::AspectContainer executableGroup{this};
+
+private:
+    QtTaskTree::QSingleTaskTreeRunner m_qmllsDownloader;
 
 protected:
     LanguageClient::BaseClientInterface *createInterface(

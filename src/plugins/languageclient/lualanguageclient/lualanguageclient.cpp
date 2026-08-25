@@ -185,12 +185,12 @@ public:
     LuaClientSettings(const std::weak_ptr<LuaClientWrapper> &wrapper);
     ~LuaClientSettings() override = default;
 
-    bool applyFromSettingsWidget(QWidget *widget) override;
+    bool applySettings() override;
 
     void toMap(Utils::Store &map) const override;
     void fromMap(const Utils::Store &map) override;
 
-    QWidget *createSettingsWidget(QWidget *parent = nullptr) override;
+    void addSettingsRows(Utils::AspectContainer &rows) override;
 
     BaseSettings *create() const override { return new LuaClientSettings; }
     BaseSettings *copy() const override;
@@ -386,11 +386,12 @@ public:
             m_aspects->toMap(map);
     }
 
-    Layouting::LayoutModifier settingsLayout()
+    void addSettingsRows(Utils::AspectContainer &rows)
     {
-        if (m_aspects)
-            return [this](Layouting::Layout *iface) { m_aspects->addToLayoutImpl(*iface); };
-        return {};
+        if (!m_aspects)
+            return;
+        for (Utils::BaseAspect * const aspect : m_aspects->aspects())
+            rows.registerAspect(aspect);
     }
 
     void registerMessageCallback(const QString &msg, const sol::main_function &callback)
@@ -655,9 +656,9 @@ LuaClientSettings::LuaClientSettings(const std::weak_ptr<LuaClientWrapper> &wrap
     }
 }
 
-bool LuaClientSettings::applyFromSettingsWidget(QWidget *widget)
+bool LuaClientSettings::applySettings()
 {
-    BaseSettings::applyFromSettingsWidget(widget);
+    BaseSettings::applySettings();
 
     if (auto w = m_wrapper.lock()) {
         w->m_name = name();
@@ -691,14 +692,12 @@ void LuaClientSettings::fromMap(const Store &map)
     }
 }
 
-QWidget *LuaClientSettings::createSettingsWidget(QWidget *parent)
+void LuaClientSettings::addSettingsRows(Utils::AspectContainer &rows)
 {
-    using namespace Layouting;
-
+    BaseSettings::addSettingsRows(rows);
+    // Whatever the Lua side declared, after the ones every client has.
     if (auto w = m_wrapper.lock())
-        return new BaseSettingsWidget(this, parent, w->settingsLayout());
-
-    return new BaseSettingsWidget(this, parent);
+        w->addSettingsRows(rows);
 }
 
 Client *LuaClientSettings::createClient(BaseClientInterface *interface) const
