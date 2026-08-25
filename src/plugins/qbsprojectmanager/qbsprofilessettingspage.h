@@ -13,4 +13,8 @@ public:
     QbsProfilesSettingsPage();
 };
 
+#ifdef WITH_TESTS
+QObject *createQbsProfilesSettingsTest();
+#endif
+
 } // QbsProjectManager::Internal

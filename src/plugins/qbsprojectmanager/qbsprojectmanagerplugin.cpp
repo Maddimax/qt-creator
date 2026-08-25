@@ -111,6 +111,10 @@ void QbsProjectManagerPlugin::initialize()
 {
     d = new QbsProjectManagerPluginPrivate;
 
+#ifdef WITH_TESTS
+    addTestCreator(createQbsProfilesSettingsTest);
+#endif
+
     Core::IOptionsPage::registerCategory(
         Constants::QBS_SETTINGS_CATEGORY,
         Tr::tr(Constants::QBS_SETTINGS_TR_CATEGORY),
