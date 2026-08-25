@@ -155,6 +155,10 @@ enum Role {
     // Whether the cell is a check box, reading and writing Qt::CheckStateRole.
     // Also flags(), and also unreadable from QML.
     CheckableRole,
+    // Text a row should be found by beyond what it shows - the glob patterns
+    // of a MIME type, which are not a column but are what someone types into
+    // the filter field. Asked of column 0 only.
+    FilterTextRole,
 };
 
 // What EditableRole answers, from the cell's own flags: a field or a choice is
@@ -173,6 +177,7 @@ inline QHash<int, QByteArray> withRoleNames(QHash<int, QByteArray> names)
     names.insert(ValidatorRole, "validator");
     names.insert(EditableRole, "editable");
     names.insert(CheckableRole, "checkable");
+    names.insert(FilterTextRole, "filterText");
     // Qt's own, named here because QML addresses a role by name and the
     // default roleNames() leaves these out. A row that is meant to be read in
     // its own colours - a list of syntax formats, say - answers the last three.

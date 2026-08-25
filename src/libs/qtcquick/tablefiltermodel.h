@@ -11,7 +11,9 @@
 namespace QtcQuick {
 
 // A table's rows narrowed by what was typed into the filter field. Matches
-// against every column, because what is being looked for is a row.
+// against every column, because what is being looked for is a row - and
+// against whatever else the model says a row should be found by. See
+// Utils::AspectTable::FilterTextRole.
 class QTCQUICK_EXPORT TableFilterModel : public QSortFilterProxyModel
 {
     Q_OBJECT
@@ -19,6 +21,9 @@ class QTCQUICK_EXPORT TableFilterModel : public QSortFilterProxyModel
 
 public:
     explicit TableFilterModel(QObject *parent = nullptr);
+
+protected:
+    bool filterAcceptsRow(int row, const QModelIndex &parent) const override;
 };
 
 } // namespace QtcQuick
