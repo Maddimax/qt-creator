@@ -1332,26 +1332,51 @@ is the same measurement the `AspectGroupBox` note describes. Worth repeating
 after a batch: it is the only thing that sees a warning the page census cannot,
 and it also confirmed that no page has a binding loop left.
 
-### What is left of the GCC and Clang toolchain page
+### The Toolchains page, and the nine kinds behind it
 
-Three pieces down, one to go. `ToolchainConfigAspects` holds what every
-toolchain is asked, `AbiAspects` holds the ABI, and `TargetTripleAspects` holds
-the code model's target triple. What is left of `GccToolchainConfigWidget` is
-two flag fields, Clang's parent-toolchain combo box, and the behaviour tying
-them together - detecting ABIs when the compiler command changes, and caching
-the macros it reported.
+All nine are converted and `ToolchainConfigWidget` is gone; the page is
+`ToolchainsPage.qml`. The extension point is `createConfigurationAspects()`
+now, and `toolchainconfigwidget.{h,cpp}` is `toolchainconfigaspects.{h,cpp}` -
+what is left in it is the shared aspects and nothing that draws.
 
-The order matters: converting the *pieces* first means the widget subclass
-keeps working after each step, so every step is a commit that builds and runs.
-Converting the subclass first would have meant nine broken pages until the last
-one was done.
+The order was: the pieces first (`ToolchainConfigAspects`, `AbiAspects`,
+`TargetTripleAspects`), then GCC, then the eight that were smaller. Converting
+the pieces first meant the widget subclasses kept working after each step, so
+every step built and ran; converting a subclass first would have meant nine
+broken pages until the last one was done.
 
-**A page that still uses widgets can host a converted kind.** A settings page
-that is itself a `QWidget` can show `Core::createAspectForm(aspects)` for a
-toolchain that has converted and a `ToolchainConfigWidget` for one that has
-not, so the kinds can move one at a time and each one is real as soon as it
-lands. Only the *page* has to wait for the last of them, because a Qt Quick
-page cannot host a `QWidget` at all.
+Four of the nine never had a widget of their own: WebAssembly, Android,
+HarmonyOS and iOS all delegate to `GccToolchain::createConfigurationAspects()`,
+so converting GCC converted them. MSVC has two - the MSVC page and clang-cl's -
+and neither is reachable here, which is what the coverage test below is for.
+
+**The page's own controls needed one new thing.** Add is not a button that
+does something; it is a button that offers one entry per kind. `ActionAspect`
+takes `setChoices()` and hands what was picked back by id through
+`triggerChoice()`, and both renderers draw it - a `QMenu` on the push button,
+a `Menu` in the delegate. A menu built beside a closure could not be seen by
+either renderer; this one is in the descriptor like everything else.
+
+Testing a Quick `Menu` is not like testing the rest of a page: a popup is not
+in the item tree, so `findQmlComponents()` sees nothing. `ButtonDelegate`
+exposes it as `readonly property alias menu` and the test asks the menu for its
+items.
+
+**What a page cannot test, the descriptor can.** Only two kinds of toolchain
+exist on any one machine, so a test that looks at what is installed proves
+almost nothing. `testEveryKindOfToolchainAsksWithAspects()` makes one toolchain
+of each *registered* kind by hand and checks that its factory answers with
+aspects, that nothing in them asks for a control no renderer knows
+(`AspectControls::Custom`), and that the QML names are there and differ. Ten
+kinds on macOS, including all three BareMetal ones and QNX.
+
+**A page that still uses widgets can host a converted kind.** That was the
+staging plan and it turned out not to be needed - the last kind and the page
+landed together. It still holds for Kits (16 `KitAspect`s) and Devices (13
+`IDeviceWidget`s), which are too big for one step: a settings page that is
+itself a `QWidget` can show `Core::createAspectForm(aspects)` for what has
+converted and a widget for what has not. Only the *page* has to wait for the
+last of them, because a Qt Quick page cannot host a `QWidget` at all.
 
 ### The ABI, which six toolchains and qmake all pick
 
@@ -1378,10 +1403,10 @@ that, so the test says what the widget does.
 
 ### Starting Toolchains from the bottom
 
-Nine `ToolchainConfigWidget` subclasses have to move before the Toolchains page
-can, because a Qt Quick page cannot host a `QWidget` for the ones that have
-not. There is no first batch that ports the page - but there is one that makes
-every later batch smaller.
+Nine `ToolchainConfigWidget` subclasses had to move before the Toolchains page
+could, because a Qt Quick page cannot host a `QWidget` for the ones that have
+not. There was no first batch that ported the page - but there was one that
+made every later batch smaller.
 
 What *every* toolchain is asked is the same: what it is called, where its
 compilers are, and whether the C++ one was given by hand rather than derived
@@ -1627,15 +1652,15 @@ pages that hand over an `AspectContainer` through `setSettingsProvider()`.
 A page that calls `IOptionsPage::setWidgetCreator()` builds its own
 `IOptionsPageWidget` and answers nothing from `aspects()`, so the test skips it
 entirely: `isFullyRenderable()` is never asked and the page is not in the 73.
-There are **15 such call sites in 14 files**, and none of them is a page that
+There were **15 such call sites in 14 files**, and none of them is a page that
 fits in one batch any more. What each is waiting on, checked rather than
 remembered:
 
-- **Toolchains** - `ToolchainConfigWidget` has **9 implementations** across
-  ProjectExplorer, Nim, QNX, Android and BareMetal. The page cannot move until
-  every one of them does, because a Qt Quick page cannot host a `QWidget` for
-  the ones that have not. Qt Versions' extension point moved in a single batch
-  because it had exactly one implementation; this one does not.
+- **Toolchains** - done. `ToolchainConfigWidget` had **9 implementations**
+  across ProjectExplorer, Nim, QNX, Android and BareMetal, and the page could
+  not move until every one of them did, because a Qt Quick page cannot host a
+  `QWidget` for the ones that have not. Qt Versions' extension point moved in a
+  single batch because it had exactly one implementation; this one took four.
 - **Kits** - the same shape with **16 `KitAspect` implementations**.
 - **Devices** - **13 `IDeviceWidget` implementations**.
 - **BareMetal's Debug Server Providers** - **30 config-widget classes**, all of
