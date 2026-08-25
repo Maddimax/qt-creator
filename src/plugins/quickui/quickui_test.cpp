@@ -164,6 +164,8 @@ private slots:
     void testPageWithoutItsOwnQmlIsDeclined();
     void testPasswordAspectDoesNotEchoItsValue();
     void testAspectListOffersItsExtraButtons();
+    void testAnOrderedListMovesTheCurrentItem();
+    void testAnUnorderedListOffersNoMoveButtons();
     void testQmlOnlyContainerStillLaysOutInAWidgetLayout();
     void testAspectVisibilityReachesTheDrawnControl();
     void testAspectQmlNamesAreUsableAndUnique();
@@ -620,6 +622,125 @@ void QuickUiTest::testAspectListOffersItsExtraButtons()
     QTRY_VERIFY(extra = findButton(delegate, "Add From Registry..."));
     QMetaObject::invokeMethod(extra, "clicked");
     QCOMPARE(fromRegistry, 1);
+}
+
+// A list whose items are named, so that a move can be read off the rows.
+static std::shared_ptr<Utils::BaseAspect> makeNamedItem(const QString &name)
+{
+    auto item = std::make_shared<Utils::AspectContainer>();
+    auto label = new Utils::StringAspect(item.get());
+    label->setDisplayStyle(Utils::StringAspect::LineEditDisplay);
+    label->setLabelText("Name");
+    label->setValue(name);
+    return item;
+}
+
+static QStringList rowLabels(QQuickItem *delegate)
+{
+    QStringList labels;
+    for (QQuickItem *label : findQmlNamed(delegate, "aspectListRowLabel"))
+        labels << label->property("text").toString();
+    return labels;
+}
+
+static Utils::AspectList *orderedList(Utils::AspectContainer *page)
+{
+    auto list = new Utils::AspectList(page);
+    list->setLabelText("Mappings");
+    list->setDisplayStyle(Utils::AspectList::DisplayStyle::ListViewWithDetails);
+    list->setOrdered(true);
+    list->setCreateItemFunction([] { return makeNamedItem("new"); });
+    list->listViewDataCallback = [](Utils::BaseAspect *item, int role) -> QVariant {
+        if (role != Qt::DisplayRole)
+            return {};
+        auto container = static_cast<Utils::AspectContainer *>(item);
+        return container->aspects().first()->variantValue();
+    };
+    for (const QString &name : {QString("first"), QString("second"), QString("third")})
+        list->addItem(makeNamedItem(name));
+    list->apply();
+    return list;
+}
+
+void QuickUiTest::testAnOrderedListMovesTheCurrentItem()
+{
+    // Some lists are tried in order - Axivion's path mappings are - and the
+    // order is the user's. What may move where is the aspect's answer, so that
+    // the widget list and the Quick one agree; the view only says which item
+    // is current.
+    Utils::AspectContainer page;
+    page.setAutoApply(false);
+    Utils::AspectList *list = orderedList(&page);
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "AspectListDelegate"));
+    QTRY_COMPARE(rowLabels(delegate), QStringList({"first", "second", "third"}));
+
+    QQuickItem *up = findQmlNamed(delegate, "aspectListMoveUpButton").value(0);
+    QQuickItem *down = findQmlNamed(delegate, "aspectListMoveDownButton").value(0);
+    QVERIFY(up);
+    QVERIFY(down);
+
+    // Nothing is current, so there is nothing to move.
+    QVERIFY(!up->property("enabled").toBool());
+    QVERIFY(!down->property("enabled").toBool());
+
+    // The view says which item is current; the aspect answers what may be done
+    // to it. The first item cannot go up.
+    QQuickItem *view = findQmlComponent(delegate, "QQuickListView");
+    QVERIFY(view);
+    view->setProperty("currentIndex", 0);
+    QTRY_COMPARE(list->currentIndex(), 0);
+    QVERIFY(!up->property("enabled").toBool());
+    QVERIFY(down->property("enabled").toBool());
+
+    QMetaObject::invokeMethod(down, "clicked");
+    QCOMPARE(list->currentIndex(), 1);
+    QTRY_COMPARE(rowLabels(delegate), QStringList({"second", "first", "third"}));
+    // The view followed the item rather than staying where it was.
+    QCOMPARE(view->property("currentIndex").toInt(), 1);
+
+    QMetaObject::invokeMethod(up, "clicked");
+    QCOMPARE(list->currentIndex(), 0);
+    QTRY_COMPARE(rowLabels(delegate), QStringList({"first", "second", "third"}));
+
+    // The order is what Apply keeps.
+    view->setProperty("currentIndex", 2);
+    QTRY_COMPARE(list->currentIndex(), 2);
+    QMetaObject::invokeMethod(up, "clicked");
+    page.apply();
+    QStringList applied;
+    for (const std::shared_ptr<Utils::BaseAspect> &item : list->items()) {
+        auto container = static_cast<Utils::AspectContainer *>(item.get());
+        applied << container->aspects().first()->variantValue().toString();
+    }
+    QCOMPARE(applied, QStringList({"first", "third", "second"}));
+}
+
+void QuickUiTest::testAnUnorderedListOffersNoMoveButtons()
+{
+    // Most lists mean nothing by their order, and two buttons that would do
+    // nothing are worse than none.
+    Utils::AspectContainer page;
+    page.setAutoApply(false);
+    Utils::AspectList servers(&page);
+    servers.setDisplayStyle(Utils::AspectList::DisplayStyle::ListViewWithDetails);
+    servers.setCreateItemFunction([] { return makeNamedItem("new"); });
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "AspectListDelegate"));
+
+    QQuickItem *up = findQmlNamed(delegate, "aspectListMoveUpButton").value(0);
+    QVERIFY(up);
+    QVERIFY(!up->isVisible());
+    QVERIFY(!findQmlNamed(delegate, "aspectListMoveDownButton").value(0)->isVisible());
 }
 
 void QuickUiTest::testQmlOnlyContainerStillLaysOutInAWidgetLayout()

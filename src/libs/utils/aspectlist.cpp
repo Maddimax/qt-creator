@@ -244,6 +244,9 @@ public:
     struct ExtraButton { QString text; std::function<void()> callback; };
     QList<ExtraButton> extraButtons;
 
+    bool ordered = false;
+    int currentIndex = -1;
+
     AspectListModel model;
 
     AspectListPrivate(std::function<QVariant(BaseAspect *, int)> dataFunction)
@@ -340,6 +343,20 @@ public:
                 onClicked(aspect, removeCurrent),
             },
         };
+        QPushButton *moveUpButton = nullptr;
+        QPushButton *moveDownButton = nullptr;
+        if (ordered) {
+            buttonColumn.addItem(PushButton {
+                bindTo(&moveUpButton),
+                text(Tr::tr("Move Up")),
+                onClicked(aspect, [aspect] { aspect->moveCurrentUp(); }),
+            });
+            buttonColumn.addItem(PushButton {
+                bindTo(&moveDownButton),
+                text(Tr::tr("Move Down")),
+                onClicked(aspect, [aspect] { aspect->moveCurrentDown(); }),
+            });
+        }
         for (const ExtraButton &eb : std::as_const(extraButtons)) {
             buttonColumn.addItem(PushButton {
                 text(eb.text),
@@ -393,6 +410,31 @@ public:
             &QItemSelectionModel::currentChanged,
             aspect,
             onCurrentChanged);
+
+        // Which item is current is the aspect's answer, not the view's: the
+        // buttons act on it and a move puts it somewhere else.
+        QObject::connect(
+            listView->selectionModel(),
+            &QItemSelectionModel::currentChanged,
+            aspect,
+            [aspect](const QModelIndex &current) {
+                aspect->setCurrentIndex(current.isValid() ? current.row() : -1);
+            });
+
+        const auto updateButtons = [aspect, moveUpButton, moveDownButton, listView, this] {
+            if (moveUpButton)
+                moveUpButton->setEnabled(aspect->canMoveUp());
+            if (moveDownButton)
+                moveDownButton->setEnabled(aspect->canMoveDown());
+            const int row = aspect->currentIndex();
+            const QModelIndex wanted = row >= 0
+                ? model.index(row, 0, QModelIndex()) : QModelIndex();
+            if (listView->currentIndex() != wanted)
+                listView->setCurrentIndex(wanted);
+        };
+        QObject::connect(aspect, &AspectList::currentIndexChanged, aspect, updateButtons);
+        QObject::connect(aspect, &AspectList::volatileItemListChanged, aspect, updateButtons);
+        updateButtons();
     }
 
     void addToLayoutImpl(Layouting::Layout &parent, AspectList *aspect)
@@ -422,6 +464,7 @@ AspectPresentation AspectList::presentation() const
     // row of controls per item and has no counterpart yet.
     if (d->displayStyle == DisplayStyle::ListViewWithDetails)
         p.control = AspectControls::AspectList;
+    p.allowReordering = d->ordered;
     return p;
 }
 
@@ -652,6 +695,76 @@ void AspectList::triggerExtraButton(int index)
 {
     QTC_ASSERT(index >= 0 && index < d->extraButtons.size(), return);
     d->extraButtons.at(index).callback();
+}
+
+void AspectList::setOrdered(bool ordered)
+{
+    d->ordered = ordered;
+}
+
+bool AspectList::isOrdered() const
+{
+    return d->ordered;
+}
+
+int AspectList::currentIndex() const
+{
+    return d->currentIndex;
+}
+
+void AspectList::setCurrentIndex(int index)
+{
+    const int clamped = index >= 0 && index < d->volatileItems.size() ? index : -1;
+    if (clamped == d->currentIndex)
+        return;
+    d->currentIndex = clamped;
+    emit currentIndexChanged(clamped);
+}
+
+bool AspectList::canMoveUp() const
+{
+    return d->ordered && d->currentIndex > 0;
+}
+
+bool AspectList::canMoveDown() const
+{
+    return d->ordered && d->currentIndex >= 0
+           && d->currentIndex < d->volatileItems.size() - 1;
+}
+
+void AspectList::moveCurrentUp()
+{
+    QTC_ASSERT(canMoveUp(), return);
+    moveItem(d->currentIndex, d->currentIndex - 1);
+}
+
+void AspectList::moveCurrentDown()
+{
+    QTC_ASSERT(canMoveDown(), return);
+    moveItem(d->currentIndex, d->currentIndex + 1);
+}
+
+void AspectList::moveItem(int from, int to)
+{
+    const int count = int(d->volatileItems.size());
+    QTC_ASSERT(from >= 0 && from < count, return);
+    QTC_ASSERT(to >= 0 && to < count, return);
+    if (from == to)
+        return;
+
+    d->volatileItems.move(from, to);
+    // sync() cannot reconcile a move: it matches the model against the items
+    // by position and would take the moved one for a new item beside a deleted
+    // one. The row moves as it is instead.
+    if (AspectListModelItem *item = d->model.rootItem()->childAt(from)) {
+        d->model.takeItem(item);
+        d->model.rootItem()->insertChild(to, item);
+    }
+
+    d->currentIndex = to;
+    emit currentIndexChanged(to);
+    emit volatileValueChanged();
+    emit volatileItemListChanged();
 }
 
 void AspectList::addExtraButton(const QString &text, std::function<void()> callback)

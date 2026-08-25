@@ -50,10 +50,10 @@ void AspectItemListModel::reload()
 {
     beginResetModel();
 
-    // An item that has been removed but not applied yet keeps its row, struck
-    // through, the way the widget editor shows it. So the rows are the applied
-    // items in their order, marked removed where they are no longer volatile,
-    // followed by the ones added since.
+    // The rows are the volatile items in their order - which is the user's on a
+    // list that may be reordered - with the ones added since Apply marked. An
+    // item that has been removed but not applied yet keeps its row, struck
+    // through and where it was, the way the widget editor shows it.
     const QList<std::shared_ptr<BaseAspect>> volatileItems = m_list->volatileItems();
     // With auto-apply there is no pending state to show, and the applied list
     // is only brought up to date after volatileItemListChanged() - so reading
@@ -65,11 +65,12 @@ void AspectItemListModel::reload()
     };
 
     m_rows.clear();
-    for (const std::shared_ptr<BaseAspect> &item : appliedItems)
-        m_rows.append({item, false, !isVolatile(item)});
-    for (const std::shared_ptr<BaseAspect> &item : volatileItems) {
-        if (!appliedItems.contains(item))
-            m_rows.append({item, true, false});
+    for (const std::shared_ptr<BaseAspect> &item : volatileItems)
+        m_rows.append({item, !appliedItems.contains(item), false});
+    for (int row = 0; row < appliedItems.size(); ++row) {
+        const std::shared_ptr<BaseAspect> &item = appliedItems.at(row);
+        if (!isVolatile(item))
+            m_rows.insert(std::min(row, int(m_rows.size())), {item, false, true});
     }
 
     // Models for items that are gone would dangle; the rest are rebuilt on

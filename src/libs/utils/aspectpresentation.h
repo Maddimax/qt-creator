@@ -275,6 +275,11 @@ public:
     bool allowRemoving = true;
     bool allowEditing = true;
 
+    // AspectList. Whether the order of the items is the user's - path mappings
+    // are tried in order, a list of servers is not - and so whether the list
+    // offers Move Up and Move Down.
+    bool allowReordering = false;
+
     // Label.
     AspectControls::InfoType infoType = AspectControls::InfoType::None;
     bool wordWrap = false;

@@ -14,6 +14,14 @@ class QTCREATOR_UTILS_EXPORT AspectList : public Utils::BaseAspect
 {
     Q_OBJECT
     friend class Internal::AspectListPrivate;
+
+    // Which item the details pane is about and the buttons act on. The view
+    // says so and the aspect answers what may be done to it, so that a
+    // QTreeView and a Qt Quick ListView agree. -1 when nothing is picked.
+    Q_PROPERTY(int currentIndex READ currentIndex WRITE setCurrentIndex NOTIFY currentIndexChanged)
+    Q_PROPERTY(bool canMoveUp READ canMoveUp NOTIFY currentIndexChanged)
+    Q_PROPERTY(bool canMoveDown READ canMoveDown NOTIFY currentIndexChanged)
+
 public:
     using CreateItem = std::function<std::shared_ptr<BaseAspect>()>;
 
@@ -68,6 +76,19 @@ public:
     enum class DisplayStyle { InlineList, ListViewWithDetails };
     void setDisplayStyle(DisplayStyle displayStyle);
 
+    // Whether the items mean anything in the order they are in. Off unless a
+    // page says so; on, the list offers Move Up and Move Down.
+    void setOrdered(bool ordered);
+    bool isOrdered() const;
+
+    int currentIndex() const;
+    void setCurrentIndex(int index);
+    bool canMoveUp() const;
+    bool canMoveDown() const;
+    Q_INVOKABLE void moveCurrentUp();
+    Q_INVOKABLE void moveCurrentDown();
+    void moveItem(int from, int to);
+
     void addExtraButton(const QString &text, std::function<void()> callback);
     QStringList extraButtonTexts() const;
     void triggerExtraButton(int index);
@@ -81,6 +102,7 @@ public:
 
 signals:
     void volatileItemListChanged();
+    void currentIndexChanged(int index);
 
 private:
     std::unique_ptr<Internal::AspectListPrivate> d;

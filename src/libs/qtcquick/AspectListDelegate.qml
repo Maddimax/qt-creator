@@ -18,6 +18,7 @@ RowLayout {
     // Derived rather than taken as a model role, so that a hand-written page
     // can use this delegate with nothing but the aspect.
     readonly property var itemListModel: aspect ? AspectModels.itemList(aspect) : null
+    readonly property var pres: aspect ? AspectModels.presentation(aspect) : ({})
     readonly property string labelText: aspect?.plainLabelText ?? ""
     readonly property bool aspectVisible: aspect?.visible ?? true
     readonly property bool editable: (aspect?.enabled ?? false) && !(aspect?.readOnly ?? false)
@@ -47,6 +48,11 @@ RowLayout {
                 clip: true
                 model: root.itemListModel
                 currentIndex: -1
+
+                // Which item is current is the aspect's answer, not the
+                // view's: the buttons act on it, and Move Up and Move Down put
+                // it somewhere else.
+                onCurrentIndexChanged: if (root.aspect) root.aspect.currentIndex = currentIndex
 
                 delegate: ItemDelegate {
                     id: row
@@ -107,6 +113,18 @@ RowLayout {
         // The selected item's own aspects. Loaded by URL because AspectItems
         // instantiates this delegate, and QML rejects two files that name each
         // other as types.
+        // The aspect can move the current item - Move Up and Move Down do -
+        // and the view has to follow, which is the same round trip the widget
+        // list makes.
+        Connections {
+            target: root.aspect
+
+            function onCurrentIndexChanged(index: int): void {
+                if (view.currentIndex !== index)
+                    view.currentIndex = index
+            }
+        }
+
         Loader {
             id: details
 
@@ -143,6 +161,25 @@ RowLayout {
                 view.currentIndex = -1
                 root.itemListModel.removeItem(row)
             }
+        }
+
+        // Order is the user's on a list where it means something - path
+        // mappings are tried in order. What may be moved where is the aspect's
+        // answer, the same one the widget list gets.
+        Button {
+            objectName: "aspectListMoveUpButton"
+            text: qsTr("Move Up")
+            visible: root.pres.allowReordering ?? false
+            enabled: root.editable && (root.aspect?.canMoveUp ?? false)
+            onClicked: root.aspect.moveCurrentUp()
+        }
+
+        Button {
+            objectName: "aspectListMoveDownButton"
+            text: qsTr("Move Down")
+            visible: root.pres.allowReordering ?? false
+            enabled: root.editable && (root.aspect?.canMoveDown ?? false)
+            onClicked: root.aspect.moveCurrentDown()
         }
 
         Repeater {
