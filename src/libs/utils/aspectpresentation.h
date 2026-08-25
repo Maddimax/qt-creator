@@ -22,7 +22,13 @@ Q_NAMESPACE_EXPORT(QTCREATOR_UTILS_EXPORT)
 // types: two aspects of the same value type can want different controls, and
 // the same control serves several value types.
 enum Control {
+    // No renderer knows what to do with it. An aspect that means to show
+    // nothing says Invisible; Custom is what an aspect that has not been
+    // described yet answers, and a page census treats it as a hole.
     Custom,
+    // Shows nothing at all, which some aspects legitimately do: a value the
+    // page reaches some other way, a container a page draws itself.
+    Invisible,
     Container,
     Label,
     CheckBox,

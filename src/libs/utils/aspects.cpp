@@ -3377,6 +3377,15 @@ ContainerAspect::~ContainerAspect()
     }
 }
 
+AspectPresentation ContainerAspect::presentation() const
+{
+    AspectPresentation p = BaseAspect::presentation();
+    // Nothing of its own: the page draws what it hands over, and a generic
+    // form cannot. Saying so keeps it out of the census's list of holes.
+    p.control = AspectControls::Invisible;
+    return p;
+}
+
 AspectContainer *ContainerAspect::container() const
 {
     return m_container;

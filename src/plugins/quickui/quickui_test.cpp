@@ -215,6 +215,7 @@ void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
     int renderedWithQuick = 0;
     int genericWouldDo = 0;
     QStringList declined;
+    QStringList unsupported;
 
     // A QML warning is not a failure anywhere: the engine reports it and
     // carries on, so a broken binding shows up as a page that looks nearly
@@ -324,9 +325,22 @@ void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
                             continue;
                         }
                         const auto kind = QtcQuick::AspectContainerModel::kindOf(aspect);
-                        if (kind == QtcQuick::AspectContainerModel::Invisible
-                            || kind == QtcQuick::AspectContainerModel::Unsupported)
+                        if (kind == QtcQuick::AspectContainerModel::Invisible)
                             continue;
+                        // An aspect no renderer knows is a hole in the page:
+                        // it is not drawn and nothing else says so, because
+                        // the walk below skips what it cannot name. That is
+                        // how AspectList's inline style went unnoticed - it
+                        // answered Custom, so every page using it drew nothing
+                        // where the list should be. An aspect that means to
+                        // show nothing says Invisible instead.
+                        if (kind == QtcQuick::AspectContainerModel::Unsupported) {
+                            unsupported << page->displayName() + ": "
+                                               + QString::fromLatin1(
+                                                   aspect->metaObject()->className())
+                                               + " (" + aspect->qmlName() + ")";
+                        }
+
                         // An aspect with no label was never meant for a form:
                         // it is stored settings, or it is driven from some other
                         // part of the UI. The closures did not draw these
@@ -393,6 +407,12 @@ void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
                     {"MultiSelectionDelegate", {Kind::MultiSelection}},
                     {"FilePathListDelegate", {Kind::FilePathList}},
                     {"TableDelegate", {Kind::Table}},
+                    {"TriStateDelegate", {Kind::TriStateBool}},
+                    {"KeySequenceDelegate", {Kind::KeySequence}},
+                    {"AspectInlineListDelegate", {Kind::AspectInlineList}},
+                    {"GroupedListDelegate", {Kind::GroupedList}},
+                    {"TreeDelegate", {Kind::Tree}},
+                    {"FontFamilyDelegate", {Kind::FontFamily}},
                 };
                 for (auto it = serves.cbegin(); it != serves.cend(); ++it) {
                     if (!drawn.startsWith(it.key()))
@@ -442,6 +462,10 @@ void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
 
     QVERIFY(aspectDriven > 0);
     QCOMPARE(renderedWithQuick, withQml);
+
+    // Nothing on a rendered page may be a control no renderer knows.
+    QVERIFY2(unsupported.isEmpty(), qPrintable("no renderer draws these: "
+                                               + unsupported.join(", ")));
 
     // Every aspect-driven page names a form, so a declined one is a page that
     // went back to widgets rather than one waiting its turn. Nothing else here

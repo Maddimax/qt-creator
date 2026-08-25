@@ -125,6 +125,7 @@ AspectContainerModel::Kind AspectContainerModel::kindOf(AspectControls::Control 
     case AspectControls::Tree:                   return Tree;
     // IntegersAspect draws nothing in the widget path either, so drawing
     // nothing here is parity rather than a gap.
+    case AspectControls::Invisible:
     case AspectControls::IntegerList:            return Invisible;
     // FontAspect is an AspectContainer, not a TypedAspect: it has no
     // volatileVariantValue() override, so its "value" property is always

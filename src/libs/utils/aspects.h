@@ -1324,6 +1324,8 @@ public:
     using BaseAspect::BaseAspect;
     ~ContainerAspect() override;
 
+    AspectPresentation presentation() const override;
+
     AspectContainer *container() const;
 
     // Hands over a container the aspect owns. The previous one is deleted.
