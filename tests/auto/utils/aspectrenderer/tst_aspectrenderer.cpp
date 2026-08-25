@@ -20,6 +20,7 @@
 
 #include <QCheckBox>
 #include <QDir>
+#include <QFormLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QComboBox>
@@ -200,6 +201,7 @@ private slots:
     void environmentChangesReadAsASummary();
     void terminalCommandIsOneRow_data() { addRendererRows(); }
     void terminalCommandIsOneRow();
+    void inlineRowLinesUpWithTheRowsAroundIt();
 };
 
 void tst_AspectRenderer::initTestCase()
@@ -1087,29 +1089,23 @@ void tst_AspectRenderer::containerThatReadsAsOneRow()
                                             [](QLabel *l) { return l->text() == "Run as user:"; });
     QVERIFY(rowLabel);
 
-    // One row, in order: the label, then the controls. Asked of the layout
-    // rather than of the geometry, which is all zeroes until the widget is
-    // shown - and showing it needs a window this test has no business wanting.
+    // The controls are one row, in order. Asked of the layout rather than of
+    // the geometry, which is all zeroes until the widget is shown - and
+    // showing it needs a window this test has no business wanting.
     QHBoxLayout *rowLayout = nullptr;
     for (QHBoxLayout *candidate : widget->findChildren<QHBoxLayout *>()) {
-        if (candidate->indexOf(rowLabel) >= 0)
+        if (candidate->indexOf(combo) >= 0)
             rowLayout = candidate;
     }
     QVERIFY(rowLayout);
-    QVERIFY(rowLayout->indexOf(combo) >= 0);
     QVERIFY(rowLayout->indexOf(edit) >= 0);
-    QVERIFY(rowLayout->indexOf(rowLabel) < rowLayout->indexOf(combo));
     QVERIFY(rowLayout->indexOf(combo) < rowLayout->indexOf(edit));
 
-    // One label for the row, not one per control: that is what "reads as one
-    // answer" means. The variable chooser brings a label of its own, so this
-    // asks what is on the row rather than counting every label there is.
-    int labelsOnTheRow = 0;
-    for (int i = 0; i < rowLayout->count(); ++i) {
-        if (auto l = qobject_cast<QLabel *>(rowLayout->itemAt(i)->widget()); l && !l->text().isEmpty())
-            ++labelsOnTheRow;
-    }
-    QCOMPARE(labelsOnTheRow, 1);
+    // The label is not in it. It belongs where every other control's label
+    // goes, so that the controls start at the field column rather than after
+    // however wide this row's own label happens to be - see
+    // inlineRowLinesUpWithTheRowsAroundIt().
+    QCOMPARE(rowLayout->indexOf(rowLabel), -1);
 
     // A container that says nothing about its layout and has none installed
     // draws its aspects in order - which is what AspectItems does on the Quick
@@ -1887,6 +1883,63 @@ void tst_AspectRenderer::terminalCommandIsOneRow()
     QCOMPARE(FilePath::fromUserInput(aspect.terminalEmulator.volatileValue()).toUserOutput(),
              choices.last().display);
     QVERIFY(!summary->text().contains("--from-the-test"));
+}
+
+void tst_AspectRenderer::inlineRowLinesUpWithTheRowsAroundIt()
+{
+    setRendererInstalled(true);
+
+    // A form: a label column and a field column. A row that reads as one
+    // answer is still a row of that form, so its label belongs in the label
+    // column like everybody else's. It used to go in whole as a spanning item,
+    // which put its controls after its own label's width instead of at the
+    // field column - visible as soon as an ABI row sat under a Name row.
+    AspectContainer page;
+    auto plain = new StringAspect(&page);
+    plain->setLabelText("Name:");
+    plain->setDisplayStyle(StringAspect::LineEditDisplay);
+
+    auto abi = new AspectContainer(&page);
+    abi->setLabelText("ABI:");
+    abi->setInlineRow(true);
+    for (const char *n : {"Arch", "Os"}) {
+        auto part = new SelectionAspect(abi);
+        part->setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
+        part->addOption(QString::fromLatin1(n));
+    }
+
+    AspectWidgets::setLayouter(&page, [&page] {
+        Layouting::Form form;
+        for (BaseAspect * const a : page.aspects()) {
+            form.addItem(a);
+            form.addItem(Layouting::br);
+        }
+        return form;
+    });
+
+    const std::unique_ptr<QWidget> widget = render(page);
+    QVERIFY(widget);
+    auto form = widget->findChild<QFormLayout *>();
+    QVERIFY(form);
+    QCOMPARE(form->rowCount(), 2);
+
+    const auto labelAt = [form](int row) {
+        QLayoutItem * const item = form->itemAt(row, QFormLayout::LabelRole);
+        if (!item || !item->widget())
+            return QString();
+        auto label = qobject_cast<QLabel *>(item->widget());
+        return label ? label->text() : QString();
+    };
+
+    QCOMPARE(labelAt(0), QString("Name:"));
+    // The one that used to be missing: a spanning item has no label item at
+    // all, so this reads as an empty string.
+    QCOMPARE(labelAt(1), QString("ABI:"));
+    QVERIFY(form->itemAt(1, QFormLayout::FieldRole));
+    QVERIFY(!form->itemAt(1, QFormLayout::SpanningRole));
+
+    // And what is in the field column is still the row of controls.
+    QCOMPARE(widget->findChildren<QComboBox *>().size(), 2);
 }
 
 void tst_AspectRenderer::filePathLiveReconfiguration()

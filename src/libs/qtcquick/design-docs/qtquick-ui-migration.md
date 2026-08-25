@@ -2889,6 +2889,43 @@ actually said what a row is: the summary and both buttons in one
 `QHBoxLayout`, checked with `indexOf`. Asserting the parts exist is not
 asserting the shape they are in.
 
+### The row that read as one answer but did not line up
+
+Not a closure this time - a divergence the last batch walked into and this one
+goes back for.
+
+`setInlineRow()` says a container's aspects are one answer and get one label:
+an ABI is five choices and one ABI. The widget renderer built
+`Row { label, controls..., st }` and added the *whole row* to the layout. In a
+form that is a single item, so Qt makes it **spanning**, and the controls start
+after however wide this row's own label happens to be - while every other row's
+control starts at the field column. A "Name:" row above an "ABI:" row did not
+line up.
+
+`InlineGroupDelegate.qml` never had the problem: it puts the label in a column
+of `Metrics.formLabelWidth` and the controls after it. So the widget side was
+the odd one out, and the fix is to do what every other control does - build the
+row from the *children*, and hand it to `addLabeledItem()`.
+
+Eleven aspects are drawn this way: the kit name row, `AbiAspect`, `KitAspect`,
+a device's rows, the Qt for MCUs kit group, four BareMetal rows and the
+terminal command.
+
+**The test that had to be rewritten was asserting the bug.**
+`containerThatReadsAsOneRow()` checked that the label was inside the row layout
+and came before the controls - a faithful description of what the code did, and
+of what was wrong with it. It now checks the opposite: the label is *not* in
+the row. A test can only tell you that behaviour changed; whether the old
+behaviour was the point is not something it knows.
+
+**How the defect was found is worth more than the defect.** It was written down
+at the end of the last batch as a thing that "would" misalign, from reading
+`flush()`. That is a guess. The first thing this batch did was print
+`QFormLayout::itemAt(row, LabelRole)` for a form holding a plain row and an
+inline one: `"Name:"` against `<none>`, and `SpanningRole` set on the second.
+Ten lines of throwaway code turned an argument into a fact, and the same ten
+lines became the test.
+
 ### What the census could not see, and now can
 
 Two holes, both found the hard way in the same session.

@@ -210,13 +210,18 @@ public:
                 // this branch unreachable and setInlineRow() a Quick-only
                 // setting for as long as it has existed.
                 if (pres.inlineRow && !AspectWidgets::hasLayouter(container)) {
+                    // The controls go in one row, and the row goes where any
+                    // other control would: in the field column, with the label
+                    // beside it. Keeping the label inside the row instead made
+                    // the controls start after the label's own width rather
+                    // than at the field column, so an ABI row did not line up
+                    // with the rows above it. InlineGroupDelegate has always
+                    // put the label in a column of its own.
                     Layouting::Row row{Layouting::noMargin};
-                    if (QLabel * const label = AspectWidgets::createLabel(&aspect))
-                        row.addItem(label);
                     for (BaseAspect * const child : container->aspects())
                         row.addItem(child);
                     row.addItem(Layouting::st);
-                    parent.addItem(row);
+                    AspectWidgets::addLabeledItem(&aspect, parent, row.emerge());
                     return true;
                 }
                 // No box of its own: what it holds belongs to the layout
