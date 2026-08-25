@@ -84,15 +84,16 @@ public:
             return false;
         case AspectControls::ComboBox:
         case AspectControls::RadioButtonGroup:
-            if (auto selectionAspect = qobject_cast<SelectionAspect *>(&aspect)) {
-                renderSelection(selectionAspect, parent, pres);
-                return true;
-            }
+            // A StringSelectionAspect fills its entries from a callback and
+            // refills them while the page is open, so it keeps its own path.
             if (auto stringSelectionAspect = qobject_cast<StringSelectionAspect *>(&aspect)) {
                 renderStringSelection(stringSelectionAspect, parent);
                 return true;
             }
-            return false;
+            // Everything else that asked for a combo gets one from the choices
+            // in its descriptor, whatever type it is.
+            renderSelection(&aspect, parent, pres);
+            return true;
         case AspectControls::MultiSelection:
             if (auto multiSelectionAspect = qobject_cast<MultiSelectionAspect *>(&aspect)) {
                 renderMultiSelection(multiSelectionAspect, parent, pres);
@@ -468,7 +469,30 @@ private:
         control->setContextMenuPolicy(Qt::ActionsContextMenu);
     }
 
-    static void renderSelection(SelectionAspect *aspect, Layout &parent,
+    // Which entry a value stands for. An aspect whose value is the index says
+    // so by leaving valueIsChoiceId false; one whose value is the choice's own
+    // id - a launcher, a device - says true, and is looked up.
+    static int indexForValue(const AspectPresentation &pres, const QVariant &value)
+    {
+        if (!pres.valueIsChoiceId)
+            return value.toInt();
+        for (int i = 0, n = int(pres.choices.size()); i < n; ++i) {
+            if (pres.choices.at(i).id == value)
+                return i;
+        }
+        return -1;
+    }
+
+    static QVariant valueForIndex(const AspectPresentation &pres, int index)
+    {
+        if (!pres.valueIsChoiceId)
+            return index;
+        if (index < 0 || index >= int(pres.choices.size()))
+            return {};
+        return pres.choices.at(index).id;
+    }
+
+    static void renderSelection(BaseAspect *aspect, Layout &parent,
                                 const AspectPresentation &pres)
     {
         if (pres.control == AspectControls::RadioButtonGroup) {
@@ -478,21 +502,22 @@ private:
             for (int i = 0, n = int(pres.choices.size()); i < n; ++i) {
                 const AspectPresentation::Choice &choice = pres.choices.at(i);
                 auto button = AspectWidgets::createSubWidget<QRadioButton>(aspect, choice.display);
-                button->setChecked(i == aspect->value());
+                button->setChecked(i == indexForValue(pres, aspect->volatileVariantValue()));
                 button->setEnabled(choice.enabled);
                 button->setToolTip(choice.toolTip);
                 parent.addItem(button);
                 buttonGroup->addButton(button, i);
             }
-            aspect->addOnVolatileValueChanged(buttonGroup, [aspect, buttonGroup] {
-                QAbstractButton *button = buttonGroup->button(aspect->volatileValue());
+            aspect->addOnVolatileValueChanged(buttonGroup, [aspect, buttonGroup, pres] {
+                QAbstractButton *button
+                    = buttonGroup->button(indexForValue(pres, aspect->volatileVariantValue()));
                 QTC_ASSERT(button, return);
                 button->setChecked(true);
             });
             QObject::connect(buttonGroup, &QButtonGroup::idToggled, aspect,
-                             [aspect, buttonGroup] {
-                                 aspect->setVolatileVariantValueFromGui(
-                                     buttonGroup->id(buttonGroup->checkedButton()));
+                             [aspect, buttonGroup, pres] {
+                                 aspect->setVolatileVariantValueFromGui(valueForIndex(
+                                     pres, buttonGroup->id(buttonGroup->checkedButton())));
                              });
             return;
         }
@@ -510,15 +535,16 @@ private:
             comboBox->addItem(choice.icon, choice.display);
             comboBox->setItemData(comboBox->count() - 1, choice.toolTip, Qt::ToolTipRole);
         }
-        comboBox->setCurrentIndex(aspect->volatileValue());
+        comboBox->setCurrentIndex(indexForValue(pres, aspect->volatileVariantValue()));
         addContextAction(aspect, comboBox, pres);
         AspectWidgets::addLabeledItem(aspect, parent, comboBox);
-        aspect->addOnVolatileValueChanged(comboBox, [comboBox, aspect] {
-            comboBox->setCurrentIndex(aspect->volatileValue());
+        aspect->addOnVolatileValueChanged(comboBox, [comboBox, aspect, pres] {
+            comboBox->setCurrentIndex(indexForValue(pres, aspect->volatileVariantValue()));
         });
         QObject::connect(comboBox, &QComboBox::currentIndexChanged, aspect,
-                         [aspect, comboBox] {
-                             aspect->setVolatileVariantValueFromGui(comboBox->currentIndex());
+                         [aspect, comboBox, pres] {
+                             aspect->setVolatileVariantValueFromGui(
+                                 valueForIndex(pres, comboBox->currentIndex()));
                          });
     }
 

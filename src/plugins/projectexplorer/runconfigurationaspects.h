@@ -291,17 +291,25 @@ public:
 
     void fromMap(const Utils::Store &) override;
     void toMap(Utils::Store &) const override;
-    void addToLayoutImpl(Layouting::Layout &parent) override;
     Utils::AspectPresentation presentation() const override;
+
+    // The value is the launcher's id, which is what the descriptor's choices
+    // are keyed by. A run configuration applies as it is edited, so what the
+    // combo shows is what the aspect holds.
+    QVariant variantValue() const override { return m_currentId; }
+    void setVariantValue(const QVariant &value, Announcement howToAnnounce = DoEmit) override;
+    QVariant volatileVariantValue() const override { return variantValue(); }
+    void setVolatileVariantValue(const QVariant &value,
+                                 Announcement howToAnnounce = DoEmit) override
+    {
+        setVariantValue(value, howToAnnounce);
+    }
 
     struct Data : Utils::BaseAspect::Data { Launcher launcher; };
 
 private:
     void setCurrentLauncherId(const QString &id);
-    void updateCurrentLauncher();
-    void updateComboBox();
     QList<Launcher> m_launchers;
-    QPointer<QComboBox> m_comboBox;
     QString m_defaultId;
     QString m_currentId;
     Utils::Id m_settingsDialogId;

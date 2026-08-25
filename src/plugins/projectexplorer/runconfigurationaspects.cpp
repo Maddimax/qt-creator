@@ -1009,8 +1009,12 @@ void LauncherAspect::updateLaunchers(const QList<Launcher> &launchers)
     if (m_launchers == launchers)
         return;
     m_launchers = launchers;
-    if (m_comboBox)
-        updateComboBox();
+    // The entries are the descriptor's, so a new list is a new descriptor.
+    emit controlConfigurationChanged();
+    if (m_currentId.isEmpty() || !Utils::anyOf(m_launchers,
+                                               Utils::equal(&Launcher::id, m_currentId))) {
+        setCurrentLauncherId(m_defaultId);
+    }
 }
 
 void LauncherAspect::setDefaultLauncher(const Launcher &launcher)
@@ -1024,14 +1028,18 @@ void LauncherAspect::setDefaultLauncher(const Launcher &launcher)
 
 void LauncherAspect::setCurrentLauncher(const Launcher &launcher)
 {
-    if (m_comboBox) {
-        const int index = m_launchers.indexOf(launcher);
-        if (index < 0 || index >= m_comboBox->count())
-            return;
-        m_comboBox->setCurrentIndex(index);
-    } else {
-        setCurrentLauncherId(launcher.id);
-    }
+    setCurrentLauncherId(launcher.id);
+}
+
+void LauncherAspect::setVariantValue(const QVariant &value, Announcement howToAnnounce)
+{
+    const QString id = value.toString();
+    if (id == m_currentId)
+        return;
+    m_currentId = id;
+    emit volatileValueChanged();
+    if (howToAnnounce == DoEmit)
+        emit changed();
 }
 
 void LauncherAspect::fromMap(const Store &map)
@@ -1045,65 +1053,24 @@ void LauncherAspect::toMap(Store &map) const
         saveToMap(map, m_currentId, QString(), settingsKey());
 }
 
-void LauncherAspect::addToLayoutImpl(Layout &builder)
-{
-    if (QTC_GUARD(m_comboBox.isNull()))
-        m_comboBox = new QComboBox;
-
-    updateComboBox();
-    connect(m_comboBox, &QComboBox::currentIndexChanged,
-            this, &LauncherAspect::updateCurrentLauncher);
-
-    builder.addItems({Tr::tr("Launcher:"), m_comboBox.data()});
-}
-
 AspectPresentation LauncherAspect::presentation() const
 {
     AspectPresentation p = BaseAspect::presentation();
     p.control = AspectControls::ComboBox;
     p.labelText = Tr::tr("Launcher:");
-    for (const Launcher &launcher : m_launchers)
-        p.choices.append({launcher.displayName, {}, true, launcher.id});
+    // The value is the launcher's id, not its place in the list: the list is
+    // refilled whenever the device's launchers change.
+    p.valueIsChoiceId = true;
+    for (const Launcher &launcher : m_launchers) {
+        p.choices.append(
+            {launcher.displayName, launcher.command.toUserOutput(), true, launcher.id});
+    }
     return p;
 }
 
 void LauncherAspect::setCurrentLauncherId(const QString &id)
 {
-    if (id == m_currentId)
-        return;
-    m_currentId = id;
-    emit changed();
-}
-
-void LauncherAspect::updateCurrentLauncher()
-{
-    const int index = m_comboBox->currentIndex();
-    if (index < 0)
-        return;
-    QTC_ASSERT(index < m_launchers.size(), return);
-    m_comboBox->setToolTip(m_launchers[index].command.toUserOutput());
-    setCurrentLauncherId(m_launchers[index].id);
-}
-
-void LauncherAspect::updateComboBox()
-{
-    int currentIndex = -1;
-    int defaultIndex = -1;
-    m_comboBox->clear();
-    for (const Launcher &launcher : std::as_const(m_launchers)) {
-        int index = m_comboBox->count();
-        m_comboBox->addItem(launcher.displayName);
-        m_comboBox->setItemData(index, launcher.command.toUserOutput(), Qt::ToolTipRole);
-        if (launcher.id == m_currentId)
-            currentIndex = index;
-        if (launcher.id == m_defaultId)
-            defaultIndex = index;
-    }
-    if (currentIndex >= 0)
-        m_comboBox->setCurrentIndex(currentIndex);
-    else if (defaultIndex >= 0)
-        m_comboBox->setCurrentIndex(defaultIndex);
-    updateCurrentLauncher();
+    setVariantValue(id);
 }
 
 /*!

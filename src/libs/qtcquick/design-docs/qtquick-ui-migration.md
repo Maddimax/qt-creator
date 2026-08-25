@@ -2165,7 +2165,7 @@ installs a message handler and asserts nothing says SOFT ASSERT. The first
 version of it passed against a build with the guard removed, which is the only
 reason it was rewritten.
 
-**What this does not do.** The virtual has to stay: nine aspects outside Utils
+**What this does not do.** The virtual has to stay: eight aspects outside Utils
 still override it - the run-configuration and build-settings aspects, which
 are project panels rather than preferences pages and have not been migrated.
 `aspects.{h,cpp}` reach no QtWidgets header and no `layoutbuilder.h` either;
@@ -2230,12 +2230,48 @@ plain one (a run configuration applies as it is edited, so there is no separate
 value being typed), and `emit volatileValueChanged()` where it used to poke the
 widget. The closure, the `QPointer` and the four pushes are gone.
 
-**Nine to go, and they are not the same.** The rest hold controls that are more
-than their value: `WorkingDirectoryAspect` has a chooser and a reset button,
-`ArgumentsAspect` a chooser plus an expand button and a multi-line editor,
-`LauncherAspect` a combo it refills. Each needs its control described before
+**Eight to go, and they are not all the same.** `LauncherAspect` went the same
+way as this one - see below. The rest hold controls that are more than their
+value: `WorkingDirectoryAspect` has a chooser and a reset button, and
+`ArgumentsAspect` a chooser plus an expand button and a multi-line editor. Each needs its control described before
 its closure can go, which is workstream 2 applied to the run-configuration
 surface rather than to a settings page.
+
+### A combo box for whatever asked for one
+
+The same shape again, one control along. `LauncherAspect` described itself as a
+`ComboBox` and listed its launchers as choices, and then built its own combo
+because the renderer's combo path began
+
+    if (auto selectionAspect = qobject_cast<SelectionAspect *>(&aspect))
+
+and it is not one. It cannot be: a `SelectionAspect`'s value is a **position**
+in the list, and a launcher list is refilled whenever the device's launchers
+change, so a position means nothing across a refill. Its value is the
+launcher's id.
+
+`AspectPresentation::valueIsChoiceId` already said which of the two an aspect
+means - the Quick delegate has read it since the selection work - and the
+widget renderer now does too. Two helpers, `indexForValue()` and
+`valueForIndex()`, sit between the control and the aspect, and the combo and
+the radio-button group both go through them. So the cast is gone: whatever
+asks for a combo gets one, keyed the way it said.
+
+`StringSelectionAspect` keeps its own path. Its entries come from a callback
+and are refilled while the page is open, which is a live model rather than a
+list of choices, and merging the two would be a rewrite rather than a
+generalisation.
+
+`LauncherAspect` lost its closure, its `QPointer<QComboBox>`, and the two
+methods that existed only to push the list and the selection into it -
+`updateComboBox()` and `updateCurrentLauncher()`. Refilling the launchers is
+`controlConfigurationChanged()` now, which is what every other aspect says
+when its descriptor changes.
+
+**The assertion worth keeping** is the one about a value that is not on offer:
+a stale launcher id selects *nothing*, not the first entry. An index-keyed
+combo cannot express that, and silently showing the wrong launcher is exactly
+what the id keying is for.
 
 ### What the census could not see, and now can
 

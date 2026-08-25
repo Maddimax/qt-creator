@@ -153,6 +153,8 @@ private slots:
     void filePathValidity_data() { addRendererRows(); }
     void filePathValidity();
     void checkBoxForAnAspectThatIsNotBool_data() { addRendererRows(); }
+    void comboBoxForAnAspectValuedByChoiceId_data() { addRendererRows(); }
+    void comboBoxForAnAspectValuedByChoiceId();
     void checkBoxForAnAspectThatIsNotBool();
     void aspectThatDescribesNoControlDrawsNothing_data() { addRendererRows(); }
     void aspectThatDescribesNoControlDrawsNothing();
@@ -927,6 +929,76 @@ void tst_AspectRenderer::checkBoxForAnAspectThatIsNotBool()
     // pointer to it used to do.
     aspect.setVariantValue(true);
     QVERIFY(box->isChecked());
+}
+
+// An aspect whose value is the chosen entry's own id rather than its place in
+// the list. This is LauncherAspect's shape: the entries are refilled whenever
+// the device's launchers change, so a position means nothing across a refill.
+class ComboWithIdValueAspect final : public BaseAspect
+{
+public:
+    AspectPresentation presentation() const override
+    {
+        AspectPresentation p = BaseAspect::presentation();
+        p.control = AspectControls::ComboBox;
+        p.labelText = "Launcher:";
+        p.valueIsChoiceId = true;
+        for (const QString &id : m_ids)
+            p.choices.append({id.toUpper(), {}, true, id});
+        return p;
+    }
+
+    QVariant variantValue() const override { return m_current; }
+    void setVariantValue(const QVariant &value, Announcement = DoEmit) override
+    {
+        m_current = value.toString();
+        emit volatileValueChanged();
+    }
+    QVariant volatileVariantValue() const override { return variantValue(); }
+    void setVolatileVariantValue(const QVariant &value, Announcement a = DoEmit) override
+    {
+        setVariantValue(value, a);
+    }
+
+    QStringList m_ids{"alpha", "beta", "gamma"};
+    QString m_current;
+};
+
+void tst_AspectRenderer::comboBoxForAnAspectValuedByChoiceId()
+{
+    QFETCH(bool, withRenderer);
+    setRendererInstalled(withRenderer);
+
+    ComboWithIdValueAspect aspect;
+    aspect.setVariantValue("beta");
+
+    const std::unique_ptr<QWidget> widget = render(aspect);
+    QVERIFY(widget);
+    auto combo = widget->findChild<QComboBox *>();
+    if (!withRenderer) {
+        QVERIFY(!combo);
+        return;
+    }
+
+    QVERIFY(combo);
+    QCOMPARE(combo->count(), 3);
+    QCOMPARE(combo->itemText(0), QString("ALPHA"));
+    // The value is an id, so the entry shown is the one whose id it is - not
+    // the entry at index 1 by coincidence of both being "beta".
+    QCOMPARE(combo->currentIndex(), 1);
+
+    // Picking writes the id back, not the index.
+    combo->setCurrentIndex(2);
+    QCOMPARE(aspect.m_current, QString("gamma"));
+
+    // And a value set from elsewhere reaches the combo.
+    aspect.setVariantValue("alpha");
+    QCOMPARE(combo->currentIndex(), 0);
+
+    // An id that is not on offer selects nothing rather than the first entry,
+    // which is what a stale launcher looks like.
+    aspect.setVariantValue("delta");
+    QCOMPARE(combo->currentIndex(), -1);
 }
 
 void tst_AspectRenderer::aspectThatDescribesNoControlDrawsNothing()
