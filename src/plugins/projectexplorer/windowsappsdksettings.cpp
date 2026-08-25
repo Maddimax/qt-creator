@@ -21,7 +21,8 @@
 #include <utils/qtcassert.h>
 #include <utils/qtcprocess.h>
 #include <utils/stylehelper.h>
-#include <utils/summarywidget.h>
+#include <utils/infolabel.h>
+#include <utils/summaryaspect.h>
 #include <utils/widgets.h>
 
 #include <QCheckBox>
@@ -109,7 +110,6 @@ private:
     void downloadNuget();
     void downloadWindowsAppSdk();
 
-    void updateUI();
 
     void validateDownloadPath();
     void validateNuget();
@@ -117,7 +117,9 @@ private:
 
     bool m_isInitialReloadDone = false;
 
-    SummaryWidget *m_winAppSdkSummary = nullptr;
+    // Constructed with the page: its rows are what has to be true, and its
+    // label is whether they are.
+    SummaryAspect m_winAppSdkSummary;
     PathChooser *m_downloadPathChooser;
     PathChooser *m_nugetPathChooser;
     PathChooser *m_winAppSdkPathChooser;
@@ -132,13 +134,17 @@ enum WindowsAppSdkValidation {
 };
 
 WindowsSettingsWidget::WindowsSettingsWidget()
+    : m_winAppSdkSummary(nullptr,
+                         {{DownloadPathExistsRow, Tr::tr("Download path exists.")},
+                          {NugetPathExistsRow, Tr::tr("NuGet path exists.")},
+                          {WindowsAppSdkPathExists, Tr::tr("Windows App SDK path exists.")}},
+                         Tr::tr("Windows App SDK settings are OK."),
+                         Tr::tr("Windows App SDK settings have errors."))
 {
     setWindowTitle(Tr::tr("Windows Configuration"));
 
     auto infoLabel = new InfoLabel(Tr::tr("All changes on this page take effect immediately."));
     infoLabel->setFilled(true);
-
-    auto winAppSdkDetailsWidget = new DetailsWidget;
 
     m_downloadPathChooser = new PathChooser;
     m_downloadPathChooser->setToolTip(Tr::tr("Select the download path of NuGet and Windows App SDK."));
@@ -166,16 +172,6 @@ WindowsSettingsWidget::WindowsSettingsWidget()
                "If the automatic download fails, Qt Creator proposes to open the download URL\n"
                "in the system browser for manual download."));
 
-    const QMap<int, QString> winAppSdkValidationPoints = {
-        { DownloadPathExistsRow, Tr::tr("Download path exists.") },
-        { NugetPathExistsRow, Tr::tr("NuGet path exists.") },
-        { WindowsAppSdkPathExists, Tr::tr("Windows App SDK path exists.") }
-    };
-    m_winAppSdkSummary = new SummaryWidget(
-        winAppSdkValidationPoints,
-        Tr::tr("Windows App SDK settings are OK."),
-        Tr::tr("Windows App SDK settings have errors."),
-        winAppSdkDetailsWidget);
 
     m_winAppSdkPathChooser->setPromptDialogTitle(Tr::tr("Select Windows App SDK Path"));
     WindowsAppSdkSettings &settings = windowsAppSdkSettings();
@@ -192,10 +188,7 @@ WindowsSettingsWidget::WindowsSettingsWidget()
             title(Tr::tr("Download Path")),
             Grid {
                 Tr::tr("Download location:"),
-                m_downloadPathChooser,
-                br,
-
-                Span(4, winAppSdkDetailsWidget)
+                m_downloadPathChooser
             }
         },
         Layouting::Group {
@@ -203,10 +196,7 @@ WindowsSettingsWidget::WindowsSettingsWidget()
             Grid {
                 Tr::tr("NuGet location:"),
                 m_nugetPathChooser,
-                downloadNuget,
-                br,
-
-                Span(4, winAppSdkDetailsWidget)
+                downloadNuget
             }
         },
         Layouting::Group {
@@ -214,12 +204,10 @@ WindowsSettingsWidget::WindowsSettingsWidget()
             Grid {
                 Tr::tr("Windows App SDK location:"),
                 m_winAppSdkPathChooser,
-                downloadWindowsAppSdk,
-                br,
-
-                Span(4, winAppSdkDetailsWidget)
+                downloadWindowsAppSdk
             }
         },
+        &m_winAppSdkSummary,
         st
     }.attachTo(this);
 
@@ -252,19 +240,17 @@ void WindowsSettingsWidget::validateDownloadPath()
 {
     windowsAppSdkSettings().downloadLocation.setValue(m_downloadPathChooser->filePath());
 
-    m_winAppSdkSummary->setPointValid(
+    m_winAppSdkSummary.setPointValid(
         DownloadPathExistsRow, m_downloadPathChooser->filePath().exists());
 
-    updateUI();
 }
 
 void WindowsSettingsWidget::validateNuget()
 {
     windowsAppSdkSettings().nugetLocation.setValue(m_nugetPathChooser->filePath());
 
-    m_winAppSdkSummary->setPointValid(NugetPathExistsRow, m_nugetPathChooser->filePath().exists());
+    m_winAppSdkSummary.setPointValid(NugetPathExistsRow, m_nugetPathChooser->filePath().exists());
 
-    updateUI();
 }
 
 void WindowsSettingsWidget::validateWindowsAppSdk()
@@ -275,9 +261,8 @@ void WindowsSettingsWidget::validateWindowsAppSdk()
     filters << "Microsoft.WindowsAppSDK.*.nupkg";
     QDir dir(windowsAppSdkSettings().windowsAppSdkLocation().path());
     auto results = dir.entryList(filters);
-    m_winAppSdkSummary->setPointValid(WindowsAppSdkPathExists, results.count() > 0);
+    m_winAppSdkSummary.setPointValid(WindowsAppSdkPathExists, results.count() > 0);
 
-    updateUI();
 }
 
 GroupItem WindowsSettingsWidget::downloadNugetRecipe()
@@ -402,14 +387,14 @@ void WindowsSettingsWidget::downloadNuget()
         return;
     }
 
-    if (!m_winAppSdkSummary->rowsOk({DownloadPathExistsRow}) &&
+    if (!m_winAppSdkSummary.rowsOk({DownloadPathExistsRow}) &&
         !downloadPath.isEmpty()) {
         downloadPath.ensureWritableDir();
         m_downloadPathChooser->triggerChanged();
         validateDownloadPath();
     }
 
-    if (!m_winAppSdkSummary->rowsOk({DownloadPathExistsRow})) {
+    if (!m_winAppSdkSummary.rowsOk({DownloadPathExistsRow})) {
         QMessageBox::information(this, nugetDownloadingTitle,
                                  Tr::tr("Download path is not configured."));
         return;
@@ -420,7 +405,6 @@ void WindowsSettingsWidget::downloadNuget()
             return;
         validateNuget();
         m_nugetPathChooser->triggerChanged(); // After cloning, the path exists
-        updateUI();
         apply();
     });
 }
@@ -433,20 +417,20 @@ void WindowsSettingsWidget::downloadWindowsAppSdk()
     const QString winAppSdkDownloadTitle(Tr::tr("Downloading Windows App SDK"));
     const QString winAppSdkDownloadUrl = "https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/downloads";
 
-    if (m_winAppSdkSummary->rowsOk({WindowsAppSdkPathExists})) {
+    if (m_winAppSdkSummary.rowsOk({WindowsAppSdkPathExists})) {
         QMessageBox::information(this, winAppSdkDownloadTitle,
             Tr::tr("Windows App SDK is already configured."));
         return;
     }
 
-    if (!m_winAppSdkSummary->rowsOk({DownloadPathExistsRow}) &&
+    if (!m_winAppSdkSummary.rowsOk({DownloadPathExistsRow}) &&
         !downloadPath.isEmpty()) {
         downloadPath.ensureWritableDir();
         m_downloadPathChooser->triggerChanged();
         validateDownloadPath();
     }
 
-    if (!m_winAppSdkSummary->rowsOk({DownloadPathExistsRow})) {
+    if (!m_winAppSdkSummary.rowsOk({DownloadPathExistsRow})) {
         QMessageBox::information(this, winAppSdkDownloadTitle,
                                  Tr::tr("Download path is not configured."));
         return;
@@ -520,18 +504,11 @@ void WindowsSettingsWidget::downloadWindowsAppSdk()
                 || nugetDownloader->result() == ProcessResult::FinishedWithError) {
             failDialog();
         }
-        updateUI();
         apply();
     });
 
     winAppSdkProgressDialog->show();
     nugetDownloader->start();
-}
-
-void WindowsSettingsWidget::updateUI()
-{
-    const bool allOk = m_winAppSdkSummary->allRowsOk();
-    m_winAppSdkSummary->setSetupOk(allOk);
 }
 
 // WindowsSettingsPage

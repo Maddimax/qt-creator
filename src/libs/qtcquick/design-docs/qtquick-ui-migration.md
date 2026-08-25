@@ -2054,7 +2054,8 @@ would not run either. What verified it instead:
 `Utils::SummaryWidget` is how a page that has to be *set up* - a JDK here, an
 SDK there - says whether it is: a line of prose and a list of check marks,
 inside a `DetailsWidget` that collapses once everything is in order. Two pages
-use it, Android and the Windows App SDK.
+used it, Android and the Windows App SDK; both have moved and the class is
+gone.
 
 There is nothing in it a container cannot say. `Utils::SummaryAspect` is an
 `AspectContainer` whose **label text is the verdict** and whose rows are
@@ -2171,6 +2172,32 @@ are project panels rather than preferences pages and have not been migrated.
 what keeps them on the widget side of the split metric is that virtual's
 signature naming `Layouting::Layout`, and the project panels are what has to
 move before it can go.
+
+### A widget class out of Utils
+
+`Utils::SummaryWidget` had two users. Android took `Utils::SummaryAspect`
+instead; the Windows App SDK page took it too, and the class is deleted. The
+page itself is still widgets - it is Windows-only and cannot be opened here -
+but an `AspectContainer` renders as a group through the widget renderer, so
+swapping the control did not mean converting the page.
+
+Two things fell out of it.
+
+**The summary was in the layout three times.** `Span(4, winAppSdkDetailsWidget)`
+appeared in all three groups. A widget lives in one layout, so the last one
+took it and the first two did nothing: the checks have always been drawn under
+"Windows App SDK Settings" and never under "Download Path" or "NuGet". Now it
+is added once, after the three groups, which is what was actually happening.
+
+**`updateUI()` was only the collapse.** With `setSetupOk()` gone - the
+`DetailsWidget` expander went with `SummaryWidget` - the function's whole body
+was a variable nobody read. Five call sites and the function are gone.
+
+The Utils split metric moves by one widget class, which is the point: the
+end state is a Utils that publishes no `Qt::Widgets`, and every widget helper
+that stops having callers is a file that no longer has to be on that side.
+A sweep for others found none - the two headers with no includer,
+`guitest.h` and `widgetprompts.h`, are both reached from `src/app/main.cpp`.
 
 ### What the census could not see, and now can
 

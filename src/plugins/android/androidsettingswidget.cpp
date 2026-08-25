@@ -34,7 +34,6 @@
 #include <utils/shutdownguard.h>
 #include <utils/summaryaspect.h>
 #include <utils/stylehelper.h>
-#include <utils/summarywidget.h>
 #include <utils/utilsicons.h>
 
 #include <QCheckBox>
