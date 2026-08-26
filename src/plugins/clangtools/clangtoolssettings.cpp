@@ -84,22 +84,6 @@ RunSettings::RunSettings(const Key &prefix)
     analyzeOpenFiles.setDefaultValue(true);
     analyzeOpenFiles.setLabelText(Tr::tr("Analyze open files"));
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-        return Column {
-            Group {
-                title(Tr::tr("Run Options")),
-                Column {
-                    diagnosticConfigId,
-                    preferConfigFile,
-                    buildBeforeAnalysis,
-                    analyzeOpenFiles,
-                    Row { parallelJobs, st },
-                },
-            },
-            noMargin,
-        };
-    });
 }
 
 RunSettingsData RunSettings::data() const

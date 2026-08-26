@@ -5243,6 +5243,23 @@ behaviour into them - the case the factory's comment warns about, where a
 layouter does more than arrange the aspects. Deleting it would drop those labels
 unless the page reproduces them, which is a port and not a deletion.
 
+**Two more went the same way**, and these are the useful shape: neither is a
+page container. ClangTools' `RunSettings` and ProjectExplorer's
+`PerProjectProjectExplorerSettings` are *nested* containers, and the check is
+the same one - who draws them. `ClangToolsRunOptionsForm.qml` names all five run
+options in a group titled "Run Options", which is what the closure's
+`Group{title(...), Column{...}}` built; `BuildAndRunProjectPanel.qml` names all
+seven per-project settings. In both cases the QML says what the closure said,
+and only the QML is read.
+
+**The control is of the reasoning, not the deletion.** Deleting a layouter
+cannot change what a Quick page draws, so no test can fail from it - which makes
+"the tests still pass" worth very little here. What the deletion *relies on* is
+that the QML draws those aspects by name, so that is what gets broken:
+misspelling one name in `ClangToolsRunOptionsForm.qml` fails the census with
+*"Clang Tools: ... has no aspect"* and trips the QML-complaint collector as well.
+That is the assertion holding this ground.
+
 **What this batch does not verify.** These closures were dead on the Quick side,
 which is the side that is used; nothing here proves the *widget* rendering of
 those containers is unaffected, because nothing draws them that way any more and
