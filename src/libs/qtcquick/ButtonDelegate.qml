@@ -43,7 +43,6 @@ RowLayout {
     Layout.fillWidth: true
 
     // The aspect is being drawn, so let it find out what its label should say.
-    Component.onCompleted: root.aspect?.requestDisplayText()
 
     Button {
         id: button

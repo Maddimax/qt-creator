@@ -559,7 +559,6 @@ private:
 
         AspectWidgets::addLabeledItem(aspect, parent,
                                       Row{noMargin, lineEdit, warning, reveal}.emerge());
-        aspect->requestDisplayText();
     }
 
     // Everything a FilePathAspect's setters can change after the control
@@ -695,9 +694,6 @@ private:
                 button->setStyleSheet("text-align:center;");
         }
         parent.addItem(button);
-        // Same as the Quick delegate: the aspect is being drawn, so let it find
-        // out what its label should say.
-        aspect->requestDisplayText();
     }
 
     // A value that is edited elsewhere: a summary of it, and the one button
@@ -723,9 +719,6 @@ private:
         // createLabel() may return nullptr; addEmpty == false drops it then.
         parent.addItems({AspectWidgets::createLabel(aspect), summary, button},
                         /*addEmpty=*/false);
-        // As the Quick delegate: the aspect is being drawn, so let it find out
-        // what it should say.
-        aspect->requestDisplayText();
     }
 
     static void renderBool(BaseAspect *aspect, Layout &parent, const AspectPresentation &pres)

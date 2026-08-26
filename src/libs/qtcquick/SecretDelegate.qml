@@ -27,8 +27,6 @@ RowLayout {
     spacing: Spacing.GapHM
     Layout.fillWidth: true
 
-    Component.onCompleted: delegate.aspect?.requestDisplayText()
-
     Connections {
         target: delegate.aspect
         function onDisplayTextChanged() {

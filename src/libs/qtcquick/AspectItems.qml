@@ -35,6 +35,12 @@ GridLayout {
 
         model: root.model
 
+        // Drawn: an aspect that has to go and find out what it should say may
+        // do so now. Here rather than in the two delegates that used to, so
+        // that it happens wherever an aspect is drawn - and so that the widget
+        // side, which asks in one place too, asks in the same cases.
+        onItemAdded: (index, item) => item.aspect?.requestDisplayText()
+
         delegate: DelegateChooser {
             role: "kind"
 

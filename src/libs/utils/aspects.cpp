@@ -550,7 +550,15 @@ void BaseAspect::addToLayoutImpl(Layout &parent)
 
     // Reaching the check means no renderer was installed; see
     // installAspectWidgetRenderer().
-    QTC_CHECK(renderAspect(*this, parent));
+    if (!QTC_GUARD(renderAspect(*this, parent)))
+        return;
+
+    // Drawn: an aspect that has to go and find out what it should say may do
+    // so now. Nothing happens by default; the ones that override it are a
+    // secret out of the keychain and an action whose label reports state that
+    // costs something to look up. Doing it here rather than in the three
+    // controls that used to means it happens wherever an aspect is drawn.
+    requestDisplayText();
 }
 
 /*!

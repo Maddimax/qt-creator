@@ -207,6 +207,8 @@ private slots:
     void aspectListWithDetails();
     void aspectInlineList_data() { addRendererRows(); }
     void aspectInlineList();
+    void anAspectIsToldWhenItIsDrawn_data() { addRendererRows(); }
+    void anAspectIsToldWhenItIsDrawn();
 };
 
 void tst_AspectRenderer::initTestCase()
@@ -2101,6 +2103,46 @@ void tst_AspectRenderer::aspectInlineList()
 
     ownButtons().first()->click();
     QCOMPARE(list.volatileItems().size(), 2);
+}
+
+// An aspect that counts being told it is on screen. Any control will do: the
+// point is that the telling does not depend on which one.
+class CountingShownAspect final : public BoolAspect
+{
+public:
+    CountingShownAspect() { setLabel("Enabled", BoolAspect::LabelPlacement::Compact); }
+
+    void requestDisplayText() override { ++shown; }
+
+    int shown = 0;
+};
+
+void tst_AspectRenderer::anAspectIsToldWhenItIsDrawn()
+{
+    QFETCH(bool, withRenderer);
+    setRendererInstalled(withRenderer);
+
+    // Three controls used to do this and the rest did not, so an aspect whose
+    // label reports something it has to go and look up worked as a button and
+    // not as a check box. It is asked once, wherever it is drawn.
+    CountingShownAspect aspect;
+    QCOMPARE(aspect.shown, 0);
+
+    const std::unique_ptr<QWidget> widget = render(aspect);
+    QVERIFY(widget);
+    if (!withRenderer) {
+        QVERIFY(!widget->findChild<QCheckBox *>());
+        QCOMPARE(aspect.shown, 0);
+        return;
+    }
+
+    QVERIFY(widget->findChild<QCheckBox *>());
+    QCOMPARE(aspect.shown, 1);
+
+    // Drawn again is asked again: a page reopened has to look again too.
+    const std::unique_ptr<QWidget> second = render(aspect);
+    QVERIFY(second);
+    QCOMPARE(aspect.shown, 2);
 }
 
 void tst_AspectRenderer::filePathLiveReconfiguration()

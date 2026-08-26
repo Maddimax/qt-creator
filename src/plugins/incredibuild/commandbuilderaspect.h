@@ -7,12 +7,12 @@
 
 #include <utils/aspects.h>
 
-#include <QLabel>
-#include <QPointer>
-
 namespace IncrediBuild::Internal {
 
-class CommandBuilderAspect final : public Utils::BaseAspect
+// Which helper works out the build command, and the command and arguments it
+// came up with. Three rows of the step that holds them rather than a group of
+// their own, so the container is flattened.
+class CommandBuilderAspect final : public Utils::AspectContainer
 {
     Q_OBJECT
 
@@ -22,12 +22,22 @@ public:
 
     QString fullCommandFlag(bool keepJobNum) const;
 
+    Utils::SelectionAspect helper{this};
+    Utils::FilePathAspect command{this};
+    Utils::StringAspect arguments{this};
+
 private:
-    void addToLayoutImpl(Layouting::Layout &parent) final;
     void fromMap(const Utils::Store &map) final;
     void toMap(Utils::Store &map) const final;
 
-    void updateGui();
+    // Drawn for the first time. A step that was just added adopts whatever
+    // preceding step it can build for, and that is only knowable once the
+    // settings have been read - or not read, for a step nobody restored.
+    void requestDisplayText() final;
+
+    // What the active helper says the command and arguments are, and what it
+    // would use if they were left alone.
+    void showActiveHelper();
 
     class CommandBuilderAspectPrivate *d = nullptr;
 };

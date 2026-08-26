@@ -174,6 +174,7 @@ private slots:
     void testTextWithActionShowsSummaryAndActs();
     void testACheckBoxLabelCanBeALink();
     void testAFieldCanBeAskedForTheCursorAndForAReCheck();
+    void testAnAspectIsToldWhenItIsDrawn();
     void testAspectListLabelArrivingLate();
     void testPageWithoutItsOwnQmlIsDeclined();
     void testBuildingAPageIsNotShowingIt();
@@ -2471,6 +2472,41 @@ void QuickUiTest::testAFieldCanBeAskedForTheCursorAndForAReCheck()
     field.problem = "The build directory is not reachable from the build device.";
     field.validateInput();
     QTRY_COMPARE(input->property("error").toString(), field.problem);
+}
+
+// The same aspect the widget renderer test uses: any control will do, because
+// the point is that being told does not depend on which one.
+class CountingShownAspect final : public Utils::BoolAspect
+{
+public:
+    explicit CountingShownAspect(Utils::AspectContainer *container)
+        : Utils::BoolAspect(container)
+    {
+        setLabel("Enabled", Utils::BoolAspect::LabelPlacement::Compact);
+    }
+
+    void requestDisplayText() override { ++shown; }
+
+    int shown = 0;
+};
+
+void QuickUiTest::testAnAspectIsToldWhenItIsDrawn()
+{
+    // Two delegates used to ask and the rest did not, so an aspect whose label
+    // reports something it has to go and look up worked as a button and not as
+    // a check box. AspectItems asks for all of them, which is also where the
+    // widget renderer asks - one place each, and the same cases.
+    Utils::AspectContainer page;
+    CountingShownAspect aspect(&page);
+    QCOMPARE(aspect.shown, 0);
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QVERIFY(quickWidget->rootObject());
+
+    QTRY_VERIFY(findQmlComponent(quickWidget->rootObject(), "BoolDelegate"));
+    QCOMPARE(aspect.shown, 1);
 }
 
 void QuickUiTest::testAspectListLabelArrivingLate()

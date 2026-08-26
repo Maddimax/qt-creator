@@ -11,13 +11,7 @@
 #include <projectexplorer/buildsteplist.h>
 #include <projectexplorer/project.h>
 
-#include <utils/guiutils.h>
-#include <utils/layoutbuilder.h>
 #include <utils/pathchooser.h>
-
-#include <QComboBox>
-#include <QLabel>
-#include <QLineEdit>
 
 using namespace ProjectExplorer;
 using namespace Utils;
@@ -53,16 +47,76 @@ public:
 
     bool m_loadedFromMap = false;
 
-    QPointer<QLabel> label;
-    QPointer<QComboBox> commandBuilder;
-    QPointer<PathChooser> makePathChooser;
-    QPointer<QLineEdit> makeArgumentsLineEdit;
+    // Set while the aspects are being written from the helper, so that what
+    // they emit on the way is not read back as the user's doing.
+    bool showing = false;
 };
 
 CommandBuilderAspect::CommandBuilderAspect(BuildStep *step)
-    : BaseAspect(step)
+    : AspectContainer(step)
     , d(new CommandBuilderAspectPrivate(step))
 {
+    // Three rows of the step, not a group of their own.
+    setFlattened(true);
+
+    helper.setLabelText(Tr::tr("Command Helper:"));
+    helper.setToolTip(Tr::tr("Select a helper to establish the build command."));
+    helper.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
+    for (CommandBuilder * const p : d->m_commandBuilders)
+        helper.addOption(p->displayName());
+
+    command.setLabelText(Tr::tr("Make command:"));
+    command.setExpectedKind(PathChooserKind::ExistingCommand);
+    command.setBaseDirectory(PathChooser::homePath());
+    command.setHistoryCompleter("IncrediBuild.BuildConsole.MakeCommand.History");
+
+    arguments.setLabelText(Tr::tr("Make arguments:"));
+    arguments.setDisplayStyle(StringAspect::LineEditDisplay);
+
+    // Behaviour, not layout. Picking a helper changes what the other two hold
+    // and what they would hold if left alone; typing in them is what the
+    // helper is told.
+    helper.addOnVolatileValueChanged(this, [this] {
+        const int index = helper.volatileValue();
+        if (index >= 0 && index < int(std::size(d->m_commandBuilders)))
+            d->m_activeCommandBuilder = d->m_commandBuilders[index];
+        showActiveHelper();
+    });
+    command.addOnVolatileValueChanged(this, [this] {
+        if (!d->showing)
+            d->m_activeCommandBuilder->setCommand(command.expandedVolatileValue());
+    });
+    arguments.addOnVolatileValueChanged(this, [this] {
+        if (!d->showing)
+            d->m_activeCommandBuilder->setArguments(arguments.volatileValue());
+    });
+
+    showActiveHelper();
+}
+
+void CommandBuilderAspect::showActiveHelper()
+{
+    d->showing = true;
+    for (int i = 0, n = int(std::size(d->m_commandBuilders)); i < n; ++i) {
+        if (d->m_commandBuilders[i] == d->m_activeCommandBuilder)
+            helper.setVolatileValue(i);
+    }
+    command.setDefaultPathValue(d->m_activeCommandBuilder->defaultCommand());
+    command.setVolatileValue(d->m_activeCommandBuilder->command().toUrlishString());
+    arguments.setPlaceHolderText(d->m_activeCommandBuilder->defaultArguments());
+    arguments.setVolatileValue(d->m_activeCommandBuilder->arguments());
+    d->showing = false;
+}
+
+void CommandBuilderAspect::requestDisplayText()
+{
+    // On first creation of the step, attempt to detect and migrate from
+    // preceding steps. A step that was restored has been told what it is.
+    if (!d->m_loadedFromMap) {
+        d->m_loadedFromMap = true;
+        d->tryToMigrate();
+        showActiveHelper();
+    }
 }
 
 CommandBuilderAspect::~CommandBuilderAspect()
@@ -110,55 +164,6 @@ void CommandBuilderAspectPrivate::tryToMigrate()
     }
 }
 
-void CommandBuilderAspect::addToLayoutImpl(Layouting::Layout &parent)
-{
-    if (!d->commandBuilder) {
-        d->commandBuilder = new QComboBox;
-        for (CommandBuilder *p : d->m_commandBuilders)
-            d->commandBuilder->addItem(p->displayName());
-        connect(d->commandBuilder, &QComboBox::currentIndexChanged, this, [this](int idx) {
-            if (idx >= 0 && idx < int(sizeof(d->m_commandBuilders) / sizeof(d->m_commandBuilders[0])))
-                d->m_activeCommandBuilder = d->m_commandBuilders[idx];
-            updateGui();
-        });
-        setWheelScrollingWithoutFocusBlocked(d->commandBuilder);
-    }
-
-    if (!d->makePathChooser) {
-        d->makePathChooser = new PathChooser;
-        d->makePathChooser->setExpectedKind(PathChooserKind::ExistingCommand);
-        d->makePathChooser->setBaseDirectory(PathChooser::homePath());
-        d->makePathChooser->setHistoryCompleter("IncrediBuild.BuildConsole.MakeCommand.History");
-        connect(d->makePathChooser, &PathChooser::rawPathChanged, this, [this] {
-            d->m_activeCommandBuilder->setCommand(d->makePathChooser->unexpandedFilePath());
-            updateGui();
-        });
-    }
-
-   if (!d->makeArgumentsLineEdit) {
-        d->makeArgumentsLineEdit = new QLineEdit;
-        connect(d->makeArgumentsLineEdit, &QLineEdit::textEdited, this, [this](const QString &arg) {
-            d->m_activeCommandBuilder->setArguments(arg);
-            updateGui();
-        });
-    }
-
-    if (!d->label) {
-        d->label = new QLabel(Tr::tr("Command Helper:"));
-        d->label->setToolTip(Tr::tr("Select a helper to establish the build command."));
-    }
-
-    // On first creation of the step, attempt to detect and migrate from preceding steps
-    if (!d->m_loadedFromMap)
-        d->tryToMigrate();
-
-    parent.addRow({d->label.data(), d->commandBuilder.data()});
-    parent.addRow({Tr::tr("Make command:"), d->makePathChooser.data()});
-    parent.addRow({Tr::tr("Make arguments:"), d->makeArgumentsLineEdit.data()});
-
-    updateGui();
-}
-
 void CommandBuilderAspect::fromMap(const Store &map)
 {
     d->m_loadedFromMap = true;
@@ -168,7 +173,7 @@ void CommandBuilderAspect::fromMap(const Store &map)
     d->m_makeCommandBuilder.fromMap(map);
     d->m_cmakeCommandBuilder.fromMap(map);
 
-    updateGui();
+    showActiveHelper();
 }
 
 void CommandBuilderAspect::toMap(Store &map) const
@@ -180,22 +185,6 @@ void CommandBuilderAspect::toMap(Store &map) const
     d->m_customCommandBuilder.toMap(&map);
     d->m_makeCommandBuilder.toMap(&map);
     d->m_cmakeCommandBuilder.toMap(&map);
-}
-
-void CommandBuilderAspect::updateGui()
-{
-    if (!d->commandBuilder)
-        return;
-
-    d->commandBuilder->setCurrentText(d->m_activeCommandBuilder->displayName());
-
-    const FilePath defaultCommand = d->m_activeCommandBuilder->defaultCommand();
-    d->makePathChooser->setFilePath(d->m_activeCommandBuilder->command());
-    d->makePathChooser->setDefaultValue(defaultCommand);
-
-    const QString defaultArgs = d->m_activeCommandBuilder->defaultArguments();
-    d->makeArgumentsLineEdit->setPlaceholderText(defaultArgs);
-    d->makeArgumentsLineEdit->setText(d->m_activeCommandBuilder->arguments());
 }
 
 } // IncrediBuild::Internal

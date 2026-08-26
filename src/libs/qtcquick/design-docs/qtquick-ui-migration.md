@@ -2165,7 +2165,7 @@ installs a message handler and asserts nothing says SOFT ASSERT. The first
 version of it passed against a build with the guard removed, which is the only
 reason it was rewritten.
 
-**What this does not do.** The virtual has to stay: four aspects in
+**What this does not do.** The virtual has to stay: three aspects in
 `src/plugins` still override it. Utils has none left. They are not one
 group. Most are run-configuration, build-step and kit aspects - project
 panels rather than preferences pages, which is a surface the migration has not
@@ -3176,6 +3176,45 @@ needs one:
   editor rather than opening a dialog.
 
 The honest summary is that the porting is finished and what is left is design.
+
+### Being drawn is something every aspect can be told
+
+`CommandBuilderAspect` is three ordinary rows - a combo for the helper, a path
+chooser for the command, a line edit for the arguments - so nothing had to be
+invented to describe it. What kept it a closure was *when* one thing happens.
+
+A freshly added IncrediBuild step adopts whatever preceding make step it can
+build for, disables that step and saves the project. It may only do that for a
+step that was **created rather than restored**, and
+`BuildStepFactory::restore()` is `create()` followed by `fromMap()` - so a
+fresh step is one that `fromMap()` never reached, and nothing can tell at
+construction time. The closure knew because it ran when the step was first
+drawn, which is late enough for the answer to exist.
+
+That hook was already in the codebase and already named:
+`ActionAspect::setOnShown()`, documented as *"called when the action is first
+drawn, for one whose label reports state that costs something to find out.
+Copilot starts a language server here, which is why it must not happen when
+the settings are constructed."* It rides on `BaseAspect::requestDisplayText()`,
+a virtual every aspect has - and which **only three controls ever called**:
+`Secret`, `TextWithAction` and `Button` in the widget renderer, and only two
+delegates in Qt Quick. `TextWithActionDelegate` did not, so an action with a
+summary got its `onShown` in widgets and not in Qt Quick.
+
+It is asked in one place per backend now - at the end of
+`BaseAspect::addToLayoutImpl()`, and in `AspectItems`' repeater as each
+delegate appears - so it means what it says: *you are on screen; if you have to
+go and find something out, now is the time.* The five call sites that used to
+do it piecemeal are gone.
+
+**What is verified and what is not.** The hook is tested on both sides: an
+aspect that counts being told, drawn as a check box, which no control used to
+tell. Both controls bite. `CommandBuilderAspect` itself is not tested - it
+needs a `BuildStep`, which needs a `BuildStepList` and a `BuildConfiguration`,
+and IncrediBuild has no test suite to hang that from. It builds, its three rows
+are ordinary aspects, and the one thing that was hard about it now rests on a
+mechanism that is tested. That is worth saying plainly rather than leaving to
+be inferred.
 
 ### What the census could not see, and now can
 
