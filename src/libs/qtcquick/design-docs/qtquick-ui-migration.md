@@ -3480,6 +3480,46 @@ It is worth writing down because the command every batch used says
 migration. No plugin anywhere in `src` uses an API this work removed; that was
 checked by grep rather than assumed.
 
+### Panels can say what they show now
+
+`ProjectPanelFactory` could only hand over a `QWidget`, so what a panel shows
+was reachable only by building it - which is why there has never been a panel
+census the way there is a page census. It now has the seam `IOptionsPage` has
+always had:
+
+    using SettingsProvider = std::function<Utils::AspectContainer *(Project *)>;
+    void setSettingsProvider(const SettingsProvider &provider);
+    std::optional<Utils::AspectContainer *> aspects(Project *project) const;
+
+`createWidget()` prefers the widget creator, then the provider, and builds the
+container's form with `Core::createAspectForm()` - Qt Quick where the container
+names QML, the widget layout otherwise. It sets the window title from the
+display name, which is what a hand-built panel did for its tab.
+
+**Copilot is the first panel through it.** Its widget was a `Column` of two
+aspects and nothing else; every decision it makes was already in
+`CopilotProjectSettings`, which is an `AspectContainer`.
+
+**The census reports the backlog.** One panel says what it shows; sixteen still
+build a widget: Building and Running, Editor, Language Server, Code Style,
+Documentation Comments, Dependencies, Project Environment, C++ File Naming,
+C++ Code Model, Clangd, Quick Fixes, Clang Tools, To-Do, Vcpkg, Testing,
+GitLab. It asks for `QQuickWidget`'s `status` as well as its `source`, and that
+is the assertion that matters: a component that fails to load leaves the widget
+in place and empty, so pointing the panel at a file that does not exist keeps
+`source` right and only `status` notices. Found by class name rather than by
+type, so ProjectExplorer needs no QuickWidgets dependency.
+
+**What the next panel runs into.** Only Copilot registers its
+`useGlobalSettings` in its container. Every other one holds it deliberately
+outside - `// not {this}: excluded from toMap/fromMap` - because the container's
+`toMap()` is the project's stored settings and the "use global" flag is written
+beside them under its own key. So a panel's QML cannot reach it by name, and
+registering it would change what is persisted. The way through is a wrapper
+container with no settings key of its own, holding the flag and the real
+container; that is a decision about persistence rather than about layout, which
+is why it is written down here rather than guessed at.
+
 ### What is left is hosts, not pages - and one more divergence
 
 Twenty-eight `setLayouter` calls remain, and none of them is a settings page.
