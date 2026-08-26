@@ -18,6 +18,8 @@
 #include <QSGTextNode>
 #include <utils/multitextcursor.h>
 
+#include <QClipboard>
+#include <QGuiApplication>
 #include <QKeyEvent>
 #include <QTextBlock>
 #include <QTextCursor>
@@ -25,6 +27,15 @@
 #include <QTextLayout>
 
 namespace TextEditor {
+
+// QTextCursor::selectedText() separates paragraphs with U+2029, which is right
+// inside a document and wrong on a clipboard: pasted into anything else it is a
+// stray character where a line break should be. Converted where the text leaves
+// the document, so that nothing downstream has to know.
+static QString selectedPlainText(const QTextCursor &cursor)
+{
+    return cursor.selectedText().replace(QChar::ParagraphSeparator, '\n');
+}
 
 TextViewport::Line::Line() = default;
 TextViewport::Line::~Line() = default;
@@ -300,6 +311,21 @@ void TextViewport::keyPressEvent(QKeyEvent *event)
         break;
     }
 
+    // Reading a file means being able to select all of it and copy it, so
+    // these come before the read-only guard.
+    if (event->matches(QKeySequence::SelectAll)) {
+        cursor.select(QTextCursor::Document);
+        setTextCursor(cursor);
+        event->accept();
+        return;
+    }
+    if (event->matches(QKeySequence::Copy)) {
+        if (cursor.hasSelection())
+            QGuiApplication::clipboard()->setText(selectedPlainText(cursor));
+        event->accept();
+        return;
+    }
+
     if (m_readOnly) {
         QQuickItem::keyPressEvent(event);
         return;
@@ -315,6 +341,22 @@ void TextViewport::keyPressEvent(QKeyEvent *event)
             text->undo(&cursor);
         else
             text->redo(&cursor);
+        setTextCursor(cursor);
+        event->accept();
+        return;
+    }
+
+    if (event->matches(QKeySequence::Cut)) {
+        if (cursor.hasSelection()) {
+            QGuiApplication::clipboard()->setText(selectedPlainText(cursor));
+            cursor.removeSelectedText();
+            setTextCursor(cursor);
+        }
+        event->accept();
+        return;
+    }
+    if (event->matches(QKeySequence::Paste)) {
+        cursor.insertText(QGuiApplication::clipboard()->text());
         setTextCursor(cursor);
         event->accept();
         return;

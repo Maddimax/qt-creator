@@ -5561,9 +5561,32 @@ builds a `CodeDocument` of its own. A file is `source: CodeDocument { filePath:
 ... }`, one line longer and no longer a special case. It was a path only
 because a file was the only thing there was.
 
+**Clipboard and select-all come before the preview swap, not after.** The
+preview is a `TextArea` today, and a `TextArea` can be copied out of. Swapping
+it for a `TextViewport` that could not would be a functional regression on a
+page that works - which is the one thing the port is not allowed to do, whatever
+else it disables. So the order is: give the viewport what the control it
+replaces already has, then replace it.
+
+Select-all and copy sit *before* the `readOnly` guard: reading a file means
+being able to take a copy of it. Cut and paste sit after it.
+
+**The clipboard is not the document.** `QTextCursor::selectedText()` separates
+paragraphs with U+2029, which is right inside a document and wrong on a
+clipboard - pasted into any other application it is a stray character where a
+line break should be. The conversion happens where text leaves the document, so
+paste needs to know nothing about it. The test asserts the real newline *and*
+the absence of U+2029, because a test that only checked the text looked right
+would pass on either.
+
+The test borrows the machine's clipboard and puts back what was on it. Running
+a test should not cost the user their paste buffer.
+
 Not ported, listed so the gap is not mistaken for a decision: input methods,
-the clipboard, the gutter, folding, text marks and annotations, wrapping, and
-the extra-selection overlays beyond the primary selection.
+a context menu, drag-and-drop of text, the gutter, folding, text marks and
+annotations, wrapping, and the extra-selection overlays beyond the primary
+selection. Input methods are the remaining one that a `TextArea` has and this
+does not, and so the remaining argument against swapping a page over.
 
 **Still to do for the preview itself.** `CodeStylePreview.qml` can now be a
 `CodeBuffer` under a `CodeViewport` with `CodeIndenting` over the same source.

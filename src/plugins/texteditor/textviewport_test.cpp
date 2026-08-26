@@ -21,6 +21,9 @@
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QQuickView>
+#include <QClipboard>
+#include <QGuiApplication>
+#include <QScopeGuard>
 #include <QSignalSpy>
 #include <QTextCursor>
 #include <QTextDocument>
@@ -873,6 +876,60 @@ private slots:
         // And setting the same text again is not a change at all.
         buffer.setText("alpha\n");
         QCOMPARE(changed.count(), 1);
+    }
+
+    void testTheClipboardCarriesLineBreaksAndNotU2029()
+    {
+        // A preview or a snippet that could not be copied out of would be worse
+        // than the TextArea it replaces, so this is what has to be there before
+        // any page gives one up.
+        //
+        // The clipboard is the machine's, so whatever was on it is put back:
+        // running a test should not cost the user their paste buffer.
+        QClipboard * const clipboard = QGuiApplication::clipboard();
+        const QString borrowed = clipboard->text();
+        const QScopeGuard giveItBack([clipboard, borrowed] { clipboard->setText(borrowed); });
+
+        TemporaryDirectory dir("textviewport-clipboard");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("small.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        QVERIFY2(fixture.hasFocus(), "the viewport never took focus, so no key arrives");
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+        QTextDocument * const text = fixture.document.textDocument()->document();
+
+        // Selecting all and copying works in a view: reading a file means being
+        // able to take a copy of it.
+        QVERIFY(viewport->isReadOnly());
+        clipboard->setText("something else");
+        QTest::keyClick(&fixture.view, Qt::Key_A, Qt::ControlModifier);
+        QCOMPARE(viewport->selectionStart(), 0);
+        QTest::keyClick(&fixture.view, Qt::Key_C, Qt::ControlModifier);
+
+        // A real newline. QTextCursor::selectedText() would have given U+2029,
+        // which pastes into any other application as a stray character.
+        QCOMPARE(clipboard->text(), QString("alpha\nbeta\n"));
+        QVERIFY2(!clipboard->text().contains(QChar::ParagraphSeparator),
+                 "the clipboard carries a paragraph separator");
+
+        // Cut and paste are edits, so a view does neither.
+        QTest::keyClick(&fixture.view, Qt::Key_X, Qt::ControlModifier);
+        QCOMPARE(text->toPlainText(), QString("alpha\nbeta\n"));
+
+        viewport->setReadOnly(false);
+        QTest::keyClick(&fixture.view, Qt::Key_X, Qt::ControlModifier);
+        QCOMPARE(text->toPlainText(), QString(""));
+
+        // And what was cut comes back with its lines intact rather than as one.
+        QTest::keyClick(&fixture.view, Qt::Key_V, Qt::ControlModifier);
+        QCOMPARE(text->toPlainText(), QString("alpha\nbeta\n"));
+        QCOMPARE(text->blockCount(), 3);
     }
 
     void testASelectionIsMergedIntoTheLineFormats()
