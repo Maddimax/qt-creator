@@ -36,9 +36,11 @@ CombinedSamplerSettings::CombinedSamplerSettings()
     intervalUs.setRange(0, 1000000); // 0 = as fast as possible.
     intervalUs.setDefaultValue(200);
 
+    features.setQmlName("Features");
+
     // One toggle per profiler feature, defaulting to enabled (record everything).
     for (int feature = 0; feature < QmlDebug::MaximumProfileFeature; ++feature) {
-        auto *aspect = new BoolAspect(this);
+        auto *aspect = new BoolAspect(&features);
         const QByteArray key = QByteArray("Feature") + QByteArray::number(feature);
         aspect->setSettingsKey(key);
         aspect->setLabel(QString::fromLatin1(Profiler::Internal::QmlProfilerModelManager::featureName(
@@ -48,20 +50,7 @@ CombinedSamplerSettings::CombinedSamplerSettings()
         featureAspects.append(aspect);
     }
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-        Flow features;
-        for (BoolAspect *aspect : std::as_const(featureAspects))
-            features.addItem(*aspect);
-
-        return Column {
-            executable,
-            arguments,
-            workingDirectory,
-            Layouting::Group { title(Tr::tr("CPU Sampler")), Column { Row { intervalUs, st } } },
-            Layouting::Group { title(Tr::tr("QML Profiler")), Column { features } },
-        };
-    });
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Profiler/CombinedSamplerForm.qml"));
 }
 
 quint64 CombinedSamplerSettings::requestedFeatures() const

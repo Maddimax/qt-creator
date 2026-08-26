@@ -3,9 +3,11 @@
 
 #include <utils/aspects.h>
 #include <utils/infolabel.h>
+#include <utils/qtcsettings_p.h>
 
 #include <QPointer>
 #include <QSignalSpy>
+#include <QTemporaryDir>
 #include <QUndoStack>
 #include <QTest>
 
@@ -39,6 +41,7 @@ private slots:
     void doubleGuiWriteIsVolatileAndUndoable();
     void multiSelectionGuiWriteIsVolatileAndUndoable();
     void aContainerOnlyFreesWhatItWasToldToOwn();
+    void aNestedContainerKeepsItsAspectsSettingsKeys();
 };
 
 // Constructing an aspect with a container registers it there but does not hand
@@ -535,6 +538,56 @@ void tst_Aspects::multiSelectionGuiWriteIsVolatileAndUndoable()
     QCOMPARE(aspect.value(), QStringList({"a", "c"}));
 }
 
-QTEST_GUILESS_MAIN(tst_Aspects)
+
+void tst_Aspects::aNestedContainerKeepsItsAspectsSettingsKeys()
+{
+    // A container nested only so that a Qt Quick form can address its aspects
+    // by name must not move their settings. The group belongs to the outer
+    // container, and a nested one that added its own would orphan every
+    // setting a user already has.
+    AspectContainer outer;
+    outer.setSettingsGroup("Outer");
+    AspectContainer nested(&outer);
+
+    BoolAspect direct(&outer);
+    direct.setSettingsKey("Direct");
+    BoolAspect inNested(&nested);
+    inNested.setSettingsKey("Nested");
+
+    direct.setValue(true);
+    inNested.setValue(true);
+    outer.writeSettings();
+    userSettings().sync();
+
+    const QStringList keys = userSettings().allKeys();
+    QVERIFY2(keys.contains("Outer/Direct"), qPrintable(keys.join(", ")));
+    QVERIFY2(keys.contains("Outer/Nested"),
+             qPrintable("a nested container moved its aspects' settings: " + keys.join(", ")));
+
+    // And what was written is what comes back.
+    direct.setValue(false);
+    inNested.setValue(false);
+    outer.readSettings();
+    QCOMPARE(direct.value(), true);
+    QCOMPARE(inNested.value(), true);
+}
+
+int main(int argc, char *argv[])
+{
+    QCoreApplication app(argc, argv);
+
+    // Aspects that read and write settings need somewhere to do it, and only
+    // main() is allowed to install it.
+    QTemporaryDir settingsDir;
+    Internal::SettingsSetup::setupSettings(
+        new QtcSettings(settingsDir.filePath("user.ini"), QSettings::IniFormat),
+        new QtcSettings);
+
+    tst_Aspects tc;
+    QTEST_SET_MAIN_SOURCE_PATH
+    const int result = QTest::qExec(&tc, argc, argv);
+    Internal::SettingsSetup::destroySettings();
+    return result;
+}
 
 #include "tst_aspects.moc"

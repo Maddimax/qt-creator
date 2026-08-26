@@ -5389,6 +5389,59 @@ no edit for, its `qml` group being a `*.qml` wildcard.
 been printing a missing file and a soft assert on every TextEditor run, and
 nothing failed, because the test asserted the half that worked.
 
+## The profiler samplers, and the surface nobody had looked at
+
+The four sampler layouters were written off last batch as "load-bearing for a
+widget tool". That is a reason to port them, not to skip them - and the tool is
+`Qt Profiler.app`, which this build produces, so unlike ClangFormat it can
+actually be run.
+
+`qtprofilerwindow.cpp` called `AspectWidgets::layouter(s)().attachTo(config)`
+directly. It now asks `QtcQuick::createAspectForm(s)` first and falls back to
+that, which is the same "a page moves to Quick on its own" contract the code
+style pages use: `createAspectForm()` returns nullptr for a container with no
+`qmlSource`, so the four backends convert one at a time.
+
+**Two of the four are lists and have moved.** The QML profiler's and the
+combined sampler's closures only arranged aspects. The other two do not: both
+build a process picker - a button and a label wired to
+`ProcessPickerDialog::pickProcess()` - and the perf one additionally embeds
+`perfSettings.createPerfConfigWidget()`, a whole widget no list of aspects
+describes. The picker is portable (an `ActionAspect` and a display aspect, the
+shape clangd's `VersionWarning` already uses); the perf config widget is not,
+and is the honest blocker.
+
+**The feature toggles forced a decision about nesting.** Each of the two builds
+one `BoolAspect` per `QmlDebug::ProfileFeature`, so a form cannot name them -
+how many there are is QmlDebug's business. They now live in a nested
+`AspectContainer features`, drawn by a `Repeater` over
+`AspectModels.container(aspects.Features)`, which is what makes the form
+independent of the count.
+
+That nesting is a settings-compatibility question, and the answer was not
+obvious: `BaseAspect::writeToSettingsImmediatly()` takes the group from the
+*immediate* container only, which for a nested one would drop the outer group
+and orphan every toggle a user has. It is not the path these take -
+`AspectContainer::readSettings()`/`writeSettings()` recurse with the outer
+group still open - but "I read the code" is what has been wrong here before, so
+`tst_Aspects::aNestedContainerKeepsItsAspectsSettingsKeys()` now asserts it, and
+giving the nested container a group of its own fails it with
+`Outer/Inner/Nested`. That is a Utils guarantee, tested where it lives.
+
+**How a form with no test was verified.** qmllint passes on both, and qmllint
+cannot see a wrong `aspects.Foo` - that is a property-map lookup, not a type.
+So the tool was run offscreen against each backend it offers. All three load
+with no diagnostic; renaming `Executable` to `ExecutableZZZ` prints `Unable to
+assign [undefined] to Utils::BaseAspect*`, and renaming `Features` trips the
+soft assert in `AspectModels::container()`. Two controls, because the two names
+are resolved by different mechanisms.
+
+**Stated rather than hidden:** the tool gained a `QtcQuick` dependency, and it
+has an Emscripten target. Whether `QQuickWidget` builds there was not checked -
+there is no wasm configuration here. The qbs side is a one-line `Depends` that
+mirrors the CMake `DEPENDS` and matches what `quickui.qbs` does, but no qbs
+exists on this machine, so it was not resolved.
+
 ## The same measurement, applied to kits
 
 Re-running the `layouter()` instrumentation with the device closures gone leaves

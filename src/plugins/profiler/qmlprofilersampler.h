@@ -35,6 +35,10 @@ public:
     // feature toggles.
     quint64 requestedFeatures() const;
 
+    // The toggles' own container, so that a form can draw them without knowing
+    // how many there are or what they are called.
+    Utils::AspectContainer features{this};
+
     // One toggle per QmlDebug::ProfileFeature, indexed by the feature value.
     QList<Utils::BoolAspect *> featureAspects;
 

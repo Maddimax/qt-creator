@@ -218,7 +218,9 @@ if(TARGET Profiler)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      CombinedSamplerForm.qml
       PerfSettingsPage.qml
+      QmlProfilerSamplerForm.qml
       QmlProfilerSettingsPage.qml
   )
 endif()

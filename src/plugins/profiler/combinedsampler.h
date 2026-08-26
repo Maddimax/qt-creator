@@ -44,6 +44,10 @@ public:
 
     // The QmlDebug::ProfileFeature bitmask to request, OR'd from the toggles.
     quint64 requestedFeatures() const;
+
+    // The toggles' own container, so that a form can draw them without knowing
+    // how many there are or what they are called.
+    Utils::AspectContainer features{this};
     QList<Utils::BoolAspect *> featureAspects; // One per QmlDebug::ProfileFeature.
 
 protected:

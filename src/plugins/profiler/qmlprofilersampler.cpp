@@ -56,9 +56,11 @@ QmlProfilerSamplerSettings::QmlProfilerSamplerSettings()
     updateTargetEnabled();
     connect(&connectToServer, &BoolAspect::changed, this, [this] { updateTargetEnabled(); });
 
+    features.setQmlName("Features");
+
     // One toggle per profiler feature, defaulting to enabled (record everything).
     for (int feature = 0; feature < QmlDebug::MaximumProfileFeature; ++feature) {
-        auto *aspect = new BoolAspect(this);
+        auto *aspect = new BoolAspect(&features);
         const QByteArray key = QByteArray("Feature") + QByteArray::number(feature);
         aspect->setSettingsKey(key);
         aspect->setLabel(QString::fromLatin1(QmlProfilerModelManager::featureName(
@@ -68,21 +70,7 @@ QmlProfilerSamplerSettings::QmlProfilerSamplerSettings()
         featureAspects.append(aspect);
     }
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-        Flow features;
-        for (BoolAspect *aspect : std::as_const(featureAspects))
-            features.addItem(*aspect);
-
-        return Column {
-            connectToServer,
-            Row { host, port, st },
-            executable,
-            arguments,
-            workingDirectory,
-            Layouting::Group { title(Tr::tr("Record")), Column { features } },
-        };
-    });
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Profiler/QmlProfilerSamplerForm.qml"));
 }
 
 void QmlProfilerSamplerSettings::fillOptions(RecordingSession &session) const

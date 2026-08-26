@@ -10,6 +10,8 @@
 #include "qmlprofilersampler.h"
 #include "sampler.h"
 
+#include <coreplugin/dialogs/ioptionspage.h>
+
 #include <utils/aspectwidgets.h>
 #include <utils/commandline.h>
 #include <utils/layoutbuilder.h>
@@ -324,9 +326,9 @@ QWidget *ProfilerRecorder::createConfigWidget() const
     SamplerSettings *settings = backend ? backend->settings() : nullptr;
     if (!settings)
         return nullptr;
-    auto widget = new QWidget;
-    Utils::AspectWidgets::layouter(settings)().attachTo(widget);
-    return widget;
+    // A backend that names a form is drawn from it; the rest keep their widget
+    // layout until they do.
+    return Core::createAspectForm(settings);
 }
 
 void ProfilerRecorder::seedLaunchTarget(const CommandLine &command,

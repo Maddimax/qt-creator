@@ -23,7 +23,7 @@ endif()
 add_qtc_executable(qtprofiler
   CONDITION TARGET Profiler
   SKIP_INSTALL
-  DEPENDS app_version Profiler CommonTraceFormat Tracing
+  DEPENDS app_version Profiler CommonTraceFormat Tracing QtcQuick
   PROPERTIES ${qtprofiler_props}
   DESTINATION "${qtprofiler_destination}"
   SOURCES
