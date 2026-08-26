@@ -5215,6 +5215,42 @@ exactly that shape, so it went there rather than into a new seam.
 If a fourth arrives that fits none of these, that is the point to reconsider a
 single "host services" object, rather than at the third.
 
+## Why an aspect subclass cannot be typed in QML
+
+The census counts an aspect as drawn when some item on the page declares a
+property called `aspect` holding it. `CodeStylePreview.qml` draws the preview
+with a `TextArea` rather than one of the stock delegates, so for three Code
+Style pages the census reported `does not draw: /Preview` - the one line in it
+that was wrong rather than merely allowed. Declaring
+
+    readonly property Aspect aspect: root.aspects.Preview
+
+fixes it, and is worth more than the tidier report: a misspelt `aspects.` name
+is a `QQmlPropertyMap` miss, which is `undefined` rather than an error, and now
+one of them fails the census with *"CodeStylePreview_QMLTYPE has no aspect"*.
+
+**The typed version does not work, and the reason generalises.** Declaring
+`property CodeStylePreviewAspect aspect` instead, with the type registered the
+usual `QML_FOREIGN` way, builds and runs and renders - and qmllint answers
+`Type TextEditor::CodeStylePreviewAspect is used but it is not resolved`. The
+registration is fine; the prototype chain is not:
+
+    CodeStylePreviewAspect -> Utils::StringAspect -> TypedAspect<QString> -> ?
+
+`TypedAspect<T>` is a class template. A template cannot carry `Q_OBJECT`, so it
+has no metaobject of its own and cannot be registered, and qmllint stops at it.
+Registering `Utils::StringAspect` as well does not help - it just moves the
+break one link along.
+
+So **only aspects that derive directly from `BaseAspect` can be typed in QML**,
+which is exactly the set already registered in `aspectcontainermodel.h`
+(`ActionAspect`, `AspectList`, `GroupedListAspect`). Everything below a
+`TypedAspect<T>` has to stay an untyped `aspects.Foo` lookup, and the
+protection against a typo in one is the census assertion above rather than
+qmllint. Both speculative registrations were reverted: a type that does not
+resolve also stops qmllint checking the bindings that named it, so it is worse
+than the untyped form it replaced.
+
 ## The QSGTextNode spike: go, with one architecture change
 
 The editor port's go/no-go was measured with a standalone Qt Quick spike rather

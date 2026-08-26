@@ -23,6 +23,14 @@ ColumnLayout {
     // so is untyped here.
     required property var aspects
 
+    // The aspect this draws. Declaring it is what makes a component count as a
+    // delegate to the page census, and the Preview really is drawn here - by a
+    // TextArea rather than by one of the stock delegates. Typed as Aspect
+    // rather than as CodeStylePreviewAspect because a StringAspect subclass
+    // cannot resolve for qmllint: TypedAspect<T> sits in its prototype chain
+    // and a template instantiation has no metaobject to register.
+    readonly property Aspect aspect: root.aspects.Preview
+
     // Whether the code is being indented. Worth reading in a test, and worth
     // knowing before blaming the layout.
     readonly property bool indenting: indenting_.indenting
