@@ -10,9 +10,6 @@
 #include "treemodel.h"
 #include "utilstr.h"
 
-#include <QBoxLayout>
-#include <QPainter>
-#include <QPaintEvent>
 #include <QUndoStack>
 
 
@@ -457,27 +454,6 @@ void AspectList::setVariantValue(const QVariant &value, Announcement howToAnnoun
 
     d->model.sync(*this);
 }
-
-class ColoredRow : public QWidget
-{
-public:
-    ColoredRow(int idx, QWidget *parent = nullptr)
-        : QWidget(parent)
-        , m_index(idx)
-    {}
-    void paintEvent(QPaintEvent *event) override
-    {
-        QPainter p(this);
-        QPalette pal = palette();
-        if (m_index % 2 == 0)
-            p.fillRect(event->rect(), pal.base());
-        else
-            p.fillRect(event->rect(), pal.alternateBase());
-    }
-
-private:
-    int m_index;
-};
 
 void AspectList::setDisplayStyle(DisplayStyle displayStyle)
 {

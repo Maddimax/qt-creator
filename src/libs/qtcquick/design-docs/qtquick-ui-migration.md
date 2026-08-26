@@ -5828,6 +5828,33 @@ one by removing it and seeing the build pass unless something proves the build
 would notice; here `KitManagerConfigWidget` proved it by failing in three
 translation units, and the other two removals then mean something.
 
+## Where the branch's own goal actually stands
+
+The branch is called `utils-drop-printsupport`, and that part is done:
+`Qt::PrintSupport` is gone from `Utils`. `Qt::Widgets` is still a
+`PUBLIC_DEPENDS`, and it is going to stay for a long time - 78 of the 337 files
+in `src/libs/utils` include a QtWidgets header, and most of them are widgets in
+their own right: `FancyLineEdit`, `DetailsWidget`, `CrumblePath`, `Wizard`,
+`InfoBar`. None of that is settings pages.
+
+The part that *is* this work's is the aspect core, and it is clean:
+`aspects.h`, `aspects.cpp` and `aspectpresentation.h` reach no further than
+QtGui. `QUndoCommand`, `QAction` and `QStandardItemModel` all look like widgets
+and are not - they moved to QtGui in Qt 6, which is worth knowing before
+counting them as a dependency.
+
+`aspectlist.cpp` was the exception, and only because of leftovers. It carried a
+`ColoredRow : public QWidget` that painted alternating row backgrounds, never
+instantiated anywhere since the list moved to QML - the alternating colour is
+`pres.rowBackground` in `TableDelegate` now. With it and three includes gone the
+file is down to `QUndoStack`, and the aspect core no longer names a widget type
+at all.
+
+**Checked for more of the same, and there is none.** Sixty-six classes in
+`Utils` derive from a widget type; `ColoredRow` was the only one nothing used.
+That the scan sees all sixty-six is what makes the zero worth anything - a
+scan run after the fix will always report nothing.
+
 ## The same measurement, applied to kits
 
 Re-running the `layouter()` instrumentation with the device closures gone leaves
