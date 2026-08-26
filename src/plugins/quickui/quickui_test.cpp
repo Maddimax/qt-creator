@@ -55,6 +55,7 @@
 #include <QQuickWidget>
 #include <QLineEdit>
 #include <QScrollArea>
+#include <QQmlProperty>
 #include <QVBoxLayout>
 #include <QTemporaryDir>
 #include <QTest>
@@ -181,6 +182,7 @@ private slots:
     void testPageWithoutItsOwnQmlIsDeclined();
     void testBuildingAPageIsNotShowingIt();
     void testAFormInAWidgetLayoutAsksForItsContentHeight();
+    void testAGroupCanExplainItselfTheWayAQGroupBoxCould();
     void testPasswordAspectDoesNotEchoItsValue();
     void testAspectListOffersItsExtraButtons();
     void testAnOrderedListMovesTheCurrentItem();
@@ -723,6 +725,55 @@ static int formHeightHintFor(int count, QString *error)
         return -1;
     }
     return form->sizeHint().height();
+}
+
+void QuickUiTest::testAGroupCanExplainItselfTheWayAQGroupBoxCould()
+{
+    // A QGroupBox could carry a tool tip and the closures set it - the Cleanups
+    // Upon Saving group had one, and it was lost when the page moved. Groups
+    // can say what they are for again, and this is what says the text reaches
+    // the title rather than merely being a property nobody reads.
+    Utils::AspectContainer page;
+    Utils::BoolAspect flag(&page);
+    flag.setSettingsKey("TheFlag");
+    flag.setLabelText("The flag");
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString pageQml = dir.filePath("GroupPage.qml");
+    {
+        QFile file(pageQml);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write(R"(
+import QtQuick
+import QtCreator.Ui
+
+AspectPage {
+    id: root
+    AspectGroupBox {
+        title: "A group"
+        toolTip: "What the group is for"
+        BoolDelegate { aspect: root.aspects.TheFlag }
+    }
+}
+)");
+    }
+    page.setQmlSource(QUrl::fromLocalFile(pageQml));
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createAspectForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QQuickItem *rootItem = quickWidget->rootObject();
+    if (!rootItem) {
+        const QStringList errors = Utils::transform(quickWidget->errors(), &QQmlError::toString);
+        QFAIL(qPrintable(errors.join("; ")));
+    }
+
+    QObject *title = rootItem->findChild<QObject *>("groupTitle");
+    QVERIFY2(title, "the group drew no title");
+    QCOMPARE(QQmlProperty(title, "ToolTip.text", qmlContext(title)).read().toString(),
+             QString("What the group is for"));
 }
 
 void QuickUiTest::testAFormInAWidgetLayoutAsksForItsContentHeight()

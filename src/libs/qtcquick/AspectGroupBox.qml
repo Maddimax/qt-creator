@@ -18,6 +18,11 @@ GroupBox {
     // When set, the group is checkable and this aspect is what it checks.
     property Aspect checkAspect: null
 
+    // What the group as a whole is for. A QGroupBox carried one and the layouts
+    // these forms replaced set it; shown from the title, which is the one part
+    // of a group that is not some delegate with a tool tip of its own.
+    property string toolTip: ""
+
     readonly property bool checked: !checkAspect || checkAspect.value === true
 
     default property alias groupContent: contents.data
@@ -33,8 +38,19 @@ GroupBox {
     // group's closes a loop, on every page with a group on it. The label is as
     // wide as its text instead, which is what a QGroupBox title was too.
     label: Loader {
+        id: labelLoader
+
+        // Named so that a test can ask what the title says and what it
+        // explains; a group's tool tip is otherwise only visible by hovering.
+        objectName: "groupTitle"
+
         x: root.leftPadding
         sourceComponent: root.checkAspect ? checkLabel : titleLabel
+
+        HoverHandler { id: titleHover }
+
+        ToolTip.text: root.toolTip
+        ToolTip.visible: titleHover.hovered && root.toolTip !== ""
 
         Component {
             id: checkLabel

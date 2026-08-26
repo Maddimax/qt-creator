@@ -17,6 +17,7 @@ AspectGroupBox {
     required property var aspects
 
     title: qsTr("Cleanups Upon Saving")
+    toolTip: qsTr("Cleanup actions which are automatically performed right before the file is saved to disk.")
 
     ColumnLayout {
         BoolDelegate { aspect: root.aspects.cleanWhitespace }

@@ -5629,6 +5629,47 @@ binding, which two bundled extensions use. Removing the first two means porting
 build, link or run here, with no compile behind it. Tightening the census
 protects every page that has already moved, and is checkable today.
 
+## Auditing what the port lost, rather than what it moved
+
+With the closures done, the question changes from "is it drawn" to "does it say
+the same things". The census answers the first. Nothing answered the second, so
+it was measured: every `setToolTip(Tr::tr("..."))` and `Layouting::toolTip()`
+literal at the branch point, checked against the tree today. 383 of them, 362
+still present, 21 gone.
+
+Most of the 21 are rewordings that the audit cannot tell from deletions - "Local
+directory path corresponding to the *analyis* path" became "analysis", "Choose
+which kit settings to display by default" became "Choose which settings to
+display for all kits by default". Each has to be looked at. Two survived that:
+
+- **Cleanups Upon Saving** had `groupBoxStorageSettings->setToolTip(...)` in
+  `behaviorsettingswidget.cpp`, and the text is now nowhere in the tree.
+- **Autotest**'s path filter had "Apply path filters before scanning for tests."
+  on the check box; `limitToFilter` today has a label and no tool tip.
+
+The GitLab ones - "Add new GitLab server configuration." and its siblings - are
+not counted as lost. Those buttons became an `AspectList`'s own Add and Remove,
+which are labelled rather than icons, so the tool tip was saying what the label
+now says.
+
+**The first is not a missing string, it is a missing capability.** A `QGroupBox`
+carries a tool tip; `AspectGroupBox` had nowhere to put one, and `GroupDelegate`
+ignores `BaseAspect::toolTip()` on a nested container. So `AspectGroupBox` takes
+a `toolTip` now, shown from the title - the one part of a group that is not some
+delegate with a tool tip of its own, and the same place
+`setShowToolTipOnLabel()` puts an aspect's.
+
+`GroupDelegate` was left alone deliberately: no `AspectContainer` in the tree
+sets a tool tip, so that half of the gap is theoretical, and a custom label
+there would change how every generic group looks for no one's benefit.
+
+Testing it needed the attached property rather than the property that feeds it,
+or the test would only assert the alias it just wrote: the title carries an
+`objectName`, and the test reads `ToolTip.text` off it. That needs the QML
+context - `QQmlProperty(title, "ToolTip.text", qmlContext(title))` - because
+without one the attached type does not resolve and the read comes back empty,
+which looks exactly like a missing tool tip.
+
 ## The same measurement, applied to kits
 
 Re-running the `layouter()` instrumentation with the device closures gone leaves

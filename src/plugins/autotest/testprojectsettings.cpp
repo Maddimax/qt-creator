@@ -111,6 +111,7 @@ TestProjectSettings::TestProjectSettings(ProjectExplorer::Project *project)
     // both out inside itself; the aspects say it now.
     limitToFilter.setQmlName("LimitToFilter");
     limitToFilter.setLabelText(Tr::tr("Limit Files to Path Patterns"));
+    limitToFilter.setToolTip(Tr::tr("Apply path filters before scanning for tests."));
 
     pathFilters.setQmlName("PathFilters");
     pathFilters.setLabelText(Tr::tr("Wildcard expressions for filtering:"));
