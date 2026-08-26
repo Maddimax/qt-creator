@@ -5582,11 +5582,43 @@ would pass on either.
 The test borrows the machine's clipboard and puts back what was on it. Running
 a test should not cost the user their paste buffer.
 
-Not ported, listed so the gap is not mistaken for a decision: input methods,
-a context menu, drag-and-drop of text, the gutter, folding, text marks and
-annotations, wrapping, and the extra-selection overlays beyond the primary
-selection. Input methods are the remaining one that a `TextArea` has and this
-does not, and so the remaining argument against swapping a page over.
+**Input methods, and the rule that falls out of them: one QTextLayout, many
+views.** Composing text - a dead key, a CJK input method - is shown before it is
+committed, and until then it is not in the document. `QTextLayout` has
+`setPreeditArea()` for exactly that, so the viewport invents nothing; the
+preedit and its formats go on the *per-line copy* the viewport built, never on
+the document's own layout.
+
+That is not a detail. **A block's `QTextLayout` belongs to the document, and a
+document can be shown by more than one view.** Anything a single view knows -
+its selection, its caret, what it is composing - must live on that view's own
+layout, or two views of one file fight over it. The viewport reads
+`block.layout()->formats()` and writes nothing back, which is what makes it safe
+to have several.
+
+**The widget editor does not follow that rule, and it is worth knowing where.**
+`WidgetTextControl::inputMethodEvent()` calls `setPreeditArea()` *and*
+`setFormats(overrides)` on the shared block layout. So while a widget editor is
+composing, that block's shared format list is the composition's overrides and
+nothing else - the highlighter's colours are gone from it until the commit. A
+`TextViewport` showing the same document at the same time would copy those and
+draw that one line with the other view's composition colours.
+
+This is **not fixed**, and the reason is worth stating: the viewport cannot tell
+a highlighter range from another view's preedit range by looking at them. The
+first attempt was to clip copied ranges to the block's own text length, which
+was reverted - it does not address the case that actually miscolours (a preedit
+begun mid-line produces a range that lands *inside* this view's text, which
+clipping leaves exactly where it was), and the test written for it turned out to
+assert nothing. A fix belongs on the widget side, or in an API that hands out
+the highlighter's formats for a block rather than the layout's. No page shows
+one document in both kinds of view today.
+
+Not ported, listed so the gap is not mistaken for a decision: a context menu,
+drag-and-drop of text, the gutter, folding, text marks and annotations,
+wrapping, and the extra-selection overlays beyond the primary selection. Nothing
+left on that list is something a `TextArea` does and this does not, so the code
+style preview can be swapped over without losing anything.
 
 **Still to do for the preview itself.** `CodeStylePreview.qml` can now be a
 `CodeBuffer` under a `CodeViewport` with `CodeIndenting` over the same source.

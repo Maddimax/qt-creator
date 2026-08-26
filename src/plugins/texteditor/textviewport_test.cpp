@@ -22,6 +22,7 @@
 #include <QQmlEngine>
 #include <QQuickView>
 #include <QClipboard>
+#include <QInputMethodEvent>
 #include <QGuiApplication>
 #include <QScopeGuard>
 #include <QSignalSpy>
@@ -930,6 +931,103 @@ private slots:
         QTest::keyClick(&fixture.view, Qt::Key_V, Qt::ControlModifier);
         QCOMPARE(text->toPlainText(), QString("alpha\nbeta\n"));
         QCOMPARE(text->blockCount(), 3);
+    }
+
+    void testComposingTextIsShownBeforeItIsTyped()
+    {
+        // A dead key or a CJK input method shows what is being composed before
+        // it is committed, and until it is committed it is not in the document.
+        // QTextLayout has a place for exactly that, so the viewport keeps no
+        // shadow copy of the line.
+        TemporaryDirectory dir("textviewport-ime");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("small.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+        QTextDocument * const text = fixture.document.textDocument()->document();
+
+        viewport->setReadOnly(false);
+        viewport->setCursorPosition(5); // end of "alpha"
+        const qreal plain = viewport->visibleLine(0).value("width").toReal();
+
+        // Composing. Nothing is in the document, and the line is drawn wider.
+        QInputMethodEvent composing;
+        composing.setCommitString({});
+        QList<QInputMethodEvent::Attribute> underlined;
+        QTextCharFormat format;
+        format.setFontUnderline(true);
+        underlined << QInputMethodEvent::Attribute(QInputMethodEvent::TextFormat, 0, 3, format);
+        QInputMethodEvent preedit("abc", underlined);
+        QCoreApplication::sendEvent(viewport, &preedit);
+
+        QTRY_COMPARE(viewport->visibleLine(0).value("preedit").toString(), QString("abc"));
+        QCOMPARE(text->toPlainText(), QString("alpha\nbeta\n"));
+        QCOMPARE(viewport->visibleLine(0).value("text").toString(), QString("alpha"));
+        QVERIFY2(viewport->visibleLine(0).value("width").toReal() > plain,
+                 "the composed text was not laid out");
+
+        // Committing puts it in the document and takes it out of the preedit.
+        QInputMethodEvent commit;
+        commit.setCommitString("abc");
+        QCoreApplication::sendEvent(viewport, &commit);
+
+        QCOMPARE(text->toPlainText(), QString("alphaabc\nbeta\n"));
+        QTRY_COMPARE(viewport->visibleLine(0).value("preedit").toString(), QString());
+        QCOMPARE(viewport->cursorPosition(), 8);
+    }
+
+    void testAViewIsNotSomethingAnInputMethodCanTypeInto()
+    {
+        // ImEnabled is how the platform decides whether to bring up an input
+        // method at all, and a view has nothing to type into.
+        TemporaryDirectory dir("textviewport-ime-readonly");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("small.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+        QTextDocument * const text = fixture.document.textDocument()->document();
+
+        // Asked the way the platform asks: an InputMethodQuery event, which
+        // QQuickItem turns into inputMethodQuery() calls.
+        const auto ask = [viewport](Qt::InputMethodQueries queries, Qt::InputMethodQuery one) {
+            QInputMethodQueryEvent query(queries);
+            QCoreApplication::sendEvent(viewport, &query);
+            return query.value(one);
+        };
+
+        QVERIFY(viewport->isReadOnly());
+        QCOMPARE(ask(Qt::ImEnabled, Qt::ImEnabled).toBool(), false);
+
+        QInputMethodEvent commit;
+        commit.setCommitString("abc");
+        QCoreApplication::sendEvent(viewport, &commit);
+        QCOMPARE(text->toPlainText(), QString("alpha\nbeta\n"));
+
+        viewport->setReadOnly(false);
+        QCOMPARE(ask(Qt::ImEnabled, Qt::ImEnabled).toBool(), true);
+
+        // And what the input method needs in order to place itself and to know
+        // what it is editing. Surrounding text is the caret's own line, and the
+        // position is counted within it - absolute is a separate question.
+        viewport->setCursorPosition(8); // "be|ta" on the second line
+        const Qt::InputMethodQueries wanted = Qt::ImSurroundingText | Qt::ImCursorPosition
+                                              | Qt::ImAbsolutePosition | Qt::ImCursorRectangle;
+        QCOMPARE(ask(wanted, Qt::ImSurroundingText).toString(), QString("beta"));
+        QCOMPARE(ask(wanted, Qt::ImCursorPosition).toInt(), 2);
+        QCOMPARE(ask(wanted, Qt::ImAbsolutePosition).toInt(), 8);
+        QVERIFY(!ask(wanted, Qt::ImCursorRectangle).toRectF().isEmpty());
     }
 
     void testASelectionIsMergedIntoTheLineFormats()

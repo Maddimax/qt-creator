@@ -20,6 +20,8 @@
 
 #include <QClipboard>
 #include <QGuiApplication>
+#include <QInputMethod>
+#include <QInputMethodEvent>
 #include <QKeyEvent>
 #include <QTextBlock>
 #include <QTextCursor>
@@ -47,6 +49,7 @@ TextViewport::TextViewport(QQuickItem *parent)
 {
     setFlag(ItemHasContents);
     setFlag(ItemIsFocusScope);
+    setFlag(ItemAcceptsInputMethod);
     setClip(true);
 }
 
@@ -177,7 +180,12 @@ QVariantMap TextViewport::visibleLine(int index) const
     }
     return QVariantMap{{"text", line.layout->text()},
                        {"formats", formats},
-                       {"newlineTail", line.newlineTail}};
+                       {"newlineTail", line.newlineTail},
+                       // What is being composed on this line, if anything. Not
+                       // part of "text": it is not in the document yet, which
+                       // is the whole distinction.
+                       {"preedit", line.layout->preeditAreaText()},
+                       {"width", line.layout->lineAt(0).naturalTextWidth()}};
 }
 
 TextViewport::Located TextViewport::locate(int position) const
@@ -218,6 +226,10 @@ void TextViewport::setReadOnly(bool readOnly)
     if (m_readOnly == readOnly)
         return;
     m_readOnly = readOnly;
+    // ImEnabled is answered from this, and the platform caches the answer until
+    // it is told to ask again.
+    if (QGuiApplication::inputMethod())
+        QGuiApplication::inputMethod()->update(Qt::ImEnabled);
     emit readOnlyChanged();
 }
 
@@ -405,6 +417,78 @@ void TextViewport::keyPressEvent(QKeyEvent *event)
     event->accept();
 }
 
+void TextViewport::inputMethodEvent(QInputMethodEvent *event)
+{
+    if (m_readOnly) {
+        event->ignore();
+        return;
+    }
+
+    QTextCursor cursor = textCursor();
+    if (cursor.isNull()) {
+        event->ignore();
+        return;
+    }
+
+    m_preeditText = event->preeditString();
+    m_preeditFormats.clear();
+    for (const QInputMethodEvent::Attribute &attribute : event->attributes()) {
+        if (attribute.type != QInputMethodEvent::TextFormat)
+            continue;
+        QTextLayout::FormatRange range;
+        range.start = attribute.start;
+        range.length = attribute.length;
+        range.format = qvariant_cast<QTextFormat>(attribute.value).toCharFormat();
+        m_preeditFormats.append(range);
+    }
+
+    if (!event->commitString().isEmpty() || event->replacementLength() > 0) {
+        // A replacement is counted from the cursor, and may reach back before
+        // it - an input method correcting what it already committed.
+        if (event->replacementLength() > 0) {
+            cursor.setPosition(cursor.position() + event->replacementStart());
+            cursor.setPosition(cursor.position() + event->replacementLength(),
+                               QTextCursor::KeepAnchor);
+        }
+        cursor.insertText(event->commitString());
+        setTextCursor(cursor);
+    }
+
+    polish();
+    update();
+    event->accept();
+}
+
+QVariant TextViewport::inputMethodQuery(Qt::InputMethodQuery query) const
+{
+    const QTextCursor cursor = textCursor();
+    switch (query) {
+    case Qt::ImEnabled:
+        return !m_readOnly;
+    case Qt::ImHints:
+        return int(Qt::ImhMultiLine);
+    case Qt::ImCursorRectangle:
+        return cursorRectangle();
+    case Qt::ImFont:
+        return m_document && m_document->textDocument()
+                   ? m_document->textDocument()->fontSettings().font()
+                   : QFont();
+    case Qt::ImCursorPosition:
+        // Relative to the surrounding text, which is the block the caret is in.
+        return cursor.isNull() ? 0 : cursor.positionInBlock();
+    case Qt::ImAnchorPosition:
+        return cursor.isNull() ? 0 : cursor.anchor() - cursor.block().position();
+    case Qt::ImSurroundingText:
+        return cursor.isNull() ? QString() : cursor.block().text();
+    case Qt::ImCurrentSelection:
+        return cursor.isNull() ? QString() : selectedPlainText(cursor);
+    case Qt::ImAbsolutePosition:
+        return cursor.isNull() ? 0 : cursor.position();
+    default:
+        return QQuickItem::inputMethodQuery(query);
+    }
+}
+
 int TextViewport::cursorPosition() const
 {
     return m_cursorPosition;
@@ -561,6 +645,12 @@ void TextViewport::updatePolish()
         // What the highlighter said about this block, plus the selection over
         // the top of it. Read here, on the GUI thread: the block's own layout
         // belongs to the document and must not be reached from the render one.
+        // The highlighter's colours. This layout belongs to the document, which
+        // more than one view may be showing - so it is only ever read here, and
+        // everything this view alone knows (its selection, its preedit) goes on
+        // the copy below. See the migration doc for the one case where that is
+        // not enough, which is the widget editor writing *its* preedit formats
+        // into this shared list.
         QList<QTextLayout::FormatRange> formats = block.layout()->formats();
         if (hasSelection) {
             const int blockStart = block.position();
@@ -571,6 +661,21 @@ void TextViewport::updatePolish()
                 range.start = from;
                 range.length = to - from;
                 range.format = selectionFormat;
+                formats.append(range);
+            }
+        }
+        // Composing text belongs to the line the caret is on and to no other,
+        // and it is not in the document: setPreeditArea() is where a layout
+        // keeps text that is being typed but has not been committed.
+        if (!m_preeditText.isEmpty() && m_cursorPosition >= block.position()
+            && m_cursorPosition < block.position() + block.length()) {
+            const int offset = m_cursorPosition - block.position();
+            line.layout->setPreeditArea(offset, m_preeditText);
+            // The input method says how it wants each part of it drawn -
+            // underlined for what is being composed, highlighted for the part
+            // under consideration - in positions relative to the preedit.
+            for (QTextLayout::FormatRange range : std::as_const(m_preeditFormats)) {
+                range.start += offset;
                 formats.append(range);
             }
         }

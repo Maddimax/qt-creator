@@ -6,6 +6,7 @@
 #include "texteditor_global.h"
 
 #include <QColor>
+#include <QTextLayout>
 #include <QPointer>
 #include <QQmlEngine>
 #include <QQuickItem>
@@ -16,9 +17,9 @@
 #include <vector>
 
 QT_BEGIN_NAMESPACE
+class QInputMethodEvent;
 class QTextCursor;
 class QTextDocument;
-class QTextLayout;
 QT_END_NAMESPACE
 
 namespace TextEditor {
@@ -116,7 +117,8 @@ public:
     void setSelectionEnd(int position);
 
     // What the visible line at \a index was laid out with: its "text", its
-    // "formats" as a list of {start, length} maps, and its "newlineTail" rect.
+    // "formats" as a list of {start, length} maps, its "newlineTail" rect, the
+    // "preedit" being composed on it and the "width" it came to.
     // A selection is merged into the layout's formats rather than drawn as
     // anything of its own - that is the whole conclusion of the spike - so this
     // is the only way to see that it arrived. Empty for an index that is not on
@@ -159,6 +161,12 @@ signals:
 protected:
     void updatePolish() override;
     void keyPressEvent(QKeyEvent *event) override;
+    // Composing text - a dead key, a CJK input method - is shown before it is
+    // committed, and until it is committed it is not in the document. A
+    // QTextLayout has a place for exactly that, so the viewport does not have
+    // to invent one.
+    void inputMethodEvent(QInputMethodEvent *event) override;
+    QVariant inputMethodQuery(Qt::InputMethodQuery query) const override;
     QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *) override;
     void geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry) override;
 
@@ -216,6 +224,10 @@ private:
     int m_selectionEnd = -1;
     int m_cursorPosition = 0;
     bool m_readOnly = true;
+    // What is being composed but not yet typed, and how the input method wants
+    // it drawn. Empty when nothing is being composed.
+    QString m_preeditText;
+    QList<QTextLayout::FormatRange> m_preeditFormats;
 
     // Everything below is produced in updatePolish() on the GUI thread and read
     // in updatePaintNode() on the render thread, with the GUI thread blocked.
