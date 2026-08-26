@@ -3325,6 +3325,46 @@ this one - the ABI row, the terminal command, the iOS simulator, the kit rows -
 were never squashed either. **Measuring took less time than the argument I was
 about to have with myself.**
 
+### A failing test I called a flake for a whole migration
+
+`tst_AspectRenderer::filePathFocusRequest()` has failed on **every run** of
+this work. It was written off each time as the known key-window flake, on the
+strength of a note saying that focus tests fail when another application is
+frontmost.
+
+A flake that fails every time is not a flake. Four lines of `qDebug()` in the
+failing test:
+
+    focusWidget: Utils::FancyLineEdit(name="LineEdit")
+    app focus:   QWidget(0x0)
+    window active: false
+    chooser hasFocus: false
+
+The aspect did exactly what it promises - the field is where typing would go.
+`QWidget::hasFocus()` is *application-wide*: it asks whether this widget is
+`QApplication::focusWidget()`, and no widget is, because the test's window is
+not the active one and never will be in a test run with anything else on the
+desktop. The assertion could not pass. The code was never wrong.
+
+`QWidget::focusWidget()` is the per-window answer, and it is the one that
+matches the promise: *the field is where typing would go in this window.* The
+test asks that now, and passes three runs out of three where it had passed
+none. The control still bites, and says where the focus went instead:
+*"focus went to QLineEdit, not to the path chooser"*.
+
+**The Qt Quick sibling is a real flake and stays as it is.**
+`testMultiLineStringGetsATextArea()` waits on `hasActiveFocus()`, which has the
+same application-wide problem - but what it goes on to check is that leaving
+the editor commits the value, and leaving is an `activeFocus` change. Making
+the assertion deterministic would mean making the delegate commit on plain
+`focus`, which is not what focus means in a running application. It passes
+consistently here and it is left alone.
+
+The lesson is not about focus. It is that **"known flaky" is a claim with a
+failure rate attached**, and one that fails 100% of the time is a different
+thing wearing the same label. Re-deriving it cost ten minutes at the end; it
+could have cost ten minutes at the start.
+
 ### What the census could not see, and now can
 
 Two holes, both found the hard way in the same session.

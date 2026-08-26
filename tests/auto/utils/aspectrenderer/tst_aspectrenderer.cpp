@@ -2187,11 +2187,20 @@ void tst_AspectRenderer::filePathFocusRequest()
     QVERIFY(chooser);
     window->show();
     QVERIFY(QTest::qWaitForWindowExposed(window.get()));
+    // focusWidget(), not hasFocus(): the latter is application-wide and is
+    // false whenever this window is not the active one - which, on a machine
+    // with anything else open, is always. What the aspect promises is that
+    // its field is where typing would go in this window, and that is what
+    // QWidget::focusWidget() answers.
     other->setFocus();
-    QVERIFY(!chooser->hasFocus());
+    QCOMPARE(window->focusWidget(), other);
 
     aspect.setFocusToInputField();
-    QVERIFY(chooser->hasFocus());
+    QWidget * const focused = window->focusWidget();
+    QVERIFY(focused);
+    QVERIFY2(focused == chooser || chooser->isAncestorOf(focused),
+             qPrintable(QString("focus went to %1, not to the path chooser")
+                            .arg(QString::fromLatin1(focused->metaObject()->className()))));
 }
 
 void tst_AspectRenderer::checkableStringLineEdit()
