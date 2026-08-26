@@ -116,6 +116,11 @@ class TEXTEDITOR_EXPORT TextViewport : public QQuickItem
     Q_PROPERTY(int cursorPosition READ cursorPosition WRITE setCursorPosition
                    NOTIFY cursorPositionChanged)
     Q_PROPERTY(QRectF cursorRectangle READ cursorRectangle NOTIFY cursorRectangleChanged)
+    // Where the caret is in the terms an editor talks about it: line and
+    // column, both counting from one, both of the document rather than of the
+    // screen. What a status bar shows and what "copy path and line" copies.
+    Q_PROPERTY(int cursorLine READ cursorLine NOTIFY cursorPositionChanged)
+    Q_PROPERTY(int cursorColumn READ cursorColumn NOTIFY cursorPositionChanged)
     // Whether typing does anything. A viewport is a view until told otherwise,
     // so that showing a file cannot accidentally change it.
     Q_PROPERTY(bool readOnly READ isReadOnly WRITE setReadOnly NOTIFY readOnlyChanged)
@@ -176,6 +181,15 @@ public:
     // visibleLine() reports it. Does nothing for a line that starts no fold,
     // so a gutter may call it for whatever the user clicked.
     Q_INVOKABLE void toggleFold(int lineNumber);
+
+    int cursorLine() const;
+    int cursorColumn() const;
+
+    // Puts the caret on \a line, counting from one, and shows it. Column zero
+    // means the line rather than its margin, so the caret lands on the first
+    // thing on it. Opens whatever folds were hiding the line: someone who
+    // asked to go there asked to see it.
+    Q_INVOKABLE void gotoLine(int line, int column = 0, bool centerLine = true);
 
     int cursorPosition() const;
     void setCursorPosition(int position);
@@ -249,6 +263,7 @@ private:
     };
 
     void documentChangedInternal();
+    QTextBlock cursorBlock() const;
     // The visible line holding \a position, and the block it came from.
     // index is -1 when the position is not on screen.
     struct Located

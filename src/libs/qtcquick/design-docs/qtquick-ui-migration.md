@@ -6452,6 +6452,49 @@ tests use could not tell the two apart. See [[negative-control-two-guards]] -
 this is the same shape from the other side, a guard that looks redundant until
 you find the one path the other guard does not cover.
 
+## The IEditor hooks, which are most of what an editor is *for*
+
+`QuickTextEditor` implemented two virtuals: `document()` and `toolBar()`. That
+is enough to show a file and nothing else. Everything that *sends* a reader
+into a file - a search result, a compiler error, go-to-definition, the locator,
+`F4` - is `EditorManager` calling `IEditor::gotoLine()`, and an editor that
+does not answer opens at the top. It looks like those features are broken
+rather than like the editor is unfinished.
+
+Now implemented: `currentLine()`, `currentColumn()`, `gotoLine()`,
+`saveState()`, `restoreState()` and `duplicate()`. Three details that are not
+obvious from the signatures:
+
+- **Column zero means the line, not the margin.** `gotoLine(50)` with no column
+  lands on the first thing on line 50, skipping its indentation - which is what
+  a compiler message points at.
+- **Going to a line inside a fold opens the fold.** Someone who asked to go
+  there asked to see it. The walk that opens every enclosing fold came out of
+  `TextEditorWidget::ensureBlockIsUnfolded()` into
+  `TextBlockUserData::unfoldTo()`, so both editors do it the same way; the
+  highlighter wait stays with each caller, since only the widget has one.
+- **`duplicate()` shares the document.** A split view is two editors on one
+  document; opening the file twice would give two documents that do not see
+  each other's edits.
+
+`saveState()` keeps the caret *and* the scroll offset. Coming back to a line
+that happens to be one row off the bottom is not coming back.
+
+**Four vacuous assertions, found by controlling all five at once.** Only one
+control bit on the first run. Two of the misses were the harness, not the
+tests: the control loop piped `ninja` to `/dev/null`, so a control that broke
+the build left the *previous* binary in place and the suite passed green
+against code that no longer existed. This is
+[[cmake-redgreen-ninja-regen-trap]] wearing a different hat - **never hide the
+build inside a control loop**; print errors and bail.
+
+The remaining miss was real and more interesting: the test asserted that
+`gotoLine(50, 0)` lands on column 5, using a file of unindented lines. On an
+unindented line the code and the margin are the *same position*, so the
+assertion could not fail. Indenting the fixture is the whole fix. The general
+form: **an assertion about skipping something needs a fixture that has
+something to skip.**
+
 What is left of the editor: extra-selection overlays, the context menu, drag
 and drop, and wrapping.
 

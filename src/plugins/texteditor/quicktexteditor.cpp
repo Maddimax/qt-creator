@@ -5,6 +5,8 @@
 
 #include "codesource.h"
 #include "textdocument.h"
+#include "textdocumentlayout.h"
+#include "textviewport.h"
 #include "texteditorconstants.h"
 #include "texteditortr.h"
 
@@ -17,6 +19,7 @@
 #include <utils/mimeutils.h>
 #include <utils/temporarydirectory.h>
 
+#include <QDataStream>
 #include <QQuickItem>
 #include <QQuickWidget>
 #include <QScopeGuard>
@@ -51,7 +54,13 @@ class QuickTextEditor final : public Core::IEditor
 {
 public:
     QuickTextEditor()
-        : m_document(new TextDocument(QUICK_TEXT_EDITOR_ID))
+        : QuickTextEditor(std::shared_ptr<TextDocument>(new TextDocument(QUICK_TEXT_EDITOR_ID)))
+    {}
+
+    // A split view is two editors on one document, so duplicating shares it
+    // rather than opening the file again.
+    explicit QuickTextEditor(std::shared_ptr<TextDocument> document)
+        : m_document(std::move(document))
         , m_source(std::make_unique<AdoptedSource>(m_document.get()))
     {
         auto widget = new QtcQuick::QuickWidget;
@@ -68,7 +77,76 @@ public:
     Core::IDocument *document() const final { return m_document.get(); }
     QWidget *toolBar() final { return nullptr; }
 
+    Core::IEditor *duplicate() final { return new QuickTextEditor(m_document); }
+
+    int currentLine() const final
+    {
+        TextViewport * const view = viewport();
+        return view ? view->cursorLine() : 0;
+    }
+
+    int currentColumn() const final
+    {
+        TextViewport * const view = viewport();
+        return view ? view->cursorColumn() : 0;
+    }
+
+    // What every jump into a file goes through: a search result, a compiler
+    // message, go-to-definition, the locator.
+    void gotoLine(int line, int column, bool centerLine) final
+    {
+        if (TextViewport * const view = viewport())
+            view->gotoLine(line, column, centerLine);
+    }
+
+    // Where the reader was, so that closing and reopening - or stepping back
+    // through the navigation history - returns them to it. A private format:
+    // only this editor is ever handed it back.
+    QByteArray saveState() const final
+    {
+        TextViewport * const view = viewport();
+        if (!view)
+            return {};
+
+        QByteArray state;
+        QDataStream stream(&state, QIODevice::WriteOnly);
+        stream << kStateVersion << view->cursorPosition() << view->scrollY();
+        return state;
+    }
+
+    void restoreState(const QByteArray &state) final
+    {
+        TextViewport * const view = viewport();
+        if (!view || state.isEmpty())
+            return;
+
+        QDataStream stream(state);
+        int version = 0;
+        stream >> version;
+        if (version != kStateVersion)
+            return;
+
+        int position = 0;
+        qreal scrollY = 0;
+        stream >> position >> scrollY;
+        view->setCursorPosition(position);
+        // After the cursor: setting it scrolls to it, and where the reader
+        // left the view is the more specific answer.
+        view->setScrollY(scrollY);
+    }
+
 private:
+    static constexpr int kStateVersion = 1;
+
+    // The form's viewport. Found rather than held: the QML owns it, and it
+    // does not exist until the component has been created.
+    TextViewport *viewport() const
+    {
+        auto * const quick = static_cast<QtcQuick::QuickWidget *>(widget());
+        QQuickItem * const root = quick->quickWidget()->rootObject();
+        return root ? root->findChild<TextViewport *>() : nullptr;
+    }
+
     // Shared because a duplicated editor would show the same document; the
     // editor manager is what decides that, not this.
     std::shared_ptr<TextDocument> m_document;
@@ -85,7 +163,7 @@ public:
         // The same mime type the plain text editor takes, so a text file can be
         // opened in this from Open With. Registered after it - the default for
         // a mime type is the first factory that claims it - because this one
-        // has no folding, no marks and no wrapping yet.
+        // still has no find, no completion and no wrapping.
         addMimeType(QLatin1String(Constants::C_TEXTEDITOR_MIMETYPE_TEXT));
         setEditorCreator([] { return new QuickTextEditor; });
     }
@@ -159,6 +237,142 @@ private slots:
         auto * const shown = viewport->property("document").value<CodeSource *>();
         QVERIFY2(shown, "the form is showing no document");
         QCOMPARE(shown->textDocument(), document);
+    }
+
+    // Every jump into a file - a search result, a compiler message,
+    // go-to-definition, the locator - is EditorManager asking the editor to
+    // go to a line. An editor that does not answer opens at the top instead,
+    // which looks like the feature is broken rather than the editor.
+    void testGoingToALineIsWhereTheEditorSaysItIs()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-goto");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("jump.txt");
+        QString contents;
+        // Indented, because column zero is supposed to mean "the code on this
+        // line" - and on an unindented line that is the same as the margin,
+        // so an unindented file cannot tell the two apart.
+        for (int i = 0; i < 200; ++i)
+            contents += QString("    line %1\n").arg(i);
+        QVERIFY(file.writeFileContents(contents.toUtf8()));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt([editor] { Core::EditorManager::closeEditors({editor}); });
+
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+        auto * const viewport = quick->rootObject()->findChild<TextViewport *>();
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        QCOMPARE(editor->currentLine(), 1);
+        QCOMPARE(editor->currentColumn(), 1);
+
+        editor->gotoLine(120, 3);
+        QCOMPARE(editor->currentLine(), 120);
+        QCOMPARE(editor->currentColumn(), 4);
+        // And the line is on screen, not merely under the caret. One condition,
+        // not two: "the first visible line is at most 119" is true of an
+        // editor that never scrolled at all.
+        const auto onScreen = [viewport] {
+            return viewport->firstVisibleLine() <= 119
+                   && viewport->firstVisibleLine() + viewport->visibleLineCount() > 119;
+        };
+        QTRY_VERIFY2(onScreen(),
+                     qPrintable(QString("line 120 is not on screen: rows %1 to %2, height %3")
+                                    .arg(viewport->firstVisibleLine())
+                                    .arg(viewport->firstVisibleLine() + viewport->visibleLineCount())
+                                    .arg(viewport->height())));
+
+        // Column zero means the line, so it lands on the code rather than in
+        // the indentation before it.
+        editor->gotoLine(50, 0);
+        QCOMPARE(editor->currentLine(), 50);
+        QCOMPARE(editor->currentColumn(), 5);
+
+        // A line inside a fold is still a line someone can be sent to, so
+        // going there has to open the fold rather than scroll to where the
+        // line would have been.
+        QTextDocument * const text = document->document();
+        auto * const layout = qobject_cast<TextDocumentLayout *>(text->documentLayout());
+        QVERIFY(layout);
+        for (int i = 61; i <= 80; ++i)
+            TextBlockUserData::setFoldingIndent(text->findBlockByNumber(i), 1);
+        TextBlockUserData::doFoldOrUnfold(text->findBlockByNumber(60), /*unfold=*/false);
+        layout->requestUpdate();
+        QTRY_VERIFY(!text->findBlockByNumber(70).isVisible());
+
+        editor->gotoLine(71, 0);
+        QVERIFY2(text->findBlockByNumber(70).isVisible(),
+                 "going to a folded line left it folded, so the caret is nowhere");
+        QCOMPARE(editor->currentLine(), 71);
+
+    }
+
+    // Closing and reopening a file, or stepping back through the navigation
+    // history, puts the reader back where they were - which is the editor
+    // manager handing the editor its own state again.
+    void testTheEditorRemembersWhereTheReaderWas()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-state");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("remembered.txt");
+        QString contents;
+        for (int i = 0; i < 200; ++i)
+            contents += QString("line %1\n").arg(i);
+        QVERIFY(file.writeFileContents(contents.toUtf8()));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY(editor);
+        const QScopeGuard closeIt([editor] { Core::EditorManager::closeEditors({editor}); });
+
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+        auto * const viewport = quick->rootObject()->findChild<TextViewport *>();
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+
+        editor->gotoLine(150, 0);
+        QCOMPARE(editor->currentLine(), 150);
+        const qreal wasScrolledTo = viewport->scrollY();
+        QVERIFY(wasScrolledTo > 0);
+
+        const QByteArray state = editor->saveState();
+        QVERIFY2(!state.isEmpty(), "the editor saved nothing to come back to");
+
+        editor->gotoLine(1, 0);
+        QCOMPARE(editor->currentLine(), 1);
+
+        editor->restoreState(state);
+        QCOMPARE(editor->currentLine(), 150);
+        // The view too, not only the caret: coming back to a line that is
+        // technically on screen at the very bottom is not coming back.
+        QCOMPARE(viewport->scrollY(), wasScrolledTo);
+    }
+
+    // A split view is two editors on one document. Duplicating has to share
+    // the document rather than open the file twice, or an edit in one half
+    // does not appear in the other.
+    void testASplitShowsTheSameDocumentTwice()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-split");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("shared.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\n"));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY(editor);
+        const QScopeGuard closeIt([editor] { Core::EditorManager::closeEditors({editor}); });
+
+        std::unique_ptr<Core::IEditor> other(editor->duplicate());
+        QVERIFY2(other, "the editor cannot be split");
+        QCOMPARE(other->document(), editor->document());
     }
 };
 

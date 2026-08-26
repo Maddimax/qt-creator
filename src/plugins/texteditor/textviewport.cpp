@@ -613,6 +613,67 @@ QRectF TextViewport::cursorRectangle() const
     return rectangleAt(m_cursorPosition);
 }
 
+QTextBlock TextViewport::cursorBlock() const
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    QTextDocument * const text = doc ? doc->document() : nullptr;
+    return text ? text->findBlock(m_cursorPosition) : QTextBlock();
+}
+
+int TextViewport::cursorLine() const
+{
+    const QTextBlock block = cursorBlock();
+    return block.isValid() ? block.blockNumber() + 1 : 0;
+}
+
+int TextViewport::cursorColumn() const
+{
+    const QTextBlock block = cursorBlock();
+    return block.isValid() ? m_cursorPosition - block.position() + 1 : 0;
+}
+
+void TextViewport::gotoLine(int line, int column, bool centerLine)
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    QTextDocument * const text = doc ? doc->document() : nullptr;
+    if (!text)
+        return;
+
+    const QTextBlock block = text->findBlockByNumber(
+        qBound(0, qMin(line, text->blockCount()) - 1, text->blockCount() - 1));
+    if (!block.isValid())
+        return;
+
+    TextBlockUserData::unfoldTo(block);
+
+    QTextCursor cursor(block);
+    if (column >= block.length()) {
+        cursor.movePosition(QTextCursor::EndOfBlock);
+    } else if (column > 0) {
+        cursor.movePosition(QTextCursor::Right, QTextCursor::MoveAnchor, column);
+    } else {
+        // No column asked for means the line rather than its margin, so this
+        // lands on the first thing on it - what a search result or a compiler
+        // message is pointing at.
+        int position = cursor.position();
+        while (text->characterAt(position).category() == QChar::Separator_Space)
+            ++position;
+        cursor.setPosition(position);
+    }
+
+    setSelectionStart(-1);
+    setSelectionEnd(-1);
+    setCursorPosition(cursor.position());
+
+    // firstLineNumber() rather than the block number: whatever is folded above
+    // this line is not a row, and something may have just been unfolded.
+    const qreal top = block.firstLineNumber() * m_lineHeight;
+    if (centerLine)
+        setScrollY(top - (height() - m_lineHeight) / 2);
+    else if (top < m_scrollY || top + m_lineHeight > m_scrollY + height())
+        setScrollY(top < m_scrollY ? top : top + m_lineHeight - height());
+}
+
 void TextViewport::toggleFold(int lineNumber)
 {
     TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;

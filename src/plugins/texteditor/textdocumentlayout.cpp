@@ -715,6 +715,33 @@ QString TextBlockUserData::foldReplacementText(const QString &ellipsis,
     return replacement;
 }
 
+void TextBlockUserData::unfoldTo(QTextBlock block)
+{
+    if (block.isVisible())
+        return;
+
+    auto *layout = qobject_cast<TextDocumentLayout *>(block.document()->documentLayout());
+    QTC_ASSERT(layout, return);
+
+    // Outwards, one fold at a time: a block can be hidden by a fold inside
+    // another fold, and only the outermost one being open makes it visible.
+    int indent = foldingIndent(block);
+    block = block.previous();
+    while (block.isValid()) {
+        const int outer = foldingIndent(block);
+        if (canFold(block) && outer < indent) {
+            doFoldOrUnfold(block, /*unfold=*/true);
+            if (block.isVisible())
+                break;
+            indent = outer;
+        }
+        block = block.previous();
+    }
+
+    layout->requestUpdate();
+    layout->emitDocumentSizeChanged();
+}
+
 void TextBlockUserData::doFoldOrUnfold(const QTextBlock &block, bool unfold, bool recursive)
 {
     if (!canFold(block))

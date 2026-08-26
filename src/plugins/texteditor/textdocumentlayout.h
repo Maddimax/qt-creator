@@ -128,6 +128,11 @@ public:
                                        const QTextBlock &firstHidden,
                                        const QTextBlock &lastHidden);
 
+    // Opens every fold hiding \a block, so that going to a line inside one
+    // shows it rather than scrolling to where it would have been. Does nothing
+    // for a block that is already visible.
+    static void unfoldTo(QTextBlock block);
+
     static CodeFormatterData *codeFormatterData(const QTextBlock &block);
     static void setCodeFormatterData(const QTextBlock &block, CodeFormatterData *data);
 

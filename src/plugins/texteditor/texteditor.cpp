@@ -8011,27 +8011,7 @@ void TextEditorWidget::ensureBlockIsUnfolded(QTextBlock block)
     if (singleShotAfterHighlightingDone([this, block] { ensureBlockIsUnfolded(block); }))
         return;
 
-    if (!block.isVisible()) {
-        auto documentLayout = qobject_cast<TextDocumentLayout*>(document()->documentLayout());
-        QTC_ASSERT(documentLayout, return);
-
-        // Open all parent folds of current line.
-        int indent = TextBlockUserData::foldingIndent(block);
-        block = block.previous();
-        while (block.isValid()) {
-            const int indent2 = TextBlockUserData::foldingIndent(block);
-            if (TextBlockUserData::canFold(block) && indent2 < indent) {
-                TextBlockUserData::doFoldOrUnfold(block, /* unfold = */ true);
-                if (block.isVisible())
-                    break;
-                indent = indent2;
-            }
-            block = block.previous();
-        }
-
-        documentLayout->requestUpdate();
-        documentLayout->emitDocumentSizeChanged();
-    }
+    TextBlockUserData::unfoldTo(block);
 }
 
 void TextEditorWidgetPrivate::toggleBlockVisible(const QTextBlock &block)
