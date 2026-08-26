@@ -57,6 +57,30 @@ private:
     Project * const m_project;
 };
 
+// What the panel shows. The flag is not one of the settings: setup
+// UseGlobalSettings() disables the settings container as a whole while the
+// global ones are in use, and a flag inside it would be disabled too, leaving
+// no way back. So the panel is a container of its own holding both. It has no
+// settings key, and neither does the flag, so what is stored stays the settings
+// container's business.
+class ProjectCommentsPanel final : public AspectContainer
+{
+public:
+    explicit ProjectCommentsPanel(ProjectCommentsSettings *settings)
+    {
+        // Before registering anything: insertAspect() forces the container's
+        // own auto-apply onto what it takes in.
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/ProjectExplorer/ProjectCommentsPanel.qml"));
+
+        settings->useGlobalSettings.setQmlName("UseGlobalSettings");
+        registerAspect(&settings->useGlobalSettings);
+
+        settings->setQmlName("Settings");
+        registerAspect(settings);
+    }
+};
+
 static ProjectCommentsSettings *commentsProjectSettings(Project *project)
 {
     const Key key = "ProjectCommentsSettings";
@@ -68,21 +92,16 @@ static ProjectCommentsSettings *commentsProjectSettings(Project *project)
     return v.value<ProjectCommentsSettings *>();
 }
 
-class ProjectCommentsSettingsWidget final : public QWidget
+static ProjectCommentsPanel *commentsProjectPanel(Project *project)
 {
-public:
-    ProjectCommentsSettingsWidget(Project *project)
-    {
-        ProjectCommentsSettings * const ps = commentsProjectSettings(project);
-        using namespace Layouting;
-        Column {
-            ps->useGlobalSettings,
-            hr,
-            *ps,
-            noMargin,
-        }.attachTo(this);
+    const Key key = "ProjectCommentsPanel";
+    QVariant v = project->extraData(key);
+    if (v.isNull()) {
+        v = QVariant::fromValue(new ProjectCommentsPanel(commentsProjectSettings(project)));
+        project->setExtraData(key, v);
     }
-};
+    return v.value<ProjectCommentsPanel *>();
+}
 
 class CommentsSettingsProjectPanelFactory final : public ProjectPanelFactory
 {
@@ -91,8 +110,8 @@ public:
     {
         setPriority(45);
         setDisplayName(Tr::tr("Documentation Comments"));
-        setCreateWidgetFunction([](Project *project) {
-            return new ProjectCommentsSettingsWidget(project);
+        setSettingsProvider([](Project *project) {
+            return commentsProjectPanel(project);
         });
     }
 };

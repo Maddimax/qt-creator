@@ -186,6 +186,19 @@ private slots:
                     break;
                 }
             }
+            // A panel the user cannot get out of. The setting that turns a
+            // panel off - "use global settings" - must stay usable while
+            // everything it turns off is disabled, so at least one aspect is
+            // always enabled. The mistake this catches is putting that setting
+            // inside the very container it disables.
+            bool anyEnabled = false;
+            (*aspects)->forEachAspect([&anyEnabled](Utils::BaseAspect *aspect) {
+                anyEnabled = anyEnabled || aspect->isEnabled();
+            });
+            QVERIFY2(anyEnabled,
+                     qPrintable(factory->displayName()
+                                + " is disabled as a whole, so there is no way back"));
+
             QVERIFY2(quick, qPrintable(factory->displayName() + " has no Quick form"));
             QCOMPARE(quick->property("source").toUrl(), source);
             // QQuickWidget::Ready. A component that failed to load is Error,
