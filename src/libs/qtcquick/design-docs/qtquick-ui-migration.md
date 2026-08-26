@@ -5507,6 +5507,47 @@ That is the same shape as the code style page test earlier on this branch: ask
 the metaobject for `QQuickWidget::status` rather than linking Qt Quick, and
 assert the diagnostic when the outcome is invisible.
 
+## Perf: the blocker was a widget drawing a page that already existed
+
+`PerfConfigWidget` was called the honest blocker twice. Reading it, it draws the
+events table, the reset button and the call-graph/frequency aspects - which is
+what `PerfSettingsPage.qml` already draws, because the CPU Usage page was ported
+in the table workstream. Its only widget-exclusive control is "Use Trace
+Points", and `createPerfConfigWidget()` hides that when there is no target,
+which is exactly the standalone tool's case. Add and Remove come free:
+`AspectPresentation::allowAdding`/`allowRemoving` default to true, so
+`TableDelegate` offers them without being asked.
+
+**What actually blocked it was ownership, not drawing.** `PerfSamplerSettings`
+holds `Profiler::PerfSettings` as a plain member and forwards `readSettings()`
+and `writeSettings()` to it by hand. Registering it - the obvious way to make a
+form able to name it - would do two things quietly:
+
+- `PerfSettings` sets no settings group, so its keys are shared with the IDE's
+  CPU Usage page. Nested under `PerfSampler` they would all move, and the tool
+  would silently lose the perf configuration it has.
+- `PerfSettings` is `setAutoApply(false)` while a sampler is `true`, and
+  `insertAspect()` pushes the container's flag onto whatever it takes in.
+
+So the seam is `SamplerSettings::reusedSettings()`: settings a backend reuses
+rather than owns. The window draws them beside the backend's own form instead of
+nesting them inside it, which leaves both the keys and the apply alone. The
+process picker moved the same way the call-stack one did, and the last profiler
+layouter is gone.
+
+**Verifying it needed a different instrument.** Perf is not offered outside
+Linux, so the "run the tool offscreen against each backend" technique - which
+covered the other three - cannot reach this form at all on a Mac. The forms are
+therefore covered by a data-driven test that constructs each backend's settings,
+builds the form and asserts that nothing was reported as `Unable to assign`.
+Breaking one name fails that backend's row and only that row.
+
+That test has a precondition worth stating rather than hiding: the Qt Quick form
+factory is installed by the *QuickUi plugin*, so under a bare `-test Profiler`
+`Core::createAspectForm()` falls back to the widget path and there is no QML to
+have got wrong. It `QSKIP`s there with that reason, instead of passing while
+asserting nothing. Under the usual `-load all` it asserts in full.
+
 ## The same measurement, applied to kits
 
 Re-running the `layouter()` instrumentation with the device closures gone leaves

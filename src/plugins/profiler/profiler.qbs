@@ -201,6 +201,7 @@ QtcPlugin {
             "qmlprofilerfindingsmodel_test.cpp", "qmlprofilerfindingsmodel_test.h",
             "qmlprofilertool_test.cpp", "qmlprofilertool_test.h",
             "qmlprofilertraceview_test.cpp", "qmlprofilertraceview_test.h",
+            "samplerforms_test.cpp", "samplerforms_test.h",
 
             "tests.qrc"
         ]

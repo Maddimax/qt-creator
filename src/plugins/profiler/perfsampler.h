@@ -30,9 +30,15 @@ public:
     void readSettings() override;
     void writeSettings() const override;
 
+    QList<Utils::AspectContainer *> reusedSettings() override;
+
     Profiler::PerfSettings perfSettings;
 
     Utils::BoolAspect attach{this}; // Attach to a running process instead of launching.
+
+    // Opens the process picker and reports what it chose. The value is edited
+    // in a dialog, so the control is that summary and a button.
+    Utils::ActionAspect pickProcess{this};
 
     // Whether perfparser may download debug information it is missing from the
     // debuginfod servers in DEBUGINFOD_URLS. Off by default: the download runs

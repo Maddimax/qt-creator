@@ -25,6 +25,7 @@ if(WITH_TESTS)
     tests/qmlprofilerdetailsrewriter_test.cpp tests/qmlprofilerdetailsrewriter_test.h
     tests/qmlprofilerfindingsmodel_test.cpp tests/qmlprofilerfindingsmodel_test.h
     tests/qmlprofilertool_test.cpp tests/qmlprofilertool_test.h
+    tests/samplerforms_test.cpp tests/samplerforms_test.h
     tests/qmlprofilertraceview_test.cpp tests/qmlprofilertraceview_test.h
     tests/tests.qrc
     tests/perfprofilertracefile_test.cpp tests/perfprofilertracefile_test.h
@@ -220,6 +221,7 @@ if(TARGET Profiler)
     QML_FILES
       CallStackSamplerForm.qml
       CombinedSamplerForm.qml
+      PerfSamplerForm.qml
       PerfSettingsPage.qml
       QmlProfilerSamplerForm.qml
       QmlProfilerSettingsPage.qml

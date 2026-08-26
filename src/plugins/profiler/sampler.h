@@ -304,6 +304,12 @@ public:
     // what is missing/misconfigured (e.g. no executable, or attach with no process).
     virtual Utils::Result<std::shared_ptr<RecordingSession>> createSession() const = 0;
 
+    // Settings a backend reuses rather than owns. The perf sampler shares the
+    // IDE's perf configuration, which keeps its own settings keys and its own
+    // apply, so it cannot be registered here without moving both. Whoever draws
+    // this container shows these beside it.
+    virtual QList<Utils::AspectContainer *> reusedSettings() { return {}; }
+
     // Builds a RecordingSession for a target something else launches -- Qt
     // Creator's run machinery, say (see profilersamplerruncontrol.cpp). It
     // carries the backend's own options and no target of its own, so it cannot
@@ -321,7 +327,6 @@ signals:
     // the controls that are not aspects (a "Select Process..." button, say) and
     // that updateTargetEnabled() therefore cannot reach.
     void targetSelectionChanged();
-
 protected:
     // Populates session->launchCommand/launchWorkingDir from executable+arguments;
     // fails if no executable is set.

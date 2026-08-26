@@ -12,13 +12,10 @@
 #include "profilertr.h"
 #include "sampletrace.h"
 
-#include <utils/aspectwidgets.h>
 #include <utils/environment.h>
 #include <utils/hostosinfo.h>
-#include <utils/layoutbuilder.h>
 #include <utils/processinfo.h>
 #include <utils/qtcprocess.h>
-#include <utils/qtdesignwidgets.h>
 
 #include <QDataStream>
 #include <QPointer>
@@ -402,35 +399,22 @@ PerfSamplerSettings::PerfSamplerSettings()
     updateTargetEnabled();
     connect(&attach, &BoolAspect::changed, this, [this] { updateTargetEnabled(); });
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-        auto pick = new QtcButton(Tr::tr("Select Process…"), QtcButton::SmallSecondary);
-        auto picked = new QtcLabel(m_pickedName.isEmpty() ? Tr::tr("No process selected")
-                                                          : m_pickedName,
-                                   QtcLabel::Secondary);
-        const auto updatePick = [this, pick] {
-            pick->setEnabled(!targetChosenElsewhere() && attach());
-        };
-        updatePick();
-        connect(&attach, &BoolAspect::changed, pick, updatePick);
-        connect(this, &SamplerSettings::targetSelectionChanged, pick, updatePick);
-        connect(pick, &QAbstractButton::clicked, this, [this, picked] {
-            const std::optional<ProcessInfo> info = ProcessPickerDialog::pickProcess();
-            if (!info)
-                return;
-            m_pickedPid = info->processId;
-            m_pickedName = FilePath::fromUserInput(info->executable).fileName();
-            picked->setText(m_pickedName);
-        });
-        return Column {
-            executable,
-            arguments,
-            workingDirectory,
-            Row { attach, pick, picked, st },
-            downloadDebugInfo,
-            perfSettings.createPerfConfigWidget(nullptr),
-        };
+    pickProcess.setQmlName("PickProcess");
+    pickProcess.setActionText(Tr::tr("Select Process…"));
+    pickProcess.setSummaryProvider([this] {
+        return m_pickedName.isEmpty() ? Tr::tr("No process selected") : m_pickedName;
     });
+    pickProcess.setAction([this] {
+        const std::optional<ProcessInfo> info = ProcessPickerDialog::pickProcess();
+        if (!info)
+            return;
+        m_pickedPid = info->processId;
+        m_pickedName = FilePath::fromUserInput(info->executable).fileName();
+        pickProcess.updateSummary();
+    });
+    pickProcess.setEnabler(&attach);
+
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Profiler/PerfSamplerForm.qml"));
 }
 
 // The launch settings are irrelevant while attaching, and both are while the
@@ -470,6 +454,11 @@ void PerfSamplerSettings::writeSettings() const
 {
     SamplerSettings::writeSettings();
     perfSettings.writeSettings();
+}
+
+QList<Utils::AspectContainer *> PerfSamplerSettings::reusedSettings()
+{
+    return {&perfSettings};
 }
 
 PerfSampler::PerfSampler()

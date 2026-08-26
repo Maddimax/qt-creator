@@ -328,7 +328,21 @@ QWidget *ProfilerRecorder::createConfigWidget() const
         return nullptr;
     // A backend that names a form is drawn from it; the rest keep their widget
     // layout until they do.
-    return Core::createAspectForm(settings);
+    QWidget * const config = Core::createAspectForm(settings);
+    const QList<Utils::AspectContainer *> reused = settings->reusedSettings();
+    if (!config || reused.isEmpty())
+        return config;
+
+    // Settings a backend shares rather than owns keep their own keys and their
+    // own apply, so they are drawn beside its own.
+    Layouting::Column column{config};
+    for (Utils::AspectContainer *shared : reused) {
+        if (QWidget * const form = Core::createAspectForm(shared))
+            column.addItem(form);
+    }
+    auto combined = new QWidget;
+    column.attachTo(combined);
+    return combined;
 }
 
 void ProfilerRecorder::seedLaunchTarget(const CommandLine &command,

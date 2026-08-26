@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "callstacksampler.h"
+#include "tests/samplerforms_test.h"
 #include "ctfvisualizertool.h"
 #include "mcpsupport.h"
 #include "profilermode.h"
@@ -90,7 +91,8 @@ class ProfilerPlugin final : public ExtensionSystem::IPlugin
         addTest<QmlProfilerToolTest>();
         addTest<QmlProfilerTraceViewTest>();
 
-        addTestCreator(QmlProfiler::Internal::createCallStackSamplerSettingsTest);
+        addTestCreator(createCallStackSamplerSettingsTest);
+        addTestCreator(QmlProfiler::Internal::createSamplerFormsTest);
         addTestCreator(createPerfConfigEventsModelTest);
         addTestCreator(createPerfNativeMixedTest);
         addTestCreator(createPerfResourceCounterTest);
