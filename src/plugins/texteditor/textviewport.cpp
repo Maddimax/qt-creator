@@ -166,6 +166,52 @@ QVariantMap TextViewport::visibleLine(int index) const
                        {"newlineTail", line.newlineTail}};
 }
 
+TextViewport::Located TextViewport::locate(int position) const
+{
+    for (int i = 0; i < int(m_lines.size()); ++i) {
+        const Line &line = m_lines.at(i);
+        // blockLength counts the newline, and the caret is allowed to sit on
+        // it: that is the position at the end of the line.
+        if (position >= line.blockPosition && position < line.blockPosition + line.blockLength)
+            return {i, position - line.blockPosition};
+    }
+    return {};
+}
+
+QRectF TextViewport::cursorRectangle(int position) const
+{
+    const Located found = locate(position);
+    if (found.index < 0)
+        return {};
+
+    const Line &line = m_lines.at(found.index);
+    const QTextLine textLine = line.layout->lineAt(0);
+    if (!textLine.isValid())
+        return {};
+
+    int offset = found.offsetInLine;
+    const qreal x = textLine.cursorToX(&offset);
+    return QRectF(line.at.x() + x, line.at.y(), 1, m_lineHeight);
+}
+
+int TextViewport::positionAt(qreal x, qreal y) const
+{
+    if (m_lines.empty() || m_lineHeight <= 0)
+        return -1;
+
+    // Clamped to what is laid out rather than to the document: a drag that
+    // leaves the viewport should select to the edge of it, not jump to the end
+    // of the file.
+    const int index = qBound(0, int((y + m_scrollY) / m_lineHeight) - m_firstVisibleLine,
+                             int(m_lines.size()) - 1);
+    const Line &line = m_lines.at(index);
+    const QTextLine textLine = line.layout->lineAt(0);
+    if (!textLine.isValid())
+        return line.blockPosition;
+
+    return line.blockPosition + textLine.xToCursor(x - line.at.x());
+}
+
 void TextViewport::documentChangedInternal()
 {
     polish();
@@ -271,6 +317,8 @@ void TextViewport::updatePolish()
         line.layout->endLayout();
 
         line.at = QPointF(-m_scrollX, number * m_lineHeight - m_scrollY);
+        line.blockPosition = block.position();
+        line.blockLength = block.length();
 
         // The one thing a format range cannot cover: a selection that runs past
         // the end of the line covers the newline too, and there is no character

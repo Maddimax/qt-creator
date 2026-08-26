@@ -5336,16 +5336,39 @@ TextViewport draws the document itself and has nothing to substitute in, so the
 requirement is now a path only. The full TextEditor suite is unchanged by that
 relaxation (178 passed, 0 failed with `-load all`).
 
+**The second increment is the coordinate mapping**, `cursorRectangle(position)`
+and `positionAt(x, y)`. Nothing above the scene graph can work these out, and
+they are what a caret and a mouse need - so they land before either, and QML
+gets to draw the caret as a blinking `Rectangle` rather than the viewport
+growing a cursor of its own.
+
+They are one question asked in two directions, so the test asserts the
+round trip: for every position on the first two lines, including the one at the
+end of each line where the caret sits on the newline,
+`positionAt(cursorRectangle(p))` is `p` again. That is stronger than checking
+either alone, and it is cheap - an off-by-one in the mapping shows up as a click
+landing one character away, which is not something anyone notices until they are
+editing.
+
+Two edges are stated rather than left to chance. `cursorRectangle()` answers in
+item coordinates, so a position that scrolled off screen gets an *empty* rect -
+otherwise a caret is drawn at the top of the viewport for a line that is not
+there. `positionAt()` is clamped to what is laid out, not to the document, so a
+drag that leaves the viewport selects to its edge instead of jumping to the end
+of the file.
+
 The viewport does **not** paint its own background. A QML `Rectangle` behind it
 does, using the `backgroundColor` property - the colour lives in `FontSettings`
 and QML has no other way to reach it, but deciding to fill a rectangle is not
 the scene graph's job here. That property is also where the brush-versus-colour
 trap above lives, so it is the one place the fallback has to be right.
 
-Not ported, listed so the gap is not mistaken for a decision: cursor and
-caret painting, key input and editing, the gutter, folding, text marks and
+Not ported, listed so the gap is not mistaken for a decision: caret painting
+and blinking, key input and editing, the gutter, folding, text marks and
 annotations, wrapping, and the extra-selection overlays beyond the primary
-selection.
+selection. The QML component that puts a background, a scroll bar, a caret and
+a mouse area around the viewport is the next increment; the C++ side now has
+everything it would need.
 
 ## The terminal spike: go, with the cleanest split in the tree
 

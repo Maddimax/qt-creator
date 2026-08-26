@@ -109,6 +109,22 @@ public:
     // screen.
     Q_INVOKABLE QVariantMap visibleLine(int index) const;
 
+    // The two halves of the mapping between the document and the screen, which
+    // is what a caret and a mouse need and what nothing above the scene graph
+    // can work out for itself.
+    //
+    // cursorRectangle() is where the caret goes for a document position, in
+    // item coordinates; empty for a position that is not on screen. QML draws
+    // the caret, the same way it draws the background - a blinking Rectangle is
+    // not the scene graph's problem.
+    //
+    // positionAt() is the document position under an item coordinate, for a
+    // click. Held inside what is laid out, so a drag that leaves the viewport
+    // selects to the edge of it rather than jumping to the end of the file;
+    // -1 only when nothing is laid out at all.
+    Q_INVOKABLE QRectF cursorRectangle(int position) const;
+    Q_INVOKABLE int positionAt(qreal x, qreal y) const;
+
 signals:
     void documentChanged();
     void scrollYChanged();
@@ -134,13 +150,24 @@ private:
 
         std::unique_ptr<QTextLayout> layout;
         QPointF at;
+        // Where this line's text starts in the document, so that a screen
+        // coordinate can be turned back into a document position.
+        int blockPosition = 0;
+        int blockLength = 0;
         // Where a selection runs past the end of the line. Empty otherwise.
         QRectF newlineTail;
         QColor newlineTailColour;
     };
 
-    void rebuild();
     void documentChangedInternal();
+    // The visible line holding \a position, and the block it came from.
+    // index is -1 when the position is not on screen.
+    struct Located
+    {
+        int index = -1;
+        int offsetInLine = 0;
+    };
+    Located locate(int position) const;
 
     QPointer<CodeDocument> m_document;
     qreal m_scrollY = 0;

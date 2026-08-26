@@ -128,6 +128,70 @@ private slots:
         QVERIFY(viewport->visibleLineCount() > 0);
     }
 
+    void testAScreenPositionAndADocumentPositionAgree()
+    {
+        // A caret and a mouse are the same question asked in two directions,
+        // and they have to give the same answer or a click lands one character
+        // off - the kind of thing nobody notices until they are editing.
+        TemporaryDirectory dir("textviewport-mapping");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("small.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\ngamma\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 2);
+
+        // Every position on the first two lines, including the one at the end
+        // of each line where the caret sits on the newline. "alpha\n" is
+        // positions 0-5, "beta\n" is 6-10.
+        for (int position = 0; position <= 10; ++position) {
+            const QRectF caret = viewport->cursorRectangle(position);
+            QVERIFY2(!caret.isEmpty(),
+                     qPrintable(QString("no caret for position %1").arg(position)));
+            QCOMPARE(viewport->positionAt(caret.x(), caret.center().y()), position);
+        }
+
+        // The caret advances across a line and drops a line at the newline.
+        QVERIFY(viewport->cursorRectangle(1).x() > viewport->cursorRectangle(0).x());
+        QCOMPARE(viewport->cursorRectangle(6).x(), viewport->cursorRectangle(0).x());
+        QVERIFY(viewport->cursorRectangle(6).y() > viewport->cursorRectangle(0).y());
+
+        // Clicking past the end of a line lands on its end, not on the next one.
+        const QRectF firstLine = viewport->cursorRectangle(0);
+        QCOMPARE(viewport->positionAt(10000, firstLine.center().y()), 5);
+
+        // Clicking below everything laid out lands on the last line rather than
+        // nowhere, which is what a drag out of the viewport does.
+        QVERIFY(viewport->positionAt(0, 100000) >= 0);
+    }
+
+    void testAPositionThatIsNotOnScreenHasNoCaret()
+    {
+        // cursorRectangle() answers in item coordinates, so it can only answer
+        // for what is on screen. Saying so with an empty rect is what stops a
+        // caret being drawn at the top of the viewport for a position that
+        // scrolled off it.
+        TemporaryDirectory dir("textviewport-offscreen");
+        QVERIFY(dir.isValid());
+        const FilePath file = writeLines(dir, "big.txt", 5000);
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+        QVERIFY(!viewport->cursorRectangle(0).isEmpty());
+
+        viewport->setScrollY(viewport->lineHeight() * 1000);
+        QTRY_COMPARE(viewport->firstVisibleLine(), 1000);
+        QVERIFY(viewport->cursorRectangle(0).isEmpty());
+    }
+
     void testASelectionIsMergedIntoTheLineFormats()
     {
         // The spike's conclusion, kept true: a selection is format ranges on the
