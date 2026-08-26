@@ -74,6 +74,12 @@ public:
     // A file dialog hands back a URL and a path aspect stores a path. QML has
     // no conversion of its own that is not string surgery on "file://".
     Q_INVOKABLE QString localPath(const QUrl &url);
+
+    // What a model put in Qt::DecorationRole, as something an Image can load.
+    // A QIcon is what a widget view wants and what QML cannot carry, so the
+    // conversion happens here rather than in every model that has one. Empty
+    // where the cell has no icon, which is most of them.
+    Q_INVOKABLE QString decorationUrl(const QVariant &decoration);
 };
 
 } // namespace QtcQuick

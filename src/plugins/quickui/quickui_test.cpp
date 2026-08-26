@@ -202,6 +202,7 @@ private slots:
     void testMultiLineStringGetsATextArea();
     void testSecretIsFetchedBeforeItCanBeEdited();
     void testTableAspectDrawsWhatItsModelOffers();
+    void testATableCellShowsTheIconItsModelGives();
     void testATableWithNoColumnNamesHasNoHeader();
     void testTableAspectAddsAndRemovesRows();
     void testTableAspectRemovesEverySelectedRow();
@@ -2635,9 +2636,15 @@ public:
                 QVariantMap{{"display", "blue"}, {"id", "blue"}}};
     }
 
+    // Unset unless a test says otherwise, so that every other table here looks
+    // as it did.
+    QIcon rowIcon;
+
     QVariant data(const QModelIndex &index, int role) const override
     {
         const Row &row = rows.at(index.row());
+        if (role == Qt::DecorationRole)
+            return index.column() == ColumnWord ? QVariant::fromValue(rowIcon) : QVariant();
         switch (role) {
         case Qt::DisplayRole:
         case Qt::EditRole:
@@ -2769,6 +2776,54 @@ static QQuickItem *tableViewOf(QQuickItem *root)
 {
     QQuickItem *delegate = findQmlComponent(root, "TableDelegate");
     return delegate ? findQmlComponent(delegate, "QQuickTableView") : nullptr;
+}
+
+void QuickUiTest::testATableCellShowsTheIconItsModelGives()
+{
+    // A QIcon is what a widget view wants from Qt::DecorationRole and what QML
+    // cannot carry, so the cell asks AspectModels to turn it into something an
+    // Image can load. A table whose model gives no icon must look exactly as it
+    // did, which is the other half of this.
+    const auto iconsIn = [](QQuickItem *root) {
+        int shown = 0;
+        for (QQuickItem * const icon : findQmlComponents(root, "QQuickImage")) {
+            if (icon->objectName() == "tableCellIcon" && icon->property("visible").toBool()
+                && !icon->property("source").toUrl().isEmpty()) {
+                ++shown;
+            }
+        }
+        return shown;
+    };
+
+    Utils::AspectContainer bare;
+    TestTableAspect noIcons(&bare);
+    noIcons.setLabelText("Rows");
+    const std::unique_ptr<QWidget> bareForm(showForm(&bare));
+    QVERIFY(bareForm);
+    auto bareQuick = bareForm->findChild<QQuickWidget *>();
+    QVERIFY(bareQuick);
+    QQuickItem *bareView = nullptr;
+    QTRY_VERIFY(bareView = tableViewOf(bareQuick->rootObject()));
+    QTRY_COMPARE(bareView->property("rows").toInt(), 2);
+    QCOMPARE(iconsIn(bareQuick->rootObject()), 0);
+
+    Utils::AspectContainer page;
+    TestTableAspect table(&page);
+    table.setLabelText("Rows");
+    QPixmap pixmap(16, 16);
+    pixmap.fill(Qt::red);
+    table.m_model.rowIcon = QIcon(pixmap);
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QQuickItem *view = nullptr;
+    QTRY_VERIFY(view = tableViewOf(quickWidget->rootObject()));
+    QTRY_COMPARE(view->property("rows").toInt(), 2);
+
+    // One per row, in the column the model decorated.
+    QTRY_COMPARE(iconsIn(quickWidget->rootObject()), 2);
 }
 
 void QuickUiTest::testTableAspectDrawsWhatItsModelOffers()

@@ -81,6 +81,14 @@ QAbstractItemModel *AspectModels::tableModel(BaseAspect *aspect)
     return model;
 }
 
+QString AspectModels::decorationUrl(const QVariant &decoration)
+{
+    if (!decoration.canConvert<QIcon>())
+        return {};
+    const QIcon icon = decoration.value<QIcon>();
+    return icon.isNull() ? QString() : QtcQuick::iconUrl(icon);
+}
+
 bool AspectModels::moveRow(QAbstractItemModel *model,
                            const QModelIndex &from,
                            const QModelIndex &toParent,

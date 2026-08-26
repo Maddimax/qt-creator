@@ -6,6 +6,7 @@ pragma FunctionSignatureBehavior: Enforced
 
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Layouts
 import QtCreator.Ui
 
 // One cell, as the model describes it: a check box, a choice, a field, or text
@@ -52,21 +53,41 @@ Item {
         color: cell.cellBackground ?? "transparent"
     }
 
-    Loader {
-        id: editor
-
+    RowLayout {
         // As wide as the column and no taller than it needs to be, so a check
         // box beside a four-line description sits on the row's first line
         // rather than floating in the middle of it.
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
-        sourceComponent: {
-            if (cell.model.checkable ?? false)
-                return check
-            if (cell.choices.length > 0)
-                return chooser
-            return cell.cellEditable ? plain : readOnly
+        spacing: Spacing.GapHXs
+
+        // What the model put in Qt::DecorationRole, where it put anything.
+        // Takes no room at all otherwise, which is what keeps every table that
+        // has no icons looking as it did.
+        Image {
+            objectName: "tableCellIcon"
+            source: AspectModels.decorationUrl(cell.model.decoration ?? undefined)
+            visible: source != ""
+            fillMode: Image.PreserveAspectFit
+            sourceSize.width: Metrics.listRowIconSize
+            sourceSize.height: Metrics.listRowIconSize
+            Layout.preferredWidth: visible ? Metrics.listRowIconSize : 0
+            Layout.preferredHeight: Metrics.listRowIconSize
+            Layout.alignment: Qt.AlignTop
+        }
+
+        Loader {
+            id: editor
+
+            Layout.fillWidth: true
+            sourceComponent: {
+                if (cell.model.checkable ?? false)
+                    return check
+                if (cell.choices.length > 0)
+                    return chooser
+                return cell.cellEditable ? plain : readOnly
+            }
         }
     }
 
