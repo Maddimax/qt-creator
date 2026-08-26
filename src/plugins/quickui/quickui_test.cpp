@@ -235,6 +235,38 @@ private slots:
     void testEditingThePreviewReachesTheAspectThatOwnsIt();
 };
 
+// Settings a page carries but does not draw. Each was checked against the
+// closure the page replaced: either the widget layout did not draw it either,
+// or it is edited from somewhere else in the UI. Anything not here is a
+// regression, so a new entry belongs here only with that check done.
+static const QSet<QString> &knownUndrawnSettings()
+{
+    static const QSet<QString> settings = {
+        // Thrown and caught exceptions are turned on from the Breakpoints
+        // view, which is where the breakpoints they create are shown.
+        "GDB: DebugMode/BreakOnThrow/BreakOnThrow",
+        "GDB: DebugMode/BreakOnCatch/BreakOnCatch",
+
+        // Toggled from the Callgrind toolbar, beside the data they change.
+        "Valgrind: Analyzer.Valgrind.Callgrind.CycleDetection/CycleDetection",
+        "Valgrind: Analyzer.Valgrind.Callgrind.ShortenTemplates/ShortenTemplates",
+
+        // A vim option, set with ":set tw=N". The widget layout listed the
+        // other integers of FakeVimSettings in a row and left this one out.
+        "General: FakeVim/TextWidth/TextWidth",
+
+        // Inherited from VcsBaseSettings. The CVS closure listed the binary
+        // path, the root, the timeout, the diff options and describe-by-id,
+        // and not this.
+        "CVS: LogCount/LogCount",
+
+        // Labelled, and shown by no UI before the port either: the Catch
+        // closure listed every other option and not this one.
+        "Catch Test: WarnEmpty/WarnEmpty",
+    };
+    return settings;
+}
+
 void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
 {
     Core::setAspectFormFactory([](Utils::AspectContainer *container) {
@@ -247,6 +279,7 @@ void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
     int genericWouldDo = 0;
     QStringList declined;
     QStringList unsupported;
+    QStringList undrawn;
 
     // A QML warning is not a failure anywhere: the engine reports it and
     // carries on, so a broken binding shows up as a page that looks nearly
@@ -385,12 +418,16 @@ void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
                     }
                 };
             walk(*aspects);
-            // Reported rather than asserted: a page legitimately leaves out
-            // settings that are stored but edited elsewhere - GDB's throw and
-            // catch breakpoints live in the Breakpoints view, Valgrind's cycle
-            // detection in the Callgrind toolbar. Each line below was checked
-            // against the closure the page replaced. A new line is worth
-            // checking the same way.
+            // A page legitimately leaves out settings that are stored but
+            // edited elsewhere, so the known ones are listed rather than
+            // asserted away wholesale. Anything else is a page that lost a
+            // setting on its way to Qt Quick, which is the whole failure mode
+            // this census exists to catch.
+            for (const QString &entry : std::as_const(missing)) {
+                const QString line = page->displayName() + ": " + entry;
+                if (!knownUndrawnSettings().contains(line))
+                    undrawn << line;
+            }
             if (!missing.isEmpty()) {
                 qInfo().noquote() << page->displayName() << "does not draw:"
                                   << missing.join(", ");
@@ -513,6 +550,11 @@ void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
     // Nothing on a rendered page may be a control no renderer knows.
     QVERIFY2(unsupported.isEmpty(), qPrintable("no renderer draws these: "
                                                + unsupported.join(", ")));
+    QVERIFY2(undrawn.isEmpty(),
+             qPrintable("these pages lost a setting on the way to Qt Quick: "
+                        + undrawn.join(", ")
+                        + ". If the widget layout did not draw it either, or it is "
+                          "edited elsewhere, say so in knownUndrawnSettings()."));
 
     // Every aspect-driven page names a form, so a declined one is a page that
     // went back to widgets rather than one waiting its turn. Nothing else here

@@ -5588,6 +5588,47 @@ that beside it - and a QML resource that silently fails to register is the kind
 of thing this machine could not detect. `qmldesigner.qbs` is a wildcard stub, so
 it needs no edit.
 
+## The census's own report was the thing not being asserted
+
+Every census run has printed five lines of the form *"<page> does not draw:
+<setting>"*, with a comment saying each had been checked against the closure it
+replaced. Printed, not asserted - so a *sixth* line, from a future port that
+dropped a control, would have appeared in a `QINFO` and changed nothing. That is
+the same failure shape as a warning nobody reads.
+
+Before asserting anything the five were re-checked, because an allow-list is
+only worth what the checks behind it are:
+
+- **GDB**'s `BreakOnThrow`/`BreakOnCatch` and **Valgrind**'s `CycleDetection`/
+  `ShortenTemplates` were already justified here - the Breakpoints view and the
+  Callgrind toolbar.
+- **CVS**'s `LogCount` comes from `VcsBaseSettings`. The closure it replaced
+  listed the binary path, the root, the timeout, the diff options and
+  describe-by-id, and not this.
+- **FakeVim**'s `TextWidth` is a vim option set with `:set tw=N`. The closure
+  put `shiftWidth, tabStop, scrollOff, timeoutlen, cursorFlashTime` in a row and
+  left this out.
+- **Catch**'s `WarnEmpty` is labelled and has a tool tip, and the closure listed
+  every other option and not this one. So it is shown by no UI, before the port
+  as well as after - a pre-existing oddity rather than a migration one, which is
+  worth knowing but is not this branch's to fix.
+
+None of the five is a regression, which is the answer that lets the list be
+closed. `knownUndrawnSettings()` now holds them with that reasoning attached,
+and anything else fails the census by name: *"these pages lost a setting on the
+way to Qt Quick"*. Deleting one delegate from `CvsSettingsPage.qml` fails it;
+so does deleting an entry from the list, which is what proves the list is
+carrying the five rather than the check being vacuous.
+
+**Why this rather than ClangFormat.** The remaining closures are the widget
+fallback and its tests - `CodeStyleAspect`'s, the `TabSettings` one that
+`codestyleaspect_test.cpp` uses as the fixture for a language with no Qt Quick
+form, the QuickUi fixture that tests the fallback itself, and Lua's `layouter`
+binding, which two bundled extensions use. Removing the first two means porting
+`ClangFormatSettingsEditor` - two more widgets inside a plugin that does not
+build, link or run here, with no compile behind it. Tightening the census
+protects every page that has already moved, and is checkable today.
+
 ## The same measurement, applied to kits
 
 Re-running the `layouter()` instrumentation with the device closures gone leaves
