@@ -5927,20 +5927,33 @@ blank, where the widget would have selected a row because by then the connection
 exists. A scratch settings path has one snippet in it, so there is nothing to
 switch between.
 
-## Nothing renders a project panel
+## Correction: project panels have their own census
 
-The code style preview is drawn in two places: the Code Style *pages*, which
-the census walks, and a project's Code Style *panel*, which it does not - a
-`ProjectPanelFactory` is not an `IOptionsPage`, so
-`CodeStyleProjectForm.qml` had never been rendered by anything at all. Nor had
-the other fifteen `*ProjectPanel.qml` files.
+An earlier version of this section claimed that nothing rendered a project
+panel, that `CodeStyleProjectForm.qml` had never been drawn by anything, and
+that fifteen other `*ProjectPanel.qml` files were in the same state. All three
+are wrong, and the mistake was looking for panel coverage in the QuickUi suite
+and concluding from its absence there that it was absent everywhere.
 
-That one can be reached without a project, because
-`ICodeStylePreferencesFactory::createProjectAspects()` is public and takes only
-a file path and a code style. Rendered, every name in it resolves; misspelling
-one fails with `Unable to assign [undefined]` at the line. The rest of the
-panels still have nothing behind them, which is worth saying out loud rather
-than leaving as an unexamined edge.
+`projectpanelfactory.cpp` has `ProjectPanelFactoryTest`, with a
+`PanelCensusProject` and `testPanelsThatSayWhatTheyShowRenderWithQuick()`. It
+walks every factory, renders each panel that offers aspects, and checks more
+than the page census does: that the container names a QML file, that the
+`QQuickWidget` reports `Ready` and its source, that every delegate found its
+aspect, that the panel is not disabled as a whole - and it collects QML
+warnings through a message handler while doing it.
+
+`CodeStyleProjectForm.qml` is covered too. It is a `Repeater` delegate over the
+per-language forms, so it looked like something a project with no languages
+would never instantiate; the census project has **three**, so the form is drawn
+three times on every run.
+
+A test added here on that false premise has been removed again. The general
+lesson is the cheaper one: **before writing coverage for something, grep for a
+test of it by name.** `grep -rn "ProjectPanelFactory" --include='*_test.cpp'`
+would have found nothing, but the tests for it live in the production file
+behind `#ifdef WITH_TESTS`, which is where 105 other classes in this tree keep
+theirs.
 
 **And the suite is not idempotent, which was there before this.**
 `CodeStyleAspectTest` passes against a fresh `-settingspath` and fails on a
