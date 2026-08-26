@@ -700,6 +700,52 @@ private slots:
 
     // The Format button runs the language's own formatter over the preview,
     // because for QML/JS the formatting is qmlformat and not the indenter.
+    // The other place a code style preview is drawn: a project's Code Style
+    // panel. Project panels are not options pages, so the census never walks
+    // one and CodeStyleProjectForm.qml had never been rendered by anything.
+    void testTheProjectFormNamesAspectsThatExist()
+    {
+        // A code style of its own, not the factory's global one: the selector
+        // this form builds writes to whatever it is given, and a test that
+        // hands it shared state leaves that state changed for the next one.
+        QmlTestCodeStyleFactory factory;
+        ICodeStylePreferences codeStyle;
+        const std::unique_ptr<Utils::AspectContainer> aspects(
+            factory.createProjectAspects(Utils::FilePath(), &codeStyle));
+        QVERIFY(aspects);
+        QVERIFY2(!aspects->qmlSource().isEmpty(), "the project form names no QML");
+
+        static QStringList messages;
+        messages.clear();
+        QtMessageHandler previous = qInstallMessageHandler(
+            [](QtMsgType, const QMessageLogContext &, const QString &text) {
+                messages.append(text);
+            });
+        const std::unique_ptr<QWidget> form(Core::createAspectForm(aspects.get()));
+        qInstallMessageHandler(previous);
+
+        QVERIFY(form);
+        QWidget *quick = nullptr;
+        for (QWidget *child : form->findChildren<QWidget *>()) {
+            if (qstrcmp(child->metaObject()->className(), "QQuickWidget") == 0)
+                quick = child;
+        }
+        if (!quick)
+            QSKIP("no Qt Quick form factory is installed");
+
+        constexpr int quickWidgetReady = 1; // QQuickWidget::Ready
+        QCOMPARE(quick->property("status").toInt(), quickWidgetReady);
+
+        // A name the form gets wrong is not a load error, so the evidence is
+        // the diagnostic.
+        QStringList unresolved;
+        for (const QString &text : std::as_const(messages)) {
+            if (text.contains("Unable to assign"))
+                unresolved << text;
+        }
+        QVERIFY2(unresolved.isEmpty(), qPrintable(unresolved.join("; ")));
+    }
+
     void testFormattingThePreviewRunsTheLanguagesFormatter()
     {
         QmlPoolTestCodeStyleFactory factory;

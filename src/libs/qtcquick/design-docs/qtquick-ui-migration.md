@@ -5927,6 +5927,40 @@ blank, where the widget would have selected a row because by then the connection
 exists. A scratch settings path has one snippet in it, so there is nothing to
 switch between.
 
+## Nothing renders a project panel
+
+The code style preview is drawn in two places: the Code Style *pages*, which
+the census walks, and a project's Code Style *panel*, which it does not - a
+`ProjectPanelFactory` is not an `IOptionsPage`, so
+`CodeStyleProjectForm.qml` had never been rendered by anything at all. Nor had
+the other fifteen `*ProjectPanel.qml` files.
+
+That one can be reached without a project, because
+`ICodeStylePreferencesFactory::createProjectAspects()` is public and takes only
+a file path and a code style. Rendered, every name in it resolves; misspelling
+one fails with `Unable to assign [undefined]` at the line. The rest of the
+panels still have nothing behind them, which is worth saying out loud rather
+than leaving as an unexamined edge.
+
+**And the suite is not idempotent, which was there before this.**
+`CodeStyleAspectTest` passes against a fresh `-settingspath` and fails on a
+second run against the same one:
+
+    fresh:  17 passed, 0 failed
+    again:  15 passed, 2 failed   (testAQuickPageOffersTheStylesToDelegateTo,
+                                   testPickingAStyleIsAnEditThatCancelReverts)
+
+Both are about which style is selected, and a code style *pool* persists. So the
+tests write state into the settings and then assert against defaults that state
+has replaced. Verified to predate the test added here by removing it and
+reproducing the same two failures.
+
+That matters beyond tidiness: a scratch settings path is a test's habit and not
+a developer's. Anyone running these against their real settings gets two
+failures that have nothing to do with what they changed - and every "it passes
+here" in this file was measured with `rm -rf` in front of it, which is what made
+it invisible.
+
 ## The same measurement, applied to kits
 
 Re-running the `layouter()` instrumentation with the device closures gone leaves
