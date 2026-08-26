@@ -17,7 +17,7 @@ import QtCreator.Ui
 RowLayout {
     id: root
 
-    required property Aspect aspect
+    required property GroupedListAspect aspect
     property var pres: aspect ? AspectModels.presentation(aspect) : ({})
     readonly property string labelText: aspect?.plainLabelText ?? ""
     readonly property string toolTip: aspect?.toolTip ?? ""

@@ -15,6 +15,9 @@ import QtCreator.Ui
 RowLayout {
     id: delegate
 
+    // Generic, unlike the other single-aspect delegates: the aspect that drives
+    // this one lives in coreplugin, which this library cannot see, so
+    // recording() and setRecording() stay unchecked.
     required property Aspect aspect
     readonly property string labelText: aspect?.plainLabelText ?? ""
     readonly property string toolTip: aspect?.toolTip ?? ""

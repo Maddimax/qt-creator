@@ -14,7 +14,7 @@ import QtCreator.Ui
 RowLayout {
     id: root
 
-    required property Aspect aspect
+    required property ActionAspect aspect
     // The descriptor, read from the aspect rather than taken as model roles, so
     // that a hand-written page can use this delegate with nothing but the
     // aspect. See AspectModels::presentation().

@@ -14,7 +14,7 @@ import QtCreator.Ui
 RowLayout {
     id: root
 
-    required property Aspect aspect
+    required property AspectList aspect
     // Derived rather than taken as a model role, so that a hand-written page
     // can use this delegate with nothing but the aspect.
     readonly property var itemListModel: aspect ? AspectModels.itemList(aspect) : null

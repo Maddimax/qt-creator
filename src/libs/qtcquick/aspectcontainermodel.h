@@ -9,19 +9,48 @@
 #include <QHash>
 #include <QQmlEngine>
 
+#include <utils/aspectlist.h>
 #include <utils/aspects.h>
+#include <utils/groupedlistaspect.h>
 
 namespace QtcQuick {
 
 class AspectItemListModel;
 
 // Registering the aspect types lets a QML delegate declare "property Aspect"
-// and have qmllint check every binding against the real properties.
+// and have qmllint check every binding against the real properties. A
+// delegate that drives one aspect type declares that type, so that renaming
+// one of its invokables is a build error and not a binding that quietly
+// stops working.
 struct AspectForeign
 {
     Q_GADGET
     QML_FOREIGN(Utils::BaseAspect)
     QML_NAMED_ELEMENT(Aspect)
+    QML_UNCREATABLE("Aspects are created in C++")
+};
+
+struct ActionAspectForeign
+{
+    Q_GADGET
+    QML_FOREIGN(Utils::ActionAspect)
+    QML_NAMED_ELEMENT(ActionAspect)
+    QML_UNCREATABLE("Aspects are created in C++")
+};
+
+struct AspectListForeign
+{
+    Q_GADGET
+    QML_FOREIGN(Utils::AspectList)
+    QML_NAMED_ELEMENT(AspectList)
+    QML_UNCREATABLE("Aspects are created in C++")
+};
+
+struct GroupedListAspectForeign
+{
+    Q_GADGET
+    QML_FOREIGN(Utils::GroupedListAspect)
+    QML_NAMED_ELEMENT(GroupedListAspect)
     QML_UNCREATABLE("Aspects are created in C++")
 };
 
