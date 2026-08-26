@@ -5998,6 +5998,42 @@ suite aborts on the `testMissingModelManager` QFATAL at a different point each
 time, so a different set of tests gets to run at all. Re-sampling three times
 separates the two.
 
+## Where the page migration ends, counted
+
+The census reports "aspect-driven pages: 107, rendered with Qt Quick: 107",
+which says nothing about pages that offer no aspects at all - it skips those
+before counting. Counting them too: **109 options pages, of which exactly two
+are not aspect-driven.**
+
+- **Filters** (`D.Filters`) wraps `QHelpFilterSettingsWidget`, which belongs to
+  the Qt Help module rather than to Creator. Its 63 lines are a `Column` with
+  that widget in it, so there is no closure to replace - moving it means
+  reimplementing a Qt widget against `QHelpFilterEngine`.
+- **Browse** (`ExtensionManager.Browse`) is roughly 2,700 lines of
+  `extensionsbrowser.cpp`, `extensionmanagerwidget.cpp` and
+  `extensionsmodel.cpp`. It is an application view that happens to live in the
+  settings dialog, not a list of settings.
+
+So the settings pages are done, and the remaining `setLayouter` calls are the
+four already accounted for: the widget fallback in `CodeStyleAspect`, the
+`TabSettings` layouter that `codestyleaspect_test.cpp` uses as the fixture for
+a language with no Qt Quick form, the QuickUi fixture that tests the fallback
+itself, and Lua's `layouter` binding, which two bundled extensions use.
+
+**What a next phase would be, measured rather than guessed.** There are 324
+`.attachTo(` calls left in `src`, and almost none of them are settings:
+
+      174  tool windows, editors, everything else
+       91  dialogs and wizards
+       22  not ours (the qbs submodule, layoutbuilder itself)
+       20  settings-named files - the fallback path, the code style test
+            fixtures, ClangFormat, perf's config widget, and a handful of
+            pages that build a widget around something that is not an aspect
+       17  panels and welcome pages, mostly the standalone profiler
+
+That is a different and much larger job than replacing layout closures, and it
+is not started.
+
 ## The same measurement, applied to kits
 
 Re-running the `layouter()` instrumentation with the device closures gone leaves
