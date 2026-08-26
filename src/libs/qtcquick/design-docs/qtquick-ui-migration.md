@@ -6097,6 +6097,41 @@ order-independent, and then removed again: with it and without it the census
 catches the same thing, which makes it mechanism nobody earned. The comment is
 corrected instead, since what was actually wrong was the belief, not the code.
 
+## The editor's next increment: a gutter
+
+The viewport draws text, a caret, a selection and highlighting, and that is
+enough for a preview. It is not enough for the main editor, and the first thing
+missing is the one that makes a viewport look like an editor rather than a text
+box: the line numbers.
+
+`EditorGutter.qml` is one item per line **on screen**, not per line in the
+document - the same rule the viewport follows, and what keeps a million-line
+file the same price as a short one. Two properties had to come out of the
+viewport for it to be possible at all:
+
+- `lineCount`, so the gutter can be as wide as the highest number the file
+  reaches. Sizing to the numbers currently visible would make the gutter change
+  width while scrolling, which is the kind of thing nobody writes down as a
+  requirement and everybody notices.
+- `font`, the *zoomed* one the text is laid out with. Numbers measured in a
+  different font do not sit on the rows the text is on, and the zoom trap here
+  is the one already recorded above: `font()` is unzoomed and `lineSpacing()` is
+  not.
+
+The row a number sits on is `line * lineHeight - scrollY`, deliberately the same
+arithmetic the viewport uses rather than an offset from the top of the frame.
+That is what makes the numbers stay on their lines at a scroll offset that is
+not a whole number of them. Making it frame-relative instead - `index` rather
+than `firstVisibleLine + index` - fails the test with "Actual: 1, Expected:
+1001" after a scroll, which is exactly the bug that shape has.
+
+**Still missing before this is the main editor**, in rough order of how much
+each is load-bearing: an `IEditorFactory` so a file can be opened in it at all,
+the current-line highlight, folding, text marks and annotations, extra-selection
+overlays, the context menu, drag and drop, and wrapping - which needs a height
+cache first, because uniform line height is what makes everything above
+arithmetic instead of a search.
+
 ## The same measurement, applied to kits
 
 Re-running the `layouter()` instrumentation with the device closures gone leaves

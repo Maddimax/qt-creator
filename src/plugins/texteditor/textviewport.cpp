@@ -132,6 +132,16 @@ int TextViewport::firstVisibleLine() const
     return m_firstVisibleLine;
 }
 
+QFont TextViewport::font() const
+{
+    return m_font;
+}
+
+int TextViewport::lineCount() const
+{
+    return m_lineCount;
+}
+
 int TextViewport::visibleLineCount() const
 {
     return int(m_lines.size());
@@ -610,7 +620,9 @@ void TextViewport::updatePolish()
     // two backends put a line in the same place.
     const qreal previousLineHeight = m_lineHeight;
     m_lineHeight = qMax(1.0, fonts.lineSpacing());
-    m_contentHeight = m_lineHeight * text->blockCount();
+    m_font = font;
+    m_lineCount = text->blockCount();
+    m_contentHeight = m_lineHeight * m_lineCount;
     // The widget editor fills with the *brush*, so a scheme that sets no
     // background paints nothing and the palette shows through. A colour has no
     // way to say "nothing", and QBrush().color() is black, so ask the theme

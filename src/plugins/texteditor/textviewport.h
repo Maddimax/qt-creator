@@ -9,6 +9,7 @@
 #include <QTextLayout>
 #include <QPointer>
 #include <QQmlEngine>
+#include <QFont>
 #include <QQuickItem>
 #include <QRectF>
 #include <QVariantMap>
@@ -76,6 +77,12 @@ class TEXTEDITOR_EXPORT TextViewport : public QQuickItem
     Q_PROPERTY(QColor backgroundColor READ backgroundColor NOTIFY metricsChanged)
     // What is on screen. Readable so that a test can say what was drawn without
     // reading the scene graph.
+    // How many lines the document has, which a gutter needs to know how wide
+    // to be before it has drawn anything.
+    // The font the text is drawn with, zoom applied. A gutter has to measure
+    // its numbers in the same font or its rows do not line up with the text.
+    Q_PROPERTY(QFont font READ font NOTIFY metricsChanged)
+    Q_PROPERTY(int lineCount READ lineCount NOTIFY metricsChanged)
     Q_PROPERTY(int firstVisibleLine READ firstVisibleLine NOTIFY metricsChanged)
     Q_PROPERTY(int visibleLineCount READ visibleLineCount NOTIFY metricsChanged)
     // The selection, as positions in the document. Both -1 for none.
@@ -109,6 +116,8 @@ public:
     qreal lineHeight() const;
     QColor backgroundColor() const;
     int firstVisibleLine() const;
+    QFont font() const;
+    int lineCount() const;
     int visibleLineCount() const;
 
     int selectionStart() const;
@@ -234,6 +243,8 @@ private:
     std::vector<Line> m_lines;
     qreal m_lineHeight = 0;
     qreal m_contentHeight = 0;
+    QFont m_font;
+    int m_lineCount = 0;
     int m_firstVisibleLine = 0;
     QColor m_background;
 };

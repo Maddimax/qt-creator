@@ -85,6 +85,22 @@ public:
     TextViewport *viewport = nullptr;
 };
 
+// The numbers a gutter is showing, top to bottom. Walks the visual tree
+// because a Repeater's delegates are visual children of the item and QObject
+// children of somewhere else.
+static QStringList gutterNumbers(QQuickItem *item)
+{
+    QStringList numbers;
+    if (item->metaObject()->indexOfProperty("text") >= 0
+        && QString::fromLatin1(item->metaObject()->className()).contains("Text")) {
+        numbers << item->property("text").toString();
+    }
+    const QList<QQuickItem *> children = item->childItems();
+    for (QQuickItem *child : children)
+        numbers += gutterNumbers(child);
+    return numbers;
+}
+
 static FilePath writeLines(const TemporaryDirectory &dir, const QString &name, int count)
 {
     const FilePath file = dir.filePath(name);
@@ -496,6 +512,74 @@ private slots:
         viewport->setSelectionEnd(5);
         QTest::keyClick(&fixture.view, Qt::Key_Backspace);
         QCOMPARE(text->toPlainText(), QString("\n\ngamma\n"));
+    }
+
+    // The gutter is the first thing that makes a viewport look like an editor
+    // rather than a text box, and the only thing holding its rows against the
+    // text's is that both work the line's position out the same way.
+    void testTheGutterNumbersTheLinesThatAreOnScreen()
+    {
+        TemporaryDirectory dir("gutter-test");
+        QVERIFY(dir.isValid());
+        const FilePath file = writeLines(dir, "big.txt", 5000);
+
+        QQuickView view;
+        view.resize(400, 200);
+        QQmlComponent component(view.engine());
+        component.setData(QByteArray("import QtQuick\n"
+                                     "import QtCreator.TextEditor\n"
+                                     "Row {\n"
+                                     "    property alias viewport: v\n"
+                                     "    property alias gutter: g\n"
+                                     "    property string path\n"
+                                     "    EditorGutter { id: g; viewport: v; height: 200 }\n"
+                                     "    TextViewport {\n"
+                                     "        id: v; objectName: \"gutterViewport\"\n"
+                                     "        width: 300; height: 200\n"
+                                     "        document: CodeDocument { filePath: path }\n"
+                                     "    }\n"
+                                     "}"),
+                          QUrl("qrc:/test/GutterTest.qml"));
+        std::unique_ptr<QObject> created(component.createWithInitialProperties(
+            {{"path", file.toUrlishString()}}));
+        QVERIFY2(created != nullptr, qPrintable(component.errorString()));
+
+        auto * const item = qobject_cast<QQuickItem *>(created.get());
+        QVERIFY(item);
+        item->setParentItem(view.contentItem());
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+        auto * const viewport = item->findChild<TextViewport *>("gutterViewport");
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+        auto * const gutter = item->property("gutter").value<QQuickItem *>();
+        QVERIFY(gutter);
+
+        // One number per line on screen, and they are the lines on screen -
+        // counting from one, the way an editor does and the document does not.
+        QTRY_COMPARE(gutterNumbers(gutter).size(), viewport->visibleLineCount());
+        QStringList numbers = gutterNumbers(gutter);
+        QCOMPARE(numbers.first(), QString::number(viewport->firstVisibleLine() + 1));
+        QCOMPARE(numbers.last(),
+                 QString::number(viewport->firstVisibleLine() + viewport->visibleLineCount()));
+
+        // And they follow the text rather than the frame: scrolling by a whole
+        // number of lines moves the numbers by the same amount.
+        const int wasFirst = viewport->firstVisibleLine();
+        viewport->setScrollY(viewport->lineHeight() * 1000);
+        QTRY_COMPARE(viewport->firstVisibleLine(), 1000);
+        QVERIFY(viewport->firstVisibleLine() != wasFirst);
+        QTRY_COMPARE(gutterNumbers(gutter).first(), QString("1001"));
+
+        // Wide enough for the highest number in the file, not for the ones
+        // being shown: a gutter that sized itself to what is on screen would
+        // change width while scrolling.
+        QCOMPARE(viewport->lineCount(), 5001);
+        const qreal wide = gutter->implicitWidth();
+        viewport->setScrollY(0);
+        QTRY_COMPARE(viewport->firstVisibleLine(), 0);
+        QCOMPARE(gutter->implicitWidth(), wide);
     }
 
     void testAnEditTheViewportDidNotMakeStillShows()
