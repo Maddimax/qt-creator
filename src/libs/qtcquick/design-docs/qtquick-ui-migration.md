@@ -5675,9 +5675,15 @@ which looks exactly like a missing tool tip.
 The tool tip audit was a floor, not a ceiling: it compares string literals, so
 it finds text that vanished and not a control that quietly stopped showing what
 it has. The complementary question is answerable at runtime - *does a delegate
-show the tool tip its aspect carries?* - and it turns out 24 of the 26 value
-delegates do, which is exactly what makes the other two a trap. A page sets a
-tool tip, nothing complains, and nobody ever sees it.
+show the tool tip its aspect carries?* - and nearly all of them do, which is
+exactly what makes the one that does not a trap. A page sets a tool tip,
+nothing complains, and nobody ever sees it.
+
+Counted precisely, after the fix below: 27 delegates take an `Aspect` and 22
+show its tool tip. The five that do not are `GroupDelegate`,
+`InlineGroupDelegate`, `FlattenedGroupDelegate`, `AspectInlineListDelegate` and
+`UnsupportedDelegate` - containers and a placeholder, none of which draws a
+value, and no `AspectContainer` in the tree sets a tool tip anyway.
 
 So the test builds one aspect of each kind, gives each a tool tip, renders them
 through the **generic** form so the kind picks the delegate rather than the test
@@ -5832,7 +5838,7 @@ translation units, and the other two removals then mean something.
 
 The branch is called `utils-drop-printsupport`, and that part is done:
 `Qt::PrintSupport` is gone from `Utils`. `Qt::Widgets` is still a
-`PUBLIC_DEPENDS`, and it is going to stay for a long time - 78 of the 337 files
+`PUBLIC_DEPENDS`, and it is going to stay for a long time - 77 of the 337 files
 in `src/libs/utils` include a QtWidgets header, and most of them are widgets in
 their own right: `FancyLineEdit`, `DetailsWidget`, `CrumblePath`, `Wizard`,
 `InfoBar`. None of that is settings pages.
@@ -6033,6 +6039,38 @@ itself, and Lua's `layouter` binding, which two bundled extensions use.
 
 That is a different and much larger job than replacing layout closures, and it
 is not started.
+
+## Re-checking this file's own numbers
+
+Every count in the sections above was measured when it was written, and some of
+them were then invalidated by later commits in the same session - which is a
+quiet way for a record to go wrong, and worth catching once rather than leaving
+for a reader to trip over.
+
+Re-measured against the tree as it stands:
+
+| claim | now |
+| --- | --- |
+| 66 widget-derived classes in `Utils` | 66 |
+| 53 files whose only `Q_OBJECT` is inside `WITH_TESTS` yet include their `.moc` | 53 |
+| 105 production `.cpp` files with an inline test class | 105 |
+| 36 production callers of `setReadOnly()` | 36 |
+| 324 `.attachTo(` in `src` | 324 |
+| 109 options pages, two not aspect-driven | 109, two |
+| 78 of 337 `Utils` files including a QtWidgets header | **77** |
+| "24 of the 26 value delegates" show a tool tip | **27 take an aspect, 22 show it** |
+
+The two that moved are both this branch's doing: `aspectlist.cpp` lost its
+widget includes with `ColoredRow`, and `MultiSelectionDelegate` gained the tool
+tip it was missing. Both are corrected in place above.
+
+The one that was not merely stale is the delegate count, which was never
+precise: "value delegate" was a category invented for the sentence rather than
+something the tree defines. Counted by what the code actually says - a delegate
+that declares `property Aspect aspect` - it is 27 and 22, and the five that do
+not show a tool tip are the three group delegates, the inline list and the
+placeholder. **A number worth putting in a document is one with a definition
+behind it that someone else could re-run.**
 
 ## The same measurement, applied to kits
 
