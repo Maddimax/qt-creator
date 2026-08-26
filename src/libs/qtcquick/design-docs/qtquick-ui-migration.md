@@ -3480,6 +3480,38 @@ It is worth writing down because the command every batch used says
 migration. No plugin anywhere in `src` uses an API this work removed; that was
 checked by grep rather than assumed.
 
+### Dependencies, and icons in a table
+
+Thirteen of seventeen. The panel itself was small - a `QTreeView` over a model
+that already did all the work, and two check boxes - but converting it needed
+something the Quick table did not have.
+
+**A table could not show an icon.** `Qt::DecorationRole` gives a `QIcon`, which
+is exactly what a widget view wants and exactly what QML cannot carry;
+`AspectTableCell` did not read the role at all, so a straight conversion would
+have quietly dropped the project icons. The list delegate had solved this years
+ago with `QtcQuick::iconUrl()` and an image provider, but that lives in
+QtcQuick and `DependenciesModel` lives in ProjectExplorer, which does not link
+it.
+
+So the cell asks: `AspectModels.decorationUrl(model.decoration)`. One helper,
+no proxy, no new role for a model to implement, and no plugin has to link
+QtcQuick to have icons in a table. Every existing table gets them for free the
+moment its model answers the role.
+
+**A trap on the way.** Calling it `iconUrl()` compiled the header and broke
+`AspectModels::presentation()` three functions away: a member of that name
+shadows the free `QtcQuick::iconUrl()`, so a lambda that had been calling the
+free function for years suddenly needed `this`. Renaming to `decorationUrl()`
+is clearer anyway - it takes what the role holds, not an icon.
+
+The model needed nothing but `roleNames()` and the two flag-derived roles. It
+already answers the check state from `ProjectManager::hasDependency()` and
+writes it back through `addDependency()`, circular-dependency warning included.
+
+The `DetailsWidget` around it is gone; it was in `NoSummary` mode, so it was a
+frame and nothing else.
+
 ### The Editor panel, and the four layouters it was keeping alive
 
 Twelve of seventeen, and 26 layouters down to 22. This was the panel worth
