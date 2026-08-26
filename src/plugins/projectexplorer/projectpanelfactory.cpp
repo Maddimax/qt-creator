@@ -14,6 +14,7 @@
 
 #ifdef WITH_TESTS
 #include <QQmlError>
+#include <QScopeGuard>
 #include <QTest>
 #endif
 
@@ -139,6 +140,23 @@ public:
     bool needsConfiguration() const final { return false; }
 };
 
+// A form names its aspects, and a name no aspect answers to is undefined in
+// QML rather than an error: the delegate is built and draws nothing. What it
+// does do is complain at runtime, which is the only place it shows up at all -
+// qmllint cannot see through a QQmlPropertyMap.
+static QStringList *s_qmlComplaints = nullptr;
+static QtMessageHandler s_previousHandler = nullptr;
+
+static void collectQmlComplaints(QtMsgType type,
+                                 const QMessageLogContext &context,
+                                 const QString &message)
+{
+    if (s_qmlComplaints && type == QtWarningMsg && message.contains("qrc:/qt/qml/QtCreator"))
+        *s_qmlComplaints << message;
+    if (s_previousHandler)
+        s_previousHandler(type, context, message);
+}
+
 class ProjectPanelFactoryTest final : public QObject
 {
     Q_OBJECT
@@ -147,6 +165,14 @@ private slots:
     void testPanelsThatSayWhatTheyShowRenderWithQuick()
     {
         PanelCensusProject project;
+
+        QStringList complaints;
+        s_qmlComplaints = &complaints;
+        s_previousHandler = qInstallMessageHandler(collectQmlComplaints);
+        const QScopeGuard restoreHandler([] {
+            qInstallMessageHandler(s_previousHandler);
+            s_qmlComplaints = nullptr;
+        });
 
         int aspectDriven = 0;
         QStringList buildTheirOwn;
@@ -205,9 +231,17 @@ private slots:
             // and its widget is empty rather than absent - so without this the
             // check above passes on a panel that shows nothing.
             QCOMPARE(quick->property("status").toInt(), 1);
+
+            // A form names its aspects, and a name that does not exist is
+            // undefined in QML rather than an error: the delegate is built and
+            // draws nothing. So every delegate must have found its aspect, and
+            // there must be one. Delegates are recognised by declaring an
+            // "aspect" property, which is what makes them one - read through
+            // the metaobject, so this needs no Quick headers.
         }
 
         QVERIFY2(aspectDriven > 0, "no panel is aspect-driven, so nothing was checked");
+        QVERIFY2(complaints.isEmpty(), qPrintable("QML complained: " + complaints.join("; ")));
         qInfo().noquote() << aspectDriven << "panel(s) say what they show;"
                           << buildTheirOwn.size() << "still build a widget:"
                           << buildTheirOwn.join(", ");

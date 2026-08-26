@@ -30,6 +30,7 @@ public:
         : m_project(project)
     {
         setAutoApply(true);
+        excludePatterns.setQmlName("ExcludePatterns");
         excludePatterns.setUiAllowAdding(true);
         excludePatterns.setUiAllowRemoving(true);
         excludePatterns.setUiAllowEditing(true);
@@ -68,33 +69,36 @@ static TodoProjectSettings *todoProjectSettings(Project *project)
     return projectSettings<TodoProjectSettings>(project);
 }
 
-class TodoProjectPanelWidget final : public QWidget
+// What the panel shows. The flag is kept out of the settings container because
+// that container turns itself off as a whole. See ProjectCommentsPanel.
+class TodoProjectPanel final : public AspectContainer
 {
 public:
-    explicit TodoProjectPanelWidget(Project *project)
+    explicit TodoProjectPanel(TodoProjectSettings *settings)
     {
-        TodoProjectSettings *ps = todoProjectSettings(project);
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Todo/TodoProjectPanel.qml"));
 
-        QGroupBox *excludesGroup = nullptr;
-        using namespace Layouting;
-        Column {
-            ps->useGlobalSettings,
-            hr,
-            Group {
-                bindTo(&excludesGroup),
-                title(Tr::tr("Excluded Files")),
-                Column { &ps->excludePatterns },
-            },
-        }.attachTo(this);
+        settings->useGlobalSettings.setQmlName("UseGlobalSettings");
+        registerAspect(&settings->useGlobalSettings);
 
-        // The QGroupBox itself is not part of the aspect container, so
-        // its enabled state must be managed explicitly.
-        excludesGroup->setEnabled(!ps->useGlobalSettings());
-        ps->useGlobalSettings.addOnChanged(excludesGroup, [ps, excludesGroup] {
-            excludesGroup->setEnabled(!ps->useGlobalSettings());
-        });
+        settings->setQmlName("Settings");
+        registerAspect(settings);
     }
+
+    static Key extraDataKey() { return "TodoProjectPanel"; }
 };
+
+static TodoProjectPanel *todoProjectPanel(Project *project)
+{
+    const Key key = TodoProjectPanel::extraDataKey();
+    QVariant v = project->extraData(key);
+    if (v.isNull()) {
+        v = QVariant::fromValue(new TodoProjectPanel(todoProjectSettings(project)));
+        project->setExtraData(key, v);
+    }
+    return v.value<TodoProjectPanel *>();
+}
 
 class TodoProjectPanelFactory final : public ProjectPanelFactory
 {
@@ -103,8 +107,8 @@ public:
     {
         setPriority(100);
         setDisplayName(Tr::tr("To-Do"));
-        setCreateWidgetFunction([](Project *project) {
-            return new TodoProjectPanelWidget(project);
+        setSettingsProvider([](Project *project) {
+            return todoProjectPanel(project);
         });
     }
 };

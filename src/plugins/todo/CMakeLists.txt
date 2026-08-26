@@ -38,6 +38,7 @@ if(TARGET Todo AND TARGET Qt::Quick)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      TodoProjectPanel.qml
       TodoSettingsPage.qml
   )
 endif()
