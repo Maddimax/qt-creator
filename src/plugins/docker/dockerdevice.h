@@ -21,7 +21,6 @@ namespace Internal {
 class ContainerToolSettings;
 class DockerDevicePrivate;
 class DockerDeviceSetupWizard;
-class DockerDeviceWidget;
 
 class PortMappings final : public Utils::AspectList
 {
@@ -196,7 +195,6 @@ private:
     Internal::DockerDevicePrivate *d = nullptr;
 
     friend class Internal::DockerDeviceSetupWizard;
-    friend class Internal::DockerDeviceWidget;
 };
 
 namespace Internal {
