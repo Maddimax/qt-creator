@@ -1,8 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
-#include "callstacksampler.h"
-#include "tests/samplerforms_test.h"
 #include "ctfvisualizertool.h"
 #include "mcpsupport.h"
 #include "profilermode.h"
@@ -18,6 +16,9 @@
 #include "perfrunconfigurationaspect.h"
 
 #ifdef WITH_TESTS
+
+#include "callstacksampler.h"
+#include "tests/samplerforms_test.h"
 
 #include "tests/perfconfigeventsmodel_test.h"
 #include "tests/perfnativemixed_test.h"

@@ -5757,6 +5757,42 @@ while the delegates that wrap one in a layout put the state on the inner item.
 Counting parts is what survives that difference, and it is why the first test
 compares two renders rather than reading one value.
 
+## Does any of this build without WITH_TESTS?
+
+Several plugins gained inline tests on this branch - AcpClient, Axivion, the
+profiler samplers - and a settings form that is only listed when tests are on.
+Nothing had checked that a build without `WITH_TESTS` still works, which is the
+one way this work could break a release and not be noticed here.
+
+Checked, for every production `.cpp` these commits touched: reuse the compile
+command, drop `-DWITH_TESTS`, `-fsyntax-only`. Fifteen of sixteen clean.
+
+**Controlled both ways, because a clean run means nothing on its own.**
+Appending `#ifdef WITH_TESTS / #error / #endif` *and* a call to an undeclared
+function: with the flag dropped only the undeclared function is reported, and
+with it kept the `#error` fires too. That says the file really is compiled and
+the define really is gone.
+
+**The sixteenth was a false positive worth naming.** `acpsettings.cpp` failed
+with a wall of errors - every one of them inside
+`AcpClient_autogen/include/acpsettings.moc`, which was generated *with*
+`WITH_TESTS` and still declares a test class that is no longer compiled. A real
+build regenerates it. Any file with an inline test and an `#include
+"<file>.moc"` will do this.
+
+That led to a second question with a real answer: `acpsettings.cpp` includes its
+`.moc` unguarded although its only `Q_OBJECT` is inside the test guard, while
+the sampler and Axivion ones this session guarded theirs. Neither is wrong -
+moc writes an *empty* file rather than failing when there is nothing to
+generate, and 53 files in the tree are in exactly that position, `outputformatter
+.cpp` and `dockerdevice.cpp` among them. Guarding it is a style, not a fix, so
+nothing was changed to match.
+
+What did change: `qmlprofilerplugin.cpp` was including `tests/samplerforms_test
+.h` and `callstacksampler.h` outside the `#ifdef WITH_TESTS` block that holds
+every one of its other test includes, and both are there only for the creator
+registered inside it.
+
 ## The same measurement, applied to kits
 
 Re-running the `layouter()` instrumentation with the device closures gone leaves
