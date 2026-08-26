@@ -5428,10 +5428,49 @@ collector over the whole component lifetime, because a binding loop is a
 warning and nothing else - the component still builds and still draws, so a
 test only sees one by listening.
 
-Not ported, listed so the gap is not mistaken for a decision: key input and
-editing of any kind, cursor movement by keyboard, the gutter, folding, text
-marks and annotations, wrapping, and the extra-selection overlays beyond the
-primary selection. `CodeViewport` shows and selects; it does not edit.
+**The fourth increment is editing.** Keys move the caret (arrows, Home, End,
+Page Up/Down, with Shift extending), and where `readOnly` is off they insert,
+delete and split lines. Everything goes through a `QTextCursor` on the
+document, so the undo stack, the document layout and the marks on it all see
+the change; writing the text out and back would lose every one of those while
+the page still looked right.
+
+`readOnly` defaults to **true**. A viewport is a view until told otherwise, so
+showing a file cannot accidentally change it - and moving the caret is allowed
+either way, because reading a file means moving through it.
+
+Three things the tests pinned that are easy to get wrong:
+
+- **The viewport has to follow the caret.** A caret the view does not follow is
+  a caret typing where the user cannot see, which is worse than not moving at
+  all. `ensureCursorVisible()` scrolls the minimum that brings its line back.
+- **An edit the viewport did not make still has to show.** The indenter, another
+  view, a refactoring: nothing tells it but `QTextDocument::contentsChanged`.
+  Nothing is cached across that signal - the whole visible window is laid out
+  again - so this needs none of the ordering care a widget editor's
+  `contentsChange` handler does.
+- **Focus stops one level short.** `TextViewport` is an `ItemIsFocusScope`, so
+  `root.forceActiveFocus()` in the component gives the root focus and the
+  viewport none, and every key is silently dropped. The component focuses the
+  viewport itself, and the test asserts a typed character landed, which is what
+  makes that visible.
+
+That last one is also why the fixture calls `forceActiveFocus()` and every key
+test asserts `hasActiveFocus()` first: without it a focus failure reports as a
+wrong value somewhere else entirely.
+
+**A control worth recording, because the second assertion looks redundant.**
+Removing the `contentsChanged` connection did *not* break the first external
+edit - `CodeDocument` reports `modifiedChanged` for it, and that already
+polishes. Only a second edit, which changes nothing else, has the document's
+own signal to arrive by. The test makes both, and only the second one bites.
+Two guards again, as with widget visibility.
+
+Not ported, listed so the gap is not mistaken for a decision: undo and redo
+shortcuts (the stack is there and correct, nothing is bound to it), input
+methods, clipboard, the gutter, folding, text marks and annotations, wrapping,
+auto-indent on Return, and the extra-selection overlays beyond the primary
+selection.
 
 ## The terminal spike: go, with the cleanest split in the tree
 

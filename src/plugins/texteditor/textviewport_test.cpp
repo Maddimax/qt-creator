@@ -16,6 +16,8 @@
 #include <QQmlEngine>
 #include <QQuickView>
 #include <QSignalSpy>
+#include <QTextCursor>
+#include <QTextDocument>
 #include <QWheelEvent>
 #include <QTest>
 
@@ -44,9 +46,15 @@ public:
             viewport->setDocument(&document);
         }
         view.show();
+        // Keys go to the scene's active focus item, and an item that was never
+        // given focus is not it - every key assertion below would otherwise
+        // fail as a wrong value rather than as a missing focus.
+        if (viewport)
+            viewport->forceActiveFocus();
     }
 
     bool isReady() const { return viewport != nullptr; }
+    bool hasFocus() const { return viewport && viewport->hasActiveFocus(); }
     QString error() const { return component->errorString(); }
 
     QQuickView view;
@@ -233,6 +241,7 @@ private slots:
         int position = -1;
         int caretAfterClick = -1;
         int selectionAfterDrag = -1;
+        QString typedAfterClick;
         {
             QmlComplaints listener;
 
@@ -276,12 +285,23 @@ private slots:
             QTest::mouseRelease(&view, Qt::LeftButton, {}, to);
             selectionAfterDrag = viewport->selectionEnd();
 
+            // Typing reaches the viewport through the component, which means
+            // the focus arrived where the keys are handled - focusing the root
+            // stops one level short of a focus scope, and nothing says so.
+            item->setProperty("readOnly", false);
+            QTest::keyClick(&view, 'Q');
+            typedAfterClick = viewport->document()->textDocument()->document()->toPlainText();
+
             complaints = listener.messages();
         }
 
         QCOMPARE(caretAfterClick, position);
         QVERIFY2(selectionAfterDrag > position,
                  "dragging down did not extend the selection past where it started");
+        // The drag left a selection, so typing replaced it: the character lands
+        // where the selection began, which is where the press was.
+        QVERIFY(position < typedAfterClick.size());
+        QCOMPARE(typedAfterClick.at(position), QChar('Q'));
         QVERIFY2(complaints.isEmpty(), qPrintable("QML complained: " + complaints.join("; ")));
     }
 
@@ -360,6 +380,174 @@ private slots:
                  qPrintable(QString("bar at %1, viewport says %2")
                                 .arg(barPosition())
                                 .arg(expectedPosition())));
+    }
+
+    void testTypingGoesThroughTheDocumentsOwnCursor()
+    {
+        // Edits go through a QTextCursor rather than through the text, so the
+        // document's undo stack, its layout and the marks on it all see them.
+        // Writing the text out and back would lose every one of those, and the
+        // page would look right while the undo stack was ruined.
+        TemporaryDirectory dir("textviewport-typing");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("small.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\ngamma\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        QVERIFY2(fixture.hasFocus(), "the viewport never took focus, so no key arrives");
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 2);
+        QTextDocument * const text = fixture.document.textDocument()->document();
+        QVERIFY(text);
+
+        // A viewport is a view until told otherwise, so this does nothing yet.
+        QVERIFY(viewport->isReadOnly());
+        viewport->setCursorPosition(0);
+        QTest::keyClick(&fixture.view, 'X');
+        QCOMPARE(text->toPlainText().left(5), QString("alpha"));
+
+        viewport->setReadOnly(false);
+        QTest::keyClick(&fixture.view, 'X');
+        QCOMPARE(text->toPlainText().left(6), QString("Xalpha"));
+        QCOMPARE(viewport->cursorPosition(), 1);
+        QVERIFY2(text->isUndoAvailable(),
+                 "the edit did not reach the document's undo stack");
+
+        // The line on screen was laid out again, not just the document.
+        QTRY_COMPARE(viewport->visibleLine(0).value("text").toString(), QString("Xalpha"));
+
+        // Backspace takes it back out.
+        QTest::keyClick(&fixture.view, Qt::Key_Backspace);
+        QCOMPARE(text->toPlainText().left(5), QString("alpha"));
+        QCOMPARE(viewport->cursorPosition(), 0);
+
+        // Typing over a selection replaces it rather than inserting beside it.
+        viewport->setSelectionStart(0);
+        viewport->setSelectionEnd(5);
+        QTest::keyClick(&fixture.view, 'Y');
+        QCOMPARE(text->toPlainText().left(2), QString("Y\n"));
+
+        // Return splits the line, so the document has one more of them.
+        const int before = text->blockCount();
+        QTest::keyClick(&fixture.view, Qt::Key_Return);
+        QCOMPARE(text->blockCount(), before + 1);
+    }
+
+    void testAnEditTheViewportDidNotMakeStillShows()
+    {
+        // The indenter, another view, a refactoring: nothing tells the viewport
+        // that the document changed except the document. Its own edits polish
+        // themselves, so this only holds if it listens.
+        TemporaryDirectory dir("textviewport-elsewhere");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("small.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\ngamma\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_COMPARE(viewport->visibleLine(0).value("text").toString(), QString("alpha"));
+
+        QTextDocument * const text = fixture.document.textDocument()->document();
+        QVERIFY(text);
+        QTextCursor elsewhere(text);
+        elsewhere.setPosition(0);
+        elsewhere.insertText("Z");
+        QTRY_COMPARE(viewport->visibleLine(0).value("text").toString(), QString("Zalpha"));
+
+        // The second edit is the one that proves the connection, and it is not
+        // redundant: the first made the document modified, and CodeDocument
+        // reports that separately, so the check above passes either way. Only
+        // an edit that changes nothing else has the document's own signal to
+        // arrive by. Adding a line also makes the document taller, which is
+        // what a scroll bar reads - a viewport that redrew without remeasuring
+        // would keep the old height.
+        const qreal before = viewport->contentHeight();
+        elsewhere.insertText("\n");
+        QTRY_COMPARE(viewport->contentHeight(), before + viewport->lineHeight());
+    }
+
+    void testTheCaretMovesByKeyAndShiftSelectsWithIt()
+    {
+        // Moving the caret is allowed in a read-only viewport - reading a file
+        // means moving through it - so this deliberately does not enable
+        // editing.
+        TemporaryDirectory dir("textviewport-keys");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("small.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\ngamma\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        QVERIFY2(fixture.hasFocus(), "the viewport never took focus, so no key arrives");
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 2);
+        viewport->setCursorPosition(0);
+
+        QTest::keyClick(&fixture.view, Qt::Key_Right);
+        QCOMPARE(viewport->cursorPosition(), 1);
+        QTest::keyClick(&fixture.view, Qt::Key_End);
+        QCOMPARE(viewport->cursorPosition(), 5);
+        QTest::keyClick(&fixture.view, Qt::Key_Down);
+        QCOMPARE(viewport->cursorPosition(), 10); // end of "beta"
+        QTest::keyClick(&fixture.view, Qt::Key_Home);
+        QCOMPARE(viewport->cursorPosition(), 6);
+
+        // Moving without Shift leaves nothing selected.
+        QCOMPARE(viewport->selectionStart(), -1);
+
+        // Shift takes the caret's old place as the anchor and grows from it.
+        QTest::keyClick(&fixture.view, Qt::Key_Right, Qt::ShiftModifier);
+        QTest::keyClick(&fixture.view, Qt::Key_Right, Qt::ShiftModifier);
+        QCOMPARE(viewport->selectionStart(), 6);
+        QCOMPARE(viewport->selectionEnd(), 8);
+        QCOMPARE(viewport->cursorPosition(), 8);
+
+        // And a plain move collapses it again.
+        QTest::keyClick(&fixture.view, Qt::Key_Right);
+        QCOMPARE(viewport->selectionStart(), -1);
+        QCOMPARE(viewport->selectionEnd(), -1);
+    }
+
+    void testMovingTheCaretOffScreenScrollsToIt()
+    {
+        // A caret the viewport does not follow is a caret that types where the
+        // user cannot see, which is worse than not moving at all.
+        TemporaryDirectory dir("textviewport-follow");
+        QVERIFY(dir.isValid());
+        const FilePath file = writeLines(dir, "big.txt", 5000);
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        QVERIFY2(fixture.hasFocus(), "the viewport never took focus, so no key arrives");
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+        const int onScreen = viewport->visibleLineCount();
+
+        // Down from the last visible line has to bring the next one into view.
+        viewport->setCursorPosition(0);
+        for (int i = 0; i < onScreen; ++i)
+            QTest::keyClick(&fixture.view, Qt::Key_Down);
+        // QTRY, because what is on screen is recomputed in updatePolish() on the
+        // next frame rather than when the key arrives.
+        QTRY_VERIFY2(viewport->firstVisibleLine() > 0,
+                     "the caret walked off the bottom without the viewport following");
+        QVERIFY(!viewport->cursorRectangle().isEmpty());
+
+        // And back up again.
+        for (int i = 0; i < onScreen; ++i)
+            QTest::keyClick(&fixture.view, Qt::Key_Up);
+        QTRY_COMPARE(viewport->firstVisibleLine(), 0);
+        QVERIFY(!viewport->cursorRectangle().isEmpty());
     }
 
     void testASelectionIsMergedIntoTheLineFormats()

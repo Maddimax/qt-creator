@@ -24,6 +24,9 @@ Item {
     required property string filePath
     // Whether it opened at all. Worth reading before blaming the colours.
     readonly property bool opened: codeDocument.opened
+    // Whether typing does anything. A view until told otherwise, so that
+    // showing a file cannot accidentally change it.
+    property alias readOnly: viewport.readOnly
 
     // Where the caret is, and what is selected, as document positions.
     readonly property alias cursorPosition: viewport.cursorPosition
@@ -52,6 +55,9 @@ Item {
             anchors.fill: parent
             anchors.margins: Spacing.PaddingHXs
             document: codeDocument
+            // Keys go to the scene's active focus item. The viewport is a focus
+            // scope, so focusing the root would stop one level short of it.
+            focus: true
 
             // The caret. A Rectangle because that is what it is; the viewport
             // draws text and says where the caret belongs, and an empty rect
@@ -63,7 +69,7 @@ Item {
                 y: viewport.cursorRectangle.y
                 width: viewport.cursorRectangle.width
                 height: viewport.cursorRectangle.height
-                visible: viewport.cursorRectangle.width > 0 && root.activeFocus
+                visible: viewport.cursorRectangle.width > 0 && viewport.activeFocus
                 color: Tokens.textDefault
 
                 Timer {
@@ -83,7 +89,7 @@ Item {
             cursorShape: Qt.IBeamCursor
 
             onPressed: (mouse) => {
-                root.forceActiveFocus()
+                viewport.forceActiveFocus()
                 const position = viewport.positionAt(mouse.x, mouse.y)
                 viewport.cursorPosition = position
                 // A press starts a selection of nothing rather than clearing

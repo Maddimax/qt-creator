@@ -16,6 +16,8 @@
 #include <vector>
 
 QT_BEGIN_NAMESPACE
+class QTextCursor;
+class QTextDocument;
 class QTextLayout;
 QT_END_NAMESPACE
 
@@ -84,6 +86,9 @@ class TEXTEDITOR_EXPORT TextViewport : public QQuickItem
     Q_PROPERTY(int cursorPosition READ cursorPosition WRITE setCursorPosition
                    NOTIFY cursorPositionChanged)
     Q_PROPERTY(QRectF cursorRectangle READ cursorRectangle NOTIFY cursorRectangleChanged)
+    // Whether typing does anything. A viewport is a view until told otherwise,
+    // so that showing a file cannot accidentally change it.
+    Q_PROPERTY(bool readOnly READ isReadOnly WRITE setReadOnly NOTIFY readOnlyChanged)
 
 public:
     explicit TextViewport(QQuickItem *parent = nullptr);
@@ -136,6 +141,9 @@ public:
     void setCursorPosition(int position);
     QRectF cursorRectangle() const;
 
+    bool isReadOnly() const;
+    void setReadOnly(bool readOnly);
+
 signals:
     void documentChanged();
     void scrollYChanged();
@@ -144,9 +152,11 @@ signals:
     void selectionChanged();
     void cursorPositionChanged();
     void cursorRectangleChanged();
+    void readOnlyChanged();
 
 protected:
     void updatePolish() override;
+    void keyPressEvent(QKeyEvent *event) override;
     QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *) override;
     void geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry) override;
 
@@ -182,12 +192,26 @@ private:
     };
     Located locate(int position) const;
 
+    // The document cursor this viewport's caret and selection stand for. Edits
+    // go through it so that the document's own undo stack, its layout and the
+    // marks on it all see the change - writing the text out and back would
+    // lose every one of them.
+    QTextCursor textCursor() const;
+    void setTextCursor(const QTextCursor &cursor);
+    // Keeps the caret on screen after it has been moved by something other than
+    // the mouse.
+    void ensureCursorVisible();
+
     QPointer<CodeDocument> m_document;
+    // The QTextDocument currently connected to, which is not the same one
+    // across a reopen.
+    QPointer<QTextDocument> m_connectedDocument;
     qreal m_scrollY = 0;
     qreal m_scrollX = 0;
     int m_selectionStart = -1;
     int m_selectionEnd = -1;
     int m_cursorPosition = 0;
+    bool m_readOnly = true;
 
     // Everything below is produced in updatePolish() on the GUI thread and read
     // in updatePaintNode() on the render thread, with the GUI thread blocked.

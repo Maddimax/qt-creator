@@ -15,7 +15,9 @@
 #include <QQuickWindow>
 #include <QSGRectangleNode>
 #include <QSGTextNode>
+#include <QKeyEvent>
 #include <QTextBlock>
+#include <QTextCursor>
 #include <QTextDocument>
 #include <QTextLayout>
 
@@ -30,6 +32,7 @@ TextViewport::TextViewport(QQuickItem *parent)
     : QQuickItem(parent)
 {
     setFlag(ItemHasContents);
+    setFlag(ItemIsFocusScope);
     setClip(true);
 }
 
@@ -194,6 +197,144 @@ QRectF TextViewport::rectangleAt(int position) const
     return QRectF(line.at.x() + x, line.at.y(), 1, m_lineHeight);
 }
 
+bool TextViewport::isReadOnly() const
+{
+    return m_readOnly;
+}
+
+void TextViewport::setReadOnly(bool readOnly)
+{
+    if (m_readOnly == readOnly)
+        return;
+    m_readOnly = readOnly;
+    emit readOnlyChanged();
+}
+
+QTextCursor TextViewport::textCursor() const
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    QTextDocument * const text = doc ? doc->document() : nullptr;
+    if (!text)
+        return {};
+
+    QTextCursor cursor(text);
+    // The anchor is where the selection was started from, which is not always
+    // where the caret is: a selection dragged upwards has its anchor after its
+    // position, and collapsing it has to keep that straight.
+    const bool selected = m_selectionStart >= 0 && m_selectionEnd >= 0
+                          && m_selectionStart != m_selectionEnd;
+    cursor.setPosition(selected ? m_selectionStart : m_cursorPosition);
+    if (selected)
+        cursor.setPosition(m_selectionEnd, QTextCursor::KeepAnchor);
+    return cursor;
+}
+
+void TextViewport::setTextCursor(const QTextCursor &cursor)
+{
+    setCursorPosition(cursor.position());
+    if (cursor.hasSelection()) {
+        setSelectionStart(cursor.anchor());
+        setSelectionEnd(cursor.position());
+    } else {
+        setSelectionStart(-1);
+        setSelectionEnd(-1);
+    }
+    ensureCursorVisible();
+    polish();
+}
+
+void TextViewport::ensureCursorVisible()
+{
+    if (m_lineHeight <= 0)
+        return;
+
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    QTextDocument * const text = doc ? doc->document() : nullptr;
+    if (!text)
+        return;
+
+    QTextCursor cursor(text);
+    cursor.setPosition(qBound(0, m_cursorPosition, text->characterCount() - 1));
+    const int line = cursor.blockNumber();
+    const qreal top = line * m_lineHeight;
+    if (top < m_scrollY)
+        setScrollY(top);
+    else if (top + m_lineHeight > m_scrollY + height())
+        setScrollY(top + m_lineHeight - height());
+}
+
+void TextViewport::keyPressEvent(QKeyEvent *event)
+{
+    QTextCursor cursor = textCursor();
+    if (cursor.isNull()) {
+        QQuickItem::keyPressEvent(event);
+        return;
+    }
+
+    const QTextCursor::MoveMode mode = event->modifiers().testFlag(Qt::ShiftModifier)
+                                           ? QTextCursor::KeepAnchor
+                                           : QTextCursor::MoveAnchor;
+    const auto move = [&](QTextCursor::MoveOperation operation) {
+        cursor.movePosition(operation, mode);
+        setTextCursor(cursor);
+        event->accept();
+    };
+
+    switch (event->key()) {
+    case Qt::Key_Left:   return move(QTextCursor::Left);
+    case Qt::Key_Right:  return move(QTextCursor::Right);
+    case Qt::Key_Up:     return move(QTextCursor::Up);
+    case Qt::Key_Down:   return move(QTextCursor::Down);
+    case Qt::Key_Home:   return move(QTextCursor::StartOfLine);
+    case Qt::Key_End:    return move(QTextCursor::EndOfLine);
+    case Qt::Key_PageUp:
+    case Qt::Key_PageDown: {
+        const int lines = qMax(1, int(height() / qMax(1.0, m_lineHeight)) - 1);
+        cursor.movePosition(event->key() == Qt::Key_PageUp ? QTextCursor::Up
+                                                           : QTextCursor::Down,
+                            mode, lines);
+        setTextCursor(cursor);
+        return event->accept();
+    }
+    default:
+        break;
+    }
+
+    if (m_readOnly) {
+        QQuickItem::keyPressEvent(event);
+        return;
+    }
+
+    switch (event->key()) {
+    case Qt::Key_Backspace:
+        // With a selection, Backspace removes it rather than one more character
+        // before it, which deletePreviousChar() already does.
+        cursor.deletePreviousChar();
+        break;
+    case Qt::Key_Delete:
+        cursor.deleteChar();
+        break;
+    case Qt::Key_Return:
+    case Qt::Key_Enter:
+        cursor.insertText("\n");
+        break;
+    default:
+        // Anything else is text only if it produced any. A modifier chord
+        // produces none, and neither does a function key.
+        if (event->text().isEmpty() || event->text().at(0).isNonCharacter()
+            || (event->text().at(0).category() == QChar::Other_Control
+                && event->text() != "\t")) {
+            QQuickItem::keyPressEvent(event);
+            return;
+        }
+        cursor.insertText(event->text());
+        break;
+    }
+
+    setTextCursor(cursor);
+    event->accept();
+}
+
 int TextViewport::cursorPosition() const
 {
     return m_cursorPosition;
@@ -233,6 +374,25 @@ int TextViewport::positionAt(qreal x, qreal y) const
 
 void TextViewport::documentChangedInternal()
 {
+    // The QTextDocument only exists once the file has opened, and it is a
+    // different one each time it reopens, so the connection to it is made here
+    // rather than in setDocument(). Nothing is cached across the signal - the
+    // whole visible window is laid out again - so this needs none of the
+    // ordering care that a widget editor's contentsChange handler does.
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    QTextDocument * const text = doc ? doc->document() : nullptr;
+    if (text != m_connectedDocument) {
+        if (m_connectedDocument)
+            disconnect(m_connectedDocument, nullptr, this, nullptr);
+        m_connectedDocument = text;
+        if (text) {
+            connect(text, &QTextDocument::contentsChanged, this, [this] {
+                polish();
+                update();
+            });
+        }
+    }
+
     polish();
     update();
 }
