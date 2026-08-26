@@ -5319,6 +5319,42 @@ so it cannot also be evidence - it is stated rather than hidden. The tests that
 do pass over this ground are the census's "every visible aspect appears on the
 page" and the AspectList item-pane tests in QuickUi.
 
+## Four of the five behaviour layouters were not waiting on ClangFormat
+
+The condition recorded above - *the code style and tab/behaviour/storage/typing
+layouters go when ClangFormat's factory names a QML form* - is right for one of
+them and wrong for the other four. Grouping them by the page they appear on hid
+that they are pinned by different things.
+
+Both surfaces that draw these five containers are already Quick:
+`BehaviorSettingsPage.qml` for the global page and `EditorProjectPanel.qml` for
+a project's Editor panel, each drawing five forms over `AspectModels.named()`.
+Following the registrations rather than the page, `BehaviorSettings`,
+`TypingSettings`, `StorageSettings` and `ExtraEncodingSettings` are registered
+in exactly those two places and nowhere else. `TabSettings` is not: three code
+style containers embed it (C++, Nim, QmlJS - all with a `qmlSource`), and so
+does `TestCodeStyleEditor` in `codestyleaspect_test.cpp`, with
+`Layouting::Column{&m_tabSettings}.attachTo(this)`.
+
+That last one is the whole difference. It is the fixture for *a language that
+has no Qt Quick form* - ClangFormat's shape - so `TabSettings` is the only one
+of the five whose layouter the ClangFormat gate actually holds up.
+
+**Measured before deleting, because the static argument has been wrong here
+four times.** The `layouter()` probe over TextEditor, ProjectExplorer,
+CppEditor, QmlJSTools and QuickUi hands back a stored closure 12 times, and
+every one is a test: five `CodeStyleAspectTest` cases (twice each - the
+`CodeStyleAspect` and the `TabSettings` inside it), `CppCodeStyleAspectsTest::
+testTheWidgetFormShowsOneCategoryToo()`, and the QuickUi fixture's own
+`widgetPage`. The four never appear. Static and runtime agree, which is the
+only reason this was a deletion rather than a port.
+
+**Why a deletion needs the probe and not just a test run.** Removing a layouter
+does not leave a hole - `layouter()` falls back to a column of the aspects - so
+a container that quietly lost its designed layout still draws, and a test that
+only asks whether controls exist stays green. The evidence has to be that the
+stored closure was never handed out, not that nothing failed afterwards.
+
 ## The same measurement, applied to kits
 
 Re-running the `layouter()` instrumentation with the device closures gone leaves

@@ -5,8 +5,6 @@
 
 #include "texteditortr.h"
 
-#include <utils/aspectwidgets.h>
-#include <utils/layoutbuilder.h>
 
 #include <QTextCursor>
 #include <QTextDocument>
@@ -93,24 +91,6 @@ TypingSettings::TypingSettings()
                                                .arg(automaticCommentPosition)
                                                .arg(lineStartCommentPosition)
                                                .arg(afterWhitespaceCommentPosition));
-
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-        return Column {
-            Group {
-                title(Tr::tr("Typing")),
-                Row {
-                    Form {
-                        autoIndent, br,
-                        smartBackspaceBehavior, br,
-                        tabKeyBehavior, br,
-                        preferSingleLineComments, br,
-                        commentPosition, br
-                    }, st
-                }
-            }
-        };
-    });
 }
 
 void TypingSettings::setData(const TypingSettingsData &data)
