@@ -6167,10 +6167,28 @@ earned now - the plugin ships a Qt Quick editor - and there is no cycle, since
 `QtcQuick` depends only on `Utils`.
 
 **What it is at this point:** text, caret, selection, mouse and keyboard
-editing, highlighting, indenting, scrolling and line numbers, all O(visible).
-No folding, no marks or annotations, no extra-selection overlays, no context
-menu, no drag and drop, no current-line highlight, and no wrapping - which
-still wants a height cache first.
+editing, highlighting, indenting, scrolling, line numbers and the current-line
+highlight, all O(visible). No folding, no marks or annotations, no
+extra-selection overlays, no context menu, no drag and drop, and no wrapping -
+which still wants a height cache first.
+
+The current-line bar reuses `cursorRectangle`, which the caret already reads, so
+there is no second answer to "which line is the caret on". Two things it had to
+get right, and one of them the obvious test missed:
+
+- The colour is `C_CURRENT_LINE`'s **brush**, transparent when the scheme sets
+  none. `QBrush().color()` is opaque black, so a scheme that asks for no
+  highlight would otherwise get a black bar across the line the caret is on -
+  the same trap already recorded for the editor background, hit a second time
+  because `texteditor.cpp` takes `.color()` off this one directly.
+- `cursorRectangle` is in the *viewport's* coordinates and the viewport is inset
+  by a margin, so the bar has to be moved by the same inset. Asserting which
+  line the highlight is on does **not** catch forgetting it: a four-pixel error
+  in a fifteen-pixel line still rounds to the right line. Comparing the
+  highlight's offset to `cursorRectangle().y()` exactly does - 24 against 28.
+
+That is a general point about testing a position: rounding an answer to the
+thing it is *for* hides errors smaller than the thing. Assert the number.
 
 ## The same measurement, applied to kits
 

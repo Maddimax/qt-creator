@@ -57,6 +57,27 @@ Item {
         border.width: 1
         border.color: Tokens.strokeSubtle
 
+        // The line the caret is on, drawn first so it is behind both the
+        // numbers and the text. Its colour is transparent unless the scheme
+        // asks for one, so a scheme with no current-line highlight gets none
+        // rather than a black bar.
+        Rectangle {
+            id: currentLine
+
+            objectName: "currentLineHighlight"
+            color: viewport.currentLineColor
+            x: 0
+            width: parent.width
+            // cursorRectangle is in the viewport's coordinates and the viewport
+            // is inset, so the highlight has to be moved by the same inset or
+            // it sits a margin above the line it is meant to be on.
+            y: viewport.y + viewport.cursorRectangle.y
+            height: viewport.lineHeight
+            // An empty caret rect is how the viewport says the position is
+            // scrolled off screen; there is no line to highlight then.
+            visible: viewport.cursorRectangle.height > 0
+        }
+
         EditorGutter {
             id: gutter
 

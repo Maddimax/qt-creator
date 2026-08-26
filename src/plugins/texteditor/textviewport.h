@@ -75,6 +75,10 @@ class TEXTEDITOR_EXPORT TextViewport : public QQuickItem
     // Rectangle behind it does - but the colour lives in FontSettings, which
     // QML cannot reach on its own.
     Q_PROPERTY(QColor backgroundColor READ backgroundColor NOTIFY metricsChanged)
+    // The colour behind the line the caret is on. Transparent when the scheme
+    // sets none, because a scheme that asks for no highlight must not get an
+    // opaque one - see backgroundColor for the same trap.
+    Q_PROPERTY(QColor currentLineColor READ currentLineColor NOTIFY metricsChanged)
     // What is on screen. Readable so that a test can say what was drawn without
     // reading the scene graph.
     // How many lines the document has, which a gutter needs to know how wide
@@ -116,6 +120,7 @@ public:
     qreal lineHeight() const;
     QColor backgroundColor() const;
     int firstVisibleLine() const;
+    QColor currentLineColor() const;
     QFont font() const;
     int lineCount() const;
     int visibleLineCount() const;
@@ -243,6 +248,7 @@ private:
     std::vector<Line> m_lines;
     qreal m_lineHeight = 0;
     qreal m_contentHeight = 0;
+    QColor m_currentLine = Qt::transparent;
     QFont m_font;
     int m_lineCount = 0;
     int m_firstVisibleLine = 0;

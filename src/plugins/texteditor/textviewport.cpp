@@ -132,6 +132,11 @@ int TextViewport::firstVisibleLine() const
     return m_firstVisibleLine;
 }
 
+QColor TextViewport::currentLineColor() const
+{
+    return m_currentLine;
+}
+
 QFont TextViewport::font() const
 {
     return m_font;
@@ -631,6 +636,12 @@ void TextViewport::updatePolish()
     m_background = backgroundBrush.style() == Qt::NoBrush
                        ? Utils::creatorColor(Utils::Theme::BackgroundColorNormal)
                        : backgroundBrush.color();
+
+    // The same brush question as the background above: a scheme that sets no
+    // current-line colour must draw nothing, and QBrush().color() is black.
+    const QBrush currentLineBrush = fonts.toTextCharFormat(C_CURRENT_LINE).background();
+    m_currentLine = currentLineBrush.style() == Qt::NoBrush ? QColor(Qt::transparent)
+                                                           : currentLineBrush.color();
 
     const QTextCharFormat selectionFormat = fonts.toTextCharFormat(C_SELECTION);
     const int selectionFrom = qMin(m_selectionStart, m_selectionEnd);

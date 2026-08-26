@@ -637,6 +637,62 @@ private slots:
         }
     }
 
+    // The line the caret is on. An editor without it is hard to read, and the
+    // bar has to be on the caret's line rather than near it - the viewport is
+    // inset, so a highlight that forgets the inset sits a margin too high.
+    void testTheCurrentLineIsHighlightedWhereTheCaretIs()
+    {
+        TemporaryDirectory dir("currentline-test");
+        QVERIFY(dir.isValid());
+        const FilePath file = writeLines(dir, "big.txt", 200);
+
+        QQuickView view;
+        view.resize(400, 200);
+        QQmlComponent component(view.engine());
+        component.setData(QByteArray("import QtCreator.TextEditor\n"
+                                     "CodeViewport {\n"
+                                     "    width: 400; height: 200\n"
+                                     "    property string path\n"
+                                     "    source: CodeDocument { filePath: path }\n"
+                                     "}"),
+                          QUrl("qrc:/test/CurrentLineTest.qml"));
+        std::unique_ptr<QObject> created(component.createWithInitialProperties(
+            {{"path", file.toUrlishString()}}));
+        QVERIFY2(created != nullptr, qPrintable(component.errorString()));
+
+        auto * const item = qobject_cast<QQuickItem *>(created.get());
+        QVERIFY(item);
+        item->setParentItem(view.contentItem());
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+        auto * const viewport = item->findChild<TextViewport *>("codeViewport");
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+        auto * const highlight = item->findChild<QQuickItem *>("currentLineHighlight");
+        QVERIFY2(highlight, "no current-line highlight");
+
+        // On the caret's line, in the same coordinates the caret is drawn in.
+        const auto lineOf = [viewport, highlight] {
+            return qRound((highlight->y() - viewport->y()) / viewport->lineHeight());
+        };
+        viewport->setCursorPosition(0);
+        QTRY_COMPARE(lineOf(), 0);
+        QCOMPARE(highlight->height(), viewport->lineHeight());
+        QVERIFY2(highlight->width() > viewport->width(),
+                 "the highlight does not span the editor");
+
+        // And it follows the caret rather than staying where it started.
+        viewport->forceActiveFocus();
+        QVERIFY2(viewport->hasActiveFocus(), "the viewport never took focus, so no key arrives");
+        QTest::keyClick(&view, Qt::Key_Down);
+        QTest::keyClick(&view, Qt::Key_Down);
+        QTRY_VERIFY2(viewport->cursorPosition() > 0, "the caret did not move, so this says nothing");
+        QTRY_COMPARE(lineOf(), 2);
+        QCOMPARE(qRound(highlight->y() - viewport->y()),
+                 qRound(viewport->cursorRectangle().y()));
+    }
+
     void testAnEditTheViewportDidNotMakeStillShows()
     {
         // The indenter, another view, a refactoring: nothing tells the viewport
