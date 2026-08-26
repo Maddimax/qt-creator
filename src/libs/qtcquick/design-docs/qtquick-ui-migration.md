@@ -5466,11 +5466,42 @@ polishes. Only a second edit, which changes nothing else, has the document's
 own signal to arrive by. The test makes both, and only the second one bites.
 Two guards again, as with widget visibility.
 
-Not ported, listed so the gap is not mistaken for a decision: undo and redo
-shortcuts (the stack is there and correct, nothing is bound to it), input
-methods, clipboard, the gutter, folding, text marks and annotations, wrapping,
-auto-indent on Return, and the extra-selection overlays beyond the primary
-selection.
+**The fifth increment is the three keys that make it an editor rather than a
+text box**, all of which ask the document rather than deciding for themselves:
+
+- **Tab** indents by what the code style says - `TextDocument::indent()`, which
+  inserts one indent's worth at a caret and shifts whole blocks under a
+  selection. A text box types a tab character; that is precisely what a code
+  style is there to override. Shift+Tab unindents.
+- **Return** auto-indents through `TextDocument::autoIndent()`, so the new line
+  starts where the language's indenter says and the caret lands after that
+  indentation rather than in column zero.
+- **Undo and redo** are `QTextDocument`'s, so they take back what any other view
+  of the same document did too. That is the return on editing through a cursor
+  rather than through the text. Both are blocked by `readOnly`: a view has
+  nothing to take back.
+
+The tests write the tab settings down themselves
+(`SpacesOnly, tabSize 8, indentSize 4`) rather than reading the ones in force,
+so the expectations are literals - `"    alpha\n    \nbeta\n"`, caret at 14 -
+and not the same arithmetic run twice. Every `TextDocument` carries a
+`PlainTextIndenter`, which carries the previous line's indentation over, so
+none of this needs a language plugin to be shown.
+
+**What blocks the Code Style preview from using this.** `CodeViewport` needs a
+`CodeDocument`, and `CodeDocument` opens a *file*: `filePath` is its only input.
+The preview's text is a `CodeStylePreviewAspect`'s value - a string that was
+never a file - and the same is true of the snippet editor. So the next step is
+not another editor feature but a way to hand `TextViewport` a document that
+holds text, and the question to settle first is whether `CodeDocument` grows a
+text mode or whether holding a string is a different class. Until then those
+pages keep their `TextArea`, which lays out the whole document and is perfectly
+adequate for a twenty-line snippet - the scalable path is not what they need,
+the indenter and the highlighter are, and they already have both.
+
+Not ported, listed so the gap is not mistaken for a decision: input methods,
+the clipboard, the gutter, folding, text marks and annotations, wrapping, and
+the extra-selection overlays beyond the primary selection.
 
 ## The terminal spike: go, with the cleanest split in the tree
 

@@ -5,6 +5,7 @@
 
 #include "codedocument.h"
 #include "fontsettings.h"
+#include "tabsettings.h"
 #include "textdocument.h"
 #include "texteditorconstants.h"
 #include "textviewport.h"
@@ -548,6 +549,113 @@ private slots:
             QTest::keyClick(&fixture.view, Qt::Key_Up);
         QTRY_COMPARE(viewport->firstVisibleLine(), 0);
         QVERIFY(!viewport->cursorRectangle().isEmpty());
+    }
+
+    void testTabIndentsByTheCodeStyleAndNotByATabCharacter()
+    {
+        // A text box types a tab character. An editor types what the code style
+        // asks for, which is the difference between the two - and the reason
+        // Tab has to be taken over rather than left to move the focus.
+        TemporaryDirectory dir("textviewport-tab");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("small.txt");
+        QVERIFY(file.writeFileContents("beta\ngamma\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        QVERIFY2(fixture.hasFocus(), "the viewport never took focus, so no key arrives");
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+        TextDocument * const doc = fixture.document.textDocument();
+        // Written down here rather than taken from the settings, so that the
+        // expectation below is a literal and not the same arithmetic twice.
+        doc->setTabSettings(TabSettingsData(TabSettingsData::SpacesOnlyTabPolicy, 8, 4,
+                                             TabSettingsData::NoContinuationAlign));
+        QTextDocument * const text = doc->document();
+
+        viewport->setReadOnly(false);
+        viewport->setCursorPosition(0);
+        QTest::keyClick(&fixture.view, Qt::Key_Tab);
+        QCOMPARE(text->toPlainText(), QString("    beta\ngamma\n"));
+        QVERIFY2(!text->toPlainText().contains('\t'), "Tab typed a tab character");
+
+        // And Shift+Tab takes it back out.
+        QTest::keyClick(&fixture.view, Qt::Key_Backtab);
+        QCOMPARE(text->toPlainText(), QString("beta\ngamma\n"));
+    }
+
+    void testReturnStartsTheNewLineWhereTheIndenterSays()
+    {
+        // Every TextDocument has a PlainTextIndenter, which carries the
+        // previous line's indentation over. A language's own indenter does more
+        // than that, but nothing here needs one to show that Return asks.
+        TemporaryDirectory dir("textviewport-return");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("small.txt");
+        QVERIFY(file.writeFileContents("    alpha\nbeta\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        QVERIFY2(fixture.hasFocus(), "the viewport never took focus, so no key arrives");
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+        TextDocument * const doc = fixture.document.textDocument();
+        doc->setTabSettings(TabSettingsData(TabSettingsData::SpacesOnlyTabPolicy, 8, 4,
+                                             TabSettingsData::NoContinuationAlign));
+        QTextDocument * const text = doc->document();
+
+        viewport->setReadOnly(false);
+        viewport->setCursorPosition(9); // end of "    alpha"
+        QTest::keyClick(&fixture.view, Qt::Key_Return);
+
+        QCOMPARE(text->toPlainText(), QString("    alpha\n    \nbeta\n"));
+        // And the caret is after that indentation, not before it: a caret at
+        // the start of the line would have the user type in column zero.
+        QCOMPARE(viewport->cursorPosition(), 14);
+    }
+
+    void testUndoTakesBackWhatWasTyped()
+    {
+        // The undo stack is the document's, which is what makes editing through
+        // a cursor worth the trouble: it takes back what any other view of the
+        // same document did as well.
+        TemporaryDirectory dir("textviewport-undo");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("small.txt");
+        QVERIFY(file.writeFileContents("alpha\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        QVERIFY2(fixture.hasFocus(), "the viewport never took focus, so no key arrives");
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+        QTextDocument * const text = fixture.document.textDocument()->document();
+
+        viewport->setReadOnly(false);
+        viewport->setCursorPosition(0);
+        QTest::keyClick(&fixture.view, 'X');
+        QCOMPARE(text->toPlainText(), QString("Xalpha\n"));
+
+        QTest::keyClick(&fixture.view, Qt::Key_Z, Qt::ControlModifier);
+        QCOMPARE(text->toPlainText(), QString("alpha\n"));
+        // Undo puts the caret where the edit was, so that typing carries on
+        // from there rather than from wherever it happened to be.
+        QCOMPARE(viewport->cursorPosition(), 0);
+
+        QTest::keyClick(&fixture.view, Qt::Key_Z,
+                        Qt::ControlModifier | Qt::ShiftModifier);
+        QCOMPARE(text->toPlainText(), QString("Xalpha\n"));
+
+        // A read-only viewport has nothing to take back, so it does not.
+        viewport->setReadOnly(true);
+        QTest::keyClick(&fixture.view, Qt::Key_Z, Qt::ControlModifier);
+        QCOMPARE(text->toPlainText(), QString("Xalpha\n"));
     }
 
     void testASelectionIsMergedIntoTheLineFormats()

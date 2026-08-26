@@ -15,6 +15,8 @@
 #include <QQuickWindow>
 #include <QSGRectangleNode>
 #include <QSGTextNode>
+#include <utils/multitextcursor.h>
+
 #include <QKeyEvent>
 #include <QTextBlock>
 #include <QTextCursor>
@@ -305,6 +307,21 @@ void TextViewport::keyPressEvent(QKeyEvent *event)
         return;
     }
 
+    TextDocument * const doc = m_document->textDocument();
+    QTextDocument * const text = doc->document();
+
+    // Undo and redo are the document's, so they take back what any other view
+    // of it did as well - which is the point of editing through a cursor.
+    if (event->matches(QKeySequence::Undo) || event->matches(QKeySequence::Redo)) {
+        if (event->matches(QKeySequence::Undo))
+            text->undo(&cursor);
+        else
+            text->redo(&cursor);
+        setTextCursor(cursor);
+        event->accept();
+        return;
+    }
+
     switch (event->key()) {
     case Qt::Key_Backspace:
         // With a selection, Backspace removes it rather than one more character
@@ -316,14 +333,27 @@ void TextViewport::keyPressEvent(QKeyEvent *event)
         break;
     case Qt::Key_Return:
     case Qt::Key_Enter:
+        // The new line starts where the language says it should, which is the
+        // difference between an editor and a text box.
+        cursor.beginEditBlock();
         cursor.insertText("\n");
+        doc->autoIndent(cursor);
+        cursor.endEditBlock();
+        break;
+    case Qt::Key_Tab:
+        // One indent's worth of whatever the tab settings say, and a whole
+        // block where something is selected. A literal tab is what a text box
+        // types; it is not what a code style asks for.
+        cursor = doc->indent(Utils::MultiTextCursor({cursor})).mainCursor();
+        break;
+    case Qt::Key_Backtab:
+        cursor = doc->unindent(Utils::MultiTextCursor({cursor})).mainCursor();
         break;
     default:
         // Anything else is text only if it produced any. A modifier chord
         // produces none, and neither does a function key.
         if (event->text().isEmpty() || event->text().at(0).isNonCharacter()
-            || (event->text().at(0).category() == QChar::Other_Control
-                && event->text() != "\t")) {
+            || event->text().at(0).category() == QChar::Other_Control) {
             QQuickItem::keyPressEvent(event);
             return;
         }
