@@ -190,10 +190,6 @@ public:
         color.setLabelText(Tr::tr("Color:"));
         color.setAlphaAllowed(false);
 
-        Utils::AspectWidgets::setLayouter(this, [this] {
-            using namespace Layouting;
-            return Form { name, br, iconType, br, color };
-        });
     }
 
     Keyword keyword() const

@@ -105,10 +105,6 @@ public:
                 customAddress.setEnabled(addressType.volatileValue() == 2);
         });
 
-        Utils::AspectWidgets::setLayouter(this, [this]() {
-            using namespace Layouting;
-            return Row{noMargin, addressType, customAddress};
-        });
     }
 
     QHostAddress hostAddress() const

@@ -101,7 +101,6 @@ CustomLanguageModel::CustomLanguageModel()
     arguments.setDisplayStyle(StringAspect::LineEditDisplay);
 
     using namespace Layouting;
-    Utils::AspectWidgets::setLayouter(this, [this] { return Form { name, br, executable, br, arguments }; });
 }
 
 CustomLanguageModels::CustomLanguageModels()

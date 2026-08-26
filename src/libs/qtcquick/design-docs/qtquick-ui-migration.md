@@ -5215,6 +5215,42 @@ exactly that shape, so it went there rather than into a new seam.
 If a fourth arrives that fits none of these, that is the point to reconsider a
 single "host services" object, rather than at the third.
 
+## Nothing drawn inside a Qt Quick page consults a layouter
+
+Chasing the remaining closures one surface at a time was going to take as many
+batches as there are surfaces, so this is the general statement, checked:
+
+- a **page** container with a `qmlSource` is rendered by the page's own QML;
+- a **nested** container reached by name from that QML is laid out by the QML;
+- a nested container drawn *generically* goes through `AspectItems`, which takes
+  a model;
+- an **AspectList item pane** is `AspectListDelegate` doing
+  `setSource("AspectItems.qml", {"model": currentItemModel})`.
+
+None of those paths asks for a layouter, and the word appears in QtcQuick
+exactly once, in a comment. So **every container drawn anywhere inside a Quick
+page has a dead layouter**, and since the census renders all 107 pages with
+Quick, that is every settings page and everything under one.
+
+Four went on that basis. Three - Custom Language Models, To-Do's keywords and
+GitLab's servers - were `Form { a, br, b, br, c }`, one aspect per row, which is
+what `AspectItems` draws anyway. The fourth, the MCP server's listen address,
+was a `Row` putting two aspects side by side, and `McpServerSettingsPage.qml`
+already does that itself with a `RowLayout` around the two delegates.
+
+**One was deliberately left.** ACP's closure builds `InfoLabel`s and wires
+behaviour into them - the case the factory's comment warns about, where a
+layouter does more than arrange the aspects. Deleting it would drop those labels
+unless the page reproduces them, which is a port and not a deletion.
+
+**What this batch does not verify.** These closures were dead on the Quick side,
+which is the side that is used; nothing here proves the *widget* rendering of
+those containers is unaffected, because nothing draws them that way any more and
+no test does either. That is the same reasoning that made them safe to delete,
+so it cannot also be evidence - it is stated rather than hidden. The tests that
+do pass over this ground are the census's "every visible aspect appears on the
+page" and the AspectList item-pane tests in QuickUi.
+
 ## The same measurement, applied to kits
 
 Re-running the `layouter()` instrumentation with the device closures gone leaves

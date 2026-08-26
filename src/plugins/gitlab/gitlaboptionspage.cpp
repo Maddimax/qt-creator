@@ -80,10 +80,6 @@ public:
         secure.setLabelPlacement(BoolAspect::LabelPlacement::InExtraLabel);
         secure.setDefaultValue(true);
 
-        Utils::AspectWidgets::setLayouter(this, [this] {
-            using namespace Layouting;
-            return Form { host, br, description, br, token, br, port, br, secure };
-        });
     }
 
     GitLabServer server() const
