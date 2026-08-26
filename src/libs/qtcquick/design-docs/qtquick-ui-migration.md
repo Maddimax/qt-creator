@@ -5215,6 +5215,48 @@ exactly that shape, so it went there rather than into a new seam.
 If a fourth arrives that fits none of these, that is the point to reconsider a
 single "host services" object, rather than at the third.
 
+## What still reaches a widget layouter, measured
+
+Requiring Qt Quick looked like it would strand the widget layouters - the six
+restored earlier in this plan were kept only because a Quick-less build reached
+them generically. It does not, and the reason is worth writing down, because
+this is the third time in this plan that deleting them looked safe and was not.
+
+**Who asks for a layouter at all**, which is the question rather than how many
+`setLayouter` calls there are (29, in 24 files):
+
+| caller | when |
+|---|---|
+| `IOptionsPage::createAspectForm()` | the Quick factory declined the container |
+| `aspectwidgetrenderer.cpp` (x2) | a *nested* container inside a widget form |
+| `runconfiguration.cpp` | a run configuration aspect's project settings |
+| `axivionsettings.cpp`, `qtprofilerwindow.cpp` | attached by hand |
+| `codestyleaspect_test.cpp` (x5) | tests of the widget path |
+
+**Measured rather than reasoned about.** Instrumenting the fallback in
+`createAspectForm()` and running QuickUi, TextEditor, ProjectExplorer, CppEditor
+and Debugger shows it taken 14 times, and every one is either
+`DesktopDeviceTest` - **device settings containers have no `qmlSource`** - or
+`QuickUiTest::testBuildingAPageIsNotShowingIt`, which builds a widget form
+deliberately to check both paths behave alike.
+
+**And the code style layouters are still live**, which is the one that would
+have caught me out. `CodeStyleAspect` renders with Quick for a language whose
+factory names a form, and C++, QML/JS and Nim all do - but **ClangFormat's
+factory calls no `setQmlSource` at all**, so that page still builds the widget
+editor, and with it `TabSettings`, `BehaviorSettings` and the rest of the nested
+containers whose layouters looked dead.
+
+So the condition for deleting each group is now a named thing rather than a
+feeling:
+
+- the `createAspectForm()` fallback goes when **device settings name a QML
+  form**;
+- the code style and tab/behaviour/storage/typing layouters go when
+  **ClangFormat's factory does**;
+- the run configuration and hand-attached ones go when those surfaces move,
+  which they have not started to.
+
 ## A shutdown crash the fixed Apply uncovered
 
 Running the whole suite plugin by plugin - which twenty-odd commits touching
@@ -5290,10 +5332,8 @@ product with *no* dependency on Qt Quick at all. `TerminalQuick` builds a
 `QuickUi` got a required `Depends { name: "Qt"; submodules: [...] }` where the
 optional pair used to be - the other two already had one further down.
 
-It also unblocks something larger. The widget layouters kept as a fallback for a
-Quick-less build - the six restored earlier in this plan - have no caller left
-once Quick is guaranteed. That is the *actual* end of "Removing Layouting", and
-it was blocked on a configuration that no longer exists.
+It does **not** unblock deleting the widget layouters, which is what it looked
+like it would. That claim was checked and is wrong; the checking is below.
 
 ## Editing 55 pages, because asking them was not enough
 
