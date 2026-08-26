@@ -3480,6 +3480,33 @@ It is worth writing down because the command every batch used says
 migration. No plugin anywhere in `src` uses an API this work removed; that was
 checked by grep rather than assumed.
 
+### What a build without Qt::Quick shows now
+
+The previous section turns on a configuration worth stating outright:
+`find_package(Qt6 OPTIONAL_COMPONENTS Quick QuickWidgets QuickControls2 ...)`.
+Quick is optional, `QtcQuick` and `QuickUi` are built only where it is present,
+and without them nothing installs the aspect-form factory. So that build exists
+and it is what the layouters are for.
+
+It has a consequence for the panels, and it is a change rather than an
+accident. A settings **page** that was converted kept its layouter, so both
+backends still draw it as designed. A **panel** did not have a layouter to
+keep - it had a hand-written `QWidget`, which the conversion replaced. So in a
+Quick-less build the fourteen converted panels fall back to
+`AspectWidgets::layouter()`'s generic `Column` of their aspects.
+
+For most of them that is what they already were: the widget form of the
+"flag plus settings" family was literally `Column { flag, hr, *settings }`, and
+the fallback is the same list without the rule. Where it differs is the panels
+with real structure - Clang Tools, Testing, GitLab, the Editor's margin row -
+which come out stacked rather than arranged.
+
+Writing widget layouters for those would restore them and would also be ten
+files of layout code duplicating the QML beside it, which is the thing this
+work removes. The instruction for this branch is to replace widgets rather than
+keep them, so they are not being written. Recorded here so that the choice is
+visible instead of being discovered.
+
 ### A layouter is not dead because nothing puts it in a Column
 
 Six layouters were deleted across three batches - the four TextEditor settings
