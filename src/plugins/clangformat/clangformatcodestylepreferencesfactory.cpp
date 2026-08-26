@@ -41,6 +41,7 @@
 #include <texteditor/textdocument.h>
 #include <texteditor/texteditor.h>
 
+#include <utils/filedialogs.h>
 #include <utils/filepath.h>
 #include <utils/fileutils.h>
 #include <utils/guard.h>

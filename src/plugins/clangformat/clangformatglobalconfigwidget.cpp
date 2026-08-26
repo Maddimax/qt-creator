@@ -18,6 +18,7 @@
 #include <utils/layoutbuilder.h>
 
 #include <QCheckBox>
+#include <QComboBox>
 #include <QSpinBox>
 
 using namespace CppEditor;
