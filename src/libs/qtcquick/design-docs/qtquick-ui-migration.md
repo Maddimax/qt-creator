@@ -3440,6 +3440,46 @@ migration has not touched - hand-written panels and dialogs, which is a
 different kind of work from anything here. The options pages are done, and the
 count that says so is the census, not a grep.
 
+### Verifying the whole branch, not one suite at a time
+
+Every batch here was checked against the suites it plausibly touched. That is
+not the same as checking the branch, so this is the whole thing: all 56 plugins
+that register tests, run one after another.
+
+**2463 tests pass.** Seven groups fail, and each is accounted for:
+
+| plugin | fails | what it is |
+|---|---|---|
+| CppEditor | 9 | the documented flake - the same binary has given 3, 4, 9, 11 and 25 across this work |
+| QtSupport | 19 | `QtProjectImporterTest`, which needs `KitManager::defaultKit()` to have a Qt; a test run has none. Baselined against unmodified sources. |
+| ProjectExplorer | 2 | `RunWorkerConflictTest` and `testSourceToBinaryMapping(qbs)`, both baselined |
+| Debugger | 1 | `testStateMachine` opens a `.pro` file and needs a kit; baselined |
+| FakeVim | 2 | pre-existing. One compares `/private/var/...` with `/var/...` - macOS canonicalises the path and no code change can affect it. |
+| Profiler | 3 | pre-existing: flame graph selection and a colour model |
+| QmlPreview | 1 | pre-existing, and conclusively so - **this session touched no file in that plugin** |
+
+The last three had never been baselined, and "it looks unrelated" is not
+evidence. What settles it is `git diff --name-only <session start>..HEAD --
+src/plugins/qmlpreview`, which is empty while its test fails, and the same for
+every failing test *file*: none was touched.
+
+**One thing this turned up that no per-suite run could.** `libQmlDesigner.dylib`
+in the app bundle fails to load:
+
+    Symbol not found: Utils::AspectContainer::setLayouter(...)
+
+That method became the free function `AspectWidgets::setLayouter()`, and
+QmlDesigner's source already calls the new one. The dylib is dated **16 July**
+against a libUtils from **26 August**: it is a leftover from a different build
+configuration, not produced here and not rebuilt here. The half of QmlDesigner
+that uses aspects - `QmlDesignerSettings`, which owns `designersettings.cpp` -
+*is* built by this configuration and compiles clean.
+
+It is worth writing down because the command every batch used says
+`-noload QmlDesigner`, so a plugin failing to load was invisible for the whole
+migration. No plugin anywhere in `src` uses an API this work removed; that was
+checked by grep rather than assumed.
+
 ### What the census could not see, and now can
 
 Two holes, both found the hard way in the same session.
