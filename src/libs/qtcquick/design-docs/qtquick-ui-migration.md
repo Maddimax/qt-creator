@@ -3480,6 +3480,35 @@ It is worth writing down because the command every batch used says
 migration. No plugin anywhere in `src` uses an API this work removed; that was
 checked by grep rather than assumed.
 
+### Building and Running, and what a shared widget was hiding
+
+Fourteen of seventeen, and 22 layouters down to 21.
+
+This panel did not build a widget of its own: it asked
+`GlobalOrProjectAspect`'s shared one, which draws a check box, a Restore Global
+button, and `AspectWidgets::layouter(aspect->projectSettings())()` for whatever
+is underneath. That looked like infrastructure worth porting - a new control
+kind and a delegate, benefiting every user.
+
+It was not, and the reason is worth writing down. The three things that widget
+draws are the flag, the restore action and the settings, which is *exactly* the
+shape every panel in this batch already has. Copilot, Documentation Comments,
+Vcpkg, To-Do, Clangd, Testing, GitLab and the Editor all assemble those three
+by hand because each one wires them slightly differently. So the panel became
+one more of those, and needed no new machinery at all - only
+`UseGlobalAspect`, which already knows how to make "global settings" a link to
+the page they come from.
+
+**The layouter was where a decision lived.** The settings container holds every
+build-and-run setting there is - the global page shows all of them - and the
+panel showed nine. Which nine was written down only in the layouter, so
+deleting it meant reading it first and putting the list in the form. That is
+the same shape as Clangd, where the widget layout was the only record of what a
+project may set.
+
+`GlobalOrProjectAspect`'s widget stays, because run configurations still use
+it; that is the surface it was written for, and it is not a settings panel.
+
 ### Dependencies, and icons in a table
 
 Thirteen of seventeen. The panel itself was small - a `QTreeView` over a model
