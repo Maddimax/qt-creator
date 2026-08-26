@@ -35,6 +35,10 @@ Item {
     signal editingFinished()
 
     // Where the caret is, and what is selected, as document positions.
+    // Whether the caret is in here. The viewport is a focus scope, so the root
+    // item's own activeFocus stays false the whole time someone is typing.
+    readonly property alias editing: viewport.activeFocus
+
     readonly property alias cursorPosition: viewport.cursorPosition
     readonly property alias selectionStart: viewport.selectionStart
     readonly property alias selectionEnd: viewport.selectionEnd

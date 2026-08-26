@@ -176,6 +176,11 @@ QVariantMap TextViewport::visibleLine(int index) const
     for (const QTextLayout::FormatRange &range : ranges) {
         formats.append(QVariantMap{{"start", range.start},
                                    {"length", range.length},
+                                   // Syntax highlighting is mostly a foreground
+                                   // colour, so a test that reads only the
+                                   // background cannot tell coloured text from
+                                   // text drawn in one colour.
+                                   {"foreground", range.format.foreground().color()},
                                    {"background", range.format.background().color()}});
     }
     return QVariantMap{{"text", line.layout->text()},

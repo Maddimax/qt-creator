@@ -187,6 +187,7 @@ private slots:
     void testAnEnablerGreysOutWhatItControlsWhileTheFormIsOpen();
     void testAReadOnlyAspectOffersNothingToTypeIn_data();
     void testAReadOnlyAspectOffersNothingToTypeIn();
+    void testAPreviewShowsExactlyWhatItsAspectHolds();
     void testPasswordAspectDoesNotEchoItsValue();
     void testAspectListOffersItsExtraButtons();
     void testAnOrderedListMovesTheCurrentItem();
@@ -806,6 +807,57 @@ static int typablePartsOf(QQuickItem *delegate)
             ++count;
     }
     return count;
+}
+
+// Every aspect under \a container, however deep, whose qmlName is \a name.
+static Utils::BaseAspect *aspectByQmlName(Utils::AspectContainer *container, const QString &name)
+{
+    for (Utils::BaseAspect *aspect : container->aspects()) {
+        if (aspect->qmlName() == name)
+            return aspect;
+        if (auto nested = qobject_cast<Utils::AspectContainer *>(aspect)) {
+            if (Utils::BaseAspect *found = aspectByQmlName(nested, name))
+                return found;
+        }
+    }
+    return nullptr;
+}
+
+void QuickUiTest::testAPreviewShowsExactlyWhatItsAspectHolds()
+{
+    // A code style preview indents its text as soon as it is shown, and what
+    // the indenter produced is what the page displays. If that never reaches
+    // the aspect the two drift apart, and then Format formats text nobody is
+    // looking at and appears to do nothing - which is how this was reported.
+    Core::setAspectFormFactory([](Utils::AspectContainer *container) {
+        return QtcQuick::createAspectForm(container);
+    });
+    const QScopeGuard clearFactory([] { Core::setAspectFormFactory({}); });
+
+    int checked = 0;
+    for (Core::IOptionsPage *page : Core::IOptionsPage::allOptionsPages()) {
+        const std::optional<Utils::AspectContainer *> aspects = page->aspects();
+        if (!aspects || !*aspects)
+            continue;
+        Utils::BaseAspect * const preview = aspectByQmlName(*aspects, "Preview");
+        if (!preview)
+            continue;
+
+        std::unique_ptr<Core::IOptionsPageWidget> widget(page->createWidget());
+        QVERIFY(widget);
+        auto quickWidget = widget->findChild<QQuickWidget *>();
+        QVERIFY2(quickWidget && quickWidget->rootObject(),
+                 qPrintable(page->displayName() + " did not render"));
+
+        QObject * const buffer
+            = quickWidget->rootObject()->findChild<QObject *>("codeStylePreviewBuffer");
+        QVERIFY2(buffer, qPrintable(page->displayName() + " draws no preview buffer"));
+
+        QTRY_COMPARE(buffer->property("text").toString(),
+                     preview->volatileVariantValue().toString());
+        ++checked;
+    }
+    QVERIFY2(checked > 0, "no page offered a preview, so this proves nothing");
 }
 
 void QuickUiTest::testAReadOnlyAspectOffersNothingToTypeIn_data()

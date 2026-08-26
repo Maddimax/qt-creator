@@ -95,6 +95,21 @@ ColumnLayout {
         ButtonDelegate { aspect: root.aspects.FormatPreview; Layout.fillWidth: false }
     }
 
+    // The indenter rewrites the document as soon as it attaches or the style
+    // changes, and that rewrite is what the page shows - so it is what the
+    // aspect has to hold, or Format formats text nobody is looking at and the
+    // button appears to do nothing. Not while the editor has focus: there the
+    // write-back waits for editingFinished so that the indenter never runs
+    // under the cursor.
+    Connections {
+        target: buffer
+
+        function onTextChanged() {
+            if (!edit.editing && buffer.text !== root.aspects.Preview.value)
+                root.aspects.Preview.value = buffer.text
+        }
+    }
+
     // The text arrives by binding, which can land after CodeIndenting has
     // attached, and is replaced whenever the aspect's value changes.
     Component.onCompleted: indenting_.reindent()

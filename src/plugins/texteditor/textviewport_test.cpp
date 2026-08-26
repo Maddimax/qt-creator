@@ -466,6 +466,38 @@ private slots:
         QCOMPARE(text->blockCount(), before + 1);
     }
 
+    // Reported from a real page: selecting text in a Code Style preview and
+    // pressing Delete left it there.
+    void testDeleteAndBackspaceRemoveTheWholeSelection()
+    {
+        TemporaryDirectory dir("textviewport-delete");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("small.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\ngamma\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        QVERIFY2(fixture.hasFocus(), "the viewport never took focus, so no key arrives");
+
+        TextViewport * const viewport = fixture.viewport;
+        QTextDocument * const text = fixture.document.textDocument()->document();
+        QVERIFY(text);
+        viewport->setReadOnly(false);
+
+        viewport->setSelectionStart(0);
+        viewport->setSelectionEnd(5);
+        QTest::keyClick(&fixture.view, Qt::Key_Delete);
+        QCOMPARE(text->toPlainText(), QString("\nbeta\ngamma\n"));
+
+        // And Backspace does the same to a selection rather than taking one
+        // more character out in front of it.
+        viewport->setSelectionStart(1);
+        viewport->setSelectionEnd(5);
+        QTest::keyClick(&fixture.view, Qt::Key_Backspace);
+        QCOMPARE(text->toPlainText(), QString("\n\ngamma\n"));
+    }
+
     void testAnEditTheViewportDidNotMakeStillShows()
     {
         // The indenter, another view, a refactoring: nothing tells the viewport
@@ -783,6 +815,19 @@ private slots:
         // connection can be deleted with nothing complaining.
         QTRY_VERIFY2(!viewport->visibleLine(2).value("formats").toList().isEmpty(),
                      "the highlighter coloured nothing");
+
+        // And the formats carry a colour. Highlighting is a foreground colour
+        // almost everywhere, so a run of format ranges that all draw in the
+        // same colour is text that only looks highlighted from here.
+        QSet<QRgb> foregrounds;
+        for (int line = 0; line < viewport->visibleLineCount(); ++line) {
+            const QVariantList formats = viewport->visibleLine(line).value("formats").toList();
+            for (const QVariant &format : formats)
+                foregrounds.insert(format.toMap().value("foreground").value<QColor>().rgb());
+        }
+        QVERIFY2(foregrounds.size() > 1,
+                 qPrintable(QString("every format draws in one colour (%1), so nothing is "
+                                    "highlighted").arg(foregrounds.size())));
     }
 
     void testABufferCanBeIndentedByALanguagesOwnIndenter()
