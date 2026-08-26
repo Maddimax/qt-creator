@@ -26,6 +26,7 @@ public:
     std::unique_ptr<TextDocument> m_document;
     QList<QMetaObject::Connection> m_connections;
     bool m_useLanguageServer = false;
+    bool m_highlight = true;
     bool m_announced = false;
 };
 
@@ -43,7 +44,7 @@ static void tellLanguageClientManager(const char *method, Args &&...args)
 }
 
 CodeDocument::CodeDocument(QObject *parent)
-    : QObject(parent)
+    : CodeSource(parent)
     , d(new CodeDocumentPrivate)
 {}
 
@@ -104,6 +105,20 @@ bool CodeDocument::isModified() const
 bool CodeDocument::isOpened() const
 {
     return d->m_document != nullptr;
+}
+
+bool CodeDocument::highlights() const
+{
+    return d->m_highlight;
+}
+
+void CodeDocument::setHighlight(bool highlight)
+{
+    if (d->m_highlight == highlight)
+        return;
+    d->m_highlight = highlight;
+    reattach();
+    emit highlightChanged();
 }
 
 bool CodeDocument::usesLanguageServer() const
@@ -174,6 +189,7 @@ void CodeDocument::reattach()
     if (d->m_filePath.isEmpty()) {
         if (wasOpened != isOpened())
             emit openedChanged();
+        emit textDocumentChanged();
         return;
     }
 
@@ -181,9 +197,17 @@ void CodeDocument::reattach()
     if (!document->open(d->m_filePath, d->m_filePath)) {
         if (wasOpened != isOpened())
             emit openedChanged();
+        emit textDocumentChanged();
         return;
     }
     d->m_document = std::move(document);
+
+    // open() worked out the mime type but left the highlighter alone: putting
+    // one on is normally the editor widget's job, and a document drawn by a
+    // TextViewport has no widget. CodeHighlighting does this for a TextEdit,
+    // which cannot help here - it needs a QQuickTextDocument.
+    if (d->m_highlight)
+        applyHighlighting(d->m_document.get(), d->m_document->mimeType());
 
     // The substitution, where there is a TextEdit to substitute into: it shows
     // this document from now on, so the highlighter, the indenter and the marks
@@ -202,6 +226,7 @@ void CodeDocument::reattach()
     if (wasOpened != isOpened())
         emit openedChanged();
     emit modifiedChanged();
+    emit textDocumentChanged();
 }
 
 } // namespace TextEditor

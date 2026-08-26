@@ -41,6 +41,9 @@ Item {
         document: edit.textDocument
         filePath: root.filePath
         useLanguageServer: root.useLanguageServer
+        // CodeHighlighting below colours this document, and it is told what
+        // the text is rather than guessing from the name.
+        highlight: false
     }
 
     CodeHighlighting {

@@ -3,8 +3,10 @@
 
 #include "textviewport_test.h"
 
+#include "codebuffer.h"
 #include "codedocument.h"
 #include "fontsettings.h"
+#include "syntaxhighlighter.h"
 #include "tabsettings.h"
 #include "textdocument.h"
 #include "texteditorconstants.h"
@@ -32,6 +34,17 @@ class ViewportFixture
 {
 public:
     explicit ViewportFixture(const FilePath &file, int width = 400, int height = 200)
+        : ViewportFixture(nullptr, width, height)
+    {
+        if (viewport) {
+            document.setFilePath(file);
+            viewport->setDocument(&document);
+        }
+    }
+
+    // Anything else a viewport can draw. A file goes through the constructor
+    // above, which is the common case; a CodeBuffer comes in here.
+    explicit ViewportFixture(CodeSource *source, int width = 400, int height = 200)
     {
         view.resize(width, height);
         component.reset(new QQmlComponent(view.engine()));
@@ -43,8 +56,8 @@ public:
         viewport = qobject_cast<TextViewport *>(component->create());
         if (viewport) {
             viewport->setParentItem(view.contentItem());
-            document.setFilePath(file);
-            viewport->setDocument(&document);
+            if (source)
+                viewport->setDocument(source);
         }
         view.show();
         // Keys go to the scene's active focus item, and an item that was never
@@ -656,6 +669,147 @@ private slots:
         viewport->setReadOnly(true);
         QTest::keyClick(&fixture.view, Qt::Key_Z, Qt::ControlModifier);
         QCOMPARE(text->toPlainText(), QString("Xalpha\n"));
+    }
+
+    void testHighlightingReachesWhatIsDrawn()
+    {
+        // Highlighting arrives late and by a route of its own: it lands as
+        // formats on the blocks' own layouts, which is not a content change.
+        // The viewport copies those formats into layouts of its own, so it has
+        // to be told - otherwise a file is drawn in one colour and nothing
+        // anywhere reports a problem.
+        // Big, because Creator highlights in timed batches: a small file is
+        // coloured before the first frame and would pass whether or not the
+        // viewport ever heard about it.
+        TemporaryDirectory dir("textviewport-highlighting");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("main.cpp");
+        QString source;
+        for (int i = 0; i < 5000; ++i)
+            source += QString("int function%1() { return %1; }\n").arg(i);
+        QVERIFY(file.writeFileContents(source.toUtf8()));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_COMPARE(viewport->visibleLine(0).value("text").toString(),
+                     QString("int function0() { return 0; }"));
+        QVERIFY2(fixture.document.textDocument()->syntaxHighlighter(),
+                 "the document has no highlighter, so this would prove nothing");
+
+        // "int" and "return" are keywords, so every visible line has to carry
+        // formats the viewport did not put there itself.
+        QTRY_VERIFY2(!viewport->visibleLine(2).value("formats").toList().isEmpty(),
+                     "the highlighter's colours never reached the viewport");
+
+        // And a line that was nowhere near the first batch. Scrolling polishes
+        // by itself, so this waits for the colours to arrive *after* it.
+        viewport->setScrollY(viewport->lineHeight() * 4000);
+        QTRY_COMPARE(viewport->firstVisibleLine(), 4000);
+        QTRY_VERIFY2(!viewport->visibleLine(0).value("formats").toList().isEmpty(),
+                     "colours arriving after a scroll never reached the viewport");
+    }
+
+    void testAPageThatColoursTheDocumentItselfIsNotSecondGuessed()
+    {
+        // A page attaching CodeHighlighting to the same document has to win:
+        // two highlighters both write the blocks' formats, and that one is told
+        // what the text is rather than guessing from the name - which for a
+        // .clang-format file, YAML called neither, is the only way to know.
+        TemporaryDirectory dir("codedocument-highlight");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("main.cpp");
+        QVERIFY(file.writeFileContents("int main() { return 0; }\n"));
+
+        CodeDocument document;
+        document.setFilePath(file);
+        QVERIFY(document.isOpened());
+        QVERIFY2(document.textDocument()->syntaxHighlighter(),
+                 "a document that opened a file was left uncoloured");
+
+        CodeDocument unhighlighted;
+        unhighlighted.setHighlight(false);
+        unhighlighted.setFilePath(file);
+        QVERIFY(unhighlighted.isOpened());
+        QVERIFY2(!unhighlighted.textDocument()->syntaxHighlighter(),
+                 "highlight: false still put a highlighter on");
+    }
+
+    void testABufferDrawsTextThatWasNeverAFile()
+    {
+        // What the code style preview and the snippet editor hold: text that
+        // belongs to an aspect, with a language said out loud because there is
+        // no path to guess it from.
+        CodeBuffer buffer;
+        buffer.setText("int main()\n{\n    return 0;\n}\n");
+        buffer.setMimeType("text/x-c++src");
+        QVERIFY2(buffer.isHighlighting(), "no highlight definition for C++");
+        QVERIFY(buffer.textDocument());
+
+        ViewportFixture fixture(&buffer);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_COMPARE(viewport->visibleLine(0).value("text").toString(), QString("int main()"));
+        QCOMPARE(viewport->visibleLine(2).value("text").toString(), QString("    return 0;"));
+
+        // The highlighter put formats on the blocks, which is the whole reason
+        // a buffer is a TextDocument rather than a QString.
+        //
+        // This is also the assertion that holds TextViewport's connection to
+        // SyntaxHighlighter::finished in place. A file happens to be coloured
+        // before the viewport's first frame however that connection is wired,
+        // so the file test above passes either way; a buffer's colours arrive
+        // after it, and only that signal reports them. Weaken this and the
+        // connection can be deleted with nothing complaining.
+        QTRY_VERIFY2(!viewport->visibleLine(2).value("formats").toList().isEmpty(),
+                     "the highlighter coloured nothing");
+    }
+
+    void testEditingABufferWritesBackToItsText()
+    {
+        // Two-way, so that an aspect can hold the value and a preview can show
+        // it: a buffer whose text did not follow the document would show edits
+        // that were never saved anywhere.
+        CodeBuffer buffer;
+        buffer.setText("alpha\n");
+
+        ViewportFixture fixture(&buffer);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        QVERIFY2(fixture.hasFocus(), "the viewport never took focus, so no key arrives");
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        QSignalSpy typed(&buffer, &CodeBuffer::textChanged);
+        viewport->setReadOnly(false);
+        viewport->setCursorPosition(0);
+        QTest::keyClick(&fixture.view, 'X');
+
+        QCOMPARE(buffer.text(), QString("Xalpha\n"));
+        QCOMPARE(typed.count(), 1);
+    }
+
+    void testFillingABufferIsNotReadBackAsAnEdit()
+    {
+        // A buffer writes its own document when text is set, and the document
+        // reports that like any other change. Read back, it would say the user
+        // typed what was just handed in - which for a preview bound to an
+        // aspect is a write straight back into the aspect on every refill.
+        CodeBuffer buffer;
+        QSignalSpy changed(&buffer, &CodeBuffer::textChanged);
+
+        buffer.setText("alpha\n");
+        QCOMPARE(changed.count(), 1);
+        QCOMPARE(buffer.text(), QString("alpha\n"));
+
+        // And setting the same text again is not a change at all.
+        buffer.setText("alpha\n");
+        QCOMPARE(changed.count(), 1);
     }
 
     void testASelectionIsMergedIntoTheLineFormats()

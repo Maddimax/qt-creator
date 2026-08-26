@@ -3,13 +3,11 @@
 
 #pragma once
 
-#include "texteditor_global.h"
+#include "codesource.h"
 
 #include <utils/filepath.h>
 
-#include <QObject>
 #include <QQuickTextDocument>
-#include <QtQmlIntegration>
 
 namespace TextEditor {
 
@@ -23,7 +21,7 @@ class CodeDocumentPrivate;
 // QTextDocument, but a file that is opened, saved, indented by the language's
 // indenter and known to a language server has to *be* a TextEditor::TextDocument.
 // QQuickTextDocument::setTextDocument() is what makes the substitution possible.
-class TEXTEDITOR_EXPORT CodeDocument : public QObject
+class TEXTEDITOR_EXPORT CodeDocument : public CodeSource
 {
     Q_OBJECT
     QML_ELEMENT
@@ -39,6 +37,16 @@ class TEXTEDITOR_EXPORT CodeDocument : public QObject
     // Whether a document was opened at all. Without one the TextEdit keeps its
     // own, and nothing below does anything.
     Q_PROPERTY(bool opened READ isOpened NOTIFY openedChanged)
+    // Whether to give the opened document a highlighter for whatever type the
+    // path says it is. On by default: a document that opened a file should be
+    // coloured, and putting the highlighter on is normally the editor widget's
+    // job, which a document drawn by a TextViewport does not have.
+    //
+    // Off for a page that attaches CodeHighlighting to the same document
+    // instead - two highlighters would both write the blocks' formats, and
+    // CodeHighlighting is told what the text is rather than guessing from the
+    // name, which for a .clang-format file is the only way to know.
+    Q_PROPERTY(bool highlight READ highlights WRITE setHighlight NOTIFY highlightChanged)
     // Whether a language server should be told about the file. A document that
     // goes through the editor manager is announced for free; this one does not,
     // so a page that wants diagnostics or completion has to ask.
@@ -60,10 +68,13 @@ public:
 
     // The document itself, for the C++ side: a page that wants to attach a
     // language client or read the contents needs the document, not the text.
-    TextDocument *textDocument() const;
+    TextDocument *textDocument() const override;
 
     bool isModified() const;
     bool isOpened() const;
+
+    bool highlights() const;
+    void setHighlight(bool highlight);
 
     bool usesLanguageServer() const;
     void setUseLanguageServer(bool use);
@@ -78,6 +89,7 @@ signals:
     void filePathChanged();
     void modifiedChanged();
     void openedChanged();
+    void highlightChanged();
     void useLanguageServerChanged();
     // The text changed, whoever changed it.
     void contentsChanged();

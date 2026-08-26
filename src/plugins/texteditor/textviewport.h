@@ -23,7 +23,8 @@ QT_END_NAMESPACE
 
 namespace TextEditor {
 
-class CodeDocument;
+class CodeSource;
+class SyntaxHighlighter;
 
 // A Qt Quick view of a TextEditor::TextDocument drawn with the scene graph: one
 // QSGTextNode per visible line, re-emitted every frame. This is the heavy path,
@@ -55,10 +56,11 @@ class TEXTEDITOR_EXPORT TextViewport : public QQuickItem
     Q_OBJECT
     QML_ELEMENT
 
-    // The file being shown. A CodeDocument rather than a TextDocument because
-    // opening a file is what gives it highlighting and an indenter, and that is
-    // what CodeDocument is for.
-    Q_PROPERTY(TextEditor::CodeDocument *document READ document WRITE setDocument
+    // What is being shown. A CodeSource rather than a TextDocument because the
+    // source owns the document and replaces it - a file that reopens is a
+    // different QTextDocument - and rather than a CodeDocument because a
+    // preview's text was never a file. See CodeDocument and CodeBuffer.
+    Q_PROPERTY(TextEditor::CodeSource *document READ document WRITE setDocument
                    NOTIFY documentChanged)
     // How far into the document the viewport is, in pixels.
     Q_PROPERTY(qreal scrollY READ scrollY WRITE setScrollY NOTIFY scrollYChanged)
@@ -94,8 +96,8 @@ public:
     explicit TextViewport(QQuickItem *parent = nullptr);
     ~TextViewport() override;
 
-    CodeDocument *document() const;
-    void setDocument(CodeDocument *document);
+    CodeSource *document() const;
+    void setDocument(CodeSource *document);
 
     qreal scrollY() const;
     void setScrollY(qreal scrollY);
@@ -202,10 +204,12 @@ private:
     // the mouse.
     void ensureCursorVisible();
 
-    QPointer<CodeDocument> m_document;
+    QPointer<CodeSource> m_document;
     // The QTextDocument currently connected to, which is not the same one
     // across a reopen.
     QPointer<QTextDocument> m_connectedDocument;
+    // The highlighter currently connected to, for the same reason.
+    QPointer<SyntaxHighlighter> m_connectedHighlighter;
     qreal m_scrollY = 0;
     qreal m_scrollX = 0;
     int m_selectionStart = -1;

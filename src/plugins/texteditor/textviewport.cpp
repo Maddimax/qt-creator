@@ -3,9 +3,10 @@
 
 #include "textviewport.h"
 
-#include "codedocument.h"
+#include "codesource.h"
 #include "fontsettings.h"
 #include "tabsettings.h"
+#include "syntaxhighlighter.h"
 #include "textdocument.h"
 #include "texteditorconstants.h"
 
@@ -40,12 +41,12 @@ TextViewport::TextViewport(QQuickItem *parent)
 
 TextViewport::~TextViewport() = default;
 
-CodeDocument *TextViewport::document() const
+CodeSource *TextViewport::document() const
 {
     return m_document;
 }
 
-void TextViewport::setDocument(CodeDocument *document)
+void TextViewport::setDocument(CodeSource *document)
 {
     if (m_document == document)
         return;
@@ -56,11 +57,8 @@ void TextViewport::setDocument(CodeDocument *document)
     m_document = document;
 
     if (m_document) {
-        // What is shown has to follow what the file says, and a file that is
-        // still opening says nothing yet.
-        connect(m_document, &CodeDocument::openedChanged,
-                this, &TextViewport::documentChangedInternal);
-        connect(m_document, &CodeDocument::modifiedChanged,
+        // A source hands out a different document when it reopens, and says so.
+        connect(m_document, &CodeSource::textDocumentChanged,
                 this, &TextViewport::documentChangedInternal);
     }
 
@@ -417,6 +415,24 @@ void TextViewport::documentChangedInternal()
         m_connectedDocument = text;
         if (text) {
             connect(text, &QTextDocument::contentsChanged, this, [this] {
+                polish();
+                update();
+            });
+        }
+    }
+
+    // Highlighting arrives late and separately. It lands as formats on the
+    // blocks' own layouts, which is not a content change and so says nothing
+    // through contentsChanged - and the viewport copies those formats into
+    // layouts of its own, so without this the text is drawn in one colour
+    // until something else happens to relayout it.
+    SyntaxHighlighter * const highlighter = doc ? doc->syntaxHighlighter() : nullptr;
+    if (highlighter != m_connectedHighlighter) {
+        if (m_connectedHighlighter)
+            disconnect(m_connectedHighlighter, nullptr, this, nullptr);
+        m_connectedHighlighter = highlighter;
+        if (highlighter) {
+            connect(highlighter, &SyntaxHighlighter::finished, this, [this] {
                 polish();
                 update();
             });

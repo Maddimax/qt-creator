@@ -5488,16 +5488,61 @@ and not the same arithmetic run twice. Every `TextDocument` carries a
 `PlainTextIndenter`, which carries the previous line's indentation over, so
 none of this needs a language plugin to be shown.
 
-**What blocks the Code Style preview from using this.** `CodeViewport` needs a
-`CodeDocument`, and `CodeDocument` opens a *file*: `filePath` is its only input.
-The preview's text is a `CodeStylePreviewAspect`'s value - a string that was
-never a file - and the same is true of the snippet editor. So the next step is
-not another editor feature but a way to hand `TextViewport` a document that
-holds text, and the question to settle first is whether `CodeDocument` grows a
-text mode or whether holding a string is a different class. Until then those
-pages keep their `TextArea`, which lays out the whole document and is perfectly
-adequate for a twenty-line snippet - the scalable path is not what they need,
-the indenter and the highlighter are, and they already have both.
+**The sixth increment answers what blocked the preview: a source, not a file.**
+`CodeViewport` needed a `CodeDocument`, whose only input is `filePath`, and a
+code style preview's text is an aspect's value that was never a file.
+
+The answer is a sibling, not a mode flag. `CodeDocument` grew a text mode in
+none of the obvious ways because its whole vocabulary is files - `save()`,
+`reload()`, `opened`, `useLanguageServer` - and four of those are meaningless
+for a string. Instead:
+
+- `CodeSource` is what a `TextViewport` draws: one virtual `textDocument()` and
+  a `textDocumentChanged` signal.
+- `CodeDocument` is a `CodeSource` that opens a file.
+- `CodeBuffer` is a `CodeSource` that holds text, with `mimeType` said out loud
+  because there is no path to guess it from, and a two-way `text` so an aspect
+  can own the value.
+
+`TextViewport::document` is a `CodeSource *`. It binds to the source rather than
+to the document on purpose: `CodeDocument` throws its document away and makes a
+new one whenever the path changes, so a pointer to the document is good only
+until then. Asking the source is always good.
+
+**Two real bugs fell out of writing the first test that asserted a colour.**
+
+- **`TextViewport` was never told when highlighting finished.** It lands as
+  formats on the blocks' own layouts, which is not a content change, and the
+  viewport copies those formats into layouts of its own. So it drew everything
+  in one colour until something else happened to relayout it. The fix is a
+  connection to `SyntaxHighlighter::finished`.
+- **`CodeDocument` never highlighted anything.** `TextDocument::open()` works
+  out the mime type and leaves the highlighter alone; putting one on is the
+  editor *widget*'s job, and a document drawn by a viewport has no widget.
+  Every page so far paired `CodeDocument` with a `CodeHighlighting` attached to
+  the `TextEdit`, which hid it. Both sources now share
+  `CodeSource::applyHighlighting()`.
+
+Neither had a test because nothing had ever asserted that what the viewport
+draws is *coloured* - only that it has the right text and the right selection.
+A whole feature can be absent without a single assertion noticing.
+
+**`highlight` is explicit rather than clever.** `CodeDocument` colours what it
+opens by default, and `CodeEditor.qml` sets `highlight: false` because it
+attaches `CodeHighlighting` to the same document. Two highlighters both write
+the blocks' formats, and the one to keep is the one that is *told* what the
+text is: a `.clang-format` file is YAML and is named after neither. The
+alternative - having `CodeDocument` notice whether a `QQuickTextDocument` is
+attached and stay quiet if so - would have worked and been invisible; a
+property that says which page colours its own document is worth the line.
+
+**A control that only one test catches.** Removing the `finished` connection
+leaves the *file* highlighting test green: a file is coloured before the
+viewport's first frame however the wiring goes. Only the `CodeBuffer` test
+fails, because a buffer's colours arrive after it. Both tests are worth having
+and only one of them holds the mechanism in place, so the buffer test says so
+in a comment - otherwise weakening it would quietly free the connection to be
+deleted.
 
 Not ported, listed so the gap is not mistaken for a decision: input methods,
 the clipboard, the gutter, folding, text marks and annotations, wrapping, and
