@@ -33,6 +33,11 @@ Item {
     // editor without them is not one.
     property bool showLineNumbers: false
 
+    // Whether the gutter offers to fold. Separate from the numbers because a
+    // view can want one without the other, which is what the display settings
+    // let a user say.
+    property bool showFoldMarkers: false
+
     // Focus has left, so whatever was being typed is finished. A page that
     // writes the text somewhere else uses this rather than every keystroke:
     // re-indenting rewrites the document, and it must not do that under the
@@ -83,7 +88,8 @@ Item {
 
             objectName: "codeGutter"
             viewport: viewport
-            visible: root.showLineNumbers
+            showFoldMarkers: root.showFoldMarkers
+            visible: root.showLineNumbers || root.showFoldMarkers
             // No width when it is not shown, so the text starts where it would
             // have without a gutter rather than indented by an invisible one.
             width: visible ? implicitWidth : 0

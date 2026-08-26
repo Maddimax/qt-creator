@@ -17,13 +17,22 @@ Item {
 
     required property TextViewport viewport
 
+    // Whether a line that starts a fold offers to close it. Off by default for
+    // the same reason the numbers are: a settings preview is a few lines of
+    // demonstration, and nothing there is foldable anyway.
+    property bool showFoldMarkers: false
+
     // Room for a mark and for the highest number the document can reach,
     // measured in the font the numbers are drawn in. Both are reserved whether
     // or not anything is in them: a gutter that grew when the first error
     // arrived would move the text sideways under the reader.
     readonly property real markWidth: root.viewport.lineHeight
+    readonly property real foldWidth: root.showFoldMarkers ? root.viewport.lineHeight : 0
+    // Hard against the text, which is where the widget editor puts it.
+    readonly property real foldX: Spacing.PaddingHS + markWidth + widest.width
+                                  + Spacing.PaddingHS
 
-    implicitWidth: markWidth + widest.width + 2 * Spacing.PaddingHS
+    implicitWidth: foldX + foldWidth
 
     TextMetrics {
         id: widest
@@ -90,6 +99,38 @@ Item {
             color: Tokens.textMuted
             horizontalAlignment: Text.AlignRight
             verticalAlignment: Text.AlignVCenter
+        }
+    }
+
+    // What closes and opens a fold. Only foldable lines have one, so most rows
+    // draw nothing - and the whole column is absent when nobody asked for it.
+    Repeater {
+        model: root.showFoldMarkers ? root.viewport.visibleLines : []
+
+        delegate: Image {
+            id: fold
+
+            required property int index
+            required property var modelData
+
+            readonly property var lineData: modelData
+            readonly property int row: root.viewport.firstVisibleLine + index
+
+            x: root.foldX
+            y: row * root.viewport.lineHeight - root.viewport.scrollY
+            width: root.foldWidth
+            height: root.viewport.lineHeight
+            fillMode: Image.PreserveAspectFit
+
+            source: fold.lineData.foldIcon ?? ""
+            visible: source !== ""
+
+            TapHandler {
+                // By the line's own number, not by the row: the viewport is
+                // what knows which block a row came from, and it is the one
+                // being asked.
+                onTapped: root.viewport.toggleFold(fold.lineData.lineNumber)
+            }
         }
     }
 }

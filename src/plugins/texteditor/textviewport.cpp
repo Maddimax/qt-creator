@@ -7,14 +7,15 @@
 #include "fontsettings.h"
 #include "tabsettings.h"
 #include "syntaxhighlighter.h"
+#include "texteditorconstants.h"
 #include "textdocument.h"
 #include "textdocumentlayout.h"
 #include "textmark.h"
 
 #include <qtcquick/qtciconprovider.h>
-#include "texteditorconstants.h"
 
 #include <utils/theme/theme.h>
+#include <utils/utilsicons.h>
 
 #include <QFontMetricsF>
 #include <QQuickWindow>
@@ -151,6 +152,16 @@ int TextViewport::lineCount() const
     return m_lineCount;
 }
 
+// The two fold markers. Utils::Icon::icon() masks and tints on every call and
+// these are wanted per foldable line per relayout, so they are made once -
+// which is also why a theme change needs the restart Creator already asks for.
+static QString foldMarkerUrl(bool folded)
+{
+    static const QString expand = QtcQuick::iconUrl(Utils::Icons::EXPAND.icon());
+    static const QString collapse = QtcQuick::iconUrl(Utils::Icons::COLLAPSE.icon());
+    return folded ? expand : collapse;
+}
+
 int TextViewport::visibleLineCount() const
 {
     return int(m_lines.size());
@@ -218,6 +229,11 @@ QVariantMap TextViewport::visibleLine(int index) const
                        {"lineNumber", line.lineNumber},
                        // What the gutter draws beside this line, if anything.
                        {"markIcon", line.markIcon},
+                       // Whether a fold marker belongs beside this line, and
+                       // which way round it points.
+                       {"foldable", line.foldable},
+                       {"folded", line.folded},
+                       {"foldIcon", line.foldIcon},
                        {"annotation", line.annotation},
                        {"newlineTail", line.newlineTail},
                        // What is being composed on this line, if anything. Not
@@ -549,6 +565,42 @@ QRectF TextViewport::cursorRectangle() const
     return rectangleAt(m_cursorPosition);
 }
 
+void TextViewport::toggleFold(int lineNumber)
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    if (!doc)
+        return;
+    QTextDocument * const text = doc->document();
+    const QTextBlock block = text->findBlockByNumber(lineNumber - 1);
+    if (!block.isValid() || !TextBlockUserData::canFold(block))
+        return;
+
+    // Folding indents come from the highlighter, so folding while it is still
+    // running would fold the range it had worked out so far. The widget editor
+    // waits; looking the line up again afterwards rather than keeping the
+    // block means it does not matter what the highlighter did to the document.
+    if (SyntaxHighlighter * const highlighter = doc->syntaxHighlighter();
+        highlighter && !highlighter->syntaxHighlighterUpToDate()) {
+        connect(highlighter, &SyntaxHighlighter::finished, this,
+                [this, lineNumber] { toggleFold(lineNumber); }, Qt::SingleShotConnection);
+        return;
+    }
+
+    auto * const layout = qobject_cast<TextDocumentLayout *>(text->documentLayout());
+    QTC_ASSERT(layout, return);
+
+    TextBlockUserData::doFoldOrUnfold(block, TextBlockUserData::isFolded(block));
+    layout->requestUpdate();
+    layout->emitDocumentSizeChanged();
+
+    // A caret left inside what was just folded would type into text nobody can
+    // see. The line that owns the fold is visible by construction, so that is
+    // where it goes.
+    const QTextBlock cursorBlock = text->findBlock(m_cursorPosition);
+    if (cursorBlock.isValid() && !cursorBlock.isVisible())
+        setCursorPosition(block.position() + block.length() - 1);
+}
+
 int TextViewport::positionAt(qreal x, qreal y) const
 {
     if (m_lines.empty() || m_lineHeight <= 0)
@@ -736,6 +788,16 @@ void TextViewport::updatePolish()
         // The line the document calls this, which is not the row it is drawn
         // on once anything above it is folded.
         line.lineNumber = block.blockNumber() + 1;
+        // A line starts a fold when what follows it is indented deeper - the
+        // same test the widget gutter makes - and that fold is closed when
+        // what follows is not shown at all.
+        const QTextBlock next = block.next();
+        line.foldable = next.isValid()
+                        && TextBlockUserData::foldingIndent(next)
+                               > TextBlockUserData::foldingIndent(block);
+        line.folded = line.foldable && !next.isVisible();
+        if (line.foldable)
+            line.foldIcon = foldMarkerUrl(line.folded);
         // The marks on this line - errors, warnings, breakpoints. The highest
         // priority one wins the slot, which is what the widget gutter does
         // with the space too.

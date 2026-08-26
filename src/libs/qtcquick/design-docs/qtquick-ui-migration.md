@@ -6303,8 +6303,51 @@ one control's *restore* silently failed - collapsing the do-while left
 of the still-broken file, so its failure proved nothing. A control is only
 evidence if the baseline passes again afterwards, which is now the last step.
 
-What is left of the editor: fold markers in the gutter and click-to-fold,
-extra-selection overlays, the context menu, drag and drop, and wrapping.
+**The marker, and the click.** The gutter grew a third column, hard against
+the text where the widget puts it, holding `Utils::Icons::EXPAND` or
+`COLLAPSE` - a boxed plus or minus - on the lines that start a fold. The widget
+draws this through `QStyle::PE_IndicatorBranch` with per-style corrections for
+Windows, GTK, Oxygen and Mac, which is the `QStyle`-leaks-into-painting note
+elsewhere in this document; a Creator icon has none of that and themes itself.
+
+A tap calls `toggleFold(lineNumber)`, which repeats what
+`TextEditorWidgetPrivate::toggleBlockVisible()` does, including the two parts
+that are easy to leave out:
+
+- **Wait for the highlighter.** Folding indents are its output, so folding
+  while it is still running folds the range it had worked out so far. It looks
+  the line up again afterwards rather than keeping a `QTextBlock`, so whatever
+  the highlighter did to the document in between does not matter.
+- **Move the caret out.** A caret left inside what was just folded would type
+  into text nobody can see.
+
+**One fold is not enough to test a fold.** The first version of the click test
+folded line 1 - and at the top of an unfolded file a line's number and its row
+are the same number, so the control that made the marker fold *the row it sits
+on* passed. Two folds, with the second clicked after the first is closed, makes
+line 10 sit on row 5 and the control bite.
+
+**A test that could not see its own icons.** The markers loaded nothing: the
+`image://qtcreator/` provider is on Creator's shared engine, and a `QQuickView`
+made in a test has its own. `Image.visible` was bound to `source !== ""`, a
+string test, so a marker pointing at nothing was still visible and still
+clickable, and every assertion passed. The provider is now installed on every
+view the suite makes, and the test asserts `Image.Ready`. The symptom had been
+in the log for several batches as `Invalid image provider`.
+
+**And a collector that caught too much.** `QmlComplaints` installed a message
+handler and kept every warning at or above `QtWarningMsg`, so a
+`QUnifiedTimer::stopAnimationDriver` from an unrelated window teardown failed a
+test about bindings - once, which is how these get ignored. The obvious fix,
+filtering on the `qml` logging category, is worse than the bug: QML's runtime
+warnings are logged with *no* category, so the filter silences exactly what the
+test is listening for. The control - a `ReferenceError` in the watched
+component - passed happily with the filter in place, which is the only reason
+it was not committed. It listens to `QQmlEngine::warnings` now, which is the
+thing it always claimed to be listening to.
+
+What is left of the editor: extra-selection overlays, the context menu, drag
+and drop, and wrapping.
 
 ## The same measurement, applied to kits
 

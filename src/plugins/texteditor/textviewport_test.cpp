@@ -17,6 +17,8 @@
 #include "textviewport.h"
 #include "textmark.h"
 
+#include <qtcquick/qtciconprovider.h>
+
 #include <utils/utilsicons.h>
 
 #include <utils/aspects.h>
@@ -25,6 +27,7 @@
 
 #include <QQmlComponent>
 #include <QQmlEngine>
+#include <QQmlError>
 #include <QQuickView>
 #include <QClipboard>
 #include <QInputMethodEvent>
@@ -39,6 +42,16 @@
 using namespace Utils;
 
 namespace TextEditor::Internal {
+
+// Creator's icons reach QML as image://qtcreator/... URLs, which resolve only
+// if the provider is on the engine. The shared engine has it; a view made here
+// has its own, so without this an icon fails to load and the test cannot tell
+// a wrong URL from a missing provider.
+static void installIconProvider(QQuickView &view)
+{
+    view.engine()->addImageProvider(QLatin1String(QtcQuick::IconProvider::name()),
+                                    new QtcQuick::IconProvider);
+}
 
 // A viewport in a window, because polish only happens for an item in a scene:
 // without one nothing is ever laid out and every assertion below reads zero.
@@ -59,6 +72,7 @@ public:
     explicit ViewportFixture(CodeSource *source, int width = 400, int height = 200)
     {
         view.resize(width, height);
+        installIconProvider(view);
         component.reset(new QQmlComponent(view.engine()));
         component->setData(QByteArray("import QtCreator.TextEditor\n"
                                       "TextViewport { width: %1; height: %2 }")
@@ -128,26 +142,30 @@ static FilePath writeLines(const TemporaryDirectory &dir, const QString &name, i
 // Whatever QML said while a component was alive. A binding loop is a warning
 // and nothing else - the component still builds and still draws - so the only
 // way a test sees one is by listening.
+//
+// From the engine rather than from a message handler. A handler catches every
+// warning the process makes, so unrelated Qt noise - a window elsewhere being
+// torn down - failed this as if a binding had gone wrong. Filtering the
+// handler by category does not work either: QML's runtime warnings are logged
+// with no category at all, so the obvious filter silences exactly the thing
+// being listened for.
 class QmlComplaints
 {
 public:
-    QmlComplaints() { s_messages = &m_messages; s_previous = qInstallMessageHandler(collect); }
-    ~QmlComplaints() { qInstallMessageHandler(s_previous); s_messages = nullptr; }
+    explicit QmlComplaints(QQmlEngine *engine)
+    {
+        QObject::connect(engine, &QQmlEngine::warnings, &m_lifetime,
+                         [this](const QList<QQmlError> &errors) {
+                             for (const QQmlError &error : errors)
+                                 m_messages.append(error.toString());
+                         });
+    }
 
     QStringList messages() const { return m_messages; }
 
 private:
-    static void collect(QtMsgType type, const QMessageLogContext &context, const QString &message)
-    {
-        if (s_messages && type >= QtWarningMsg)
-            s_messages->append(message);
-        if (s_previous)
-            s_previous(type, context, message);
-    }
-
+    QObject m_lifetime;
     QStringList m_messages;
-    static inline QStringList *s_messages = nullptr;
-    static inline QtMessageHandler s_previous = nullptr;
 };
 
 class TextViewportTest final : public QObject
@@ -295,10 +313,10 @@ private slots:
         int selectionAfterDrag = -1;
         QString typedAfterClick;
         {
-            QmlComplaints listener;
-
             QQuickView view;
+            installIconProvider(view);
             view.resize(400, 200);
+            QmlComplaints listener(view.engine());
             QQmlComponent component(view.engine());
             component.setData(QByteArray("import QtCreator.TextEditor\n"
                                          "CodeViewport {\n"
@@ -373,6 +391,7 @@ private slots:
         const FilePath file = writeLines(dir, "big.txt", 5000);
 
         QQuickView view;
+        installIconProvider(view);
         view.resize(400, 200);
         QQmlComponent component(view.engine());
         component.setData(QByteArray("import QtCreator.TextEditor\n"
@@ -538,6 +557,7 @@ private slots:
         const FilePath file = writeLines(dir, "big.txt", 5000);
 
         QQuickView view;
+        installIconProvider(view);
         view.resize(400, 200);
         QQmlComponent component(view.engine());
         component.setData(QByteArray("import QtQuick\n"
@@ -605,6 +625,7 @@ private slots:
         const FilePath file = writeLines(dir, "folded.txt", 40);
 
         QQuickView view;
+        installIconProvider(view);
         view.resize(400, 200);
         QQmlComponent component(view.engine());
         component.setData(QByteArray("import QtQuick\n"
@@ -686,8 +707,119 @@ private slots:
         QTRY_COMPARE(gutterNumbers(gutter).value(1), QString("2"));
     }
 
-    // The gutter as an editor gets it: part of the viewport component, off for
-    // a preview and on for something being edited.
+    // The gutter offers folding, and clicking what it offers folds. This is
+    // the half a C++ assertion cannot reach: the marker is a delegate, and the
+    // line it acts on is the one the viewport named, not the row it sits on.
+    void testClickingTheGutterMarkerFoldsAndUnfoldsTheLineItSitsOn()
+    {
+        TemporaryDirectory dir("qtc-viewport-foldclick");
+        const FilePath file = writeLines(dir, "clickable.txt", 40);
+
+        // Tall enough that both folds are on screen at once, which is the
+        // whole point of having two of them.
+        QQuickView view;
+        installIconProvider(view);
+        view.resize(400, 500);
+        QQmlComponent component(view.engine());
+        component.setData(QByteArray("import QtQuick\n"
+                                     "import QtCreator.TextEditor\n"
+                                     "CodeViewport {\n"
+                                     "    property string path\n"
+                                     "    width: 400; height: 500\n"
+                                     "    showLineNumbers: true\n"
+                                     "    showFoldMarkers: true\n"
+                                     "    source: CodeDocument { filePath: path }\n"
+                                     "}"),
+                          QUrl("qrc:/test/FoldClickTest.qml"));
+        std::unique_ptr<QObject> created(component.createWithInitialProperties(
+            {{"path", file.toUrlishString()}}));
+        QVERIFY2(created != nullptr, qPrintable(component.errorString()));
+
+        auto * const item = qobject_cast<QQuickItem *>(created.get());
+        QVERIFY(item);
+        item->setParentItem(view.contentItem());
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+        auto * const viewport = item->findChild<TextViewport *>();
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 16);
+
+        QTextDocument * const text = viewport->document()->textDocument()->document();
+        auto * const layout = qobject_cast<TextDocumentLayout *>(text->documentLayout());
+        QVERIFY(layout);
+
+        // Two folds, one under line 1 and one under line 10. Two, because a
+        // single fold at the top of the file is the one case where a line's
+        // number and the row it is drawn on agree - and this test is about
+        // the marker acting on the line rather than on the row.
+        for (int i : {1, 2, 3, 4, 10, 11, 12, 13, 14})
+            TextBlockUserData::setFoldingIndent(text->findBlockByNumber(i), 1);
+        layout->requestUpdate();
+
+        // Only the two lines that start a fold are offered one.
+        QTRY_VERIFY(viewport->visibleLine(0).value("foldable").toBool());
+        QVERIFY(!viewport->visibleLine(0).value("folded").toBool());
+        QVERIFY(!viewport->visibleLine(1).value("foldable").toBool());
+        QVERIFY(viewport->visibleLine(9).value("foldable").toBool());
+
+        // Every image the gutter is actually showing. Nothing has a text mark
+        // here, so the only ones that can be visible are fold markers.
+        auto markers = [item] {
+            QList<QQuickItem *> found;
+            const QList<QQuickItem *> items = allItems(item);
+            for (QQuickItem *candidate : items) {
+                if (candidate->inherits("QQuickImage") && candidate->isVisible()
+                    && !candidate->property("source").toUrl().isEmpty()) {
+                    found << candidate;
+                }
+            }
+            std::sort(found.begin(), found.end(),
+                      [](QQuickItem *a, QQuickItem *b) { return a->y() < b->y(); });
+            return found;
+        };
+        QTRY_COMPARE(markers().size(), 2);
+        // Image.Ready. A URL that no provider answers still leaves the item
+        // visible with a source set, so without this the markers could be
+        // pointing at nothing and every other assertion here would pass.
+        QTRY_COMPARE(markers().first()->property("status").toInt(), 1);
+
+        auto click = [&view](QQuickItem *marker) {
+            const QPoint at = view.contentItem()
+                                  ->mapFromItem(marker, QPointF(marker->width() / 2,
+                                                                marker->height() / 2))
+                                  .toPoint();
+            QTest::mouseClick(&view, Qt::LeftButton, {}, at);
+        };
+
+        // Close the first fold, which moves the second one up five rows. Line
+        // 10 is now drawn on row 5, so anything that folds "the row it sits
+        // on" from here folds the wrong thing.
+        const qreal fullHeight = viewport->contentHeight();
+        click(markers().first());
+        QTRY_COMPARE(viewport->contentHeight(), fullHeight - 4 * viewport->lineHeight());
+        QVERIFY(viewport->visibleLine(0).value("folded").toBool());
+        QCOMPARE(viewport->visibleLine(1).value("text").toString(), QString("line 5"));
+        QTRY_COMPARE(viewport->visibleLine(5).value("lineNumber").toInt(), 10);
+        QVERIFY(viewport->visibleLine(5).value("foldable").toBool());
+
+        // Now the second one, by its marker rather than by its number.
+        QTRY_COMPARE(markers().size(), 2);
+        click(markers().last());
+        QTRY_COMPARE(viewport->contentHeight(), fullHeight - 9 * viewport->lineHeight());
+        QVERIFY(viewport->visibleLine(5).value("folded").toBool());
+        QCOMPARE(viewport->visibleLine(6).value("text").toString(), QString("line 15"));
+
+        // The same click again puts them back, which is what makes it a
+        // toggle rather than a fold button.
+        QTRY_COMPARE(markers().size(), 2);
+        click(markers().last());
+        QTRY_COMPARE(viewport->contentHeight(), fullHeight - 4 * viewport->lineHeight());
+        click(markers().first());
+        QTRY_COMPARE(viewport->contentHeight(), fullHeight);
+        QVERIFY(!viewport->visibleLine(0).value("folded").toBool());
+    }
+
     void testCodeViewportNumbersItsLinesOnlyWhenAsked()
     {
         TemporaryDirectory dir("codeviewport-gutter");
@@ -696,6 +828,7 @@ private slots:
 
         for (const bool numbered : {false, true}) {
             QQuickView view;
+            installIconProvider(view);
             view.resize(400, 200);
             QQmlComponent component(view.engine());
             component.setData(QByteArray("import QtCreator.TextEditor\n"
@@ -772,6 +905,7 @@ private slots:
         const FilePath file = writeLines(dir, "big.txt", 200);
 
         QQuickView view;
+        installIconProvider(view);
         view.resize(400, 200);
         QQmlComponent component(view.engine());
         component.setData(QByteArray("import QtCreator.TextEditor\n"
@@ -867,6 +1001,7 @@ private slots:
         const FilePath file = writeLines(dir, "big.txt", 200);
 
         QQuickView view;
+        installIconProvider(view);
         view.resize(600, 200);
         QQmlComponent component(view.engine());
         component.setData(QByteArray("import QtCreator.TextEditor\n"
@@ -1548,6 +1683,7 @@ private slots:
         snippet.setValue("alpha\nbeta\n");
 
         QQuickView view;
+        installIconProvider(view);
         view.resize(500, 200);
         QQmlComponent component(view.engine());
         component.setData(QByteArray("import QtCreator.TextEditor\n"

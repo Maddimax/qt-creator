@@ -172,6 +172,11 @@ public:
     Q_INVOKABLE QRectF rectangleAt(int position) const;
     Q_INVOKABLE int positionAt(qreal x, qreal y) const;
 
+    // Folds or unfolds what \a lineNumber starts, counting from one the way
+    // visibleLine() reports it. Does nothing for a line that starts no fold,
+    // so a gutter may call it for whatever the user clicked.
+    Q_INVOKABLE void toggleFold(int lineNumber);
+
     int cursorPosition() const;
     void setCursorPosition(int position);
     QRectF cursorRectangle() const;
@@ -222,6 +227,12 @@ private:
         // What the gutter calls this line. Folding makes it run ahead of the
         // row the line is drawn on.
         int lineNumber = 0;
+        // Whether this line starts a fold, and whether that fold is closed.
+        bool foldable = false;
+        bool folded = false;
+        // Which marker to draw, as a URL a QML Image can load. Empty when the
+        // line starts no fold.
+        QString foldIcon;
         // The highest-priority visible mark on this line, as a URL a QML Image
         // can load and the text it explains itself with. Empty when the line
         // carries none.

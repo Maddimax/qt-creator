@@ -19,5 +19,6 @@ Item {
 
         source: root.source
         showLineNumbers: true
+        showFoldMarkers: true
     }
 }
