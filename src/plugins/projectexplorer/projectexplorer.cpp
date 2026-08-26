@@ -914,6 +914,7 @@ Result<> ProjectExplorerPlugin::initialize(const QStringList &arguments)
     addTestCreator(createGccToolchainTest);
     addTestCreator(createTargetTripleAspectsTest);
     addTestCreator(createToolchainConfigAspectsTest);
+    addTestCreator(createProjectPanelFactoryTest);
     addTestCreator(Internal::createToolchainOptionsPageTest);
     addTestCreator(Internal::createDeviceSettingsPageTest);
     addTestCreator(createGenericOutputParserTest);

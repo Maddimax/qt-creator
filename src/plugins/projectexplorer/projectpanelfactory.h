@@ -9,8 +9,11 @@
 #include <utils/treemodel.h>
 
 #include <functional>
+#include <optional>
 
 class QLabel;
+
+namespace Utils { class AspectContainer; }
 
 namespace ProjectExplorer {
 
@@ -49,15 +52,33 @@ public:
     using WidgetCreator = std::function<QWidget *(Project *)>;
     void setCreateWidgetFunction(const WidgetCreator &createWidgetFunction);
 
+    // A panel that is aspect-driven says so here instead of building a widget,
+    // the way IOptionsPage::setSettingsProvider() does for a settings page.
+    // Its form is then the container's - Qt Quick where the container names a
+    // QML file, the widget layout otherwise - and what the panel shows can be
+    // asked for without opening it, which is what lets a test check the panels
+    // the way one checks the pages.
+    using SettingsProvider = std::function<Utils::AspectContainer *(Project *)>;
+    void setSettingsProvider(const SettingsProvider &provider);
+
+    // The container this panel shows for \a project, or nothing if the panel
+    // builds its own widget.
+    std::optional<Utils::AspectContainer *> aspects(Project *project) const;
+
 private:
     Utils::Id m_id;
     int m_priority = 0;
     QString m_displayName;
     SupportsFunction m_supportsFunction;
     WidgetCreator m_widgetCreator;
+    SettingsProvider m_settingsProvider;
 };
 
 // Re-usable helpers for project settings page items.
 PROJECTEXPLORER_EXPORT QLabel *createGlobalSettingsLink(Utils::Id globalId);
+
+#ifdef WITH_TESTS
+QObject *createProjectPanelFactoryTest();
+#endif
 
 } // namespace ProjectExplorer

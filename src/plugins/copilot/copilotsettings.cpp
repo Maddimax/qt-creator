@@ -347,10 +347,13 @@ public:
     explicit CopilotProjectSettings(Project *project)
     {
         setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Copilot/CopilotProjectPanel.qml"));
 
         useGlobalSettings.setSettingsKey(Constants::COPILOT_USE_GLOBAL_SETTINGS);
+        useGlobalSettings.setQmlName("UseGlobalSettings");
 
         initEnableAspect(enableCopilot);
+        enableCopilot.setQmlName("EnableCopilot");
 
         Store map = storeFromVariant(project->namedSettings(Constants::COPILOT_PROJECT_SETTINGS_ID));
         fromMap(map);
@@ -385,24 +388,6 @@ static CopilotProjectSettings *copilotProjectSettings(Project *project)
     return projectSettings<CopilotProjectSettings>(project);
 }
 
-class CopilotProjectWidget final : public QWidget
-{
-public:
-    CopilotProjectWidget(Project *project)
-    {
-        CopilotProjectSettings * const ps = copilotProjectSettings(project);
-        // clang-format off
-        using namespace Layouting;
-        Column {
-            ps->useGlobalSettings,
-            hr,
-            ps->enableCopilot,
-            st,
-        }.attachTo(this);
-        // clang-format on
-    }
-};
-
 class CopilotProjectPanelFactory final : public ProjectPanelFactory
 {
 public:
@@ -410,8 +395,8 @@ public:
     {
         setPriority(1000);
         setDisplayName(Tr::tr("Copilot"));
-        setCreateWidgetFunction([](Project *project) {
-            return new CopilotProjectWidget(project);
+        setSettingsProvider([](Project *project) {
+            return copilotProjectSettings(project);
         });
     }
 };
