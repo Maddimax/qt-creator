@@ -5,11 +5,12 @@ pragma ComponentBehavior: Bound
 pragma FunctionSignatureBehavior: Enforced
 
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
+    id: root
+
     AspectGroupBox {
         title: qsTr("Executables")
 
@@ -19,15 +20,5 @@ AspectPage {
         }
     }
 
-    AspectGroupBox {
-        title: qsTr("Run Options")
-
-        ColumnLayout {
-            TextWithActionDelegate { aspect: aspects.DiagnosticConfig }
-            BoolDelegate { aspect: aspects.PreferConfigFile }
-            BoolDelegate { aspect: aspects.BuildBeforeAnalysis }
-            BoolDelegate { aspect: aspects.AnalyzeOpenFiles }
-            IntegerDelegate { aspect: aspects.ParallelJobs }
-        }
-    }
+    ClangToolsRunOptionsForm { aspects: root.aspects }
 }

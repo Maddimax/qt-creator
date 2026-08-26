@@ -12,14 +12,10 @@
 
 #include <projectexplorer/projectpanelfactory.h>
 
-#include <utils/layoutbuilder.h>
+#include <utils/aspects.h>
 #include <utils/qtcassert.h>
 
 #include <QAbstractTableModel>
-#include <QComboBox>
-#include <QLabel>
-#include <QPushButton>
-#include <QTreeView>
 
 using namespace ProjectExplorer;
 
@@ -33,160 +29,202 @@ public:
     void setDiagnostics(const SuppressedDiagnosticsList &diagnostics);
     SuppressedDiagnostic diagnosticAt(int i) const;
 
-private:
-    enum Columns { ColumnFile, ColumnDescription, ColumnLast = ColumnDescription };
-
+    // Public like the rest of the model interface: what holds this model asks
+    // it how many rows there are.
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
     int columnCount(const QModelIndex & = QModelIndex()) const override { return ColumnLast + 1; }
     QVariant headerData(int section, Qt::Orientation orientation,
                         int role = Qt::DisplayRole) const override;
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
 
+    // A Qt Quick view reads a cell by role name and cannot see flags(). Without
+    // this the rows would offer themselves for editing, because a cell that
+    // cannot find "editable" assumes it is.
+    QHash<int, QByteArray> roleNames() const override
+    {
+        return Utils::AspectTable::withRoleNames(QAbstractTableModel::roleNames());
+    }
+
+private:
+    enum Columns { ColumnFile, ColumnDescription, ColumnLast = ColumnDescription };
+
     SuppressedDiagnosticsList m_diagnostics;
 };
 
-class ClangToolsProjectSettingsWidget : public QWidget
+// The rows of suppressed diagnostics, and which one is current. A table aspect
+// rather than a view: both backends draw it from the model, and which row is
+// current is the aspect's answer so that the buttons beside it can be enabled
+// from the container rather than from a selection model.
+class SuppressedDiagnosticsAspect final : public Utils::BaseAspect
 {
+    Q_OBJECT
+
 public:
-    explicit ClangToolsProjectSettingsWidget(Project *project);
+    using BaseAspect::BaseAspect;
+
+    Utils::AspectPresentation presentation() const override
+    {
+        Utils::AspectPresentation p = BaseAspect::presentation();
+        p.control = Utils::AspectControls::Table;
+        return p;
+    }
+
+    QAbstractItemModel *tableModel() override { return &m_model; }
+
+    void setDiagnostics(const SuppressedDiagnosticsList &diagnostics)
+    {
+        m_model.setDiagnostics(diagnostics);
+        // The rows are gone and the one that was current with them.
+        setCurrentRow(-1);
+        emit rowsChanged();
+    }
+
+    Q_INVOKABLE void setCurrentRow(int row)
+    {
+        if (m_currentRow == row)
+            return;
+        m_currentRow = row;
+        emit rowsChanged();
+    }
+
+    bool hasCurrent() const { return m_currentRow >= 0 && m_currentRow < m_model.rowCount(); }
+    bool isEmpty() const { return m_model.rowCount() == 0; }
+    SuppressedDiagnostic currentDiagnostic() const { return m_model.diagnosticAt(m_currentRow); }
+
+signals:
+    void rowsChanged();
 
 private:
-    void onGlobalCustomChanged(bool useGlobal);
-
-    void updateButtonStates();
-    void updateButtonStateRemoveSelected();
-    void updateButtonStateRemoveAll();
-    void removeSelected();
-
-    QPushButton m_restoreGlobal{Tr::tr("Restore Global Settings")};
-    QTreeView m_diagnosticsView;
-    QPushButton m_removeSelectedButton{Tr::tr("Remove Selected")};
-    QPushButton m_removeAllButton{Tr::tr("Remove All")};
-
-    std::shared_ptr<ClangToolsProjectSettings> const m_projectSettings;
+    // Parented: a model handed to QML with no parent belongs to the engine.
+    SuppressedDiagnosticsModel m_model{this};
+    int m_currentRow = -1;
 };
 
-ClangToolsProjectSettingsWidget::ClangToolsProjectSettingsWidget(Project *project)
-    : m_projectSettings(clangToolsProjectSettings(project))
+// What the panel shows. The flag is kept out of the settings container because
+// the run settings are disabled as a whole while the global ones are in use.
+// See ProjectCommentsPanel.
+class ClangToolsProjectPanel final : public Utils::AspectContainer
 {
-    const auto gotoClangTidyModeLabel
-            = new QLabel("<a href=\"target\">" + Tr::tr("Go to Clang-Tidy") + "</a>");
-    const auto gotoClazyModeLabel
-            = new QLabel("<a href=\"target\">" + Tr::tr("Go to Clazy") + "</a>");
+public:
+    explicit ClangToolsProjectPanel(Project *project)
+        : m_projectSettings(clangToolsProjectSettings(project))
+    {
+        // Before registering: insertAspect() forces the container's own
+        // auto-apply onto what it takes in.
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/ClangTools/ClangToolsProjectPanel.qml"));
 
-    m_diagnosticsView.setSelectionMode(QAbstractItemView::SingleSelection);
+        m_projectSettings->useGlobalSettings.setQmlName("UseGlobalSettings");
+        registerAspect(&m_projectSettings->useGlobalSettings);
 
-    m_projectSettings->useGlobalSettings.addOnChanged(this, [this] {
-        onGlobalCustomChanged(m_projectSettings->useGlobalSettings());
-    });
+        m_restoreGlobal.setQmlName("RestoreGlobal");
+        m_restoreGlobal.setActionText(Tr::tr("Restore Global Settings"));
+        m_restoreGlobal.setAction([this] { restoreGlobal(); });
+        registerAspect(&m_restoreGlobal);
 
-    using namespace Layouting;
-    Column {
-        m_projectSettings->useGlobalSettings,
-        hr,
-        Row {
-            &m_restoreGlobal, st, gotoClangTidyModeLabel, gotoClazyModeLabel
-        },
+        // Two links rather than two buttons, as the widget form had them.
+        m_goToTools.setQmlName("GoToTools");
+        m_goToTools.setTextFormat(Utils::AspectControls::TextFormat::RichText);
+        m_goToTools.setText("<a href=\"tidy\">" + Tr::tr("Go to Clang-Tidy") + "</a>&nbsp;&nbsp;"
+                            + "<a href=\"clazy\">" + Tr::tr("Go to Clazy") + "</a>");
+        connect(&m_goToTools, &Utils::TextDisplay::linkActivated, this, [](const QString &link) {
+            if (link == "tidy")
+                clangTidyTool()->selectPerspective();
+            else
+                clazyTool()->selectPerspective();
+        });
+        registerAspect(&m_goToTools);
 
-        *m_projectSettings,
+        m_projectSettings->setQmlName("Settings");
+        registerAspect(m_projectSettings.get());
 
-        Group {
-            title(Tr::tr("Suppressed diagnostics")),
-            Row {
-                &m_diagnosticsView,
-                Column {
-                    &m_removeSelectedButton,
-                    &m_removeAllButton,
-                    st
-                }
-            }
-        },
-        noMargin,
-        st
-    }.attachTo(this);
+        m_suppressed.setQmlName("SuppressedDiagnostics");
+        m_suppressed.setLabelText(Tr::tr("Suppressed diagnostics:"));
+        registerAspect(&m_suppressed);
 
-    onGlobalCustomChanged(m_projectSettings->useGlobalSettings());
+        m_removeSelected.setQmlName("RemoveSelected");
+        m_removeSelected.setActionText(Tr::tr("Remove Selected"));
+        m_removeSelected.setAction([this] { removeSelected(); });
+        registerAspect(&m_removeSelected);
 
-    // Global settings
-    connect(ClangToolsSettings::instance(), &ClangToolsSettings::changed, this,
-            [this] { onGlobalCustomChanged(m_projectSettings->useGlobalSettings()); });
-    connect(&m_restoreGlobal, &QPushButton::clicked, this, [this] {
+        m_removeAll.setQmlName("RemoveAll");
+        m_removeAll.setActionText(Tr::tr("Remove All"));
+        m_removeAll.setAction([this] { m_projectSettings->removeAllSuppressedDiagnostics(); });
+        registerAspect(&m_removeAll);
+
+        // Behaviour, not layout.
+        m_suppressed.setDiagnostics(m_projectSettings->suppressedDiagnostics());
+        connect(m_projectSettings.get(), &ClangToolsProjectSettings::suppressedDiagnosticsChanged,
+                this, [this] {
+                    m_suppressed.setDiagnostics(m_projectSettings->suppressedDiagnostics());
+                });
+        connect(&m_suppressed, &SuppressedDiagnosticsAspect::rowsChanged,
+                this, [this] { updateRemoveButtons(); });
+        updateRemoveButtons();
+
+        updateForUseGlobal();
+        m_projectSettings->useGlobalSettings.addOnChanged(this, [this] { updateForUseGlobal(); });
+        connect(ClangToolsSettings::instance(), &ClangToolsSettings::changed,
+                this, [this] { updateForUseGlobal(); });
+
+        // A custom diagnostic configuration is the global settings' to keep,
+        // whichever page it was made on.
+        connect(&m_projectSettings->diagnosticConfigId, &Utils::BaseAspect::changed, this, [this] {
+            ClangToolsSettings::instance()->diagnosticConfigId.setCustomConfigs(
+                m_projectSettings->diagnosticConfigId.customConfigs());
+            ClangToolsSettings::instance()->writeSettings();
+        });
+    }
+
+    static Utils::Key extraDataKey() { return "ClangToolsProjectPanel"; }
+
+private:
+    void updateForUseGlobal()
+    {
+        const bool useGlobal = m_projectSettings->useGlobalSettings();
+        m_projectSettings->setRunSettingsEnabled(!useGlobal);
+        m_restoreGlobal.setEnabled(!useGlobal);
+    }
+
+    void updateRemoveButtons()
+    {
+        m_removeSelected.setEnabled(m_suppressed.hasCurrent());
+        m_removeAll.setEnabled(!m_suppressed.isEmpty());
+    }
+
+    void restoreGlobal()
+    {
         const ClangToolsSettings *global = ClangToolsSettings::instance();
         m_projectSettings->diagnosticConfigId.setValue(global->safeDiagnosticConfigId());
         m_projectSettings->parallelJobs.setValue(global->parallelJobs());
         m_projectSettings->preferConfigFile.setValue(global->preferConfigFile());
         m_projectSettings->buildBeforeAnalysis.setValue(global->buildBeforeAnalysis());
         m_projectSettings->analyzeOpenFiles.setValue(global->analyzeOpenFiles());
-    });
+    }
 
-    connect(gotoClangTidyModeLabel, &QLabel::linkActivated, [](const QString &) {
-        clangTidyTool()->selectPerspective();
-    });
-    connect(gotoClazyModeLabel, &QLabel::linkActivated, [](const QString &) {
-        clazyTool()->selectPerspective();
-    });
+    void removeSelected()
+    {
+        QTC_ASSERT(m_suppressed.hasCurrent(), return);
+        m_projectSettings->removeSuppressedDiagnostic(m_suppressed.currentDiagnostic());
+    }
 
-    // The run settings aspects (including diagnosticConfigId) auto-apply since
-    // ClangToolsProjectSettings::runSettings has autoApply=true.
-    // Save custom diagnostic configs to global settings when the aspect changes.
-    connect(&m_projectSettings->diagnosticConfigId,
-            &Utils::BaseAspect::changed, this, [this] {
-                ClangToolsSettings::instance()->diagnosticConfigId.setCustomConfigs(
-                    m_projectSettings->diagnosticConfigId.customConfigs());
-                ClangToolsSettings::instance()->writeSettings();
-            });
+    ClangToolsProjectSettings::ClangToolsProjectSettingsPtr const m_projectSettings;
+    Utils::ActionAspect m_restoreGlobal;
+    Utils::TextDisplay m_goToTools;
+    SuppressedDiagnosticsAspect m_suppressed;
+    Utils::ActionAspect m_removeSelected;
+    Utils::ActionAspect m_removeAll;
+};
 
-    // Suppressed diagnostics
-    auto * const model = new SuppressedDiagnosticsModel(this);
-    model->setDiagnostics(m_projectSettings->suppressedDiagnostics());
-    connect(m_projectSettings.get(), &ClangToolsProjectSettings::suppressedDiagnosticsChanged, this,
-            [model, this] {
-                    model->setDiagnostics(m_projectSettings->suppressedDiagnostics());
-                    updateButtonStates();
-            });
-    m_diagnosticsView.setModel(model);
-    updateButtonStates();
-    connect(m_diagnosticsView.selectionModel(), &QItemSelectionModel::selectionChanged, this,
-            [this](const QItemSelection &, const QItemSelection &) {
-                updateButtonStateRemoveSelected();
-            });
-    connect(&m_removeSelectedButton, &QAbstractButton::clicked,
-            this, [this](bool) { removeSelected(); });
-    connect(&m_removeAllButton, &QAbstractButton::clicked,
-            this, [this](bool) { m_projectSettings->removeAllSuppressedDiagnostics();});
-}
-
-void ClangToolsProjectSettingsWidget::onGlobalCustomChanged(bool useGlobal)
+static ClangToolsProjectPanel *clangToolsProjectPanel(Project *project)
 {
-    m_projectSettings->setRunSettingsEnabled(!useGlobal);
-    m_restoreGlobal.setEnabled(!useGlobal);
-}
-
-void ClangToolsProjectSettingsWidget::updateButtonStates()
-{
-    updateButtonStateRemoveSelected();
-    updateButtonStateRemoveAll();
-}
-
-void ClangToolsProjectSettingsWidget::updateButtonStateRemoveSelected()
-{
-    const auto selectedRows = m_diagnosticsView.selectionModel()->selectedRows();
-    QTC_ASSERT(selectedRows.count() <= 1, return);
-    m_removeSelectedButton.setEnabled(!selectedRows.isEmpty());
-}
-
-void ClangToolsProjectSettingsWidget::updateButtonStateRemoveAll()
-{
-    m_removeAllButton.setEnabled(m_diagnosticsView.model()->rowCount() > 0);
-}
-
-void ClangToolsProjectSettingsWidget::removeSelected()
-{
-    const auto selectedRows = m_diagnosticsView.selectionModel()->selectedRows();
-    QTC_ASSERT(selectedRows.count() == 1, return);
-    const auto * const model
-            = static_cast<SuppressedDiagnosticsModel *>(m_diagnosticsView.model());
-    m_projectSettings->removeSuppressedDiagnostic(model->diagnosticAt(selectedRows.first().row()));
+    const Utils::Key key = ClangToolsProjectPanel::extraDataKey();
+    QVariant v = project->extraData(key);
+    if (v.isNull()) {
+        v = QVariant::fromValue(new ClangToolsProjectPanel(project));
+        project->setExtraData(key, v);
+    }
+    return v.value<ClangToolsProjectPanel *>();
 }
 
 void SuppressedDiagnosticsModel::setDiagnostics(const SuppressedDiagnosticsList &diagnostics)
@@ -220,7 +258,12 @@ QVariant SuppressedDiagnosticsModel::headerData(int section, Qt::Orientation ori
 
 QVariant SuppressedDiagnosticsModel::data(const QModelIndex &index, int role) const
 {
-    if (!index.isValid() || role != Qt::DisplayRole || index.row() >= rowCount())
+    if (!index.isValid() || index.row() >= rowCount())
+        return QVariant();
+    // Removed, never edited.
+    if (role == Utils::AspectTable::EditableRole)
+        return false;
+    if (role != Qt::DisplayRole)
         return QVariant();
     const SuppressedDiagnostic &diag = m_diagnostics.at(index.row());
     if (index.column() == ColumnFile)
@@ -238,8 +281,8 @@ public:
         setPriority(100);
         setId(Constants::PROJECT_PANEL_ID);
         setDisplayName(Tr::tr("Clang Tools"));
-        setCreateWidgetFunction([](Project *project) {
-            return new ClangToolsProjectSettingsWidget(project);
+        setSettingsProvider([](Project *project) {
+            return clangToolsProjectPanel(project);
         });
     }
 };
@@ -250,3 +293,5 @@ void setupClangToolsProjectPanel()
 }
 
 } // namespace ClangTools::Internal
+
+#include "clangtoolsprojectsettingswidget.moc"

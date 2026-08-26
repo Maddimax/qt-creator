@@ -61,6 +61,8 @@ if(TARGET ClangTools AND TARGET Qt::Quick)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      ClangToolsProjectPanel.qml
+      ClangToolsRunOptionsForm.qml
       ClangToolsSettingsPage.qml
   )
 endif()
