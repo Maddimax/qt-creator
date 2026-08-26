@@ -3480,6 +3480,39 @@ It is worth writing down because the command every batch used says
 migration. No plugin anywhere in `src` uses an API this work removed; that was
 checked by grep rather than assumed.
 
+### The Editor panel, and the four layouters it was keeping alive
+
+Twelve of seventeen, and 26 layouters down to 22. This was the panel worth
+doing: `TabSettings`, `TypingSettings`, `StorageSettings` and
+`ExtraEncodingSettings` each had a `setLayouter()`, and the Editor project panel
+was the only thing still drawing them as widgets.
+
+What made it tractable is that the panel shows *the same five settings objects
+the Text Editor Behavior page shows*. So the page's five group boxes became
+five forms - `TabSettingsForm`, `TypingSettingsForm`, `StorageSettingsForm`,
+`EncodingSettingsForm`, `BehaviorSettingsForm` - and the page and the panel are
+each a list of five lines around them. The panel adds the margin settings, the
+flag and Restore Global.
+
+**A form can cross a module.** The forms live in `QtCreator.TextEditor` and the
+panel is in `QtCreator.ProjectExplorer`, so its QML does
+`import QtCreator.TextEditor`. That works because ProjectExplorer already
+plugin-depends on TextEditor, and it is worth knowing: a panel does not have to
+live in the same plugin as the settings it shows.
+
+With the panel drawn from the container, nothing lays those four out any more.
+Checked before deleting rather than after: every remaining use of the four
+containers is reading a value or connecting to `changed`, and none of them adds
+one to a `Column`.
+
+Two things stayed where they were, because moving them would have been wrong:
+
+- The tab settings are the panel's own, not the configuration's. They follow
+  whichever code style the project uses, which is what `setPreferences()` wires
+  up, and Restore Global has to call it again after cloning.
+- The flag disables each of the six containers rather than the container holding
+  them, because the flag lives beside them - the same shape as Testing.
+
 ### GitLab, and the last of the "flag plus settings" family
 
 Eleven of seventeen. This panel had no settings container at all -
