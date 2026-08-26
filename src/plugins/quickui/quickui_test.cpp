@@ -213,6 +213,7 @@ private slots:
     void testEveryTreeOnEveryPageReportsItsCurrentItem();
     void testAPageRefusesAnIndexFromSomeoneElsesModel();
     void testEveryGroupedListMapsItsRowsBothWays();
+    void testNoPageHasAnApplyThatCannotSaveAnything();
     void testTableCellReadsInItsOwnColours();
     void testATableIsReadOnTheBackgroundItsAspectNames();
     void testTheFormatListIsReadOnTheSchemesOwnBackground();
@@ -4223,6 +4224,65 @@ void QuickUiTest::testTableCellReadsInItsOwnColours()
             ++painted;
     }
     QCOMPARE(painted, 2);
+}
+
+void QuickUiTest::testNoPageHasAnApplyThatCannotSaveAnything()
+{
+    // A page whose aspects auto-apply has written the user's edit through
+    // already, so its container is never dirty and Apply has nothing to commit.
+    // That is the shape of "nothing ever saves", and it is also the shape of
+    // four pages that mean it - so this names them rather than claiming to
+    // detect the bug.
+    //
+    // It cannot detect the bug. Whether Apply works is only answerable after an
+    // edit: an unedited page is not dirty either, and editing one of each of a
+    // hundred pages to find out runs whatever each of them does about it. What
+    // this does instead is hold the list still. A fifth page arriving here is a
+    // decision someone made, and it should be made on purpose:
+    //
+    //   - the three Code Style pages keep a page-local copy that their aspects
+    //     edit live, and CodeStyleAspect overrides apply()/cancel()/isDirty()
+    //     to push it across. Covered by CodeStyleAspectTest::
+    //     testTheApplyButtonReachesTheStyleAndNotJustTheAspect().
+    //   - Android says so with IOptionsPage::setAutoApply(): its changes are
+    //     immediate and it offers no Apply of its own.
+    //
+    // Anything else in this list has neither, and its Apply button is a no-op.
+    static const QSet<QString> byDesign = {
+        "A.Cpp.Code Style",
+        "A.Code Style",
+        "Nim.NimCodeStyleSettings",
+        "BB.Android Configurations",
+    };
+
+    QStringList unexplained;
+    QStringList goneQuiet;
+
+    for (Core::IOptionsPage *page : Core::IOptionsPage::allOptionsPages()) {
+        const std::optional<Utils::AspectContainer *> aspects = page->aspects();
+        if (!aspects || !*aspects)
+            continue;
+        Utils::AspectContainer * const container = *aspects;
+        if (container->aspects().isEmpty())
+            continue;
+
+        const QString id = page->id().toString();
+        const bool applies = container->aspects().first()->isAutoApply();
+        if (applies && !byDesign.contains(id))
+            unexplained << page->displayName() + " [" + id + "]";
+        if (!applies && byDesign.contains(id))
+            goneQuiet << page->displayName() + " [" + id + "]";
+    }
+
+    QVERIFY2(unexplained.isEmpty(),
+             qPrintable("pages that apply as they are edited without saying why - if that is "
+                        "deliberate, say so here and cover it: "
+                        + unexplained.join(", ")));
+    // The other way too, so the list does not outlive the reason for it.
+    QVERIFY2(goneQuiet.isEmpty(),
+             qPrintable("pages listed here that no longer apply as they are edited, so the "
+                        "entry can go: "
+                        + goneQuiet.join(", ")));
 }
 
 void QuickUiTest::testEveryGroupedListMapsItsRowsBothWays()

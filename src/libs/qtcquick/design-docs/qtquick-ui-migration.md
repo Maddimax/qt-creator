@@ -5215,6 +5215,35 @@ exactly that shape, so it went there rather than into a new seam.
 If a fourth arrives that fits none of these, that is the point to reconsider a
 single "host services" object, rather than at the third.
 
+## Which pages apply as you type, and why that is a list and not a check
+
+Having fixed Apply on one page, the obvious question is the other 106. It is
+not answerable the way the first one was. A page whose aspects auto-apply has
+written the edit through already, so its container is never dirty and Apply has
+nothing to commit - but **an unedited page is not dirty either**, so the
+condition cannot tell "never saves" from "nothing has been typed yet". Two
+attempts at a census of it named the same four pages both times, and both times
+they were the pages that mean it.
+
+Editing something on each of a hundred pages to find out is the only thing that
+would answer it, and that runs whatever each page does about the edit. So this
+does not claim to detect the bug. It holds the *list* still:
+
+- the three Code Style pages keep a page-local copy their aspects edit live, and
+  `CodeStyleAspect` overrides `apply()`/`cancel()`/`isDirty()` to push it
+  across. Covered by a test that presses the page's own Apply.
+- Android says so with `IOptionsPage::setAutoApply()`: its changes are immediate
+  and it offers no Apply of its own.
+
+A fifth page arriving in that list has neither, and its Apply button is a no-op.
+The test names it and asks for a reason. It also fails the other way, when a
+listed page starts deferring - otherwise the list outlives the reason for it and
+becomes four names nobody dares remove.
+
+**This is the same discipline as the buttons note above**, arrived at from the
+other direction: where a census cannot separate the deliberate from the broken,
+it should enumerate the deliberate ones rather than quietly permit both.
+
 ## Apply on the Code Style pages did nothing
 
 Following the same thread - what is wired but never operated - to the buttons at
