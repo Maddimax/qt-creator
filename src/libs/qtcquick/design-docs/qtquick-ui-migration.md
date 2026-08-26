@@ -3480,6 +3480,43 @@ It is worth writing down because the command every batch used says
 migration. No plugin anywhere in `src` uses an API this work removed; that was
 checked by grep rather than assumed.
 
+### Project Environment: two surfaces, and a dialog that stays a dialog
+
+Fifteen of seventeen. This was the largest panel and the first done under a
+stated rule: the Qt Quick UI must match the widget one in functionality. So
+nothing was left out.
+
+The widget showed *one thing in two surfaces* - a tree of the resulting
+environment and a text editor of the changes, kept in step - with eight buttons
+beside them. That second surface is easy to miss; it is one
+`horizontalLayout->addWidget(&d->m_editor)` in the middle of the constructor,
+and a port that only saw the tree would have quietly dropped the way most
+people edit an environment.
+
+Both are aspects now: a table over the same `Utils::EnvironmentModel`, and a
+multi-line `StringAspect` whose text is
+`EnvironmentItem::toStringList(changes.itemsFromUser())`. A `Guard` keeps a
+write to either from coming back round as a change to the other.
+
+**A dialog is a window of its own, whichever backend opens it.** Path-list
+variables are edited in `PathListDialog`, and there is no reason for that to
+become QML - it is not part of the page. It only needed a seam to be reachable
+from something that is not `EnvironmentWidget`:
+
+    PROJECTEXPLORER_EXPORT bool editEnvironmentPathList(
+        Utils::EnvironmentModel *model, const QModelIndex &index, QWidget *parent);
+
+That is worth remembering for the two panels left, which are both blocked on
+embedded editors: the question is always whether the thing is *part of the
+page* or a window the page opens.
+
+**The first behavioural test of a converted panel.** The census says a panel
+renders and that its names resolve; it says nothing about whether it works.
+This one drives the panel through `ProjectPanelFactory::aspects()` - typing a
+change reaches the table and the project, and editing the table rewrites the
+text - and removing either direction fails it. The seam added for the census
+turns out to be what makes a panel testable at all.
+
 ### What a build without Qt::Quick shows now
 
 The previous section turns on a configuration worth stating outright:
