@@ -5215,6 +5215,52 @@ exactly that shape, so it went there rather than into a new seam.
 If a fourth arrives that fits none of these, that is the point to reconsider a
 single "host services" object, rather than at the third.
 
+## Operating a tree, and the crash under the mapping
+
+The table bug said where to look next: a tree has the same shape - the view says
+which row the cursor is on, a handler hands it to the aspect - and nothing
+operated one either. Auditing first: every `aspects.X.y()` call in page QML
+comes to **11 distinct calls**, and all 11 resolve to a real `Q_INVOKABLE` with
+a matching signature. So the tree pages were already right, and the test locks
+that in rather than fixing anything.
+
+What it checks is two failures that look nothing alike. The delegate has to
+answer an index in the aspect's *own* model, because an index from the filter
+proxy finds nothing there. And the handler has to run without QML complaining:
+`aspects.X.setCurrentIndex(...)` is resolved by name at call time, so a setter
+that is not `Q_INVOKABLE`, or one taking an `int` where the delegate hands over
+a `QModelIndex`, is a `TypeError` at runtime and silence everywhere else. That
+second half is what qmllint cannot see and what only running the handler finds.
+
+**A test that reads global state it did not set is not testing itself.** Both
+of these build pages, and whether a page builds with Qt Quick at that point in
+the run depends on which tests ran first: the census installs the form factory
+and clears it again, `showPage()` installs it and does not. The table test
+passed on state a *later-declared* test had left behind, and the tree test - one
+line further down - saw 107 pages with no `QQuickWidget` in any of them. Both
+now install the factory themselves.
+
+**The control found a heap overflow.** Reverting `TreeDelegate`'s `mapToSource`
+does not produce a wrong answer, it aborts the suite under AddressSanitizer:
+
+    ERROR: AddressSanitizer: heap-buffer-overflow
+    #2 Core::ExternalTool::preset()
+    #3 Core::Internal::ExternalToolsAspects::updateButtons()
+
+`ExternalToolModel::toolForIndex()` is
+`static_cast<ExternalTool *>(index.internalPointer())` with nothing asked, and a
+`QModelIndex` from another model carries a pointer to something that is not a
+tool. So the mapping is not a correctness detail, it is the only thing standing
+between a stale index and undefined behaviour - and `setCurrentIndex` is
+`Q_INVOKABLE`, which means the value comes from QML and cannot be assumed
+mapped. That end is now guarded too: an index of another model's is declined.
+Of the seven `setCurrentIndex(QModelIndex)` implementations, External Tools was
+the only one casting blindly.
+
+Worth noting how that control reports: the run aborts, so there is no failure
+line and no totals at all. **Checking the exit code is what catches it**, which
+is why the per-batch procedure asks for the exit code as well as the totals.
+
 ## Font && Colors, and the table bug behind it
 
 Font && Colors turned out not to need the editor at all. The workstream listed

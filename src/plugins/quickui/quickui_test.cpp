@@ -45,6 +45,7 @@
 #include <QRegularExpression>
 #include <QSortFilterProxyModel>
 #include <QSignalSpy>
+#include <QStandardItemModel>
 #include <QMetaEnum>
 #include <QQmlEngine>
 #include <QQmlError>
@@ -209,6 +210,8 @@ private slots:
     void testTableAspectFiltersItsRows();
     void testSelectingARowTellsThePageWhichOneItIs();
     void testEveryTableOnEveryPageReportsItsCurrentRow();
+    void testEveryTreeOnEveryPageReportsItsCurrentItem();
+    void testAPageRefusesAnIndexFromSomeoneElsesModel();
     void testTableCellReadsInItsOwnColours();
     void testATableIsReadOnTheBackgroundItsAspectNames();
     void testTheFormatListIsReadOnTheSchemesOwnBackground();
@@ -4221,6 +4224,127 @@ void QuickUiTest::testTableCellReadsInItsOwnColours()
     QCOMPARE(painted, 2);
 }
 
+void QuickUiTest::testAPageRefusesAnIndexFromSomeoneElsesModel()
+{
+    // setCurrentIndex() is Q_INVOKABLE, so what reaches it is whatever QML
+    // passed - and a QModelIndex carries an internalPointer that only means
+    // anything to the model that made it. External Tools casts that pointer to
+    // an ExternalTool without asking, so an index from anywhere else is a heap
+    // overflow rather than a wrong answer: reverting TreeDelegate's mapToSource
+    // aborts this suite under AddressSanitizer inside ExternalTool::preset().
+    //
+    // The mapping is right and stays. This is the other end of it: a page
+    // called with an index it did not make must decline rather than crash.
+    Core::setAspectFormFactory([](Utils::AspectContainer *container) {
+        return QtcQuick::createAspectForm(container);
+    });
+
+    std::unique_ptr<QWidget> host;
+    QQuickItem *root = showPage("External Tools", host);
+    if (!root)
+        QSKIP("The External Tools page is not available here");
+
+    Utils::BaseAspect *tools = nullptr;
+    for (QQuickItem *item : findAspectDelegates(root)) {
+        if (auto aspect = item->property("aspect").value<Utils::BaseAspect *>()) {
+            if (aspect->qmlName() == "Tools")
+                tools = aspect;
+        }
+    }
+    QVERIFY2(tools, "the page does not say which aspect holds its tools");
+
+    // A model of someone else's, with an internalPointer of its own.
+    QStandardItemModel foreign;
+    foreign.appendRow(new QStandardItem("not a tool"));
+    const QModelIndex stranger = foreign.index(0, 0);
+    QVERIFY(stranger.isValid());
+
+    // Reached by name, the way QML reaches it - which also says the method is
+    // still there and still invokable. Returning from it at all is the rest of
+    // the assertion: unguarded, this does not return, it aborts the run.
+    QVERIFY2(QMetaObject::invokeMethod(tools, "setCurrentIndex",
+                                       Q_ARG(QModelIndex, stranger)),
+             "setCurrentIndex is no longer callable by name from QML");
+
+    // Asking the page to show what it now thinks is current is what actually
+    // dereferences the index, so it is done here rather than left until some
+    // later repaint decides to.
+    QVERIFY(QMetaObject::invokeMethod(tools, "setCurrentIndex", Q_ARG(QModelIndex, QModelIndex())));
+}
+
+void QuickUiTest::testEveryTreeOnEveryPageReportsItsCurrentItem()
+{
+    // A tree is the table's shape again: the view says which row the cursor is
+    // on, a handler hands it to the aspect, and nothing ever operated one. The
+    // table version of this was -1 for every page for as long as it existed.
+    //
+    // Two things are checked, because they fail differently. The delegate has
+    // to answer an index in the aspect's *own* model - an index from the filter
+    // proxy finds nothing there. And the handler has to run without QML
+    // complaining: `aspects.X.setCurrentIndex(...)` is resolved by name at call
+    // time, so a setter that is not Q_INVOKABLE, or one whose argument is an
+    // int where the delegate hands over a QModelIndex, is a TypeError at
+    // runtime and silence everywhere else.
+    // Installed here rather than relied on: the census installs the factory and
+    // clears it again, and showPage() installs it and does not, so whether a
+    // page builds with Quick at this point in the run is a matter of which
+    // tests happened to run first. A test that reads global state it did not
+    // set passes or fails for reasons that are not about it.
+    Core::setAspectFormFactory([](Utils::AspectContainer *container) {
+        return QtcQuick::createAspectForm(container);
+    });
+
+    QStringList complaints;
+    const QMetaObject::Connection warned = QObject::connect(
+        QtcQuick::engine(), &QQmlEngine::warnings, QtcQuick::engine(),
+        [&complaints](const QList<QQmlError> &errors) {
+            for (const QQmlError &error : errors)
+                complaints << error.toString();
+        });
+    const QScopeGuard disconnect([warned] { QObject::disconnect(warned); });
+
+    int treesChecked = 0;
+    QStringList silent;
+
+    for (Core::IOptionsPage *page : Core::IOptionsPage::allOptionsPages()) {
+        const std::optional<Utils::AspectContainer *> aspects = page->aspects();
+        if (!aspects || !*aspects || (*aspects)->qmlSource().isEmpty())
+            continue;
+
+        std::unique_ptr<Core::IOptionsPageWidget> widget(page->createWidget());
+        if (!widget)
+            continue;
+        auto quickWidget = widget->findChild<QQuickWidget *>();
+        if (!quickWidget || !quickWidget->rootObject())
+            continue;
+
+        for (QQuickItem *delegate : findQmlComponents(quickWidget->rootObject(), "TreeDelegate")) {
+            QQuickItem *view = findQmlNamed(delegate, "aspectTree").value(0);
+            if (!view)
+                continue;
+            auto shown = view->property("model").value<QAbstractItemModel *>();
+            auto selection = view->property("selectionModel").value<QItemSelectionModel *>();
+            if (!shown || !selection || shown->rowCount({}) == 0)
+                continue;
+
+            ++treesChecked;
+            selection->setCurrentIndex(shown->index(0, 0), QItemSelectionModel::SelectCurrent);
+            const QModelIndex reported = delegate->property("currentIndex").toModelIndex();
+            if (!reported.isValid() || reported.model() == shown)
+                silent << page->displayName();
+        }
+    }
+
+    QVERIFY2(treesChecked > 0, "no page offered a tree with rows, so this checked nothing");
+    QVERIFY2(silent.isEmpty(),
+             qPrintable("trees that did not report the selected item in the aspect's own model: "
+                        + silent.join(", ")));
+    QVERIFY2(complaints.isEmpty(),
+             qPrintable("QML complained while a tree was being operated:\n"
+                        + complaints.join("\n")));
+    qInfo().noquote() << "trees asked which item is current:" << treesChecked;
+}
+
 void QuickUiTest::testEveryTableOnEveryPageReportsItsCurrentRow()
 {
     // The one above says the property works. This says it works on the pages
@@ -4232,6 +4356,15 @@ void QuickUiTest::testEveryTableOnEveryPageReportsItsCurrentRow()
     // looks at them, and selecting a row runs whatever the page does about it.
     // Kept apart so a side effect there cannot be mistaken for a rendering
     // failure here.
+    // Installed here rather than relied on: the census installs the factory and
+    // clears it again, and showPage() installs it and does not, so whether a
+    // page builds with Quick at this point in the run is a matter of which
+    // tests happened to run first. A test that reads global state it did not
+    // set passes or fails for reasons that are not about it.
+    Core::setAspectFormFactory([](Utils::AspectContainer *container) {
+        return QtcQuick::createAspectForm(container);
+    });
+
     int tablesChecked = 0;
     QStringList silent;
 

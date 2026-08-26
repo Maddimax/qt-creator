@@ -448,6 +448,14 @@ public:
     // reads it.
     Q_INVOKABLE void setCurrentIndex(const QModelIndex &index)
     {
+        // Only an index of this model's own. toolForIndex() casts
+        // internalPointer() to an ExternalTool without asking, so an index from
+        // anywhere else - a view's filter proxy, one left over from a reset -
+        // is a pointer to something that is not a tool, and reading it is a
+        // heap overflow rather than a wrong answer. This is called from QML,
+        // which is not a place that can be trusted to have mapped it.
+        if (index.isValid() && index.model() != &m_model)
+            return;
         if (index == m_current)
             return;
         m_current = index;
