@@ -5855,6 +5855,44 @@ at all.
 That the scan sees all sixty-six is what makes the zero worth anything - a
 scan run after the fix will always report nothing.
 
+## A page that is never shown has nothing to measure
+
+Three things were reported broken in the code style preview: no highlighting, a
+selection that could not be deleted, and a Format button that did nothing. The
+third was real and is fixed above. The first two do not reproduce - and the
+interesting part is how long it took to be able to say that.
+
+Every instrument pointed the wrong way at first. The preview reported
+`highlighting=true` with the right mime type, `readOnly=false` and an enabled
+aspect; the component tests for a `CodeBuffer` passed; deleting a selection
+passed as soon as a test for it existed. Then reading the formats off the
+viewport on a real page answered *zero ranges, zero colours*, which looked like
+the reported bug and is not: `visibleLineCount` was 0 as well. **A page the
+census creates but never shows never lays out**, so its viewport has no lines -
+no colours to read, and no characters to click on either.
+
+Shown, and driven with a press, a drag, a release and a Delete, the C++ page
+answers 25 lines, 103 format ranges, 8 distinct colours, and removes exactly
+the 11 characters the drag selected. That is now
+`testAShownPreviewIsColouredAndEditsWithMouseAndKeyboard()`, and blanking the
+mime type fails it with "Code Style draws its preview in one colour".
+
+Two details worth keeping:
+
+- The test drives the *mouse*, not `forceActiveFocus()` and a property write.
+  That is what a test reaches for and it is not what anybody does - and the
+  click taking the focus is precisely the step that would explain the report if
+  it were broken. Asserting `hasActiveFocus()` after the click is the point.
+- `qWaitForWindowActive()` returns false on this machine and the key events
+  arrive anyway. Waiting on it only turns the test into a skip, which is worse
+  than not asking: the precondition that matters is the item's focus, and that
+  is asserted where it happens.
+
+**What this does not settle.** The two symptoms are real to whoever saw them and
+invisible to every instrument here. Nothing in this file explains them; what
+would narrow it is whether typing a plain character into the preview works, and
+whether the Snippets editor behaves the same way.
+
 ## The same measurement, applied to kits
 
 Re-running the `layouter()` instrumentation with the device closures gone leaves

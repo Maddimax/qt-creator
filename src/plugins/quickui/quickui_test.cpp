@@ -188,6 +188,7 @@ private slots:
     void testAReadOnlyAspectOffersNothingToTypeIn_data();
     void testAReadOnlyAspectOffersNothingToTypeIn();
     void testAPreviewShowsExactlyWhatItsAspectHolds();
+    void testAShownPreviewIsColouredAndEditsWithMouseAndKeyboard();
     void testPasswordAspectDoesNotEchoItsValue();
     void testAspectListOffersItsExtraButtons();
     void testAnOrderedListMovesTheCurrentItem();
@@ -855,6 +856,94 @@ void QuickUiTest::testAPreviewShowsExactlyWhatItsAspectHolds()
 
         QTRY_COMPARE(buffer->property("text").toString(),
                      preview->volatileVariantValue().toString());
+        ++checked;
+    }
+    QVERIFY2(checked > 0, "no page offered a preview, so this proves nothing");
+}
+
+// A code style preview, on screen, driven the way somebody drives it. Reported
+// from a real page: the text was not coloured and a selection could not be
+// deleted. Neither reproduces, and the difference between this and the tests
+// that passed all along is that a page which is never shown never lays out -
+// its viewport has no visible lines, so it has no colours to check and no
+// characters to click on either.
+void QuickUiTest::testAShownPreviewIsColouredAndEditsWithMouseAndKeyboard()
+{
+    Core::setAspectFormFactory([](Utils::AspectContainer *container) {
+        return QtcQuick::createAspectForm(container);
+    });
+    const QScopeGuard clearFactory([] { Core::setAspectFormFactory({}); });
+
+    int checked = 0;
+    for (Core::IOptionsPage *page : Core::IOptionsPage::allOptionsPages()) {
+        const std::optional<Utils::AspectContainer *> aspects = page->aspects();
+        if (!aspects || !*aspects || !aspectByQmlName(*aspects, "Preview"))
+            continue;
+
+        std::unique_ptr<Core::IOptionsPageWidget> widget(page->createWidget());
+        QVERIFY(widget);
+        widget->resize(900, 600);
+        widget->show();
+        if (!QTest::qWaitForWindowExposed(widget.get()))
+            QSKIP("the page never made it onto the screen");
+        // Asked for, not waited on: the key events below reach the window
+        // whether or not the platform ever makes it active, and on a machine
+        // that never activates a test window the wait only turns this into a
+        // skip. What has to be true is that the click focuses the viewport,
+        // which is asserted where it happens.
+        widget->activateWindow();
+
+        auto quickWidget = widget->findChild<QQuickWidget *>();
+        QVERIFY(quickWidget && quickWidget->rootObject());
+        QObject * const buffer
+            = quickWidget->rootObject()->findChild<QObject *>("codeStylePreviewBuffer");
+        QVERIFY(buffer);
+
+        QQuickItem *inner = nullptr;
+        for (QQuickItem *view : findQmlNamed(quickWidget->rootObject(), "codeStylePreviewText")) {
+            for (QQuickItem *part : findQmlComponents(view, "")) {
+                if (QString::fromLatin1(part->metaObject()->className()).contains("TextViewport"))
+                    inner = part;
+            }
+        }
+        QVERIFY2(inner, "the preview drew no viewport");
+        QTRY_VERIFY2(inner->property("visibleLineCount").toInt() > 0,
+                     "the preview laid out no lines, so nothing below means anything");
+
+        // Coloured: highlighting is a foreground colour, so one colour across
+        // every format range is text that only looks highlighted.
+        QSet<QRgb> foregrounds;
+        const int lines = inner->property("visibleLineCount").toInt();
+        for (int i = 0; i < lines; ++i) {
+            QVariantMap line;
+            QMetaObject::invokeMethod(inner, "visibleLine", Q_RETURN_ARG(QVariantMap, line),
+                                      Q_ARG(int, i));
+            const QVariantList formats = line.value("formats").toList();
+            for (const QVariant &format : formats)
+                foregrounds.insert(format.toMap().value("foreground").value<QColor>().rgb());
+        }
+        QVERIFY2(foregrounds.size() > 1,
+                 qPrintable(page->displayName() + " draws its preview in one colour"));
+
+        // Edited: press, drag, release, Delete. Not forceActiveFocus() and a
+        // property write, which is what a test reaches for and not what
+        // anybody does - the click has to be what takes the focus.
+        const QString before = buffer->property("text").toString();
+        const qreal middle = inner->property("lineHeight").toReal() / 2;
+        QWindow * const window = quickWidget->quickWindow();
+        QTest::mousePress(window, Qt::LeftButton, {}, inner->mapToScene({4, middle}).toPoint());
+        QTest::mouseMove(window, inner->mapToScene({90, middle}).toPoint());
+        QTest::mouseRelease(window, Qt::LeftButton, {}, inner->mapToScene({90, middle}).toPoint());
+
+        QTRY_VERIFY2(inner->property("selectionEnd").toInt()
+                         > inner->property("selectionStart").toInt(),
+                     "dragging across the text selected nothing");
+        const int selected = inner->property("selectionEnd").toInt()
+                             - inner->property("selectionStart").toInt();
+        QVERIFY2(inner->hasActiveFocus(), "clicking in the preview did not focus it");
+
+        QTest::keyClick(window, Qt::Key_Delete);
+        QTRY_COMPARE(buffer->property("text").toString().size(), before.size() - selected);
         ++checked;
     }
     QVERIFY2(checked > 0, "no page offered a preview, so this proves nothing");
