@@ -2238,7 +2238,9 @@ void QuickUiTest::testAspectListAddsRemovesAndShowsDetails()
     Utils::AspectList servers(&page);
     servers.setLabelText("Servers");
     servers.setDisplayStyle(Utils::AspectList::DisplayStyle::ListViewWithDetails);
-    servers.listViewDataCallback = [](Utils::BaseAspect *item, int) -> QVariant {
+    servers.listViewDataCallback = [](Utils::BaseAspect *item, int role) -> QVariant {
+        if (role != Qt::DisplayRole)
+            return {};
         return item->displayName();
     };
     servers.setCreateItemFunction([] {
