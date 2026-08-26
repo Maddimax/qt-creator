@@ -3480,6 +3480,54 @@ It is worth writing down because the command every batch used says
 migration. No plugin anywhere in `src` uses an API this work removed; that was
 checked by grep rather than assumed.
 
+### Three more panels, and where the flag has to live
+
+The blocker for the panels after Copilot was that every other project settings
+container keeps its `useGlobalSettings` outside itself. The comments in the
+code say "excluded from toMap/fromMap", and that part turns out not to be the
+reason: `saveToMap()` returns early on an empty key and `fromMap()` on
+`skipSave()`, so a keyless aspect inside a container is *already* invisible to
+persistence, and only Copilot's flag has a key at all.
+
+The real reason is `setupUseGlobalSettings()`:
+
+    container->setEnabled(!useGlobal->value());
+
+A flag inside that container would be disabled along with everything else the
+moment it was switched on, and there would be no way back. So the panel is a
+container of its own holding the flag and the settings container, with no
+settings key of its own. Order matters when building one: `insertAspect()`
+does `aspect->setAutoApply(isAutoApply())`, so the panel sets its own
+auto-apply *before* registering anything, or it forces the wrong one onto the
+container it takes in.
+
+Documentation Comments, Vcpkg and To-Do went over this way; the census now
+reads four of seventeen. Vcpkg disables only its root path rather than the
+whole container, so its flag could have gone inside - it did not, because
+knowing that means reading what each container's `setEnabled()` reaches, and
+one pattern the census checks is worth more than the object it saves. To-Do
+was the first whose closure *did* something as well as list: it kept a
+`QGroupBox` in step with the flag by hand, because a group box is not one of
+the aspects. In QML the box follows the container it holds.
+
+**Two checks came out of it, both controlled by making the mistake.**
+
+- *A panel always has one enabled aspect.* Putting the flag inside the
+  container it disables fails with "Documentation Comments is disabled as a
+  whole, so there is no way back".
+- *No QML complaints while the panels are built.* A name no aspect answers to
+  is undefined in QML rather than an error, so the delegate is built and draws
+  nothing; `qmllint` cannot see through a `QQmlPropertyMap`, and the only place
+  it shows up is a runtime warning. Misspelling `ExcludePatterns` now fails
+  with `TodoProjectPanel.qml:26:36: Unable to assign [undefined] to
+  Utils::BaseAspect*`.
+
+The obvious version of the second check does not work: walking the panel
+widget's children for delegates finds nothing at all. A `QQuickWidget`'s item
+tree hangs off an internal window rather than off the widget, so
+`findChildren<QObject *>()` returns one `QQmlComponent` and stops. Collecting
+the warnings needs no Quick headers and catches binding errors too.
+
 ### Panels can say what they show now
 
 `ProjectPanelFactory` could only hand over a `QWidget`, so what a panel shows
