@@ -3480,6 +3480,44 @@ It is worth writing down because the command every batch used says
 migration. No plugin anywhere in `src` uses an API this work removed; that was
 checked by grep rather than assumed.
 
+### How far the silent-typo hazard actually goes
+
+The Code Style panel showed that a misspelled aspect name can leave a test
+green, so the obvious next question is how many other places have it. There are
+54 call sites that pass `aspects.X` straight into an `AspectModels` function,
+across 41 files - which looks alarming and is not.
+
+Measured rather than assumed, by misspelling one and running the census:
+
+- `readonly property var settings: AspectModels.named(aspects.Settings)` then
+  `root.settings.Foo` - **caught**. `named(undefined)` returns null and reading
+  a property off null is a `TypeError`, which both censuses collect as a QML
+  warning. Tried on `ProjectCommentsPanel.qml`.
+- `model: AspectModels.container(root.aspects.Plugins)` followed by
+  `visible: root.aspects.Plugins.visible` - **caught**, for the same reason: the
+  second line reads through it. Tried on `PyLSSettingsPage.qml`.
+- The delegates in `qtcquick` derive their models from a typed `aspect`
+  property, so a wrong name there never gets that far.
+
+So the silent shape is narrow: the result has to feed a *view's model* and be
+read nowhere else, because a `Repeater` with a null model builds nothing and
+therefore reads nothing. Exactly one site was like that - the Code Style
+panel's - and it is typed now. Nothing else to change; recorded so the count of
+54 does not send someone else looking.
+
+**A false positive in the report, and a fix that was worse.** The report says
+"Code Style does not draw: /Preview" for each language, and that is wrong: the
+preview is drawn. The census knows an aspect was drawn by finding an item with
+an `aspect` property, and `CodeStylePreview.qml` binds the aspect's properties
+onto a `TextArea` directly, so there is nothing for it to find.
+
+Giving the component `readonly property Aspect aspect: root.aspects.Preview`
+removes two of the three lines and produces a binding loop on `aspect` -
+reported against the pages that instantiate it, three tests failing and 36
+warnings. Reverted. The cause was not obvious and the report entry is cosmetic,
+so it stays as a known false positive: three lines that mean nothing, which is
+worth knowing before trusting a fourth.
+
 ### Code Style: the last panel, and a control that did not bite
 
 Seventeen of seventeen. No project panel builds a widget any more.
