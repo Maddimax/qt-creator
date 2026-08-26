@@ -99,6 +99,34 @@ Item {
             anchors.margins: Spacing.PaddingHXs
         }
 
+        // Behind the viewport rather than over it. Clicking text is the
+        // fallback for the whole area, so anything inside the viewport that
+        // wants a click of its own - the box standing in for a fold - has to
+        // be in front of this. TextViewport accepts no mouse buttons itself,
+        // so a press that lands on none of them falls through to here.
+        MouseArea {
+            anchors.fill: viewport
+            acceptedButtons: Qt.LeftButton
+            cursorShape: Qt.IBeamCursor
+
+            onPressed: (mouse) => {
+                viewport.forceActiveFocus()
+                const position = viewport.positionAt(mouse.x, mouse.y)
+                viewport.cursorPosition = position
+                // A press starts a selection of nothing rather than clearing
+                // it, so that the drag below has an anchor to grow from.
+                viewport.selectionStart = position
+                viewport.selectionEnd = position
+            }
+            onPositionChanged: (mouse) => {
+                if (!pressed)
+                    return
+                const position = viewport.positionAt(mouse.x, mouse.y)
+                viewport.cursorPosition = position
+                viewport.selectionEnd = position
+            }
+        }
+
         TextViewport {
             id: viewport
 
@@ -155,6 +183,13 @@ Item {
                             font: viewport.font
                             color: Tokens.textMuted
                         }
+
+                        // The box is the other way to open a fold: the gutter
+                        // marker is far from what the reader is looking at,
+                        // and the widget editor opens on this too.
+                        TapHandler {
+                            onTapped: viewport.toggleFold(trailing.lineData.lineNumber)
+                        }
                     }
 
                     Text {
@@ -196,29 +231,6 @@ Item {
                     interval: Application.styleHints.cursorFlashTime / 2
                     onTriggered: caret.opacity = caret.opacity > 0 ? 0 : 1
                 }
-            }
-        }
-
-        MouseArea {
-            anchors.fill: viewport
-            acceptedButtons: Qt.LeftButton
-            cursorShape: Qt.IBeamCursor
-
-            onPressed: (mouse) => {
-                viewport.forceActiveFocus()
-                const position = viewport.positionAt(mouse.x, mouse.y)
-                viewport.cursorPosition = position
-                // A press starts a selection of nothing rather than clearing
-                // it, so that the drag below has an anchor to grow from.
-                viewport.selectionStart = position
-                viewport.selectionEnd = position
-            }
-            onPositionChanged: (mouse) => {
-                if (!pressed)
-                    return
-                const position = viewport.positionAt(mouse.x, mouse.y)
-                viewport.cursorPosition = position
-                viewport.selectionEnd = position
             }
         }
 

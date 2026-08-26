@@ -6370,6 +6370,36 @@ annotation into a parent, and an existing test asserting its local `x` went red
 - correctly, because a local `x` had silently stopped meaning "after the text".
 Both tests ask `mapToItem(viewport, ...)` now, which is the question either way.
 
+**The caret walked into the fold.** `QTextCursor::Down` moves by *document*
+line, so pressing Down on a folded line put the caret inside the hidden text,
+where nothing draws it. The fix is one line - `cursor.setVisualNavigation(true)`
+in `textCursor()`, which is what `moveCursorVisible()` uses on the widget side.
+Worth recording because the instinct is to write the skip loop by hand: Qt
+already has the flag, and it applies to every move rather than to the two the
+loop would have covered.
+
+This one needed no separate control: the test was written first, watched fail
+on the unmodified viewport, and went green on the one-line change.
+
+**Two ways to open a fold, and a z-order.** The gutter marker is far from what
+the reader is looking at, so the `{...};` box opens the fold too, the way the
+widget does. Making that work meant moving `CodeViewport`'s text-selection
+`MouseArea` from *after* the viewport to *before* it. Declared after, it is a
+sibling drawn on top of the whole viewport subtree, so it took every press
+before anything inside the viewport could - including a `TapHandler`. Declared
+before, it is the fallback it was always meant to be: `TextViewport` accepts no
+mouse buttons itself, so a press landing on none of its children still reaches
+it. The ordering is load-bearing now, so it has a control of its own - moving
+the `MouseArea` back on top fails the test.
+
+**On running controls.** Two restores failed this session. One collapsed a
+`do`-`while` and left `block = block.next();` matching in two places; the other
+tried to put a deleted block back by locating a comment whose text wrapped
+differently than assumed. Both times the *next* control ran against a still
+broken file and its failure proved nothing. Controls copy the file aside and
+copy it back now, and the baseline is re-run at the end - a control is only
+evidence if the thing passes again afterwards.
+
 What is left of the editor: extra-selection overlays, the context menu, drag
 and drop, and wrapping.
 

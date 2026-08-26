@@ -824,6 +824,40 @@ private slots:
     // after the line rather than leaving a gap, and puts back the brackets the
     // hidden text opened and closed - which is the part that has to come from
     // the document rather than from a constant.
+    void testTheCaretStepsOverAFoldRatherThanIntoIt()
+    {
+        TemporaryDirectory dir("qtc-viewport-foldcaret");
+        const FilePath file = writeLines(dir, "caret.txt", 20);
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 6);
+        QVERIFY(viewport->hasActiveFocus());
+
+        QTextDocument * const text = fixture.document.textDocument()->document();
+        auto * const layout = qobject_cast<TextDocumentLayout *>(text->documentLayout());
+        QVERIFY(layout);
+        for (int i = 1; i <= 4; ++i)
+            TextBlockUserData::setFoldingIndent(text->findBlockByNumber(i), 1);
+        TextBlockUserData::doFoldOrUnfold(text->findBlockByNumber(0), false);
+        layout->requestUpdate();
+        QTRY_COMPARE(viewport->visibleLine(1).value("text").toString(), QString("line 5"));
+
+        // Down from the line that owns the fold lands after it, not in it.
+        viewport->setCursorPosition(0);
+        QTest::keyClick(&fixture.view, Qt::Key_Down);
+        const QTextBlock below = text->findBlock(viewport->cursorPosition());
+        QCOMPARE(below.blockNumber(), 5);
+        QVERIFY2(below.isVisible(), "the caret is on a line nobody can see");
+
+        // And back up over it again.
+        QTest::keyClick(&fixture.view, Qt::Key_Up);
+        const QTextBlock above = text->findBlock(viewport->cursorPosition());
+        QCOMPARE(above.blockNumber(), 0);
+        QVERIFY(above.isVisible());
+    }
+
     void testAClosedFoldSaysWhatItSwallowed()
     {
         TemporaryDirectory dir("qtc-viewport-replacement");
@@ -905,10 +939,13 @@ private slots:
                                 .arg(at.x()).arg(lineWidth)));
         QCOMPARE(qRound(at.y() / viewport->lineHeight()), 0);
 
-        // And it goes away again.
-        TextBlockUserData::doFoldOrUnfold(first, /*unfold=*/true);
-        layout->requestUpdate();
+        // And clicking the box is the other way to open the fold: it is where
+        // the reader is already looking, and the widget editor opens on it too.
+        const QPointF middle = box->mapToItem(view.contentItem(),
+                                              QPointF(box->width() / 2, box->height() / 2));
+        QTest::mouseClick(&view, Qt::LeftButton, {}, middle.toPoint());
         QTRY_COMPARE(viewport->visibleLine(0).value("foldReplacement").toString(), QString());
+        QCOMPARE(viewport->visibleLine(1).value("text").toString(), QString("{"));
         QTRY_VERIFY(!shown("{...};"));
     }
 

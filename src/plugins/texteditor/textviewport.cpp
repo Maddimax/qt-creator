@@ -297,6 +297,10 @@ QTextCursor TextViewport::textCursor() const
         return {};
 
     QTextCursor cursor(text);
+    // Move through what is on screen, not through what is in the file: without
+    // this, Down from a folded line steps into the hidden text and the caret
+    // is nowhere.
+    cursor.setVisualNavigation(true);
     // The anchor is where the selection was started from, which is not always
     // where the caret is: a selection dragged upwards has its anchor after its
     // position, and collapsing it has to keep that straight.
