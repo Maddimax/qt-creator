@@ -3480,6 +3480,52 @@ It is worth writing down because the command every batch used says
 migration. No plugin anywhere in `src` uses an API this work removed; that was
 checked by grep rather than assumed.
 
+### Typing the delegates that drive one aspect
+
+`aspectcontainermodel.h` registers `Utils::BaseAspect` as the QML type
+`Aspect`, under a comment saying that this is what lets a delegate "have
+qmllint check every binding against the real properties". Only the base class
+was ever registered, so the delegates that drive exactly one aspect kind -
+`GroupedListDelegate`, `AspectListDelegate`, `ButtonDelegate` - held an
+`Aspect` and called methods only the subclass has. Twenty such calls, each
+reported as `Member "moveCurrentUp" not found on type "Utils::BaseAspect"`
+and no more than that.
+
+Each of the three has exactly one producing class: control `GroupedList`
+comes only from `groupedlistaspect.cpp`, `AspectList`/`AspectInlineList` only
+from `aspectlist.cpp`, `Button` only from `ActionAspect::presentation()`.
+Registering those three and declaring them in the delegates removes 18 of the
+20 warnings.
+
+The warnings going away is not the proof. A QML type that fails to resolve
+*also* stops producing member warnings, and that looks identical from the
+outside. The control is to rename `AspectList::moveCurrentUp()` in C++ and
+leave the QML calling the old name:
+
+    AspectListDelegate.qml:174: Member "moveCurrentUp" not found on type
+    "Utils::AspectList"
+    Info: Did you mean "moveCurrentUpZZZ"?
+
+The real type is resolved and the new spelling suggested. Before the change,
+that same rename produced a warning indistinguishable from the noise already
+sitting there - which is the whole failure mode: it would have shipped a page
+whose buttons quietly did nothing.
+
+`KeySequenceDelegate` keeps the generic `Aspect`. Its aspect is declared
+inside `shortcutsettings.cpp` in coreplugin, which this library cannot see, so
+`recording`/`setRecording` stay unchecked; the delegate says so, to stop the
+next person trying to register a plugin-private class.
+
+One more thing fell out of reading stderr instead of the totals. The suite
+passed 66/66 while logging ten `QQuickImage: Cannot open:
+qrc:/qt/qml/QtCreator/Ui/A server` warnings: a test's `listViewDataCallback`
+ignored the role it was handed and answered with the item's display name every
+time, so a row's decoration became a label and QML resolved it as a relative
+URL. Every production callback switches on the role and returns `{}`
+otherwise, so this was test-only. But it was the suite's entire warning
+output, and a suite that always prints ten warnings cannot show you an
+eleventh.
+
 ### What the census could not see, and now can
 
 Two holes, both found the hard way in the same session.
