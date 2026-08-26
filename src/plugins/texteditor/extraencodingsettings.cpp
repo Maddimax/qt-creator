@@ -77,21 +77,6 @@ ExtraEncodingSettings::ExtraEncodingSettings()
     lineEndingSetting.setDefaultValue(ExtraEncodingSettingsData::Unix);
     lineEndingSetting.setLabelText(Tr::tr("Default line endings:"));
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-        return Column {
-            Group {
-                title(Tr::tr("File Encodings")),
-                Row {
-                    Form {
-                        defaultEncoding, br,
-                        utf8BomSetting, br,
-                        lineEndingSetting, br,
-                    }, st
-                }
-            }
-        };
-    });
 }
 
 ExtraEncodingSettingsData ExtraEncodingSettings::data() const
