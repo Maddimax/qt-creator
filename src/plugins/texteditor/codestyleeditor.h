@@ -123,6 +123,30 @@ private:
     QString m_mimeType;
 };
 
+// The selector every Code Style form has: which style is being edited, and what
+// may be done to it. Built for whichever ICodeStylePreferences is the target - a
+// page edits a page-local copy, a project edits its own - so both forms name the
+// same aspects. See CodeStyleSelector.qml.
+class TEXTEDITOR_EXPORT CodeStyleSelectorAspects
+{
+public:
+    void setup(Utils::AspectContainer *container, ICodeStylePreferences *codeStyle);
+    void refill();
+    void updateState();
+
+private:
+    ICodeStylePreferences *m_codeStyle = nullptr;
+    Utils::SelectionAspect *m_style = nullptr;
+    Utils::ActionAspect *m_copy = nullptr;
+    Utils::ActionAspect *m_remove = nullptr;
+    Utils::ActionAspect *m_import = nullptr;
+    Utils::ActionAspect *m_export = nullptr;
+    Utils::TextDisplay *m_readOnlyNote = nullptr;
+    // What each option in m_style stands for, in the same order.
+    QList<QPointer<ICodeStylePreferences>> m_selectable;
+    Utils::Guard m_updating;
+};
+
 // Reusable settings-page container for editing an ICodeStylePreferences with
 // deferred apply/cancel. A page-local copy of the style is its volatile state;
 // the language's code style editor edits that copy, and apply() commits it to
@@ -139,9 +163,6 @@ public:
 
 private:
     void ensurePageCopy(ICodeStylePreferencesFactory *factory);
-    void setupSelectorAspects(const ICodeStylePreferencesFactory *factory);
-    void refillStyleOptions();
-    void updateSelectorState();
     void syncFromReal();
     bool poolsDiffer() const;
     ICodeStylePreferences *addPageCopy(ICodeStylePreferences *realStyle);
@@ -154,16 +175,8 @@ private:
     bool m_syncing = false;
 
     // The selector, as aspects, for a language that draws its page with Qt
-    // Quick. Null for one that still uses CodeStyleSelectorWidget.
-    Utils::SelectionAspect *m_styleSelection = nullptr;
-    Utils::ActionAspect *m_copyStyle = nullptr;
-    Utils::ActionAspect *m_removeStyle = nullptr;
-    Utils::ActionAspect *m_importStyle = nullptr;
-    Utils::ActionAspect *m_exportStyle = nullptr;
-    Utils::TextDisplay *m_readOnlyNote = nullptr;
-    // What each option in m_styleSelection stands for, in the same order.
-    QList<QPointer<ICodeStylePreferences>> m_selectableStyles;
-    Utils::Guard m_updatingSelector;
+    // Quick. Left unset for one that still uses CodeStyleSelectorWidget.
+    CodeStyleSelectorAspects m_selector;
 };
 
 } // namespace TextEditor

@@ -329,7 +329,7 @@ CodeStyleAspect::CodeStyleAspect(ICodeStylePreferences *codeStyle, Id languageId
             syncFromReal();
             // Which style is being edited, and what it does to code: the page's
             // own aspects, so that every language's form gets the same ones.
-            setupSelectorAspects(factory);
+            m_selector.setup(this, m_pageCodeStyle);
             auto preview = new CodeStylePreviewAspect(this, factory, m_pageCodeStyle);
 
             auto resetPreview = new ActionAspect(this);
@@ -424,26 +424,26 @@ void CodeStyleAspect::ensurePageCopy(ICodeStylePreferencesFactory *factory)
     connect(m_pageCodeStyle, &ICodeStylePreferences::currentPreferencesChanged, this, notify);
 }
 
-void CodeStyleAspect::setupSelectorAspects(const ICodeStylePreferencesFactory *factory)
+void CodeStyleSelectorAspects::setup(AspectContainer *container, ICodeStylePreferences *codeStyle)
 {
-    Q_UNUSED(factory)
+    m_codeStyle = codeStyle;
 
-    m_styleSelection = new SelectionAspect(this);
-    m_styleSelection->setQmlName("Style");
-    m_styleSelection->setLabelText(Tr::tr("Custom settings:"));
-    m_styleSelection->setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
-    connect(m_styleSelection, &BaseAspect::volatileValueChanged, this, [this] {
-        if (m_updatingSelector.isLocked())
+    m_style = new SelectionAspect(container);
+    m_style->setQmlName("Style");
+    m_style->setLabelText(Tr::tr("Custom settings:"));
+    m_style->setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
+    QObject::connect(m_style, &BaseAspect::volatileValueChanged, container, [this] {
+        if (m_updating.isLocked())
             return;
-        const int index = m_styleSelection->volatileValue();
-        if (index < 0 || index >= m_selectableStyles.size())
+        const int index = m_style->volatileValue();
+        if (index < 0 || index >= m_selectable.size())
             return;
-        m_pageCodeStyle->setCurrentDelegate(m_selectableStyles.at(index));
+        m_codeStyle->setCurrentDelegate(m_selectable.at(index));
     });
 
-    const auto addAction = [this](const QString &qmlName, const QString &text,
-                                  const std::function<void()> &action) {
-        auto aspect = new ActionAspect(this);
+    const auto addAction = [container](const QString &qmlName, const QString &text,
+                                      const std::function<void()> &action) {
+        auto aspect = new ActionAspect(container);
         aspect->setQmlName(qmlName);
         aspect->setActionText(text);
         aspect->setAction(action);
@@ -451,83 +451,80 @@ void CodeStyleAspect::setupSelectorAspects(const ICodeStylePreferencesFactory *f
     };
 
     QWidget *dialogParent = Core::ICore::dialogParent();
-    m_copyStyle = addAction("CopyStyle", Tr::tr("Copy..."), [this, dialogParent] {
-        CodeStyleActions::copy(m_pageCodeStyle, dialogParent);
+    m_copy = addAction("CopyStyle", Tr::tr("Copy..."), [this, dialogParent] {
+        CodeStyleActions::copy(m_codeStyle, dialogParent);
     });
-    m_removeStyle = addAction("RemoveStyle", Tr::tr("Remove"), [this, dialogParent] {
-        CodeStyleActions::remove(m_pageCodeStyle, dialogParent);
+    m_remove = addAction("RemoveStyle", Tr::tr("Remove"), [this, dialogParent] {
+        CodeStyleActions::remove(m_codeStyle, dialogParent);
     });
-    m_exportStyle = addAction("ExportStyle", Tr::tr("Export..."), [this, dialogParent] {
-        CodeStyleActions::exportTo(m_pageCodeStyle, dialogParent);
+    m_export = addAction("ExportStyle", Tr::tr("Export..."), [this, dialogParent] {
+        CodeStyleActions::exportTo(m_codeStyle, dialogParent);
     });
-    m_importStyle = addAction("ImportStyle", Tr::tr("Import..."), [this, dialogParent] {
-        CodeStyleActions::importFrom(m_pageCodeStyle, dialogParent);
+    m_import = addAction("ImportStyle", Tr::tr("Import..."), [this, dialogParent] {
+        CodeStyleActions::importFrom(m_codeStyle, dialogParent);
     });
 
     m_readOnlyNote = new TextDisplay(
-        this,
+        container,
         Tr::tr("The selected configuration is read-only. Copy the configuration for editing."));
     m_readOnlyNote->setQmlName("ReadOnlyNote");
     m_readOnlyNote->setIconType(InfoType::Warning);
 
     // Import and export need somewhere to put a style and somewhere to take one
     // from; without a pool there is neither.
-    const bool hasPool = m_pageCodeStyle->delegatingPool() != nullptr;
-    m_importStyle->setEnabled(hasPool);
-    m_exportStyle->setEnabled(hasPool);
+    const bool hasPool = m_codeStyle->delegatingPool() != nullptr;
+    m_import->setEnabled(hasPool);
+    m_export->setEnabled(hasPool);
 
-    if (CodeStylePool *pool = m_pageCodeStyle->delegatingPool()) {
-        const auto refill = [this] { refillStyleOptions(); updateSelectorState(); };
-        connect(pool, &CodeStylePool::codeStyleAdded, this, refill);
-        connect(pool, &CodeStylePool::codeStyleRemoved, this, refill);
+    const auto refresh = [this] { refill(); updateState(); };
+    if (CodeStylePool *pool = m_codeStyle->delegatingPool()) {
+        QObject::connect(pool, &CodeStylePool::codeStyleAdded, container, refresh);
+        QObject::connect(pool, &CodeStylePool::codeStyleRemoved, container, refresh);
     }
-    connect(m_pageCodeStyle, &ICodeStylePreferences::currentDelegateChanged, this, [this] {
-        refillStyleOptions();
-        updateSelectorState();
-    });
+    QObject::connect(m_codeStyle, &ICodeStylePreferences::currentDelegateChanged,
+                     container, refresh);
 
-    refillStyleOptions();
-    updateSelectorState();
+    refresh();
 }
 
-void CodeStyleAspect::refillStyleOptions()
+void CodeStyleSelectorAspects::refill()
 {
-    if (!m_styleSelection)
+    if (!m_style)
         return;
 
     // Setting the index below is this code catching the combo box up, not the
     // user picking a style, so it must not be routed back into the delegate.
-    const GuardLocker locker(m_updatingSelector);
+    const GuardLocker locker(m_updating);
 
-    m_styleSelection->clearOptions();
-    m_selectableStyles.clear();
+    m_style->clearOptions();
+    m_selectable.clear();
 
-    if (CodeStylePool *pool = m_pageCodeStyle->delegatingPool()) {
+    if (CodeStylePool *pool = m_codeStyle->delegatingPool()) {
         const QList<ICodeStylePreferences *> styles = pool->codeStyles();
         for (ICodeStylePreferences *style : styles) {
-            // A style cannot delegate to itself, and the page is global, so
-            // styles belonging to a project are not on offer either.
-            if (style == m_pageCodeStyle || style->id() == m_pageCodeStyle->id())
+            // A style cannot delegate to itself, and what is on offer is the
+            // shared styles - one project's own are not another's to pick.
+            if (style == m_codeStyle || style->id() == m_codeStyle->id())
                 continue;
             if (!style->project().isEmpty())
                 continue;
-            m_selectableStyles.append(style);
-            m_styleSelection->addOption(codeStyleDisplayName(style));
+            m_selectable.append(style);
+            m_style->addOption(codeStyleDisplayName(style));
         }
     }
 
-    m_styleSelection->setValue(m_selectableStyles.indexOf(m_pageCodeStyle->currentDelegate()));
+    m_style->setValue(m_selectable.indexOf(m_codeStyle->currentDelegate()));
 }
 
-void CodeStyleAspect::updateSelectorState()
+void CodeStyleSelectorAspects::updateState()
 {
-    if (!m_styleSelection)
+    if (!m_style)
         return;
 
-    const ICodeStylePreferences *delegate = m_pageCodeStyle->currentDelegate();
+    const ICodeStylePreferences *delegate = m_codeStyle->currentDelegate();
     // A built-in style cannot be deleted, and neither can one that is itself a
     // proxy for another.
-    m_removeStyle->setEnabled(delegate && !delegate->isReadOnly() && !delegate->currentDelegate());
+    m_remove->setEnabled(delegate && !delegate->isReadOnly() && !delegate->currentDelegate());
     m_readOnlyNote->setVisible(delegate && delegate->isReadOnly());
 }
 
