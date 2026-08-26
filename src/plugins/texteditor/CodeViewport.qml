@@ -38,6 +38,10 @@ Item {
     // let a user say.
     property bool showFoldMarkers: false
 
+    // What a right click offers, or null for a view that offers nothing - a
+    // settings preview has no Find Usages to give.
+    property ActionModel contextActions: null
+
     // Focus has left, so whatever was being typed is finished. A page that
     // writes the text somewhere else uses this rather than every keystroke:
     // re-indenting rewrites the document, and it must not do that under the
@@ -106,12 +110,31 @@ Item {
         // so a press that lands on none of them falls through to here.
         MouseArea {
             anchors.fill: viewport
-            acceptedButtons: Qt.LeftButton
+            acceptedButtons: Qt.LeftButton | Qt.RightButton
             cursorShape: Qt.IBeamCursor
 
             onPressed: (mouse) => {
                 viewport.forceActiveFocus()
                 const position = viewport.positionAt(mouse.x, mouse.y)
+                if (mouse.button === Qt.RightButton) {
+                    // Right-clicking inside a selection acts on it, so the
+                    // caret only moves when the click lands outside one.
+                    const inSelection = viewport.selectionStart !== viewport.selectionEnd
+                                     && position >= Math.min(viewport.selectionStart,
+                                                             viewport.selectionEnd)
+                                     && position <= Math.max(viewport.selectionStart,
+                                                             viewport.selectionEnd)
+                    if (!inSelection) {
+                        viewport.cursorPosition = position
+                        viewport.selectionStart = position
+                        viewport.selectionEnd = position
+                    }
+                    if (root.contextActions) {
+                        root.contextActions.refresh()
+                        contextMenu.popup(mouse.x, mouse.y)
+                    }
+                    return
+                }
                 // The third click of a triple click arrives as a plain press -
                 // Qt only ever reports one double click - so this is where a
                 // triple click has to be recognised, before the press below
@@ -289,6 +312,63 @@ Item {
             onPositionChanged: {
                 if (pressed)
                     viewport.scrollY = position * viewport.contentHeight
+            }
+        }
+    }
+
+    // The right-click menu. Qt Creator's menus are QActions assembled by the
+    // ActionManager out of every plugin that wants a say, so this lists what
+    // that produced rather than naming any of it - see QtcQuick::ActionModel.
+    Menu {
+        id: contextMenu
+
+        objectName: "editorContextMenu"
+
+        Repeater {
+            model: root.contextActions
+
+            delegate: MenuItem {
+                id: entry
+
+                required property int index
+                required property string actionText
+                required property string actionShortcut
+                required property bool actionEnabled
+                required property bool actionVisible
+                required property bool actionCheckable
+                required property bool actionChecked
+                required property bool actionSeparator
+
+                text: entry.actionSeparator ? "" : entry.actionText
+                enabled: !entry.actionSeparator && entry.actionEnabled
+                visible: entry.actionVisible
+                checkable: entry.actionCheckable
+                checked: entry.actionChecked
+
+                // A separator is an entry with nothing in it and a rule drawn
+                // through it, rather than a MenuSeparator: a Repeater's
+                // delegate is one type, and a Menu treats its MenuItems
+                // specially enough that swapping the type is not worth it.
+                //
+                // A Binding rather than a conditional: the other arm would be
+                // "whatever the style says", and there is no way to write that
+                // - assigning undefined to a double is an error, not a reset.
+                Binding on implicitHeight {
+                    when: entry.actionSeparator
+                    value: Spacing.GapVM
+                    restoreMode: Binding.RestoreBindingOrValue
+                }
+
+                Rectangle {
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    height: 1
+                    visible: entry.actionSeparator
+                    color: Tokens.strokeSubtle
+                }
+
+                onTriggered: root.contextActions.trigger(entry.index)
             }
         }
     }

@@ -10,10 +10,13 @@
 #include "texteditorconstants.h"
 #include "texteditortr.h"
 
+#include <coreplugin/actionmanager/actioncontainer.h>
+#include <coreplugin/actionmanager/actionmanager.h>
 #include <coreplugin/editormanager/editormanager.h>
 #include <coreplugin/editormanager/ieditor.h>
 #include <coreplugin/editormanager/ieditorfactory.h>
 
+#include <qtcquick/actionmodel.h>
 #include <qtcquick/qtcquickwidget.h>
 
 #include "fontsettings.h"
@@ -27,9 +30,11 @@
 #include <utils/temporarydirectory.h>
 
 #include <QDataStream>
+#include <QMenu>
 #include <QQuickItem>
 #include <QQuickWidget>
 #include <QScopeGuard>
+#include <QSignalSpy>
 
 #ifdef WITH_TESTS
 #include <QTest>
@@ -166,11 +171,23 @@ public:
         : m_document(std::move(document))
         , m_source(std::make_unique<AdoptedSource>(m_document.get()))
     {
+        // What a right click offers. Taken from the same place the widget
+        // editor takes it, and asked again each time the menu opens, because
+        // the ActionManager's containers gain entries as plugins register
+        // them.
+        m_contextActions.setProvider([] {
+            Core::ActionContainer * const container
+                = Core::ActionManager::actionContainer(Constants::M_STANDARDCONTEXTMENU);
+            return container && container->menu() ? container->menu()->actions()
+                                                  : QList<QAction *>();
+        });
+
         auto widget = new QtcQuick::QuickWidget;
         // Set before the source: the form's root property is required, and a
         // required property has to be there when the component is created.
         widget->quickWidget()->setInitialProperties(
-            {{"source", QVariant::fromValue(m_source.get())}});
+            {{"source", QVariant::fromValue(m_source.get())},
+             {"contextActions", QVariant::fromValue(&m_contextActions)}});
         widget->setSource(QUrl("qrc:/qt/qml/QtCreator/TextEditor/MainEditor.qml"));
 
         setContext(Core::Context(QUICK_TEXT_EDITOR_ID));
@@ -258,6 +275,7 @@ private:
     // Shared because a duplicated editor would show the same document; the
     // editor manager is what decides that, not this.
     std::shared_ptr<TextDocument> m_document;
+    QtcQuick::ActionModel m_contextActions;
     std::unique_ptr<AdoptedSource> m_source;
 };
 
@@ -535,6 +553,72 @@ private slots:
         QVERIFY(document);
         QVERIFY2(document->plainText().contains("gamma delta"),
                  qPrintable("replace did nothing: " + document->plainText()));
+    }
+
+    // Right-clicking has to offer what every other editor offers: the actions
+    // the ActionManager assembled, not a list written out here. An editor with
+    // an empty menu looks like Creator has lost its actions.
+    void testTheRightClickMenuIsWhatTheActionManagerAssembled()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-menu");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("clickable.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\n"));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+
+        // What the widget editor would have put in its menu, for comparison.
+        Core::ActionContainer * const container
+            = Core::ActionManager::actionContainer(Constants::M_STANDARDCONTEXTMENU);
+        QVERIFY2(container && container->menu(), "there is no standard context menu to show");
+        const QList<QAction *> expected = container->menu()->actions();
+        QVERIFY2(!expected.isEmpty(), "the standard context menu is empty, so this proves nothing");
+
+        auto * const model
+            = quick->rootObject()->property("contextActions").value<QtcQuick::ActionModel *>();
+        QVERIFY2(model, "the form was given no actions, so a right click offers nothing");
+        QCOMPARE(model->rowCount(), expected.size());
+
+        // Not just the right number of them: the right ones, in order.
+        for (int row = 0; row < expected.size(); ++row) {
+            const QModelIndex at = model->index(row, 0);
+            if (expected.at(row)->isSeparator()) {
+                QVERIFY(at.data(QtcQuick::ActionModel::SeparatorRole).toBool());
+                continue;
+            }
+            QCOMPARE(at.data(QtcQuick::ActionModel::TextRole).toString(),
+                     expected.at(row)->text());
+            QCOMPARE(at.data(QtcQuick::ActionModel::EnabledRole).toBool(),
+                     expected.at(row)->isEnabled());
+        }
+
+        // And triggering an entry triggers the action behind it, which is the
+        // whole point of listing them rather than reimplementing them.
+        int firstReal = -1;
+        for (int row = 0; row < expected.size(); ++row) {
+            if (!expected.at(row)->isSeparator()) {
+                firstReal = row;
+                break;
+            }
+        }
+        QVERIFY(firstReal >= 0);
+        QSignalSpy triggered(expected.at(firstReal), &QAction::triggered);
+        expected.at(firstReal)->setEnabled(true);
+        model->trigger(firstReal);
+        QCOMPARE(triggered.count(), 1);
+
+        // A disabled action stays put: a Quick MenuItem can be told to look
+        // disabled and still be told to fire.
+        expected.at(firstReal)->setEnabled(false);
+        model->trigger(firstReal);
+        QCOMPARE(triggered.count(), 1);
     }
 
     // A split view is two editors on one document. Duplicating has to share

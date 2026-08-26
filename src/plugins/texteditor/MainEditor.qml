@@ -5,6 +5,7 @@ pragma ComponentBehavior: Bound
 pragma FunctionSignatureBehavior: Enforced
 
 import QtQuick
+import QtCreator.Ui
 import QtCreator.TextEditor
 
 // A file being edited. The document is opened by the editor manager and handed
@@ -13,11 +14,15 @@ Item {
     id: root
 
     required property CodeSource source
+    // What a right click offers, assembled by the editor from the same place
+    // the widget editor takes it.
+    required property ActionModel contextActions
 
     CodeViewport {
         anchors.fill: parent
 
         source: root.source
+        contextActions: root.contextActions
         showLineNumbers: true
         showFoldMarkers: true
         // A viewport is a view until told otherwise - which is right for a

@@ -6608,9 +6608,66 @@ special case needs a fixture containing that case. Worth checking for
 deliberately, because each of these tests reads as though it covers the
 behaviour it names.
 
+## A menu is a list of QActions, so list them
+
+Right-clicking did nothing in the Quick editor. The widget builds its menu with
+`QMenu menu; appendMenuActionsFromContext(&menu, M_STANDARDCONTEXTMENU);
+menu.exec()` - which is three lines because the *contents* are not its
+business: Qt Creator's menus are `QAction`s assembled by the `ActionManager`
+out of every plugin that wants a say, and no port should reinvent that.
+
+So the port is not "write the menu", it is **"expose the actions"**.
+`QtcQuick::ActionModel` is a `QAbstractListModel` over a `QList<QAction *>`:
+text, shortcut, enabled, visible, checkable, checked, separator, icon. It is in
+`QtcQuick` rather than in `TextEditor` because every widget menu still to be
+ported needs exactly this, and there is nothing editor-specific in it.
+
+Three things it has to get right:
+
+- **Follow `QAction::changed`.** Enabled, checked and even *text* change while
+  a menu is open - a command's text says what it will do next ("Add UTF-8 BOM
+  on Save" / "Delete UTF-8 BOM on Save"). A model that reads them once shows
+  the wrong thing.
+- **Ask again when the menu opens.** An `ActionContainer` gains entries as
+  plugins register them, so the model takes a *provider* rather than a list and
+  `refresh()` re-reads it. A list taken once at construction is right only
+  until it is not.
+- **Prefix every role name.** `MenuItem` already has `text`, `enabled`,
+  `checkable` and `checked`, and a delegate cannot declare a `required
+  property` that shadows one - qmllint says `shadows final member`. The roles
+  are `actionText`, `actionEnabled` and so on, and the delegate assigns them
+  across.
+
+**A separator is an entry, not a type.** A `Repeater` delegate is one component,
+and `Menu` treats its `MenuItem`s specially enough that swapping in a
+`MenuSeparator` per row is not worth it - so a separator is a `MenuItem` with
+no text, disabled, with a rule drawn through it. That needs a **`Binding on
+implicitHeight`** with `restoreMode`, not a ternary: the other arm of the
+ternary would be "whatever the style says", and there is no way to write that.
+`implicitHeight: separator ? x : undefined` compiles, runs, and prints
+`Unable to assign [undefined] to double` twice per menu - a warning, so a green
+test says nothing about it. Found by reading the run's warnings, again.
+
+**Right-click keeps a selection.** Clicking inside one acts on it, so the caret
+only moves when the click lands outside - which is what every editor does and
+what makes "Cut" mean anything.
+
+**And one control that correctly did not bite.** `ActionModel::trigger()`
+checked `isEnabled()` before triggering; removing the check changed nothing,
+because `QAction::trigger()` on a disabled action is already a no-op. The check
+went, the *assertion* stayed - a disabled entry doing nothing is worth pinning
+whoever guarantees it.
+
+**The qbs step needs its own control.** `qbs resolve` on this tree reports
+errors from the vendored `src/shared/qbs` (`qbscore` is disabled here), so
+"there were errors" and "my product is broken" look alike. Adding a
+`"nosuchfile.cpp"` to the product and confirming
+`qtcquick.qbs:11:12 File ... does not exist` is what proves the resolve is
+reading the thing that changed. See [[qbs-sync-means-resolve]].
+
 What is left of the editor: the rest of the extra-selection producers (semantic
 highlighting, diagnostics, occurrences - which all still write to a
-`TextEditorWidget`), the context menu, drag and drop, and wrapping.
+`TextEditorWidget`), drag and drop, and wrapping.
 
 ## The same measurement, applied to kits
 

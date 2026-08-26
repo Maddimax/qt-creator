@@ -9,6 +9,7 @@ QtcLibrary {
     cpp.defines: base.concat("QTCQUICK_LIBRARY")
 
     files: [
+        "actionmodel.cpp", "actionmodel.h",
         "aspectcontainermodel.cpp", "aspectcontainermodel.h",
         "aspectitemlistmodel.cpp", "aspectitemlistmodel.h",
         "aspectmodels.cpp", "aspectmodels.h",

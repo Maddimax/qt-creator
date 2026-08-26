@@ -20,6 +20,8 @@
 
 #include <qtcquick/qtciconprovider.h>
 
+#include <qtcquick/actionmodel.h>
+
 #include <utils/utilsicons.h>
 
 #include <utils/aspects.h>
@@ -1374,6 +1376,84 @@ private slots:
         QTest::mouseDClick(&view, Qt::LeftButton, {}, pointAt(4));
         QCOMPARE(viewport->selectionStart(), 3);
         QCOMPARE(viewport->selectionEnd(), 5);
+    }
+
+    // The right-click menu, from the QML side: that the entries carry what the
+    // model said is the half no C++ assertion about the model can reach.
+    void testTheContextMenuShowsWhatItWasGiven()
+    {
+        TemporaryDirectory dir("qtc-viewport-menu");
+        const FilePath file = writeLines(dir, "menu.txt", 20);
+
+        QAction alpha("Alpha");
+        QAction separator;
+        separator.setSeparator(true);
+        QAction beta("Beta");
+        beta.setEnabled(false);
+
+        QtcQuick::ActionModel actions;
+        actions.setActions({&alpha, &separator, &beta});
+
+        QQuickView view;
+        installIconProvider(view);
+        view.resize(400, 200);
+        QQmlComponent component(view.engine());
+        component.setData(QByteArray("import QtQuick\n"
+                                     "import QtCreator.Ui\n"
+                                     "import QtCreator.TextEditor\n"
+                                     "CodeViewport {\n"
+                                     "    property string path\n"
+                                     "    width: 400; height: 200\n"
+                                     "    source: CodeDocument { filePath: path }\n"
+                                     "}"),
+                          QUrl("qrc:/test/MenuTest.qml"));
+        std::unique_ptr<QObject> created(component.createWithInitialProperties(
+            {{"path", file.toUrlishString()},
+             {"contextActions", QVariant::fromValue(&actions)}}));
+        QVERIFY2(created != nullptr, qPrintable(component.errorString()));
+
+        auto * const item = qobject_cast<QQuickItem *>(created.get());
+        QVERIFY(item);
+        item->setParentItem(view.contentItem());
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+        auto * const viewport = item->findChild<TextViewport *>();
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+
+        // A Menu is a popup: its entries are not in the item tree under the
+        // page, so it has to be asked directly.
+        QObject * const menu = item->findChild<QObject *>("editorContextMenu");
+        QVERIFY(menu);
+        QVERIFY(!menu->property("opened").toBool());
+
+        const QRectF caret = viewport->rectangleAt(3);
+        const QPoint at = view.contentItem()->mapFromItem(viewport, caret.center()).toPoint();
+        QTest::mouseClick(&view, Qt::RightButton, {}, at);
+        QTRY_VERIFY2(menu->property("opened").toBool(), "a right click opened no menu");
+
+        QCOMPARE(menu->property("count").toInt(), 3);
+        const auto entry = [menu](int index) {
+            QQuickItem *found = nullptr;
+            QMetaObject::invokeMethod(menu, "itemAt", Q_RETURN_ARG(QQuickItem *, found),
+                                      Q_ARG(int, index));
+            return found;
+        };
+        QVERIFY(entry(0));
+        QCOMPARE(entry(0)->property("text").toString(), QString("Alpha"));
+        QVERIFY(entry(0)->property("enabled").toBool());
+        // The separator carries no text and cannot be chosen.
+        QVERIFY(entry(1));
+        QCOMPARE(entry(1)->property("text").toString(), QString());
+        QVERIFY(!entry(1)->property("enabled").toBool());
+        // And a disabled action arrives disabled rather than missing.
+        QVERIFY(entry(2));
+        QCOMPARE(entry(2)->property("text").toString(), QString("Beta"));
+        QVERIFY(!entry(2)->property("enabled").toBool());
+
+        QMetaObject::invokeMethod(menu, "close");
+        QTRY_VERIFY(!menu->property("opened").toBool());
     }
 
     // Zoom is global, so a file opened after one has to open at that size

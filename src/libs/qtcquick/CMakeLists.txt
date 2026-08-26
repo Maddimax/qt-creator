@@ -11,6 +11,7 @@ add_qtc_library(QtcQuick
     Qt::QuickWidgets
     Qt::Widgets
   SOURCES
+    actionmodel.cpp actionmodel.h
     aspectcontainermodel.cpp aspectcontainermodel.h
     aspectitemlistmodel.cpp aspectitemlistmodel.h
     aspectmodels.cpp aspectmodels.h
