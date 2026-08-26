@@ -6167,8 +6167,8 @@ earned now - the plugin ships a Qt Quick editor - and there is no cycle, since
 `QtcQuick` depends only on `Utils`.
 
 **What it is at this point:** text, caret, selection, mouse and keyboard
-editing, highlighting, indenting, scrolling, line numbers and the current-line
-highlight, all O(visible). No folding, no marks or annotations, no
+editing, highlighting, indenting, scrolling, line numbers, the current-line
+highlight and text marks, all O(visible). No folding, no line annotations, no
 extra-selection overlays, no context menu, no drag and drop, and no wrapping -
 which still wants a height cache first.
 
@@ -6189,6 +6189,39 @@ get right, and one of them the obvious test missed:
 
 That is a general point about testing a position: rounding an answer to the
 thing it is *for* hides errors smaller than the thing. Assert the number.
+
+## Marks, and the update nobody sends
+
+An error, a warning or a breakpoint is a `TextMark` on the document, and the
+gutter is where it shows. Per visible line the viewport asks `marksAt()`, keeps
+the highest-priority visible one - the same slot the widget gutter gives them -
+and hands QML a URL through `QtcQuick::iconUrl()`, because a `QIcon` cannot
+cross into QML on its own.
+
+**Marks arrive without the text changing**, which is the whole difficulty: an
+error appears while the file sits there, so `contentsChanged` says nothing. The
+widget gutter is redrawn from `TextDocumentLayout::updateExtraArea`, so the
+viewport listens to the same signal - and that is not enough:
+
+`TextDocument::addMark()` only calls `requestExtraAreaUpdate()` when the
+document already had marks. The **first** mark takes the other branch,
+`scheduleUpdate()`, because the layout has to make room for a gutter it did not
+have before - and that emits `QAbstractTextDocumentLayout::update`, not
+`updateExtraArea`. Listening to only the obvious signal draws every error except
+the first one in a file.
+
+That was found by running the suite **twice**, which is now the habit for a
+different reason: the test passed the first time and failed the second. Nothing
+had leaked - the first run simply happened to relayout for its own reasons
+between the mark being added and the assertion. A test that depends on
+something else happening to do the work is not flaky by accident, it is a bug
+report that has not been read yet.
+
+**qmllint earned its place in the loop again.** The mark delegate first called
+its per-line data `data`, which is `Item`'s *default property*: the
+`HoverHandler` beneath it was being assigned into that property rather than to
+the item. It compiles and it draws; qmllint reported both the shadowing and the
+duplicate binding.
 
 ## The same measurement, applied to kits
 

@@ -8,6 +8,10 @@
 #include "tabsettings.h"
 #include "syntaxhighlighter.h"
 #include "textdocument.h"
+#include "textdocumentlayout.h"
+#include "textmark.h"
+
+#include <qtcquick/qtciconprovider.h>
 #include "texteditorconstants.h"
 
 #include <utils/theme/theme.h>
@@ -200,6 +204,9 @@ QVariantMap TextViewport::visibleLine(int index) const
     }
     return QVariantMap{{"text", line.layout->text()},
                        {"formats", formats},
+                       // What the gutter draws beside this line, if anything.
+                       {"markIcon", line.markIcon},
+                       {"markToolTip", line.markToolTip},
                        {"newlineTail", line.newlineTail},
                        // What is being composed on this line, if anything. Not
                        // part of "text": it is not in the document yet, which
@@ -567,6 +574,45 @@ void TextViewport::documentChangedInternal()
         }
     }
 
+    // Marks arrive and go without the text changing: an error appears while
+    // the file sits there. The widget gutter is redrawn from
+    // TextDocumentLayout::updateExtraArea, so this listens to the same thing,
+    // and to the document for the one that says a mark has gone.
+    if (doc != m_connectedMarkSource) {
+        if (m_connectedMarkSource) {
+            disconnect(m_connectedMarkSource, nullptr, this, nullptr);
+            if (auto *layout = qobject_cast<TextDocumentLayout *>(
+                    m_connectedMarkSource->document()->documentLayout())) {
+                disconnect(layout, &TextDocumentLayout::updateExtraArea, this, nullptr);
+            }
+        }
+        m_connectedMarkSource = doc;
+        if (doc) {
+            connect(doc, &TextDocument::markRemoved, this, [this] {
+                polish();
+                update();
+            });
+            if (auto *layout = qobject_cast<TextDocumentLayout *>(
+                    doc->document()->documentLayout())) {
+                connect(layout, &TextDocumentLayout::updateExtraArea, this, [this] {
+                    polish();
+                    update();
+                });
+                // The *first* mark on a document does not go through
+                // requestExtraAreaUpdate() at all - TextDocument::addMark()
+                // calls scheduleUpdate() instead, because the layout has to
+                // make room for a gutter it did not have before. That is a
+                // layout update, so this listens to the one signal that says
+                // so, or the first error in a file is drawn only if something
+                // else happens to relayout.
+                connect(layout, &QAbstractTextDocumentLayout::update, this, [this] {
+                    polish();
+                    update();
+                });
+            }
+        }
+    }
+
     // Highlighting arrives late and separately. It lands as formats on the
     // blocks' own layouts, which is not a content change and so says nothing
     // through contentsChanged - and the viewport copies those formats into
@@ -666,6 +712,22 @@ void TextViewport::updatePolish()
     for (int number = m_firstVisibleLine; number <= last && block.isValid();
          ++number, block = block.next()) {
         Line line;
+        // The marks on this line - errors, warnings, breakpoints. The highest
+        // priority one wins the slot, which is what the widget gutter does
+        // with the space too.
+        const TextMarks marks = doc->marksAt(number + 1);
+        const TextMark *shown = nullptr;
+        for (TextMark * const mark : marks) {
+            if (!mark->isVisible() || mark->icon().isNull())
+                continue;
+            if (!shown || mark->priority() > shown->priority())
+                shown = mark;
+        }
+        if (shown) {
+            line.markIcon = QtcQuick::iconUrl(shown->icon());
+            line.markToolTip = shown->lineAnnotation();
+        }
+
         line.layout = std::make_unique<QTextLayout>(block.text(), font);
         line.layout->setTextOption(option);
         line.layout->setCacheEnabled(true);

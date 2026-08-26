@@ -27,6 +27,7 @@ namespace TextEditor {
 
 class CodeSource;
 class SyntaxHighlighter;
+class TextDocument;
 
 // A Qt Quick view of a TextEditor::TextDocument drawn with the scene graph: one
 // QSGTextNode per visible line, re-emitted every frame. This is the heavy path,
@@ -201,6 +202,11 @@ private:
         // coordinate can be turned back into a document position.
         int blockPosition = 0;
         int blockLength = 0;
+        // The highest-priority visible mark on this line, as a URL a QML Image
+        // can load and the text it explains itself with. Empty when the line
+        // carries none.
+        QString markIcon;
+        QString markToolTip;
         // Where a selection runs past the end of the line. Empty otherwise.
         QRectF newlineTail;
         QColor newlineTailColour;
@@ -248,6 +254,7 @@ private:
     std::vector<Line> m_lines;
     qreal m_lineHeight = 0;
     qreal m_contentHeight = 0;
+    QPointer<TextDocument> m_connectedMarkSource;
     QColor m_currentLine = Qt::transparent;
     QFont m_font;
     int m_lineCount = 0;

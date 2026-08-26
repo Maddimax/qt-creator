@@ -5,6 +5,7 @@ pragma ComponentBehavior: Bound
 pragma FunctionSignatureBehavior: Enforced
 
 import QtQuick
+import QtQuick.Controls
 import QtCreator.Ui
 import QtCreator.TextEditor
 
@@ -16,16 +17,50 @@ Item {
 
     required property TextViewport viewport
 
-    // Wide enough for the highest number the document can reach, measured in
-    // the font the numbers are drawn in. Sizing to the *current* numbers would
-    // make the gutter change width while scrolling.
-    implicitWidth: widest.width + 2 * Spacing.PaddingHS
+    // Room for a mark and for the highest number the document can reach,
+    // measured in the font the numbers are drawn in. Both are reserved whether
+    // or not anything is in them: a gutter that grew when the first error
+    // arrived would move the text sideways under the reader.
+    readonly property real markWidth: root.viewport.lineHeight
+
+    implicitWidth: markWidth + widest.width + 2 * Spacing.PaddingHS
 
     TextMetrics {
         id: widest
 
         font: root.viewport.font
         text: String(Math.max(1, root.viewport.lineCount))
+    }
+
+    // What the line is marked with - an error, a warning, a breakpoint. One
+    // per line on screen, the same as the numbers.
+    Repeater {
+        model: root.viewport.visibleLineCount
+
+        delegate: Image {
+            id: mark
+
+            required property int index
+
+            readonly property int line: root.viewport.firstVisibleLine + index
+            // Not called "data": that is Item's default property, and a child
+            // would then be assigned to this instead of to the item.
+            readonly property var lineData: root.viewport.visibleLine(index)
+
+            x: Spacing.PaddingHS
+            y: line * root.viewport.lineHeight - root.viewport.scrollY
+            width: root.markWidth
+            height: root.viewport.lineHeight
+            fillMode: Image.PreserveAspectFit
+
+            source: mark.lineData.markIcon ?? ""
+            visible: source !== ""
+
+            ToolTip.text: mark.lineData.markToolTip ?? ""
+            ToolTip.visible: hover.hovered && ToolTip.text !== ""
+
+            HoverHandler { id: hover }
+        }
     }
 
     Repeater {
@@ -41,7 +76,7 @@ Item {
             // scroll offset rather than only at whole ones.
             readonly property int line: root.viewport.firstVisibleLine + index
 
-            x: Spacing.PaddingHS
+            x: Spacing.PaddingHS + root.markWidth
             y: line * root.viewport.lineHeight - root.viewport.scrollY
             width: widest.width
             height: root.viewport.lineHeight

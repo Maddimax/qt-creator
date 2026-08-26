@@ -14,6 +14,9 @@
 #include "textdocument.h"
 #include "texteditorconstants.h"
 #include "textviewport.h"
+#include "textmark.h"
+
+#include <utils/utilsicons.h>
 
 #include <utils/aspects.h>
 #include <utils/temporarydirectory.h>
@@ -691,6 +694,46 @@ private slots:
         QTRY_COMPARE(lineOf(), 2);
         QCOMPARE(qRound(highlight->y() - viewport->y()),
                  qRound(viewport->cursorRectangle().y()));
+    }
+
+    // Errors, warnings and breakpoints appear beside the line they are about.
+    // They arrive and go while the file sits there, so the gutter has to hear
+    // about them without the text changing.
+    void testTheGutterShowsAMarkAndForgetsItAgain()
+    {
+        TemporaryDirectory dir("marks-test");
+        QVERIFY(dir.isValid());
+        const FilePath file = writeLines(dir, "big.txt", 200);
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+
+        // Nothing is marked to begin with.
+        QVERIFY(viewport->visibleLine(2).value("markIcon").toString().isEmpty());
+
+        {
+            // Line 3, which is index 2 on screen: marks count from one.
+            TextMark mark(fixture.document.textDocument(), 3,
+                          TextMarkCategory{"Test", "TextEditor.Test.Mark"});
+            mark.setIcon(Utils::Icons::WARNING.icon());
+            mark.setLineAnnotation("something is wrong here");
+            QVERIFY(!mark.icon().isNull());
+
+            QTRY_VERIFY2(!viewport->visibleLine(2).value("markIcon").toString().isEmpty(),
+                         "the mark never reached the gutter");
+            QCOMPARE(viewport->visibleLine(2).value("markToolTip").toString(),
+                     QString("something is wrong here"));
+            // And only that line.
+            QVERIFY(viewport->visibleLine(1).value("markIcon").toString().isEmpty());
+            QVERIFY(viewport->visibleLine(3).value("markIcon").toString().isEmpty());
+        }
+
+        // The mark is gone with its object, and so is what the gutter shows.
+        QTRY_VERIFY2(viewport->visibleLine(2).value("markIcon").toString().isEmpty(),
+                     "the gutter still shows a mark that no longer exists");
     }
 
     void testAnEditTheViewportDidNotMakeStillShows()
