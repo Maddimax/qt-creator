@@ -3480,6 +3480,40 @@ It is worth writing down because the command every batch used says
 migration. No plugin anywhere in `src` uses an API this work removed; that was
 checked by grep rather than assumed.
 
+### The Quick Fixes panel, and how a form extraction is checked
+
+Quick Fixes was already half-way: the panel embedded the settings with
+`Core::createAspectForm()` and kept a widget around them for the flag and one
+button. The button is the part the closure *did* rather than listed - it
+deletes the custom settings file while the global settings are in use and
+resets to them when they are not, saying something different in each case, and
+appearing at all only when there is a file. That is an `ActionAspect` told its
+text, its tooltip and its visibility from the constructor.
+
+One trap in registering an existing container into a panel: `insertAspect()`
+does `aspect->setAutoApply(isAutoApply())`, and `CppQuickFixSettingsAspects`
+sets `setAutoApply(false)` for itself because it saves through
+`volatileValueChanged` rather than on apply. Registering silently turns that
+on. It is put back on the line after, with the reason.
+
+**How the 160-line extraction was checked, and what that revealed.** The
+obvious control - delete one delegate from the extracted form and expect a red
+test - came back green. The page census walks the container, nested containers
+included, and collects what no delegate drew, but it *reports* that rather than
+asserting it:
+
+    QuickUi ... Quick Fixes does not draw: /ReturnByConstRef
+
+which is deliberate. A page may legitimately leave out a setting that is stored
+but edited elsewhere - GDB's throw and catch breakpoints live in the
+Breakpoints view, Valgrind's cycle detection in the Callgrind toolbar - and
+each of those lines was checked by hand against the closure it replaced. So the
+control does bite; it bites in the report. Reading it is the check, and after
+the three extractions here it names none of the pages they touched.
+
+Worth knowing before extracting the next one: a green suite does not mean the
+form kept every control. The report does.
+
 ### A panel and its page are the same list
 
 C++ Code Model and C++ File Naming are the same `Column { flag, hr, *ps }` as
