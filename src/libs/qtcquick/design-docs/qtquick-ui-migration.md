@@ -6665,9 +6665,54 @@ errors from the vendored `src/shared/qbs` (`qbscore` is disabled here), so
 `qtcquick.qbs:11:12 File ... does not exist` is what proves the resolve is
 reading the thing that changed. See [[qbs-sync-means-resolve]].
 
+## The test that should have been written first
+
+Nine commits into porting the editor, nothing had ever asserted that **typing
+in it changes the file on disk**. Every editing test so far drove a viewport it
+had configured itself; none of them went through `EditorManager::openEditor`,
+typed a key into the form, and then saved. It does hold - `document->save()`
+writes what was typed - but that was luck rather than knowledge, and it is the
+one thing on which everything else here is worthless.
+
+Worth the habit: for any port, the *first* test is the end-to-end one that
+names what the thing is for. The interesting tests come after.
+
+**`QVERIFY2` evaluates its message whether or not the condition held.** So
+`QVERIFY2(result.has_value(), qPrintable(result.error()))` aborts the process
+on **success**, because `Result::error()` asserts on a value. Use
+`if (!result) QFAIL(qPrintable(result.error()));`.
+
+## A drag that leaves the editor
+
+Dragging a selection below the bottom edge stopped at whatever happened to be
+on screen when the drag started - which on a real file is a long way from what
+was wanted. A `Timer` now keeps scrolling and re-extending while the pointer is
+outside, a line per tick and up to five the further out it is.
+`positionAt()` already clamps to what is laid out, so after each scroll it
+answers with the line that has just arrived - the auto-scroll needed no new
+mapping, only something to keep asking.
+
+**"It stopped" has no event to wait for.** The obvious assertion after
+releasing the button is that the scroll position stays put, and
+`QTRY_COMPARE(viewport->scrollY(), restingAt)` where `restingAt` was just read
+from `scrollY()` passes instantly and forever - a control that left the timer
+running did not touch it. What is true immediately is the *timer's* state, so
+the test gives the `Timer` an `objectName` and asks `running`, having first
+asserted it was running before the release. Assert the diagnostic, not the
+outcome.
+
+**A third harness lie: the stale binary.** One control reported clean and bit
+when re-run by hand with the identical command. `ninja` had not relinked, so
+the suite ran the previous `libTextEditor.dylib`. Grepping the build for
+`error:` does not catch this - there was no error, there was no *build*. The
+loop now records the plugin's mtime before and after and prints
+`DID NOT RELINK` instead of running. Together with the earlier two - the
+`/dev/null` build and `-test` twice - the rule is: **a control harness must
+prove it built, prove it ran, and prove the baseline still passes.**
+
 What is left of the editor: the rest of the extra-selection producers (semantic
 highlighting, diagnostics, occurrences - which all still write to a
-`TextEditorWidget`), drag and drop, and wrapping.
+`TextEditorWidget`), dragging text out of a selection, and wrapping.
 
 ## The same measurement, applied to kits
 

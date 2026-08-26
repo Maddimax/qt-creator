@@ -109,9 +109,22 @@ Item {
         // be in front of this. TextViewport accepts no mouse buttons itself,
         // so a press that lands on none of them falls through to here.
         MouseArea {
+            id: textArea
+
+            // Where the pointer was last seen, so that the timer below can go
+            // on extending the selection while nothing is moving.
+            property real dragX: 0
+            property real dragY: 0
+
             anchors.fill: viewport
             acceptedButtons: Qt.LeftButton | Qt.RightButton
             cursorShape: Qt.IBeamCursor
+
+            function extendSelection(): void {
+                const position = viewport.positionAt(textArea.dragX, textArea.dragY)
+                viewport.cursorPosition = position
+                viewport.selectionEnd = position
+            }
 
             onPressed: (mouse) => {
                 viewport.forceActiveFocus()
@@ -153,9 +166,36 @@ Item {
             onPositionChanged: (mouse) => {
                 if (!pressed)
                     return
-                const position = viewport.positionAt(mouse.x, mouse.y)
-                viewport.cursorPosition = position
-                viewport.selectionEnd = position
+                textArea.dragX = mouse.x
+                textArea.dragY = mouse.y
+                textArea.extendSelection()
+                // Off the top or the bottom, the drag is asking for text that
+                // is not on screen yet, so the view has to go and get it -
+                // and keep going while the pointer stays out there.
+                autoScroll.running = mouse.y < 0 || mouse.y > textArea.height
+            }
+            onReleased: autoScroll.stop()
+            onCanceled: autoScroll.stop()
+
+            Timer {
+                id: autoScroll
+
+                objectName: "editorAutoScroll"
+                interval: 50
+                repeat: true
+
+                onTriggered: {
+                    const past = textArea.dragY < 0
+                               ? textArea.dragY
+                               : textArea.dragY - textArea.height
+                    // A line per tick, up to five the further out it is, so
+                    // that a long way to go does not take a long time.
+                    const lines = Math.min(5, 1 + Math.abs(past) / viewport.lineHeight)
+                    viewport.scrollY += Math.sign(past) * viewport.lineHeight * lines
+                    // positionAt() clamps to what is laid out, so after the
+                    // scroll this is the newly arrived first or last line.
+                    textArea.extendSelection()
+                }
             }
             onDoubleClicked: (mouse) => {
                 viewport.selectWordAt(viewport.positionAt(mouse.x, mouse.y))

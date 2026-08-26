@@ -621,6 +621,54 @@ private slots:
         QCOMPARE(triggered.count(), 1);
     }
 
+    // The whole point of an editor: type in it, and the file on disk changes.
+    // Everything else here is worth nothing if this does not hold.
+    void testTypingMarksTheFileDirtyAndSavingWritesIt()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-save");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("edited.txt");
+        QVERIFY(file.writeFileContents("alpha\n"));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        QVERIFY2(!document->isModified(), "a freshly opened file is already dirty");
+
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+        auto * const viewport = quick->rootObject()->findChild<TextViewport *>();
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        // Typed through the form, not written into the document behind it:
+        // what is being tested is that the editor's own editing path reaches
+        // the file.
+        viewport->forceActiveFocus();
+        QVERIFY2(viewport->hasActiveFocus(), "the viewport never took focus, so no key arrives");
+        viewport->setCursorPosition(0);
+        QTest::keyClick(quick->quickWindow(), 'X');
+
+        QCOMPARE(document->plainText(), QString("Xalpha\n"));
+        QVERIFY2(document->isModified(), "typing did not make the document dirty");
+
+        // Not QVERIFY2: its message argument is evaluated whether or not the
+        // condition held, and Result::error() asserts on a value.
+        const Utils::Result<> saved = document->save(file);
+        if (!saved)
+            QFAIL(qPrintable(saved.error()));
+        QVERIFY(!document->isModified());
+
+        const Utils::Result<QByteArray> onDisk = file.fileContents();
+        QVERIFY(onDisk.has_value());
+        QCOMPARE(QString::fromUtf8(*onDisk), QString("Xalpha\n"));
+    }
+
     // A split view is two editors on one document. Duplicating has to share
     // the document rather than open the file twice, or an edit in one half
     // does not appear in the other.

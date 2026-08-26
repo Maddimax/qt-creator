@@ -1378,6 +1378,82 @@ private slots:
         QCOMPARE(viewport->selectionEnd(), 5);
     }
 
+    // A drag that leaves the bottom edge is asking for the lines below it.
+    // Without this a selection stops at whatever happened to be on screen when
+    // the drag started, which is most of a file away from what was wanted.
+    void testDraggingPastTheEdgeKeepsScrollingAndSelecting()
+    {
+        TemporaryDirectory dir("qtc-viewport-autoscroll");
+        const FilePath file = writeLines(dir, "long.txt", 2000);
+
+        // The window is taller than the editor in it, so that a drag can go
+        // below the editor and still be a mouse event Qt will deliver.
+        QQuickView view;
+        installIconProvider(view);
+        view.resize(400, 400);
+        QQmlComponent component(view.engine());
+        component.setData(QByteArray("import QtQuick\n"
+                                     "import QtCreator.TextEditor\n"
+                                     "Item {\n"
+                                     "    property string path\n"
+                                     "    property alias editor: e\n"
+                                     "    width: 400; height: 400\n"
+                                     "    CodeViewport {\n"
+                                     "        id: e\n"
+                                     "        width: 400; height: 200\n"
+                                     "        source: CodeDocument { filePath: path }\n"
+                                     "    }\n"
+                                     "}"),
+                          QUrl("qrc:/test/AutoScrollTest.qml"));
+        std::unique_ptr<QObject> created(component.createWithInitialProperties(
+            {{"path", file.toUrlishString()}}));
+        QVERIFY2(created != nullptr, qPrintable(component.errorString()));
+
+        auto * const item = qobject_cast<QQuickItem *>(created.get());
+        QVERIFY(item);
+        item->setParentItem(view.contentItem());
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+        auto * const viewport = item->findChild<TextViewport *>();
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+        const int onScreen = viewport->visibleLineCount();
+
+        // Press on the first line, then drag well below the window.
+        const QPointF top = viewport->rectangleAt(0).center();
+        const QPoint from = view.contentItem()->mapFromItem(viewport, top).toPoint();
+        QTest::mousePress(&view, Qt::LeftButton, {}, from);
+        QCOMPARE(viewport->selectionStart(), 0);
+
+        const QPoint below(from.x(), 260); // below the editor, inside the window
+        QTest::mouseMove(&view, below);
+
+        // It keeps going on its own: the pointer is not moving any more.
+        QTRY_VERIFY2(viewport->firstVisibleLine() > onScreen,
+                     qPrintable(QString("the view stopped at line %1 after %2 were on screen")
+                                    .arg(viewport->firstVisibleLine())
+                                    .arg(onScreen)));
+        const int scrolledTo = viewport->firstVisibleLine();
+
+        // And the selection follows it rather than stopping where the visible
+        // text used to end.
+        QTextDocument * const text = viewport->document()->textDocument()->document();
+        QVERIFY2(text->findBlock(viewport->selectionEnd()).blockNumber() >= scrolledTo,
+                 "the view scrolled away from the selection instead of extending it");
+
+        // Letting go stops it: a released drag that kept scrolling would run
+        // to the end of the file on its own. Asked of the timer rather than of
+        // the scroll position - "it did not move" needs an event to wait for
+        // and there is none, whereas "it is not running" is true immediately.
+        QObject * const ticker = item->findChild<QObject *>("editorAutoScroll");
+        QVERIFY(ticker);
+        QVERIFY2(ticker->property("running").toBool(),
+                 "nothing was scrolling, so stopping it proves nothing");
+        QTest::mouseRelease(&view, Qt::LeftButton, {}, below);
+        QVERIFY2(!ticker->property("running").toBool(), "the drag went on scrolling after release");
+    }
+
     // The right-click menu, from the QML side: that the entries carry what the
     // model said is the half no C++ assertion about the model can reach.
     void testTheContextMenuShowsWhatItWasGiven()
