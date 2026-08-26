@@ -21,6 +21,7 @@ ColumnLayout {
     // controlConfigurationChanged().
     property var pres: aspect ? AspectModels.presentation(aspect) : ({})
     readonly property string labelText: aspect?.plainLabelText ?? ""
+    readonly property string toolTip: aspect?.toolTip ?? ""
     readonly property bool aspectVisible: aspect?.visible ?? true
 
     Connections {
@@ -50,6 +51,8 @@ ColumnLayout {
             text: option.modelData
             checked: (root.aspect?.value ?? []).indexOf(option.modelData) !== -1
             enabled: (root.aspect?.enabled ?? false) && !(root.aspect?.readOnly ?? false)
+            ToolTip.text: root.toolTip
+            ToolTip.visible: hovered && root.toolTip !== ""
             Layout.leftMargin: Spacing.PaddingHL
             Layout.fillWidth: true
 

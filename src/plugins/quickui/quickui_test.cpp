@@ -183,6 +183,7 @@ private slots:
     void testBuildingAPageIsNotShowingIt();
     void testAFormInAWidgetLayoutAsksForItsContentHeight();
     void testAGroupCanExplainItselfTheWayAQGroupBoxCould();
+    void testEveryDelegateShowsTheToolTipItsAspectCarries();
     void testPasswordAspectDoesNotEchoItsValue();
     void testAspectListOffersItsExtraButtons();
     void testAnOrderedListMovesTheCurrentItem();
@@ -725,6 +726,98 @@ static int formHeightHintFor(int count, QString *error)
         return -1;
     }
     return form->sizeHint().height();
+}
+
+void QuickUiTest::testEveryDelegateShowsTheToolTipItsAspectCarries()
+{
+    // A tool tip is the only place most settings explain themselves, and it is
+    // the delegate's job to show it. Nearly every delegate does, which is what
+    // makes the one that does not a trap: a page sets a tool tip, nothing
+    // complains, and the text is never seen.
+    Utils::AspectContainer page;
+
+    Utils::BoolAspect flag(&page);
+    flag.setSettingsKey("Flag");
+    flag.setLabelText("Flag");
+
+    Utils::StringAspect text(&page);
+    text.setSettingsKey("Text");
+    text.setLabelText("Text");
+    text.setDisplayStyle(Utils::StringAspect::LineEditDisplay);
+
+    Utils::IntegerAspect number(&page);
+    number.setSettingsKey("Number");
+    number.setLabelText("Number");
+
+    Utils::DoubleAspect fraction(&page);
+    fraction.setSettingsKey("Fraction");
+    fraction.setLabelText("Fraction");
+
+    Utils::SelectionAspect choice(&page);
+    choice.setSettingsKey("Choice");
+    choice.setLabelText("Choice");
+    choice.setDisplayStyle(Utils::SelectionAspect::DisplayStyle::ComboBox);
+    choice.addOption("One");
+    choice.addOption("Two");
+
+    Utils::MultiSelectionAspect several(&page);
+    several.setSettingsKey("Several");
+    several.setLabelText("Several");
+    several.setAllValues({"One", "Two"});
+
+    Utils::StringListAspect list(&page);
+    list.setSettingsKey("List");
+    list.setLabelText("List");
+
+    const QList<Utils::BaseAspect *> aspects = page.aspects();
+    for (Utils::BaseAspect *aspect : aspects)
+        aspect->setToolTip("What " + aspect->qmlName() + " is for");
+
+    // The generic form, so that the kind picks the delegate the way a page
+    // would rather than this test naming one.
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QQuickItem *rootItem = quickWidget->rootObject();
+    if (!rootItem) {
+        const QStringList errors = Utils::transform(quickWidget->errors(), &QQmlError::toString);
+        QFAIL(qPrintable(errors.join("; ")));
+    }
+
+    QStringList silent;
+    QSet<Utils::BaseAspect *> seen;
+    // The visual tree, not findChildren(): a Repeater's items are visual
+    // children of their delegate and QObject children of somewhere else.
+    const QList<QQuickItem *> items = findQmlComponents(rootItem, "");
+    for (QQuickItem *item : items) {
+        auto aspect = item->property("aspect").value<Utils::BaseAspect *>();
+        if (!aspect || !aspects.contains(aspect) || seen.contains(aspect))
+            continue;
+        seen.insert(aspect);
+        // Anywhere in the delegate: BoolDelegate is the check box itself and
+        // carries the tool tip on its root, while the delegates that wrap a
+        // control in a layout put it on the control.
+        bool shown = false;
+        const QList<QQuickItem *> parts = findQmlComponents(item, "");
+        for (QQuickItem *part : parts) {
+            if (QQmlProperty(part, "ToolTip.text", qmlContext(part)).read().toString()
+                == aspect->toolTip()) {
+                shown = true;
+                break;
+            }
+        }
+        if (!shown) {
+            silent << QString("%1 (%2)")
+                          .arg(aspect->qmlName(),
+                               QString::fromLatin1(item->metaObject()->className())
+                                   .section('_', 0, 0));
+        }
+    }
+
+    QCOMPARE(seen.size(), aspects.size());
+    QVERIFY2(silent.isEmpty(),
+             qPrintable("these delegates drop their aspect's tool tip: " + silent.join(", ")));
 }
 
 void QuickUiTest::testAGroupCanExplainItselfTheWayAQGroupBoxCould()

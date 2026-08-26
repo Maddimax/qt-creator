@@ -5670,6 +5670,58 @@ context - `QQmlProperty(title, "ToolTip.text", qmlContext(title))` - because
 without one the attached type does not resolve and the read comes back empty,
 which looks exactly like a missing tool tip.
 
+## Asking every delegate the same question
+
+The tool tip audit was a floor, not a ceiling: it compares string literals, so
+it finds text that vanished and not a control that quietly stopped showing what
+it has. The complementary question is answerable at runtime - *does a delegate
+show the tool tip its aspect carries?* - and it turns out 24 of the 26 value
+delegates do, which is exactly what makes the other two a trap. A page sets a
+tool tip, nothing complains, and nobody ever sees it.
+
+So the test builds one aspect of each kind, gives each a tool tip, renders them
+through the **generic** form so the kind picks the delegate rather than the test
+naming one, and asks each delegate whether the text is anywhere inside it.
+`MultiSelectionDelegate` was the one that failed, and it has the tool tip now.
+
+Three things this took, all of which looked like failures of the code:
+
+- `findChildren<QQuickItem *>()` finds nothing useful. A Repeater's items are
+  visual children of the delegate and QObject children of somewhere else, so
+  the walk has to be over `childItems()`. The suite already had
+  `findQmlComponents()` for this.
+- Reading `ToolTip.text` off the delegate's *root* reported six failures, and
+  all six were the test's fault: `BoolDelegate` is the check box itself and
+  carries the tool tip on its root, while the delegates that wrap a control in
+  a layout put it on the control. The question is whether the text is anywhere
+  in the delegate, not where.
+- `QQmlProperty(item, "ToolTip.text")` reads empty without a context. It needs
+  `qmlContext(item)`, or the attached type does not resolve and the result
+  looks exactly like a missing tool tip.
+
+**`GroupDelegate` and the rest are deliberately not covered.** No
+`AspectContainer` in the tree sets a tool tip and only one
+`MultiSelectionAspect` exists at all - the fix here is for the next page, not a
+bug anyone can see today. The test covers the value delegates, which is where
+the evidence was.
+
+## What the audit did not find
+
+Worth recording, because a clean audit is a result and repeating it is waste.
+Two other seams were measured and are sound:
+
+- **The census's blind spot.** It skips aspects with no `labelText`, on the
+  assumption that they were never meant for a form - and that assumption is
+  what a closure supplying a literal label breaks. There are 75 such aspects.
+  Every one inspected is session state (`LastTraceFile`, `LastShownPages`), a
+  view or toolbar toggle (Git's log and blame options), a vim option, or a
+  model-side aspect. No page lost a control this way.
+- **Aspects configured nowhere.** 21 have no settings key, `qmlName` or label.
+  All are either configured in a sibling file - `fontsettings.h`'s are the
+  model behind the page, not the page's own - or dead flags that were dead
+  before the branch too (`forceOpenLinksInNextSplit` was a plain member of
+  `DisplaySettingsData` at the branch point).
+
 ## The same measurement, applied to kits
 
 Re-running the `layouter()` instrumentation with the device closures gone leaves
