@@ -171,8 +171,13 @@ extend_qtc_plugin(TextEditor
     textviewport.cpp textviewport.h
 )
 
+# The tests for the Qt Quick side. texteditorplugin.cpp registers them and is
+# built whether or not Qt::Quick is there, so it needs to be told: without this
+# a WITH_TESTS build of a Qt Creator without Qt Quick does not compile, because
+# the headers it includes are not in the build at all.
 extend_qtc_plugin(TextEditor
   CONDITION WITH_TESTS AND TARGET Qt::Quick
+  DEFINES WITH_QUICK_TESTS
   SOURCES
     codehighlighting_test.cpp codehighlighting_test.h
     textviewport_test.cpp textviewport_test.h

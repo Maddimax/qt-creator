@@ -5215,6 +5215,37 @@ exactly that shape, so it went there rather than into a new seam.
 If a fourth arrives that fits none of these, that is the point to reconsider a
 single "host services" object, rather than at the third.
 
+## The Quick-less build had stopped compiling its own tests
+
+Qt Quick is an **optional** component, and everything added for the editor -
+`textviewport`, `codebuffer`, `codesource` - is behind `CONDITION TARGET
+Qt::Quick`. Six batches of that went by without anyone checking that a Creator
+built without Qt Quick still builds, which is the sort of thing that is only
+noticed by whoever it breaks.
+
+It did not. `texteditorplugin.cpp` is built either way, and it was including
+`codehighlighting_test.h` and `textviewport_test.h` under `#ifdef WITH_TESTS`
+alone. Those headers are only in the build when `WITH_TESTS AND TARGET
+Qt::Quick`, so a `WITH_TESTS` build without Qt Quick does not compile: the
+include is of a file that is not there. One of the two was pre-existing; the
+other was added here, the same way, because the surrounding line looked right.
+
+The fix is the pattern coreplugin already uses for an optional Qt module -
+`DEFINES WITH_QUICK_TESTS` on the gated block, and `#ifdef` in the plugin. qbs
+always has Qt Quick, so it defines it whenever plugin tests are on.
+
+**Audited rather than assumed.** Parsing every `add_qtc_plugin` /
+`extend_qtc_plugin` block in the tree for its `CONDITION`, then checking whether
+any ungated source includes a header from a `Qt::Quick`-gated block, finds
+exactly these two and nothing else. Worth re-running after adding to a gated
+block: the mistake is invisible in a build that has Qt Quick, which is every
+build anyone here does.
+
+**The control is the shape of the thing it protects.** Removing the define drops
+the run from 201 tests to 160 with the Quick-only suites gone and everything
+else passing - which is what a Quick-less build should look like, and confirms
+the guard is live in both directions rather than just compiling.
+
 ## Editing 55 pages, because asking them was not enough
 
 Three passive censuses could not answer whether a page's Apply and Cancel work,

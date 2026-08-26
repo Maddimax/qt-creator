@@ -239,6 +239,12 @@ Project {
             ]
         }
 
+        // qbs builds always have Qt Quick, so the Quick-only tests are always
+        // registered here. CMake gates them on Qt::Quick being found and
+        // defines this alongside them; texteditorplugin.cpp is built either way
+        // and needs telling.
+        cpp.defines: base.concat(qtc.withPluginTests ? ["WITH_QUICK_TESTS"] : [])
+
         QtcTestFiles {
             files: [
                 "codeassist/codeassist_test.cpp",
