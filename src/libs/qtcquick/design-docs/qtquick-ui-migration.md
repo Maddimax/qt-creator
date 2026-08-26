@@ -6805,9 +6805,60 @@ from what the document holds. The general form, and the fourth distinct way a
 control has lied this session: **a fixture derived from shared mutable state
 can collide with the default it is trying to prove is not being used.**
 
-What is left of the editor: the extra-selection producers that still write to a
-`TextEditorWidget` (diagnostics underlines, occurrences, the parenthesis
-match), code completion, dragging text out of a selection, and wrapping.
+## Matching brackets, the first extra selection that needed no widget
+
+Of the things the widget draws as extra selections, the bracket pair is the one
+that needs nothing from the widget at all: `TextBlockUserData::
+matchCursorBackward()` and `matchCursorForward()` are statics over the
+document, the brackets themselves are recorded by the generic highlighter
+(`setParentheses()` in `Highlighter::highlightBlock()`), and
+`TextViewport::Highlight` already existed for the find results. So it is
+~40 lines and no new plumbing.
+
+Two brackets, one character each - not the range between them, which would put
+a whole function body in the parenthesis colour. `C_PARENTHESES_MISMATCH` is an
+overlay category and needs the same fallback the search results needed.
+
+**Where to recompute it.** Not on `cursorPositionChanged`, not on
+`contentsChanged`, not on the highlighter's `finished` - **in `updatePolish()`**.
+Everything that can change which bracket the caret is beside already asks for a
+layout, and `setHighlights()` now does nothing when handed the same ranges, so
+computing it there settles instead of looping. Three call sites became one, and
+the one is where the answer is used.
+
+**A connection that was dead for the main editor.** The viewport connected to
+`SyntaxHighlighter::finished` inside `documentChangedInternal()` - which runs
+when the *document* changes. But an editor installs the highlighter *later*,
+once it knows the file's language, and nothing announces that swap, so
+`m_connectedHighlighter` stayed null for every real file. The check moved into
+`updatePolish()`, where it is a pointer compare per pass.
+
+Honestly: **its control does not bite.** Every case the suite can construct is
+already covered by `contentsChanged`, because applying formats calls
+`markContentsDirty()`. The connection is kept - it is the direct signal, and it
+predates this work - but nothing here proves it earns its place.
+
+**Two tests that were vacuous in different ways.**
+
+The first asserted that no pair appears when the setting is off, by moving the
+caret and checking immediately - before the deferred layout pass had run. It
+passed against a build that ignored the setting entirely. There is no event for
+"nothing happened", so the test was turned around: show a pair *first*, then
+turn the setting off and wait for the pair to **go away**, which is an event.
+That in turn needed the viewport to follow `displaySettings()` at all - it did
+not - so the fix to the test and the fix to the code are the same change.
+
+The second was an ambiguous control anchor: `updateParenthesesMatch();`
+appeared twice, because `documentChangedInternal()` still called it before
+asking for the polish that would call it again. The redundant call went. Worth
+noting that a control that *cannot be applied* looks nothing like a control
+that does not bite, which is why the harness now says `CONTROL DID NOT APPLY`
+rather than failing silently.
+
+What is left of the editor: the extra-selection producers that genuinely need
+the widget's machinery (diagnostic underlines and occurrences, both fed by
+plugins calling `TextEditorWidget::setExtraSelections`), code completion,
+dragging text out of a selection, and wrapping.
 
 ## The same measurement, applied to kits
 

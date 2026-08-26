@@ -6,6 +6,7 @@
 #include "codesource.h"
 #include "textdocument.h"
 #include "codestylepool.h"
+#include "displaysettings.h"
 #include "extraencodingsettings.h"
 #include "highlighter.h"
 #include "icodestylepreferences.h"
@@ -934,6 +935,90 @@ private slots:
         wider.m_indentSize = wanted;
         globalCodeStyle().setTabSettings(wider);
         QTRY_COMPARE(document->tabSettings().m_indentSize, wanted);
+    }
+
+    // Putting the caret beside a bracket has to show which one it belongs to.
+    // Where the brackets are is the highlighter's answer, so this needs a real
+    // file in a real editor rather than a viewport told where they are.
+    void testTheBracketBesideTheCaretIsPairedWithItsMatch()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-parens");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("paired.json");
+        //                              0        9
+        QVERIFY(file.writeFileContents("{ \"a\": [1, 2] }\n"));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        if (HighlighterHelper::definitionsForDocument(document).isEmpty())
+            QSKIP("no syntax definitions are installed, so nothing records any brackets");
+
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+        auto * const viewport = quick->rootObject()->findChild<TextViewport *>();
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        const Utils::Id kind("TextEditor.TextViewport.ParenthesesMatch");
+
+        // Away from any bracket, nothing is paired.
+        viewport->setCursorPosition(4);
+        QTRY_VERIFY(viewport->highlights(kind).isEmpty());
+
+        // Immediately *before* the "[" at 7, which closes at 12. The caret has
+        // to be before an opening bracket or after a closing one - beside it
+        // on the inside is not beside it.
+        const QString text = document->plainText();
+        QCOMPARE(text.at(7), QChar('['));
+        QCOMPARE(text.at(12), QChar(']'));
+        viewport->setCursorPosition(7);
+
+        QTRY_COMPARE(viewport->highlights(kind).size(), 2);
+        QList<TextViewport::Highlight> pair = viewport->highlights(kind);
+        QCOMPARE(pair.at(0).start, 7);
+        QCOMPARE(pair.at(0).end, 8);
+        QCOMPARE(pair.at(1).start, 12);
+        QCOMPARE(pair.at(1).end, 13);
+        // One character each, not everything between them.
+        for (const TextViewport::Highlight &one : pair)
+            QCOMPARE(one.end - one.start, 1);
+        // And drawn in something, or nobody can see the pairing.
+        QVERIFY2(pair.at(0).format.background().style() != Qt::NoBrush
+                     && pair.at(0).format.background().color().isValid(),
+                 "the pair is highlighted in nothing");
+
+        // The other way round: after the closing bracket, looking backwards.
+        viewport->setCursorPosition(13);
+        QTRY_COMPARE(viewport->highlights(kind).size(), 2);
+        pair = viewport->highlights(kind);
+        QCOMPARE(pair.at(0).start, 7);
+        QCOMPARE(pair.at(1).start, 12);
+
+        // Moving away takes it back down again.
+        viewport->setCursorPosition(4);
+        QTRY_VERIFY(viewport->highlights(kind).isEmpty());
+
+        // And the display setting turns it off, the way it does for the
+        // widget. Turned off *while a pair is showing*, so that what is waited
+        // for is the pair going away - an event - rather than its continued
+        // absence, which is not one and would pass before anything happened.
+        viewport->setCursorPosition(7);
+        QTRY_COMPARE(viewport->highlights(kind).size(), 2);
+
+        const bool wasOn = displaySettings().highlightMatchingParentheses();
+        const QScopeGuard restore(
+            [wasOn] { displaySettings().highlightMatchingParentheses.setValue(wasOn); });
+        QVERIFY2(wasOn, "matching was already off, so turning it off proves nothing");
+        displaySettings().highlightMatchingParentheses.setValue(false);
+
+        QTRY_VERIFY2(viewport->highlights(kind).isEmpty(),
+                     "brackets stayed paired although the setting says not to");
     }
 
     // A split view is two editors on one document. Duplicating has to share

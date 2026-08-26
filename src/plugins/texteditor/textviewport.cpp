@@ -5,6 +5,7 @@
 
 #include "behaviorsettings.h"
 #include "codesource.h"
+#include "displaysettings.h"
 #include "fontsettings.h"
 #include "tabsettings.h"
 #include "syntaxhighlighter.h"
@@ -65,6 +66,12 @@ TextViewport::TextViewport(QQuickItem *parent)
     // the editor and every preview alike.
     connect(&globalFontSettings(), &FontSettings::changed, this, [this] {
         applyGlobalFontSettings();
+    });
+    // Turning bracket matching off has to take effect on what is already open,
+    // rather than on whatever is opened next.
+    connect(&displaySettings(), &Utils::AspectContainer::changed, this, [this] {
+        polish();
+        update();
     });
 }
 
@@ -621,6 +628,7 @@ void TextViewport::setCursorPosition(int position)
     if (m_cursorPosition == position)
         return;
     m_cursorPosition = position;
+    polish();
     emit cursorPositionChanged();
     emit cursorRectangleChanged();
 }
@@ -704,11 +712,69 @@ void TextViewport::zoomBy(int steps)
     globalFontSettings().increaseFontZoom(step != 0 ? step : (steps > 0 ? 1 : -1));
 }
 
+// The kind under which the bracket pair is highlighted, so that setting it
+// replaces the previous pair and nobody else's ranges.
+const char PARENTHESES_MATCH[] = "TextEditor.TextViewport.ParenthesesMatch";
+
+void TextViewport::updateParenthesesMatch()
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    QTextDocument * const text = doc ? doc->document() : nullptr;
+    if (!text || !displaySettings().data().m_highlightMatchingParentheses) {
+        setHighlights(PARENTHESES_MATCH, {});
+        return;
+    }
+
+    // The caret alone, not the selection: what is being asked is which bracket
+    // the caret is beside, and textCursor() answers with the selection when
+    // there is one.
+    QTextCursor caret(text);
+    caret.setPosition(qBound(0, m_cursorPosition, text->characterCount() - 1));
+
+    QTextCursor backward = caret;
+    QTextCursor forward = caret;
+    const TextBlockUserData::MatchType backwardType
+        = TextBlockUserData::matchCursorBackward(&backward);
+    const TextBlockUserData::MatchType forwardType
+        = TextBlockUserData::matchCursorForward(&forward);
+
+    const FontSettingsData &fonts = doc->fontSettings();
+    const QTextCharFormat matched = fonts.toTextCharFormat(C_PARENTHESES);
+    // C_PARENTHESES_MISMATCH is an overlay category, so its format is nearly
+    // empty by design - the same trap as the search results.
+    QTextCharFormat mismatched = fonts.toTextCharFormat(C_PARENTHESES_MISMATCH);
+    if (mismatched.background().style() == Qt::NoBrush
+        || !mismatched.background().color().isValid()) {
+        mismatched.setBackground(Utils::creatorColor(Utils::Theme::TextEditor_SearchResult_ScrollBarColor));
+    }
+
+    QList<Highlight> found;
+    const auto add = [&found, &matched, &mismatched](const QTextCursor &cursor,
+                                                     TextBlockUserData::MatchType type) {
+        if (!cursor.hasSelection())
+            return;
+        if (type == TextBlockUserData::Mismatch) {
+            found.append({cursor.selectionStart(), cursor.selectionEnd(), mismatched});
+            return;
+        }
+        // The two brackets themselves rather than everything between them: a
+        // whole function body in the parenthesis colour is not a hint.
+        found.append({cursor.selectionStart(), cursor.selectionStart() + 1, matched});
+        found.append({cursor.selectionEnd() - 1, cursor.selectionEnd(), matched});
+    };
+    add(backward, backwardType);
+    add(forward, forwardType);
+
+    setHighlights(PARENTHESES_MATCH, found);
+}
+
 void TextViewport::setHighlights(Utils::Id kind, const QList<Highlight> &highlights)
 {
     if (highlights.isEmpty()) {
         if (m_highlights.remove(kind) == 0)
             return;
+    } else if (m_highlights.value(kind) == highlights) {
+        return;
     } else {
         QList<Highlight> sorted = highlights;
         // Sorted so that a line can find the ranges that reach it without
@@ -895,26 +961,37 @@ void TextViewport::documentChangedInternal()
         }
     }
 
-    // Highlighting arrives late and separately. It lands as formats on the
-    // blocks' own layouts, which is not a content change and so says nothing
-    // through contentsChanged - and the viewport copies those formats into
-    // layouts of its own, so without this the text is drawn in one colour
-    // until something else happens to relayout it.
-    SyntaxHighlighter * const highlighter = doc ? doc->syntaxHighlighter() : nullptr;
-    if (highlighter != m_connectedHighlighter) {
-        if (m_connectedHighlighter)
-            disconnect(m_connectedHighlighter, nullptr, this, nullptr);
-        m_connectedHighlighter = highlighter;
-        if (highlighter) {
-            connect(highlighter, &SyntaxHighlighter::finished, this, [this] {
-                polish();
-                update();
-            });
-        }
-    }
-
+    // Both of these are also done by the layout pass the polish below asks
+    // for, so there is nothing to do here but ask for it.
     polish();
     update();
+}
+
+// Highlighting arrives late and separately. It lands as formats on the
+// blocks' own layouts, which is not a content change and so says nothing
+// through contentsChanged - and the viewport copies those formats into layouts
+// of its own, so without this the text is drawn in one colour until something
+// else happens to relayout it.
+//
+// Called from updatePolish() as well as on a document change, because a
+// highlighter is installed on a document that is *already* being shown: an
+// editor only knows which language to ask for once it has the file's path, and
+// nothing announces the swap.
+void TextViewport::connectHighlighter(TextDocument *doc)
+{
+    SyntaxHighlighter * const highlighter = doc ? doc->syntaxHighlighter() : nullptr;
+    if (highlighter == m_connectedHighlighter)
+        return;
+
+    if (m_connectedHighlighter)
+        disconnect(m_connectedHighlighter, nullptr, this, nullptr);
+    m_connectedHighlighter = highlighter;
+    if (highlighter) {
+        connect(highlighter, &SyntaxHighlighter::finished, this, [this] {
+            polish();
+            update();
+        });
+    }
 }
 
 void TextViewport::geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry)
@@ -959,6 +1036,15 @@ void TextViewport::updatePolish()
 
     TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
     QTextDocument * const text = doc ? doc->document() : nullptr;
+
+    // Both of these belong here rather than on a signal of their own. Anything
+    // that can change which bracket the caret is beside - the caret moving,
+    // the text changing, the highlighter finishing a pass - already asks for a
+    // layout, and setHighlights() does nothing when the answer is the same, so
+    // this settles rather than loops.
+    connectHighlighter(doc);
+    updateParenthesesMatch();
+
     if (!text || height() <= 0) {
         m_lineHeight = 0;
         m_contentHeight = 0;

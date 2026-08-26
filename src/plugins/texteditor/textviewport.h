@@ -205,6 +205,11 @@ public:
         int start = 0;
         int end = 0;
         QTextCharFormat format;
+
+        // So that setting the same ranges again can do nothing, which is what
+        // makes setHighlights() safe to call from anywhere - including from
+        // inside a layout pass.
+        bool operator==(const Highlight &other) const = default;
     };
 
     // Selecting by pointer rather than by caret: the word under a double
@@ -300,6 +305,15 @@ private:
 
     void documentChangedInternal();
     QTextBlock cursorBlock() const;
+    // The bracket the caret is beside and the one it belongs to, drawn as
+    // highlights. Recomputed whenever the caret moves, the text changes, or
+    // the highlighter - which is what records where the brackets are -
+    // finishes another pass.
+    void updateParenthesesMatch();
+    // The highlighter is replaced on a document that is already being shown -
+    // the editor installs one once it knows the file's language - and nothing
+    // announces that, so this looks each time round.
+    void connectHighlighter(TextDocument *doc);
     void applyGlobalFontSettings();
     void appendHighlights(QList<QTextLayout::FormatRange> &formats,
                           const QTextBlock &block) const;
