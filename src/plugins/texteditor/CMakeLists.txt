@@ -180,12 +180,20 @@ extend_qtc_plugin(TextEditor
 # qmllint and qmlcachegen see the files; qbs cannot build QML modules, so it
 # only lists them - the same split qtcquick already lives with.
 if(TARGET TextEditor)
+  # The code style tests name a form of their own, standing in for a language
+  # that has one. It is not part of the product, so it is only built with them.
+  set(TEXTEDITOR_TEST_QML_FILES "")
+  if(WITH_TESTS)
+    set(TEXTEDITOR_TEST_QML_FILES CodeStyleTestPage.qml)
+  endif()
+
   qt_add_qml_module(TextEditor
     URI QtCreator.TextEditor
     VERSION 1.0
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      ${TEXTEDITOR_TEST_QML_FILES}
       BehaviorSettingsForm.qml
       BehaviorSettingsPage.qml
       CodeEditor.qml

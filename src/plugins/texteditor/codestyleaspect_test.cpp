@@ -451,6 +451,20 @@ private slots:
         std::unique_ptr<Core::IOptionsPageWidget> widget(page.createWidget());
         QVERIFY(widget);
 
+        // The page names a form, so it has to have rendered one. Apply below
+        // works off the container and would commit either way, so without this
+        // a page whose QML never loaded reads exactly like one that works.
+        QWidget *quick = nullptr;
+        for (QWidget *child : widget->findChildren<QWidget *>()) {
+            if (qstrcmp(child->metaObject()->className(), "QQuickWidget") == 0)
+                quick = child;
+        }
+        QVERIFY2(quick, "the page built no Qt Quick form");
+        // By value because TextEditor does not link Qt Quick Widgets; asked
+        // through the property system for the same reason.
+        constexpr int quickWidgetReady = 1; // QQuickWidget::Ready
+        QCOMPARE(quick->property("status").toInt(), quickWidgetReady);
+
         // Edited through the page's own settings aspects rather than a widget:
         // a Quick page has no spin box to find.
         QVERIFY(settings);

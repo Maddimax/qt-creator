@@ -5355,6 +5355,40 @@ a container that quietly lost its designed layout still draws, and a test that
 only asks whether controls exist stays green. The evidence has to be that the
 stored closure was never handed out, not that nothing failed afterwards.
 
+## A page the code style tests named but never had
+
+Reading the TextEditor run for warnings rather than failures turned up
+`CodeStyleTestPage.qml: No such file or directory`, followed by the soft assert
+in `QuickWidget::setSource()`. The file had never existed. Two test factories
+name it as their form, and
+`CodeStyleAspectTest::testTheApplyButtonReachesTheStyleAndNotJustTheAspect()`
+builds a real `IOptionsPage` around one and presses its Apply.
+
+**The test was not vacuous, which is worth separating from the bug.** Restoring
+the old `IOptionsPageWidget::apply()` - the one that read the first child's
+`isAutoApply()` before asking whether the page was dirty - fails that test and
+only that test. It works off the container, and the container is built whether
+or not the form loads.
+
+What was missing is the other half of what it claims. The page it builds is a
+*Quick* page, and it was proving nothing about that: every code style form in
+the product could have stopped loading and this would still have passed. So the
+form exists now, drawing whatever the language handed over through
+`AspectItems` - the two factories hand over different things, and the one that
+exercises style pools hands over nothing - and the test asks the built widget
+for its `QQuickWidget`'s `status`. Breaking the QML fails it with `Actual: 3`.
+
+Two smaller things fell out of it. The form deliberately leaves out
+`CodeStyleSelector`: its buttons are Qt Quick Controls, a plugin test loads
+Controls before `QQuickStyle::setStyle()` runs, and drawing them traded one
+warning for eight customization ones. And the file is listed under
+`if(WITH_TESTS)`, because a fixture has no business shipping - which qbs needs
+no edit for, its `qml` group being a `*.qml` wildcard.
+
+**The general point.** A test run's warnings are not decoration. This one had
+been printing a missing file and a soft assert on every TextEditor run, and
+nothing failed, because the test asserted the half that worked.
+
 ## The same measurement, applied to kits
 
 Re-running the `layouter()` instrumentation with the device closures gone leaves
