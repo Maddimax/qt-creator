@@ -3116,6 +3116,67 @@ keeping: **list what one side handles, list what the other handles, and explain
 every difference.** A difference that turns out to be a binding is fine. A
 difference nobody can explain is a bug.
 
+### Where the migration stands, and why the last four are different in kind
+
+**The settings pages are done.** `testAspectDrivenPagesRenderWithQuick()`
+reports 107 aspect-driven pages, 107 rendered with Qt Quick, **none declined** -
+the "still on widgets" list is empty, and the same test refuses to let it grow
+again: a page that has aspects and no QML fails it. `createAspectForm()` is
+what makes that final rather than a setting, because a page naming a QML file
+renders through it whatever `QTC_QUICK_SETTINGS` says; the variable only
+previews the pages that have none, and there are none.
+
+Four `addToLayoutImpl()` overrides remain, and none of them is on a page. They
+are a run configuration's arguments, a build step's command helper, a device's
+environment and the compiler explorer's library picker - project panels and an
+editor pane, which is a surface this migration has not been about.
+
+**They are also not movable, and the reason is structural.** Ten closures went
+into `aspectwidgetrenderer.cpp` over this migration; the last two,
+`GroupedListAspect` and `AspectList`, were *moves* rather than ports - the
+widget code went where widget code lives and nothing was redesigned. That
+worked because both aspects live in **Utils**, so the renderer can name their
+type:
+
+    if (auto list = qobject_cast<AspectList *>(&aspect))
+
+Every remaining closure lives in a plugin, and `Utils` depends on no plugin. A
+bespoke case cannot cast to `ArgumentsAspect`, `CommandBuilderAspect`,
+`LibrarySelectionAspect` or `DockerDeviceEnvironmentAspect`, and two of them
+build widgets Utils cannot even see: `EnvironmentWidget` is ProjectExplorer's
+and `Api::Library` is the compiler explorer's.
+
+So for an aspect outside Utils there is exactly one way out of a closure:
+**describe it with descriptor fields both backends already understand.** Where
+no such description exists, the way out is to invent a control - and that is a
+decision about what the thing should look like, not a port. Each of the four
+needs one:
+
+- **`ArgumentsAspect`** wants a field that changes from one line to many while
+  you look at it. Neither backend supports a control changing kind at runtime -
+  `AspectContainerModel` never emits `dataChanged` for `KindRole`, so Qt Quick
+  would not swap the delegate either - and the expand toggle wants a disclosure
+  control. `AspectControls::Toggle` is a dead enum value: Qt Quick maps it to
+  `Bool`, the widget renderer has no case, and nothing sets it.
+- **`CommandBuilderAspect`** is three ordinary rows - a combo, a path chooser
+  and a line edit - so it needs no new control. What it needs is a hook: it
+  migrates from a preceding make step *the first time it is drawn*, because
+  that is the only moment when "this step was created fresh" is known.
+  `BuildStepFactory::restore()` is `create()` plus `fromMap()`, so a fresh step
+  is one `fromMap()` never reached, and nothing else can tell. The hook exists
+  in spirit - `requestDisplayText()` is what `ActionAspect::setOnShown()` rides
+  on - but only two control kinds call it.
+- **`DockerDeviceEnvironmentAspect`** wants the environment editor over a
+  *fetched* base environment, plus Fetch. The generic
+  `EnvironmentChangesAspect` is a summary and a dialog, and
+  `runEnvironmentItemsDialog()` takes only the changes - it cannot show what
+  they are changes to. Converging would lose that.
+- **`LibrarySelectionAspect`** is a summary that swaps in place for a pair of
+  combos and Clear All: `TextWithAction` where the action reveals an inline
+  editor rather than opening a dialog.
+
+The honest summary is that the porting is finished and what is left is design.
+
 ### What the census could not see, and now can
 
 Two holes, both found the hard way in the same session.
