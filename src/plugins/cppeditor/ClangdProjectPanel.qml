@@ -8,24 +8,17 @@ import QtQuick
 import QtQuick.Layouts
 import QtCreator.Ui
 
+// clangd for one project: the same settings as the global page, without the
+// sessions table and the note about configuration files, which are global.
 AspectPage {
     id: root
 
-    contentFillsHeight: true
-
     readonly property var settings: AspectModels.named(aspects.Settings)
+
+    BoolWithOwnLabelDelegate { aspect: aspects.UseGlobalSettings }
 
     ClangdSettingsForm {
         settings: root.settings
         versionWarning: root.aspects.VersionWarning
     }
-
-    AspectGroupBox {
-        title: qsTr("Sessions with a Single Clangd Instance")
-        Layout.fillHeight: true
-
-        TableDelegate { aspect: root.aspects.Sessions }
-    }
-
-    TextDisplayDelegate { aspect: root.aspects.ConfigFilesHelp }
 }

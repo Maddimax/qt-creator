@@ -814,7 +814,6 @@ public:
         // Base constructor loaded global settings into aspects; now override
         // with project-specific values if applicable.
         setAutoApply(true);
-        Utils::AspectWidgets::setLayouter(this, [this] { return clangdSettingsLayout(this); });
 
         const Store store =
             storeFromVariant(project->namedSettings(clangdSettingsKey()));
@@ -1414,32 +1413,74 @@ void setupClangdSettingsPage()
     ClangdSettings::instance().setAutoApply(false);
 }
 
-class ClangdProjectSettingsWidget : public QWidget
+// What the panel shows: the flag, and the same settings as the global page.
+// The flag is kept out of the settings container because that container is
+// disabled as a whole while the global settings are in use. See
+// ProjectCommentsPanel.
+class ClangdProjectPanel final : public AspectContainer
 {
 public:
-    ClangdProjectSettingsWidget(Project *project)
+    explicit ClangdProjectPanel(ClangdProjectSettings *settings)
+        : m_settings(settings)
     {
-        ClangdProjectSettings *ps = clangdProjectSettings(project);
+        // Before registering: insertAspect() forces the container's own
+        // auto-apply onto what it takes in.
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/CppEditor/ClangdProjectPanel.qml"));
 
-        using namespace Layouting;
-        auto settingsWidget = Column {
-            *ps,
-            noMargin,
-        }.emerge();
-        settingsWidget->setEnabled(!ps->useGlobalSettings());
-        ps->useGlobalSettings.addOnChanged(settingsWidget, [ps, settingsWidget] {
-            settingsWidget->setEnabled(!ps->useGlobalSettings());
-        });
+        settings->useGlobalSettings.setQmlName("UseGlobalSettings");
+        registerAspect(&settings->useGlobalSettings);
 
-        Column {
-            ps->useGlobalSettings,
-            hr,
-            settingsWidget,
-            noMargin,
-            st,
-        }.attachTo(this);
+        settings->setQmlName("Settings");
+        registerAspect(settings);
+
+        m_versionWarning.setQmlName("VersionWarning");
+        m_versionWarning.setIconType(InfoType::Warning);
+        m_versionWarning.setVisible(false);
+        registerAspect(&m_versionWarning);
+
+        // Behaviour, not layout: whether the clangd that was named is one that
+        // can be used is decided by running it, and what the project may
+        // change at all depends on the flag.
+        settings->clangdPath.addOnChanged(this, [this] { updateVersionWarning(); });
+        updateVersionWarning();
+
+        updateEnabledState();
+        settings->useGlobalSettings.addOnChanged(this, [this] { updateEnabledState(); });
     }
+
+    static Utils::Key extraDataKey() { return "ClangdProjectPanel"; }
+
+private:
+    void updateEnabledState() { m_settings->setEnabled(!m_settings->useGlobalSettings()); }
+
+    void updateVersionWarning()
+    {
+        const FilePath path = m_settings->clangdPath();
+        if (path.isEmpty()) {
+            m_versionWarning.setVisible(false);
+            return;
+        }
+        const Result<> res = checkClangdVersion(path);
+        m_versionWarning.setVisible(!res);
+        if (!res)
+            m_versionWarning.setText(res.error());
+    }
+
+    ClangdProjectSettings * const m_settings;
+    Utils::TextDisplay m_versionWarning;
 };
+
+static ClangdProjectPanel *clangdProjectPanel(Project *project)
+{
+    const Utils::Key key = ClangdProjectPanel::extraDataKey();
+    QVariant v = project->extraData(key);
+    if (v.isNull()) {
+        v = QVariant::fromValue(new ClangdProjectPanel(clangdProjectSettings(project)));
+        project->setExtraData(key, v);
+    }
+    return v.value<ClangdProjectPanel *>();
+}
 
 class ClangdProjectSettingsPanelFactory final : public ProjectPanelFactory
 {
@@ -1448,8 +1489,8 @@ public:
     {
         setPriority(100);
         setDisplayName(Tr::tr("Clangd"));
-        setCreateWidgetFunction([](Project *project) {
-            return new ClangdProjectSettingsWidget(project);
+        setSettingsProvider([](Project *project) {
+            return clangdProjectPanel(project);
         });
     }
 };
