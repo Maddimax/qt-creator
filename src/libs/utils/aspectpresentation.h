@@ -5,6 +5,7 @@
 
 #include "utils_global.h"
 
+#include <QColor>
 #include <QHash>
 #include <QIcon>
 #include <QList>
@@ -320,6 +321,14 @@ public:
     bool allowAdding = true;
     bool allowRemoving = true;
     bool allowEditing = true;
+
+    // Table. The background the rows are meant to be *read against*, for a list
+    // that shows what it is describing - the syntax formats of a colour scheme
+    // are the case this exists for. Not the same as a row's own background: a
+    // format that sets none is still read on the editor's background and not on
+    // the form's, and the model has no way to say that per cell. Invalid to
+    // leave the form's own background alone, which is the usual answer.
+    QColor rowBackground;
 
     // AspectList. Whether the order of the items is the user's - path mappings
     // are tried in order, a list of servers is not - and so whether the list

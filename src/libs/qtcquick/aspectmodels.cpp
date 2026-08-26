@@ -168,6 +168,10 @@ QVariantMap AspectModels::presentation(BaseAspect *aspect)
         {"allowAdding", p.allowAdding},
         {"allowRemoving", p.allowRemoving},
         {"allowEditing", p.allowEditing},
+        // Unset stays unset rather than becoming an invalid colour QML would
+        // draw as black: the delegate treats undefined as "leave the form's
+        // background alone", which is what most tables want.
+        {"rowBackground", p.rowBackground.isValid() ? QVariant(p.rowBackground) : QVariant()},
         {"allowReordering", p.allowReordering},
         // ColorPicker and LineEdit: a control that can be put back to its
         // default offers a button for it.

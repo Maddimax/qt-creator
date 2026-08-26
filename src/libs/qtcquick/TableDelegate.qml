@@ -32,9 +32,14 @@ RowLayout {
     // Which row is selected, in the aspect's own model rather than the filtered
     // one - a page showing a detail of the current row means that row, not the
     // one at that position in whatever is on screen. -1 when nothing is.
+    // TableView answers currentRow and currentColumn; it has no currentIndex,
+    // and reading one gave undefined - so this was -1 whatever was selected,
+    // and every page that shows a detail of the current row was told nothing.
     readonly property int currentRow: {
-        const index = view.currentIndex
-        return index && index.valid ? root.rows.mapToSource(index).row : -1
+        const row = view.currentRow
+        if (row < 0)
+            return -1
+        return root.rows.mapToSource(root.rows.index(row, 0)).row
     }
 
     // Every selected row, in the aspect's own model, ascending. A page that
@@ -137,53 +142,69 @@ RowLayout {
                     }
                 }
 
-                TableView {
-                    id: view
-
-                    model: root.rows
-                    reuseItems: false
-                    clip: true
-                    boundsBehavior: Flickable.StopAtBounds
-                    selectionBehavior: TableView.SelectRows
-                    // More than one at a time: the widget tables these replace
-                    // used ExtendedSelection, and the pages that act on a
-                    // selection were written for it.
-                    selectionMode: TableView.ExtendedSelection
-                    selectionModel: ItemSelectionModel { model: view.model }
-                    ToolTip.text: root.toolTip
-                    ToolTip.visible: false
-                    // Each column as wide as it needs to be, and the last one
-                    // takes what is left - the way the widget table stretched
-                    // its last header section. Dividing the width evenly gave a
-                    // check box as much room as a description.
-                    // Every column as wide as its contents want, up to a cap,
-                    // and the last one takes what is left. Without the cap a
-                    // long description made its column wider than the table,
-                    // which scrolled the centred header label out of the
-                    // clipped header - the column looked unnamed.
-                    columnWidthProvider: function (column) {
-                        const capped = function (i) {
-                            return Math.min(view.implicitColumnWidth(i),
-                                            Metrics.tableColumnMaxWidth)
-                        }
-                        if (column < view.columns - 1)
-                            return capped(column)
-                        let used = 0
-                        for (let i = 0; i < view.columns - 1; ++i)
-                            used += capped(i)
-                        return Math.max(Metrics.lineEditWidth, view.width - used)
-                    }
-                    // A width the provider already answered for is cached, so
-                    // the last column has to be asked again when the table is
-                    // resized.
-                    onWidthChanged: Qt.callLater(view.forceLayout)
+                // The background the rows are read against, where the aspect
+                // says they have one: a list of syntax formats is showing what
+                // it describes, and a format that sets no background of its own
+                // is still meant to be read on the editor's background rather
+                // than on the form's. Behind the rows only - the header keeps
+                // the form's colours, as it did in the widget view.
+                Item {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
 
-                    ScrollBar.vertical: ScrollBar {}
+                    Rectangle {
+                        anchors.fill: parent
+                        visible: root.pres.rowBackground !== undefined
+                        color: root.pres.rowBackground ?? "transparent"
+                    }
 
-                    delegate: AspectTableCell {
-                        editable: root.editable
+                    TableView {
+                        id: view
+
+                        anchors.fill: parent
+                        model: root.rows
+                        reuseItems: false
+                        clip: true
+                        boundsBehavior: Flickable.StopAtBounds
+                        selectionBehavior: TableView.SelectRows
+                        // More than one at a time: the widget tables these replace
+                        // used ExtendedSelection, and the pages that act on a
+                        // selection were written for it.
+                        selectionMode: TableView.ExtendedSelection
+                        selectionModel: ItemSelectionModel { model: view.model }
+                        ToolTip.text: root.toolTip
+                        ToolTip.visible: false
+                        // Each column as wide as it needs to be, and the last one
+                        // takes what is left - the way the widget table stretched
+                        // its last header section. Dividing the width evenly gave a
+                        // check box as much room as a description.
+                        // Every column as wide as its contents want, up to a cap,
+                        // and the last one takes what is left. Without the cap a
+                        // long description made its column wider than the table,
+                        // which scrolled the centred header label out of the
+                        // clipped header - the column looked unnamed.
+                        columnWidthProvider: function (column) {
+                            const capped = function (i) {
+                                return Math.min(view.implicitColumnWidth(i),
+                                                Metrics.tableColumnMaxWidth)
+                            }
+                            if (column < view.columns - 1)
+                                return capped(column)
+                            let used = 0
+                            for (let i = 0; i < view.columns - 1; ++i)
+                                used += capped(i)
+                            return Math.max(Metrics.lineEditWidth, view.width - used)
+                        }
+                        // A width the provider already answered for is cached, so
+                        // the last column has to be asked again when the table is
+                        // resized.
+                        onWidthChanged: Qt.callLater(view.forceLayout)
+
+                        ScrollBar.vertical: ScrollBar {}
+
+                        delegate: AspectTableCell {
+                            editable: root.editable
+                        }
                     }
                 }
             }

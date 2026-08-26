@@ -207,7 +207,10 @@ private slots:
     void testTableAspectAddsAndRemovesRows();
     void testTableAspectRemovesEverySelectedRow();
     void testTableAspectFiltersItsRows();
+    void testSelectingARowTellsThePageWhichOneItIs();
     void testTableCellReadsInItsOwnColours();
+    void testATableIsReadOnTheBackgroundItsAspectNames();
+    void testTheFormatListIsReadOnTheSchemesOwnBackground();
     void testListRowShowsWhatTheListSaysAboutTheItem();
     void testGroupedListShowsItsGroupsAndActsOnTheCurrentItem();
     void testTreeShowsWhatTheAspectHandsOut();
@@ -2764,11 +2767,13 @@ public:
         Utils::AspectPresentation p = StringListAspect::presentation();
         p.control = Utils::AspectControls::Table;
         p.filterPlaceholderText = m_filterPlaceholderText;
+        p.rowBackground = m_rowBackground;
         return p;
     }
 
     TestTableModel m_model;
     QString m_filterPlaceholderText;
+    QColor m_rowBackground;
 };
 
 // The TableView the delegate builds, and the model it actually shows - the
@@ -4088,6 +4093,96 @@ void QuickUiTest::testColourWithNoResetHasNoButton()
     QVERIFY(!buttons.first()->isVisible());
 }
 
+void QuickUiTest::testTheFormatListIsReadOnTheSchemesOwnBackground()
+{
+    // The other half, on the page this exists for. A dark scheme sets a Text
+    // background - "#000000" in Dark, "#2e2f30" in Qt Creator Dark - and the
+    // list of formats has to be read on it. The shipped Default scheme sets
+    // none and relies on built-in defaults, so it leaves the form alone, which
+    // is what the widget list did too.
+    std::unique_ptr<QWidget> host;
+    QQuickItem *root = showPage("Font && Colors", host);
+    if (!root)
+        QSKIP("The Font && Colors page is not available here");
+
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(root, "TableDelegate"));
+
+    Utils::SelectionAspect *scheme = nullptr;
+    for (QQuickItem *item : findAspectDelegates(root)) {
+        if (auto aspect = item->property("aspect").value<Utils::BaseAspect *>()) {
+            if (aspect->qmlName() == "Scheme")
+                scheme = qobject_cast<Utils::SelectionAspect *>(aspect);
+        }
+    }
+    QVERIFY2(scheme, "the page does not offer a scheme to choose");
+
+    // Whichever of the shipped schemes says what code is read on. Named rather
+    // than assumed: the order they are listed in is not this test's business.
+    int dark = -1;
+    for (int i = 0; i < scheme->optionCount(); ++i) {
+        if (scheme->displayForIndex(i).contains("Dark"))
+            dark = i;
+    }
+    if (dark == -1)
+        QSKIP("No dark colour scheme is installed here");
+
+    scheme->setValue(dark);
+    QTRY_VERIFY2(delegate->property("pres").toMap().value("rowBackground").canConvert<QColor>()
+                     && delegate->property("pres")
+                            .toMap()
+                            .value("rowBackground")
+                            .value<QColor>()
+                            .isValid(),
+                 "the format list is not read on the scheme's own background");
+}
+
+void QuickUiTest::testATableIsReadOnTheBackgroundItsAspectNames()
+{
+    // A list of syntax formats is showing what it describes, and most formats
+    // set no background of their own - the model answers nothing for them. The
+    // widget list carried the editor's background in its palette so those rows
+    // were still read on it; on the form's background a dark scheme's colours
+    // are unreadable. Rows only: the header keeps the form's colours, as it did
+    // in the widget view.
+    const auto backgroundBehindTheRows = [](QQuickItem *root, const QColor &wanted) {
+        QQuickItem *view = tableViewOf(root);
+        if (!view || !view->parentItem())
+            return -1;
+        int painted = 0;
+        for (QQuickItem *rect : findQmlComponents(view->parentItem(), "QQuickRectangle")) {
+            if (rect->parentItem() == view->parentItem() && rect->isVisible()
+                && rect->property("color").value<QColor>() == wanted) {
+                ++painted;
+            }
+        }
+        return painted;
+    };
+
+    // An aspect that says nothing leaves the form alone, which is what every
+    // other table wants.
+    Utils::AspectContainer plain;
+    TestTableAspect quiet(&plain);
+    quiet.setLabelText("Rows");
+    const std::unique_ptr<QWidget> plainForm(showForm(&plain));
+    QVERIFY(plainForm);
+    auto plainQuick = plainForm->findChild<QQuickWidget *>();
+    QVERIFY(plainQuick);
+    QTRY_VERIFY(tableViewOf(plainQuick->rootObject()));
+    QCOMPARE(backgroundBehindTheRows(plainQuick->rootObject(), QColor(Qt::darkBlue)), 0);
+
+    Utils::AspectContainer page;
+    TestTableAspect table(&page);
+    table.setLabelText("Rows");
+    table.m_rowBackground = QColor(Qt::darkBlue);
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QTRY_VERIFY(tableViewOf(quickWidget->rootObject()));
+    QTRY_COMPARE(backgroundBehindTheRows(quickWidget->rootObject(), QColor(Qt::darkBlue)), 1);
+}
+
 void QuickUiTest::testTableCellReadsInItsOwnColours()
 {
     // A list of syntax formats is meant to be read in the colours it is
@@ -4123,6 +4218,54 @@ void QuickUiTest::testTableCellReadsInItsOwnColours()
             ++painted;
     }
     QCOMPARE(painted, 2);
+}
+
+void QuickUiTest::testSelectingARowTellsThePageWhichOneItIs()
+{
+    // A page showing a detail of the current row - the properties of the format
+    // in Font && Colors, the text of the snippet in Snippets - reads
+    // TableDelegate.currentRow and hands it to its aspect. That was reading
+    // TableView.currentIndex, which does not exist: TableView answers
+    // currentRow and currentColumn. So it was -1 whatever the user clicked, and
+    // no page was ever told which row it was showing.
+    Utils::AspectContainer page;
+    TestTableAspect table(&page);
+    table.setLabelText("Rows");
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+
+    // Shown, because an unshown TableView lays out once and then stops
+    // following its model - its currentRow would go stale halfway through this.
+    form->resize(600, 400);
+    form->show();
+    QVERIFY(QTest::qWaitForWindowExposed(form.get()));
+
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "TableDelegate"));
+    QQuickItem *view = nullptr;
+    QTRY_VERIFY(view = tableViewOf(quickWidget->rootObject()));
+    QTRY_COMPARE(view->property("rows").toInt(), 2);
+
+    QCOMPARE(delegate->property("currentRow").toInt(), -1);
+
+    auto shown = view->property("model").value<QAbstractItemModel *>();
+    QVERIFY(shown);
+    auto selection = view->property("selectionModel").value<QItemSelectionModel *>();
+    QVERIFY(selection);
+    selection->setCurrentIndex(shown->index(1, 0), QItemSelectionModel::SelectCurrent);
+    QTRY_COMPARE(delegate->property("currentRow").toInt(), 1);
+    selection->setCurrentIndex(shown->index(0, 0), QItemSelectionModel::SelectCurrent);
+    QTRY_COMPARE(delegate->property("currentRow").toInt(), 0);
+
+    // The answer is meant to be the row in the aspect's *own* model rather than
+    // the one at that position in whatever is on screen, which is why it goes
+    // through the filter proxy. That half is not asserted here: with a filter
+    // applied, currentRow already holds the number the assertion would look
+    // for, so it would be satisfied by the state before the filter rather than
+    // by the mapping. See the migration doc.
 }
 
 void QuickUiTest::testTableAspectFiltersItsRows()

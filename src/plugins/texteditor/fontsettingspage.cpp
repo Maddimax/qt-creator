@@ -221,6 +221,11 @@ public:
         // The rows are the known format descriptions.
         p.allowAdding = false;
         p.allowRemoving = false;
+        // The list shows what it describes, so it is read on the background the
+        // scheme says code is read on. A format that sets none of its own has
+        // no way to say that per row - the model answers nothing for it - and
+        // on the form's background a dark scheme's colours are unreadable.
+        p.rowBackground = m_scheme.formatFor(C_TEXT).background();
         return p;
     }
 
@@ -264,6 +269,9 @@ public:
             return;
         m_scheme.setFormatFor(description->id(), format);
         m_model.refresh();
+        // Editing C_TEXT's background changes what every other row is read on.
+        if (description->id() == C_TEXT)
+            emit controlConfigurationChanged();
         emit schemeEdited();
     }
 
@@ -273,6 +281,10 @@ public:
     {
         m_scheme = scheme;
         m_model.setColorScheme(&m_scheme);
+        // The background the rows are read on comes from the scheme, and it is
+        // part of the presentation rather than of any row - so the renderer has
+        // to be told to ask again.
+        emit controlConfigurationChanged();
         emit currentFormatChanged();
     }
 

@@ -5215,6 +5215,54 @@ exactly that shape, so it went there rather than into a new seam.
 If a fourth arrives that fits none of these, that is the point to reconsider a
 single "host services" object, rather than at the third.
 
+## Font && Colors, and the table bug behind it
+
+Font && Colors turned out not to need the editor at all. The workstream listed
+it beside Code Style and Snippets, but its "preview" is not a code snippet - it
+is the **format list itself, read in the colours it is describing**. Per-cell
+foreground, background and font were already ported and tested. One piece was
+not:
+
+`Qt::BackgroundRole` answers *nothing* for a format that sets no background of
+its own, which is most of them. The widget list carried the editor's background
+in its palette, so those rows were still read on it. In Quick they fell through
+to the form's background, and a dark scheme's colours on a light form are
+unreadable. That is now `AspectPresentation::rowBackground` - the background the
+rows are read *against*, as distinct from any row's own - painted behind the
+rows and not behind the header, which is where the widget put it too. Unset
+leaves the form alone, which is what every other table wants; the shipped
+"Default" scheme sets no text background and so gets nothing, exactly as the
+widget did.
+
+**The real find was underneath.** Writing the test for it meant selecting a row,
+and selecting a row did not work anywhere:
+
+    readonly property int currentRow: {
+        const index = view.currentIndex        // TableView has no currentIndex
+        return index && index.valid ? ... : -1
+    }
+
+`TableView` answers `currentRow` and `currentColumn`. There is no
+`currentIndex`, so this read `undefined` and returned **-1 whatever was
+selected**. Every page that shows a detail of the current row - the format
+properties in Font && Colors, the snippet text in Snippets - was told nothing,
+ever.
+
+Two things let it live that long. qmllint reported it (`Member "currentIndex"
+not found on type "TableView"`) and it was waved off twice as pre-existing noise
+in a file with other warnings. And no test selected a row and then asked what
+the page had been told: the census renders every page and asserts the controls
+are there, which a page showing the wrong row passes.
+
+**Two assertions in this batch turned out to be vacuous and were cut rather than
+kept.** An unshown `TableView` lays out once and its `currentRow` then goes
+stale, so half a test read a value from before the step it meant to check.
+Showing the form fixes the staleness but not the vacuity: after filtering,
+`currentRow` already holds the number the assertion looks for, so it is
+satisfied by the previous state. The mapping through the filter proxy is still
+right - it is what makes "the row in the aspect's own model" true - but nothing
+here holds it, and the test says so instead of implying otherwise.
+
 ## Why an aspect subclass cannot be typed in QML
 
 The census counts an aspect as drawn when some item on the page declares a
