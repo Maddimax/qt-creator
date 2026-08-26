@@ -199,6 +199,8 @@ if(TARGET CppEditor AND TARGET Qt::Quick)
       CppFileSettingsForm.qml
       CppFileSettingsPage.qml
       CppFileSettingsProjectPanel.qml
+      CppQuickFixProjectPanel.qml
+      CppQuickFixSettingsForm.qml
       CppQuickFixSettingsPage.qml
   )
 endif()

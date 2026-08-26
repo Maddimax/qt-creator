@@ -985,88 +985,102 @@ void CppQuickFixSettingsAspects::apply()
     settings->saveAsGlobalSettings();
 }
 
-class CppQuickFixProjectSettingsWidget : public QWidget
+// What the panel shows: the flag, the one button that acts on the file the
+// custom settings live in, and the settings themselves. The flag is kept out of
+// the settings container because that container is disabled as a whole while
+// the global settings are in use. See ProjectCommentsPanel.
+class CppQuickFixProjectPanel final : public AspectContainer
 {
 public:
-    explicit CppQuickFixProjectSettingsWidget(Project *project);
+    explicit CppQuickFixProjectPanel(Project *project)
+        : m_projectSettings(cppQuickFixProjectSettings(project))
+    {
+        // Before registering: insertAspect() forces the container's own
+        // auto-apply onto what it takes in.
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/CppEditor/CppQuickFixProjectPanel.qml"));
+
+        m_projectSettings->useGlobalSettings.setQmlName("UseGlobalSettings");
+        registerAspect(&m_projectSettings->useGlobalSettings);
+
+        m_settingsFileAction.setQmlName("SettingsFileAction");
+        m_settingsFileAction.setAction([this] { actOnSettingsFile(); });
+        registerAspect(&m_settingsFileAction);
+
+        m_aspects.setQmlName("Settings");
+        registerAspect(&m_aspects);
+        // These save through volatileValueChanged rather than on apply, which
+        // is what registering just turned on. Put it back.
+        m_aspects.setAutoApply(false);
+
+        m_aspects.loadSettings(m_projectSettings->getSettings());
+
+        updateForUseGlobal();
+        m_projectSettings->useGlobalSettings.addOnChanged(this, [this] { updateForUseGlobal(); });
+
+        connect(&m_aspects, &BaseAspect::volatileValueChanged, this, [this] {
+            m_aspects.saveSettings(m_projectSettings->getSettings());
+            if (!m_projectSettings->useGlobalSettings())
+                m_projectSettings->saveOwnSettings();
+        });
+    }
+
+    static Utils::Key extraDataKey() { return "CppQuickFixProjectPanel"; }
 
 private:
-    void currentItemChanged(bool useGlobal);
-    void buttonCustomClicked();
+    void updateForUseGlobal()
+    {
+        const bool useGlobal = m_projectSettings->useGlobalSettings();
+        if (useGlobal) {
+            const FilePath path = m_projectSettings->filePathOfSettingsFile();
+            m_settingsFileAction.setToolTip(
+                Tr::tr("Custom settings are saved in a file. If you use the "
+                       "global settings, you can delete that file."));
+            m_settingsFileAction.setActionText(Tr::tr("Delete Custom Settings File"));
+            m_settingsFileAction.setVisible(!path.isEmpty() && path.exists());
+        } else {
+            if (!m_projectSettings->useCustomSettings()) {
+                m_projectSettings->useGlobalSettings.setValue(true, BaseAspect::BeQuiet);
+                return;
+            }
+            m_settingsFileAction.setToolTip(Tr::tr("Resets all settings to the global settings."));
+            m_settingsFileAction.setActionText(Tr::tr("Reset to Global"));
+            m_settingsFileAction.setVisible(true);
+            // Otherwise the setting is changed, Creator is left, and there are
+            // no custom settings.
+            m_projectSettings->saveOwnSettings();
+        }
+        m_aspects.loadSettings(m_projectSettings->getSettings());
+        m_aspects.setEnabled(!useGlobal);
+    }
 
-    CppQuickFixSettingsAspects m_aspects{false};
+    void actOnSettingsFile()
+    {
+        if (m_projectSettings->useGlobalSettings()) {
+            m_projectSettings->filePathOfSettingsFile().removeFile();
+            m_settingsFileAction.setVisible(false);
+        } else {
+            m_projectSettings->resetOwnSettingsToGlobal();
+            m_projectSettings->saveOwnSettings();
+            m_aspects.loadSettings(m_projectSettings->getSettings());
+        }
+    }
+
     CppQuickFixProjectsSettings::CppQuickFixProjectsSettingsPtr m_projectSettings;
-
-    QPushButton *m_pushButton;
+    CppQuickFixSettingsAspects m_aspects{false};
+    Utils::ActionAspect m_settingsFileAction;
 };
 
-CppQuickFixProjectSettingsWidget::CppQuickFixProjectSettingsWidget(Project *project)
+static CppQuickFixProjectPanel *cppQuickFixProjectPanel(Project *project)
 {
-    m_projectSettings = cppQuickFixProjectSettings(project);
-
-    m_pushButton = new QPushButton(this);
-    m_aspects.loadSettings(m_projectSettings->getSettings());
-
-    using namespace Layouting;
-    Column {
-        m_projectSettings->useGlobalSettings,
-        hr,
-        Row { m_pushButton, st },
-        Core::createAspectForm(&m_aspects),
-        noMargin,
-    }.attachTo(this);
-
-    currentItemChanged(m_projectSettings->useGlobalSettings());
-
-    m_projectSettings->useGlobalSettings.addOnChanged(this, [this] {
-        currentItemChanged(m_projectSettings->useGlobalSettings());
-    });
-
-    connect(m_pushButton, &QAbstractButton::clicked,
-            this, &CppQuickFixProjectSettingsWidget::buttonCustomClicked);
-    connect(&m_aspects, &BaseAspect::volatileValueChanged, this, [this] {
-        m_aspects.saveSettings(m_projectSettings->getSettings());
-        if (!m_projectSettings->useGlobalSettings())
-            m_projectSettings->saveOwnSettings();
-    });
-}
-
-void CppQuickFixProjectSettingsWidget::currentItemChanged(bool useGlobal)
-{
-    if (useGlobal) {
-        const auto &path = m_projectSettings->filePathOfSettingsFile();
-        m_pushButton->setToolTip(Tr::tr("Custom settings are saved in a file. If you use the "
-                                        "global settings, you can delete that file."));
-        m_pushButton->setText(Tr::tr("Delete Custom Settings File"));
-        m_pushButton->setVisible(!path.isEmpty() && path.exists());
-    } else /*Custom*/ {
-        if (!m_projectSettings->useCustomSettings()) {
-            m_projectSettings->useGlobalSettings.setValue(true, BaseAspect::BeQuiet);
-            return;
-        }
-        m_pushButton->setToolTip(Tr::tr("Resets all settings to the global settings."));
-        m_pushButton->setText(Tr::tr("Reset to Global"));
-        m_pushButton->setVisible(true);
-        // otherwise you change the comboBox and exit and have no custom settings:
-        m_projectSettings->saveOwnSettings();
+    const Utils::Key key = CppQuickFixProjectPanel::extraDataKey();
+    QVariant v = project->extraData(key);
+    if (v.isNull()) {
+        v = QVariant::fromValue(new CppQuickFixProjectPanel(project));
+        project->setExtraData(key, v);
     }
-    m_aspects.loadSettings(m_projectSettings->getSettings());
-    m_aspects.setEnabled(!useGlobal);
+    return v.value<CppQuickFixProjectPanel *>();
 }
-
-void CppQuickFixProjectSettingsWidget::buttonCustomClicked()
-{
-    if (m_projectSettings->useGlobalSettings()) {
-        // delete file
-        m_projectSettings->filePathOfSettingsFile().removeFile();
-        m_pushButton->setVisible(false);
-    } else /*Custom*/ {
-        m_projectSettings->resetOwnSettingsToGlobal();
-        m_projectSettings->saveOwnSettings();
-        m_aspects.loadSettings(m_projectSettings->getSettings());
-    }
-}
-
 
 // Factories
 
@@ -1078,8 +1092,8 @@ public:
         setPriority(100);
         setId(Constants::QUICK_FIX_PROJECT_PANEL_ID);
         setDisplayName(Tr::tr(Constants::QUICK_FIX_SETTINGS_DISPLAY_NAME));
-        setCreateWidgetFunction([](Project *project) {
-            return new CppQuickFixProjectSettingsWidget(project);
+        setSettingsProvider([](Project *project) {
+            return cppQuickFixProjectPanel(project);
         });
     }
 };
