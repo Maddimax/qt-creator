@@ -5,6 +5,8 @@
 
 #include "codesource.h"
 #include "textdocument.h"
+#include "highlighter.h"
+#include "highlighterhelper.h"
 #include "textdocumentlayout.h"
 #include "textviewport.h"
 #include "texteditorconstants.h"
@@ -190,6 +192,16 @@ public:
              {"contextActions", QVariant::fromValue(&m_contextActions)}});
         widget->setSource(QUrl("qrc:/qt/qml/QtCreator/TextEditor/MainEditor.qml"));
 
+        // Which language to colour the file as comes from its mime type,
+        // and the editor manager opens the document *after* building the
+        // editor - so this waits for the path rather than reading it now.
+        // TextEditorFactory does the same thing for the widget editor, which
+        // is why a document built outside one is never highlighted at all.
+        connect(m_document.get(), &Core::IDocument::filePathChanged, this, [this] {
+            configureHighlighter();
+        });
+        configureHighlighter();
+
         setContext(Core::Context(QUICK_TEXT_EDITOR_ID));
         setWidget(widget);
 
@@ -262,6 +274,32 @@ public:
 
 private:
     static constexpr int kStateVersion = 1;
+
+    void configureHighlighter()
+    {
+        // Nothing to go on yet. The constructor calls this so that a duplicate
+        // - whose document already has a path - is highlighted too, and asking
+        // the mime database about an empty path prints a warning and answers
+        // nothing.
+        if (m_document->filePath().isEmpty())
+            return;
+
+        m_document->setMimeType(
+            Utils::mimeTypeForFile(m_document->filePath(),
+                                   Utils::MimeMatchMode::MatchDefaultAndRemote)
+                .name());
+
+        const HighlighterHelper::Definitions definitions
+            = HighlighterHelper::definitionsForDocument(m_document.get());
+        const HighlighterHelper::Definition definition
+            = definitions.isEmpty() ? HighlighterHelper::Definition() : definitions.first();
+
+        m_document->resetSyntaxHighlighter([definition] {
+            auto highlighter = new Highlighter;
+            highlighter->setDefinition(definition);
+            return highlighter;
+        });
+    }
 
     // The form's viewport. Found rather than held: the QML owns it, and it
     // does not exist until the component has been created.
@@ -667,6 +705,122 @@ private slots:
         const Utils::Result<QByteArray> onDisk = file.fileContents();
         QVERIFY(onDisk.has_value());
         QCOMPARE(QString::fromUtf8(*onDisk), QString("Xalpha\n"));
+    }
+
+    // Opening a source file has to colour it. The generic highlighter is
+    // chosen from the file's mime type, which is something the *factory* does
+    // for the widget editor - a document created without it shows every
+    // language as grey text.
+    void testOpeningASourceFileHighlightsIt()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-highlight");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("sample.json");
+        QVERIFY(file.writeFileContents("{ \"key\": 42, \"other\": true }\n"));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        if (HighlighterHelper::definitionsForDocument(document).isEmpty())
+            QSKIP("no syntax definitions are installed, so nothing could colour anything");
+
+        QVERIFY2(document->syntaxHighlighter(),
+                 "the editor installed no highlighter, so every language is grey text");
+
+        // And the document knows what it is. Highlighting does not need this -
+        // a definition is found from the file name first - but the code style,
+        // the indenter and anything else asking the document what language it
+        // holds do.
+        QVERIFY(!document->mimeType().isEmpty());
+        QCOMPARE(document->mimeType(),
+                 Utils::mimeTypeForFile(file, Utils::MimeMatchMode::MatchDefaultAndRemote).name());
+
+        // Saving under a different name changes the language. TextDocument
+        // reads its mime type when it *opens* and never again, so this is the
+        // editor's job - the same reason the widget one reconfigures on
+        // filePathChanged.
+        const Utils::FilePath renamed = dir.filePath("sample.py");
+        const QString expected
+            = Utils::mimeTypeForFile(renamed, Utils::MimeMatchMode::MatchDefaultAndRemote).name();
+        QVERIFY2(expected != document->mimeType(),
+                 "both names have the same mime type, so renaming proves nothing");
+
+        document->setFilePath(renamed);
+        QCOMPARE(document->mimeType(), expected);
+        QVERIFY(document->syntaxHighlighter());
+
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+        auto * const viewport = quick->rootObject()->findChild<TextViewport *>();
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        // And the colours reach what is drawn, which is the half a highlighter
+        // being present does not prove.
+        const auto colours = [viewport] {
+            QSet<QRgb> found;
+            const QVariantList ranges = viewport->visibleLine(0).value("formats").toList();
+            for (const QVariant &range : ranges)
+                found.insert(range.toMap().value("foreground").value<QColor>().rgba());
+            return found;
+        };
+        QTRY_VERIFY2(colours().size() > 1,
+                     qPrintable(QString("the line is drawn in %1 colour(s)").arg(colours().size())));
+    }
+
+    // The same highlighter is what works out where the folds are, so a real
+    // file opened in this editor has to be foldable - the folding tests fold
+    // by hand and would not notice this arriving unwired.
+    void testARealFileCanBeFoldedWithoutBeingToldWhere()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-realfold");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("nested.json");
+        QVERIFY(file.writeFileContents("{\n  \"a\": {\n    \"b\": 1\n  }\n}\n"));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        if (HighlighterHelper::definitionsForDocument(document).isEmpty())
+            QSKIP("no syntax definitions are installed, so nothing works out any folds");
+
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+        auto * const viewport = quick->rootObject()->findChild<TextViewport *>();
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+
+        // Nobody set a folding indent here: the highlighter did, from the
+        // braces it recognised. Which line ends up owning the fold is its
+        // business - a line holding nothing but "{" is put *inside* the fold
+        // rather than made its owner - so this asks for any of them.
+        const auto foldableRow = [viewport] {
+            for (int row = 0; row < viewport->visibleLineCount(); ++row) {
+                if (viewport->visibleLine(row).value("foldable").toBool())
+                    return row;
+            }
+            return -1;
+        };
+        QTRY_VERIFY2(foldableRow() >= 0,
+                     "no line offers a fold, so the highlighter never worked any out");
+
+        const int row = foldableRow();
+        const int line = viewport->visibleLine(row).value("lineNumber").toInt();
+        viewport->toggleFold(line);
+        QTRY_VERIFY(viewport->visibleLine(row).value("folded").toBool());
+        QVERIFY2(!viewport->visibleLine(row).value("foldReplacement").toString().isEmpty(),
+                 "the fold closed but says nothing about what it hid");
     }
 
     // A split view is two editors on one document. Duplicating has to share

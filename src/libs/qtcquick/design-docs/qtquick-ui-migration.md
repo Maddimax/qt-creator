@@ -6710,9 +6710,60 @@ loop now records the plugin's mtime before and after and prints
 `/dev/null` build and `-test` twice - the rule is: **a control harness must
 prove it built, prove it ran, and prove the baseline still passes.**
 
-What is left of the editor: the rest of the extra-selection producers (semantic
-highlighting, diagnostics, occurrences - which all still write to a
-`TextEditorWidget`), dragging text out of a selection, and wrapping.
+## Every file was grey
+
+Ten commits in, the Quick editor had never highlighted anything. `.cpp`,
+`.json`, `.py` - all grey text. The tests did not catch it because every
+highlighting test so far installed a highlighter *itself* and then checked it
+reached the scene graph, which it does.
+
+The cause is a factory feature. `PlainTextEditorFactory` says
+`setUseGenericHighlighter(true)`, and `TextEditorFactory::createEditor()` turns
+that into `setupGenericHighlighter()` - a connection to `filePathChanged` that
+sets the mime type and installs a `Highlighter` with the definition
+KSyntaxHighlighting found. A `Core::IEditorFactory` that builds a `TextDocument`
+directly gets **none of it**, and nothing complains: a document with no
+highlighter is a perfectly valid document.
+
+The Quick editor now does the same three things when the path arrives:
+
+    document->setMimeType(mimeTypeForFile(path, MatchDefaultAndRemote).name());
+    definitions = HighlighterHelper::definitionsForDocument(document);
+    document->resetSyntaxHighlighter([definition] { ... new Highlighter ... });
+
+And folding came free with it. The generic `Highlighter` sets folding indents
+from the folding regions in the definition, so a real file is foldable without
+anyone saying where - which the earlier folding tests could not have shown,
+because they set the indents by hand.
+
+**Two things the controls said about this.**
+
+`setMimeType()` looked redundant: removing it changed nothing, because
+`definitionsForDocument()` tries the *file name* before the mime type, and
+`TextDocument::open()` sets the mime type itself. It is load-bearing exactly
+once - on **rename or Save As**, where the path changes without a reopen. So
+the test renames the document and checks the mime type followed, which is both
+what makes the line earned and the behaviour a user would notice when saving a
+`.txt` as a `.py`.
+
+The other was a guard that fired wrongly. The test tried to assert "the mime
+type is about to change" *before* renaming, but the reconfigure runs
+synchronously inside `setFilePath()`, so by the time anything could be read it
+had already changed. The check that the fixture is not vacuous belongs on the
+two file *names*, not on the document's state: `QVERIFY2(expectedForPy !=
+expectedForJson, "both names have the same mime type, so renaming proves
+nothing")`.
+
+**And the warning that named it.** The first version called
+`configureHighlighter()` in the constructor, when there is no path yet, and
+asking the mime database about an empty path prints
+`QFSFileEngine::open: No file name specified` once per editor. The call is
+still needed - a duplicate's document already has a path - so it returns early
+on an empty one.
+
+What is left of the editor: the extra-selection producers that still write to a
+`TextEditorWidget` (diagnostics underlines, occurrences, the parenthesis
+match), code completion, dragging text out of a selection, and wrapping.
 
 ## The same measurement, applied to kits
 
