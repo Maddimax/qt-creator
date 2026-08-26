@@ -3480,6 +3480,46 @@ It is worth writing down because the command every batch used says
 migration. No plugin anywhere in `src` uses an API this work removed; that was
 checked by grep rather than assumed.
 
+### What is left is hosts, not pages - and one more divergence
+
+Twenty-eight `setLayouter` calls remain, and none of them is a settings page.
+Sorting them by *what would have to change* rather than by plugin:
+
+- **A generic form.** `IDevice` sets three, `ToolchainKitAspect` one, all of
+  the shape "every aspect of this container, one per row". The Quick side
+  already draws exactly that - `createGenericAspectForm()` - but
+  `createAspectForm()` returns nothing without a `qmlSource`, so the widget
+  layouter is what gets used. The fallback in `AspectWidgets::layouter()` is a
+  `Column`, not a `Form`, so these are not redundant and cannot just be
+  deleted.
+- **A host that is not a Quick host.** The four profiler samplers are drawn by
+  the standalone `qtprofiler` tool, which links Widgets and `Tracing` and no
+  Quick at all; `TabSettings` and its three neighbours are drawn by the Editor
+  *project panel*. Both need the host ported first.
+- **Deliberate.** `lua/bindings/settings.cpp` exposes `setLayouter` as Lua API.
+
+Worth recording that the visible settings really are Quick, checked from the
+host end rather than the aspect end: the Devices page has a `qmlSource`, and
+what it shows for a device is a `ContainerAspect` that hands the nested
+container to QML. So those `IDevice` layouters are the widget path only.
+
+**The one real bug in the pile was Docker's port mappings.** `PortMapping`'s
+layouter was `Row{ip, hostPort, containerPort, protocol}`, and an `AspectList`
+in its inline style draws each item from the item's *model*, which did not
+carry how the item reads. So the widget form drew a row and the Quick form -
+the one users see - stacked four fields with a Remove button beside the pile.
+`AspectItems` has had an `inRow` property since it was split out of
+`AspectForm`; nothing was passing it. The model answers `inlineRow` now, and
+`setInlineRow(true)` replaces the closure. The widget renderer needed no
+change: its `pres.inlineRow && !hasLayouter()` branch already handled it.
+
+The test for it went red first, and for the wrong reason - four line edits
+where two were expected. An inline list replaces its whole layout on
+`volatileItemListChanged` and the widgets it replaces are deleted later, so
+every field is found twice. The positions were right all along: same `y`,
+different `x`. Assert distinct positions, not a count. Both tests check the
+row *and* the stacked case, so neither passes if the flag stops being read.
+
 ### The last code style page, and a plugin nobody had compiled
 
 Three of the four code style factories set a `qmlSource()` - C++, Nim and
