@@ -5260,6 +5260,28 @@ misspelling one name in `ClangToolsRunOptionsForm.qml` fails the census with
 *"Clang Tools: ... has no aspect"* and trips the QML-complaint collector as well.
 That is the assertion holding this ground.
 
+**And clangd's two, which came with a helper worth deleting.** Both
+`ClangdSettings` and `ClangdProjectSettings` set the same closure,
+`clangdSettingsLayout()`, and that one is not pure arrangement: it builds an
+`InfoLabel`, wires `clangdPath.addOnChanged()` into it and posts a queued update.
+That is the shape that stopped the ACP closure being deleted.
+
+Here it was safe, because **the behaviour had already been moved where it
+belongs**. `ClangdSettingsPage` carries a `TextDisplay versionWarning` aspect
+named `VersionWarning`, and updates it from `updateVersionWarning()` wired in the
+*constructor* - which is exactly the split this plan asks for, behaviour in the
+constructor and only a list in the layout. The closure's `InfoLabel` was the
+widget-side twin of an aspect that already exists, and
+`ClangdSettingsForm.qml` names every clangd setting for both the page and the
+project panel. So the helper went with its two call sites.
+
+**A flake worth naming, because it looked like a regression.** CppEditor came
+back 11 failures against a baseline of 4 - Locator, renaming and model-manager
+tests, none of them near a settings layout. Sampling rather than assuming: a
+second run with the same change gives 1543 passed, 4 failed, the baseline
+exactly. This suite is on record as giving wildly different counts from the same
+binary, and one sample of it is worth nothing in either direction.
+
 **What this batch does not verify.** These closures were dead on the Quick side,
 which is the side that is used; nothing here proves the *widget* rendering of
 those containers is unaffected, because nothing draws them that way any more and

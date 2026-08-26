@@ -179,54 +179,6 @@ ClangdSettings &ClangdSettings::instance()
     return settings;
 }
 
-static Layouting::Layout clangdSettingsLayout(ClangdSettings *s)
-{
-    auto *versionWarning = new InfoLabel;
-    versionWarning->setType(InfoLabelType::Warning);
-    versionWarning->setVisible(false);
-    const auto updateWarning = [s, versionWarning] {
-        const FilePath path = s->clangdPath();
-        if (path.isEmpty()) {
-            versionWarning->setVisible(false);
-            return;
-        }
-        const Result<> res = checkClangdVersion(path);
-        versionWarning->setVisible(!res);
-        if (!res)
-            versionWarning->setText(res.error());
-    };
-    s->clangdPath.addOnChanged(versionWarning, updateWarning);
-    // avoid popping up before getting parented
-    QMetaObject::invokeMethod(s, [updateWarning]{ updateWarning(); }, Qt::QueuedConnection);
-
-    using namespace Layouting;
-    // clang-format off
-    return Column {
-        s->useClangd,
-        Form {
-            s->clangdPath, br,
-            empty, versionWarning, br,
-            s->indexingPriority, br,
-            s->projectIndexPathTemplate, br,
-            s->sessionIndexPathTemplate, br,
-            s->headerSourceSwitchMode, br,
-            s->workerThreadLimit, br,
-            empty, s->autoIncludeHeaders, br,
-            empty, s->updateDependentSources, br,
-            empty, s->useExternalCompilationDb, br,
-            s->completionResults, br,
-            s->completionRankingModel, br,
-            s->completionStyle, br,
-            s->documentUpdateThreshold, br,
-            s->sizeThresholdEnabled,
-                Row { s->sizeThresholdInKb, st }, br,
-        },
-        s->diagnosticConfigId,
-        noMargin,
-    };
-    // clang-format on
-}
-
 ClangdSettings::ClangdSettings()
 {
     setSettingsGroup("ClangdSettings");
@@ -426,7 +378,6 @@ ClangdSettings::ClangdSettings()
     }
     sizeThresholdInKb.setEnabler(&sizeThresholdEnabled);
 
-    Utils::AspectWidgets::setLayouter(this, [this] { return clangdSettingsLayout(this); });
 
     loadSettings();
 
@@ -817,7 +768,6 @@ public:
         // The widget backend's drawing of these. A build without Qt::Quick
         // reaches it through the panel container's fallback, so it is not the
         // panel's QML that makes it unnecessary.
-        Utils::AspectWidgets::setLayouter(this, [this] { return clangdSettingsLayout(this); });
 
         const Store store =
             storeFromVariant(project->namedSettings(clangdSettingsKey()));
