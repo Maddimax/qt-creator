@@ -359,7 +359,7 @@ qt_add_resources(Core
 # Settings pages' Qt Quick forms. A module rather than a plain resource so that
 # qmllint and qmlcachegen see the files; qbs cannot build QML modules, so it
 # only lists them - the same split qtcquick already lives with.
-if(TARGET Core AND TARGET Qt::Quick)
+if(TARGET Core)
   qt_add_qml_module(Core
     URI QtCreator.Core
     VERSION 1.0

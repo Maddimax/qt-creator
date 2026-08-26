@@ -22,7 +22,7 @@ extend_qtc_plugin(ScreenRecorder
 # Settings pages' Qt Quick forms. A module rather than a plain resource so that
 # qmllint and qmlcachegen see the files; qbs cannot build QML modules, so it
 # only lists them - the same split qtcquick already lives with.
-if(TARGET ScreenRecorder AND TARGET Qt::Quick)
+if(TARGET ScreenRecorder)
   qt_add_qml_module(ScreenRecorder
     URI QtCreator.ScreenRecorder
     VERSION 1.0

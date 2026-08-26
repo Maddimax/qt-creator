@@ -50,7 +50,7 @@ qtc_add_resources(McpServer "schemas"
 # Settings pages' Qt Quick forms. A module rather than a plain resource so that
 # qmllint and qmlcachegen see the files; qbs cannot build QML modules, so it
 # only lists them - the same split qtcquick already lives with.
-if(TARGET mcpserver AND TARGET Qt::Quick)
+if(TARGET mcpserver)
   qt_add_qml_module(mcpserver
     URI QtCreator.McpServer
     VERSION 1.0

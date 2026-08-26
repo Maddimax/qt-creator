@@ -64,7 +64,7 @@ qtc_add_resources(Android "images"
 
 # qmllint and qmlcachegen see the files; qbs cannot build QML modules, so it
 # only lists them - the same split qtcquick already lives with.
-if(TARGET Android AND TARGET Qt::Quick)
+if(TARGET Android)
   qt_add_qml_module(Android
     URI QtCreator.Android
     VERSION 1.0

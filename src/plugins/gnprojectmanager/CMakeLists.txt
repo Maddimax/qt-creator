@@ -42,7 +42,7 @@ extend_qtc_plugin(GNProjectManager
 # The settings page's Qt Quick form. A module rather than a plain resource so
 # that qmllint and qmlcachegen see the file; qbs cannot build QML modules, so
 # it only lists it - the same split qtcquick already lives with.
-if(TARGET GNProjectManager AND TARGET Qt::Quick)
+if(TARGET GNProjectManager)
   qt_add_qml_module(GNProjectManager
     URI QtCreator.GNProjectManager
     VERSION 1.0

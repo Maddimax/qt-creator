@@ -53,7 +53,7 @@ qtc_add_resources(Python "testcases"
 # The settings page's Qt Quick form. A module rather than a plain resource so
 # that qmllint and qmlcachegen see the file; qbs cannot build QML modules, so
 # it only lists it - the same split qtcquick already lives with.
-if(TARGET Python AND TARGET Qt::Quick)
+if(TARGET Python)
   qt_add_qml_module(Python
     URI QtCreator.Python
     VERSION 1.0

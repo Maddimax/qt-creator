@@ -81,7 +81,7 @@ qtc_add_resources(CMakeProjectManager "testcases"
 # Settings pages' Qt Quick forms. A module rather than a plain resource so that
 # qmllint and qmlcachegen see the files; qbs cannot build QML modules, so it
 # only lists them - the same split qtcquick already lives with.
-if(TARGET CMakeProjectManager AND TARGET Qt::Quick)
+if(TARGET CMakeProjectManager)
   qt_add_qml_module(CMakeProjectManager
     URI QtCreator.CMakeProjectManager
     VERSION 1.0

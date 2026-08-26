@@ -47,7 +47,7 @@ add_qtc_plugin(Git
 # Settings pages' Qt Quick forms. A module rather than a plain resource so that
 # qmllint and qmlcachegen see the files; qbs cannot build QML modules, so it
 # only lists them - the same split qtcquick already lives with.
-if(TARGET Git AND TARGET Qt::Quick)
+if(TARGET Git)
   qt_add_qml_module(Git
     URI QtCreator.Git
     VERSION 1.0

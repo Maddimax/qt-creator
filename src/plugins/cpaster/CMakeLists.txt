@@ -31,7 +31,7 @@ add_qtc_plugin(CodePaster
 # Settings pages' Qt Quick forms. A module rather than a plain resource so that
 # qmllint and qmlcachegen see the files; qbs cannot build QML modules, so it
 # only lists them - the same split qtcquick already lives with.
-if(TARGET CodePaster AND TARGET Qt::Quick)
+if(TARGET CodePaster)
   qt_add_qml_module(CodePaster
     URI QtCreator.CodePaster
     VERSION 1.0

@@ -23,7 +23,6 @@ add_qtc_library(TerminalLib
 )
 
 add_qtc_library(TerminalQuick
-  CONDITION TARGET Qt::Quick
   PUBLIC_DEPENDS TerminalModel Qt::Quick
   SOURCES
     terminalquick.qrc

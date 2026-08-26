@@ -48,7 +48,6 @@ endif()
 
 add_qtc_executable(qmlpuppet
   ${DESTINATION}
-  CONDITION TARGET Qt::Quick
   DEPENDS
     Qt::CorePrivate Qt::Widgets Qt::QmlPrivate
     Qt::QuickPrivate Qt::Network Qt::GuiPrivate

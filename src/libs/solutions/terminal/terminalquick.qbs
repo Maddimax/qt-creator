@@ -2,8 +2,7 @@ QtcLibrary {
     name: "TerminalQuick"
 
     Depends { name: "TerminalModel" }
-    Depends { name: "Qt.quick"; required: false }
-    condition: Qt.quick.present
+    Depends { name: "Qt"; submodules: ["quick"] }
 
     cpp.defines: base.concat("TERMINALQUICK_LIBRARY")
 

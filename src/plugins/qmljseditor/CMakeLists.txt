@@ -46,7 +46,7 @@ extend_qtc_plugin(QmlJSEditor
 
 # The page's QML lives in a module so qmllint and qmlcachegen see the files;
 # qbs cannot build QML modules, so it only lists them.
-if(TARGET QmlJSEditor AND TARGET Qt::Quick)
+if(TARGET QmlJSEditor)
   qt_add_qml_module(QmlJSEditor
     URI QtCreator.QmlJSEditor
     VERSION 1.0

@@ -1,5 +1,4 @@
 add_qtc_library(QtcQuickStyle
-  CONDITION TARGET Qt::Quick AND TARGET Qt::QuickControls2
   DEPENDS Utils
   PUBLIC_DEPENDS
     Qt::Qml

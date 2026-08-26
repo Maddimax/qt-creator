@@ -13,7 +13,7 @@ add_qtc_plugin(UpdateInfo
 
 # qmllint and qmlcachegen see the files; qbs cannot build QML modules, so it
 # only lists them - the same split qtcquick already lives with.
-if(TARGET UpdateInfo AND TARGET Qt::Quick)
+if(TARGET UpdateInfo)
   qt_add_qml_module(UpdateInfo
     URI QtCreator.UpdateInfo
     VERSION 1.0

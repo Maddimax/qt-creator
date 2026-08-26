@@ -51,7 +51,7 @@ qt_add_resources(LanguageClient lc_images_rcc
 
 # qmllint and qmlcachegen see the files; qbs cannot build QML modules, so it
 # only lists them - the same split qtcquick already lives with.
-if(TARGET LanguageClient AND TARGET Qt::Quick)
+if(TARGET LanguageClient)
   qt_add_qml_module(LanguageClient
     URI QtCreator.LanguageClient
     VERSION 1.0

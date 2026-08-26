@@ -1,5 +1,5 @@
 add_qtc_plugin(EffectComposer
-  CONDITION TARGET Qt::Quick AND TARGET QtCreator::QmlDesigner
+  CONDITION TARGET QtCreator::QmlDesigner
   PLUGIN_DEPENDS
     QtCreator::QmlDesigner QtCreator::ProjectExplorer QtCreator::QmlProjectManager
   DEPENDS

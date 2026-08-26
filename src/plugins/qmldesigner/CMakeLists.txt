@@ -46,7 +46,7 @@ add_qtc_library(QmlDesignerSettings STATIC
 
 add_qtc_plugin(QmlDesigner
   PLUGIN_RECOMMENDS QmlPreview
-  CONDITION TARGET QmlDesignerCore AND TARGET Qt::QuickWidgets AND TARGET Qt::Svg
+  CONDITION TARGET QmlDesignerCore AND TARGET Qt::Svg
   PLUGIN_DEPENDS
     Core
     ProjectExplorer

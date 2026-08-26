@@ -44,7 +44,7 @@ add_qtc_plugin(QmakeProjectManager
 # The settings page's Qt Quick form. A module rather than a plain resource so
 # that qmllint and qmlcachegen see the file; qbs cannot build QML modules, so
 # it only lists it - the same split qtcquick already lives with.
-if(TARGET QmakeProjectManager AND TARGET Qt::Quick)
+if(TARGET QmakeProjectManager)
   qt_add_qml_module(QmakeProjectManager
     URI QtCreator.QmakeProjectManager
     VERSION 1.0

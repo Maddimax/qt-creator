@@ -18,7 +18,7 @@ add_qtc_plugin(ClearCase
 
 # qmllint and qmlcachegen see the files; qbs cannot build QML modules, so it
 # only lists them - the same split qtcquick already lives with.
-if(TARGET ClearCase AND TARGET Qt::Quick)
+if(TARGET ClearCase)
   qt_add_qml_module(ClearCase
     URI QtCreator.ClearCase
     VERSION 1.0

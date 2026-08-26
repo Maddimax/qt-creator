@@ -1,9 +1,6 @@
 QtcLibrary {
     name: "QtcQuick"
 
-    Depends { name: "Qt.quick"; required: false }
-    Depends { name: "Qt.quickcontrols2"; required: false }
-    condition: Qt.quick.present && Qt.quickcontrols2.present
 
     Depends { name: "Utils" }
     Depends { name: "QtcQuickStyle" }

@@ -5270,10 +5270,25 @@ configuration anyone is going to ship - and every `#ifdef` and `CONDITION` for
 it is a branch that exists only to be got wrong. The guard added for this was
 removed again the same day.
 
-That leaves **73 `CONDITION TARGET Qt::Quick` blocks across 67 CMakeLists**,
-which are now always true. They are harmless but dead, and removing them is
-mechanical - the next thing to do here, and worth doing as its own change so
-that the diff is reviewable as "these were all unconditional anyway".
+That left **73 `CONDITION TARGET Qt::Quick` blocks across 67 CMakeLists**, now
+always true, and they are gone: 69 mentions across 66 files, of which 59 were
+the single form `if(TARGET <plugin> AND TARGET Qt::Quick)`.
+
+**What was deliberately left alone.** `Qt::Quick3D*` and `Qt::QuickPrivate` are
+still genuinely optional - Quick3D is not in the required list and QuickPrivate
+comes from the Qt 6.9 block - so every condition naming those stays. So does
+every `DEPENDS`/link line: those name real targets and are not conditions. Three
+mixed conditions kept their other terms rather than being dropped whole:
+EffectComposer keeps `TARGET QtCreator::QmlDesigner`, QmlDesigner keeps
+`TARGET QmlDesignerCore AND TARGET Qt::Svg`.
+
+**The qbs side had four of the same, and removing them exposed a trap.**
+`Depends { name: "Qt.quick"; required: false }` paired with
+`condition: Qt.quick.present` is one idea in two lines: deleting both leaves a
+product with *no* dependency on Qt Quick at all. `TerminalQuick` builds a
+`QQuickItem` and would have had nothing to compile it against. Both it and
+`QuickUi` got a required `Depends { name: "Qt"; submodules: [...] }` where the
+optional pair used to be - the other two already had one further down.
 
 It also unblocks something larger. The widget layouters kept as a fallback for a
 Quick-less build - the six restored earlier in this plan - have no caller left

@@ -46,7 +46,7 @@ extend_qtc_plugin(ClangFormat
 # The ClangFormat settings' Qt Quick form. A module rather than a plain
 # resource so that qmllint and qmlcachegen see the file; qbs cannot build QML
 # modules, so it only lists it - the same split qtcquick already lives with.
-if(TARGET ClangFormat AND TARGET Qt::Quick)
+if(TARGET ClangFormat)
   qt_add_qml_module(ClangFormat
     URI QtCreator.ClangFormat
     VERSION 1.0

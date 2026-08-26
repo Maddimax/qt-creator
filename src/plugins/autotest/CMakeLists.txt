@@ -104,7 +104,7 @@ qtc_add_resources(AutoTest "testcases"
 # The framework settings pages' Qt Quick forms. A module rather than a plain
 # resource so that qmllint and qmlcachegen see the files; qbs cannot build QML
 # modules, so it only lists them - the same split qtcquick already lives with.
-if(TARGET AutoTest AND TARGET Qt::Quick)
+if(TARGET AutoTest)
   qt_add_qml_module(AutoTest
     URI QtCreator.AutoTest
     VERSION 1.0

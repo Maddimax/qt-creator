@@ -1,7 +1,6 @@
 add_subdirectory(style)
 
 add_qtc_library(QtcQuick
-  CONDITION TARGET Qt::Quick AND TARGET Qt::QuickWidgets AND TARGET Qt::QuickControls2
   DEPENDS QtcQuickStyle
   PUBLIC_DEPENDS
     Utils

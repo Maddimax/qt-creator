@@ -3,13 +3,11 @@ import qbs 1.0
 QtcPlugin {
     name: "QuickUi"
 
-    Depends { name: "Qt.quick"; required: false }
-    Depends { name: "Qt.quickcontrols2"; required: false }
-    condition: Qt.quick.present && Qt.quickcontrols2.present
 
     Depends { name: "Core" }
     Depends { name: "QtcQuick" }
     Depends { name: "Utils" }
+    Depends { name: "Qt"; submodules: ["quick", "quickcontrols2"] }
 
     Depends { name: "Qt.testlib"; condition: qtc.withAutotests }
 
