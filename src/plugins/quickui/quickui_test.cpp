@@ -4241,6 +4241,9 @@ void QuickUiTest::testEditingAPageMakesItDirtyAndCancelPutsItBack()
     // volatile value, which is what a check box writes, and cancel() puts it
     // back without anything being written to disk.
     int pagesEdited = 0;
+    int ownContainer = 0;
+    int appliesImmediately = 0;
+    int plainButNoBool = 0;
     QStringList notDirty;
     QStringList notRestored;
 
@@ -4252,31 +4255,83 @@ void QuickUiTest::testEditingAPageMakesItDirtyAndCancelPutsItBack()
 
         // Only the plain ones. A subclass may keep a copy of its own and mean
         // something different by all three of these.
-        if (container->metaObject() != &Utils::AspectContainer::staticMetaObject)
+        if (container->metaObject() != &Utils::AspectContainer::staticMetaObject) {
+            ++ownContainer;
             continue;
-
-        Utils::BoolAspect *flag = nullptr;
-        for (Utils::BaseAspect *child : container->aspects()) {
-            if (auto candidate = qobject_cast<Utils::BoolAspect *>(child)) {
-                if (candidate->isEnabled() && candidate->isVisible()) {
-                    flag = candidate;
-                    break;
-                }
-            }
         }
-        if (!flag)
-            continue;
 
-        const QString name = page->displayName() + "/" + flag->qmlName();
-        const bool before = flag->volatileValue();
+        // A page that applies as it is edited never becomes dirty, and that is
+        // not a failure of Apply on the pages that mean it. Which ones do is
+        // testNoPageHasAnApplyThatCannotSaveAnything()'s business; this one
+        // only asks about pages that defer.
+        if (!container->aspects().isEmpty() && container->aspects().first()->isAutoApply()) {
+            ++appliesImmediately;
+            continue;
+        }
+
+        // Nested too: most pages put their settings in groups, so the plain
+        // values are a container down. A nested container is still only a
+        // grouping - the page's own container is the one that must be exactly
+        // AspectContainer, and it is.
+        Utils::BaseAspect *editable = nullptr;
+        QVariant before;
+        QVariant wanted;
+        std::function<void(Utils::AspectContainer *)> look =
+            [&](Utils::AspectContainer *from) {
+                for (Utils::BaseAspect *child : from->aspects()) {
+                    if (editable)
+                        return;
+                    if (auto nested = qobject_cast<Utils::AspectContainer *>(child)) {
+                        look(nested);
+                        continue;
+                    }
+                    if (!child->isEnabled() || !child->isVisible())
+                        continue;
+
+                    // Numbers and check boxes only. A path is a string that
+                    // gets resolved against the filesystem when it changes, and
+                    // a plain string may drive a completer; neither is one
+                    // value and no side effect, which is the whole licence
+                    // this test is operating under.
+                    const QVariant current = child->volatileVariantValue();
+                    if (qobject_cast<Utils::BoolAspect *>(child)) {
+                        before = current;
+                        wanted = !current.toBool();
+                    } else if (qobject_cast<Utils::IntegerAspect *>(child)
+                               || qobject_cast<Utils::DoubleAspect *>(child)) {
+                        before = current;
+                        wanted = current.toDouble() + 1;
+                    } else {
+                        continue;
+                    }
+
+                    // Only if the write actually takes - a value at the top of
+                    // its range does not move, and asserting on one that did
+                    // not change would assert nothing.
+                    child->setVolatileVariantValueFromGui(wanted);
+                    if (child->volatileVariantValue() == before) {
+                        child->setVolatileVariantValueFromGui(before);
+                        continue;
+                    }
+                    editable = child;
+                    return;
+                }
+            };
+        look(container);
+
+        if (!editable) {
+            ++plainButNoBool;
+            continue;
+        }
+
+        const QString name = page->displayName() + "/" + editable->qmlName();
         ++pagesEdited;
 
-        flag->setVolatileVariantValueFromGui(!before);
         if (!static_cast<Utils::BaseAspect *>(container)->isDirty())
             notDirty << name;
 
         container->cancel();
-        if (flag->volatileValue() != before)
+        if (editable->volatileVariantValue() != before)
             notRestored << name;
     }
 
@@ -4288,7 +4343,10 @@ void QuickUiTest::testEditingAPageMakesItDirtyAndCancelPutsItBack()
     QVERIFY2(notRestored.isEmpty(),
              qPrintable("pages whose Cancel did not put the value back: "
                         + notRestored.join(", ")));
-    qInfo().noquote() << "pages edited and cancelled:" << pagesEdited;
+    qInfo().noquote() << "pages edited and cancelled:" << pagesEdited
+                      << "| skipped, own container:" << ownContainer
+                      << "| skipped, applies as edited:" << appliesImmediately
+                      << "| skipped, nothing safe to edit:" << plainButNoBool;
 }
 
 void QuickUiTest::testNoPageHasAnApplyThatCannotSaveAnything()

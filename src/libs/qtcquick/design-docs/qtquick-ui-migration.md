@@ -5233,8 +5233,24 @@ representative:
 - the write goes to the *volatile* value, which is what a check box writes, and
   `cancel()` puts it back with nothing reaching disk.
 
-That is **55 of the 107 pages**, and all 55 keep the promise: editing makes the
+That is **61 of the 107 pages**, and all 61 keep the promise: editing makes the
 container dirty, and Cancel restores the value.
+
+It reached 61 by asking why the others were skipped rather than guessing. Only
+**3** pages have a container of their own; the rest were skipped because their
+settings live in groups, a container down, and because a check box is not the
+only harmless thing to edit. Recursing into nested containers and accepting
+integers and doubles - still refusing paths, which get resolved against the
+filesystem when they change, and plain strings, which may drive a completer -
+picked up six more pages. The count of each skip is reported, so the boundary
+is a number rather than an impression:
+
+    pages edited and cancelled: 61 | skipped, own container: 3
+      | skipped, applies as edited: 4 | skipped, nothing safe to edit: 39
+
+The edit is also only made if it *takes*: a value already at the top of its
+range does not move, and asserting that a page noticed a change that never
+happened would assert nothing.
 
 Both halves are held by a control that names the page. Making one page forget
 `setAutoApply(false)` reports *Terminal/EnableTerminal did not notice being
@@ -5242,9 +5258,15 @@ edited*; stopping `AspectContainer::cancel()` from restoring reports 51 pages by
 name. A diagnostic that says which page and which setting is the difference
 between a failure someone can act on and one they have to go looking for.
 
-**What this does not cover, and why that is the honest boundary.** The other 52
-pages have a container of their own or no plain check box, and for them the
-question is still open - `CodeStyleAspect` is the one that was answered, one
+**The two tests divide the question between them.** A page that applies as it is
+edited never becomes dirty, so this one skips those and the list above owns
+them; break `setAutoApply(false)` on a page and the *list* test names it, break
+`AspectContainer::cancel()` and this one names 51 pages. Neither can catch both,
+and together they catch either.
+
+**What this does not cover, and why that is the honest boundary.** The other 46
+pages have a container of their own, apply as they are edited, or hold nothing
+safe to edit, and for them the question is still open - `CodeStyleAspect` is the one that was answered, one
 page at a time, by a test that presses its Apply. There is no shortcut for the
 rest: a page that keeps its own copy means something particular by "dirty", and
 only its own test can say whether it is right.
