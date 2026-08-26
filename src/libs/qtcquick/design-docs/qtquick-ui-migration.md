@@ -3480,6 +3480,47 @@ It is worth writing down because the command every batch used says
 migration. No plugin anywhere in `src` uses an API this work removed; that was
 checked by grep rather than assumed.
 
+### A panel and its page are the same list
+
+C++ Code Model and C++ File Naming are the same `Column { flag, hr, *ps }` as
+the three before them, with one difference that matters: what they show is
+*exactly* what their global page shows. Writing the panel's QML by hand would
+have meant a second copy of the same delegates, and two copies of a list drift.
+
+So the page's body moved into a form of its own -
+`CppCodeModelSettingsForm.qml`, `CppFileSettingsForm.qml` - with a
+`required property var aspects` for whichever container it is being shown for.
+The page and the panel are each a few lines around it:
+
+    AspectPage {
+        id: root
+        CppFileSettingsForm { aspects: root.aspects }
+    }
+
+    AspectPage {
+        id: root
+        readonly property var settings: AspectModels.named(aspects.Settings)
+        BoolWithOwnLabelDelegate { aspect: aspects.UseGlobalSettings }
+        CppFileSettingsForm { aspects: root.settings }
+    }
+
+The obvious alternative - instantiating the *page* inside the panel - does not
+work: `AspectPage` is a `ScrollView`, and one inside another's column nests
+scrolling and loses the implicit size, which is the same trap `SnippetEditor`
+records. A form is a plain layout, so it composes.
+
+That takes the census to six of seventeen. It is the pattern for most of what
+is left, because a project panel that mirrors a global page is the common case.
+
+**Where it stops being mechanical.** Clangd is the next one and is not: a
+single `clangdSettingsLayout()` serves both the global settings and a
+project's, while the Quick page draws a nested `Settings` container *plus*
+page-only aspects - the version warning and the table of sessions with one
+clangd instance. Which of those a project should show is a question about the
+feature, not about layout. Testing and Clang Tools build real widgets - link
+labels, Add/Remove buttons, a frameworks tree - so they are ports rather than
+conversions.
+
 ### Three more panels, and where the flag has to live
 
 The blocker for the panels after Copilot was that every other project settings
