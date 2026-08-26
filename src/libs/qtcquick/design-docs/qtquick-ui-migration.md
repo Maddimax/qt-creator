@@ -3480,6 +3480,37 @@ It is worth writing down because the command every batch used says
 migration. No plugin anywhere in `src` uses an API this work removed; that was
 checked by grep rather than assumed.
 
+### Testing: two tree widgets over aspects that already existed
+
+Ten of seventeen. This panel had two `QTreeWidget`s, and neither held anything
+`TestProjectSettings` did not already have:
+
+- The path patterns were a `StringListAspect` the whole time. The tree drew
+  them, Add appended `"*"` and started an edit, Remove deleted the item, and
+  the value was written back by *reading the items out of the tree again*. The
+  aspect has an editor of its own; it just had no label and none of the
+  `setUiAllow*` flags set, so nobody had used it.
+- The active frameworks and tools are two `TypedAspect<QHash<...>>`. They are a
+  table aspect now, which writes through to `activateFramework()` instead of
+  going through a tree item's check state.
+
+**Not every flag disables its whole container.** The widget form had a comment
+- "explicitly outside of the global settings" - on the path patterns group,
+because it is the project's whatever the global settings say. So the panel
+disables the two aspects that *are* global, rather than the container. The
+census's "one enabled aspect" invariant would not have caught getting this
+wrong; reading the comment did.
+
+The three-second timer that rebuilds the test tree after ticking is behaviour
+and moved to the constructor with the rest.
+
+**The census caught a real mistake, not a planted one.** The QML module is
+`QtCreator.AutoTest` and the panel asked for `QtCreator/Autotest`, which is a
+resource path that does not exist. Nothing about that is a compile error; the
+panel would simply have been empty. The test failed with
+`status` 3 where 1 was expected - `QQuickWidget::Error` - which is exactly the
+assertion added because `source` alone would have matched.
+
 ### Clang Tools: the first panel that needed an aspect written
 
 Nine of seventeen now, and this is the one that stopped being a conversion and
