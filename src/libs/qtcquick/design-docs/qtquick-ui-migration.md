@@ -3480,6 +3480,39 @@ It is worth writing down because the command every batch used says
 migration. No plugin anywhere in `src` uses an API this work removed; that was
 checked by grep rather than assumed.
 
+### A layouter is not dead because nothing puts it in a Column
+
+Six layouters were deleted across three batches - the four TextEditor settings
+objects, Clangd's project settings, and the build-and-run ones - on the
+strength of a grep that found nothing adding those containers to a
+`Layouting::Column`. All six went back.
+
+The grep asked the wrong question. A container's layouter is also reached
+*generically*: a build without Qt::Quick has no `s_aspectFormFactory`, so
+`Core::createAspectForm()` falls back to `AspectWidgets::layouter()` on the
+page or panel container; that container's own fallback is a `Column` of its
+aspects; and the renderer draws each aspect that is a container with **its**
+layouter. Nothing in that chain is written down at any call site, so no grep
+for `Column {` will find it.
+
+What it cost was visible once looked for. The group titles - "Tabs And
+Indentation", "Typing", "Cleanups Upon Saving", "File Encodings" - lived inside
+those layouters rather than in the containers' `labelText`, so without them the
+widget backend drew no group box at all. The build-and-run one was worse: its
+fallback is a `Column` of *every* build-and-run setting, where the layouter
+lists the nine a project may set.
+
+The tell was there the whole time: every other page on this branch keeps its
+layouter beside its `qmlSource`, which is why 21 of them remained after 107
+pages were converted. Six deletions against that pattern were inconsistent, not
+principled. The count is 27.
+
+**What this means for the rest.** Deleting a layouter is only right when the
+widget backend is going away, and it is not - `tst_utils_aspectrenderer` is 54
+tests that say so. Adding QML beside a layouter is the whole job; removing the
+layouter is a separate decision that belongs to whoever retires the widget
+backend.
+
 ### Building and Running, and what a shared widget was hiding
 
 Fourteen of seventeen, and 22 layouters down to 21.
@@ -3501,10 +3534,9 @@ the page they come from.
 
 **The layouter was where a decision lived.** The settings container holds every
 build-and-run setting there is - the global page shows all of them - and the
-panel showed nine. Which nine was written down only in the layouter, so
-deleting it meant reading it first and putting the list in the form. That is
-the same shape as Clangd, where the widget layout was the only record of what a
-project may set.
+panel showed nine. Which nine was written down only in the layouter, so it had
+to be read before the form could list it. It was deleted here and put back
+later; see below.
 
 `GlobalOrProjectAspect`'s widget stays, because run configurations still use
 it; that is the surface it was written for, and it is not a settings panel.
@@ -3695,10 +3727,8 @@ settings:
     required property var settings
     required property var versionWarning
 
-With the panel drawn from the container, `ClangdProjectSettings` no longer
-needs a widget layout, so its `setLayouter()` goes - 27 to 26. The global
-settings keep theirs, because a container without QML still ends up in widget
-layouts elsewhere.
+`ClangdProjectSettings`'s `setLayouter()` was deleted here and put back later;
+see "A layouter is not dead because nothing puts it in a Column" below.
 
 **A limit of the panel census, stated rather than fixed.** It checks that a
 panel renders through its QML, that the component reached `Ready`, that QML
