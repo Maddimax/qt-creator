@@ -4,11 +4,13 @@
 #include "projectpanelfactory.h"
 
 #include "project.h"
+#include "projectexplorertr.h"
 
 #include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/icore.h>
 
 #include <utils/aspects.h>
+#include <utils/environment.h>
 
 #include <QLabel>
 
@@ -162,6 +164,65 @@ class ProjectPanelFactoryTest final : public QObject
     Q_OBJECT
 
 private slots:
+    // The environment panel shows one thing in two surfaces - the resulting
+    // environment as a table, and the changes as text - and the widget form it
+    // replaced kept them in step. Typing into one has to reach the other and
+    // the project, and must not come back round as a change to itself.
+    void testTheEnvironmentPanelKeepsItsTwoSurfacesInStep()
+    {
+        PanelCensusProject project;
+
+        ProjectPanelFactory *factory = nullptr;
+        for (ProjectPanelFactory * const candidate : ProjectPanelFactory::factories()) {
+            if (candidate->displayName() == Tr::tr("Project Environment"))
+                factory = candidate;
+        }
+        QVERIFY2(factory, "no Project Environment panel");
+
+        const std::optional<AspectContainer *> aspects = factory->aspects(&project);
+        QVERIFY2(aspects && *aspects, "the panel offers no settings");
+
+        const auto byName = [&aspects](const QString &name) -> BaseAspect * {
+            for (BaseAspect * const aspect : (*aspects)->aspects()) {
+                if (aspect->qmlName() == name)
+                    return aspect;
+            }
+            return nullptr;
+        };
+
+        BaseAspect * const changes = byName("Changes");
+        BaseAspect * const variables = byName("Variables");
+        QVERIFY(changes);
+        QVERIFY(variables);
+        QAbstractItemModel * const model = variables->tableModel();
+        QVERIFY(model);
+
+        const auto rowFor = [model](const QString &name) {
+            for (int row = 0; row < model->rowCount({}); ++row) {
+                if (model->index(row, 0).data().toString() == name)
+                    return row;
+            }
+            return -1;
+        };
+
+        QCOMPARE(rowFor("QTC_PANEL_TEST"), -1);
+
+        // Typed into the text surface: the table shows it, and so does the
+        // project, which is what the widget form's userChangesChanged did.
+        changes->setVariantValue("QTC_PANEL_TEST=one");
+        const int row = rowFor("QTC_PANEL_TEST");
+        QVERIFY2(row >= 0, "the table did not follow the text");
+        QCOMPARE(model->index(row, 1).data().toString(), QString("one"));
+        QCOMPARE(project.additionalEnvironment().itemsFromUser().size(), 1);
+
+        // And back the other way, without the write coming round again: the
+        // text is rewritten from the model, so a guard that does not hold
+        // would leave the text as it was typed.
+        QVERIFY(model->setData(model->index(row, 1), "two"));
+        QCOMPARE(model->index(row, 1).data().toString(), QString("two"));
+        QCOMPARE(changes->variantValue().toString(), QString("QTC_PANEL_TEST=two"));
+    }
+
     void testPanelsThatSayWhatTheyShowRenderWithQuick()
     {
         PanelCensusProject project;

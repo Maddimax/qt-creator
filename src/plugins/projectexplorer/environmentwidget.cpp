@@ -554,4 +554,21 @@ void EnvironmentWidget::setupDirtyHooks() const
     d->m_editor.setupDirtyHooks();
 }
 
+bool editEnvironmentPathList(Utils::EnvironmentModel *model,
+                             const QModelIndex &index,
+                             QWidget *parent)
+{
+    QTC_ASSERT(model, return false);
+    if (!index.isValid())
+        return false;
+    const QModelIndex valueIndex = index.column() == 0 ? index.siblingAtColumn(1) : index;
+    PathListDialog dlg(model->indexToVariable(valueIndex),
+                       model->data(valueIndex).toString(),
+                       parent);
+    if (dlg.exec() != QDialog::Accepted)
+        return false;
+    model->setData(valueIndex, dlg.paths());
+    return true;
+}
+
 } // namespace ProjectExplorer

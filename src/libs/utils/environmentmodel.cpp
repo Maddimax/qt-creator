@@ -3,6 +3,8 @@
 
 #include "environmentmodel.h"
 
+#include "aspectpresentation.h"
+
 #include "algorithm.h"
 #include "environment.h"
 #include "hostosinfo.h"
@@ -168,6 +170,9 @@ QVariant EnvironmentModel::data(const QModelIndex &index, int role) const
     if (!index.isValid())
         return QVariant();
 
+    if (role == AspectTable::EditableRole)
+        return AspectTable::isWritable(flags(index));
+
     const auto it = std::next(d->m_resultNameValueDictionary.begin(), index.row());
 
     switch (role) {
@@ -220,6 +225,11 @@ Qt::ItemFlags EnvironmentModel::flags(const QModelIndex &index) const
 {
     Q_UNUSED(index)
     return Qt::ItemIsSelectable | Qt::ItemIsEnabled;
+}
+
+QHash<int, QByteArray> EnvironmentModel::roleNames() const
+{
+    return AspectTable::withRoleNames(QAbstractTableModel::roleNames());
 }
 
 QVariant EnvironmentModel::headerData(int section, Qt::Orientation orientation, int role) const

@@ -32,6 +32,9 @@ public:
                         Qt::Orientation orientation,
                         int role = Qt::DisplayRole) const override;
 
+    // A Qt Quick cell reads its roles by name and cannot see flags().
+    QHash<int, QByteArray> roleNames() const override;
+
     Environment baseEnvironment() const;
     void setBaseEnvironment(const Environment &env);
     EnvironmentItems effectiveDiff() const;

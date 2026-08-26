@@ -241,6 +241,7 @@ if(TARGET ProjectExplorer AND TARGET Qt::Quick)
       EditorProjectPanel.qml
       KitsPage.qml
       ProjectCommentsPanel.qml
+      ProjectEnvironmentPanel.qml
       ToolchainsPage.qml
       devicesupport/DevicesPage.qml
       devicesupport/SshSettingsPage.qml

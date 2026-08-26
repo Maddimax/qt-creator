@@ -15,7 +15,10 @@
 
 QT_FORWARD_DECLARE_CLASS(QModelIndex)
 
-namespace Utils { class FilePath; }
+namespace Utils {
+class EnvironmentModel;
+class FilePath;
+}
 
 namespace ProjectExplorer {
 
@@ -68,5 +71,13 @@ private:
     class Private;
     const std::unique_ptr<Private> d;
 };
+
+// Edits a path-list variable in the dialog made for it - one path per row, with
+// Add, Remove and Edit - and writes the result back. Answers whether anything
+// was changed. Here so that a form which is not this widget can offer the same
+// thing: a dialog is a window of its own either way.
+PROJECTEXPLORER_EXPORT bool editEnvironmentPathList(Utils::EnvironmentModel *model,
+                                                    const QModelIndex &index,
+                                                    QWidget *parent);
 
 } // namespace ProjectExplorer

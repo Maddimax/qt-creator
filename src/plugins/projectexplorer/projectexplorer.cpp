@@ -120,6 +120,9 @@
 #include <texteditor/textdocument.h>
 #include <texteditor/texteditorconstants.h>
 
+#include <utils/environmentmodel.h>
+#include <utils/guard.h>
+#include <utils/namevalueitem.h>
 #include <utils/filedialogs.h>
 #include <utils/action.h>
 #include <utils/algorithm.h>
@@ -384,26 +387,228 @@ public:
     }
 };
 
-class ProjectEnvironmentWidget : public QWidget
+// The environment this project adds, as a table of what the result would be.
+// Which row is current is the aspect's answer, so the buttons beside it are
+// enabled from the container rather than from a selection model.
+class EnvironmentItemsAspect final : public Utils::BaseAspect
+{
+    Q_OBJECT
+
+public:
+    EnvironmentItemsAspect() = default;
+
+    Utils::AspectPresentation presentation() const override
+    {
+        Utils::AspectPresentation p = BaseAspect::presentation();
+        p.control = Utils::AspectControls::Table;
+        return p;
+    }
+
+    QAbstractItemModel *tableModel() override { return &m_model; }
+
+    Q_INVOKABLE void setCurrentRow(int row)
+    {
+        if (m_currentRow == row)
+            return;
+        m_currentRow = row;
+        emit currentRowChanged();
+    }
+
+    QModelIndex currentIndex() const
+    {
+        if (m_currentRow < 0 || m_currentRow >= m_model.rowCount({}))
+            return {};
+        return m_model.index(m_currentRow, 0);
+    }
+
+    Utils::EnvironmentModel &model() { return m_model; }
+
+signals:
+    void currentRowChanged();
+
+private:
+    // Parented: a model handed to QML with no parent belongs to the engine.
+    Utils::EnvironmentModel m_model{this};
+    int m_currentRow = -1;
+};
+
+// What the panel shows. The widget form showed two surfaces of the same thing -
+// a view of the resulting environment and a text editor of the changes - and
+// kept them in step; so does this.
+class ProjectEnvironmentPanel final : public Utils::AspectContainer
 {
 public:
-    explicit ProjectEnvironmentWidget(Project *project)
+    explicit ProjectEnvironmentPanel(Project *project)
+        : m_project(project)
     {
-        const auto envWidget = new EnvironmentWidget(this, EnvironmentWidget::TypeLocal);
-        envWidget->setOpenTerminalFunc({});
-        envWidget->expand();
-        envWidget->setChanges(project->additionalEnvironment());
+        // Before registering: insertAspect() forces the container's own
+        // auto-apply onto what it takes in.
+        setAutoApply(true);
+        setQmlSource(
+            QUrl("qrc:/qt/qml/QtCreator/ProjectExplorer/ProjectEnvironmentPanel.qml"));
 
-        connect(envWidget, &EnvironmentWidget::userChangesChanged, this, [project, envWidget] {
-            project->setAdditionalEnvironment(envWidget->changes());
+        m_variables.setQmlName("Variables");
+        registerAspect(&m_variables);
+
+        m_changes.setQmlName("Changes");
+        m_changes.setLabelText(Tr::tr("Changes:"));
+        m_changes.setDisplayStyle(Utils::StringAspect::TextEditDisplay);
+        m_changes.setToolTip(
+            Tr::tr("The changes to the environment, one per line, as NAME=VALUE."));
+        registerAspect(&m_changes);
+
+        const auto addAction = [this](Utils::ActionAspect &action,
+                                      const QString &name,
+                                      const QString &text,
+                                      const std::function<void()> &run) {
+            action.setQmlName(name);
+            action.setActionText(text);
+            action.setAction(run);
+            registerAspect(&action);
+        };
+
+        addAction(m_edit, "Edit", Tr::tr("Ed&it"), [this] { editCurrent(); });
+        addAction(m_add, "Add", Tr::tr("&Add"), [this] {
+            m_variables.setCurrentRow(m_variables.model().addVariable().row());
+        });
+        addAction(m_reset, "Reset", Tr::tr("&Reset"), [this] {
+            m_variables.model().resetVariable(currentName());
+        });
+        addAction(m_unset, "Unset", Tr::tr("&Unset"), [this] {
+            // Unset what the base environment provides; remove what we added.
+            Utils::EnvironmentModel &model = m_variables.model();
+            const QString name = currentName();
+            if (!model.canReset(name))
+                model.resetVariable(name);
+            else
+                model.unsetVariable(name);
+        });
+        addAction(m_toggle, "Toggle", Tr::tr("Disable"), [this] {
+            m_variables.model().toggleVariable(m_variables.currentIndex());
+        });
+        addAction(m_appendPath, "AppendPath", Tr::tr("Append Path..."), [this] {
+            amendPathList(Utils::EnvironmentItem::Append);
+        });
+        addAction(m_prependPath, "PrependPath", Tr::tr("Prepend Path..."), [this] {
+            amendPathList(Utils::EnvironmentItem::Prepend);
         });
 
-        const auto vbox = new QVBoxLayout(this);
-        vbox->setContentsMargins(0, 0, 0, 0);
-        vbox->addWidget(envWidget);
-        vbox->addStretch();
+        // Behaviour, not layout.
+        m_variables.model().setUserChanges(m_project->additionalEnvironment());
+        showChangesAsText();
+        updateActions();
+
+        connect(&m_variables.model(), &Utils::EnvironmentModel::userChangesChanged, this, [this] {
+            if (m_updating.isLocked())
+                return;
+            const Utils::GuardLocker lock(m_updating);
+            m_project->setAdditionalEnvironment(m_variables.model().changes());
+            showChangesAsText();
+            updateActions();
+        });
+        connect(&m_variables, &EnvironmentItemsAspect::currentRowChanged,
+                this, [this] { updateActions(); });
+
+        // The other surface: the same changes as text, and what is typed there
+        // is what the table then shows.
+        m_changes.addOnChanged(this, [this] {
+            if (m_updating.isLocked())
+                return;
+            const Utils::GuardLocker lock(m_updating);
+            Utils::EnvironmentChanges changes = m_variables.model().changes();
+            changes.setItemsFromUser(
+                Utils::EnvironmentItem::fromStringList(m_changes().split('\n', Qt::SkipEmptyParts)));
+            m_variables.model().setUserChanges(changes);
+            m_project->setAdditionalEnvironment(changes);
+            updateActions();
+        });
     }
+
+    static Utils::Key extraDataKey() { return "ProjectEnvironmentPanel"; }
+
+private:
+    QString currentName()
+    {
+        return m_variables.model().indexToVariable(m_variables.currentIndex());
+    }
+
+    void showChangesAsText()
+    {
+        m_changes.setValue(
+            Utils::EnvironmentItem::toStringList(m_variables.model().changes().itemsFromUser())
+                .join('\n'));
+    }
+
+    void editCurrent()
+    {
+        // A path list is edited in the dialog made for it; anything else is
+        // edited in the cell, or in the text above.
+        const QModelIndex current = m_variables.currentIndex();
+        if (m_variables.model().currentEntryIsPathList(current))
+            editEnvironmentPathList(&m_variables.model(), current, Core::ICore::dialogParent());
+    }
+
+    void amendPathList(Utils::EnvironmentItem::Operation op)
+    {
+        const QString name = currentName();
+        const FilePath dir = Utils::FileUtils::getExistingDirectory(Tr::tr("Choose Directory"));
+        if (dir.isEmpty())
+            return;
+        Utils::EnvironmentChanges changes = m_variables.model().changes();
+        changes.appendUserItem({name, dir.toUserOutput(), op});
+        m_variables.model().setUserChanges(changes);
+    }
+
+    void updateActions()
+    {
+        Utils::EnvironmentModel &model = m_variables.model();
+        const QModelIndex current = m_variables.currentIndex();
+        if (current.isValid()) {
+            const QString name = model.indexToVariable(current);
+            const bool modified = model.canReset(name) && model.hasExplicitChanges(name);
+            const bool unset = model.isUnset(name);
+            m_edit.setEnabled(true);
+            m_reset.setEnabled(modified || unset);
+            m_unset.setEnabled(!unset);
+            m_toggle.setEnabled(!unset);
+            m_toggle.setActionText(model.isEnabled(name) ? Tr::tr("Disable") : Tr::tr("Enable"));
+        } else {
+            m_edit.setEnabled(false);
+            m_reset.setEnabled(false);
+            m_unset.setEnabled(false);
+            m_toggle.setEnabled(false);
+            m_toggle.setActionText(Tr::tr("Disable"));
+        }
+        const bool isPathList = model.currentEntryIsPathList(current);
+        m_appendPath.setEnabled(isPathList);
+        m_prependPath.setEnabled(isPathList);
+    }
+
+    Project * const m_project;
+    EnvironmentItemsAspect m_variables;
+    Utils::StringAspect m_changes;
+    Utils::ActionAspect m_edit;
+    Utils::ActionAspect m_add;
+    Utils::ActionAspect m_reset;
+    Utils::ActionAspect m_unset;
+    Utils::ActionAspect m_toggle;
+    Utils::ActionAspect m_appendPath;
+    Utils::ActionAspect m_prependPath;
+    // The table and the text are two views of one thing; writing either must
+    // not come back as a change to the other.
+    Utils::Guard m_updating;
 };
+
+static ProjectEnvironmentPanel *projectEnvironmentPanel(Project *project)
+{
+    const Utils::Key key = ProjectEnvironmentPanel::extraDataKey();
+    QVariant v = project->extraData(key);
+    if (v.isNull()) {
+        v = QVariant::fromValue(new ProjectEnvironmentPanel(project));
+        project->setExtraData(key, v);
+    }
+    return v.value<ProjectEnvironmentPanel *>();
+}
 
 class ProjectEnvironmentPanelFactory final : public ProjectPanelFactory
 {
@@ -412,8 +617,8 @@ public:
     {
         setPriority(60);
         setDisplayName(Tr::tr("Project Environment"));
-        setCreateWidgetFunction([](Project *project) {
-            return new ProjectEnvironmentWidget(project);
+        setSettingsProvider([](Project *project) {
+            return projectEnvironmentPanel(project);
         });
     }
 };
@@ -4836,3 +5041,5 @@ LocatorMatcherTasks ProjectSwitchFilter::matchers()
 }
 
 } // namespace ProjectExplorer
+
+#include "projectexplorer.moc"
