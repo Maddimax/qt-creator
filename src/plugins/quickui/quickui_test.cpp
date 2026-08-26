@@ -180,6 +180,7 @@ private slots:
     void testAspectListLabelArrivingLate();
     void testPageWithoutItsOwnQmlIsDeclined();
     void testBuildingAPageIsNotShowingIt();
+    void testAFormInAWidgetLayoutAsksForItsContentHeight();
     void testPasswordAspectDoesNotEchoItsValue();
     void testAspectListOffersItsExtraButtons();
     void testAnOrderedListMovesTheCurrentItem();
@@ -636,6 +637,69 @@ void QuickUiTest::testPageWithoutItsOwnQmlIsDeclined()
     QVERIFY(quickWidget);
     QVERIFY(quickWidget->rootObject());
     QVERIFY(findQmlComponent(quickWidget->rootObject(), "BoolDelegate"));
+}
+
+// Builds a page of `count` string delegates and returns the form's height hint.
+static int formHeightHintFor(int count, QString *error)
+{
+    Utils::AspectContainer page;
+    std::vector<std::unique_ptr<Utils::StringAspect>> aspects;
+    QString body;
+    for (int i = 0; i < count; ++i) {
+        auto aspect = std::make_unique<Utils::StringAspect>(&page);
+        aspect->setSettingsKey(Utils::Key("Field") + QByteArray::number(i));
+        aspect->setLabelText(QString("Field %1:").arg(i));
+        body += QString("    StringDelegate { aspect: root.aspects.Field%1 }\n").arg(i);
+        aspects.push_back(std::move(aspect));
+    }
+
+    QTemporaryDir dir;
+    if (!dir.isValid()) {
+        *error = "no temporary directory";
+        return -1;
+    }
+    const QString pageQml = dir.filePath("SizePage.qml");
+    {
+        QFile file(pageQml);
+        if (!file.open(QIODevice::WriteOnly)) {
+            *error = "could not write the page";
+            return -1;
+        }
+        file.write(QString("import QtQuick\nimport QtCreator.Ui\n\n"
+                           "AspectPage {\n    id: root\n%1}\n").arg(body).toUtf8());
+    }
+    page.setQmlSource(QUrl::fromLocalFile(pageQml));
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createAspectForm(&page));
+    if (!form) {
+        *error = "no form";
+        return -1;
+    }
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    if (!quickWidget || !quickWidget->rootObject()) {
+        *error = "the page did not load";
+        return -1;
+    }
+    return form->sizeHint().height();
+}
+
+void QuickUiTest::testAFormInAWidgetLayoutAsksForItsContentHeight()
+{
+    // A settings page fills the dialog, so nothing depended on what a Quick
+    // form asks for until one went into a column beside other widgets - the
+    // profiler tool's backend panel is the first. There it has to report the
+    // height of its content, or it is squeezed to nothing between whatever is
+    // above it and below it.
+    QString error;
+    const int two = formHeightHintFor(2, &error);
+    QVERIFY2(two > 0, qPrintable(error.isEmpty() ? QString("a form asked for no height") : error));
+
+    // Asked twice rather than compared against a number, so that the assertion
+    // is about the content and cannot be satisfied by a fixed default.
+    const int four = formHeightHintFor(4, &error);
+    QVERIFY2(four > two,
+             qPrintable(QString("a form of four rows asks for %1, one of two for %2")
+                            .arg(four).arg(two)));
 }
 
 void QuickUiTest::testBuildingAPageIsNotShowingIt()

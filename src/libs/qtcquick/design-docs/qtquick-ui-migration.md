@@ -5454,6 +5454,25 @@ there is no wasm configuration here. The qbs side is a one-line `Depends` that
 mirrors the CMake `DEPENDS` and matches what `quickui.qbs` does, but no qbs
 exists on this machine, so it was not resolved.
 
+## What a Quick form asks for when it is not the whole page
+
+Embedding a form beside other widgets was new with the profiler tool, and its
+size was never checked - the settings dialog gives a page all the room there
+is, so nothing had ever depended on the answer.
+
+Measured: `createAspectForm()` hands back a widget whose `sizeHint()` is
+`0 x <content height>` - 68 for two rows, taken from the root item's
+`implicitHeight`, with a Preferred policy. Width 0 means the layout decides the
+width, which is what a layout is for. In a 500x200 column between a label and a
+button the form came out 460x68. So it sizes correctly, and the tool's panel was
+not quietly collapsed.
+
+`testAFormInAWidgetLayoutAsksForItsContentHeight()` keeps it that way, and asks
+the question twice - two rows and four - rather than comparing against 68, so
+the assertion is about the content and a fixed default cannot satisfy it.
+Making the helper ignore its argument fails it with "a form of four rows asks
+for 68, one of two for 68".
+
 ## The same measurement, applied to kits
 
 Re-running the `layouter()` instrumentation with the device closures gone leaves
