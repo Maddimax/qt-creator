@@ -3480,6 +3480,34 @@ It is worth writing down because the command every batch used says
 migration. No plugin anywhere in `src` uses an API this work removed; that was
 checked by grep rather than assumed.
 
+### GitLab, and the last of the "flag plus settings" family
+
+Eleven of seventeen. This panel had no settings container at all -
+`GitLabProjectSettings` is a plain `QObject` keeping whether the project is
+linked and to what - so everything on it was state the widget held: two combo
+boxes, three buttons whose enabled states were recomputed in one place only the
+widget could reach, and an `InfoLabel`.
+
+The two combos carry their choice as item data, which is what the combo boxes
+did with a `QVariant`, so `checkConnection()` asks
+`m_linkedServer.itemValue()` rather than `currentData()`. `SelectionAspect`
+already had everything needed for that - `addOption(Option)` with item data,
+`clearOptions()`, `indexForItemValue()` and `optionCount()` - which is what
+made this a translation rather than a redesign. `InfoLabelType` and
+`Utils::InfoType` have the same six values, so the message is a `TextDisplay`
+with no mapping to write.
+
+`updateEnabledStates()` is unchanged in what it decides. It sets it on aspects
+instead of widgets, so the rule that a project without a git repository can do
+nothing at all is said once and both backends read it.
+
+**What is not covered.** The census checks that the panel renders, that every
+name resolves and that not everything is disabled - misspelling
+`CheckConnection` fails it - but nothing tests the enable rules themselves.
+They depend on a git repository, a configured server and the linked state, and
+there is no harness here that can arrange those. That is worth saying plainly
+rather than leaving the passing census to imply more than it checks.
+
 ### Testing: two tree widgets over aspects that already existed
 
 Ten of seventeen. This panel had two `QTreeWidget`s, and neither held anything
