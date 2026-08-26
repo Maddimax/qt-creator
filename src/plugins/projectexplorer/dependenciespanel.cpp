@@ -28,8 +28,9 @@ namespace ProjectExplorer::Internal {
 class DependenciesModel : public QAbstractListModel
 {
 public:
-    explicit DependenciesModel(Project *project)
-        : m_project(project)
+    explicit DependenciesModel(Project *project, QObject *parent = nullptr)
+        : QAbstractListModel(parent)
+        , m_project(project)
     {
         resetModel();
 
@@ -46,6 +47,12 @@ public:
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
     bool setData(const QModelIndex &index, const QVariant &value, int role = Qt::EditRole) override;
     Qt::ItemFlags flags(const QModelIndex &index) const override;
+
+    // A Qt Quick cell reads its roles by name and cannot see flags().
+    QHash<int, QByteArray> roleNames() const override
+    {
+        return Utils::AspectTable::withRoleNames(QAbstractListModel::roleNames());
+    }
 
 private:
     void resetModel();
@@ -93,6 +100,10 @@ QVariant DependenciesModel::data(const QModelIndex &index, int role) const
         return ProjectManager::hasDependency(m_project, p) ? Qt::Checked : Qt::Unchecked;
     case Qt::DecorationRole:
         return Utils::FileIconProvider::icon(p->projectFilePath());
+    case Utils::AspectTable::CheckableRole:
+        return flags(index).testFlag(Qt::ItemIsUserCheckable);
+    case Utils::AspectTable::EditableRole:
+        return Utils::AspectTable::isWritable(flags(index));
     default:
         return {};
     }
@@ -138,133 +149,88 @@ Qt::ItemFlags DependenciesModel::flags(const QModelIndex &index) const
 // DependenciesView
 //
 
-class DependenciesView : public QTreeView
+// The other projects in the session, ticked where this one depends on them.
+class DependenciesAspect final : public Utils::BaseAspect
 {
 public:
-    explicit DependenciesView(QWidget *parent);
+    explicit DependenciesAspect(Project *project)
+        : m_model(project, this)
+    {}
 
-    QSize sizeHint() const override;
-    void setModel(QAbstractItemModel *model) override;
-
-private:
-    void updateSizeHint();
-
-    QSize m_sizeHint;
-};
-
-DependenciesView::DependenciesView(QWidget *parent)
-    : QTreeView(parent)
-{
-    m_sizeHint = QSize(250, 250);
-    setUniformRowHeights(true);
-    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::MinimumExpanding);
-    setRootIsDecorated(false);
-}
-
-QSize DependenciesView::sizeHint() const
-{
-    return m_sizeHint;
-}
-
-void DependenciesView::setModel(QAbstractItemModel *newModel)
-{
-    if (QAbstractItemModel *oldModel = model()) {
-        disconnect(oldModel, &QAbstractItemModel::rowsInserted,
-                   this, &DependenciesView::updateSizeHint);
-        disconnect(oldModel, &QAbstractItemModel::rowsRemoved,
-                   this, &DependenciesView::updateSizeHint);
-        disconnect(oldModel, &QAbstractItemModel::modelReset,
-                   this, &DependenciesView::updateSizeHint);
-        disconnect(oldModel, &QAbstractItemModel::layoutChanged,
-                   this, &DependenciesView::updateSizeHint);
-    }
-
-    QTreeView::setModel(newModel);
-
-    if (newModel) {
-        connect(newModel, &QAbstractItemModel::rowsInserted,
-                this, &DependenciesView::updateSizeHint);
-        connect(newModel, &QAbstractItemModel::rowsRemoved,
-                this, &DependenciesView::updateSizeHint);
-        connect(newModel, &QAbstractItemModel::modelReset,
-                this, &DependenciesView::updateSizeHint);
-        connect(newModel, &QAbstractItemModel::layoutChanged,
-                this, &DependenciesView::updateSizeHint);
-    }
-    updateSizeHint();
-}
-
-void DependenciesView::updateSizeHint()
-{
-    if (!model()) {
-        m_sizeHint = QSize(250, 250);
-        return;
-    }
-
-    int heightOffset = size().height() - viewport()->height();
-
-    int heightPerRow = sizeHintForRow(0);
-    if (heightPerRow == -1)
-        heightPerRow = 30;
-    int rows = qMin(qMax(model()->rowCount(), 2), 10);
-    int height = rows * heightPerRow + heightOffset;
-    if (m_sizeHint.height() != height) {
-        m_sizeHint.setHeight(height);
-        updateGeometry();
-    }
-}
-
-//
-// DependenciesWidget
-//
-
-class DependenciesWidget : public QWidget
-{
-public:
-    explicit DependenciesWidget(Project *project)
-        : m_model(project)
+    Utils::AspectPresentation presentation() const override
     {
-        m_detailsContainer.setState(Utils::DetailsWidget::NoSummary);
-
-        auto detailsWidget = new QWidget(&m_detailsContainer);
-        m_detailsContainer.setWidget(detailsWidget);
-
-        auto treeView = new DependenciesView(this);
-        treeView->setModel(&m_model);
-        treeView->setHeaderHidden(true);
-
-        m_cascadeSetActiveCheckBox.setText(Tr::tr("Synchronize configuration"));
-        m_cascadeSetActiveCheckBox.setToolTip(Tr::tr("Synchronize active kit, build, and deploy configuration between projects."));
-        m_cascadeSetActiveCheckBox.setChecked(ProjectManager::isProjectConfigurationCascading());
-        connect(&m_cascadeSetActiveCheckBox, &QCheckBox::toggled,
-                ProjectManager::instance(), &ProjectManager::setProjectConfigurationCascading);
-
-        m_deployCheckBox.setText(Tr::tr("Deploy dependencies"));
-        m_deployCheckBox.setToolTip(
-            Tr::tr("Do not just build dependencies, but deploy them as well."));
-        m_deployCheckBox.setChecked(ProjectManager::deployProjectDependencies());
-        connect(&m_deployCheckBox, &QCheckBox::toggled,
-                ProjectManager::instance(), &ProjectManager::setDeployProjectDependencies);
-
-        auto layout = new QGridLayout(detailsWidget);
-        layout->setContentsMargins(0, -1, 0, -1);
-        layout->addWidget(treeView, 0 ,0);
-        layout->addItem(new QSpacerItem(0, 0 , QSizePolicy::Expanding, QSizePolicy::Fixed), 0, 1);
-        layout->addWidget(&m_cascadeSetActiveCheckBox, 1, 0, 2, 1);
-        layout->addWidget(&m_deployCheckBox, 3, 0, 2, 1);
-
-        auto vbox = new QVBoxLayout(this);
-        vbox->setContentsMargins(0, 0, 0, 0);
-        vbox->addWidget(&m_detailsContainer);
-        vbox->addStretch();
+        Utils::AspectPresentation p = BaseAspect::presentation();
+        p.control = Utils::AspectControls::Table;
+        return p;
     }
 
+    QAbstractItemModel *tableModel() override { return &m_model; }
+
 private:
+    // Parented: a model handed to QML with no parent belongs to the engine.
     DependenciesModel m_model;
-    Utils::DetailsWidget m_detailsContainer;
-    QCheckBox m_cascadeSetActiveCheckBox;
-    QCheckBox m_deployCheckBox;
 };
+
+// What the panel shows. The two check boxes are the session's rather than the
+// project's - ProjectManager keeps them - so they are read once and written
+// through, which is what the check boxes did.
+class DependenciesPanel final : public Utils::AspectContainer
+{
+public:
+    explicit DependenciesPanel(Project *project)
+        : m_dependencies(project)
+    {
+        // Before registering: insertAspect() forces the container's own
+        // auto-apply onto what it takes in.
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/ProjectExplorer/DependenciesPanel.qml"));
+
+        m_dependencies.setQmlName("Dependencies");
+        registerAspect(&m_dependencies);
+
+        m_cascadeSetActive.setQmlName("CascadeSetActive");
+        m_cascadeSetActive.setLabel(Tr::tr("Synchronize configuration"),
+                                    Utils::BoolAspect::LabelPlacement::AtCheckBox);
+        m_cascadeSetActive.setToolTip(
+            Tr::tr("Synchronize active kit, build, and deploy configuration between projects."));
+        m_cascadeSetActive.setValue(ProjectManager::isProjectConfigurationCascading());
+        registerAspect(&m_cascadeSetActive);
+
+        m_deployDependencies.setQmlName("DeployDependencies");
+        m_deployDependencies.setLabel(Tr::tr("Deploy dependencies"),
+                                      Utils::BoolAspect::LabelPlacement::AtCheckBox);
+        m_deployDependencies.setToolTip(
+            Tr::tr("Do not just build dependencies, but deploy them as well."));
+        m_deployDependencies.setValue(ProjectManager::deployProjectDependencies());
+        registerAspect(&m_deployDependencies);
+
+        // Behaviour, not layout.
+        m_cascadeSetActive.addOnChanged(this, [this] {
+            ProjectManager::setProjectConfigurationCascading(m_cascadeSetActive());
+        });
+        m_deployDependencies.addOnChanged(this, [this] {
+            ProjectManager::setDeployProjectDependencies(m_deployDependencies());
+        });
+    }
+
+    static Utils::Key extraDataKey() { return "DependenciesPanel"; }
+
+private:
+    DependenciesAspect m_dependencies;
+    Utils::BoolAspect m_cascadeSetActive;
+    Utils::BoolAspect m_deployDependencies;
+};
+
+static DependenciesPanel *dependenciesPanel(Project *project)
+{
+    const Utils::Key key = DependenciesPanel::extraDataKey();
+    QVariant v = project->extraData(key);
+    if (v.isNull()) {
+        v = QVariant::fromValue(new DependenciesPanel(project));
+        project->setExtraData(key, v);
+    }
+    return v.value<DependenciesPanel *>();
+}
 
 class DependenciesProjectPanelFactory final : public ProjectPanelFactory
 {
@@ -273,7 +239,9 @@ public:
     {
         setPriority(50);
         setDisplayName(Tr::tr("Dependencies"));
-        setCreateWidgetFunction([](Project *project) { return new DependenciesWidget(project); });
+        setSettingsProvider([](Project *project) {
+            return dependenciesPanel(project);
+        });
     }
 };
 
