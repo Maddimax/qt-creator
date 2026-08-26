@@ -10,10 +10,14 @@
 #include "tabsettings.h"
 #include "textindenter.h"
 
+#include "texteditorconstants.h"
+
 #include <coreplugin/dialogs/ioptionspage.h>
+#include <coreplugin/icore.h>
 
 #include <utils/aspectwidgets.h>
 #include <utils/layoutbuilder.h>
+#include <utils/qtcsettings.h>
 
 #include <QSignalSpy>
 #include <QSpinBox>
@@ -328,6 +332,29 @@ private:
     }
 
 private slots:
+    // Applying a code style writes it to the settings - see
+    // CodeStyleAspect::apply(), which calls toSettings() with the language id.
+    // Left there, the next run against the same settings reads back the style
+    // the last run picked instead of the default these assertions expect, and
+    // two of them fail against state they wrote themselves. A scratch
+    // -settingspath hides that; a developer's own settings do not.
+    void cleanupTestCase()
+    {
+        static const QStringList categories = {
+            TEST_LANGUAGE_ID,       QML_TEST_LANGUAGE_ID,  LIVE_TEST_LANGUAGE_ID,
+            MODEL_TEST_LANGUAGE_ID, VALUE_TEST_LANGUAGE_ID, QML_POOL_TEST_LANGUAGE_ID,
+            QString::fromLatin1(Constants::CODE_STYLE_SETTINGS_PREFIX)};
+        static const QStringList suffixes = {
+            "TestCodeStyle",  "QmlTestCodeStyle",   "LiveTestCodeStyle",
+            "ModelTestCodeStyle", "ValueTestCodeStyle", "QmlPoolTestCodeStyle"};
+
+        Utils::QtcSettings * const settings = Core::ICore::settings();
+        for (const QString &category : categories) {
+            for (const QString &suffix : suffixes)
+                settings->remove(Utils::keyFromString(category + suffix));
+        }
+    }
+
     void testALanguageMovesToQuickOnItsOwn()
     {
         // A language that names no form keeps its widget editor, so the page

@@ -5961,6 +5961,19 @@ failures that have nothing to do with what they changed - and every "it passes
 here" in this file was measured with `rm -rf` in front of it, which is what made
 it invisible.
 
+**Fixed by having the tests remove what they wrote.** `cleanupTestCase()` drops
+the settings groups the six test factories can persist under - each language id
+and the global `text` prefix, crossed with each `setSettingsSuffix()`. Three
+consecutive runs against one settings path now pass; disabling the cleanup body
+fails the second run again, which is what says the cleanup is doing the work
+rather than something else having changed.
+
+The general shape is worth keeping: **a test that applies settings has to
+un-apply them**, and the way to find out whether it does is to run it twice
+against the same `-settingspath` rather than once against a fresh one. Both
+suites here now pass twice in a row, which is a claim none of the earlier runs
+in this file were making.
+
 ## The same measurement, applied to kits
 
 Re-running the `layouter()` instrumentation with the device closures gone leaves
