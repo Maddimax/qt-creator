@@ -15,12 +15,11 @@
 #include <projectexplorer/project.h>
 #include <projectexplorer/projectpanelfactory.h>
 
-#include <utils/infolabel.h>
-#include <utils/layoutbuilder.h>
+#include <coreplugin/icore.h>
+
+#include <utils/aspects.h>
 #include <utils/qtcassert.h>
 
-#include <QComboBox>
-#include <QPushButton>
 #include <QUrl>
 
 using namespace Utils;
@@ -109,10 +108,75 @@ void GitLabProjectSettings::save()
     m_project->setNamedSettings(PSK_LAST_REQ, m_lastRequest);
 }
 
-class GitLabProjectSettingsWidget : public QWidget
+// What the panel shows. GitLabProjectSettings is not a container - it keeps
+// whether the project is linked and to what, and nothing else - so the panel
+// holds the aspects and drives it.
+class GitLabProjectPanel final : public Utils::AspectContainer
 {
 public:
-    explicit GitLabProjectSettingsWidget(ProjectExplorer::Project *project);
+    explicit GitLabProjectPanel(ProjectExplorer::Project *project)
+        : m_projectSettings(projectSettings(project))
+    {
+        // Before registering: insertAspect() forces the container's own
+        // auto-apply onto what it takes in.
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/GitLab/GitLabProjectPanel.qml"));
+
+        m_globalLink.setQmlName("GlobalLink");
+        m_globalLink.setTextFormat(AspectControls::TextFormat::RichText);
+        m_globalLink.setText("<a href=\"page\">" + Tr::tr("Global settings") + "</a>");
+        connect(&m_globalLink, &TextDisplay::linkActivated, this, [] {
+            Core::ICore::showSettings(Constants::GITLAB_SETTINGS);
+        });
+        registerAspect(&m_globalLink);
+
+        m_host.setQmlName("Host");
+        m_host.setLabelText(Tr::tr("Host:"));
+        m_host.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
+        registerAspect(&m_host);
+
+        m_linkedServer.setQmlName("LinkedServer");
+        m_linkedServer.setLabelText(Tr::tr("Linked GitLab Configuration"));
+        m_linkedServer.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
+        registerAspect(&m_linkedServer);
+
+        m_info.setQmlName("Info");
+        m_info.setVisible(false);
+        registerAspect(&m_info);
+
+        m_link.setQmlName("LinkWithGitLab");
+        m_link.setActionText(Tr::tr("Link with GitLab"));
+        m_link.setAction([this] { checkConnection(Link); });
+        registerAspect(&m_link);
+
+        m_unlink.setQmlName("Unlink");
+        m_unlink.setActionText(Tr::tr("Unlink from GitLab"));
+        m_unlink.setEnabled(false);
+        m_unlink.setAction([this] { unlink(); });
+        registerAspect(&m_unlink);
+
+        m_checkConnection.setQmlName("CheckConnection");
+        m_checkConnection.setActionText(Tr::tr("Test Connection"));
+        m_checkConnection.setEnabled(false);
+        m_checkConnection.setAction([this] { checkConnection(Connection); });
+        registerAspect(&m_checkConnection);
+
+        m_note.setQmlName("Note");
+        m_note.setWordWrap(true);
+        m_note.setText(Tr::tr("Projects linked with GitLab receive event notifications in the "
+                              "Version Control output pane."));
+        registerAspect(&m_note);
+
+        // Behaviour, not layout: what was checked stops being true the moment
+        // something else is chosen.
+        m_host.addOnChanged(this, [this] { m_info.setVisible(false); });
+        m_linkedServer.addOnChanged(this, [this] { m_info.setVisible(false); });
+        connect(&gitLabParameters(), &GitLabParameters::changed,
+                this, [this] { updateUi(); });
+        updateUi();
+    }
+
+    static Utils::Key extraDataKey() { return "GitLabProjectPanel"; }
 
 private:
     enum CheckMode { Connection, Link };
@@ -125,61 +189,19 @@ private:
     void updateEnabledStates();
 
     GitLabProjectSettings *m_projectSettings = nullptr;
-    QComboBox m_linkedGitLabServer;
-    QComboBox m_hostCB;
-    QPushButton m_linkWithGitLab{Tr::tr("Link with GitLab")};
-    QPushButton m_unlink{Tr::tr("Unlink from GitLab")};
-    QPushButton m_checkConnection{Tr::tr("Test Connection")};
-    InfoLabel m_infoLabel;
+    TextDisplay m_globalLink;
+    SelectionAspect m_host;
+    SelectionAspect m_linkedServer;
+    TextDisplay m_info;
+    ActionAspect m_link;
+    ActionAspect m_unlink;
+    ActionAspect m_checkConnection;
+    TextDisplay m_note;
     CheckMode m_checkMode = Connection;
     QtTaskTree::QSingleTaskTreeRunner m_taskTreeRunner;
 };
 
-GitLabProjectSettingsWidget::GitLabProjectSettingsWidget(ProjectExplorer::Project *project)
-    : m_projectSettings(projectSettings(project))
-{
-    // setup ui
-    m_infoLabel.setVisible(false);
-    m_unlink.setEnabled(false);
-    m_checkConnection.setEnabled(false);
-
-    using namespace Layouting;
-
-    Column {
-        noMargin,
-        ProjectExplorer::createGlobalSettingsLink(Constants::GITLAB_SETTINGS),
-        createHr(),
-        Form {
-            Tr::tr("Host:"), &m_hostCB, br,
-            Tr::tr("Linked GitLab Configuration"), &m_linkedGitLabServer, br,
-        },
-        &m_infoLabel,
-        Row { noMargin, &m_linkWithGitLab, &m_unlink, &m_checkConnection, st },
-        Tr::tr("Projects linked with GitLab receive event notifications in the Version Control "
-               "output pane."),
-        st,
-    }.attachTo(this);
-
-    connect(&m_linkWithGitLab, &QPushButton::clicked, this, [this] {
-        checkConnection(Link);
-    });
-    connect(&m_unlink, &QPushButton::clicked,
-            this, &GitLabProjectSettingsWidget::unlink);
-    connect(&m_checkConnection, &QPushButton::clicked, this, [this] {
-        checkConnection(Connection);
-    });
-    connect(&m_linkedGitLabServer, &QComboBox::currentIndexChanged, this, [this] {
-        m_infoLabel.setVisible(false);
-    });
-    connect(&m_hostCB, &QComboBox::currentIndexChanged, this, [this] {
-        m_infoLabel.setVisible(false);
-    });
-    connect(&gitLabParameters(), &GitLabParameters::changed,
-            this, &GitLabProjectSettingsWidget::updateUi);
-    updateUi();
-}
-
-void GitLabProjectSettingsWidget::unlink()
+void GitLabProjectPanel::unlink()
 {
     QTC_ASSERT(m_projectSettings->isLinked(), return);
     m_projectSettings->setLinked(false);
@@ -188,22 +210,22 @@ void GitLabProjectSettingsWidget::unlink()
     linkedStateChanged(false);
 }
 
-void GitLabProjectSettingsWidget::checkConnection(CheckMode mode)
+void GitLabProjectPanel::checkConnection(CheckMode mode)
 {
-    const GitLabServer server = m_linkedGitLabServer.currentData().value<GitLabServer>();
-    const QString remote = m_hostCB.currentData().toString();
+    const GitLabServer server = m_linkedServer.itemValue().value<GitLabServer>();
+    const QString remote = m_host.itemValue().toString();
 
     const auto [remoteHost, projectName, port] = GitLabProjectSettings::remotePartsFromRemote(remote);
     if (remoteHost != server.host) { // port check as well
-        m_infoLabel.setType(InfoLabelType::NotOk);
-        m_infoLabel.setText(Tr::tr("Remote host does not match chosen GitLab configuration."));
-        m_infoLabel.setVisible(true);
+        m_info.setIconType(InfoType::NotOk);
+        m_info.setText(Tr::tr("Remote host does not match chosen GitLab configuration."));
+        m_info.setVisible(true);
         return;
     }
 
     // temporarily disable ui
-    m_linkedGitLabServer.setEnabled(false);
-    m_hostCB.setEnabled(false);
+    m_linkedServer.setEnabled(false);
+    m_host.setEnabled(false);
     m_checkConnection.setEnabled(false);
 
     m_checkMode = mode;
@@ -218,28 +240,27 @@ void GitLabProjectSettingsWidget::checkConnection(CheckMode mode)
         }));
 }
 
-void GitLabProjectSettingsWidget::onConnectionChecked(const Project &project,
-                                                      const Id &serverId,
-                                                      const QString &remote,
-                                                      const QString &projectName)
+void GitLabProjectPanel::onConnectionChecked(const Project &project,
+                                             const Id &serverId,
+                                             const QString &remote,
+                                             const QString &projectName)
 {
     bool linkable = false;
     if (!project.error.message.isEmpty()) {
-        m_infoLabel.setType(InfoLabelType::Error);
-        m_infoLabel.setText(Tr::tr("Check settings for misconfiguration.")
-                             + " (" + project.error.message + ')');
+        m_info.setIconType(InfoType::Error);
+        m_info.setText(Tr::tr("Check settings for misconfiguration.")
+                       + " (" + project.error.message + ')');
     } else {
         if (project.accessLevel != -1) {
-            m_infoLabel.setType(InfoLabelType::Ok);
-            m_infoLabel.setText(Tr::tr("Accessible (%1).")
-                                 .arg(accessLevelString(project.accessLevel)));
+            m_info.setIconType(InfoType::Ok);
+            m_info.setText(Tr::tr("Accessible (%1).").arg(accessLevelString(project.accessLevel)));
             linkable = true;
         } else {
-            m_infoLabel.setType(InfoLabelType::Warning);
-            m_infoLabel.setText(Tr::tr("Read only access."));
+            m_info.setIconType(InfoType::Warning);
+            m_info.setText(Tr::tr("Read only access."));
         }
     }
-    m_infoLabel.setVisible(true);
+    m_info.setVisible(true);
 
     if (m_checkMode == Link && linkable) {
         m_projectSettings->setCurrentServer(serverId);
@@ -251,26 +272,26 @@ void GitLabProjectSettingsWidget::onConnectionChecked(const Project &project,
     updateEnabledStates();
 }
 
-void GitLabProjectSettingsWidget::updateUi()
+void GitLabProjectPanel::updateUi()
 {
-    m_linkedGitLabServer.clear();
+    m_linkedServer.clearOptions();
     const QList<GitLabServer> allServers = gitLabParameters().gitLabServers;
     for (const GitLabServer &server : allServers) {
         const QString display = server.host + " (" + server.description + ')';
-        m_linkedGitLabServer.addItem(display, QVariant::fromValue(server));
+        m_linkedServer.addOption({display, {}, QVariant::fromValue(server)});
     }
 
     const FilePath projectDirectory = m_projectSettings->project()->projectDirectory();
     const FilePath repository =
         Git::Internal::gitClient().findRepositoryForDirectory(projectDirectory);
 
-    m_hostCB.clear();
+    m_host.clearOptions();
     if (!repository.isEmpty()) {
         const QMap<QString, QString> remotes =
             Git::Internal::gitClient().synchronousRemotesList(repository);
         for (auto it = remotes.begin(), end = remotes.end(); it != end; ++it) {
             const QString display = it.key() + " (" + it.value() + ')';
-            m_hostCB.addItem(display, QVariant::fromValue(it.value()));
+            m_host.addOption({display, {}, QVariant::fromValue(it.value())});
         }
     }
 
@@ -281,9 +302,8 @@ void GitLabProjectSettingsWidget::updateUi()
         auto [remoteHost, projName, port] = GitLabProjectSettings::remotePartsFromRemote(serverHost);
         if (server.id.isValid() && server.host == remoteHost) { // found config
             m_projectSettings->setLinked(true);
-            m_hostCB.setCurrentIndex(m_hostCB.findData(QVariant::fromValue(serverHost)));
-            m_linkedGitLabServer.setCurrentIndex(
-                m_linkedGitLabServer.findData(QVariant::fromValue(server)));
+            m_host.setValue(m_host.indexForItemValue(QVariant::fromValue(serverHost)));
+            m_linkedServer.setValue(m_linkedServer.indexForItemValue(QVariant::fromValue(server)));
             linkedStateChanged(true);
         } else {
             m_projectSettings->setLinked(false);
@@ -293,15 +313,15 @@ void GitLabProjectSettingsWidget::updateUi()
     updateEnabledStates();
 }
 
-void GitLabProjectSettingsWidget::updateEnabledStates()
+void GitLabProjectPanel::updateEnabledStates()
 {
-    const bool isGitRepository = m_hostCB.count() > 0;
-    const bool hasGitLabServers = m_linkedGitLabServer.count();
+    const bool isGitRepository = m_host.optionCount() > 0;
+    const bool hasGitLabServers = m_linkedServer.optionCount() > 0;
     const bool linked = m_projectSettings->isLinked();
 
-    m_linkedGitLabServer.setEnabled(isGitRepository && !linked);
-    m_hostCB.setEnabled(isGitRepository && !linked);
-    m_linkWithGitLab.setEnabled(isGitRepository && !linked && hasGitLabServers);
+    m_linkedServer.setEnabled(isGitRepository && !linked);
+    m_host.setEnabled(isGitRepository && !linked);
+    m_link.setEnabled(isGitRepository && !linked && hasGitLabServers);
     m_unlink.setEnabled(isGitRepository && linked);
     m_checkConnection.setEnabled(isGitRepository && hasGitLabServers);
     if (!isGitRepository) {
@@ -309,12 +329,23 @@ void GitLabProjectSettingsWidget::updateEnabledStates()
         const FilePath repository =
             Git::Internal::gitClient().findRepositoryForDirectory(projectDirectory);
         if (repository.isEmpty())
-            m_infoLabel.setText(Tr::tr("Not a git repository."));
+            m_info.setText(Tr::tr("Not a git repository."));
         else
-            m_infoLabel.setText(Tr::tr("Local git repository without remotes."));
-        m_infoLabel.setType(InfoLabelType::None);
-        m_infoLabel.setVisible(true);
+            m_info.setText(Tr::tr("Local git repository without remotes."));
+        m_info.setIconType(InfoType::None);
+        m_info.setVisible(true);
     }
+}
+
+static GitLabProjectPanel *gitLabProjectPanel(ProjectExplorer::Project *project)
+{
+    const Utils::Key key = GitLabProjectPanel::extraDataKey();
+    QVariant v = project->extraData(key);
+    if (v.isNull()) {
+        v = QVariant::fromValue(new GitLabProjectPanel(project));
+        project->setExtraData(key, v);
+    }
+    return v.value<GitLabProjectPanel *>();
 }
 
 class GitlabProjectPanelFactory final : public ProjectExplorer::ProjectPanelFactory
@@ -324,8 +355,8 @@ public:
     {
         setPriority(999);
         setDisplayName(Tr::tr("GitLab"));
-        setCreateWidgetFunction([](ProjectExplorer::Project *project) {
-            return new GitLabProjectSettingsWidget(project);
+        setSettingsProvider([](ProjectExplorer::Project *project) {
+            return gitLabProjectPanel(project);
         });
     }
 };

@@ -29,6 +29,7 @@ if(TARGET GitLab AND TARGET Qt::Quick)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      GitLabProjectPanel.qml
       GitLabSettingsPage.qml
   )
 endif()
