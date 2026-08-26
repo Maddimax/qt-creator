@@ -20,10 +20,10 @@ import QtCreator.TextEditor
 Item {
     id: root
 
-    // The file to show. Opening it is what gives it highlighting.
-    required property string filePath
-    // Whether it opened at all. Worth reading before blaming the colours.
-    readonly property bool opened: codeDocument.opened
+    // What to show. A CodeDocument for a file, a CodeBuffer for text that was
+    // never one; either can be given inline. Not a path, because a preview's
+    // text is an aspect's value and has no path.
+    required property CodeSource source
     // Whether typing does anything. A view until told otherwise, so that
     // showing a file cannot accidentally change it.
     property alias readOnly: viewport.readOnly
@@ -34,12 +34,6 @@ Item {
     readonly property alias selectionEnd: viewport.selectionEnd
 
     implicitHeight: Metrics.formTextAreaHeight
-
-    CodeDocument {
-        id: codeDocument
-
-        filePath: root.filePath
-    }
 
     Rectangle {
         anchors.fill: parent
@@ -54,7 +48,7 @@ Item {
             objectName: "codeViewport"
             anchors.fill: parent
             anchors.margins: Spacing.PaddingHXs
-            document: codeDocument
+            document: root.source
             // Keys go to the scene's active focus item. The viewport is a focus
             // scope, so focusing the root would stop one level short of it.
             focus: true

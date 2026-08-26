@@ -5544,9 +5544,32 @@ and only one of them holds the mechanism in place, so the buffer test says so
 in a comment - otherwise weakening it would quietly free the connection to be
 deleted.
 
+**The seventh increment finishes the plumbing**: `CodeIndenting` and
+`CodeViewport` now speak `CodeSource` too, which is what a preview needs before
+it can give up its `TextArea`.
+
+`CodeIndenting` only ever wanted the `QTextDocument` - it makes its own
+`Indenter` from the language factory and never touches `TextDocument` - so it
+gained a `source` beside its `document`, and one `target()` that answers
+whichever way it was said. Both ways are held by a test of their own:
+`CodeHighlightingTest::testIndentsAQuickDocument` for the `TextEdit`, and a new
+buffer test here for the source. Breaking either half of `target()` fails
+exactly one of them.
+
+`CodeViewport` now takes a `source` instead of a `filePath`, and no longer
+builds a `CodeDocument` of its own. A file is `source: CodeDocument { filePath:
+... }`, one line longer and no longer a special case. It was a path only
+because a file was the only thing there was.
+
 Not ported, listed so the gap is not mistaken for a decision: input methods,
 the clipboard, the gutter, folding, text marks and annotations, wrapping, and
 the extra-selection overlays beyond the primary selection.
+
+**Still to do for the preview itself.** `CodeStylePreview.qml` can now be a
+`CodeBuffer` under a `CodeViewport` with `CodeIndenting` over the same source.
+That is a separate change on purpose: everything above is plumbing that leaves
+every page exactly as it was, and swapping the editor a working page draws with
+is the first step that can regress one.
 
 ## The terminal spike: go, with the cleanest split in the tree
 

@@ -3,10 +3,12 @@
 
 #include "codeindenting.h"
 
+#include "codesource.h"
 #include "icodestylepreferences.h"
 #include "icodestylepreferencesfactory.h"
 #include "indenter.h"
 #include "tabsettings.h"
+#include "textdocument.h"
 
 #include <QPointer>
 #include <QTextBlock>
@@ -19,11 +21,22 @@ class CodeIndentingPrivate
 {
 public:
     QPointer<QQuickTextDocument> m_document;
+    QPointer<CodeSource> m_source;
     QString m_languageId;
     QPointer<ICodeStylePreferences> m_codeStyle;
     // Owned here rather than by the document: an Indenter is not a QObject.
     std::unique_ptr<Indenter> m_indenter;
     QList<QMetaObject::Connection> m_styleConnections;
+
+    // Whichever way it was said. A TextEdit's document and a source are two
+    // ways of naming the same kind of thing, and only one of them is ever set.
+    QTextDocument *target() const
+    {
+        if (m_document)
+            return m_document->textDocument();
+        TextDocument * const document = m_source ? m_source->textDocument() : nullptr;
+        return document ? document->document() : nullptr;
+    }
 
     // What an indent is here. A preview measures against the style being
     // edited; an editor with no style of its own uses the global settings, as
@@ -65,6 +78,28 @@ void CodeIndenting::setDocument(QQuickTextDocument *document)
     }
     reattach();
     emit documentChanged();
+}
+
+CodeSource *CodeIndenting::source() const
+{
+    return d->m_source;
+}
+
+void CodeIndenting::setSource(CodeSource *source)
+{
+    if (d->m_source == source)
+        return;
+    if (d->m_source)
+        disconnect(d->m_source, nullptr, this, nullptr);
+    d->m_source = source;
+    // A source hands out a different document when it reopens, and what was
+    // attached to the old one is attached to nothing anyone is looking at.
+    if (d->m_source) {
+        connect(d->m_source, &CodeSource::textDocumentChanged,
+                this, [this] { reattach(); });
+    }
+    reattach();
+    emit sourceChanged();
 }
 
 QString CodeIndenting::languageId() const
@@ -112,7 +147,7 @@ bool CodeIndenting::isIndenting() const
 
 void CodeIndenting::reindent()
 {
-    QTextDocument *target = d->m_document ? d->m_document->textDocument() : nullptr;
+    QTextDocument * const target = d->target();
     if (!target || !d->m_indenter || !d->m_codeStyle)
         return;
 
@@ -130,7 +165,7 @@ void CodeIndenting::reindent()
 
 void CodeIndenting::indentAt(int position)
 {
-    QTextDocument *target = d->m_document ? d->m_document->textDocument() : nullptr;
+    QTextDocument * const target = d->target();
     if (!target)
         return;
 
@@ -150,7 +185,7 @@ void CodeIndenting::reattach()
     d->m_styleConnections.clear();
     d->m_indenter.reset();
 
-    QTextDocument *target = d->m_document ? d->m_document->textDocument() : nullptr;
+    QTextDocument * const target = d->target();
     ICodeStylePreferencesFactory *factory
         = d->m_languageId.isEmpty() ? nullptr
                                     : codeStyleFactory(Utils::Id::fromString(d->m_languageId));

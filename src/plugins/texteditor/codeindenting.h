@@ -13,6 +13,7 @@
 
 namespace TextEditor {
 
+class CodeSource;
 class ICodeStylePreferences;
 class CodeIndentingPrivate;
 
@@ -24,8 +25,12 @@ class TEXTEDITOR_EXPORT CodeIndenting : public QObject
     Q_OBJECT
     QML_ELEMENT
 
-    // The TextEdit's document, as TextEdit.textDocument.
+    // The TextEdit's document, as TextEdit.textDocument. One of two ways to say
+    // what to indent; the other is source, below.
     Q_PROPERTY(QQuickTextDocument *document READ document WRITE setDocument NOTIFY documentChanged)
+    // What a TextViewport draws, for a page that has no TextEdit at all. A
+    // CodeBuffer holding a preview's text is the case this exists for.
+    Q_PROPERTY(TextEditor::CodeSource *source READ source WRITE setSource NOTIFY sourceChanged)
     // Which language's indenter to use, as the factory is registered under.
     Q_PROPERTY(QString languageId READ languageId WRITE setLanguageId NOTIFY languageIdChanged)
     // Whether an indenter was found. Without one the text is left as typed.
@@ -43,6 +48,9 @@ public:
 
     QQuickTextDocument *document() const;
     void setDocument(QQuickTextDocument *document);
+
+    CodeSource *source() const;
+    void setSource(CodeSource *source);
 
     QString languageId() const;
     void setLanguageId(const QString &languageId);
@@ -68,6 +76,7 @@ public:
 
 signals:
     void documentChanged();
+    void sourceChanged();
     void languageIdChanged();
     void indentingChanged();
     void codeStyleChanged();

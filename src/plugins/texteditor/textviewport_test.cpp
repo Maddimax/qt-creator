@@ -5,6 +5,9 @@
 
 #include "codebuffer.h"
 #include "codedocument.h"
+#include "codeindenting.h"
+#include "codestylepool.h"
+#include "icodestylepreferences.h"
 #include "fontsettings.h"
 #include "syntaxhighlighter.h"
 #include "tabsettings.h"
@@ -263,10 +266,14 @@ private slots:
             view.resize(400, 200);
             QQmlComponent component(view.engine());
             component.setData(QByteArray("import QtCreator.TextEditor\n"
-                                         "CodeViewport { width: 400; height: 200 }"),
+                                         "CodeViewport {\n"
+                                         "    width: 400; height: 200\n"
+                                         "    source: CodeDocument { filePath: path }\n"
+                                         "    property string path\n"
+                                         "}"),
                               QUrl("qrc:/test/CodeViewportTest.qml"));
             std::unique_ptr<QObject> created(component.createWithInitialProperties(
-                {{"filePath", file.toUrlishString()}}));
+                {{"path", file.toUrlishString()}}));
             QVERIFY2(created != nullptr, qPrintable(component.errorString()));
 
             auto * const item = qobject_cast<QQuickItem *>(created.get());
@@ -334,10 +341,14 @@ private slots:
         view.resize(400, 200);
         QQmlComponent component(view.engine());
         component.setData(QByteArray("import QtCreator.TextEditor\n"
-                                     "CodeViewport { width: 400; height: 200 }"),
+                                     "CodeViewport {\n"
+                                     "    width: 400; height: 200\n"
+                                     "    source: CodeDocument { filePath: path }\n"
+                                     "    property string path\n"
+                                     "}"),
                           QUrl("qrc:/test/CodeViewportScrollTest.qml"));
         std::unique_ptr<QObject> created(component.createWithInitialProperties(
-            {{"filePath", file.toUrlishString()}}));
+            {{"path", file.toUrlishString()}}));
         QVERIFY2(created != nullptr, qPrintable(component.errorString()));
 
         auto * const item = qobject_cast<QQuickItem *>(created.get());
@@ -767,6 +778,58 @@ private slots:
         // connection can be deleted with nothing complaining.
         QTRY_VERIFY2(!viewport->visibleLine(2).value("formats").toList().isEmpty(),
                      "the highlighter coloured nothing");
+    }
+
+    void testABufferCanBeIndentedByALanguagesOwnIndenter()
+    {
+        // The whole point of the buffer: a code style preview needs a document
+        // an indenter can work on, and the text it shows was never a file. The
+        // TextEdit path is covered by CodeHighlightingTest; this is the same
+        // thing said through a CodeSource.
+        ICodeStylePreferences * const codeStyle = codeStyleForLanguage("Cpp");
+        QVERIFY2(codeStyle, "no C++ code style - is the CppEditor plugin loaded?");
+
+        CodeBuffer buffer;
+        // Deliberately flat: every line at column zero, so any indentation at
+        // all is the indenter's doing.
+        buffer.setText("int f()\n{\nif (true) {\nreturn 1;\n}\nreturn 0;\n}\n");
+        buffer.setMimeType("text/x-c++src");
+
+        CodeIndenting indenting;
+        indenting.setSource(&buffer);
+        indenting.setLanguageId("Cpp");
+        indenting.setCodeStyle(codeStyle);
+        QVERIFY2(indenting.isIndenting(), "no indenter for C++ over a CodeSource");
+
+        indenting.reindent();
+
+        const auto indentOf = [](const QString &line) {
+            return int(line.size() - QStringView(line).trimmed().size());
+        };
+        const QStringList lines = buffer.text().split('\n');
+        QCOMPARE(lines.size(), 8);
+        QCOMPARE(indentOf(lines.at(0)), 0);                     // int f()
+        QCOMPARE(indentOf(lines.at(1)), 0);                     // {
+        QVERIFY(indentOf(lines.at(2)) > 0);                     // if (true) {
+        QVERIFY(indentOf(lines.at(3)) > indentOf(lines.at(2))); // return 1;
+        QCOMPARE(indentOf(lines.at(6)), 0);                     // }
+
+        // And it indents by *these* settings, which is what a preview is for:
+        // widening the indent widens the preview by itself, with no reindent()
+        // call. Merely checking that something was indented passes with any
+        // settings at all.
+        const int wasIndented = indentOf(lines.at(2));
+        ICodeStylePreferences * const current = codeStyle->currentPreferences();
+        QVERIFY(current);
+        const TabSettingsData original = current->tabSettings();
+        TabSettingsData wider = original;
+        wider.m_indentSize = original.m_indentSize + 3;
+        wider.m_tabSize = wider.m_indentSize;
+        current->setTabSettings(wider);
+        QTRY_COMPARE(indentOf(buffer.text().split('\n').at(2)), wasIndented + 3);
+
+        current->setTabSettings(original);
+        QTRY_COMPARE(indentOf(buffer.text().split('\n').at(2)), wasIndented);
     }
 
     void testEditingABufferWritesBackToItsText()
