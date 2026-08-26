@@ -3480,6 +3480,50 @@ It is worth writing down because the command every batch used says
 migration. No plugin anywhere in `src` uses an API this work removed; that was
 checked by grep rather than assumed.
 
+### Code Style: the last panel, and a control that did not bite
+
+Seventeen of seventeen. No project panel builds a widget any more.
+
+This one was a `QStackedWidget` of per-language editors, filled through a seam
+that handed over widgets. It hands over containers now - `createProjectAspects()`
+beside the `createSettingsAspects()` the page already had - and the default is
+the selector above a live preview, which is what the widget showed.
+
+Getting there needed the selector to stop being the page's. `setupSelectorAspects()`
+built the Style combo, the four buttons and the read-only note against
+`m_pageCodeStyle`, so only a page could have them; they are
+`CodeStyleSelectorAspects` now, told which `ICodeStylePreferences` they are for.
+The page passes its page-local copy and gets exactly what it had - checked by
+the census report, which still names only the three pre-existing `/Preview`
+lines.
+
+The page names no language. It repeats the form over the container the factories
+filled and shows the one that is current, so there is no list here to fall out
+of date with the factories.
+
+**The control did not bite, and that was the finding.** Misspelling
+`aspects.Forms` left the test green: `undefined` reaches
+`AspectModels.container()` as a null model, a `Repeater` with a null model
+builds nothing, and nothing is assigned to anything, so QML says not one word.
+An empty panel and a passing test.
+
+The fix is to make the name land in a *typed* property:
+
+    readonly property Aspect forms: aspects.Forms
+
+Assigning `undefined` to an `Aspect` fails loudly; assigning it to a `var`, or
+passing it to a function, does not. That is worth knowing wherever a page
+reaches an aspect for anything other than a delegate's `aspect` property - the
+delegates are typed already, which is why every other control here bit first
+time.
+
+**ClangFormat's project block is not ported.** Its selector overrides import
+and export to understand a `.clang-format` file and carries a read-only state
+of its own, and none of it can be compiled or run in a configuration without
+clang-format - only syntax-checked. Rather than guess at a rewrite that cannot
+be tested, C++ gets the default form on that panel and the ClangFormat page
+keeps all of it. Written down as a gap, not as a finish.
+
 ### Language Server: a panel that cannot know what it shows
 
 Sixteen of seventeen. Three of the four things on this panel are ordinary - a
