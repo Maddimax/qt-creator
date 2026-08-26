@@ -157,22 +157,39 @@ static const VcpkgSettingsPage settingsPage;
 
 // --- Project panel -----------------------------------------------------------
 
-class VcpkgSettingsWidget : public QWidget
+// What the panel shows. The flag is kept out of the settings container for the
+// same reason it is everywhere else: a container that turns itself off would
+// turn the flag off with it. See ProjectCommentsPanel.
+class VcpkgProjectPanel final : public AspectContainer
 {
 public:
-    explicit VcpkgSettingsWidget(Project *project)
+    explicit VcpkgProjectPanel(VcpkgProjectSettings *settings)
     {
-        VcpkgProjectSettings * const ps = vcpkgProjectSettings(project);
-        QTC_ASSERT(ps, return);
-        using namespace Layouting;
-        Column {
-            ps->useGlobalSettings,
-            hr,
-            *ps,
-            noMargin,
-        }.attachTo(this);
+        // Before registering: insertAspect() forces the container's own
+        // auto-apply onto what it takes in.
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Vcpkg/VcpkgProjectPanel.qml"));
+
+        settings->useGlobalSettings.setQmlName("UseGlobalSettings");
+        registerAspect(&settings->useGlobalSettings);
+
+        settings->setQmlName("Settings");
+        registerAspect(settings);
     }
+
+    static Utils::Key extraDataKey() { return "VcpkgProjectPanel"; }
 };
+
+static VcpkgProjectPanel *vcpkgProjectPanel(Project *project)
+{
+    const Utils::Key key = VcpkgProjectPanel::extraDataKey();
+    QVariant v = project->extraData(key);
+    if (v.isNull()) {
+        v = QVariant::fromValue(new VcpkgProjectPanel(vcpkgProjectSettings(project)));
+        project->setExtraData(key, v);
+    }
+    return v.value<VcpkgProjectPanel *>();
+}
 
 class VcpkgSettingsPanelFactory final : public ProjectPanelFactory
 {
@@ -181,8 +198,8 @@ public:
     {
         setPriority(120);
         setDisplayName("Vcpkg");
-        setCreateWidgetFunction([](Project *project) {
-            return new VcpkgSettingsWidget(project);
+        setSettingsProvider([](Project *project) {
+            return vcpkgProjectPanel(project);
         });
     }
 };

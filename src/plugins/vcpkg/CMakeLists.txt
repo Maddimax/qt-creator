@@ -26,6 +26,7 @@ if(TARGET Vcpkg AND TARGET Qt::Quick)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      VcpkgProjectPanel.qml
       VcpkgSettingsPage.qml
   )
 endif()
