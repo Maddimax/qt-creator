@@ -38,7 +38,6 @@ enum Control {
     // can say "neither" without a label per state; see Utils::TriStateAspect.
     TriStateCheckBox,
     RadioButton,
-    Toggle,
     LineEdit,
     PasswordLineEdit,
     TextEdit,

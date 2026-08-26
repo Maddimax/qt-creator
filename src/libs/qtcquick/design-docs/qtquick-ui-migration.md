@@ -3216,6 +3216,34 @@ are ordinary aspects, and the one thing that was hard about it now rests on a
 mechanism that is tested. That is worth saying plainly rather than leaving to
 be inferred.
 
+### A control kind nothing could use
+
+`AspectControls::Toggle` was declared, mapped to `Bool` by the Qt Quick model,
+had no case in the widget renderer, and **nothing set it**. An aspect that
+asked for it would have drawn a check box in Qt Quick and nothing at all in
+widgets - the backend that draws every surface except the settings pages. It is
+gone, so asking for it is a compile error rather than a blank row. That is a
+better guard than a test: a control kind that only one backend draws cannot be
+reached by accident if it does not exist.
+
+**Removing it broke every check box in Creator, and the tests said so
+immediately.** The switch read
+
+    case AspectControls::CheckBox:
+    case AspectControls::Toggle:                 return Bool;
+
+so `CheckBox` had no `return` of its own - it fell through to `Toggle`'s.
+Deleting the `Toggle` label deleted the group's answer, and `CheckBox` fell on
+through to the next one instead: every check box became a tri-state. The
+compiler had nothing to say, because an empty fallthrough is exactly what that
+is for.
+
+Eleven QuickUi tests failed and the census named the aspect and the kind it got
+- *"BoolDelegate drew General/ShowShortcutsInContextMenu, which asked for kind
+1"* - which is what turned a confusing 96-second run into a one-line fix. Worth
+keeping in mind when deleting a `case`: **the label you remove may be carrying
+the `return` for the labels above it.**
+
 ### What the census could not see, and now can
 
 Two holes, both found the hard way in the same session.
