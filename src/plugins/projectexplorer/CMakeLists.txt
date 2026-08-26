@@ -232,6 +232,7 @@ if(TARGET ProjectExplorer AND TARGET Qt::Quick)
     NO_PLUGIN
     QML_FILES
       AppOutputSettingsPage.qml
+      BuildAndRunProjectPanel.qml
       BuildAndRunSettingsPage.qml
       BuildPropertiesSettingsPage.qml
       CompileOutputSettingsPage.qml

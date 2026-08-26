@@ -7,6 +7,7 @@
 #include "projectexplorersettings.h"
 #include "projectexplorertr.h"
 #include "projectpanelfactory.h"
+#include "useglobalaspect.h"
 #include "runcontrol.h"
 #include "target.h"
 
@@ -365,6 +366,68 @@ void setupProjectExplorerSettings()
     static ProjectExplorerSettingsPage theProjectExplorerSettingsPage;
 }
 
+// What the panel shows: the flag, Restore Global, and the handful of settings
+// a project may set. The settings container holds every build-and-run setting
+// there is - the global page shows them all - so the form lists the ones a
+// project owns rather than drawing the container.
+class BuildAndRunProjectPanel final : public Utils::AspectContainer
+{
+public:
+    explicit BuildAndRunProjectPanel(Project *project)
+        : m_settings(&project->projectExplorerSettings())
+    {
+        // Before registering: insertAspect() forces the container's own
+        // auto-apply onto what it takes in.
+        setAutoApply(true);
+        setQmlSource(
+            QUrl("qrc:/qt/qml/QtCreator/ProjectExplorer/BuildAndRunProjectPanel.qml"));
+
+        m_useGlobalSettings.setQmlName("UseGlobalSettings");
+        m_useGlobalSettings.setValue(m_settings->isUsingGlobalSettings());
+        registerAspect(&m_useGlobalSettings);
+
+        m_restoreGlobal.setQmlName("RestoreGlobal");
+        m_restoreGlobal.setActionText(Tr::tr("Restore Global"));
+        m_restoreGlobal.setAction([this] { m_settings->resetProjectToGlobalSettings(); });
+        registerAspect(&m_restoreGlobal);
+
+        m_settings->custom().setQmlName("Settings");
+        registerAspect(&m_settings->custom());
+
+        // Behaviour, not layout.
+        updateForUseGlobal();
+        m_useGlobalSettings.addOnChanged(this, [this] {
+            m_settings->setUsingGlobalSettings(m_useGlobalSettings());
+            updateForUseGlobal();
+        });
+    }
+
+    static Utils::Key extraDataKey() { return "BuildAndRunProjectPanel"; }
+
+private:
+    void updateForUseGlobal()
+    {
+        const bool useGlobal = m_useGlobalSettings();
+        m_restoreGlobal.setEnabled(!useGlobal);
+        m_settings->custom().setEnabled(!useGlobal);
+    }
+
+    PerProjectProjectExplorerSettings * const m_settings;
+    UseGlobalAspect m_useGlobalSettings{Constants::BUILD_AND_RUN_SETTINGS_PAGE_ID};
+    Utils::ActionAspect m_restoreGlobal;
+};
+
+static BuildAndRunProjectPanel *buildAndRunProjectPanel(Project *project)
+{
+    const Utils::Key key = BuildAndRunProjectPanel::extraDataKey();
+    QVariant v = project->extraData(key);
+    if (v.isNull()) {
+        v = QVariant::fromValue(new BuildAndRunProjectPanel(project));
+        project->setExtraData(key, v);
+    }
+    return v.value<BuildAndRunProjectPanel *>();
+}
+
 class ProjectExplorerSettingsProjectPanelFactory final : public ProjectPanelFactory
 {
 public:
@@ -373,8 +436,8 @@ public:
         setPriority(10);
         setId("ProjectExplorer.BuildAndRunSettings");
         setDisplayName(Tr::tr("Building and Running"));
-        setCreateWidgetFunction([](Project *project) {
-            return Utils::AspectWidgets::createConfigWidget(&project->projectExplorerSettings());
+        setSettingsProvider([](Project *project) {
+            return buildAndRunProjectPanel(project);
         });
     }
 };
@@ -402,26 +465,9 @@ PerProjectProjectExplorerSettings::PerProjectProjectExplorerSettings(Project *pr
     setGlobalSettings(&globalProjectExplorerSettings(), Constants::BUILD_AND_RUN_SETTINGS_PAGE_ID);
     setId("PESettingsAspect");
     settings->setSettingsKey("PESettings");
-    Utils::AspectWidgets::setLayouter(settings, [settings] {
-        using namespace Layouting;
-        return Column {
-            settings->addLibraryPathsToRunEnv,
-            settings->automaticallyCreateRunConfigurations,
-            settings->lowBuildPriority,
-            settings->warnAgainstNonAsciiBuildDir,
-
-            Form {
-                settings->terminalMode, br,
-                settings->syncRunConfigurations, br,
-                settings->reaperTimeoutInSeconds, st, br,
-            },
-            st,
-        };
-    });
     setDisplayName(Tr::tr("Building and Running"));
     setUsingGlobalSettings(true);
     resetProjectToGlobalSettings();
-    setConfigWidgetCreator([this] { return createGlobalOrProjectAspectWidget(this); });
 
     const auto save = [this, project] {
         Store map;
