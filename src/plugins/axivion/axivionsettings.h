@@ -99,4 +99,9 @@ AxivionSettings &settings();
 QString credentialKey(const AxivionServer &server);
 bool handleMissingPathMapping(const Utils::FilePath &missingPath, const QString &projectName);
 
+
+#ifdef WITH_TESTS
+QObject *createAxivionPathMappingFormTest();
+#endif
+
 } // Axivion::Internal

@@ -32,6 +32,7 @@ if(TARGET Axivion)
     NO_PLUGIN
     QML_FILES
       AxivionSettingsPage.qml
+      PathMappingForm.qml
   )
 endif()
 

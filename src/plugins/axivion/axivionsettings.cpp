@@ -6,6 +6,10 @@
 #include "axivionplugin.h"
 #include "axiviontr.h"
 
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
 #include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/credentialquery.h>
 #include <coreplugin/icore.h>
@@ -14,7 +18,6 @@
 #include <projectexplorer/projectmanager.h>
 #include <QtTaskTree/QTaskTree>
 
-#include <utils/aspectwidgets.h>
 #include <utils/filedialogs.h>
 #include <utils/algorithm.h>
 #include <utils/fileutils.h>
@@ -593,6 +596,10 @@ class PathMappingDetails : public AspectContainer
 public:
     PathMappingDetails()
     {
+        m_projectName.setQmlName("ProjectName");
+        m_analysisPath.setQmlName("AnalysisPath");
+        m_localPath.setQmlName("LocalPath");
+
         m_projectName.setLabelText(Tr::tr("Project name:"));
         m_projectName.setDisplayStyle(StringAspect::LineEditDisplay);
         m_projectName.setValidationFunction([](const QString &text) -> Result<> {
@@ -623,14 +630,7 @@ public:
         m_localPath.setToolTip(Tr::tr("Local directory path corresponding to the analysis path."));
         m_localPath.setShowToolTipOnLabel(true);
 
-        using namespace Layouting;
-        Utils::AspectWidgets::setLayouter(this, [this] {
-            return Form {
-                        &m_projectName, br,
-                        &m_analysisPath, br,
-                        &m_localPath,
-                        noMargin};
-        });
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Axivion/PathMappingForm.qml"));
 
         m_projectName.addOnVolatileValueChanged(this, markSettingsDirty);
         m_analysisPath.addOnVolatileValueChanged(this, markSettingsDirty);
@@ -916,7 +916,8 @@ static PathMapping showPathMappingsDialog(const PathMapping &suggested)
     auto mappingWidget = new QWidget(&dialog);
     PathMappingDetails details;
     details.updateContent(suggested);
-    Utils::AspectWidgets::layouter(&details)().attachTo(mappingWidget);
+    Layouting::Column{Core::createAspectForm(&details), Layouting::noMargin}
+        .attachTo(mappingWidget);
 
     ok->setEnabled(suggested.isValid()
                    && suggested.localPath.resolvePath(suggested.analysisPath).exists());
@@ -1048,4 +1049,63 @@ public:
 
 const AxivionSettingsPage generalSettingsPage;
 
+#ifdef WITH_TESTS
+
+// The dialog that asks for a missing path mapping draws PathMappingDetails
+// through its form. Nothing else renders that form - the settings page draws
+// list items generically - so this is what says the form's names still match
+// the aspects'.
+class AxivionPathMappingFormTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheFormDrawsEveryFieldOfAMapping()
+    {
+        PathMappingDetails details;
+        details.updateContent(
+            PathMapping{"a-project", FilePath::fromUserInput("/analysis"), FilePath("/local")});
+
+        // A name the form gets wrong is not a load error - the page still
+        // builds - so the evidence is the diagnostic. QML reports an
+        // unresolved aspects.Foo as an assignment of undefined.
+        static QStringList messages;
+        messages.clear();
+        QtMessageHandler previous = qInstallMessageHandler(
+            [](QtMsgType, const QMessageLogContext &, const QString &text) {
+                messages.append(text);
+            });
+        const std::unique_ptr<QWidget> form(Core::createAspectForm(&details));
+        qInstallMessageHandler(previous);
+
+        QVERIFY(form);
+        const QStringList unresolved = Utils::filtered(messages, [](const QString &text) {
+            return text.contains("Unable to assign");
+        });
+        QVERIFY2(unresolved.isEmpty(), qPrintable(unresolved.join("; ")));
+
+        // And it was Qt Quick that drew it, asked through the metaobject
+        // rather than by making Axivion link Qt Quick for a test.
+        QWidget *quick = nullptr;
+        for (QWidget *child : form->findChildren<QWidget *>()) {
+            if (qstrcmp(child->metaObject()->className(), "QQuickWidget") == 0)
+                quick = child;
+        }
+        QVERIFY2(quick, "the mapping was not drawn with Qt Quick");
+        constexpr int quickWidgetReady = 1; // QQuickWidget::Ready
+        QCOMPARE(quick->property("status").toInt(), quickWidgetReady);
+    }
+};
+
+QObject *createAxivionPathMappingFormTest()
+{
+    return new AxivionPathMappingFormTest;
+}
+
+#endif // WITH_TESTS
+
 } // Axivion::Internal
+
+#ifdef WITH_TESTS
+#include "axivionsettings.moc"
+#endif

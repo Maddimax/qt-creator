@@ -1352,6 +1352,10 @@ class AxivionPlugin final : public ExtensionSystem::IPlugin
 
     void initialize() final
     {
+#ifdef WITH_TESTS
+        addTestCreator(createAxivionPathMappingFormTest);
+#endif
+
         IOptionsPage::registerCategory(
             "XY.Axivion", Tr::tr("Axivion"), ":/axivion/images/axivion.png");
 

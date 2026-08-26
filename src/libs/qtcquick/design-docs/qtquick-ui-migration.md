@@ -5473,6 +5473,40 @@ the assertion is about the content and a fixed default cannot satisfy it.
 Making the helper ignore its argument fails it with "a form of four rows asks
 for 68, one of two for 68".
 
+## Axivion's path mapping, and a plugin that had no tests
+
+`PathMappingDetails` is drawn in two places, and only one of them was using its
+layouter. On the settings page it is an `AspectList` item, and
+`AspectListDelegate` loads `AspectItems.qml` over the item's model - it never
+consults `qmlSource()`, only `createAspectForm()` does. So the closure existed
+for exactly one caller: the modal that asks for a missing mapping.
+
+That made the port contained. The container names a form now, the dialog asks
+`Core::createAspectForm()` instead of reaching for the layouter, and the page is
+untouched - the census still renders 107 of 107.
+
+**The aspects had no names.** Being list items, they carry no settings keys, and
+`qmlName()` falls back to the last segment of the key - so all three answered
+"". A form could not have addressed them. `setQmlName()` on each is additive:
+the item pane draws by model role, not by name.
+
+**Axivion had no tests at all**, and this form is reachable from no other one:
+the census only walks pages, and nothing else renders it. So the plugin has a
+test hook now, and one test.
+
+Getting it to assert anything was the interesting part. The obvious check -
+count the delegates that got an aspect - cannot be written here, because the
+QML items are children of the `QQuickWidget`'s offscreen window rather than of
+the widget, so `findChildren()` does not reach them, and reaching them properly
+would mean making Axivion link Qt Quick for a test. It does not need to: a name
+the form gets wrong is not a load error, it is a *diagnostic*, so the test
+collects messages around `createAspectForm()` and asserts that none says
+`Unable to assign`. Renaming one `qmlName()` fails it with the file and line.
+
+That is the same shape as the code style page test earlier on this branch: ask
+the metaobject for `QQuickWidget::status` rather than linking Qt Quick, and
+assert the diagnostic when the outcome is invisible.
+
 ## The same measurement, applied to kits
 
 Re-running the `layouter()` instrumentation with the device closures gone leaves
