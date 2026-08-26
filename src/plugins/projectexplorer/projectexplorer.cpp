@@ -907,6 +907,7 @@ Result<> ProjectExplorerPlugin::initialize(const QStringList &arguments)
     addTestCreator(createCustomParserTest);
     addTestCreator(createCustomParsersPageTest);
     addTestCreator(createDesktopDeviceTest);
+    addTestCreator(createArgumentsAspectTest);
     addTestCreator(createWorkingDirectoryAspectTest);
     addTestCreator(createDeviceManagerTest);
     addTestCreator(createGccParserTest);

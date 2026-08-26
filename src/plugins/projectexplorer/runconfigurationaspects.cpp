@@ -35,8 +35,6 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QFormLayout>
-#include <QPlainTextEdit>
-#include <QToolButton>
 #include <QPushButton>
 
 using namespace Utils;
@@ -288,14 +286,54 @@ void WorkingDirectoryAspect::setDefaultWorkingDirectory(const FilePath &defaultW
 */
 
 ArgumentsAspect::ArgumentsAspect(AspectContainer *container)
-    : BaseAspect(container)
+    : AspectContainer(container)
 {
     setDisplayName(Tr::tr("Arguments"));
     setLabelText(Tr::tr("Command line arguments:"));
     setId("ArgumentsAspect");
     setSettingsKey("RunConfiguration.Arguments");
+    // A field and its buttons are one row.
+    setInlineRow(true);
 
     addDataExtractor(this, &ArgumentsAspect::arguments, &Data::arguments);
+
+    oneLine.setDisplayStyle(StringAspect::LineEditDisplay);
+    oneLine.setHistoryCompleter(settingsKey());
+    manyLines.setDisplayStyle(StringAspect::TextEditDisplay);
+    manyLines.setVisible(false);
+
+    for (StringAspect * const field : {&oneLine, &manyLines}) {
+        field->addOnVolatileValueChanged(this, [this, field] {
+            if (!m_showing)
+                setArguments(field->volatileValue());
+        });
+    }
+
+    expand.setActionIcon(Icons::EXPAND.icon());
+    expand.setToolTip(Tr::tr("Toggle multi-line mode."));
+    expand.setAction([this] {
+        m_multiLine = !m_multiLine;
+        showArguments();
+    });
+
+    // Only where a run configuration knows what the arguments ought to be.
+    reset.setActionIcon(Icons::RESET.icon());
+    reset.setToolTip(Tr::tr("Reset to Default"));
+    reset.setVisible(false);
+    reset.setAction([this] { resetArguments(); });
+
+    showArguments();
+}
+
+void ArgumentsAspect::showArguments()
+{
+    m_showing = true;
+    oneLine.setVolatileValue(m_arguments);
+    manyLines.setVolatileValue(m_arguments);
+    oneLine.setVisible(!m_multiLine);
+    manyLines.setVisible(m_multiLine);
+    expand.setActionIcon(m_multiLine ? Icons::COLLAPSE.icon() : Icons::EXPAND.icon());
+    m_showing = false;
 }
 
 /*!
@@ -335,10 +373,8 @@ void ArgumentsAspect::setArguments(const QString &arguments)
         m_arguments = arguments;
         emit changed();
     }
-    if (m_chooser && m_chooser->text() != arguments)
-        m_chooser->setText(arguments);
-    if (m_multiLineChooser && m_multiLineChooser->toPlainText() != arguments)
-        m_multiLineChooser->setPlainText(arguments);
+    if (!m_showing)
+        showArguments();
 }
 
 /*!
@@ -348,6 +384,8 @@ void ArgumentsAspect::setArguments(const QString &arguments)
 void ArgumentsAspect::setResetter(const std::function<QString()> &resetter)
 {
     m_resetter = resetter;
+    // No way back to a default nobody named.
+    reset.setVisible(bool(m_resetter));
 }
 
 /*!
@@ -375,12 +413,7 @@ void ArgumentsAspect::fromMap(const Store &map)
 
     m_multiLine = map.value(settingsKey() + ".multi", false).toBool();
 
-    if (m_multiLineButton)
-        m_multiLineButton->setChecked(m_multiLine);
-    if (!m_multiLine && m_chooser)
-        m_chooser->setText(m_arguments);
-    if (m_multiLine && m_multiLineChooser)
-        m_multiLineChooser->setPlainText(m_arguments);
+    showArguments();
 }
 
 /*!
@@ -392,90 +425,10 @@ void ArgumentsAspect::toMap(Store &map) const
     saveToMap(map, m_multiLine, false, settingsKey() + ".multi");
 }
 
-/*!
-    \internal
-*/
-QWidget *ArgumentsAspect::setupChooser()
-{
-    if (m_multiLine) {
-        if (!m_multiLineChooser) {
-            m_multiLineChooser = new QPlainTextEdit;
-            connect(m_multiLineChooser.data(), &QPlainTextEdit::textChanged,
-                    this, [this] { setArguments(m_multiLineChooser->toPlainText()); });
-        }
-        m_multiLineChooser->setPlainText(m_arguments);
-        m_multiLineChooser->setReadOnly(isReadOnly());
-        return m_multiLineChooser.data();
-    }
-    if (!m_chooser) {
-        m_chooser = new FancyLineEdit;
-        m_chooser->setHistoryCompleter(settingsKey());
-        connect(m_chooser.data(), &QLineEdit::textChanged, this, &ArgumentsAspect::setArguments);
-    }
-    m_chooser->setText(m_arguments);
-    m_chooser->setReadOnly(isReadOnly());
-
-    return m_chooser.data();
-}
-
-/*!
-    \reimp
-*/
-void ArgumentsAspect::addToLayoutImpl(Layout &builder)
-{
-    QTC_CHECK(!m_chooser && !m_multiLineChooser && !m_multiLineButton);
-
-    const auto container = new QWidget;
-    const auto containerLayout = new QHBoxLayout(container);
-    containerLayout->setContentsMargins(0, 0, 0, 0);
-    containerLayout->addWidget(setupChooser());
-    m_multiLineButton = new ExpandButton;
-    m_multiLineButton->setToolTip(Tr::tr("Toggle multi-line mode."));
-    m_multiLineButton->setChecked(m_multiLine);
-    connect(m_multiLineButton, &QCheckBox::clicked, this, [this](bool checked) {
-        if (m_multiLine == checked)
-            return;
-        m_multiLine = checked;
-        setupChooser();
-        QWidget *oldWidget = nullptr;
-        QWidget *newWidget = nullptr;
-        if (m_multiLine) {
-            oldWidget = m_chooser.data();
-            newWidget = m_multiLineChooser.data();
-        } else {
-            oldWidget = m_multiLineChooser.data();
-            newWidget = m_chooser.data();
-        }
-        QTC_ASSERT(!oldWidget == !newWidget, return);
-        if (oldWidget) {
-            QTC_ASSERT(oldWidget->parentWidget()->layout(), return);
-            oldWidget->parentWidget()->layout()->replaceWidget(oldWidget, newWidget);
-            delete oldWidget;
-        }
-    });
-    containerLayout->addWidget(m_multiLineButton);
-    containerLayout->setAlignment(m_multiLineButton, Qt::AlignTop);
-
-    if (m_resetter) {
-        m_resetButton = new QToolButton;
-        m_resetButton->setToolTip(Tr::tr("Reset to Default"));
-        m_resetButton->setIcon(Icons::RESET.icon());
-        connect(m_resetButton.data(), &QAbstractButton::clicked,
-                this, &ArgumentsAspect::resetArguments);
-        containerLayout->addWidget(m_resetButton);
-        containerLayout->setAlignment(m_resetButton, Qt::AlignTop);
-    }
-    Utils::AspectWidgets::registerSubWidget(this, container);
-
-    Utils::AspectWidgets::addLabeledItem(this, builder, container);
-}
-
 void ArgumentsAspect::setFocusToInputField()
 {
-    if (m_chooser)
-        m_chooser->setFocus();
-    else if (m_multiLineChooser)
-        m_multiLineChooser->setFocus();
+    // Whichever one is on screen.
+    (m_multiLine ? manyLines : oneLine).setFocusToInputField();
 }
 
 /*!
@@ -1140,6 +1093,63 @@ private slots:
         QCOMPARE(untouched.unexpandedWorkingDirectory(), FilePath::fromUserInput("/default"));
     }
 };
+
+class ArgumentsAspectTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testBothFieldsHoldTheArgumentsAndOnlyOneIsShown()
+    {
+        // The row swapped one editor for the other in place, deleting the one
+        // it swapped out. Both exist now and one is hidden, which is the same
+        // thing to look at and a great deal less to go wrong.
+        ArgumentsAspect args;
+        args.setArguments("-v --input file.txt");
+
+        QVERIFY(args.oneLine.isVisible());
+        QVERIFY(!args.manyLines.isVisible());
+        QCOMPARE(args.oneLine.volatileValue(), args.unexpandedArguments());
+        QCOMPARE(args.manyLines.volatileValue(), args.unexpandedArguments());
+
+        // Expanding shows the other one. What is typed does not move, because
+        // it was never only in the one on screen.
+        args.expand.triggerAction();
+        QVERIFY(!args.oneLine.isVisible());
+        QVERIFY(args.manyLines.isVisible());
+        QCOMPARE(args.manyLines.volatileValue(), QString("-v --input file.txt"));
+
+        // And typing in whichever is shown is what the aspect holds.
+        args.manyLines.setVolatileValue("-q");
+        QCOMPARE(args.unexpandedArguments(), QString("-q"));
+        QCOMPARE(args.oneLine.volatileValue(), QString("-q"));
+
+        args.expand.triggerAction();
+        QVERIFY(args.oneLine.isVisible());
+    }
+
+    void testTheWayBackIsOnlyOfferedWhereThereIsOne()
+    {
+        // Most run configurations cannot say what the arguments ought to be,
+        // and a button that resets to nothing in particular is worse than no
+        // button.
+        ArgumentsAspect args;
+        QVERIFY(!args.reset.isVisible());
+
+        args.setResetter([] { return QString("--from-the-project"); });
+        QVERIFY(args.reset.isVisible());
+
+        args.setArguments("-v");
+        args.reset.triggerAction();
+        QCOMPARE(args.unexpandedArguments(), QString("--from-the-project"));
+        QCOMPARE(args.oneLine.volatileValue(), QString("--from-the-project"));
+    }
+};
+
+QObject *createArgumentsAspectTest()
+{
+    return new ArgumentsAspectTest;
+}
 
 QObject *createWorkingDirectoryAspectTest()
 {

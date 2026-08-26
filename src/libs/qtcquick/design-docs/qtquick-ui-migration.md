@@ -2165,8 +2165,9 @@ installs a message handler and asserts nothing says SOFT ASSERT. The first
 version of it passed against a build with the guard removed, which is the only
 reason it was rewritten.
 
-**What this does not do.** The virtual has to stay: two aspects in
-`src/plugins` still override it. Utils has none left. They are not one
+**What this does not do.** The virtual has to stay: one aspect in
+`src/plugins` still overrides it - `DockerDeviceEnvironmentAspect`, which wants
+an environment editor over a fetched base. Utils has none left. They are not one
 group. Most are run-configuration, build-step and kit aspects - project
 panels rather than preferences pages, which is a surface the migration has not
 reached. There were six more on pages that *have* been migrated,
@@ -3284,6 +3285,45 @@ compiler-explorer.com. What it pins is worth having: a version is *stored* by
 its id and *shown* by its name, and a version the server no longer offers is
 shown as the id rather than dropped - so what is stored stays visible. Both
 controls bite, along with one for the fill-on-draw.
+
+### One field or two, and a stretch that turned out to be innocent
+
+`ArgumentsAspect` was the one I had twice written down as needing a mechanism
+neither backend has: a control that **changes kind at runtime**, from a line
+edit to a multi-line editor and back. That was true of the closure, which built
+one editor, and on the expand button deleted it and put the other in its place
+with `QLayout::replaceWidget()`.
+
+It is not true of the setting. Both editors can exist and one can be hidden -
+`aHiddenAspectIsStillBuilt()` established that a hidden aspect's control is
+built and can be shown later, and both backends honour it. So the row is four
+aspects: a line edit, a text edit, the button that swaps which is shown, and -
+where a run configuration knows what the arguments ought to be - the button
+that puts them back. Both editors hold the arguments at all times, so swapping
+moves nothing.
+
+The value never moved either: `ArgumentsAspect` was a `BaseAspect` with its own
+`QString` and hand-written `fromMap()`/`toMap()`, so becoming an
+`AspectContainer` cost nothing. That is the same trade `ExecutableAspect` and
+`IosDeviceTypeAspect` made, and the opposite of `LibrarySelectionAspect`, whose
+value lives in `TypedAspect` and could not be moved cheaply.
+
+The expand button is an `ActionAspect` with an icon that flips between
+`Icons::EXPAND` and `Icons::COLLAPSE`, rather than the `ExpandButton` the
+closure built. `AspectControls::Toggle` would have been the honest control for
+it - a two-state button - which is exactly the value that was removed for being
+drawn by only one backend. An icon that reports the state is what is left, and
+it is what the row looked like anyway.
+
+**A stretch I was wrong about.** `setInlineRow()` puts a stretch after the
+controls, and an arguments field must fill its row, so I expected the stretch
+to squash it and was ready to make it conditional. Ten lines of throwaway code
+said otherwise: with the widget resized and the layout activated, the field
+takes 640 and the stretch takes 0 - Qt gives an `Expanding` widget the space
+before a stretch item. Nothing needed fixing, and the rows converted before
+this one - the ABI row, the terminal command, the iOS simulator, the kit rows -
+were never squashed either. **Measuring took less time than the argument I was
+about to have with myself.**
 
 ### What the census could not see, and now can
 

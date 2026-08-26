@@ -13,11 +13,8 @@
 QT_BEGIN_NAMESPACE
 class QCheckBox;
 class QComboBox;
-class QPlainTextEdit;
-class QToolButton;
 QT_END_NAMESPACE
 
-namespace Utils { class ExpandButton; }
 
 namespace ProjectExplorer {
 
@@ -94,15 +91,24 @@ private:
     EnvironmentAspect *m_envAspect = nullptr;
 };
 
-class PROJECTEXPLORER_EXPORT ArgumentsAspect : public Utils::BaseAspect
+// The arguments, and the two ways of typing them. One row: a field, the button
+// that swaps it for a taller one, and - where a run configuration knows what
+// the arguments should be - the button that puts them back.
+class PROJECTEXPLORER_EXPORT ArgumentsAspect : public Utils::AspectContainer
 {
     Q_OBJECT
 
 public:
     explicit ArgumentsAspect(Utils::AspectContainer *container = nullptr);
 
-    void addToLayoutImpl(Layouting::Layout &parent) override;
     void setFocusToInputField();
+
+    // Only one is shown at a time; both hold the same arguments, so which one
+    // is on screen is a matter of how much room the user wants.
+    Utils::StringAspect oneLine{this};
+    Utils::StringAspect manyLines{this};
+    Utils::ActionAspect expand{this};
+    Utils::ActionAspect reset{this};
 
     QString operator()() const { return arguments(); }
     QString arguments() const;
@@ -121,15 +127,15 @@ private:
     void fromMap(const Utils::Store &map) override;
     void toMap(Utils::Store &map) const override;
 
-    QWidget *setupChooser();
+    // Puts the arguments in both fields and shows the one that is wanted.
+    void showArguments();
 
     QString m_arguments;
-    QPointer<Utils::FancyLineEdit> m_chooser;
-    QPointer<QPlainTextEdit> m_multiLineChooser;
-    QPointer<Utils::ExpandButton> m_multiLineButton;
-    QPointer<QToolButton> m_resetButton;
     bool m_multiLine = false;
     mutable bool m_currentlyExpanding = false;
+    // Set while the fields are being written, so that what they emit on the
+    // way is not read back as something the user typed.
+    bool m_showing = false;
     std::function<QString()> m_resetter;
 };
 
@@ -332,6 +338,7 @@ public:
 };
 
 #ifdef WITH_TESTS
+QObject *createArgumentsAspectTest();
 QObject *createWorkingDirectoryAspectTest();
 #endif
 
