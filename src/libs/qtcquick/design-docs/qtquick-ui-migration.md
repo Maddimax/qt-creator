@@ -3480,6 +3480,35 @@ It is worth writing down because the command every batch used says
 migration. No plugin anywhere in `src` uses an API this work removed; that was
 checked by grep rather than assumed.
 
+### Language Server: a panel that cannot know what it shows
+
+Sixteen of seventeen. Three of the four things on this panel are ordinary - a
+link to the global page, a combo per language server that needs a project, and
+the workspace JSON. The fourth is not: any client may add settings of its own,
+so the page cannot name them.
+
+The extension point was `attachProjectSpecificSettingsToLayout(Project *,
+QLayout *)` - a client drew into the panel. It hands over a container now:
+
+    virtual Utils::AspectContainer *projectSpecificSettings(Project *)
+
+which is the change made everywhere else on this branch, arriving at the one
+place where it is not a convenience but the only way the panel can work at all.
+`QmllsClientSettings` is the sole implementer, and it was already building an
+`AspectContainer` to draw from - it returns it, with the group's title as its
+`labelText`.
+
+The panel puts what it is given into one container with `setFlattened(true)`
+and draws that with `FlattenedGroupDelegate`: each contributed container keeps
+its own title, and there is no box around the lot. So the page lists three
+aspects by name and one from the model, which is what "does not know what it
+shows" looks like in practice.
+
+The JSON keeps its highlighting without anything new: `SnippetEditor` is
+already "a string aspect edited as code", and a workspace configuration is
+that. It is imported across modules the way the Editor panel imports the
+TextEditor forms.
+
 ### Project Environment: two surfaces, and a dialog that stays a dialog
 
 Fifteen of seventeen. This was the largest panel and the first done under a
