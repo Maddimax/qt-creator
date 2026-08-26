@@ -476,7 +476,18 @@ void CodeStyleSelectorAspects::setup(AspectContainer *container, ICodeStylePrefe
     const auto refresh = [this] { refill(); updateState(); };
     if (CodeStylePool *pool = m_codeStyle->delegatingPool()) {
         QObject::connect(pool, &CodeStylePool::codeStyleAdded, container, refresh);
-        QObject::connect(pool, &CodeStylePool::codeStyleRemoved, container, refresh);
+        // Not the same handler: a style is announced as removed from inside
+        // ~ICodeStylePreferences, before the pool has dropped it, so the list
+        // still holds an object whose destructor is running. Reading it is a
+        // heap overflow - and if it is the style being edited, there is nothing
+        // left to refill from at all.
+        QObject::connect(pool, &CodeStylePool::codeStyleRemoved, container,
+                         [this](ICodeStylePreferences *leaving) {
+                             if (leaving == m_codeStyle)
+                                 return;
+                             refill(leaving);
+                             updateState();
+                         });
     }
     QObject::connect(m_codeStyle, &ICodeStylePreferences::currentDelegateChanged,
                      container, refresh);
@@ -496,8 +507,11 @@ void CodeStyleSelectorAspects::setVisible(bool visible)
         updateState();
 }
 
-void CodeStyleSelectorAspects::refill()
+void CodeStyleSelectorAspects::refill(const ICodeStylePreferences *leaving)
 {
+    if (!m_codeStyle)
+        return;
+
     if (!m_style)
         return;
 
@@ -515,6 +529,8 @@ void CodeStyleSelectorAspects::refill()
             // shared styles - one project's own are not another's to pick.
             if (style == m_codeStyle || style->id() == m_codeStyle->id())
                 continue;
+            if (style == leaving)
+                continue;
             if (!style->project().isEmpty())
                 continue;
             m_selectable.append(style);
@@ -527,6 +543,9 @@ void CodeStyleSelectorAspects::refill()
 
 void CodeStyleSelectorAspects::updateState()
 {
+    if (!m_codeStyle)
+        return;
+
     if (!m_style)
         return;
 

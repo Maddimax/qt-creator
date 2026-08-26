@@ -129,7 +129,10 @@ class TEXTEDITOR_EXPORT CodeStyleSelectorAspects
 {
 public:
     void setup(Utils::AspectContainer *container, ICodeStylePreferences *codeStyle);
-    void refill();
+    // \a leaving is a style the pool is announcing on its way out. The pool
+    // emits that from inside ~ICodeStylePreferences and before dropping it
+    // from its own list, so it is still listed and already half destroyed.
+    void refill(const ICodeStylePreferences *leaving = nullptr);
     void updateState();
     // Shown or hidden as a unit: where something else is in charge of the
     // style - ClangFormat reading a .clang-format file - there is nothing to
@@ -137,7 +140,11 @@ public:
     void setVisible(bool visible);
 
 private:
-    ICodeStylePreferences *m_codeStyle = nullptr;
+    // Guarded: the style can be destroyed while the container these aspects
+    // live on is still alive - a code style factory outlives no one in
+    // particular - and the pool then announces *another* style's removal, which
+    // brings us back in here with nothing to read.
+    QPointer<ICodeStylePreferences> m_codeStyle;
     Utils::SelectionAspect *m_style = nullptr;
     Utils::ActionAspect *m_copy = nullptr;
     Utils::ActionAspect *m_remove = nullptr;

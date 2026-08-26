@@ -5215,6 +5215,42 @@ exactly that shape, so it went there rather than into a new seam.
 If a fourth arrives that fits none of these, that is the point to reconsider a
 single "host services" object, rather than at the third.
 
+## A shutdown crash the fixed Apply uncovered
+
+Running the whole suite plugin by plugin - which twenty-odd commits touching
+`ioptionspage.cpp`, `TableDelegate.qml` and `aspectpresentation.h` had earned -
+found ProjectExplorer aborting under AddressSanitizer at **exit code 134**, in
+code reached from the code style selector.
+
+It is a shutdown race, and it took two goes to see properly.
+
+    ~CppCodeStylePreferencesFactory
+      ~ICodeStylePreferences
+        CodeStylePool::detachCodeStyle(this)
+          emit codeStyleRemoved(this)        <- still in the pool's own list
+            CodeStyleSelectorAspects::refill()
+              m_codeStyle->delegatingPool()  <- half destroyed
+
+`detachCodeStyle()` emits **before** dropping the style from its list, so a
+handler sees a list that still contains an object whose destructor is running.
+The first fix - ignore the signal when the style being removed is the one being
+edited, and skip it while walking the pool - turned the heap-buffer-overflow
+into a heap-use-after-free at the same line, which is the more useful error: the
+style being edited was *already gone*, and a different style's removal was
+bringing us back in.
+
+So the real shape is that **the style outlives nothing in particular**. It can
+be destroyed while the container the aspects live on is still alive, which is
+why scoping the connections to the container did not help. `m_codeStyle` is a
+`QPointer` now and the two entry points return early when it is null.
+
+**What made this reachable.** `CodeStyleAspect::apply()` never ran before the
+Apply fix earlier in this plan - `IOptionsPageWidget::apply()` soft-asserted and
+returned - so the selector was never refilled at the point where this bites.
+Fixing Apply did not introduce the bug; it stopped hiding it. That is the
+ordinary shape of a latent crash behind dead code, and the reason for running
+the whole suite rather than the two plugins being worked on.
+
 ## Qt Quick is required, so nothing branches on it
 
 Qt Quick used to be an `OPTIONAL_COMPONENT`, and everything added for the editor
