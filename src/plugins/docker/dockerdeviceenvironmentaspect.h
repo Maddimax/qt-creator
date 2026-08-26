@@ -15,7 +15,11 @@ class DOCKER_EXPORT DockerDeviceEnvironmentAspect : public Utils::EnvironmentCha
 public:
     DockerDeviceEnvironmentAspect(Utils::AspectContainer *parent);
 
-    void addToLayoutImpl(Layouting::Layout &parent) override;
+    // A summary of the changes and the dialog that edits them, which is what
+    // EnvironmentChangesAspect already asks for. The dialog is this one's own:
+    // a device's environment is edited against the one fetched from it, and
+    // the plain changes dialog has nothing to show that against.
+    void triggerAction() override;
 
     void setRemoteEnvironment(const Utils::Environment &env);
     bool isRemoteEnvironmentSet() const { return m_remoteEnvironment.has_value(); }

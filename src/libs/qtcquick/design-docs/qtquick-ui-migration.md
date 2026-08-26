@@ -2165,9 +2165,11 @@ installs a message handler and asserts nothing says SOFT ASSERT. The first
 version of it passed against a build with the guard removed, which is the only
 reason it was rewritten.
 
-**What this does not do.** The virtual has to stay: one aspect in
-`src/plugins` still overrides it - `DockerDeviceEnvironmentAspect`, which wants
-an environment editor over a fetched base. Utils has none left. They are not one
+**What this does not do - and now does.** The virtual was kept because aspects
+still overrode it. None do: `grep -rn "addToLayoutImpl.*override" src tests`
+returns nothing. Every control in every settings page, project panel, build
+step, device configuration and run configuration is drawn from its descriptor
+by one of the two renderers. They are not one
 group. Most are run-configuration, build-step and kit aspects - project
 panels rather than preferences pages, which is a surface the migration has not
 reached. There were six more on pages that *have* been migrated,
@@ -3364,6 +3366,48 @@ The lesson is not about focus. It is that **"known flaky" is a claim with a
 failure rate attached**, and one that fails 100% of the time is a different
 thing wearing the same label. Re-deriving it cost ten minutes at the end; it
 could have cost ten minutes at the start.
+
+### The last two, and a grep that had been lying
+
+**`DockerDeviceEnvironmentAspect` is done, and the route was one I had twice
+described wrongly.** I had said it needed a new control kind, because
+`EnvironmentWidget` lives in ProjectExplorer and the renderer lives in Utils.
+Both true, and both beside the point: the aspect does not have to be drawn by
+the renderer at all. `EnvironmentChangesAspect` already describes itself as
+`TextWithAction`, and the docker plugin already depends on ProjectExplorer - so
+Docker inherits the summary and the button, and overrides only
+`triggerAction()` to open a dialog holding the `EnvironmentWidget` it always
+built. No new control, no change to Utils, and the base environment is still
+shown against the changes, which was the whole objection to the plain changes
+dialog.
+
+The environment table moves from the device page into that dialog. That is the
+sixth aspect to make the same move, and it is what "a value edited elsewhere"
+looks like here.
+
+**`WebBrowserSelectionAspect` was the last one, and I did not know it existed.**
+Every count in this document, for the whole migration, came from
+
+    grep -rn "void .*::addToLayoutImpl" src/plugins --include=*.cpp
+
+which matches an out-of-line definition and **silently misses a body written
+inside the class**. WebAssembly's browser picker was one, so every "N closures
+left" reported here was one short. It was also already three quarters converted
+- `presentation()` said `ComboBox` and listed the browsers - and needed only
+`valueIsChoiceId` and the two variant accessors, which is the shape
+`comboBoxForAnAspectValuedByChoiceId()` has covered generically for months.
+
+The count to trust is
+
+    grep -rn "addToLayoutImpl.*override" src tests --include=*.cpp --include=*.h
+
+and it now returns nothing. **No aspect in Qt Creator builds its own widgets.**
+
+**What the miss is worth remembering for.** The grep was written once, early,
+and every subsequent count trusted it without re-deriving what it could not
+see. It was checked the moment a number mattered - "zero" is a claim worth
+testing where "seven" was not - which is exactly backwards: a measurement is
+easiest to check while it is still routine.
 
 ### What the census could not see, and now can
 

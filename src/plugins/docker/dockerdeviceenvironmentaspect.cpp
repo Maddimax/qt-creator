@@ -9,9 +9,11 @@
 #include <projectexplorer/environmentaspectwidget.h>
 #include <projectexplorer/environmentwidget.h>
 
-#include <utils/aspectwidgets.h>
+#include <utils/guiutils.h>
 #include <utils/layoutbuilder.h>
 
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QStandardItem>
@@ -28,7 +30,7 @@ DockerDeviceEnvironmentAspect::DockerDeviceEnvironmentAspect(Utils::AspectContai
     : EnvironmentChangesAspect(parent)
 {}
 
-void DockerDeviceEnvironmentAspect::addToLayoutImpl(Layouting::Layout &parent)
+void DockerDeviceEnvironmentAspect::triggerAction()
 {
     undoable.setSilently(value());
 
@@ -45,18 +47,19 @@ void DockerDeviceEnvironmentAspect::addToLayoutImpl(Layouting::Layout &parent)
     }.emerge();
     // clang-format on
 
+    // The whole point of this dialog rather than the plain one: a device's
+    // environment is what was fetched from it, with the user's changes on top,
+    // and only this widget can show one against the other.
     auto envWidget = new EnvironmentWidget(nullptr, EnvironmentWidget::Type::TypeRemote, fetchBtn);
     envWidget->setOpenTerminalFunc(nullptr);
     envWidget->setChanges(undoable.get());
     envWidget->setupDirtyHooks();
 
-    connect(
-        this, &DockerDeviceEnvironmentAspect::remoteEnvironmentChanged, envWidget, [this, envWidget] {
-            if (m_remoteEnvironment)
-                envWidget->setBaseEnvironment(*m_remoteEnvironment);
-            else
-                envWidget->setBaseEnvironment(Environment());
-        });
+    const auto showBase = [this, envWidget] {
+        envWidget->setBaseEnvironment(m_remoteEnvironment.value_or(Environment()));
+    };
+    connect(this, &DockerDeviceEnvironmentAspect::remoteEnvironmentChanged, envWidget, showBase);
+    showBase();
 
     connect(&undoable.m_signal, &UndoSignaller::changed, envWidget, [this, envWidget] {
         if (envWidget->changes() != undoable.get()) {
@@ -68,13 +71,17 @@ void DockerDeviceEnvironmentAspect::addToLayoutImpl(Layouting::Layout &parent)
     connect(envWidget, &EnvironmentWidget::userChangesChanged, this, [this, envWidget] {
         undoable.set(undoStack(), envWidget->changes());
         handleGuiChanged();
+        emit displayTextChanged();
     });
 
-    if (m_remoteEnvironment)
-        envWidget->setBaseEnvironment(*m_remoteEnvironment);
+    auto buttons = new QDialogButtonBox(QDialogButtonBox::Close);
 
-    Utils::AspectWidgets::registerSubWidget(this, envWidget);
-    Utils::AspectWidgets::addLabeledItem(this, parent, envWidget);
+    QDialog dialog(Utils::dialogParent());
+    dialog.setWindowTitle(Tr::tr("Device Environment"));
+    Column { envWidget, buttons }.attachTo(&dialog);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    dialog.resize(640, 480);
+    dialog.exec();
 }
 
 Utils::Environment DockerDeviceEnvironmentAspect::operator()() const

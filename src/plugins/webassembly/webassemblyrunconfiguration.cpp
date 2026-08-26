@@ -20,7 +20,7 @@
 #include <utils/qtcprocess.h>
 #include <utils/qtcassert.h>
 
-#include <QComboBox>
+#include <QRegularExpression>
 #include <QTextStream>
 
 using namespace ProjectExplorer;
@@ -125,28 +125,35 @@ public:
         addDataExtractor(this, &WebBrowserSelectionAspect::currentBrowser, &Data::currentBrowser);
     }
 
-    void addToLayoutImpl(Layouting::Layout &parent) override
-    {
-        QTC_CHECK(!m_webBrowserComboBox);
-        m_webBrowserComboBox = new QComboBox;
-        for (const WebBrowserEntry &be : std::as_const(m_availableBrowsers))
-            m_webBrowserComboBox->addItem(be.second, be.first);
-        m_webBrowserComboBox->setCurrentIndex(m_webBrowserComboBox->findData(m_currentBrowser));
-        connect(m_webBrowserComboBox, &QComboBox::currentIndexChanged, this, [this] {
-            m_currentBrowser = m_webBrowserComboBox->currentData().toString();
-            emit changed();
-        });
-        parent.addItems({Tr::tr("Web browser:"), m_webBrowserComboBox});
-    }
-
     AspectPresentation presentation() const override
     {
         AspectPresentation p = BaseAspect::presentation();
         p.control = AspectControls::ComboBox;
         p.labelText = Tr::tr("Web browser:");
+        // The browser is stored by what emrun calls it, not by where it
+        // happens to sit in a list that depends on what is installed.
+        p.valueIsChoiceId = true;
         for (const WebBrowserEntry &be : m_availableBrowsers)
             p.choices.append({be.second, {}, true, be.first});
         return p;
+    }
+
+    // Read and written as a variant, which is all the renderers need. There is
+    // no applied-versus-volatile split here: the run configuration takes what
+    // is picked.
+    QVariant variantValue() const override { return m_currentBrowser; }
+    QVariant volatileVariantValue() const override { return m_currentBrowser; }
+    void setVariantValue(const QVariant &value, Announcement = DoEmit) override
+    {
+        if (value.toString() == m_currentBrowser)
+            return;
+        m_currentBrowser = value.toString();
+        emit changed();
+        emit volatileValueChanged();
+    }
+    void setVolatileVariantValue(const QVariant &value, Announcement howToAnnounce = DoEmit) override
+    {
+        setVariantValue(value, howToAnnounce);
     }
 
     void fromMap(const Store &map) override
@@ -168,7 +175,6 @@ public:
     };
 
 private:
-    QComboBox *m_webBrowserComboBox = nullptr;
     QString m_currentBrowser;
     WebBrowserEntries m_availableBrowsers;
 };
