@@ -2166,7 +2166,7 @@ version of it passed against a build with the guard removed, which is the only
 reason it was rewritten.
 
 **What this does not do.** The virtual has to stay: five aspects in
-`src/plugins`, and `AspectList` in Utils, still override it. They are not one
+`src/plugins` still override it. Utils has none left. They are not one
 group. Most are run-configuration, build-step and kit aspects - project
 panels rather than preferences pages, which is a surface the migration has not
 reached. There were six more on pages that *have* been migrated,
@@ -3000,6 +3000,42 @@ button on screen afterwards. The test asks for them again after every change.
 **The control that matters** is the one that empties `addToLayoutImpl()`
 altogether: that is exactly what a move gone wrong looks like, and it fails
 both tests.
+
+### The move, with the net under it
+
+`AspectList` is out of Utils. Both bodies - the inline list and the list with a
+details pane - are in `aspectwidgetrenderer.cpp`, and `addToLayoutImpl()` is
+gone from the last aspect in the library that had one.
+
+**What made it a move rather than a port** is that neither body describes
+anything: a tree with Add, Remove, Move Up and Move Down beside it, and a
+details pane that is whatever the current item is made of, is not a set of
+descriptor fields that another aspect could reuse. It is a view, like
+`GroupedView`. So it goes where the widget code lives.
+
+**What made it possible** is three lines of new API. The bodies reached into
+`AspectListPrivate` for its `AspectListModel` - `findItemAtLevel<1>()`,
+`indexForItem()`, `itemForIndex()` - and that class only exists inside
+`aspectlist.cpp`. `itemModel()`, `itemForRow()` and `rowForItem()` are the same
+trio `GroupedListAspect` already exposes as `displayModel()`, `rowForIndex()`
+and `indexForRow()`, and once they existed the bodies needed nothing private at
+all. Everything else they wanted - `isOrdered()`, `createAndAddItem()`,
+`removeItem()`, `extraButtonTexts()`, `triggerExtraButton()`,
+`moveCurrentUp()` - was already public, because the Qt Quick side had needed it
+first.
+
+That is the pattern worth naming: **a widget body that cannot be moved is
+usually a widget body reaching past the aspect's own API, and the Qt Quick
+delegate has already had to solve it.** Look at what the delegate calls.
+
+**A row of the model is not an index into the items.** `itemForRow()` says so
+in its comment because the two really do diverge: a removed item keeps its row,
+struck through, until the page is applied. The old body knew this implicitly by
+searching the model; the new one has to be told, and now so does the reader.
+
+The net written last time caught nothing, which is the point of writing it
+first - and the control that empties the renderer's case fails both tests, so
+it would have.
 
 ### What the census could not see, and now can
 

@@ -3,28 +3,18 @@
 
 #include "aspectlist.h"
 
-#include "aspectwidgets.h"
 #include "algorithm.h"
-#include "itemviews.h"
 #include "layoutbuilder.h"
 #include "qtcassert.h"
-#include "qtdesignwidgets.h"
 #include "store.h"
 #include "treemodel.h"
-#include "utilsicons.h"
 #include "utilstr.h"
 
 #include <QBoxLayout>
-#include <QHeaderView>
-#include <QItemSelectionModel>
-#include <QListView>
 #include <QPainter>
 #include <QPaintEvent>
-#include <QPushButton>
-#include <QSizePolicy>
 #include <QUndoStack>
 
-using namespace Layouting;
 
 namespace Utils {
 
@@ -253,197 +243,6 @@ public:
         : model(dataFunction)
     {}
 
-    void addToLayoutImplInlineList(Layouting::Layout &parent, AspectList *aspect)
-    {
-        using namespace Layouting;
-        using namespace Utils::QtDesignWidgets;
-
-        auto fill = [this, aspect] {
-            const auto createRow = [aspect](const std::shared_ptr<BaseAspect> &item) {
-                // clang-format off
-                return Row {
-                    *item,
-                    IconButton {
-                        ::icon(Utils::Icons::EDIT_CLEAR),
-                        sizePolicy(QSizePolicy{QSizePolicy::Fixed, QSizePolicy::Fixed}),
-                        onClicked(aspect, [aspect, item] {
-                            aspect->removeItem(item);
-                        })
-                    },
-                    spacing(5),
-                    noMargin,
-                };
-                // clang-format on
-            };
-
-            // clang-format off
-            return Column {
-                Utils::transform(aspect->volatileItems(), createRow),
-                Row {
-                    noMargin,
-                    st,
-                    IconButton {
-                        ::icon(Utils::Icons::PLUS),
-                        onClicked(aspect, [this, aspect](){
-                            aspect->addItem(createItem());
-                        })
-                    }
-                }
-            };
-            // clang-format on
-        };
-
-        // clang-format off
-        parent.addItem(
-            Group {
-                replaceLayoutOn(aspect, &AspectList::volatileItemListChanged, fill)
-            }
-        );
-        // clang-format on
-    }
-
-    void addToLayoutImplListView(Layouting::Layout &parent, AspectList *aspect)
-    {
-        using namespace Layouting;
-        using namespace Utils::QtDesignWidgets;
-
-        QPushButton *removeButton = nullptr;
-        QWidget *configWidget = nullptr;
-        auto listView = AspectWidgets::createSubWidget<TreeView>(aspect);
-        listView->header()->hide();
-        listView->setModel(&model);
-        listView->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-
-        auto add = [aspect, listView, this] {
-            auto newItem = aspect->createAndAddItem();
-            // Find new index
-            auto item = model.findItemAtLevel<1>(
-                [newItem](AspectListModelItem *item) { return item->hasAspect(newItem); });
-            QModelIndex newIdx = model.indexForItem(item);
-            listView->setCurrentIndex(newIdx);
-        };
-
-        auto removeCurrent = [listView, this, aspect] {
-            QModelIndex currentIndex = listView->currentIndex();
-            QTC_ASSERT(currentIndex.isValid(), return);
-            const auto item = model.itemForIndex(currentIndex);
-            QTC_ASSERT(item, return);
-            aspect->removeItem(item->aspect());
-        };
-        QLayout *layout = nullptr;
-
-        Column buttonColumn {
-            PushButton {
-                text(Tr::tr("Add")),
-                onClicked(aspect, add),
-            },
-            PushButton {
-                bindTo(&removeButton),
-                text(Tr::tr("Remove")),
-                onClicked(aspect, removeCurrent),
-            },
-        };
-        QPushButton *moveUpButton = nullptr;
-        QPushButton *moveDownButton = nullptr;
-        if (ordered) {
-            buttonColumn.addItem(PushButton {
-                bindTo(&moveUpButton),
-                text(Tr::tr("Move Up")),
-                onClicked(aspect, [aspect] { aspect->moveCurrentUp(); }),
-            });
-            buttonColumn.addItem(PushButton {
-                bindTo(&moveDownButton),
-                text(Tr::tr("Move Down")),
-                onClicked(aspect, [aspect] { aspect->moveCurrentDown(); }),
-            });
-        }
-        for (const ExtraButton &eb : std::as_const(extraButtons)) {
-            buttonColumn.addItem(PushButton {
-                text(eb.text),
-                onClicked(aspect, eb.callback),
-            });
-        }
-        buttonColumn.addItem(st);
-
-        // clang-format off
-        parent.addItem(
-            Row {
-                Column {
-                    bindTo(&layout),
-                    listView,
-                },
-                buttonColumn,
-            }
-        );
-        // clang-format on
-
-        const auto onCurrentChanged =
-            [listView, layout, configWidget, this](const QModelIndex &current) mutable {
-                QWidget *newConfigWidget = nullptr;
-                if (current.isValid()) {
-                    const AspectListModelItem *item = model.itemForIndex(current);
-                    QTC_ASSERT(item, return);
-                    newConfigWidget = new QWidget();
-
-                    if (auto container = dynamic_cast<AspectContainer *>(item->aspect().get()))
-                        AspectWidgets::layouter(container)().attachTo(newConfigWidget);
-                    else
-                        Column{item->aspect().get()}.attachTo(newConfigWidget);
-                }
-
-                if (newConfigWidget) {
-                    if (!configWidget) {
-                        layout->addWidget(newConfigWidget);
-                    } else {
-                        delete layout->replaceWidget(configWidget, newConfigWidget);
-                        delete configWidget;
-                    }
-                } else {
-                    delete configWidget;
-                }
-                configWidget = newConfigWidget;
-                listView->scrollTo(current, QListView::ScrollHint::EnsureVisible);
-            };
-
-        QObject::connect(
-            listView->selectionModel(),
-            &QItemSelectionModel::currentChanged,
-            aspect,
-            onCurrentChanged);
-
-        // Which item is current is the aspect's answer, not the view's: the
-        // buttons act on it and a move puts it somewhere else.
-        QObject::connect(
-            listView->selectionModel(),
-            &QItemSelectionModel::currentChanged,
-            aspect,
-            [aspect](const QModelIndex &current) {
-                aspect->setCurrentIndex(current.isValid() ? current.row() : -1);
-            });
-
-        const auto updateButtons = [aspect, moveUpButton, moveDownButton, listView, this] {
-            if (moveUpButton)
-                moveUpButton->setEnabled(aspect->canMoveUp());
-            if (moveDownButton)
-                moveDownButton->setEnabled(aspect->canMoveDown());
-            const int row = aspect->currentIndex();
-            const QModelIndex wanted = row >= 0
-                ? model.index(row, 0, QModelIndex()) : QModelIndex();
-            if (listView->currentIndex() != wanted)
-                listView->setCurrentIndex(wanted);
-        };
-        QObject::connect(aspect, &AspectList::currentIndexChanged, aspect, updateButtons);
-        QObject::connect(aspect, &AspectList::volatileItemListChanged, aspect, updateButtons);
-        updateButtons();
-    }
-
-    void addToLayoutImpl(Layouting::Layout &parent, AspectList *aspect)
-    {
-        if (displayStyle == AspectList::DisplayStyle::InlineList)
-            addToLayoutImplInlineList(parent, aspect);
-        else if (displayStyle == AspectList::DisplayStyle::ListViewWithDetails)
-            addToLayoutImplListView(parent, aspect);
-    }
 };
 
 AspectList::AspectList(Utils::AspectContainer *container)
@@ -706,6 +505,24 @@ bool AspectList::isOrdered() const
     return d->ordered;
 }
 
+QAbstractItemModel *AspectList::itemModel() const
+{
+    return &d->model;
+}
+
+std::shared_ptr<BaseAspect> AspectList::itemForRow(int row) const
+{
+    const AspectListModelItem *item = d->model.itemForIndex(d->model.index(row, 0, QModelIndex()));
+    return item ? item->aspect() : nullptr;
+}
+
+int AspectList::rowForItem(const std::shared_ptr<BaseAspect> &item) const
+{
+    const AspectListModelItem *found = d->model.findItemAtLevel<1>(
+        [&item](AspectListModelItem *candidate) { return candidate->hasAspect(item); });
+    return found ? d->model.indexForItem(found).row() : -1;
+}
+
 int AspectList::currentIndex() const
 {
     return d->currentIndex;
@@ -769,11 +586,6 @@ void AspectList::moveItem(int from, int to)
 void AspectList::addExtraButton(const QString &text, std::function<void()> callback)
 {
     d->extraButtons.append({text, std::move(callback)});
-}
-
-void AspectList::addToLayoutImpl(Layouting::Layout &parent)
-{
-    d->addToLayoutImpl(parent, this);
 }
 
 } // namespace Utils

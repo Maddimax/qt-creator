@@ -81,6 +81,15 @@ public:
     void setOrdered(bool ordered);
     bool isOrdered() const;
 
+    // The rows a view shows. Not owned: the aspect keeps it in step with its
+    // items, including the ones that have been removed but not yet applied.
+    QAbstractItemModel *itemModel() const;
+    // A row of that model is not an index into volatileItems(): a removed item
+    // keeps its row, struck through, until the page is applied. These two are
+    // how a view crosses between the one and the other.
+    std::shared_ptr<BaseAspect> itemForRow(int row) const;
+    int rowForItem(const std::shared_ptr<BaseAspect> &item) const;
+
     int currentIndex() const;
     void setCurrentIndex(int index);
     bool canMoveUp() const;
@@ -97,8 +106,6 @@ public:
 
     CovariantCallback<void(std::shared_ptr<BaseAspect>)> itemAddedCallback;
     CovariantCallback<void(std::shared_ptr<BaseAspect>)> itemRemovedCallback;
-
-    void addToLayoutImpl(Layouting::Layout &parent) override;
 
 signals:
     void volatileItemListChanged();

@@ -10,6 +10,10 @@
 #include "environment.h"
 #include "fancylineedit.h"
 #include "guard.h"
+#include "aspectlist.h"
+#include "itemviews.h"
+#include "qtdesignwidgets.h"
+#include "utilsicons.h"
 #include "groupedlistaspect.h"
 #include "groupedmodel.h"
 #include "groupedview.h"
@@ -35,7 +39,9 @@
 #include <QFontComboBox>
 #include <QFontDatabase>
 #include <QFontInfo>
+#include <QHeaderView>
 #include <QItemSelectionModel>
+#include <QListView>
 #include <QLabel>
 #include <QListWidget>
 #include <QAction>
@@ -195,6 +201,16 @@ public:
         case AspectControls::Secret:
             renderSecret(&aspect, parent, pres);
             return true;
+        case AspectControls::AspectList:
+        case AspectControls::AspectInlineList:
+            if (auto list = qobject_cast<AspectList *>(&aspect)) {
+                if (pres.control == AspectControls::AspectInlineList)
+                    renderAspectInlineList(list, parent);
+                else
+                    renderAspectListWithDetails(list, parent);
+                return true;
+            }
+            return false;
         case AspectControls::GroupedList:
             if (auto groupedList = qobject_cast<GroupedListAspect *>(&aspect)) {
                 renderGroupedList(groupedList, parent);
@@ -260,6 +276,196 @@ public:
     }
 
 private:
+    // Every item drawn in full, one under the other, with a remove beside each
+    // and an add at the end. For a short list whose items are one control
+    // each. The whole thing is rebuilt when the list changes, which is what
+    // replaceLayoutOn() is for.
+    static void renderAspectInlineList(AspectList *aspect, Layout &parent)
+    {
+        using namespace Layouting;
+        using namespace Utils::QtDesignWidgets;
+
+        auto fill = [aspect] {
+            const auto createRow = [aspect](const std::shared_ptr<BaseAspect> &item) {
+                // clang-format off
+                return Row {
+                    *item,
+                    IconButton {
+                        ::icon(Utils::Icons::EDIT_CLEAR),
+                        sizePolicy(QSizePolicy{QSizePolicy::Fixed, QSizePolicy::Fixed}),
+                        onClicked(aspect, [aspect, item] {
+                            aspect->removeItem(item);
+                        })
+                    },
+                    spacing(5),
+                    noMargin,
+                };
+                // clang-format on
+            };
+
+            // clang-format off
+            return Column {
+                Utils::transform(aspect->volatileItems(), createRow),
+                Row {
+                    noMargin,
+                    st,
+                    IconButton {
+                        ::icon(Utils::Icons::PLUS),
+                        onClicked(aspect, [aspect] {
+                            aspect->createAndAddItem();
+                        })
+                    }
+                }
+            };
+            // clang-format on
+        };
+
+        // clang-format off
+        parent.addItem(
+            Group {
+                replaceLayoutOn(aspect, &AspectList::volatileItemListChanged, fill)
+            }
+        );
+        // clang-format on
+    }
+
+    // A list with a details pane: the items on the left, whatever the current
+    // one is made of on the right, and the buttons that act on it. Which item
+    // is current is the aspect's answer, not the view's - a move takes it
+    // along, and the Qt Quick list has to agree.
+    static void renderAspectListWithDetails(AspectList *aspect, Layout &parent)
+    {
+        using namespace Layouting;
+
+        QPushButton *removeButton = nullptr;
+        QWidget *configWidget = nullptr;
+        auto listView = AspectWidgets::createSubWidget<TreeView>(aspect);
+        listView->header()->hide();
+        listView->setModel(aspect->itemModel());
+        listView->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+
+        auto add = [aspect, listView] {
+            const std::shared_ptr<BaseAspect> newItem = aspect->createAndAddItem();
+            const int row = aspect->rowForItem(newItem);
+            if (row >= 0)
+                listView->setCurrentIndex(aspect->itemModel()->index(row, 0, QModelIndex()));
+        };
+
+        auto removeCurrent = [listView, aspect] {
+            const QModelIndex currentIndex = listView->currentIndex();
+            QTC_ASSERT(currentIndex.isValid(), return);
+            const std::shared_ptr<BaseAspect> item = aspect->itemForRow(currentIndex.row());
+            QTC_ASSERT(item, return);
+            aspect->removeItem(item);
+        };
+        QLayout *layout = nullptr;
+
+        Column buttonColumn {
+            PushButton {
+                text(Tr::tr("Add")),
+                onClicked(aspect, add),
+            },
+            PushButton {
+                bindTo(&removeButton),
+                text(Tr::tr("Remove")),
+                onClicked(aspect, removeCurrent),
+            },
+        };
+        QPushButton *moveUpButton = nullptr;
+        QPushButton *moveDownButton = nullptr;
+        if (aspect->isOrdered()) {
+            buttonColumn.addItem(PushButton {
+                bindTo(&moveUpButton),
+                text(Tr::tr("Move Up")),
+                onClicked(aspect, [aspect] { aspect->moveCurrentUp(); }),
+            });
+            buttonColumn.addItem(PushButton {
+                bindTo(&moveDownButton),
+                text(Tr::tr("Move Down")),
+                onClicked(aspect, [aspect] { aspect->moveCurrentDown(); }),
+            });
+        }
+        const QStringList extras = aspect->extraButtonTexts();
+        for (int i = 0, n = int(extras.size()); i < n; ++i) {
+            buttonColumn.addItem(PushButton {
+                text(extras.at(i)),
+                onClicked(aspect, [aspect, i] { aspect->triggerExtraButton(i); }),
+            });
+        }
+        buttonColumn.addItem(st);
+
+        // clang-format off
+        parent.addItem(
+            Row {
+                Column {
+                    bindTo(&layout),
+                    listView,
+                },
+                buttonColumn,
+            }
+        );
+        // clang-format on
+
+        const auto onCurrentChanged =
+            [listView, layout, configWidget, aspect](const QModelIndex &current) mutable {
+                QWidget *newConfigWidget = nullptr;
+                if (current.isValid()) {
+                    const std::shared_ptr<BaseAspect> item = aspect->itemForRow(current.row());
+                    QTC_ASSERT(item, return);
+                    newConfigWidget = new QWidget();
+
+                    if (auto container = dynamic_cast<AspectContainer *>(item.get()))
+                        AspectWidgets::layouter(container)().attachTo(newConfigWidget);
+                    else
+                        Column{item.get()}.attachTo(newConfigWidget);
+                }
+
+                if (newConfigWidget) {
+                    if (!configWidget) {
+                        layout->addWidget(newConfigWidget);
+                    } else {
+                        delete layout->replaceWidget(configWidget, newConfigWidget);
+                        delete configWidget;
+                    }
+                } else {
+                    delete configWidget;
+                }
+                configWidget = newConfigWidget;
+                listView->scrollTo(current, QListView::ScrollHint::EnsureVisible);
+            };
+
+        QObject::connect(
+            listView->selectionModel(),
+            &QItemSelectionModel::currentChanged,
+            aspect,
+            onCurrentChanged);
+
+        // Which item is current is the aspect's answer, not the view's: the
+        // buttons act on it and a move puts it somewhere else.
+        QObject::connect(
+            listView->selectionModel(),
+            &QItemSelectionModel::currentChanged,
+            aspect,
+            [aspect](const QModelIndex &current) {
+                aspect->setCurrentIndex(current.isValid() ? current.row() : -1);
+            });
+
+        const auto updateButtons = [aspect, moveUpButton, moveDownButton, listView] {
+            if (moveUpButton)
+                moveUpButton->setEnabled(aspect->canMoveUp());
+            if (moveDownButton)
+                moveDownButton->setEnabled(aspect->canMoveDown());
+            const int row = aspect->currentIndex();
+            const QModelIndex wanted = row >= 0
+                ? aspect->itemModel()->index(row, 0, QModelIndex()) : QModelIndex();
+            if (listView->currentIndex() != wanted)
+                listView->setCurrentIndex(wanted);
+        };
+        QObject::connect(aspect, &AspectList::currentIndexChanged, aspect, updateButtons);
+        QObject::connect(aspect, &AspectList::volatileItemListChanged, aspect, updateButtons);
+        updateButtons();
+    }
+
     // The tree and the buttons are members of the GroupedView rather than heap
     // allocations, so whatever holds them has to outlive the layout they are
     // put in - a widget deleting them as children would be freeing what it
