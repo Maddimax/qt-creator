@@ -90,6 +90,11 @@ class TEXTEDITOR_EXPORT TextViewport : public QQuickItem
     Q_PROPERTY(int lineCount READ lineCount NOTIFY metricsChanged)
     Q_PROPERTY(int firstVisibleLine READ firstVisibleLine NOTIFY metricsChanged)
     Q_PROPERTY(int visibleLineCount READ visibleLineCount NOTIFY metricsChanged)
+    // Everything on screen, one entry per line, as a property rather than
+    // through visibleLine(): an invokable has nothing to notify on, so a
+    // delegate that called it would show whatever was true when it was built
+    // and never hear that a mark had arrived.
+    Q_PROPERTY(QVariantList visibleLines READ visibleLines NOTIFY linesChanged)
     // The selection, as positions in the document. Both -1 for none.
     Q_PROPERTY(int selectionStart READ selectionStart WRITE setSelectionStart
                    NOTIFY selectionChanged)
@@ -139,6 +144,7 @@ public:
     // is the only way to see that it arrived. Empty for an index that is not on
     // screen.
     Q_INVOKABLE QVariantMap visibleLine(int index) const;
+    QVariantList visibleLines() const;
 
     // The two halves of the mapping between the document and the screen, which
     // is what a caret and a mouse need and what nothing above the scene graph
@@ -168,6 +174,7 @@ signals:
     void scrollYChanged();
     void scrollXChanged();
     void metricsChanged();
+    void linesChanged();
     void selectionChanged();
     void cursorPositionChanged();
     void cursorRectangleChanged();
@@ -206,7 +213,9 @@ private:
         // can load and the text it explains itself with. Empty when the line
         // carries none.
         QString markIcon;
-        QString markToolTip;
+        // What the mark says about the line, drawn after the text and
+        // shown again when the icon is hovered.
+        QString annotation;
         // Where a selection runs past the end of the line. Empty otherwise.
         QRectF newlineTail;
         QColor newlineTailColour;

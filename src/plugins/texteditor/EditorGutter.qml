@@ -35,17 +35,18 @@ Item {
     // What the line is marked with - an error, a warning, a breakpoint. One
     // per line on screen, the same as the numbers.
     Repeater {
-        model: root.viewport.visibleLineCount
+        model: root.viewport.visibleLines
 
         delegate: Image {
             id: mark
 
             required property int index
-
-            readonly property int line: root.viewport.firstVisibleLine + index
             // Not called "data": that is Item's default property, and a child
             // would then be assigned to this instead of to the item.
-            readonly property var lineData: root.viewport.visibleLine(index)
+            required property var modelData
+
+            readonly property int line: root.viewport.firstVisibleLine + index
+            readonly property var lineData: modelData
 
             x: Spacing.PaddingHS
             y: line * root.viewport.lineHeight - root.viewport.scrollY
@@ -56,7 +57,7 @@ Item {
             source: mark.lineData.markIcon ?? ""
             visible: source !== ""
 
-            ToolTip.text: mark.lineData.markToolTip ?? ""
+            ToolTip.text: mark.lineData.annotation ?? ""
             ToolTip.visible: hover.hovered && ToolTip.text !== ""
 
             HoverHandler { id: hover }

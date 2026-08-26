@@ -6168,7 +6168,7 @@ earned now - the plugin ships a Qt Quick editor - and there is no cycle, since
 
 **What it is at this point:** text, caret, selection, mouse and keyboard
 editing, highlighting, indenting, scrolling, line numbers, the current-line
-highlight and text marks, all O(visible). No folding, no line annotations, no
+highlight, text marks and what they say, all O(visible). No folding, no
 extra-selection overlays, no context menu, no drag and drop, and no wrapping -
 which still wants a height cache first.
 
@@ -6222,6 +6222,32 @@ its per-line data `data`, which is `Item`'s *default property*: the
 `HoverHandler` beneath it was being assigned into that property rather than to
 the item. It compiles and it draws; qmllint reported both the shadowing and the
 duplicate binding.
+
+## An invokable has nothing to notify on
+
+A mark's message is drawn after the text of the line it is about, starting where
+the text actually ends - the viewport already reports each line's natural width,
+so it is not a column somebody has to keep in step.
+
+Writing it turned up a bug in what was committed the day before. Both the marks
+and the annotations were read by delegates calling
+`viewport.visibleLine(index)`, and **an invokable has no signal**: a binding on
+one is evaluated when the delegate is built and never again. The gutter icons
+had exactly the same defect and the tests had not caught it, because they
+asserted `visibleLine()` from C++ - which was always right - rather than asking
+whether anything was drawn.
+
+What is on screen is a property now, `visibleLines`, with a `linesChanged`
+emitted at the end of `updatePolish()`, and the delegates take `modelData` from
+it. Not emitting it fails both the annotation test and the gutter one; before
+the change, the annotation was simply never drawn while every C++ assertion
+about it passed.
+
+**The lesson is about where an assertion sits, not about QML.** Checking the
+value a component is given tests the component's input. Only looking for the
+thing on screen tests the component. The first is much easier to write and
+passes in cases the second catches - so when both are cheap, the second is the
+one worth having.
 
 ## The same measurement, applied to kits
 

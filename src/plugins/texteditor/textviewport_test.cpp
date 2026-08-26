@@ -88,6 +88,16 @@ public:
     TextViewport *viewport = nullptr;
 };
 
+// Every item in the visual tree below \a root, itself included.
+static QList<QQuickItem *> allItems(QQuickItem *root)
+{
+    QList<QQuickItem *> found{root};
+    const QList<QQuickItem *> children = root->childItems();
+    for (QQuickItem *child : children)
+        found += allItems(child);
+    return found;
+}
+
 // The numbers a gutter is showing, top to bottom. Walks the visual tree
 // because a Repeater's delegates are visual children of the item and QObject
 // children of somewhere else.
@@ -632,6 +642,27 @@ private slots:
 
             QVERIFY(gutter->isVisible());
             QVERIFY2(gutter->width() > 0, "the gutter is shown and has no width");
+
+            // A mark is drawn, not merely reported: the viewport's own answer
+            // is checked elsewhere, and a delegate that read it once would
+            // still be showing nothing.
+            auto * const source = viewport->document();
+            QVERIFY(source && source->textDocument());
+            TextMark mark(source->textDocument(), 2,
+                          TextMarkCategory{"Test", "TextEditor.Test.Mark"});
+            mark.setIcon(Utils::Icons::WARNING.icon());
+            QQuickItem *icon = nullptr;
+            QTRY_VERIFY([&] {
+                for (QQuickItem * const candidate : allItems(gutter)) {
+                    if (!candidate->property("source").toUrl().isEmpty()
+                        && candidate->isVisible()) {
+                        icon = candidate;
+                        return true;
+                    }
+                }
+                return false;
+            }());
+            QCOMPARE(qRound(icon->y() / viewport->lineHeight()), 1);
             QTRY_COMPARE(gutterNumbers(gutter).size(), viewport->visibleLineCount());
             QCOMPARE(gutterNumbers(gutter).first(), QString("1"));
             // The text was moved over to make room rather than drawn under it.
@@ -724,7 +755,7 @@ private slots:
 
             QTRY_VERIFY2(!viewport->visibleLine(2).value("markIcon").toString().isEmpty(),
                          "the mark never reached the gutter");
-            QCOMPARE(viewport->visibleLine(2).value("markToolTip").toString(),
+            QCOMPARE(viewport->visibleLine(2).value("annotation").toString(),
                      QString("something is wrong here"));
             // And only that line.
             QVERIFY(viewport->visibleLine(1).value("markIcon").toString().isEmpty());
@@ -734,6 +765,70 @@ private slots:
         // The mark is gone with its object, and so is what the gutter shows.
         QTRY_VERIFY2(viewport->visibleLine(2).value("markIcon").toString().isEmpty(),
                      "the gutter still shows a mark that no longer exists");
+    }
+
+    // The other half of a diagnostic: what it says, beside the line it is
+    // about, after the text rather than at a fixed column.
+    void testAMarksMessageIsDrawnAfterTheLine()
+    {
+        TemporaryDirectory dir("annotation-test");
+        QVERIFY(dir.isValid());
+        const FilePath file = writeLines(dir, "big.txt", 200);
+
+        QQuickView view;
+        view.resize(600, 200);
+        QQmlComponent component(view.engine());
+        component.setData(QByteArray("import QtCreator.TextEditor\n"
+                                     "CodeViewport {\n"
+                                     "    width: 600; height: 200\n"
+                                     "    property string path\n"
+                                     "    source: CodeDocument { filePath: path }\n"
+                                     "}"),
+                          QUrl("qrc:/test/AnnotationTest.qml"));
+        std::unique_ptr<QObject> created(component.createWithInitialProperties(
+            {{"path", file.toUrlishString()}}));
+        QVERIFY2(created != nullptr, qPrintable(component.errorString()));
+
+        auto * const item = qobject_cast<QQuickItem *>(created.get());
+        QVERIFY(item);
+        item->setParentItem(view.contentItem());
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+        auto * const viewport = item->findChild<TextViewport *>("codeViewport");
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+        auto * const source = viewport->document();
+        QVERIFY(source && source->textDocument());
+
+        const QString message = "expected ';' after expression";
+        TextMark mark(source->textDocument(), 3, TextMarkCategory{"Test", "TextEditor.Test.Mark"});
+        mark.setIcon(Utils::Icons::WARNING.icon());
+        mark.setLineAnnotation(message);
+
+        // The viewport knows what the mark says...
+        QTRY_COMPARE(viewport->visibleLine(2).value("annotation").toString(), message);
+
+        // ...and it is drawn somewhere in the viewport.
+        QQuickItem *drawn = nullptr;
+        QTRY_VERIFY([&] {
+            for (QQuickItem * const candidate : allItems(item)) {
+                if (candidate->property("text").toString() == message && candidate->isVisible()) {
+                    drawn = candidate;
+                    return true;
+                }
+            }
+            return false;
+        }());
+
+        // After the text on that line, not before it and not at a fixed column.
+        const qreal lineWidth = viewport->visibleLine(2).value("width").toReal();
+        QVERIFY2(lineWidth > 0, "the line has no width, so 'after it' means nothing");
+        QVERIFY2(drawn->x() >= lineWidth,
+                 qPrintable(QString("annotation at %1 overlaps text %2 wide")
+                                .arg(drawn->x()).arg(lineWidth)));
+        // And on that line.
+        QCOMPARE(qRound(drawn->y() / viewport->lineHeight()), 2);
     }
 
     void testAnEditTheViewportDidNotMakeStillShows()

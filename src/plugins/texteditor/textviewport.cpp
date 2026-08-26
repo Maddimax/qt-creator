@@ -184,6 +184,15 @@ void TextViewport::setSelectionEnd(int position)
     emit selectionChanged();
 }
 
+QVariantList TextViewport::visibleLines() const
+{
+    QVariantList lines;
+    lines.reserve(int(m_lines.size()));
+    for (int i = 0; i < int(m_lines.size()); ++i)
+        lines.append(visibleLine(i));
+    return lines;
+}
+
 QVariantMap TextViewport::visibleLine(int index) const
 {
     if (index < 0 || index >= int(m_lines.size()))
@@ -206,7 +215,7 @@ QVariantMap TextViewport::visibleLine(int index) const
                        {"formats", formats},
                        // What the gutter draws beside this line, if anything.
                        {"markIcon", line.markIcon},
-                       {"markToolTip", line.markToolTip},
+                       {"annotation", line.annotation},
                        {"newlineTail", line.newlineTail},
                        // What is being composed on this line, if anything. Not
                        // part of "text": it is not in the document yet, which
@@ -725,7 +734,7 @@ void TextViewport::updatePolish()
         }
         if (shown) {
             line.markIcon = QtcQuick::iconUrl(shown->icon());
-            line.markToolTip = shown->lineAnnotation();
+            line.annotation = shown->lineAnnotation();
         }
 
         line.layout = std::make_unique<QTextLayout>(block.text(), font);
@@ -801,6 +810,9 @@ void TextViewport::updatePolish()
     if (!qFuzzyCompare(previousLineHeight + 1, m_lineHeight + 1))
         setScrollY(m_scrollY); // re-clamp: the document is a different height now
     emit metricsChanged();
+    // What is on screen has just been rebuilt, marks and all. Delegates read it
+    // through visibleLines, so this is what tells them to look again.
+    emit linesChanged();
     // Everything the caret's position on screen depends on was just recomputed.
     emit cursorRectangleChanged();
     update();

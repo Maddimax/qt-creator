@@ -110,6 +110,37 @@ Item {
                     root.editingFinished()
             }
 
+            // What the marks on these lines say, drawn after the text. The
+            // viewport reports each line's natural width, so the annotation
+            // starts where the text actually ends rather than at a column.
+            Repeater {
+                model: viewport.visibleLines
+
+                delegate: Text {
+                    id: annotation
+
+                    required property int index
+                    required property var modelData
+
+                    readonly property var lineData: modelData
+                    readonly property int line: viewport.firstVisibleLine + index
+
+                    x: lineData.width + Spacing.GapHM - viewport.scrollX
+                    y: line * viewport.lineHeight - viewport.scrollY
+                    height: viewport.lineHeight
+                    verticalAlignment: Text.AlignVCenter
+
+                    text: annotation.lineData.annotation ?? ""
+                    visible: text !== ""
+                    font: viewport.font
+                    color: Tokens.textMuted
+                    elide: Text.ElideRight
+                    // Never wider than what is left of the line, so a long
+                    // message does not draw past the edge of the editor.
+                    width: Math.max(0, viewport.width - x)
+                }
+            }
+
             // The caret. A Rectangle because that is what it is; the viewport
             // draws text and says where the caret belongs, and an empty rect
             // is how it says the position is scrolled off screen.
