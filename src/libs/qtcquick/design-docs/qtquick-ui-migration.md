@@ -5215,6 +5215,43 @@ exactly that shape, so it went there rather than into a new seam.
 If a fourth arrives that fits none of these, that is the point to reconsider a
 single "host services" object, rather than at the third.
 
+## Apply on the Code Style pages did nothing
+
+Following the same thread - what is wired but never operated - to the buttons at
+the bottom of the dialog. Pressing Apply on a Code Style page fired
+
+    SOFT ASSERT: "!aspect->isAutoApply()" in ioptionspage.cpp:206
+
+and returned. `CodeStyleAspect::apply()` never ran, so the page pool was never
+copied into the real one and `toSettings()` was never called: **a code style
+change was not saved.**
+
+The check was using one child's `isAutoApply()` as a proxy for "this page
+defers", and on this page that is exactly backwards. `CodeStyleAspect` keeps a
+page-local copy of the style; its aspects edit that copy *live*, which is what
+makes Cancel mean something, and `apply()` is what pushes the copy across. The
+live-editing child is the design, not the mistake.
+
+Reordered so the question asked is the one that matters: apply when the
+container says it is dirty, and keep the diagnostic for the case it was written
+for - nothing to apply *and* auto-applying aspects, which is what "nothing ever
+saves" actually looks like. A page that forgets to defer still reports it,
+because auto-applied aspects are never dirty.
+
+**Why the aspect's own tests missed it.**
+`testEditMakesDirtyAndApplyCommits` calls `aspect.apply()` directly. That works
+and always did. The dialog does not call it - it presses
+`IOptionsPageWidget::apply()`, which decides for itself whether there is
+anything to commit. The aspect was covered and the button was not, which is the
+same gap the table and tree bugs came out of, one layer up.
+
+**And the test scaffolding hid it too.** The Quick test factory handed the page
+an `IntegerAspect` with `Q_UNUSED(codeStyle)` - a settings aspect that edits
+nothing. A page whose settings change nothing has nothing to apply, so no test
+built on it could have failed this way whatever the check did. It now edits the
+page's copy the way a real factory's aspects do, which is also what makes the
+negative control bite.
+
 ## What "operated" now covers
 
 Three shapes of the same question - which item is the page about - and all

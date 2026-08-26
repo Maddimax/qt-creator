@@ -10,6 +10,8 @@
 #include "tabsettings.h"
 #include "textindenter.h"
 
+#include <coreplugin/dialogs/ioptionspage.h>
+
 #include <utils/aspectwidgets.h>
 #include <utils/layoutbuilder.h>
 
@@ -17,6 +19,8 @@
 #include <QSpinBox>
 #include <QTest>
 #include <QWidget>
+
+#include <memory>
 
 using namespace Utils;
 
@@ -87,12 +91,26 @@ public:
         // A form names aspects, so the factory hands over the ones it edits.
         setSettingsAspectsCreator([](ICodeStylePreferences *codeStyle,
                                      CodeStylePreviewAspect *) {
-            Q_UNUSED(codeStyle)
             auto settings = new Utils::AspectContainer;
             auto lineLength = new Utils::IntegerAspect(settings);
             lineLength->setQmlName("LineLength");
             lineLength->setRange(0, 999);
             lineLength->setValue(80);
+
+            // A real factory's aspects edit the page's *copy* of the style as
+            // they are changed - that is what the copy is for, and why they
+            // auto-apply. Without one of those here, nothing this page does
+            // could ever be worth applying.
+            auto tabSize = new Utils::IntegerAspect(settings);
+            tabSize->setQmlName("TabSize");
+            tabSize->setRange(1, 32);
+            tabSize->setValue(codeStyle->tabSettings().m_tabSize);
+            QObject::connect(tabSize, &Utils::BaseAspect::changed, tabSize,
+                             [codeStyle, tabSize] {
+                                 TabSettingsData settings = codeStyle->tabSettings();
+                                 settings.m_tabSize = tabSize->value();
+                                 codeStyle->setTabSettings(settings);
+                             });
             return settings;
         });
     }
@@ -339,7 +357,7 @@ private slots:
                     settings = container;
             }
             QVERIFY(settings);
-            QCOMPARE(settings->aspects().size(), 1);
+            QCOMPARE(settings->aspects().size(), 2);
             QCOMPARE(settings->aspects().first()->qmlName(), QString("LineLength"));
         }
 
@@ -387,6 +405,68 @@ private slots:
         aspect.apply();
         QCOMPARE(codeStyle.tabSettings().m_tabSize, 13);
         QVERIFY(!aspect.isDirty());
+    }
+
+    void testTheApplyButtonReachesTheStyleAndNotJustTheAspect()
+    {
+        // The test above calls aspect.apply() itself. The Preferences dialog
+        // does not - it presses IOptionsPageWidget::apply(), which decides for
+        // itself whether the page has anything to commit. It used to decide by
+        // reading the first aspect's isAutoApply(), see the live-editing child
+        // this page keeps on purpose, soft-assert and return; apply() never
+        // ran and a code style change was never saved. The aspect was tested
+        // and the button was not, so nothing said so.
+        // The Quick factory, because that is the shape the bug needed: a
+        // language that names a form gets its settings registered as child
+        // aspects, and those edit the page's copy live. A widget-path page
+        // registers none, so the check never looked at anything.
+        QmlTestCodeStyleFactory factory;
+        ICodeStylePreferences codeStyle;
+        codeStyle.setTabSettings(makeTabSettings(11, 7));
+
+        CodeStyleAspect aspect(&codeStyle, QML_TEST_LANGUAGE_ID);
+        QVERIFY2(!aspect.aspects().isEmpty(), "no child aspects, so this proves nothing");
+        QVERIFY2(aspect.aspects().first()->isAutoApply(),
+                 "the first child does not auto-apply, so this is not the case that broke");
+
+        Utils::AspectContainer *settings = nullptr;
+        for (BaseAspect *child : aspect.aspects()) {
+            if (auto container = qobject_cast<Utils::AspectContainer *>(child))
+                settings = container;
+        }
+
+        // Built the way the dialog builds one. Not registered globally: this is
+        // a page of its own, not one every other test then has to walk past.
+        class Page : public Core::IOptionsPage
+        {
+        public:
+            explicit Page(CodeStyleAspect *aspect)
+                : Core::IOptionsPage(false)
+            {
+                setSettingsProvider([aspect] { return aspect; });
+            }
+        };
+
+        Page page(&aspect);
+        std::unique_ptr<Core::IOptionsPageWidget> widget(page.createWidget());
+        QVERIFY(widget);
+
+        // Edited through the page's own settings aspects rather than a widget:
+        // a Quick page has no spin box to find.
+        QVERIFY(settings);
+        Utils::IntegerAspect *tabSize = nullptr;
+        for (BaseAspect *child : settings->aspects()) {
+            if (child->qmlName() == "TabSize")
+                tabSize = qobject_cast<Utils::IntegerAspect *>(child);
+        }
+        QVERIFY2(tabSize, "the test form does not offer a tab size to change");
+        tabSize->setValue(13);
+
+        // Held in the page's own copy until the button is pressed.
+        QCOMPARE(codeStyle.tabSettings().m_tabSize, 11);
+
+        widget->apply();
+        QCOMPARE(codeStyle.tabSettings().m_tabSize, 13);
     }
 
     void testCancelReverts()

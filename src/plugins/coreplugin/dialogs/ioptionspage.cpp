@@ -201,15 +201,29 @@ void IOptionsPageWidget::apply()
     if (d->m_aspects) {
         AspectContainer *container = d->m_aspects;
         QTC_ASSERT(container, return);
-        // Sanity check: Aspects in option pages should not autoapply.
-        if (!container->aspects().isEmpty()) {
-            BaseAspect *aspect = container->aspects().first();
-            QTC_ASSERT(aspect, return);
-            QTC_ASSERT(!aspect->isAutoApply(), return);
-        }
+
         if (container->isDirty()) {
             container->apply();
             container->writeSettings();
+            return;
+        }
+
+        // Nothing to apply. Usually that is because there was nothing to do,
+        // but it is also what a page looks like when its aspects auto-apply:
+        // they wrote themselves through as they were edited, so the container
+        // is never dirty and Apply has nothing left. That is the mistake this
+        // has always been here to catch.
+        //
+        // Asked in this order because dirtiness is the question and
+        // auto-applying is only one answer to it. A container that keeps a
+        // copy of its own and pushes it across in apply() - CodeStyleAspect,
+        // whose aspects edit that copy live on purpose - reports dirty and
+        // must be applied; testing one child's flag first refused it, and the
+        // code style pages saved nothing.
+        if (!container->aspects().isEmpty()) {
+            BaseAspect *aspect = container->aspects().first();
+            QTC_ASSERT(aspect, return);
+            QTC_CHECK(!aspect->isAutoApply());
         }
         return;
     }
