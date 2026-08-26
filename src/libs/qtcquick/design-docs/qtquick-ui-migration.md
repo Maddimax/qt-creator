@@ -5257,6 +5257,29 @@ feeling:
 - the run configuration and hand-attached ones go when those surfaces move,
   which they have not started to.
 
+**Correction, from trying the first of those.** Devices are not reached through
+`createAspectForm()` in production at all - every call for a device container is
+inside `DesktopDeviceTest`. Their settings are drawn by the *widget renderer*,
+laying out a nested container, and that asks `layouter()`. So the two layouters
+in `idevice.cpp` are load-bearing exactly where it is least visible: delete them
+and `layouter()` falls back to a column, turning label-beside-field rows into
+label-above-field ones with nothing failing.
+
+The attempt also ran into a contract. `createAspectForm()` declines a container
+with no QML **deliberately**, and `testPageWithoutItsOwnQmlIsDeclined` says so
+in as many words. Refining it to "declines unless it has no layouter either" is
+sound in the small - a container with neither has no layout to lose, and
+`AspectWidgets::hasLayouter()` already exists for exactly this distinction, used
+by the widget renderer two lines apart - but it changes a tested contract for
+every layouter-less container in the product, and it does not reach devices,
+which was the point. Reverted.
+
+**What would actually move devices**: their settings container needs a
+`qmlSource` like any other page, and the two `DesktopDeviceTest` cases that
+assert `qobject_cast<QFormLayout *>(form->layout())` need to assert Quick
+delegates instead. That is a port, not a deletion, and it is the same shape as
+every other page in this plan.
+
 ## A shutdown crash the fixed Apply uncovered
 
 Running the whole suite plugin by plugin - which twenty-odd commits touching
