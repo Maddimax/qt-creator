@@ -43,4 +43,8 @@ private:
 void setupAcpSettings();
 void prefetchAcpRegistry();
 
+#ifdef WITH_TESTS
+QObject *createAcpServerAspectTest();
+#endif
+
 } // namespace AcpClient::Internal

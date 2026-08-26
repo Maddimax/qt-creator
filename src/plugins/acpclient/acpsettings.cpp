@@ -39,6 +39,10 @@
 #include <QtTaskTree/QNetworkReplyWrapper>
 #include <QtTaskTree/QParallelTaskTreeRunner>
 
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
 using namespace Utils;
 
 namespace AcpClient::Internal {
@@ -241,98 +245,62 @@ public:
             applyRegistryTemplate();
         });
 
-        Utils::AspectWidgets::setLayouter(this, [this]() -> Layouting::Layout {
-            using namespace Layouting;
+        templateCmdInfo.setQmlName("TemplateCommand");
+        templateCmdInfo.setIconType(InfoType::Information);
+        templateCmdInfo.setWordWrap(true);
+        templateCmdInfo.setToolTip(Tr::tr("The command that will spawn the ACP server."));
 
-            InfoLabel *templateCmdInfo = new InfoLabel();
-            templateCmdInfo->setWordWrap(true);
-            templateCmdInfo->setElideMode(Qt::ElideNone);
-            templateCmdInfo->setToolTip(Tr::tr("The command that will spawn the ACP server."));
-            templateCmdInfo->setType(InfoLabelType::Information);
-            templateCmdInfo->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        cmdNotFound.setQmlName("CommandNotFound");
+        cmdNotFound.setIconType(InfoType::Error);
+        cmdNotFound.setWordWrap(true);
+        cmdNotFound.setTextFormat(AspectControls::TextFormat::RichText);
 
-            InfoLabel *cmdNotFoundLabel = new InfoLabel();
-            cmdNotFoundLabel->setWordWrap(true);
-            cmdNotFoundLabel->setElideMode(Qt::ElideNone);
-            cmdNotFoundLabel->setType(InfoLabelType::Error);
-            cmdNotFoundLabel->setTextFormat(Qt::RichText);
-            cmdNotFoundLabel->setOpenExternalLinks(true);
-            cmdNotFoundLabel->setTextInteractionFlags(
-                Qt::TextSelectableByMouse | Qt::LinksAccessibleByMouse);
+        const auto updateCmdInfo = [this] {
+            const bool isCustom = registryBrowser.volatileValue().isEmpty();
+            const FilePath executable = launchCommand.expandedValue();
+            templateCmdInfo.setText(
+                QString("%1 %2").arg(executable.toUserOutput()).arg(launchArguments()));
+            templateCmdInfo.setVisible(!isCustom);
 
-            const auto updateCmdInfo = [templateCmdInfo, cmdNotFoundLabel, this]() {
-                const bool isCustom = registryBrowser.volatileValue().isEmpty();
-                const FilePath executable = launchCommand.expandedValue();
-                const QString info = QString("%1 %2")
-                                         .arg(executable.toUserOutput())
-                                         .arg(launchArguments());
-                templateCmdInfo->setText(info);
-                templateCmdInfo->setVisible(!isCustom);
-                const bool executableCanBeFound
-                    = executable.searchInPath(FileUtils::usefulExtraSearchPaths()).exists();
-                cmdNotFoundLabel->setVisible(!isCustom && !executableCanBeFound);
-                QString warningText = Tr::tr("\"%1\" is needed for this Agent, but was not found.")
-                                          .arg(executable.toUserOutput().toHtmlEscaped());
-                if (executable == "npx") {
-                    const QString npmDocsUrl
-                        = "https://docs.npmjs.com/downloading-and-installing-node-js-and-npm";
-                    warningText += " "
-                        + Tr::tr("Make sure Node.js is installed and npx is available in PATH. "
-                                 "See <a href=\"%1\">%1</a> for installation instructions.")
-                              .arg(npmDocsUrl);
-                } else if (executable == "uvx") {
-                    const QString uvDocsUrl
-                        = "https://docs.astral.sh/uv/getting-started/installation/";
-                    warningText += " "
-                        + Tr::tr("Make sure UV is installed and uvx is available in PATH. "
-                                 "See <a href=\"%1\">%1</a> for installation instructions.")
-                              .arg(uvDocsUrl);
-                }
-                cmdNotFoundLabel->setText(warningText);
-            };
+            const bool executableCanBeFound
+                = executable.searchInPath(FileUtils::usefulExtraSearchPaths()).exists();
+            cmdNotFound.setVisible(!isCustom && !executableCanBeFound);
+            QString warningText = Tr::tr("\"%1\" is needed for this Agent, but was not found.")
+                                      .arg(executable.toUserOutput().toHtmlEscaped());
+            if (executable == "npx") {
+                const QString npmDocsUrl
+                    = "https://docs.npmjs.com/downloading-and-installing-node-js-and-npm";
+                warningText += " "
+                    + Tr::tr("Make sure Node.js is installed and npx is available in PATH. "
+                             "See <a href=\"%1\">%1</a> for installation instructions.")
+                          .arg(npmDocsUrl);
+            } else if (executable == "uvx") {
+                const QString uvDocsUrl = "https://docs.astral.sh/uv/getting-started/installation/";
+                warningText += " "
+                    + Tr::tr("Make sure UV is installed and uvx is available in PATH. "
+                             "See <a href=\"%1\">%1</a> for installation instructions.")
+                          .arg(uvDocsUrl);
+            }
+            cmdNotFound.setText(warningText);
+        };
 
-            const auto updateVisible = [this]() {
-                const bool isCustom = registryBrowser.volatileValue().isEmpty();
-                name.setVisible(isCustom);
-                launchCommand.setVisible(isCustom);
-                launchArguments.setVisible(isCustom);
-                environment.setVisible(isCustom);
-            };
-            // avoid popping up before getting parented
-            QMetaObject::invokeMethod(this, [updateVisible, updateCmdInfo]{
-                updateVisible();
-                updateCmdInfo();
-            }, Qt::QueuedConnection);
-            connect(
-                &registryBrowser,
-                &AcpRegistryBrowser::volatileValueChanged,
-                this,
-                updateVisible);
-            connect(
-                &registryBrowser,
-                &AcpRegistryBrowser::volatileValueChanged,
-                templateCmdInfo,
-                updateCmdInfo);
+        const auto updateVisible = [this] {
+            const bool isCustom = registryBrowser.volatileValue().isEmpty();
+            name.setVisible(isCustom);
+            launchCommand.setVisible(isCustom);
+            launchArguments.setVisible(isCustom);
+            environment.setVisible(isCustom);
+        };
 
-            connect(
-                &environment,
-                &EnvironmentChangesAspect::volatileValueChanged,
-                templateCmdInfo,
-                updateCmdInfo);
+        // Not before this server has a parent to be shown in.
+        QMetaObject::invokeMethod(this, [updateVisible, updateCmdInfo] {
+            updateVisible();
+            updateCmdInfo();
+        }, Qt::QueuedConnection);
 
-            // clang-format off
-            return Form {
-                noMargin,
-                registryBrowser, br,
-                name, br,
-                launchCommand, br,
-                launchArguments, br,
-                environment, br,
-                templateCmdInfo, br,
-                cmdNotFoundLabel, br,
-            };
-            // clang-format on
-        });
+        connect(&registryBrowser, &AcpRegistryBrowser::volatileValueChanged, this, updateVisible);
+        connect(&registryBrowser, &AcpRegistryBrowser::volatileValueChanged, this, updateCmdInfo);
+        connect(&environment, &EnvironmentChangesAspect::volatileValueChanged, this, updateCmdInfo);
     }
 
     void applyRegistryTemplate()
@@ -437,6 +405,12 @@ public:
     FilePathAspect launchCommand{this};
     StringAspect launchArguments{this};
     EnvironmentChangesAspect environment{this};
+    // What the closure used to build as two InfoLabels. As aspects they are
+    // drawn by whichever renderer has the item, and their text and visibility
+    // are set where the rest of this server's behaviour is - in the
+    // constructor, not in a layout.
+    TextDisplay templateCmdInfo{this};
+    TextDisplay cmdNotFound{this};
 };
 
 class AcpManagerSettings : public AspectContainer
@@ -557,4 +531,50 @@ void prefetchAcpRegistry()
         });
 }
 
+#ifdef WITH_TESTS
+
+
+// The visibility rules used to live in the layout closure, so only a widget
+// being built ever ran them. They are the server's own behaviour: a server
+// taken from the registry is described by the template, and the fields that
+// spell one out by hand have nothing to say.
+class AcpServerAspectTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testATemplateHidesTheFieldsThatSpellOneOutByHand()
+    {
+        AcpServerAspect server;
+
+        // Custom to begin with: no template chosen, so every field is the
+        // user's to fill in.
+        QTRY_VERIFY(server.name.isVisible());
+        QVERIFY(server.launchCommand.isVisible());
+        QVERIFY(server.launchArguments.isVisible());
+        QVERIFY(server.environment.isVisible());
+
+        // Choosing a template describes the command instead, so the fields go.
+        server.registryBrowser.setVolatileValue(QString("some-registry-id"));
+        QTRY_VERIFY(!server.name.isVisible());
+        QVERIFY(!server.launchCommand.isVisible());
+        QVERIFY(!server.launchArguments.isVisible());
+        QVERIFY(!server.environment.isVisible());
+
+        // And clearing it brings them back.
+        server.registryBrowser.setVolatileValue(QString());
+        QTRY_VERIFY(server.name.isVisible());
+        QVERIFY(server.launchCommand.isVisible());
+    }
+};
+
+QObject *createAcpServerAspectTest()
+{
+    return new AcpServerAspectTest;
+}
+
+#endif // WITH_TESTS
+
 } // namespace AcpClient::Internal
+
+#include "acpsettings.moc"

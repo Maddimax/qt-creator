@@ -52,6 +52,7 @@ public:
 
 #ifdef WITH_TESTS
         addTestCreator(createAcpClientTest);
+        addTestCreator(createAcpServerAspectTest);
 #endif
 
         setupAcpSettings();

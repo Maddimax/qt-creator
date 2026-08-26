@@ -5282,6 +5282,35 @@ second run with the same change gives 1543 passed, 4 failed, the baseline
 exactly. This suite is on record as giving wildly different counts from the same
 binary, and one sample of it is worth nothing in either direction.
 
+## The ACP closure, ported rather than deleted
+
+This is the one that was skipped twice for being more than a layout, and it is
+the plan's own recipe worked through: *separate what it lists from what it does*.
+
+What it **did**, all inside a layouter: built two `InfoLabel`s, computed their
+text and visibility from the chosen template and whether the executable is on
+PATH, hid `name`, `launchCommand`, `launchArguments` and `environment` when a
+template was chosen, posted a queued first run, and made three `connect()`s.
+What it **listed** was seven rows.
+
+The two labels are now `TextDisplay` aspects - the same move clangd's
+`VersionWarning` had already made - and everything else is in the constructor.
+The item pane draws them without being told to, because an AspectList item is
+drawn by `AspectItems` over a model.
+
+**The port moved behaviour, so the first thing to ask is what pinned it.**
+Nothing did: breaking `updateVisible()` left all 43 ACP tests passing. Behaviour
+that no test holds is behaviour a port can silently drop, so it has a test now -
+choosing a template hides the four fields, clearing it brings them back - and
+breaking `updateVisible()` fails it by name. That is the difference between
+moving code and porting it.
+
+Two mechanical notes, both of which cost a build: a class with `Q_OBJECT` in a
+`.cpp` needs `#include "<file>.moc"` at the end, and a `#include <QTest>` added
+next to the test block lands *inside the namespace*, where `QTypeInfo`
+specialisations cannot go. Includes belong at the top even when what needs them
+does not.
+
 **What this batch does not verify.** These closures were dead on the Quick side,
 which is the side that is used; nothing here proves the *widget* rendering of
 those containers is unaffected, because nothing draws them that way any more and
