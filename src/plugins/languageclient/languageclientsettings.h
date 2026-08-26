@@ -94,8 +94,14 @@ public:
     virtual BaseSettings *create() const = 0;
     virtual bool isValid() const;
     virtual bool isValidOnBuildConfiguration(ProjectExplorer::BuildConfiguration *bc) const;
-    virtual void attachProjectSpecificSettingsToLayout(ProjectExplorer::Project *, QLayout *) const
-    {}
+    // The settings this client adds to a project's Language Server panel, or
+    // nothing where it adds none. A client says what it has rather than
+    // drawing it, so that the panel can show it whichever way it is drawn.
+    // Give the container a labelText: it becomes the group's title.
+    virtual Utils::AspectContainer *projectSpecificSettings(ProjectExplorer::Project *) const
+    {
+        return nullptr;
+    }
     Client *createClient() const;
     Client *createClient(ProjectExplorer::BuildConfiguration *bc) const;
     bool isEnabledOnProject(ProjectExplorer::Project *project) const;

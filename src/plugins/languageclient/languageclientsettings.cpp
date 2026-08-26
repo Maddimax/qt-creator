@@ -1128,82 +1128,107 @@ QStringList ProjectSettings::disabledSettings()
     return m_disabledSettings;
 }
 
-class LanguageClientProjectSettingsWidget : public QWidget
+// What the panel shows. A client that has project settings of its own hands
+// over a container rather than drawing into a layout, so the panel shows
+// whatever it is given without knowing what any of them are.
+class LanguageClientProjectPanel final : public Utils::AspectContainer
 {
 public:
-    explicit LanguageClientProjectSettingsWidget(Project *project)
+    explicit LanguageClientProjectPanel(Project *project)
         : m_settings(project)
     {
-        BaseTextEditor *editor = createJsonEditor(this);
-        editor->document()->setContents(m_settings.json());
+        // Before registering: insertAspect() forces the container's own
+        // auto-apply onto what it takes in.
+        setAutoApply(true);
+        setQmlSource(
+            QUrl("qrc:/qt/qml/QtCreator/LanguageClient/LanguageClientProjectPanel.qml"));
 
-        auto layout = new QVBoxLayout(this);
-        layout->setContentsMargins(0, 0, 0, 0);
-        layout->addWidget(ProjectExplorer::createGlobalSettingsLink(Constants::LANGUAGECLIENT_SETTINGS_PAGE));
-        layout->addWidget(Layouting::createHr());
+        m_globalLink.setQmlName("GlobalLink");
+        m_globalLink.setTextFormat(Utils::AspectControls::TextFormat::RichText);
+        m_globalLink.setText("<a href=\"page\">" + Tr::tr("Global settings") + "</a>");
+        connect(&m_globalLink, &Utils::TextDisplay::linkActivated, this, [] {
+            Core::ICore::showSettings(Constants::LANGUAGECLIENT_SETTINGS_PAGE);
+        });
+        registerAspect(&m_globalLink);
 
-        QFormLayout *settingsLayout = nullptr;
-        for (auto settings : LanguageClientSettings::pageSettings()) {
-
+        // One row per language server that needs a project, saying whether this
+        // project turns it on, off, or leaves it to the global settings.
+        m_overrides.setQmlName("Overrides");
+        m_overrides.setLabelText(Tr::tr("Project Specific Language Servers"));
+        for (BaseSettings * const settings : LanguageClientSettings::pageSettings()) {
             if (settings->startBehavior() != BaseSettings::RequiresProject)
                 continue;
-            if (!settingsLayout) {
-                auto group = new QGroupBox(Tr::tr("Project Specific Language Servers"));
-                settingsLayout = new QFormLayout;
-                settingsLayout->setFormAlignment(Qt::AlignLeft);
-                settingsLayout->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
-                group->setLayout(settingsLayout);
-                layout->addWidget(group);
-            }
-            QComboBox *comboBox = new QComboBox;
-            comboBox->addItem(Tr::tr("Use Global Settings"));
-            comboBox->addItem(Tr::tr("Enabled"));
-            comboBox->addItem(Tr::tr("Disabled"));
+            auto choice = new Utils::SelectionAspect;
+            choice->setLabelText(settings->name());
+            choice->setDisplayStyle(Utils::SelectionAspect::DisplayStyle::ComboBox);
+            choice->addOption(Tr::tr("Use Global Settings"));
+            choice->addOption(Tr::tr("Enabled"));
+            choice->addOption(Tr::tr("Disabled"));
             if (m_settings.enabledSettings().contains(settings->id()))
-                comboBox->setCurrentIndex(1);
+                choice->setValue(1);
             else if (m_settings.disabledSettings().contains(settings->id()))
-                comboBox->setCurrentIndex(2);
+                choice->setValue(2);
             else
-                comboBox->setCurrentIndex(0);
-            connect(
-                comboBox,
-                &QComboBox::currentIndexChanged,
-                this,
-                [id = settings->id(), this](int index) {
-                    if (index == 0)
-                        m_settings.clearOverride(id);
-                    else if (index == 1)
-                        m_settings.enableSetting(id);
-                    else if (index == 2)
-                        m_settings.disableSetting(id);
-                });
-            settingsLayout->addRow(settings->name(), comboBox);
+                choice->setValue(0);
+            choice->addOnChanged(this, [this, choice, id = settings->id()] {
+                switch (choice->value()) {
+                case 1: m_settings.enableSetting(id); break;
+                case 2: m_settings.disableSetting(id); break;
+                default: m_settings.clearOverride(id); break;
+                }
+            });
+            m_overrides.registerAspect(choice, /*takeOwnership=*/true);
         }
+        registerAspect(&m_overrides);
 
-        auto group = new QGroupBox(Tr::tr("Workspace Configuration"));
-        group->setLayout(new QVBoxLayout);
-        group->layout()->addWidget(new QLabel(Tr::tr(
-            "Additional JSON configuration sent to all running language servers for this project.\n"
-            "See the documentation of the specific language server for valid settings.")));
-        group->layout()->addWidget(editor->widget());
-        layout->addWidget(group);
+        m_workspaceNote.setQmlName("WorkspaceNote");
+        m_workspaceNote.setWordWrap(true);
+        m_workspaceNote.setText(Tr::tr(
+            "Additional JSON configuration sent to all running language servers for this "
+            "project.\nSee the documentation of the specific language server for valid "
+            "settings."));
+        registerAspect(&m_workspaceNote);
 
-        connect(
-            editor->editorWidget()->textDocument(),
-            &TextDocument::contentsChanged,
-            this,
-            [this, editor] { m_settings.setJson(editor->document()->contents()); });
+        m_json.setQmlName("Json");
+        m_json.setDisplayStyle(Utils::StringAspect::TextEditDisplay);
+        m_json.setValue(QString::fromUtf8(m_settings.json()));
+        m_json.addOnChanged(this, [this] { m_settings.setJson(m_json().toUtf8()); });
+        registerAspect(&m_json);
 
-        for (auto settings : LanguageClientSettings::pageSettings()) {
+        // Whatever the clients add. No box of its own: each of them brings its
+        // own title, and a box around the lot would be a group of groups.
+        m_clientSettings.setQmlName("ClientSettings");
+        m_clientSettings.setFlattened(true);
+        for (BaseSettings * const settings : LanguageClientSettings::pageSettings()) {
             if (settings->startBehavior() != BaseSettings::RequiresProject)
                 continue;
-            settings->attachProjectSpecificSettingsToLayout(project, layout);
+            if (Utils::AspectContainer * const own = settings->projectSpecificSettings(project))
+                m_clientSettings.registerAspect(own, /*takeOwnership=*/true);
         }
+        registerAspect(&m_clientSettings);
     }
+
+    static Utils::Key extraDataKey() { return "LanguageClientProjectPanel"; }
 
 private:
     ProjectSettings m_settings;
+    Utils::TextDisplay m_globalLink;
+    Utils::AspectContainer m_overrides;
+    Utils::TextDisplay m_workspaceNote;
+    Utils::StringAspect m_json;
+    Utils::AspectContainer m_clientSettings;
 };
+
+static LanguageClientProjectPanel *languageClientProjectPanel(Project *project)
+{
+    const Utils::Key key = LanguageClientProjectPanel::extraDataKey();
+    QVariant v = project->extraData(key);
+    if (v.isNull()) {
+        v = QVariant::fromValue(new LanguageClientProjectPanel(project));
+        project->setExtraData(key, v);
+    }
+    return v.value<LanguageClientProjectPanel *>();
+}
 
 class LanguageClientProjectPanelFactory : public ProjectPanelFactory
 {
@@ -1213,8 +1238,8 @@ public:
         setPriority(35);
         setDisplayName(Tr::tr("Language Server"));
         setId(Constants::LANGUAGECLIENT_SETTINGS_PANEL);
-        setCreateWidgetFunction([](Project *project) {
-            return new LanguageClientProjectSettingsWidget(project);
+        setSettingsProvider([](Project *project) {
+            return languageClientProjectPanel(project);
         });
     }
 };

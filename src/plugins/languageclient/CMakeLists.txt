@@ -58,6 +58,7 @@ if(TARGET LanguageClient AND TARGET Qt::Quick)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      LanguageClientProjectPanel.qml
       LanguageClientsPage.qml
   )
 endif()

@@ -497,23 +497,13 @@ static CommandLine commandLineForQmlls(const BuildConfiguration *bc)
     return result;
 }
 
-void QmllsClientSettings::attachProjectSpecificSettingsToLayout(
-    Project *project, QLayout *parent) const
+Utils::AspectContainer *QmllsClientSettings::projectSpecificSettings(Project *project) const
 {
     auto projectSettings = new QmllsClientProjectSettings{project};
-
-    using namespace Layouting;
-    // clang-format off
-    Layouting::Group group{
-        title(Tr::tr("QML Language Server Settings")),
-        Column {
-            Row {
-                projectSettings->extraArgumentsSelection, projectSettings->extraArguments,
-            }
-        }
-    };
-    // clang-format on
-    parent->addWidget(group.emerge());
+    // The group's title, which the layout used to carry.
+    projectSettings->setLabelText(Tr::tr("QML Language Server Settings"));
+    projectSettings->setQmlName("Qmlls");
+    return projectSettings;
 }
 
 bool QmllsClientSettings::isValidOnBuildConfiguration(BuildConfiguration *bc) const

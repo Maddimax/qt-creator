@@ -28,8 +28,8 @@ public:
     void fromMap(const Utils::Store &map) override;
 
     bool isValidOnBuildConfiguration(ProjectExplorer::BuildConfiguration *bc) const override;
-    void attachProjectSpecificSettingsToLayout(
-        ProjectExplorer::Project *project, QLayout *parent) const override;
+    Utils::AspectContainer *projectSpecificSettings(
+        ProjectExplorer::Project *project) const override;
 
     // helpers:
     bool isEnabledOnProjectFile(const Utils::FilePath &file) const;
