@@ -11,12 +11,11 @@
 
 #include "profilertr.h"
 
-#include <utils/aspectwidgets.h>
-#include <utils/async.h>
-#include <utils/futuresynchronizer.h>
-#include <utils/layoutbuilder.h>
 #include <utils/processinfo.h>
-#include <utils/qtdesignwidgets.h>
+
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
 
 #include <QFutureWatcher>
 #include <QGuiApplication>
@@ -57,34 +56,22 @@ CallStackSamplerSettings::CallStackSamplerSettings()
     updateTargetEnabled();
     connect(&attach, &BoolAspect::changed, this, [this] { updateTargetEnabled(); });
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-        auto pick = new QtcButton(Tr::tr("Select Process…"), QtcButton::SmallSecondary);
-        auto picked = new QtcLabel(m_pickedName.isEmpty() ? Tr::tr("No process selected")
-                                                          : m_pickedName,
-                                   QtcLabel::Secondary);
-        const auto updatePick = [this, pick] {
-            pick->setEnabled(!targetChosenElsewhere() && attach());
-        };
-        updatePick();
-        connect(&attach, &BoolAspect::changed, pick, updatePick);
-        connect(this, &SamplerSettings::targetSelectionChanged, pick, updatePick);
-        connect(pick, &QAbstractButton::clicked, this, [this, picked] {
-            const std::optional<ProcessInfo> info = ProcessPickerDialog::pickProcess();
-            if (!info)
-                return;
-            m_pickedPid = info->processId;
-            m_pickedName = FilePath::fromUserInput(info->executable).fileName();
-            picked->setText(m_pickedName);
-        });
-        return Column {
-            executable,
-            arguments,
-            workingDirectory,
-            Row { intervalUs, st },
-            Row { attach, pick, picked, st },
-        };
+    pickProcess.setQmlName("PickProcess");
+    pickProcess.setActionText(Tr::tr("Select Process…"));
+    pickProcess.setSummaryProvider([this] {
+        return m_pickedName.isEmpty() ? Tr::tr("No process selected") : m_pickedName;
     });
+    pickProcess.setAction([this] {
+        const std::optional<ProcessInfo> info = ProcessPickerDialog::pickProcess();
+        if (!info)
+            return;
+        m_pickedPid = info->processId;
+        m_pickedName = FilePath::fromUserInput(info->executable).fileName();
+        pickProcess.updateSummary();
+    });
+    pickProcess.setEnabler(&attach);
+
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Profiler/CallStackSamplerForm.qml"));
 }
 
 void CallStackSamplerSettings::fillOptions(RecordingSession &session) const
@@ -228,4 +215,45 @@ ExecutableItem CallStackSampler::captureRecipe(const std::shared_ptr<RecordingSe
     return QBarrierTask(onSetup);
 }
 
+#ifdef WITH_TESTS
+
+// The picker's behaviour used to live in the layout closure, so it ran only
+// when someone opened the page. It is in the constructor now, and this is what
+// says so.
+class CallStackSamplerSettingsTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testThePickerIsOfferedOnlyWhileAttaching()
+    {
+        CallStackSamplerSettings settings;
+        QVERIFY2(!settings.pickProcess.isEnabled(),
+                 "the picker is offered with nothing to attach to");
+
+        settings.attach.setValue(true);
+        QVERIFY(settings.pickProcess.isEnabled());
+
+        settings.attach.setValue(false);
+        QVERIFY(!settings.pickProcess.isEnabled());
+    }
+
+    void testThePickerSaysSoBeforeAnythingIsPicked()
+    {
+        CallStackSamplerSettings settings;
+        QCOMPARE(settings.pickProcess.displayText(), Tr::tr("No process selected"));
+    }
+};
+
+QObject *createCallStackSamplerSettingsTest()
+{
+    return new CallStackSamplerSettingsTest;
+}
+
+#endif // WITH_TESTS
+
 } // namespace Profiler::Internal
+
+#ifdef WITH_TESTS
+#include "callstacksampler.moc"
+#endif

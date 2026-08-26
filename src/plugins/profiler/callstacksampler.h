@@ -24,6 +24,10 @@ public:
     Utils::IntegerAspect intervalUs{this};
     Utils::BoolAspect attach{this}; // Attach to a running process instead of launching.
 
+    // Opens the process picker and reports what it chose. The value is edited
+    // in a dialog, so the control is that summary and a button.
+    Utils::ActionAspect pickProcess{this};
+
 protected:
     void fillOptions(RecordingSession &session) const override;
     void updateTargetEnabled() override;
@@ -54,5 +58,9 @@ public:
 private:
     std::unique_ptr<CallStackSamplerSettings> m_settings;
 };
+
+#ifdef WITH_TESTS
+QObject *createCallStackSamplerSettingsTest();
+#endif
 
 } // namespace Profiler::Internal

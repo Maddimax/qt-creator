@@ -218,6 +218,7 @@ if(TARGET Profiler)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      CallStackSamplerForm.qml
       CombinedSamplerForm.qml
       PerfSettingsPage.qml
       QmlProfilerSamplerForm.qml

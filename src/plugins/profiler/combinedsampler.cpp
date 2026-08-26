@@ -13,9 +13,7 @@
 
 #include <qmldebug/qmlprofilereventtypes.h>
 
-#include <utils/aspectwidgets.h>
 #include <utils/hostosinfo.h>
-#include <utils/layoutbuilder.h>
 
 #include <QDir>
 #include <QJsonDocument>

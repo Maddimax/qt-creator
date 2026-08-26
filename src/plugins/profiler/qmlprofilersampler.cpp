@@ -15,10 +15,7 @@
 
 #include <qmldebug/qmlprofilereventtypes.h>
 
-#include <utils/aspectwidgets.h>
-#include <utils/layoutbuilder.h>
 #include <utils/qtcprocess.h>
-#include <utils/qtdesignwidgets.h>
 #include <utils/url.h>
 
 #include <QtTaskTree/QBarrier>

@@ -5402,14 +5402,26 @@ that, which is the same "a page moves to Quick on its own" contract the code
 style pages use: `createAspectForm()` returns nullptr for a container with no
 `qmlSource`, so the four backends convert one at a time.
 
-**Two of the four are lists and have moved.** The QML profiler's and the
-combined sampler's closures only arranged aspects. The other two do not: both
-build a process picker - a button and a label wired to
-`ProcessPickerDialog::pickProcess()` - and the perf one additionally embeds
-`perfSettings.createPerfConfigWidget()`, a whole widget no list of aspects
-describes. The picker is portable (an `ActionAspect` and a display aspect, the
-shape clangd's `VersionWarning` already uses); the perf config widget is not,
-and is the honest blocker.
+**Three of the four have moved.** The QML profiler's and the combined sampler's
+closures only arranged aspects. The other two each build a process picker - a
+button and a label wired to `ProcessPickerDialog::pickProcess()` - and the perf
+one additionally embeds `perfSettings.createPerfConfigWidget()`, a whole widget
+no list of aspects describes. That widget is the honest blocker, so perf keeps
+its layout.
+
+**The picker turned out to be a control that already existed.** An
+`ActionAspect` given a `setSummaryProvider()` presents as `TextWithAction` - a
+summary and a button beside it - which is exactly a value edited in a dialog.
+So the call-stack sampler's button and label became one aspect, `pickProcess`,
+with `setEnabler(&attach)` replacing the hand-written enable/connect pair. Worth
+reading `AspectPresentation` before inventing a control: this one was already
+described in the header as "a value that is edited in a dialog rather than in
+place".
+
+**And the behaviour that moved got a test**, per the ACP rule: the picker being
+offered only while attaching, and saying so before anything is picked, both ran
+only when someone opened the page before. Dropping the enabler fails the first;
+dropping the summary provider fails the second.
 
 **The feature toggles forced a decision about nesting.** Each of the two builds
 one `BoolAspect` per `QmlDebug::ProfileFeature`, so a form cannot name them -
