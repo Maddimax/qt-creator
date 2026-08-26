@@ -116,14 +116,17 @@ Item {
                     root.editingFinished()
             }
 
-            // What the marks on these lines say, drawn after the text. The
-            // viewport reports each line's natural width, so the annotation
-            // starts where the text actually ends rather than at a column.
+            // What comes after a line's text: the box standing in for what a
+            // fold hides, then what a mark on the line says. One delegate for
+            // both, in a Row, because they land in the same place and a folded
+            // line with an error on it would otherwise draw them on top of
+            // each other. The viewport reports each line's natural width, so
+            // they start where the text actually ends rather than at a column.
             Repeater {
                 model: viewport.visibleLines
 
-                delegate: Text {
-                    id: annotation
+                delegate: Row {
+                    id: trailing
 
                     required property int index
                     required property var modelData
@@ -134,16 +137,41 @@ Item {
                     x: lineData.width + Spacing.GapHM - viewport.scrollX
                     y: row * viewport.lineHeight - viewport.scrollY
                     height: viewport.lineHeight
-                    verticalAlignment: Text.AlignVCenter
+                    spacing: Spacing.GapHM
 
-                    text: annotation.lineData.annotation ?? ""
-                    visible: text !== ""
-                    font: viewport.font
-                    color: Tokens.textMuted
-                    elide: Text.ElideRight
-                    // Never wider than what is left of the line, so a long
-                    // message does not draw past the edge of the editor.
-                    width: Math.max(0, viewport.width - x)
+                    Rectangle {
+                        width: replacement.implicitWidth + 2 * Spacing.PaddingHS
+                        height: viewport.lineHeight
+                        visible: replacement.text !== ""
+                        color: "transparent"
+                        border.color: Tokens.textMuted
+                        radius: 3
+
+                        Text {
+                            id: replacement
+
+                            anchors.centerIn: parent
+                            text: trailing.lineData.foldReplacement ?? ""
+                            font: viewport.font
+                            color: Tokens.textMuted
+                        }
+                    }
+
+                    Text {
+                        id: annotation
+
+                        height: viewport.lineHeight
+                        verticalAlignment: Text.AlignVCenter
+
+                        text: trailing.lineData.annotation ?? ""
+                        visible: text !== ""
+                        font: viewport.font
+                        color: Tokens.textMuted
+                        elide: Text.ElideRight
+                        // Never wider than what is left of the line, so a long
+                        // message does not draw past the edge of the editor.
+                        width: Math.max(0, viewport.width - trailing.x - x)
+                    }
                 }
             }
 

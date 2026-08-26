@@ -691,6 +691,30 @@ void TextDocumentLayout::requestExtraAreaUpdate()
     emit updateExtraArea();
 }
 
+QString TextBlockUserData::foldReplacementText(const QString &ellipsis,
+                                              const QTextBlock &firstHidden,
+                                              const QTextBlock &lastHidden)
+{
+    QString replacement = ellipsis;
+
+    const QString opening = firstHidden.text().trimmed();
+    if (foldingStartIncluded(firstHidden) && !opening.isEmpty())
+        replacement.prepend(opening.at(0));
+
+    if (foldingEndIncluded(lastHidden)) {
+        QString right = lastHidden.text().trimmed();
+        if (right.endsWith(QLatin1Char(';'))) {
+            right.chop(1);
+            right = right.trimmed();
+            replacement.append(right.right(right.endsWith('/') ? 2 : 1));
+            replacement.append(QLatin1Char(';'));
+        } else {
+            replacement.append(right.right(right.endsWith('/') ? 2 : 1));
+        }
+    }
+    return replacement;
+}
+
 void TextBlockUserData::doFoldOrUnfold(const QTextBlock &block, bool unfold, bool recursive)
 {
     if (!canFold(block))

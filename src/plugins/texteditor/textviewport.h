@@ -233,6 +233,9 @@ private:
         // Which marker to draw, as a URL a QML Image can load. Empty when the
         // line starts no fold.
         QString foldIcon;
+        // What stands in for the hidden text, drawn after the line. Empty
+        // unless the fold is closed.
+        QString foldReplacement;
         // The highest-priority visible mark on this line, as a URL a QML Image
         // can load and the text it explains itself with. Empty when the line
         // carries none.

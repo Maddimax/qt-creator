@@ -119,6 +119,15 @@ public:
     static void setFoldingEndIncluded(const QTextBlock &block, bool included);
     static bool foldingEndIncluded(const QTextBlock &block);
 
+    // What stands in for a folded region: \a ellipsis with the brackets the
+    // hidden text opened and closed put back around it, so that a fold reads
+    // as "{...};" rather than as nothing. The caller passes the first and last
+    // hidden blocks because who counts as hidden is its own question - a view
+    // may hide blocks the document does not.
+    static QString foldReplacementText(const QString &ellipsis,
+                                       const QTextBlock &firstHidden,
+                                       const QTextBlock &lastHidden);
+
     static CodeFormatterData *codeFormatterData(const QTextBlock &block);
     static void setCodeFormatterData(const QTextBlock &block, CodeFormatterData *data);
 

@@ -820,6 +820,98 @@ private slots:
         QVERIFY(!viewport->visibleLine(0).value("folded").toBool());
     }
 
+    // A closed fold says what it swallowed. The widget editor draws "{...};"
+    // after the line rather than leaving a gap, and puts back the brackets the
+    // hidden text opened and closed - which is the part that has to come from
+    // the document rather than from a constant.
+    void testAClosedFoldSaysWhatItSwallowed()
+    {
+        TemporaryDirectory dir("qtc-viewport-replacement");
+        const FilePath file = dir.filePath("braces.txt");
+        file.writeFileContents("struct S\n{\n    int a;\n};\nafter\n");
+
+        QQuickView view;
+        installIconProvider(view);
+        view.resize(400, 200);
+        QQmlComponent component(view.engine());
+        component.setData(QByteArray("import QtQuick\n"
+                                     "import QtCreator.TextEditor\n"
+                                     "CodeViewport {\n"
+                                     "    property string path\n"
+                                     "    width: 400; height: 200\n"
+                                     "    source: CodeDocument { filePath: path }\n"
+                                     "}"),
+                          QUrl("qrc:/test/FoldReplacementTest.qml"));
+        std::unique_ptr<QObject> created(component.createWithInitialProperties(
+            {{"path", file.toUrlishString()}}));
+        QVERIFY2(created != nullptr, qPrintable(component.errorString()));
+
+        auto * const item = qobject_cast<QQuickItem *>(created.get());
+        QVERIFY(item);
+        item->setParentItem(view.contentItem());
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+        auto * const viewport = item->findChild<TextViewport *>();
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 4);
+
+        QTextDocument * const text = viewport->document()->textDocument()->document();
+        auto * const layout = qobject_cast<TextDocumentLayout *>(text->documentLayout());
+        QVERIFY(layout);
+
+        // Line 1 owns lines 2 to 4, and the braces on the edges of the region
+        // belong to the fold rather than to what is left showing.
+        for (int i = 1; i <= 3; ++i)
+            TextBlockUserData::setFoldingIndent(text->findBlockByNumber(i), 1);
+        TextBlockUserData::setFoldingStartIncluded(text->findBlockByNumber(1), true);
+        TextBlockUserData::setFoldingEndIncluded(text->findBlockByNumber(3), true);
+
+        const QTextBlock first = text->findBlockByNumber(0);
+        QVERIFY(TextBlockUserData::canFold(first));
+
+        // What is on screen with the given text, if anything.
+        auto shown = [item](const QString &wanted) -> QQuickItem * {
+            for (QQuickItem * const candidate : allItems(item)) {
+                if (candidate->isVisible() && candidate->property("text").toString() == wanted)
+                    return candidate;
+            }
+            return nullptr;
+        };
+
+        // Nothing is folded, so nothing stands in for anything.
+        QTRY_COMPARE(viewport->visibleLine(0).value("foldReplacement").toString(), QString());
+        QVERIFY(!shown("{...};"));
+
+        TextBlockUserData::doFoldOrUnfold(first, /*unfold=*/false);
+        layout->requestUpdate();
+
+        // The opening brace comes from the first hidden line and the closing
+        // one from the last, semicolon included.
+        QTRY_COMPARE(viewport->visibleLine(0).value("foldReplacement").toString(),
+                     QString("{...};"));
+        QCOMPARE(viewport->visibleLine(1).value("text").toString(), QString("after"));
+        // Only the folded line has one.
+        QCOMPARE(viewport->visibleLine(1).value("foldReplacement").toString(), QString());
+
+        // And it is on screen, after the text of the line it stands for.
+        QQuickItem *box = nullptr;
+        QTRY_VERIFY((box = shown("{...};")) != nullptr);
+        const QPointF at = box->mapToItem(viewport, QPointF(0, 0));
+        const qreal lineWidth = viewport->visibleLine(0).value("width").toReal();
+        QVERIFY2(lineWidth > 0, "the line has no width, so 'after it' means nothing");
+        QVERIFY2(at.x() >= lineWidth,
+                 qPrintable(QString("replacement at %1 overlaps text %2 wide")
+                                .arg(at.x()).arg(lineWidth)));
+        QCOMPARE(qRound(at.y() / viewport->lineHeight()), 0);
+
+        // And it goes away again.
+        TextBlockUserData::doFoldOrUnfold(first, /*unfold=*/true);
+        layout->requestUpdate();
+        QTRY_COMPARE(viewport->visibleLine(0).value("foldReplacement").toString(), QString());
+        QTRY_VERIFY(!shown("{...};"));
+    }
+
     void testCodeViewportNumbersItsLinesOnlyWhenAsked()
     {
         TemporaryDirectory dir("codeviewport-gutter");
@@ -1048,13 +1140,17 @@ private slots:
         }());
 
         // After the text on that line, not before it and not at a fixed column.
+        // In the viewport's coordinates rather than the item's own: what is
+        // between the text and the annotation is a layout detail, and asking
+        // for a local x quietly measures a different thing when it changes.
+        const QPointF at = drawn->mapToItem(viewport, QPointF(0, 0));
         const qreal lineWidth = viewport->visibleLine(2).value("width").toReal();
         QVERIFY2(lineWidth > 0, "the line has no width, so 'after it' means nothing");
-        QVERIFY2(drawn->x() >= lineWidth,
+        QVERIFY2(at.x() >= lineWidth,
                  qPrintable(QString("annotation at %1 overlaps text %2 wide")
-                                .arg(drawn->x()).arg(lineWidth)));
+                                .arg(at.x()).arg(lineWidth)));
         // And on that line.
-        QCOMPARE(qRound(drawn->y() / viewport->lineHeight()), 2);
+        QCOMPARE(qRound(at.y() / viewport->lineHeight()), 2);
     }
 
     void testAnEditTheViewportDidNotMakeStillShows()

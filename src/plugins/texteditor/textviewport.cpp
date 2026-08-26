@@ -234,6 +234,7 @@ QVariantMap TextViewport::visibleLine(int index) const
                        {"foldable", line.foldable},
                        {"folded", line.folded},
                        {"foldIcon", line.foldIcon},
+                       {"foldReplacement", line.foldReplacement},
                        {"annotation", line.annotation},
                        {"newlineTail", line.newlineTail},
                        // What is being composed on this line, if anything. Not
@@ -798,6 +799,15 @@ void TextViewport::updatePolish()
         line.folded = line.foldable && !next.isVisible();
         if (line.foldable)
             line.foldIcon = foldMarkerUrl(line.folded);
+        if (line.folded) {
+            // Everything the fold swallowed, so that its last bracket can be
+            // put back on the end of the replacement.
+            QTextBlock lastHidden = next;
+            while (lastHidden.next().isValid() && !lastHidden.next().isVisible())
+                lastHidden = lastHidden.next();
+            line.foldReplacement
+                = TextBlockUserData::foldReplacementText(QString("..."), next, lastHidden);
+        }
         // The marks on this line - errors, warnings, breakpoints. The highest
         // priority one wins the slot, which is what the widget gutter does
         // with the space too.

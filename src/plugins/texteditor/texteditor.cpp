@@ -6279,24 +6279,15 @@ void TextEditorWidgetPrivate::paintReplacement(PaintEventData &data, QPainter &p
         painter.setRenderHint(QPainter::Antialiasing, false);
         painter.translate(-.5, -.5);
 
-        if (TextBlockUserData::foldingStartIncluded(nextBlock))
-            replacement.prepend(nextBlock.text().trimmed().at(0));
-
+        // nextVisibleBlock() rather than the document's own visibility: this
+        // view can hide blocks the document does not, such as the unchanged
+        // lines an inline diff collapses.
         QTextBlock lastInvisibleBlock = nextVisibleBlock(data.block).previous();
         if (!lastInvisibleBlock.isValid())
             lastInvisibleBlock = data.doc->lastBlock();
 
-        if (TextBlockUserData::foldingEndIncluded(lastInvisibleBlock)) {
-            QString right = lastInvisibleBlock.text().trimmed();
-            if (right.endsWith(QLatin1Char(';'))) {
-                right.chop(1);
-                right = right.trimmed();
-                replacement.append(right.right(right.endsWith('/') ? 2 : 1));
-                replacement.append(QLatin1Char(';'));
-            } else {
-                replacement.append(right.right(right.endsWith('/') ? 2 : 1));
-            }
-        }
+        replacement = TextBlockUserData::foldReplacementText(replacement, nextBlock,
+                                                             lastInvisibleBlock);
 
         if (selectThis)
             painter.setPen(selectionFormat.foreground().color());

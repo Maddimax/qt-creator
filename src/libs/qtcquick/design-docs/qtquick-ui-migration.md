@@ -6346,6 +6346,30 @@ component - passed happily with the filter in place, which is the only reason
 it was not committed. It listens to `QQmlEngine::warnings` now, which is the
 thing it always claimed to be listening to.
 
+**Saying what was swallowed.** A fold with no marker beside the text is a gap
+the reader has to spot in the line numbers, so the widget draws `{...};` in a
+rounded box after the folded line - and the brackets are not decoration: they
+come from the *hidden* text, the opening one from the first hidden line and the
+closing one from the last, semicolon and all.
+
+That string logic sat inside `TextEditorWidgetPrivate::paintReplacement()`,
+mixed with the painting. It is now
+`TextBlockUserData::foldReplacementText(ellipsis, firstHidden, lastHidden)` and
+both backends call it. It takes the two blocks rather than working them out,
+because *who counts as hidden* differs: the widget uses its own
+`nextVisibleBlock()`, which also skips blocks hidden in that view alone - the
+unchanged lines an inline diff collapses - while the viewport only knows about
+the document's own visibility. Extracting that walk too would have quietly
+changed the diff editor.
+
+**One Repeater, not two.** The replacement and a mark's annotation both start
+where the line's text ends, so as separate Repeaters they drew on top of each
+other on a folded line with an error on it. They are one delegate now, a `Row`,
+which makes the overlap impossible rather than unlikely. That moved the
+annotation into a parent, and an existing test asserting its local `x` went red
+- correctly, because a local `x` had silently stopped meaning "after the text".
+Both tests ask `mapToItem(viewport, ...)` now, which is the question either way.
+
 What is left of the editor: extra-selection overlays, the context menu, drag
 and drop, and wrapping.
 
