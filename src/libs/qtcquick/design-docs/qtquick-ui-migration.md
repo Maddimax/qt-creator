@@ -6125,6 +6125,13 @@ not a whole number of them. Making it frame-relative instead - `index` rather
 than `firstVisibleLine + index` - fails the test with "Actual: 1, Expected:
 1001" after a scroll, which is exactly the bug that shape has.
 
+The gutter is part of `CodeViewport` rather than something an editor assembles
+beside it, behind `showLineNumbers`, off by default. A settings preview is a few
+lines of demonstration and numbering them says nothing; an editor without them
+is not one. Hidden, it takes no width either - the text starts where it would
+have without a gutter rather than indented by an invisible one, which is the
+half of "hidden" that is easy to leave out and the test checks separately.
+
 **Still missing before this is the main editor**, in rough order of how much
 each is load-bearing: an `IEditorFactory` so a file can be opened in it at all,
 the current-line highlight, folding, text marks and annotations, extra-selection

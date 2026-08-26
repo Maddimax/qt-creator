@@ -28,6 +28,11 @@ Item {
     // showing a file cannot accidentally change it.
     property alias readOnly: viewport.readOnly
 
+    // Whether the lines are numbered. Off by default: a settings preview is a
+    // few lines of demonstration and numbering them says nothing, while an
+    // editor without them is not one.
+    property bool showLineNumbers: false
+
     // Focus has left, so whatever was being typed is finished. A page that
     // writes the text somewhere else uses this rather than every keystroke:
     // re-indenting rewrites the document, and it must not do that under the
@@ -52,12 +57,28 @@ Item {
         border.width: 1
         border.color: Tokens.strokeSubtle
 
+        EditorGutter {
+            id: gutter
+
+            objectName: "codeGutter"
+            viewport: viewport
+            visible: root.showLineNumbers
+            // No width when it is not shown, so the text starts where it would
+            // have without a gutter rather than indented by an invisible one.
+            width: visible ? implicitWidth : 0
+            anchors.left: parent.left
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            anchors.margins: Spacing.PaddingHXs
+        }
+
         TextViewport {
             id: viewport
 
             objectName: "codeViewport"
             anchors.fill: parent
             anchors.margins: Spacing.PaddingHXs
+            anchors.leftMargin: Spacing.PaddingHXs + gutter.width
             document: root.source
             // Keys go to the scene's active focus item. The viewport is a focus
             // scope, so focusing the root would stop one level short of it.

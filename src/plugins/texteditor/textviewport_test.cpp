@@ -582,6 +582,61 @@ private slots:
         QCOMPARE(gutter->implicitWidth(), wide);
     }
 
+    // The gutter as an editor gets it: part of the viewport component, off for
+    // a preview and on for something being edited.
+    void testCodeViewportNumbersItsLinesOnlyWhenAsked()
+    {
+        TemporaryDirectory dir("codeviewport-gutter");
+        QVERIFY(dir.isValid());
+        const FilePath file = writeLines(dir, "big.txt", 200);
+
+        for (const bool numbered : {false, true}) {
+            QQuickView view;
+            view.resize(400, 200);
+            QQmlComponent component(view.engine());
+            component.setData(QByteArray("import QtCreator.TextEditor\n"
+                                         "CodeViewport {\n"
+                                         "    width: 400; height: 200\n"
+                                         "    property string path\n"
+                                         "    property bool numbered\n"
+                                         "    showLineNumbers: numbered\n"
+                                         "    source: CodeDocument { filePath: path }\n"
+                                         "}"),
+                              QUrl("qrc:/test/CodeViewportGutterTest.qml"));
+            std::unique_ptr<QObject> created(component.createWithInitialProperties(
+                {{"path", file.toUrlishString()}, {"numbered", numbered}}));
+            QVERIFY2(created != nullptr, qPrintable(component.errorString()));
+
+            auto * const item = qobject_cast<QQuickItem *>(created.get());
+            QVERIFY(item);
+            item->setParentItem(view.contentItem());
+            view.show();
+            QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+            auto * const viewport = item->findChild<TextViewport *>("codeViewport");
+            QVERIFY(viewport);
+            QTRY_VERIFY(viewport->visibleLineCount() > 3);
+            auto * const gutter = item->findChild<QQuickItem *>("codeGutter");
+            QVERIFY2(gutter, "the viewport has no gutter to show or hide");
+
+            if (!numbered) {
+                QVERIFY2(!gutter->isVisible(), "a preview numbered its lines");
+                // And it takes no room: the text starts where it would have
+                // without a gutter, not indented by an invisible one.
+                QCOMPARE(gutter->width(), 0.0);
+                continue;
+            }
+
+            QVERIFY(gutter->isVisible());
+            QVERIFY2(gutter->width() > 0, "the gutter is shown and has no width");
+            QTRY_COMPARE(gutterNumbers(gutter).size(), viewport->visibleLineCount());
+            QCOMPARE(gutterNumbers(gutter).first(), QString("1"));
+            // The text was moved over to make room rather than drawn under it.
+            QVERIFY2(viewport->x() >= gutter->width(),
+                     "the text is drawn on top of the line numbers");
+        }
+    }
+
     void testAnEditTheViewportDidNotMakeStillShows()
     {
         // The indenter, another view, a refactoring: nothing tells the viewport
