@@ -43,7 +43,7 @@ public:
                                        m_oldVersionId,
                                        LibrarySelectionAspect::SelectedVersion);
             m_aspect->handleGuiChanged();
-            emit m_aspect->returnToDisplay();
+            emit m_aspect->displayTextChanged();
         }
 
         void redo() override
@@ -52,8 +52,8 @@ public:
                                        m_versionId,
                                        LibrarySelectionAspect::SelectedVersion);
             if (!m_firstTime) {
-                emit m_aspect->returnToDisplay();
                 m_aspect->handleGuiChanged();
+                emit m_aspect->displayTextChanged();
             }
             m_firstTime = false;
         }
@@ -68,7 +68,15 @@ public:
 
     LibrarySelectionAspect(Utils::AspectContainer *container = nullptr);
 
-    void addToLayoutImpl(Layouting::Layout &parent) override;
+    // A summary of what is picked, and the dialog that picks it: there are
+    // hundreds of libraries, each with its own versions, so a control that
+    // lists them in place is not one of the options.
+    Utils::AspectPresentation presentation() const override;
+    QString displayText() const override;
+    void triggerAction() override;
+    // Drawn: the libraries come from the server, so this is when to go and
+    // ask for them.
+    void requestDisplayText() override;
 
     using ResultCallback = std::function<void(QList<QStandardItem *>)>;
     using FillCallback = std::function<void(ResultCallback)>;
@@ -86,11 +94,16 @@ public:
 
 signals:
     void refillRequested();
-    void returnToDisplay();
 
 private:
+    void ensureFilled();
+
     FillCallback m_fillCallback;
     QStandardItemModel *m_model{nullptr};
 };
+
+#ifdef WITH_TESTS
+QObject *createLibrarySelectionTest();
+#endif
 
 } // namespace CompilerExplorer

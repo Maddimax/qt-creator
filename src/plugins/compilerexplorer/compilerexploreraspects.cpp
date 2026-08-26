@@ -6,15 +6,20 @@
 
 #include "api/library.h"
 
-#include <utils/aspectwidgets.h>
-#include <utils/elidinglabel.h>
+#include <utils/guiutils.h>
+
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+#include <utils/qtcassert.h>
 #include <utils/layoutbuilder.h>
 #include <utils/store.h>
 
 #include <QComboBox>
 #include <QCompleter>
 #include <QPushButton>
-#include <QStackedWidget>
+#include <QDialog>
+#include <QDialogButtonBox>
 
 using namespace Utils;
 
@@ -91,150 +96,212 @@ void LibrarySelectionAspect::setVariantValue(const QVariant &value, Announcement
     setValue(map, howToAnnounce);
 }
 
-void LibrarySelectionAspect::addToLayoutImpl(Layouting::Layout &parent)
+AspectPresentation LibrarySelectionAspect::presentation() const
 {
-    using namespace Layouting;
+    AspectPresentation p = TypedAspect::presentation();
+    p.control = AspectControls::TextWithAction;
+    p.actionText = Tr::tr("Edit");
+    return p;
+}
 
+QString LibrarySelectionAspect::displayText() const
+{
+    if (!m_model)
+        return Tr::tr("No libraries selected");
+
+    QStringList libs;
+    for (int i = 0; i < m_model->rowCount(); i++) {
+        const QModelIndex idx = m_model->index(i, 0);
+        if (!idx.data(LibraryData).isValid() || !idx.data(SelectedVersion).isValid())
+            continue;
+        const auto libData = idx.data(LibraryData).value<Api::Library>();
+        const QString id = idx.data(SelectedVersion).toString();
+        const auto versionIt = std::find_if(libData.versions.begin(),
+                                            libData.versions.end(),
+                                            [id](const Api::Library::Version &v) {
+                                                return v.id == id;
+                                            });
+        libs.append(QString("%1 %2").arg(libData.name,
+                                         versionIt == libData.versions.end() ? id
+                                                                             : versionIt->version));
+    }
+    return libs.isEmpty() ? Tr::tr("No libraries selected") : libs.join(", ");
+}
+
+void LibrarySelectionAspect::ensureFilled()
+{
+    if (m_model)
+        return;
     QTC_ASSERT(m_fillCallback, return);
 
-    auto cb = [this](const QList<QStandardItem *> &items) {
+    m_model = new QStandardItemModel(this);
+    const auto cb = [this](const QList<QStandardItem *> &items) {
         for (QStandardItem *item : items)
             m_model->appendRow(item);
-
         volatileValueToGui();
+        emit displayTextChanged();
     };
-
-    if (!m_model) {
-        m_model = new QStandardItemModel(this);
-
-        connect(this, &LibrarySelectionAspect::refillRequested, this, [this, cb] {
-            m_model->clear();
-            m_fillCallback(cb);
-        });
-
+    connect(this, &LibrarySelectionAspect::refillRequested, this, [this, cb] {
+        m_model->clear();
         m_fillCallback(cb);
-    }
+    });
+    m_fillCallback(cb);
+}
 
-    QComboBox *nameCombo = new QComboBox();
+void LibrarySelectionAspect::requestDisplayText()
+{
+    ensureFilled();
+}
+
+void LibrarySelectionAspect::triggerAction()
+{
+    ensureFilled();
+    QTC_ASSERT(m_model, return);
+
+    auto nameCombo = new QComboBox;
     nameCombo->setInsertPolicy(QComboBox::InsertPolicy::NoInsert);
     nameCombo->setEditable(true);
     nameCombo->completer()->setCompletionMode(QCompleter::PopupCompletion);
     nameCombo->completer()->setFilterMode(Qt::MatchContains);
-
     nameCombo->setModel(m_model);
 
-    QComboBox *versionCombo = new QComboBox();
+    auto versionCombo = new QComboBox;
     versionCombo->addItem("--");
 
-    auto refreshVersionCombo = [nameCombo, versionCombo] {
+    const auto refreshVersionCombo = [nameCombo, versionCombo] {
         versionCombo->clear();
         versionCombo->addItem("--");
-        QString selected = nameCombo->currentData(SelectedVersion).toString();
-        Api::Library lib = qvariant_cast<Api::Library>(nameCombo->currentData(LibraryData));
+        const QString selected = nameCombo->currentData(SelectedVersion).toString();
+        const auto lib = qvariant_cast<Api::Library>(nameCombo->currentData(LibraryData));
         for (const auto &version : std::as_const(lib.versions)) {
             versionCombo->addItem(version.version, version.id);
             if (version.id == selected)
                 versionCombo->setCurrentIndex(versionCombo->count() - 1);
         }
     };
-
     refreshVersionCombo();
-
-    connect(nameCombo, &QComboBox::currentIndexChanged, this, refreshVersionCombo);
+    connect(nameCombo, &QComboBox::currentIndexChanged, versionCombo, refreshVersionCombo);
 
     connect(versionCombo, &QComboBox::activated, this, [this, nameCombo, versionCombo] {
         if (undoStack()) {
-            QVariant old = m_model->data(m_model->index(nameCombo->currentIndex(), 0),
-                                         SelectedVersion);
+            const QVariant old = m_model->data(m_model->index(nameCombo->currentIndex(), 0),
+                                               SelectedVersion);
             undoStack()->push(new SelectLibraryVersionCommand(this,
                                                               nameCombo->currentIndex(),
                                                               versionCombo->currentData(),
                                                               old));
-
-            handleGuiChanged();
-            return;
+        } else {
+            m_model->setData(m_model->index(nameCombo->currentIndex(), 0),
+                             versionCombo->currentData(),
+                             SelectedVersion);
         }
-
-        m_model->setData(m_model->index(nameCombo->currentIndex(), 0),
-                         versionCombo->currentData(),
-                         SelectedVersion);
         handleGuiChanged();
+        emit displayTextChanged();
     });
 
-    QPushButton *clearBtn = new QPushButton("Clear All");
-    connect(clearBtn, &QPushButton::clicked, clearBtn, [this, refreshVersionCombo] {
+    auto clearButton = new QPushButton(Tr::tr("Clear All"));
+    connect(clearButton, &QPushButton::clicked, this, [this, refreshVersionCombo] {
         if (undoStack()) {
             undoStack()->beginMacro(Tr::tr("Reset used libraries"));
             for (int i = 0; i < m_model->rowCount(); i++) {
-                QModelIndex idx = m_model->index(i, 0);
-                if (idx.data(SelectedVersion).isValid())
-                    undoStack()->push(new SelectLibraryVersionCommand(this,
-                                                                      i,
-                                                                      QVariant(),
+                const QModelIndex idx = m_model->index(i, 0);
+                if (idx.data(SelectedVersion).isValid()) {
+                    undoStack()->push(new SelectLibraryVersionCommand(this, i, QVariant(),
                                                                       idx.data(SelectedVersion)));
+                }
             }
             undoStack()->endMacro();
-
-            handleGuiChanged();
-            refreshVersionCombo();
-            return;
+        } else {
+            for (int i = 0; i < m_model->rowCount(); i++)
+                m_model->setData(m_model->index(i, 0), QVariant(), SelectedVersion);
         }
-
-        for (int i = 0; i < m_model->rowCount(); i++)
-            m_model->setData(m_model->index(i, 0), QVariant(), SelectedVersion);
         handleGuiChanged();
         refreshVersionCombo();
+        emit displayTextChanged();
     });
 
-    ElidingLabel *displayLabel = new ElidingLabel();
+    auto buttons = new QDialogButtonBox(QDialogButtonBox::Close);
 
-    auto updateLabel = [displayLabel, this] {
-        QStringList libs;
-        for (int i = 0; i < m_model->rowCount(); i++) {
-            QModelIndex idx = m_model->index(i, 0);
-            if (idx.data(LibraryData).isValid() && idx.data(SelectedVersion).isValid()) {
-                auto libData = idx.data(LibraryData).value<Api::Library>();
-                auto id = idx.data(SelectedVersion).toString();
-
-                auto versionIt = std::find_if(libData.versions.begin(),
-                                              libData.versions.end(),
-                                              [id](const Api::Library::Version &v) {
-                                                  return v.id == id;
-                                              });
-                const QString versionName = versionIt == libData.versions.end()
-                                                ? id
-                                                : versionIt->version;
-
-                libs.append(QString("%1 %2").arg(libData.name).arg(versionName));
-            }
-        }
-        if (libs.empty())
-            displayLabel->setText(Tr::tr("No libraries selected"));
-        else
-            displayLabel->setText(libs.join(", "));
-    };
-
-    connect(m_model, &QStandardItemModel::itemChanged, displayLabel, updateLabel);
-
-    updateLabel();
-
-    QPushButton *editBtn = new QPushButton(Tr::tr("Edit"));
-
+    QDialog dialog(Utils::dialogParent());
+    dialog.setWindowTitle(Tr::tr("Select Libraries"));
     // clang-format off
-    QStackedWidget *stack = static_cast<QStackedWidget*>(
-        Stack {
-            Row { noMargin, displayLabel, editBtn },
-            Row { noMargin, nameCombo, versionCombo, clearBtn }
-        }.emerge()
-    );
+    Layouting::Column {
+        Layouting::Row { nameCombo, versionCombo, clearButton },
+        buttons,
+    }.attachTo(&dialog);
     // clang-format on
-    stack->setContentsMargins({});
-    connect(editBtn, &QPushButton::clicked, stack, [stack] { stack->setCurrentIndex(1); });
-    connect(this, &LibrarySelectionAspect::returnToDisplay, stack, [stack] {
-        stack->setCurrentIndex(0);
-    });
-
-    Utils::AspectWidgets::addLabeledItem(this, parent, stack);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    dialog.exec();
 }
 
+#ifdef WITH_TESTS
+class LibrarySelectionTest : public QObject
+{
+    Q_OBJECT
+
+    static QStandardItem *library(const QString &id, const QString &name,
+                                  const QList<Api::Library::Version> &versions)
+    {
+        auto item = new QStandardItem(name);
+        Api::Library lib;
+        lib.id = id;
+        lib.name = name;
+        lib.versions = versions;
+        item->setData(QVariant::fromValue(lib), LibrarySelectionAspect::LibraryData);
+        return item;
+    }
+
+private slots:
+    void testTheSummaryNamesTheLibrariesAndTheirVersions()
+    {
+        LibrarySelectionAspect aspect;
+        aspect.setFillCallback([](const LibrarySelectionAspect::ResultCallback &cb) {
+            cb({library("fmt", "fmt", {{"10.2.1", "fmt1021"}, {"9.1.0", "fmt910"}}),
+                library("boost", "Boost", {{"1.84", "boost184"}})});
+        });
+
+        // Nothing is asked for until the aspect is drawn: the libraries come
+        // from the server. Drawn is what requestDisplayText() means.
+        QCOMPARE(aspect.displayText(), QString("No libraries selected"));
+        aspect.requestDisplayText();
+
+        // Filled but nothing picked reads as nothing picked, rather than as an
+        // empty list of names.
+        QCOMPARE(aspect.displayText(), QString("No libraries selected"));
+
+        // A version is stored by its id and shown by its name, because the id
+        // is what the server wants and "10.2.1" is what a reader wants.
+        aspect.setValue({{"fmt", "fmt1021"}});
+        QCOMPARE(aspect.displayText(), QString("fmt 10.2.1"));
+
+        aspect.setValue({{"fmt", "fmt910"}, {"boost", "boost184"}});
+        const QString both = aspect.displayText();
+        QVERIFY2(both.contains("fmt 9.1.0"), qPrintable(both));
+        QVERIFY2(both.contains("Boost 1.84"), qPrintable(both));
+
+        // A version the server no longer offers is shown as the id rather than
+        // dropped, so that what is stored is visible.
+        aspect.setValue({{"fmt", "fmt700"}});
+        QCOMPARE(aspect.displayText(), QString("fmt fmt700"));
+    }
+
+    void testItAsksForASummaryAndAButton()
+    {
+        LibrarySelectionAspect aspect;
+        const Utils::AspectPresentation p = aspect.presentation();
+        QCOMPARE(p.control, Utils::AspectControls::TextWithAction);
+        QVERIFY(!p.actionText.isEmpty());
+    }
+};
+
+QObject *createLibrarySelectionTest()
+{
+    return new LibrarySelectionTest;
+}
+#endif // WITH_TESTS
+
 } // namespace CompilerExplorer
+
+#ifdef WITH_TESTS
+#include "compilerexploreraspects.moc"
+#endif

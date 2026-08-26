@@ -2165,7 +2165,7 @@ installs a message handler and asserts nothing says SOFT ASSERT. The first
 version of it passed against a build with the guard removed, which is the only
 reason it was rewritten.
 
-**What this does not do.** The virtual has to stay: three aspects in
+**What this does not do.** The virtual has to stay: two aspects in
 `src/plugins` still override it. Utils has none left. They are not one
 group. Most are run-configuration, build-step and kit aspects - project
 panels rather than preferences pages, which is a surface the migration has not
@@ -3243,6 +3243,47 @@ Eleven QuickUi tests failed and the census named the aspect and the kind it got
 1"* - which is what turned a confusing 96-second run into a one-line fix. Worth
 keeping in mind when deleting a `case`: **the label you remove may be carrying
 the `return` for the labels above it.**
+
+### The library picker, and a UI change made on purpose
+
+`LibrarySelectionAspect` drew a `QStackedWidget`: a summary and an **Edit** on
+one page, a library combo, a version combo and **Clear All** on the other, with
+Edit swapping between them in place.
+
+There were two ways to convert it and they are worth writing down, because the
+cheap-looking one was the dangerous one.
+
+**Keeping the in-place swap** means five child aspects with visibility toggled -
+the shape `TerminalCommandAspect` uses. That needs the aspect to become an
+`AspectContainer`, and its value is a `QMap<Library.Id, Version.Id>` held by
+`TypedAspect`, which brings `m_value`, `m_volatileValue`, and apply, cancel and
+dirty-tracking with them. All of that would have to be written again by hand,
+in a plugin with no tests, where getting the dirty tracking subtly wrong breaks
+Apply and says nothing.
+
+**Making it a summary and a dialog** keeps `TypedAspect` untouched:
+`TextWithAction` needs only `displayText()` and `triggerAction()`. The value
+plumbing is not rewritten, it is not even read. The cost is that Edit opens a
+dialog instead of swapping in place - and that is what
+`EnvironmentChangesAspect`, `MimeTypesAspect`, `EnvVarSeparatorAspect` and
+`ClangDiagnosticConfigIdAspect` all already do. It is the house style for a
+value edited elsewhere, not a new idea.
+
+So: the dialog. Said plainly because it is a visible change and nothing else in
+this migration has changed what a control looks like without saying so.
+
+**Filling the list is what being drawn is for.** The libraries come from the
+compiler explorer server, so the closure asked for them when it built the
+combo. `requestDisplayText()` - made universal in the last batch - is now that
+moment, and `ensureFilled()` hangs off it. The aspect asks for nothing until
+something draws it.
+
+**A plugin that had no tests has two.** `displayText()` is a pure function of
+the model, so the test hands it libraries it made up rather than talking to
+compiler-explorer.com. What it pins is worth having: a version is *stored* by
+its id and *shown* by its name, and a version the server no longer offers is
+shown as the id rather than dropped - so what is stored stays visible. Both
+controls bite, along with one for the fill-on-draw.
 
 ### What the census could not see, and now can
 
