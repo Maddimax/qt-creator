@@ -5,7 +5,12 @@
 
 #include "codesource.h"
 #include "textdocument.h"
+#include "codestylepool.h"
+#include "extraencodingsettings.h"
 #include "highlighter.h"
+#include "icodestylepreferences.h"
+#include "storagesettings.h"
+#include "typingsettings.h"
 #include "highlighterhelper.h"
 #include "textdocumentlayout.h"
 #include "textviewport.h"
@@ -192,6 +197,21 @@ public:
              {"contextActions", QVariant::fromValue(&m_contextActions)}});
         widget->setSource(QUrl("qrc:/qt/qml/QtCreator/TextEditor/MainEditor.qml"));
 
+        // Preferences are pushed into a document, not read from one, so an
+        // editor that pushes nothing saves and indents differently from every
+        // other editor in Creator without saying so. The widget editor
+        // connects to exactly these; the ones it keeps for itself - display,
+        // margin, completion - are widget state rather than the document's.
+        const QList<Utils::AspectContainer *> containers{&globalStorageSettings(),
+                                                         &globalTypingSettings(),
+                                                         &globalExtraEncodingSettings()};
+        for (Utils::AspectContainer * const settings : containers) {
+            connect(settings, &Utils::AspectContainer::changed, this, [this] {
+                applyGlobalSettings();
+            });
+        }
+        applyGlobalSettings();
+
         // Which language to colour the file as comes from its mime type,
         // and the editor manager opens the document *after* building the
         // editor - so this waits for the path rather than reading it now.
@@ -274,6 +294,18 @@ public:
 
 private:
     static constexpr int kStateVersion = 1;
+
+    void applyGlobalSettings()
+    {
+        m_document->setStorageSettings(globalStorageSettings().data());
+        m_document->setTypingSettings(globalTypingSettings().data());
+        m_document->setExtraEncodingSettings(globalExtraEncodingSettings().data());
+        // The code style is what tab settings come from; the widget editor
+        // asks for its language's, and this editor has no language of its own.
+        // No connection needed: TextDocument::setCodeStyle() follows the
+        // preferences it is handed.
+        m_document->setCodeStyle(&globalCodeStyle());
+    }
 
     void configureHighlighter()
     {
@@ -821,6 +853,87 @@ private slots:
         QTRY_VERIFY(viewport->visibleLine(row).value("folded").toBool());
         QVERIFY2(!viewport->visibleLine(row).value("foldReplacement").toString().isEmpty(),
                  "the fold closed but says nothing about what it hid");
+    }
+
+    // Preferences apply to this editor too. The global settings containers are
+    // *pushed* into a document by whoever owns it - a TextDocument reads none
+    // of them itself - so an editor that does not push them saves differently
+    // from every other editor in Creator, silently.
+    void testTheDocumentFollowsThePreferencesForSavingAndTyping()
+    {
+        const StorageSettingsData wasStorage = globalStorageSettings().data();
+        const TypingSettingsData wasTyping = globalTypingSettings().data();
+        const QScopeGuard restore([wasStorage, wasTyping] {
+            globalStorageSettings().setData(wasStorage);
+            globalTypingSettings().setData(wasTyping);
+        });
+
+        Utils::TemporaryDirectory dir("quick-editor-settings");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("saved.txt");
+        QVERIFY(file.writeFileContents("alpha\n"));
+
+        // Deliberately not the shipped defaults: a test that asks for the
+        // default cannot tell "follows Preferences" from "ignores them".
+        StorageSettingsData storage = wasStorage;
+        storage.m_cleanWhitespace = true;
+        storage.m_inEntireDocument = true;
+        storage.m_addFinalNewLine = true;
+        QVERIFY2(storage.m_addFinalNewLine != wasStorage.m_addFinalNewLine
+                     || storage.m_inEntireDocument != wasStorage.m_inEntireDocument,
+                 "the settings asked for are the ones already in force");
+        globalStorageSettings().setData(storage);
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        QCOMPARE(document->storageSettings().m_addFinalNewLine, true);
+        QCOMPARE(document->storageSettings().m_inEntireDocument, true);
+        // Deliberately not the default here either.
+        TypingSettingsData typing = wasTyping;
+        typing.m_tabKeyBehavior = wasTyping.m_tabKeyBehavior == TypingSettingsData::TabAlwaysIndents
+                                      ? TypingSettingsData::TabNeverIndents
+                                      : TypingSettingsData::TabAlwaysIndents;
+        globalTypingSettings().setData(typing);
+        QTRY_COMPARE(document->typingSettings().m_tabKeyBehavior, typing.m_tabKeyBehavior);
+
+        // A line with trailing spaces and no newline at the end: saving has to
+        // clean the one and add the other.
+        document->document()->setPlainText("alpha   \nbeta");
+        const Utils::Result<> saved = document->save(file);
+        if (!saved)
+            QFAIL(qPrintable(saved.error()));
+
+        const Utils::Result<QByteArray> onDisk = file.fileContents();
+        QVERIFY(onDisk.has_value());
+        QCOMPARE(QString::fromUtf8(*onDisk), QString("alpha\nbeta\n"));
+
+        // And a change made while the editor is open reaches it.
+        StorageSettingsData relaxed = storage;
+        relaxed.m_cleanWhitespace = false;
+        globalStorageSettings().setData(relaxed);
+        QTRY_COMPARE(document->storageSettings().m_cleanWhitespace, false);
+
+        // How wide an indent is comes from the code style, which the document
+        // has to be given: the viewport reads its tab settings for both the
+        // tab stops it draws and what the Tab key inserts.
+        const TabSettingsData wasTabs = globalCodeStyle().tabSettings();
+        const QScopeGuard restoreTabs([wasTabs] { globalCodeStyle().setTabSettings(wasTabs); });
+
+        // Derived from what the *document* holds, not from the global value:
+        // an earlier test in this process may have left the global settings
+        // anywhere, and asking for a number the document already had would
+        // pass without anything having been propagated.
+        const int wanted = document->tabSettings().m_indentSize + 3;
+        TabSettingsData wider = wasTabs;
+        wider.m_indentSize = wanted;
+        globalCodeStyle().setTabSettings(wider);
+        QTRY_COMPARE(document->tabSettings().m_indentSize, wanted);
     }
 
     // A split view is two editors on one document. Duplicating has to share

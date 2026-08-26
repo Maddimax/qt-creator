@@ -6761,6 +6761,50 @@ asking the mime database about an empty path prints
 still needed - a duplicate's document already has a path - so it returns early
 on an empty one.
 
+## Preferences, the rest of them
+
+The font settings were one of *seven* global containers the widget editor
+pushes into its document. The other six were still missing, and the pattern is
+identical every time: a `TextDocument` reads none of them itself, so an editor
+that does not push them behaves differently from every other editor in Creator
+and says nothing about it.
+
+The ones the **document** consumes, now pushed and followed:
+
+| container | what it decides |
+|---|---|
+| `globalStorageSettings()` | clean whitespace on save, add a final newline |
+| `globalTypingSettings()` | what Tab does, smart backspace, comment position |
+| `globalExtraEncodingSettings()` | the UTF-8 BOM |
+| `globalCodeStyle()` | tab and indent size, through the indenter |
+
+The rest that `TextEditorWidgetPrivate` connects - display, margin, completion,
+behaviour - are widget state, not the document's, so they are not this
+editor's to push. Behaviour settings are read where they are used
+(`scrollWheelZooming` in `TextViewport::zoomBy()`).
+
+Storage settings are the one with consequences beyond appearance: saving from
+the Quick editor was leaving trailing whitespace that every other editor
+strips, which is diff noise in someone else's review.
+
+**`setCodeStyle()` needs no connection.** `TextDocument::setCodeStyle()`
+connects to the preferences it is handed - `currentTabSettingsChanged` ->
+`setTabSettings` - and applies them immediately. The connection added
+"to be safe" alongside it was removed when its control did not bite.
+
+**A false clean that was not the harness.** With the build and run checks in
+place, `no-code-style` still reported clean once. The cause was in the *test*:
+it asked for `globalCodeStyle().tabSettings().m_indentSize + 3`, and an earlier
+test in the same process had left the global indent at a value that made the
+sum equal `TabSettingsData`'s own default - so the document already held the
+number being waited for, and the assertion passed with nothing propagated.
+
+Deriving the wanted value from **the document's current value** rather than
+from the global one makes that impossible: the target is then always different
+from what the document holds. The general form, and the fourth distinct way a
+control has lied this session: **a fixture derived from shared mutable state
+can collide with the default it is trying to prove is not being used.**
+
 What is left of the editor: the extra-selection producers that still write to a
 `TextEditorWidget` (diagnostics underlines, occurrences, the parenthesis
 match), code completion, dragging text out of a selection, and wrapping.
