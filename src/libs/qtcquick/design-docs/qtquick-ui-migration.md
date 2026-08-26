@@ -5974,6 +5974,17 @@ against the same `-settingspath` rather than once against a fresh one. Both
 suites here now pass twice in a row, which is a claim none of the earlier runs
 in this file were making.
 
+**How far the problem goes: one suite.** QuickUi, TextEditor, Axivion,
+AcpClient and Profiler were each run twice against one settings path.
+QuickUi (86), TextEditor (203) and Axivion (3) repeat exactly. The other two
+vary for reasons that are not persistence, and telling them apart is the useful
+part: a settings leak fails the *same* tests on every rerun and keeps failing
+until the path is wiped, while AcpClient's `testE2ePermissionGranted` failed
+once in five runs on its test server terminating abnormally, and Profiler's
+suite aborts on the `testMissingModelManager` QFATAL at a different point each
+time, so a different set of tests gets to run at all. Re-sampling three times
+separates the two.
+
 ## The same measurement, applied to kits
 
 Re-running the `layouter()` instrumentation with the device closures gone leaves
