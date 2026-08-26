@@ -6072,6 +6072,31 @@ not show a tool tip are the three group delegates, the inline list and the
 placeholder. **A number worth putting in a document is one with a definition
 behind it that someone else could re-run.**
 
+## Controlling the assertion everything else rests on
+
+Every "107 of 107" in this file comes from one test, and one of its assertions
+covers all of them at once: `qmlWarnings.isEmpty()`, which fails the census if
+any page reports a QML warning while being built. Only the assertion added most
+recently had ever been controlled, so the linchpin was taken on trust.
+
+It bites. A `visible: noSuchThingAtAll` added to `CvsSettingsPage.qml` fails the
+census with the file and the line - and a second test catches it independently,
+which is more coverage than expected.
+
+**And a caveat in its own comment turned out to be wrong.** The comment said a
+second test building the same pages "sees nothing, the warnings having already
+been reported", which would mean the collection depends on this test being
+declared before every other one that builds a page - a property nobody would
+notice breaking. Adding a slot *before* the census that builds every page, the
+census still caught the error. `QQmlEngine` reports a binding error when the
+binding is **evaluated**, and a component fetched from the cache evaluates its
+bindings again on every instantiation.
+
+So `clearComponentCache()` was written to make the collection
+order-independent, and then removed again: with it and without it the census
+catches the same thing, which makes it mechanism nobody earned. The comment is
+corrected instead, since what was actually wrong was the belief, not the code.
+
 ## The same measurement, applied to kits
 
 Re-running the `layouter()` instrumentation with the device closures gone leaves

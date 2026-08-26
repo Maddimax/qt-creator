@@ -292,9 +292,13 @@ void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
     // A QML warning is not a failure anywhere: the engine reports it and
     // carries on, so a broken binding shows up as a page that looks nearly
     // right - a delegate that draws nothing, a property left at its default.
-    // Collected here because this is where every page is built; a second test
-    // that builds them again sees nothing, the warnings having already been
-    // reported for the instances made below.
+    // Collected here because this is where every page is built. Measured, not
+    // assumed: a binding error is reported by QQmlEngine when the binding is
+    // *evaluated*, and a component that comes back out of the cache evaluates
+    // its bindings again - so a page some earlier test already built is still
+    // checked here, and this collection does not depend on the order the slots
+    // happen to be declared in. Clearing the component cache first changes
+    // nothing, which is why it is not done.
     //
     // Binding loops are not among what this catches: they need the Preferences
     // dialog's own layout negotiation to be reported at all, and a page built
