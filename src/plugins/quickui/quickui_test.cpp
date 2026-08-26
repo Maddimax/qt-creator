@@ -184,6 +184,9 @@ private slots:
     void testAFormInAWidgetLayoutAsksForItsContentHeight();
     void testAGroupCanExplainItselfTheWayAQGroupBoxCould();
     void testEveryDelegateShowsTheToolTipItsAspectCarries();
+    void testAnEnablerGreysOutWhatItControlsWhileTheFormIsOpen();
+    void testAReadOnlyAspectOffersNothingToTypeIn_data();
+    void testAReadOnlyAspectOffersNothingToTypeIn();
     void testPasswordAspectDoesNotEchoItsValue();
     void testAspectListOffersItsExtraButtons();
     void testAnOrderedListMovesTheCurrentItem();
@@ -726,6 +729,127 @@ static int formHeightHintFor(int count, QString *error)
         return -1;
     }
     return form->sizeHint().height();
+}
+
+// The items inside \a delegate that are enabled, itself included.
+static int enabledPartsOf(QQuickItem *delegate)
+{
+    int count = 0;
+    const QList<QQuickItem *> parts = findQmlComponents(delegate, "");
+    for (QQuickItem *part : parts) {
+        if (part->isEnabled())
+            ++count;
+    }
+    return count;
+}
+
+void QuickUiTest::testAnEnablerGreysOutWhatItControlsWhileTheFormIsOpen()
+{
+    // setEnabler() is how a page says one setting only applies when another is
+    // on, and pages use it heavily. The widget renderer wires it when it builds
+    // the control; Qt Quick binds to aspect.enabled instead, which only follows
+    // afterwards because the property carries a NOTIFY. This is what says the
+    // form really greys out, and keeps doing so while it is open.
+    Utils::AspectContainer page;
+
+    Utils::BoolAspect master(&page);
+    master.setSettingsKey("Master");
+    master.setLabelText("Master");
+
+    Utils::StringAspect slave(&page);
+    slave.setSettingsKey("Slave");
+    slave.setLabelText("Slave");
+    slave.setDisplayStyle(Utils::StringAspect::LineEditDisplay);
+    slave.setEnabler(&master);
+
+    QVERIFY2(!slave.isEnabled(), "the enabler did not apply its initial state");
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QQuickItem *rootItem = quickWidget->rootObject();
+    if (!rootItem) {
+        const QStringList errors = Utils::transform(quickWidget->errors(), &QQmlError::toString);
+        QFAIL(qPrintable(errors.join("; ")));
+    }
+
+    QQuickItem *slaveDelegate = nullptr;
+    const QList<QQuickItem *> items = findQmlComponents(rootItem, "");
+    for (QQuickItem *item : items) {
+        if (item->property("aspect").value<Utils::BaseAspect *>() == &slave)
+            slaveDelegate = item;
+    }
+    QVERIFY2(slaveDelegate, "the disabled setting was not drawn at all");
+
+    const int whileOff = enabledPartsOf(slaveDelegate);
+    master.setValue(true);
+    QTRY_VERIFY2(enabledPartsOf(slaveDelegate) > whileOff,
+                 "turning the enabler on left the form exactly as it was");
+
+    const int whileOn = enabledPartsOf(slaveDelegate);
+    master.setValue(false);
+    QTRY_VERIFY2(enabledPartsOf(slaveDelegate) < whileOn,
+                 "turning the enabler off again left the form exactly as it was");
+}
+
+// The parts of \a delegate a user could type into: enabled, and not read-only.
+// Items with no readOnly property of their own - labels, layouts - are not
+// counted, because they are not what a value is edited through.
+static int typablePartsOf(QQuickItem *delegate)
+{
+    int count = 0;
+    const QList<QQuickItem *> parts = findQmlComponents(delegate, "");
+    for (QQuickItem *part : parts) {
+        const QVariant readOnly = part->property("readOnly");
+        if (readOnly.isValid() && !readOnly.toBool() && part->isEnabled())
+            ++count;
+    }
+    return count;
+}
+
+void QuickUiTest::testAReadOnlyAspectOffersNothingToTypeIn_data()
+{
+    QTest::addColumn<int>("displayStyle");
+    QTest::newRow("line edit") << int(Utils::StringAspect::LineEditDisplay);
+    QTest::newRow("text edit") << int(Utils::StringAspect::TextEditDisplay);
+}
+
+void QuickUiTest::testAReadOnlyAspectOffersNothingToTypeIn()
+{
+    // setReadOnly() is used for values a page shows but nobody may change - a
+    // device's detection log, the effective qmake call. A delegate that reads
+    // enabled but not readOnly looks right and lets the value be edited.
+    QFETCH(int, displayStyle);
+
+    const auto typableParts = [displayStyle](bool readOnly) -> int {
+        Utils::AspectContainer page;
+        Utils::StringAspect text(&page);
+        text.setSettingsKey("Text");
+        text.setLabelText("Text");
+        text.setDisplayStyle(Utils::StringAspect::DisplayStyle(displayStyle));
+        text.setValue("something");
+        text.setReadOnly(readOnly);
+
+        const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+        if (!form)
+            return -1;
+        auto quickWidget = form->findChild<QQuickWidget *>();
+        if (!quickWidget || !quickWidget->rootObject())
+            return -1;
+
+        const QList<QQuickItem *> items = findQmlComponents(quickWidget->rootObject(), "");
+        for (QQuickItem *item : items) {
+            if (item->property("aspect").value<Utils::BaseAspect *>() == &text)
+                return typablePartsOf(item);
+        }
+        return -1;
+    };
+
+    const int editable = typableParts(false);
+    QVERIFY2(editable > 0, "the editable case offers nothing to type in either, so this "
+                           "would pass whatever read-only did");
+    QCOMPARE(typableParts(true), 0);
 }
 
 void QuickUiTest::testEveryDelegateShowsTheToolTipItsAspectCarries()

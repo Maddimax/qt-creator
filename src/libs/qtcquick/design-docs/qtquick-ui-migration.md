@@ -5722,6 +5722,41 @@ Two other seams were measured and are sound:
   before the branch too (`forceOpenLinksInNextSplit` was a plain member of
   `DisplaySettingsData` at the branch point).
 
+## The two aspect properties that are not cosmetic
+
+Asking every delegate the same question found a tool tip gap. The same question
+about `enabled` and `readOnly` is worth more, because a delegate that ignores
+those is not merely quiet - it lets a user change something the page says they
+may not.
+
+The survey came back clean: every delegate binds `aspect.enabled` except
+`TextDisplayDelegate` and `UnsupportedDelegate`, which have nothing to disable,
+and `readOnly` is handled everywhere a value is typed. All of `enabled`,
+`visible`, `readOnly`, `toolTip`, `labelText` carry a NOTIFY, so the bindings
+follow the aspect rather than sampling it once. Nothing to fix.
+
+**What was missing was the end-to-end check, and both mechanisms are used
+heavily.** `setEnabler()` is how a page says one setting only applies when
+another is on; `setReadOnly()` has 36 production callers - a device's detection
+log, a docker image's id, the effective qmake call. The widget renderer wires
+both when it builds the control. Qt Quick binds instead, and a binding that is
+never exercised is a claim, not a fact.
+
+So two tests. The first turns an enabler on and off with the form open and
+requires the dependent delegate's enabled parts to change both ways - pinning
+`StringDelegate`'s three `enabled` bindings to `true` fails it with "turning the
+enabler on left the form exactly as it was". The second counts the parts of a
+delegate a user could type into: enabled, and carrying a `readOnly` property of
+their own, so labels and layouts do not count. A read-only aspect must offer
+none, and the editable case must offer some - without that second half the
+assertion would pass whatever read-only did.
+
+**A note on what these tests can express.** Neither asks "is *the* control
+disabled", because there is no single control: `BoolDelegate` is its check box,
+while the delegates that wrap one in a layout put the state on the inner item.
+Counting parts is what survives that difference, and it is why the first test
+compares two renders rather than reading one value.
+
 ## The same measurement, applied to kits
 
 Re-running the `layouter()` instrumentation with the device closures gone leaves
