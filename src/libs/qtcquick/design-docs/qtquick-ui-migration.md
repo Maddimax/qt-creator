@@ -5215,6 +5215,39 @@ exactly that shape, so it went there rather than into a new seam.
 If a fourth arrives that fits none of these, that is the point to reconsider a
 single "host services" object, rather than at the third.
 
+## The same measurement, applied to kits
+
+Re-running the `layouter()` instrumentation with the device closures gone leaves
+15 uses across five suites, and every one is still a test: `CodeStyleAspectTest`
+(10, blocked on ClangFormat), `KitAspectTest` (3), and one each from the QuickUi
+and CppEditor tests that build a widget form on purpose.
+
+**Kits go the same way as devices, for the same reason.** `KitsPage.qml` draws
+the current kit with
+
+    AspectItems { model: AspectModels.container(root.details.KitAspects.container) }
+
+so a kit aspect's control container is drawn by the Quick renderer, which
+consults no layouter. `ToolchainKitAspect` was handing over a container with a
+`Grid` closure in it to make its per-language lists stack; **a container stacks
+anyway** - one aspect per row unless its presentation asks for `inlineRow` - in
+the Quick renderer and in the widget renderer's fallback column alike. The
+closure only ever told the widget renderer something it would have done without
+being asked.
+
+**The test was asserting the mechanism, not the property.** It emerged the
+widget layout and looked for a `QGridLayout` whose `rowCount()` matched the
+language count - which is one renderer's way of stacking, and the one the
+closure built. It now asserts what makes them stack in either renderer: the
+aspect hands over a container, that container lists one selection per language,
+and it does not ask to be drawn in a line. Setting `inlineRow` on it fails the
+test by name, which the old assertion would not have noticed.
+
+That is 4 closures gone in two batches - three device, one kit - and the count
+of `setLayouter` calls in the tree is down to 23. What is left is the code style
+group behind ClangFormat, the run configuration surface, and two hand-attached
+call sites.
+
 ## What still reaches a widget layouter, measured
 
 Requiring Qt Quick looked like it would strand the widget layouters - the six

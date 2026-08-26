@@ -960,17 +960,20 @@ private slots:
         QVERIFY(languages > 0);
         QCOMPARE(aspect->listAspects().size(), languages);
 
+        // What makes them stack is the container, not a layout built for one
+        // renderer: a container is drawn one aspect per row unless its
+        // presentation asks to be a line. This used to hand over a grid, which
+        // only the widget renderer ever read.
+        Utils::AspectContainer * const controls = aspect->controlContainer();
+        QVERIFY2(controls, "the compilers are not handed over as a container");
+        QCOMPARE(controls->aspects().size(), languages);
+        QVERIFY2(!controls->presentation().inlineRow,
+                 "the compilers ask to be drawn in a line");
+
         Layouting::Grid outer{Layouting::noMargin};
         aspect->addToLayout(outer);
         const std::unique_ptr<QWidget> row(outer.emerge());
         QVERIFY(row);
-
-        // One grid row per language, rather than one line with all of them.
-        const bool stacked = Utils::anyOf(row->findChildren<QGridLayout *>(),
-                                          [languages](const QGridLayout *g) {
-                                              return g->rowCount() == languages;
-                                          });
-        QVERIFY2(stacked, "the compilers do not stack one per language");
 
         // And it is still a row: its name and its Manage button are there.
         const bool named = Utils::anyOf(row->findChildren<QLabel *>(),
