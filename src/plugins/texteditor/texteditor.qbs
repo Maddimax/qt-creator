@@ -9,6 +9,7 @@ Project {
         Depends { name: "Qt"; submodules: ["widgets", "xml", "network", "printsupport"] }
         Depends { name: "TextEditorSupport" }
         Depends { name: "Utils" }
+        Depends { name: "QtcQuick" }
         Depends { name: "KSyntaxHighlighting" }
 
         Export {
@@ -121,6 +122,8 @@ Project {
             "plaintexteditorfactory.h",
             "quickfix.cpp",
             "quickfix.h",
+            "quicktexteditor.cpp",
+            "quicktexteditor.h",
             "refactoringchanges.cpp",
             "refactoringchanges.h",
             "refactoroverlay.cpp",

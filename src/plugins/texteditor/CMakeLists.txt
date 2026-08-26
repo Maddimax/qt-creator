@@ -12,7 +12,7 @@ add_qtc_library(TextEditorSupport STATIC
 )
 
 add_qtc_plugin(TextEditor
-  DEPENDS Qt::Concurrent Qt::Network Qt::PrintSupport Qt::Xml
+  DEPENDS Qt::Concurrent Qt::Network Qt::PrintSupport Qt::Xml QtcQuick
   PUBLIC_DEPENDS ${KSYNTAXHIGHLIGHTING_TARGET}
   PLUGIN_DEPENDS Core
   SOURCES
@@ -166,6 +166,7 @@ extend_qtc_plugin(TextEditor
     codedocument.cpp codedocument.h
     codeindenting.cpp codeindenting.h
     codesource.cpp codesource.h
+    quicktexteditor.cpp quicktexteditor.h
     textviewport.cpp textviewport.h
 )
 
@@ -203,6 +204,7 @@ if(TARGET TextEditor)
       CodeView.qml
       CodeViewport.qml
       EditorGutter.qml
+      MainEditor.qml
       CommentsSettingsPage.qml
       CompletionSettingsPage.qml
       DisplaySettingsPage.qml

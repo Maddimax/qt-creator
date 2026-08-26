@@ -16,6 +16,7 @@
 #include "markdowneditor.h"
 #include "outlinefactory.h"
 #include "plaintexteditorfactory.h"
+#include "quicktexteditor.h"
 #include "snippets/snippetprovider.h"
 #include "snippets/snippetssettingspage.h"
 #include "storagesettings.h"
@@ -104,6 +105,7 @@ void TextEditorPlugin::initialize()
 #ifdef WITH_TESTS
     addTestCreator(createCodeHighlightingTest);
     addTestCreator(createTextViewportTest);
+    addTestCreator(createQuickTextEditorTest);
     addTestCreator(createFontSettingsTest);
     addTestCreator(createSnippetsSettingsTest);
     addTestCreator(createFormatTextTest);
@@ -150,6 +152,9 @@ void TextEditorPlugin::initialize()
     setupLineNumberFilter(); // Goto line functionality for quick open
 
     setupPlainTextEditor();
+    // After the plain text editor: the default for a mime type is the first
+    // factory that claims it, and this one is not finished.
+    setupQuickTextEditor();
 
     setupBookmarkManager(this);
     setupBookmarkView();

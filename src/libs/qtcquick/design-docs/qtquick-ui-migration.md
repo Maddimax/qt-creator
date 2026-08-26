@@ -6139,6 +6139,39 @@ overlays, the context menu, drag and drop, and wrapping - which needs a height
 cache first, because uniform line height is what makes everything above
 arithmetic instead of a search.
 
+## A file can be opened in it
+
+The viewport had everything an editor needs to *show* a file and no way to be
+given one. `QuickTextEditor` is a plain `Core::IEditor` - not a
+`TextEditorFactory`, which is built around `TextEditorWidget` and would have
+had to be taken apart first - holding a `TextDocument` and a `QuickWidget` over
+`MainEditor.qml`.
+
+The seam worth naming is **who opens the file**. The editor manager creates the
+editor and *then* opens its document, so the form has to show a document it did
+not open. `CodeDocument` opens a file and `CodeBuffer` holds text of its own;
+neither fits, so `AdoptedSource` is a third `CodeSource` that only points at a
+document somebody else owns. That is also what the test checks: the
+`TextViewport`'s source and the editor's `document()` have to be the same
+object, not merely have the same contents.
+
+**It is offered, not imposed.** `addMimeType(text/plain)` puts it in Open With
+for any text file, and `setupQuickTextEditor()` is called *after*
+`setupPlainTextEditor()` because the default for a mime type is the first
+factory that claims it. That ordering is a one-line accident waiting to happen,
+so it is a test rather than a comment: registering this one first fails with
+"the unfinished editor is what a text file now opens in".
+
+`TextEditor` gains a `QtcQuick` dependency, which it had avoided so far. It is
+earned now - the plugin ships a Qt Quick editor - and there is no cycle, since
+`QtcQuick` depends only on `Utils`.
+
+**What it is at this point:** text, caret, selection, mouse and keyboard
+editing, highlighting, indenting, scrolling and line numbers, all O(visible).
+No folding, no marks or annotations, no extra-selection overlays, no context
+menu, no drag and drop, no current-line highlight, and no wrapping - which
+still wants a height cache first.
+
 ## The same measurement, applied to kits
 
 Re-running the `layouter()` instrumentation with the device closures gone leaves
