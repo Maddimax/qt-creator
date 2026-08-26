@@ -5215,6 +5215,40 @@ exactly that shape, so it went there rather than into a new seam.
 If a fourth arrives that fits none of these, that is the point to reconsider a
 single "host services" object, rather than at the third.
 
+## Editing 55 pages, because asking them was not enough
+
+Three passive censuses could not answer whether a page's Apply and Cancel work,
+and all three failed the same way: the property only means something *after* an
+edit, and an unedited page is indistinguishable from one that can never be
+dirty. The fix is to edit - but not on a hundred pages, because editing runs
+whatever each page does about it.
+
+So the subset is chosen to make editing bounded rather than to be
+representative:
+
+- the container is **exactly** `Utils::AspectContainer`, so nothing overrides
+  `apply()`, `cancel()` or `isDirty()` and there is no page-local copy in play;
+- the aspect edited is a plain enabled, visible `BoolAspect` - one bit, no side
+  effect;
+- the write goes to the *volatile* value, which is what a check box writes, and
+  `cancel()` puts it back with nothing reaching disk.
+
+That is **55 of the 107 pages**, and all 55 keep the promise: editing makes the
+container dirty, and Cancel restores the value.
+
+Both halves are held by a control that names the page. Making one page forget
+`setAutoApply(false)` reports *Terminal/EnableTerminal did not notice being
+edited*; stopping `AspectContainer::cancel()` from restoring reports 51 pages by
+name. A diagnostic that says which page and which setting is the difference
+between a failure someone can act on and one they have to go looking for.
+
+**What this does not cover, and why that is the honest boundary.** The other 52
+pages have a container of their own or no plain check box, and for them the
+question is still open - `CodeStyleAspect` is the one that was answered, one
+page at a time, by a test that presses its Apply. There is no shortcut for the
+rest: a page that keeps its own copy means something particular by "dirty", and
+only its own test can say whether it is right.
+
 ## Which pages apply as you type, and why that is a list and not a check
 
 Having fixed Apply on one page, the obvious question is the other 106. It is

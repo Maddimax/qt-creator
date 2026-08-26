@@ -214,6 +214,7 @@ private slots:
     void testAPageRefusesAnIndexFromSomeoneElsesModel();
     void testEveryGroupedListMapsItsRowsBothWays();
     void testNoPageHasAnApplyThatCannotSaveAnything();
+    void testEditingAPageMakesItDirtyAndCancelPutsItBack();
     void testTableCellReadsInItsOwnColours();
     void testATableIsReadOnTheBackgroundItsAspectNames();
     void testTheFormatListIsReadOnTheSchemesOwnBackground();
@@ -4224,6 +4225,70 @@ void QuickUiTest::testTableCellReadsInItsOwnColours()
             ++painted;
     }
     QCOMPARE(painted, 2);
+}
+
+void QuickUiTest::testEditingAPageMakesItDirtyAndCancelPutsItBack()
+{
+    // The promise every page in the Preferences dialog makes: what you change
+    // is not settled until you press Apply, and Cancel undoes it. Three passive
+    // censuses failed to check this because it is only answerable *after* an
+    // edit - an unedited page looks exactly like one that can never be dirty.
+    //
+    // So this edits, on the pages where editing is bounded: a container that is
+    // exactly Utils::AspectContainer, so nothing overrides apply(), cancel() or
+    // isDirty() and there is no page-local copy to think about, and a plain
+    // BoolAspect, which is one bit and no side effect. The edit is to the
+    // volatile value, which is what a check box writes, and cancel() puts it
+    // back without anything being written to disk.
+    int pagesEdited = 0;
+    QStringList notDirty;
+    QStringList notRestored;
+
+    for (Core::IOptionsPage *page : Core::IOptionsPage::allOptionsPages()) {
+        const std::optional<Utils::AspectContainer *> aspects = page->aspects();
+        if (!aspects || !*aspects)
+            continue;
+        Utils::AspectContainer * const container = *aspects;
+
+        // Only the plain ones. A subclass may keep a copy of its own and mean
+        // something different by all three of these.
+        if (container->metaObject() != &Utils::AspectContainer::staticMetaObject)
+            continue;
+
+        Utils::BoolAspect *flag = nullptr;
+        for (Utils::BaseAspect *child : container->aspects()) {
+            if (auto candidate = qobject_cast<Utils::BoolAspect *>(child)) {
+                if (candidate->isEnabled() && candidate->isVisible()) {
+                    flag = candidate;
+                    break;
+                }
+            }
+        }
+        if (!flag)
+            continue;
+
+        const QString name = page->displayName() + "/" + flag->qmlName();
+        const bool before = flag->volatileValue();
+        ++pagesEdited;
+
+        flag->setVolatileVariantValueFromGui(!before);
+        if (!static_cast<Utils::BaseAspect *>(container)->isDirty())
+            notDirty << name;
+
+        container->cancel();
+        if (flag->volatileValue() != before)
+            notRestored << name;
+    }
+
+    QVERIFY2(pagesEdited > 0, "no page offered a plain check box, so this checked nothing");
+    QVERIFY2(notDirty.isEmpty(),
+             qPrintable("pages that did not notice being edited, so Apply has nothing to "
+                        "commit and the edit is already settled: "
+                        + notDirty.join(", ")));
+    QVERIFY2(notRestored.isEmpty(),
+             qPrintable("pages whose Cancel did not put the value back: "
+                        + notRestored.join(", ")));
+    qInfo().noquote() << "pages edited and cancelled:" << pagesEdited;
 }
 
 void QuickUiTest::testNoPageHasAnApplyThatCannotSaveAnything()
