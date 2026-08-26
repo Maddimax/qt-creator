@@ -4288,6 +4288,13 @@ void QuickUiTest::testEditingAPageMakesItDirtyAndCancelPutsItBack()
                     if (!child->isEnabled() || !child->isVisible())
                         continue;
 
+                    // Only what is actually saved. An aspect with no settings
+                    // key is not a setting - the device picker on the Compilers
+                    // page chooses whose toolchains to *show* - so it has
+                    // nothing to make dirty and never promised to.
+                    if (child->settingsKey().isEmpty())
+                        continue;
+
                     // Numbers and check boxes only. A path is a string that
                     // gets resolved against the filesystem when it changes, and
                     // a plain string may drive a completer; neither is one
@@ -4301,6 +4308,17 @@ void QuickUiTest::testEditingAPageMakesItDirtyAndCancelPutsItBack()
                                || qobject_cast<Utils::DoubleAspect *>(child)) {
                         before = current;
                         wanted = current.toDouble() + 1;
+                    } else if (auto choice = qobject_cast<Utils::SelectionAspect *>(child)) {
+                        // A different one of the choices it already offers. The
+                        // page may show a different sub-form for it, which is a
+                        // display effect and not a side effect.
+                        if (choice->optionCount() < 2)
+                            continue;
+                        before = current;
+                        wanted = current.toInt() == 0 ? 1 : 0;
+                    } else if (qobject_cast<Utils::TriStateAspect *>(child)) {
+                        before = current;
+                        wanted = current.toInt() == 0 ? 1 : 0;
                     } else {
                         continue;
                     }
