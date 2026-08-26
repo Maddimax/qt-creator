@@ -5215,36 +5215,34 @@ exactly that shape, so it went there rather than into a new seam.
 If a fourth arrives that fits none of these, that is the point to reconsider a
 single "host services" object, rather than at the third.
 
-## The Quick-less build had stopped compiling its own tests
+## Qt Quick is required, so nothing branches on it
 
-Qt Quick is an **optional** component, and everything added for the editor -
-`textviewport`, `codebuffer`, `codesource` - is behind `CONDITION TARGET
-Qt::Quick`. Six batches of that went by without anyone checking that a Creator
-built without Qt Quick still builds, which is the sort of thing that is only
-noticed by whoever it breaks.
-
-It did not. `texteditorplugin.cpp` is built either way, and it was including
+Qt Quick used to be an `OPTIONAL_COMPONENT`, and everything added for the editor
+sat behind `CONDITION TARGET Qt::Quick`. That was worth auditing, and the audit
+found a real break: `texteditorplugin.cpp` is built either way and was including
 `codehighlighting_test.h` and `textviewport_test.h` under `#ifdef WITH_TESTS`
-alone. Those headers are only in the build when `WITH_TESTS AND TARGET
-Qt::Quick`, so a `WITH_TESTS` build without Qt Quick does not compile: the
-include is of a file that is not there. One of the two was pre-existing; the
-other was added here, the same way, because the surrounding line looked right.
+alone, while those headers only exist when `WITH_TESTS AND TARGET Qt::Quick`. A
+`WITH_TESTS` build without Qt Quick did not compile. One of the two includes was
+pre-existing; the other was added the same way because the line above it looked
+right.
 
-The fix is the pattern coreplugin already uses for an optional Qt module -
-`DEFINES WITH_QUICK_TESTS` on the gated block, and `#ifdef` in the plugin. qbs
-always has Qt Quick, so it defines it whenever plugin tests are on.
+**The answer is not to guard it better.** Qt Quick is now a required component:
+it moved out of `find_package(Qt6 OPTIONAL_COMPONENTS ...)` and into the
+required `COMPONENTS` list beside Widgets and Qml. The whole point of the
+migration is that the UI is Qt Quick, so a Creator without it is not a
+configuration anyone is going to ship - and every `#ifdef` and `CONDITION` for
+it is a branch that exists only to be got wrong. The guard added for this was
+removed again the same day.
 
-**Audited rather than assumed.** Parsing every `add_qtc_plugin` /
-`extend_qtc_plugin` block in the tree for its `CONDITION`, then checking whether
-any ungated source includes a header from a `Qt::Quick`-gated block, finds
-exactly these two and nothing else. Worth re-running after adding to a gated
-block: the mistake is invisible in a build that has Qt Quick, which is every
-build anyone here does.
+That leaves **73 `CONDITION TARGET Qt::Quick` blocks across 67 CMakeLists**,
+which are now always true. They are harmless but dead, and removing them is
+mechanical - the next thing to do here, and worth doing as its own change so
+that the diff is reviewable as "these were all unconditional anyway".
 
-**The control is the shape of the thing it protects.** Removing the define drops
-the run from 201 tests to 160 with the Quick-only suites gone and everything
-else passing - which is what a Quick-less build should look like, and confirms
-the guard is live in both directions rather than just compiling.
+It also unblocks something larger. The widget layouters kept as a fallback for a
+Quick-less build - the six restored earlier in this plan - have no caller left
+once Quick is guaranteed. That is the *actual* end of "Removing Layouting", and
+it was blocked on a configuration that no longer exists.
 
 ## Editing 55 pages, because asking them was not enough
 

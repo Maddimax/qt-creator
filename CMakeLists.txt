@@ -80,7 +80,8 @@ endif()
 
 find_package(Qt6
   ${IDE_QT_VERSION_MIN}
-  COMPONENTS Concurrent Core Gui Network PrintSupport Qml Sql Widgets Xml
+  COMPONENTS Concurrent Core Gui Network PrintSupport Qml Quick QuickControls2
+             QuickWidgets Sql Widgets Xml
   REQUIRED
 )
 
@@ -88,7 +89,7 @@ find_package(Qt6
 # but only required if WITH_TESTS=ON
 find_package(Qt6 COMPONENTS Test QUIET ${QT_TEST_COMPONENT_REQUIRED})
 
-find_package(Qt6 OPTIONAL_COMPONENTS Quick QuickWidgets QuickControls2 Designer
+find_package(Qt6 OPTIONAL_COMPONENTS Designer
                                      DesignerComponentsPrivate Help SerialPort Svg Tools
                                      LinguistTools CanvasPainter QUIET)
 

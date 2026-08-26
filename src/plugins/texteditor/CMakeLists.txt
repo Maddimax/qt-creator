@@ -156,10 +156,8 @@ else ()
 endif ()
 
 # The Qt Quick side of the editor: highlighting for a TextEdit, and the
-# viewport that draws a document with the scene graph. Needs Qt::Quick,
-# which the plugin does not otherwise depend on.
+# viewport that draws a document with the scene graph.
 extend_qtc_plugin(TextEditor
-  CONDITION TARGET Qt::Quick
   DEPENDS Qt::Quick
   SOURCES
     codehighlighting.cpp codehighlighting.h
@@ -171,13 +169,8 @@ extend_qtc_plugin(TextEditor
     textviewport.cpp textviewport.h
 )
 
-# The tests for the Qt Quick side. texteditorplugin.cpp registers them and is
-# built whether or not Qt::Quick is there, so it needs to be told: without this
-# a WITH_TESTS build of a Qt Creator without Qt Quick does not compile, because
-# the headers it includes are not in the build at all.
 extend_qtc_plugin(TextEditor
-  CONDITION WITH_TESTS AND TARGET Qt::Quick
-  DEFINES WITH_QUICK_TESTS
+  CONDITION WITH_TESTS
   SOURCES
     codehighlighting_test.cpp codehighlighting_test.h
     textviewport_test.cpp textviewport_test.h
@@ -186,7 +179,7 @@ extend_qtc_plugin(TextEditor
 # Settings pages' Qt Quick forms. A module rather than a plain resource so that
 # qmllint and qmlcachegen see the files; qbs cannot build QML modules, so it
 # only lists them - the same split qtcquick already lives with.
-if(TARGET TextEditor AND TARGET Qt::Quick)
+if(TARGET TextEditor)
   qt_add_qml_module(TextEditor
     URI QtCreator.TextEditor
     VERSION 1.0
