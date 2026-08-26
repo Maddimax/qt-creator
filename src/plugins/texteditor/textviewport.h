@@ -5,7 +5,10 @@
 
 #include "texteditor_global.h"
 
+#include <utils/id.h>
+
 #include <QColor>
+#include <QMap>
 #include <QTextLayout>
 #include <QPointer>
 #include <QQmlEngine>
@@ -191,6 +194,29 @@ public:
     // asked to go there asked to see it.
     Q_INVOKABLE void gotoLine(int line, int column = 0, bool centerLine = true);
 
+    // A stretch of the document drawn differently from the text around it: a
+    // search result, an error, the other places a symbol is used. The widget
+    // editor calls these extra selections and keys them the same way, so that
+    // whoever set a set can replace all of it without disturbing anyone
+    // else's. QTextEdit::ExtraSelection is a QtWidgets type, which is what
+    // this exists instead of.
+    struct Highlight
+    {
+        int start = 0;
+        int end = 0;
+        QTextCharFormat format;
+    };
+
+    void setHighlights(Utils::Id kind, const QList<Highlight> &highlights);
+    QList<Highlight> highlights(Utils::Id kind) const;
+
+    // The document cursor this viewport's caret and selection stand for. Edits
+    // go through it so that the document's own undo stack, its layout and the
+    // marks on it all see the change - writing the text out and back would
+    // lose every one of them.
+    QTextCursor textCursor() const;
+    void setTextCursor(const QTextCursor &cursor);
+
     int cursorPosition() const;
     void setCursorPosition(int position);
     QRectF cursorRectangle() const;
@@ -264,6 +290,8 @@ private:
 
     void documentChangedInternal();
     QTextBlock cursorBlock() const;
+    void appendHighlights(QList<QTextLayout::FormatRange> &formats,
+                          const QTextBlock &block) const;
     // The visible line holding \a position, and the block it came from.
     // index is -1 when the position is not on screen.
     struct Located
@@ -273,15 +301,13 @@ private:
     };
     Located locate(int position) const;
 
-    // The document cursor this viewport's caret and selection stand for. Edits
-    // go through it so that the document's own undo stack, its layout and the
-    // marks on it all see the change - writing the text out and back would
-    // lose every one of them.
-    QTextCursor textCursor() const;
-    void setTextCursor(const QTextCursor &cursor);
     // Keeps the caret on screen after it has been moved by something other than
     // the mouse.
     void ensureCursorVisible();
+
+    // By kind, each sorted by where it starts so that the lines on screen can
+    // be found without walking every match in the file.
+    QMap<Utils::Id, QList<Highlight>> m_highlights;
 
     QPointer<CodeSource> m_document;
     // The QTextDocument currently connected to, which is not the same one

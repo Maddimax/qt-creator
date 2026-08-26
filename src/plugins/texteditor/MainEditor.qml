@@ -20,5 +20,10 @@ Item {
         source: root.source
         showLineNumbers: true
         showFoldMarkers: true
+        // A viewport is a view until told otherwise - which is right for a
+        // settings preview and wrong for this. The file's own read-only state
+        // is a separate question, and the viewport asks the document that one
+        // itself.
+        readOnly: false
     }
 }

@@ -16,6 +16,13 @@
 
 #include <qtcquick/qtcquickwidget.h>
 
+#include "fontsettings.h"
+
+#include <coreplugin/find/basetextfind.h>
+#include <coreplugin/find/ifindsupport.h>
+
+#include <utils/aggregate.h>
+#include <utils/theme/theme.h>
 #include <utils/mimeutils.h>
 #include <utils/temporarydirectory.h>
 
@@ -50,6 +57,102 @@ private:
     TextDocument * const m_document;
 };
 
+const char QUICK_FIND_HIGHLIGHTS[] = "TextEditor.QuickTextEditor.FindResults";
+
+// C_SEARCH_RESULT is one of the scheme's *overlay* categories, so its
+// QTextCharFormat is deliberately near-empty - FontSettingsData::
+// toTextCharFormat() drops the foreground for those, because the widget editor
+// paints them as an overlay rather than as a format. This draws a format range,
+// so it takes the same colour the overlay does, darkened the same way.
+//
+// And it falls back rather than leaving the format empty: a scheme that names
+// no search colour would otherwise highlight nothing at all, silently. The
+// same trap as an unset current-line brush, met a third time.
+static QTextCharFormat searchResultFormat(const FontSettingsData &fonts)
+{
+    const QBrush brush = fonts.toTextCharFormat(C_SEARCH_RESULT).background();
+    const bool named = brush.style() != Qt::NoBrush && brush.color().isValid();
+
+    QTextCharFormat format;
+    format.setBackground(named ? brush.color().darker(120)
+                               : Utils::creatorColor(
+                                     Utils::Theme::TextEditor_SearchResult_ScrollBarColor));
+    return format;
+}
+
+// Ctrl+F, over a viewport rather than over a widget. BaseTextFindBase asks for
+// five things - a cursor, a document, whether it is read-only, and a widget to
+// anchor the find bar to - none of which needs the editor to *be* a widget.
+class QuickTextFind final : public Core::BaseTextFindBase
+{
+public:
+    QuickTextFind(TextViewport *viewport, QWidget *host)
+        : m_viewport(viewport)
+        , m_host(host)
+    {
+        // BaseTextFindBase draws nothing itself: it asks, and whoever can draw
+        // answers. This is that answer.
+        setResultHighlightingEnabled(true);
+        connect(this, &Core::BaseTextFindBase::highlightAllRequested,
+                this, &QuickTextFind::highlightMatches);
+    }
+
+private:
+    QTextCursor textCursor() const final
+    {
+        return m_viewport ? m_viewport->textCursor() : QTextCursor();
+    }
+
+    void setTextCursor(const QTextCursor &cursor) final
+    {
+        if (m_viewport)
+            m_viewport->setTextCursor(cursor);
+    }
+
+    QTextDocument *document() const final
+    {
+        TextDocument * const doc = m_viewport && m_viewport->document()
+                                       ? m_viewport->document()->textDocument()
+                                       : nullptr;
+        return doc ? doc->document() : nullptr;
+    }
+
+    bool isReadOnly() const final { return !m_viewport || m_viewport->isReadOnly(); }
+    QWidget *widget() const final { return m_host; }
+
+    void highlightMatches(const QString &text, Utils::FindFlags flags)
+    {
+        QTextDocument * const doc = document();
+        if (!m_viewport || !doc)
+            return;
+
+        QList<TextViewport::Highlight> found;
+        if (!text.isEmpty()) {
+            const QTextCharFormat format
+                = searchResultFormat(m_viewport->document()->textDocument()->fontSettings());
+            const QRegularExpression expression
+                = Core::BaseTextFindBase::regularExpression(text, flags);
+            QTextDocument::FindFlags options
+                = flags & Utils::FindCaseSensitively ? QTextDocument::FindCaseSensitively
+                                                     : QTextDocument::FindFlags();
+            if (flags & Utils::FindWholeWords)
+                options |= QTextDocument::FindWholeWords;
+
+            QTextCursor at(doc);
+            while (!(at = doc->find(expression, at, options)).isNull()) {
+                if (inScope(at))
+                    found.append({at.selectionStart(), at.selectionEnd(), format});
+                if (at.selectionEnd() == at.selectionStart())
+                    at.movePosition(QTextCursor::NextCharacter); // an empty match never advances
+            }
+        }
+        m_viewport->setHighlights(QUICK_FIND_HIGHLIGHTS, found);
+    }
+
+    const QPointer<TextViewport> m_viewport;
+    QWidget * const m_host;
+};
+
 class QuickTextEditor final : public Core::IEditor
 {
 public:
@@ -72,6 +175,11 @@ public:
 
         setContext(Core::Context(QUICK_TEXT_EDITOR_ID));
         setWidget(widget);
+
+        // Ctrl+F reaches an editor by asking its widget for an IFindSupport,
+        // so this has to hang off the widget rather than off the editor.
+        if (TextViewport * const view = viewport())
+            Utils::Aggregation::aggregate({widget, new QuickTextFind(view, widget)});
     }
 
     Core::IDocument *document() const final { return m_document.get(); }
@@ -353,6 +461,80 @@ private slots:
         // The view too, not only the caret: coming back to a line that is
         // technically on screen at the very bottom is not coming back.
         QCOMPARE(viewport->scrollY(), wasScrolledTo);
+    }
+
+    // Ctrl+F. The find bar reaches an editor by asking its widget for an
+    // IFindSupport, so an editor that aggregates none simply does nothing when
+    // the user presses it - no error, no bar, no clue.
+    void testFindMovesTheCaretAndMarksEveryMatch()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-find");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("searchable.txt");
+        QVERIFY(file.writeFileContents("alpha beta\ngamma beta\ndelta\n"));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY(editor);
+        // Without the second argument, closing after the replace below asks
+        // about the modified document - a modal dialog in a test run.
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const find = Utils::Aggregation::query<Core::IFindSupport>(editor->widget());
+        QVERIFY2(find, "the editor offers no find support, so Ctrl+F does nothing in it");
+        QVERIFY(find->supportsReplace());
+
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+        auto * const viewport = quick->rootObject()->findChild<TextViewport *>();
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 2);
+
+        // Stepping selects the match rather than merely scrolling to it.
+        viewport->setCursorPosition(0);
+        QCOMPARE(find->findStep("beta", {}), Core::IFindSupport::Found);
+        QCOMPARE(viewport->selectionStart(), 6);
+        QCOMPARE(viewport->selectionEnd(), 10);
+
+        // And again takes the next one, on the line below.
+        QCOMPARE(find->findStep("beta", {}), Core::IFindSupport::Found);
+        QCOMPARE(viewport->selectionStart(), 17);
+
+        // Highlighting all of them reaches the viewport, and through it what
+        // is drawn - the point being that the reader can see where the other
+        // matches are without stepping to each one.
+        find->highlightAll("beta", {});
+        QTRY_COMPARE(viewport->highlights(QUICK_FIND_HIGHLIGHTS).size(), 2);
+
+        // Both matches, and each one carrying something that will actually
+        // show. C_SEARCH_RESULT is an overlay category whose QTextCharFormat
+        // is near-empty by design, and an empty format range draws nothing
+        // while looking exactly like a highlight that worked.
+        const QList<TextViewport::Highlight> marks = viewport->highlights(QUICK_FIND_HIGHLIGHTS);
+        QCOMPARE(marks.size(), 2);
+        QCOMPARE(marks.at(0).start, 6);
+        QCOMPARE(marks.at(0).end, 10);
+        for (const TextViewport::Highlight &mark : marks) {
+            QVERIFY2(mark.format.background().style() != Qt::NoBrush
+                         && mark.format.background().color().isValid(),
+                     "a match is highlighted in nothing, so nobody can see it");
+        }
+
+        // That these reach the scene graph is the viewport's own test. Core
+        // clears a find's highlights as soon as its widget stops being the
+        // current find target, so a test that spun the event loop here would
+        // be measuring focus rather than drawing.
+
+        find->clearHighlights();
+        QVERIFY(viewport->highlights(QUICK_FIND_HIGHLIGHTS).isEmpty());
+
+        // Replacing writes through the document, so undo can take it back.
+        find->replaceStep("beta", "delta", {});
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        QVERIFY2(document->plainText().contains("gamma delta"),
+                 qPrintable("replace did nothing: " + document->plainText()));
     }
 
     // A split view is two editors on one document. Duplicating has to share

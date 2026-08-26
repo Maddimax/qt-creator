@@ -443,12 +443,15 @@ void TextViewport::keyPressEvent(QKeyEvent *event)
         return;
     }
 
-    if (m_readOnly) {
+    // Told not to edit, or editing a file the filesystem will not take back.
+    // The widget editor offers to make it writable; this only refuses, which
+    // is the half that must not be missing.
+    TextDocument * const doc = m_document->textDocument();
+    if (m_readOnly || (doc && doc->isFileReadOnly())) {
         QQuickItem::keyPressEvent(event);
         return;
     }
 
-    TextDocument * const doc = m_document->textDocument();
     QTextDocument * const text = doc->document();
 
     // Undo and redo are the document's, so they take back what any other view
@@ -630,6 +633,29 @@ int TextViewport::cursorColumn() const
 {
     const QTextBlock block = cursorBlock();
     return block.isValid() ? m_cursorPosition - block.position() + 1 : 0;
+}
+
+void TextViewport::setHighlights(Utils::Id kind, const QList<Highlight> &highlights)
+{
+    if (highlights.isEmpty()) {
+        if (m_highlights.remove(kind) == 0)
+            return;
+    } else {
+        QList<Highlight> sorted = highlights;
+        // Sorted so that a line can find the ranges that reach it without
+        // looking at the ones before, which is what keeps highlighting every
+        // match in a large file O(what is on screen).
+        std::sort(sorted.begin(), sorted.end(),
+                  [](const Highlight &a, const Highlight &b) { return a.start < b.start; });
+        m_highlights.insert(kind, sorted);
+    }
+    polish();
+    update();
+}
+
+QList<TextViewport::Highlight> TextViewport::highlights(Utils::Id kind) const
+{
+    return m_highlights.value(kind);
 }
 
 void TextViewport::gotoLine(int line, int column, bool centerLine)
@@ -818,6 +844,35 @@ void TextViewport::geometryChange(const QRectF &newGeometry, const QRectF &oldGe
         polish();
 }
 
+void TextViewport::appendHighlights(QList<QTextLayout::FormatRange> &formats,
+                                    const QTextBlock &block) const
+{
+
+    const int blockStart = block.position();
+    // length() counts the newline, which no format can cover.
+    const int blockEnd = blockStart + block.length() - 1;
+
+    for (const QList<Highlight> &set : m_highlights) {
+        // The first range that reaches this line. Ranges from one source do
+        // not overlap, so their ends rise with their starts and this is exact.
+        auto it = std::lower_bound(set.cbegin(), set.cend(), blockStart,
+                                   [](const Highlight &highlight, int position) {
+                                       return highlight.end <= position;
+                                   });
+        for (; it != set.cend() && it->start < blockEnd; ++it) {
+            const int from = qMax(it->start, blockStart);
+            const int to = qMin(it->end, blockEnd);
+            if (to <= from)
+                continue;
+            QTextLayout::FormatRange range;
+            range.start = from - blockStart;
+            range.length = to - from;
+            range.format = it->format;
+            formats.append(range);
+        }
+    }
+}
+
 void TextViewport::updatePolish()
 {
     m_lines.clear();
@@ -946,6 +1001,9 @@ void TextViewport::updatePolish()
         // not enough, which is the widget editor writing *its* preedit formats
         // into this shared list.
         QList<QTextLayout::FormatRange> formats = block.layout()->formats();
+        // Under the selection rather than over it: a search result the reader
+        // has selected should still look selected.
+        appendHighlights(formats, block);
         if (hasSelection) {
             const int blockStart = block.position();
             const int from = qMax(0, selectionFrom - blockStart);

@@ -6495,8 +6495,66 @@ assertion could not fail. Indenting the fixture is the whole fix. The general
 form: **an assertion about skipping something needs a fixture that has
 something to skip.**
 
-What is left of the editor: extra-selection overlays, the context menu, drag
-and drop, and wrapping.
+## Find, and extra selections without QtWidgets
+
+`Core::BaseTextFindBase` asks its subclass for five things - a cursor, a way to
+set one, a `QTextDocument`, whether it is read-only, and a widget to anchor the
+find bar to. **None of them requires the editor to be a widget**, so Ctrl+F in
+the Quick editor is a ~60-line subclass over the viewport. It is found the way
+every find is: `Utils::Aggregation::aggregate({widget, find})`, on the
+*widget*, because that is what `CurrentDocumentFind` queries.
+
+**Extra selections, without `QTextEdit`.** Showing every match needs ranges of
+the document drawn differently - what the widget calls extra selections. The
+type for those, `QTextEdit::ExtraSelection`, is QtWidgets, which is the thing
+being removed. `TextViewport::Highlight` is the same idea as
+`{start, end, QTextCharFormat}`, keyed by `Utils::Id` the same way so a source
+can replace its whole set without touching anyone else's, and merged into
+`QTextLayout::formats()` under the selection - a match the reader has selected
+should still look selected.
+
+Each set is kept sorted by start and found with `lower_bound`, so highlighting
+every match in a large file stays O(what is on screen). Highlighting ten
+thousand matches over fifty visible lines is otherwise half a million
+comparisons per relayout.
+
+**`C_SEARCH_RESULT`'s format is deliberately almost empty.**
+`FontSettingsData::toTextCharFormat()` treats it as an *overlay* category and
+drops its foreground, because the widget editor paints search results as an
+overlay rather than as a format - which is also why `TextEditorWidgetFind` sets
+`setResultHighlightingEnabled(false)`. Reading that format straight and using
+it as a format range produced ranges with an **invalid brush**, and Qt drops a
+no-op format range, so the highlight silently did nothing. The fix takes the
+same colour the overlay takes (`background().color().darker(120)`) and falls
+back to the theme when the scheme names none: a scheme that forgot a search
+colour must still show the reader where the matches are. That is the "an unset
+brush is not black, and not nothing either" trap for the third time in this
+document.
+
+**The find test found a real bug.** `supportsReplace()` came back false, which
+is `!isReadOnly()` - and `MainEditor.qml` had never set `readOnly`, so the
+whole Quick editor was a *viewer*. Every editing test up to that point had
+driven a viewport it configured itself. The editor now sets `readOnly: false`
+and the viewport refuses edits to a file the filesystem will not take back
+(`IDocument::isFileReadOnly()`); the widget's offer to make it writable is not
+there yet, but the refusing half must not be missing.
+
+**Two harness lies in one afternoon.** After the `/dev/null` build, this:
+`-test A -test B` on one command line runs **nothing at all** - no output, exit
+0 - so all five controls came back clean. Any control harness needs a positive
+check that the tests ran (grep for `Start testing`), not just an absence of
+failures.
+
+**And one control that correctly did not bite.** Overriding `clearHighlights()`
+to clear the viewport was redundant: `BaseTextFindBase::clearHighlights()` is
+`highlightAll(QString(), {})`, which already routes through the same slot and
+clears. The override was removed rather than kept "for safety" -
+[[negative-control-two-guards]] cuts both ways, and an unearned mechanism is
+one more thing that can drift.
+
+What is left of the editor: the rest of the extra-selection producers (semantic
+highlighting, diagnostics, occurrences - which all still write to a
+`TextEditorWidget`), the context menu, drag and drop, and wrapping.
 
 ## The same measurement, applied to kits
 

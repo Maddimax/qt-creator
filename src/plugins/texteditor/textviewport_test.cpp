@@ -1302,6 +1302,59 @@ private slots:
     // A word at a time and a file at a time. Neither is something a plain text
     // box offers, and both are the difference between reading code and
     // scrolling through it.
+    // A search result, an error, the other places a symbol is used: ranges
+    // somebody else asked to have drawn differently. They go through the same
+    // format list the selection does, so this is the only way to see that one
+    // arrived at all.
+    void testAHighlightIsDrawnOnTheLineItCovers()
+    {
+        TemporaryDirectory dir("qtc-viewport-highlights");
+        const FilePath file = writeLines(dir, "marked.txt", 5000);
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+
+        QTextCharFormat wanted;
+        wanted.setBackground(QColor(Qt::magenta));
+
+        // "line 2", on the third line, which is on screen.
+        const QTextBlock third
+            = fixture.document.textDocument()->document()->findBlockByNumber(2);
+        const int from = third.position();
+
+        const auto backgrounds = [viewport](int index) {
+            QList<QColor> colours;
+            const QVariantList ranges = viewport->visibleLine(index).value("formats").toList();
+            for (const QVariant &range : ranges)
+                colours << range.toMap().value("background").value<QColor>();
+            return colours;
+        };
+
+        QVERIFY(!backgrounds(2).contains(QColor(Qt::magenta)));
+
+        viewport->setHighlights("Test.Highlights", {{from, from + 4, wanted}});
+        QTRY_VERIFY(backgrounds(2).contains(QColor(Qt::magenta)));
+        // And only on that line.
+        QVERIFY(!backgrounds(1).contains(QColor(Qt::magenta)));
+        QVERIFY(!backgrounds(3).contains(QColor(Qt::magenta)));
+
+        // A highlight far below the screen costs nothing and shows nothing.
+        const QTextBlock deep
+            = fixture.document.textDocument()->document()->findBlockByNumber(4000);
+        viewport->setHighlights("Test.Highlights",
+                                {{from, from + 4, wanted},
+                                 {deep.position(), deep.position() + 4, wanted}});
+        QTRY_VERIFY(backgrounds(2).contains(QColor(Qt::magenta)));
+        QCOMPARE(viewport->highlights("Test.Highlights").size(), 2);
+
+        // Clearing a kind takes its ranges and nobody else's.
+        viewport->setHighlights("Test.Highlights", {});
+        QTRY_VERIFY(!backgrounds(2).contains(QColor(Qt::magenta)));
+        QVERIFY(viewport->highlights("Test.Highlights").isEmpty());
+    }
+
     void testTheCaretMovesAWordAndAFileAtATime()
     {
         TemporaryDirectory dir("qtc-viewport-words");
