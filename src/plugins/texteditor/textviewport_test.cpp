@@ -15,6 +15,7 @@
 #include "texteditorconstants.h"
 #include "textviewport.h"
 
+#include <utils/aspects.h>
 #include <utils/temporarydirectory.h>
 #include <utils/theme/theme.h>
 
@@ -1028,6 +1029,89 @@ private slots:
         QCOMPARE(ask(wanted, Qt::ImCursorPosition).toInt(), 2);
         QCOMPARE(ask(wanted, Qt::ImAbsolutePosition).toInt(), 8);
         QVERIFY(!ask(wanted, Qt::ImCursorRectangle).toRectF().isEmpty());
+    }
+
+    void testABufferWithNoStyleFollowsTheGlobalTabSettings()
+    {
+        // A snippet editor has no language and so no code style, and an indent
+        // there is what an indent is everywhere else. A default-constructed
+        // TabSettingsData happens to match the shipped defaults, so this only
+        // says anything with the global settings moved off them.
+        TabSettings &global = globalTabSettings();
+        const TabSettingsData original = global.data();
+        const QScopeGuard putItBack([&global, original] { global.setData(original); });
+
+        TabSettingsData distinctive = original;
+        distinctive.m_tabPolicy = TabSettingsData::SpacesOnlyTabPolicy;
+        distinctive.m_indentSize = original.m_indentSize + 3;
+        distinctive.m_tabSize = distinctive.m_indentSize;
+        global.setData(distinctive);
+
+        CodeBuffer buffer;
+        QVERIFY(buffer.textDocument());
+        QCOMPARE(buffer.textDocument()->tabSettings().m_indentSize, distinctive.m_indentSize);
+
+        // And it keeps following them, so a page left open while the settings
+        // change does not go on indenting by the old ones. Set through the
+        // aspect rather than with setData(), which blocks its own signals on
+        // purpose and so tells nobody.
+        const int wider = distinctive.m_indentSize + 2;
+        global.indentSize.setValue(wider);
+        QTRY_COMPARE(buffer.textDocument()->tabSettings().m_indentSize, wider);
+
+        // Until something says what an indent is here, which a code style does.
+        buffer.setTabSettings(original);
+        QCOMPARE(buffer.textDocument()->tabSettings().m_indentSize, original.m_indentSize);
+        global.indentSize.setValue(wider + 1);
+        QCOMPARE(buffer.textDocument()->tabSettings().m_indentSize, original.m_indentSize);
+    }
+
+    void testASnippetEditorWritesWhatWasTypedBackToItsAspect()
+    {
+        // The snippet editor is the one place where a lost edit costs the user
+        // something they wrote: the code style preview says in so many words
+        // that changes to it do not affect the settings, and this one keeps
+        // what is typed. Driven as the delegate rather than through the page,
+        // because selecting a snippet in the page's table is a different thing
+        // to test and it has its own tests.
+        AspectContainer page;
+        StringAspect snippet(&page);
+        snippet.setValue("alpha\nbeta\n");
+
+        QQuickView view;
+        view.resize(500, 200);
+        QQmlComponent component(view.engine());
+        component.setData(QByteArray("import QtCreator.TextEditor\n"
+                                     "SnippetEditor { width: 500; height: 200 }"),
+                          QUrl("qrc:/test/SnippetEditorTest.qml"));
+        std::unique_ptr<QObject> created(component.createWithInitialProperties(
+            {{"aspect", QVariant::fromValue<BaseAspect *>(&snippet)},
+             {"mimeType", "text/plain"}}));
+        QVERIFY2(created != nullptr, qPrintable(component.errorString()));
+
+        auto * const item = qobject_cast<QQuickItem *>(created.get());
+        QVERIFY(item);
+        item->setParentItem(view.contentItem());
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+        auto * const viewport = item->findChild<TextViewport *>("codeViewport");
+        QVERIFY(viewport);
+        QTRY_COMPARE(viewport->visibleLine(0).value("text").toString(), QString("alpha"));
+
+        viewport->forceActiveFocus();
+        QVERIFY2(viewport->hasActiveFocus(), "the editor never took focus");
+        viewport->setCursorPosition(0);
+        QTest::keyClick(&view, 'Z');
+
+        // Still being typed, so the aspect has not been told: an aspect that
+        // reloads its value would fight the cursor.
+        QCOMPARE(snippet.volatileValue(), QString("alpha\nbeta\n"));
+
+        // Focus leaves, and now it has.
+        viewport->setFocus(false);
+        QTRY_VERIFY(!viewport->hasActiveFocus());
+        QTRY_COMPARE(snippet.volatileValue(), QString("Zalpha\nbeta\n"));
     }
 
     void testASelectionIsMergedIntoTheLineFormats()

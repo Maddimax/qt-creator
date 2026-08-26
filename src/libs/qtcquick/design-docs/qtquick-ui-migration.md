@@ -5648,6 +5648,28 @@ more directly. `testTabTypesAnIndentInACodeEditor` used to read `text` off the
 editor; the text is the buffer's now, and focus goes to the viewport rather than
 to the component around it, which is a focus scope.
 
+**The snippet editor went the same way**, and turned up the one thing a preview
+did not need. It has no language and so no code style, and its old comment said
+so: "it is what says how wide a Tab is here, which is the global tab settings".
+`CodeIndenting` read those live at every keypress; a `CodeBuffer` holds a
+document, and a document holds its settings. So a buffer starts on the global
+tab settings and keeps following them, until something tells it what an indent
+is here - which is what a code style does. After that it is demonstrating that
+style and the global settings are not its business.
+
+Testing that took two goes. `TabSettings::setData()` wraps itself in a
+`QSignalBlocker` on purpose, so setting the whole struct tells nobody and the
+"keeps following" half of the test could not fire. Driving the individual aspect,
+which is what the Behavior page does, works. A default-constructed
+`TabSettingsData` also happens to match the shipped defaults, so the test has to
+move the global settings somewhere distinctive first or it asserts nothing -
+which is exactly what the first version of it did.
+
+The snippet editor is tested as the *delegate* rather than through its page:
+selecting a snippet in the page's table is a different thing to test and has its
+own tests, and driving a `TableView`'s selection model to reach a text field is
+a lot of machinery between the assertion and what it is about.
+
 **And one that was missing.** Nothing asserted that editing the preview reaches
 the aspect that owns it - the old `TextArea` wrote back on `editingFinished` and
 no test noticed either way. It matters: Reset and Format work on the aspect's

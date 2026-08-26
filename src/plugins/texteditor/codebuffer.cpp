@@ -18,7 +18,21 @@ namespace TextEditor {
 class BufferDocument : public TextDocument
 {
 public:
+    BufferDocument()
+    {
+        // Until a code style says otherwise, an indent here is what an indent
+        // is everywhere else. A snippet editor has no language and so no style,
+        // and typing eight spaces into one because a default said so would be
+        // its own kind of wrong.
+        m_tabSettings = globalTabSettings().data();
+        connect(&globalTabSettings(), &Utils::AspectContainer::changed, this, [this] {
+            if (m_followGlobal)
+                setTabSettingsVerbatim(globalTabSettings().data());
+        });
+    }
+
     TabSettingsData tabSettings() const override { return m_tabSettings; }
+
     void setTabSettingsVerbatim(const TabSettingsData &tabSettings)
     {
         if (m_tabSettings == tabSettings)
@@ -27,8 +41,13 @@ public:
         emit tabSettingsChanged();
     }
 
+    // A buffer that has been told what an indent is stops following the global
+    // settings: the style it was given is the one it is demonstrating.
+    void stopFollowingGlobal() { m_followGlobal = false; }
+
 private:
     TabSettingsData m_tabSettings;
+    bool m_followGlobal = true;
 };
 
 class CodeBufferPrivate
@@ -80,6 +99,7 @@ void CodeBuffer::setText(const QString &text)
 
 void CodeBuffer::setTabSettings(const TabSettingsData &tabSettings)
 {
+    d->m_document->stopFollowingGlobal();
     d->m_document->setTabSettingsVerbatim(tabSettings);
 }
 
