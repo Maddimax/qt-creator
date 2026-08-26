@@ -18,7 +18,6 @@ namespace ProjectExplorer {
 class KitAspectFactory;
 
 namespace Internal {
-class KitManagerConfigWidget;
 class KitModel;
 } // namespace Internal
 
@@ -92,7 +91,6 @@ private:
 
     friend class ProjectExplorerPlugin; // for constructor
     friend class Kit;
-    friend class Internal::KitManagerConfigWidget;
     friend class Internal::KitModel;
 };
 

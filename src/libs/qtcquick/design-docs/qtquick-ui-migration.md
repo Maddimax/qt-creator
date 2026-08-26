@@ -5793,6 +5793,41 @@ What did change: `qmlprofilerplugin.cpp` was including `tests/samplerforms_test
 every one of its other test includes, and both are there only for the creator
 registered inside it.
 
+## What deleting a widget leaves behind
+
+Removing `DockerDeviceWidget` left its forward declaration and a friend
+declaration naming a class that exists nowhere. That is the residue this
+migration produces every time a widget goes, and it is worth looking for
+rather than waiting to trip over it.
+
+**The test that works** is not "does this name have a definition" - a regex for
+that misses export macros and multi-line class heads, and answered 735, nearly
+all of them wrong. It is *"is every occurrence of this name a declaration"*,
+which is exactly how the Docker one was confirmed: `grep` returned two lines and
+both declared it. Counting occurrences and requiring all of them to be a bare
+`class X;` or a `friend class ...X;` gives 43 names across the tree.
+
+Three of those name a settings or config widget, had a definition at the branch
+point, and have none now: `DebuggerSettingsPageWidget`,
+`KitManagerConfigWidget`, `CompileOutputTextEdit`. They are gone.
+
+**The other forty are not this branch's**, and are left alone: they are in
+QmlDesigner, qmlpuppet and modelinglib, they predate the migration, and touching
+dozens of unrelated files to tidy them would bury the change that matters.
+
+**A C++ detail that turned into a build failure.** Deleting the forward
+declaration but leaving `friend class Internal::KitManagerConfigWidget;` does
+not compile: a *qualified* friend declaration needs the class to have been
+declared already, while an unqualified `friend class X;` declares it itself. So
+the two lines have to go together - which is what the Docker change did, and
+what the scan output made easy to miss, because it lists where a name is
+forward-declared and not every line it counted.
+
+That failure is also the control. A dead declaration cannot be told from a live
+one by removing it and seeing the build pass unless something proves the build
+would notice; here `KitManagerConfigWidget` proved it by failing in three
+translation units, and the other two removals then mean something.
+
 ## The same measurement, applied to kits
 
 Re-running the `layouter()` instrumentation with the device closures gone leaves

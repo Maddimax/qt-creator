@@ -17,8 +17,6 @@
 
 namespace Debugger {
 
-class DebuggerSettingsPageWidget;
-
 bool nativeDapDebuggersEnabled();
 
 class DEBUGGER_EXPORT DebuggerItem

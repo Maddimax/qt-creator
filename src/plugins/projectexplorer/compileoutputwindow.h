@@ -23,7 +23,6 @@ class Task;
 
 namespace Internal {
 class ShowOutputTaskHandler;
-class CompileOutputTextEdit;
 
 class CompileOutputSettings final : public Utils::AspectContainer
 {
