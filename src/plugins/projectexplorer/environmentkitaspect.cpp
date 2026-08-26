@@ -70,17 +70,6 @@ public:
     }
 
 private:
-    void addToInnerLayout(Layouting::Layout &layout) override
-    {
-        Layouting::Row box{Layouting::noMargin};
-        if (m_forceUtf8)
-            box.addItem(m_forceUtf8);
-        box.addItem(m_buildEnv);
-        box.addItem(m_runEnv);
-        box.addItem(Layouting::st);
-        layout.addItem(box);
-    }
-
     void makeReadOnly(bool readOnly) override
     {
         if (m_forceUtf8)

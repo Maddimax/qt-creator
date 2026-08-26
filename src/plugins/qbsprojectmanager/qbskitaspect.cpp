@@ -39,7 +39,6 @@ private:
     void makeReadOnly(bool readOnly) override { m_properties->setEnabled(!readOnly); }
     void refresh() override { m_properties->updateSummary(); }
 
-    void addToInnerLayout(Layouting::Layout &layout) override { layout.addItem(m_properties); }
 
     void changeProperties()
     {

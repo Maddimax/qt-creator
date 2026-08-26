@@ -40,7 +40,6 @@ public:
 private:
     void makeReadOnly(bool readOnly) override { m_path->setReadOnly(readOnly); }
 
-    void addToInnerLayout(Layouting::Layout &layout) override { layout.addItem(m_path); }
 
     void refresh() override
     {

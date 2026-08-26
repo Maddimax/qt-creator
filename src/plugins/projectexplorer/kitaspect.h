@@ -222,7 +222,6 @@ public:
 
     virtual void refresh();
 
-    void addToLayoutImpl(Layouting::Layout &layout) override;
     static QString msgManage();
 
     Kit *kit() const;
@@ -262,8 +261,13 @@ public:
     // Where a control of this row's own goes: before the "Manage..." button,
     // which stays at the end.
     int controlIndex() const;
+    // Where this row's controls go. The row itself by default, so that they
+    // sit side by side between the label and the Manage button. A row whose
+    // controls have to stack - one compiler per language - hands over a
+    // container with a layout of its own, and the row holds that instead.
+    void setControlContainer(Utils::AspectContainer *container);
+    Utils::AspectContainer *controlContainer();
 
-    virtual void addToInnerLayout(Layouting::Layout &layout);
 
     // Whether the setting may be changed per run configuration. A state about
     // the setting rather than about its value, so a right-click rather than a
@@ -281,10 +285,6 @@ protected:
     virtual void makeReadOnly(bool readOnly);
     virtual Utils::Id settingsPageItemToPreselect() const { return {}; }
 
-    void addLabelToLayout(Layouting::Layout &layout);
-    void addControlsToLayout(Layouting::Layout &layout);
-    void addListAspectsToLayout(Layouting::Layout &layout);
-    void addManageButtonToLayout(Layouting::Layout &layout);
 
     // Convenience for aspects that provide a list model from which one value
     // can be chosen. It becomes a SelectionAspect, which either renderer draws.
@@ -344,7 +344,10 @@ private:
 template<class T> T *KitAspect::addControl()
 {
     const auto control = new KitAspectControl<T>(this);
-    insertAspect(controlIndex(), control, /*takeOwnership=*/true);
+    if (Utils::AspectContainer * const into = controlContainer(); into != this)
+        into->registerAspect(control, /*takeOwnership=*/true);
+    else
+        insertAspect(controlIndex(), control, /*takeOwnership=*/true);
     return control;
 }
 

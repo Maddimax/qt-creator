@@ -42,7 +42,6 @@ public:
     }
 
 private:
-    void addToInnerLayout(Layouting::Layout &layout) override { layout.addItem(m_mkspec); }
 
     void makeReadOnly(bool readOnly) override { m_mkspec->setEnabled(!readOnly); }
 

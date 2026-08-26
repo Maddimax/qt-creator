@@ -673,7 +673,6 @@ public:
 private:
     void makeReadOnly(bool readOnly) override { m_generator->setEnabled(!readOnly); }
 
-    void addToInnerLayout(Layouting::Layout &layout) override { layout.addItem(m_generator); }
 
     QString summary() const
     {
@@ -1182,7 +1181,6 @@ public:
     }
 
 private:
-    void addToInnerLayout(Layouting::Layout &layout) override { layout.addItem(m_configuration); }
 
     void makeReadOnly(bool readOnly) override
     {

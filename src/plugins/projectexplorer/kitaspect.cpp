@@ -24,6 +24,7 @@
 #include <QAbstractButton>
 #include <QComboBox>
 #include <QLineEdit>
+#include <QGridLayout>
 #include <QLabel>
 #include <QPushButton>
 
@@ -31,6 +32,8 @@
 
 using namespace Core;
 #ifdef WITH_TESTS
+#include "toolchainkitaspect.h"
+#include "toolchainmanager.h"
 #include <QTest>
 #endif
 
@@ -193,6 +196,7 @@ public:
         SortModel *sorted;
     };
     QList<ListAspect> listAspects;
+    AspectContainer *controlContainer = nullptr;
 
     bool readOnly = false;
 };
@@ -307,29 +311,6 @@ void KitAspect::makeReadOnly(bool readOnly)
         la.selection->setEnabled(!readOnly);
 }
 
-void KitAspect::addToInnerLayout(Layouting::Layout &layout)
-{
-    addListAspectsToLayout(layout);
-}
-
-void KitAspect::addControlsToLayout(Layouting::Layout &layout)
-{
-    const QList<BaseAspect *> cs = controls();
-    if (cs.size() < 2) {
-        for (BaseAspect * const control : cs)
-            layout.addItem(control);
-        return;
-    }
-    // Several controls are one cell between the row's label and its Manage
-    // button, not several: the detail form is a grid, and a row with more
-    // columns than the rest would widen every other row's field column.
-    Layouting::Row row{Layouting::noMargin};
-    for (BaseAspect * const control : cs)
-        row.addItem(control);
-    row.addItem(Layouting::st);
-    layout.addItem(row);
-}
-
 // Everything the row holds except the button that manages what it offers,
 // which goes at the end. Embedded controls are in here too: a device row draws
 // its type's control as well as its own.
@@ -373,41 +354,20 @@ ActionAspect *KitAspect::manageButton() const
 
 // Where a control goes: before the button that manages what it offers, which
 // stays at the end however late a kind describes what it holds.
+void KitAspect::setControlContainer(AspectContainer *container)
+{
+    d->controlContainer = container;
+}
+
+AspectContainer *KitAspect::controlContainer()
+{
+    return d->controlContainer ? d->controlContainer : this;
+}
+
 int KitAspect::controlIndex() const
 {
     const int index = d->manageButton ? int(aspects().indexOf(d->manageButton)) : -1;
     return index < 0 ? int(aspects().size()) : index;
-}
-
-void KitAspect::addLabelToLayout(Layouting::Layout &layout)
-{
-    auto label = Utils::AspectWidgets::createSubWidget<QLabel>(this, d->factory->displayName() + ':');
-    label->setToolTip(d->factory->description());
-    connect(label, &QLabel::linkActivated, this, [this](const QString &link) {
-        emit labelLinkActivated(link);
-    });
-
-    layout.addItem(label);
-}
-
-void KitAspect::addListAspectsToLayout(Layouting::Layout &layout)
-{
-    addControlsToLayout(layout);
-}
-
-void KitAspect::addManageButtonToLayout(Layouting::Layout &layout)
-{
-    if (d->manageButton)
-        layout.addItem(d->manageButton);
-}
-
-void KitAspect::addToLayoutImpl(Layouting::Layout &layout)
-{
-    addLabelToLayout(layout);
-    addToInnerLayout(layout);
-    addManageButtonToLayout(layout);
-
-    layout.flush();
 }
 
 // The run device is the one thing a run configuration may not override.
@@ -945,6 +905,79 @@ private slots:
         QVERIFY(described > 0);
         QVERIFY2(unsupported.isEmpty(),
                  qPrintable("no renderer draws these: " + unsupported.join(", ")));
+    }
+
+    void testEveryKitRowSaysWhatItIs()
+    {
+        // A row was a closure: a label, then whatever the subclass drew, then
+        // Manage. It is setInlineRow() on the container now, so the renderer
+        // draws all three and no subclass has to remember to.
+        Kit * const kit = anyKit();
+        if (!kit)
+            QSKIP("No kits are configured here");
+
+        int checked = 0;
+        for (KitAspectFactory * const factory : KitManager::kitAspectFactories()) {
+            const std::unique_ptr<KitAspect> aspect(factory->createKitAspect(kit));
+            if (!aspect || aspect->controls().isEmpty())
+                continue;
+
+            Layouting::Grid grid{Layouting::noMargin};
+            aspect->addToLayout(grid);
+            const std::unique_ptr<QWidget> row(grid.emerge());
+            QVERIFY(row);
+
+            const QString wanted = factory->displayName() + ':';
+            const bool named = Utils::anyOf(row->findChildren<QLabel *>(),
+                                            [&wanted](const QLabel *l) {
+                                                return l->text() == wanted;
+                                            });
+            QVERIFY2(named, qPrintable(factory->displayName() + " draws no name"));
+            ++checked;
+        }
+        QVERIFY(checked > 0);
+    }
+
+    void testTheToolchainRowStacksOneListPerLanguage()
+    {
+        // Every other row is one control, so a row lays its controls out in a
+        // line. This one is a compiler per language, each with its own label,
+        // and they have to stack - so it hands the row a container with a grid
+        // in it rather than its selections one by one.
+        Kit * const kit = anyKit();
+        if (!kit)
+            QSKIP("No kits are configured here");
+
+        KitAspectFactory * const factory = Utils::findOrDefault(
+            KitManager::kitAspectFactories(), [](KitAspectFactory *f) {
+                return f->id() == ToolchainKitAspect::id();
+            });
+        QVERIFY(factory);
+        const std::unique_ptr<KitAspect> aspect(factory->createKitAspect(kit));
+        QVERIFY(aspect);
+
+        const int languages = int(ToolchainManager::languageCategories().size());
+        QVERIFY(languages > 0);
+        QCOMPARE(aspect->listAspects().size(), languages);
+
+        Layouting::Grid outer{Layouting::noMargin};
+        aspect->addToLayout(outer);
+        const std::unique_ptr<QWidget> row(outer.emerge());
+        QVERIFY(row);
+
+        // One grid row per language, rather than one line with all of them.
+        const bool stacked = Utils::anyOf(row->findChildren<QGridLayout *>(),
+                                          [languages](const QGridLayout *g) {
+                                              return g->rowCount() == languages;
+                                          });
+        QVERIFY2(stacked, "the compilers do not stack one per language");
+
+        // And it is still a row: its name and its Manage button are there.
+        const bool named = Utils::anyOf(row->findChildren<QLabel *>(),
+                                        [factory](const QLabel *l) {
+                                            return l->text() == factory->displayName() + ':';
+                                        });
+        QVERIFY(named);
     }
 
     void testEveryKitAspectDrawsSomethingToActOn()

@@ -86,6 +86,21 @@ class ToolchainKitAspectImpl final : public KitAspect
 public:
     ToolchainKitAspectImpl(Kit *k, const KitAspectFactory *factory) : KitAspect(k, factory)
     {
+        // One list per language category, stacked rather than side by side.
+        // Every other kit row is a single control, so the row draws its
+        // controls in a line; this one hands over a container with a grid in
+        // it and the row holds that.
+        m_languages = new Utils::AspectContainer(this);
+        Utils::AspectWidgets::setLayouter(m_languages, [this] {
+            Layouting::Grid grid{Layouting::noMargin};
+            for (Utils::BaseAspect * const selection : m_languages->aspects()) {
+                grid.addItem(selection);
+                grid.addItem(Layouting::br);
+            }
+            return grid;
+        });
+        setControlContainer(m_languages);
+
         m_sortedLanguageCategories = sorted(
             ToolchainManager::languageCategories(),
             [](const LanguageCategory &l1, const LanguageCategory &l2) {
@@ -131,20 +146,7 @@ public:
     }
 
 private:
-    void addToInnerLayout(Layouting::Layout &layout) override
-    {
-        // Each selection draws its own label, so the grid is what they land in
-        // rather than something built around them.
-        Layouting::Grid grid{Layouting::noMargin};
-        const QList<Utils::SelectionAspect *> selections = listAspects();
-        QTC_ASSERT(selections.size() == m_sortedLanguageCategories.size(), return);
-        for (Utils::SelectionAspect * const selection : selections) {
-            grid.addItem(selection);
-            grid.addItem(Layouting::br);
-        }
-        layout.addItem(grid);
-    }
-
+    Utils::AspectContainer *m_languages = nullptr;
     QList<LanguageCategory> m_sortedLanguageCategories;
 };
 

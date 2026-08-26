@@ -2165,7 +2165,7 @@ installs a message handler and asserts nothing says SOFT ASSERT. The first
 version of it passed against a build with the guard removed, which is the only
 reason it was rewritten.
 
-**What this does not do.** The virtual has to stay: five aspects in
+**What this does not do.** The virtual has to stay: four aspects in
 `src/plugins` still override it. Utils has none left. They are not one
 group. Most are run-configuration, build-step and kit aspects - project
 panels rather than preferences pages, which is a surface the migration has not
@@ -3036,6 +3036,50 @@ searching the model; the new one has to be told, and now so does the reader.
 The net written last time caught nothing, which is the point of writing it
 first - and the control that empties the renderer's case fails both tests, so
 it would have.
+
+### The kit row, which had been describing itself all along
+
+`KitAspect` is an `AspectContainer`, and its constructor already said
+
+    setInlineRow(true);
+    setLabelText(factory->displayName() + ':');
+    setToolTip(factory->description());
+
+- a complete description of a labelled row whose controls sit side by side.
+And then it overrode `addToLayoutImpl()` to draw a label, call a virtual, add
+the Manage button and flush, so the inline-row path was never reached. Every
+kit row in Creator - the Qt version, the compilers, the debugger, the device,
+the sysroot, the generator - was drawn by the closure while the descriptor sat
+there saying the same thing.
+
+Deleting it took `addLabelToLayout()`, `addToInnerLayout()`,
+`addListAspectsToLayout()`, `addManageButtonToLayout()` and
+`addControlsToLayout()` with it, and then **seven subclass overrides that were
+the default written out**: `layout.addItem(m_mkspec)` is what
+`addControlsToLayout()` does with one control. `EnvironmentKitAspect`'s was the
+same for three, down to the trailing stretch. `McuDependenciesKitAspect`'s was
+empty and it has no controls.
+
+**One row genuinely differs, and it is the interesting one.** The compilers are
+one list per language, each with its own label, and they have to stack where
+every other row lays its controls in a line. That is not a descriptor field -
+it is a layout, and a container may have one. So `ToolchainKitAspectImpl` puts
+its selections in a container of its own with a `Grid` in it, and the row holds
+that container as its single control.
+
+The one piece of new API is `setControlContainer()`: `addControl<T>()` inserted
+into the row itself, so a subclass had no way to say "mine go over there". Two
+lines in `addControl()`, and the row's own framing - label, controls, Manage -
+keeps working because it comes from the renderer now rather than from a virtual
+each subclass had to remember to call.
+
+**The net was already there**, which is why this was one commit rather than
+three. `testEveryKitAspectDrawsSomethingToActOn()` renders every kit aspect
+there is and insists something actionable comes out; it was written when three
+rows drew a label and nothing else. Two more were added for what this change
+is actually about: every row draws its own name, and the toolchain row stacks
+one list per language. Removing `setInlineRow(true)` fails four tests,
+including both new ones.
 
 ### What the census could not see, and now can
 

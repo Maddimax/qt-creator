@@ -30,7 +30,6 @@ public:
 
     void makeReadOnly(bool) override {}
     void refresh() override {}
-    void addToInnerLayout(Layouting::Layout &) override {}
 };
 
 Utils::Id McuDependenciesKitAspect::id()
