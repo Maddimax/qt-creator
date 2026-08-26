@@ -173,6 +173,7 @@ private slots:
     void testAspectListAddsRemovesAndShowsDetails();
     void testTextWithActionShowsSummaryAndActs();
     void testACheckBoxLabelCanBeALink();
+    void testAFieldCanBeAskedForTheCursorAndForAReCheck();
     void testAspectListLabelArrivingLate();
     void testPageWithoutItsOwnQmlIsDeclined();
     void testBuildingAPageIsNotShowingIt();
@@ -2423,6 +2424,53 @@ void QuickUiTest::testACheckBoxLabelCanBeALink()
     QMetaObject::invokeMethod(box, "toggle");
     QMetaObject::invokeMethod(box, "toggled");
     QVERIFY(!aspect.volatileValue());
+}
+
+// An aspect whose complaint is whatever it was last told, so that a test can
+// change what is wrong without changing what is typed.
+class AspectWithAToldProblem final : public Utils::FilePathAspect
+{
+public:
+    using Utils::FilePathAspect::FilePathAspect;
+
+    QString problem;
+
+    QString validationMessage(const QVariant &) const override { return problem; }
+};
+
+void QuickUiTest::testAFieldCanBeAskedForTheCursorAndForAReCheck()
+{
+    // Two things the widget side does on request and this side used to drop:
+    // put the cursor in a field, and check the value again because something
+    // outside now knows more than it did.
+    Utils::AspectContainer page;
+    AspectWithAToldProblem field(&page);
+    field.setLabelText("Build directory:");
+    field.setValue(Utils::FilePath::fromString("/tmp"));
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QVERIFY(quickWidget->rootObject());
+
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "StringDelegate"));
+    QQuickItem * const input = findQmlComponent(delegate, "TextField");
+    QVERIFY(input);
+    QVERIFY(!input->property("focus").toBool());
+
+    // "A page that has just made something for the user to name": adding a kit
+    // puts the cursor in its name.
+    field.setFocusToInputField();
+    QTRY_VERIFY(input->property("focus").toBool());
+
+    // The complaint is the aspect's to answer, and it can change without the
+    // value changing - a build system reporting what is wrong with a
+    // directory. validateInput() is how it says so.
+    QCOMPARE(input->property("error").toString(), QString());
+    field.problem = "The build directory is not reachable from the build device.";
+    field.validateInput();
+    QTRY_COMPARE(input->property("error").toString(), field.problem);
 }
 
 void QuickUiTest::testAspectListLabelArrivingLate()

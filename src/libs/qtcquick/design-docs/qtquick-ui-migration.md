@@ -3081,6 +3081,41 @@ is actually about: every row draws its own name, and the toolchain row stacks
 one list per language. Removing `setInlineRow(true)` fails four tests,
 including both new ones.
 
+### Two requests one backend answered and the other dropped
+
+The four closures still in `src/plugins` all want a control that does not exist
+yet - an environment editor over a fetched base, a library-and-version picker,
+a field that changes from one line to many while you look at it. Those are
+designs, not ports, and inventing one to make a count go down is the wrong
+trade. So this batch went looking for the other thing instead.
+
+`AspectPresentation`'s fields were audited earlier - which of them each backend
+reads. This is the same audit over the **signals**: what an aspect asks a
+renderer to do, and whether both do it. Most of the asymmetry is a false alarm,
+because Qt Quick binds where the widget side connects: nothing in the QML reads
+`labelTextChanged` or `enabledChanged`, and nothing needs to - `aspect.labelText`
+and `aspect.enabled` are properties with NOTIFY behind them. Two were real.
+
+**`controlFocusRequested`** - `setFocusToInputField()`. Five callers, and the
+one that shows what it is for is `kitoptionspage.cpp`: add a kit and the cursor
+lands in its name so you can type. Qt Quick did nothing at all. It sets
+`focus`, not `forceActiveFocus()`: active focus needs the *window* to be the
+active one, which is neither the delegate's business nor something a test can
+count on - the QuickUi suite already has one test that flakes for exactly that
+reason.
+
+**`controlValidationRequested`** - `validateInput()`. The widget side re-runs
+its validator; the QML asks the aspect again through `validationMessage()`, and
+the tick that makes it re-ask was bumped only by `validationMessageChanged`.
+So an aspect told from outside what is wrong with its value - a build system
+reporting an unreachable build directory, which is `BuildDirectoryAspect::
+setProblem()` - said so in widgets and stayed silent in Qt Quick.
+
+Both are three lines of QML. Finding them was the work, and the method is worth
+keeping: **list what one side handles, list what the other handles, and explain
+every difference.** A difference that turns out to be a binding is fine. A
+difference nobody can explain is a bug.
+
 ### What the census could not see, and now can
 
 Two holes, both found the hard way in the same session.

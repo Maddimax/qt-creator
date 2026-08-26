@@ -44,6 +44,23 @@ RowLayout {
         function onValidationMessageChanged(): void {
             delegate.validationTick++
         }
+
+        // Something outside asked for the value to be checked again - a build
+        // system reporting what is wrong with a build directory. The widget
+        // side re-runs its validator here; this side has to ask the aspect
+        // again, which is what bumping the tick does.
+        function onControlValidationRequested(): void {
+            delegate.validationTick++
+        }
+
+        // A page that has just made something for the user to name puts the
+        // cursor in it. focus rather than forceActiveFocus(): active focus
+        // needs the window to be the active one, which is not this delegate's
+        // business and not something a test can rely on.
+        function onControlFocusRequested(): void {
+            field.focus = true
+            field.selectAll()
+        }
     }
 
     visible: aspectVisible
