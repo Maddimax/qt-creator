@@ -3480,6 +3480,52 @@ It is worth writing down because the command every batch used says
 migration. No plugin anywhere in `src` uses an API this work removed; that was
 checked by grep rather than assumed.
 
+### The last code style page, and a plugin nobody had compiled
+
+Three of the four code style factories set a `qmlSource()` - C++, Nim and
+QmlJS. The fourth is ClangFormat, and it is not a QML-writing job: its editor
+is hand-built widgets holding their own state, which is the shape workstream 2
+names. `ClangFormatGlobalConfigWidget` kept eleven raw widget pointers and
+answered `mode()` and `useCustomSettings()` by reading check boxes, while the
+values it mirrors already live in `ClangFormatSettings`, an `AspectContainer`.
+
+So it became one: `ClangFormatGlobalConfig`, nine aspects and a
+`ClangFormatGlobalConfig.qml`. What it *lists* is the same for the global page
+and a project's; what differs is what a project may change, and that is the
+container's decision - `useGlobalSettings` is visible only with a project, the
+three global-only settings only without one. Both hosts embed it with
+`Core::createAspectForm()`, the seam `cppquickfixsettings.cpp` already uses to
+put a Quick form inside a widget layout, so no new dependency was needed. The
+six `installMarkSettingsDirtyTrigger()` calls survive unchanged: that helper
+already accepts a `BaseAspect` and connects `volatileValueChanged`.
+
+**The plugin does not build here, and that turned out to be the finding.**
+ClangFormat needs clang-format, and `ninja` has no target for it in this
+configuration - so nothing in it has been compiled for the whole branch, and
+it had been broken twice over without a sound:
+
+- `FileUtils::getOpenFilePath()` and `getSaveFilePath()` moved to
+  `filedialogs.h`, and the call site still included only `fileutils.h`.
+- `aspects.h` stopped including `<QComboBox>`, and the config widget had been
+  getting the type from there - twelve errors on an incomplete type.
+
+Both are one-line includes, committed separately with `Amends` footers, before
+the port that deletes one of the two files.
+
+The way to compile a disabled plugin is the compile database: take a sibling
+plugin's entry from `compile_commands.json`, drop `-c`/`-o`, add the source and
+`-fsyntax-only`, and point `-I` at `/opt/homebrew/opt/llvm/include`. It found a
+real error in the new code on the first run - a `for (BaseAspect *aspect : {...})`
+whose initializer list would not deduce - which is the negative control: the
+check compiles enough to be worth trusting. `qmllint` takes the same treatment,
+run directly against the build tree's `qml_modules` since there is no
+`ClangFormat_qmllint` target either.
+
+**What this does not have is a runtime.** Every other batch on this branch was
+checked by running the thing. This one compiles and lints and cannot be
+launched here, so the page wants opening once in a build that has clang-format
+before it is trusted.
+
 ### Typing the delegates that drive one aspect
 
 `aspectcontainermodel.h` registers `Utils::BaseAspect` as the QML type

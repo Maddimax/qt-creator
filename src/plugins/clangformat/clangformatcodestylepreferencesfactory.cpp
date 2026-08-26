@@ -5,7 +5,9 @@
 
 #include "clangformatconstants.h"
 #include "clangformatfile.h"
-#include "clangformatglobalconfigwidget.h"
+#include "clangformatglobalconfig.h"
+
+#include <coreplugin/dialogs/ioptionspage.h>
 #include "clangformatindenter.h"
 #include "clangformatsettings.h"
 #include "clangformattr.h"
@@ -548,7 +550,7 @@ class ClangFormatSettingsEditor final : public CodeStyleEditor
 {
 public:
     explicit ClangFormatSettingsEditor(ICodeStylePreferences *codeStyle)
-        : m_globalSettings{nullptr, codeStyle, this}
+        : m_globalSettings{nullptr, codeStyle}
         , m_selector{{}, this}
         , m_widget{{}, codeStyle, this}
     {
@@ -558,7 +560,7 @@ public:
 
         using namespace Layouting;
         Column {
-            &m_globalSettings,
+            Core::createAspectForm(&m_globalSettings),
             &m_selector,
             &m_widget,
             filler,
@@ -581,22 +583,22 @@ public:
             filler->setVisible(!visible);
         };
         updateSelectorVisibility();
-        connect(&m_globalSettings, &ClangFormatGlobalConfigWidget::modeChanged,
+        connect(&m_globalSettings, &ClangFormatGlobalConfig::modeChanged,
                 this, updateSelectorVisibility);
-        connect(&m_globalSettings, &ClangFormatGlobalConfigWidget::useCustomSettingsChanged,
+        connect(&m_globalSettings, &ClangFormatGlobalConfig::useCustomSettingsChanged,
                 this, updateSelectorVisibility);
 
-        connect(&m_globalSettings, &ClangFormatGlobalConfigWidget::modeChanged,
+        connect(&m_globalSettings, &ClangFormatGlobalConfig::modeChanged,
                 &m_selector, &ClangFormatSelectorWidget::onModeChanged);
         m_selector.onModeChanged(currentMode);
-        connect(&m_globalSettings, &ClangFormatGlobalConfigWidget::useCustomSettingsChanged,
+        connect(&m_globalSettings, &ClangFormatGlobalConfig::useCustomSettingsChanged,
                 &m_selector, &ClangFormatSelectorWidget::onUseCustomSettingsChanged);
         m_selector.onUseCustomSettingsChanged(m_globalSettings.useCustomSettings());
 
-        connect(&m_globalSettings, &ClangFormatGlobalConfigWidget::modeChanged,
+        connect(&m_globalSettings, &ClangFormatGlobalConfig::modeChanged,
                 &m_widget, &ClangFormatCodeStyleWidget::onModeChanged);
         m_widget.onModeChanged(currentMode);
-        connect(&m_globalSettings, &ClangFormatGlobalConfigWidget::useCustomSettingsChanged,
+        connect(&m_globalSettings, &ClangFormatGlobalConfig::useCustomSettingsChanged,
                 &m_widget, &ClangFormatCodeStyleWidget::onUseCustomSettingsChanged);
         m_widget.onUseCustomSettingsChanged(m_globalSettings.useCustomSettings());
 
@@ -610,8 +612,8 @@ public:
             emit changed();
         };
         m_widget.setOnChanged(markChanged);
-        connect(&m_globalSettings, &ClangFormatGlobalConfigWidget::modeChanged, this, markChanged);
-        connect(&m_globalSettings, &ClangFormatGlobalConfigWidget::useCustomSettingsChanged,
+        connect(&m_globalSettings, &ClangFormatGlobalConfig::modeChanged, this, markChanged);
+        connect(&m_globalSettings, &ClangFormatGlobalConfig::useCustomSettingsChanged,
                 this, markChanged);
         connect(codeStyle, &ICodeStylePreferences::currentValueChanged, this, markChanged);
         connect(codeStyle, &ICodeStylePreferences::currentTabSettingsChanged, this, markChanged);
@@ -636,7 +638,7 @@ public:
     bool isDirty() const final { return m_dirty; }
 
 private:
-    ClangFormatGlobalConfigWidget m_globalSettings;
+    ClangFormatGlobalConfig m_globalSettings;
     ClangFormatSelectorWidget m_selector;
     ClangFormatCodeStyleWidget m_widget;
     bool m_dirty = false;
@@ -650,7 +652,8 @@ public:
     ClangFormatProjectEditor(const ICodeStylePreferencesFactory *factory,
                              const FilePath &projectFile,
                              ICodeStylePreferences *codeStyle)
-        : m_globalSettings{ProjectManager::projectWithProjectFile(projectFile, true), codeStyle, this}
+        : m_globalSettings{ProjectManager::projectWithProjectFile(projectFile, true),
+                           codeStyle}
         , m_selector{projectFile, this}
     {
         m_selector.setCodeStyle(codeStyle);
@@ -663,7 +666,7 @@ public:
 
         using namespace Layouting;
         Column {
-            &m_globalSettings,
+            Core::createAspectForm(&m_globalSettings),
             &m_selector,
             infoLabel,
             preview,
@@ -690,21 +693,21 @@ public:
             filler->setVisible(!visible);
         };
         updateSelectorVisibility();
-        connect(&m_globalSettings, &ClangFormatGlobalConfigWidget::modeChanged,
+        connect(&m_globalSettings, &ClangFormatGlobalConfig::modeChanged,
                 this, updateSelectorVisibility);
-        connect(&m_globalSettings, &ClangFormatGlobalConfigWidget::useCustomSettingsChanged,
+        connect(&m_globalSettings, &ClangFormatGlobalConfig::useCustomSettingsChanged,
                 this, updateSelectorVisibility);
 
-        connect(&m_globalSettings, &ClangFormatGlobalConfigWidget::modeChanged,
+        connect(&m_globalSettings, &ClangFormatGlobalConfig::modeChanged,
                 &m_selector, &ClangFormatSelectorWidget::onModeChanged);
         m_selector.onModeChanged(currentMode);
-        connect(&m_globalSettings, &ClangFormatGlobalConfigWidget::useCustomSettingsChanged,
+        connect(&m_globalSettings, &ClangFormatGlobalConfig::useCustomSettingsChanged,
                 &m_selector, &ClangFormatSelectorWidget::onUseCustomSettingsChanged);
         m_selector.onUseCustomSettingsChanged(m_globalSettings.useCustomSettings());
     }
 
 private:
-    ClangFormatGlobalConfigWidget m_globalSettings;
+    ClangFormatGlobalConfig m_globalSettings;
     ClangFormatSelectorWidget m_selector;
 };
 
