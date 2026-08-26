@@ -212,6 +212,7 @@ private slots:
     void testEveryTableOnEveryPageReportsItsCurrentRow();
     void testEveryTreeOnEveryPageReportsItsCurrentItem();
     void testAPageRefusesAnIndexFromSomeoneElsesModel();
+    void testEveryGroupedListMapsItsRowsBothWays();
     void testTableCellReadsInItsOwnColours();
     void testATableIsReadOnTheBackgroundItsAspectNames();
     void testTheFormatListIsReadOnTheSchemesOwnBackground();
@@ -4222,6 +4223,94 @@ void QuickUiTest::testTableCellReadsInItsOwnColours()
             ++painted;
     }
     QCOMPARE(painted, 2);
+}
+
+void QuickUiTest::testEveryGroupedListMapsItsRowsBothWays()
+{
+    // The third shape of the same thing. A grouped list - Kits, Toolchains,
+    // Debuggers, Qt Versions, the CMake/Meson/GN tool pages - shows items under
+    // headings, so a row of the view is not a row of the aspect. Clicking a
+    // cell does
+    //
+    //     aspect.currentRow = aspect.rowForIndex(view.index(row, column))
+    //
+    // and moving the current row the other way asks indexForRow(). Those two
+    // have to be inverses or the page acts on an item the user did not pick,
+    // and nothing operated either of them.
+    //
+    // Called by name, the way QML calls them: that is also what says they are
+    // still Q_INVOKABLE, which no build error would.
+    Core::setAspectFormFactory([](Utils::AspectContainer *container) {
+        return QtcQuick::createAspectForm(container);
+    });
+
+    int listsChecked = 0;
+    int rowsChecked = 0;
+    QStringList wrong;
+
+    for (Core::IOptionsPage *page : Core::IOptionsPage::allOptionsPages()) {
+        const std::optional<Utils::AspectContainer *> aspects = page->aspects();
+        if (!aspects || !*aspects || (*aspects)->qmlSource().isEmpty())
+            continue;
+
+        std::unique_ptr<Core::IOptionsPageWidget> widget(page->createWidget());
+        if (!widget)
+            continue;
+        auto quickWidget = widget->findChild<QQuickWidget *>();
+        if (!quickWidget || !quickWidget->rootObject())
+            continue;
+
+        for (QQuickItem *delegate :
+             findQmlComponents(quickWidget->rootObject(), "GroupedListDelegate")) {
+            auto aspect = delegate->property("aspect").value<Utils::BaseAspect *>();
+            if (!aspect)
+                continue;
+
+            // Walked until the aspect says there is no such row, rather than
+            // asking the display model - its rows include the headings.
+            int rows = 0;
+            for (int row = 0;; ++row) {
+                QModelIndex index;
+                if (!QMetaObject::invokeMethod(aspect, "indexForRow",
+                                               Q_RETURN_ARG(QModelIndex, index),
+                                               Q_ARG(int, row))) {
+                    wrong << page->displayName() + ": indexForRow is not callable";
+                    break;
+                }
+                if (!index.isValid())
+                    break;
+                ++rows;
+
+                int back = -1;
+                if (!QMetaObject::invokeMethod(aspect, "rowForIndex", Q_RETURN_ARG(int, back),
+                                               Q_ARG(QModelIndex, index))) {
+                    wrong << page->displayName() + ": rowForIndex is not callable";
+                    break;
+                }
+                if (back != row) {
+                    wrong << QString("%1: row %2 came back as %3")
+                                 .arg(page->displayName())
+                                 .arg(row)
+                                 .arg(back);
+                }
+            }
+
+            if (rows == 0)
+                continue;
+            ++listsChecked;
+            rowsChecked += rows;
+
+            // And the current row is settable, which is what a click does.
+            aspect->setProperty("currentRow", rows - 1);
+            if (aspect->property("currentRow").toInt() != rows - 1)
+                wrong << page->displayName() + ": currentRow did not take";
+        }
+    }
+
+    QVERIFY2(listsChecked > 0, "no page offered a grouped list with rows");
+    QVERIFY2(wrong.isEmpty(), qPrintable("grouped lists that disagree: " + wrong.join("; ")));
+    qInfo().noquote() << "grouped lists checked:" << listsChecked
+                      << "rows round-tripped:" << rowsChecked;
 }
 
 void QuickUiTest::testAPageRefusesAnIndexFromSomeoneElsesModel()

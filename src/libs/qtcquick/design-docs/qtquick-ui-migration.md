@@ -5215,6 +5215,41 @@ exactly that shape, so it went there rather than into a new seam.
 If a fourth arrives that fits none of these, that is the point to reconsider a
 single "host services" object, rather than at the third.
 
+## What "operated" now covers
+
+Three shapes of the same question - which item is the page about - and all
+three are now driven by a test rather than only drawn:
+
+| shape | pages | what is checked |
+|---|---|---|
+| table | 10 tables | selecting a row reports that row |
+| tree | 5 trees | the reported index is in the aspect's own model, and the handler runs without QML complaining |
+| grouped list | 5 lists, 26 rows | `rowForIndex(indexForRow(r)) == r`, and `currentRow` takes |
+
+A grouped list - Kits, Toolchains, Debuggers, Qt Versions, the CMake, Meson and
+GN tool pages - shows items under headings, so a row of the view is not a row of
+the aspect. A click does
+
+    aspect.currentRow = aspect.rowForIndex(view.index(row, column))
+
+and moving the current row the other way asks `indexForRow()`. Those two have to
+be inverses or the page acts on an item the user did not pick. They are, on all
+26 rows; breaking the mapping reports *Kits: row 3 came back as 0* and seven
+more, which is the diagnostic worth having - it says which page and which row,
+not that something is wrong somewhere.
+
+Everything here is reached with `QMetaObject::invokeMethod` by name, which is
+what QML does. That is deliberate: it is also the only thing that says these
+are still `Q_INVOKABLE`, which no build error would.
+
+**What is still only drawn: buttons.** Every page has them and nothing clicks
+one. That is not an oversight to fix by clicking them all - a button's action is
+a real action, and a census that pressed every one would open dialogs, start
+processes and rewrite settings. Two known hazards are already recorded: an
+aspect looked up by type is first-wins, and a test that asked for Remove got Add
+and sat in a modal wizard for 300 seconds. Whatever covers buttons has to name
+which ones it presses.
+
 ## Operating a tree, and the crash under the mapping
 
 The table bug said where to look next: a tree has the same shape - the view says
