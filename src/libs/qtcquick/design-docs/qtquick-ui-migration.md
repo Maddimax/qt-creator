@@ -5893,6 +5893,40 @@ invisible to every instrument here. Nothing in this file explains them; what
 would narrow it is whether typing a plain character into the preview works, and
 whether the Snippets editor behaves the same way.
 
+## The Snippets page opens empty, and always did
+
+Surveying every editor a settings page draws, on screen, gives four that are
+coloured and editable - the three Code Style previews (8, 9 and 6 distinct
+foreground colours) and the Python language server page (4) - and one that is
+not: **Snippets shows a single empty line**. Its editor follows the table's
+current row, and a `TableView` starts with nothing selected.
+
+That looks like the port losing something, and it is not. The widget page did
+the same, for a reason visible in the order of two statements:
+
+    loadSnippetGroup(m_groupCombo->currentIndex());
+
+    connect(&m_model, &QAbstractItemModel::rowsInserted,
+            this, &SnippetsSettingsWidget::selectSnippet);
+
+The connection that selects an inserted row is made *after* the initial load, so
+the rows that load puts in select nothing. Opening the page showed an empty
+editor before this branch as well.
+
+Two things worth keeping from it. The first is that the conclusion was worth
+having before touching anything: "should a list page preselect its first row" is
+a design question, and answering it by matching what the widget did is only
+possible if what the widget did is actually looked up. The second is that the
+lookup nearly gave the wrong answer - `git show "$BASE:path"` in zsh parses the
+`:` as a parameter modifier, hands git only the rev, and prints the commit;
+`git cat-file -s` then reports a few hundred bytes, which reads as "the file was
+a stub back then". It was 552 lines.
+
+**Not measurable here:** whether *switching* snippet group leaves the editor
+blank, where the widget would have selected a row because by then the connection
+exists. A scratch settings path has one snippet in it, so there is nothing to
+switch between.
+
 ## The same measurement, applied to kits
 
 Re-running the `layouter()` instrumentation with the device closures gone leaves
