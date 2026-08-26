@@ -12,6 +12,7 @@
 #include "syntaxhighlighter.h"
 #include "tabsettings.h"
 #include "textdocument.h"
+#include "textdocumentlayout.h"
 #include "texteditorconstants.h"
 #include "textviewport.h"
 #include "textmark.h"
@@ -593,6 +594,96 @@ private slots:
         viewport->setScrollY(0);
         QTRY_COMPARE(viewport->firstVisibleLine(), 0);
         QCOMPARE(gutter->implicitWidth(), wide);
+    }
+
+    // Folding takes lines off the screen without taking them out of the file.
+    // The rows close up over what is hidden; the numbers beside them keep
+    // counting the document, so they jump.
+    void testFoldingClosesTheGapWithoutRenumberingTheFile()
+    {
+        TemporaryDirectory dir("qtc-viewport-fold");
+        const FilePath file = writeLines(dir, "folded.txt", 40);
+
+        QQuickView view;
+        view.resize(400, 200);
+        QQmlComponent component(view.engine());
+        component.setData(QByteArray("import QtQuick\n"
+                                     "import QtCreator.TextEditor\n"
+                                     "Row {\n"
+                                     "    property alias viewport: v\n"
+                                     "    property alias gutter: g\n"
+                                     "    property string path\n"
+                                     "    EditorGutter { id: g; viewport: v; height: 200 }\n"
+                                     "    TextViewport {\n"
+                                     "        id: v; objectName: \"foldViewport\"\n"
+                                     "        width: 300; height: 200\n"
+                                     "        document: CodeDocument { filePath: path }\n"
+                                     "    }\n"
+                                     "}"),
+                          QUrl("qrc:/test/FoldTest.qml"));
+        std::unique_ptr<QObject> created(component.createWithInitialProperties(
+            {{"path", file.toUrlishString()}}));
+        QVERIFY2(created != nullptr, qPrintable(component.errorString()));
+
+        auto * const item = qobject_cast<QQuickItem *>(created.get());
+        QVERIFY(item);
+        item->setParentItem(view.contentItem());
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+        auto * const viewport = item->findChild<TextViewport *>("foldViewport");
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 6);
+        auto * const gutter = item->property("gutter").value<QQuickItem *>();
+        QVERIFY(gutter);
+
+        QTextDocument * const text = viewport->document()->textDocument()->document();
+        auto * const layout = qobject_cast<TextDocumentLayout *>(text->documentLayout());
+        QVERIFY(layout);
+
+        const qreal fullHeight = viewport->contentHeight();
+        QCOMPARE(viewport->visibleLine(1).value("text").toString(), QString("line 1"));
+
+        // Lines 1 to 4 belong to line 0, which is what makes line 0 foldable.
+        // A highlighter is what normally says so; saying it here keeps the
+        // test about the viewport.
+        for (int i = 1; i <= 4; ++i)
+            TextBlockUserData::setFoldingIndent(text->findBlockByNumber(i), 1);
+        const QTextBlock first = text->findBlockByNumber(0);
+        QVERIFY(TextBlockUserData::canFold(first));
+
+        // Folded the way the widget editor folds: the document hides the
+        // blocks, and the layout is what tells anyone showing it.
+        TextBlockUserData::doFoldOrUnfold(first, /*unfold=*/false);
+        layout->requestUpdate();
+
+        // Four lines' worth of document has gone, and the row under the first
+        // one is now the line after the fold.
+        QTRY_COMPARE(viewport->contentHeight(), fullHeight - 4 * viewport->lineHeight());
+        QCOMPARE(viewport->visibleLine(1).value("text").toString(), QString("line 5"));
+        // The file has not lost any lines, so the gutter is still as wide as
+        // its highest number.
+        QCOMPARE(viewport->lineCount(), 41);
+
+        // Which is exactly what the numbers say: 1, then 6.
+        QStringList numbers = gutterNumbers(gutter);
+        QCOMPARE(numbers.value(0), QString("1"));
+        QCOMPARE(numbers.value(1), QString("6"));
+
+        // Scrolling past the fold still lands on the right line: the row at an
+        // offset is counted in rows, and the fold is not one.
+        viewport->setScrollY(viewport->lineHeight() * 10);
+        QTRY_COMPARE(viewport->firstVisibleLine(), 10);
+        QCOMPARE(viewport->visibleLine(0).value("text").toString(), QString("line 14"));
+        QCOMPARE(gutterNumbers(gutter).value(0), QString("15"));
+
+        // And unfolding puts them back.
+        viewport->setScrollY(0);
+        TextBlockUserData::doFoldOrUnfold(first, /*unfold=*/true);
+        layout->requestUpdate();
+        QTRY_COMPARE(viewport->contentHeight(), fullHeight);
+        QCOMPARE(viewport->visibleLine(1).value("text").toString(), QString("line 1"));
+        QTRY_COMPARE(gutterNumbers(gutter).value(1), QString("2"));
     }
 
     // The gutter as an editor gets it: part of the viewport component, off for

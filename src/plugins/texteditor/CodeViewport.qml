@@ -123,10 +123,10 @@ Item {
                     required property var modelData
 
                     readonly property var lineData: modelData
-                    readonly property int line: viewport.firstVisibleLine + index
+                    readonly property int row: viewport.firstVisibleLine + index
 
                     x: lineData.width + Spacing.GapHM - viewport.scrollX
-                    y: line * viewport.lineHeight - viewport.scrollY
+                    y: row * viewport.lineHeight - viewport.scrollY
                     height: viewport.lineHeight
                     verticalAlignment: Text.AlignVCenter
 

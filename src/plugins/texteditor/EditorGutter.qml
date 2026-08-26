@@ -45,11 +45,11 @@ Item {
             // would then be assigned to this instead of to the item.
             required property var modelData
 
-            readonly property int line: root.viewport.firstVisibleLine + index
+            readonly property int row: root.viewport.firstVisibleLine + index
             readonly property var lineData: modelData
 
             x: Spacing.PaddingHS
-            y: line * root.viewport.lineHeight - root.viewport.scrollY
+            y: row * root.viewport.lineHeight - root.viewport.scrollY
             width: root.markWidth
             height: root.viewport.lineHeight
             fillMode: Image.PreserveAspectFit
@@ -65,24 +65,27 @@ Item {
     }
 
     Repeater {
-        model: root.viewport.visibleLineCount
+        model: root.viewport.visibleLines
 
         delegate: Text {
             id: number
 
             required property int index
+            required property var modelData
 
-            // The document line this stands for, and where the viewport put it:
-            // the same arithmetic, so the number sits on its own line at any
-            // scroll offset rather than only at whole ones.
-            readonly property int line: root.viewport.firstVisibleLine + index
+            // The row the viewport put this on - the same arithmetic, so the
+            // number sits on its own line at any scroll offset rather than
+            // only at whole ones. What the line is *called* is a separate
+            // question once folding is in play, and only the viewport can
+            // answer it.
+            readonly property int row: root.viewport.firstVisibleLine + index
 
             x: Spacing.PaddingHS + root.markWidth
-            y: line * root.viewport.lineHeight - root.viewport.scrollY
+            y: row * root.viewport.lineHeight - root.viewport.scrollY
             width: widest.width
             height: root.viewport.lineHeight
 
-            text: String(line + 1)
+            text: String(number.modelData.lineNumber ?? 0)
             font: root.viewport.font
             color: Tokens.textMuted
             horizontalAlignment: Text.AlignRight

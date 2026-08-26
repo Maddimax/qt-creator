@@ -213,6 +213,9 @@ QVariantMap TextViewport::visibleLine(int index) const
     }
     return QVariantMap{{"text", line.layout->text()},
                        {"formats", formats},
+                       // What the gutter numbers this line, counting folded
+                       // lines that are not on screen.
+                       {"lineNumber", line.lineNumber},
                        // What the gutter draws beside this line, if anything.
                        {"markIcon", line.markIcon},
                        {"annotation", line.annotation},
@@ -314,8 +317,10 @@ void TextViewport::ensureCursorVisible()
 
     QTextCursor cursor(text);
     cursor.setPosition(qBound(0, m_cursorPosition, text->characterCount() - 1));
-    const int line = cursor.blockNumber();
-    const qreal top = line * m_lineHeight;
+    // Where the line sits on screen, not where it sits in the file: a folded
+    // block above it takes up no room, so the two part company as soon as
+    // anything is folded. firstLineNumber() is what the layout keeps for this.
+    const qreal top = cursor.block().firstLineNumber() * m_lineHeight;
     if (top < m_scrollY)
         setScrollY(top);
     else if (top + m_lineHeight > m_scrollY + height())
@@ -613,7 +618,8 @@ void TextViewport::documentChangedInternal()
                 // make room for a gutter it did not have before. That is a
                 // layout update, so this listens to the one signal that says
                 // so, or the first error in a file is drawn only if something
-                // else happens to relayout.
+                // else happens to relayout. Folding arrives the same way:
+                // whoever folds a block calls requestUpdate() afterwards.
                 connect(layout, &QAbstractTextDocumentLayout::update, this, [this] {
                     polish();
                     update();
@@ -682,7 +688,9 @@ void TextViewport::updatePolish()
     m_lineHeight = qMax(1.0, fonts.lineSpacing());
     m_font = font;
     m_lineCount = text->blockCount();
-    m_contentHeight = m_lineHeight * m_lineCount;
+    // A folded block counts as zero lines, so lineCount() is how tall the
+    // document is and blockCount() is only how far the gutter's numbers run.
+    m_contentHeight = m_lineHeight * text->lineCount();
     // The widget editor fills with the *brush*, so a scheme that sets no
     // background paints nothing and the palette shows through. A colour has no
     // way to say "nothing", and QBrush().color() is black, so ask the theme
@@ -715,16 +723,23 @@ void TextViewport::updatePolish()
     // off the edge so that a viewport an exact number of lines tall does not
     // lay out one that begins where it ends.
     const int lastOnScreen = int((m_scrollY + height() - 0.001) / m_lineHeight);
-    const int last = qMin(text->blockCount() - 1, lastOnScreen);
+    const int last = qMin(text->lineCount() - 1, lastOnScreen);
 
-    QTextBlock block = text->findBlockByNumber(m_firstVisibleLine);
-    for (int number = m_firstVisibleLine; number <= last && block.isValid();
-         ++number, block = block.next()) {
+    // By line rather than by block, so that what is folded above the screen
+    // costs nothing to skip: the document already knows which block a line
+    // belongs to, and a hidden one is no line at all.
+    QTextBlock block = text->findBlockByLineNumber(m_firstVisibleLine);
+    while (block.isValid() && !block.isVisible())
+        block = block.next();
+    for (int row = m_firstVisibleLine; row <= last && block.isValid(); ++row) {
         Line line;
+        // The line the document calls this, which is not the row it is drawn
+        // on once anything above it is folded.
+        line.lineNumber = block.blockNumber() + 1;
         // The marks on this line - errors, warnings, breakpoints. The highest
         // priority one wins the slot, which is what the widget gutter does
         // with the space too.
-        const TextMarks marks = doc->marksAt(number + 1);
+        const TextMarks marks = doc->marksAt(line.lineNumber);
         const TextMark *shown = nullptr;
         for (TextMark * const mark : marks) {
             if (!mark->isVisible() || mark->icon().isNull())
@@ -788,7 +803,7 @@ void TextViewport::updatePolish()
         }
         line.layout->endLayout();
 
-        line.at = QPointF(-m_scrollX, number * m_lineHeight - m_scrollY);
+        line.at = QPointF(-m_scrollX, row * m_lineHeight - m_scrollY);
         line.blockPosition = block.position();
         line.blockLength = block.length();
 
@@ -805,6 +820,10 @@ void TextViewport::updatePolish()
         }
 
         m_lines.push_back(std::move(line));
+
+        do
+            block = block.next();
+        while (block.isValid() && !block.isVisible());
     }
 
     if (!qFuzzyCompare(previousLineHeight + 1, m_lineHeight + 1))

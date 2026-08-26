@@ -6168,9 +6168,10 @@ earned now - the plugin ships a Qt Quick editor - and there is no cycle, since
 
 **What it is at this point:** text, caret, selection, mouse and keyboard
 editing, highlighting, indenting, scrolling, line numbers, the current-line
-highlight, text marks and what they say, all O(visible). No folding, no
-extra-selection overlays, no context menu, no drag and drop, and no wrapping -
-which still wants a height cache first.
+highlight, text marks and what they say, all O(visible). No extra-selection
+overlays, no context menu, no drag and drop, and no wrapping - which still
+wants a height cache first. Folding came next and needed no cache at all; see
+"Folding, which Qt had already solved".
 
 The current-line bar reuses `cursorRectangle`, which the caret already reads, so
 there is no second answer to "which line is the caret on". Two things it had to
@@ -6248,6 +6249,62 @@ value a component is given tests the component's input. Only looking for the
 thing on screen tests the component. The first is much easier to write and
 passes in cases the second catches - so when both are cheap, the second is the
 one worth having.
+
+## Folding, which Qt had already solved
+
+Folding was the piece the viewport was written *around*: the class comment said
+so, because `line = scrollY / lineHeight` and `findBlockByNumber(line)` both
+assume every block is a line, and a folded one is not. The fear was that fixing
+it meant a height cache - the same thing wrapping wants - and that adding it
+carelessly would turn scrolling into a walk over the file.
+
+None of that was needed. `QTextDocument` already keeps a per-block *line count*,
+and folding sets it to zero: `PlainTextDocumentLayout` does
+`setBlockLineCount(block, block.isVisible() ? 1 : 0)` in four places, and
+`doFoldOrUnfold()` does it directly. So the document maintains, in its own
+fragment tree, exactly the two answers the viewport needed:
+
+- `document()->lineCount()` - how tall the document is *now*, folds excluded.
+- `document()->findBlockByLineNumber(n)` - which block is drawn on row `n`,
+  in a tree lookup rather than a walk.
+
+The whole change is using those instead of `blockCount()` and
+`findBlockByNumber()`, plus advancing to the next *visible* block at the end of
+the loop. It stays O(visible) with folds exactly as it was without them, and
+the height cache is still only wrapping's problem.
+
+**Three counts that used to be one.** They are now separate, and each has a
+distinct job, which is worth stating because the old code could not tell them
+apart:
+
+| | what it is | who needs it |
+|---|---|---|
+| `lineCount` | `blockCount()` - every line in the file | the gutter, to size itself for its highest number |
+| `contentHeight` | `lineCount()` lines - what is not folded away | the scrollbar |
+| `visibleLineCount` | rows laid out | tests, and the delegates |
+
+**And a fourth: what a row is called.** The gutter used to number a row by
+arithmetic, `firstVisibleLine + index + 1`, which is right only while the two
+counts agree. It cannot be computed on the QML side at all once they do not -
+only the viewport knows which block a row came from - so each line now carries
+its `lineNumber` and the gutter prints that. With four lines folded under line
+1, the numbers read `1, 6, 7` and the rows are still adjacent.
+
+**Nothing new listens for it.** Folding arrives on the connection already there
+for the first text mark: every caller of `doFoldOrUnfold()` follows it with
+`requestUpdate()`, which is `QAbstractTextDocumentLayout::update`. Worth
+knowing, because that connection reads as mark-specific and is not.
+
+**Four controls, because there are four mechanisms.** Height from the wrong
+count, the wrong lookup at the top, no skip when advancing, and the gutter's
+arithmetic each break the test at a different assertion. That mattered here:
+one control's *restore* silently failed - collapsing the do-while left
+`block = block.next();` matching in two places - and the next control ran on top
+of the still-broken file, so its failure proved nothing. A control is only
+evidence if the baseline passes again afterwards, which is now the last step.
+
+What is left of the editor: fold markers in the gutter and click-to-fold,
+extra-selection overlays, the context menu, drag and drop, and wrapping.
 
 ## The same measurement, applied to kits
 

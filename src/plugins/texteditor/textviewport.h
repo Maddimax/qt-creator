@@ -54,6 +54,13 @@ class TextDocument;
 // price as ten thousand. That holds only while every line is the same height,
 // so this does not wrap: a wrapped view needs a height cache before it can say
 // which line is at a given scroll offset without laying out the ones above.
+//
+// Folding is the exception that costs nothing, because the document already
+// pays for it: a folded block's line count is zero, so lineCount() is the
+// height in lines and findBlockByLineNumber() says which block a row holds.
+// Hence the distinction throughout between a *row* on screen and the *line*
+// the document calls it - they are the same number only while nothing is
+// folded, and code that assumes so is the bug folding leaves behind.
 class TEXTEDITOR_EXPORT TextViewport : public QQuickItem
 {
     Q_OBJECT
@@ -80,15 +87,18 @@ class TEXTEDITOR_EXPORT TextViewport : public QQuickItem
     // sets none, because a scheme that asks for no highlight must not get an
     // opaque one - see backgroundColor for the same trap.
     Q_PROPERTY(QColor currentLineColor READ currentLineColor NOTIFY metricsChanged)
-    // What is on screen. Readable so that a test can say what was drawn without
-    // reading the scene graph.
-    // How many lines the document has, which a gutter needs to know how wide
-    // to be before it has drawn anything.
     // The font the text is drawn with, zoom applied. A gutter has to measure
     // its numbers in the same font or its rows do not line up with the text.
     Q_PROPERTY(QFont font READ font NOTIFY metricsChanged)
+    // How many lines the document has, which a gutter needs to know how wide
+    // to be before it has drawn anything. Every line, folded or not: the
+    // gutter has to fit the highest number it can ever show.
     Q_PROPERTY(int lineCount READ lineCount NOTIFY metricsChanged)
+    // The first row on screen, counting rows and not document lines - what is
+    // folded away is not a row.
     Q_PROPERTY(int firstVisibleLine READ firstVisibleLine NOTIFY metricsChanged)
+    // How many rows are laid out. Readable so that a test can say what was
+    // drawn without reading the scene graph.
     Q_PROPERTY(int visibleLineCount READ visibleLineCount NOTIFY metricsChanged)
     // Everything on screen, one entry per line, as a property rather than
     // through visibleLine(): an invokable has nothing to notify on, so a
@@ -209,6 +219,9 @@ private:
         // coordinate can be turned back into a document position.
         int blockPosition = 0;
         int blockLength = 0;
+        // What the gutter calls this line. Folding makes it run ahead of the
+        // row the line is drawn on.
+        int lineNumber = 0;
         // The highest-priority visible mark on this line, as a URL a QML Image
         // can load and the text it explains itself with. Empty when the line
         // carries none.
