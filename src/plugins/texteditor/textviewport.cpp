@@ -3,6 +3,7 @@
 
 #include "textviewport.h"
 
+#include "behaviorsettings.h"
 #include "codesource.h"
 #include "fontsettings.h"
 #include "tabsettings.h"
@@ -22,6 +23,7 @@
 #include <QSGRectangleNode>
 #include <QSGTextNode>
 #include <utils/multitextcursor.h>
+#include <utils/plaintextedit/plaintextedit.h>
 
 #include <QClipboard>
 #include <QGuiApplication>
@@ -348,6 +350,36 @@ void TextViewport::ensureCursorVisible()
         setScrollY(top + m_lineHeight - height());
 }
 
+static Utils::PlainTextDocumentLayout *layoutOf(const QTextDocument *text)
+{
+    return text ? qobject_cast<Utils::PlainTextDocumentLayout *>(text->documentLayout())
+                : nullptr;
+}
+
+// Home, the way an editor means it: the first character that is not
+// indentation, and the true start of the line when the cursor is already
+// there. Mirrors TextEditorWidgetPrivate::handleHomeKey().
+static void moveToFirstCharacter(QTextCursor &cursor, QTextCursor::MoveMode mode)
+{
+    const QTextBlock block = cursor.block();
+    const int start = block.position();
+    const int was = cursor.position();
+
+    const QString text = block.text();
+    int offset = 0;
+    while (offset < text.size()
+           && (text.at(offset) == '\t' || text.at(offset).category() == QChar::Separator_Space)) {
+        ++offset;
+        // Stopping *at* the cursor rather than running past it is what sends a
+        // caret sitting inside the indentation to the margin instead of
+        // forward to the code. The widget editor stops here too.
+        if (start + offset == was)
+            break;
+    }
+
+    cursor.setPosition(start + offset == was ? start : start + offset, mode);
+}
+
 void TextViewport::keyPressEvent(QKeyEvent *event)
 {
     QTextCursor cursor = textCursor();
@@ -359,21 +391,23 @@ void TextViewport::keyPressEvent(QKeyEvent *event)
     const QTextCursor::MoveMode mode = event->modifiers().testFlag(Qt::ShiftModifier)
                                            ? QTextCursor::KeepAnchor
                                            : QTextCursor::MoveAnchor;
-    const auto move = [&](QTextCursor::MoveOperation operation) {
-        cursor.movePosition(operation, mode);
-        setTextCursor(cursor);
-        event->accept();
-    };
 
-    switch (event->key()) {
-    case Qt::Key_Left:   return move(QTextCursor::Left);
-    case Qt::Key_Right:  return move(QTextCursor::Right);
-    case Qt::Key_Up:     return move(QTextCursor::Up);
-    case Qt::Key_Down:   return move(QTextCursor::Down);
-    case Qt::Key_Home:   return move(QTextCursor::StartOfLine);
-    case Qt::Key_End:    return move(QTextCursor::EndOfLine);
-    case Qt::Key_PageUp:
-    case Qt::Key_PageDown: {
+    // Home goes to the first thing on the line and only to column zero from
+    // there, which is what an editor does with indented code. Before the move
+    // table below, which would otherwise take the same key - the same order
+    // the widget editor uses.
+    const bool toStartOfBlock = event->matches(QKeySequence::MoveToStartOfBlock)
+                                || event->matches(QKeySequence::SelectStartOfBlock);
+    if (toStartOfBlock || event->matches(QKeySequence::MoveToStartOfLine)
+        || event->matches(QKeySequence::SelectStartOfLine)) {
+        moveToFirstCharacter(cursor, mode);
+        setTextCursor(cursor);
+        return event->accept();
+    }
+
+    if (event->key() == Qt::Key_PageUp || event->key() == Qt::Key_PageDown) {
+        // Pages are the one move that depends on how tall the view is, so they
+        // are not in the shared table below.
         const int lines = qMax(1, int(height() / qMax(1.0, m_lineHeight)) - 1);
         cursor.movePosition(event->key() == Qt::Key_PageUp ? QTextCursor::Up
                                                            : QTextCursor::Down,
@@ -381,8 +415,17 @@ void TextViewport::keyPressEvent(QKeyEvent *event)
         setTextCursor(cursor);
         return event->accept();
     }
-    default:
-        break;
+
+    // Everything else the keyboard can do to a cursor comes from the one place
+    // both editors take it: the platform's own chords - a word is an Alt chord
+    // on a Mac and a Ctrl chord elsewhere, and Home means the top of the file
+    // on one and the start of the line on the other - plus camel-case stepping
+    // and moving through what is on screen rather than what is in the file.
+    Utils::MultiTextCursor cursors({cursor});
+    if (cursors.handleMoveKeyEvent(event, globalBehaviorSettings().camelCaseNavigation(),
+                                   layoutOf(cursor.document()))) {
+        setTextCursor(cursors.mainCursor());
+        return event->accept();
     }
 
     // Reading a file means being able to select all of it and copy it, so

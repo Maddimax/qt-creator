@@ -6400,6 +6400,58 @@ broken file and its failure proved nothing. Controls copy the file aside and
 copy it back now, and the baseline is re-run at the end - a control is only
 evidence if the thing passes again afterwards.
 
+## Keyboard navigation, which was already written
+
+The viewport's key handling was a `switch` on `Qt::Key_Left`, `Key_Home` and
+friends with a Shift check. That is wrong twice over: there was no word
+movement and no way to reach the ends of the file, and the keys it did handle
+mean different things on different platforms. On macOS `Home` is
+*MoveToStartOfDocument*, not start of line - so the Quick editor's Home did
+something the rest of the machine does not.
+
+`Utils::MultiTextCursor::handleMoveKeyEvent(event, camelCase, layout)` already
+does all of it and, crucially, **takes no widget**: it is in `Utils`, it works
+off a `PlainTextDocumentLayout`, and the widget editor is only one of its
+callers. Handing the event to it deleted the switch and gained word movement,
+document and block ends, every `Select*` variant, camel-case stepping (a
+behaviour setting, so it follows the user's preference) and the platform's own
+chords. Two backends, one answer to what a key means, by construction rather
+than by discipline.
+
+Pages stay local: they depend on how tall the view is, so they are not in the
+table.
+
+**Home is not column zero.** Creator's Home goes to the first thing on the
+line, and only to the margin once the caret is already there. That has to be
+intercepted *before* the shared table, which would take the same key - the same
+order `TextEditorWidget::keyPressEvent()` uses.
+
+Mirroring `handleHomeKey()` exactly turned on one line. The widget's loop
+checks `if (pos == initpos) break;` **after** incrementing, which means a caret
+sitting *inside* the indentation goes to the margin rather than forward to the
+code. Written the natural way - count the whitespace, then compare - the caret
+goes forward instead. Both behaviours are defensible; only one is Creator's.
+The test pins all four starting points (in the code, at the first character, at
+the margin, inside the indentation), because only the last one separates them.
+
+**A test that was asserting the platform.** `QTest::keyClick(view, Key_End)`
+had encoded "End means end of line", which is Windows and Linux behaviour. It
+went red on this change, correctly. Tests type what a move *means* now -
+`QTest::keySequence(view, QKeySequence(QKeySequence::MoveToEndOfLine))` - which
+is the same question on every platform.
+
+**And a guard that stopped being needed, then was needed again.**
+`setVisualNavigation(true)` in `textCursor()` was the fix for the caret
+stepping into a fold. After the shared table took over, its control stopped
+biting: `handleMoveKeyEvent` sets the flag itself. That leaves two options -
+delete the line, or find what it still covers. It covers pages, which are the
+one move that stayed local. Making the control bite again needed a fold
+**deeper than a page**: a page that clears the fold lands on a visible line
+whether or not it counted the hidden ones, so the four-line fold the other
+tests use could not tell the two apart. See [[negative-control-two-guards]] -
+this is the same shape from the other side, a guard that looks redundant until
+you find the one path the other guard does not cover.
+
 What is left of the editor: extra-selection overlays, the context menu, drag
 and drop, and wrapping.
 

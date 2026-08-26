@@ -43,6 +43,14 @@ using namespace Utils;
 
 namespace TextEditor::Internal {
 
+// The chord this platform uses for a standard move. End is the end of the line
+// on Windows and the end of the *file* on a Mac, so a test that types Key_End
+// is asserting the platform rather than the editor.
+static void keyMove(QQuickView &view, QKeySequence::StandardKey key)
+{
+    QTest::keySequence(&view, QKeySequence(key));
+}
+
 // Creator's icons reach QML as image://qtcreator/... URLs, which resolve only
 // if the provider is on the engine. The shared engine has it; a view made here
 // has its own, so without this an icon fails to load and the test cannot tell
@@ -856,6 +864,25 @@ private slots:
         const QTextBlock above = text->findBlock(viewport->cursorPosition());
         QCOMPARE(above.blockNumber(), 0);
         QVERIFY(above.isVisible());
+
+        // A page is not one of the moves the shared table handles - it depends
+        // on how tall the view is - so it has to skip the fold on its own. The
+        // fold has to be deeper than a page for this to be able to fail: a
+        // page that clears it lands on a visible line whether it counted the
+        // hidden ones or not.
+        TextBlockUserData::doFoldOrUnfold(text->findBlockByNumber(0), true);
+        for (int i = 1; i <= 15; ++i)
+            TextBlockUserData::setFoldingIndent(text->findBlockByNumber(i), 1);
+        TextBlockUserData::doFoldOrUnfold(text->findBlockByNumber(0), false);
+        layout->requestUpdate();
+        QTRY_COMPARE(viewport->visibleLine(1).value("text").toString(), QString("line 16"));
+
+        viewport->setCursorPosition(0);
+        QTest::keyClick(&fixture.view, Qt::Key_PageDown);
+        const QTextBlock paged = text->findBlock(viewport->cursorPosition());
+        QVERIFY2(paged.isVisible(),
+                 qPrintable(QString("a page down left the caret on hidden line %1")
+                                .arg(paged.blockNumber() + 1)));
     }
 
     void testAClosedFoldSaysWhatItSwallowed()
@@ -1247,27 +1274,101 @@ private slots:
 
         QTest::keyClick(&fixture.view, Qt::Key_Right);
         QCOMPARE(viewport->cursorPosition(), 1);
-        QTest::keyClick(&fixture.view, Qt::Key_End);
+        keyMove(fixture.view, QKeySequence::MoveToEndOfLine);
         QCOMPARE(viewport->cursorPosition(), 5);
         QTest::keyClick(&fixture.view, Qt::Key_Down);
         QCOMPARE(viewport->cursorPosition(), 10); // end of "beta"
-        QTest::keyClick(&fixture.view, Qt::Key_Home);
+        keyMove(fixture.view, QKeySequence::MoveToStartOfLine);
         QCOMPARE(viewport->cursorPosition(), 6);
 
         // Moving without Shift leaves nothing selected.
         QCOMPARE(viewport->selectionStart(), -1);
 
         // Shift takes the caret's old place as the anchor and grows from it.
+        viewport->setCursorPosition(6);
         QTest::keyClick(&fixture.view, Qt::Key_Right, Qt::ShiftModifier);
         QTest::keyClick(&fixture.view, Qt::Key_Right, Qt::ShiftModifier);
         QCOMPARE(viewport->selectionStart(), 6);
         QCOMPARE(viewport->selectionEnd(), 8);
         QCOMPARE(viewport->cursorPosition(), 8);
 
+
         // And a plain move collapses it again.
         QTest::keyClick(&fixture.view, Qt::Key_Right);
         QCOMPARE(viewport->selectionStart(), -1);
         QCOMPARE(viewport->selectionEnd(), -1);
+    }
+
+    // A word at a time and a file at a time. Neither is something a plain text
+    // box offers, and both are the difference between reading code and
+    // scrolling through it.
+    void testTheCaretMovesAWordAndAFileAtATime()
+    {
+        TemporaryDirectory dir("qtc-viewport-words");
+        const FilePath file = dir.filePath("words.txt");
+        //                                     0   4   8       14   19
+        QVERIFY(file.writeFileContents("one two three\nfour five\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        QVERIFY2(fixture.hasFocus(), "the viewport never took focus, so no key arrives");
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+        viewport->setCursorPosition(0);
+
+        keyMove(fixture.view, QKeySequence::MoveToNextWord);
+        QCOMPARE(viewport->cursorPosition(), 4); // "two"
+        keyMove(fixture.view, QKeySequence::MoveToNextWord);
+        QCOMPARE(viewport->cursorPosition(), 8); // "three"
+        keyMove(fixture.view, QKeySequence::MoveToPreviousWord);
+        QCOMPARE(viewport->cursorPosition(), 4);
+
+        // The whole file, which Home and End alone cannot reach.
+        keyMove(fixture.view, QKeySequence::MoveToEndOfDocument);
+        QCOMPARE(viewport->cursorPosition(), 24);
+        keyMove(fixture.view, QKeySequence::MoveToStartOfDocument);
+        QCOMPARE(viewport->cursorPosition(), 0);
+
+        // And selecting by word takes exactly the word.
+        keyMove(fixture.view, QKeySequence::SelectNextWord);
+        QCOMPARE(viewport->selectionStart(), 0);
+        QCOMPARE(viewport->selectionEnd(), 4);
+    }
+
+    // Home means the first thing on the line, not column zero - and column
+    // zero only once the caret is already there. Indented code is unreadable
+    // otherwise: every Home would land the caret in the margin.
+    void testHomeGoesToTheCodeBeforeItGoesToTheMargin()
+    {
+        TemporaryDirectory dir("qtc-viewport-home");
+        const FilePath file = dir.filePath("indented.txt");
+        QVERIFY(file.writeFileContents("    indented\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        QVERIFY2(fixture.hasFocus(), "the viewport never took focus, so no key arrives");
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        viewport->setCursorPosition(9);
+        keyMove(fixture.view, QKeySequence::MoveToStartOfLine);
+        QCOMPARE(viewport->cursorPosition(), 4);
+        // Already there, so now the margin.
+        keyMove(fixture.view, QKeySequence::MoveToStartOfLine);
+        QCOMPARE(viewport->cursorPosition(), 0);
+        // And back to the code from there.
+        keyMove(fixture.view, QKeySequence::MoveToStartOfLine);
+        QCOMPARE(viewport->cursorPosition(), 4);
+
+        // From inside the indentation the margin is what is nearer, so that is
+        // where it goes - not forward to the code. Mirrors handleHomeKey().
+        viewport->setCursorPosition(2);
+        keyMove(fixture.view, QKeySequence::MoveToStartOfLine);
+        QCOMPARE(viewport->cursorPosition(), 0);
     }
 
     void testMovingTheCaretOffScreenScrollsToIt()
