@@ -39,6 +39,7 @@
 #include "codestyleaspect_test.h"
 #include "formattexteditor.h"
 #include "codehighlighting_test.h"
+#include "textviewport_test.h"
 #include "highlighter_test.h"
 #include "mergeconflict_test.h"
 #include "snippets/snippet.h"
@@ -102,6 +103,7 @@ void TextEditorPlugin::initialize()
 {
 #ifdef WITH_TESTS
     addTestCreator(createCodeHighlightingTest);
+    addTestCreator(createTextViewportTest);
     addTestCreator(createFontSettingsTest);
     addTestCreator(createSnippetsSettingsTest);
     addTestCreator(createFormatTextTest);

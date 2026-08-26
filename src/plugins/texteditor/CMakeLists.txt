@@ -155,8 +155,9 @@ else ()
   endif ()
 endif ()
 
-# Syntax highlighting for a Qt Quick TextEdit. Needs Qt::Quick, which the
-# plugin does not otherwise depend on.
+# The Qt Quick side of the editor: highlighting for a TextEdit, and the
+# viewport that draws a document with the scene graph. Needs Qt::Quick,
+# which the plugin does not otherwise depend on.
 extend_qtc_plugin(TextEditor
   CONDITION TARGET Qt::Quick
   DEPENDS Qt::Quick
@@ -165,12 +166,14 @@ extend_qtc_plugin(TextEditor
     codecompletion.cpp codecompletion.h
     codedocument.cpp codedocument.h
     codeindenting.cpp codeindenting.h
+    textviewport.cpp textviewport.h
 )
 
 extend_qtc_plugin(TextEditor
   CONDITION WITH_TESTS AND TARGET Qt::Quick
   SOURCES
     codehighlighting_test.cpp codehighlighting_test.h
+    textviewport_test.cpp textviewport_test.h
 )
 
 # Settings pages' Qt Quick forms. A module rather than a plain resource so that

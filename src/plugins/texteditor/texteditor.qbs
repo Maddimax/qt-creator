@@ -142,6 +142,8 @@ Project {
             "texteditoroverlay.h",
             "texteditorplugin.cpp",
             "texteditortr.h",
+            "textviewport.cpp",
+            "textviewport.h",
             "textindenter.cpp",
             "textindenter.h",
             "textmark.cpp",
@@ -249,6 +251,8 @@ Project {
                 "spellcheck_test.h",
                 "texteditor_test.cpp",
                 "texteditor_test.h",
+                "textviewport_test.cpp",
+                "textviewport_test.h",
             ]
         }
 

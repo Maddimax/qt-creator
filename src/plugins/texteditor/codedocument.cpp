@@ -168,7 +168,10 @@ void CodeDocument::reattach()
     d->m_connections.clear();
     d->m_document.reset();
 
-    if (d->m_filePath.isEmpty() || !d->m_quickDocument) {
+    // A path is needed; a TextEdit is not. TextViewport draws the document with
+    // the scene graph and has no QQuickTextDocument to substitute into, so
+    // opening the file is worth doing on its own.
+    if (d->m_filePath.isEmpty()) {
         if (wasOpened != isOpened())
             emit openedChanged();
         return;
@@ -182,9 +185,11 @@ void CodeDocument::reattach()
     }
     d->m_document = std::move(document);
 
-    // The substitution: the TextEdit shows this document from now on, so the
-    // highlighter, the indenter and the marks it carries are all in the view.
-    d->m_quickDocument->setTextDocument(d->m_document->document());
+    // The substitution, where there is a TextEdit to substitute into: it shows
+    // this document from now on, so the highlighter, the indenter and the marks
+    // it carries are all in the view.
+    if (d->m_quickDocument)
+        d->m_quickDocument->setTextDocument(d->m_document->document());
 
     d->m_connections
         << connect(d->m_document.get(), &Core::IDocument::changed,

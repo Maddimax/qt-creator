@@ -5270,6 +5270,83 @@ Upstream request, now a convenience rather than a blocker:
 `void addTextLayout(QPointF, QTextLayout *, const QList<QTextLayout::FormatRange> &selections, int lineStart = 0, int lineCount = -1);`
 or the smaller `QList<QRectF> QTextLine::selectionRects(int start, int length) const`.
 
+## TextViewport: the first editor increment
+
+`src/plugins/texteditor/textviewport.{h,cpp}` turns the QSGTextNode spike into a
+real `QQuickItem`. It takes a `CodeDocument` and draws it: nothing else. No
+cursor, no input, no gutter, no folding, no marks, no wrapping. It is the
+smallest thing that puts Creator's own `TextDocument` - its highlighting, its
+font settings, its tab settings - on the scene graph, so that everything after
+it is an addition rather than a rewrite.
+
+The three spike conclusions are implemented literally, and each is pinned by a
+test that fails when it is undone:
+
+- Layout happens in `updatePolish()`, never in `updatePaintNode()`.
+- Text nodes are re-emitted every frame; there is no per-line node cache.
+- Selection foreground *and* background are merged into
+  `QTextLayout::formats()`, with one `QSGRectangleNode` for the newline tail.
+
+**It does not wrap, and that is load-bearing.** Uniform line height is what
+makes "which line is at this scroll offset" arithmetic instead of a search, and
+what keeps the visible window O(visible) rather than O(file). Wrapping needs a
+height cache and is a later increment; adding it before the cache exists would
+quietly make scrolling O(file).
+
+**Three bugs the tests found, all in reading `FontSettings`:**
+
+- `lineSpacing()` already returns pixels *and* has the zoom applied.
+  Multiplying it by `QFontMetricsF::height()` and dividing by 100 - the obvious
+  reading of a "line spacing percentage" - gives a line height off by the font
+  height.
+- `font()`, on the other hand, is the *unzoomed* font. Using both as they come
+  makes the glyphs and the line height disagree at any zoom other than 100 %:
+  the text is the wrong size for its own rows. The viewport applies the zoom to
+  the point size itself.
+- **The editor background is a brush, and it has to stay one.**
+  `formatFor(C_TEXT).background()` is the *scheme's* colour and is invalid when
+  the scheme sets none, which is the default. `toTextCharFormat(C_TEXT).
+  background()` - the route all 11 sites in `texteditor.cpp` take - is a
+  `QBrush`, and when the scheme sets none it is `Qt::NoBrush`. The widget editor
+  fills with that brush, so "no background" paints nothing and the widget's
+  palette shows through. Take `.color()` off it, as a QML colour property must,
+  and `QBrush().color()` hands you **opaque black**. Both obvious readings are
+  wrong in different directions: one gives an invalid colour, the other gives a
+  black editor. The viewport asks the theme when the brush is `NoBrush`.
+
+The first two are invisible at the default zoom in a screenshot. The third is
+the interesting one, because the first assertion written for it - valid, and
+alpha 255 - passed on the broken code: black *is* valid and opaque. Only
+comparing against what the widget would actually paint caught it. That is the
+rule the whole port runs on restated in one property: the Quick side has to
+match the widget side's behaviour, so assert against the widget's behaviour,
+not against a plausible-looking invariant.
+
+**The visible window is exact, not generous.** `int((scrollY + height() - 0.001)
+/ lineHeight)` for the last line. Rounding a fraction of a line up is a
+one-line-per-frame leak that no rendering test catches, because the extra line
+is off-screen and correct. `testItDrawsOnlyWhatIsOnScreen()` asserts both
+directions - `(count - 1) * lineHeight < height` as well as
+`count * lineHeight >= height` - on a 5000-line document, so laying out the
+whole file and laying out one line too many both fail.
+
+**`CodeDocument` no longer needs a `QQuickTextDocument` to open a file.**
+`reattach()` required one because every consumer so far was a `TextEdit`.
+TextViewport draws the document itself and has nothing to substitute in, so the
+requirement is now a path only. The full TextEditor suite is unchanged by that
+relaxation (178 passed, 0 failed with `-load all`).
+
+The viewport does **not** paint its own background. A QML `Rectangle` behind it
+does, using the `backgroundColor` property - the colour lives in `FontSettings`
+and QML has no other way to reach it, but deciding to fill a rectangle is not
+the scene graph's job here. That property is also where the brush-versus-colour
+trap above lives, so it is the one place the fallback has to be right.
+
+Not ported, listed so the gap is not mistaken for a decision: cursor and
+caret painting, key input and editing, the gutter, folding, text marks and
+annotations, wrapping, and the extra-selection overlays beyond the primary
+selection.
+
 ## The terminal spike: go, with the cleanest split in the tree
 
 **Status update: the spike is being productised.** `TerminalQuick` is now the
