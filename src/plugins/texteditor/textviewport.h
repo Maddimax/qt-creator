@@ -207,6 +207,16 @@ public:
         QTextCharFormat format;
     };
 
+    // Selecting by pointer rather than by caret: the word under a double
+    // click, the line under a triple one.
+    Q_INVOKABLE void selectWordAt(int position);
+    Q_INVOKABLE void selectLineAt(int position);
+
+    // Ctrl and the wheel. Zoom is a global setting rather than this view's, so
+    // every editor grows together - which is what the widget editor does, and
+    // what makes the two agree about how big the text is.
+    Q_INVOKABLE void zoomBy(int steps);
+
     void setHighlights(Utils::Id kind, const QList<Highlight> &highlights);
     QList<Highlight> highlights(Utils::Id kind) const;
 
@@ -290,6 +300,7 @@ private:
 
     void documentChangedInternal();
     QTextBlock cursorBlock() const;
+    void applyGlobalFontSettings();
     void appendHighlights(QList<QTextLayout::FormatRange> &formats,
                           const QTextBlock &block) const;
     // The visible line holding \a position, and the block it came from.

@@ -6552,6 +6552,62 @@ clears. The override was removed rather than kept "for safety" -
 [[negative-control-two-guards]] cuts both ways, and an unearned mechanism is
 one more thing that can drift.
 
+## Preferences never reached the open editor
+
+A `TextDocument` does not read the global font settings; they are **pushed**
+into it, and until now only `TextEditorWidget` did the pushing
+(`connect(&globalFontSettings(), &FontSettings::changed, document, ...)`). So a
+Quick editor kept the font, the size and the colour scheme it opened with,
+forever. Changing the theme in Preferences changed every other editor and not
+this one.
+
+The viewport does it now, for whatever document it is shown - which covers the
+editor and every settings preview with one connection - plus a push when the
+document changes, so a file opened *after* a zoom opens at that size.
+
+That needed two separate connections and they fail differently, which is why
+they have separate controls:
+
+- `globalFontSettings().changed` -> push into the document. Without it nothing
+  arrives at all.
+- `TextDocument::fontSettingsChanged` -> `polish()`. Without it the settings
+  arrive and nothing lays out again.
+
+## The pointer, and what it can no longer do by accident
+
+Double click takes the word, triple click takes the line, Ctrl and the wheel
+zoom. Three notes:
+
+**Qt reports one double click, never a triple.** The third click of a triple
+click arrives as a *plain press*, so recognising it has to happen in
+`onPressed` - before the press collapses the selection the second click made -
+gated on a `Timer` started by `onDoubleClicked`. Writing it in
+`onDoubleClicked` looks right and never fires.
+
+**`Qt.styleHints` is untyped to qmllint.** It answers `Member
+"mouseDoubleClickInterval" not found on type "QObject"`. `Application.
+styleHints` is the same object through a typed singleton and lints clean.
+
+**Zoom is global, not this view's**, matching the widget: every editor grows
+together. It honours `scrollWheelZooming`, which a user can turn off, and the
+setting is checked in C++ where the QML cannot forget it.
+
+**Three of six controls missed, all for the same reason.** Not the harness this
+time - the *fixtures* could not express the behaviour:
+
+- the whitespace refinement in `selectWordAt()` needs **two adjacent spaces**;
+  with a single space the ordinary `WordUnderCursor` answer is already right;
+- trimming `BlockUnderCursor`'s reach back over the preceding newline needs a
+  triple click on the **second** line; on the first there is no newline above
+  to reach back over;
+- pushing the font settings on *document change* needs a file opened **after**
+  a zoom; the `changed` connection covers every other case.
+
+Same shape as the unindented `gotoLine` fixture: an assertion about handling a
+special case needs a fixture containing that case. Worth checking for
+deliberately, because each of these tests reads as though it covers the
+behaviour it names.
+
 What is left of the editor: the rest of the extra-selection producers (semantic
 highlighting, diagnostics, occurrences - which all still write to a
 `TextEditorWidget`), the context menu, drag and drop, and wrapping.

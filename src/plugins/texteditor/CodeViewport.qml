@@ -112,6 +112,15 @@ Item {
             onPressed: (mouse) => {
                 viewport.forceActiveFocus()
                 const position = viewport.positionAt(mouse.x, mouse.y)
+                // The third click of a triple click arrives as a plain press -
+                // Qt only ever reports one double click - so this is where a
+                // triple click has to be recognised, before the press below
+                // collapses the selection the second click made.
+                if (tripleClick.running) {
+                    tripleClick.stop()
+                    viewport.selectLineAt(position)
+                    return
+                }
                 viewport.cursorPosition = position
                 // A press starts a selection of nothing rather than clearing
                 // it, so that the drag below has an anchor to grow from.
@@ -124,6 +133,16 @@ Item {
                 const position = viewport.positionAt(mouse.x, mouse.y)
                 viewport.cursorPosition = position
                 viewport.selectionEnd = position
+            }
+            onDoubleClicked: (mouse) => {
+                viewport.selectWordAt(viewport.positionAt(mouse.x, mouse.y))
+                tripleClick.restart()
+            }
+
+            Timer {
+                id: tripleClick
+
+                interval: Application.styleHints.mouseDoubleClickInterval
             }
         }
 
@@ -237,6 +256,12 @@ Item {
         WheelHandler {
             target: null
             onWheel: (event) => {
+                // Ctrl and the wheel is a zoom rather than a scroll, and the
+                // viewport is what knows whether the user allows it.
+                if (event.modifiers & Qt.ControlModifier) {
+                    viewport.zoomBy(event.angleDelta.y / 120)
+                    return
+                }
                 viewport.scrollY -= event.angleDelta.y / 120 * viewport.lineHeight * 3
             }
         }

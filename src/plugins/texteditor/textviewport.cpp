@@ -58,6 +58,20 @@ TextViewport::TextViewport(QQuickItem *parent)
     setFlag(ItemIsFocusScope);
     setFlag(ItemAcceptsInputMethod);
     setClip(true);
+
+    // Preferences are *pushed* into a document rather than read from one: a
+    // TextDocument on its own never hears about them, which is why the widget
+    // editor does exactly this for the document it shows. Doing it here covers
+    // the editor and every preview alike.
+    connect(&globalFontSettings(), &FontSettings::changed, this, [this] {
+        applyGlobalFontSettings();
+    });
+}
+
+void TextViewport::applyGlobalFontSettings()
+{
+    if (TextDocument * const doc = m_document ? m_document->textDocument() : nullptr)
+        doc->setFontSettings(globalFontSettings().data());
 }
 
 TextViewport::~TextViewport() = default;
@@ -635,6 +649,61 @@ int TextViewport::cursorColumn() const
     return block.isValid() ? m_cursorPosition - block.position() + 1 : 0;
 }
 
+void TextViewport::selectWordAt(int position)
+{
+    QTextCursor cursor = textCursor();
+    if (cursor.isNull())
+        return;
+
+    cursor.setPosition(position);
+    cursor.select(QTextCursor::WordUnderCursor);
+
+    // Between two spaces, WordUnderCursor selects the word *before* them, or
+    // nothing at the start of a line. Take the whitespace itself instead,
+    // which is what the widget editor corrects this to.
+    const QTextDocument * const text = cursor.document();
+    const QChar here = text->characterAt(position);
+    const QChar before = text->characterAt(position - 1);
+    if (here.isSpace() && before.isSpace() && here != QChar::ParagraphSeparator) {
+        cursor.setPosition(position);
+        if (before != QChar::ParagraphSeparator) {
+            cursor.movePosition(QTextCursor::PreviousWord);
+            cursor.movePosition(QTextCursor::EndOfWord);
+        }
+        cursor.movePosition(QTextCursor::NextWord, QTextCursor::KeepAnchor);
+    }
+
+    setTextCursor(cursor);
+}
+
+void TextViewport::selectLineAt(int position)
+{
+    QTextCursor cursor = textCursor();
+    if (cursor.isNull())
+        return;
+
+    cursor.setPosition(position);
+    cursor.select(QTextCursor::BlockUnderCursor);
+    // BlockUnderCursor reaches back over the newline that ends the line above,
+    // which reads as selecting two lines. Start where the text does.
+    if (cursor.selectionStart() < cursor.block().position()) {
+        cursor.setPosition(cursor.block().position());
+        cursor.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+    }
+    setTextCursor(cursor);
+}
+
+void TextViewport::zoomBy(int steps)
+{
+    if (steps == 0 || !globalBehaviorSettings().scrollWheelZooming())
+        return;
+
+    // The same step the widget editor takes, and always at least one, so a
+    // high-resolution wheel still does something per notch.
+    const int step = steps * 10;
+    globalFontSettings().increaseFontZoom(step != 0 ? step : (steps > 0 ? 1 : -1));
+}
+
 void TextViewport::setHighlights(Utils::Id kind, const QList<Highlight> &highlights)
 {
     if (highlights.isEmpty()) {
@@ -793,6 +862,17 @@ void TextViewport::documentChangedInternal()
                 polish();
                 update();
             });
+            // The font, the colours and the zoom are all read in updatePolish()
+            // from the document's font settings, and nothing else makes this
+            // lay out again - so without this an open file keeps the size and
+            // the scheme it was opened with.
+            connect(doc, &TextDocument::fontSettingsChanged, this, [this] {
+                polish();
+                update();
+            });
+            // A document opened after a zoom starts at the size everything
+            // else is already showing.
+            applyGlobalFontSettings();
             if (auto *layout = qobject_cast<TextDocumentLayout *>(
                     doc->document()->documentLayout())) {
                 connect(layout, &TextDocumentLayout::updateExtraArea, this, [this] {

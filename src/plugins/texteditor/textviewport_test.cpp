@@ -8,6 +8,7 @@
 #include "codeindenting.h"
 #include "codestylepool.h"
 #include "icodestylepreferences.h"
+#include "behaviorsettings.h"
 #include "fontsettings.h"
 #include "syntaxhighlighter.h"
 #include "tabsettings.h"
@@ -1306,6 +1307,161 @@ private slots:
     // somebody else asked to have drawn differently. They go through the same
     // format list the selection does, so this is the only way to see that one
     // arrived at all.
+    // Changing the font in Preferences, or zooming, has to reach a viewport
+    // that is already showing a file. Nothing else makes it lay out again, so
+    // without a connection the editor keeps the size it opened with.
+    // Double click takes the word, triple click takes the line. Through the
+    // component, because what tells a third click from a second one is in the
+    // QML rather than in the viewport.
+    void testDoubleClickTakesTheWordAndTripleClickTheLine()
+    {
+        TemporaryDirectory dir("qtc-viewport-clicks");
+        const FilePath file = dir.filePath("words.txt");
+        // Two spaces between the first two words, and a second line: a single
+        // space, or a click on the first line, cannot tell the whitespace and
+        // newline handling below from doing nothing at all.
+        //                              0  3 5   9      15  19
+        QVERIFY(file.writeFileContents("one  two three\nfour five\n"));
+
+        QQuickView view;
+        installIconProvider(view);
+        view.resize(400, 200);
+        QQmlComponent component(view.engine());
+        component.setData(QByteArray("import QtQuick\n"
+                                     "import QtCreator.TextEditor\n"
+                                     "CodeViewport {\n"
+                                     "    property string path\n"
+                                     "    width: 400; height: 200\n"
+                                     "    source: CodeDocument { filePath: path }\n"
+                                     "}"),
+                          QUrl("qrc:/test/ClickTest.qml"));
+        std::unique_ptr<QObject> created(component.createWithInitialProperties(
+            {{"path", file.toUrlishString()}}));
+        QVERIFY2(created != nullptr, qPrintable(component.errorString()));
+
+        auto * const item = qobject_cast<QQuickItem *>(created.get());
+        QVERIFY(item);
+        item->setParentItem(view.contentItem());
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+        auto * const viewport = item->findChild<TextViewport *>();
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+
+        const auto pointAt = [&view, viewport](int position) {
+            const QRectF caret = viewport->rectangleAt(position);
+            return view.contentItem()->mapFromItem(viewport, caret.center()).toPoint();
+        };
+        QVERIFY2(viewport->rectangleAt(6).height() > 0,
+                 "the caret has no place, so neither does a click");
+
+        // Inside "two".
+        QTest::mouseDClick(&view, Qt::LeftButton, {}, pointAt(6));
+        QCOMPARE(viewport->selectionStart(), 5);
+        QCOMPARE(viewport->selectionEnd(), 8);
+
+        // A third click, inside the double-click interval, takes the line -
+        // and the *second* line, so that a selection reaching back over the
+        // newline above would show up as starting one character early.
+        QTest::mouseDClick(&view, Qt::LeftButton, {}, pointAt(17));
+        QTest::mouseClick(&view, Qt::LeftButton, {}, pointAt(17));
+        QCOMPARE(viewport->selectionStart(), 15);
+        QCOMPARE(viewport->selectionEnd(), 24);
+
+        // Between two spaces there is no word under the cursor, and the word
+        // *before* them is not what was clicked. The whitespace itself is.
+        QTest::mouseDClick(&view, Qt::LeftButton, {}, pointAt(4));
+        QCOMPARE(viewport->selectionStart(), 3);
+        QCOMPARE(viewport->selectionEnd(), 5);
+    }
+
+    // Zoom is global, so a file opened after one has to open at that size
+    // rather than at the size the settings had when Creator started.
+    void testAFileOpenedAfterAZoomOpensZoomed()
+    {
+        const int wasZoom = globalFontSettings().fontZoom();
+        const QScopeGuard restore([wasZoom] { globalFontSettings().setFontZoom(wasZoom); });
+
+        TemporaryDirectory dir("qtc-viewport-latezoom");
+        const FilePath file = writeLines(dir, "late.txt", 100);
+
+        globalFontSettings().setFontZoom(wasZoom * 3);
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        QCOMPARE(viewport->font().pointSize(),
+                 std::max(globalFontSettings().data().fontSize() * wasZoom * 3 / 100, 1));
+    }
+
+    // Ctrl and the wheel zoom rather than scroll - and only when the user has
+    // said so, which is a setting the widget editor honours too.
+    void testCtrlWheelZoomsAndOnlyWhenAllowed()
+    {
+        const int wasZoom = globalFontSettings().fontZoom();
+        const bool wasAllowed = globalBehaviorSettings().scrollWheelZooming();
+        const QScopeGuard restore([wasZoom, wasAllowed] {
+            globalFontSettings().setFontZoom(wasZoom);
+            globalBehaviorSettings().scrollWheelZooming.setValue(wasAllowed);
+        });
+
+        TemporaryDirectory dir("qtc-viewport-zoom");
+        const FilePath file = writeLines(dir, "zoomed.txt", 100);
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+
+        globalBehaviorSettings().scrollWheelZooming.setValue(true);
+        viewport->zoomBy(1);
+        QVERIFY2(globalFontSettings().fontZoom() > wasZoom,
+                 qPrintable(QString("zoom stayed at %1").arg(globalFontSettings().fontZoom())));
+        const int zoomed = globalFontSettings().fontZoom();
+
+        // And the text on screen actually got bigger.
+        QTRY_VERIFY(viewport->font().pointSize() > 0);
+
+        // Turned off, the wheel does nothing at all - not even a little.
+        globalBehaviorSettings().scrollWheelZooming.setValue(false);
+        viewport->zoomBy(1);
+        QCOMPARE(globalFontSettings().fontZoom(), zoomed);
+    }
+
+    void testChangingTheFontRedrawsWhatIsAlreadyOpen()
+    {
+        TemporaryDirectory dir("qtc-viewport-fontchange");
+        const FilePath file = writeLines(dir, "sized.txt", 200);
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+
+        const qreal wasLineHeight = viewport->lineHeight();
+        const int wasOnScreen = viewport->visibleLineCount();
+        QVERIFY(wasLineHeight > 0);
+
+        const int wasZoom = globalFontSettings().fontZoom();
+        const QScopeGuard restore([wasZoom] { globalFontSettings().setFontZoom(wasZoom); });
+        globalFontSettings().setFontZoom(wasZoom * 2);
+
+        // Taller lines, so fewer of them fit - which is the whole observable
+        // consequence of a zoom.
+        QTRY_VERIFY2(viewport->lineHeight() > wasLineHeight,
+                     qPrintable(QString("line height stayed at %1 after zooming to %2%")
+                                    .arg(viewport->lineHeight())
+                                    .arg(globalFontSettings().fontZoom())));
+        QVERIFY(viewport->visibleLineCount() < wasOnScreen);
+        QCOMPARE(viewport->font().pointSize(),
+                 std::max(globalFontSettings().data().fontSize()
+                              * globalFontSettings().data().fontZoom() / 100,
+                          1));
+    }
+
     void testAHighlightIsDrawnOnTheLineItCovers()
     {
         TemporaryDirectory dir("qtc-viewport-highlights");
