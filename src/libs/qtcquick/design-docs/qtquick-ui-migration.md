@@ -5363,12 +5363,39 @@ and QML has no other way to reach it, but deciding to fill a rectangle is not
 the scene graph's job here. That property is also where the brush-versus-colour
 trap above lives, so it is the one place the fallback has to be right.
 
-Not ported, listed so the gap is not mistaken for a decision: caret painting
-and blinking, key input and editing, the gutter, folding, text marks and
-annotations, wrapping, and the extra-selection overlays beyond the primary
-selection. The QML component that puts a background, a scroll bar, a caret and
-a mouse area around the viewport is the next increment; the C++ side now has
-everything it would need.
+**`CodeViewport.qml` is the third increment**: everything that is not text.
+Background, caret, mouse, wheel and scroll bar, around a `TextViewport`. It is
+`CodeView.qml`'s job done for files that might be large - `CodeView` puts the
+whole document in a `TextEdit`, this one lays out what is on screen.
+
+The caret is the reason `cursorRectangle` is a *property* and not only the
+`rectangleAt()` call. QML has to bind to it, and it moves when the document is
+scrolled or relaid out rather than only when the position changes; a binding on
+an invokable would never re-evaluate. `rectangleAt()` stayed for arbitrary
+positions, and now reads as the inverse of `positionAt()`, which is what it is.
+
+**A negative control that failed to bite, and what it actually meant.** The
+scroll bar started as a `position:` binding plus a write-back guarded by
+`pressed`. The comment said the guard was there because dragging the handle
+assigns `position` imperatively and destroys the binding. Rewriting it the
+"safe" way with `Binding on position { when: !pressed }` and then controlling
+the old form showed the test still passing - because the premise was wrong.
+**Qt Quick bindings are destroyed by a JavaScript assignment, not by a C++
+one**, and `ScrollBar` drags the handle by calling its own C++ setter. The
+plain binding survives. The `Binding` was reverted: it bought nothing that
+could be demonstrated, and an unearned mechanism is worse than none.
+
+What the test does assert, controlled in both directions and after a drag: the
+handle follows the viewport, the drag scrolls the viewport, the wheel scrolls
+it, and the handle still follows afterwards. Plus a `qInstallMessageHandler`
+collector over the whole component lifetime, because a binding loop is a
+warning and nothing else - the component still builds and still draws, so a
+test only sees one by listening.
+
+Not ported, listed so the gap is not mistaken for a decision: key input and
+editing of any kind, cursor movement by keyboard, the gutter, folding, text
+marks and annotations, wrapping, and the extra-selection overlays beyond the
+primary selection. `CodeViewport` shows and selects; it does not edit.
 
 ## The terminal spike: go, with the cleanest split in the tree
 

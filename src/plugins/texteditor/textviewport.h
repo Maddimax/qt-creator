@@ -77,6 +77,13 @@ class TEXTEDITOR_EXPORT TextViewport : public QQuickItem
     Q_PROPERTY(int selectionStart READ selectionStart WRITE setSelectionStart
                    NOTIFY selectionChanged)
     Q_PROPERTY(int selectionEnd READ selectionEnd WRITE setSelectionEnd NOTIFY selectionChanged)
+    // Where the caret is, and where that lands on screen. The rect is a
+    // property rather than only a call because QML has to *bind* to it: it
+    // moves when the document is scrolled or relaid out, not just when the
+    // position changes, and a binding on rectangleAt() would not notice.
+    Q_PROPERTY(int cursorPosition READ cursorPosition WRITE setCursorPosition
+                   NOTIFY cursorPositionChanged)
+    Q_PROPERTY(QRectF cursorRectangle READ cursorRectangle NOTIFY cursorRectangleChanged)
 
 public:
     explicit TextViewport(QQuickItem *parent = nullptr);
@@ -113,17 +120,21 @@ public:
     // is what a caret and a mouse need and what nothing above the scene graph
     // can work out for itself.
     //
-    // cursorRectangle() is where the caret goes for a document position, in
-    // item coordinates; empty for a position that is not on screen. QML draws
-    // the caret, the same way it draws the background - a blinking Rectangle is
-    // not the scene graph's problem.
+    // rectangleAt() is where the caret goes for a document position, in item
+    // coordinates; empty for a position that is not on screen. QML draws the
+    // caret, the same way it draws the background - a blinking Rectangle is not
+    // the scene graph's problem.
     //
     // positionAt() is the document position under an item coordinate, for a
     // click. Held inside what is laid out, so a drag that leaves the viewport
     // selects to the edge of it rather than jumping to the end of the file;
     // -1 only when nothing is laid out at all.
-    Q_INVOKABLE QRectF cursorRectangle(int position) const;
+    Q_INVOKABLE QRectF rectangleAt(int position) const;
     Q_INVOKABLE int positionAt(qreal x, qreal y) const;
+
+    int cursorPosition() const;
+    void setCursorPosition(int position);
+    QRectF cursorRectangle() const;
 
 signals:
     void documentChanged();
@@ -131,6 +142,8 @@ signals:
     void scrollXChanged();
     void metricsChanged();
     void selectionChanged();
+    void cursorPositionChanged();
+    void cursorRectangleChanged();
 
 protected:
     void updatePolish() override;
@@ -174,6 +187,7 @@ private:
     qreal m_scrollX = 0;
     int m_selectionStart = -1;
     int m_selectionEnd = -1;
+    int m_cursorPosition = 0;
 
     // Everything below is produced in updatePolish() on the GUI thread and read
     // in updatePaintNode() on the render thread, with the GUI thread blocked.

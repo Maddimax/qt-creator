@@ -16,6 +16,7 @@
 #include <QQmlEngine>
 #include <QQuickView>
 #include <QSignalSpy>
+#include <QWheelEvent>
 #include <QTest>
 
 using namespace Utils;
@@ -63,6 +64,31 @@ static FilePath writeLines(const TemporaryDirectory &dir, const QString &name, i
     file.writeFileContents(contents.toUtf8());
     return file;
 }
+
+// Whatever QML said while a component was alive. A binding loop is a warning
+// and nothing else - the component still builds and still draws - so the only
+// way a test sees one is by listening.
+class QmlComplaints
+{
+public:
+    QmlComplaints() { s_messages = &m_messages; s_previous = qInstallMessageHandler(collect); }
+    ~QmlComplaints() { qInstallMessageHandler(s_previous); s_messages = nullptr; }
+
+    QStringList messages() const { return m_messages; }
+
+private:
+    static void collect(QtMsgType type, const QMessageLogContext &context, const QString &message)
+    {
+        if (s_messages && type >= QtWarningMsg)
+            s_messages->append(message);
+        if (s_previous)
+            s_previous(type, context, message);
+    }
+
+    QStringList m_messages;
+    static inline QStringList *s_messages = nullptr;
+    static inline QtMessageHandler s_previous = nullptr;
+};
 
 class TextViewportTest final : public QObject
 {
@@ -149,19 +175,19 @@ private slots:
         // of each line where the caret sits on the newline. "alpha\n" is
         // positions 0-5, "beta\n" is 6-10.
         for (int position = 0; position <= 10; ++position) {
-            const QRectF caret = viewport->cursorRectangle(position);
+            const QRectF caret = viewport->rectangleAt(position);
             QVERIFY2(!caret.isEmpty(),
                      qPrintable(QString("no caret for position %1").arg(position)));
             QCOMPARE(viewport->positionAt(caret.x(), caret.center().y()), position);
         }
 
         // The caret advances across a line and drops a line at the newline.
-        QVERIFY(viewport->cursorRectangle(1).x() > viewport->cursorRectangle(0).x());
-        QCOMPARE(viewport->cursorRectangle(6).x(), viewport->cursorRectangle(0).x());
-        QVERIFY(viewport->cursorRectangle(6).y() > viewport->cursorRectangle(0).y());
+        QVERIFY(viewport->rectangleAt(1).x() > viewport->rectangleAt(0).x());
+        QCOMPARE(viewport->rectangleAt(6).x(), viewport->rectangleAt(0).x());
+        QVERIFY(viewport->rectangleAt(6).y() > viewport->rectangleAt(0).y());
 
         // Clicking past the end of a line lands on its end, not on the next one.
-        const QRectF firstLine = viewport->cursorRectangle(0);
+        const QRectF firstLine = viewport->rectangleAt(0);
         QCOMPARE(viewport->positionAt(10000, firstLine.center().y()), 5);
 
         // Clicking below everything laid out lands on the last line rather than
@@ -185,11 +211,155 @@ private slots:
 
         TextViewport * const viewport = fixture.viewport;
         QTRY_VERIFY(viewport->visibleLineCount() > 0);
-        QVERIFY(!viewport->cursorRectangle(0).isEmpty());
+        QVERIFY(!viewport->rectangleAt(0).isEmpty());
 
         viewport->setScrollY(viewport->lineHeight() * 1000);
         QTRY_COMPARE(viewport->firstVisibleLine(), 1000);
-        QVERIFY(viewport->cursorRectangle(0).isEmpty());
+        QVERIFY(viewport->rectangleAt(0).isEmpty());
+    }
+
+    void testTheComponentTurnsAClickIntoACaretAndADragIntoASelection()
+    {
+        // CodeViewport is where the parts that are not text live - the
+        // background, the caret, the scroll bar and the mouse. None of it is
+        // exercised by driving TextViewport directly, and a binding loop in it
+        // is a warning rather than a failure, so this both drives it and
+        // listens to what QML says while it does.
+        TemporaryDirectory dir("codeviewport-test");
+        QVERIFY(dir.isValid());
+        const FilePath file = writeLines(dir, "big.txt", 5000);
+
+        QStringList complaints;
+        int position = -1;
+        int caretAfterClick = -1;
+        int selectionAfterDrag = -1;
+        {
+            QmlComplaints listener;
+
+            QQuickView view;
+            view.resize(400, 200);
+            QQmlComponent component(view.engine());
+            component.setData(QByteArray("import QtCreator.TextEditor\n"
+                                         "CodeViewport { width: 400; height: 200 }"),
+                              QUrl("qrc:/test/CodeViewportTest.qml"));
+            std::unique_ptr<QObject> created(component.createWithInitialProperties(
+                {{"filePath", file.toUrlishString()}}));
+            QVERIFY2(created != nullptr, qPrintable(component.errorString()));
+
+            auto * const item = qobject_cast<QQuickItem *>(created.get());
+            QVERIFY(item);
+            item->setParentItem(view.contentItem());
+            view.show();
+            QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+            auto * const viewport = item->findChild<TextViewport *>("codeViewport");
+            QVERIFY(viewport);
+            QTRY_VERIFY(viewport->visibleLineCount() > 3);
+
+            // A click three lines down and a little way in. What position that
+            // is, is the viewport's own answer - the point here is that the
+            // component asks it and keeps what it says, not what the arithmetic
+            // is.
+            const QPoint at = viewport->mapToScene(QPointF(20, viewport->lineHeight() * 3 + 2))
+                                  .toPoint();
+            position = viewport->positionAt(20, viewport->lineHeight() * 3 + 2);
+            QVERIFY(position > 0);
+
+            QTest::mousePress(&view, Qt::LeftButton, {}, at);
+            caretAfterClick = viewport->cursorPosition();
+
+            // Dragging down a line grows the selection rather than starting a
+            // new one, so the anchor from the press has to have survived.
+            const QPoint to = viewport->mapToScene(QPointF(20, viewport->lineHeight() * 5 + 2))
+                                  .toPoint();
+            QTest::mouseMove(&view, to);
+            QTest::mouseRelease(&view, Qt::LeftButton, {}, to);
+            selectionAfterDrag = viewport->selectionEnd();
+
+            complaints = listener.messages();
+        }
+
+        QCOMPARE(caretAfterClick, position);
+        QVERIFY2(selectionAfterDrag > position,
+                 "dragging down did not extend the selection past where it started");
+        QVERIFY2(complaints.isEmpty(), qPrintable("QML complained: " + complaints.join("; ")));
+    }
+
+    void testTheScrollBarAndTheViewportKeepFollowingEachOther()
+    {
+        // Both directions, and both of them again after a drag. Two-way
+        // bindings between a control and what it controls are where the bugs
+        // are, and the failure this guards against is the quiet one: a bar
+        // that stops following the viewport once the user has touched it, so
+        // it looks right until the next wheel scroll.
+        TemporaryDirectory dir("codeviewport-scrollbar");
+        QVERIFY(dir.isValid());
+        const FilePath file = writeLines(dir, "big.txt", 5000);
+
+        QQuickView view;
+        view.resize(400, 200);
+        QQmlComponent component(view.engine());
+        component.setData(QByteArray("import QtCreator.TextEditor\n"
+                                     "CodeViewport { width: 400; height: 200 }"),
+                          QUrl("qrc:/test/CodeViewportScrollTest.qml"));
+        std::unique_ptr<QObject> created(component.createWithInitialProperties(
+            {{"filePath", file.toUrlishString()}}));
+        QVERIFY2(created != nullptr, qPrintable(component.errorString()));
+
+        auto * const item = qobject_cast<QQuickItem *>(created.get());
+        QVERIFY(item);
+        item->setParentItem(view.contentItem());
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+        auto * const viewport = item->findChild<TextViewport *>("codeViewport");
+        QVERIFY(viewport);
+        QQuickItem * const bar = item->findChild<QQuickItem *>("verticalScrollBar");
+        QVERIFY(bar);
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+
+        const auto barPosition = [bar] { return bar->property("position").toReal(); };
+        const auto expectedPosition = [viewport] {
+            return viewport->scrollY() / viewport->contentHeight();
+        };
+
+        QCOMPARE(barPosition(), 0.0);
+
+        // The wheel scrolls, and the bar notices. One notch is three lines,
+        // the same as everywhere else.
+        const QPointF centre(viewport->width() / 2, viewport->height() / 2);
+        QWheelEvent wheel(centre,
+                          view.mapToGlobal(centre.toPoint()),
+                          QPoint(0, 0),
+                          QPoint(0, -120),
+                          Qt::NoButton,
+                          Qt::NoModifier,
+                          Qt::NoScrollPhase,
+                          false);
+        QCoreApplication::sendEvent(&view, &wheel);
+        QTRY_COMPARE(viewport->firstVisibleLine(), 3);
+        QVERIFY(barPosition() > 0);
+
+        // The viewport moves programmatically, the handle follows that too.
+        viewport->setScrollY(viewport->lineHeight() * 1000);
+        QTRY_COMPARE(viewport->firstVisibleLine(), 1000);
+        QVERIFY(qFuzzyCompare(barPosition() + 1, expectedPosition() + 1));
+
+        // The handle is dragged, the viewport follows.
+        const QPointF handle = bar->mapToScene(QPointF(bar->width() / 2, bar->height() / 2));
+        QTest::mousePress(&view, Qt::LeftButton, {}, handle.toPoint());
+        QTest::mouseMove(&view, handle.toPoint() + QPoint(0, 40));
+        QTest::mouseRelease(&view, Qt::LeftButton, {}, handle.toPoint() + QPoint(0, 40));
+        QTRY_VERIFY(viewport->firstVisibleLine() > 1000);
+
+        // And after all that, the viewport still leads.
+        const int before = viewport->firstVisibleLine();
+        viewport->setScrollY(viewport->lineHeight() * 4000);
+        QTRY_VERIFY(viewport->firstVisibleLine() != before);
+        QVERIFY2(qFuzzyCompare(barPosition() + 1, expectedPosition() + 1),
+                 qPrintable(QString("bar at %1, viewport says %2")
+                                .arg(barPosition())
+                                .arg(expectedPosition())));
     }
 
     void testASelectionIsMergedIntoTheLineFormats()

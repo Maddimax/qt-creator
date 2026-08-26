@@ -178,7 +178,7 @@ TextViewport::Located TextViewport::locate(int position) const
     return {};
 }
 
-QRectF TextViewport::cursorRectangle(int position) const
+QRectF TextViewport::rectangleAt(int position) const
 {
     const Located found = locate(position);
     if (found.index < 0)
@@ -192,6 +192,25 @@ QRectF TextViewport::cursorRectangle(int position) const
     int offset = found.offsetInLine;
     const qreal x = textLine.cursorToX(&offset);
     return QRectF(line.at.x() + x, line.at.y(), 1, m_lineHeight);
+}
+
+int TextViewport::cursorPosition() const
+{
+    return m_cursorPosition;
+}
+
+void TextViewport::setCursorPosition(int position)
+{
+    if (m_cursorPosition == position)
+        return;
+    m_cursorPosition = position;
+    emit cursorPositionChanged();
+    emit cursorRectangleChanged();
+}
+
+QRectF TextViewport::cursorRectangle() const
+{
+    return rectangleAt(m_cursorPosition);
 }
 
 int TextViewport::positionAt(qreal x, qreal y) const
@@ -236,6 +255,7 @@ void TextViewport::updatePolish()
         m_contentHeight = 0;
         m_firstVisibleLine = 0;
         emit metricsChanged();
+        emit cursorRectangleChanged();
         update();
         return;
     }
@@ -338,6 +358,8 @@ void TextViewport::updatePolish()
     if (!qFuzzyCompare(previousLineHeight + 1, m_lineHeight + 1))
         setScrollY(m_scrollY); // re-clamp: the document is a different height now
     emit metricsChanged();
+    // Everything the caret's position on screen depends on was just recomputed.
+    emit cursorRectangleChanged();
     update();
 }
 

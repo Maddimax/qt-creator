@@ -193,6 +193,7 @@ if(TARGET TextEditor AND TARGET Qt::Quick)
       CodeStyleProjectForm.qml
       CodeStyleSelector.qml
       CodeView.qml
+      CodeViewport.qml
       CommentsSettingsPage.qml
       CompletionSettingsPage.qml
       DisplaySettingsPage.qml
