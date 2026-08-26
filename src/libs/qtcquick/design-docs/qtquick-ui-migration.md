@@ -5548,6 +5548,46 @@ factory is installed by the *QuickUi plugin*, so under a bare `-test Profiler`
 have got wrong. It `QSKIP`s there with that reason, instead of passing while
 asserting nothing. Under the usual `-load all` it asserts in full.
 
+## QmlDesigner: compiled here, drawn somewhere else
+
+"QmlDesigner is not buildable here" has been repeated in this log for several
+batches, and it is not true of the file that matters. The plugin is gated on
+`CONDITION TARGET QmlDesignerCore AND TARGET Qt::Svg` and is not built - its
+dylib in the build tree is from July - but `settings/designersettings.cpp`
+belongs to `add_qtc_library(QmlDesignerSettings STATIC ...)`, which *is* built.
+The stale dylib was the evidence for the wrong claim: nobody had built the
+plugin on this branch, which is not the same as nobody being able to.
+
+So the page is ported. Eight groups, all list, plus the one thing the closure
+*did*: a `PushButton` with an `onClicked` that cleared the controls style. That
+is an `ActionAspect` now, and the label the layout supplied as a literal
+(`"Controls style:"`) moved onto the aspect, where a form can find it.
+
+**What can be verified here, and what cannot.** The plugin does not link, so the
+page cannot be rendered, the census cannot reach it, and the tool-run technique
+has nothing to run. What is left is static, so it was made to bite:
+
+- It compiles: `ninja QmlDesignerSettings` rebuilds the file, and appending a
+  call to an undeclared function fails it - checked, because a target that is
+  "up to date" proves nothing on its own.
+- `qmllint` passes, run directly against the file with `-I <build>/qml_modules`
+  rather than through a `<Target>_qmllint` that does not exist here. Controlled
+  twice: an unknown component and a property no delegate has, both reported.
+- qmllint cannot see `aspects.Foo` - it is a property-map lookup - so the names
+  were cross-checked against the container's settings keys and `setQmlName()`
+  calls. All 27 resolve. Misspelling one reports it.
+- And the port is complete rather than merely valid: the members the closure
+  listed, compared against the ones the page draws, differ by exactly
+  `resetStyle` - added, none dropped.
+
+The QML module is declared on the plugin target inside `if(TARGET QmlDesigner)`,
+not on the static library, even though that would have made it buildable here.
+`QmlDesignerSettings` is a static library whose resources already need
+whole-archive linking to register - there is a commented-out block about exactly
+that beside it - and a QML resource that silently fails to register is the kind
+of thing this machine could not detect. `qmldesigner.qbs` is a wildcard stub, so
+it needs no edit.
+
 ## The same measurement, applied to kits
 
 Re-running the `layouter()` instrumentation with the device closures gone leaves

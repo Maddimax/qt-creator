@@ -46,6 +46,9 @@ public:
     Utils::BoolAspect particleMode{this};
     Utils::BoolAspect alwaysSaveInCrumbleBar{this};
     Utils::StringAspect controlsStyle{this};
+    // Puts the controls style back to the default. The value is a free
+    // string, so clearing it is an action rather than a choice.
+    Utils::ActionAspect resetStyle{this};
     Utils::SelectionAspect controls2Style{this};
     Utils::SelectionAspect typeOfQsTrFunction{this};
     Utils::BoolAspect showPropertyEditorWarnings{this};

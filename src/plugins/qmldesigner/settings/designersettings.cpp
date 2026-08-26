@@ -124,8 +124,13 @@ DesignerSettings::DesignerSettings()
 
     controlsStyle.setSettingsKey("ControlsStyle");
     //controlsStyle.setDefaultValue(); CONTROLS_STYLE);
+    controlsStyle.setLabelText(Tr::tr("Controls style:"));
     controlsStyle.setPlaceHolderText(Tr::tr("Default style"));
     controlsStyle.setDisplayStyle(StringAspect::LineEditDisplay);
+
+    resetStyle.setQmlName("ResetStyle");
+    resetStyle.setActionText(Tr::tr("Reset Style"));
+    resetStyle.setAction([this] { controlsStyle.setVolatileValue({}); });
 
     controls2Style.setSettingsKey("Controls2Style");
     controls2Style.setLabelText(Tr::tr("Controls 2 style:"));
@@ -247,97 +252,7 @@ DesignerSettings::DesignerSettings()
     groqApiKey.setSettingsKey("GroqApiKey");
     groqApiKey.setDefaultValue({});
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-
-        return Column {
-            Row {
-                Group {
-                    title(Tr::tr("Snapping")),
-                    Form {
-                        containerPadding, br,
-                        itemSpacing
-                    },
-                },
-                Group {
-                    title(Tr::tr("Canvas")),
-                    Form {
-                        canvasWidth, br,
-                        canvasHeight, br,
-                        smoothRendering
-                    },
-                },
-                Group {
-                    title(Tr::tr("Root Component Init Size")),
-                    Form {
-                        rootElementInitWidth, br,
-                        rootElementInitHeight
-                    },
-                },
-                Group {
-                    title(Tr::tr("Styling")),
-                    Form {
-                        Tr::tr("Controls style:"),
-                        controlsStyle,
-                        PushButton {
-                            text(Tr::tr("Reset Style")),
-                            onClicked(this, [this] {
-                                controlsStyle.setVolatileValue({});
-                            }),
-                        },
-                        br,
-                        controls2Style,
-                    },
-                },
-            },
-            Row {
-                Group {
-                    title(Tr::tr("Subcomponents")),
-                    Column {
-                        alwaysSaveInCrumbleBar,
-                        st
-                    },
-                },
-            },
-            Row {
-                Group {
-                    title(Tr::tr("Warnings")),
-                    Column {
-                        warningForFeaturesInDesigner,
-                        warningForDesignerFeaturesInEditor,
-                        warningForQmlFilesInsteadOfUiQmlFiles,
-                    }
-                },
-                Group {
-                    title(Tr::tr("Internationalization")),
-                    Column {
-                        typeOfQsTrFunction,
-                    }
-                }
-            },
-            Group {
-                title(Tr::tr("Features")),
-                Grid {
-                    alwaysDesignMode, reformatUiQmlFiles, br,
-                    askBeforeDeletingAsset, askBeforeDeletingContentLibFile, br,
-                    enableTimelineView, br,
-                    enableDockWidgetContentMinSize,
-                },
-            },
-            Group {
-                title(Tr::tr("Debugging")),
-                Grid {
-                    showDebugSettings,
-                    showPropertyEditorWarnings,
-                    Row { forwardPuppetOutput }, br,
-                    enableDebugView,
-                    enableModelExceptionOutput,
-                    Row { debugPuppet }
-                }
-            },
-            st
-        };
-    });
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/QmlDesigner/DesignerSettingsPage.qml"));
 
     readSettings();
 }

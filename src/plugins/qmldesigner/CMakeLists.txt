@@ -787,6 +787,20 @@ extend_qtc_plugin(QmlDesigner
     studiovalidator.cpp studiovalidator.h
 )
 
+# The settings page's Qt Quick form. A module rather than a plain resource so
+# that qmllint and qmlcachegen see the file; qbs cannot build QML modules, so it
+# only lists it - the same split qtcquick already lives with.
+if(TARGET QmlDesigner)
+  qt_add_qml_module(QmlDesigner
+    URI QtCreator.QmlDesigner
+    VERSION 1.0
+    RESOURCE_PREFIX "/qt/qml"
+    NO_PLUGIN
+    QML_FILES
+      DesignerSettingsPage.qml
+  )
+endif()
+
 ## from cmake 3.24 $<LINK_LIBRARY:WHOLE_ARCHIVE,QmlDesignerSettings> is supported which can be added to DEPENDS
 #if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.24.0")
 #  target_link_libraries(QmlDesignerBase PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,QmlDesignerSettings>)
