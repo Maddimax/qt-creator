@@ -3561,10 +3561,20 @@ panel is in `QtCreator.ProjectExplorer`, so its QML does
 plugin-depends on TextEditor, and it is worth knowing: a panel does not have to
 live in the same plugin as the settings it shows.
 
-With the panel drawn from the container, nothing lays those four out any more.
-Checked before deleting rather than after: every remaining use of the four
-containers is reading a value or connecting to `changed`, and none of them adds
-one to a `Column`.
+**They were deleted here and put back.** The check was "does anything add one
+of these to a `Column`", and nothing does - but that is not how they are
+reached. A build without Qt::Quick has no `s_aspectFormFactory`, so
+`Core::createAspectForm()` falls back to `AspectWidgets::layouter()` on the
+page's container, whose fallback is a `Column` of its aspects, each of which is
+a container the renderer draws with *its* layouter. That is the path, and it
+does not appear in any grep for `Column {`.
+
+What it cost was visible: the group titles - "Tabs And Indentation" and the
+rest - lived inside those layouters, not in the containers' `labelText`, so
+without them the widget backend drew no group box at all. Every other page on
+this branch keeps its layouter beside its `qmlSource` for exactly this reason;
+these four were the only ones deleted, and that was inconsistent rather than
+principled. The count is 25, not 21.
 
 Two things stayed where they were, because moving them would have been wrong:
 

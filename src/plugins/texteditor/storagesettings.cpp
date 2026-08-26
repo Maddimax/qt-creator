@@ -72,6 +72,23 @@ StorageSettings::StorageSettings()
     ignoreFileTypes.setEnabled(false);
     ignoreFileTypes.setToolTip(Tr::tr("List of wildcard-aware file patterns, separated by commas or semicolons."));
 
+    Utils::AspectWidgets::setLayouter(this, [this] {
+        using namespace Layouting;
+        return Column {
+            Group {
+                title(Tr::tr("Cleanups Upon Saving")),
+                Layouting::toolTip(Tr::tr("Cleanup actions which are automatically performed "
+                                          "right before the file is saved to disk.")),
+                Column {
+                    cleanWhitespace,
+                        Row { Space(30), inEntireDocument },
+                        Row { Space(30), cleanIndentation },
+                        Row { Space(30), skipTrailingWhitespace, ignoreFileTypes },
+                    addFinalNewLine,
+                }
+            }
+        };
+    });
 
     readSettings();
 
