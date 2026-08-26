@@ -3480,6 +3480,40 @@ It is worth writing down because the command every batch used says
 migration. No plugin anywhere in `src` uses an API this work removed; that was
 checked by grep rather than assumed.
 
+### Clang Tools: the first panel that needed an aspect written
+
+Nine of seventeen now, and this is the one that stopped being a conversion and
+became a port. The suppressed diagnostics were a `QTreeView` over a model, with
+Remove Selected and Remove All kept in step by a selection model - state that
+lives in a view and that nothing else can see, which is workstream 2's shape.
+
+They are a table aspect now. It owns the model, and *which row is current is
+the aspect's answer*, so the two buttons are enabled from the container:
+
+    onCurrentRowChanged: root.aspects.SuppressedDiagnostics.setCurrentRow(currentRow)
+
+**The model needed `roleNames()`, and the reason is a trap.** `AspectTableCell`
+reads a cell with `model.editable ?? cell.editableByDefault`, and the default is
+*true*. A model that does not name its roles has no `editable` for QML to find,
+so its rows offer themselves for editing - which is why `ClangdSessionsModel`
+works without one, and why this one cannot: a suppressed diagnostic is removed,
+never edited. `Utils::AspectTable::withRoleNames()` plus an `EditableRole`
+answer of `false` settles it. Its overrides also had to become public: they were
+private, which is legal for an override of a public virtual and means whatever
+holds the model cannot ask it how many rows there are.
+
+The rest is the usual split. The two "Go to" labels are one `TextDisplay` with
+two links - the same shape as Clangd's note about configuration files - and
+Restore Global is an `ActionAspect`. What enables them, and what the flag
+disables, moved to the constructor. The run options are the same list the global
+page shows, so they moved into a form both use.
+
+**Controlled by typo.** Misspelling `SuppressedDiagnostics` in the panel's QML
+fails the census with
+`ClangToolsProjectPanel.qml:41:17: Unable to assign [undefined] to
+Utils::BaseAspect*`, which is what says the panel is really being exercised
+rather than merely built.
+
 ### Clangd: the widget layout answered the question
 
 This panel was left waiting on "which of the page's aspects should a project
