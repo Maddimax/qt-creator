@@ -644,73 +644,6 @@ private:
     bool m_dirty = false;
 };
 
-// ClangFormatProjectEditor
-
-class ClangFormatProjectEditor final : public QWidget
-{
-public:
-    ClangFormatProjectEditor(const ICodeStylePreferencesFactory *factory,
-                             const FilePath &projectFile,
-                             ICodeStylePreferences *codeStyle)
-        : m_globalSettings{ProjectManager::projectWithProjectFile(projectFile, true),
-                           codeStyle}
-        , m_selector{projectFile, this}
-    {
-        m_selector.setCodeStyle(codeStyle);
-        QWidget *infoLabel = createTakeEffectImmediatelyLabel();
-
-        SnippetEditorWidget *preview = createCodeStylePreview(factory, projectFile, codeStyle);
-        QWidget *previewNote = createCodeStylePreviewNote();
-        auto filler = new QWidget;
-        filler->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
-
-        using namespace Layouting;
-        Column {
-            Core::createAspectForm(&m_globalSettings),
-            &m_selector,
-            infoLabel,
-            preview,
-            previewNote,
-            filler,
-            noMargin,
-        }.attachTo(this);
-
-        const ClangFormatSettings::Mode currentMode = m_globalSettings.mode();
-        const auto updateSelectorVisibility = [this, infoLabel, preview, previewNote, filler] {
-            // The selector and preview are relevant when ClangFormat is off (to
-            // pick a built-in code style) or when "Use custom settings" lets the
-            // user manage a ClangFormat style. They are hidden when ClangFormat
-            // is active and reads the project's own .clang-format file, where
-            // there is nothing to pick or edit. The filler then keeps the box
-            // packed at the top instead of letting the layout spread it out.
-            const bool clangFormatActive =
-                m_globalSettings.mode() != ClangFormatSettings::Mode::Disable;
-            const bool visible = !clangFormatActive || m_globalSettings.useCustomSettings();
-            m_selector.setVisible(visible);
-            infoLabel->setVisible(visible);
-            preview->setVisible(visible);
-            previewNote->setVisible(visible);
-            filler->setVisible(!visible);
-        };
-        updateSelectorVisibility();
-        connect(&m_globalSettings, &ClangFormatGlobalConfig::modeChanged,
-                this, updateSelectorVisibility);
-        connect(&m_globalSettings, &ClangFormatGlobalConfig::useCustomSettingsChanged,
-                this, updateSelectorVisibility);
-
-        connect(&m_globalSettings, &ClangFormatGlobalConfig::modeChanged,
-                &m_selector, &ClangFormatSelectorWidget::onModeChanged);
-        m_selector.onModeChanged(currentMode);
-        connect(&m_globalSettings, &ClangFormatGlobalConfig::useCustomSettingsChanged,
-                &m_selector, &ClangFormatSelectorWidget::onUseCustomSettingsChanged);
-        m_selector.onUseCustomSettingsChanged(m_globalSettings.useCustomSettings());
-    }
-
-private:
-    ClangFormatGlobalConfig m_globalSettings;
-    ClangFormatSelectorWidget m_selector;
-};
-
 // ClangFormatCodeStylePreferencesFactory
 
 class ClangFormatCodeStylePreferencesFactory final : public ICodeStylePreferencesFactory
@@ -727,9 +660,12 @@ public:
         setValueEditorCreator([](ICodeStylePreferences *codeStyle) {
             return new ClangFormatSettingsEditor{codeStyle};
         });
-        setProjectEditorCreator([this](const FilePath &projectFile, ICodeStylePreferences *codeStyle) {
-            return new ClangFormatProjectEditor{this, projectFile, codeStyle};
-        });
+        // The project Code Style panel shows the default form - which style
+        // the project uses, and a preview. ClangFormat's own project block
+        // (Indenting or Formatting, "Use custom settings", and import and
+        // export that understand a .clang-format file) is not ported to Qt
+        // Quick yet, so it is not offered there; the ClangFormat page itself
+        // still has all of it.
     }
 };
 

@@ -187,6 +187,7 @@ if(TARGET TextEditor AND TARGET Qt::Quick)
       BehaviorSettingsPage.qml
       CodeEditor.qml
       CodeStylePreview.qml
+      CodeStyleProjectForm.qml
       CodeStyleSelector.qml
       CodeView.qml
       CommentsSettingsPage.qml

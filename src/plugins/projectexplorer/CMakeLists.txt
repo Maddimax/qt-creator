@@ -235,6 +235,7 @@ if(TARGET ProjectExplorer AND TARGET Qt::Quick)
       BuildAndRunProjectPanel.qml
       BuildAndRunSettingsPage.qml
       BuildPropertiesSettingsPage.qml
+      CodeStyleProjectPanel.qml
       CompileOutputSettingsPage.qml
       CustomParsersSettingsPage.qml
       DependenciesPanel.qml

@@ -41,8 +41,8 @@ public:
     using IndenterCreator = std::function<Indenter *(QTextDocument *)>;
     using CodeStyleCreator = std::function<ICodeStylePreferences *()>;
     using ValueEditorCreator = std::function<QWidget *(ICodeStylePreferences *)>;
-    using ProjectEditorCreator
-        = std::function<QWidget *(const Utils::FilePath &, ICodeStylePreferences *)>;
+    using ProjectAspectsCreator = std::function<Utils::AspectContainer *(
+        const Utils::FilePath &, ICodeStylePreferences *)>;
 
     explicit ICodeStylePreferencesFactory(Utils::Id languageId = {});
     virtual ~ICodeStylePreferencesFactory();
@@ -74,8 +74,11 @@ public:
     // Whether the value editor already contains its own preview, so the hosting
     // CodeStyleAspect should not add the standard one below it.
     bool valueEditorHasPreview() const;
-    QWidget *createProjectEditor(const Utils::FilePath &projectFile,
-                                 ICodeStylePreferences *codeStyle) const;
+    // What this language shows in a project's Code Style panel. A factory says
+    // what it has rather than drawing it, the way createSettingsAspects() does
+    // for the page. The default is a style selector above a live preview.
+    Utils::AspectContainer *createProjectAspects(const Utils::FilePath &projectFile,
+                                                 ICodeStylePreferences *codeStyle) const;
 
     void setDisplayName(const QString &displayName);
     void setSnippetGroupId(const QString &snippetGroupId);
@@ -98,7 +101,7 @@ public:
     void setCodeStyleCreator(const CodeStyleCreator &creator);
     void setValueEditorCreator(const ValueEditorCreator &creator);
     void setValueEditorHasPreview(bool hasPreview);
-    void setProjectEditorCreator(const ProjectEditorCreator &creator);
+    void setProjectAspectsCreator(const ProjectAspectsCreator &creator);
 
     // Builds and owns the language's code style pool and its editable global
     // style. setupCodeStyles() must be called once the creators above are set;
@@ -124,7 +127,7 @@ private:
     CodeStyleCreator m_codeStyleCreator;
     ValueEditorCreator m_valueEditorCreator;
     bool m_valueEditorHasPreview = false;
-    ProjectEditorCreator m_projectEditorCreator;
+    ProjectAspectsCreator m_projectAspectsCreator;
     std::function<void(CodeStylePool *)> m_builtInCodeStyles;
     QByteArray m_globalCodeStyleId;
     QByteArray m_defaultCodeStyleId;

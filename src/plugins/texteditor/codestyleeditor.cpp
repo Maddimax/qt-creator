@@ -149,40 +149,48 @@ bool CodeStyleEditor::isDirty() const
     return false;
 }
 
-// The default per-project code style editor: a style selector above a live
-// preview. Changes apply immediately to the project's code style, so there is
-// no apply/cancel here.
-class CodeStyleProjectPreviewEditor final : public QWidget
+// The default per-project code style form: which style the project uses, above a
+// live preview of it. Changes apply immediately - there is no page-local copy
+// here and no apply/cancel, which is what the note says.
+class CodeStyleProjectAspects final : public AspectContainer
 {
 public:
-    CodeStyleProjectPreviewEditor(
-        const ICodeStylePreferencesFactory *factory,
-        const FilePath &projectFile,
-        ICodeStylePreferences *codeStyle)
-        : m_selector{projectFile, this}
+    CodeStyleProjectAspects(const ICodeStylePreferencesFactory *factory,
+                            ICodeStylePreferences *codeStyle)
     {
-        m_selector.setCodeStyle(codeStyle);
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/TextEditor/CodeStyleProjectForm.qml"));
 
-        using namespace Layouting;
-        Column {
-            &m_selector,
-            createTakeEffectImmediatelyLabel(),
-            createCodeStylePreview(factory, projectFile, codeStyle),
-            createCodeStylePreviewNote(),
-            noMargin,
-        }.attachTo(this);
+        m_selector.setup(this, codeStyle);
+
+        m_immediateNote.setQmlName("ImmediateNote");
+        m_immediateNote.setIconType(InfoType::Information);
+        m_immediateNote.setText(Tr::tr("All changes below take effect immediately."));
+
+        auto preview = new CodeStylePreviewAspect(this, factory, codeStyle);
+
+        auto resetPreview = new ActionAspect(this);
+        resetPreview->setQmlName("ResetPreview");
+        resetPreview->setActionText(Tr::tr("Reset to Original Preview Text"));
+        resetPreview->setAction([preview] { preview->resetText(); });
+
+        auto formatPreview = new ActionAspect(this);
+        formatPreview->setQmlName("FormatPreview");
+        formatPreview->setActionText(Tr::tr("Format Current Preview Text"));
+        formatPreview->setAction([preview] { preview->formatText(); });
     }
 
 private:
-    CodeStyleSelectorWidget m_selector;
+    CodeStyleSelectorAspects m_selector;
+    TextDisplay m_immediateNote{this};
 };
 
-QWidget *ICodeStylePreferencesFactory::createProjectEditor(
+Utils::AspectContainer *ICodeStylePreferencesFactory::createProjectAspects(
     const FilePath &projectFile, ICodeStylePreferences *codeStyle) const
 {
-    if (m_projectEditorCreator)
-        return m_projectEditorCreator(projectFile, codeStyle);
-    return new CodeStyleProjectPreviewEditor{this, projectFile, codeStyle};
+    if (m_projectAspectsCreator)
+        return m_projectAspectsCreator(projectFile, codeStyle);
+    return new CodeStyleProjectAspects{this, codeStyle};
 }
 
 SnippetEditorWidget *createCodeStylePreview(const ICodeStylePreferencesFactory *factory,
@@ -244,17 +252,6 @@ QLabel *createCodeStylePreviewNote()
     return label;
 }
 
-QWidget *createTakeEffectImmediatelyLabel()
-{
-    auto infoLabel = new InfoLabel(Tr::tr("All changes below take effect immediately."),
-                                   InfoLabelType::Information);
-    infoLabel->setFilled(true);
-
-    // Wrap in a plain container so callers indent the container, not the label
-    // itself (InfoLabel uses its own contentsMargins to place its icon).
-    using namespace Layouting;
-    return Column { infoLabel, noMargin }.emerge();
-}
 
 CodeStylePreviewAspect::CodeStylePreviewAspect(AspectContainer *container,
                                                const ICodeStylePreferencesFactory *factory,
@@ -485,6 +482,18 @@ void CodeStyleSelectorAspects::setup(AspectContainer *container, ICodeStylePrefe
                      container, refresh);
 
     refresh();
+}
+
+void CodeStyleSelectorAspects::setVisible(bool visible)
+{
+    const QList<BaseAspect *> all{m_style, m_copy, m_remove, m_import, m_export, m_readOnlyNote};
+    for (BaseAspect * const aspect : all) {
+        if (aspect)
+            aspect->setVisible(visible);
+    }
+    // The note is only there when the style it is about is read-only.
+    if (visible)
+        updateState();
 }
 
 void CodeStyleSelectorAspects::refill()

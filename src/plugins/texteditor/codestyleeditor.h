@@ -59,8 +59,6 @@ TEXTEDITOR_EXPORT SnippetEditorWidget *createCodeStylePreview(
 TEXTEDITOR_EXPORT QLabel *createCodeStylePreviewNote();
 
 // The "take effect immediately" hint, for the per-project code style pages
-// (which apply live). Global pages defer to Apply/OK and must not use it.
-TEXTEDITOR_EXPORT QWidget *createTakeEffectImmediatelyLabel();
 
 // What a code style selector offers besides picking one, factored out so that
 // the widget selector and the Qt Quick one do the same thing. Each puts up its
@@ -133,6 +131,10 @@ public:
     void setup(Utils::AspectContainer *container, ICodeStylePreferences *codeStyle);
     void refill();
     void updateState();
+    // Shown or hidden as a unit: where something else is in charge of the
+    // style - ClangFormat reading a .clang-format file - there is nothing to
+    // pick.
+    void setVisible(bool visible);
 
 private:
     ICodeStylePreferences *m_codeStyle = nullptr;

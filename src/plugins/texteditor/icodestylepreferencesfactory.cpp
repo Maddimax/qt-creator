@@ -148,9 +148,9 @@ void ICodeStylePreferencesFactory::setValueEditorHasPreview(bool hasPreview)
     m_valueEditorHasPreview = hasPreview;
 }
 
-void ICodeStylePreferencesFactory::setProjectEditorCreator(const ProjectEditorCreator &creator)
+void ICodeStylePreferencesFactory::setProjectAspectsCreator(const ProjectAspectsCreator &creator)
 {
-    m_projectEditorCreator = creator;
+    m_projectAspectsCreator = creator;
 }
 
 void ICodeStylePreferencesFactory::setGlobalCodeStyleId(const QByteArray &id)
