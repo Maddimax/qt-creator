@@ -3480,6 +3480,42 @@ It is worth writing down because the command every batch used says
 migration. No plugin anywhere in `src` uses an API this work removed; that was
 checked by grep rather than assumed.
 
+### Clangd: the widget layout answered the question
+
+This panel was left waiting on "which of the page's aspects should a project
+show", and the answer was already written down in the code it was replacing.
+`clangdSettingsLayout()` lists the settings and nothing else, so the sessions
+table and the note about configuration files belong to the global page alone.
+The panel is the shared form, the flag, and the version warning.
+
+The warning is the interesting part. Whether the clangd that was named can be
+used is found out by running it, so it is not one of the settings - the closure
+built an `InfoLabel` of its own for it, and `ClangdPageAspects` had already
+turned that into a `TextDisplay` it owns. A project needs its own, driven by
+its own path, so `ClangdSettingsForm` takes it as a property beside the
+settings:
+
+    required property var settings
+    required property var versionWarning
+
+With the panel drawn from the container, `ClangdProjectSettings` no longer
+needs a widget layout, so its `setLayouter()` goes - 27 to 26. The global
+settings keep theirs, because a container without QML still ends up in widget
+layouts elsewhere.
+
+**A limit of the panel census, stated rather than fixed.** It checks that a
+panel renders through its QML, that the component reached `Ready`, that QML
+made no complaint, and that not everything is disabled. It does *not* check
+that every aspect got drawn, because that needs the QML item tree, and a
+`QQuickWidget`'s tree is not reachable from the widget - `findChildren` returns
+one `QQmlComponent`. The pages census does have that walk, so a panel built
+from a shared form is covered through the page that shares it; what is not
+covered is a panel-only aspect, of which there are currently three - the flag,
+the Quick Fixes button and this version warning. Moving the panel census into
+QuickUi would fix it and would cost ProjectExplorer as a plugin dependency
+there; not worth it for three aspects, but worth knowing before the count
+grows.
+
 ### The Quick Fixes panel, and how a form extraction is checked
 
 Quick Fixes was already half-way: the panel embedded the settings with
