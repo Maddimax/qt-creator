@@ -3526,6 +3526,18 @@ checked by running the thing. This one compiles and lints and cannot be
 launched here, so the page wants opening once in a build that has clang-format
 before it is trusted.
 
+**How many other plugins are in that position:** five. Comparing
+`ninja -t targets all` with `src/plugins/*/`, and confirming against
+`compile_commands.json` that the directory has `.cpp` files and no entries,
+gives appstatisticsmonitor, clangformat, effectcomposer, multipropertyeditor
+and serialterminal. Only ClangFormat could be checked - the others want
+QtCharts, QtSerialPort or QmlDesigner's own include set, none of which a
+sibling's flags supply, so their "errors" are all `file not found` and mean
+nothing. What can be said about those four is by grep, not by compiler: none
+of them names an API this branch moved, and none uses a widget type that
+`aspects.h` used to supply. That is weaker than a build and is worth redoing
+in a configuration that has those dependencies.
+
 ### Typing the delegates that drive one aspect
 
 `aspectcontainermodel.h` registers `Utils::BaseAspect` as the QML type
