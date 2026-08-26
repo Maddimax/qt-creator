@@ -465,6 +465,25 @@ PerProjectProjectExplorerSettings::PerProjectProjectExplorerSettings(Project *pr
     setGlobalSettings(&globalProjectExplorerSettings(), Constants::BUILD_AND_RUN_SETTINGS_PAGE_ID);
     setId("PESettingsAspect");
     settings->setSettingsKey("PESettings");
+    // The widget backend's drawing of what a project may set. A build without
+    // Qt::Quick reaches it through the panel container's fallback, so the
+    // panel's QML does not make it unnecessary - the two list the same nine.
+    Utils::AspectWidgets::setLayouter(settings, [settings] {
+        using namespace Layouting;
+        return Column {
+            settings->addLibraryPathsToRunEnv,
+            settings->automaticallyCreateRunConfigurations,
+            settings->lowBuildPriority,
+            settings->warnAgainstNonAsciiBuildDir,
+
+            Form {
+                settings->terminalMode, br,
+                settings->syncRunConfigurations, br,
+                settings->reaperTimeoutInSeconds, st, br,
+            },
+            st,
+        };
+    });
     setDisplayName(Tr::tr("Building and Running"));
     setUsingGlobalSettings(true);
     resetProjectToGlobalSettings();

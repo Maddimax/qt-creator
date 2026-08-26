@@ -814,6 +814,10 @@ public:
         // Base constructor loaded global settings into aspects; now override
         // with project-specific values if applicable.
         setAutoApply(true);
+        // The widget backend's drawing of these. A build without Qt::Quick
+        // reaches it through the panel container's fallback, so it is not the
+        // panel's QML that makes it unnecessary.
+        Utils::AspectWidgets::setLayouter(this, [this] { return clangdSettingsLayout(this); });
 
         const Store store =
             storeFromVariant(project->namedSettings(clangdSettingsKey()));
