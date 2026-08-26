@@ -176,6 +176,31 @@ void CodeIndenting::indentAt(int position)
     cursor.insertText(tabs.indentationString(column, tabs.indentedColumn(column, true), 0));
 }
 
+void CodeIndenting::syncTabSettings()
+{
+    // What Tab and Return type is the document's business, and for a source it
+    // is a document this can reach. Without this a preview would indent by the
+    // global settings while showing the effect of a different style, which is
+    // the one thing it exists to show.
+    //
+    // Pushed on every style change rather than only on
+    // currentTabSettingsChanged: an editor changing the indent width may report
+    // it as a value change, and one signal arriving instead of another must not
+    // leave the document indenting by yesterday's settings.
+    //
+    // Through the source rather than straight at the document, because the two
+    // kinds want opposite things: a file works the settings out from how it is
+    // already indented, and a preview must take them as given. See CodeSource.
+    if (d->m_source)
+        d->m_source->setTabSettings(d->tabSettings());
+}
+
+void CodeIndenting::styleChanged()
+{
+    syncTabSettings();
+    reindent();
+}
+
 void CodeIndenting::reattach()
 {
     const bool was = isIndenting();
@@ -193,16 +218,18 @@ void CodeIndenting::reattach()
     if (target && factory)
         d->m_indenter.reset(factory->createIndenter(target));
 
+    syncTabSettings();
+
     if (d->m_codeStyle) {
         // Everything the preview is meant to react to: the tab settings, the
         // style's own value, and being pointed at a different style.
         d->m_styleConnections
             << connect(d->m_codeStyle, &ICodeStylePreferences::currentTabSettingsChanged,
-                       this, &CodeIndenting::reindent)
+                       this, &CodeIndenting::styleChanged)
             << connect(d->m_codeStyle, &ICodeStylePreferences::currentValueChanged,
-                       this, &CodeIndenting::reindent)
+                       this, &CodeIndenting::styleChanged)
             << connect(d->m_codeStyle, &ICodeStylePreferences::currentPreferencesChanged,
-                       this, &CodeIndenting::reindent);
+                       this, &CodeIndenting::styleChanged);
     }
 
     reindent();

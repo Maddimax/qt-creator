@@ -48,65 +48,40 @@ ColumnLayout {
         Layout.fillWidth: true
     }
 
-    Frame {
+    // The text, held apart from any view of it. An aspect owns the value; this
+    // is the document a highlighter and an indenter can work on, which a
+    // QString is not.
+    CodeBuffer {
+        id: buffer
+
+        objectName: "codeStylePreviewBuffer"
+        text: root.aspects.Preview.value ?? ""
+        mimeType: root.aspects.Preview.mimeType
+    }
+
+    CodeIndenting {
+        id: indenting_
+
+        source: buffer
+        languageId: root.aspects.Preview.languageId
+        codeStyle: root.aspects.Preview.codeStyle
+    }
+
+    CodeViewport {
+        id: edit
+
+        objectName: "codeStylePreviewText"
+        readOnly: !(root.aspects.Preview.enabled ?? false)
         Layout.fillWidth: true
         Layout.fillHeight: true
         Layout.minimumHeight: Metrics.formTextAreaHeight
+        source: buffer
 
-        ScrollView {
-            anchors.fill: parent
-            clip: true
-            // A ScrollView reports the implicit size of what it scrolls, and
-            // the Frame around it sizes to that - so the preview grew the page
-            // to fit the code instead of scrolling it. The size it gets is the
-            // one the layout gives it.
-            implicitWidth: 0
-            implicitHeight: 0
-
-            TextArea {
-                id: edit
-
-                objectName: "codeStylePreviewText"
-                text: root.aspects.Preview.value ?? ""
-                enabled: root.aspects.Preview.enabled ?? false
-                textFormat: TextEdit.PlainText
-                font: highlighting.font
-                color: highlighting.textColor
-
-                // Tab types an indent, and what an indent is is the code
-                // style's answer: a TextEdit types a tab character whatever
-                // the style says. Shift+Tab needs nothing: it already takes
-                // the indent back.
-                Keys.onPressed: (event) => {
-                    if (event.key === Qt.Key_Tab) {
-                        indenting_.indentAt(edit.cursorPosition)
-                        event.accepted = true
-                    }
-                }
-
-                // Written back when focus leaves, not on every keystroke: the
-                // indenter rewrites the document, and it must not do that
-                // under the cursor.
-                onEditingFinished: {
-                    if (text !== root.aspects.Preview.value)
-                        root.aspects.Preview.value = text
-                }
-
-                CodeHighlighting {
-                    id: highlighting
-
-                    document: edit.textDocument
-                    mimeType: root.aspects.Preview.mimeType
-                }
-
-                CodeIndenting {
-                    id: indenting_
-
-                    document: edit.textDocument
-                    languageId: root.aspects.Preview.languageId
-                    codeStyle: root.aspects.Preview.codeStyle
-                }
-            }
+        // Written back when focus leaves, not on every keystroke: the indenter
+        // rewrites the document, and it must not do that under the cursor.
+        onEditingFinished: {
+            if (buffer.text !== root.aspects.Preview.value)
+                root.aspects.Preview.value = buffer.text
         }
     }
 

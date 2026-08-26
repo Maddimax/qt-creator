@@ -28,6 +28,12 @@ Item {
     // showing a file cannot accidentally change it.
     property alias readOnly: viewport.readOnly
 
+    // Focus has left, so whatever was being typed is finished. A page that
+    // writes the text somewhere else uses this rather than every keystroke:
+    // re-indenting rewrites the document, and it must not do that under the
+    // cursor.
+    signal editingFinished()
+
     // Where the caret is, and what is selected, as document positions.
     readonly property alias cursorPosition: viewport.cursorPosition
     readonly property alias selectionStart: viewport.selectionStart
@@ -52,6 +58,11 @@ Item {
             // Keys go to the scene's active focus item. The viewport is a focus
             // scope, so focusing the root would stop one level short of it.
             focus: true
+
+            onActiveFocusChanged: {
+                if (!activeFocus)
+                    root.editingFinished()
+            }
 
             // The caret. A Rectangle because that is what it is; the viewport
             // draws text and says where the caret belongs, and an empty rect

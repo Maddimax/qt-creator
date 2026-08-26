@@ -83,6 +83,8 @@ signals:
 
 private:
     void reattach();
+    void syncTabSettings();
+    void styleChanged();
 
     CodeIndentingPrivate *d = nullptr;
 };

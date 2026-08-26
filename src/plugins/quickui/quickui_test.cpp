@@ -221,6 +221,7 @@ private slots:
     void testColourWithNoResetHasNoButton();
     void testACodeEditorScrollsInsteadOfGrowingThePage();
     void testTabTypesAnIndentInACodeEditor();
+    void testEditingThePreviewReachesTheAspectThatOwnsIt();
 };
 
 void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
@@ -3882,33 +3883,30 @@ static QQuickItem *showPage(const QString &displayName, std::unique_ptr<QWidget>
 
 void QuickUiTest::testACodeEditorScrollsInsteadOfGrowingThePage()
 {
-    // A ScrollView reports the implicit size of what it scrolls, and the frame
-    // around it sizes to that - so a preview holding more code than fits grew
-    // the whole page to fit it, and the page scrolled instead of the editor.
+    // A preview holding more code than fits must scroll itself rather than grow
+    // the page and make the page scroll. TextViewport lays out only what is on
+    // screen, so its contentHeight is the document's and its height is the
+    // space the layout gave it; those two disagreeing is the whole point.
     std::unique_ptr<QWidget> host;
     QQuickItem *root = showPage("Code Style", host, {640, 400});
     if (!root)
         QSKIP("The C++ Code Style page is not available here");
 
-    QQuickItem *edit = nullptr;
-    QTRY_VERIFY(edit = findQmlNamed(root, "codeStylePreviewText").value(0));
-    const QString snippet = edit->property("text").toString();
+    QQuickItem *viewport = nullptr;
+    QTRY_VERIFY(viewport = findQmlNamed(root, "codeViewport").value(0));
+    // The text is the buffer's, not the view's: a viewport draws a document and
+    // does not hold one.
+    QObject *buffer = root->findChild<QObject *>("codeStylePreviewBuffer");
+    QVERIFY(buffer);
+
+    const QString snippet = buffer->property("text").toString();
     QVERIFY(!snippet.isEmpty());
     // More code than fits, which is the case that used to grow the page.
-    edit->setProperty("text", snippet.repeated(8));
+    buffer->setProperty("text", snippet.repeated(8));
     QCoreApplication::processEvents();
 
-    // The preview holds more code than its own height: this is the case that
-    // used to grow the page.
-    // The editor is the thing that scrolls.
-    QQuickItem *scroll = edit;
-    while (scroll
-           && !QString::fromLatin1(scroll->metaObject()->className()).contains("ScrollView")) {
-        scroll = scroll->parentItem();
-    }
-    QVERIFY(scroll);
-    QVERIFY2(scroll->property("contentHeight").toReal() > scroll->height(),
-             "The editor grew to fit the code instead of scrolling it");
+    QTRY_VERIFY2(viewport->property("contentHeight").toReal() > viewport->height(),
+                 "The editor grew to fit the code instead of scrolling it");
 
     // And the page is no taller than the space it was given, so it is the
     // editor that scrolls and not the page. Any of the Code Style pages will
@@ -3920,18 +3918,67 @@ void QuickUiTest::testACodeEditorScrollsInsteadOfGrowingThePage()
                               .arg(root->height())));
 }
 
+void QuickUiTest::testEditingThePreviewReachesTheAspectThatOwnsIt()
+{
+    // The buffer holds the text while it is being edited, but the aspect owns
+    // it: Reset goes back to the factory's snippet and Format runs the
+    // formatter, and both work on the aspect's value. A preview whose edits
+    // never got there would format the text as it was before they were made.
+    //
+    // Written back when focus leaves rather than on every keystroke, because
+    // the aspect's value changing re-indents, and that must not rewrite the
+    // document under the cursor.
+    std::unique_ptr<QWidget> host;
+    QQuickItem *root = showPage("Code Style", host);
+    if (!root)
+        QSKIP("No Code Style page is available here");
+
+    QQuickItem *viewport = nullptr;
+    QTRY_VERIFY(viewport = findQmlNamed(root, "codeViewport").value(0));
+    auto quickWidget = host->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+
+    Utils::BaseAspect *preview = nullptr;
+    for (QQuickItem *delegate : findAspectDelegates(root)) {
+        if (auto aspect = delegate->property("aspect").value<Utils::BaseAspect *>()) {
+            if (aspect->qmlName() == "Preview")
+                preview = aspect;
+        }
+    }
+    QVERIFY2(preview, "the preview does not say which aspect it draws");
+
+    QMetaObject::invokeMethod(viewport, "forceActiveFocus");
+    QTRY_VERIFY(viewport->hasActiveFocus());
+    viewport->setProperty("cursorPosition", 0);
+    quickWidget->setFocus();
+    QTest::keyClick(quickWidget, 'Z');
+
+    // Still being typed, so the aspect has not been told yet.
+    QVERIFY2(!preview->volatileVariantValue().toString().startsWith('Z'),
+             "the preview wrote to the aspect while the cursor was still in it");
+
+    // Focus leaves, and now it has.
+    viewport->setProperty("focus", false);
+    QTRY_VERIFY(!viewport->hasActiveFocus());
+    QTRY_VERIFY2(preview->volatileVariantValue().toString().startsWith('Z'),
+                 "editing the preview never reached the aspect that owns it");
+}
+
 void QuickUiTest::testTabTypesAnIndentInACodeEditor()
 {
     // Tab in an editor types an indent, and what an indent is is the code
-    // style's answer. A Qt Quick TextEdit types a tab character whatever the
-    // style says, which is wrong wherever the style says spaces.
+    // style's answer - not a tab character, wherever the style says spaces.
     std::unique_ptr<QWidget> host;
     QQuickItem *root = showPage("Code Style", host);
     if (!root)
         QSKIP("The C++ Code Style page is not available here");
 
-    QQuickItem *edit = nullptr;
-    QTRY_VERIFY(edit = findQmlNamed(root, "codeStylePreviewText").value(0));
+    // Focus goes to the viewport itself: it is a focus scope, so focusing the
+    // component around it would stop one level short and no key would arrive.
+    QQuickItem *viewport = nullptr;
+    QTRY_VERIFY(viewport = findQmlNamed(root, "codeViewport").value(0));
+    QObject *buffer = root->findChild<QObject *>("codeStylePreviewBuffer");
+    QVERIFY(buffer);
     auto quickWidget = host->findChild<QQuickWidget *>();
     QVERIFY(quickWidget);
 
@@ -3952,10 +3999,10 @@ void QuickUiTest::testTabTypesAnIndentInACodeEditor()
 
     QString typedByTab;
     const auto typeTab = [&] {
-        QMetaObject::invokeMethod(edit, "forceActiveFocus");
-        QTRY_VERIFY(edit->hasActiveFocus());
-        edit->setProperty("cursorPosition", 0);
-        const QString before = edit->property("text").toString();
+        QMetaObject::invokeMethod(viewport, "forceActiveFocus");
+        QTRY_VERIFY(viewport->hasActiveFocus());
+        viewport->setProperty("cursorPosition", 0);
+        const QString before = buffer->property("text").toString();
         // Sent to the QQuickWidget rather than to the scene's own window: the
         // widget focus chain is what takes the key, and delivering straight to
         // the scene steps over the thing being tested. The widget needs the
@@ -3963,7 +4010,7 @@ void QuickUiTest::testTabTypesAnIndentInACodeEditor()
         // focusNextPrevChild().
         quickWidget->setFocus();
         QTest::keyClick(quickWidget, Qt::Key_Tab);
-        const QString after = edit->property("text").toString();
+        const QString after = buffer->property("text").toString();
         typedByTab = after.left(after.size() - before.size());
     };
 
@@ -3972,7 +4019,7 @@ void QuickUiTest::testTabTypesAnIndentInACodeEditor()
     indentSize->setValue(4);
     typeTab();
     QCOMPARE(typedByTab, QString("    "));
-    QVERIFY2(edit->hasActiveFocus(), "Tab left the editor");
+    QVERIFY2(viewport->hasActiveFocus(), "Tab left the editor");
 
     // And a tab character where it says tabs. How many of what is
     // TabSettingsData's arithmetic and has its own tests; what matters here is
@@ -3985,9 +4032,9 @@ void QuickUiTest::testTabTypesAnIndentInACodeEditor()
     tabPolicy->setValue(0);
     typeTab();
     QCOMPARE(typedByTab, QString("    "));
-    const QString before = edit->property("text").toString();
+    const QString before = buffer->property("text").toString();
     QTest::keyClick(quickWidget, Qt::Key_Backtab);
-    QCOMPARE(edit->property("text").toString(), before.mid(typedByTab.size()));
+    QCOMPARE(buffer->property("text").toString(), before.mid(typedByTab.size()));
 }
 
 void QuickUiTest::testColourOffersToGoBackToItsDefault()

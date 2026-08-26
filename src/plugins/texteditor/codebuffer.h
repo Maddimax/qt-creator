@@ -48,6 +48,7 @@ public:
     bool isHighlighting() const;
 
     TextDocument *textDocument() const override;
+    void setTabSettings(const TabSettingsData &tabSettings) override;
 
 signals:
     void textChanged();

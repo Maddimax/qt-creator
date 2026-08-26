@@ -5620,11 +5620,41 @@ wrapping, and the extra-selection overlays beyond the primary selection. Nothing
 left on that list is something a `TextArea` does and this does not, so the code
 style preview can be swapped over without losing anything.
 
-**Still to do for the preview itself.** `CodeStylePreview.qml` can now be a
-`CodeBuffer` under a `CodeViewport` with `CodeIndenting` over the same source.
-That is a separate change on purpose: everything above is plumbing that leaves
-every page exactly as it was, and swapping the editor a working page draws with
-is the first step that can regress one.
+**The code style preview is now the real editor.** `CodeStylePreview.qml` is a
+`CodeBuffer` under a `CodeViewport`, with `CodeIndenting` over the same source.
+The `TextArea`, the `ScrollView` around it and the `CodeHighlighting` beside it
+are gone: a buffer highlights itself, and a viewport scrolls itself.
+
+**What that turned up, which no page had needed before.**
+`TextDocument::setTabSettings()` runs `autoDetect()` over the text and keeps
+whatever indentation it finds. For a file that is exactly right - the file's own
+style is the one to preserve. For a preview it is circular: the text *is* the
+demonstration of a style, so detecting the style from it only ever answers
+"however it looks now", and the Tab key indented by whatever the snippet already
+used instead of by the style being edited.
+
+So the choice moved to where the two kinds differ. `CodeSource::setTabSettings()`
+hands them to the document and lets it auto-detect; `CodeBuffer` overrides it and
+takes them verbatim. `CodeIndenting` pushes on *every* style signal rather than
+only on `currentTabSettingsChanged`, because an editor changing the indent width
+may report it as a value change, and one signal arriving instead of another must
+not leave the document indenting by yesterday's settings.
+
+**Two census tests changed shape rather than being deleted**, because what they
+assert still matters. `testACodeEditorScrollsInsteadOfGrowingThePage` used to
+look for a `ScrollView` above the editor; there is none now, so it asks the
+viewport whether its `contentHeight` exceeds its `height` - the same property,
+more directly. `testTabTypesAnIndentInACodeEditor` used to read `text` off the
+editor; the text is the buffer's now, and focus goes to the viewport rather than
+to the component around it, which is a focus scope.
+
+**And one that was missing.** Nothing asserted that editing the preview reaches
+the aspect that owns it - the old `TextArea` wrote back on `editingFinished` and
+no test noticed either way. It matters: Reset and Format work on the aspect's
+value, so a preview whose edits never got there would format the text as it was
+before they were made. `testEditingThePreviewReachesTheAspectThatOwnsIt` now
+checks both halves - that the aspect is *not* written while the cursor is still
+in the editor, and that it is once focus leaves.
 
 ## The terminal spike: go, with the cleanest split in the tree
 

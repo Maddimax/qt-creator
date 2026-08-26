@@ -10,6 +10,12 @@
 
 namespace TextEditor {
 
+void CodeSource::setTabSettings(const TabSettingsData &tabSettings)
+{
+    if (TextDocument * const document = textDocument())
+        document->setTabSettings(tabSettings);
+}
+
 bool CodeSource::applyHighlighting(TextDocument *document, const QString &mimeType)
 {
     if (!document)

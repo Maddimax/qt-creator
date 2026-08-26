@@ -3,6 +3,7 @@
 
 #include "codebuffer.h"
 
+#include "tabsettings.h"
 #include "textdocument.h"
 
 #include <QPointer>
@@ -10,10 +11,30 @@
 
 namespace TextEditor {
 
+// TextDocument::setTabSettings() runs autoDetect() over the text, which is
+// right for a file - the indentation already in it is the one to keep - and
+// wrong for a preview, where the text is the *demonstration* of a style and
+// detecting the style from it would only ever answer "however it looks now".
+class BufferDocument : public TextDocument
+{
+public:
+    TabSettingsData tabSettings() const override { return m_tabSettings; }
+    void setTabSettingsVerbatim(const TabSettingsData &tabSettings)
+    {
+        if (m_tabSettings == tabSettings)
+            return;
+        m_tabSettings = tabSettings;
+        emit tabSettingsChanged();
+    }
+
+private:
+    TabSettingsData m_tabSettings;
+};
+
 class CodeBufferPrivate
 {
 public:
-    std::unique_ptr<TextDocument> m_document;
+    std::unique_ptr<BufferDocument> m_document;
     QString m_mimeType;
     // Whether a definition was found for the mime type. The document always has
     // *a* highlighter after the first setMimeType(), so its presence says
@@ -28,7 +49,7 @@ CodeBuffer::CodeBuffer(QObject *parent)
     : CodeSource(parent)
     , d(new CodeBufferPrivate)
 {
-    d->m_document = std::make_unique<TextDocument>();
+    d->m_document = std::make_unique<BufferDocument>();
     connect(d->m_document->document(), &QTextDocument::contentsChanged, this, [this] {
         if (!d->m_applying)
             emit textChanged();
@@ -55,6 +76,11 @@ void CodeBuffer::setText(const QString &text)
     d->m_document->document()->setPlainText(text);
     d->m_applying = false;
     emit textChanged();
+}
+
+void CodeBuffer::setTabSettings(const TabSettingsData &tabSettings)
+{
+    d->m_document->setTabSettingsVerbatim(tabSettings);
 }
 
 QString CodeBuffer::mimeType() const

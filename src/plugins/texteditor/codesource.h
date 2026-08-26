@@ -10,6 +10,7 @@
 
 namespace TextEditor {
 
+class TabSettingsData;
 class TextDocument;
 
 // Something a TextViewport can draw. A file is one - CodeDocument - and text
@@ -30,6 +31,14 @@ public:
 
     // The document to draw, or null when there is none yet.
     virtual TextDocument *textDocument() const = 0;
+
+    // What an indent is here. A file's document works this out from the text
+    // already in it - respecting how the file is actually indented, which is
+    // right for a file - so the default just hands it over and lets it. A
+    // buffer showing what a code style does to code must not: detecting the
+    // style from the text you are demonstrating the style on is circular, and
+    // the answer is always "however it looks now".
+    virtual void setTabSettings(const TabSettingsData &tabSettings);
 
 signals:
     // A different document from now on - not a change to the one there was.
