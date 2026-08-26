@@ -5,32 +5,11 @@ pragma ComponentBehavior: Bound
 pragma FunctionSignatureBehavior: Enforced
 
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
-    AspectGroupBox {
-        title: qsTr("General")
+    id: root
 
-        ColumnLayout {
-            BoolDelegate { aspect: aspects.InterpretAmbiguousHeadersAsCHeaders }
-            BoolDelegate { aspect: aspects.PCHUsage }
-            BoolDelegate { aspect: aspects.UseBuiltinPreprocessor }
-            BoolDelegate { aspect: aspects.EnableIndexing }
-
-            RowLayout {
-                BoolDelegate { aspect: aspects.SkipIndexingBigFiles }
-                IntegerDelegate { aspect: aspects.IndexerFileSizeLimit }
-            }
-
-            RowLayout {
-                BoolDelegate {
-                    aspect: aspects.IgnoreFiles
-                    Layout.alignment: Qt.AlignTop
-                }
-                TextAreaDelegate { aspect: aspects.IgnorePattern }
-            }
-        }
-    }
+    CppCodeModelSettingsForm { aspects: root.aspects }
 }

@@ -192,9 +192,13 @@ if(TARGET CppEditor AND TARGET Qt::Quick)
     NO_PLUGIN
     QML_FILES
       ClangdSettingsPage.qml
+      CppCodeModelProjectPanel.qml
+      CppCodeModelSettingsForm.qml
       CppCodeModelSettingsPage.qml
       CppCodeStylePage.qml
+      CppFileSettingsForm.qml
       CppFileSettingsPage.qml
+      CppFileSettingsProjectPanel.qml
       CppQuickFixSettingsPage.qml
   )
 endif()

@@ -241,21 +241,39 @@ static CppCodeModelProjectSettings *cppCodeModelProjectSettings(Project *project
     return projectSettings<CppCodeModelProjectSettings>(project);
 }
 
-class CppCodeModelProjectSettingsWidget : public QWidget
+// What the panel shows. The flag is kept out of the settings container because
+// that container turns itself off as a whole. See ProjectCommentsPanel.
+class CppCodeModelProjectPanel final : public AspectContainer
 {
 public:
-    explicit CppCodeModelProjectSettingsWidget(Project *project)
+    explicit CppCodeModelProjectPanel(CppCodeModelProjectSettings *settings)
     {
-        CppCodeModelProjectSettings * const ps = cppCodeModelProjectSettings(project);
-        using namespace Layouting;
-        Column {
-            ps->useGlobalSettings,
-            hr,
-            *ps,
-            noMargin
-        }.attachTo(this);
+        // Before registering: insertAspect() forces the container's own
+        // auto-apply onto what it takes in.
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/CppEditor/CppCodeModelProjectPanel.qml"));
+
+        settings->useGlobalSettings.setQmlName("UseGlobalSettings");
+        registerAspect(&settings->useGlobalSettings);
+
+        settings->setQmlName("Settings");
+        registerAspect(settings);
     }
+
+    static Key extraDataKey() { return "CppCodeModelProjectPanel"; }
 };
+
+static CppCodeModelProjectPanel *cppCodeModelProjectPanel(Project *project)
+{
+    const Key key = CppCodeModelProjectPanel::extraDataKey();
+    QVariant v = project->extraData(key);
+    if (v.isNull()) {
+        v = QVariant::fromValue(
+            new CppCodeModelProjectPanel(cppCodeModelProjectSettings(project)));
+        project->setExtraData(key, v);
+    }
+    return v.value<CppCodeModelProjectPanel *>();
+}
 
 } // namespace Internal
 
@@ -301,8 +319,8 @@ public:
     {
         setPriority(100);
         setDisplayName(Tr::tr("C++ Code Model"));
-        setCreateWidgetFunction([](Project *project) {
-            return new CppCodeModelProjectSettingsWidget(project);
+        setSettingsProvider([](Project *project) {
+            return cppCodeModelProjectPanel(project);
         });
     }
 };

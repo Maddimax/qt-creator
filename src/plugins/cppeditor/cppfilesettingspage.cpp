@@ -470,21 +470,39 @@ static CppFileProjectSettings *cppFileProjectSettings(Project *project)
     return projectSettings<CppFileProjectSettings>(project);
 }
 
-class CppFileSettingsForProjectWidget : public QWidget
+// What the panel shows. The flag is kept out of the settings container because
+// that container turns itself off as a whole. See ProjectCommentsPanel.
+class CppFileSettingsProjectPanel final : public AspectContainer
 {
 public:
-    CppFileSettingsForProjectWidget(Project *project)
+    explicit CppFileSettingsProjectPanel(CppFileProjectSettings *settings)
     {
-        CppFileProjectSettings * const ps = cppFileProjectSettings(project);
-        using namespace Layouting;
-        Column {
-            ps->useGlobalSettings,
-            hr,
-            *ps,
-            noMargin
-        }.attachTo(this);
+        // Before registering: insertAspect() forces the container's own
+        // auto-apply onto what it takes in.
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/CppEditor/CppFileSettingsProjectPanel.qml"));
+
+        settings->useGlobalSettings.setQmlName("UseGlobalSettings");
+        registerAspect(&settings->useGlobalSettings);
+
+        settings->setQmlName("Settings");
+        registerAspect(settings);
     }
+
+    static Key extraDataKey() { return "CppFileSettingsProjectPanel"; }
 };
+
+static CppFileSettingsProjectPanel *cppFileSettingsProjectPanel(Project *project)
+{
+    const Key key = CppFileSettingsProjectPanel::extraDataKey();
+    QVariant v = project->extraData(key);
+    if (v.isNull()) {
+        v = QVariant::fromValue(
+            new CppFileSettingsProjectPanel(cppFileProjectSettings(project)));
+        project->setExtraData(key, v);
+    }
+    return v.value<CppFileSettingsProjectPanel *>();
+}
 
 class CppFileSettingsProjectPanelFactory final : public ProjectPanelFactory
 {
@@ -493,8 +511,8 @@ public:
     {
         setPriority(99);
         setDisplayName(Tr::tr("C++ File Naming"));
-        setCreateWidgetFunction([](Project *project) {
-            return new CppFileSettingsForProjectWidget(project);
+        setSettingsProvider([](Project *project) {
+            return cppFileSettingsProjectPanel(project);
         });
     }
 };
