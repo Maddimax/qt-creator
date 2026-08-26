@@ -7,6 +7,7 @@
 
 #include <QAbstractListModel>
 #include <QHash>
+#include <QPointer>
 #include <QQmlEngine>
 
 #include <utils/aspectlist.h>
@@ -65,6 +66,12 @@ class QTCQUICK_EXPORT AspectContainerModel : public QAbstractListModel
     Q_OBJECT
     QML_ELEMENT
     QML_UNCREATABLE("Created from C++ by createAspectForm()")
+
+    // Whether the container wants its aspects side by side. Asked of the model
+    // rather than of the container, because a delegate that draws a container's
+    // aspects straight from a model - an inline list builds one per item - has
+    // the model and not the container. See AspectContainer::setInlineRow().
+    Q_PROPERTY(bool inlineRow READ isInlineRow CONSTANT)
 
 public:
     // The control a generic editor should use for an aspect.
@@ -128,7 +135,10 @@ public:
     // containers included. False means at least one would be a placeholder.
     static bool isFullyRenderable(const Utils::AspectContainer *container);
 
+    bool isInlineRow() const;
+
 private:
+    QPointer<Utils::AspectContainer> m_container;
     QList<Utils::BaseAspect *> m_aspects;
     // A model per nested container, built on demand and owned by this one, so
     // that a group delegate can repeat over its children.

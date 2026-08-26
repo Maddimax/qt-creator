@@ -1398,10 +1398,9 @@ PortMapping::PortMapping()
     protocol.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
     protocol.setLabelText(Tr::tr("Protocol:"));
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-        return Row{ip, hostPort, containerPort, protocol};
-    });
+    // Four fields that mean one mapping, so they read as one row. Said rather
+    // than laid out, so that both backends draw the same thing.
+    setInlineRow(true);
 }
 
 PortMappings::PortMappings(AspectContainer *container)

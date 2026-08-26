@@ -160,6 +160,7 @@ private slots:
     void testSelectionWithoutDescribedChoicesIsUnsupported();
     void testNestedContainerRendersAsGroup();
     void testAContainerCanReadAsOneRow();
+    void testAnInlineListItemCanReadAsOneRow();
     void testQmlNameIsDerivedFromTheSettingsKey();
     void testPageQmlReachesItsAspectsByName();
     void testLabelChangeReachesTheControl();
@@ -1814,6 +1815,58 @@ void QuickUiTest::testSecretIsFetchedBeforeItCanBeEdited()
     field->setProperty("text", "hunter2");
     QMetaObject::invokeMethod(field, "editingFinished");
     QCOMPARE(secret.displayText(), QString("hunter2"));
+}
+
+void QuickUiTest::testAnInlineListItemCanReadAsOneRow()
+{
+    // A port mapping is four fields that mean one mapping, so an item of the
+    // list is a row. An inline list draws each item's aspects itself, from the
+    // item's model, so the item's own kind never reaches a delegate - the model
+    // has to carry how it reads. The widget form asks the container directly
+    // and has drawn it as a row all along.
+    const auto build = [](Utils::AspectContainer &page, bool inRow) {
+        auto list = new Utils::AspectList(&page);
+        list->setLabelText("Port mappings:");
+        list->setCreateItemFunction([inRow] {
+            auto item = std::make_shared<Utils::AspectContainer>();
+            item->setInlineRow(inRow);
+            for (const char *name : {"HostPort", "ContainerPort"}) {
+                auto part = new Utils::StringAspect(item.get());
+                part->setQmlName(QString::fromLatin1(name));
+                part->setLabelText(QString::fromLatin1(name));
+                part->setDisplayStyle(Utils::StringAspect::LineEditDisplay);
+            }
+            return item;
+        });
+        list->createAndAddItem();
+    };
+
+    const auto fieldsOf = [](Utils::AspectContainer &page, std::unique_ptr<QWidget> &keep) {
+        keep.reset(QtcQuick::createGenericAspectForm(&page));
+        auto quick = keep->findChild<QQuickWidget *>();
+        QTC_ASSERT(quick, return QList<QQuickItem *>());
+        keep->resize(800, 600);
+        keep->show();
+        if (!QTest::qWaitForWindowExposed(keep.get()))
+            return QList<QQuickItem *>();
+        return findQmlComponents(quick->rootObject(), "StringDelegate");
+    };
+
+    Utils::AspectContainer stacked;
+    build(stacked, false);
+    std::unique_ptr<QWidget> stackedForm;
+    const QList<QQuickItem *> stackedFields = fieldsOf(stacked, stackedForm);
+    QCOMPARE(stackedFields.size(), 2);
+    QVERIFY(stackedFields.at(1)->y() > stackedFields.at(0)->y());
+    QCOMPARE(stackedFields.at(1)->x(), stackedFields.at(0)->x());
+
+    Utils::AspectContainer inline_;
+    build(inline_, true);
+    std::unique_ptr<QWidget> inlineForm;
+    const QList<QQuickItem *> inlineFields = fieldsOf(inline_, inlineForm);
+    QCOMPARE(inlineFields.size(), 2);
+    QVERIFY(inlineFields.at(1)->x() > inlineFields.at(0)->x());
+    QCOMPARE(inlineFields.at(1)->y(), inlineFields.at(0)->y());
 }
 
 void QuickUiTest::testAContainerCanReadAsOneRow()

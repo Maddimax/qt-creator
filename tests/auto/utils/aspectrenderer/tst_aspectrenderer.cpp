@@ -203,6 +203,7 @@ private slots:
     void terminalCommandIsOneRow_data() { addRendererRows(); }
     void terminalCommandIsOneRow();
     void inlineRowLinesUpWithTheRowsAroundIt();
+    void anInlineListItemThatReadsAsOneRowIsARow();
     void aspectListWithDetails_data() { addRendererRows(); }
     void aspectListWithDetails();
     void aspectInlineList_data() { addRendererRows(); }
@@ -1890,6 +1891,68 @@ void tst_AspectRenderer::terminalCommandIsOneRow()
     QCOMPARE(FilePath::fromUserInput(aspect.terminalEmulator.volatileValue()).toUserOutput(),
              choices.last().display);
     QVERIFY(!summary->text().contains("--from-the-test"));
+}
+
+void tst_AspectRenderer::anInlineListItemThatReadsAsOneRowIsARow()
+{
+    setRendererInstalled(true);
+
+    // An inline list draws each item by adding it to a row, which asks the item
+    // how it draws itself. An item that reads as one value - a port mapping is
+    // four fields that mean one mapping - used to answer with a layouter of its
+    // own, which only this backend could read. The descriptor says it instead;
+    // QuickUiTest::testAnInlineListItemCanReadAsOneRow() asks the other one.
+    const auto fieldPositions = [](AspectContainer &page,
+                                   bool inRow,
+                                   std::unique_ptr<QWidget> &keep) {
+        auto list = new AspectList(&page);
+        list->setLabelText("Port mappings:");
+        list->setCreateItemFunction([inRow] {
+            auto item = std::make_shared<AspectContainer>();
+            item->setInlineRow(inRow);
+            for (const char *n : {"HostPort", "ContainerPort"}) {
+                auto part = new StringAspect(item.get());
+                part->setLabelText(QString::fromLatin1(n));
+                part->setDisplayStyle(StringAspect::LineEditDisplay);
+            }
+            return item;
+        });
+        list->createAndAddItem();
+
+        keep = render(*list);
+        keep->resize(800, 300);
+        keep->show();
+        QTest::qWaitForWindowExposed(keep.get());
+
+        // Distinct positions rather than a count: the list replaces its layout
+        // when its items change and the widgets it replaced are deleted later,
+        // so the same field is found twice. Where they are is the question
+        // anyway.
+        QList<QPoint> seen;
+        for (QLineEdit * const field : keep->findChildren<QLineEdit *>()) {
+            const QPoint at = field->mapTo(keep.get(), QPoint(0, 0));
+            if (!seen.contains(at))
+                seen.append(at);
+        }
+        std::sort(seen.begin(), seen.end(), [](QPoint a, QPoint b) {
+            return a.y() != b.y() ? a.y() < b.y() : a.x() < b.x();
+        });
+        return seen;
+    };
+
+    AspectContainer stackedPage;
+    std::unique_ptr<QWidget> stackedForm;
+    const QList<QPoint> stacked = fieldPositions(stackedPage, false, stackedForm);
+    QCOMPARE(stacked.size(), 2);
+    QCOMPARE(stacked.at(1).x(), stacked.at(0).x());
+    QVERIFY(stacked.at(1).y() > stacked.at(0).y());
+
+    AspectContainer rowPage;
+    std::unique_ptr<QWidget> rowForm;
+    const QList<QPoint> row = fieldPositions(rowPage, true, rowForm);
+    QCOMPARE(row.size(), 2);
+    QCOMPARE(row.at(1).y(), row.at(0).y());
+    QVERIFY(row.at(1).x() > row.at(0).x());
 }
 
 void tst_AspectRenderer::inlineRowLinesUpWithTheRowsAroundIt()

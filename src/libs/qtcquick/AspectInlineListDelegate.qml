@@ -54,8 +54,12 @@ ColumnLayout {
             // that only assigns it afterwards builds the item without one.
             Loader {
                 Layout.fillWidth: true
+                // inRow with the model: an item whose aspects read as one
+                // value - a port mapping is four fields that mean one thing -
+                // is drawn side by side, the way the widget form draws it.
                 Component.onCompleted: setSource("AspectItems.qml",
-                                                 {"model": row.itemModel})
+                                                 {"model": row.itemModel,
+                                                  "inRow": row.itemModel?.inlineRow ?? false})
             }
 
             Button {

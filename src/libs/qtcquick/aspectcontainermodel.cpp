@@ -20,6 +20,7 @@ AspectContainerModel::AspectContainerModel(AspectContainer *container, QObject *
     : QAbstractListModel(parent)
 {
     QTC_ASSERT(container, return);
+    m_container = container;
     m_aspects = container->aspects();
 
     // A container that is refilled while a page is open - what a device asks
@@ -30,6 +31,11 @@ AspectContainerModel::AspectContainerModel(AspectContainer *container, QObject *
         m_aspects = container->aspects();
         endResetModel();
     });
+}
+
+bool AspectContainerModel::isInlineRow() const
+{
+    return m_container && m_container->presentation().inlineRow;
 }
 
 int AspectContainerModel::rowCount(const QModelIndex &parent) const
