@@ -208,6 +208,7 @@ private slots:
     void testTableAspectRemovesEverySelectedRow();
     void testTableAspectFiltersItsRows();
     void testSelectingARowTellsThePageWhichOneItIs();
+    void testEveryTableOnEveryPageReportsItsCurrentRow();
     void testTableCellReadsInItsOwnColours();
     void testATableIsReadOnTheBackgroundItsAspectNames();
     void testTheFormatListIsReadOnTheSchemesOwnBackground();
@@ -4218,6 +4219,54 @@ void QuickUiTest::testTableCellReadsInItsOwnColours()
             ++painted;
     }
     QCOMPARE(painted, 2);
+}
+
+void QuickUiTest::testEveryTableOnEveryPageReportsItsCurrentRow()
+{
+    // The one above says the property works. This says it works on the pages
+    // that depend on it, which is where it was broken: six pages hand
+    // TableDelegate.currentRow to an aspect, and for as long as it read a
+    // property TableView does not have, every one of them was told -1.
+    //
+    // Deliberately not folded into the page census: that one builds pages and
+    // looks at them, and selecting a row runs whatever the page does about it.
+    // Kept apart so a side effect there cannot be mistaken for a rendering
+    // failure here.
+    int tablesChecked = 0;
+    QStringList silent;
+
+    for (Core::IOptionsPage *page : Core::IOptionsPage::allOptionsPages()) {
+        const std::optional<Utils::AspectContainer *> aspects = page->aspects();
+        if (!aspects || !*aspects || (*aspects)->qmlSource().isEmpty())
+            continue;
+
+        std::unique_ptr<Core::IOptionsPageWidget> widget(page->createWidget());
+        if (!widget)
+            continue;
+        auto quickWidget = widget->findChild<QQuickWidget *>();
+        if (!quickWidget || !quickWidget->rootObject())
+            continue;
+
+        for (QQuickItem *delegate : findQmlComponents(quickWidget->rootObject(), "TableDelegate")) {
+            QQuickItem *view = findQmlComponent(delegate, "QQuickTableView");
+            if (!view)
+                continue;
+            auto shown = view->property("model").value<QAbstractItemModel *>();
+            auto selection = view->property("selectionModel").value<QItemSelectionModel *>();
+            if (!shown || !selection || shown->rowCount({}) == 0)
+                continue;
+
+            ++tablesChecked;
+            selection->setCurrentIndex(shown->index(0, 0), QItemSelectionModel::SelectCurrent);
+            if (delegate->property("currentRow").toInt() != 0)
+                silent << page->displayName() + "/" + delegate->property("labelText").toString();
+        }
+    }
+
+    QVERIFY2(tablesChecked > 0, "no page offered a table with rows, so this checked nothing");
+    QVERIFY2(silent.isEmpty(),
+             qPrintable("tables that did not report the selected row: " + silent.join(", ")));
+    qInfo().noquote() << "tables asked which row is current:" << tablesChecked;
 }
 
 void QuickUiTest::testSelectingARowTellsThePageWhichOneItIs()

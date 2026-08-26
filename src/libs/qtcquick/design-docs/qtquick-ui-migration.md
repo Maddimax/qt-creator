@@ -5254,6 +5254,22 @@ in a file with other warnings. And no test selected a row and then asked what
 the page had been told: the census renders every page and asserts the controls
 are there, which a page showing the wrong row passes.
 
+**How wide it went, measured rather than guessed.** Six pages hand
+`currentRow` to an aspect - Project Environment, Python Interpreters, ClangTools'
+project panel, Snippets, Font && Colors and MIME Types - and all six names check
+out against a real `setQmlName`, so the wiring was right and only the property
+was wrong. Reverting the fix and running the new test names **ten** tables, not
+six: User Command Mapping, the MCP Server's tools, CPU Usage, Code Style,
+General, Documentation and QML/JS Editing have tables whose current row was
+also always -1, whether or not they read it yet.
+
+That test is deliberately kept out of the page census. The census builds pages
+and looks at them; selecting a row runs whatever the page does about it, and a
+side effect there should not read as a rendering failure. It is also the answer
+to why this survived: **the census renders every page and asserts the controls
+are present, which a page showing the wrong row passes.** Rendering is not
+operating, and until something operated a table nothing was going to notice.
+
 **Two assertions in this batch turned out to be vacuous and were cut rather than
 kept.** An unshown `TableView` lays out once and its `currentRow` then goes
 stale, so half a test read a value from before the step it meant to check.
