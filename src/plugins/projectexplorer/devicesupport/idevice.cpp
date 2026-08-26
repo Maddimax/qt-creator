@@ -730,18 +730,6 @@ void IDevice::initDeviceToolAspects()
         sourceAndBuildToolsGroup.registerAspect(tool);
     }
 
-    // One labelled row each, which is what the closure these replaced built.
-    for (Utils::AspectContainer * const group :
-         {&runToolsGroup, &sourceAndBuildToolsGroup, &autoDetectionGroup}) {
-        Utils::AspectWidgets::setLayouter(group, [group] {
-            Layouting::Form form{Layouting::noMargin};
-            for (Utils::BaseAspect * const row : group->aspects()) {
-                form.addItem(row);
-                form.addItem(Layouting::br);
-            }
-            return form;
-        });
-    }
 }
 
 void IDevice::setOpenTerminal(const IDevice::OpenTerminal &openTerminal)
@@ -961,15 +949,6 @@ void IDevice::fillSettingsAspects()
     d->settingsAspects.setAutoApply(isAutoApply());
     addSettingsRows(d->settingsAspects);
 
-    // One row each, which is what every device widget's Form did.
-    Utils::AspectWidgets::setLayouter(&d->settingsAspects, [this] {
-        Layouting::Form form{Layouting::noMargin};
-        for (Utils::BaseAspect * const row : d->settingsAspects.aspects()) {
-            form.addItem(row);
-            form.addItem(Layouting::br);
-        }
-        return form;
-    });
 }
 
 void IDevice::addSettingsRows(AspectContainer &rows)
@@ -1012,15 +991,6 @@ void IDevice::refreshDeviceInfoAspects()
     }
 
     // One row each, whatever they turn out to be. A Qt Quick page draws the
-    // container directly and needs none of this.
-    Utils::AspectWidgets::setLayouter(&d->deviceInfoAspects, [this] {
-        Layouting::Form form{Layouting::noMargin};
-        for (Utils::BaseAspect * const row : d->deviceInfoAspects.aspects()) {
-            form.addItem(row);
-            form.addItem(Layouting::br);
-        }
-        return form;
-    });
 }
 
 IDevice::DeviceInfo IDevice::deviceInformation() const

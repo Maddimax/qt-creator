@@ -5274,11 +5274,34 @@ by the widget renderer two lines apart - but it changes a tested contract for
 every layouter-less container in the product, and it does not reach devices,
 which was the point. Reverted.
 
-**What would actually move devices**: their settings container needs a
-`qmlSource` like any other page, and the two `DesktopDeviceTest` cases that
-assert `qobject_cast<QFormLayout *>(form->layout())` need to assert Quick
-delegates instead. That is a port, not a deletion, and it is the same shape as
-every other page in this plan.
+**Second correction: they were dead after all, and the measurement said so.**
+Instrumenting `layouter()` to report every time it hands back a *stored*
+closure, across six suites, gives one answer - **every single use comes from a
+test**. 41 from `DesktopDeviceTest`, 10 from `CodeStyleAspectTest`, 3 from
+`KitAspectTest`, one from the QuickUi test that builds a widget form on purpose.
+Not one from a production path.
+
+The reason is plain once looked at rather than reasoned about: `DevicesPage.qml`
+draws the device's containers with
+
+    AspectItems { model: AspectModels.container(root.aspects.TypeSpecific.container) }
+
+and `TypeSpecific` is set to `deviceInfoAspects()` or `settingsAspects()`
+depending on the device. Nothing in QtcQuick consults a layouter at all - the
+only mention of the word in the whole library is a comment. A container drawn
+inside a Quick page therefore never uses one, and the Devices page is Quick.
+
+So all three closures in `idevice.cpp` are gone. The third even said so itself:
+*"One row each, whatever they turn out to be. A Qt Quick page draws the
+container directly and needs none of this."*
+
+**The two tests were pinning a path production does not take.** One asserted a
+`QFormLayout` with one row per tool - a property the deleted closure provided by
+putting a `br` after each aspect. How many rows those become is the renderer's
+business now, so the test asserts what the group actually owes: the list, and
+its order. The other asked `createAspectForm()` for a form and checked its
+layout; it now asserts `!hasLayouter()`, which is the more useful thing - a
+layouter added back here would never run, so nothing else would notice.
 
 ## A shutdown crash the fixed Apply uncovered
 

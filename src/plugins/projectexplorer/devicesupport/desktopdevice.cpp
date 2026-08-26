@@ -30,6 +30,7 @@
 #include <utils/layoutbuilder.h>
 #include <utils/portlist.h>
 #include <utils/processinfo.h>
+#include <utils/aspectwidgets.h>
 #include <utils/qtcassert.h>
 #include <utils/qtcprocess.h>
 #include <utils/terminalcommand.h>
@@ -553,13 +554,16 @@ private slots:
         QVERIFY2(!boxes.isEmpty(), "a titled group drew no group box");
         QCOMPARE(boxes.first()->title(), device->runToolsGroup.labelText());
 
-        // One tool per row. The group is what says so - it puts a br after
-        // each aspect it lists - and every tool used to flush the layout on
-        // its own as well, which is the sort of thing that goes unnoticed
-        // until somebody removes the wrong one of the two.
-        auto inner = boxes.first()->findChild<QFormLayout *>();
-        QVERIFY(inner);
-        QCOMPARE(inner->rowCount(), device->runToolsGroup.aspects().size());
+        // How many rows those aspects become is the renderer's business, not
+        // the group's. DevicesPage.qml draws the container with AspectItems,
+        // one row per aspect, and the group sets no layouter to say so - it
+        // used to, and that closure only the widget renderer ever read. What
+        // the group owes is the list, and its order.
+        const QList<DeviceToolAspect *> runTools
+            = device->deviceToolAspects(DeviceToolAspect::RunTool);
+        QCOMPARE(device->runToolsGroup.aspects().size(), runTools.size());
+        for (int i = 0; i < runTools.size(); ++i)
+            QCOMPARE(device->runToolsGroup.aspects().at(i), runTools.at(i));
     }
 
     void testADeviceSaysWhatKindOfMachineItIs()
@@ -622,14 +626,14 @@ private slots:
                 };
             walk(&device->settingsAspects());
 
-            // And they draw as rows: the page asks for a form and places it.
-            // A container with nothing to say about its layout still yields a
-            // widget - a bare column of controls - so this asks for the form.
-            const std::unique_ptr<QWidget> form(
-                Core::createAspectForm(&device->settingsAspects()));
-            QVERIFY2(form, qPrintable(factory->displayName() + " cannot be drawn"));
-            QVERIFY2(qobject_cast<QFormLayout *>(form->layout()),
-                     qPrintable(factory->displayName() + " does not draw its rows as rows"));
+            // And nothing here says how they are laid out. The page draws this
+            // container with AspectItems, one row per aspect; a layouter would
+            // only be read by the widget renderer, which no longer draws it.
+            // Asserted rather than assumed, because a layouter added back here
+            // would be invisible - it would simply never run.
+            QVERIFY2(!Utils::AspectWidgets::hasLayouter(&device->settingsAspects()),
+                     qPrintable(factory->displayName()
+                                + " sets a layouter nothing will read"));
         }
 
         qInfo().noquote() << "device kinds checked:" << checked.join(", ");
