@@ -2166,8 +2166,7 @@ version of it passed against a build with the guard removed, which is the only
 reason it was rewritten.
 
 **What this does not do - and now does.** The virtual was kept because aspects
-still overrode it. None do: `grep -rn "addToLayoutImpl.*override" src tests`
-returns nothing. Every control in every settings page, project panel, build
+still overrode it. None do, and none may: it is `final`. Every control in every settings page, project panel, build
 step, device configuration and run configuration is drawn from its descriptor
 by one of the two renderers. They are not one
 group. Most are run-configuration, build-step and kit aspects - project
@@ -3408,6 +3407,38 @@ and every subsequent count trusted it without re-deriving what it could not
 see. It was checked the moment a number mattered - "zero" is a claim worth
 testing where "seven" was not - which is exactly backwards: a measurement is
 easiest to check while it is still routine.
+
+### Closing the hatch
+
+`BaseAspect::addToLayoutImpl()` is `final`. Nothing overrode it any more, and
+now nothing can: writing one is
+
+    error: declaration of 'addToLayoutImpl' overrides a 'final' function
+
+which is the whole of the ratchet. It is worth having as a compile error rather
+than a note in this file, because the failure it prevents is silent - an aspect
+that builds its own widgets works perfectly in the widget backend and shows
+nothing at all in Qt Quick, and every page that ever did this looked fine to
+whoever wrote it.
+
+`final` rather than removing the virtual: a non-virtual method of the same name
+in a subclass would compile, never be called, and draw nothing. The point is to
+be told.
+
+**What is left, said accurately.** No aspect builds controls. That is not the
+same as no widgets:
+
+| escape hatch | uses | what it is for |
+|---|---|---|
+| `AspectWidgets::setLayouter()` | 29 | a container arranging *its own aspects* in the widget backend - the toolchain grid, a device's tool groups. Legitimate and expected. |
+| `setWidgetCreator()` | 18 | a whole panel that is not aspects |
+| `setConfigWidgetCreator()` | 11 | the same, per aspect |
+
+The first is part of the design: a container may say how its aspects are
+arranged without building any of them. The other two are the surface this
+migration has not touched - hand-written panels and dialogs, which is a
+different kind of work from anything here. The options pages are done, and the
+count that says so is the census, not a grep.
 
 ### What the census could not see, and now can
 

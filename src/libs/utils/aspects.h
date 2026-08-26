@@ -350,7 +350,15 @@ signals:
     void controlValidationRequested();
 
 protected:
-    virtual void addToLayoutImpl(Layouting::Layout &parent);
+    // final: no aspect builds its own controls any more. An aspect says which
+    // control it wants in presentation() and a renderer draws it, so that the
+    // widget backend and the Qt Quick one show the same thing - which they did
+    // not, for as long as an aspect could answer only one of them. Reaching
+    // for a control neither renderer has means adding it to both, or, where
+    // its widget cannot be reached from here, a dialog the aspect opens from
+    // triggerAction(). A whole panel that is not aspects at all still has
+    // setWidgetCreator().
+    virtual void addToLayoutImpl(Layouting::Layout &parent) final;
     [[deprecated("Use valueToVolatileValue()")]] bool internalToBuffer() { return valueToVolatileValue(); }
     [[deprecated("Use valueToVolatileValue()")]] bool bufferToInternal() { return volatileValueToValue(); }
     [[deprecated("Use valueToVolatileValue()")]] void bufferToGui() { volatileValueToGui(); }
