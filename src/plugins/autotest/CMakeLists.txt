@@ -111,6 +111,7 @@ if(TARGET AutoTest AND TARGET Qt::Quick)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      TestProjectPanel.qml
       TestSettingsPage.qml
       boost/BoostTestSettingsPage.qml
       catch/CatchTestSettingsPage.qml

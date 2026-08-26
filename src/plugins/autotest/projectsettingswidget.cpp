@@ -9,6 +9,7 @@
 #include "testprojectsettings.h"
 #include "testtreemodel.h"
 
+#include <projectexplorer/project.h>
 #include <projectexplorer/projectpanelfactory.h>
 
 #include <utils/aspectwidgets.h>
@@ -17,209 +18,228 @@
 #include <utils/layoutbuilder.h>
 #include <utils/qtcassert.h>
 
-#include <QLabel>
-#include <QPushButton>
+#include <QAbstractTableModel>
 #include <QTimer>
-#include <QTreeWidget>
 
 using namespace ProjectExplorer;
 
 namespace Autotest::Internal {
 
-enum ItemDataRole  {
-    BaseIdRole = Qt::UserRole + 1,
-    BaseTypeRole
-};
-
-class ProjectTestSettingsWidget : public QWidget
+// One row per test framework and test tool, ticked when this project runs it.
+// A table aspect rather than a tree widget: which are active is the project
+// settings' answer, and both backends read it from the same model.
+class ActiveTestBasesModel final : public QAbstractTableModel
 {
 public:
-    explicit ProjectTestSettingsWidget(Project *project);
+    ActiveTestBasesModel(TestProjectSettings *settings, QObject *parent)
+        : QAbstractTableModel(parent)
+        , m_settings(settings)
+    {
+        reload();
+    }
+
+    // What was ticked, and what kind of thing it was, so that only what
+    // changed is synchronized.
+    std::function<void(int type)> onActivated;
+
+    void reload()
+    {
+        beginResetModel();
+        m_rows.clear();
+        const ActiveTestFrameworks frameworks = m_settings->activeTestFrameworks();
+        const TestFrameworks sorted = Utils::sorted(frameworks.keys(), &ITestFramework::priority);
+        for (ITestFramework * const framework : sorted) {
+            m_rows.append({framework->displayName(), framework->id(),
+                           int(ITestBase::Framework), frameworks.value(framework)});
+        }
+        // Test tools have no priority to sort by, so they are listed the way
+        // the tree listed them.
+        const ActiveTestTools tools = m_settings->activeTestTools();
+        for (auto it = tools.cbegin(), end = tools.cend(); it != end; ++it)
+            m_rows.append({it.key()->displayName(), it.key()->id(), int(ITestBase::Tool), it.value()});
+        endResetModel();
+    }
+
+    int rowCount(const QModelIndex &parent = {}) const override
+    {
+        return parent.isValid() ? 0 : int(m_rows.size());
+    }
+
+    int columnCount(const QModelIndex & = {}) const override { return 1; }
+
+    // Unnamed on purpose: one column that is the thing itself, which the tree
+    // showed with its header hidden.
+    QVariant headerData(int, Qt::Orientation, int) const override { return {}; }
+
+    Qt::ItemFlags flags(const QModelIndex &index) const override
+    {
+        if (!index.isValid())
+            return {};
+        return Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsUserCheckable;
+    }
+
+    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override
+    {
+        if (!index.isValid() || index.row() >= m_rows.size())
+            return {};
+        const Row &row = m_rows.at(index.row());
+        if (role == Qt::DisplayRole)
+            return row.name;
+        if (role == Qt::CheckStateRole)
+            return row.active ? Qt::Checked : Qt::Unchecked;
+        if (role == Utils::AspectTable::CheckableRole)
+            return true;
+        if (role == Utils::AspectTable::EditableRole)
+            return Utils::AspectTable::isWritable(flags(index));
+        return {};
+    }
+
+    bool setData(const QModelIndex &index, const QVariant &value, int role) override
+    {
+        if (role != Qt::CheckStateRole || !index.isValid() || index.row() >= m_rows.size())
+            return false;
+        Row &row = m_rows[index.row()];
+        const bool active = value.toInt() == Qt::Checked;
+        if (row.active == active)
+            return false;
+        row.active = active;
+        if (row.type == ITestBase::Framework)
+            m_settings->activateFramework(row.id, active);
+        else
+            m_settings->activateTestTool(row.id, active);
+        emit dataChanged(index, index, {Qt::CheckStateRole});
+        if (onActivated)
+            onActivated(row.type);
+        return true;
+    }
+
+    // A Qt Quick cell reads its roles by name and cannot see flags().
+    QHash<int, QByteArray> roleNames() const override
+    {
+        return Utils::AspectTable::withRoleNames(QAbstractTableModel::roleNames());
+    }
 
 private:
-    void populateFrameworks(const QHash<Autotest::ITestFramework *, bool> &frameworks,
-                            const QHash<Autotest::ITestTool *, bool> &testTools);
-    void populatePathFilters(const QStringList &filters);
-    void onActiveFrameworkChanged(QTreeWidgetItem *item, int column);
-    TestProjectSettings *m_projectSettings;
-    QWidget *m_generalWidget = nullptr;
-    QTreeWidget m_activeFrameworks;
-    QTreeWidget m_pathFilters;
-    QTimer m_syncTimer;
-    int m_syncType = 0;
+    struct Row
+    {
+        QString name;
+        Utils::Id id;
+        int type = 0;
+        bool active = false;
+    };
+
+    TestProjectSettings * const m_settings;
+    QList<Row> m_rows;
 };
 
-ProjectTestSettingsWidget::ProjectTestSettingsWidget(Project *project)
-    : m_projectSettings(testProjectSettings(project))
+class ActiveTestBasesAspect final : public Utils::BaseAspect
 {
-    m_activeFrameworks.setHeaderHidden(true);
-    m_activeFrameworks.setRootIsDecorated(false);
+public:
+    explicit ActiveTestBasesAspect(TestProjectSettings *settings)
+        : m_model(settings, this)
+    {}
 
-    m_pathFilters.setHeaderHidden(true);
-    m_pathFilters.setRootIsDecorated(false);
-
-    QLabel *filterLabel = new QLabel(Tr::tr("Wildcard expressions for filtering:"), this);
-    QPushButton *addFilter = new QPushButton(Tr::tr("Add"), this);
-    QPushButton *removeFilter = new QPushButton(Tr::tr("Remove"), this);
-    removeFilter->setEnabled(false);
-
-    // clang-format off
-    using namespace Layouting;
-    Column {
-        m_projectSettings->useGlobalSettings,
-        hr,
-        Widget {
-            bindTo(&m_generalWidget),
-            Column {
-                Row {
-                    Group {
-                        title(Tr::tr("Active Test Frameworks")),
-                        Column { &m_activeFrameworks },
-                    },
-                    st,
-                },
-                Row { m_projectSettings->runAfterBuild, st },
-                noMargin,
-            },
-        },
-        Row { // explicitly outside of the global settings
-            Group {
-                title(Tr::tr("Limit Files to Path Patterns")),
-                groupChecker(Utils::AspectWidgets::groupChecker(&m_projectSettings->limitToFilter)),
-                Column {
-                    filterLabel,
-                    Row {
-                        Column { &m_pathFilters },
-                        Column { addFilter, removeFilter, st },
-                    },
-                },
-            },
-        },
-        noMargin,
-        st,
-    }.attachTo(this);
-    // clang-format on
-
-    m_generalWidget->setDisabled(m_projectSettings->useGlobalSettings());
-
-    populateFrameworks(m_projectSettings->activeTestFrameworks(),
-                       m_projectSettings->activeTestTools());
-
-    populatePathFilters(m_projectSettings->pathFilters());
-
-    m_projectSettings->useGlobalSettings.addOnChanged(this, [this] {
-        m_generalWidget->setEnabled(!m_projectSettings->useGlobalSettings());
-        m_syncTimer.start(3000);
-        m_syncType = ITestBase::Framework | ITestBase::Tool;
-    });
-
-    connect(&m_activeFrameworks, &QTreeWidget::itemChanged,
-            this, &ProjectTestSettingsWidget::onActiveFrameworkChanged);
-
-    auto itemsToStringList = [this] {
-        QStringList items;
-        const QTreeWidgetItem *rootItem = m_pathFilters.invisibleRootItem();
-        for (int i = 0, count = rootItem->childCount(); i < count; ++i) {
-            auto expr = rootItem->child(i)->data(0, Qt::DisplayRole).toString();
-            items.append(expr);
-        }
-        return items;
-    };
-    auto triggerRescan = [] {
-        TestCodeParser *parser = TestTreeModel::instance()->parser();
-        parser->emitUpdateTestTree();
-    };
-
-    m_projectSettings->limitToFilter.addOnChanged(this, [triggerRescan] {
-        triggerRescan();
-    });
-    connect(&m_pathFilters, &QTreeWidget::itemSelectionChanged,
-            this, [this, removeFilter] {
-        removeFilter->setEnabled(!m_pathFilters.selectedItems().isEmpty());
-    });
-    connect(m_pathFilters.model(), &QAbstractItemModel::dataChanged,
-            this, [this, itemsToStringList, triggerRescan]
-            (const QModelIndex &tl, const QModelIndex &br, const QList<int> &roles) {
-        if (!roles.contains(Qt::DisplayRole))
-            return;
-        if (tl != br)
-            return;
-        m_pathFilters.model()->setData(tl, tl.data(), Qt::ToolTipRole);
-        m_projectSettings->setPathFilters(itemsToStringList());
-        triggerRescan();
-    });
-    connect(addFilter, &QPushButton::clicked, this, [this] {
-        m_projectSettings->addPathFilter("*");
-        populatePathFilters(m_projectSettings->pathFilters());
-        const QTreeWidgetItem *root = m_pathFilters.invisibleRootItem();
-        QTreeWidgetItem *lastChild =  root->child(root->childCount() - 1);
-        const QModelIndex index = m_pathFilters.indexFromItem(lastChild, 0);
-        m_pathFilters.edit(index);
-    });
-    connect(removeFilter, &QPushButton::clicked, this, [this, itemsToStringList, triggerRescan] {
-        const QList<QTreeWidgetItem *> selected = m_pathFilters.selectedItems();
-        QTC_ASSERT(selected.size() == 1, return);
-        m_pathFilters.invisibleRootItem()->removeChild(selected.first());
-        delete selected.first();
-        m_projectSettings->setPathFilters(itemsToStringList());
-        triggerRescan();
-    });
-    m_syncTimer.setSingleShot(true);
-    connect(&m_syncTimer, &QTimer::timeout, this, [this] {
-        auto testTreeModel = TestTreeModel::instance();
-        if (m_syncType & ITestBase::Framework)
-            testTreeModel->synchronizeTestFrameworks();
-        if (m_syncType & ITestBase::Tool)
-            testTreeModel->synchronizeTestTools();
-        m_syncType = ITestBase::None;
-    });
-}
-
-void ProjectTestSettingsWidget::populateFrameworks(const QHash<ITestFramework *, bool> &frameworks,
-                                                   const QHash<ITestTool *, bool> &testTools)
-{
-    const TestFrameworks sortedFrameworks = Utils::sorted(frameworks.keys(),
-                                                          &ITestFramework::priority);
-
-    auto generateItem = [this](ITestBase *frameworkOrTestTool, bool checked) {
-        auto item = new QTreeWidgetItem(&m_activeFrameworks, {frameworkOrTestTool->displayName()});
-        item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsUserCheckable);
-        item->setCheckState(0, checked ? Qt::Checked : Qt::Unchecked);
-        item->setData(0, BaseIdRole, frameworkOrTestTool->id().toSetting());
-        item->setData(0, BaseTypeRole, frameworkOrTestTool->type());
-    };
-
-    for (ITestFramework *framework : sortedFrameworks)
-        generateItem(framework, frameworks.value(framework));
-
-    // FIXME: testTools aren't sorted and we cannot use priority here
-    auto end = testTools.cend();
-    for (auto it = testTools.cbegin(); it != end; ++it)
-        generateItem(it.key(), it.value());
-}
-
-void ProjectTestSettingsWidget::populatePathFilters(const QStringList &filters)
-{
-    m_pathFilters.clear();
-    for (const QString &filter : filters) {
-        auto item = new QTreeWidgetItem(&m_pathFilters, {filter});
-        item->setData(0, Qt::ToolTipRole, filter);
-        item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable);
+    Utils::AspectPresentation presentation() const override
+    {
+        Utils::AspectPresentation p = BaseAspect::presentation();
+        p.control = Utils::AspectControls::Table;
+        return p;
     }
-}
 
-void ProjectTestSettingsWidget::onActiveFrameworkChanged(QTreeWidgetItem *item, int column)
+    QAbstractItemModel *tableModel() override { return &m_model; }
+
+    ActiveTestBasesModel &model() { return m_model; }
+
+private:
+    // Parented: a model handed to QML with no parent belongs to the engine.
+    ActiveTestBasesModel m_model;
+};
+
+// What the panel shows. The flag is kept out of the settings container because
+// only part of what it holds is turned off by it - the path patterns are the
+// project's whatever the global settings say. See ProjectCommentsPanel.
+class TestProjectPanel final : public Utils::AspectContainer
 {
-    auto id = Utils::Id::fromSetting(item->data(column, BaseIdRole));
-    int type = item->data(column, BaseTypeRole).toInt();
-    if (type == ITestBase::Framework)
-        m_projectSettings->activateFramework(id, item->data(0, Qt::CheckStateRole) == Qt::Checked);
-    else if (type == ITestBase::Tool)
-        m_projectSettings->activateTestTool(id, item->data(0, Qt::CheckStateRole) == Qt::Checked);
-    else
-        QTC_ASSERT(! "unexpected test base type", return);
-    m_syncTimer.start(3000);
-    m_syncType |= type;
+public:
+    explicit TestProjectPanel(Project *project)
+        : m_settings(testProjectSettings(project))
+        , m_activeTestBases(m_settings)
+    {
+        // Before registering: insertAspect() forces the container's own
+        // auto-apply onto what it takes in.
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/AutoTest/TestProjectPanel.qml"));
+
+        m_settings->useGlobalSettings.setQmlName("UseGlobalSettings");
+        registerAspect(&m_settings->useGlobalSettings);
+
+        m_activeTestBases.setQmlName("ActiveTestBases");
+        m_activeTestBases.setLabelText(Tr::tr("Active Test Frameworks"));
+        registerAspect(&m_activeTestBases);
+
+        m_settings->setQmlName("Settings");
+        registerAspect(m_settings);
+
+        // Behaviour, not layout. Ticking something takes effect once the user
+        // has stopped, because rebuilding the test tree is not cheap.
+        m_syncTimer.setSingleShot(true);
+        connect(&m_syncTimer, &QTimer::timeout, this, [this] {
+            TestTreeModel * const model = TestTreeModel::instance();
+            if (m_syncType & ITestBase::Framework)
+                model->synchronizeTestFrameworks();
+            if (m_syncType & ITestBase::Tool)
+                model->synchronizeTestTools();
+            m_syncType = ITestBase::None;
+        });
+        m_activeTestBases.model().onActivated = [this](int type) { scheduleSync(type); };
+
+        updateForUseGlobal();
+        m_settings->useGlobalSettings.addOnChanged(this, [this] {
+            updateForUseGlobal();
+            scheduleSync(ITestBase::Framework | ITestBase::Tool);
+        });
+
+        // The patterns are the project's own, so a change means a rescan
+        // whatever the global settings say.
+        m_settings->limitToFilter.addOnChanged(this, [] { rescan(); });
+        m_settings->pathFilters.addOnChanged(this, [] { rescan(); });
+    }
+
+    static Utils::Key extraDataKey() { return "TestProjectPanel"; }
+
+private:
+    static void rescan() { TestTreeModel::instance()->parser()->emitUpdateTestTree(); }
+
+    void scheduleSync(int type)
+    {
+        m_syncType |= type;
+        m_syncTimer.start(3000);
+    }
+
+    // What the global settings decide, and what stays the project's: the path
+    // patterns were explicitly outside them in the widget form too.
+    void updateForUseGlobal()
+    {
+        const bool useGlobal = m_settings->useGlobalSettings();
+        m_activeTestBases.setEnabled(!useGlobal);
+        m_settings->runAfterBuild.setEnabled(!useGlobal);
+    }
+
+    TestProjectSettings * const m_settings;
+    ActiveTestBasesAspect m_activeTestBases;
+    QTimer m_syncTimer;
+    int m_syncType = ITestBase::None;
+};
+
+static TestProjectPanel *testProjectPanel(Project *project)
+{
+    const Utils::Key key = TestProjectPanel::extraDataKey();
+    QVariant v = project->extraData(key);
+    if (v.isNull()) {
+        v = QVariant::fromValue(new TestProjectPanel(project));
+        project->setExtraData(key, v);
+    }
+    return v.value<TestProjectPanel *>();
 }
 
 class AutotestProjectPanelFactory final : public ProjectPanelFactory
@@ -229,8 +249,8 @@ public:
     {
         setPriority(666);
         setDisplayName(Tr::tr("Testing"));
-        setCreateWidgetFunction([](Project *project) {
-            return new ProjectTestSettingsWidget(project);
+        setSettingsProvider([](Project *project) {
+            return testProjectPanel(project);
         });
     }
 };

@@ -100,11 +100,23 @@ TestProjectSettings::TestProjectSettings(ProjectExplorer::Project *project)
 
     useGlobalSettings.setSettingsPageId(Constants::AUTOTEST_SETTINGS_ID);
 
+    runAfterBuild.setQmlName("RunAfterBuild");
     runAfterBuild.addOption(Tr::tr("No Tests"));
     runAfterBuild.addOption(Tr::tr("All", "Run tests after build"));
     runAfterBuild.addOption(Tr::tr("Selected"));
     runAfterBuild.setLabelText(Tr::tr("Automatically run tests after build"));
     runAfterBuild.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
+
+    // The group's check box, and the list it turns on. The widget form spelled
+    // both out inside itself; the aspects say it now.
+    limitToFilter.setQmlName("LimitToFilter");
+    limitToFilter.setLabelText(Tr::tr("Limit Files to Path Patterns"));
+
+    pathFilters.setQmlName("PathFilters");
+    pathFilters.setLabelText(Tr::tr("Wildcard expressions for filtering:"));
+    pathFilters.setUiAllowAdding(true);
+    pathFilters.setUiAllowRemoving(true);
+    pathFilters.setUiAllowEditing(true);
 
     load();
     connect(project, &ProjectExplorer::Project::settingsLoaded, this, [this] { load(); });
