@@ -235,6 +235,20 @@ caret on it cannot, one pixel short. The sideways ensure runs at the end of
 a line is only known once its row is laid out. And the wheel handler reads the
 horizontal delta too.
 
+There is a horizontal scroll bar now too, mirroring the vertical one. Wrapping
+needed a case of its own: no row is wider than the viewport then, but the
+content width carries room for the caret past the last character, which is a
+few pixels more than the viewport - enough for a bar with a 99% handle under
+every wrapped document. Clamped while wrapping, and the caret allowance
+applies only where lines actually run off the edge.
+
+**The first control for that was invalid and said so by not biting.** Deleting
+the clamp left an empty `if (m_wrapping)`, which skipped the caret allowance
+as well, so the bug did not come back and the test passed. The control had to
+restore what the code did before the wrapping case existed - the allowance
+applied unconditionally - and then it failed with the original numbers,
+`contentWidth 396.594` against a width of 392.
+
 Adding the horizontal clamp exposed that neither offset was re-clamped when
 the content changed size - only the line height was handled, and only
 vertically. Widening a viewport scrolled to the right left 800 pixels of blank
