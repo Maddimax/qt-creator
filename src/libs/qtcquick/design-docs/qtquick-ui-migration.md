@@ -220,6 +220,28 @@ And a `WheelHandler` accepts only an actual mouse wheel unless
 reports distance in pixels rather than wheel notches, and using that is what
 makes it follow the fingers.
 
+**Looking next to the trackpad bug found a bigger one: the editor could not
+scroll sideways at all.** `setScrollX()` existed and nothing in the product
+called it - no scroll bar, no wheel handling, and no sideways half to
+`ensureCursorVisible()`. Wrapping is off for code, so typing at the end of a
+long line put the caret off screen and left it there, measured at x=2527 in a
+viewport 400 wide.
+
+Three pieces. `contentWidth` is the widest row on screen, which with wrapping
+off is a whole line, **plus room for the caret that sits after the last
+character** - without that the end of the longest line can be reached and the
+caret on it cannot, one pixel short. The sideways ensure runs at the end of
+`updatePolish()`, not when the caret moves, because where the caret is across
+a line is only known once its row is laid out. And the wheel handler reads the
+horizontal delta too.
+
+Two things the tests got wrong first, both worth knowing. The caret test drove
+`setCursorPosition()`, which does not scroll - only `setTextCursor()` does,
+which is what a key press goes through, and the same is true vertically. And
+the sideways wheel test used a document of short lines, where there is nothing
+to scroll to and the clamp correctly does nothing: it passed for the wrong
+reason until the fixture got long lines.
+
 The fill is measured per row with `cursorToX`, so the cases where a row is not
 a whole line were checked after the fact: a wrapped line and a sideways
 scroll. Both were right already. They have a test of their own because the
