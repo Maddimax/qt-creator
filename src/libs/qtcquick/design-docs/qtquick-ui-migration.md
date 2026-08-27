@@ -7235,10 +7235,45 @@ The lesson worth keeping is narrower than "be careful": **a backup step whose
 failure is silent is not a backup.** Check it (`ls`, or compare a marker) before
 running anything destructive.
 
-What is left of the editor: occurrences highlighting (the widget computes it
-per view rather than publishing it), auto-insertion and completion (both
-needing a language completer this editor cannot be given), changing the
-encoding from the toolbar, and dragging text out of a selection.
+## Where else the selected word appears
+
+The widget marks the other places the selected text occurs, and it computes
+that itself from the document - no producer, no code model - so it ported
+directly. Same rule: a selection **inside one line**, trimmed, only when
+`highlightSelection` is on, searched case-insensitively with `QChar::Nbsp`
+read as a space.
+
+It is done inside the layout pass, over the blocks already being laid out, so
+it costs what the rest of the pass costs. The ranges go into the block's format
+list *before* the selection's own, so where the two overlap - the selection is
+one of its own occurrences - the selection wins.
+
+The fill is `C_SELECTION`'s background at 0.25 alpha on a light scheme and 0.5
+on a dark one, which is what the widget's overlay uses. The luminance of
+`C_TEXT`'s background is what decides which.
+
+**The test had to stop counting formats.** Its first version asserted the
+number of format ranges on a row, and got two where it expected one: the second
+was the *whitespace* mark, because `CodeSource` installs a `SyntaxHighlighter`
+and `SyntaxHighlighter::highlightBlock()` calls `formatSpaces()`. Counting
+everything on a row couples a test to every other thing that formats text. It
+now filters by the property that identifies an occurrence and nothing else -
+**a translucent background** - which is worth stating in the test because it is
+an invariant of the viewport, not an accident.
+
+**And a control that needed the fixture to be sharper.** Removing the
+single-line rule changed nothing, because a selection spanning two blocks
+contains U+2029 and no block does, so the search finds nothing either way. The
+case that separates them is a selection that *starts on the newline*:
+`QString::trimmed()` strips the paragraph separator - `QChar::isSpace()` is
+true for it - so the text searched for would be exactly the word on the line
+below, and only the two-blocks test rejects it. Third time this session that a
+control missed because the fixture could not reach the case rather than because
+the code was redundant.
+
+What is left of the editor: auto-insertion and completion (both needing a
+language completer this editor cannot be given), changing the encoding from the
+toolbar, and dragging text out of a selection.
 
 ## The same measurement, applied to kits
 

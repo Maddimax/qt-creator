@@ -31,6 +31,7 @@
 #include <QSGTextNode>
 #include <utils/multitextcursor.h>
 #include <utils/plaintextedit/plaintextedit.h>
+#include <utils/stylehelper.h>
 #include <utils/plaintextedit/texteditorlayout.h>
 
 #include <QClipboard>
@@ -1285,6 +1286,28 @@ void TextViewport::updatePolish()
     const bool hasSelection = m_selectionStart >= 0 && m_selectionEnd >= 0
                               && selectionFrom != selectionTo;
 
+    // The other places the selected text appears. Usually that is why it was
+    // selected, so the widget editor shows them and this does too - same rule:
+    // a selection inside one line, trimmed, and only when asked for.
+    QString occurrence;
+    QTextCharFormat occurrenceFormat;
+    if (hasSelection && displaySettings().highlightSelection()) {
+        QTextCursor selected(text);
+        selected.setPosition(selectionFrom);
+        selected.setPosition(selectionTo, QTextCursor::KeepAnchor);
+        if (selected.block() == text->findBlock(selected.anchor()))
+            occurrence = selected.selectedText().trimmed();
+
+        // The selection colour, thinned so that the real selection still
+        // stands out against the places it also appears. Which way to thin it
+        // depends on whether the page is light or dark, as it does for the
+        // widget.
+        QColor fill = selectionFormat.background().color();
+        const QColor page = fonts.toTextCharFormat(C_TEXT).background().color();
+        fill.setAlphaF(Utils::StyleHelper::luminance(page) > 0.5 ? 0.25 : 0.5);
+        occurrenceFormat.setBackground(fill);
+    }
+
     QTextOption option;
     option.setTabStopDistance(doc->tabSettings().m_tabSize * metrics.horizontalAdvance(' '));
     // Anywhere as well as at word boundaries: a single word longer than the
@@ -1390,6 +1413,23 @@ void TextViewport::updatePolish()
         // has selected should still look selected.
         appendHighlights(blockFormats, block);
         const int blockStart = block.position();
+
+        // Before the selection is added below, so that where the two overlap -
+        // the selection is one of its own occurrences - the selection wins.
+        if (!occurrence.isEmpty()) {
+            QString haystack = blockText;
+            // What the widget searches too: a non-breaking space reads as a
+            // space to whoever selected it.
+            haystack.replace(QChar::Nbsp, QLatin1Char(' '));
+            for (int at = haystack.indexOf(occurrence, 0, Qt::CaseInsensitive); at >= 0;
+                 at = haystack.indexOf(occurrence, at + 1, Qt::CaseInsensitive)) {
+                QTextLayout::FormatRange range;
+                range.start = at;
+                range.length = int(occurrence.size());
+                range.format = occurrenceFormat;
+                blockFormats.append(range);
+            }
+        }
         if (hasSelection) {
             const int from = qMax(0, selectionFrom - blockStart);
             const int to = qMin(block.length() - 1, selectionTo - blockStart);

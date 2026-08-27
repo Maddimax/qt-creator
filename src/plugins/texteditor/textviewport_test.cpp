@@ -4,6 +4,7 @@
 #include "textviewport_test.h"
 
 #include "codebuffer.h"
+#include "displaysettings.h"
 #include "codedocument.h"
 #include "codeindenting.h"
 #include "codestylepool.h"
@@ -1584,6 +1585,77 @@ private slots:
         // that a view knows there is nothing left to draw for it.
         document->setExtraSelections("Test.Warnings", {});
         QTRY_VERIFY(!backgrounds(3).contains(QColor(Qt::cyan)));
+    }
+
+    // Selecting a word shows where else it appears. That is usually why it
+    // was selected, and the widget editor does it, so an editor that does not
+    // reads as having lost the feature.
+    void testSelectingAWordShowsWhereElseItAppears()
+    {
+        const bool wasOn = displaySettings().highlightSelection();
+        const QScopeGuard restore(
+            [wasOn] { displaySettings().highlightSelection.setValue(wasOn); });
+        displaySettings().highlightSelection.setValue(true);
+
+        TemporaryDirectory dir("qtc-viewport-occurrences");
+        const FilePath file = dir.filePath("repeats.txt");
+        //                              0         10        20
+        QVERIFY(file.writeFileContents("alpha beta\ngamma alpha\nbeta only\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 2);
+
+        // The occurrence marker is the only *translucent* background the
+        // viewport draws - the selection and the scheme's own colours are
+        // opaque - so counting all the formats on a row would also count the
+        // highlighter's whitespace marks.
+        const auto occurrences = [viewport](int row) {
+            QVariantList found;
+            const QVariantList ranges = viewport->visibleLine(row).value("formats").toList();
+            for (const QVariant &range : ranges) {
+                if (range.toMap().value("background").value<QColor>().alpha() < 255)
+                    found << range;
+            }
+            return found;
+        };
+
+        // Nothing selected, nothing marked.
+        QVERIFY(occurrences(1).isEmpty());
+
+        // Select "alpha" on the first line. The other "alpha" is on line 2.
+        viewport->setSelectionStart(0);
+        viewport->setSelectionEnd(5);
+        QTRY_COMPARE(occurrences(1).size(), 1);
+
+        // Exactly the other "alpha", not the whole line.
+        const QVariantMap marked = occurrences(1).first().toMap();
+        QCOMPARE(marked.value("start").toInt(), 6);
+        QCOMPARE(marked.value("length").toInt(), 5);
+        // And nowhere it does not appear.
+        QVERIFY(occurrences(2).isEmpty());
+
+        // A selection spanning two lines marks nothing: the rule is one
+        // line's worth, as it is for the widget.
+        //
+        // From the newline before "gamma" to just past it. Trimming takes the
+        // paragraph separator with the whitespace - QChar::isSpace() is true
+        // for it - so what is searched for would be exactly "gamma" and would
+        // be found on the line below. It is the *two blocks* that disqualify
+        // it, and a selection with the separator still inside it could not
+        // tell the two rules apart, because no block contains one.
+        viewport->setSelectionStart(10);
+        viewport->setSelectionEnd(16);
+        QTRY_VERIFY2(occurrences(1).isEmpty(),
+                     "a selection spanning two lines marked something anyway");
+
+        // And the display setting turns it off while the selection stands.
+        viewport->setSelectionStart(0);
+        viewport->setSelectionEnd(5);
+        QTRY_COMPARE(occurrences(1).size(), 1);
+        displaySettings().highlightSelection.setValue(false);
+        QTRY_VERIFY(occurrences(1).isEmpty());
     }
 
     // Utils::TextEditorLayout is the per-view index of which row each block
