@@ -119,8 +119,33 @@ theme selector recolours the scene in place, without recreating it.
 
 ## Status
 
-Branch `utils-drop-printsupport`, 16 + 29 commits, not pushed. Phase 1
-complete; phase 2 in progress. The second batch adds: the validator-type
+Branch `utils-drop-printsupport`, 148 commits, not pushed.
+
+**The settings-page migration is finished.** Every `IOptionsPage` that can be
+aspect driven is: the census reports **0 pages still on widgets**, with no
+exemptions, in both the ordinary build and one with ClangFormat loaded. The
+widget fallback is gone - `CodeStyleAspect`'s layouter, the factory's value
+editor API, `CodeStyleEditor`, `codestyleselectorwidget` and
+`CppCodeStylePreferencesWidget` are all deleted - and a language that names no
+form of its own now gets `CodeStyleDefaultPage.qml` rather than a widget. The
+only `IOptionsPage` still building one wraps Qt Designer's own
+`QDesignerOptionsPageInterface`, which is not ours to port.
+
+Verified across every plugin the branch touches, one suite at a time:
+
+| suite | result |
+| --- | --- |
+| Core, TextEditor, QuickUi | 81/81, 281/281, 87/87 |
+| QmlJSEditor, QmlJSTools, LanguageClient | 15/15, 12/12, 21/21 |
+| CMake, Qmake, Qbs, Nim project managers | 69/69, 26/26, 8/8, 6/6 |
+| `tst_utils_aspects` | 27/27 |
+| CppEditor | 155/155 for `FollowSymbolTest` alone; the whole suite poisons itself and its number means nothing |
+| ProjectExplorer, Debugger | 2 and 1 pre-existing failures, each reproduced at the parent commit |
+
+The section below is the running commit log and the phase notes; the entries
+after "Next steps" are the batch-by-batch record.
+
+The second batch adds: the validator-type
 hoist, the QFontComboBox removal, AspectPresentation with 23 aspects
 reporting a control, the terminalcommand and StyleHelper and Theme help-menu
 splits, the Prompts seam growing a file chooser, a default button and
@@ -5049,7 +5074,24 @@ under step 0 for why that compiles and does not link.
 
 ## Next steps
 
-In order:
+**Where this actually stands.** Everything numbered below is done. What is
+open is not more porting but three decisions, none of which should be taken
+without the user:
+
+- **The file watcher imbalance.** 33 soft asserts per TextEditor run, fully
+  diagnosed at the end of this document: relative paths reach the watcher, so
+  its two stores key one file twice. Fixing it means deciding, in `Core` or
+  `Utils`, where a non-absolute path gets refused - and the one change tried
+  here made the symptom measurably worse.
+- **The Qt Quick editor's reach.** It has hover tooltips, follow symbol and
+  Ctrl+click, and it draws Code Style, Snippets and Font && Colors. It is not
+  Creator's editor. Making it so is a large change nobody has asked for.
+- **`ICodeStylePreferencesFactory` lost `setValueEditorCreator()`**, which was
+  public on an exported class. An out-of-tree language plugin supplying a
+  widget code style editor no longer compiles. Intended under "never keep
+  widgets", easy to reverse if not.
+
+The numbered list below is the historical order the work was done in.
 
 0. **`aspects.h` is clean. `aspects.cpp` is not, and what is left in it is
    named below.**
