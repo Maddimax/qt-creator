@@ -7,8 +7,6 @@
 
 #include <utils/result.h>
 
-#include <QWidget>
-
 namespace TextEditor {
 class CodeStylePreviewAspect;
 class ICodeStylePreferences;
@@ -16,24 +14,6 @@ class ICodeStylePreferences;
 namespace Utils { class AspectContainer; }
 
 namespace CppEditor {
-
-class CppCodeStylePreferencesWidgetPrivate;
-
-// The C++ code style settings drawn as a widget, for ClangFormat's legacy
-// indenter panel. The settings page itself is drawn with Qt Quick from the same
-// aspects; this is the second renderer, not a second definition.
-class CPPEDITOR_EXPORT CppCodeStylePreferencesWidget : public QWidget
-{
-public:
-    explicit CppCodeStylePreferencesWidget(CppCodeStylePreferences *codeStylePreferences);
-    ~CppCodeStylePreferencesWidget() override;
-
-    void apply();
-    void cancel();
-
-private:
-    CppCodeStylePreferencesWidgetPrivate *d = nullptr;
-};
 
 namespace Internal {
 

@@ -11,7 +11,6 @@
 
 #include <utils/aspects.h>
 
-#include <QCheckBox>
 #include <QTest>
 
 using namespace TextEditor;
@@ -138,40 +137,6 @@ private slots:
         // demonstrates what this category changes.
         QVERIFY(!preview->value().isEmpty());
         QVERIFY(preview->value() != generalSnippet);
-    }
-
-    // The same aspects are drawn as widgets for ClangFormat's legacy indenter
-    // panel, which is still a widget page. Showing one category at a time is
-    // the container's doing, so it has to hold there too - the widget renderer
-    // is a second renderer, not a second layout.
-    void testTheWidgetFormShowsOneCategoryToo()
-    {
-        CppCodeStylePreferences preferences;
-        CppCodeStylePreferencesWidget widget(&preferences);
-        widget.resize(600, 900);
-        widget.show();
-        QVERIFY(QTest::qWaitForWindowExposed(&widget));
-
-        const QList<QCheckBox *> boxes = widget.findChildren<QCheckBox *>();
-        QVERIFY(!boxes.isEmpty());
-
-        const auto boxWithText = [&boxes](const QString &text) -> QCheckBox * {
-            for (QCheckBox *box : boxes) {
-                if (box->text() == text)
-                    return box;
-            }
-            return nullptr;
-        };
-
-        // The page opens on General, so a setting from another category is
-        // there but not on show. Without the container's visibility all twenty
-        // would be.
-        QCheckBox *fromContent = boxWithText("Statements within blocks");
-        QCheckBox *fromTypes = boxWithText("Identifier");
-        QVERIFY(fromContent);
-        QVERIFY(fromTypes);
-        QVERIFY(!fromContent->isVisible());
-        QVERIFY(!fromTypes->isVisible());
     }
 
     // The preview shows what the pointer settings do, which no indenter would.

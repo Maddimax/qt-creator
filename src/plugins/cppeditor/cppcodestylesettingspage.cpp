@@ -391,52 +391,6 @@ void CppCodeStyleAspects::updateState()
 
 } // namespace Internal
 
-// A widget over the same aspects, for ClangFormat's legacy indenter panel,
-// which is still a widget page. It has no preview of its own, and its deferral
-// is a snapshot of the preferences: the aspects edit them live.
-class CppCodeStylePreferencesWidgetPrivate
-{
-public:
-    CppCodeStylePreferencesWidgetPrivate(CppCodeStylePreferences *preferences)
-        : m_preferences(preferences)
-        , m_aspects(preferences, nullptr)
-    {
-        m_originalSettings = preferences->currentCodeStyleSettings();
-        m_originalTabSettings = preferences->currentTabSettings();
-    }
-
-    CppCodeStylePreferences *m_preferences = nullptr;
-    Internal::CppCodeStyleAspects m_aspects;
-    CppCodeStyleSettings m_originalSettings;
-    TabSettingsData m_originalTabSettings;
-};
-
-CppCodeStylePreferencesWidget::CppCodeStylePreferencesWidget(
-    CppCodeStylePreferences *codeStylePreferences)
-    : d(new CppCodeStylePreferencesWidgetPrivate(codeStylePreferences))
-{
-    Layouting::Column{&d->m_aspects}.attachTo(this);
-}
-
-CppCodeStylePreferencesWidget::~CppCodeStylePreferencesWidget()
-{
-    delete d;
-}
-
-void CppCodeStylePreferencesWidget::apply()
-{
-    d->m_originalSettings = d->m_preferences->currentCodeStyleSettings();
-    d->m_originalTabSettings = d->m_preferences->currentTabSettings();
-}
-
-void CppCodeStylePreferencesWidget::cancel()
-{
-    if (auto current = dynamic_cast<CppCodeStylePreferences *>(d->m_preferences->currentDelegate())) {
-        current->setCodeStyleSettings(d->m_originalSettings);
-        current->setTabSettings(d->m_originalTabSettings);
-    }
-}
-
 namespace Internal {
 
 AspectContainer *createCppCodeStyleAspects(ICodeStylePreferences *codeStyle,

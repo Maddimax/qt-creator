@@ -10594,3 +10594,46 @@ a suffix.
 
 Every `AspectWidgets::setLayouter` left in the tree is now a test fixture, the
 Lua binding that lets a script supply its own layout, or a comment.
+
+## The widget the fallback was keeping alive
+
+`CppCodeStylePreferencesWidget` said what it was for in its own comment: *"for
+ClangFormat's legacy indenter panel, which is still a widget page."* That page
+is not a widget page any more, and with the fallback gone the widget had one
+user left - a test asserting that the widget renderer also shows one category
+at a time. The aspect-level test directly above it makes the same claim without
+a renderer, so the widget and its test are deleted together and
+`cppcodestylesettingspage.h` stops including `<QWidget>`.
+
+The control that mattered was not on the deletion but on what the deletion left
+behind: breaking `group.setVisible(selected)` in `showCategory()` still turns
+the remaining aspect test red, so the claim survived losing its second
+renderer.
+
+**A rule next to it has no test, and trying to write one turned up something
+worth looking at.** `showCategory()` also does
+
+    group.setEnabled(current && !current->isReadOnly());
+
+so a style delegating to a built-in should be shown and not editable. A test
+for that fails: with the C++ global style, which does delegate to the read-only
+`qt` built-in, the General group reads as *enabled*. Instrumenting
+`syncFromReal()` shows the page copy is set up correctly -
+`realDelegate "qt" pageDelegate "qt" pageCurrentReadOnly true` - and nothing
+else in either file calls `setEnabled` on those groups. So the value is
+computed as false and read back as true.
+
+The likeliest explanation, untested: `m_selector.setup()` runs between
+`syncFromReal()` and `createSettingsAspects()`, and selecting a default entry
+re-points the page copy's delegate at an editable style before the settings are
+built. Recorded rather than guessed at - the test was written, failed, and was
+**removed rather than committed**, because a test whose premise has not been
+established is worse than none. The next step is to instrument
+`m_selector.setup()`.
+
+**And two suites went red without this batch touching them.** The indent-guide
+test and a QML `hasActiveFocus()` test both started failing between one run and
+the next. Restoring the whole `src/plugins/cppeditor` directory to HEAD and
+rebuilding reproduces both, so they belong to the machine's window state rather
+than to any of this - the focus one is the key-window case that has bitten
+before. Isolated by reverting rather than by argument.
