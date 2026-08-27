@@ -16,6 +16,7 @@
 #include <qmljstools/qmljssettings.h>
 #include <qmljstools/qmljstoolsconstants.h>
 
+#include <texteditor/codestyleeditor.h>
 #include <texteditor/icodestylepreferencesfactory.h>
 #include <texteditor/tabsettings.h>
 #include <texteditor/texteditor.h>
@@ -46,6 +47,7 @@ private slots:
     void test_codeStyleAspectsReadThePreferences();
     void test_codeStyleAspectsWriteBackToThePreferences();
     void test_codeStyleShowsOneFormattersSettings();
+    void test_codeStyleDelegatingToABuiltInIsShownButNotEditable();
 };
 
 void QmlJSToolsTest::test_basic()
@@ -360,6 +362,49 @@ void QmlJSToolsTest::test_codeStyleShowsOneFormattersSettings()
     QVERIFY(!builtin->isVisible());
     QVERIFY(!qmlformat->isVisible());
     QVERIFY(custom->isVisible());
+}
+
+// Through the page rather than the container alone: the settings are a child
+// of CodeStyleAspect, and registering them is where a container's per-child
+// state used to be flattened. A read-only style has to stay read-only after
+// that.
+void QmlJSToolsTest::test_codeStyleDelegatingToABuiltInIsShownButNotEditable()
+{
+    TextEditor::ICodeStylePreferencesFactory * const factory
+        = TextEditor::codeStyleFactory(::QmlJSTools::Constants::QML_JS_SETTINGS_ID);
+    QVERIFY(factory);
+    TextEditor::ICodeStylePreferences * const global = factory->globalCodeStyle();
+    QVERIFY2(global, "Qt Quick has no global code style, so this proves nothing");
+
+    TextEditor::ICodeStylePreferences * const delegate = global->currentPreferences();
+    QVERIFY2(delegate && delegate != global, "the global style delegates to nothing here");
+    QVERIFY2(delegate->isReadOnly(), "the delegated-to style is not a built-in");
+
+    const std::unique_ptr<TextEditor::CodeStyleAspect> page(
+        new TextEditor::CodeStyleAspect(global, ::QmlJSTools::Constants::QML_JS_SETTINGS_ID));
+    Utils::AspectContainer *settings = nullptr;
+    for (Utils::BaseAspect *aspect : page->aspects()) {
+        if (auto container = qobject_cast<Utils::AspectContainer *>(aspect))
+            settings = container;
+    }
+    QVERIFY(settings);
+
+    Utils::BaseAspect * const formatter = aspectNamed(settings, "Formatter");
+    QVERIFY(formatter);
+    QVERIFY2(!formatter->isEnabled(), "a style delegating to a built-in could be edited");
+
+    // Whichever formatter's group is on show is locked too, not hidden -
+    // which group that is depends on the style, so it is looked up rather
+    // than assumed.
+    Utils::BaseAspect *shown = nullptr;
+    for (const QString &name : QStringList{"BuiltinSettings", "QmlFormatSettings", "CustomSettings"}) {
+        Utils::BaseAspect * const group = aspectNamed(settings, name);
+        QVERIFY2(group, qPrintable(name + " is not there"));
+        if (group->isVisible())
+            shown = group;
+    }
+    QVERIFY2(shown, "no formatter's settings are on show, so this proves nothing");
+    QVERIFY2(!shown->isEnabled(), "the settings of a read-only style could be edited");
 }
 
 QObject *createQmlJSToolsTest()

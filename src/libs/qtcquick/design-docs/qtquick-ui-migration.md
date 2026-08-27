@@ -10688,3 +10688,51 @@ out to children is exactly the case where it has one. The line had been read as
 
 The page migration itself is finished; this is the first thing found by
 *asking* the finished pages a question they had never been asked.
+
+## How far the enabled bug reached
+
+The fix landed with one test, on the page where it was found. The obvious next
+question - which other pages were quietly losing per-child state - has an
+answer worth writing down, because the shape that is vulnerable is narrow.
+
+**Two axes, one of them safe.** `insertAspect()` writes three things into a
+child: the container, auto-apply, and enabled. There is no
+`AspectContainer::setVisible()` override, so visibility never fanned out and
+the `setVisible()` half of every `showCategory()`-style rule was always fine.
+Auto-apply *does* fan out, but there the propagation is the intent - a
+container's children follow its mode - and it is a documented trap rather than
+a silent one.
+
+**The vulnerable shape is narrow: a container that sets per-child state in its
+own constructor and is registered into a parent afterwards.** Most pages are
+safe by accident of ordering - `EditorProjectPanel`, for one, calls
+`updateForUseGlobal()` *after* all its `registerAspect()` calls, so its state
+was applied to already-registered children. The pages that were not safe are
+the ones reached through `createSettingsAspects()`, because that builds the
+container - constructor and all - and hands it back for the page to register.
+
+Of the four factories that supply one, two set per-child enabled state:
+CppEditor's `showCategory()` and QmlJSTools' `updateState()`. Nim's registers
+none, and ClangFormat's carries editability as an aspect *value* rather than as
+enabled state, so neither was affected.
+
+**So the Qt Quick Code Style page had the same fault as the C++ one**, and
+nothing said so: the existing QmlJSTools test builds the settings container
+through `createSettingsAspects()` and never registers it into a page, which is
+exactly the step where the state was lost. A test that goes through
+`CodeStyleAspect` now covers it, and both controls bite - reverting the Utils
+fix fails it, and breaking the page's own `editable` rule fails it too, so it
+is about the page and not only about the fix.
+
+**Which group is on show is not something to assume.** The first version of
+that test asserted `BuiltinSettings` was visible; the global Qt Quick style
+does not use the built-in formatter, so it failed on a true premise wrongly
+stated. The test now looks the visible group up and asserts on whichever it
+finds, with a guard that one was found at all.
+
+**And the control harness reported three clean controls that were crashes.**
+Every run came back SIGABRT with no test output - the `QCocoaCursor::
+createCursorData -> QImage::toCGImage` SEGV that predates all of this and fires
+roughly one run in three. The harness read "no FAIL lines" as "nothing bit".
+It now retries up to six times for a run that actually starts, and reports
+"DID NOT RUN" rather than a pass if none does.
