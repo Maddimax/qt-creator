@@ -100,6 +100,9 @@ class TEXTEDITOR_EXPORT TextViewport : public QQuickItem, public HoverTarget
     // The whole document's height, so that a ScrollBar has something to size
     // itself against without knowing what a line is.
     Q_PROPERTY(qreal contentHeight READ contentHeight NOTIFY metricsChanged)
+    // How wide the widest row on screen is. Wrapping off means a row carries
+    // its whole line, so this is what there is to scroll sideways through.
+    Q_PROPERTY(qreal contentWidth READ contentWidth NOTIFY metricsChanged)
     Q_PROPERTY(qreal lineHeight READ lineHeight NOTIFY metricsChanged)
     // The theme's editor background. The viewport does not paint it - a QML
     // Rectangle behind it does - but the colour lives in FontSettings, which
@@ -253,6 +256,7 @@ public:
     void setScrollX(qreal scrollX);
 
     qreal contentHeight() const;
+    qreal contentWidth() const;
     qreal lineHeight() const;
     QColor backgroundColor() const;
     int firstVisibleLine() const;
@@ -547,6 +551,7 @@ private:
     // Keeps the caret on screen after it has been moved by something other than
     // the mouse.
     void ensureCursorVisible();
+    void ensureCaretVisibleSideways();
     void insertTypedText(QTextCursor &cursor, const QString &text);
     void offerCompletionsIfAsked(const QTextCursor &cursor);
 
@@ -584,6 +589,10 @@ private:
     std::vector<Line> m_lines;
     qreal m_lineHeight = 0;
     qreal m_contentHeight = 0;
+    qreal m_contentWidth = 0;
+    // Set when the caret moved and cleared once updatePolish() has put it back
+    // on screen: where it is sideways is only known once the rows are laid out.
+    bool m_caretVisibleXPending = false;
     QPointer<TextDocument> m_connectedMarkSource;
     QColor m_currentLine = Qt::transparent;
     QColor m_indentGuide = Qt::transparent;

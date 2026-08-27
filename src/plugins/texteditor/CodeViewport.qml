@@ -542,6 +542,9 @@ Item {
             // A WheelHandler takes only an actual wheel unless it is told
             // otherwise, so without this a trackpad scrolls nothing at all.
             acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+            // Both wheels: a trackpad has a sideways one, and tilting a mouse
+            // wheel or holding Shift reports as one.
+            orientation: Qt.Horizontal | Qt.Vertical
             onWheel: (event) => {
                 // Ctrl and the wheel is a zoom rather than a scroll, and the
                 // viewport is what knows whether the user allows it.
@@ -554,8 +557,16 @@ Item {
                 // degree, and one notch of 120 is three lines.
                 if (event.pixelDelta.y !== 0)
                     viewport.scrollY -= event.pixelDelta.y
-                else
+                else if (event.angleDelta.y !== 0)
                     viewport.scrollY -= event.angleDelta.y / 120 * viewport.lineHeight * 3
+
+                // Sideways too. A long line runs off the edge with wrapping
+                // off, and this is the only way to follow it with the hands
+                // rather than the caret.
+                if (event.pixelDelta.x !== 0)
+                    viewport.scrollX -= event.pixelDelta.x
+                else if (event.angleDelta.x !== 0)
+                    viewport.scrollX -= event.angleDelta.x / 120 * viewport.lineHeight * 3
             }
         }
 

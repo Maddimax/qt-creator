@@ -192,7 +192,7 @@ qreal TextViewport::scrollX() const
 
 void TextViewport::setScrollX(qreal scrollX)
 {
-    const qreal clamped = qMax(0.0, scrollX);
+    const qreal clamped = qBound(0.0, scrollX, qMax(0.0, m_contentWidth - width()));
     if (qFuzzyCompare(m_scrollX + 1, clamped + 1))
         return;
     m_scrollX = clamped;
@@ -203,6 +203,11 @@ void TextViewport::setScrollX(qreal scrollX)
 qreal TextViewport::contentHeight() const
 {
     return m_contentHeight;
+}
+
+qreal TextViewport::contentWidth() const
+{
+    return m_contentWidth;
 }
 
 qreal TextViewport::lineHeight() const
@@ -750,6 +755,7 @@ void TextViewport::setTextCursor(const QTextCursor &cursor)
         setSelectionStart(-1);
         setSelectionEnd(-1);
     }
+    m_caretVisibleXPending = true;
     ensureCursorVisible();
     polish();
 }
@@ -782,6 +788,27 @@ void TextViewport::ensureCursorVisible()
         setScrollY(top - (height() - m_lineHeight) / 2);
     else
         setScrollY(above ? top : top + m_lineHeight - height());
+}
+
+void TextViewport::ensureCaretVisibleSideways()
+{
+    // Where the caret is across the line is only known once the row it is on
+    // has been laid out, so this runs at the end of updatePolish() rather than
+    // when the caret moves.
+    m_caretVisibleXPending = false;
+    if (m_wrapping || width() <= 0)
+        return;
+    const QRectF caret = rectangleAt(m_cursorPosition);
+    if (caret.isNull())
+        return;
+
+    // A little of the line beyond the caret, so that it does not sit against
+    // the edge with nothing to read in the direction it is heading.
+    const qreal margin = qMin(width() / 4, 4 * m_lineHeight);
+    if (caret.right() > width())
+        setScrollX(m_scrollX + caret.right() - width() + margin);
+    else if (caret.left() < 0)
+        setScrollX(m_scrollX + caret.left() - margin);
 }
 
 static Utils::PlainTextDocumentLayout *layoutOf(const QTextDocument *text)
@@ -2110,6 +2137,21 @@ void TextViewport::updatePolish()
         while (block.isValid() && !block.isVisible());
     }
 
+    // The widest row on screen. With wrapping off a row carries its whole
+    // line, so this is the full width of the widest line in view - which is
+    // what setScrollX() clamps against.
+    m_contentWidth = 0;
+    for (const Line &line : m_lines) {
+        const QTextLine textLine = line.layout->lineAt(0);
+        if (textLine.isValid())
+            m_contentWidth = qMax(m_contentWidth, textLine.naturalTextRect().right());
+    }
+    // The caret sits after the last character, so there is a little more to
+    // scroll to than there is text - without this the end of the longest line
+    // can be reached and the caret on it cannot.
+    if (m_contentWidth > 0)
+        m_contentWidth += m_lineHeight;
+
     if (!qFuzzyCompare(previousLineHeight + 1, m_lineHeight + 1))
         setScrollY(m_scrollY); // re-clamp: the document is a different height now
     emit metricsChanged();
@@ -2118,6 +2160,12 @@ void TextViewport::updatePolish()
     emit linesChanged();
     // Everything the caret's position on screen depends on was just recomputed.
     emit cursorRectangleChanged();
+
+    // Now that the rows are laid out, the caret can be brought back into view
+    // sideways. Changing the scroll asks for another polish, and the flag is
+    // already cleared, so this settles rather than repeating.
+    if (m_caretVisibleXPending)
+        ensureCaretVisibleSideways();
     update();
 }
 

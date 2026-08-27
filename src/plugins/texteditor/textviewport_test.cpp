@@ -496,7 +496,14 @@ private slots:
         // notches, and following the fingers means using that.
         TemporaryDirectory dir("codeviewport-trackpad");
         QVERIFY(dir.isValid());
-        const FilePath file = writeLines(dir, "big.txt", 5000);
+        // Long lines as well as many of them: there is nothing to scroll
+        // sideways to in a document narrower than the viewport, and the
+        // sideways half of this would pass for the wrong reason.
+        const FilePath file = dir.filePath("wide.txt");
+        QString content;
+        for (int i = 0; i < 2000; ++i)
+            content += QString(200, QLatin1Char('x')) + QLatin1Char('\n');
+        QVERIFY(file.writeFileContents(content.toUtf8()));
 
         CodeViewportFixture fixture(file);
         QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
@@ -530,6 +537,22 @@ private slots:
 
         // The pixels it reported, not a number of lines derived from them.
         QTRY_COMPARE(viewport->scrollY(), 60.0);
+
+        // And sideways, which is the only way to follow a long line with the
+        // hands rather than the caret: the handler used to read the vertical
+        // delta and nothing else.
+        QWheelEvent sideways(centre,
+                             fixture.view.mapToGlobal(centre.toPoint()),
+                             QPoint(-30, 0),
+                             QPoint(-30, 0),
+                             Qt::NoButton,
+                             Qt::NoModifier,
+                             Qt::ScrollUpdate,
+                             false,
+                             Qt::MouseEventNotSynthesized,
+                             &trackpad);
+        QCoreApplication::sendEvent(&fixture.view, &sideways);
+        QTRY_COMPARE(viewport->scrollX(), 30.0);
     }
 
     void testTheScrollBarAndTheViewportKeepFollowingEachOther()
@@ -2305,6 +2328,43 @@ private slots:
     // Home means the first thing on the line, not column zero - and column
     // zero only once the caret is already there. Indented code is unreadable
     // otherwise: every Home would land the caret in the margin.
+    void testTheCaretStaysVisibleAcrossALongLine()
+    {
+        // Wrapping is off for code, so a long line runs past the right edge.
+        // Putting the caret out there has to bring it back into view, the way
+        // moving it below the last row scrolls down.
+        TemporaryDirectory dir("qtc-viewport-hscroll");
+        const FilePath file = dir.filePath("long.txt");
+        QVERIFY(file.writeFileContents(QByteArray(400, 'x') + "\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+        QVERIFY(!viewport->isWrapping());
+        QCOMPARE(viewport->scrollX(), 0.0);
+
+        QVERIFY2(fixture.hasFocus(), "the viewport never took focus, so no key arrives");
+        // Driven by a key, which is how a caret actually gets there: the
+        // property setter is the low-level one and does not scroll, the same
+        // as it does not scroll vertically.
+        keyMove(fixture.view, QKeySequence::MoveToEndOfLine);
+        QCOMPARE(viewport->cursorPosition(), 400);
+        // The caret is far to the right of a 400 pixel viewport, so it can
+        // only be on screen if the view has followed it.
+        QTRY_VERIFY2(viewport->cursorRectangle().right() <= viewport->width(),
+                     qPrintable(QString("caret at x=%1 in a viewport %2 wide, scrollX=%3")
+                                    .arg(viewport->cursorRectangle().right())
+                                    .arg(viewport->width())
+                                    .arg(viewport->scrollX())));
+        QVERIFY(viewport->cursorRectangle().left() >= 0);
+
+        // And back again.
+        keyMove(fixture.view, QKeySequence::MoveToStartOfLine);
+        QTRY_COMPARE(viewport->scrollX(), 0.0);
+    }
+
     void testHomeGoesToTheCodeBeforeItGoesToTheMargin()
     {
         TemporaryDirectory dir("qtc-viewport-home");
