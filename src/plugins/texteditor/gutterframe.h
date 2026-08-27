@@ -5,6 +5,7 @@
 
 #include "texteditor_global.h"
 
+#include <QColor>
 #include <QHash>
 #include <QLine>
 #include <QList>
@@ -160,6 +161,13 @@ private:
 // marker callback draws one folding indicator (widget style dependent).
 using FoldMarkerPainter
     = std::function<void(QPainter &, const QRect &, bool expanded, bool active, bool hovered)>;
+
+// What the gutter marks a changed line in: red until the change is saved, and
+// green where an edit was undone back to what is on disk. Named here rather
+// than picked at each drawing site, so the two editors cannot drift apart.
+// Constants rather than theme colours, which is what they have always been.
+TEXTEDITOR_EXPORT QColor revisionUnsavedColor();
+TEXTEDITOR_EXPORT QColor revisionRevertedColor();
 
 TEXTEDITOR_EXPORT void paintGutterFrame(QPainter &painter,
                                         const GutterFrame &frame,

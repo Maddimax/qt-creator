@@ -128,7 +128,11 @@ public:
 class CodeViewportFixture
 {
 public:
-    explicit CodeViewportFixture(const FilePath &file, int width = 400, int height = 200)
+    // \a extra is for whatever the test needs the form to be showing - the
+    // gutter is not on by default, and an item inside a hidden one is not
+    // visible however right its own geometry is.
+    explicit CodeViewportFixture(const FilePath &file, int width = 400, int height = 200,
+                                 const QVariantMap &extra = {})
     {
         view.resize(width, height);
         installIconProvider(view);
@@ -136,9 +140,11 @@ public:
         component.reset(new QQmlComponent(view.engine(),
                                           QUrl("qrc:/qt/qml/QtCreator/TextEditor/"
                                                "CodeViewport.qml")));
-        root = qobject_cast<QQuickItem *>(
-            component->createWithInitialProperties({{"source", QVariant::fromValue(&document)},
-                                                    {"readOnly", false}}));
+        QVariantMap properties{{"source", QVariant::fromValue(&document)},
+                               {"readOnly", false}};
+        for (auto it = extra.constBegin(); it != extra.constEnd(); ++it)
+            properties.insert(it.key(), it.value());
+        root = qobject_cast<QQuickItem *>(component->createWithInitialProperties(properties));
         if (root) {
             root->setParentItem(view.contentItem());
             root->setWidth(width);
@@ -3402,6 +3408,126 @@ private slots:
         QCOMPARE(fixture.document.textDocument()->document()
                      ->findBlockByNumber(1).text().left(8), QString("        "));
         QTRY_COMPARE(viewport->visibleLine(1).value("indentGuides").toInt(), 0);
+    }
+
+    void testAnEditedLineIsMarkedUntilItIsSaved()
+    {
+        TemporaryDirectory dir("change-marks");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("edited.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\ngamma\n"));
+
+        const bool was = displaySettings().markTextChanges();
+        const QScopeGuard restore(
+            [was] { displaySettings().markTextChanges.setValue(was); });
+        displaySettings().markTextChanges.setValue(true);
+
+        // With the gutter showing: the mark is drawn at its right edge, and a
+        // gutter of no width has nowhere to put it.
+        CodeViewportFixture fixture(file, 400, 200, {{"showLineNumbers", true}});
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 2);
+        TextDocument * const doc = fixture.document.textDocument();
+        QTextDocument * const text = doc->document();
+
+        const auto markOn = [viewport](int row) {
+            return viewport->visibleLine(row).value("changed").toInt();
+        };
+        // Nothing has been touched since the file was read.
+        QTRY_COMPARE(markOn(0), int(TextViewport::None));
+        QCOMPARE(markOn(1), int(TextViewport::None));
+
+        // Editing the second line marks it and leaves the others alone.
+        QTextCursor cursor(text);
+        cursor.setPosition(text->findBlockByNumber(1).position());
+        cursor.insertText("XY");
+        QTRY_COMPARE(markOn(1), int(TextViewport::Changed));
+        QCOMPARE(markOn(0), int(TextViewport::None));
+        QCOMPARE(markOn(2), int(TextViewport::None));
+
+        // And the mark is drawn: a two-pixel-wide item on that row.
+        const auto barsOnRow = [&fixture, viewport](int row) {
+            int drawn = 0;
+            const qreal wanted = row * viewport->lineHeight();
+            for (QQuickItem * const candidate : allItems(fixture.root)) {
+                if (candidate->width() == 2 && candidate->isVisible()
+                    && qFuzzyCompare(candidate->y() + 1, wanted + 1)) {
+                    ++drawn;
+                }
+            }
+            return drawn;
+        };
+        QTRY_COMPARE(barsOnRow(1), 1);
+        QCOMPARE(barsOnRow(0), 0);
+
+        // The colour is what says whether the change is saved, so a bar of the
+        // wrong colour is the same bug as no bar at all.
+        const auto barColourOnRow = [&fixture, viewport](int row) {
+            const qreal wanted = row * viewport->lineHeight();
+            for (QQuickItem * const candidate : allItems(fixture.root)) {
+                if (candidate->width() == 2 && candidate->isVisible()
+                    && qFuzzyCompare(candidate->y() + 1, wanted + 1)) {
+                    return candidate->property("color").value<QColor>();
+                }
+            }
+            return QColor();
+        };
+        QCOMPARE(barColourOnRow(1), viewport->changedLineColor());
+
+        // Saving does not clear the mark, it changes its colour: the line was
+        // still edited in this session, and Creator says so in green until the
+        // file is closed. The document records that as a negative revision.
+        const Utils::Result<> saved = doc->save(file);
+        QVERIFY2(saved.has_value(), qPrintable(saved ? QString() : saved.error()));
+        QTRY_COMPARE(markOn(1), int(TextViewport::Saved));
+        QCOMPARE(barsOnRow(1), 1);
+        QVERIFY2(viewport->savedLineColor() != viewport->changedLineColor(),
+                 "a saved change and an unsaved one are drawn the same");
+        QTRY_COMPARE(barColourOnRow(1), viewport->savedLineColor());
+        // And a line nobody touched is still not marked at all.
+        QCOMPARE(markOn(0), int(TextViewport::None));
+    }
+
+    void testNoChangeMarksWhenTheSettingIsOff()
+    {
+        TemporaryDirectory dir("change-marks-off");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("edited.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\n"));
+
+        const bool was = displaySettings().markTextChanges();
+        const QScopeGuard restore(
+            [was] { displaySettings().markTextChanges.setValue(was); });
+        displaySettings().markTextChanges.setValue(false);
+
+        CodeViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+        QTextDocument * const text = fixture.document.textDocument()->document();
+
+        // How wide the line is before the edit, so that the wait below has
+        // something to wait for.
+        QTRY_VERIFY(viewport->visibleLine(1).value("width").toReal() > 0);
+        const qreal widthBefore = viewport->visibleLine(1).value("width").toReal();
+
+        QTextCursor cursor(text);
+        cursor.setPosition(text->findBlockByNumber(1).position());
+        cursor.insertText("XY");
+
+        // Wait for the *viewport* to have taken the edit in, not just the
+        // document: the line it reports is rebuilt on polish, and asking
+        // before that reads the line as it was, which would be unmarked
+        // whatever the setting said. The line getting wider is the event that
+        // is guaranteed to come after the rebuild.
+        QVERIFY(text->findBlockByNumber(1).text().startsWith("XY"));
+        QTRY_VERIFY(viewport->visibleLine(1).value("width").toReal() > widthBefore);
+        QCOMPARE(viewport->visibleLine(1).value("changed").toInt(), int(TextViewport::None));
     }
 };
 

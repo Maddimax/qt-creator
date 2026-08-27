@@ -8715,6 +8715,54 @@ in the least informative way there is - by finding nothing.
 The suite time flagged it before the assertion did, again: 22 seconds against a
 usual 7.
 
+## Change marks, and a name taken from the wrong place
+
+`m_markTextChanges` is on by default: the gutter draws a bar beside every line
+edited since the file was read. The rule is one comparison - `block.revision()
+!= documentLayout->lastSaveRevision` - and the widget's two colours were
+constants buried in a lambda inside `paintGutterFrame()`. They are now
+`revisionUnsavedColor()` and `revisionRevertedColor()` in `gutterframe.cpp`,
+which the widget's lambda calls and the viewport reads, so there is one place
+that decides and no second hard-coded red. Worth flagging: these two are the
+only colours in the editor that are not themed, and that is inherited rather
+than introduced.
+
+**A test failure that was the test being wrong about the product.** Asserting
+that saving *clears* the mark failed, and the code was right: saving turns the
+bar green rather than removing it. `TextDocument::saveImpl()` sets an edited
+block's revision to `-lastSaveRevision - 1`, which is still not equal to
+`lastSaveRevision`, so the mark stays and the negative value picks the other
+colour. That is Creator's familiar behaviour - red for an unsaved edit, green
+for one you made this session and have saved - and it is easy to assert away by
+accident.
+
+**Which makes the enum name matter.** The first version called that state
+`Reverted`, copied from `GutterFrame::ColorRole::RevisionReverted`. Nothing was
+reverted: the line was changed and then written. Inheriting a name from the
+colour role would have left the next reader believing the editor tracks undo,
+so the state is `Saved`, with a comment saying what the widget's role is called
+and why the names differ. **A name copied from the place you found the constant
+is not automatically the right name for what you are doing with it.**
+
+**Two more weak tests caught by their controls**, both of the kind that has come
+up before:
+
+- Forcing the gate on did not fail the "setting is off" test, because that test
+  read `visibleLine()` immediately after editing the document. The line list is
+  rebuilt on polish, so it was asserting against the line as it was *before* the
+  edit - unmarked whatever the setting said. Fixed with the ordering trick: wait
+  for the line to get **wider**, which cannot happen until the rebuild has
+  happened, and only then check the absence.
+- Swapping the colours in the QML failed nothing, because the test counted bars
+  and never looked at one. It now reads the drawn item's `color` and compares it
+  with the viewport's own - before the save and after it. A bar of the wrong
+  colour is the same bug as no bar.
+
+qmllint caught a third `property-override` in as many batches: `state` already
+exists on `QQuickItem`. That is now three delegates - `display`, `checkState`,
+`state` - where a required property would have shadowed the control's own.
+**Any short, obvious name for a delegate property is probably taken.**
+
 ## The terminal spike: go, with the cleanest split in the tree
 
 **Status update: the spike is being productised.** `TerminalQuick` is now the

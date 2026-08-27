@@ -41,6 +41,31 @@ Item {
         text: String(Math.max(1, root.viewport.lineCount))
     }
 
+    // How the line differs from the file on disk, drawn hard against the text
+    // at the gutter's right edge - which is where the widget editor puts it.
+    Repeater {
+        model: root.viewport.visibleLines
+
+        delegate: Rectangle {
+            id: change
+
+            required property int index
+            required property var modelData
+
+            readonly property int row: root.viewport.firstVisibleLine + index
+            // Not "state": QQuickItem has one of those already.
+            readonly property int changeState: change.modelData.changed ?? 0
+
+            x: root.width - width
+            y: change.row * root.viewport.lineHeight - root.viewport.scrollY
+            width: 2
+            height: root.viewport.lineHeight
+            visible: change.changeState !== 0
+            color: change.changeState === TextViewport.Saved ? root.viewport.savedLineColor
+                                                                : root.viewport.changedLineColor
+        }
+    }
+
     // What the line is marked with - an error, a warning, a breakpoint. One
     // per line on screen, the same as the numbers.
     Repeater {

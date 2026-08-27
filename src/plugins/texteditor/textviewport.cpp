@@ -14,6 +14,7 @@
 #include "texteditorconstants.h"
 #include "texteditortr.h"
 #include "textdocument.h"
+#include "gutterframe.h"
 #include "textdocumentlayout.h"
 #include "textmark.h"
 #include "typingsettings.h"
@@ -193,6 +194,16 @@ QColor TextViewport::currentLineColor() const
     return m_currentLine;
 }
 
+QColor TextViewport::changedLineColor() const
+{
+    return revisionUnsavedColor();
+}
+
+QColor TextViewport::savedLineColor() const
+{
+    return revisionRevertedColor();
+}
+
 qreal TextViewport::indentWidth() const
 {
     return m_indentWidth;
@@ -301,6 +312,9 @@ QVariantMap TextViewport::visibleLine(int index) const
                        {"foldReplacement", line.foldReplacement},
                        // How many indent guides to draw on this row.
                        {"indentGuides", line.indentGuides},
+                       // Whether the line differs from what is on disk, and
+                       // which way. See TextViewport::ChangeMark.
+                       {"changed", int(line.changed)},
                        {"annotation", line.annotation},
                        {"newlineTail", line.newlineTail},
                        // What is being composed on this line, if anything. Not
@@ -1433,6 +1447,13 @@ void TextViewport::updatePolish()
 
     // One level of indentation, in pixels, and what a guide is drawn in.
     m_indentWidth = doc->tabSettings().m_indentSize * metrics.horizontalAdvance(' ');
+
+    // What the document was at when the file was last written. Only a
+    // TextDocumentLayout keeps it; without one there is nothing to compare a
+    // block's revision against, so no line is marked rather than every line.
+    std::optional<int> saveRevision;
+    if (auto * const layout = qobject_cast<TextDocumentLayout *>(text->documentLayout()))
+        saveRevision = layout->lastSaveRevision;
     const QBrush whitespaceBrush = fonts.toTextCharFormat(C_VISUAL_WHITESPACE).foreground();
     m_indentGuide = whitespaceBrush.style() == Qt::NoBrush ? QColor(Qt::transparent)
                                                           : whitespaceBrush.color();
@@ -1496,6 +1517,13 @@ void TextViewport::updatePolish()
         // The line the document calls this, which is not the row it is drawn
         // on once anything above it is folded.
         blockLine.lineNumber = block.blockNumber() + 1;
+        // The block's revision against the one the file was written at: a
+        // line edited since then is marked, and a negative revision is how the
+        // document records an edit that was undone back to what is on disk.
+        if (displaySettings().markTextChanges() && saveRevision.has_value()
+            && block.revision() != *saveRevision) {
+            blockLine.changed = block.revision() < 0 ? Saved : Changed;
+        }
         // Off unless asked for, so a row that draws no guides and a row that
         // has none look the same to the form.
         if (displaySettings().visualizeIndent()) {
@@ -1595,6 +1623,7 @@ void TextViewport::updatePolish()
                 // Guides belong to the line, so a wrapped line's continuation
                 // rows get none - which is what the widget editor does too.
                 line.indentGuides = blockLine.indentGuides;
+                line.changed = blockLine.changed;
                 line.foldable = blockLine.foldable;
                 line.folded = blockLine.folded;
                 line.foldIcon = blockLine.foldIcon;

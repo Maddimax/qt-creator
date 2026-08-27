@@ -296,6 +296,16 @@ void GutterFrameBuilder::addDiffChangeSigns(const QTextBlock &block,
     }
 }
 
+QColor revisionUnsavedColor()
+{
+    return QColor(Qt::red);
+}
+
+QColor revisionRevertedColor()
+{
+    return QColor(Qt::darkGreen);
+}
+
 void paintGutterFrame(QPainter &painter,
                       const GutterFrame &frame,
                       const QPalette &palette,
@@ -317,9 +327,9 @@ void paintGutterFrame(QPainter &painter,
         case GutterFrame::ColorRole::FoldingHighlight:
             return palette.color(QPalette::Highlight);
         case GutterFrame::ColorRole::RevisionUnsaved:
-            return QColor(Qt::red);
+            return revisionUnsavedColor();
         case GutterFrame::ColorRole::RevisionReverted:
-            return QColor(Qt::darkGreen);
+            return revisionRevertedColor();
         }
         return {};
     };

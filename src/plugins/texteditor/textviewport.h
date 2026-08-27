@@ -139,6 +139,11 @@ class TEXTEDITOR_EXPORT TextViewport : public QQuickItem
     // as it is drawn wide. cursorColumn is the character offset, which is what
     // IEditor asks for and not what a status display should show.
     Q_PROPERTY(int cursorDisplayColumn READ cursorDisplayColumn NOTIFY cursorPositionChanged)
+    // What the gutter marks a changed line in. Two properties rather than a
+    // colour per line: the form asks which of them a line wants.
+    Q_PROPERTY(QColor changedLineColor READ changedLineColor CONSTANT)
+    Q_PROPERTY(QColor savedLineColor READ savedLineColor CONSTANT)
+
     // What one level of indentation is worth on screen, so that the form can
     // put a guide at every level without knowing the font.
     Q_PROPERTY(qreal indentWidth READ indentWidth NOTIFY metricsChanged)
@@ -173,6 +178,15 @@ class TEXTEDITOR_EXPORT TextViewport : public QQuickItem
     Q_PROPERTY(bool wrapping READ isWrapping WRITE setWrapping NOTIFY wrappingChanged)
 
 public:
+    // How a line differs from what was read from disk, as the gutter marks it.
+    // Saved does not mean "the same as the file" - it means the line was
+    // edited in this session and the file has been written since, which the
+    // document records as a negative block revision. The widget editor's
+    // colour role for it is called RevisionReverted, which is why this is
+    // worth spelling out.
+    enum ChangeMark { None, Changed, Saved };
+    Q_ENUM(ChangeMark)
+
     explicit TextViewport(QQuickItem *parent = nullptr);
     ~TextViewport() override;
 
@@ -189,6 +203,8 @@ public:
     QColor backgroundColor() const;
     int firstVisibleLine() const;
     QColor currentLineColor() const;
+    QColor changedLineColor() const;
+    QColor savedLineColor() const;
     qreal indentWidth() const;
     QColor indentGuideColor() const;
     QFont font() const;
@@ -374,6 +390,11 @@ private:
         // off, so a row that draws none and a row that has none look the same
         // to the form.
         int indentGuides = 0;
+        // Whether the line was edited in this session, and whether that edit
+        // has been written. None when the setting is off, so a line that
+        // draws no mark and a line that has nothing to mark look the same to
+        // the form.
+        ChangeMark changed = None;
         // Whether this line starts a fold, and whether that fold is closed.
         bool foldable = false;
         bool folded = false;
