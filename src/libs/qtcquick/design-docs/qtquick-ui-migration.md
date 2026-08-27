@@ -205,6 +205,21 @@ innocent explanation:
 The one thing worth doing was covering the filter conversion, which is a real
 format change - `";;"`-separated for Qt, a list for QML - and it now is.
 
+**Two things using the editor found that no test did.** A selection's colours
+are format ranges on the row's layout, and a background set that way is
+painted per glyph run - so it arrived in pieces, with a gap at every run
+boundary and nothing at all over a selected line's indentation. Scanning the
+rendered pixels showed the fill starting one character in. The row carries the
+selected span as one rectangle now, drawn behind the text like the newline
+tail. `QSGTextNode::addTextLayout()` will paint a selection itself, given
+`selectionStart`, but it also imposes `selectionTextColor` on the text, which
+would drop the syntax colouring the widget editor keeps - hence the rectangle.
+
+And a `WheelHandler` accepts only an actual mouse wheel unless
+`acceptedDevices` says otherwise, so a trackpad scrolled nothing. It also
+reports distance in pixels rather than wheel notches, and using that is what
+makes it follow the fingers.
+
 **qmllint over every plugin is worth running, and now worth reading.** All 67
 `*_qmllint` targets used to give 665 warnings, 654 of them one thing: a page
 reaching `aspects.Foo`, a property of the `AspectPage` around it, without
@@ -5220,44 +5235,25 @@ under step 0 for why that compiles and does not link.
 open is not more porting but three decisions, none of which should be taken
 without the user:
 
-- **The file watcher imbalance**, half of which turned out to be somewhere
-  else entirely. `QTC_CHECK_RESULT` named its argument twice - once to test
-  it, once to read the error off it - and it is handed calls, so every failing
-  one was made again. `~DesktopFilePathWatcher` removes its watch through it,
-  so a failed removal was retried and the retry found nothing and soft
-  asserted. That macro is fixed and `tests/auto/utils/result` covers it: the
-  TextEditor run went from 67 soft asserts to 34.
+- **The file watcher is fixed.** It was two bugs. `QTC_CHECK_RESULT` named its
+  argument twice, so `~DesktopFilePathWatcher` retried a failed removal and the
+  retry soft asserted; that macro now binds the result once and
+  `tests/auto/utils/result` covers it. The rest was one file under two names -
+  the temporary directory is both `/var/folders/...` and
+  `/private/var/folders/...`, and `DocumentManager` canonicalises where a
+  document does not. The watcher keys by the canonical path now, so one file is
+  one entry. `Failed to watch` went from 20 to 0 and the soft asserts from 34
+  to 1, and the one left is `qtversionmanager.cpp`, unrelated.
 
-  What is left is the 20 "Failed to watch" lines, and they are not what this
-  document said before. `_watch()` drops a client whose `addPaths()` came back
-  as failed, and `QFileSystemWatcher` says that about a path it is already
-  watching - including a repeat inside one batch, since `m_watchClients` is
-  only written afterwards. Asking for each path once and treating "already
-  watched" as watched does clear all 20. **It was tried here and not kept**:
-  it moves the asserts from 34 to 54, one for each warning it removes.
-
-  The reason, corrected after printing the keys rather than inferring them -
-  an earlier draft of this paragraph said the two keys carry the same string,
-  and they do not. They are two spellings of one file:
-
-      /private/var/folders/.../revert.txt
-              /var/folders/.../revert.txt
-
-  `/var` is a symlink to `/private/var` on macOS. `DocumentManager` watches
-  the canonical spelling (it calls `canonicalPath()` before registering),
-  while the document watches its own `filePath()`. `QFileSystemWatcher`
-  resolves both to one file and calls the second add a duplicate;
-  `m_watchClients` keys them apart, so it holds two entries with one client
-  each, and removing the second calls `removePath()` on a path the first
-  already took away.
-
-  **All 55 failing watches, across all five suites, are under the macOS
-  temporary directory** - the one place where a path has two spellings.
-  Nothing under `/Users` is affected, so this is not something a user's
-  project runs into. Making it go away means deciding whether Creator watches
-  the canonical spelling or the literal one and applying that to both sides,
-  which is a policy question about `FilePath` rather than a bug in the
-  watcher. Left alone deliberately.
+  **The mechanism was measured, and two guesses before it were wrong.** It is
+  not that `QFileSystemWatcher` refuses the second name: a standalone probe
+  shows both adds succeed and both names appear in `files()`. It watches the
+  file once, so removing either name takes that watch away and leaves the
+  other listed, neither watching nor removable - and the next add is then told
+  the file is already watched, so that asker gets an error and no watch at
+  all. `tst_filepath` reproduces exactly that, and needed three attempts to:
+  the two names have to be the real pair, and both watchers have to be dropped
+  before the stranding shows.
 
 - **The Qt Quick editor's reach.** It has hover tooltips, follow symbol and
   Ctrl+click, and it draws Code Style, Snippets and Font && Colors. It is not
