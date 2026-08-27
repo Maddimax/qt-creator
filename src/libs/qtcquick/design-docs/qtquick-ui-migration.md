@@ -5154,13 +5154,28 @@ without the user:
   watched" as watched does clear all 20. **It was tried here and not kept**:
   it moves the asserts from 34 to 54, one for each warning it removes.
 
-  The reason is worth writing down. Two different `FilePath` keys can carry
-  the same path string - the trace shows two entries for one `revert.txt`,
-  each with a single client - so the second erase calls `removePath()` on a
-  path the first already removed, and that fails. `m_watchClients` is keyed by
-  `FilePath` while the watcher underneath is keyed by the string. Until those
-  agree, clearing the warnings just moves the noise, so **the keying is the
-  thing to fix first**.
+  The reason, corrected after printing the keys rather than inferring them -
+  an earlier draft of this paragraph said the two keys carry the same string,
+  and they do not. They are two spellings of one file:
+
+      /private/var/folders/.../revert.txt
+              /var/folders/.../revert.txt
+
+  `/var` is a symlink to `/private/var` on macOS. `DocumentManager` watches
+  the canonical spelling (it calls `canonicalPath()` before registering),
+  while the document watches its own `filePath()`. `QFileSystemWatcher`
+  resolves both to one file and calls the second add a duplicate;
+  `m_watchClients` keys them apart, so it holds two entries with one client
+  each, and removing the second calls `removePath()` on a path the first
+  already took away.
+
+  **All 55 failing watches, across all five suites, are under the macOS
+  temporary directory** - the one place where a path has two spellings.
+  Nothing under `/Users` is affected, so this is not something a user's
+  project runs into. Making it go away means deciding whether Creator watches
+  the canonical spelling or the literal one and applying that to both sides,
+  which is a policy question about `FilePath` rather than a bug in the
+  watcher. Left alone deliberately.
 
 - **The Qt Quick editor's reach.** It has hover tooltips, follow symbol and
   Ctrl+click, and it draws Code Style, Snippets and Font && Colors. It is not
