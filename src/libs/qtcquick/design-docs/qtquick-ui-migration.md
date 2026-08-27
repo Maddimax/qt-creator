@@ -9137,12 +9137,61 @@ already shared.
 
 **The census still cannot see it.** It walks `IOptionsPage`s, and a project
 panel is a `ProjectPanelFactory`. That is now two kinds of Qt Quick form outside
-its reach - dialogs and panels - each needing a test of its own. The test is the
+its reach - dialogs and panels - each needing a test of its own. (Half of that
+is wrong: **there is a panel census**, in `projectpanelfactory.cpp`, and it
+covered this port the moment it landed. See the next section.) The test is the
 same shape as the CompilerExplorer one: the form is a `QQuickWidget`, its
 `status` is Ready, and no QML warning was raised while building it. The last
 check is the one that matters here, because the panel reaches every setting
 through a *second* name (`aspects.Settings.Foo`), which doubles the chances of a
 typo that loads cleanly and silently omits a control. Its control confirms it.
+
+## The panels are finished, and a census already said so
+
+Before porting more panels one at a time, the question was whether the QuickUi
+census could be widened to cover them the way it covers pages. It can - and it
+did not need to be, because **that census already exists**:
+`ProjectPanelFactoryTest::testPanelsThatSayWhatTheyShowRenderWithQuick()`, with
+a project fixture of its own. Running it:
+
+    17 panel(s) say what they show; 0 still build a widget:
+
+So the panel bucket is **done**, CMake's included, and last batch's claim that
+"the census cannot see panels" was half wrong - the *QuickUi* census cannot, and
+ProjectExplorer's own can. `ProjectPanelFactory::aspects(Project *)` exists for
+exactly this, and its header says so: what a panel shows "can be asked for
+without opening it, which is what lets a test check the panels the way one
+checks the pages".
+
+The lesson repeats: before building an instrument, grep for the one that is
+already there. That is now four times in this migration.
+
+**Re-measuring the dialogs** the same way gives **77** files that define a
+`QDialog` and use `attachTo`, not the 91 the earlier count suggested (that
+number was `.attachTo(` call sites in dialog-and-wizard files, which is a
+different thing).
+
+## A dialog that the editor work paid for
+
+`CppPreProcessorDialog` is the first dialog whose body was not already aspects:
+it wrapped a `SnippetEditorWidget`, which is a `TextEditorWidget` subclass. That
+would have been a blocker three weeks ago. It is not one now - `SnippetEditor.qml`
+already exists, built for the settings pages, and it hosts a `CodeBuffer` and a
+`CodeViewport` for exactly this: a string aspect edited as code, with a
+language's highlighting on it.
+
+So the port is: one `StringAspect` in a container of its own, `TextEditDisplay`,
+a form naming it with `mimeType: "text/x-c++src"`, and a dialog that reads the
+aspect instead of a widget. The label still names the file, which is what tells
+two of these dialogs apart when both are open.
+
+**The control that did not bite, and what it was pointing at.** Removing
+`extraPreprocessorDirectives()`'s body failed nothing, because the test asserted
+the *aspect's* value rather than the dialog's accessor - it was checking the
+thing next to the thing. Replaced with the round trip that matters: seed the
+session store, construct the dialog, and ask it. That covers session -> aspect
+-> accessor, which is what the caller depends on and what a port from a widget
+is most likely to break.
 
 ## The terminal spike: go, with the cleanest split in the tree
 

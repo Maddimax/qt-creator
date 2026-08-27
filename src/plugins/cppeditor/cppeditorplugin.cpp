@@ -8,6 +8,7 @@
 #include "cppcodestyleaspects_test.h"
 #include "cppcodestylesettingspage.h"
 #include "cppeditorconstants.h"
+#include "cpppreprocessordialog.h"
 #include "cppeditordocument.h"
 #include "cppeditortr.h"
 #include "cppeditorwidget.h"
@@ -616,6 +617,7 @@ void CppEditorPlugin::registerTests()
     addTestCreator(createCppCodeStyleAspectsTest);
     addTestCreator(createCppHeaderSourceTest);
     addTestCreator(createIncludeGroupsTest);
+    addTestCreator(createCppPreProcessorDialogTest);
     addTestCreator(createClangdSettingsTest);
     addTestCreator(createCppQuickFixSettingsTest);
     addTest<LocalSymbolsTest>();

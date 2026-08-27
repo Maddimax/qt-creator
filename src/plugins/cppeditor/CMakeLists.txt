@@ -199,6 +199,7 @@ if(TARGET CppEditor)
       CppCodeModelSettingsPage.qml
       CppCodeStylePage.qml
       CppFileSettingsForm.qml
+      CppPreProcessorDialog.qml
       CppFileSettingsPage.qml
       CppFileSettingsProjectPanel.qml
       CppQuickFixProjectPanel.qml

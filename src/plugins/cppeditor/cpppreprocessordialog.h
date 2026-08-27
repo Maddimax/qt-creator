@@ -8,9 +8,11 @@
 #include <QDialog>
 #include <QString>
 
-namespace TextEditor { class SnippetEditorWidget; }
+#include <memory>
 
 namespace CppEditor::Internal {
+
+class PreProcessorSettings;
 
 class CppPreProcessorDialog : public QDialog
 {
@@ -27,8 +29,11 @@ public:
 private:
     const Utils::FilePath m_filePath;
     const QString m_projectPartId;
-
-    TextEditor::SnippetEditorWidget *m_editWidget;
+    std::unique_ptr<PreProcessorSettings> m_settings;
 };
+
+#ifdef WITH_TESTS
+QObject *createCppPreProcessorDialogTest();
+#endif
 
 } // CppEditor::Internal
