@@ -9,6 +9,8 @@
 #include "codeindenting.h"
 #include "codestylepool.h"
 #include "icodestylepreferences.h"
+#include "snippets/snippetprovider.h"
+#include "icodestylepreferencesfactory.h"
 #include "behaviorsettings.h"
 #include "completionsettings.h"
 #include "fontsettings.h"
@@ -1656,6 +1658,37 @@ private slots:
         QTRY_COMPARE(occurrences(1).size(), 1);
         displaySettings().highlightSelection.setValue(false);
         QTRY_VERIFY(occurrences(1).isEmpty());
+    }
+
+    // Every Code Style page shows a preview of the language it configures, and
+    // the preview is only useful if it is coloured like the language. Whether
+    // it is comes down to whether a highlight definition exists for the mime
+    // type the page's factory names - which nothing was checking, and which is
+    // what "highlighting does not work" in a preview looks like.
+    void testEveryCodeStylePreviewFindsItsLanguage()
+    {
+        const QMap<Utils::Id, ICodeStylePreferencesFactory *> factories = codeStyleFactories();
+        QVERIFY2(!factories.isEmpty(), "no code style pages exist, so this checks nothing");
+
+        QStringList unhighlighted;
+        int checked = 0;
+        for (auto it = factories.cbegin(); it != factories.cend(); ++it) {
+            const QString mimeType = SnippetProvider::mimeTypeForGroup(it.value()->snippetGroupId());
+            if (mimeType.isEmpty())
+                continue; // a language with no snippet group names no mime type
+            ++checked;
+
+            CodeBuffer buffer;
+            buffer.setMimeType(mimeType);
+            buffer.setText("// comment\nint value = 42;\n");
+            if (!buffer.isHighlighting())
+                unhighlighted << it.key().toString() + " (" + mimeType + ")";
+        }
+
+        QVERIFY2(checked > 0, "no code style page named a mime type, so this checks nothing");
+        QVERIFY2(unhighlighted.isEmpty(),
+                 qPrintable("code style previews with no highlight definition: "
+                            + unhighlighted.join(", ")));
     }
 
     // Utils::TextEditorLayout is the per-view index of which row each block

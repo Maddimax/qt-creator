@@ -7271,9 +7271,47 @@ below, and only the two-blocks test rejects it. Third time this session that a
 control missed because the fixture could not reach the case rather than because
 the code was redundant.
 
-What is left of the editor: auto-insertion and completion (both needing a
-language completer this editor cannot be given), changing the encoding from the
-toolbar, and dragging text out of a selection.
+## Going back to a report I could not reproduce
+
+Early in this work the user said the Code Style preview's "highlighting does not
+work". Two of the three symptoms in that message were fixed then; that one was
+never reproduced, and it stayed unexplained while the editor grew around it.
+
+Coming back with more of the machinery understood, there is exactly one way it
+happens: `CodeSource::applyHighlighting()` asks
+`HighlighterHelper::definitionsForMimeType()` and, finding nothing, installs a
+bare `SyntaxHighlighter` - which marks whitespace and nothing else. A preview
+with the wrong mime type, or on a machine with no syntax definitions installed,
+is grey by that path and no other.
+
+So the question worth answering is not "is it broken" but **"does every Code
+Style page name a mime type that resolves"**. It does, here, for all three -
+`Cpp (text/x-c++src)`, `QmlJS (text/x-qml)`, `Nim (text/x-nim)` - and the test
+enumerates `codeStyleFactories()` rather than naming them, so a fourth language
+is covered the day it is added.
+
+That does not explain what the user saw, and this document should not pretend
+it does. What it does is make that particular cause impossible to reintroduce
+silently, and give the next report a fact to start from: if the test passes and
+a preview is still grey, the definition lookup is not the reason.
+
+**The control is the interesting half.** Forcing the no-definition path fails
+the test with the three pages named in the message, which is what makes it worth
+having - a green run says the previews resolve, and a red one says which one
+does not.
+
+What is left of the editor: auto-insertion and completion, changing the
+encoding from the toolbar, and dragging text out of a selection.
+
+**On completion, having looked properly.** It is not one missing call. The
+provider lives on the document (`TextDocument::completionAssistProvider()`),
+which is promising, but it is *put* there by
+`TextEditorFactory`'s document creator from a provider the factory was given -
+`setCompletionAssistProvider()`, one per editor factory. There is no lookup from
+mime type to provider anywhere, so an `IEditorFactory`-based editor cannot
+obtain one, exactly as with `AutoCompleter`. Giving the Quick editor completion
+means building that registry and changing every editor factory to populate it:
+Creator-wide infrastructure, not a batch, and worth agreeing before starting.
 
 ## The same measurement, applied to kits
 
