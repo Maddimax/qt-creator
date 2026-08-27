@@ -416,6 +416,33 @@ void FontSettingsData::setColorSchemeFileName(const Utils::FilePath &filePath)
     m_schemeFileName = filePath;
 }
 
+// A tint of the editor's own background, for the two categories that are one:
+// the line the caret is on, and the range a search is confined to.
+//
+// FormatDescription computes these from Utils::Theme::initialPalette(), which
+// is the system's palette and not the scheme's. When the two disagree - a light
+// scheme under a dark system appearance - that default is a near-black band
+// across the current line of a white editor. Blending against what the scheme
+// actually paints on keeps a tint a tint.
+//
+// Toward the text colour rather than the selection colour, so the result is a
+// lift of the background and not a wash of somebody else's hue. The weights sit
+// mid-range of what the schemes that do define these chose for themselves
+// (0.05 to 0.22 of the way from background to text); a search scope covers much
+// more of the screen than one line, so it takes the lighter touch.
+static QColor tintOfEditorBackground(const ColorScheme &scheme, TextStyle id)
+{
+    const QColor background = scheme.formatFor(C_TEXT).background();
+    const QColor text = scheme.formatFor(C_TEXT).foreground();
+    if (!background.isValid() || !text.isValid())
+        return {};
+
+    const qreal ratio = id == C_CURRENT_LINE ? 0.12 : 0.07;
+    return QColor::fromRgbF(text.redF() * ratio + background.redF() * (1 - ratio),
+                            text.greenF() * ratio + background.greenF() * (1 - ratio),
+                            text.blueF() * ratio + background.blueF() * (1 - ratio));
+}
+
 bool FontSettingsData::loadColorScheme(const Utils::FilePath &filePath,
                                    const FormatDescriptions &descriptions)
 {
@@ -443,6 +470,15 @@ bool FontSettingsData::loadColorScheme(const Utils::FilePath &filePath,
                 m_scheme.setFormatFor(C_MACRO, m_scheme.formatFor(C_FUNCTION));
                 continue;
             }
+            if (id == C_CURRENT_LINE || id == C_SEARCH_SCOPE) {
+                if (const QColor tint = tintOfEditorBackground(m_scheme, id); tint.isValid()) {
+                    Format tinted;
+                    tinted.setBackground(tint);
+                    m_scheme.setFormatFor(id, tinted);
+                    continue;
+                }
+            }
+
             Format format;
             const Format &descFormat = desc.format();
             // Default fallback for background and foreground is C_TEXT, which is set through

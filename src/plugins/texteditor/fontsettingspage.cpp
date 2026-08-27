@@ -1077,7 +1077,63 @@ class FontSettingsTest : public QObject
 private slots:
     void testFormatsAreReadInTheirOwnColours();
     void testSelectingAFormatShowsOnlyWhatItHas();
+    void testEveryShippedSchemeTintsTheCurrentLineRatherThanCoveringIt();
 };
+
+// How far \a tint has moved from \a background towards \a text, as a share of
+// the whole distance. A current line that is a tint of the editor's background
+// is a small number; one that ignores the background is a large one.
+static qreal lift(const QColor &background, const QColor &text, const QColor &tint)
+{
+    qreal total = 0;
+    int counted = 0;
+    const auto channel = [&](qreal bg, qreal fg, qreal t) {
+        if (qFuzzyCompare(bg, fg))
+            return;
+        total += (t - bg) / (fg - bg);
+        ++counted;
+    };
+    channel(background.redF(), text.redF(), tint.redF());
+    channel(background.greenF(), text.greenF(), tint.greenF());
+    channel(background.blueF(), text.blueF(), tint.blueF());
+    return counted == 0 ? 0 : total / counted;
+}
+
+void FontSettingsTest::testEveryShippedSchemeTintsTheCurrentLineRatherThanCoveringIt()
+{
+    // The line the caret is on is read through, so its colour has to be a lift
+    // of the editor's own background. A scheme that does not name one gets a
+    // computed colour, and computing that from the system palette rather than
+    // from the scheme is how a light scheme under a dark system appearance ends
+    // up with a near-black band across a white editor.
+    const FilePath styleDir = Core::ICore::resourcePath("styles");
+    const FilePaths schemes = styleDir.dirEntries(FileFilter({"*.xml"}, DirFilterFlag::Files));
+    QVERIFY2(schemes.size() > 5, "the shipped schemes were not found");
+
+    QStringList offenders;
+    for (const FilePath &scheme : schemes) {
+        FontSettingsData settings;
+        if (!settings.loadColorScheme(scheme, initialFormats()))
+            QFAIL(qPrintable("could not load " + scheme.fileName()));
+
+        const QColor background = settings.toTextCharFormat(C_TEXT).background().color();
+        const QColor text = settings.toTextCharFormat(C_TEXT).foreground().color();
+        const QBrush brush = settings.toTextCharFormat(C_CURRENT_LINE).background();
+        // A scheme is allowed to ask for no current-line highlight at all.
+        if (brush.style() == Qt::NoBrush)
+            continue;
+
+        const qreal moved = lift(background, text, brush.color());
+        // The widest any scheme picks for itself is 0.22; a slab of somebody
+        // else's background lands far outside that.
+        if (moved < 0 || moved > 0.4) {
+            offenders << QString("%1: bg %2, current line %3 (%4 of the way to the text)")
+                             .arg(scheme.fileName(), background.name(),
+                                  brush.color().name(), QString::number(moved, 'f', 2));
+        }
+    }
+    QVERIFY2(offenders.isEmpty(), qPrintable(offenders.join("; ")));
+}
 
 void FontSettingsTest::testFormatsAreReadInTheirOwnColours()
 {

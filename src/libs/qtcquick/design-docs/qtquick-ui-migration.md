@@ -8435,6 +8435,64 @@ applies to layout closures, applied to a data source.
 
 Nine controls, all biting on the test that names them.
 
+## A bug report, and resisting the fix that fits it
+
+The first bug reported from someone actually using the Quick editor: the line
+with the caret got "a weird full width highlight" - a near-black band across a
+white editor, with the line number inside it.
+
+It was two bugs, and only one of them was the Quick editor's.
+
+**The one that was.** The highlight was `x: 0; width: parent.width`, so it
+spanned the whole component including the gutter, hiding the current line
+number's own colour - which is how the gutter says which line is current. The
+widget editor draws this inside its viewport. Worth recording why no test caught
+it: **the test asserted the bug.**
+
+    QVERIFY2(highlight->width() > viewport->width(),
+             "the highlight does not span the editor");
+
+That was written to match what the implementation did rather than what the
+widget does, and it locked the behaviour in. A test written from the code it
+tests can only ever confirm it.
+
+**The one that was not.** The colour came from
+`toTextCharFormat(C_CURRENT_LINE).background()` - the identical expression the
+widget uses. Reading that was enough to say the widget had it too, but not
+enough to *know* it, so both were measured under the reporter's own theme by
+writing the theme into a scratch settings file. The reason the first attempt
+measured nothing is worth remembering: the key is in `[Core]`, not `[General]`.
+
+    light-2024   text bg #fcfcfc   current line #273951   <- both editors
+    dark         text bg #000000   current line #232323
+
+Same number in both, so it was never a Quick-editor regression. The cause is
+that `light-2024.xml` names no `CurrentLine` at all, and
+`FontSettingsData::loadColorScheme()` fills what a scheme omits from
+`FormatDescription`'s default - which for this category is
+`QPalette::Highlight` blended into `QPalette::Base` of
+**`Utils::Theme::initialPalette()`**, the *system* palette. A light scheme under
+a dark system appearance therefore gets a dark band on a white editor.
+
+**Calibrating the fix from the schemes themselves.** The first attempt blended
+toward the scheme's selection colour and produced `#8395ae` on white for the
+Classic scheme - trading a black slab for a blue one. What settled it was
+measuring what the eleven schemes that *do* name a `CurrentLine` chose:
+
+    creator-dark 0.06   grayscale 0.05   intellij 0.05   inkpot 0.09
+    dark-2024 0.15      dark 0.21        solarized-light 0.22
+
+- all of the way from the background toward the *text*, none of them toward the
+selection. So the tint is 0.12 of the way to the text colour (0.07 for a search
+scope, which covers far more of the screen), and only two schemes are affected -
+`default.xml` and `light-2024.xml` - because everything else names its own.
+
+The test asserts the property across every shipped scheme rather than a colour
+per scheme: whatever the current line ends up, it is a *lift* of that scheme's
+background, under 0.4 of the way to the text. Its control names both offenders
+with their numbers - `light-2024.xml` at 0.80 and `default.xml` at 0.77 - which
+is what a good failure message looks like: it says which scheme, and by how much.
+
 ## The terminal spike: go, with the cleanest split in the tree
 
 **Status update: the spike is being productised.** `TerminalQuick` is now the
