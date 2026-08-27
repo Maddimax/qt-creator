@@ -235,6 +235,19 @@ caret on it cannot, one pixel short. The sideways ensure runs at the end of
 a line is only known once its row is laid out. And the wheel handler reads the
 horizontal delta too.
 
+Adding the horizontal clamp exposed that neither offset was re-clamped when
+the content changed size - only the line height was handled, and only
+vertically. Widening a viewport scrolled to the right left 800 pixels of blank
+space, and with wrapping on the bottom moves up while `scrollY` does not. Both
+are re-clamped at the end of `updatePolish()` now.
+
+**That test passed for the wrong reason twice before it worked.** Waiting on
+the bound - "the offset is within what there is to scroll through" - waits for
+nothing, because the bound holds the instant the width changes and before the
+content size is recomputed. The wait has to be on the offset actually coming
+back. And `lineCount()` counts rows rather than lines, so comparing it against
+the content height is an identity, not a check that wrapping has been applied.
+
 Two things the tests got wrong first, both worth knowing. The caret test drove
 `setCursorPosition()`, which does not scroll - only `setTextCursor()` does,
 which is what a key press goes through, and the same is true vertically. And
