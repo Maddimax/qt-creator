@@ -1610,6 +1610,38 @@ private slots:
                  "a view's own bracket match was published to the document");
     }
 
+    // A census, the way the settings pages have one: every language that has
+    // been moved off its findLinkAt() override has to register a finder in
+    // its place, or Follow Symbol quietly stops working in that language -
+    // in the widget editor as well as here, and with no test to say so.
+    void testEveryConvertedLanguageRegistersALinkFinder()
+    {
+        Utils::TemporaryDirectory dir("link-finders");
+        QVERIFY(dir.isValid());
+
+        // File names rather than mime types: preferredFactoryFor() walks the
+        // mime type's parents, and that walk is half of what is being checked.
+        const QStringList names{"CMakeLists.txt", "project.pro", "Thing.qml",
+                                "project.qbs", "module.nim"};
+
+        QStringList missing;
+        int checked = 0;
+        for (const QString &name : names) {
+            const Utils::FilePath file = dir.filePath(name);
+            QVERIFY(file.writeFileContents(""));
+            TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+            if (!factory) {
+                missing << name + " (no editor factory claims it)";
+                continue;
+            }
+            ++checked;
+            if (!factory->linkFinder())
+                missing << name;
+        }
+        QVERIFY2(missing.isEmpty(), qPrintable("no link finder for: " + missing.join(", ")));
+        QCOMPARE(checked, names.size());
+    }
+
     // Following a symbol used to be a virtual on a TextEditorWidget subclass,
     // one per language, which a single editor for every language cannot
     // implement. The language registers a link finder instead, and the Quick

@@ -12,17 +12,9 @@ class NimTextEditorWidget : public TextEditor::TextEditorWidget
 {
 public:
     NimTextEditorWidget(QWidget* parent = nullptr);
-
-protected:
-    void findLinkAt(const QTextCursor &, const Utils::LinkHandler &processLinkCallback,
-                    bool resolveTarget, bool inNextSplit) override;
-
-private:
-    void onFindLinkFinished(Suggest::NimSuggestClientRequest *request);
-
-    std::shared_ptr<Nim::Suggest::NimSuggestClientRequest> m_request;
-    Utils::LinkHandler m_callback;
-    std::unique_ptr<QTemporaryFile> m_dirtyFile;
 };
+
+// Where the symbol under the cursor is defined, for the editor factory.
+TextEditor::TextEditorFactory::LinkFinder nimLinkFinder();
 
 }

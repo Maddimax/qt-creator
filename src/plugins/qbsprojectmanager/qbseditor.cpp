@@ -29,11 +29,6 @@ namespace QbsProjectManager::Internal {
 
 class QbsEditorWidget : public QmlJSEditorWidget
 {
-private:
-    void findLinkAt(const QTextCursor &cursor,
-                    const LinkHandler &processLinkCallback,
-                    bool resolveTarget = true,
-                    bool inNextSplit = false) override;
 };
 
 class QbsCompletionAssistProcessor : public LanguageClientCompletionAssistProcessor
@@ -103,31 +98,35 @@ static Client *clientForDocument(const TextDocument *doc)
     return nullptr;
 }
 
+// The QML answer first - a qbs file is QML - and the qbs language server for
+// what QML does not know about.
+static void findQbsLinkAt(TextDocument *document, const QTextCursor &cursor,
+                          const LinkHandler &processLinkCallback,
+                          bool resolveTarget, bool inNextSplit)
+{
+    const LinkHandler extendedCallback = [document = QPointer(document), cursor,
+                                          processLinkCallback, resolveTarget](const Link &link) {
+        if (link.hasValidTarget())
+            return processLinkCallback(link);
+        if (!document)
+            return;
+        if (Client * const client = clientForDocument(document)) {
+            client->findLinkAt(document, cursor, processLinkCallback, resolveTarget,
+                               LinkTarget::SymbolDef);
+        }
+    };
+    findQmlJSLinkAt(document, cursor, extendedCallback, resolveTarget, inNextSplit);
+}
+
 QbsEditorFactory::QbsEditorFactory() : QmlJSEditorFactory("QbsEditor.QbsEditor")
 {
     setDisplayName(Tr::tr("Qbs Editor"));
     setMimeTypes({Utils::Constants::QBS_MIMETYPE});
     setEditorWidgetCreator([] { return new QbsEditorWidget; });
     setCompletionAssistProvider(new QbsCompletionAssistProvider);
+    setLinkFinder(&findQbsLinkAt);
 }
 
-void QbsEditorWidget::findLinkAt(const QTextCursor &cursor, const LinkHandler &processLinkCallback,
-                                 bool resolveTarget, bool inNextSplit)
-{
-    const LinkHandler extendedCallback = [self = QPointer(this), cursor, processLinkCallback,
-                                          resolveTarget](const Link &link) {
-        if (link.hasValidTarget())
-            return processLinkCallback(link);
-        if (!self)
-            return;
-        const auto doc = self->textDocument();
-        if (Client * const client = clientForDocument(doc)) {
-            client->findLinkAt(doc, cursor, processLinkCallback, resolveTarget,
-                               LinkTarget::SymbolDef);
-        }
-    };
-    QmlJSEditorWidget::findLinkAt(cursor, extendedCallback, resolveTarget, inNextSplit);
-}
 
 MergedCompletionAssistProcessor::~MergedCompletionAssistProcessor()
 {

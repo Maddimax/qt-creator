@@ -31,6 +31,8 @@ NimEditorFactory::NimEditorFactory()
     setEditorWidgetCreator([]{
         return new NimTextEditorWidget();
     });
+    setLinkFinder(nimLinkFinder());
+
     setDocumentCreator([]() {
         return new TextDocument(Constants::C_NIMEDITOR_ID);
     });

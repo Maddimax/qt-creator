@@ -737,14 +737,18 @@ void QmlJSEditorWidget::inspectElementUnderCursor() const
     widget->textDocument()->setPlainText(buf);
 }
 
-void QmlJSEditorWidget::findLinkAt(const QTextCursor &cursor,
-                                   const Utils::LinkHandler &processLinkCallback,
-                                   bool resolveTarget,
-                                   bool /*inNextSplit*/)
+// Where the name under the cursor comes from: an import, a property, an id or
+// a type. The language server answers if there is one; otherwise the semantic
+// info on the document does.
+void findQmlJSLinkAt(TextEditor::TextDocument *textDocument,
+                     const QTextCursor &cursor,
+                     const Utils::LinkHandler &processLinkCallback,
+                     bool resolveTarget,
+                     bool /*inNextSplit*/)
 {
     if (auto client = LanguageClient::LanguageClientManager::clientForFilePath(
-            textDocument()->filePath())) {
-        client->findLinkAt(textDocument(),
+            textDocument->filePath())) {
+        client->findLinkAt(textDocument,
                            cursor,
                            processLinkCallback,
                            resolveTarget,
@@ -752,7 +756,9 @@ void QmlJSEditorWidget::findLinkAt(const QTextCursor &cursor,
         return;
     }
 
-    const SemanticInfo semanticInfo = qmlJsEditorDocument()->semanticInfo();
+    auto * const qmlDocument = qobject_cast<QmlJSEditorDocument *>(textDocument);
+    QTC_ASSERT(qmlDocument, return);
+    const SemanticInfo semanticInfo = qmlDocument->semanticInfo();
     if (! semanticInfo.isValid())
         return processLinkCallback(Utils::Link());
 
@@ -767,7 +773,7 @@ void QmlJSEditorWidget::findLinkAt(const QTextCursor &cursor,
         for (const ImportInfo &import : imports) {
             if (import.ast() == importAst && import.type() == ImportType::File) {
                 Utils::Link link(
-                    m_modelManager->fileToSource(FilePath::fromString(import.path())));
+                    ModelManagerInterface::instance()->fileToSource(FilePath::fromString(import.path())));
                 link.linkTextStart = importAst->firstSourceLocation().begin();
                 link.linkTextEnd = importAst->lastSourceLocation().end();
                 processLinkCallback(Utils::Link());
@@ -825,7 +831,7 @@ void QmlJSEditorWidget::findLinkAt(const QTextCursor &cursor,
         }
         const Utils::FilePath relative = semanticInfo.document->path().pathAppended(text);
         if (relative.exists()) {
-            link.targetFilePath = m_modelManager->fileToSource(relative);
+            link.targetFilePath = ModelManagerInterface::instance()->fileToSource(relative);
             processLinkCallback(link);
             return;
         }
@@ -842,7 +848,7 @@ void QmlJSEditorWidget::findLinkAt(const QTextCursor &cursor,
         return processLinkCallback(Utils::Link());
 
     Utils::Link link;
-    link.targetFilePath = m_modelManager->fileToSource(fileName);
+    link.targetFilePath = ModelManagerInterface::instance()->fileToSource(fileName);
     link.target.line = line;
     link.target.column = column - 1; // adjust the column
 
@@ -1198,6 +1204,7 @@ QmlJSEditorFactory::QmlJSEditorFactory(Utils::Id _id)
 
     addHoverHandler(&qmlJSHoverHandler());
     addHoverHandler(&colorPreviewHoverHandler());
+    setLinkFinder(&findQmlJSLinkAt);
     addHoverHandler(&ProjectExplorer::resourcePreviewHoverHandler());
 
     setCompletionAssistProvider(new QmlJSCompletionAssistProvider);

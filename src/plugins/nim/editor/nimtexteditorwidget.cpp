@@ -18,9 +18,9 @@ using namespace Nim::Suggest;
 
 namespace Nim {
 
-static std::unique_ptr<QTemporaryFile> writeDirtyFile(const TextEditor::TextDocument *doc)
+static std::shared_ptr<QTemporaryFile> writeDirtyFile(const TextEditor::TextDocument *doc)
 {
-    auto result = std::make_unique<QTemporaryFile>("qtcnim.XXXXXX.nim");
+    auto result = std::make_shared<QTemporaryFile>("qtcnim.XXXXXX.nim");
     QTC_ASSERT(result->open(), return nullptr);
     QTextStream stream(result.get());
     stream << doc->plainText();
@@ -34,54 +34,57 @@ NimTextEditorWidget::NimTextEditorWidget(QWidget *parent)
     setLanguageSettingsId(Nim::Constants::C_NIMLANGUAGE_ID);
 }
 
-void NimTextEditorWidget::findLinkAt(const QTextCursor &c, const Utils::LinkHandler &processLinkCallback, bool /*resolveTarget*/, bool /*inNextSplit*/)
+// nimsuggest is one process answering one question at a time, so a new
+// question replaces whatever was still outstanding.
+static std::shared_ptr<Suggest::NimSuggestClientRequest> pendingRequest;
+
+// Where the symbol under the cursor is defined, according to nimsuggest.
+static void findNimLinkAt(TextEditor::TextDocument *document,
+                          const QTextCursor &cursor,
+                          const Utils::LinkHandler &processLinkCallback,
+                          bool /*resolveTarget*/,
+                          bool /*inNextSplit*/)
 {
-    const Utils::FilePath &path = textDocument()->filePath();
+    const Utils::FilePath &path = document->filePath();
 
     NimSuggest *suggest = Nim::Suggest::getFromCache(path);
     if (!suggest)
         return processLinkCallback(Utils::Link());
 
-    std::unique_ptr<QTemporaryFile> dirtyFile = writeDirtyFile(textDocument());
+    std::shared_ptr<QTemporaryFile> dirtyFile = writeDirtyFile(document);
+    if (!dirtyFile)
+        return processLinkCallback(Utils::Link());
 
     int line = 0, column = 0;
-    Utils::Text::convertPosition(document(), c.position(), &line, &column);
+    Utils::Text::convertPosition(document->document(), cursor.position(), &line, &column);
 
-    std::shared_ptr<NimSuggestClientRequest> request = suggest->def(path.path(),
-                                                                    line,
-                                                                    column,
-                                                                    dirtyFile->fileName());
-
+    std::shared_ptr<NimSuggestClientRequest> request
+        = suggest->def(path.path(), line, column, dirtyFile->fileName());
     if (!request)
         return processLinkCallback(Utils::Link());
 
-    if (m_request) {
-        QObject::disconnect(m_request.get());
-        m_request = nullptr;
-    }
+    if (pendingRequest)
+        QObject::disconnect(pendingRequest.get(), nullptr, nullptr, nullptr);
+    pendingRequest = request;
 
-    if (m_callback)
-        m_callback(Utils::Link());
-
-    m_dirtyFile = std::move(dirtyFile);
-    m_callback = processLinkCallback;
-    m_request = std::move(request);
-
-    Suggest::NimSuggestClientRequest *req = m_request.get();
-    connect(req, &NimSuggestClientRequest::finished,
-            this, [this, req] { onFindLinkFinished(req); });
+    // The request and the file it reads from both have to outlive this call;
+    // the connection holds them until the answer arrives.
+    NimSuggestClientRequest *req = request.get();
+    QObject::connect(req, &NimSuggestClientRequest::finished, req,
+                     [request, dirtyFile, processLinkCallback] {
+                         if (request->lines().empty()) {
+                             processLinkCallback(Utils::Link());
+                             return;
+                         }
+                         const Line &line = request->lines().front();
+                         processLinkCallback(Utils::Link{
+                             Utils::FilePath::fromString(line.abs_path), line.row, line.column});
+                     });
 }
 
-void NimTextEditorWidget::onFindLinkFinished(Suggest::NimSuggestClientRequest *request)
+TextEditor::TextEditorFactory::LinkFinder nimLinkFinder()
 {
-    QTC_ASSERT(m_request.get() == request, return);
-    if (m_request->lines().empty()) {
-        m_callback(Utils::Link());
-        return;
-    }
-
-    const Line &line = m_request->lines().front();
-    m_callback(Utils::Link{Utils::FilePath::fromString(line.abs_path), line.row, line.column});
+    return &findNimLinkAt;
 }
 
 } // Nim

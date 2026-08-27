@@ -10046,3 +10046,65 @@ action too, so it was worth fixing rather than bumping to three.
 Remaining: C++, QmlJS, Nim, qbs and Compiler Explorer. Compiler Explorer's is
 the only one that reads view state (`extraSelections`), so it may need the same
 treatment the diagnostics did.
+
+## The other five languages, and the two that do not fit
+
+QmlJS, qbs and Nim follow CMake and qmake off their `findLinkAt` overrides.
+Each was the same shape - a widget virtual using only the document - with one
+wrinkle apiece:
+
+- **QmlJS** reached the model manager through an `m_modelManager` member that
+  is `ModelManagerInterface::instance()`, so the free function just asks the
+  singleton. Its `qmlJsEditorDocument()` becomes a cast of the document it is
+  handed. The function is exported, because qbs calls it.
+- **qbs** is QML plus the qbs language server. Its override called
+  `QmlJSEditorWidget::findLinkAt` and wrapped the callback; the free version
+  calls `findQmlJSLinkAt` and wraps the same way.
+- **Nim** kept the outstanding nimsuggest request, its callback and the
+  temporary file it wrote as *widget members*. There is no widget now, so the
+  request and the file are captured by the connection that waits for the
+  answer, which is where their lifetime actually belongs. One static holds the
+  pending request, because nimsuggest answers one question at a time.
+
+**C++ does not fit yet, and the reason is one layer down.**
+`CppEditorWidget::findLinkAt` calls
+`CppModelManager::followSymbol(CursorInEditor{cursor, filePath, this, textDocument()}, ...)`,
+and `CursorInEditor` carries a `CppEditorWidget *` that the follow-symbol
+implementations use. Widening *that* is the next piece of work, not this one.
+
+**Compiler Explorer does not fit for two independent reasons**: its factory is
+a plain `IEditorFactory`, like Markdown's, and its finder reads
+`extraSelections(AsmEditorLinks)` - a view-local kind that is not published to
+the document, unlike the diagnostics.
+
+## A census for five conversions with no tests between them
+
+Breaking each language's `setLinkFinder()` call in turn and running that
+language's own suite: **all four reported NOTHING BIT**. None of these
+languages has ever had a follow-symbol test - the behaviour was a widget
+virtual, and nobody wrote one. So the conversion was, at that point,
+five untested edits.
+
+`testEveryConvertedLanguageRegistersALinkFinder` is the answer: for
+`CMakeLists.txt`, `project.pro`, `Thing.qml`, `project.qbs` and `module.nim`,
+`preferredFactoryFor()` finds a factory and that factory has a finder. It does
+not test what the finder *answers* - that code is unchanged and was untested
+before - but it tests exactly what changed, and it exercises the mime-parent
+walk that the lookup depends on. Four of the five controls now bite.
+
+**The fifth cannot, and it is worth saying why.** `QbsEditorFactory` derives
+from `QmlJSEditorFactory`, whose constructor registers the QML finder - so
+removing qbs's own registration leaves the *inherited* one in place and the
+census sees a finder either way. The failure mode is a silent downgrade to the
+QML-only answer rather than no answer at all, and distinguishing the two would
+mean comparing `std::function`s, which cannot be done. Recorded rather than
+worked around.
+
+**And the CppEditor suite is why per-class runs exist.** Running it whole after
+this change gave 13 failures, then 111, then 114 - the same binary, three runs,
+with an abort on two of them. The classes that failed are green on their own
+(`LocatorFilterTest` 15/15; `ModelManagerTest`'s one failure is
+`projects.open()` returning false, with 29 of its tests skipped for want of a
+kit). `FollowSymbolTest`, the only class that exercises what this change
+touches, is 154/154. A whole-suite number from CppEditor is not evidence about
+anything.

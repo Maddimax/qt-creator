@@ -24,6 +24,15 @@ class QmlJSEditorDocument;
 class QuickToolBar;
 class FindReferences;
 
+// Where the name under the cursor comes from - an import, a property, an id or
+// a type. Free rather than a widget virtual, so that a view which is not a
+// TextEditorWidget can follow it too; qbs files reuse it.
+QMLJSEDITOR_EXPORT void findQmlJSLinkAt(TextEditor::TextDocument *document,
+                                        const QTextCursor &cursor,
+                                        const Utils::LinkHandler &processLinkCallback,
+                                        bool resolveTarget,
+                                        bool inNextSplit);
+
 class QMLJSEDITOR_EXPORT QdsSettings : public QObject
 {
     Q_OBJECT
@@ -92,10 +101,6 @@ protected:
     void applyFontSettings() override;
     void createToolBar();
     void updateOutline(QWidget *newOutline);
-    void findLinkAt(const QTextCursor &cursor,
-                    const Utils::LinkHandler &processLinkCallback,
-                    bool resolveTarget = true,
-                    bool inNextSplit = false) override;
     QString foldReplacementText(const QTextBlock &block) const override;
 
 private:
