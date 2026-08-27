@@ -10433,3 +10433,51 @@ could go, and deliberately do not: if this port has a runtime fault, that
 fallback is the only thing between a user and a blank C++ Code Style page, and
 a fault is exactly what cannot be ruled out from here. Deleting it is the first
 thing to do from a build that can run the page.
+
+## How far the unbuildable plugin could actually be verified
+
+The previous entry left the ClangFormat port checked three ways and never
+built. It can be taken further, and it is worth writing down how far - because
+the answer is four of five, and the fifth has a definite cause rather than
+being merely unavailable.
+
+The plugin can be **built by hand against the tree that is already there**.
+Nothing in the user's build configuration changes:
+
+- `moc` for the one `.cpp` with `Q_OBJECT`, the one header with one, and the
+  test source;
+- the plugin metadata, `${IDE_VERSION}` and friends substituted from a sibling
+  plugin's generated `.json`;
+- the QML module faked as a plain resource - `qmldir` plus the two `.qml` files
+  under `qt/qml/QtCreator/ClangFormat`, through `rcc`. That is all the page's
+  `qrc:` URL needs; only `qmlcachegen` is lost.
+- every `.cpp` compiled with a sibling's command line plus the LLVM includes;
+- linked against the built `libCore`, `libTextEditor`, `libCppEditor`,
+  `libProjectExplorer`, `libUtils` and Homebrew's `libclangFormat`.
+
+**Link strictly - without `-Wl,-undefined,dynamic_lookup`.** With it the link
+succeeds while leaving missing symbols to be discovered at load; without it,
+every symbol has to resolve. It does: zero undefined symbols. That is a much
+stronger statement than the syntax check, and it is the one that says the new
+container really does call things that exist.
+
+**The one that cannot be done, and why.** Dropped into the plugin directory,
+the plugin fails at `dlopen` - and the first attempt failed honestly and
+loudly, on `createClangFormatTest` missing, because the main build has tests on
+and the `WITH_TESTS` source had not been compiled. With that fixed it crashes
+instead, in `_GLOBAL__sub_I_SPIR.cpp` - a static initialiser inside LLVM's own
+static libraries, during `dlopen`, before any Qt Creator code runs. Homebrew's
+LLVM 22.1 is built without ASan and for a newer deployment target than this
+build targets; this build is ASan. That mismatch is exactly what
+`QTC_CLANG_BUILDMODE_MATCH` in the plugin's CMake `CONDITION` exists to
+prevent, so the exclusion is correct and the crash is not about the port.
+
+So the page still has never been *shown*. What is now known is that it
+compiles, that every symbol it references resolves, that its QML type-checks,
+and that every aspect it names exists. What remains unverified is behaviour:
+that editing the file re-indents the preview, that the warning appears on
+invalid YAML, and that read-only styles stay read-only. Those need an
+LLVM whose build mode matches - not a different technique.
+
+The build tree was put back: the hand-built plugin is removed and the census
+re-run clean afterwards, so nothing of this is left in the user's build.
