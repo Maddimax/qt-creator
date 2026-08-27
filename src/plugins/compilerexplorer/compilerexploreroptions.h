@@ -15,4 +15,8 @@ public:
     CompilerExplorerOptions(CompilerSettings &settings, QWidget *parent = nullptr);
 };
 
+#ifdef WITH_TESTS
+QObject *createCompilerExplorerOptionsTest();
+#endif
+
 } // namespace CompilerExplorer

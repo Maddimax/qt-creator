@@ -149,6 +149,10 @@ CompilerSettings::CompilerSettings(const ApiConfigFunction &apiConfigFunction)
     demangleIdentifiers.setLabelText(Tr::tr("Demangle identifiers"));
     demangleIdentifiers.setDefaultValue(true);
 
+    // The form these are shown in. The names it reaches them by come from the
+    // settings keys above: "Id", "Options", "Libraries" and the four filters.
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/CompilerExplorer/CompilerExplorerOptions.qml"));
+
     for (const auto &aspect : this->aspects()) {
         connect(aspect,
                 &Utils::BaseAspect::volatileValueChanged,

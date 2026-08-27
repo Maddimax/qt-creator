@@ -3,6 +3,7 @@
 
 #include "compilerexploreraspects.h"
 #include "compilerexplorerconstants.h"
+#include "compilerexploreroptions.h"
 #include "compilerexplorereditor.h"
 #include "compilerexplorersettings.h"
 #include "compilerexplorertr.h"
@@ -32,6 +33,7 @@ public:
 
 #ifdef WITH_TESTS
         addTestCreator(createLibrarySelectionTest);
+        addTestCreator(createCompilerExplorerOptionsTest);
 #endif
 
         FileIconProvider::registerIconForMimeType(QIcon(":/compilerexplorer/logos/ce.ico"),

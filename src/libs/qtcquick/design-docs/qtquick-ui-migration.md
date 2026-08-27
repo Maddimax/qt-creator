@@ -6011,6 +6011,13 @@ which says nothing about pages that offer no aspects at all - it skips those
 before counting. Counting them too: **109 options pages, of which exactly one
 is not aspect-driven.**
 
+That is a count of what the census can *see on this machine*, and it is worth
+saying so: a platform-gated page is never registered and so never counted.
+`WindowsSettingsPage` ("Windows App SDK") returns early on
+`!HostOsInfo::isWindowsHost()` and uses `setWidgetCreator`, so a Windows user
+has a third non-aspect page that no run here can find. Any census of a
+cross-platform tree run on one platform undercounts.
+
 - ~~**Filters** (`D.Filters`) wraps `QHelpFilterSettingsWidget`~~ - done, see
   "Reimplementing a Qt widget" below. It is now an aspect page like any other,
   which is what moved the census from 107 to 108.
@@ -9053,6 +9060,50 @@ and the gate is already a setting, `completionTrigger`. A language says which
 characters mean "you are about to name something"; the base provider names none,
 so nothing is offered unbidden until a language asks for it. Three controls,
 all biting.
+
+## The first dialog, and what a census cannot see
+
+With the settings pages done, the next bucket is the 91 dialogs. Compiler
+Explorer's compiler popup is the smallest of them and the ideal first one: a
+`QDialog` whose entire body is
+
+    Form { compilerSettings.compiler, br, compilerSettings.compilerOptions, ... }
+
+Seven aspects, no behaviour at all - nothing to separate, because there is
+nothing it *does*. The port is a `setQmlSource()` on the settings, a form naming
+the seven, and a dialog that asks `Core::createAspectForm()` for the body. The
+`QDialog` shell stays until what shows it is Qt Quick too; the content is Quick
+now.
+
+**Choosing it took longer than doing it, and that was the right ratio.** The
+first candidate was `WindowsSettingsPage`, which is the same shape as Help's
+Filters - `setWidgetCreator`, a hand-built widget, aspects that already exist.
+It was rejected on a fact worth recording: it is registered only on Windows, so
+here it can be neither run, nor censused, nor tested. Converting a page blind is
+possible and the standing instruction allows it; doing so *when a testable
+candidate is one file away* is a worse use of the batch.
+
+**The test, and what it can honestly assert.** The census only walks
+`IOptionsPage`s, so a dialog is invisible to it. The test therefore lives in the
+plugin - but the plugin does not link Qt Quick, and the QML items turn out not
+to be `QObject` children of the form widget, so the item tree is out of reach.
+What is reachable without a new dependency:
+
+- that the form is a `QQuickWidget` at all, so a silent fall back to the widget
+  layouter would fail;
+- its `status` property, which is a `Q_PROPERTY` and so readable by name;
+- **every QML warning raised while the form is built**, collected with
+  `qInstallMessageHandler`. That last one is what catches the mistake this port
+  is actually exposed to: a misspelt `aspects.Foo` loads perfectly well, leaves
+  the control out, and would pass a status check. Its control confirms it.
+
+**Verifying a .qbs edit when the tree will not resolve.** The full `qbs resolve`
+cannot run here - the bundled qbs submodule needs `Qt.core5compat`, which is not
+installed - so "no error mentioned my file" proves nothing on its own. Putting a
+deliberate syntax error in the new group and watching qbs report
+`compilerexplorer.qbs:46:21 Expected token ';'` proves the resolver reaches and
+parses it, which makes the clean run mean something. **A negative control turns
+an unusable verification into a usable one.**
 
 ## The terminal spike: go, with the cleanest split in the tree
 
