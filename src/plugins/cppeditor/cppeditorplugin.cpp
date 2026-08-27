@@ -112,6 +112,30 @@ static CppEditorWidget *currentCppEditorWidget()
 
 //////////////////////////// CppEditorFactory /////////////////////////////
 
+// Where the symbol under the cursor is defined, for a view that is not a
+// CppEditorWidget. The widget keeps its own findLinkAt(): it can offer the
+// preprocessor popup and the choice of override, and this cannot.
+static void findCppLinkAt(TextEditor::TextDocument *document,
+                          const QTextCursor &cursor,
+                          const Utils::LinkHandler &processLinkCallback,
+                          bool resolveTarget,
+                          bool inNextSplit)
+{
+    if (!CppModelManager::instance())
+        return processLinkCallback(Utils::Link());
+
+    // No widget to take the semantic info from, so the snapshot's document is
+    // what the builtin backend gets. clangd asks the language server and needs
+    // neither.
+    const CursorInEditor data(cursor,
+                              document->filePath(),
+                              nullptr,
+                              document,
+                              CppModelManager::snapshot().document(document->filePath()));
+    CppModelManager::followSymbol(data, processLinkCallback, resolveTarget, inNextSplit,
+                                  FollowSymbolMode::Exact);
+}
+
 class CppEditorFactory : public TextEditorFactory
 {
 public:
@@ -134,6 +158,7 @@ public:
             return editor;
         });
         setAutoCompleterCreator([]() { return new CppAutoCompleter; });
+        setLinkFinder(&findCppLinkAt);
         setCommentDefinition(CommentDefinition::CppStyle);
         setCodeFoldingSupported(true);
         setParenthesesMatchingEnabled(true);

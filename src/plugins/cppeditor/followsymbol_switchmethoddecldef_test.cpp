@@ -5,6 +5,7 @@
 
 #include "clangdsettings.h"
 #include "cppcodemodelsettings.h"
+#include "cppeditordocument.h"
 #include "cppeditorwidget.h"
 #include "cppfollowsymbolundercursor.h"
 #include "cppmodelmanager.h"
@@ -20,6 +21,7 @@
 #include <texteditor/codeassist/genericproposalmodel.h>
 #include <texteditor/codeassist/iassistprocessor.h>
 #include <texteditor/codeassist/iassistproposal.h>
+#include <texteditor/textdocument.h>
 #include <texteditor/texteditor.h>
 
 #include <coreplugin/editormanager/editormanager.h>
@@ -2089,7 +2091,73 @@ void FollowSymbolTest::testFollowVirtualFunctionCallMultipleDocuments()
     F2TestCase(F2TestCase::FollowSymbolUnderCursorAction, testFiles, finalResults);
 }
 
+
+// Following a symbol used to require a CppEditorWidget: the link finder took
+// one, and gave up without it. A view that is not one - the Qt Quick editor -
+// now gets the link, and only misses the two things a widget puts on screen.
+void FollowSymbolTest::testFollowSymbolWithoutAnEditorWidget()
+{
+    CppEditor::Tests::TestCase test;
+    QVERIFY(test.succeededSoFar());
+
+    CppEditor::Tests::TemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const FilePath header = dir.createFile(
+        "thing.h", "#define THING_VALUE 42\nstruct Thing { int value; };\n");
+    const FilePath source = dir.createFile(
+        "main.cpp",
+        "#include \"thing.h\"\nint main() { Thing t; t.value = THING_VALUE; return t.value; }\n");
+    QVERIFY(!header.isEmpty() && !source.isEmpty());
+    QVERIFY(CppEditor::Tests::TestCase::parseFiles({header, source}));
+
+    // A document with no view at all, which is the case the finder is for.
+    const auto owned = std::make_unique<CppEditorDocument>();
+    TextEditor::TextDocument * const document = owned.get();
+    QVERIFY2(document->open(source, source), "the document did not open");
+
+    // What the Quick editor does: the language's finder, reached by mime type,
+    // with no view of any kind handed to it.
+    const TextEditor::TextEditorFactory::LinkFinder finder
+        = TextEditor::TextEditorFactory::linkFinderFor(document);
+    QVERIFY2(finder, "no link finder is registered for a C++ file");
+
+    const auto followFrom = [&](int position) {
+        QTextCursor cursor(document->document());
+        cursor.setPosition(position);
+        Link found;
+        bool answered = false;
+        finder(document, cursor, [&](const Link &link) { found = link; answered = true; },
+               true, false);
+        return std::pair{found, answered};
+    };
+
+    // On the include, which resolves out of the snapshot.
+    auto [include, includeAnswered] = followFrom(12);
+    QVERIFY2(includeAnswered, "the finder never called back for the include");
+    QCOMPARE(include.targetFilePath, header);
+
+    // And on the type name, which does not: this is the path that used the
+    // widget's semantic info, and now uses the snapshot's document.
+    const int thing = document->plainText().indexOf("Thing t;") + 2;
+    QVERIFY(thing > 2);
+    auto [type, typeAnswered] = followFrom(thing);
+    QVERIFY2(typeAnswered, "the finder never called back for the type");
+    QCOMPARE(type.targetFilePath, header);
+    QCOMPARE(type.target.line, 2);
+
+    // And on a macro, which is looked up in the document handed to the
+    // finder rather than re-derived from the snapshot - the one place where
+    // what a widget-less view passes actually decides the answer.
+    const int macro = document->plainText().indexOf("THING_VALUE;") + 2;
+    QVERIFY(macro > 2);
+    auto [defined, macroAnswered] = followFrom(macro);
+    QVERIFY2(macroAnswered, "the finder never called back for the macro");
+    QCOMPARE(defined.targetFilePath, header);
+    QCOMPARE(defined.target.line, 1);
+}
+
 } // namespace CppEditor::Internal::Tests
+
 
 /*
 Potential test cases improving name lookup.

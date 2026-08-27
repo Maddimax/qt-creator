@@ -1622,7 +1622,7 @@ private slots:
         // File names rather than mime types: preferredFactoryFor() walks the
         // mime type's parents, and that walk is half of what is being checked.
         const QStringList names{"CMakeLists.txt", "project.pro", "Thing.qml",
-                                "project.qbs", "module.nim"};
+                                "project.qbs", "module.nim", "main.cpp", "header.h"};
 
         QStringList missing;
         int checked = 0;

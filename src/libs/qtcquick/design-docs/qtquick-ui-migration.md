@@ -10108,3 +10108,49 @@ with an abort on two of them. The classes that failed are green on their own
 kit). `FollowSymbolTest`, the only class that exercises what this change
 touches, is 154/154. A whole-suite number from CppEditor is not evidence about
 anything.
+
+## C++ follow symbol: the widget was a presentation detail after all
+
+`CppEditorWidget::findLinkAt` looked like the hardest of the nine, because it
+goes through `CursorInEditor`, which carries a `CppEditorWidget *`. Reading
+what that pointer is *for* changed the estimate: every use is
+`->semanticInfo()` or `->updateSemanticInfo()`, and `CursorInEditor` already
+has a `cppDocument()` that `BuiltinModelManagerSupport::followSymbol` falls
+back to when there is no widget. Half the widget-less path was already written.
+
+What was missing was in `FollowSymbolUnderCursor::findLink`:
+
+    CppEditorWidget *editorWidget = data.editorWidget();
+    if (!editorWidget)
+        return processLinkCallback(link);
+
+- an early return that threw away the answer. Below it the widget is used
+exactly twice, and both are things only a widget can put on screen: the
+preprocessor popup for a macro defined in the editor configuration, and the
+assist popup that offers the overrides of a virtual. Guarding those two and
+deleting the early return is the whole change. A view without a widget gets the
+link; it does not get the two popups.
+
+`CppEditorWidget` keeps its own `findLinkAt` - it can show both, and it also
+has the "follow a leaf symbol into Designer" wrapper and `followUrl()`, which
+reads the widget's last semantic info. So C++ has two entry points now: the
+widget's, unchanged, and a registered finder for everyone else.
+
+**With clangd - what most users run - none of this matters**, because
+`ClangModelManagerSupport::followSymbol` asks the language server through
+`symbolSupport().findLinkAt(document, ...)`, which never wanted a widget.
+
+**The test is in CppEditor, not TextEditor**, because it needs the code model
+to have parsed the file, and `TestCase::parseFiles` lives there. It opens a
+`CppEditorDocument` with no view of any kind, asks
+`TextEditorFactory::linkFinderFor()` for the finder the Quick editor would use,
+and follows three things: an `#include`, a type name and a macro.
+
+**And one line has no control that bites, for a reason worth recording.** The
+finder passes `CppModelManager::snapshot().document(filePath)` as the
+`CursorInEditor`'s cpp document. Replacing it with a null pointer changes
+nothing for any of the three follows - `findLink` re-derives the same document
+from the snapshot itself at the top of its own body. The argument is the
+correct value and the not-yet-wired `switchDeclDef` and `findParentImpl` read
+it, but no test today can tell it apart from nothing. Written down rather than
+deleted, and rather than pretended to be covered.

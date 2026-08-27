@@ -137,7 +137,7 @@ void BuiltinModelManagerSupport::followFunctionToParentImpl(
         data,
         processLinkCallback,
         CppModelManager::snapshot(),
-        data.editorWidget()->semanticInfo().doc,
+        data.editorWidget() ? data.editorWidget()->semanticInfo().doc : data.cppDocument(),
         &finder);
 }
 
@@ -145,8 +145,8 @@ void BuiltinModelManagerSupport::switchDeclDef(const CursorInEditor &data,
                                                const Utils::LinkHandler &processLinkCallback)
 {
     SymbolFinder finder;
-    m_followSymbol->switchDeclDef(data, processLinkCallback,
-            CppModelManager::snapshot(), data.editorWidget()->semanticInfo().doc,
+    m_followSymbol->switchDeclDef(data, processLinkCallback, CppModelManager::snapshot(),
+            data.editorWidget() ? data.editorWidget()->semanticInfo().doc : data.cppDocument(),
             &finder);
 }
 

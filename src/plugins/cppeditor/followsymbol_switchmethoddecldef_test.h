@@ -45,6 +45,8 @@ private slots:
     void testFollowVirtualFunctionCall_data();
     void testFollowVirtualFunctionCall();
     void testFollowVirtualFunctionCallMultipleDocuments();
+
+    void testFollowSymbolWithoutAnEditorWidget();
 };
 
 } // namespace CppEditor::Internal::Tests

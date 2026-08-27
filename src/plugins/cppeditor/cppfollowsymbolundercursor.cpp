@@ -659,9 +659,9 @@ void FollowSymbolUnderCursor::findLink(
         }
     }
 
-    CppEditorWidget *editorWidget = data.editorWidget();
-    if (!editorWidget)
-        return processLinkCallback(link);
+    // May be absent: a view that is not a TextEditorWidget still gets a link,
+    // it only misses the two things below that are a widget's to show.
+    CppEditorWidget * const editorWidget = data.editorWidget();
 
     // Now we prefer the doc from the snapshot with macros expanded.
     Document::Ptr doc = snapshot.document(data.filePath());
@@ -715,7 +715,8 @@ void FollowSymbolUnderCursor::findLink(
     } else if (const Document::MacroUse *use = doc->findMacroUseAt(endOfToken - 1)) {
         const FilePath filePath = use->macro().filePath();
         if (filePath.path() == CppModelManager::editorConfigurationFileName().path()) {
-            editorWidget->showPreProcessorWidget();
+            if (editorWidget)
+                editorWidget->showPreProcessorWidget();
         } else if (filePath.path() != CppModelManager::configurationFileName().path()) {
             const Macro &macro = use->macro();
             link.targetFilePath = macro.filePath();
@@ -788,7 +789,10 @@ void FollowSymbolUnderCursor::findLink(
                     params.cursorPosition = cursor.position();
                     params.openInNextSplit = inNextSplit;
 
-                    if (m_virtualFunctionAssistProvider->configure(params)) {
+                    // The choice of override is offered as a popup, which
+                    // only a widget can put up; without one the link below
+                    // still points at the declaration.
+                    if (editorWidget && m_virtualFunctionAssistProvider->configure(params)) {
                         editorWidget->invokeTextEditorWidgetAssist(
                                     FollowSymbol,m_virtualFunctionAssistProvider.data());
                         m_virtualFunctionAssistProvider->clearParams();
