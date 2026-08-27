@@ -2450,6 +2450,23 @@ private slots:
                                     .arg(viewport->scrollX())));
         QVERIFY(viewport->cursorRectangle().left() >= 0);
 
+        // The rule is to centre the caret, which the end of the longest line
+        // cannot show: there is nothing to its right to scroll to, so the
+        // clamp leaves it against the edge - as it does in the widget editor.
+        // In the middle of the line there is room on both sides.
+        viewport->setCursorPosition(200);
+        keyMove(fixture.view, QKeySequence::MoveToNextChar);
+        QTRY_VERIFY(viewport->scrollX() > 0);
+        const auto offCentre = [viewport] {
+            const QRectF caret = viewport->cursorRectangle();
+            return caret.isNull() ? viewport->width()
+                                  : qAbs(caret.center().x() - viewport->width() / 2);
+        };
+        QTRY_VERIFY2(offCentre() < viewport->width() / 10,
+                     qPrintable(QString("caret %1 pixels off centre in a view %2 wide")
+                                    .arg(offCentre())
+                                    .arg(viewport->width())));
+
         // And back again.
         keyMove(fixture.view, QKeySequence::MoveToStartOfLine);
         QTRY_COMPARE(viewport->scrollX(), 0.0);

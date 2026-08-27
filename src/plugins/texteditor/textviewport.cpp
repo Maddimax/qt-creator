@@ -823,13 +823,12 @@ void TextViewport::ensureCaretVisibleSideways()
     if (caret.isNull())
         return;
 
-    // A little of the line beyond the caret, so that it does not sit against
-    // the edge with nothing to read in the direction it is heading.
-    const qreal margin = qMin(width() / 4, 4 * m_lineHeight);
-    if (caret.right() > width())
-        setScrollX(m_scrollX + caret.right() - width() + margin);
-    else if (caret.left() < 0)
-        setScrollX(m_scrollX + caret.left() - margin);
+    // Centred rather than nudged just inside the edge, which is what the
+    // widget editor does - see PlainTextEditPrivate::ensureCursorVisible().
+    // Nudging leaves the caret against the edge it came in at, with nothing
+    // ahead of it to read.
+    if (caret.right() > width() || caret.left() < 0)
+        setScrollX(m_scrollX + caret.center().x() - width() / 2);
 }
 
 static Utils::PlainTextDocumentLayout *layoutOf(const QTextDocument *text)
