@@ -77,6 +77,7 @@
 #include "toolchainmanager.h"
 #include "toolchainoptionspage.h"
 #include "windowsappsdksettings.h"
+#include "windowsappsdksettings_test.h"
 #include "workspaceproject.h"
 
 #ifdef WITH_JOURNALD
@@ -1111,6 +1112,7 @@ Result<> ProjectExplorerPlugin::initialize(const QStringList &arguments)
     addTestCreator(createClangClParserTest);
     addTestCreator(createCustomParserTest);
     addTestCreator(createCustomParsersPageTest);
+    addTestCreator(createWindowsAppSdkSettingsTest);
     addTestCreator(createDesktopDeviceTest);
     addTestCreator(createArgumentsAspectTest);
     addTestCreator(createWorkingDirectoryAspectTest);

@@ -246,6 +246,7 @@ QtcPlugin {
             "customparserspage_test.h",
             "outputparser_test.cpp",
             "outputparser_test.h",
+            "windowsappsdksettings_test.cpp", "windowsappsdksettings_test.h",
             "taskhandling_test.cpp",
             "taskhandling_test.h",
         ]

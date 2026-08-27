@@ -10264,3 +10264,46 @@ With both pages ported, the only `setWidgetCreator` left in the debugger is
 `DebugModeWidget`, which is an `IMode` and not a settings page. Of the pages
 that still build a widget anywhere, Windows App SDK remains, and Designer's
 wraps a `QDesignerOptionsPageInterface` that is not ours to port.
+
+## Windows App SDK: the last ordinary page that built a widget
+
+Three path choosers, two download buttons and a summary. The choosers were the
+storage - the `validate*()` slots read them and wrote the aspects - so with
+aspects those slots keep only the half that reports, and the widget class stops
+being a widget: it is the settings container's private part, holding the two
+downloads and nothing to draw.
+
+**Two rules came out of it, and both are about the SDK not being where its name
+says.**
+
+`hasWindowsAppSdkPackage()` - the summary row reads "Windows App SDK path
+exists.", but the check was never that the path exists. It is that a
+`Microsoft.WindowsAppSDK.*.nupkg` is *in* it. A directory named after the SDK
+with nothing in it is not the SDK, and the label is misleading about a check
+that is right.
+
+`windowsAppSdkPackageDir()` - NuGet unpacks into a versioned directory of its
+own under the download path, so after a download the SDK path has to become
+that directory rather than the one it was downloaded to. That was six lines of
+`QDir::entryList` inside a task-tree callback.
+
+**"All changes on this page take effect immediately" had to go.** The widget
+wrote each aspect as the chooser changed and persisted on Apply. A container
+rendered by `setSettingsProvider` has to `setAutoApply(false)` - the apply path
+asserts on it, because a page whose aspects auto-apply is never dirty and Apply
+silently does nothing. So the page is deferred like every other, the download
+buttons read `expandedVolatileValue()` so they act on what is typed rather than
+on what was last saved, and the two downloads apply and write the container
+themselves once the files are on disk. The label is deleted rather than left
+saying something that is no longer true.
+
+**And the fixture masked a control for the second time this session.** Making
+the unpack glob match any directory changed nothing, because the only directory
+in the fixture *was* the right one. Adding an `Extras` directory - which sorts
+before `Microsoft...`, so a search that takes the first entry rather than the
+first match answers with it - makes it bite. Same shape as the CDB unknown
+event: the wrong answer and the right one coincided for the input chosen.
+
+With this page ported, every `IOptionsPage` in Qt Creator that can be aspect
+driven is. The one left is Designer's, which wraps a
+`QDesignerOptionsPageInterface` supplied by Qt Designer - not ours to port.
