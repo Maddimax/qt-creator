@@ -1681,6 +1681,44 @@ private slots:
         // Opening the file is the editor manager's doing and is asynchronous
         // in neither direction, but the finder may answer through a callback.
         QTRY_COMPARE(Core::EditorManager::currentDocument()->filePath(), included);
+
+        // Ctrl+click is the other way in, and it follows what is under the
+        // pointer rather than what is under the caret. Back to the first
+        // editor, with the caret somewhere else entirely.
+        Core::EditorManager::activateEditor(editor);
+        QTRY_COMPARE(Core::EditorManager::currentDocument()->filePath(), lists);
+        viewport->setCursorPosition(0);
+        QVERIFY(viewport->followSymbolAt(12));
+        QTRY_COMPARE(Core::EditorManager::currentDocument()->filePath(), included);
+
+        // And through the form, which is what actually turns a Ctrl+click into
+        // the call above: a plain click has to keep putting the caret down.
+        Core::EditorManager::activateEditor(editor);
+        QTRY_COMPARE(Core::EditorManager::currentDocument()->filePath(), lists);
+        viewport->setCursorPosition(0);
+        QVERIFY(viewport->lineHeight() > 0);
+        const QRectF onInclude = viewport->rectangleAt(12);
+        QVERIFY(!onInclude.isNull());
+        const QPoint clickAt = viewport
+                                   ->mapToScene(QPointF(onInclude.center().x(),
+                                                        viewport->lineHeight() / 2))
+                                   .toPoint();
+        QTest::mouseClick(quick, Qt::LeftButton, Qt::ControlModifier, clickAt);
+        QTRY_COMPARE(Core::EditorManager::currentDocument()->filePath(), included);
+
+        // A file whose language has no finder must not swallow the click, or
+        // Ctrl+click stops putting the caret anywhere in a plain text file.
+        const Utils::FilePath plain = dir.filePath("notes.txt");
+        QVERIFY(plain.writeFileContents("nothing to follow\n"));
+        Core::IEditor * const plainEditor
+            = Core::EditorManager::openEditor(plain, QUICK_TEXT_EDITOR_ID);
+        QVERIFY(plainEditor);
+        auto * const plainQuick = plainEditor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(plainQuick && plainQuick->rootObject());
+        auto * const plainViewport = plainQuick->rootObject()->findChild<TextViewport *>();
+        QVERIFY(plainViewport);
+        QVERIFY2(!plainViewport->followSymbolAt(3),
+                 "a plain text file claimed to know where a symbol is defined");
     }
 
     // Hovering. A tooltip in Creator is a hover handler's answer, and the

@@ -237,6 +237,9 @@ public:
     // Follow Symbol. What is under the cursor is the language's business -
     // the view only asks and opens what comes back.
     Q_INVOKABLE void followSymbolUnderCursor(bool inNextSplit = false);
+    // Ctrl+click. Answers whether it took the click, so that a file whose
+    // language has no finder still gets an ordinary click.
+    Q_INVOKABLE bool followSymbolAt(int position, bool inNextSplit = false);
     bool openLink(const Utils::Link &link, bool inNextSplit = false);
 
 private:

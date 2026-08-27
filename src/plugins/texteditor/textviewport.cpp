@@ -618,20 +618,28 @@ void TextViewport::setHoverHandlers(const QList<BaseHoverHandler *> &handlers)
 
 void TextViewport::followSymbolUnderCursor(bool inNextSplit)
 {
+    followSymbolAt(cursorPosition(), inNextSplit);
+}
+
+bool TextViewport::followSymbolAt(int position, bool inNextSplit)
+{
     TextDocument * const doc = textDocument();
-    if (!doc)
-        return;
+    if (!doc || position < 0)
+        return false;
 
     const TextEditorFactory::LinkFinder finder = TextEditorFactory::linkFinderFor(doc);
     if (!finder)
-        return;
+        return false;
 
-    finder(doc, textCursor(),
+    QTextCursor cursor(doc->document());
+    cursor.setPosition(position);
+    finder(doc, cursor,
            [self = QPointer<TextViewport>(this), inNextSplit](const Utils::Link &link) {
                if (self)
                    self->openLink(link, inNextSplit);
            },
            true, inNextSplit);
+    return true;
 }
 
 bool TextViewport::openLink(const Utils::Link &link, bool inNextSplit)

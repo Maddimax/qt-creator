@@ -186,6 +186,16 @@ Item {
                     }
                     return
                 }
+                // Ctrl+click follows the symbol under the pointer rather than
+                // putting the caret there. Shift is the exception: that is a
+                // selection gesture, which is why the widget editor tests for
+                // it too.
+                if ((mouse.modifiers & Qt.ControlModifier)
+                        && !(mouse.modifiers & Qt.ShiftModifier)
+                        && viewport.followSymbolAt(position,
+                                                   (mouse.modifiers & Qt.AltModifier) !== 0)) {
+                    return
+                }
                 // The third click of a triple click arrives as a plain press -
                 // Qt only ever reports one double click - so this is where a
                 // triple click has to be recognised, before the press below

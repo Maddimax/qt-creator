@@ -10154,3 +10154,26 @@ from the snapshot itself at the top of its own body. The argument is the
 correct value and the not-yet-wired `switchDeclDef` and `findParentImpl` read
 it, but no test today can tell it apart from nothing. Written down rather than
 deleted, and rather than pretended to be covered.
+
+## Ctrl+click, and a QML branch that no C++ test can see
+
+F2 was enough to prove the seam; it is not enough to *use* the editor, because
+following a symbol is a Ctrl+click for most people. `followSymbolAt(position)`
+takes the position under the pointer rather than the caret's, and **answers
+whether it took the click** - a file whose language has no finder has to fall
+through to putting the caret down, or Ctrl+click stops working in plain text.
+
+Three controls, and the third is the interesting one:
+
+- following the caret instead of the pointer: bites.
+- returning true when there is no finder: bites.
+- **the QML never calling `followSymbolAt` at all: did not bite**, because the
+  test called the C++ method directly. Adding `QTest::mouseClick(quick,
+  Qt::LeftButton, Qt::ControlModifier, ...)` through the hosting QQuickWidget
+  makes it bite. A synthetic click is instantaneous, so none of the hover
+  test's timing problems apply - the only care needed is the same proportional
+  y (`lineHeight() / 2`) so the point is line one whatever the font is.
+
+The general form: **a C++ test of a Q_INVOKABLE proves the method, not the
+binding.** Every QML branch that decides whether to call it is invisible until
+something drives the form.
