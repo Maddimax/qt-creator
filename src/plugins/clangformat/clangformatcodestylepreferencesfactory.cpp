@@ -73,578 +73,123 @@ using namespace Utils;
 
 namespace ClangFormat {
 
-// ClangFormatSelectorWidget
 
-class ClangFormatSelectorWidget final : public CodeStyleSelectorWidget
+// What the text in the .clang-format editor would do, or why it would not.
+// The editor holds unsaved text, so both the preview and the warning follow
+// from *that* rather than from the file on disk.
+static Result<> checkStyleText(const QString &text, clang::format::FormatStyle &style)
+{
+    return parseConfigurationContent(text.toStdString(), style);
+}
+
+// The .clang-format file being edited, the preview of what it does, and
+// whether either may be typed into. The two editors belong to the form; this
+// carries what they need and the rules tying them together.
+class ClangFormatCodeStyleAspects final : public AspectContainer
 {
 public:
-    ClangFormatSelectorWidget(const FilePath &projectFile, QWidget *parent)
-        : CodeStyleSelectorWidget{projectFile, parent}
-    {}
+    ClangFormatCodeStyleAspects(ICodeStylePreferences *codeStyle,
+                                CodeStylePreviewAspect *preview)
+        : m_globalSettings(nullptr, codeStyle)
+        , m_preview(preview)
+        , m_config(std::make_unique<ClangFormatFile>(codeStyle->currentPreferences()))
+    {
+        // The page shows the global block above the style, the way the widget
+        // editor did; naming it is what lets the form reach it.
+        m_globalSettings.setQmlName("Global");
+        registerAspect(&m_globalSettings);
 
-    void onModeChanged(ClangFormatSettings::Mode newMode);
-    void onUseCustomSettingsChanged(bool doUse);
+        // Which file the form opens. Invisible because it is not something to
+        // set - it follows the style being edited.
+        styleFilePath.setQmlName("StyleFilePath");
+        styleFilePath.setVisible(false);
+
+        styleText.setQmlName("StyleText");
+        styleText.setVisible(false);
+        styleText.addOnChanged(this, [this] { styleTextChanged(); });
+
+        clangVersion.setQmlName("ClangVersion");
+        clangVersion.setText(
+            Tr::tr("Current ClangFormat version: %1.").arg(LLVM_VERSION_STRING));
+
+        fileProblem.setQmlName("FileProblem");
+        fileProblem.setIconType(InfoType::Warning);
+        fileProblem.setVisible(false);
+
+        // Whether the file may be typed into. A read-only style, or custom
+        // settings turned off, means the form shows it and nothing more.
+        editable.setQmlName("Editable");
+        editable.setVisible(false);
+
+        connect(codeStyle, &ICodeStylePreferences::currentPreferencesChanged,
+                this, &ClangFormatCodeStyleAspects::followCodeStyle);
+        connect(codeStyle, &ICodeStylePreferences::aboutToBeRemoved,
+                this, &ClangFormatFile::removeClangFormatFileForStylePreferences);
+        connect(codeStyle, &ICodeStylePreferences::aboutToBeCopied,
+                this, &ClangFormatFile::copyClangFormatFileBasedOnStylePreferences);
+        connect(&m_globalSettings, &ClangFormatGlobalConfig::useCustomSettingsChanged,
+                this, [this] { updateEditable(); });
+
+        followCodeStyle(codeStyle->currentPreferences());
+    }
+
+    void apply() override
+    {
+        AspectContainer::apply();
+        // Only what the user could have typed: a read-only style must not be
+        // written back over.
+        if (editable())
+            m_config->filePath().writeFileContents(styleText().toUtf8());
+    }
+
+    // The .clang-format file's text. The form edits this, so the warning and
+    // the preview are about what is on screen rather than what is on disk.
+    Utils::StringAspect styleText{this};
+    Utils::StringAspect styleFilePath{this};
+    Utils::TextDisplay clangVersion{this};
+    Utils::TextDisplay fileProblem{this};
+    Utils::BoolAspect editable{this};
 
 private:
-    void slotImportClicked() override;
-    void slotExportClicked() override;
-
-    void updateReadOnlyState();
-
-    ClangFormatSettings::Mode m_currentMode = ClangFormatSettings::Mode::Indenting;
-    bool m_useCustomSettings = false;
-};
-
-void ClangFormatSelectorWidget::onModeChanged(ClangFormatSettings::Mode newMode)
-{
-    m_currentMode = newMode;
-    updateReadOnlyState();
-}
-
-void ClangFormatSelectorWidget::onUseCustomSettingsChanged(bool doUse)
-{
-    m_useCustomSettings = doUse;
-    updateReadOnlyState();
-}
-
-void ClangFormatSelectorWidget::slotImportClicked()
-{
-    if (m_currentMode == ClangFormatSettings::Mode::Disable) {
-        CodeStyleSelectorWidget::slotImportClicked();
-        return;
+    void followCodeStyle(ICodeStylePreferences *codeStyle)
+    {
+        if (!codeStyle)
+            return;
+        m_config.reset(new ClangFormatFile(codeStyle));
+        m_config->setIsReadOnly(codeStyle->isReadOnly());
+        styleFilePath.setValue(m_config->filePath().toUrlishString());
+        // The file the style points at, not the one that was being edited:
+        // switching style has to show the new file's contents.
+        styleText.setValue(
+            QString::fromUtf8(m_config->filePath().fileContents().value_or(QByteArray())));
+        updateEditable();
     }
 
-    const FilePath filePath = FileUtils::getOpenFilePath(
-        Tr::tr("Import Code Format"), {}, Tr::tr("ClangFormat (*clang-format*);;All files (*)"));
-
-    if (filePath.isEmpty())
-        return;
-
-    const QString name = QInputDialog::getText(
-        this, Tr::tr("Import Code Style"), Tr::tr("Enter a name for the imported code style:"));
-    if (name.isEmpty())
-        return;
-
-    CodeStylePool *codeStylePool = m_codeStyle->delegatingPool();
-    ICodeStylePreferences *importedStyle = codeStylePool->createCodeStyle(name);
-    const ClangFormatFile file{importedStyle, filePath};
-
-    if (importedStyle != nullptr) {
-        m_codeStyle->setCurrentDelegate(importedStyle);
-        return;
-    }
-
-    QMessageBox::warning(
-        this,
-        Tr::tr("Import Code Style"),
-        Tr::tr("Cannot import code style from \"%1\".").arg(filePath.toUserOutput()));
-}
-
-void ClangFormatSelectorWidget::slotExportClicked()
-{
-    if (m_currentMode == ClangFormatSettings::Mode::Disable) {
-        CodeStyleSelectorWidget::slotExportClicked();
-        return;
-    }
-
-    ICodeStylePreferences *currentPreferences = m_codeStyle->currentPreferences();
-    const FilePath filePath = FileUtils::getSaveFilePath(
-        Tr::tr("Export Code Format"),
-        FileUtils::homePath() / ".clang-format",
-        Tr::tr("ClangFormat (*clang-format*);;All files (*)"));
-
-    if (filePath.isEmpty())
-        return;
-
-    const FilePath clangFormatFile = filePathToCurrentSettings(currentPreferences);
-    clangFormatFile.copyFile(filePath);
-}
-
-void ClangFormatSelectorWidget::updateReadOnlyState()
-{
-    const bool isReadOnly = m_currentMode != ClangFormatSettings::Mode::Disable
-                            && !m_useCustomSettings;
-    setDisabled(isReadOnly);
-}
-
-// ClangFormatConfigWidget
-
-template<typename... Args>
-static void invokeMethodForLanguageClientManager(const char *method, Args &&...args)
-{
-    QObject *languageClientManager = ExtensionSystem::PluginManager::getObjectByName(
-        "LanguageClientManager");
-    if (!languageClientManager)
-        return;
-    QMetaObject::invokeMethod(languageClientManager, method, args...);
-}
-
-class ClangFormatConfigWidget final : public QWidget
-{
-public:
-    ClangFormatConfigWidget(
-        const Project *project,
-        ICodeStylePreferences *codeStyle,
-        QWidget *parent);
-    ~ClangFormatConfigWidget() override;
-
-    void apply();
-    void cancel();
-
-    void onUseCustomSettingsChanged(bool doUse);
-    void setOnChanged(const std::function<void()> &onChanged) { m_onChanged = onChanged; }
-
-private:
-    bool eventFilter(QObject *object, QEvent *event) override;
-
-    FilePath globalPath();
-    FilePath projectPath();
-    void createStyleFileIfNeeded(bool isGlobal);
-    void initPreview(ICodeStylePreferences *codeStyle);
-    void initEditor();
-    void reopenClangFormatDocument();
-    void updatePreview();
-    void slotCodeStyleChanged(ICodeStylePreferences *currentPreferences);
-    void updateReadOnlyState();
-    TextEditorWidget *editorWidget() const;
-
-    const Project *m_project = nullptr;
-    QScrollArea m_editorScrollArea;
-    SnippetEditorWidget m_preview{this};
-    std::unique_ptr<Core::IEditor> m_editor;
-    std::unique_ptr<ClangFormatFile> m_config;
-    Guard m_ignoreChanges;
-    QLabel m_clangVersion;
-    InfoLabel m_clangFileIsCorrectText;
-    ClangFormatIndenter *m_indenter;
-
-    bool m_useCustomSettings = false;
-    std::function<void()> m_onChanged;
-};
-
-bool ClangFormatConfigWidget::eventFilter(QObject *object, QEvent *event)
-{
-    if (event->type() == QEvent::Wheel && qobject_cast<QComboBox *>(object)) {
-        event->ignore();
-        return true;
-    }
-    return QWidget::eventFilter(object, event);
-}
-
-ClangFormatConfigWidget::ClangFormatConfigWidget(
-    const Project *project, ICodeStylePreferences *codeStyle, QWidget *parent)
-    : QWidget(parent)
-{
-    m_project = project;
-    m_config = std::make_unique<ClangFormatFile>(codeStyle->currentPreferences());
-
-    createStyleFileIfNeeded(!m_project);
-
-    initPreview(codeStyle);
-
-    m_editorScrollArea.setWidgetResizable(true);
-
-    m_clangFileIsCorrectText.setType(InfoLabelType::Ok);
-    m_clangFileIsCorrectText.setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Preferred);
-    m_clangFileIsCorrectText.hide();
-
-    m_clangVersion.setText(Tr::tr("Current ClangFormat version: %1.").arg(LLVM_VERSION_STRING));
-
-    using namespace Layouting;
-
-    Column {
-        m_clangVersion,
-        Row { m_editorScrollArea, m_preview },
-        Row {m_clangFileIsCorrectText, st}
-    }.attachTo(this);
-
-    connect(codeStyle, &ICodeStylePreferences::currentPreferencesChanged,
-            this, &ClangFormatConfigWidget::slotCodeStyleChanged);
-
-    connect(codeStyle, &ICodeStylePreferences::aboutToBeRemoved,
-            this, &ClangFormatFile::removeClangFormatFileForStylePreferences);
-
-    connect(codeStyle, &ICodeStylePreferences::aboutToBeCopied,
-            this, &ClangFormatFile::copyClangFormatFileBasedOnStylePreferences);
-
-    // Opening the style file in an editor and announcing it to the language
-    // client is by far the most expensive thing here, and pointless for a
-    // widget that is only built to be scraped for search keywords.
-    Utils::onFirstShow(this, [this, codeStyle] {
-        initEditor();
-        slotCodeStyleChanged(codeStyle->currentPreferences());
-    });
-}
-
-ClangFormatConfigWidget::~ClangFormatConfigWidget()
-{
-    if (!m_editor)
-        return;
-    auto doc = qobject_cast<TextDocument *>(m_editor->document());
-    invokeMethodForLanguageClientManager("documentClosed", Q_ARG(Core::IDocument *, doc));
-}
-
-void ClangFormatConfigWidget::slotCodeStyleChanged(ICodeStylePreferences *codeStyle)
-{
-    if (!codeStyle)
-        return;
-    m_config.reset(new ClangFormatFile(codeStyle));
-    m_config->setIsReadOnly(codeStyle->isReadOnly());
-
-    reopenClangFormatDocument();
-    updateReadOnlyState();
-    updatePreview();
-}
-
-void ClangFormatConfigWidget::updateReadOnlyState()
-{
-    const bool isReadOnly = m_config->isReadOnly() || !m_useCustomSettings;
-    m_preview.setReadOnly(isReadOnly);
-    if (TextEditorWidget * const widget = editorWidget())
-        widget->setReadOnly(isReadOnly);
-}
-
-TextEditorWidget *ClangFormatConfigWidget::editorWidget() const
-{
-    return TextEditorWidget::fromEditor(m_editor.get());
-}
-
-void ClangFormatConfigWidget::initEditor()
-{
-    Core::EditorFactories factories = Core::IEditorFactory::preferredEditorTypes(
-        m_config->filePath());
-    Core::IEditorFactory *factory = factories.takeFirst();
-    m_editor.reset(factory->createEditor());
-
-    m_editor->document()->open(m_config->filePath(), m_config->filePath());
-    m_editor->widget()->adjustSize();
-
-    invokeMethodForLanguageClientManager("documentOpened",
-                                         Q_ARG(Core::IDocument *, m_editor->document()));
-    invokeMethodForLanguageClientManager("editorOpened",
-                                         Q_ARG(Core::IEditor *, m_editor.get()));
-
-    m_editorScrollArea.setWidget(m_editor->widget());
-
-    if (TextEditorWidget *editor = editorWidget())
-        editor->setMinimapVisible(false);
-
-    connect(m_editor->document(), &TextDocument::contentsChanged, this, [this] {
-        // A real user edit (programmatic reopens are guarded); let the hosting
-        // editor know so the deferred page becomes dirty.
-        if (!m_ignoreChanges.isLocked() && m_onChanged)
-            m_onChanged();
-
-        clang::format::FormatStyle currentSettingsStyle{};
-        const Result<> success
-            = parseConfigurationContent(m_editor->document()->contents().toStdString(),
-                                        currentSettingsStyle);
-
-        if (success) {
-            m_clangFileIsCorrectText.hide();
-            m_indenter->setOverriddenStyle(currentSettingsStyle);
-            updatePreview();
+    // What the text on screen would do, or why it would do nothing.
+    void styleTextChanged()
+    {
+        clang::format::FormatStyle parsed{};
+        const Result<> ok = checkStyleText(styleText.volatileValue(), parsed);
+        fileProblem.setVisible(!ok);
+        if (!ok) {
+            fileProblem.setText(Tr::tr("Warning:") + " " + ok.error());
             return;
         }
-        m_clangFileIsCorrectText.show();
-        m_clangFileIsCorrectText.setText(Tr::tr("Warning:") + " " + success.error());
-        m_clangFileIsCorrectText.setType(InfoLabelType::Warning);
-    });
-
-    QShortcut *completionSC = new QShortcut(QKeySequence("Ctrl+Space"), this);
-    connect(completionSC, &QShortcut::activated, this, [this] {
-        if (auto editor = qobject_cast<BaseTextEditor *>(m_editor.get()))
-            editor->editorWidget()->invokeAssist(Completion);
-    });
-
-    QShortcut *saveSC = new QShortcut(QKeySequence("Ctrl+S"), this);
-    connect(saveSC, &QShortcut::activated, this, [this] { apply(); });
-}
-
-void ClangFormatConfigWidget::initPreview(ICodeStylePreferences *codeStyle)
-{
-    FilePath fileName = m_project ? m_project->projectFilePath().pathAppended("snippet.cpp")
-                                  : Core::ICore::userResourcePath("snippet.cpp");
-
-    DisplaySettingsData displaySettings = m_preview.displaySettings();
-    displaySettings.m_visualizeWhitespace = true;
-    m_preview.setDisplaySettings(displaySettings);
-    m_preview.setPlainText(QLatin1String(CppEditor::Constants::DEFAULT_CODE_STYLE_SNIPPETS[0]));
-    m_indenter = new ClangFormatIndenter(m_preview.document());
-    m_indenter->setOverriddenPreferences(codeStyle);
-    m_preview.textDocument()->setIndenter(m_indenter);
-    m_preview.textDocument()->setFontSettings(globalFontSettings().data());
-    m_preview.textDocument()->resetSyntaxHighlighter(
-        [] { return new CppEditor::CppHighlighter(); });
-    m_indenter->setFileName(fileName);
-    m_preview.show();
-}
-
-static clang::format::FormatStyle constructStyle(const QByteArray &baseStyle = QByteArray())
-{
-    if (!baseStyle.isEmpty()) {
-        llvm::Expected<clang::format::FormatStyle> style
-            = clang::format::getStyle(baseStyle.toStdString(), "dummy.cpp", baseStyle.toStdString());
-        if (style)
-            return *style;
-
-        handleAllErrors(style.takeError(), [](const llvm::ErrorInfoBase &) {
-            // do nothing
-        });
-    }
-    return qtcStyle();
-}
-
-FilePath ClangFormatConfigWidget::globalPath()
-{
-    return Core::ICore::userResourcePath();
-}
-
-FilePath ClangFormatConfigWidget::projectPath()
-{
-    if (m_project)
-        return globalPath().pathAppended("clang-format/" + projectUniqueId(m_project));
-
-    return {};
-}
-
-void ClangFormatConfigWidget::createStyleFileIfNeeded(bool isGlobal)
-{
-    const FilePath path = isGlobal ? globalPath() : projectPath();
-    const FilePath configFile = path / Constants::SETTINGS_FILE_NAME;
-
-    if (configFile.exists())
-        return;
-
-    path.ensureWritableDir();
-    if (!isGlobal) {
-        FilePath possibleProjectConfig = m_project->rootProjectDirectory()
-                                         / Constants::SETTINGS_FILE_NAME;
-        if (possibleProjectConfig.exists()) {
-            possibleProjectConfig.copyFile(configFile);
-            return;
-        }
+        // The preview re-indents with what was just typed rather than with what
+        // was last saved - that is the whole point of showing it.
+        if (m_preview)
+            m_preview->formatText();
     }
 
-    const std::string config = clang::format::configurationAsText(constructStyle());
-    configFile.writeFileContents(QByteArray::fromStdString(config));
-}
-
-void ClangFormatConfigWidget::updatePreview()
-{
-    QTextCursor cursor(m_preview.document());
-    cursor.setPosition(0);
-    cursor.movePosition(QTextCursor::End, QTextCursor::KeepAnchor);
-    m_preview.textDocument()->autoFormatOrIndent(cursor);
-}
-
-void ClangFormatConfigWidget::reopenClangFormatDocument()
-{
-    if (!m_editor)
-        return;
-
-    GuardLocker locker(m_ignoreChanges);
-
-    if (m_editor->document()->open(m_config->filePath(), m_config->filePath())) {
-        invokeMethodForLanguageClientManager("documentOpened",
-                                             Q_ARG(Core::IDocument *, m_editor->document()));
-    }
-}
-
-void ClangFormatConfigWidget::apply()
-{
-    if (!m_editor)
-        return;
-    TextEditorWidget * const widget = editorWidget();
-    if (QTC_GUARD(widget) && widget->isReadOnly())
-        return;
-    m_editor->document()->save(m_config->filePath());
-}
-
-void ClangFormatConfigWidget::cancel()
-{
-    // Discard unsaved edits by reloading the style file's content.
-    reopenClangFormatDocument();
-    updatePreview();
-}
-
-void ClangFormatConfigWidget::onUseCustomSettingsChanged(bool doUse)
-{
-    m_useCustomSettings = doUse;
-    updateReadOnlyState();
-}
-
-// ClangFormatCodeStyleWidget
-
-class ClangFormatCodeStyleWidget : public QWidget
-{
-public:
-    ClangFormatCodeStyleWidget(
-        const FilePath &projectFile, ICodeStylePreferences *codeStyle, QWidget *parent);
-
-    void onModeChanged(ClangFormatSettings::Mode newMode);
-    void onUseCustomSettingsChanged(bool doUse);
-
-    void apply();
-    void cancel();
-    void setOnChanged(const std::function<void()> &onChanged)
+    void updateEditable()
     {
-        m_clangFormatSettings->setOnChanged(onChanged);
+        editable.setValue(!m_config->isReadOnly() && m_globalSettings.useCustomSettings());
     }
 
-private:
-    CppEditor::CppCodeStylePreferencesWidget *m_legacyIndenterSettings = nullptr;
-    ClangFormatConfigWidget *m_clangFormatSettings = nullptr;
-};
-
-ClangFormatCodeStyleWidget::ClangFormatCodeStyleWidget(
-    const FilePath &projectFile, ICodeStylePreferences *codeStyle, QWidget *parent)
-    : QWidget{parent}
-    , m_clangFormatSettings{new ClangFormatConfigWidget(
-          ProjectManager::projectWithProjectFile(projectFile, !projectFile.isEmpty()), codeStyle, this)}
-{
-    auto layout = new QVBoxLayout{this};
-    layout->setContentsMargins(0, 0, 0, 0);
-    setLayout(layout);
-
-    if (QTC_GUARD(codeStyle)) {
-        const auto cppPreferences = static_cast<CppEditor::CppCodeStylePreferences *>(codeStyle);
-        m_legacyIndenterSettings = new CppEditor::CppCodeStylePreferencesWidget{cppPreferences};
-        m_legacyIndenterSettings->layout()->setContentsMargins(0, 0, 0, 0);
-        layout->addWidget(m_legacyIndenterSettings);
-    }
-
-    layout->addWidget(m_clangFormatSettings);
-}
-
-void ClangFormatCodeStyleWidget::onModeChanged(ClangFormatSettings::Mode newMode)
-{
-    const bool isLegacyIndenterMode = newMode == ClangFormatSettings::Mode::Disable;
-    if (m_legacyIndenterSettings)
-        m_legacyIndenterSettings->setVisible(isLegacyIndenterMode);
-    m_clangFormatSettings->setVisible(!isLegacyIndenterMode);
-}
-
-void ClangFormatCodeStyleWidget::onUseCustomSettingsChanged(bool doUse)
-{
-    m_clangFormatSettings->onUseCustomSettingsChanged(doUse);
-}
-
-void ClangFormatCodeStyleWidget::apply()
-{
-    if (m_legacyIndenterSettings)
-        m_legacyIndenterSettings->apply();
-    m_clangFormatSettings->apply();
-}
-
-void ClangFormatCodeStyleWidget::cancel()
-{
-    if (m_legacyIndenterSettings)
-        m_legacyIndenterSettings->cancel();
-    m_clangFormatSettings->cancel();
-}
-
-// ClangFormatSettingsEditor
-
-class ClangFormatSettingsEditor final : public CodeStyleEditor
-{
-public:
-    explicit ClangFormatSettingsEditor(ICodeStylePreferences *codeStyle)
-        : m_globalSettings{nullptr, codeStyle}
-        , m_selector{{}, this}
-        , m_widget{{}, codeStyle, this}
-    {
-        m_selector.setCodeStyle(codeStyle);
-        auto filler = new QWidget;
-        filler->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
-
-        using namespace Layouting;
-        Column {
-            Core::createAspectForm(&m_globalSettings),
-            &m_selector,
-            &m_widget,
-            filler,
-            noMargin,
-        }.attachTo(this);
-
-        const ClangFormatSettings::Mode currentMode = m_globalSettings.mode();
-        const auto updateSelectorVisibility = [this, filler] {
-            // The selector and editor are relevant when ClangFormat is off (to
-            // pick a built-in code style) or when "Use custom settings" lets the
-            // user manage a ClangFormat style. They are hidden when ClangFormat
-            // is active and reads the project's own .clang-format file, where
-            // there is nothing to pick or edit. The filler then keeps the box
-            // packed at the top instead of letting the layout spread it out.
-            const bool clangFormatActive =
-                m_globalSettings.mode() != ClangFormatSettings::Mode::Disable;
-            const bool visible = !clangFormatActive || m_globalSettings.useCustomSettings();
-            m_selector.setVisible(visible);
-            m_widget.setVisible(visible);
-            filler->setVisible(!visible);
-        };
-        updateSelectorVisibility();
-        connect(&m_globalSettings, &ClangFormatGlobalConfig::modeChanged,
-                this, updateSelectorVisibility);
-        connect(&m_globalSettings, &ClangFormatGlobalConfig::useCustomSettingsChanged,
-                this, updateSelectorVisibility);
-
-        connect(&m_globalSettings, &ClangFormatGlobalConfig::modeChanged,
-                &m_selector, &ClangFormatSelectorWidget::onModeChanged);
-        m_selector.onModeChanged(currentMode);
-        connect(&m_globalSettings, &ClangFormatGlobalConfig::useCustomSettingsChanged,
-                &m_selector, &ClangFormatSelectorWidget::onUseCustomSettingsChanged);
-        m_selector.onUseCustomSettingsChanged(m_globalSettings.useCustomSettings());
-
-        connect(&m_globalSettings, &ClangFormatGlobalConfig::modeChanged,
-                &m_widget, &ClangFormatCodeStyleWidget::onModeChanged);
-        m_widget.onModeChanged(currentMode);
-        connect(&m_globalSettings, &ClangFormatGlobalConfig::useCustomSettingsChanged,
-                &m_widget, &ClangFormatCodeStyleWidget::onUseCustomSettingsChanged);
-        m_widget.onUseCustomSettingsChanged(m_globalSettings.useCustomSettings());
-
-        // ClangFormat keeps its settings in .clang-format files and the global
-        // ClangFormatSettings, which the hosting CodeStyleAspect cannot see in
-        // the preferences. Track edits explicitly so Apply/Cancel enable and the
-        // deferred page commits them on apply(). Wired last so the setup above
-        // does not mark the page dirty.
-        const auto markChanged = [this] {
-            m_dirty = true;
-            emit changed();
-        };
-        m_widget.setOnChanged(markChanged);
-        connect(&m_globalSettings, &ClangFormatGlobalConfig::modeChanged, this, markChanged);
-        connect(&m_globalSettings, &ClangFormatGlobalConfig::useCustomSettingsChanged,
-                this, markChanged);
-        connect(codeStyle, &ICodeStylePreferences::currentValueChanged, this, markChanged);
-        connect(codeStyle, &ICodeStylePreferences::currentTabSettingsChanged, this, markChanged);
-    }
-
-    void apply() final
-    {
-        m_widget.apply();
-        m_globalSettings.apply();
-        m_dirty = false;
-        emit changed();
-    }
-
-    void cancel() final
-    {
-        m_widget.cancel();
-        m_globalSettings.cancel();
-        m_dirty = false;
-        emit changed();
-    }
-
-    bool isDirty() const final { return m_dirty; }
-
-private:
     ClangFormatGlobalConfig m_globalSettings;
-    ClangFormatSelectorWidget m_selector;
-    ClangFormatCodeStyleWidget m_widget;
-    bool m_dirty = false;
+    CodeStylePreviewAspect *m_preview = nullptr;
+    std::unique_ptr<ClangFormatFile> m_config;
 };
-
-// ClangFormatCodeStylePreferencesFactory
 
 class ClangFormatCodeStylePreferencesFactory final : public ICodeStylePreferencesFactory
 {
@@ -657,15 +202,11 @@ public:
         setPreviewText(QString::fromLatin1(CppEditor::Constants::DEFAULT_CODE_STYLE_SNIPPETS[0]));
         setIndenterCreator([](QTextDocument *doc) { return new ClangFormatForwardingIndenter(doc); });
         setCodeStyleCreator([] { return new CppEditor::CppCodeStylePreferences; });
-        setValueEditorCreator([](ICodeStylePreferences *codeStyle) {
-            return new ClangFormatSettingsEditor{codeStyle};
-        });
-        // The project Code Style panel shows the default form - which style
-        // the project uses, and a preview. ClangFormat's own project block
-        // (Indenting or Formatting, "Use custom settings", and import and
-        // export that understand a .clang-format file) is not ported to Qt
-        // Quick yet, so it is not offered there; the ClangFormat page itself
-        // still has all of it.
+        setSettingsAspectsCreator(
+            [](ICodeStylePreferences *codeStyle, CodeStylePreviewAspect *preview) {
+                return new ClangFormatCodeStyleAspects(codeStyle, preview);
+            });
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/ClangFormat/ClangFormatCodeStylePage.qml"));
     }
 };
 

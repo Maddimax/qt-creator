@@ -53,6 +53,7 @@ if(TARGET ClangFormat)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      ClangFormatCodeStylePage.qml
       ClangFormatGlobalConfig.qml
   )
 endif()

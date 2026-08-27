@@ -10362,3 +10362,74 @@ It still leaves the QML unverified, which is the half that fails silently: a
 form naming an aspect that is not there renders blank, and only the census
 catches it. Recorded as a decision for the user rather than guessed at:
 enabling LLVM in the build configuration makes this an ordinary batch.
+
+## Porting a plugin this build cannot compile
+
+The ClangFormat page, from the previous entry - the last one left. The
+configuration here excludes the plugin, so the usual three verifications are
+all unavailable: no build, no `qmllint` target, no page census. Rather than
+write it blind or leave it, three substitutes, each negative-controlled before
+being trusted:
+
+1. **C++**: a sibling plugin's command line out of `compile_commands.json`,
+   `-c`/`-o` dropped, `-fsyntax-only` and the LLVM include directory added, run
+   over every `.cpp` in the plugin. Control: a bogus call in
+   `clangformatutils.cpp` - caught.
+2. **QML**: `qmllint` with `-I <build>/qml_modules -I <Qt>/qml`, which is what
+   the generated `.rsp` files use. The modules the form imports are built even
+   though this plugin is not. Control: renaming `BoolDelegate` to a type that
+   does not exist - caught.
+3. **Aspect names**: the one thing `qmllint` cannot see. Every
+   `aspects.X` in the plugin's `.qml` files, checked against every
+   `setQmlName("X")` in its `.cpp` and `.h`. Control: `aspects.NoSuchAspect` -
+   caught.
+
+`clangformatplugin.cpp` is skipped by (1): it includes its generated `.moc`,
+which only exists once the plugin is configured. Said out loud rather than
+quietly passed.
+
+**Check (3) earned its place immediately.** Deleting the four widget classes
+was two range deletions, and the first one - `ClangFormatSelectorWidget` up to
+`ClangFormatConfigWidget` - swallowed the new aspect container, which had been
+inserted just above the second marker. The C++ still compiled, because nothing
+in the file referenced the container by then. The QML still linted, because
+`qmllint` does not know what an aspect is. The name check reported five missing
+names on the next run. Without it this would have been found by a user opening
+the page and seeing it blank.
+
+## What the port actually changed
+
+`ClangFormatConfigWidget` was two editors: an `IEditor` on the real
+`.clang-format` file, and a `SnippetEditorWidget` previewing what it does. The
+preview half is what every other Code Style page already draws, so it is now
+`CodeStylePreview.qml` like the rest. The file half is a `CodeBuffer` plus a
+`CodeViewport` - the same pattern - with a `StringAspect` holding the text.
+
+**`CodeBuffer` rather than `CodeDocument`, and the reason is worth recording.**
+`CodeDocument` opens a path and has a `useLanguageServer` property, which is
+closer to what the widget did - it registered the document with the language
+client manager, so a YAML server could complete in it. But `CodeDocument`
+exposes no `text`, so the form cannot hand what was typed back to the aspect;
+reaching the document from QML would mean a `Q_INVOKABLE` on the container,
+which means `Q_OBJECT`, which means a generated `.moc` - and a `.moc` is
+exactly what this build cannot produce for this plugin. So the shape that can
+be verified won, and the language-server registration is the price. Worth
+revisiting from a build that has LLVM.
+
+Three rules moved out of the widget and into the container:
+
+- what the text on screen would do, or why it would do nothing -
+  `checkStyleText()` feeding the warning and the preview, off the *unsaved*
+  text rather than the file;
+- whether the file may be typed into at all - a read-only style, or "Use custom
+  settings" turned off;
+- which file is being edited - it follows the style, and switching style has to
+  show the new file's contents rather than leave the old ones on screen.
+
+**The widget fallback stays for now.** `CodeStyleAspect`'s layouter and
+`ICodeStylePreferencesFactory::createValueEditor()` now have no production
+users - only `codestyleaspect_test.cpp`, which exercises them on purpose. They
+could go, and deliberately do not: if this port has a runtime fault, that
+fallback is the only thing between a user and a blank C++ Code Style page, and
+a fault is exactly what cannot be ruled out from here. Deleting it is the first
+thing to do from a build that can run the page.
