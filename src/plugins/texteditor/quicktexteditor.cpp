@@ -248,8 +248,10 @@ public:
         // TextEditorFactory does the same thing for the widget editor, which
         // is why a document built outside one is never highlighted at all.
         connect(m_document.get(), &Core::IDocument::filePathChanged, this, [this] {
+            configureLanguageServices();
             configureHighlighter();
         });
+        configureLanguageServices();
         configureHighlighter();
 
         // Two contexts: the shared one, which is what a command meant for
@@ -412,6 +414,36 @@ private:
         QTextOption option = current;
         option.setFlags(flags);
         text->setDefaultTextOption(option);
+    }
+
+    // What the file's language would give an editor of its own. The services a
+    // TextEditorFactory holds are reachable from any editor: the factory that
+    // claims a mime type is found the same way the editor manager finds one,
+    // and it is asked rather than each editor going without.
+    //
+    // Without this a C++ file is indented by the plain indenter, which copies
+    // the previous line - so a brace opens no block and a paste lands at the
+    // wrong depth.
+    void configureLanguageServices()
+    {
+        if (m_document->filePath().isEmpty())
+            return;
+
+        TextEditorFactory * const factory
+            = TextEditorFactory::preferredFactoryFor(m_document->filePath());
+        // The Quick editor claims text/plain itself and is not a
+        // TextEditorFactory, so this finds the language's one or the plain
+        // text editor's - never this editor.
+        if (!factory)
+            return;
+
+        if (const TextEditorFactory::IndenterCreator creator = factory->indenterCreator())
+            m_document->setIndenter(creator(m_document->document()));
+        // Set whether or not there is a popup to show it yet: the document is
+        // where an assist processor looks, and a document that answers nothing
+        // cannot be told apart from a language with no completions.
+        if (CompletionAssistProvider * const provider = factory->completionAssistProvider())
+            m_document->setCompletionAssistProvider(provider);
     }
 
     void configureHighlighter()
@@ -1808,6 +1840,55 @@ private slots:
                      "the highlighter never made the header foldable");
         QVERIFY2(!TextBlockUserData::isFolded(first),
                  "the header was folded with the setting turned off");
+    }
+
+    // The services a language's editor factory holds are reachable from any
+    // editor, so an editor that is not built by one need not go without them.
+    // JSON rather than C++ on purpose: the JSON factory keeps its indenter in
+    // the factory, where this can find it, and CppEditor keeps its in a
+    // TextDocument subclass its document creator builds - which this cannot
+    // reach, because the document is made before the path is known.
+    void testTheEditorTakesTheLanguagesIndenter()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-indenter");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath json = dir.filePath("object.json");
+        QVERIFY(json.writeFileContents("{\n}\n"));
+        const Utils::FilePath txt = dir.filePath("plain.txt");
+        QVERIFY(txt.writeFileContents("alpha\n"));
+
+        // The factory lookup is the whole mechanism, so it is worth asserting
+        // on its own: a JSON file has to find a different factory from a plain
+        // text one, or everything below is about one indenter twice.
+        TextEditorFactory * const forJson = TextEditorFactory::preferredFactoryFor(json);
+        TextEditorFactory * const forTxt = TextEditorFactory::preferredFactoryFor(txt);
+        QVERIFY2(forJson, "no editor factory claims a JSON file");
+        QVERIFY2(forTxt, "no editor factory claims a text file");
+        QVERIFY2(forJson != forTxt, "a JSON file and a text file found the same factory");
+        QVERIFY2(forJson->indenterCreator(),
+                 "the JSON factory holds no indenter, so this tests nothing");
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(json, QUICK_TEXT_EDITOR_ID);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        QVERIFY(document->indenter());
+
+        // What the indenter is for: a brace opens a block, and the line after
+        // it is a level deeper. The plain indenter copies the previous line
+        // and would leave it at column zero.
+        QTextDocument * const text = document->document();
+        QTextCursor cursor(text);
+        cursor.setPosition(text->findBlockByNumber(0).position() + 1);
+        cursor.insertText("\n");
+        document->autoIndent(cursor);
+        const QString opened = cursor.block().text();
+        QVERIFY2(opened.startsWith(" ") || opened.startsWith("\t"),
+                 qPrintable(QString("the line after '{' was not indented: '%1'").arg(opened)));
     }
 };
 

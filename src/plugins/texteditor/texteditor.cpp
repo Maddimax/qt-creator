@@ -10922,6 +10922,26 @@ void TextEditorFactory::setIndenterCreator(const IndenterCreator &creator)
     d->m_indenterCreator = creator;
 }
 
+TextEditorFactory::IndenterCreator TextEditorFactory::indenterCreator() const
+{
+    return d->m_indenterCreator;
+}
+
+CompletionAssistProvider *TextEditorFactory::completionAssistProvider() const
+{
+    return d->m_completionAssistProvider.get();
+}
+
+TextEditorFactory *TextEditorFactory::preferredFactoryFor(const Utils::FilePath &filePath)
+{
+    const Core::EditorFactories factories = Core::IEditorFactory::preferredEditorTypes(filePath);
+    for (Core::IEditorFactory * const factory : factories) {
+        if (auto * const textFactory = dynamic_cast<TextEditorFactory *>(factory))
+            return textFactory;
+    }
+    return nullptr;
+}
+
 void TextEditorFactory::setSyntaxHighlighterCreator(const SyntaxHighLighterCreator &creator)
 {
     d->m_syntaxHighlighterCreator = creator;

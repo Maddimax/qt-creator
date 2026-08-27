@@ -7335,7 +7335,10 @@ form, and the toolbar is a *separate* form built on demand by `toolBar()`.
 What is left of the editor: auto-insertion and completion, which need the
 provider registry described above. Dragging text has since been done.
 
-**On completion, having looked properly.** It is not one missing call. The
+**On completion, having looked properly.** (Superseded - see "The registry that
+was already there" below. The lookup exists; what follows was written before
+that was found, and its conclusion is wrong for the languages that keep their
+services on the factory.) It is not one missing call. The
 provider lives on the document (`TextDocument::completionAssistProvider()`),
 which is promising, but it is *put* there by
 `TextEditorFactory`'s document creator from a provider the factory was given -
@@ -8843,6 +8846,43 @@ nothing observable changes when the call is removed. Testing that needs a run on
 Linux or Windows. The alternative - a way to tell the viewport it is not on a
 Mac - is test-only API, and a seam that exists only to make a test pass is worse
 than a stated gap.
+
+## The registry that was already there
+
+Three times this file has said the Quick editor cannot have completion,
+auto-insertion or follow-symbol because "there is no lookup from mime type to
+provider anywhere". That is wrong, and the correction is worth more than the
+code that came out of it.
+
+**There is a lookup.** `Core::IEditorFactory::preferredEditorTypes(filePath)`
+walks the mime type's *parents* and returns the factories that claim it - it is
+what the editor manager uses to fill Open With. A `TextEditorFactory` is one of
+those factories, and it already holds `m_indenterCreator`,
+`m_autoCompleterCreator`, `m_completionAssistProvider`, `m_hoverHandlers` and
+the comment definition. So "find the language's services for this file" is two
+existing pieces and a missing accessor, not a registry that has to be designed.
+
+**But not for every language, and the difference matters.** These use the
+factory's slots, and now work in the Quick editor: JSON, Python, Nim, QML/JS,
+`.pro` files. **CppEditor does not.** `CppEditorFactory` sets a *document
+creator* that builds a `CppEditorDocument`, and that subclass installs its own
+indenter and completion provider in its constructor. Reaching those means
+building the language's document, and the Quick editor builds its document
+before the path is known - so that path stays shut for now, and it is a
+different obstacle from the one previously described.
+
+The first version of the test used a `.cpp` file for exactly the reason a reader
+would: it is the language anyone would check. It failed, and the failure is what
+uncovered the split above. The test now uses JSON, and says in a comment why it
+is not C++.
+
+**How the wrong conclusion survived three tellings.** It came from reading
+`TextEditorFactory`'s *own* code, where `setCompletionAssistProvider` is plainly
+per-factory, and stopping there. What it never asked was the next question -
+*given a file, can I find its factory?* - which is answered two files away in
+`ieditorfactory.cpp`. A claim of the form "there is no X anywhere" is a claim
+about code that was not read, and it should be worth a grep before it is written
+down, let alone repeated.
 
 ## The terminal spike: go, with the cleanest split in the tree
 

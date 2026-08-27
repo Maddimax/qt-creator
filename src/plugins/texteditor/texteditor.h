@@ -784,6 +784,18 @@ public:
     void addHoverHandler(BaseHoverHandler *handler);
     void setCompletionAssistProvider(CompletionAssistProvider *provider);
 
+    // What this factory would give a document of its language. An editor that
+    // is not built by a factory - the Qt Quick one - finds the factory that
+    // claims the file's mime type and asks it, rather than doing without a
+    // language's indenter and completions entirely.
+    IndenterCreator indenterCreator() const;
+    CompletionAssistProvider *completionAssistProvider() const;
+
+    // The one that would build an editor for \a filePath, or nullptr where no
+    // factory claims it. Walks the mime type's parents, so a C++ file finds
+    // the C++ factory and a plain text file finds the plain one.
+    static TextEditorFactory *preferredFactoryFor(const Utils::FilePath &filePath);
+
     void setCommentDefinition(Utils::CommentDefinition definition);
     void setDuplicatedSupported(bool on);
     void setMarksVisible(bool on);
