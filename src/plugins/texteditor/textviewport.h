@@ -593,6 +593,17 @@ private:
     // Set when the caret moved and cleared once updatePolish() has put it back
     // on screen: where it is sideways is only known once the rows are laid out.
     bool m_caretVisibleXPending = false;
+    // A page key scrolls a screen and then puts the caret back where it was on
+    // screen. Where that is can only be turned back into a position once the
+    // rows are laid out again, so it waits for updatePolish() like the sideways
+    // caret does.
+    struct PendingPage
+    {
+        qreal x = 0;
+        qreal y = 0;
+        QTextCursor::MoveMode mode = QTextCursor::MoveAnchor;
+    };
+    std::optional<PendingPage> m_pendingPage;
     QPointer<TextDocument> m_connectedMarkSource;
     QColor m_currentLine = Qt::transparent;
     QColor m_indentGuide = Qt::transparent;

@@ -2495,6 +2495,68 @@ private slots:
                                 .arg(viewport->contentHeight() - viewport->height())));
     }
 
+    void testAPageIsAScreenOfRowsNotOfLines()
+    {
+        // A page used to be counted in document lines. With wrapping on a line
+        // is several rows, so a page of thirteen rows moved thirteen lines -
+        // about four screens. It is taken by scrolling a screen and putting
+        // the caret back where it was on screen.
+        TemporaryDirectory dir("qtc-viewport-page");
+        const FilePath file = dir.filePath("wrapped.txt");
+        QString content;
+        for (int i = 0; i < 100; ++i)
+            content += QString(200, QLatin1Char('x')) + QLatin1Char('\n');
+        QVERIFY(file.writeFileContents(content.toUtf8()));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        QVERIFY2(fixture.hasFocus(), "the viewport never took focus, so no key arrives");
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        const auto rowsInDocument = [viewport] {
+            return int(viewport->contentHeight() / viewport->lineHeight());
+        };
+        // Unwrapped, a row is a line: 100 lines plus the empty one the
+        // trailing newline leaves behind.
+        QVERIFY(!viewport->isWrapping());
+        QTRY_COMPARE(rowsInDocument(), 101);
+
+        viewport->setWrapping(true);
+        // Now several rows per line, which is what makes the two counts differ.
+        QTRY_VERIFY2(rowsInDocument() > 150,
+                     qPrintable(QString("only %1 rows for 100 lines, so nothing wrapped")
+                                    .arg(rowsInDocument())));
+
+        const int pageRows = qMax(1, int(viewport->height() / viewport->lineHeight()) - 1);
+        QCOMPARE(viewport->cursorLine(), 1);
+        QCOMPARE(viewport->scrollY(), 0.0);
+
+        QTest::keyClick(&fixture.view, Qt::Key_PageDown);
+
+        // A screen was scrolled - within a row of one, since the caret is put
+        // back on the row it was on and the view then settles around it.
+        QTRY_VERIFY(viewport->scrollY() > 0);
+        QTRY_VERIFY2(viewport->scrollY() >= (pageRows - 1) * viewport->lineHeight()
+                         && viewport->scrollY() <= (pageRows + 1) * viewport->lineHeight(),
+                     qPrintable(QString("scrolled %1, wanted about %2")
+                                    .arg(viewport->scrollY())
+                                    .arg(pageRows * viewport->lineHeight())));
+        // ...and the caret went with it, by rows rather than by lines: it has
+        // moved, but nothing like the pageRows lines it used to.
+        QTRY_VERIFY(viewport->cursorLine() > 1);
+        QVERIFY2(viewport->cursorLine() < pageRows,
+                 qPrintable(QString("a page of %1 rows moved the caret to line %2")
+                                .arg(pageRows)
+                                .arg(viewport->cursorLine())));
+
+        // And back up again lands where it started.
+        QTest::keyClick(&fixture.view, Qt::Key_PageUp);
+        QTRY_COMPARE(viewport->scrollY(), 0.0);
+        QTRY_COMPARE(viewport->cursorLine(), 1);
+    }
+
     void testHomeGoesToTheCodeBeforeItGoesToTheMargin()
     {
         TemporaryDirectory dir("qtc-viewport-home");

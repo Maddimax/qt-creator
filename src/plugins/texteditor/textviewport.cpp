@@ -774,8 +774,24 @@ void TextViewport::ensureCursorVisible()
     cursor.setPosition(qBound(0, m_cursorPosition, text->characterCount() - 1));
     // Where the line sits on screen, not where it sits in the file: a folded
     // block above it takes up no room, so the two part company as soon as
-    // anything is folded. firstLineNumber() is what the layout keeps for this.
-    const qreal top = cursor.block().firstLineNumber() * m_lineHeight;
+    // anything is folded. And with wrapping on a line is several rows, so the
+    // count has to come from the layout that knows the rows - the block's own
+    // firstLineNumber() counts lines, and scrolling by it lands a page short.
+    const Utils::TextEditorLayout * const rows = m_wrapping ? editorLayout() : nullptr;
+    int row = rows ? rows->firstLineNumberOf(cursor.block()) : cursor.block().firstLineNumber();
+    if (rows) {
+        // Which row of the block the caret is on. Without this the scroll is
+        // measured to the top of the line, so a caret several rows into a
+        // wrapped one pulls the view a row too far back every time.
+        const QTextLayout * const layout = cursor.block().layout();
+        if (layout && layout->lineCount() > 0) {
+            const QTextLine line = layout->lineForTextPosition(
+                m_cursorPosition - cursor.block().position());
+            if (line.isValid())
+                row += line.lineNumber();
+        }
+    }
+    const qreal top = row * m_lineHeight;
     const bool above = top < m_scrollY;
     const bool below = top + m_lineHeight > m_scrollY + height();
     if (!above && !below)
@@ -875,10 +891,29 @@ void TextViewport::keyPressEvent(QKeyEvent *event)
     if (event->key() == Qt::Key_PageUp || event->key() == Qt::Key_PageDown) {
         // Pages are the one move that depends on how tall the view is, so they
         // are not in the shared table below.
-        const int lines = qMax(1, int(height() / qMax(1.0, m_lineHeight)) - 1);
-        cursor.movePosition(event->key() == Qt::Key_PageUp ? QTextCursor::Up
-                                                           : QTextCursor::Down,
-                            mode, lines);
+        const bool up = event->key() == Qt::Key_PageUp;
+        const int rows = qMax(1, int(height() / qMax(1.0, m_lineHeight)) - 1);
+
+        // A page is a screen of rows, and a wrapped line is several rows, so
+        // counting lines moves by as many screens as a line takes rows. The
+        // rows are the viewport's own - it works out where the lines break,
+        // and the document's layout never sees that - so the page is taken by
+        // scrolling a screen and then putting the caret back where it was on
+        // screen, which is where the reader is still looking.
+        const QRectF caret = rectangleAt(m_cursorPosition);
+        if (!caret.isNull()) {
+            const qreal was = m_scrollY;
+            setScrollY(m_scrollY + (up ? -1 : 1) * rows * m_lineHeight);
+            if (!qFuzzyCompare(was + 1, m_scrollY + 1)) {
+                m_pendingPage = PendingPage{caret.left(), caret.top(), mode};
+                polish();
+                return event->accept();
+            }
+        }
+
+        // Nothing scrolled, so this is the first screen or the last one and
+        // there is no page to take: move by rows the way it always did.
+        cursor.movePosition(up ? QTextCursor::Up : QTextCursor::Down, mode, rows);
         setTextCursor(cursor);
         return event->accept();
     }
@@ -2176,6 +2211,19 @@ void TextViewport::updatePolish()
     // already cleared, so this settles rather than repeating.
     if (m_caretVisibleXPending)
         ensureCaretVisibleSideways();
+
+    // The rows are laid out again, so the screen point a page key remembered
+    // can be turned back into a position.
+    if (m_pendingPage) {
+        const PendingPage page = *m_pendingPage;
+        m_pendingPage.reset();
+        const int position = positionAt(page.x, page.y);
+        QTextCursor cursor = textCursor();
+        if (position >= 0 && !cursor.isNull()) {
+            cursor.setPosition(position, page.mode);
+            setTextCursor(cursor);
+        }
+    }
     update();
 }
 
