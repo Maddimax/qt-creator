@@ -8,6 +8,7 @@
 #include <utils/environment.h>
 #include <utils/shutdownguard.h>
 
+#include <QCoreApplication>
 #include <QLoggingCategory>
 #include <QQmlEngine>
 #include <QQuickStyle>
@@ -18,10 +19,19 @@ static Q_LOGGING_CATEGORY(qmlLog, "qtc.quick", QtWarningMsg)
 
 static const char kImportPathVariable[] = "QTC_QML_IMPORT_PATH";
 
-static QQmlEngine *createEngine()
+// Qt Quick Controls latch onto a style the first time one of them is loaded,
+// and refuse to change afterwards. The engine below is created on first use,
+// which is not necessarily before some other engine in the process has drawn
+// a control - so the style is set when the application starts instead, which
+// is early enough for every engine in it.
+static void setQtCreatorStyle()
 {
     QQuickStyle::setStyle("QtCreatorStyle");
+}
+Q_COREAPP_STARTUP_FUNCTION(setQtCreatorStyle)
 
+static QQmlEngine *createEngine()
+{
     auto engine = new QQmlEngine;
     if (Utils::qtcEnvironmentVariableIsSet(kImportPathVariable))
         engine->addImportPath(Utils::qtcEnvironmentVariable(kImportPathVariable));

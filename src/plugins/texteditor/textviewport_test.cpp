@@ -274,12 +274,11 @@ class TextViewportTest final : public QObject
 
 private slots:
     // The fixtures build their own QQuickViews and CodeViewport.qml imports
-    // Qt Quick Controls, so without this the controls here are drawn by the
-    // default style rather than Creator's, and the setStyle() behind the
-    // shared engine is already too late by the time another test asks for it.
+    // Qt Quick Controls, so these tests only show what the product shows if
+    // the style was set before any of it loaded. QtcQuick does that when the
+    // application starts; this is here to notice if it stops.
     void initTestCase()
     {
-        QtcQuick::engine();
         QCOMPARE(QQuickStyle::name(), QString("QtCreatorStyle"));
     }
 
