@@ -235,6 +235,20 @@ caret on it cannot, one pixel short. The sideways ensure runs at the end of
 a line is only known once its row is laid out. And the wheel handler reads the
 horizontal delta too.
 
+**Open, and not fixed here: Page Up and Page Down count document lines.** The
+page size is worked out in rows - the height over the line height - and then
+handed to `QTextCursor::Up`/`Down`, which counts lines. Measured with wrapping
+on: a page of 13 rows moved the caret 13 lines, and each line was four rows,
+so the page was about four screens.
+
+The obvious fix does not work, which is the part worth writing down. The arrow
+keys are given `layoutOf(document)` so they can move by what is on screen;
+passing the same layout to the page keys changes nothing, because **the
+viewport works out its own row breaks in `updatePolish()`** and the document's
+layout knows nothing about them. Moving by a page of the viewport's rows means
+asking the viewport, not the layout. Narrow enough to leave: wrapping is off
+for code, and with it off a row is a line.
+
 There is a horizontal scroll bar now too, mirroring the vertical one. Wrapping
 needed a case of its own: no row is wider than the viewport then, but the
 content width carries room for the caret past the last character, which is a
