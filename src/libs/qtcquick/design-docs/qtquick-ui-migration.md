@@ -196,15 +196,21 @@ innocent explanation:
 The one thing worth doing was covering the filter conversion, which is a real
 format change - `";;"`-separated for Qt, a list for QML - and it now is.
 
-**qmllint over every plugin is worth running once.** All 67 `*_qmllint`
-targets give 665 warnings, and 655 of them are `[unqualified]` - the pages
-reach `aspects.Foo` through a scope qmllint cannot follow, which is noise here.
-The ten that are not are where to look:
+**qmllint over every plugin is worth running, and now worth reading.** All 67
+`*_qmllint` targets used to give 665 warnings, 654 of them one thing: a page
+reaching `aspects.Foo`, a property of the `AspectPage` around it, without
+saying where it comes from. Calling that noise was the wrong call - each one is
+harmless, but six hundred of them are why nobody looks at the output, and a
+real warning would have sat there unread. They are `root.aspects.Foo` now and
+the count is **10**.
+
+The ten are all understood, and none of them is a defect:
 
 - `IntegerDelegate` declared `scale`, which `QQuickItem` already has, for the
   factor between the value an aspect keeps and the one it shows. Renamed, and
   now covered - the Qt Quick side had no test for the factor at all, though
-  the widget renderer's has one.
+  the widget renderer's has one. **This is the one the six hundred were
+  hiding**, which is the argument for having cleared them.
 - Seven `[missing-property]` are delegates reaching for members of a derived
   aspect through a property typed `Utils::BaseAspect`, or through
   `QQuickItem`. They work, because the object really has them; qmllint just
@@ -215,7 +221,14 @@ The ten that are not are where to look:
   `String(source)` if they are ever worth silencing.
 
 The targets do not fail a build, so nothing notices these unless they are run
-deliberately.
+deliberately. Ten is small enough to read, so a future run that shows eleven
+means something.
+
+Qualifying 83 pages at once is only safe because the census checks it: it
+builds every registered page and fails on any QML warning, so a mis-qualified
+name is a red test rather than a control that silently draws nothing.
+Mistyping one to prove the point gives "ACP Servers: AspectListDelegate has no
+aspect".
 
 **Setting the Quick Controls style is a startup job, not a lazy one.** It was
 being set inside the engine that `QtcQuick::engine()` creates on first use, so
