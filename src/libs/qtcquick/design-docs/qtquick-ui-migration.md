@@ -277,6 +277,22 @@ with seven others - but not the two layouts wrapping at different widths, which
 lands the caret between rows and is what the Down test is for. Worth knowing
 which test covers which, because the two look like the same bug from outside.
 
+**The defect that wasted the most time here was not in the editor.** Three
+times a test waited for a condition that was already true - a row count past a
+threshold the document already met, a scroll offset inside a bound that held
+before anything moved, a caret position that had not been recomputed yet. Each
+one made a green test, and one of them supported two confident and wrong
+explanations of how a cache works.
+
+The suite was audited for it rather than assumed clean. Making `setWrapping()`
+do nothing fails all eleven tests that turn it on, so every wrapping wait is
+live. Two of them were still one added line from becoming vacuous - they waited
+for more than three rows on documents with exactly three - and now compare
+against the count taken before wrapping.
+
+**Wait for the change, not for a number.** A threshold cannot tell "it has
+happened" from "it was already so".
+
 **One loose end, and a lesson about the test that chased it.**
 `TextEditorLayout` caches where each block starts in rows and warns in a FIXME
 that the cache is not reset when the width changes. Going to a line after a
