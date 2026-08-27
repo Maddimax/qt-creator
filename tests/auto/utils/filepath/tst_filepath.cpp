@@ -184,6 +184,7 @@ private slots:
     void exists();
     void isNewerThan();
     void watch();
+    void watchTheSameFileByTwoNames();
 
     void coroTest();
 
@@ -2842,6 +2843,39 @@ signals:
 private:
     QSignalSpy signalSpy;
 };
+
+void tst_filepath::watchTheSameFileByTwoNames()
+{
+    // One file can be named in more than one way - on macOS the temporary
+    // directory is reached as both /var/folders/... and /private/var/folders/...
+    // - and Creator does use both: DocumentManager canonicalises before it
+    // asks for a watch, a document does not. This is that pair, not a
+    // contrived one: rootPath is the canonical spelling of tempDir.
+    const FilePath asGiven = FilePath::fromString(tempDir.path()) / "twoNames.txt";
+    const FilePath canonical = FilePath::fromString(rootPath) / "twoNames.txt";
+    if (asGiven == canonical)
+        QSKIP("This host reaches the temporary directory by only one name.");
+    QVERIFY_RESULT(canonical.writeFileContents("one"));
+    QVERIFY(asGiven.exists());
+
+    Result<std::unique_ptr<FilePathWatcher>> first = canonical.watch();
+    QVERIFY_RESULT(first);
+    Result<std::unique_ptr<FilePathWatcher>> second = asGiven.watch();
+    QVERIFY_RESULT(second);
+
+    // Dropping one of them has to leave the file watchable by the other name.
+    // QFileSystemWatcher accepts both names and keeps them apart in files(),
+    // but watches the file once: removing either takes that one watch away and
+    // strands the other name in the list, where it is neither watching nor
+    // removable - and where it makes the next add report the file as already
+    // watched, so the next asker gets an error and no watch at all.
+    first->reset();
+    second->reset();
+    const Result<std::unique_ptr<FilePathWatcher>> againCanonical = canonical.watch();
+    QVERIFY_RESULT(againCanonical);
+    const Result<std::unique_ptr<FilePathWatcher>> againAsGiven = asGiven.watch();
+    QVERIFY_RESULT(againAsGiven);
+}
 
 void tst_filepath::watch()
 {

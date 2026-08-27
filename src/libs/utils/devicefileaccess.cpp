@@ -548,6 +548,18 @@ bool DeviceFileAccess::supportsRemovingFiles() const
 
 // DesktopDeviceFileAccess
 
+// One file can be named in more than one way - on macOS /var is a symlink to
+// /private/var, so DocumentManager, which canonicalises, and a document, which
+// does not, ask for the same file by different names. QFileSystemWatcher
+// resolves them to one file and reports the second add as failed, so a watcher
+// keyed by the name as given hands the second asker an error instead of a
+// watch. Resolving here is what makes them one entry.
+static FilePath watchKey(const FilePath &path)
+{
+    const FilePath canonical = path.canonicalPath();
+    return canonical.isEmpty() ? path : canonical;
+}
+
 class DesktopFilePathWatcher final : public FilePathWatcher
 {
     Q_OBJECT
@@ -678,31 +690,40 @@ class DesktopFilePathWatcher final : public FilePathWatcher
             QList<Result<>> _watch(const QList<DesktopFilePathWatcher *> &watchers)
             {
                 QList<Result<>> results(watchers.size()); // initialize everything with "Ok"
-                QList<std::pair<int, DesktopFilePathWatcher *>> newToWatch; // (index, watcher)
+                // Clients of one file, by the key they share. Several in the same
+                // batch can name the same file, and none of them finds it in
+                // m_watchClients because that is only written below - so they are
+                // gathered here and asked for once.
+                QHash<FilePath, QList<std::pair<int, DesktopFilePathWatcher *>>> newToWatch;
                 // Check if we need to add the file watch, otherwise just keep note
                 // of the new client for the already watched file.
                 for (int i = 0; i < watchers.size(); ++i) {
                     DesktopFilePathWatcher *watcher = watchers.at(i);
-                    const FilePath path = watcher->path();
+                    const FilePath path = watchKey(watcher->path());
                     auto it = m_watchClients.find(path);
                     if (it == m_watchClients.end())
-                        newToWatch += std::pair<int, DesktopFilePathWatcher *>(i, watcher);
+                        newToWatch[path].append({i, watcher});
                     else
                         it->append(watcher);
                 }
                 if (newToWatch.isEmpty())
                     return results;
                 // add the required new watches
-                const QStringList failedPaths = m_watcher->addPaths(
-                    Utils::transform(
-                        newToWatch, [](const std::pair<int, DesktopFilePathWatcher *> &item) {
-                            return item.second->path().path();
-                        }));
+                QStringList pathsToAdd;
+                for (auto it = newToWatch.cbegin(); it != newToWatch.cend(); ++it)
+                    pathsToAdd.append(it.key().path());
+                const QStringList failedPaths = m_watcher->addPaths(pathsToAdd);
                 // Keep note of the clients for successful ones, add error for failed ones
-                for (const std::pair<int, DesktopFilePathWatcher *> &item :
-                     std::as_const(newToWatch)) {
-                    const FilePath path = item.second->path();
-                    if (failedPaths.contains(path.path())) {
+                for (auto it = newToWatch.cbegin(); it != newToWatch.cend(); ++it) {
+                    const FilePath &key = it.key();
+                    const bool failed = failedPaths.contains(key.path());
+                    for (const std::pair<int, DesktopFilePathWatcher *> &item : it.value()) {
+                        if (!failed) {
+                            m_watchClients[key].append(item.second);
+                            continue;
+                        }
+                        // Reported as the caller named it, not as it resolved.
+                        const FilePath path = item.second->path();
                         if (!path.exists()) {
                             results[item.first] = ResultError(
                                 Tr::tr("Failed to watch \"%1\", it does not exist.")
@@ -711,8 +732,6 @@ class DesktopFilePathWatcher final : public FilePathWatcher
                             results[item.first] = ResultError(
                                 Tr::tr("Failed to watch \"%1\".").arg(path.toUserOutput()));
                         }
-                    } else {
-                        m_watchClients[path].append(item.second);
                     }
                 }
                 return results;
@@ -720,7 +739,7 @@ class DesktopFilePathWatcher final : public FilePathWatcher
 
             Result<> _removeWatch(DesktopFilePathWatcher *watcher)
             {
-                const FilePath path = watcher->path();
+                const FilePath path = watchKey(watcher->path());
                 auto it = m_watchClients.find(path);
                 QTC_ASSERT(
                     it != m_watchClients.end(),
