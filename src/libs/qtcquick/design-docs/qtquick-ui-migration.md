@@ -10545,3 +10545,52 @@ build segfaults after 76 passes and 0 failures, in the tree-reordering test.
 Removing the ClangFormat plugin and running again gives 76 passes, 0 failures
 and the same segfault at the same point, so it belongs to the six-plugin
 Release configuration rather than to this work.
+
+## The widget fallback, and what it took with it
+
+With the ClangFormat page verified, the last widget path in the settings pages
+had no production user left - only the tests written for it. Removing it is one
+dependency chain:
+
+`CodeStyleAspect`'s `setLayouter` closure → `createValueEditor()`,
+`setValueEditorCreator()`, `valueEditorHasPreview()`,
+`setValueEditorHasPreview()` on the factory → the `CodeStyleEditor` base class
+→ `createCodeStylePreview()` and `createCodeStylePreviewNote()` →
+`codestyleselectorwidget.{h,cpp}` entirely. Plus the `TabSettings` closure,
+whose `TabSettingsForm.qml` had listed the same six aspects for some time and
+which was only reachable through `CppCodeStylePreferencesWidget` - a class
+ClangFormat was the only user of.
+
+**Deleting a fallback is not the same as deleting a branch.** The closure was
+what a language with no Qt Quick form of its own fell back to; taking it away
+leaves such a language with *nothing*, and `Core::createAspectForm()` asserts on
+a container with neither a form nor a layouter. So the constructor changed
+shape rather than shrinking: the selector, the preview and the two preview
+actions are now built for **every** language, and a language that names no form
+gets `CodeStyleDefaultPage.qml` - the selector and the preview and nothing
+else. That is what a Code Style page is without a language's own settings, and
+it is a better answer than a widget.
+
+The test that guarded the old behaviour said "a language that names no form
+keeps its widget editor". Its replacement says the language gets the default
+form and still has a selector and a preview, and that it contributes no
+settings of its own. Same distinction, opposite default.
+
+**Three tests went, and the reason each went is different.**
+`testValueEditor` and `testLiveWriteEditor` were *about* the two widget-editor
+shapes, so their subject no longer exists. `testDelegateCancelReverts` drove a
+`QSpinBox` inside one. `testEditMakesDirtyAndApplyCommits` and
+`testCancelReverts` looked like the same case but were not - they are about
+dirty/apply/cancel, which is still real, and they now edit the language's
+`TabSize` aspect directly instead of finding a spin box. No widget, same claim.
+
+**And a substring replace mangled three class names.** Rewriting
+`TestCodeStyleFactory factory;` to `PlainTestCodeStyleFactory factory;` also
+rewrote `QmlTestCodeStyleFactory` into `QmlPlainTestCodeStyleFactory`, and two
+others besides. The compiler caught all three, which is the only reason this is
+an anecdote rather than an entry in the bug list - the same edit against a
+weaker language would have been silent. Anchor on the whole declaration, not on
+a suffix.
+
+Every `AspectWidgets::setLayouter` left in the tree is now a test fixture, the
+Lua binding that lets a script supply its own layout, or a comment.

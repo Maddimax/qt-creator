@@ -3,7 +3,6 @@
 
 #include "codestyleeditor.h"
 
-#include "codestyleselectorwidget.h"
 #include "codestylepool.h"
 #include "displaysettings.h"
 #include "icodestylepreferences.h"
@@ -140,14 +139,8 @@ QString codeStyleDisplayName(const ICodeStylePreferences *codeStyle)
     return name;
 }
 
-void CodeStyleEditor::apply() {}
 
-void CodeStyleEditor::cancel() {}
 
-bool CodeStyleEditor::isDirty() const
-{
-    return false;
-}
 
 // The default per-project code style form: which style the project uses, above a
 // live preview of it. Changes apply immediately - there is no page-local copy
@@ -193,64 +186,7 @@ Utils::AspectContainer *ICodeStylePreferencesFactory::createProjectAspects(
     return new CodeStyleProjectAspects{this, codeStyle};
 }
 
-SnippetEditorWidget *createCodeStylePreview(const ICodeStylePreferencesFactory *factory,
-                                            const FilePath &projectFile,
-                                            ICodeStylePreferences *codeStyle,
-                                            QWidget *parent)
-{
-    auto preview = new SnippetEditorWidget(parent);
-    DisplaySettingsData displaySettings = preview->displaySettings();
-    displaySettings.m_visualizeWhitespace = true;
-    preview->setDisplaySettings(displaySettings);
-    SnippetProvider::decorateEditor(preview, factory->snippetGroupId());
-    preview->setPlainText(factory->previewText());
 
-    Indenter *indenter = factory->createIndenter(preview->document());
-    indenter->setOverriddenPreferences(codeStyle);
-    const FilePath fileName = !projectFile.isEmpty()
-        ? projectFile.pathAppended("snippet.cpp")
-        : Core::ICore::userResourcePath("snippet.cpp");
-    indenter->setFileName(fileName);
-    preview->textDocument()->setIndenter(indenter);
-
-    const auto updatePreview = [preview, codeStyle] {
-        QTextDocument *doc = preview->document();
-        preview->textDocument()->indenter()->invalidateCache();
-        QTextBlock block = doc->firstBlock();
-        QTextCursor tc = preview->textCursor();
-        tc.beginEditBlock();
-        while (block.isValid()) {
-            preview->textDocument()
-                ->indenter()
-                ->indentBlock(block, QChar::Null, codeStyle->currentTabSettings());
-            block = block.next();
-        }
-        tc.endEditBlock();
-    };
-
-    QObject::connect(codeStyle, &ICodeStylePreferences::currentTabSettingsChanged,
-                     preview, updatePreview);
-    QObject::connect(codeStyle, &ICodeStylePreferences::currentValueChanged,
-                     preview, updatePreview);
-    QObject::connect(codeStyle, &ICodeStylePreferences::currentPreferencesChanged,
-                     preview, updatePreview);
-    updatePreview();
-
-    return preview;
-}
-
-QLabel *createCodeStylePreviewNote()
-{
-    auto label = new QLabel(
-        Tr::tr("Edit preview contents to see how the current settings "
-               "are applied to custom code snippets. Changes in the preview "
-               "do not affect the current settings."));
-    QFont font = label->font();
-    font.setItalic(true);
-    label->setFont(font);
-    label->setWordWrap(true);
-    return label;
-}
 
 
 CodeStylePreviewAspect::CodeStylePreviewAspect(AspectContainer *container,
@@ -317,79 +253,45 @@ CodeStyleAspect::CodeStyleAspect(ICodeStylePreferences *codeStyle, Id languageId
     : m_codeStyle(codeStyle)
     , m_languageId(languageId)
 {
-    // The page is per language, so a language moves to Qt Quick on its own: it
-    // names a form and this page renders it. The rest keep the widget editor
-    // below until they do.
-    if (ICodeStylePreferencesFactory *factory = codeStyleFactory(m_languageId)) {
-        if (!factory->qmlSource().isEmpty()) {
-            ensurePageCopy(factory);
-            syncFromReal();
-            // Which style is being edited, and what it does to code: the page's
-            // own aspects, so that every language's form gets the same ones.
-            m_selector.setup(this, m_pageCodeStyle);
-            auto preview = new CodeStylePreviewAspect(this, factory, m_pageCodeStyle);
+    ICodeStylePreferencesFactory * const factory = codeStyleFactory(m_languageId);
+    QTC_ASSERT(factory, return);
 
-            auto resetPreview = new ActionAspect(this);
-            resetPreview->setQmlName("ResetPreview");
-            resetPreview->setActionText(Tr::tr("Reset to Original Preview Text"));
-            resetPreview->setAction([preview] { preview->resetText(); });
+    ensurePageCopy(factory);
+    syncFromReal();
 
-            auto formatPreview = new ActionAspect(this);
-            formatPreview->setQmlName("FormatPreview");
-            formatPreview->setActionText(Tr::tr("Format Current Preview Text"));
-            formatPreview->setAction([preview] { preview->formatText(); });
-            // The form names aspects, and the page knows none of this
-            // language's - the factory hands them over, editing the page-local
-            // copy so that Cancel still means something. The page names the
-            // container, not the language: every form reaches its own settings
-            // as AspectModels.named(aspects.Settings).
-            if (AspectContainer *settings
-                = factory->createSettingsAspects(m_pageCodeStyle, preview)) {
-                settings->setQmlName("Settings");
-                registerAspect(settings, /*takeOwnership=*/true);
-            }
-            setQmlSource(factory->qmlSource());
-        }
+    // Which style is being edited, and what it does to code: the page's own
+    // aspects, so that every language's form gets the same ones whether or not
+    // it names a form of its own.
+    m_selector.setup(this, m_pageCodeStyle);
+    auto preview = new CodeStylePreviewAspect(this, factory, m_pageCodeStyle);
+
+    auto resetPreview = new ActionAspect(this);
+    resetPreview->setQmlName("ResetPreview");
+    resetPreview->setActionText(Tr::tr("Reset to Original Preview Text"));
+    resetPreview->setAction([preview] { preview->resetText(); });
+
+    auto formatPreview = new ActionAspect(this);
+    formatPreview->setQmlName("FormatPreview");
+    formatPreview->setActionText(Tr::tr("Format Current Preview Text"));
+    formatPreview->setAction([preview] { preview->formatText(); });
+
+    // The form names aspects, and the page knows none of this language's - the
+    // factory hands them over, editing the page-local copy so that Cancel still
+    // means something. The page names the container, not the language: every
+    // form reaches its own settings as AspectModels.named(aspects.Settings).
+    if (AspectContainer *settings = factory->createSettingsAspects(m_pageCodeStyle, preview)) {
+        settings->setQmlName("Settings");
+        registerAspect(settings, /*takeOwnership=*/true);
     }
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        ICodeStylePreferencesFactory *factory = codeStyleFactory(m_languageId);
-        ensurePageCopy(factory);
-        syncFromReal();
-
-        using namespace Layouting;
-
-        QWidget *valueEditor = factory->createValueEditor(m_pageCodeStyle);
-
-        // A self-managed editor lays out its own selector and manages its own
-        // deferred apply/cancel (e.g. ClangFormat, whose settings live outside
-        // the preferences). Route its contract and show it as it is.
-        if (auto selfManaged = qobject_cast<CodeStyleEditor *>(valueEditor)) {
-            m_editor = selfManaged;
-            connect(m_editor, &CodeStyleEditor::changed,
-                    this, [this] { emit volatileValueChanged(); });
-            return Column { valueEditor };
-        }
-
-        // A plain value editor edits the page-local copy live; build the common
-        // selector and preview around it and let this aspect own the deferral.
-        auto selector = new CodeStyleSelectorWidget({});
-        selector->setCodeStyle(m_pageCodeStyle);
-        Utils::installMarkSettingsDirtyTriggerRecursively(selector);
-
-        if (factory->valueEditorHasPreview())
-            return Column { selector, valueEditor };
-        return Column {
-            selector,
-            Row {
-                Column { valueEditor, st },
-                Column {
-                    createCodeStylePreview(factory, {}, m_pageCodeStyle),
-                    createCodeStylePreviewNote(),
-                },
-            },
-        };
-    });
+    // A language that names a form is drawn from it. One that does not gets the
+    // selector and the preview and nothing else, which is what a Code Style
+    // page is without a language's own settings - not a reason to fall back to
+    // a widget.
+    const QUrl form = factory->qmlSource();
+    setQmlSource(form.isEmpty()
+                     ? QUrl("qrc:/qt/qml/QtCreator/TextEditor/CodeStyleDefaultPage.qml")
+                     : form);
 }
 
 void CodeStyleAspect::ensurePageCopy(ICodeStylePreferencesFactory *factory)
@@ -558,7 +460,6 @@ void CodeStyleSelectorAspects::updateState()
 
 CodeStyleAspect::~CodeStyleAspect()
 {
-    delete m_editor;
     delete m_pageCodeStyle;
     delete m_pagePool;
 }
@@ -583,10 +484,6 @@ void CodeStyleAspect::apply()
     // Nothing to commit until the page has been shown at least once.
     if (!m_pageCodeStyle)
         return;
-
-    // Flush the hosted editor's own pending edits.
-    if (m_editor)
-        m_editor->apply();
 
     CodeStylePool *realPool = m_codeStyle->delegatingPool();
     const QByteArray selfId = m_codeStyle->id();
@@ -659,8 +556,6 @@ void CodeStyleAspect::cancel()
 {
     if (!m_pageCodeStyle)
         return;
-    if (m_editor)
-        m_editor->cancel();
     syncFromReal();
 }
 
@@ -669,8 +564,6 @@ bool CodeStyleAspect::isDirty() const
     // Guard on the page copy: until the page is shown it is not yet synced.
     if (!m_pageCodeStyle)
         return false;
-    if (m_editor && m_editor->isDirty())
-        return true;
     if (m_codeStyle->value() != m_pageCodeStyle->value()
         || m_codeStyle->tabSettings() != m_pageCodeStyle->tabSettings()) {
         return true;

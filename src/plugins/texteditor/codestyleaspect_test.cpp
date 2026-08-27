@@ -32,50 +32,25 @@ namespace TextEditor::Internal {
 
 const char TEST_LANGUAGE_ID[] = "TextEditor.CodeStyleAspectTest";
 
-// A minimal code style editor adopting the CodeStyleEditor dirty/changed
-// contract: it edits a deferred TabSettings aspect and reports through it.
-class TestCodeStyleEditor final : public CodeStyleEditor
+// A language that registers nothing of its own: no form, no settings. The
+// page still has a style to pick and a preview to show, which is what the
+// default form draws.
+class PlainTestCodeStyleFactory final : public ICodeStylePreferencesFactory
 {
 public:
-    explicit TestCodeStyleEditor(ICodeStylePreferences *codeStyle)
-    {
-        m_tabSettings.setAutoApply(false);
-        m_tabSettings.setPreferences(codeStyle);
-        connect(&m_tabSettings, &AspectContainer::volatileValueChanged,
-                this, &CodeStyleEditor::changed);
-
-        Layouting::Column{&m_tabSettings}.attachTo(this);
-    }
-
-    void apply() final { m_tabSettings.apply(); }
-    void cancel() final { m_tabSettings.cancel(); }
-    bool isDirty() const final { return m_tabSettings.isDirty(); }
-
-private:
-    TabSettings m_tabSettings;
-};
-
-class TestCodeStyleFactory final : public ICodeStylePreferencesFactory
-{
-public:
-    TestCodeStyleFactory()
+    PlainTestCodeStyleFactory()
         : ICodeStylePreferencesFactory(TEST_LANGUAGE_ID)
     {
-        setDisplayName(QString("Test"));
+        setDisplayName(QString("Plain Test"));
         setIndenterCreator([](QTextDocument *doc) { return new PlainTextIndenter(doc); });
         setCodeStyleCreator([] {
             auto prefs = new ICodeStylePreferences;
             prefs->setSettingsSuffix("TestCodeStyle");
             return prefs;
         });
-        setValueEditorCreator([](ICodeStylePreferences *codeStyle) {
-            return new TestCodeStyleEditor(codeStyle);
-        });
     }
 };
 
-// A language that has a Qt Quick form, and one that has not. The Code Style
-// page is per language, so the two have to be able to differ.
 const char QML_TEST_LANGUAGE_ID[] = "TextEditor.CodeStyleAspectTest.Qml";
 
 class QmlTestCodeStyleFactory final : public ICodeStylePreferencesFactory
@@ -120,48 +95,7 @@ public:
     }
 };
 
-const char LIVE_TEST_LANGUAGE_ID[] = "TextEditor.CodeStyleAspectTest.Live";
-
 // A code style editor that writes edits straight through to its preferences
-// (like the C++/QML editors), reporting them via changed() and leaving
-// apply/cancel/isDirty to the hosting CodeStyleAspect and its page-local copy.
-class LiveTestCodeStyleEditor final : public CodeStyleEditor
-{
-public:
-    explicit LiveTestCodeStyleEditor(ICodeStylePreferences *codeStyle)
-    {
-        m_tabSettings.setPreferences(codeStyle);
-        connect(codeStyle, &ICodeStylePreferences::currentTabSettingsChanged,
-                this, &CodeStyleEditor::changed);
-        connect(codeStyle, &ICodeStylePreferences::currentValueChanged,
-                this, &CodeStyleEditor::changed);
-
-        Layouting::Column{&m_tabSettings}.attachTo(this);
-    }
-
-private:
-    TabSettings m_tabSettings;
-};
-
-class LiveTestCodeStyleFactory final : public ICodeStylePreferencesFactory
-{
-public:
-    LiveTestCodeStyleFactory()
-        : ICodeStylePreferencesFactory(LIVE_TEST_LANGUAGE_ID)
-    {
-        setDisplayName(QString("Live Test"));
-        setIndenterCreator([](QTextDocument *doc) { return new PlainTextIndenter(doc); });
-        setCodeStyleCreator([] {
-            auto prefs = new ICodeStylePreferences;
-            prefs->setSettingsSuffix("LiveTestCodeStyle");
-            return prefs;
-        });
-        setValueEditorCreator([](ICodeStylePreferences *codeStyle) {
-            return new LiveTestCodeStyleEditor(codeStyle);
-        });
-    }
-};
-
 const char MODEL_TEST_LANGUAGE_ID[] = "TextEditor.CodeStyleAspectTest.Model";
 
 // Exercises ICodeStylePreferencesFactory::setupCodeStyles(): a built-in style
@@ -193,44 +127,6 @@ public:
 
 private:
     ICodeStylePreferences m_builtin;
-};
-
-const char VALUE_TEST_LANGUAGE_ID[] = "TextEditor.CodeStyleAspectTest.Value";
-
-// A value editor (the option C style): just the widgets editing the
-// preferences live. The hosting CodeStyleAspect builds the selector and preview
-// and owns the deferral and dirtiness, so the value editor has no
-// apply/cancel/isDirty of its own.
-class ValueTestCodeStyleWidget final : public QWidget
-{
-public:
-    explicit ValueTestCodeStyleWidget(ICodeStylePreferences *codeStyle)
-    {
-        m_tabSettings.setPreferences(codeStyle);
-        Layouting::Column{&m_tabSettings}.attachTo(this);
-    }
-
-private:
-    TabSettings m_tabSettings;
-};
-
-class ValueTestCodeStyleFactory final : public ICodeStylePreferencesFactory
-{
-public:
-    ValueTestCodeStyleFactory()
-        : ICodeStylePreferencesFactory(VALUE_TEST_LANGUAGE_ID)
-    {
-        setDisplayName(QString("Value Test"));
-        setIndenterCreator([](QTextDocument *doc) { return new PlainTextIndenter(doc); });
-        setCodeStyleCreator([] {
-            auto prefs = new ICodeStylePreferences;
-            prefs->setSettingsSuffix("ValueTestCodeStyle");
-            return prefs;
-        });
-        setValueEditorCreator([](ICodeStylePreferences *codeStyle) {
-            return new ValueTestCodeStyleWidget(codeStyle);
-        });
-    }
 };
 
 const char QML_POOL_TEST_LANGUAGE_ID[] = "TextEditor.CodeStyleAspectTest.QmlPool";
@@ -341,12 +237,11 @@ private slots:
     void cleanupTestCase()
     {
         static const QStringList categories = {
-            TEST_LANGUAGE_ID,       QML_TEST_LANGUAGE_ID,  LIVE_TEST_LANGUAGE_ID,
-            MODEL_TEST_LANGUAGE_ID, VALUE_TEST_LANGUAGE_ID, QML_POOL_TEST_LANGUAGE_ID,
+            TEST_LANGUAGE_ID, QML_TEST_LANGUAGE_ID, MODEL_TEST_LANGUAGE_ID,
+            QML_POOL_TEST_LANGUAGE_ID,
             QString::fromLatin1(Constants::CODE_STYLE_SETTINGS_PREFIX)};
-        static const QStringList suffixes = {
-            "TestCodeStyle",  "QmlTestCodeStyle",   "LiveTestCodeStyle",
-            "ModelTestCodeStyle", "ValueTestCodeStyle", "QmlPoolTestCodeStyle"};
+        static const QStringList suffixes = {"TestCodeStyle", "QmlTestCodeStyle",
+                                             "ModelTestCodeStyle", "QmlPoolTestCodeStyle"};
 
         Utils::QtcSettings * const settings = Core::ICore::settings();
         for (const QString &category : categories) {
@@ -357,13 +252,15 @@ private slots:
 
     void testALanguageMovesToQuickOnItsOwn()
     {
-        // A language that names no form keeps its widget editor, so the page
-        // declines it and nothing changes for the others.
+        // A language that names no form of its own gets the default one -
+        // which is still Qt Quick, and still shows a style to pick and a
+        // preview of it.
         {
-            TestCodeStyleFactory plain;
+            PlainTestCodeStyleFactory plain;
             ICodeStylePreferences codeStyle;
             CodeStyleAspect aspect(&codeStyle, TEST_LANGUAGE_ID);
-            QVERIFY(aspect.qmlSource().isEmpty());
+            QCOMPARE(aspect.qmlSource(),
+                     QUrl("qrc:/qt/qml/QtCreator/TextEditor/CodeStyleDefaultPage.qml"));
         }
 
         // One that does is rendered from it. Which language it is decides,
@@ -388,19 +285,20 @@ private slots:
             QCOMPARE(settings->aspects().first()->qmlName(), QString("LineLength"));
         }
 
-        // A language with no form contributes no aspects either: nothing is
-        // built for a page that is not going to show it.
+        // A language with no form of its own contributes no settings, but the
+        // page's own aspects are there either way.
         {
-            TestCodeStyleFactory plain;
+            PlainTestCodeStyleFactory plain;
             ICodeStylePreferences codeStyle;
             CodeStyleAspect aspect(&codeStyle, TEST_LANGUAGE_ID);
-            QVERIFY(aspect.aspects().isEmpty());
+            QVERIFY(!aspect.aspects().isEmpty());
+            QVERIFY(aspectNamed(&aspect, "Style"));
         }
     }
 
     void testUnopenedPageIsNotDirty()
     {
-        TestCodeStyleFactory factory;
+        PlainTestCodeStyleFactory factory;
         ICodeStylePreferences codeStyle;
         codeStyle.setTabSettings(makeTabSettings(11, 7));
 
@@ -409,24 +307,39 @@ private slots:
         QVERIFY(!aspect.isDirty());
     }
 
+    // The settings aspect a language's form edits. The page holds the
+    // language's container as a child; this is how a test reaches into it
+    // without a form to click on.
+    static Utils::IntegerAspect *settingsAspect(CodeStyleAspect *page, const QString &qmlName)
+    {
+        for (BaseAspect *child : page->aspects()) {
+            auto container = qobject_cast<Utils::AspectContainer *>(child);
+            if (!container)
+                continue;
+            for (BaseAspect *aspect : container->aspects()) {
+                if (aspect->qmlName() == qmlName)
+                    return qobject_cast<Utils::IntegerAspect *>(aspect);
+            }
+        }
+        return nullptr;
+    }
+
     void testEditMakesDirtyAndApplyCommits()
     {
-        TestCodeStyleFactory factory;
+        QmlTestCodeStyleFactory factory;
         ICodeStylePreferences codeStyle;
         codeStyle.setTabSettings(makeTabSettings(11, 7));
 
-        CodeStyleAspect aspect(&codeStyle, TEST_LANGUAGE_ID);
-        QWidget host;
-        Utils::AspectWidgets::layouter(&aspect)().attachTo(&host);
-
+        CodeStyleAspect aspect(&codeStyle, QML_TEST_LANGUAGE_ID);
         QVERIFY(!aspect.isDirty());
 
-        QSpinBox *tabSize = spinBoxWithValue(&host, 11);
-        QVERIFY(tabSize);
+        Utils::IntegerAspect * const tabSize = settingsAspect(&aspect, "TabSize");
+        QVERIFY2(tabSize, "the language's form has no TabSize to edit");
+        QCOMPARE(tabSize->value(), 11);
         tabSize->setValue(13);
 
         QVERIFY(aspect.isDirty());
-        // The edit is held in the aspect, not yet written to the real style.
+        // The edit is held in the page's copy, not yet written to the real style.
         QCOMPARE(codeStyle.tabSettings().m_tabSize, 11);
 
         aspect.apply();
@@ -512,15 +425,12 @@ private slots:
 
     void testCancelReverts()
     {
-        TestCodeStyleFactory factory;
+        QmlTestCodeStyleFactory factory;
         ICodeStylePreferences codeStyle;
         codeStyle.setTabSettings(makeTabSettings(11, 7));
 
-        CodeStyleAspect aspect(&codeStyle, TEST_LANGUAGE_ID);
-        QWidget host;
-        Utils::AspectWidgets::layouter(&aspect)().attachTo(&host);
-
-        QSpinBox *tabSize = spinBoxWithValue(&host, 11);
+        CodeStyleAspect aspect(&codeStyle, QML_TEST_LANGUAGE_ID);
+        Utils::IntegerAspect * const tabSize = settingsAspect(&aspect, "TabSize");
         QVERIFY(tabSize);
         tabSize->setValue(13);
         QVERIFY(aspect.isDirty());
@@ -528,113 +438,7 @@ private slots:
         aspect.cancel();
         QVERIFY(!aspect.isDirty());
         QCOMPARE(codeStyle.tabSettings().m_tabSize, 11);
-        QCOMPARE(tabSize->value(), 11);
     }
-
-    // Same expectations, but with an editor that writes through immediately
-    // (the C++/QML style): the CodeStyleAspect page-local copy provides the
-    // deferral and the comparison-based dirtiness.
-    void testLiveWriteEditor()
-    {
-        LiveTestCodeStyleFactory factory;
-        ICodeStylePreferences codeStyle;
-        codeStyle.setTabSettings(makeTabSettings(11, 7));
-
-        CodeStyleAspect aspect(&codeStyle, LIVE_TEST_LANGUAGE_ID);
-        QWidget host;
-        Utils::AspectWidgets::layouter(&aspect)().attachTo(&host);
-
-        QVERIFY(!aspect.isDirty());
-
-        QSpinBox *tabSize = spinBoxWithValue(&host, 11);
-        QVERIFY(tabSize);
-        tabSize->setValue(13);
-
-        QVERIFY(aspect.isDirty());
-        QCOMPARE(codeStyle.tabSettings().m_tabSize, 11);
-
-        aspect.apply();
-        QCOMPARE(codeStyle.tabSettings().m_tabSize, 13);
-        QVERIFY(!aspect.isDirty());
-
-        tabSize->setValue(17);
-        QVERIFY(aspect.isDirty());
-        aspect.cancel();
-        QVERIFY(!aspect.isDirty());
-        QCOMPARE(codeStyle.tabSettings().m_tabSize, 13);
-    }
-
-    // The option C path: the language supplies only a value editor, and the
-    // CodeStyleAspect builds the selector and preview around it. Behaves like
-    // the live-write editor: edits mark dirty, apply commits, cancel reverts.
-    void testValueEditor()
-    {
-        ValueTestCodeStyleFactory factory;
-        ICodeStylePreferences codeStyle;
-        codeStyle.setTabSettings(makeTabSettings(11, 7));
-
-        CodeStyleAspect aspect(&codeStyle, VALUE_TEST_LANGUAGE_ID);
-        QWidget host;
-        Utils::AspectWidgets::layouter(&aspect)().attachTo(&host);
-
-        QVERIFY(!aspect.isDirty());
-
-        QSpinBox *tabSize = spinBoxWithValue(&host, 11);
-        QVERIFY(tabSize);
-        tabSize->setValue(13);
-
-        QVERIFY(aspect.isDirty());
-        // The edit went into the page-local copy, not the real style.
-        QCOMPARE(codeStyle.tabSettings().m_tabSize, 11);
-
-        aspect.apply();
-        QCOMPARE(codeStyle.tabSettings().m_tabSize, 13);
-        QVERIFY(!aspect.isDirty());
-
-        tabSize->setValue(17);
-        QVERIFY(aspect.isDirty());
-        aspect.cancel();
-        QVERIFY(!aspect.isDirty());
-        QCOMPARE(codeStyle.tabSettings().m_tabSize, 13);
-    }
-
-    // A live-write editor while a (custom, editable) pool delegate is active.
-    // The page edits a page-local copy of the delegate, so the shared pool
-    // delegate stays untouched until apply(); cancel() must revert the edit.
-    void testDelegateCancelReverts()
-    {
-        LiveTestCodeStyleFactory factory;
-        CodeStylePool pool(&factory, LIVE_TEST_LANGUAGE_ID);
-        pool.setTransient(true); // do not persist the test style to the settings
-        ICodeStylePreferences *delegate = pool.createCodeStyle("Custom");
-        const TabSettingsData original = makeTabSettings(5, 8);
-        delegate->setTabSettings(original);
-
-        ICodeStylePreferences codeStyle;
-        codeStyle.setId("RealStyle");
-        codeStyle.setDelegatingPool(&pool);
-        codeStyle.setTabSettings(makeTabSettings(11, 7));
-        codeStyle.setCurrentDelegate(delegate);
-
-        CodeStyleAspect aspect(&codeStyle, LIVE_TEST_LANGUAGE_ID);
-        QWidget host;
-        Utils::AspectWidgets::layouter(&aspect)().attachTo(&host);
-
-        // The editor shows the active delegate's tab size (5).
-        QSpinBox *tabSize = spinBoxWithValue(&host, 5);
-        QVERIFY(tabSize);
-        tabSize->setValue(9);
-
-        // The edit is held by the page copy and not committed to the shared
-        // pool delegate.
-        QCOMPARE(delegate->tabSettings(), original);
-        QVERIFY(aspect.isDirty());
-
-        aspect.cancel();
-        QVERIFY(!aspect.isDirty());
-        QCOMPARE(delegate->tabSettings(), original);
-    }
-
     // The selector is the page's, not the language's: every Qt Quick Code Style
     // page gets the same one, over the styles its own pool holds.
     void testAQuickPageOffersTheStylesToDelegateTo()
@@ -772,14 +576,23 @@ private slots:
 
     // A language that stayed on widgets gets none of it: there is no form to
     // put a selector in.
-    void testAWidgetPageHasNoSelectorAspects()
+    // The selector and the preview belong to the page, so a language that
+    // registers nothing of its own still has both - it is the language's
+    // settings that are missing, not the page.
+    void testALanguageWithNoFormStillGetsSelectorAndPreview()
     {
-        TestCodeStyleFactory factory;
+        PlainTestCodeStyleFactory factory;
         ICodeStylePreferences codeStyle;
         CodeStyleAspect aspect(&codeStyle, TEST_LANGUAGE_ID);
 
-        QVERIFY(!aspectNamed(&aspect, "Style"));
-        QVERIFY(!aspectNamed(&aspect, "Preview"));
+        QVERIFY(aspectNamed(&aspect, "Style"));
+        QVERIFY(aspectNamed(&aspect, "Preview"));
+
+        // And nothing of the language's, because it handed none over.
+        bool hasSettings = false;
+        for (BaseAspect *child : aspect.aspects())
+            hasSettings = hasSettings || qobject_cast<Utils::AspectContainer *>(child);
+        QVERIFY2(!hasSettings, "a language that registers nothing got settings anyway");
     }
 
     // Verifies the factory builds the pool + global and registers them.

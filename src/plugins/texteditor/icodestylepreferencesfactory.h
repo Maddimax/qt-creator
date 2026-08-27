@@ -40,7 +40,6 @@ class TEXTEDITOR_EXPORT ICodeStylePreferencesFactory
 public:
     using IndenterCreator = std::function<Indenter *(QTextDocument *)>;
     using CodeStyleCreator = std::function<ICodeStylePreferences *()>;
-    using ValueEditorCreator = std::function<QWidget *(ICodeStylePreferences *)>;
     using ProjectAspectsCreator = std::function<Utils::AspectContainer *(
         const Utils::FilePath &, ICodeStylePreferences *)>;
 
@@ -65,15 +64,6 @@ public:
                                                   CodeStylePreviewAspect *preview) const;
     Indenter *createIndenter(QTextDocument *doc) const;
     ICodeStylePreferences *createCodeStyle() const;
-    // The language's value editor. Usually just the widgets that edit
-    // codeStyle's own settings live, with the hosting CodeStyleAspect providing
-    // the selector and preview and owning the deferral. A value editor that
-    // derives from CodeStyleEditor instead lays out its own selector and manages
-    // its own deferred apply/cancel (e.g. ClangFormat).
-    QWidget *createValueEditor(ICodeStylePreferences *codeStyle) const;
-    // Whether the value editor already contains its own preview, so the hosting
-    // CodeStyleAspect should not add the standard one below it.
-    bool valueEditorHasPreview() const;
     // What this language shows in a project's Code Style panel. A factory says
     // what it has rather than drawing it, the way createSettingsAspects() does
     // for the page. The default is a style selector above a live preview.
@@ -99,8 +89,6 @@ public:
     PreviewFormatter previewFormatter() const;
     void setIndenterCreator(const IndenterCreator &creator);
     void setCodeStyleCreator(const CodeStyleCreator &creator);
-    void setValueEditorCreator(const ValueEditorCreator &creator);
-    void setValueEditorHasPreview(bool hasPreview);
     void setProjectAspectsCreator(const ProjectAspectsCreator &creator);
 
     // Builds and owns the language's code style pool and its editable global
@@ -125,8 +113,6 @@ private:
     QString m_previewText;
     IndenterCreator m_indenterCreator;
     CodeStyleCreator m_codeStyleCreator;
-    ValueEditorCreator m_valueEditorCreator;
-    bool m_valueEditorHasPreview = false;
     ProjectAspectsCreator m_projectAspectsCreator;
     std::function<void(CodeStylePool *)> m_builtInCodeStyles;
     QByteArray m_globalCodeStyleId;

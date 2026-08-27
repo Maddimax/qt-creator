@@ -50,7 +50,6 @@ add_qtc_plugin(TextEditor
     codecchooser.cpp codecchooser.h
     codestyleeditor.cpp codestyleeditor.h
     codestylepool.cpp codestylepool.h
-    codestyleselectorwidget.cpp codestyleselectorwidget.h
     colorpreviewhoverhandler.cpp colorpreviewhoverhandler.h
     colorscheme.cpp colorscheme.h
     colorschemeedit.cpp colorschemeedit.h
@@ -199,20 +198,21 @@ if(TARGET TextEditor)
       BehaviorSettingsForm.qml
       BehaviorSettingsPage.qml
       CodeEditor.qml
+      CodeStyleDefaultPage.qml
       CodeStylePreview.qml
       CodeStyleProjectForm.qml
       CodeStyleSelector.qml
       CodeView.qml
       CodeViewport.qml
-      EditorGutter.qml
-      EditorToolBar.qml
-      MainEditor.qml
       CommentsSettingsPage.qml
       CompletionSettingsPage.qml
       DisplaySettingsPage.qml
+      EditorGutter.qml
+      EditorToolBar.qml
       EncodingSettingsForm.qml
       FontSettingsPage.qml
       HighlighterSettingsPage.qml
+      MainEditor.qml
       SnippetEditor.qml
       SnippetsSettingsPage.qml
       StorageSettingsForm.qml

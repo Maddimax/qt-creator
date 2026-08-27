@@ -14,8 +14,6 @@
 
 #include <qmljstools/qmljstoolsconstants.h>
 
-#include <utils/aspectwidgets.h>
-#include <utils/layoutbuilder.h>
 
 #include <QGuiApplication>
 
@@ -103,24 +101,6 @@ TabSettings::TabSettings()
     continuationAlignBehavior.addOption(Tr::tr("With Regular Indent"));
     continuationAlignBehavior.setToolTip(continuationTooltip());
 
-    Utils::AspectWidgets::setLayouter(this, [this] {
-        using namespace Layouting;
-        return Column {
-            Group {
-                title(Tr::tr("Tabs And Indentation")),
-                Row {
-                    Form {
-                        codingStyleWarning, br,
-                        autoDetect, br,
-                        tabPolicy, br,
-                        indentSize, br,
-                        tabSize, br,
-                        continuationAlignBehavior, br
-                    }
-                }
-            }
-        };
-    });
 }
 
 TabSettings::~TabSettings() = default;

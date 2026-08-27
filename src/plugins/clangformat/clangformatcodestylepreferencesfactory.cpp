@@ -32,7 +32,6 @@
 
 #include <texteditor/codestyleeditor.h>
 #include <texteditor/codestylepool.h>
-#include <texteditor/codestyleselectorwidget.h>
 #include <texteditor/displaysettings.h>
 #include <texteditor/fontsettings.h>
 #include <texteditor/icodestylepreferences.h>

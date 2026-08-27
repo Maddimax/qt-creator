@@ -71,11 +71,6 @@ ICodeStylePreferences *ICodeStylePreferencesFactory::createCodeStyle() const
     return m_codeStyleCreator ? m_codeStyleCreator() : nullptr;
 }
 
-QWidget *ICodeStylePreferencesFactory::createValueEditor(ICodeStylePreferences *codeStyle) const
-{
-    return m_valueEditorCreator ? m_valueEditorCreator(codeStyle) : nullptr;
-}
-
 Utils::AspectContainer *ICodeStylePreferencesFactory::createSettingsAspects(
     ICodeStylePreferences *codeStyle, CodeStylePreviewAspect *preview) const
 {
@@ -108,11 +103,6 @@ void ICodeStylePreferencesFactory::setQmlSource(const QUrl &qmlSource)
     m_qmlSource = qmlSource;
 }
 
-bool ICodeStylePreferencesFactory::valueEditorHasPreview() const
-{
-    return m_valueEditorHasPreview;
-}
-
 void ICodeStylePreferencesFactory::setDisplayName(const QString &displayName)
 {
     m_displayName = displayName;
@@ -136,16 +126,6 @@ void ICodeStylePreferencesFactory::setIndenterCreator(const IndenterCreator &cre
 void ICodeStylePreferencesFactory::setCodeStyleCreator(const CodeStyleCreator &creator)
 {
     m_codeStyleCreator = creator;
-}
-
-void ICodeStylePreferencesFactory::setValueEditorCreator(const ValueEditorCreator &creator)
-{
-    m_valueEditorCreator = creator;
-}
-
-void ICodeStylePreferencesFactory::setValueEditorHasPreview(bool hasPreview)
-{
-    m_valueEditorHasPreview = hasPreview;
 }
 
 void ICodeStylePreferencesFactory::setProjectAspectsCreator(const ProjectAspectsCreator &creator)

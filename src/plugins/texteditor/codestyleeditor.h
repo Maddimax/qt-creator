@@ -30,33 +30,8 @@ class SnippetEditorWidget;
 // CodeStyleAspect routes apply/cancel/isDirty to it and listens to changed(),
 // and leaves it to lay out its own selector and preview. Plain value editors
 // that only edit the preferences do not need it.
-class TEXTEDITOR_EXPORT CodeStyleEditor : public QWidget
-{
-    Q_OBJECT
 
-public:
-    using QWidget::QWidget;
 
-    virtual void apply();
-    virtual void cancel();
-    virtual bool isDirty() const;
-
-signals:
-    void changed();
-};
-
-// Creates a snippet preview editor bound to codeStyle: decorated with the
-// factory's snippet group, filled with its preview text, and re-indented live
-// by the factory's indenter as the style changes. Pass a project file for a
-// per-project preview, or an empty path for the global one.
-TEXTEDITOR_EXPORT SnippetEditorWidget *createCodeStylePreview(
-    const ICodeStylePreferencesFactory *factory,
-    const Utils::FilePath &projectFile,
-    ICodeStylePreferences *codeStyle,
-    QWidget *parent = nullptr);
-
-// The standard explanatory note shown beneath a code style preview.
-TEXTEDITOR_EXPORT QLabel *createCodeStylePreviewNote();
 
 // The "take effect immediately" hint, for the per-project code style pages
 
@@ -180,11 +155,10 @@ private:
     Utils::Id m_languageId;
     CodeStylePool *m_pagePool = nullptr;
     ICodeStylePreferences *m_pageCodeStyle = nullptr;
-    QPointer<CodeStyleEditor> m_editor;
     bool m_syncing = false;
 
-    // The selector, as aspects, for a language that draws its page with Qt
-    // Quick. Left unset for one that still uses CodeStyleSelectorWidget.
+    // Which style is being edited: the page's own, so every language's form
+    // gets the same one.
     CodeStyleSelectorAspects m_selector;
 };
 

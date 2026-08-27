@@ -11,7 +11,6 @@
 #include "cppqtstyleindenter.h"
 
 #include <texteditor/codestyleeditor.h>
-#include <texteditor/codestyleselectorwidget.h>
 #include <texteditor/codestylepool.h>
 #include <texteditor/icodestylepreferencesfactory.h>
 #include <texteditor/indenter.h>

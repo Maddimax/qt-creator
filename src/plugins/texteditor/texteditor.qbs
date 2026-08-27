@@ -59,8 +59,6 @@ Project {
             "codestyleeditor.h",
             "codestylepool.cpp",
             "codestylepool.h",
-            "codestyleselectorwidget.cpp",
-            "codestyleselectorwidget.h",
             "colorpreviewhoverhandler.cpp",
             "colorpreviewhoverhandler.h",
             "colorscheme.cpp",
