@@ -18,6 +18,7 @@
 #include <texteditor/textdocument.h>
 
 #include <utils/fsengine/fileiconprovider.h>
+#include <utils/textutils.h>
 #include <utils/mimeconstants.h>
 #include <utils/qtcassert.h>
 #include <utils/theme/theme.h>
@@ -38,13 +39,7 @@ namespace QmakeProjectManager::Internal {
 class ProFileEditorWidget : public TextEditorWidget
 {
 private:
-    void findLinkAt(const QTextCursor &,
-                    const LinkHandler &processLinkCallback,
-                    bool resolveTarget = true,
-                    bool inNextSplit = false) override;
     void contextMenuEvent(QContextMenuEvent *) override;
-
-    QString checkForPrfFile(const QString &baseName) const;
 };
 
 static bool isValidFileNameChar(const QChar &c)
@@ -57,9 +52,8 @@ static bool isValidFileNameChar(const QChar &c)
             || c == QLatin1Char('\\');
 }
 
-QString ProFileEditorWidget::checkForPrfFile(const QString &baseName) const
+static QString checkForPrfFile(const FilePath &projectFile, const QString &baseName)
 {
-    const FilePath projectFile = textDocument()->filePath();
     const QmakePriFileNode *projectNode = nullptr;
 
     // FIXME: Remove this check once project nodes are fully "static".
@@ -101,16 +95,19 @@ QString ProFileEditorWidget::checkForPrfFile(const QString &baseName) const
     return QString();
 }
 
-void ProFileEditorWidget::findLinkAt(const QTextCursor &cursor,
-                                     const LinkHandler &processLinkCallback,
-                                     bool /*resolveTarget*/,
-                                     bool /*inNextSplit*/)
+// Where the file name under the cursor is: a path relative to the project
+// file, $$PWD, or the name of a .prf feature file.
+static void findProFileLinkAt(TextDocument *document,
+                              const QTextCursor &cursor,
+                              const LinkHandler &processLinkCallback,
+                              bool /*resolveTarget*/,
+                              bool /*inNextSplit*/)
 {
     Link link;
 
     int line = 0;
     int column = 0;
-    convertPosition(cursor.position(), &line, &column);
+    Utils::Text::convertPosition(document->document(), cursor.position(), &line, &column);
 
     const QString block = cursor.block().text();
 
@@ -202,7 +199,7 @@ void ProFileEditorWidget::findLinkAt(const QTextCursor &cursor,
     if (buffer.startsWith("$$PWD/") || buffer.startsWith("$$PWD\\"))
         buffer = buffer.mid(6);
 
-    QDir dir(textDocument()->filePath().toFileInfo().absolutePath());
+    QDir dir(document->filePath().toFileInfo().absolutePath());
     QString fileName = dir.filePath(buffer);
     QFileInfo fi(fileName);
     if (HostOsInfo::isWindowsHost() && fileName.startsWith("//")) {
@@ -219,7 +216,7 @@ void ProFileEditorWidget::findLinkAt(const QTextCursor &cursor,
         }
         link.targetFilePath = FilePath::fromString(QDir::cleanPath(fileName));
     } else {
-        link.targetFilePath = FilePath::fromString(checkForPrfFile(buffer));
+        link.targetFilePath = FilePath::fromString(checkForPrfFile(document->filePath(), buffer));
     }
     if (!link.targetFilePath.isEmpty()) {
         link.linkTextStart = cursor.position() - column + beginPos + 1;
@@ -272,6 +269,7 @@ ProFileEditorFactory::ProFileEditorFactory()
                 | OptionalActions::JumpToFileUnderCursor);
 
     addHoverHandler(&proFileHoverHandler());
+    setLinkFinder(&findProFileLinkAt);
     setSyntaxHighlighterCreator([]() { return new ProFileHighlighter; });
 
     const QString defaultOverlay = QLatin1String(ProjectExplorer::Constants::FILEOVERLAY_QT);

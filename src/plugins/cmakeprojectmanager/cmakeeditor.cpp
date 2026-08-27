@@ -26,6 +26,7 @@
 #include <projectexplorer/target.h>
 
 #include <texteditor/basehoverhandler.h>
+#include <texteditor/symbolrequests.h>
 #include <texteditor/textdocument.h>
 #include <texteditor/texteditor.h>
 #include <texteditor/texteditorconstants.h>
@@ -105,12 +106,7 @@ public:
 
 private:
     void finalizeInitialization() final;
-    void findLinkAt(const QTextCursor &cursor,
-                    const LinkHandler &processLinkCallback,
-                    bool resolveTarget = true,
-                    bool inNextSplit = false) final;
-    void findUsages() final { findUsagesUnderCursor(this); }
-    void renameSymbolUnderCursor() final { Internal::renameSymbolUnderCursor(this); }
+
     void contextMenuEvent(QContextMenuEvent *e) final;
 };
 
@@ -196,16 +192,19 @@ static QHash<QString, Link> getLocalSymbolsHash(const QString &content,
     return hash;
 }
 
-void CMakeEditorWidget::findLinkAt(const QTextCursor &cursor,
-                                   const LinkHandler &processLinkCallback,
-                                   bool/* resolveTarget*/,
-                                   bool /*inNextSplit*/)
+// Where the name under the cursor is defined: a file, a target, a user
+// function, or a URL in a comment.
+static void findCMakeLinkAt(TextDocument *document,
+                            const QTextCursor &cursor,
+                            const LinkHandler &processLinkCallback,
+                            bool /*resolveTarget*/,
+                            bool /*inNextSplit*/)
 {
     Link link;
 
     int line = 0;
     int column = 0;
-    convertPosition(cursor.position(), &line, &column);
+    Utils::Text::convertPosition(document->document(), cursor.position(), &line, &column);
 
     const QString block = cursor.block().text();
 
@@ -276,40 +275,40 @@ void CMakeEditorWidget::findLinkAt(const QTextCursor &cursor,
     if (buffer.isEmpty())
         return processLinkCallback(link);
 
-    const FilePath dir = textDocument()->filePath().absolutePath();
+    const FilePath dir = document->filePath().absolutePath();
     buffer.replace("${CMAKE_CURRENT_SOURCE_DIR}", dir.path());
     buffer.replace("${CMAKE_CURRENT_LIST_DIR}", dir.path());
 
     // Lambdas to find the CMake function name
-    auto findFunctionStart = [cursor, this]() -> int {
+    auto findFunctionStart = [cursor, document]() -> int {
         int pos = cursor.position();
         QChar chr;
         do {
-            chr = textDocument()->characterAt(--pos);
+            chr = document->characterAt(--pos);
         } while (pos > 0 && chr != '(');
 
         if (pos > 0 && chr == '(') {
             // allow space between function name and (
             do {
-                chr = textDocument()->characterAt(--pos);
+                chr = document->characterAt(--pos);
             } while (pos > 0 && chr.isSpace());
             ++pos;
         }
         return pos;
     };
-    auto findFunctionEnd = [cursor, this]() -> int {
+    auto findFunctionEnd = [cursor, document]() -> int {
         int pos = cursor.position();
         QChar chr;
         do {
-            chr = textDocument()->characterAt(--pos);
+            chr = document->characterAt(--pos);
         } while (pos > 0 && chr != ')');
         return pos;
     };
-    auto findWordStart = [cursor, this](int pos) -> int {
+    auto findWordStart = [cursor, document](int pos) -> int {
         // Find start position
         QChar chr;
         do {
-            chr = textDocument()->characterAt(--pos);
+            chr = document->characterAt(--pos);
         } while (pos > 0 && isCMakeIdentifierChar(chr));
 
         return ++pos;
@@ -319,8 +318,8 @@ void CMakeEditorWidget::findLinkAt(const QTextCursor &cursor,
 
     // Resolve local variables and functions
     QString projectName;
-    auto hash = getLocalSymbolsHash(textDocument()->textAt(0, funcEnd + 1),
-                                    textDocument()->filePath(),
+    auto hash = getLocalSymbolsHash(document->textAt(0, funcEnd + 1).toUtf8(),
+                                    document->filePath(),
                                     projectName);
     if (!projectName.isEmpty())
         buffer.replace("${PROJECT_NAME}", projectName);
@@ -333,7 +332,7 @@ void CMakeEditorWidget::findLinkAt(const QTextCursor &cursor,
 
             // Get the path suffix from current source dir to project source dir and apply it
             // for the binary dir
-            const QString relativePathSuffix = textDocument()
+            const QString relativePathSuffix = document
                                                    ->filePath()
                                                    .parentDir()
                                                    .relativePathFromDir(project->projectDirectory());
@@ -352,7 +351,7 @@ void CMakeEditorWidget::findLinkAt(const QTextCursor &cursor,
                 QString functionName;
                 if (funcStart > funcEnd) {
                     int funcStartPos = findWordStart(funcStart);
-                    functionName = textDocument()->textAt(funcStartPos, funcStart - funcStartPos);
+                    functionName = document->textAt(funcStartPos, funcStart - funcStartPos);
                 }
 
                 bool skipTarget = false;
@@ -538,6 +537,7 @@ public:
                                 | OptionalActions::Format);
 
         addHoverHandler(&cmakeHoverHandler());
+        setLinkFinder(&findCMakeLinkAt);
 
         ActionContainer *contextMenu = ActionManager::createMenu(Constants::M_CONTEXT);
         contextMenu->addAction(ActionManager::command(TextEditor::Constants::FOLLOW_SYMBOL_UNDER_CURSOR));
@@ -550,6 +550,32 @@ public:
 void setupCMakeEditor()
 {
     static CMakeEditorFactory theCMakeEditorFactory;
+
+    // Find Usages and Rename Symbol. A view that is not a widget asks through
+    // a relay rather than by being asked itself, and a CMake file opens in
+    // one; a widget editor has no relay and answers these itself.
+    QObject::connect(
+        EditorManager::instance(),
+        &EditorManager::editorOpened,
+        EditorManager::instance(),
+        [](IEditor *editor) {
+            if (!editor || !qobject_cast<CMakeTextDocument *>(editor->document()))
+                return;
+            TextEditor::SymbolRequests * const requests
+                = TextEditor::symbolRequestsForEditor(editor);
+            if (!requests)
+                return;
+            QObject::connect(
+                requests,
+                &TextEditor::SymbolRequests::requestUsages,
+                editor,
+                [editor](const QTextCursor &cursor) { findUsagesUnderCursor(editor, cursor); });
+            QObject::connect(
+                requests,
+                &TextEditor::SymbolRequests::requestRename,
+                editor,
+                [editor](const QTextCursor &cursor) { renameSymbolUnderCursor(editor, cursor); });
+        });
 }
 
 } // CMakeProjectManager::Internal

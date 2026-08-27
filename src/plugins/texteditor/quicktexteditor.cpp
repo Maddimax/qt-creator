@@ -293,6 +293,20 @@ public:
                            .contextAction();
         m_wrapAction->setChecked(displaySettings().textWrapping());
 
+        // Follow Symbol. The action is global and its shortcut is the user's;
+        // what it does here is ask the file's language where the symbol is,
+        // which is what the widget editor's findLinkAt() override used to be.
+        const auto followSymbol = [this](Utils::Id id, bool inNextSplit) {
+            Core::ActionBuilder(this, id)
+                .setContext(Core::Context(m_editorContext))
+                .addOnTriggered(this, [this, inNextSplit] {
+                    if (TextViewport * const view = viewport())
+                        view->followSymbolUnderCursor(inNextSplit);
+                });
+        };
+        followSymbol(Constants::FOLLOW_SYMBOL_UNDER_CURSOR, false);
+        followSymbol(Constants::FOLLOW_SYMBOL_UNDER_CURSOR_IN_NEXT_SPLIT, true);
+
         // Ctrl+F reaches an editor by asking its widget for an IFindSupport,
         // so this has to hang off the widget rather than off the editor.
         if (TextViewport * const view = viewport())
@@ -1500,9 +1514,17 @@ private slots:
         Core::Command * const command = Core::ActionManager::command(Constants::TEXT_WRAPPING);
         QVERIFY2(command, "there is no Wrap Lines command to register against");
 
-        const QList<QAction *> actions = editor->findChildren<QAction *>();
-        QCOMPARE(actions.size(), 1);
-        QAction * const wrap = actions.first();
+        // The editor registers several context actions; this is about the one
+        // Wrap Lines goes through, which is the one the command holds for
+        // this editor's context.
+        QAction *wrap = nullptr;
+        for (const Utils::Id context : editor->context()) {
+            if (QAction * const forContext = command->actionForContext(context)) {
+                wrap = forContext;
+                break;
+            }
+        }
+        QVERIFY2(wrap, "the editor registered no Wrap Lines action of its own");
         QVERIFY2(wrap->isCheckable(), "Wrap Lines is a toggle, not a one-shot");
         QCOMPARE(wrap->isChecked(), false);
 
@@ -1522,9 +1544,15 @@ private slots:
         QVERIFY(second);
         const QScopeGuard closeSecond(
             [second] { Core::EditorManager::closeEditors({second}, false); });
-        const QList<QAction *> secondActions = second->findChildren<QAction *>();
-        QCOMPARE(secondActions.size(), 1);
-        QVERIFY2(secondActions.first()->isChecked(),
+        QAction *secondWrap = nullptr;
+        for (const Utils::Id context : second->context()) {
+            if (QAction * const forContext = command->actionForContext(context)) {
+                secondWrap = forContext;
+                break;
+            }
+        }
+        QVERIFY(secondWrap);
+        QVERIFY2(secondWrap->isChecked(),
                  "the editor opened wrapped but the menu entry is unticked");
 
         // join() rather than first(): QVERIFY2 builds its message whether or
@@ -1580,6 +1608,47 @@ private slots:
         QCOMPARE(widget->extraSelections(TextEditorWidget::ParenthesesMatchingSelection).size(), 1);
         QVERIFY2(document->extraSelections(TextEditorWidget::ParenthesesMatchingSelection).isEmpty(),
                  "a view's own bracket match was published to the document");
+    }
+
+    // Following a symbol used to be a virtual on a TextEditorWidget subclass,
+    // one per language, which a single editor for every language cannot
+    // implement. The language registers a link finder instead, and the Quick
+    // editor asks the one that claims the file.
+    void testFollowingASymbolAsksTheLanguage()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-follow");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath included = dir.filePath("Included.cmake");
+        QVERIFY(included.writeFileContents("set(SOMETHING 1)\n"));
+        const Utils::FilePath lists = dir.filePath("CMakeLists.txt");
+        QVERIFY(lists.writeFileContents("include(Included.cmake)\n"));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(lists, QUICK_TEXT_EDITOR_ID);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [] { Core::EditorManager::closeAllEditors(false); });
+
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+        auto * const viewport = quick->rootObject()->findChild<TextViewport *>();
+        QVERIFY(viewport);
+
+        // The CMake plugin is what knows that include() names a file. It is
+        // reached by mime type, so a .txt file has no finder and a
+        // CMakeLists.txt does.
+        QVERIFY2(TextEditorFactory::linkFinderFor(document),
+                 "no link finder for a CMakeLists.txt");
+
+        // On "Included.cmake", inside include(...).
+        viewport->setCursorPosition(12);
+        viewport->followSymbolUnderCursor();
+
+        // Opening the file is the editor manager's doing and is asynchronous
+        // in neither direction, but the finder may answer through a callback.
+        QTRY_COMPARE(Core::EditorManager::currentDocument()->filePath(), included);
     }
 
     // Hovering. A tooltip in Creator is a hover handler's answer, and the

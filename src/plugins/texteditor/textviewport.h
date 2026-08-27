@@ -7,6 +7,7 @@
 #include "texteditor_global.h"
 
 #include <utils/id.h>
+#include <utils/link.h>
 
 #include <QColor>
 #include <QMap>
@@ -232,6 +233,11 @@ public:
     // The handlers to ask on hover, in the order the editor factory listed
     // them. Not owned - they are the plugins' singletons.
     void setHoverHandlers(const QList<BaseHoverHandler *> &handlers);
+
+    // Follow Symbol. What is under the cursor is the language's business -
+    // the view only asks and opens what comes back.
+    Q_INVOKABLE void followSymbolUnderCursor(bool inNextSplit = false);
+    bool openLink(const Utils::Link &link, bool inNextSplit = false);
 
 private:
     void askForTooltip();

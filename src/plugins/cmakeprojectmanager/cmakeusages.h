@@ -4,17 +4,20 @@
 #pragma once
 
 #include <QObject>
+#include <QTextCursor>
 
-namespace TextEditor { class TextEditorWidget; }
+namespace Core { class IEditor; }
 
 namespace CMakeProjectManager::Internal {
 
 // Where the symbol under the cursor is named: a function, macro, target or
-// variable, wherever the project spells it out.
-void findUsagesUnderCursor(TextEditor::TextEditorWidget *editorWidget);
+// variable, wherever the project spells it out. Asked of the editor rather
+// than of a widget, since a CMake file opens in the Qt Quick view, which is
+// not one.
+void findUsagesUnderCursor(Core::IEditor *editor, QTextCursor cursor = {});
 
 // The same places, offered for a name of the user's choosing.
-void renameSymbolUnderCursor(TextEditor::TextEditorWidget *editorWidget);
+void renameSymbolUnderCursor(Core::IEditor *editor, QTextCursor cursor = {});
 
 #ifdef WITH_TESTS
 QObject *createCMakeUsagesTest();

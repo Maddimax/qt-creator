@@ -19,6 +19,7 @@
 #include "texteditorconstants.h"
 #include "texteditortr.h"
 #include "textdocument.h"
+#include "texteditor.h"
 #include "gutterframe.h"
 #include "hoverhandlerrunner.h"
 #include "indenter.h"
@@ -38,6 +39,7 @@
 #include <utils/tooltip/tooltip.h>
 
 #include <QApplication>
+#include <QDesktopServices>
 #include <QStyle>
 #include <utils/utilsicons.h>
 
@@ -612,6 +614,52 @@ QPoint TextViewport::globalCursorTopLeft() const
 void TextViewport::setHoverHandlers(const QList<BaseHoverHandler *> &handlers)
 {
     m_hoverHandlers = handlers;
+}
+
+void TextViewport::followSymbolUnderCursor(bool inNextSplit)
+{
+    TextDocument * const doc = textDocument();
+    if (!doc)
+        return;
+
+    const TextEditorFactory::LinkFinder finder = TextEditorFactory::linkFinderFor(doc);
+    if (!finder)
+        return;
+
+    finder(doc, textCursor(),
+           [self = QPointer<TextViewport>(this), inNextSplit](const Utils::Link &link) {
+               if (self)
+                   self->openLink(link, inNextSplit);
+           },
+           true, inNextSplit);
+}
+
+bool TextViewport::openLink(const Utils::Link &link, bool inNextSplit)
+{
+    TextDocument * const doc = textDocument();
+    if (!doc)
+        return false;
+
+    const QString url = link.targetFilePath.toUrlishString();
+    if (url.startsWith(u"https://") || url.startsWith(u"http://")) {
+        QDesktopServices::openUrl(url);
+        return true;
+    }
+
+    // Within this very file it is a jump, not an open: the editor manager
+    // would hand back the editor this already is.
+    if (!inNextSplit && doc->filePath() == link.targetFilePath) {
+        gotoLine(link.target.line, link.target.column);
+        forceActiveFocus();
+        return true;
+    }
+    if (!link.hasValidTarget())
+        return false;
+
+    Core::EditorManager::OpenEditorFlags flags;
+    if (inNextSplit)
+        flags |= Core::EditorManager::OpenInOtherSplit;
+    return Core::EditorManager::openEditorAt(link, Utils::Id(), flags);
 }
 
 void TextViewport::hoverMoveEvent(QHoverEvent *event)

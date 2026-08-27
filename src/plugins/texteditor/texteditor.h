@@ -778,6 +778,13 @@ public:
     using SyntaxHighLighterCreator = std::function<SyntaxHighlighter *()>;
     using IndenterCreator = std::function<Indenter *(QTextDocument *)>;
     using AutoCompleterCreator = std::function<AutoCompleter *()>;
+    // Where the symbol at \a cursor is defined. Answered through the callback
+    // because a language server has to be asked.
+    using LinkFinder = std::function<void(TextDocument *document,
+                                          const QTextCursor &cursor,
+                                          const Utils::LinkHandler &callback,
+                                          bool resolveTarget,
+                                          bool inNextSplit)>;
 
     void setDocumentCreator(const DocumentCreator &creator);
     void setEditorWidgetCreator(const EditorWidgetCreator &creator);
@@ -799,6 +806,16 @@ public:
     AutoCompleterCreator autoCompleterCreator() const;
     CompletionAssistProvider *completionAssistProvider() const;
     QList<BaseHoverHandler *> hoverHandlers() const;
+    LinkFinder linkFinder() const;
+
+    // What Ctrl+click and Follow Symbol do in this language. Registered here
+    // rather than overridden on an editor widget, so that a view which is not
+    // one - the Qt Quick editor - can follow symbols too.
+    void setLinkFinder(const LinkFinder &finder);
+
+    // The link finder for \a document's language, or an empty one where the
+    // language has none.
+    static LinkFinder linkFinderFor(TextDocument *document);
 
     // The one that would build an editor for \a filePath, or nullptr where no
     // factory claims it. Walks the mime type's parents, so a C++ file finds

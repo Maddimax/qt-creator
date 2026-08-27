@@ -10001,3 +10001,48 @@ came back SIGABRT with no test output, which the harness printed as "NOTHING
 BIT". It is the intermittent `QCocoaCursor::createCursorData ->
 QImage::toCGImage` SEGV that predates all of this work, and it crashes before
 the first test runs. Re-run, not diagnosed - but never counted as a pass.
+
+## Follow Symbol: a virtual on a subclass that the Quick editor cannot have
+
+The second flagged blocker. `findLinkAt()` is a `TextEditorWidget` virtual, and
+nine languages override it - **on a widget subclass each**. That is the part
+that makes it different from the hover handlers: `CppEditorWidget`,
+`QmlJSEditorWidget`, `CMakeEditorWidget` and the rest each *are* the language's
+editor, and one editor for every language cannot subclass nine of them.
+
+So the answer is not a wider parameter, it is a different place to register.
+`TextEditorFactory::setLinkFinder()`, alongside the indenter creator, the
+auto-completer creator, the completion provider and now the hover handlers -
+looked up by `preferredFactoryFor(filePath)`, which walks the mime type's
+parents. `TextEditorWidget::findLinkAt()`'s base implementation consults it
+before falling back to `requestLinkAt`, so **a language that registers a finder
+can delete its widget override and lose nothing**.
+
+CMake and qmake are converted: `CMakeEditorWidget::findLinkAt` and
+`ProFileEditorWidget::findLinkAt` become free functions over a `TextDocument *`,
+both overrides are gone, and `ProFileEditorWidget::checkForPrfFile` - a private
+member whose only use of the widget was `textDocument()->filePath()` - is a free
+function taking the project file.
+
+**Markdown does not fit and was reverted.** `MarkdownEditorFactory` is a plain
+`Core::IEditorFactory`, not a `TextEditorFactory`, so nothing would ever find a
+finder registered on it and following a Markdown link would have broken
+silently. Its override stays. Worth writing down as the shape of the seam's
+limit: registration by *factory* reaches only editors built by a
+`TextEditorFactory`, and the alternative - registration by mime type - would
+reach more at the cost of not matching how every neighbouring service is
+already looked up.
+
+**And a test that counted actions had to learn to name one.** Registering the
+two Follow Symbol actions broke
+`testTheWrapLinesActionTogglesThisEditor`, which asserted
+`editor->findChildren<QAction *>().size() == 1`. Counting children is a test
+about *how many* actions an editor has, when what it means is *which* action
+Wrap Lines goes through: it now asks the command for the action registered
+against the editor's own context. The failure was the test being over-specific,
+not the change being wrong - but a count of children breaks on every future
+action too, so it was worth fixing rather than bumping to three.
+
+Remaining: C++, QmlJS, Nim, qbs and Compiler Explorer. Compiler Explorer's is
+the only one that reads view state (`extraSelections`), so it may need the same
+treatment the diagnostics did.

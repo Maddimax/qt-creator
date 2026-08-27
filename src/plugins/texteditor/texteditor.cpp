@@ -8029,6 +8029,13 @@ void TextEditorWidget::findLinkAt(const QTextCursor &cursor,
                                   bool resolveTarget,
                                   bool inNextSplit)
 {
+    // The language's own answer, if it registered one. A widget subclass that
+    // still overrides this never gets here.
+    if (const TextEditorFactory::LinkFinder finder
+        = TextEditorFactory::linkFinderFor(textDocument())) {
+        finder(textDocument(), cursor, callback, resolveTarget, inNextSplit);
+        return;
+    }
     emit requestLinkAt(cursor, callback, resolveTarget, inNextSplit);
 }
 
@@ -10705,6 +10712,7 @@ public:
     TextEditorFactory::SyntaxHighLighterCreator m_syntaxHighlighterCreator;
     CommentDefinition m_commentDefinition;
     QList<BaseHoverHandler *> m_hoverHandlers; // not owned
+    TextEditorFactory::LinkFinder m_linkFinder;
     std::unique_ptr<CompletionAssistProvider> m_completionAssistProvider; // owned
     int m_optionalActionMask = 0;
     bool m_useGenericHighlighter = false;
@@ -10812,6 +10820,24 @@ void TextEditorFactory::setOptionalActionMask(int optionalActions)
 QList<BaseHoverHandler *> TextEditorFactory::hoverHandlers() const
 {
     return d->m_hoverHandlers;
+}
+
+TextEditorFactory::LinkFinder TextEditorFactory::linkFinder() const
+{
+    return d->m_linkFinder;
+}
+
+void TextEditorFactory::setLinkFinder(const LinkFinder &finder)
+{
+    d->m_linkFinder = finder;
+}
+
+TextEditorFactory::LinkFinder TextEditorFactory::linkFinderFor(TextDocument *document)
+{
+    if (!document)
+        return {};
+    TextEditorFactory * const factory = preferredFactoryFor(document->filePath());
+    return factory ? factory->linkFinder() : LinkFinder();
 }
 
 void TextEditorFactory::addHoverHandler(BaseHoverHandler *handler)

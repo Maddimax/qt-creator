@@ -231,15 +231,15 @@ static QString nameUnderCursor(const QTextCursor &cursor)
 // The file being edited is read from the editor, so that what is offered
 // matches what is on screen; the other files come from what the project
 // parsed.
-static QList<Occurrence> occurrencesUnderCursor(TextEditorWidget *editorWidget, QString *name)
+static QList<Occurrence> occurrencesUnderCursor(
+    TextEditor::TextDocument *document, const QTextCursor &cursor, QString *name)
 {
-    *name = nameUnderCursor(editorWidget->textCursor());
+    *name = nameUnderCursor(cursor);
     if (name->isEmpty())
         return {};
 
-    const FilePath currentFile = editorWidget->textDocument()->filePath();
-    const DocumentPtr currentDocument = Document::fromSource(
-        editorWidget->textDocument()->plainText());
+    const FilePath currentFile = document->filePath();
+    const DocumentPtr currentDocument = Document::fromSource(document->plainText());
     if (!currentDocument->isValid())
         return {};
 
@@ -308,10 +308,23 @@ static void reportNoSymbol()
                                        Tr::tr("No symbol of this project under the cursor."));
 }
 
-void findUsagesUnderCursor(TextEditorWidget *editorWidget)
+// The cursor is handed over where there is one to hand over - a relay carries
+// the caret it was asked about - and read from the editor otherwise.
+static QList<Occurrence> occurrencesIn(Core::IEditor *editor, QTextCursor cursor, QString *name)
+{
+    const auto document = qobject_cast<TextEditor::TextDocument *>(
+        editor ? editor->document() : nullptr);
+    if (cursor.isNull())
+        cursor = TextEditor::textCursorOf(editor);
+    if (!document || cursor.isNull())
+        return {};
+    return occurrencesUnderCursor(document, cursor, name);
+}
+
+void findUsagesUnderCursor(Core::IEditor *editor, QTextCursor cursor)
 {
     QString name;
-    const QList<Occurrence> occurrences = occurrencesUnderCursor(editorWidget, &name);
+    const QList<Occurrence> occurrences = occurrencesIn(editor, cursor, &name);
     if (occurrences.isEmpty()) {
         reportNoSymbol();
         return;
@@ -319,10 +332,10 @@ void findUsagesUnderCursor(TextEditorWidget *editorWidget)
     showOccurrences(name, occurrences, SearchResultWindow::SearchOnly);
 }
 
-void renameSymbolUnderCursor(TextEditorWidget *editorWidget)
+void renameSymbolUnderCursor(Core::IEditor *editor, QTextCursor cursor)
 {
     QString name;
-    const QList<Occurrence> occurrences = occurrencesUnderCursor(editorWidget, &name);
+    const QList<Occurrence> occurrences = occurrencesIn(editor, cursor, &name);
     if (occurrences.isEmpty()) {
         reportNoSymbol();
         return;
