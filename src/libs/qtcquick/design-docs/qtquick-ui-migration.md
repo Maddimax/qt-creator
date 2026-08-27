@@ -119,7 +119,7 @@ theme selector recolours the scene in place, without recreating it.
 
 ## Status
 
-Branch `utils-drop-printsupport`, 166 commits, not pushed.
+Branch `utils-drop-printsupport`, 187 commits, not pushed.
 
 **The settings-page migration is finished.** Every `IOptionsPage` that can be
 aspect driven is: the census reports **0 pages still on widgets**, with no
@@ -136,13 +136,21 @@ Verified one suite at a time, re-run in full after the shared headers changed
 
 | suite | result |
 | --- | --- |
-| Core, TextEditor, QuickUi | 81/81, 281/281, 89/89 |
+| Core, TextEditor, QuickUi | 81/81, 287/287, 89/89 |
 | QmlJSEditor, QmlJSTools, LanguageClient | 15/15, 12/12, 20/20 |
 | CMake, Qmake, Qbs, Nim project managers | 69/69, 26/26, 8/8, 6/6 |
 | AutoTest, BareMetal | 5/5 (1 skipped, wants a kit), 61/61 |
-| all 33 `tests/auto/utils` binaries | every one exit 0 - 1749 assertions, `filepath` and `expander` the biggest at 574 and 417 |
+| all 33 `tests/auto/utils` binaries | every one exit 0; `filepath` is the biggest at 576 |
 | CppEditor | 155/155 for `FollowSymbolTest` alone; the whole suite poisons itself and its number means nothing |
 | ProjectExplorer, Debugger | 2 and 1 pre-existing failures, each reproduced at the parent commit |
+
+**The file watcher is quiet now, everywhere.** Every suite above reports no
+"Failed to watch" and no soft assert from `devicefileaccess.cpp` - it took
+three separate fixes, and each one was only visible once the one before it was
+in. The single soft assert still printed by several runs is
+`QtVersionManager::versions()` asking `isLoaded()`, which is hjk's from 2022 in
+a file this branch has never touched: something calls it before the manager has
+read its settings.
 
 `ProjectTest::testMultipleBuildConfigs` fails in a full ProjectExplorer run
 often enough to look real and passes three times out of three on its own. It is
