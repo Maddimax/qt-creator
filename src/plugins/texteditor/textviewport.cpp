@@ -927,8 +927,17 @@ void TextViewport::keyPressEvent(QKeyEvent *event)
     // on one and the start of the line on the other - plus camel-case stepping
     // and moving through what is on screen rather than what is in the file.
     Utils::MultiTextCursor cursors({cursor});
+    // The layout that knows where the rows are. While the viewport is wrapping
+    // that is its own - the document's layout never sees that wrapping, so
+    // handing it over makes Down step over a whole wrapped line instead of on
+    // to the next row of it.
+    Utils::PlainTextDocumentLayout *movement = layoutOf(cursor.document());
+    if (m_wrapping) {
+        if (Utils::TextEditorLayout * const rows = editorLayout())
+            movement = rows;
+    }
     if (cursors.handleMoveKeyEvent(event, globalBehaviorSettings().camelCaseNavigation(),
-                                   layoutOf(cursor.document()))) {
+                                   movement)) {
         setTextCursor(cursors.mainCursor());
         return event->accept();
     }
@@ -1839,7 +1848,19 @@ void TextViewport::updatePolish()
         // What the index measures with has to be what is drawn.
         if (text->defaultFont() != font)
             text->setDefaultFont(font);
-        static_cast<ViewportLayout *>(rows)->setTextWidth(wrapWidth);
+        // setTextWidth() is a document width: the layout takes the document's
+        // margin off both sides, and the width of a line separator glyph where
+        // the text option asks for one, before it wraps anything. The rows
+        // below are shaped with setLineWidth(), which is the width of the line
+        // itself. Handing the same number to both wraps them in different
+        // places, and then moving by rows lands between the rows on screen.
+        qreal separator = 0;
+        if (text->defaultTextOption().flags()
+            & QTextOption::AddSpaceForLineAndParagraphSeparators) {
+            separator = QFontMetricsF(font).horizontalAdvance(QChar(0x21B5));
+        }
+        static_cast<ViewportLayout *>(rows)->setTextWidth(
+            wrapWidth + 2 * text->documentMargin() + separator);
         for (QTextBlock b = text->firstBlock(); b.isValid(); b = b.next())
             rows->blockBoundingRect(b);
     }

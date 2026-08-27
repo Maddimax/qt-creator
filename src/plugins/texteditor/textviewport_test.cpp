@@ -2595,6 +2595,54 @@ private slots:
                                 .arg(viewport->height())));
     }
 
+    void testDownMovesToTheNextRowWhenWrapping()
+    {
+        // The most used key there is. A wrapped line is several rows, and Down
+        // means the next row - not the next line, which would skip everything
+        // the line wrapped onto.
+        TemporaryDirectory dir("qtc-viewport-down");
+        const FilePath file = dir.filePath("wrapped.txt");
+        QString content;
+        for (int i = 0; i < 20; ++i)
+            content += QString(200, QLatin1Char('x')) + QLatin1Char('\n');
+        QVERIFY(file.writeFileContents(content.toUtf8()));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        QVERIFY2(fixture.hasFocus(), "the viewport never took focus, so no key arrives");
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        viewport->setWrapping(true);
+        QTRY_VERIFY2(viewport->contentHeight() / viewport->lineHeight() > 40,
+                     "nothing wrapped, so a row and a line are still the same");
+
+        viewport->setCursorPosition(0);
+        QCOMPARE(viewport->cursorLine(), 1);
+        const QRectF first = viewport->cursorRectangle();
+        QVERIFY(!first.isNull());
+
+        QTest::keyClick(&fixture.view, Qt::Key_Down);
+
+        // Still on line one - it takes several rows, and Down went to the next
+        // of them rather than over the whole line.
+        QTRY_VERIFY(viewport->cursorPosition() > 0);
+        QCOMPARE(viewport->cursorLine(), 1);
+        // And exactly one row further down the screen. Waited for, not read
+        // straight away: where the caret is on screen is worked out when the
+        // rows are laid out again, which is a polish later.
+        // The caret lands where the row on screen starts, which is what says
+        // the layout the cursor moved through and the rows drawn agree.
+        QTRY_COMPARE(viewport->cursorPosition(),
+                     viewport->visibleLine(0).value("text").toString().size());
+        const auto caretDrop = [viewport, first] {
+            const QRectF now = viewport->cursorRectangle();
+            return now.isNull() ? -1.0 : now.top() - first.top();
+        };
+        QTRY_COMPARE(caretDrop(), viewport->lineHeight());
+    }
+
     void testHomeGoesToTheCodeBeforeItGoesToTheMargin()
     {
         TemporaryDirectory dir("qtc-viewport-home");
