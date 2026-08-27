@@ -263,6 +263,15 @@ rows now, and adds which row of the block the caret is on - without that a
 caret several rows into a wrapped line drags the view back a row every time.
 Neither half works alone, and the test says so: putting either back fails it.
 
+**A third site had the same bug, found by grepping for the shape of it.**
+`gotoLine()` - what a search result and a compiler message use - scrolled to
+the line's number times the line height, so going to line 60 of a wrapped file
+left it off screen entirely, the caret not laid out at all. Anywhere a line
+number is used as a vertical coordinate is worth checking:
+`firstLineNumber()`, `blockNumber() *`, and either side of `m_lineHeight`. All
+of them are rows now, and the one question they share is a function, so the
+next caller cannot get it wrong on its own.
+
 One more thing the test got wrong on the way. It asserted the scroll landed on
 exactly a page, and passed - on a value that was true for an instant before
 `ensureCursorVisible()` settled it a row lower. Asserting a number that is
