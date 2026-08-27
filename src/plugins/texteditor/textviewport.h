@@ -141,6 +141,9 @@ class TEXTEDITOR_EXPORT TextViewport : public QQuickItem
     Q_PROPERTY(int cursorDisplayColumn READ cursorDisplayColumn NOTIFY cursorPositionChanged)
     // How much is selected, for a display that says so.
     Q_PROPERTY(int selectedCharacterCount READ selectedCharacterCount NOTIFY selectionChanged)
+    // What is selected, with real newlines rather than the U+2029 a QTextCursor
+    // hands out - what a drag out of the editor carries.
+    Q_PROPERTY(QString selectedText READ selectedText NOTIFY selectionChanged)
     // The file's line ending and encoding, as the toolbar shows them. The
     // document's business rather than this view's, surfaced here because the
     // form has a handle on the viewport and not on the document. Empty when
@@ -223,6 +226,21 @@ public:
     int cursorColumn() const;
     int cursorDisplayColumn() const;
     int selectedCharacterCount() const;
+    QString selectedText() const;
+
+    // Text dropped on the editor, at the point it was let go over. Inserted
+    // the way a paste is - the language decides the indentation - and left
+    // selected, so that what just arrived is what is highlighted.
+    //
+    // \a moveFromSelection is a drag that started in this view's own
+    // selection: the text is taken from where it was as well as put where it
+    // is going, which is what makes it a move rather than a copy.
+    Q_INVOKABLE void dropText(const QString &text, qreal x, qreal y,
+                              bool moveFromSelection = false);
+
+    // Text dragged out of here and moved into something else: it has gone,
+    // so it has to stop being here too.
+    Q_INVOKABLE void removeSelectedText();
     QString fileLineEnding() const;
     QString fileEncoding() const;
 

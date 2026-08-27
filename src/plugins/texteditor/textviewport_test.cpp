@@ -33,6 +33,9 @@
 #include <utils/temporarydirectory.h>
 #include <utils/theme/theme.h>
 
+#include <QDragEnterEvent>
+#include <QDropEvent>
+#include <QMimeData>
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QQmlError>
@@ -117,6 +120,41 @@ public:
     QQuickView view;
     std::unique_ptr<QQmlComponent> component;
     CodeDocument document;
+    TextViewport *viewport = nullptr;
+};
+
+// The form around the viewport, for the parts that are QML: a bare TextViewport
+// has no drop area and nothing to drag a selection out with.
+class CodeViewportFixture
+{
+public:
+    explicit CodeViewportFixture(const FilePath &file, int width = 400, int height = 200)
+    {
+        view.resize(width, height);
+        installIconProvider(view);
+        document.setFilePath(file);
+        component.reset(new QQmlComponent(view.engine(),
+                                          QUrl("qrc:/qt/qml/QtCreator/TextEditor/"
+                                               "CodeViewport.qml")));
+        root = qobject_cast<QQuickItem *>(
+            component->createWithInitialProperties({{"source", QVariant::fromValue(&document)},
+                                                    {"readOnly", false}}));
+        if (root) {
+            root->setParentItem(view.contentItem());
+            root->setWidth(width);
+            root->setHeight(height);
+            viewport = root->findChild<TextViewport *>();
+        }
+        view.show();
+    }
+
+    bool isReady() const { return root && viewport; }
+    QString error() const { return component->errorString(); }
+
+    QQuickView view;
+    std::unique_ptr<QQmlComponent> component;
+    CodeDocument document;
+    QQuickItem *root = nullptr;
     TextViewport *viewport = nullptr;
 };
 
@@ -2810,6 +2848,334 @@ private slots:
         viewport->setSelectionEnd(8);
         QTRY_VERIFY(!viewport->visibleLine(0).value("newlineTail").toRectF().isEmpty());
         QCOMPARE(selectionOn(1), qMakePair(0, 2));
+    }
+
+    // Text let go over the editor. The QML side is a DropArea handing over the
+    // point it happened at; everything that changes the document is here.
+    void testDroppedTextArrivesWhereItWasLetGo()
+    {
+        TemporaryDirectory dir("textviewport-drop");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("drop.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\ngamma\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 2);
+        viewport->setReadOnly(false);
+        QTextDocument * const text = fixture.document.textDocument()->document();
+
+        // Between "be" and "ta" on the second line.
+        const QRectF caret = viewport->rectangleAt(8);
+        QVERIFY(!caret.isEmpty());
+        viewport->dropText("XY", caret.x(), caret.center().y());
+
+        QCOMPARE(text->toPlainText(), QString("alpha\nbeXYta\ngamma\n"));
+
+        // And what arrived is what is selected, so the next keystroke replaces
+        // it rather than landing next to it.
+        QCOMPARE(viewport->selectedText(), QString("XY"));
+    }
+
+    void testAnEmptyOrRefusedDropChangesNothing()
+    {
+        TemporaryDirectory dir("textviewport-drop-refused");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("drop.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+        viewport->setReadOnly(false);
+        QTextDocument * const text = fixture.document.textDocument()->document();
+        const QString before = text->toPlainText();
+
+        const QRectF caret = viewport->rectangleAt(2);
+        QVERIFY(!caret.isEmpty());
+
+        viewport->dropText({}, caret.x(), caret.center().y());
+        QCOMPARE(text->toPlainText(), before);
+
+        // A read-only editor takes nothing, the way it takes no keystroke.
+        viewport->setReadOnly(true);
+        viewport->dropText("XY", caret.x(), caret.center().y());
+        QCOMPARE(text->toPlainText(), before);
+
+        viewport->setReadOnly(false);
+        viewport->dropText("XY", caret.x(), caret.center().y());
+        QVERIFY2(text->toPlainText() != before, "read-only was not what refused the drop");
+    }
+
+    void testDraggingASelectionMovesItRatherThanCopyingIt()
+    {
+        TemporaryDirectory dir("textviewport-drag");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("drag.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\ngamma\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 2);
+        viewport->setReadOnly(false);
+        QTextDocument * const text = fixture.document.textDocument()->document();
+
+        // Drag "alpha" (0-5) down to the start of "gamma" (11). The drop point
+        // is below what is being taken away, so it has to move up by the five
+        // characters that stop being there - dropping at the position as it
+        // reads now would land five characters late.
+        viewport->setSelectionStart(0);
+        viewport->setSelectionEnd(5);
+        QCOMPARE(viewport->selectedText(), QString("alpha"));
+
+        const QRectF target = viewport->rectangleAt(11);
+        QVERIFY(!target.isEmpty());
+        viewport->dropText("alpha", target.x(), target.center().y(), true);
+
+        QCOMPARE(text->toPlainText(), QString("\nbeta\nalphagamma\n"));
+        QCOMPARE(viewport->selectedText(), QString("alpha"));
+    }
+
+    void testDraggingASelectionUpwardsMovesIt()
+    {
+        TemporaryDirectory dir("textviewport-drag-up");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("drag.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\ngamma\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 2);
+        viewport->setReadOnly(false);
+        QTextDocument * const text = fixture.document.textDocument()->document();
+
+        // "gamma" (11-16) to the very beginning: nothing is removed from above
+        // the drop point, so the position stands as it reads.
+        viewport->setSelectionStart(11);
+        viewport->setSelectionEnd(16);
+        QCOMPARE(viewport->selectedText(), QString("gamma"));
+
+        const QRectF target = viewport->rectangleAt(0);
+        QVERIFY(!target.isEmpty());
+        viewport->dropText("gamma", target.x(), target.center().y(), true);
+
+        QCOMPARE(text->toPlainText(), QString("gammaalpha\nbeta\n\n"));
+    }
+
+    void testDroppingASelectionOnItselfChangesNothing()
+    {
+        TemporaryDirectory dir("textviewport-drag-self");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("drag.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\ngamma\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 2);
+        viewport->setReadOnly(false);
+        QTextDocument * const text = fixture.document.textDocument()->document();
+        const QString before = text->toPlainText();
+
+        // Picking a selection up and putting it back down where it already is.
+        // Removing it first and inserting it after would be a deletion.
+        viewport->setSelectionStart(0);
+        viewport->setSelectionEnd(5);
+        const QRectF inside = viewport->rectangleAt(2);
+        QVERIFY(!inside.isEmpty());
+        viewport->dropText("alpha", inside.x(), inside.center().y(), true);
+
+        QCOMPARE(text->toPlainText(), before);
+    }
+
+    void testDroppedTextIsIndentedWhereItLands()
+    {
+        // A drop is a paste: the language decides what the indentation of what
+        // arrives should be, not the place it was dragged from.
+        TemporaryDirectory dir("textviewport-drop-indent");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("drop.txt");
+        QVERIFY(file.writeFileContents("alpha\n    beta\ngamma\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 2);
+        viewport->setReadOnly(false);
+        TextDocument * const doc = fixture.document.textDocument();
+        QTextDocument * const text = doc->document();
+
+        // The start of "gamma", which follows an indented line.
+        const int startOfGamma = text->findBlockByNumber(2).position();
+        const QRectF target = viewport->rectangleAt(startOfGamma);
+        QVERIFY(!target.isEmpty());
+        viewport->dropText("delta\n", target.x(), target.center().y());
+
+        const QString indented = text->findBlockByNumber(2).text();
+        QCOMPARE(indented.trimmed(), QString("delta"));
+        QVERIFY2(indented.startsWith("    "),
+                 qPrintable(QString("dropped line was not indented: '%1'").arg(indented)));
+    }
+
+    void testTheSelectedTextIsWhatWouldBeDraggedOut()
+    {
+        // A QTextCursor separates paragraphs with U+2029; text handed to
+        // another application has to carry real newlines.
+        TemporaryDirectory dir("textviewport-selected-text");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("sel.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+
+        QVERIFY(viewport->selectedText().isEmpty());
+
+        viewport->setSelectionStart(0);
+        viewport->setSelectionEnd(8);
+        const QString dragged = viewport->selectedText();
+        QCOMPARE(dragged, QString("alpha\nbe"));
+        QVERIFY2(!dragged.contains(QChar::ParagraphSeparator),
+                 "the dragged text carried a paragraph separator");
+    }
+
+    // A drop is the one input the editor takes that no key or click produces,
+    // so the wiring between the drop area in the form and the document is only
+    // ever exercised here.
+    void testTextDroppedOnTheFormReachesTheDocument()
+    {
+        TemporaryDirectory dir("codeviewport-drop");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("drop.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\ngamma\n"));
+
+        CodeViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        QVERIFY2(fixture.root->findChild<QObject *>("editorDropArea"),
+                 "the form has no drop area");
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 2);
+        QTextDocument * const text = fixture.document.textDocument()->document();
+
+        // Between "be" and "ta" on the second line, in the coordinates the
+        // scene delivers a drop in.
+        const QRectF caret = viewport->rectangleAt(8);
+        QVERIFY(!caret.isEmpty());
+        const QPointF at = viewport->mapToScene(QPointF(caret.x(), caret.center().y()));
+
+        QMimeData dropped;
+        dropped.setText("XY");
+        QDragEnterEvent enter(at.toPoint(), Qt::CopyAction, &dropped,
+                              Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(&fixture.view, &enter);
+        QVERIFY2(enter.isAccepted(), "the form refused text it can take");
+        QDropEvent drop(at, Qt::CopyAction, &dropped, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(&fixture.view, &drop);
+
+        QCOMPARE(text->toPlainText(), QString("alpha\nbeXYta\ngamma\n"));
+    }
+
+    // Dropping a file on the editor opens it. That only works while the editor
+    // itself keeps its hands off URLs - taking them would paste the path in.
+    void testAFileDroppedOnTheFormIsNotPastedIntoIt()
+    {
+        TemporaryDirectory dir("codeviewport-drop-url");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("drop.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\n"));
+
+        CodeViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+        QTextDocument * const text = fixture.document.textDocument()->document();
+        const QString before = text->toPlainText();
+
+        const QRectF caret = viewport->rectangleAt(2);
+        QVERIFY(!caret.isEmpty());
+        const QPointF at = viewport->mapToScene(QPointF(caret.x(), caret.center().y()));
+
+        // A file manager hands over URLs and sets the text to the path as
+        // well, which is what makes ignoring the URLs the only way to tell a
+        // dropped file from dropped text.
+        QMimeData urls;
+        urls.setUrls({QUrl::fromLocalFile(file.toFSPathString())});
+        urls.setText(file.toFSPathString());
+        QDragEnterEvent enter(at.toPoint(), Qt::CopyAction, &urls,
+                              Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(&fixture.view, &enter);
+        QVERIFY2(!enter.isAccepted(), "the form took a dropped file for itself");
+        QDropEvent drop(at, Qt::CopyAction, &urls, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(&fixture.view, &drop);
+
+        QCOMPARE(text->toPlainText(), before);
+    }
+
+    void testAReadOnlyFormTakesNoDrop()
+    {
+        TemporaryDirectory dir("codeviewport-drop-readonly");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("drop.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\n"));
+
+        CodeViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+        QTextDocument * const text = fixture.document.textDocument()->document();
+        const QString before = text->toPlainText();
+
+        const QRectF caret = viewport->rectangleAt(2);
+        QVERIFY(!caret.isEmpty());
+        const QPointF at = viewport->mapToScene(QPointF(caret.x(), caret.center().y()));
+
+        QMimeData dropped;
+        dropped.setText("XY");
+        fixture.root->setProperty("readOnly", true);
+        QDragEnterEvent refused(at.toPoint(), Qt::CopyAction, &dropped,
+                                Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(&fixture.view, &refused);
+        QVERIFY2(!refused.isAccepted(), "a view offered to take text it cannot hold");
+        QDropEvent drop(at, Qt::CopyAction, &dropped, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(&fixture.view, &drop);
+        QCOMPARE(text->toPlainText(), before);
+
+        // And it is the read-only that refused, not the form refusing drops
+        // in general.
+        fixture.root->setProperty("readOnly", false);
+        QDragEnterEvent accepted(at.toPoint(), Qt::CopyAction, &dropped,
+                                 Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(&fixture.view, &accepted);
+        QVERIFY(accepted.isAccepted());
+        QDropEvent second(at, Qt::CopyAction, &dropped, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(&fixture.view, &second);
+        QVERIFY(text->toPlainText() != before);
     }
 };
 

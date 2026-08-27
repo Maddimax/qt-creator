@@ -10025,52 +10025,11 @@ void TextEditorWidget::insertFromMimeData(const QMimeData *source)
 
     int index = 0;
     cursor.beginEditBlock();
-    for (QTextCursor &cursor : cursor) {
-        const QString textForCursor = mappedText.textAt(index++);
-
-        cursor.removeSelectedText();
-
-        bool insertAtBeginningOfLine = TabSettingsData::cursorIsAtBeginningOfLine(cursor);
-        int reindentBlockStart = cursor.blockNumber() + (insertAtBeginningOfLine ? 0 : 1);
-
-        bool hasFinalNewline = (textForCursor.endsWith(QLatin1Char('\n'))
-                                || textForCursor.endsWith(QChar::ParagraphSeparator)
-                                || textForCursor.endsWith(QLatin1Char('\r')));
-
-        if (insertAtBeginningOfLine
-            && hasFinalNewline) // since we'll add a final newline, preserve current line's indentation
-            cursor.setPosition(cursor.block().position());
-
-        int cursorPosition = cursor.position();
-        cursor.insertText(textForCursor);
-        const QTextCursor endCursor = cursor;
-        QTextCursor startCursor = endCursor;
-        startCursor.setPosition(cursorPosition);
-
-        int reindentBlockEnd = cursor.blockNumber() - (hasFinalNewline ? 1 : 0);
-
-        if (!d->m_skipFormatOnPaste
-            && (reindentBlockStart < reindentBlockEnd
-                || (reindentBlockStart == reindentBlockEnd
-                    && (!insertAtBeginningOfLine || hasFinalNewline)))) {
-            if (insertAtBeginningOfLine && !hasFinalNewline) {
-                QTextCursor unnecessaryWhitespace = cursor;
-                unnecessaryWhitespace.setPosition(cursorPosition);
-                unnecessaryWhitespace.movePosition(QTextCursor::StartOfBlock,
-                                                   QTextCursor::KeepAnchor);
-                unnecessaryWhitespace.removeSelectedText();
-            }
-            QTextCursor c = cursor;
-            c.setPosition(cursor.document()->findBlockByNumber(reindentBlockStart).position());
-            c.setPosition(cursor.document()->findBlockByNumber(reindentBlockEnd).position(),
-                          QTextCursor::KeepAnchor);
-            d->m_document->autoReindent(c);
-        }
-
-        if (selectInsertedText) {
-            cursor.setPosition(startCursor.position());
-            cursor.setPosition(endCursor.position(), QTextCursor::KeepAnchor);
-        }
+    for (QTextCursor &textCursor : cursor) {
+        d->m_document->insertWithIndentation(textCursor,
+                                             mappedText.textAt(index++),
+                                             selectInsertedText,
+                                             d->m_skipFormatOnPaste);
     }
     cursor.endEditBlock();
     setMultiTextCursor(cursor);

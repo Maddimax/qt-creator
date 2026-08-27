@@ -125,6 +125,22 @@ Item {
             acceptedButtons: Qt.LeftButton | Qt.RightButton
             cursorShape: Qt.IBeamCursor
 
+            // Set while a press is sitting on a selection without having moved
+            // far enough to be a drag: -1 when there is no such press.
+            property int pendingDragAt: -1
+            property real pressX: 0
+            property real pressY: 0
+            // A drag of ours that came back down on this same viewport. Its own
+            // drop has already taken the text from where it was, so the move
+            // must not be undone a second time when the drag finishes.
+            property bool droppedOnSelf: false
+
+            function isInSelection(position: int): bool {
+                return viewport.selectionStart !== viewport.selectionEnd
+                    && position >= Math.min(viewport.selectionStart, viewport.selectionEnd)
+                    && position <= Math.max(viewport.selectionStart, viewport.selectionEnd)
+            }
+
             function extendSelection(): void {
                 const position = viewport.positionAt(textArea.dragX, textArea.dragY)
                 viewport.cursorPosition = position
@@ -162,6 +178,15 @@ Item {
                     viewport.selectLineAt(position)
                     return
                 }
+                // A press inside a selection may be picking it up to drag it
+                // somewhere, so the selection has to survive until the press
+                // turns out to be an ordinary click after all.
+                if (textArea.isInSelection(position)) {
+                    textArea.pendingDragAt = position
+                    textArea.pressX = mouse.x
+                    textArea.pressY = mouse.y
+                    return
+                }
                 viewport.cursorPosition = position
                 // A press starts a selection of nothing rather than clearing
                 // it, so that the drag below has an anchor to grow from.
@@ -171,6 +196,16 @@ Item {
             onPositionChanged: (mouse) => {
                 if (!pressed)
                     return
+                if (textArea.pendingDragAt >= 0) {
+                    const far = Math.abs(mouse.x - textArea.pressX)
+                              + Math.abs(mouse.y - textArea.pressY)
+                    if (far >= Application.styleHints.startDragDistance) {
+                        textArea.pendingDragAt = -1
+                        textArea.droppedOnSelf = false
+                        dragProxy.Drag.startDrag(Qt.CopyAction | Qt.MoveAction)
+                    }
+                    return
+                }
                 textArea.dragX = mouse.x
                 textArea.dragY = mouse.y
                 textArea.extendSelection()
@@ -179,8 +214,21 @@ Item {
                 // and keep going while the pointer stays out there.
                 autoScroll.running = mouse.y < 0 || mouse.y > textArea.height
             }
-            onReleased: autoScroll.stop()
-            onCanceled: autoScroll.stop()
+            onReleased: {
+                autoScroll.stop()
+                // The press never became a drag, so it was a click, and a click
+                // inside a selection puts the caret where it landed.
+                if (textArea.pendingDragAt >= 0) {
+                    viewport.cursorPosition = textArea.pendingDragAt
+                    viewport.selectionStart = textArea.pendingDragAt
+                    viewport.selectionEnd = textArea.pendingDragAt
+                    textArea.pendingDragAt = -1
+                }
+            }
+            onCanceled: {
+                autoScroll.stop()
+                textArea.pendingDragAt = -1
+            }
 
             Timer {
                 id: autoScroll
@@ -211,6 +259,51 @@ Item {
                 id: tripleClick
 
                 interval: Application.styleHints.mouseDoubleClickInterval
+            }
+        }
+
+        // Carries the selection out of the editor. It draws nothing and is
+        // never positioned: what it exists for is the Drag attached property,
+        // which has to be attached to an Item.
+        Item {
+            id: dragProxy
+
+            objectName: "editorDragProxy"
+            Drag.dragType: Drag.Automatic
+            Drag.supportedActions: Qt.CopyAction | Qt.MoveAction
+            Drag.mimeData: ({ "text/plain": viewport.selectedText })
+
+            // A move means the text is now somewhere else, so it stops being
+            // here - unless it came back down on this same viewport, where the
+            // drop has already taken it from where it was.
+            Drag.onDragFinished: (dropAction) => {
+                if (dropAction === Qt.MoveAction && !textArea.droppedOnSelf)
+                    viewport.removeSelectedText()
+                textArea.droppedOnSelf = false
+            }
+        }
+
+        DropArea {
+            id: textDrop
+
+            objectName: "editorDropArea"
+            anchors.fill: viewport
+            // Files are opened, not inserted, so a URL is somebody else's to
+            // handle and this has to keep its hands off it.
+            onEntered: (drag) => {
+                if (drag.hasUrls || !drag.hasText || viewport.readOnly)
+                    drag.accepted = false
+            }
+            onDropped: (drop) => {
+                if (drop.hasUrls || !drop.hasText || viewport.readOnly) {
+                    drop.accepted = false
+                    return
+                }
+                const fromHere = drop.source === dragProxy
+                textArea.droppedOnSelf = fromHere
+                viewport.dropText(drop.text, drop.x, drop.y, fromHere)
+                viewport.forceActiveFocus()
+                drop.accept(fromHere ? Qt.MoveAction : drop.proposedAction)
             }
         }
 

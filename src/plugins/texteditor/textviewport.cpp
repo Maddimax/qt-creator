@@ -914,6 +914,73 @@ int TextViewport::selectedCharacterCount() const
     return qAbs(m_selectionEnd - m_selectionStart);
 }
 
+QString TextViewport::selectedText() const
+{
+    const QTextCursor cursor = textCursor();
+    return cursor.isNull() || !cursor.hasSelection() ? QString() : selectedPlainText(cursor);
+}
+
+void TextViewport::removeSelectedText()
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    QTextDocument * const document = doc ? doc->document() : nullptr;
+    const int from = qMin(m_selectionStart, m_selectionEnd);
+    const int to = qMax(m_selectionStart, m_selectionEnd);
+    if (!document || m_readOnly || doc->isFileReadOnly() || from < 0 || to <= from)
+        return;
+
+    QTextCursor cursor(document);
+    cursor.setPosition(from);
+    cursor.setPosition(to, QTextCursor::KeepAnchor);
+    cursor.removeSelectedText();
+    setSelectionStart(from);
+    setSelectionEnd(from);
+    setCursorPosition(from);
+}
+
+void TextViewport::dropText(const QString &text, qreal x, qreal y, bool moveFromSelection)
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    QTextDocument * const document = doc ? doc->document() : nullptr;
+    if (!document || text.isEmpty() || m_readOnly || doc->isFileReadOnly())
+        return;
+
+    const int at = positionAt(x, y);
+    if (at < 0)
+        return;
+
+    const int from = qMin(m_selectionStart, m_selectionEnd);
+    const int to = qMax(m_selectionStart, m_selectionEnd);
+    const bool moving = moveFromSelection && from >= 0 && to > from;
+    // Dropping a selection back inside itself moves it nowhere, and taking the
+    // text out first would make it a deletion.
+    if (moving && at >= from && at <= to)
+        return;
+
+    QTextCursor cursor(document);
+    cursor.beginEditBlock();
+    if (moving) {
+        // Remove first, then insert where that leaves the drop point: text
+        // taken from above it moves it up by as much.
+        const int shift = at > to ? to - from : 0;
+        cursor.setPosition(from);
+        cursor.setPosition(to, QTextCursor::KeepAnchor);
+        cursor.removeSelectedText();
+        cursor.setPosition(at - shift);
+    } else {
+        cursor.setPosition(at);
+    }
+
+    doc->insertWithIndentation(cursor, text, true);
+    cursor.endEditBlock();
+
+    // What just arrived is what is highlighted, which is what a drop onto the
+    // widget editor leaves behind too.
+    setSelectionStart(cursor.anchor());
+    setSelectionEnd(cursor.position());
+    setCursorPosition(cursor.position());
+}
+
 QString TextViewport::fileLineEnding() const
 {
     TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;

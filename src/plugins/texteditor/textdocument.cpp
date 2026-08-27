@@ -554,6 +554,67 @@ void TextDocument::autoReindent(const QTextCursor &cursor, int currentCursorPosi
     d->m_indenter->reindent(cursor, tabSettings(), currentCursorPosition);
 }
 
+void TextDocument::insertWithIndentation(QTextCursor &cursor, const QString &text,
+                                         bool selectInsertedText, bool skipReindent)
+{
+    if (text.isEmpty())
+        return;
+
+    if (!typingSettings().m_autoIndent) {
+        const int start = cursor.selectionStart();
+        cursor.insertText(text);
+        if (selectInsertedText) {
+            const int end = cursor.position();
+            cursor.setPosition(start);
+            cursor.setPosition(end, QTextCursor::KeepAnchor);
+        }
+        return;
+    }
+
+    cursor.removeSelectedText();
+
+    const bool insertAtBeginningOfLine = TabSettingsData::cursorIsAtBeginningOfLine(cursor);
+    const int reindentBlockStart = cursor.blockNumber() + (insertAtBeginningOfLine ? 0 : 1);
+
+    const bool hasFinalNewline = text.endsWith(QLatin1Char('\n'))
+                                 || text.endsWith(QChar::ParagraphSeparator)
+                                 || text.endsWith(QLatin1Char('\r'));
+
+    // Since a final newline is coming, keep this line's own indentation.
+    if (insertAtBeginningOfLine && hasFinalNewline)
+        cursor.setPosition(cursor.block().position());
+
+    const int cursorPosition = cursor.position();
+    cursor.insertText(text);
+    const QTextCursor endCursor = cursor;
+    QTextCursor startCursor = endCursor;
+    startCursor.setPosition(cursorPosition);
+
+    const int reindentBlockEnd = cursor.blockNumber() - (hasFinalNewline ? 1 : 0);
+
+    if (!skipReindent
+        && (reindentBlockStart < reindentBlockEnd
+            || (reindentBlockStart == reindentBlockEnd
+                && (!insertAtBeginningOfLine || hasFinalNewline)))) {
+        if (insertAtBeginningOfLine && !hasFinalNewline) {
+            QTextCursor unnecessaryWhitespace = cursor;
+            unnecessaryWhitespace.setPosition(cursorPosition);
+            unnecessaryWhitespace.movePosition(QTextCursor::StartOfBlock, QTextCursor::KeepAnchor);
+            unnecessaryWhitespace.removeSelectedText();
+        }
+        QTextCursor c = cursor;
+        c.setPosition(cursor.document()->findBlockByNumber(reindentBlockStart).position());
+        c.setPosition(cursor.document()->findBlockByNumber(reindentBlockEnd).position(),
+                      QTextCursor::KeepAnchor);
+        autoReindent(c);
+    }
+
+    if (selectInsertedText) {
+        cursor.setPosition(startCursor.position());
+        cursor.setPosition(endCursor.position(), QTextCursor::KeepAnchor);
+    }
+}
+
 void TextDocument::autoFormatOrIndent(const QTextCursor &cursor)
 {
     d->m_indenter->autoIndent(cursor, tabSettings());

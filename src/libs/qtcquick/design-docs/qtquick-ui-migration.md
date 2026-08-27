@@ -7334,7 +7334,7 @@ That test also found its own bug first: it looked for the label in the editor's
 form, and the toolbar is a *separate* form built on demand by `toolBar()`.
 
 What is left of the editor: auto-insertion and completion, which need the
-provider registry described above, and dragging text out of a selection.
+provider registry described above. Dragging text has since been done.
 
 **On completion, having looked properly.** It is not one missing call. The
 provider lives on the document (`TextDocument::completionAssistProvider()`),
@@ -8292,6 +8292,78 @@ value, so a preview whose edits never got there would format the text as it was
 before they were made. `testEditingThePreviewReachesTheAspectThatOwnsIt` now
 checks both halves - that the aspect is *not* written while the cursor is still
 in the editor, and that it is once focus leaves.
+
+## Dragging text, and a paste path that was written twice
+
+The last editor gap that needed no design decision. What made it worth doing
+properly is what the first version got wrong.
+
+**A drop is a paste, and the widget already knew how.** The obvious
+implementation - insert at the drop point, then `autoIndent()` - is not what
+`TextEditorWidget::insertFromMimeData()` does. That function reindents a *block
+range*, and it distinguishes four cases: whether the insertion starts at the
+beginning of a line, whether the text ends in a newline, and the two together.
+It also strips the whitespace the caret was sitting after when text arrives at
+a line start without a trailing newline. Reimplementing that from the outside
+would have produced an editor where dropping text indents differently from
+pasting the same text, and the difference would have been visible on the first
+multi-line drop into indented code.
+
+So the per-cursor body moved out to `TextDocument::insertWithIndentation()`, and
+both callers use it. That is the same shape as the earlier extractions
+(`handleMoveKeyEvent`, the `TextBlockUserData` statics): the *computation* leaves
+the widget, the policy stays. The widget keeps its own `MultiTextCursor` loop,
+its snippet-overlay accept, its code-assist teardown and - deliberately - its
+`!m_autoIndent` early return, which returns before the block-mime substitution.
+Folding that early return into the shared function looked like a simplification
+and quietly changed what a multi-cursor block paste does with auto-indent off.
+It was put back.
+
+**What is in QML and what is not.** The `DropArea` and the `Drag` proxy in
+`CodeViewport.qml` do event plumbing only: they hand over a point, a string and
+one flag - whether the drag started in this same viewport. Everything that
+touches the document is `TextViewport::dropText()`, which is a plain invokable
+and is tested directly. A drop that arrives from elsewhere is a copy; one that
+started here is a move, and the removal happens in the same edit block as the
+insertion so a single undo puts it back.
+
+The move needs one piece of arithmetic that is easy to get wrong and impossible
+to notice in a quick manual test: when the drop point is *below* the selection,
+removing the text first moves the drop point up by the length of what was
+removed. Dropping at the position as it reads before the removal lands that many
+characters late. Its negative control breaks exactly one test.
+
+**Where the drag out goes.** `Drag.dragType: Drag.Automatic` with
+`Drag.mimeData` on an `Item` that draws nothing. A press inside an existing
+selection can no longer collapse it on the spot - it might be picking the
+selection up - so the collapse is deferred to the release, and a move of more
+than `startDragDistance` turns the press into a drag instead. If the drop lands
+back on this viewport, `onDropped` has already moved the text and
+`Drag.onDragFinished` must not remove it a second time; a flag set in the one
+and read in the other is what keeps those apart.
+
+**Two diagnoses, one right.** Two tests hung for 300 seconds. The first
+explanation - that synthetic drag events deadlock against a `QQuickWidget`'s
+offscreen window - was invented to fit the evidence and was wrong. Sampling the
+hung process said so in one stack:
+
+    ~QScopeGuard -> EditorManager::closeEditors -> saveModifiedDocuments
+                 -> saveModifiedFilesHelper -> QDialog::exec()
+
+Both tests dirty the document, and closing an editor with unsaved changes opens
+a modal "save changes?" that nothing in a headless run will ever answer.
+`closeEditors({editor}, false)` is the fix, and thirteen of the fourteen tests in
+that file were already written that way - the one that was copied from happened
+to be the one that never modified anything. The lesson is the cheap one: a
+five-minute hang has a stack, and reading it costs less than a theory.
+
+**Testing the QML half.** It is testable, and against the real component: a
+`QQuickView` loading `CodeViewport.qml`, with `QDragEnterEvent` and `QDropEvent`
+sent to the window. That covers the part with no C++ to interrogate - that a
+dropped *file* is refused so that whoever opens files still gets it, and that a
+read-only view refuses text before the drop rather than after. Seven controls
+were run; all seven bit, and the URL one and the read-only one bite on the QML
+edit alone, so the plumbing is covered and not just the behaviour.
 
 ## The terminal spike: go, with the cleanest split in the tree
 

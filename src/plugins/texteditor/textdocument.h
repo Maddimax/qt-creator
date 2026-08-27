@@ -98,6 +98,14 @@ public:
                     QChar typedChar = QChar::Null,
                     int currentCursorPosition = -1);
     void autoReindent(const QTextCursor &cursor, int currentCursorPosition = -1);
+
+    // Put \a text in at \a cursor the way a paste does: replacing whatever
+    // the cursor has selected, and letting the language decide the
+    // indentation of what arrived. \a skipReindent is an editor's own "do not
+    // format on paste" state. Leaves \a cursor over the inserted text when
+    // \a selectInsertedText, which is what a drop wants and a paste does not.
+    void insertWithIndentation(QTextCursor &cursor, const QString &text,
+                               bool selectInsertedText, bool skipReindent = false);
     void autoFormatOrIndent(const QTextCursor &cursor);
     Utils::MultiTextCursor indent(const Utils::MultiTextCursor &cursor);
     Utils::MultiTextCursor unindent(const Utils::MultiTextCursor &cursor);

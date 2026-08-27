@@ -1514,6 +1514,44 @@ private slots:
         QVERIFY2(other, "the editor cannot be split");
         QCOMPARE(other->document(), editor->document());
     }
+
+
+
+    void testTheSelectionCanBeRemovedForADragThatMovedIt()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-drag-out");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("drag.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\n"));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        // Without asking: the test dirties the document, and a modal "save
+        // changes?" has nobody to answer it here.
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+        QVERIFY2(quick->rootObject()->findChild<QObject *>("editorDragProxy"),
+                 "the form has nothing to drag a selection out with");
+        auto * const viewport = quick->rootObject()->findChild<TextViewport *>();
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        // What the drag carries is the selection, and what a move leaves
+        // behind is nothing.
+        viewport->setSelectionStart(0);
+        viewport->setSelectionEnd(5);
+        QCOMPARE(viewport->selectedText(), QString("alpha"));
+        viewport->removeSelectedText();
+        QCOMPARE(document->plainText(), QString("\nbeta\n"));
+        QVERIFY(viewport->selectedText().isEmpty());
+    }
 };
 
 QObject *createQuickTextEditorTest()
