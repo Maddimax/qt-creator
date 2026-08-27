@@ -166,6 +166,14 @@ a live copy and a dead one - and one test that dropped the result of
 `qWaitForWindowExposed`, so it compared positions in a window that need never
 have appeared.
 
+**Setting the Quick Controls style is a startup job, not a lazy one.** It was
+being set inside the engine that `QtcQuick::engine()` creates on first use, so
+it landed wherever the first QtcQuick widget was built - and Controls keep the
+first style anything loaded, so if another engine had drawn a control by then
+the call did nothing. The test written for this at first tried to arrange the
+order itself and was flaky for the same reason. It is a
+`Q_COREAPP_STARTUP_FUNCTION` now, which is before every engine in the process.
+
 **Reading the QWARN lines of a green suite found one more.** TextEditor
 passes 281/281 and printed, in the middle of it, that
 `QQuickStyle::setStyle()` had been called too late to take. The viewport tests
@@ -5130,11 +5138,25 @@ under step 0 for why that compiles and does not link.
 open is not more porting but three decisions, none of which should be taken
 without the user:
 
-- **The file watcher imbalance.** 33 soft asserts per TextEditor run, fully
-  diagnosed at the end of this document: relative paths reach the watcher, so
-  its two stores key one file twice. Fixing it means deciding, in `Core` or
-  `Utils`, where a non-absolute path gets refused - and the one change tried
-  here made the symptom measurably worse.
+- **The file watcher imbalance**, and the earlier reading of it here was
+  wrong. Reading the warnings of five green suites - Core, QmlJSEditor,
+  QmlJSTools, CMakeProjectManager and TextEditor - gives 55 "Failed to watch"
+  lines, and **every one of them is an absolute path**. The relative path
+  found earlier is at most a sub-case, so "decide where a non-absolute path
+  gets refused" is not the question.
+
+  What the code says: `_watch()` drops a client whose `addPaths()` was
+  reported as failed, and `QFileSystemWatcher` reports a path it is *already*
+  watching as failed. It can be watching one the map no longer knows about,
+  because `_removeWatch()` erases its `m_watchClients` entry before
+  `removePath()` has succeeded and does not put it back if that fails. The
+  client is then never recorded, and the next `_removeWatch()` for it soft
+  asserts - which is why the warnings and the asserts move together.
+
+  So the fix is probably local to `devicefileaccess.cpp`: treat "already
+  watched" as watched rather than as failed. That is narrower than the change
+  tried here before, which took warnings to zero and the asserts from 33 to
+  53. It has not been attempted yet.
 - **The Qt Quick editor's reach.** It has hover tooltips, follow symbol and
   Ctrl+click, and it draws Code Style, Snippets and Font && Colors. It is not
   Creator's editor. Making it so is a large change nobody has asked for.
