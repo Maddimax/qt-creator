@@ -277,24 +277,23 @@ with seven others - but not the two layouts wrapping at different widths, which
 lands the caret between rows and is what the Down test is for. Worth knowing
 which test covers which, because the two look like the same bug from outside.
 
-**Visualised whitespace is not drawn by the Qt Quick editor, and a green test
-says otherwise.** `QuickTextEditorTest::testWhitespaceIsShownWhenTheSettingAsksForIt`
-checks that `ShowTabsAndSpaces` reaches the document's default text option -
-which it does. Nothing then draws it. Grabbing the rendered row gives **78
-pixels of ink with the setting on and 78 with it off**, for a line with six
-spaces in it.
+**Visualised whitespace is drawn now, and was not before** - a green test said
+otherwise, because it checked that `ShowTabsAndSpaces` reaches the document's
+text option, which it does, and nothing then read it. `ShowTabsAndSpaces` is
+honoured in `QTextLine::draw_internal()`, and **qtdeclarative's scene graph
+never mentions it**, so an editor drawing through `QSGTextNode` shows nothing
+whatever the option says. The rendered row had the same ink either way.
 
-The reason is structural, not a missing flag. `ShowTabsAndSpaces` is honoured
-in `QTextLine::draw_internal()` - `qtextlayout.cpp` and `qtextengine.cpp` - and
-**qtdeclarative's scene graph does not mention it anywhere**. This editor draws
-through `QSGTextNode`, so the dots and arrows never happen, whatever the option
-says. Setting the flag on the rows' own option was tried and changes nothing,
-so it is not committed.
+The rows carry the positions of their spaces and tabs now, and CodeViewport
+draws them the way it already draws indent guides, in the same
+`C_VISUAL_WHITESPACE`.
 
-Drawing them means drawing them: per row, a mark per space and per tab, the way
-`visualizeIndent()`'s guides are already drawn from `line.indentGuides`. The
-colour is to hand - `C_VISUAL_WHITESPACE`, which the indent guides use. That is
-a feature to write rather than a bug to fix, so it is written down here instead.
+**Two false trails on the way, both worth knowing.** Setting the flag on the
+rows' own text option changes nothing - the flag is not the problem. And
+`findChildren()` does not find Repeater delegates: they are in the visual tree,
+not the QObject one, so `childItems()` is what sees them. That one cost the
+most: it said "zero items created" while the items were there and correct, and
+sent me looking for a fault in QML that had none.
 
 **The caret's way back into view sideways was invented here too.** It nudged
 just inside the edge plus a quarter of the view, or four lines, whichever was
