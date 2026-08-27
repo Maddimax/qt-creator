@@ -231,8 +231,27 @@ public:
         });
         configureHighlighter();
 
-        setContext(Core::Context(QUICK_TEXT_EDITOR_ID));
+        // Two contexts: the shared one, which is what a command meant for
+        // "any editor of this kind" uses, and one of this editor's own. A
+        // per-editor action has to be registered against the second, or the
+        // next editor of the same kind collides with it - the widget editor
+        // generates an id per instance for exactly this reason.
+        setContext(Core::Context(QUICK_TEXT_EDITOR_ID, m_editorContext));
         setWidget(widget);
+
+        // The Wrap Lines menu item. The widget editor registers the same
+        // command in its own context and toggles that editor rather than the
+        // preference, so this does the same: without it the menu entry is
+        // simply dead whenever a Quick editor is the current one.
+        m_wrapAction = Core::ActionBuilder(this, Constants::TEXT_WRAPPING)
+                           .setContext(Core::Context(m_editorContext))
+                           .setCheckable(true)
+                           .addOnToggled(this, [this](bool checked) {
+                               if (TextViewport * const view = viewport())
+                                   view->setWrapping(checked);
+                           })
+                           .contextAction();
+        m_wrapAction->setChecked(displaySettings().textWrapping());
 
         // Ctrl+F reaches an editor by asking its widget for an IFindSupport,
         // so this has to hang off the widget rather than off the editor.
@@ -374,6 +393,10 @@ private:
     QtcQuick::ActionModel m_contextActions;
     // Owned by the toolbar the editor manager puts it in, so a QPointer.
     QPointer<QWidget> m_toolBar;
+    QPointer<QAction> m_wrapAction;
+    // This editor alone, so that a per-editor action does not collide with
+    // the same action on the next one.
+    const Utils::Id m_editorContext = Utils::Id::generate();
     std::unique_ptr<AdoptedSource> m_source;
 };
 
@@ -400,6 +423,31 @@ void setupQuickTextEditor()
 }
 
 #ifdef WITH_TESTS
+
+// Registering the same command twice in one context is a warning and nothing
+// else: the second registration is dropped and the editor quietly has no
+// action. Asserting the absence of that line is the only way a test sees it.
+class ActionCollisions
+{
+public:
+    ActionCollisions() { s_hits = &m_hits; s_previous = qInstallMessageHandler(collect); }
+    ~ActionCollisions() { qInstallMessageHandler(s_previous); s_hits = nullptr; }
+
+    QStringList hits() const { return m_hits; }
+
+private:
+    static void collect(QtMsgType type, const QMessageLogContext &context, const QString &message)
+    {
+        if (s_hits && message.contains("already registered"))
+            s_hits->append(message);
+        if (s_previous)
+            s_previous(type, context, message);
+    }
+
+    QStringList m_hits;
+    static inline QStringList *s_hits = nullptr;
+    static inline QtMessageHandler s_previous = nullptr;
+};
 
 class QuickTextEditorTest final : public QObject
 {
@@ -1242,6 +1290,78 @@ private slots:
                      "turning wrapping off left the open editor wrapping");
         displaySettings().textWrapping.setValue(true);
         QTRY_VERIFY(viewport->isWrapping());
+    }
+
+    // Wrap Lines is a menu item with a shortcut, registered per editor in that
+    // editor's context. Without one of its own, the entry is dead whenever a
+    // Quick editor is the current one - it would look like the feature is
+    // missing rather than the editor being unfinished.
+    void testTheWrapLinesActionTogglesThisEditor()
+    {
+        const bool wasWrapping = displaySettings().textWrapping();
+        const QScopeGuard restore(
+            [wasWrapping] { displaySettings().textWrapping.setValue(wasWrapping); });
+        displaySettings().textWrapping.setValue(false);
+
+        // Two editors of this kind exist below, and each registers the same
+        // command. Registered in a context they share, the second is dropped
+        // with a warning and no failure - so the warning is what is asserted.
+        ActionCollisions collisions;
+
+        Utils::TemporaryDirectory dir("quick-editor-wrapaction");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("long.txt");
+        QVERIFY(file.writeFileContents((QString("word ").repeated(80) + "\n").toUtf8()));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+        auto * const viewport = quick->rootObject()->findChild<TextViewport *>();
+        QVERIFY(viewport);
+        QVERIFY(!viewport->isWrapping());
+
+        // The real command, not a stray QAction: this is the entry the menu
+        // and the shortcut go through.
+        Core::Command * const command = Core::ActionManager::command(Constants::TEXT_WRAPPING);
+        QVERIFY2(command, "there is no Wrap Lines command to register against");
+
+        const QList<QAction *> actions = editor->findChildren<QAction *>();
+        QCOMPARE(actions.size(), 1);
+        QAction * const wrap = actions.first();
+        QVERIFY2(wrap->isCheckable(), "Wrap Lines is a toggle, not a one-shot");
+        QCOMPARE(wrap->isChecked(), false);
+
+        wrap->setChecked(true);
+        QTRY_VERIFY2(viewport->isWrapping(), "the action was checked and nothing wrapped");
+
+        wrap->setChecked(false);
+        QTRY_VERIFY(!viewport->isWrapping());
+
+        // It reflects the preference the editor opened with, so the menu shows
+        // a tick when the file in front of the reader is wrapped.
+        displaySettings().textWrapping.setValue(true);
+        const Utils::FilePath other = dir.filePath("second.txt");
+        QVERIFY(other.writeFileContents("short\n"));
+        Core::IEditor * const second
+            = Core::EditorManager::openEditor(other, QUICK_TEXT_EDITOR_ID);
+        QVERIFY(second);
+        const QScopeGuard closeSecond(
+            [second] { Core::EditorManager::closeEditors({second}, false); });
+        const QList<QAction *> secondActions = second->findChildren<QAction *>();
+        QCOMPARE(secondActions.size(), 1);
+        QVERIFY2(secondActions.first()->isChecked(),
+                 "the editor opened wrapped but the menu entry is unticked");
+
+        // join() rather than first(): QVERIFY2 builds its message whether or
+        // not the condition held, and first() on an empty list asserts.
+        QVERIFY2(collisions.hits().isEmpty(),
+                 qPrintable("two editors of this kind collided over the same command: "
+                            + collisions.hits().join("; ")));
     }
 
     // A split view is two editors on one document. Duplicating has to share

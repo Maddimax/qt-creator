@@ -7152,6 +7152,38 @@ That is what the class comment now says, and it is what the widget editor does
 too - its scrollbar range needs `documentPixelHeight()`, which needs the whole
 cache.
 
+## An editor needs a context of its own
+
+Wrapping is also a menu item - **Wrap Lines** - and menu items are `Command`s
+registered per editor, in that editor's context. The widget editor registers
+`TEXT_WRAPPING` against `m_editorContext(Id::generate())`, and the `Id::
+generate()` is the whole point: **one generated context per editor instance**.
+
+The Quick editor had a single shared context, `QUICK_TEXT_EDITOR_ID`, which is
+right for "any editor of this kind" but wrong for a per-editor action. Opening
+a second Quick editor produced
+
+    addOverrideAction: Action is already registered for context
+    TextEditor.QuickTextEditor.
+
+sixteen times, the second registration was dropped, and that editor's Wrap
+Lines entry silently did nothing. The editor now carries both: the shared id
+*and* one of its own.
+
+**The test did not catch it**, which is the more useful half. A dropped action
+registration is a `qWarning` and nothing else - the suite was green with
+sixteen collisions in the log. The test installs a message handler for the one
+phrase and asserts it never appears, which is the same shape as every other
+"the failure mode is a diagnostic" case in this document. Only then did the
+control (registering in the shared context) bite.
+
+**And `QVERIFY2` caught me a second time.** Its message argument is built
+whether or not the condition held, so
+`QVERIFY2(hits.isEmpty(), qPrintable(... + hits.first()))` aborts the process
+on success. `join("; ")` is safe on an empty list. This is the second time this
+session - the first was `Result::error()` on a value - which is enough to call
+it a rule: **nothing in a `QVERIFY2` message may assume the assertion failed.**
+
 What is left of the editor: the extra-selection producers that genuinely need
 the widget's machinery (diagnostic underlines and occurrences, both fed by
 plugins calling `TextEditorWidget::setExtraSelections`), auto-insertion and
