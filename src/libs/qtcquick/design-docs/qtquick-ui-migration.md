@@ -148,6 +148,15 @@ Verified one suite at a time, re-run in full after the shared headers changed
 often enough to look real and passes three times out of three on its own. It is
 not in the table because it is not a result.
 
+**Fifteen commit messages have body lines over 72 characters** - 35 lines in
+all, none worse than 76. Twelve of them sit 515 to 532 commits back, so
+rewrapping those rewrites the whole branch from there, including roughly 368
+commits that predate this work. That is a bad trade for four characters, so
+they are left alone; the three nearer the tip (23, 44 and 240 commits back)
+are cheap to fix if the rule is worth enforcing before pushing. Only one of
+the last forty commits is affected, so this is a habit that corrected itself
+rather than an ongoing one.
+
 **CMake/qbs agreement was audited across the branch**, since the project keeps
 two build descriptions and requires them to match. Comparing each directory's
 two files over all 905 the branch touches found one real gap: three new
