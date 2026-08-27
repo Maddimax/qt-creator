@@ -2787,6 +2787,46 @@ private slots:
 
     }
 
+    void testScrollingPastShortLinesKeepsThePlaceAcrossTheLongOnes()
+    {
+        TemporaryDirectory dir("qtc-viewport-cw");
+        const FilePath file = dir.filePath("ragged.txt");
+        QString content;
+        for (int i = 0; i < 40; ++i)
+            content += QString("short\n");
+        for (int i = 0; i < 40; ++i)
+            content += QString(300, QLatin1Char('x')) + QLatin1Char('\n');
+        QVERIFY(file.writeFileContents(content.toUtf8()));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+        QVERIFY(!viewport->isWrapping());
+
+        // Only the rows on screen are laid out, so how wide the content is can
+        // only be answered from them - and at the top of this file they are
+        // all short.
+        const qreal atTop = viewport->contentWidth();
+
+        // Down among the long lines, where there is something to scroll to.
+        viewport->setScrollY(60 * viewport->lineHeight());
+        QTRY_COMPARE(viewport->visibleLine(0).value("lineNumber").toInt(), 61);
+        QTRY_VERIFY2(viewport->contentWidth() > atTop,
+                     "the long lines did not make the content any wider");
+
+        viewport->setScrollX(800);
+        QTRY_COMPARE(viewport->scrollX(), 800.0);
+
+        // Back up among the short ones. The reader has not asked to go
+        // anywhere sideways, so they must not be moved: a width that shrank to
+        // fit what is on screen would clamp this to nothing.
+        viewport->setScrollY(0);
+        QTRY_COMPARE(viewport->visibleLine(0).value("lineNumber").toInt(), 1);
+        QCOMPARE(viewport->scrollX(), 800.0);
+    }
+
     void testHomeGoesToTheCodeBeforeItGoesToTheMargin()
     {
         TemporaryDirectory dir("qtc-viewport-home");

@@ -534,6 +534,8 @@ void TextViewport::setWrapping(bool wrapping)
     if (m_wrapping == wrapping)
         return;
     m_wrapping = wrapping;
+    // What there is to scroll through sideways is a different question now.
+    m_contentWidth = 0;
     polish();
     update();
     emit wrappingChanged();
@@ -1655,6 +1657,9 @@ void TextViewport::documentChangedInternal()
     if (text != m_connectedDocument) {
         if (m_connectedDocument)
             disconnect(m_connectedDocument, nullptr, this, nullptr);
+        // A different file has different lines in it, so the widest one seen
+        // so far means nothing any more.
+        m_contentWidth = 0;
         m_connectedDocument = text;
         if (text) {
             connect(text, &QTextDocument::contentsChanged, this, [this] {
@@ -2198,22 +2203,31 @@ void TextViewport::updatePolish()
     // The widest row on screen. With wrapping off a row carries its whole
     // line, so this is the full width of the widest line in view - which is
     // what setScrollX() clamps against.
-    m_contentWidth = 0;
+    qreal widest = 0;
     for (const Line &line : m_lines) {
         const QTextLine textLine = line.layout->lineAt(0);
         if (textLine.isValid())
-            m_contentWidth = qMax(m_contentWidth, textLine.naturalTextRect().right());
+            widest = qMax(widest, textLine.naturalTextRect().right());
     }
     if (m_wrapping) {
         // Wrapping means no row is wider than the viewport, so there is nothing
         // to scroll sideways to. Without this the caret allowance below puts a
         // hair of a scroll bar on every wrapped document.
-        m_contentWidth = qMin(m_contentWidth, width());
-    } else if (m_contentWidth > 0) {
-        // The caret sits after the last character, so there is a little more to
-        // scroll to than there is text - without this the end of the longest
-        // line can be reached and the caret on it cannot.
-        m_contentWidth += m_lineHeight;
+        m_contentWidth = qMin(widest, width());
+    } else {
+        if (widest > 0) {
+            // The caret sits after the last character, so there is a little
+            // more to scroll to than there is text - without this the end of
+            // the longest line can be reached and the caret on it cannot.
+            widest += m_lineHeight;
+        }
+        // Only the rows on screen are laid out, so widest is the widest line
+        // *in view*. Taking that as the width outright means scrolling up past
+        // a short line shrinks the content and setScrollX() clamps the reader
+        // back to the left, losing where they were - so it is the widest seen
+        // so far, the way the widget editor's maximumWidth accumulates. It
+        // starts again when the document or the wrapping changes.
+        m_contentWidth = qMax(m_contentWidth, widest);
     }
 
     // Re-clamp both offsets against what there is to scroll through now. The
