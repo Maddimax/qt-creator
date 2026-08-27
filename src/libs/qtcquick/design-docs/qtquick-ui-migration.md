@@ -10307,3 +10307,58 @@ event: the wrong answer and the right one coincided for the input chosen.
 With this page ported, every `IOptionsPage` in Qt Creator that can be aspect
 driven is. The one left is Designer's, which wraps a
 `QDesignerOptionsPageInterface` supplied by Qt Designer - not ours to port.
+
+## Where the page migration actually stands, and the one thing left
+
+An audit rather than a batch, because the answer changed what was worth doing
+next. Snippets and Font && Colors - the last two named in workstream 3 - turn
+out to be ported already; both call `setQmlSource()`. So does every code style
+factory: C++, Nim, QmlJS and the project panel.
+
+What is left is **one** page, and it is not on the list because it hides behind
+another one. `ClangFormatCodeStylePreferencesFactory` replaces the C++ factory
+by registering with the same id, and it is the only factory that still calls
+`setValueEditorCreator()`. So with the ClangFormat plugin loaded - which is the
+default - the C++ Code Style page falls back to `CodeStyleAspect`'s widget
+layouter. That is why the two remaining `AspectWidgets::setLayouter()` calls
+cannot go yet:
+
+- `codestyleeditor.cpp` - the fallback that renders a factory's value editor;
+- `tabsettings.cpp` - whose `TabSettingsForm.qml` already lists exactly the
+  same six aspects. The closure is only reached through
+  `CppCodeStylePreferencesWidget`, and grepping for that turns up **one**
+  instantiation, in ClangFormat.
+
+Everything else that still names `setLayouter` is either a test fixture, the
+Lua binding that lets a script supply its own layout, or a comment.
+
+## Why that page was not ported in this batch
+
+`ClangFormatConfigWidget` is two text editors side by side: an `IEditor` opened
+on the real `.clang-format` file, and a `SnippetEditorWidget` previewing what it
+does. The shape is already there for it - `CodeDocument` exists, is QML
+registered, opens a file path, and its own header comment names `.clang-format`
+as the case it was built for - and the preview half is what every other Code
+Style page already draws with `CodeStylePreview.qml`.
+
+The blocker is the build. `add_qtc_plugin(ClangFormat CONDITION TARGET
+${CLANG_FORMAT_LIB} AND ...)` - the plugin is not configured here, so
+`ninja ClangFormat` is an unknown target. It cannot be built, its QML module
+does not exist so `qmllint` has nothing to check, and the page census cannot
+reach it. A port written under those conditions is three unverifiable things at
+once: that the C++ compiles, that the form names aspects that exist, and that
+the two editors behave.
+
+**One of the three is checkable, and worth recording as a technique.** An LLVM
+22.1 with `libclangFormat` is installed; taking a sibling plugin's command line
+out of `compile_commands.json`, dropping `-c`/`-o`, adding the LLVM include
+directory and running `-fsyntax-only` compiles the file against the real
+headers. Tried on a draft of the aspect container it found three errors
+immediately - `setIconType()` takes `AspectControls::InfoType` and not
+`InfoLabelType`, and `ClangFormatGlobalConfig` is constructed per use rather
+than reached through a global accessor. So the technique works and bites.
+
+It still leaves the QML unverified, which is the half that fails silently: a
+form naming an aspect that is not there renders blank, and only the census
+catches it. Recorded as a decision for the user rather than guessed at:
+enabling LLVM in the build configuration makes this an ordinary batch.
