@@ -2730,7 +2730,7 @@ private slots:
         const FilePath file = dir.filePath("wrapped.txt");
         QString content;
         for (int i = 0; i < 80; ++i)
-            content += QString(200, QLatin1Char('x')) + QLatin1Char('\n');
+            content += QString("word ").repeated(40).trimmed() + QLatin1Char('\n');
         QVERIFY(file.writeFileContents(content.toUtf8()));
 
         ViewportFixture fixture(file, 400, 200);
@@ -2756,9 +2756,18 @@ private slots:
 
         // Half as wide, so every line takes about twice the rows and every
         // line below the first starts somewhere new.
+        // Half as wide, and waited for by the row length: the row count was
+        // already past any threshold worth naming, so waiting on that waits
+        // for nothing and the rewrap never happens before the assertions.
+        const auto rowLength = [viewport] {
+            return viewport->visibleLine(0).value("text").toString().size();
+        };
+        const int wideRow = rowLength();
         viewport->setWidth(200);
         QTRY_COMPARE(viewport->width(), 200.0);
-        QTRY_VERIFY(viewport->contentHeight() / viewport->lineHeight() > 300);
+        QTRY_VERIFY2(rowLength() < wideRow,
+                     qPrintable(QString("rows are still %1 characters at half the width")
+                                    .arg(rowLength())));
 
         QCOMPARE(goTo(50), 50);
         QTRY_VERIFY2(caretIsOnScreen(),
@@ -2767,6 +2776,7 @@ private slots:
                                     .arg(viewport->cursorRectangle().top())
                                     .arg(viewport->height())
                                     .arg(viewport->scrollY())));
+
     }
 
     void testHomeGoesToTheCodeBeforeItGoesToTheMargin()
