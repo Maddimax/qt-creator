@@ -10868,3 +10868,41 @@ half-understood change to it is worth less than the diagnosis. What is now
 known and was not before: it is not a watcher limit, it is not deleted files
 being unwatchable, and it is not the settings migration - the two stores drift
 apart, and the assert is the second-order effect.
+
+### The missing piece: a relative path is being watched
+
+Instrumenting the *removal* side, which the previous pass had not done, gives
+the fact the rest turns on:
+
+    remove: "/var/folders/.../qtc-revert-test.nWlwlH/revert.txt"  clientsLeft 0
+      erase+removePath -> true   stillListed false  exists true
+    remove: "revert.txt"                                          clientsLeft 0
+      erase+removePath -> false  stillListed true   exists true
+
+The second is a **bare relative file name**. `m_watchClients` is a
+`QHash<FilePath, ...>`, so `revert.txt` and `/var/.../revert.txt` are two
+different keys for one file - which is how the two stores drift apart, and why
+"already watched" and "no entry to remove" happen for what looks like the same
+path.
+
+Where a relative path comes from is visible in the same area:
+`EditorManager::openEditorWithContents(id, &title, contents)` gives an
+in-memory document a *suggested name* - `"find.txt"`, `"revert.txt"` - as its
+file path, and `DocumentManager`'s `FileWatchers::addPaths()` watches whatever
+a document reports. `path.exists()` on a bare name resolves against the process
+working directory, so the failure is not even reported:
+
+    // Too much noise if we complain about non-existing files here.
+    if (path.exists())
+        qWarning() << res.error();
+
+Watching a name that is not a location cannot work, and asking for it is the
+first wrong step - but *where* to refuse it is a `Core`/`Utils` decision with
+callers this migration does not own, and the one change tried here made the
+symptom worse in a measured way. So the report stops at a mechanism that is now
+complete: relative paths enter the watcher, the two stores key them
+differently, and the soft assert is what surfaces at the end of that.
+
+Whether production hits it depends on scratch documents, which take the same
+`openEditorWithContents` path that the tests do - so this is likely not
+test-only, but that has not been demonstrated here and should not be assumed.
