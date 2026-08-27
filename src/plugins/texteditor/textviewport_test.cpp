@@ -2717,6 +2717,57 @@ private slots:
         QCOMPARE(viewport->cursorLine(), 1);
     }
 
+    void testGoingToALineStillWorksAfterTheWidthChanges()
+    {
+        // Where a line starts, in rows, is cached by the layout, and that
+        // cache is not reset when the width changes - the layout says so
+        // itself, in a FIXME. What saves it is updatePolish() walking every
+        // block through blockBoundingRect(), which refreshes the cache as a
+        // side effect. That walk is the whole document on every polish and
+        // reads like something to optimise away; this is what would notice.
+        TemporaryDirectory dir("qtc-viewport-rewrap");
+        const FilePath file = dir.filePath("wrapped.txt");
+        QString content;
+        for (int i = 0; i < 80; ++i)
+            content += QString(200, QLatin1Char('x')) + QLatin1Char('\n');
+        QVERIFY(file.writeFileContents(content.toUtf8()));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        viewport->setWrapping(true);
+        QTRY_VERIFY(viewport->contentHeight() / viewport->lineHeight() > 150);
+
+        const auto goTo = [viewport](int line) {
+            viewport->gotoLine(line, 0, true);
+            return viewport->cursorLine();
+        };
+        const auto caretIsOnScreen = [viewport] {
+            const QRectF caret = viewport->cursorRectangle();
+            return !caret.isNull() && caret.top() >= 0 && caret.bottom() <= viewport->height();
+        };
+
+        QCOMPARE(goTo(50), 50);
+        QTRY_VERIFY2(caretIsOnScreen(), "line 50 is not on screen before the resize");
+
+        // Half as wide, so every line takes about twice the rows and every
+        // line below the first starts somewhere new.
+        viewport->setWidth(200);
+        QTRY_COMPARE(viewport->width(), 200.0);
+        QTRY_VERIFY(viewport->contentHeight() / viewport->lineHeight() > 300);
+
+        QCOMPARE(goTo(50), 50);
+        QTRY_VERIFY2(caretIsOnScreen(),
+                     qPrintable(QString("after rewrapping, line 50 is at y=%1 in a view "
+                                        "%2 tall, scrollY %3")
+                                    .arg(viewport->cursorRectangle().top())
+                                    .arg(viewport->height())
+                                    .arg(viewport->scrollY())));
+    }
+
     void testHomeGoesToTheCodeBeforeItGoesToTheMargin()
     {
         TemporaryDirectory dir("qtc-viewport-home");
