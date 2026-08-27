@@ -243,19 +243,31 @@ caret on it cannot, one pixel short. The sideways ensure runs at the end of
 a line is only known once its row is laid out. And the wheel handler reads the
 horizontal delta too.
 
-**Open, and not fixed here: Page Up and Page Down count document lines.** The
-page size is worked out in rows - the height over the line height - and then
-handed to `QTextCursor::Up`/`Down`, which counts lines. Measured with wrapping
-on: a page of 13 rows moved the caret 13 lines, and each line was four rows,
-so the page was about four screens.
+**Page keys, and the scroll that follows the caret, both counted lines.** A
+row and a line are the same thing only while wrapping is off, and two places
+assumed it always. A page of thirteen rows moved thirteen lines - about four
+screens - and `ensureCursorVisible()` measured the caret's place as its
+block's line number times the line height.
 
-The obvious fix does not work, which is the part worth writing down. The arrow
-keys are given `layoutOf(document)` so they can move by what is on screen;
-passing the same layout to the page keys changes nothing, because **the
-viewport works out its own row breaks in `updatePolish()`** and the document's
-layout knows nothing about them. Moving by a page of the viewport's rows means
-asking the viewport, not the layout. Narrow enough to leave: wrapping is off
-for code, and with it off a row is a line.
+A page scrolls a screen now and puts the caret back where it was on screen.
+The rows are the viewport's own, worked out in `updatePolish()`, so the screen
+point is resolved there too - the same waiting the sideways caret does. The
+document's layout cannot help: **it never sees the viewport's wrapping**,
+which is why handing the page keys `layoutOf(document)` - the obvious fix,
+tried first - changes nothing.
+
+**The second half was only visible once the first was in.** Scrolling a page
+and then letting `ensureCursorVisible()` run put the view at 42 pixels instead
+of 182: it counted the caret's block as a row. It asks the layout that counts
+rows now, and adds which row of the block the caret is on - without that a
+caret several rows into a wrapped line drags the view back a row every time.
+Neither half works alone, and the test says so: putting either back fails it.
+
+One more thing the test got wrong on the way. It asserted the scroll landed on
+exactly a page, and passed - on a value that was true for an instant before
+`ensureCursorVisible()` settled it a row lower. Asserting a number that is
+about to change is not asserting anything; it wants the settled state, within
+a row.
 
 There is a horizontal scroll bar now too, mirroring the vertical one. Wrapping
 needed a case of its own: no row is wider than the viewport then, but the
