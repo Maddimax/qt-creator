@@ -9306,6 +9306,43 @@ repository syncing when it had been told not to, and nothing else would notice.
 
 Eight controls across the two, all biting.
 
+## The heavier kind of dialog, and a bug that had nowhere to be seen
+
+Perforce's pending-changes dialog is the first of the tail: a list built from
+parsed command output, one row selected, and a button enabled by whether there
+is anything to pick. Taken on purpose rather than another small one, because it
+is the shape most of the remaining 70 share.
+
+**The shape it settles on.** A custom `BaseAspect` owning a
+`QAbstractListModel` and a current row, presenting as `Table` - the same shape
+as `DocsAspect` and the filters aspect. The form is a `TableDelegate` and a
+`Binding` writing its `currentRow` back to the aspect, so the dialog can ask
+which change is selected without asking the form anything. A
+`StringSelectionAspect` would have been less work and would have turned the list
+into a drop-down; this dialog has always shown a list and the descriptions are
+long enough to want the room.
+
+**And the port found a bug that could not have been seen before.** The parsing
+was inline, building `QListWidgetItem`s as it went, so nothing could ask what it
+had found. Moving it to a function that returns rows made it testable, and the
+first test failed:
+
+    Actual   (currentNumber()): 1
+    Expected (12345)          : 12345
+
+The expression is `Change\s(\d+?).*?\s\*?pending\*?\s(.+?)\n`. `\d+?` is
+**non-greedy**, so it captures a single digit and lets `.*?` eat the rest: every
+pending change was listed as "Change 1", and choosing one ran `p4 submit -c 1`.
+Verified against the expression directly before believing it - greedy `\d+`
+gives 12345, non-greedy gives 1 - and the fix is that one character. Its control
+puts `\d+?` back and the test fails.
+
+The general point is worth more than the fix: **code that parses while it draws
+cannot be asked what it parsed.** The bug was not subtle and had presumably been
+there for years; it survived because there was no seam at which to ask. Every
+dialog in this bucket that reads command output has the same property until it
+is ported.
+
 ## The terminal spike: go, with the cleanest split in the tree
 
 **Status update: the spike is being productised.** `TerminalQuick` is now the

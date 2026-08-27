@@ -1548,6 +1548,7 @@ class PerforcePlugin final : public ExtensionSystem::IPlugin
         dd = new PerforcePluginPrivate;
 #ifdef WITH_TESTS
         addTestCreator(createChangeNumberDialogTest);
+        addTestCreator(createPendingChangesDialogTest);
 #endif
     }
 

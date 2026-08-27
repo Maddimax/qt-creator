@@ -24,6 +24,7 @@ if(TARGET Perforce)
     NO_PLUGIN
     QML_FILES
       ChangeNumberDialog.qml
+      PendingChangesDialog.qml
       PerforceSettingsPage.qml
   )
 endif()

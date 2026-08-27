@@ -5,11 +5,11 @@
 
 #include <QDialog>
 
-QT_BEGIN_NAMESPACE
-class QListWidget;
-QT_END_NAMESPACE
+#include <memory>
 
 namespace Perforce::Internal {
+
+class PendingChangesSettings;
 
 class PendingChangesDialog : public QDialog
 {
@@ -17,10 +17,17 @@ class PendingChangesDialog : public QDialog
 
 public:
     explicit PendingChangesDialog(const QString &data, QWidget *parent = nullptr);
+    ~PendingChangesDialog() override;
+
+    // The change the user picked, or -1 when there was nothing to pick.
     int changeNumber() const;
 
 private:
-    QListWidget *m_listWidget = nullptr;
+    std::unique_ptr<PendingChangesSettings> m_settings;
 };
+
+#ifdef WITH_TESTS
+QObject *createPendingChangesDialogTest();
+#endif
 
 } // Perforce::Internal
