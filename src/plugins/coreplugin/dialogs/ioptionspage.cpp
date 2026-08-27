@@ -23,6 +23,10 @@
 
 #include <utility>
 
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
 using namespace Utils;
 using namespace Core::Internal;
 
@@ -76,6 +80,100 @@ QWidget *createAspectForm(AspectContainer *container)
     layouter().attachTo(form);
     return form;
 }
+
+#ifdef WITH_TESTS
+
+Utils::Result<> aspectFormRenders(AspectContainer *container, const QString &qmlFileName)
+{
+    if (!container)
+        return Utils::ResultError(QString("no container to render"));
+
+    // Collected with a message handler rather than QQmlEngine::warnings, which
+    // would mean linking Qt Quick here: a QML warning carries no logging
+    // category, so the file name is what tells this form's complaints from
+    // anyone else's.
+    static QStringList s_complaints;
+    s_complaints.clear();
+    QtMessageHandler previous = qInstallMessageHandler(
+        [](QtMsgType, const QMessageLogContext &, const QString &message) {
+            s_complaints.append(message);
+        });
+    const std::unique_ptr<QWidget> form(createAspectForm(container));
+    qInstallMessageHandler(previous);
+
+    if (!form)
+        return Utils::ResultError(QString("the container names no Qt Quick form"));
+
+    // By class name, so that this does not have to link Qt Quick to say what
+    // kind of form came back.
+    QObject *quick = nullptr;
+    const QList<QObject *> children = form->findChildren<QObject *>();
+    for (QObject * const child : children) {
+        if (QLatin1String(child->metaObject()->className()) == QLatin1String("QQuickWidget"))
+            quick = child;
+    }
+    if (!quick)
+        return Utils::ResultError(
+            QString("the form is a widget layout, so the Qt Quick one was declined"));
+
+    const int ready = 1; // QQuickWidget::Ready
+    const int status = quick->property("status").toInt();
+    if (status != ready)
+        return Utils::ResultError(QString("the form did not load, status %1").arg(status));
+
+    const QStringList aboutThisForm
+        = Utils::filtered(s_complaints, [&qmlFileName](const QString &complaint) {
+              return complaint.contains(qmlFileName);
+          });
+    if (!aboutThisForm.isEmpty())
+        return Utils::ResultError(aboutThisForm.join("; "));
+    return Utils::ResultOk;
+}
+
+// The helper itself: it is what every dialog's test now leans on, so the ways
+// it is meant to report a failure are worth stating.
+class AspectFormRendersTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testItReportsWhatIsWrongWithAForm()
+    {
+        QVERIFY2(!aspectFormRenders(nullptr, "Whatever.qml"), "no container is not a form");
+
+        // A container that names no QML is drawn the old way. That is not an
+        // error in Creator - most containers still are - but it is one for a
+        // caller asking whether the Quick form rendered.
+        Utils::AspectContainer widgetsOnly;
+        Utils::BoolAspect flag(&widgetsOnly);
+        flag.setSettingsKey("Flag");
+        const Utils::Result<> declined = aspectFormRenders(&widgetsOnly, "Whatever.qml");
+        QVERIFY2(!declined, "a container with no QML was reported as rendering one");
+
+        // A container naming a file that is not there loads nothing, which is
+        // the branch a form that renders correctly can never exercise.
+        Utils::AspectContainer missingFile;
+        Utils::BoolAspect other(&missingFile);
+        other.setSettingsKey("Other");
+        missingFile.setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Core/NoSuchForm.qml"));
+        const Utils::Result<> broken = aspectFormRenders(&missingFile, "NoSuchForm.qml");
+        QVERIFY2(!broken, "a form whose QML does not exist was reported as fine");
+        // Which guard caught it, measured rather than assumed: the status,
+        // because a file that is not there leaves the widget in Error. The
+        // complaint check would catch the same case on its own - whoever tried
+        // to load it says so, naming the file - so the two are live guards over
+        // one case and neither one's control can bite through the other.
+        QVERIFY2(broken.error().contains("status"),
+                 qPrintable("caught by something else: " + broken.error()));
+    }
+};
+
+QObject *createAspectFormRendersTest()
+{
+    return new AspectFormRendersTest;
+}
+
+#endif // WITH_TESTS
 
 namespace Internal {
 
@@ -628,3 +726,7 @@ Id preselectedOptionsPageItem(Id page)
 }
 
 } // Core
+
+#ifdef WITH_TESTS
+#include "ioptionspage.moc"
+#endif

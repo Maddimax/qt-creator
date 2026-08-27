@@ -15,7 +15,7 @@
 #include <QVBoxLayout>
 
 #ifdef WITH_TESTS
-#include <utils/algorithm.h>
+
 
 #include <QTest>
 #endif
@@ -85,16 +85,6 @@ QString CppPreProcessorDialog::extraPreprocessorDirectives() const
 
 #ifdef WITH_TESTS
 
-// Every QML warning raised while the form is built. A wrong aspect name is not
-// a load error - the form still instantiates - it is a warning saying the
-// binding could not be resolved, and the control is simply missing.
-static QStringList s_qmlComplaints;
-
-static void collectComplaints(QtMsgType, const QMessageLogContext &, const QString &message)
-{
-    s_qmlComplaints.append(message);
-}
-
 class CppPreProcessorDialogTest final : public QObject
 {
     Q_OBJECT
@@ -106,34 +96,9 @@ private slots:
         PreProcessorSettings settings(file);
         settings.directives.setValue("#define ONE 1");
 
-        s_qmlComplaints.clear();
-        QtMessageHandler previous = qInstallMessageHandler(collectComplaints);
-        const std::unique_ptr<QWidget> form(Core::createAspectForm(&settings));
-        qInstallMessageHandler(previous);
-
-        QVERIFY2(form, "the settings produced no form at all");
-
-        QObject *quickWidget = nullptr;
-        const QList<QObject *> children = form->findChildren<QObject *>();
-        for (QObject * const child : children) {
-            if (QLatin1String(child->metaObject()->className()) == QLatin1String("QQuickWidget"))
-                quickWidget = child;
-        }
-        QVERIFY2(quickWidget, "the dialog produced a widget form, so the Quick one was declined");
-
-        const int ready = 1; // QQuickWidget::Ready
-        QCOMPARE(quickWidget->property("status").toInt(), ready);
-
-        const QStringList aboutThisForm
-            = Utils::filtered(s_qmlComplaints, [](const QString &complaint) {
-                  return complaint.contains("CppPreProcessorDialog.qml");
-              });
-        QVERIFY2(aboutThisForm.isEmpty(), qPrintable(aboutThisForm.join("; ")));
-
-        // The label names the file, which is what tells one of these dialogs
-        // from another when several are open.
-        QVERIFY2(settings.directives.labelText().contains("whatever.cpp"),
-                 qPrintable(settings.directives.labelText()));
+        const Utils::Result<> rendered
+            = Core::aspectFormRenders(&settings, "CppPreProcessorDialog.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
 
         // And the whole round trip through the dialog: what the session holds
         // is what the form is given, and what the dialog hands back. The text

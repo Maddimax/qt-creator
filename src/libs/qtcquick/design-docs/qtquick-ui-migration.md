@@ -9193,6 +9193,46 @@ session store, construct the dialog, and ask it. That covers session -> aspect
 -> accessor, which is what the caller depends on and what a port from a widget
 is most likely to break.
 
+## One check instead of three copies
+
+Three dialogs and panels in, each had the same forty lines of test: build the
+form, find the `QQuickWidget`, read its `status`, collect QML warnings and keep
+the ones naming the file. Writing it a fourth time was the moment to stop.
+
+`Core::aspectFormRenders(container, qmlFileName)` is that check, once. Two
+decisions in it are worth recording:
+
+**Where it lives.** The obvious home was `QtcQuick`, next to
+`createAspectForm()`. That was wrong: the plugins that need it link `Core` and
+not `QtcQuick`, so the first build after moving it failed to link three times
+over, and adding a Qt Quick dependency to a plugin *for a test* is a worse trade
+than the duplication it removes. It lives in `coreplugin` beside the function it
+wraps, and asks the form by **property name** rather than by type - the
+`QQuickWidget` is found by class name and its `status` read through the
+metaobject - so no caller has to link Qt Quick either.
+
+**It has its own test**, because it is now what three other tests lean on: no
+container, a container naming no QML, and a container naming a file that is not
+there.
+
+**Two guards over one case, measured this time.** Removing the status check
+broke nothing, which usually means the check is unearned. It is not: the
+missing-file case is caught *by* the status check - the test now asserts the
+error says `status`, and the first version of that assertion guessed the other
+guard and failed, which is how the guess got corrected. With the status check
+gone the complaint check catches the same case, because whoever failed to load
+the file says so and names it. Both are live; neither one's control can bite
+through the other. That is the [[negative-control-two-guards]] shape, and the
+way out was to assert *which* guard fires rather than that something does.
+
+**And a control that "did not bite" by crashing.** Removing the "not a
+`QQuickWidget`" guard gives exit 134 twice over: without it, the status is read
+through a null pointer. A harness that greps only for `FAIL!` calls that clean.
+Third time this session; the rule stands - an unexplained non-zero exit is a
+rerun, never a pass.
+
+The next dialog's test is now three lines.
+
 ## The terminal spike: go, with the cleanest split in the tree
 
 **Status update: the spike is being productised.** `TerminalQuick` is now the

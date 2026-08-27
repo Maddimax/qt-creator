@@ -22,7 +22,7 @@
 
 #ifdef WITH_TESTS
 #include <coreplugin/dialogs/ioptionspage.h>
-#include <utils/algorithm.h>
+
 
 #include <QTest>
 #endif
@@ -266,16 +266,6 @@ const CMakeProjectSettingsPanelFactory projectSettingsPane;
 
 #ifdef WITH_TESTS
 
-// Every QML warning raised while the panel is built. A wrong aspect name is not
-// a load error - the form still instantiates - it is a warning saying the
-// binding could not be resolved, and the control is simply missing.
-static QStringList s_qmlComplaints;
-
-static void collectComplaints(QtMsgType, const QMessageLogContext &, const QString &message)
-{
-    s_qmlComplaints.append(message);
-}
-
 // A project's CMake panel is not an options page, so the page census never sees
 // it - which is why it is asserted here.
 class CMakeProjectPanelTest final : public QObject
@@ -287,32 +277,9 @@ private slots:
     {
         CMakeProjectPanel panel(&cmakeSettingsForProject(nullptr));
 
-        s_qmlComplaints.clear();
-        QtMessageHandler previous = qInstallMessageHandler(collectComplaints);
-        const std::unique_ptr<QWidget> form(Core::createAspectForm(&panel));
-        qInstallMessageHandler(previous);
-
-        QVERIFY2(form, "the panel produced no form at all");
-
-        QObject *quickWidget = nullptr;
-        const QList<QObject *> children = form->findChildren<QObject *>();
-        for (QObject * const child : children) {
-            if (QLatin1String(child->metaObject()->className()) == QLatin1String("QQuickWidget"))
-                quickWidget = child;
-        }
-        QVERIFY2(quickWidget, "the panel produced a widget form, so the Quick one was declined");
-
-        const int ready = 1; // QQuickWidget::Ready
-        QCOMPARE(quickWidget->property("status").toInt(), ready);
-
-        // Loaded is not enough: a form naming an aspect that is not there loads
-        // perfectly well and leaves the control out. Every name it reaches the
-        // settings by is a chance to get that wrong, and this is what says so.
-        const QStringList aboutThisPanel
-            = Utils::filtered(s_qmlComplaints, [](const QString &complaint) {
-                  return complaint.contains("CMakeProjectPanel.qml");
-              });
-        QVERIFY2(aboutThisPanel.isEmpty(), qPrintable(aboutThisPanel.join("; ")));
+        const Utils::Result<> rendered
+            = Core::aspectFormRenders(&panel, "CMakeProjectPanel.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
     }
 };
 

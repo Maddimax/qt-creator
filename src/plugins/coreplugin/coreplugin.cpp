@@ -525,6 +525,7 @@ Result<> CorePlugin::initialize(const QStringList &arguments)
     addTestCreator(createVcsManagerTest);
     addTestCreator(createEditorManagerTest);
     addTestCreator(createTabbedEditorTest);
+    addTestCreator(createAspectFormRendersTest);
     addTestCreator(createOutputFormatterTest);
     addTestCreator(createMimeTypeSettingsTest);
     addTestCreator(createShortcutSettingsTest);

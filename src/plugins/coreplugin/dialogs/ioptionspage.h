@@ -7,6 +7,7 @@
 
 #include <utils/aspects.h>
 #include <utils/id.h>
+#include <utils/result.h>
 
 #include <QWidget>
 
@@ -53,6 +54,31 @@ CORE_EXPORT void setAspectFormFactory(const AspectFormFactory &factory);
 // where it takes the container and the container's own layouter otherwise, so
 // that both surfaces show the same thing.
 CORE_EXPORT QWidget *createAspectForm(Utils::AspectContainer *container);
+
+#ifdef WITH_TESTS
+// Builds \a container's Qt Quick form and reports what is wrong with it, or
+// nothing when it is fine. For the containers no census walks - a dialog is not
+// registered anywhere and cannot be enumerated - so what a settings page gets
+// from QuickUiTest has to be asked for by hand, once per dialog.
+//
+// Three things go wrong and only the first is loud on its own:
+//   - the container names no QML, or the file will not load, and the form is
+//     silently the widget layout instead;
+//   - it loads with a status other than Ready;
+//   - it loads perfectly and a binding names an aspect that is not there, which
+//     the engine reports as a warning and nothing else notices. The control is
+//     simply missing from the form.
+//
+// \a qmlFileName is the file the complaints have to be about: a warning from
+// some other component is not this form's fault. Lives here rather than in
+// QtcQuick because every plugin already links Core, and asks the form by
+// property name rather than by type so that none of them has to link Qt Quick
+// to run the check.
+CORE_EXPORT Utils::Result<> aspectFormRenders(Utils::AspectContainer *container,
+                                              const QString &qmlFileName);
+
+QObject *createAspectFormRendersTest();
+#endif
 
 class CORE_EXPORT IOptionsPage
 {
