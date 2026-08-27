@@ -27,6 +27,7 @@ if(TARGET Mercurial)
     QML_FILES
       AuthenticationDialog.qml
       RevertDialog.qml
+      SrcDestDialog.qml
       MercurialSettingsPage.qml
   )
 endif()

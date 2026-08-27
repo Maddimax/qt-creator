@@ -9,13 +9,11 @@
 
 #include <QDialog>
 
-QT_BEGIN_NAMESPACE
-class QCheckBox;
-class QLineEdit;
-class QRadioButton;
-QT_END_NAMESPACE
+#include <memory>
 
 namespace Mercurial::Internal {
+
+class SrcDestSettings;
 
 class SrcDestDialog : public QDialog
 {
@@ -34,12 +32,11 @@ private:
     Direction m_direction;
     mutable QString m_workingdir;
     VcsBase::VcsBasePluginState m_state;
-
-    QRadioButton *m_defaultButton;
-    QRadioButton *m_localButton;
-    Utils::PathChooser *m_localPathChooser;
-    QLineEdit *m_urlLineEdit;
-    QCheckBox *m_promptForCredentials;
+    std::unique_ptr<SrcDestSettings> m_settings;
 };
+
+#ifdef WITH_TESTS
+QObject *createSrcDestDialogTest();
+#endif
 
 } // Mercurial::Internal

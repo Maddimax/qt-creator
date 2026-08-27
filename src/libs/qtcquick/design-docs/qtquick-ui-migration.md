@@ -9449,6 +9449,39 @@ and the form lists all six unconditionally. The form is now the same in both
 directions, which is what makes it a *list* rather than a program. Its two
 controls - dropping either line - bite.
 
+## The third instance, and where a modal prompt has to stay
+
+The prediction from the last batch held: Mercurial's src/dest dialog is the same
+three-way location question a third time. Three plugins, three copies, and now
+three containers with the same three enums and the same `followLocation()`.
+Whether they should become one shared container is a question for after the
+bucket is done - a shared thing extracted from three call sites is a much better
+guess than one extracted from two.
+
+**One arrangement difference, said once for all three.** A widget form
+interleaves each radio button with the field it enables:
+
+    m_localButton, m_localPathChooser, br,
+    urlButton,     m_urlLineEdit,      br,
+
+A `SelectionAspect` is *one* value, so its three options are drawn together and
+the fields follow underneath. Nothing is lost - each field is still labelled and
+still only editable under its own answer - but the rows are not interleaved.
+That applies to Fossil's, Bazaar's and this one.
+
+**Where the split had to fall.** `getRepositoryString()` does two things: it
+works out which answer was given, and - for the default answer over a remote
+scheme - it opens the *authentication* dialog and merges what comes back into
+the URL. The first is a rule and moved to the settings as `chosenLocation()` and
+`needsCredentials()`. The second opens another modal dialog and stayed in the
+`QDialog`, because that is what it is.
+
+The seam is worth naming: **a rule can move to the settings; an interaction
+cannot.** `needsCredentials()` is now testable in all four of its cases -
+remote-and-default, local, empty, and a location the user typed - and each has a
+control that bites. What is left in the dialog is a `->exec()` and the merging
+around it, which is honestly untested and is the smallest that part can be made.
+
 ## The terminal spike: go, with the cleanest split in the tree
 
 **Status update: the spike is being productised.** `TerminalQuick` is now the
