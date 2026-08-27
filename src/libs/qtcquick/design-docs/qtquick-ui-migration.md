@@ -6934,25 +6934,50 @@ tracks per-block line counts. The same is true here:
 wrapping exactly as they do for folding, and a row within a block is
 `row - block.firstLineNumber()`.
 
-**Correction to that, from looking closer.** `TextEditorLayout` is indeed
-per-view (`PlainTextEditPrivate::init()`), and `PlainTextEdit::resizeEvent()`
-sets the wrap width on *it* rather than on the document's layout. But it
-overrides `blockLayout()` and not `blockLineCount()`/`setBlockLineCount()` -
-those go through `PlainTextDocumentLayout` to `QTextBlock::setLineCount()`,
-which is **document state**. So the per-block *layouts* are per-view and the
-per-block *row counts* are shared.
+**Two corrections, and what they were both worth.** First I wrote that wrapping
+needs no height cache because the document tracks line counts. Then that this
+was only true if the port accepted *sharing* those counts with every other
+view, since `TextEditorLayout` overrides `blockLayout()` but not
+`blockLineCount()`.
 
-Two views of one document at different widths therefore already disagree in
-Qt Creator: whichever laid out last owns `document()->lineCount()`. A Quick
-viewport doing what the widget does would inherit exactly that - no worse, but
-it means "wrapping needs no height cache" is only true if the port accepts
-writing its wrapped row counts into the shared document, where a widget editor
-on the same file will overwrite them.
+Both readings were wrong, and both for the same reason: I read an excerpt of
+`texteditorlayout.h` and stopped. The second half of the class overrides
+**all** of it -
 
-That is a design decision with a visible consequence, not a detail to settle at
-the end of a batch. The alternatives are to accept the shared state as the
-widget does, or to give `TextEditorLayout` per-view row counts - which is
-`Utils` code the widget editor depends on. Left open deliberately.
+    int blockLineCount(const QTextBlock &) const override;
+    void setBlockLineCount(QTextBlock &, int) const override;
+    int lineCount() const override;
+    int firstLineNumberOf(const QTextBlock &) const override;
+    QTextBlock findBlockByLineNumber(int) const override;
+    int offsetForBlock(const QTextBlock &) const;
+    int offsetForLine(int) const;  int lineForOffset(int) const;
+    int documentPixelHeight() const;
+    QRectF blockBoundingRect(const QTextBlock &) const override;
+    void setBlockVisibleInEditor(const QTextBlock &, bool);
+
+- backed by an `m_offsetCache` in `TextEditorLayoutPrivate`. It is a complete
+**per-view** line and pixel index, maintained incrementally, and it even has
+per-view block hiding that `QTextBlock::setVisible()` cannot give (the inline
+diff editor collapses unchanged lines with it).
+
+So: **the height cache wrapping needs already exists, is per-view, is in
+`Utils`, and its layout half needs no widget.** There is no shared-state
+problem and no design decision left open. The shape of the port is
+
+    m_layout = new TextEditorLayout(documentLayoutOf(doc));   // per viewport
+    m_layout->setTextWidth(width());                          // when wrapping
+    contentHeight  = m_layout->documentPixelHeight();
+    blockForRow(r) = m_layout->findBlockByLineNumber(r);
+    yOfBlock(b)    = m_layout->offsetForBlock(b);
+
+with the viewport still building its own `QTextLayout` copies for the render
+thread, as it does today - it needs the *index* from the layout, not its
+layouts.
+
+**The lesson, which cost two wrong entries in this document:** when a class
+answers a question this load-bearing, read the whole declaration. Excerpting a
+header is how you conclude that an override is missing when it is forty lines
+further down - twice, each time confidently.
 
 Not started here: it restructures `updatePolish()` so a `Line` is a visual row
 rather than a block, and every position mapping with it. It deserves a batch of
@@ -7025,9 +7050,24 @@ encoding - correctly. The test now sets both explicitly, then turns each off
 *separately* and checks the other is unaffected: two labels reading one
 setting between them would otherwise pass a test that toggles both together.
 
-Not done: clicking either to change it. The widget pops a menu for the line
-ending and a codec chooser for the encoding; these are display only, and say so
-rather than looking like buttons.
+Clicking the line ending offers Unix or Windows and switches the file between
+them. It marks the document **modified** rather than writing - the change
+reaches disk on save, which is the widget's behaviour and the reason the test
+checks the file on disk is still `\n` immediately afterwards and `\r\n` once
+saved.
+
+Still display only: the encoding. Changing that is a codec chooser and a
+reload, which is a different piece of work from a two-item menu.
+
+**A control that needed a better fixture, not a change.** Removing the
+`fileFormatChanged()` from the setter did not bite, because
+`document()->setModified(true)` happens to emit `IDocument::changed`, which the
+label already listens to. But `setModified(true)` on a document that is
+*already* modified emits nothing - so the signal is load-bearing exactly when
+the line ending is changed twice, or after an edit. The test now does that, and
+the control bites. The rule from earlier in this document holds again: when a
+control misses, ask whether the fixture can reach the case before concluding
+the code is redundant.
 
 **A note on running controls at this size.** Six build-and-run cycles no longer
 fit in one command, and a control loop killed by a timeout leaves the *last*

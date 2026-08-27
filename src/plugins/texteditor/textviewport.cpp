@@ -856,6 +856,23 @@ QString TextViewport::fileLineEnding() const
     }
 }
 
+void TextViewport::setFileLineEndingIsWindows(bool windows)
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    if (!doc)
+        return;
+
+    const Utils::TextFileFormat::LineTerminationMode wanted
+        = windows ? Utils::TextFileFormat::CRLFLineTerminator
+                  : Utils::TextFileFormat::LFLineTerminator;
+    if (doc->lineTerminationMode() == wanted)
+        return;
+
+    doc->setLineTerminationMode(wanted);
+    doc->document()->setModified(true);
+    emit fileFormatChanged();
+}
+
 QString TextViewport::fileEncoding() const
 {
     TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;

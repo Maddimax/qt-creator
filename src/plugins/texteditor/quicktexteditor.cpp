@@ -1125,6 +1125,78 @@ private slots:
         QTRY_COMPARE(ending->property("text").toString(), QString());
     }
 
+    // The line ending is not only shown but changed: clicking it offers Unix
+    // or Windows, and choosing marks the document modified rather than writing
+    // to disk, which is what the widget editor does.
+    void testTheToolBarChangesTheFilesLineEndings()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-lineendings");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("endings.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\n"));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        QCOMPARE(document->lineTerminationMode(), Utils::TextFileFormat::LFLineTerminator);
+        QVERIFY(!document->isModified());
+
+        const bool wasEnding = displaySettings().displayFileLineEnding();
+        const QScopeGuard restore(
+            [wasEnding] { displaySettings().displayFileLineEnding.setValue(wasEnding); });
+        displaySettings().displayFileLineEnding.setValue(true);
+
+        QWidget * const bar = editor->toolBar();
+        QVERIFY(bar);
+        auto * const quick = bar->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+        QObject * const label = quick->rootObject()->findChild<QObject *>("lineEndingLabel");
+        QVERIFY(label);
+        QTRY_COMPARE(label->property("text").toString(), QString("LF"));
+
+        // The menu is a popup, so its entries are not in the item tree under
+        // the toolbar - it has to be asked directly.
+        QObject * const menu = quick->rootObject()->findChild<QObject *>("lineEndingMenu");
+        QVERIFY2(menu, "the line ending offers nothing to choose from");
+        QObject * const windows = menu->findChild<QObject *>("windowsLineEndings");
+        QObject * const unix = menu->findChild<QObject *>("unixLineEndings");
+        QVERIFY(windows && unix);
+
+        QMetaObject::invokeMethod(windows, "triggered");
+        QCOMPARE(document->lineTerminationMode(), Utils::TextFileFormat::CRLFLineTerminator);
+        QTRY_COMPARE(label->property("text").toString(), QString("CRLF"));
+        QVERIFY2(document->isModified(),
+                 "the line ending changed without the file needing to be saved");
+
+        // What is on disk has not moved: it is a change to save, not a write.
+        const Utils::Result<QByteArray> onDisk = file.fileContents();
+        QVERIFY(onDisk.has_value());
+        QCOMPARE(QString::fromUtf8(*onDisk), QString("alpha\nbeta\n"));
+
+        // Saving is what applies it.
+        const Utils::Result<> saved = document->save(file);
+        if (!saved)
+            QFAIL(qPrintable(saved.error()));
+        const Utils::Result<QByteArray> after = file.fileContents();
+        QVERIFY(after.has_value());
+        QCOMPARE(QString::fromUtf8(*after), QString("alpha\r\nbeta\r\n"));
+
+        // And back again - from an *already modified* document, which is the
+        // case that needs the change announced on its own. setModified(true)
+        // on something already modified emits nothing, so a label relying on
+        // that signal would go stale exactly here.
+        document->document()->setPlainText("alpha\nbeta\ngamma\n");
+        QVERIFY2(document->isModified(), "the document is clean, so this proves nothing");
+        QMetaObject::invokeMethod(unix, "triggered");
+        QCOMPARE(document->lineTerminationMode(), Utils::TextFileFormat::LFLineTerminator);
+        QTRY_COMPARE(label->property("text").toString(), QString("LF"));
+    }
+
     // A split view is two editors on one document. Duplicating has to share
     // the document rather than open the file twice, or an edit in one half
     // does not appear in the other.

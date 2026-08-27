@@ -5,6 +5,7 @@ pragma ComponentBehavior: Bound
 pragma FunctionSignatureBehavior: Enforced
 
 import QtQuick
+import QtQuick.Controls
 import QtCreator.Ui
 import QtCreator.TextEditor
 
@@ -38,11 +39,34 @@ Row {
     // the display settings say not to show them, so there is no second copy of
     // that rule here.
     QtcLabel {
+        id: lineEnding
+
         objectName: "lineEndingLabel"
 
         anchors.verticalCenter: parent.verticalCenter
         text: root.viewport.fileLineEnding
         visible: text !== ""
+
+        TapHandler {
+            onTapped: lineEndingMenu.popup()
+        }
+
+        Menu {
+            id: lineEndingMenu
+
+            objectName: "lineEndingMenu"
+
+            MenuItem {
+                objectName: "unixLineEndings"
+                text: qsTr("Unix Line Endings (LF)")
+                onTriggered: root.viewport.setFileLineEndingIsWindows(false)
+            }
+            MenuItem {
+                objectName: "windowsLineEndings"
+                text: qsTr("Windows Line Endings (CRLF)")
+                onTriggered: root.viewport.setFileLineEndingIsWindows(true)
+            }
+        }
     }
 
     QtcLabel {

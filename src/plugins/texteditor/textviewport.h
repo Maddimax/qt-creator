@@ -207,6 +207,11 @@ public:
     QString fileLineEnding() const;
     QString fileEncoding() const;
 
+    // Switches the file between Unix and Windows line endings. The document
+    // becomes modified: the change is only on disk once it is saved, which is
+    // what the widget editor does too.
+    Q_INVOKABLE void setFileLineEndingIsWindows(bool windows);
+
     // Puts the caret on \a line, counting from one, and shows it. Column zero
     // means the line rather than its margin, so the caret lands on the first
     // thing on it. Opens whatever folds were hiding the line: someone who
