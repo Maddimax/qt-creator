@@ -6,6 +6,7 @@
 
 #include <coreplugin/helpmanager.h>
 
+#include <texteditor/textdocument.h>
 #include <texteditor/texteditor.h>
 #include <texteditor/basehoverhandler.h>
 #include <texteditor/codeassist/keywordscompletionassist.h>
@@ -29,9 +30,7 @@ public:
     {}
 
 private:
-    void identifyMatch(TextEditor::TextEditorWidget *editorWidget,
-                       int pos,
-                       ReportPriority report) override;
+    void identifyMatch(TextEditor::HoverTarget *target, int pos, ReportPriority report) override;
     void identifyQMakeKeyword(const QString &text, int pos);
 
     enum ManualKind {
@@ -49,18 +48,17 @@ private:
     const TextEditor::Keywords m_keywords;
 };
 
-void ProFileHoverHandler::identifyMatch(TextEditor::TextEditorWidget *editorWidget,
-                                        int pos,
+void ProFileHoverHandler::identifyMatch(TextEditor::HoverTarget *target, int pos,
                                         ReportPriority report)
 {
     const QScopeGuard cleanup([this, report] { report(priority()); });
 
     m_docFragment.clear();
     m_manualKind = UnknownManual;
-    if (!editorWidget->extraSelectionTooltip(pos).isEmpty()) {
-        setToolTip(editorWidget->extraSelectionTooltip(pos));
+    if (!target->extraSelectionTooltip(pos).isEmpty()) {
+        setToolTip(target->extraSelectionTooltip(pos));
     } else {
-        QTextDocument *document = editorWidget->document();
+        QTextDocument *document = target->textDocument()->document();
         QTextBlock block = document->findBlock(pos);
         identifyQMakeKeyword(block.text(), pos - block.position());
 

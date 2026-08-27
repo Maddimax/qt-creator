@@ -82,6 +82,11 @@ public:
     // that a view can clear what it was drawing for one.
     QList<Utils::Id> extraSelectionKinds() const;
 
+    // The tooltip carried by an annotation covering pos - a diagnostic, say.
+    // Every kind that carries one is document-wide, so no view is needed to
+    // ask.
+    QString extraSelectionTooltip(int pos) const;
+
     void setTypingSettings(const TypingSettingsData &typingSettings);
     void setStorageSettings(const StorageSettingsData &storageSettings);
     void setExtraEncodingSettings(const ExtraEncodingSettingsData &extraEncodingSettings);

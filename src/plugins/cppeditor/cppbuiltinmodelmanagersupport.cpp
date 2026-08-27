@@ -37,29 +37,26 @@ namespace {
 class CppHoverHandler : public TextEditor::BaseHoverHandler
 {
 private:
-    void identifyMatch(TextEditor::TextEditorWidget *editorWidget,
-                       int pos,
-                       ReportPriority report) override
+    void identifyMatch(TextEditor::HoverTarget *target, int pos, ReportPriority report) override
     {
-        if (CppModelManager::usesClangd(editorWidget->textDocument())) {
+        if (CppModelManager::usesClangd(target->textDocument())) {
             report(Priority_None);
             return;
         }
 
         const QScopeGuard cleanup([this, report] { report(priority()); });
 
-        QTextCursor tc(editorWidget->document());
+        QTextCursor tc(target->textDocument()->document());
         tc.setPosition(pos);
 
-        CppElementEvaluator evaluator(editorWidget);
-        evaluator.setTextCursor(tc);
+        CppElementEvaluator evaluator(target->textDocument(), tc);
         evaluator.execute();
         QString tip;
         if (evaluator.hasDiagnosis()) {
             tip += evaluator.diagnosis();
             setPriority(Priority_Diagnostic);
         }
-        const FilePath filePath = editorWidget->textDocument()->filePath();
+        const FilePath filePath = target->textDocument()->filePath();
         const QStringList fallback = identifierWordsUnderCursor(tc);
         const std::shared_ptr<CppElement> &cppElement = evaluator.cppElement();
         if (cppElement) {

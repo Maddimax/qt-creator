@@ -273,8 +273,8 @@ private:
     QString m_helpToolTip;
 
 public:
-    void identifyMatch(TextEditorWidget *editorWidget, int pos, ReportPriority report) final;
-    void operateTooltip(TextEditorWidget *editorWidget, const QPoint &point) final;
+    void identifyMatch(HoverTarget *target, int pos, ReportPriority report) final;
+    void operateTooltip(HoverTarget *target, const QPoint &point) final;
 };
 
 static BaseHoverHandler &androidManifestHoverHandler()
@@ -285,9 +285,8 @@ static BaseHoverHandler &androidManifestHoverHandler()
 
 // Expands the word under the cursor (at 'pos') to include common XML/code separators
 // like '-' and '.', treating only specific punctuation and whitespace as breaks.
-static QString expandKeyword(QTextCursor cursor, TextEditorWidget &editorWidget, int pos)
+static QString expandKeyword(QTextCursor cursor, TextDocument *document, int pos)
 {
-    TextDocument *document = editorWidget.textDocument();
     const QList<QChar> delimiters
         = {'=', '%', '"', '\'', ' ', '\t', '\n', '\r', '\0', '<', '>', '/'};
     int start = pos;
@@ -300,7 +299,7 @@ static QString expandKeyword(QTextCursor cursor, TextEditorWidget &editorWidget,
         start--;
     }
 
-    int maxPos = editorWidget.textDocument()->document()->characterCount() - 1;
+    int maxPos = document->document()->characterCount() - 1;
     while (end < maxPos) {
         QChar charAt = document->characterAt(end);
         if (delimiters.contains(charAt))
@@ -312,15 +311,15 @@ static QString expandKeyword(QTextCursor cursor, TextEditorWidget &editorWidget,
     return cursor.selectedText().trimmed();
 }
 
-void AndroidManifestHoverHandler::identifyMatch(
-    TextEditorWidget *editorWidget, int pos, ReportPriority report)
+void AndroidManifestHoverHandler::identifyMatch(HoverTarget *target, int pos,
+                                                ReportPriority report)
 {
     const QScopeGuard cleanup([this, report] { report(priority()); });
-    QTextCursor cursor = editorWidget->textCursor();
+    QTextCursor cursor = target->textCursor();
     cursor.setPosition(pos);
     m_helpToolTip.clear();
     m_contextHelp = QVariant();
-    const QString keyword = expandKeyword(cursor, *editorWidget, pos);
+    const QString keyword = expandKeyword(cursor, target->textDocument(), pos);
 
     if (manifestSectionDocsKeywords.contains(keyword)) {
         QStringList helpIds;
@@ -339,12 +338,13 @@ void AndroidManifestHoverHandler::identifyMatch(
     setPriority(!m_helpToolTip.isEmpty() ? Priority_Help : Priority_None);
 }
 
-void AndroidManifestHoverHandler::operateTooltip(TextEditorWidget *editorWidget, const QPoint &point)
+void AndroidManifestHoverHandler::operateTooltip(HoverTarget *target, const QPoint &point)
 {
     if (m_helpToolTip.isEmpty()) {
         ToolTip::hide();
     } else if (toolTip() != m_helpToolTip) {
-        ToolTip::show(point, m_helpToolTip, Qt::MarkdownText, editorWidget, m_contextHelp);
+        ToolTip::show(point, m_helpToolTip, Qt::MarkdownText, target->tooltipParent(),
+                      m_contextHelp);
         setToolTip(m_helpToolTip);
     }
 }

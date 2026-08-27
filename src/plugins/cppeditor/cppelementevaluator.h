@@ -31,13 +31,14 @@ class CppElement;
 class CppElementEvaluator final
 {
 public:
-    explicit CppElementEvaluator(TextEditor::TextEditorWidget *editor);
+    CppElementEvaluator(TextEditor::TextDocument *document, const QTextCursor &cursor);
     ~CppElementEvaluator();
 
     void setTextCursor(const QTextCursor &tc);
 
     void execute();
-    static QFuture<std::shared_ptr<CppElement>> asyncExecute(TextEditor::TextEditorWidget *editor);
+    static QFuture<std::shared_ptr<CppElement>> asyncExecute(TextEditor::TextDocument *document,
+                                                             const QTextCursor &cursor);
     static QFuture<std::shared_ptr<CppElement>> asyncExecute(const QString &expression,
                                                             const Utils::FilePath &filePath);
     const std::shared_ptr<CppElement> &cppElement() const;

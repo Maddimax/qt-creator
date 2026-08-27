@@ -81,12 +81,10 @@ public:
 private:
     void reset();
 
-    void identifyMatch(TextEditor::TextEditorWidget *editorWidget,
-                       int pos,
-                       ReportPriority report) override;
-    void operateTooltip(TextEditor::TextEditorWidget *editorWidget, const QPoint &point) override;
+    void identifyMatch(TextEditor::HoverTarget *target, int pos, ReportPriority report) override;
+    void operateTooltip(TextEditor::HoverTarget *target, const QPoint &point) override;
 
-    bool matchDiagnosticMessage(QmlJSEditorWidget *qmlEditor, int pos);
+    bool matchDiagnosticMessage(QmlJSEditorDocument *document, int pos);
     bool matchColorItem(const QmlJS::ScopeChain &lookupContext,
                         const QmlJS::Document::Ptr &qmlDocument,
                         const QList<QmlJS::AST::Node *> &astPath,
@@ -216,7 +214,7 @@ bool QmlJSHoverHandler::setQmlTypeHelp(const ScopeChain &scopeChain, const Docum
     return true;
 }
 
-void QmlJSHoverHandler::identifyMatch(TextEditorWidget *editorWidget, int pos, ReportPriority report)
+void QmlJSHoverHandler::identifyMatch(HoverTarget *target, int pos, ReportPriority report)
 {
     const QScopeGuard cleanup([this, report] { report(priority()); });
 
@@ -225,11 +223,13 @@ void QmlJSHoverHandler::identifyMatch(TextEditorWidget *editorWidget, int pos, R
     if (!m_modelManager)
         return;
 
-    auto qmlEditor = qobject_cast<QmlJSEditorWidget*>(editorWidget);
-    QTC_ASSERT(qmlEditor, return);
+    // The semantic info is the document's; the view is only asked for the
+    // text it is showing.
+    auto qmlEditorDocument = qobject_cast<QmlJSEditorDocument *>(target->textDocument());
+    QTC_ASSERT(qmlEditorDocument, return);
 
-    const QmlJSTools::SemanticInfo &semanticInfo = qmlEditor->qmlJsEditorDocument()->semanticInfo();
-    if (!semanticInfo.isValid() || qmlEditor->qmlJsEditorDocument()->isSemanticInfoOutdated())
+    const QmlJSTools::SemanticInfo &semanticInfo = qmlEditorDocument->semanticInfo();
+    if (!semanticInfo.isValid() || qmlEditorDocument->isSemanticInfoOutdated())
         return;
 
     QList<AST::Node *> rangePath = semanticInfo.rangePath(pos);
@@ -256,7 +256,7 @@ void QmlJSHoverHandler::identifyMatch(TextEditorWidget *editorWidget, int pos, R
         i = j = pos;
         QString nameAtt;
         for (;;) {
-            QChar c = qmlEditor->document()->characterAt(j);
+            QChar c = qmlEditorDocument->document()->characterAt(j);
             if (!c.isLetterOrNumber()) break;
             nameAtt.append(c);
             ++j;
@@ -264,7 +264,7 @@ void QmlJSHoverHandler::identifyMatch(TextEditorWidget *editorWidget, int pos, R
         QStringList qName;
         while (i>0) {
             --i;
-            QChar c = qmlEditor->document()->characterAt(i);
+            QChar c = qmlEditorDocument->document()->characterAt(i);
             if (c.isLetterOrNumber()) {
                 nameAtt.prepend(c);
             } else if (c == QLatin1Char('.')) {
@@ -277,10 +277,10 @@ void QmlJSHoverHandler::identifyMatch(TextEditorWidget *editorWidget, int pos, R
         }
         const ObjectValue *value = scopeChain.context()->lookupType(qmlDocument.data(), qName);
         setQmlTypeHelp(scopeChain, qmlDocument, value, qName);
-        matchDiagnosticMessage(qmlEditor, pos);
+        matchDiagnosticMessage(qmlEditorDocument, pos);
         return;
     }
-    if (matchDiagnosticMessage(qmlEditor, pos))
+    if (matchDiagnosticMessage(qmlEditorDocument, pos))
         return;
     if (matchColorItem(scopeChain, qmlDocument, rangePath, pos))
         return;
@@ -291,22 +291,23 @@ void QmlJSHoverHandler::identifyMatch(TextEditorWidget *editorWidget, int pos, R
     setQmlHelpItem(scopeChain, qmlDocument, node);
 }
 
-bool QmlJSHoverHandler::matchDiagnosticMessage(QmlJSEditorWidget *qmlEditor, int pos)
+bool QmlJSHoverHandler::matchDiagnosticMessage(QmlJSEditorDocument *document, int pos)
 {
     // don't show diagnostic message in the tooltip when qmlls is running
-    if (LanguageClient::LanguageClientManager::clientForDocument(qmlEditor->textDocument()))
+    if (LanguageClient::LanguageClientManager::clientForDocument(document))
         return false;
 
-    const QList<QTextEdit::ExtraSelection> selections =
-        qmlEditor->extraSelections(TextEditorWidget::CodeWarningsSelection);
-    for (const QTextEdit::ExtraSelection &sel : selections) {
+    // From the document: a warning is the file's, not the view's.
+    const QList<TextDocument::ExtraSelection> selections
+        = document->extraSelections(TextEditorWidget::CodeWarningsSelection);
+    for (const TextDocument::ExtraSelection &sel : selections) {
         if (pos >= sel.cursor.selectionStart() && pos <= sel.cursor.selectionEnd()) {
             setToolTip(sel.format.toolTip());
             return true;
         }
     }
     const QVector<QTextLayout::FormatRange> ranges =
-        qmlEditor->qmlJsEditorDocument()->diagnosticRanges();
+        document->diagnosticRanges();
     for (const QTextLayout::FormatRange &range : ranges) {
         if (pos >= range.start && pos < range.start+range.length) {
             setToolTip(range.format.toolTip());
@@ -420,21 +421,21 @@ void QmlJSHoverHandler::reset()
     m_colorTip = QColor();
 }
 
-void QmlJSHoverHandler::operateTooltip(TextEditorWidget *editorWidget, const QPoint &point)
+void QmlJSHoverHandler::operateTooltip(HoverTarget *target, const QPoint &point)
 {
     // disable hoverhandling in case qmlls is enabled
-    if (editorWidget->textDocument()
-        && qmllsSettings()->isEnabledOnProjectFile(editorWidget->textDocument()->filePath())) {
-        BaseHoverHandler::operateTooltip(editorWidget, point);
+    if (target->textDocument()
+        && qmllsSettings()->isEnabledOnProjectFile(target->textDocument()->filePath())) {
+        BaseHoverHandler::operateTooltip(target, point);
         return;
     }
 
     if (toolTip().isEmpty())
         Utils::ToolTip::hide();
     else if (m_colorTip.isValid())
-        Utils::ToolTip::show(point, m_colorTip, editorWidget);
+        Utils::ToolTip::show(point, m_colorTip, target->tooltipParent());
     else
-        BaseHoverHandler::operateTooltip(editorWidget, point);
+        BaseHoverHandler::operateTooltip(target, point);
 }
 
 void QmlJSHoverHandler::prettyPrintTooltip(const Value *value,

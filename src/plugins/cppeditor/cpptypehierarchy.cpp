@@ -234,7 +234,8 @@ void CppTypeHierarchyWidget::perform()
 
     showProgress();
 
-    m_future = CppElementEvaluator::asyncExecute(widget);
+    m_future = CppElementEvaluator::asyncExecute(widget->textDocument(),
+                                                widget->textCursor());
     m_futureWatcher.setFuture(QFuture<void>(m_future));
     m_synchronizer.addFuture(m_future);
 

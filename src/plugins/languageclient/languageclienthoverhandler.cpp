@@ -63,22 +63,22 @@ bool HoverHandler::reportDiagnostics(const QTextCursor &cursor)
     return true;
 }
 
-void HoverHandler::identifyMatch(TextEditor::TextEditorWidget *editorWidget,
+void HoverHandler::identifyMatch(TextEditor::HoverTarget *target,
                                  int pos,
                                  TextEditor::BaseHoverHandler::ReportPriority report)
 {
     if (m_currentRequest.has_value())
         abort();
-    if (m_client.isNull() || !m_client->documentOpen(editorWidget->textDocument())
+    if (m_client.isNull() || !m_client->documentOpen(target->textDocument())
         || !m_client->reachable()) {
         report(Priority_None);
         return;
     }
-    m_filePath = editorWidget->textDocument()->filePath();
+    m_filePath = target->textDocument()->filePath();
     m_response = {};
     m_report = report;
 
-    QTextCursor cursor = editorWidget->textCursor();
+    QTextCursor cursor = target->textCursor();
     cursor.setPosition(pos);
     if (m_preferDiagnostics && reportDiagnostics(cursor))
         return;
@@ -94,9 +94,9 @@ void HoverHandler::identifyMatch(TextEditor::TextEditorWidget *editorWidget,
             const TextDocumentRegistrationOptions option(
                 m_client->dynamicCapabilities().option(HoverRequest::methodName).toObject());
             if (option.isValid()) {
-                sendMessage = option.filterApplies(editorWidget->textDocument()->filePath(),
+                sendMessage = option.filterApplies(target->textDocument()->filePath(),
                                                    Utils::mimeTypeForName(
-                                                       editorWidget->textDocument()->mimeType()));
+                                                       target->textDocument()->mimeType()));
             }
         }
     }

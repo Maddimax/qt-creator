@@ -226,23 +226,20 @@ public:
     SuggestionHoverHandler() = default;
 
 protected:
-    void identifyMatch(TextEditor::TextEditorWidget *editorWidget,
-                       int pos,
-                       ReportPriority report) final;
-    void operateTooltip(TextEditor::TextEditorWidget *editorWidget, const QPoint &point) final;
+    void identifyMatch(HoverTarget *target, int pos, ReportPriority report) final;
+    void operateTooltip(HoverTarget *target, const QPoint &point) final;
 
 private:
     QTextBlock m_block;
 };
 
-void SuggestionHoverHandler::identifyMatch(
-    TextEditorWidget *editorWidget, int pos, ReportPriority report)
+void SuggestionHoverHandler::identifyMatch(HoverTarget *target, int pos, ReportPriority report)
 {
     QScopeGuard cleanup([&] { report(Priority_None); });
-    if (!editorWidget->suggestionVisible())
+    if (!target->suggestionVisible())
         return;
 
-    QTextCursor cursor(editorWidget->document());
+    QTextCursor cursor(target->textDocument()->document());
     cursor.setPosition(pos);
     m_block = cursor.block();
     auto *suggestion = dynamic_cast<CyclicSuggestion *>(TextBlockUserData::suggestion(m_block));
@@ -258,7 +255,7 @@ void SuggestionHoverHandler::identifyMatch(
     report(Priority_Suggestion);
 }
 
-void SuggestionHoverHandler::operateTooltip(TextEditorWidget *editorWidget, const QPoint &point)
+void SuggestionHoverHandler::operateTooltip(HoverTarget *target, const QPoint &point)
 {
     Q_UNUSED(point)
     auto *suggestion = dynamic_cast<CyclicSuggestion *>(TextBlockUserData::suggestion(m_block));
@@ -266,12 +263,16 @@ void SuggestionHoverHandler::operateTooltip(TextEditorWidget *editorWidget, cons
     if (!suggestion)
         return;
 
+    // The tooltip drives the suggestion - cycles it, applies it - so it needs
+    // the view that is showing one. suggestionVisible() said yes, and only a
+    // TextEditorWidget can.
+    auto *editorWidget = qobject_cast<TextEditorWidget *>(target->tooltipParent());
+    QTC_ASSERT(editorWidget, return);
+
     auto tooltipWidget = new SuggestionToolTip(
         suggestion->suggestions(), suggestion->currentSuggestion(), editorWidget);
 
-    const QRect cursorRect = editorWidget->cursorRect(editorWidget->textCursor());
-    QPoint pos = editorWidget->viewport()->mapToGlobal(cursorRect.topLeft())
-                 - Utils::ToolTip::offsetFromPosition();
+    QPoint pos = target->globalCursorTopLeft() - Utils::ToolTip::offsetFromPosition();
     pos.ry() -= tooltipWidget->sizeHint().height();
     ToolTip::show(pos, tooltipWidget, editorWidget);
 }

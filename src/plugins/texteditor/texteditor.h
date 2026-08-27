@@ -5,6 +5,8 @@
 
 #include "texteditor_global.h"
 
+#include "basehoverhandler.h"
+
 #include "codeassist/assistenums.h"
 #include "completionsettings.h"
 #include "indenter.h"
@@ -194,7 +196,7 @@ private:
     Internal::BaseTextEditorPrivate *d;
 };
 
-class TEXTEDITOR_EXPORT TextEditorWidget : public Utils::PlainTextEdit
+class TEXTEDITOR_EXPORT TextEditorWidget : public Utils::PlainTextEdit, public HoverTarget
 {
     Q_OBJECT
 public:
@@ -207,8 +209,14 @@ public:
     // conflict markers. On by default; turn off for editors that provide their
     // own conflict handling (e.g. the inline diff editor).
     void setMergeConflictResolutionEnabled(bool enabled);
-    TextDocument *textDocument() const;
+    TextDocument *textDocument() const override;
     QSharedPointer<TextDocument> textDocumentPtr() const;
+
+    // HoverTarget. textCursor() is PlainTextEdit's; it is named here so that
+    // the two bases do not both offer it.
+    QTextCursor textCursor() const override;
+    QWidget *tooltipParent() override { return this; }
+    QPoint globalCursorTopLeft() const override;
 
     virtual void aboutToOpen(const Utils::FilePath &filePath, const Utils::FilePath &realFilePath);
     virtual void openFinishedSuccessfully();
@@ -350,7 +358,6 @@ public:
 
     void setExtraSelections(Utils::Id kind, const QList<QTextEdit::ExtraSelection> &selections);
     QList<QTextEdit::ExtraSelection> extraSelections(Utils::Id kind) const;
-    QString extraSelectionTooltip(int pos) const;
 
     RefactorMarkers refactorMarkers() const;
     void setRefactorMarkers(const RefactorMarkers &markers);
@@ -561,7 +568,7 @@ public:
     void insertSuggestion(std::unique_ptr<TextSuggestion> &&suggestion);
     void clearSuggestion();
     TextSuggestion *currentSuggestion() const;
-    bool suggestionVisible() const;
+    bool suggestionVisible() const override;
     bool suggestionsBlocked() const;
 
     using SuggestionBlocker = std::shared_ptr<void>;
@@ -672,7 +679,7 @@ public:
     QString textAt(int from, int to) const;
 
     void contextHelpItem(const Core::IContext::HelpCallback &callback);
-    void setContextHelpItem(const Core::HelpItem &item);
+    void setContextHelpItem(const Core::HelpItem &item) override;
 
     Q_INVOKABLE bool inFindScope(const QTextCursor &cursor) const;
 

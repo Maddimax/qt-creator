@@ -36,9 +36,7 @@ public:
     void setHelpItem(const LanguageServerProtocol::MessageId &msgId, const Core::HelpItem &help);
 
 protected:
-    void identifyMatch(TextEditor::TextEditorWidget *editorWidget,
-                       int pos,
-                       ReportPriority report) override;
+    void identifyMatch(TextEditor::HoverTarget *target, int pos, ReportPriority report) override;
 
 private:
     void handleResponse(const LanguageServerProtocol::HoverRequest::Response &response,

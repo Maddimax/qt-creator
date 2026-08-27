@@ -4,6 +4,7 @@
 #include "colorpreviewhoverhandler.h"
 
 #include "basehoverhandler.h"
+#include "textdocument.h"
 #include "texteditor.h"
 
 #include <coreplugin/icore.h>
@@ -353,19 +354,19 @@ static QColor colorFromFuncAndArgs(const QString &func, const QStringList &args)
 class ColorPreviewHoverHandler : public BaseHoverHandler
 {
 private:
-    void identifyMatch(TextEditorWidget *editorWidget, int pos, ReportPriority report) override;
-    void operateTooltip(TextEditorWidget *editorWidget, const QPoint &point) override;
+    void identifyMatch(HoverTarget *target, int pos, ReportPriority report) override;
+    void operateTooltip(HoverTarget *target, const QPoint &point) override;
 
     QColor m_colorTip;
 };
 
-void ColorPreviewHoverHandler::identifyMatch(TextEditorWidget *editorWidget,
-                                             int pos, ReportPriority report)
+void ColorPreviewHoverHandler::identifyMatch(HoverTarget *target, int pos,
+                                             ReportPriority report)
 {
     const QScopeGuard cleanup([this, report] { report(priority()); });
 
-    if (editorWidget->extraSelectionTooltip(pos).isEmpty()) {
-        const QTextBlock tb = editorWidget->document()->findBlock(pos);
+    if (target->extraSelectionTooltip(pos).isEmpty()) {
+        const QTextBlock tb = target->textDocument()->document()->findBlock(pos);
         const int tbpos = pos - tb.position();
         const QString tbtext = tb.text();
 
@@ -383,10 +384,10 @@ void ColorPreviewHoverHandler::identifyMatch(TextEditorWidget *editorWidget,
     }
 }
 
-void ColorPreviewHoverHandler::operateTooltip(TextEditorWidget *editorWidget, const QPoint &point)
+void ColorPreviewHoverHandler::operateTooltip(HoverTarget *target, const QPoint &point)
 {
     if (m_colorTip.isValid())
-        Utils::ToolTip::show(point, m_colorTip, editorWidget);
+        Utils::ToolTip::show(point, m_colorTip, target->tooltipParent());
     else
         Utils::ToolTip::hide();
 }

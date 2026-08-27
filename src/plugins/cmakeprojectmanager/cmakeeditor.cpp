@@ -436,10 +436,8 @@ class CMakeHoverHandler final : public TextEditor::BaseHoverHandler
 public:
     const CMakeKeywords &keywords() const;
 
-    void identifyMatch(TextEditorWidget *editorWidget,
-                       int pos,
-                       ReportPriority report) final;
-    void operateTooltip(TextEditorWidget *editorWidget, const QPoint &point) final;
+    void identifyMatch(HoverTarget *target, int pos, ReportPriority report) final;
+    void operateTooltip(HoverTarget *target, const QPoint &point) final;
 };
 
 const CMakeKeywords &CMakeHoverHandler::keywords() const
@@ -450,13 +448,11 @@ const CMakeKeywords &CMakeHoverHandler::keywords() const
     return m_keywords;
 }
 
-void CMakeHoverHandler::identifyMatch(TextEditorWidget *editorWidget,
-                                      int pos,
-                                      ReportPriority report)
+void CMakeHoverHandler::identifyMatch(HoverTarget *target, int pos, ReportPriority report)
 {
     const QScopeGuard cleanup([this, report] { report(priority()); });
 
-    QTextCursor cursor = editorWidget->textCursor();
+    QTextCursor cursor = target->textCursor();
     cursor.setPosition(pos);
     const QString word = Text::wordUnderCursor(cursor);
 
@@ -495,10 +491,12 @@ void CMakeHoverHandler::identifyMatch(TextEditorWidget *editorWidget,
     setPriority(!m_helpToolTip.isEmpty() ? Priority_Tooltip : Priority_None);
 }
 
-void CMakeHoverHandler::operateTooltip(TextEditorWidget *editorWidget, const QPoint &point)
+void CMakeHoverHandler::operateTooltip(HoverTarget *target, const QPoint &point)
 {
-    if (!m_helpToolTip.isEmpty() && toolTip() != m_helpToolTip)
-        ToolTip::show(point, m_helpToolTip, Qt::MarkdownText, editorWidget, m_contextHelp);
+    if (!m_helpToolTip.isEmpty() && toolTip() != m_helpToolTip) {
+        ToolTip::show(point, m_helpToolTip, Qt::MarkdownText, target->tooltipParent(),
+                      m_contextHelp);
+    }
     else if (m_helpToolTip.isEmpty())
         ToolTip::hide();
     setToolTip(m_helpToolTip);

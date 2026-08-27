@@ -12,27 +12,57 @@
 
 QT_BEGIN_NAMESPACE
 class QPoint;
+class QTextCursor;
+class QWidget;
 QT_END_NAMESPACE
 
 namespace TextEditor {
 
-class TextEditorWidget;
+class TextDocument;
+
+// What a hover handler may ask of the editor under the mouse. The widget
+// editor and the Qt Quick one both answer it; a handler that needs more than
+// this is asking about a view rather than about the text, and has to say so by
+// casting.
+class TEXTEDITOR_EXPORT HoverTarget
+{
+public:
+    virtual ~HoverTarget();
+
+    virtual TextDocument *textDocument() const = 0;
+    virtual QTextCursor textCursor() const = 0;
+    virtual void setContextHelpItem(const Core::HelpItem &item) = 0;
+
+    // Qt's tooltips are widgets, so a Quick editor answers with the widget
+    // hosting it.
+    virtual QWidget *tooltipParent() = 0;
+
+    // The cursor's top left in global coordinates, for a tooltip that places
+    // itself rather than following the mouse.
+    virtual QPoint globalCursorTopLeft() const = 0;
+
+    // Whether this view is showing an inline suggestion. Only a view that can
+    // show one says yes.
+    virtual bool suggestionVisible() const { return false; }
+
+    QString extraSelectionTooltip(int pos) const;
+};
 
 class TEXTEDITOR_EXPORT BaseHoverHandler
 {
 public:
     virtual ~BaseHoverHandler();
 
-    void contextHelpId(TextEditorWidget *widget,
+    void contextHelpId(HoverTarget *target,
                        int pos,
                        const Core::IContext::HelpCallback &callback);
 
     using ReportPriority = std::function<void(int priority)>;
-    void checkPriority(TextEditorWidget *widget, int pos, ReportPriority report);
+    void checkPriority(HoverTarget *target, int pos, ReportPriority report);
     virtual void abort() {} // Implement for asynchronous priority reporter
 
-    void showToolTip(TextEditorWidget *widget, const QPoint &point);
-    bool lastHelpItemAppliesTo(const TextEditorWidget *widget) const;
+    void showToolTip(HoverTarget *target, const QPoint &point);
+    bool lastHelpItemAppliesTo(const HoverTarget *target) const;
     const QString &toolTip() const;
 
     enum {
@@ -54,24 +84,24 @@ protected:
 
     bool isContextHelpRequest() const;
 
-    void propagateHelpId(TextEditorWidget *widget, const Core::IContext::HelpCallback &callback);
+    void propagateHelpId(HoverTarget *target, const Core::IContext::HelpCallback &callback);
 
     // identifyMatch() is required to report a priority by using the "report" callback.
     // It is recommended to use e.g.
     //    Utils::ExecuteOnDestruction reportPriority([this, report](){ report(priority()); });
     // at the beginning of an implementation to ensure this in any case.
-    virtual void identifyMatch(TextEditorWidget *editorWidget, int pos, ReportPriority report);
-    virtual void operateTooltip(TextEditorWidget *editorWidget, const QPoint &point);
+    virtual void identifyMatch(HoverTarget *target, int pos, ReportPriority report);
+    virtual void operateTooltip(HoverTarget *target, const QPoint &point);
 
 private:
-    void process(TextEditorWidget *widget, int pos, ReportPriority report);
+    void process(HoverTarget *target, int pos, ReportPriority report);
 
     QString m_toolTip;
     Qt::TextFormat m_textFormat = Qt::PlainText;
     Core::HelpItem m_lastHelpItemIdentified;
     int m_priority = -1;
     bool m_isContextHelpRequest = false;
-    TextEditorWidget *m_lastWidget = nullptr;
+    HoverTarget *m_lastTarget = nullptr;
 };
 
 } // namespace TextEditor

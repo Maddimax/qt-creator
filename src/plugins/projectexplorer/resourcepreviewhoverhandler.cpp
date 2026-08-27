@@ -8,6 +8,7 @@
 #include <projectexplorer/projecttree.h>
 
 #include <texteditor/basehoverhandler.h>
+#include <texteditor/textdocument.h>
 #include <texteditor/texteditor.h>
 
 #include <utils/mimeutils.h>
@@ -152,8 +153,8 @@ static QString findResourceInProject(const QString &resName)
 class ResourcePreviewHoverHandler final : public BaseHoverHandler
 {
 private:
-    void identifyMatch(TextEditorWidget *editorWidget, int pos, ReportPriority report) final;
-    void operateTooltip(TextEditorWidget *editorWidget, const QPoint &point) final;
+    void identifyMatch(HoverTarget *target, int pos, ReportPriority report) final;
+    void operateTooltip(HoverTarget *target, const QPoint &point) final;
 
 private:
     QString makeTooltip() const;
@@ -161,14 +162,13 @@ private:
     QString m_path;
 };
 
-void ResourcePreviewHoverHandler::identifyMatch(TextEditorWidget *editorWidget,
-                                                int pos,
+void ResourcePreviewHoverHandler::identifyMatch(HoverTarget *target, int pos,
                                                 ReportPriority report)
 {
     const QScopeGuard cleanup([this, report] { report(priority()); });
 
-    if (editorWidget->extraSelectionTooltip(pos).isEmpty()) {
-        const QTextBlock tb = editorWidget->document()->findBlock(pos);
+    if (target->extraSelectionTooltip(pos).isEmpty()) {
+        const QTextBlock tb = target->textDocument()->document()->findBlock(pos);
         const int tbpos = pos - tb.position();
         const QString tbtext = tb.text();
 
@@ -184,11 +184,11 @@ void ResourcePreviewHoverHandler::identifyMatch(TextEditorWidget *editorWidget,
     }
 }
 
-void ResourcePreviewHoverHandler::operateTooltip(TextEditorWidget *editorWidget, const QPoint &point)
+void ResourcePreviewHoverHandler::operateTooltip(HoverTarget *target, const QPoint &point)
 {
     const QString tt = makeTooltip();
     if (!tt.isEmpty())
-        Utils::ToolTip::show(point, tt, Qt::MarkdownText, editorWidget);
+        Utils::ToolTip::show(point, tt, Qt::MarkdownText, target->tooltipParent());
     else
         Utils::ToolTip::hide();
 }

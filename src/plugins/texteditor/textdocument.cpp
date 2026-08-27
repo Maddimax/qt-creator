@@ -379,6 +379,20 @@ QList<Utils::Id> TextDocument::extraSelectionKinds() const
     return d->m_extraSelections.keys();
 }
 
+QString TextDocument::extraSelectionTooltip(int pos) const
+{
+    for (const QList<ExtraSelection> &selections : std::as_const(d->m_extraSelections)) {
+        for (const ExtraSelection &selection : selections) {
+            if (selection.cursor.selectionStart() <= pos
+                && selection.cursor.selectionEnd() >= pos
+                && !selection.format.toolTip().isEmpty()) {
+                return selection.format.toolTip();
+            }
+        }
+    }
+    return QString();
+}
+
 void TextDocument::setTypingSettings(const TypingSettingsData &typingSettings)
 {
     d->m_typingSettings = typingSettings;

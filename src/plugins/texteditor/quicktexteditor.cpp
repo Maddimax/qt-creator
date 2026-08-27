@@ -1563,6 +1563,47 @@ private slots:
                  "a view's own bracket match was published to the document");
     }
 
+    // A hover handler asks for the message under the mouse. It gets it from
+    // the document, which is what lets a view that is not a TextEditorWidget
+    // show the same diagnostics.
+    void testTheMessageUnderTheMouseIsAskedOfTheDocument()
+    {
+        Utils::TemporaryDirectory dir("hovered");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("hovered.txt");
+        QVERIFY(file.writeFileContents("alpha beta\n"));
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(
+            file, Core::Constants::K_DEFAULT_TEXT_EDITOR_ID);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const base = qobject_cast<BaseTextEditor *>(editor);
+        QVERIFY(base);
+        TextEditorWidget * const widget = base->editorWidget();
+        TextDocument * const document = base->textDocument();
+        QVERIFY(widget && document);
+
+        QCOMPARE(document->extraSelectionTooltip(2), QString());
+
+        QTextCursor over(document->document());
+        over.setPosition(0);
+        over.setPosition(5, QTextCursor::KeepAnchor);
+        QTextCharFormat warning;
+        warning.setToolTip("alpha is not a word");
+        widget->setExtraSelections(TextEditorWidget::CodeWarningsSelection, {{over, warning}});
+
+        QCOMPARE(document->extraSelectionTooltip(2), QString("alpha is not a word"));
+        // Outside the range is not "the nearest message".
+        QCOMPARE(document->extraSelectionTooltip(8), QString());
+
+        // And the handler reaches it through the interface, without knowing
+        // what kind of view it is talking to.
+        HoverTarget * const target = widget;
+        QCOMPARE(target->extraSelectionTooltip(2), QString("alpha is not a word"));
+    }
+
     // Choosing an encoding does one of two quite different things, and which
     // one is the whole point of the dialog asking. Tested without the dialog:
     // Core owns the asking, this owns what is done with the answer.

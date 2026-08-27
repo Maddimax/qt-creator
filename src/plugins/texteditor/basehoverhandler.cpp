@@ -2,34 +2,43 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "basehoverhandler.h"
-#include "texteditor.h"
+
+#include "textdocument.h"
 
 #include <utils/tooltip/tooltip.h>
 
+#include <QLabel>
+#include <QPointer>
 #include <QScopeGuard>
 #include <QVBoxLayout>
 
 namespace TextEditor {
 
+HoverTarget::~HoverTarget() = default;
+
+QString HoverTarget::extraSelectionTooltip(int pos) const
+{
+    TextDocument *document = textDocument();
+    return document ? document->extraSelectionTooltip(pos) : QString();
+}
+
 BaseHoverHandler::~BaseHoverHandler() = default;
 
-void BaseHoverHandler::showToolTip(TextEditorWidget *widget, const QPoint &point)
+void BaseHoverHandler::showToolTip(HoverTarget *target, const QPoint &point)
 {
-    operateTooltip(widget, point);
+    operateTooltip(target, point);
 }
 
-bool BaseHoverHandler::lastHelpItemAppliesTo(const TextEditorWidget *widget) const
+bool BaseHoverHandler::lastHelpItemAppliesTo(const HoverTarget *target) const
 {
-    return m_lastWidget == widget;
+    return m_lastTarget == target;
 }
 
-void BaseHoverHandler::checkPriority(TextEditorWidget *widget,
-                                     int pos,
-                                     ReportPriority report)
+void BaseHoverHandler::checkPriority(HoverTarget *target, int pos, ReportPriority report)
 {
-    widget->setContextHelpItem({});
+    target->setContextHelpItem({});
 
-    process(widget, pos, report);
+    process(target, pos, report);
 }
 
 int BaseHoverHandler::priority() const
@@ -51,7 +60,7 @@ void BaseHoverHandler::setPriority(int priority)
     m_priority = priority;
 }
 
-void BaseHoverHandler::contextHelpId(TextEditorWidget *widget,
+void BaseHoverHandler::contextHelpId(HoverTarget *target,
                                      int pos,
                                      const Core::IContext::HelpCallback &callback)
 {
@@ -60,12 +69,15 @@ void BaseHoverHandler::contextHelpId(TextEditorWidget *widget,
     // If the tooltip is visible and there is a help match, this match is used to update
     // the help id. Otherwise, let the identification process happen.
     if (!Utils::ToolTip::isVisible() || !lastHelpItemIdentified().isValid()) {
-        process(widget, pos, [this, widget = QPointer<TextEditorWidget>(widget), callback](int) {
-            if (widget)
-                propagateHelpId(widget, callback);
+        // The target outlives the callback only as long as the widget hosting
+        // it does, which is what is watched here.
+        process(target, pos, [this, target, guard = QPointer<QWidget>(target->tooltipParent()),
+                              callback](int) {
+            if (guard)
+                propagateHelpId(target, callback);
         });
     } else {
-        propagateHelpId(widget, callback);
+        propagateHelpId(target, callback);
     }
 
     m_isContextHelpRequest = false;
@@ -97,37 +109,37 @@ bool BaseHoverHandler::isContextHelpRequest() const
     return m_isContextHelpRequest;
 }
 
-void BaseHoverHandler::propagateHelpId(TextEditorWidget *widget,
+void BaseHoverHandler::propagateHelpId(HoverTarget *target,
                                        const Core::IContext::HelpCallback &callback)
 {
     const Core::HelpItem contextHelp = lastHelpItemIdentified();
-    widget->setContextHelpItem(contextHelp);
+    target->setContextHelpItem(contextHelp);
     callback(contextHelp);
 }
 
-void BaseHoverHandler::process(TextEditorWidget *widget, int pos, ReportPriority report)
+void BaseHoverHandler::process(HoverTarget *target, int pos, ReportPriority report)
 {
     m_toolTip.clear();
     m_priority = -1;
     m_lastHelpItemIdentified = Core::HelpItem();
-    m_lastWidget = nullptr;
+    m_lastTarget = nullptr;
 
-    identifyMatch(widget, pos, [this, widget, report](int priority) {
-        m_lastWidget = widget;
+    identifyMatch(target, pos, [this, target, report](int priority) {
+        m_lastTarget = target;
         report(priority);
     });
 }
 
-void BaseHoverHandler::identifyMatch(TextEditorWidget *editorWidget, int pos, ReportPriority report)
+void BaseHoverHandler::identifyMatch(HoverTarget *target, int pos, ReportPriority report)
 {
     const QScopeGuard cleanup([this, report] { report(priority()); });
 
-    QString tooltip = editorWidget->extraSelectionTooltip(pos);
+    QString tooltip = target->extraSelectionTooltip(pos);
     if (!tooltip.isEmpty())
         setToolTip(tooltip);
 }
 
-void BaseHoverHandler::operateTooltip(TextEditorWidget *editorWidget, const QPoint &point)
+void BaseHoverHandler::operateTooltip(HoverTarget *target, const QPoint &point)
 {
     const QVariant helpItem = m_lastHelpItemIdentified.isValid()
                                   ? QVariant::fromValue(m_lastHelpItemIdentified)
@@ -140,9 +152,10 @@ void BaseHoverHandler::operateTooltip(TextEditorWidget *editorWidget, const QPoi
         Utils::ToolTip::hide();
     } else {
         if (helpContents.isEmpty()) {
-            Utils::ToolTip::show(point, m_toolTip, m_textFormat, editorWidget, helpItem);
+            Utils::ToolTip::show(point, m_toolTip, m_textFormat, target->tooltipParent(), helpItem);
         } else if (m_toolTip.isEmpty()) {
-            Utils::ToolTip::show(point, helpContents, Qt::RichText, editorWidget, helpItem);
+            Utils::ToolTip::show(point, helpContents, Qt::RichText, target->tooltipParent(),
+                                 helpItem);
         } else {
             // separate labels for tool tip text and help,
             // so the text format (plain, rich, markdown) can be handled differently
@@ -156,7 +169,7 @@ void BaseHoverHandler::operateTooltip(TextEditorWidget *editorWidget, const QPoi
             auto helpContentLabel = new QLabel("<hr/>" + helpContents);
             helpContentLabel->setObjectName("qcWidgetTipHelpLabel");
             layout->addWidget(helpContentLabel);
-            Utils::ToolTip::show(point, layout, editorWidget, helpItem);
+            Utils::ToolTip::show(point, layout, target->tooltipParent(), helpItem);
         }
     }
 }

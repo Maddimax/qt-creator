@@ -9,6 +9,7 @@
 #include "typehierarchybuilder.h"
 
 #include <texteditor/textdocument.h>
+#include <utils/textutils.h>
 
 #include <cplusplus/ExpressionUnderCursor.h>
 #include <cplusplus/Icons.h>
@@ -528,22 +529,22 @@ QFuture<std::shared_ptr<CppElement>> CppElementEvaluator::asyncExecute(const QSt
 class FromGuiFunctor
 {
 public:
-    FromGuiFunctor(TextEditor::TextEditorWidget *editor)
-        : m_editor(editor)
-        , m_tc(editor->textCursor())
+    FromGuiFunctor(TextEditor::TextDocument *document, const QTextCursor &cursor)
+        : m_document(document)
+        , m_tc(cursor)
     {}
 
     std::optional<SourceData> operator()(const CPlusPlus::Snapshot &snapshot)
     {
         Document::Ptr doc;
-        doc = snapshot.document(m_editor->textDocument()->filePath());
+        doc = snapshot.document(m_document->filePath());
         if (!doc)
             return {};
 
         int line = 0;
         int column = 0;
         const int pos = m_tc.position();
-        m_editor->convertPosition(pos, &line, &column);
+        Utils::Text::convertPosition(m_document->document(), pos, &line, &column);
 
         checkDiagnosticMessage(pos);
 
@@ -564,7 +565,7 @@ private:
 public:
     void clear();
 
-    TextEditor::TextEditorWidget *m_editor;
+    TextEditor::TextDocument *m_document;
     QTextCursor m_tc;
     std::shared_ptr<CppElement> m_element;
     QString m_diagnosis;
@@ -582,9 +583,12 @@ QFuture<std::shared_ptr<CppElement>> FromGuiFunctor::syncExec(const ExecData &ex
 
 void FromGuiFunctor::checkDiagnosticMessage(int pos)
 {
-    const QList<QTextEdit::ExtraSelection> &selections = m_editor->extraSelections(
-        TextEditor::TextEditorWidget::CodeWarningsSelection);
-    for (const QTextEdit::ExtraSelection &sel : selections) {
+    // From the document rather than from a view: the warnings are the same
+    // whichever editor is showing the file, and a view is not needed to read
+    // them.
+    const QList<TextEditor::TextDocument::ExtraSelection> selections
+        = m_document->extraSelections(TextEditor::TextEditorWidget::CodeWarningsSelection);
+    for (const TextEditor::TextDocument::ExtraSelection &sel : selections) {
         if (pos >= sel.cursor.selectionStart() && pos <= sel.cursor.selectionEnd()) {
             m_diagnosis = sel.format.toolTip();
             break;
@@ -627,12 +631,15 @@ void FromGuiFunctor::clear()
 class CppElementEvaluatorPrivate
 {
 public:
-    CppElementEvaluatorPrivate(TextEditor::TextEditorWidget *editor) : m_functor(editor) {}
+    CppElementEvaluatorPrivate(TextEditor::TextDocument *document, const QTextCursor &cursor)
+        : m_functor(document, cursor)
+    {}
     FromGuiFunctor m_functor;
 };
 
-CppElementEvaluator::CppElementEvaluator(TextEditor::TextEditorWidget *editor)
-    : d(new CppElementEvaluatorPrivate(editor))
+CppElementEvaluator::CppElementEvaluator(TextEditor::TextDocument *document,
+                                         const QTextCursor &cursor)
+    : d(new CppElementEvaluatorPrivate(document, cursor))
 {}
 
 CppElementEvaluator::~CppElementEvaluator()
@@ -646,9 +653,9 @@ void CppElementEvaluator::setTextCursor(const QTextCursor &tc)
 }
 
 QFuture<std::shared_ptr<CppElement>> CppElementEvaluator::asyncExecute(
-        TextEditor::TextEditorWidget *editor)
+        TextEditor::TextDocument *document, const QTextCursor &cursor)
 {
-    return exec(FromGuiFunctor(editor), asyncExec);
+    return exec(FromGuiFunctor(document, cursor), asyncExec);
 }
 
 void CppElementEvaluator::execute()

@@ -3748,6 +3748,16 @@ QRect TextEditorWidget::cursorRect(int pos) const
     return result;
 }
 
+QTextCursor TextEditorWidget::textCursor() const
+{
+    return PlainTextEdit::textCursor();
+}
+
+QPoint TextEditorWidget::globalCursorTopLeft() const
+{
+    return viewport()->mapToGlobal(cursorRect(textCursor()).topLeft());
+}
+
 void TextEditorWidget::convertPosition(int pos, int *line, int *column) const
 {
     Text::convertPosition(document(), pos, line, column);
@@ -9187,19 +9197,6 @@ void TextEditorWidget::setExtraSelections(Id kind, const QList<QTextEdit::ExtraS
 QList<QTextEdit::ExtraSelection> TextEditorWidget::extraSelections(Id kind) const
 {
     return d->m_extraSelections.value(kind);
-}
-
-QString TextEditorWidget::extraSelectionTooltip(int pos) const
-{
-    for (const QList<QTextEdit::ExtraSelection> &sel : std::as_const(d->m_extraSelections)) {
-        for (const QTextEdit::ExtraSelection &s : sel) {
-            if (s.cursor.selectionStart() <= pos
-                && s.cursor.selectionEnd() >= pos
-                && !s.format.toolTip().isEmpty())
-                return s.format.toolTip();
-        }
-    }
-    return QString();
 }
 
 void TextEditorWidget::autoIndent()
