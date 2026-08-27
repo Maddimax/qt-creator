@@ -9343,6 +9343,44 @@ there for years; it survived because there was no seam at which to ask. Every
 dialog in this bucket that reads command output has the same property until it
 is ported.
 
+## Auditing the bug rather than just fixing it
+
+The `\d+?` that captured one digit was worth asking about elsewhere before
+moving on. There are five uses of `\d+?` in the tree; four of them are fine, and
+the reason is precise enough to be a rule:
+
+**`(\d+?)` is only wrong when what follows it can also match digits.** In
+`qmakeparser`, both `linuxiccparser` cases and `cmakeoutputparser`, the group is
+followed by a literal (`:`, `)`) or by `$`, which cannot absorb a digit - so the
+engine has to expand the group to reach them. Perforce's was followed by `.*?`,
+which can absorb anything, so it never expanded. Checked by running all five
+rather than by reading them: the four give `1234`, the fifth gave `1`.
+
+That is a five-minute audit that turns "I fixed a bug" into "I know the bug was
+isolated", and it is worth doing every time a defect is found by porting rather
+than by a report - a defect nobody noticed is one nobody was looking for
+elsewhere either.
+
+## A dialog whose content was a widget, and a plugin with no tests
+
+SCXML's statistics dialog is 36 lines and almost none of it is the dialog: the
+body is a `Statistics` *widget* holding three labels and a tree view. Like
+`CppPreProcessorDialog`, the work is in what the dialog wraps.
+
+`Statistics` is now an `AspectContainer` rather than a `QFrame`: three
+`TextDisplay` aspects and a `BaseAspect` owning the existing model and
+presenting as `Tree`. The model, the parsing and the counting are untouched -
+what changed is that a form asks the aspect for the model instead of a view
+being handed it directly. The dialog is then the usual three lines.
+
+**Two things this shape costs that the earlier ports did not.** A container is a
+`QObject` with no parent, so the dialog has to own it - `std::unique_ptr`, and
+therefore an out-of-line destructor, because the implicit one needs the type
+complete in every translation unit that includes the header. And the plugin had
+no tests at all, so it needed its first `addTestCreator` and its first
+`qt_add_qml_module`. Both are small, but they are the difference between "port
+the dialog" and "port the dialog in a plugin nobody has tested".
+
 ## The terminal spike: go, with the cleanest split in the tree
 
 **Status update: the spike is being productised.** `TerminalQuick` is now the

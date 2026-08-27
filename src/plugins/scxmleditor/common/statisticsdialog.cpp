@@ -6,7 +6,9 @@
 #include "statistics.h"
 #include "statisticsdialog.h"
 
-#include <utils/layoutbuilder.h>
+#include <coreplugin/dialogs/ioptionspage.h>
+
+#include <QVBoxLayout>
 
 #include <QDialogButtonBox>
 
@@ -18,17 +20,17 @@ StatisticsDialog::StatisticsDialog(QWidget *parent)
     resize(400, 300);
     setWindowTitle(Tr::tr("Document Statistics"));
 
-    m_statistics = new Statistics;
+    m_statistics.reset(new Statistics);
     auto buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok);
 
-    using namespace Layouting;
-    Column {
-        m_statistics,
-        buttonBox,
-    }.attachTo(this);
+    auto *layout = new QVBoxLayout(this);
+    layout->addWidget(Core::createAspectForm(m_statistics.get()));
+    layout->addWidget(buttonBox);
 
     connect(buttonBox, &QDialogButtonBox::accepted, this, &StatisticsDialog::accept);
 }
+
+StatisticsDialog::~StatisticsDialog() = default;
 
 void StatisticsDialog::setDocument(ScxmlEditor::PluginInterface::ScxmlDocument *doc)
 {

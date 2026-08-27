@@ -4,7 +4,7 @@
 #pragma once
 
 #include <QAbstractTableModel>
-#include <QFrame>
+#include <utils/aspects.h>
 
 QT_BEGIN_NAMESPACE
 class QLabel;
@@ -44,23 +44,31 @@ private:
     int m_levels = 0;
 };
 
-class Statistics : public QFrame
+// The counts a document adds up to, as a form: three things it says about the
+// file and a tree of what is in it. An aspect container rather than a widget,
+// so that the dialog around it only has to ask for a form.
+class Statistics : public Utils::AspectContainer
 {
     Q_OBJECT
 
 public:
-    explicit Statistics(QWidget *parent = nullptr);
+    Statistics();
+    ~Statistics() override;
 
     void setDocument(PluginInterface::ScxmlDocument *doc);
 
+    Utils::TextDisplay fileName{this};
+    Utils::TextDisplay time{this};
+    Utils::TextDisplay levels{this};
+
 private:
-    StatisticsModel *m_model;
-    QSortFilterProxyModel *m_proxyModel;
-    QLabel *m_fileNameLabel;
-    QLabel *m_levels;
-    QLabel *m_timeLabel;
-    Utils::TreeView *m_statisticsView;
+    class TagCounts;
+    TagCounts *m_counts = nullptr;
 };
+
+#ifdef WITH_TESTS
+QObject *createStatisticsTest();
+#endif
 
 } // namespace Common
 } // namespace ScxmlEditor

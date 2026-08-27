@@ -5,6 +5,8 @@
 
 #include <QDialog>
 
+#include <memory>
+
 namespace ScxmlEditor {
 
 namespace PluginInterface { class ScxmlDocument; }
@@ -19,11 +21,12 @@ class StatisticsDialog : public QDialog
 
 public:
     explicit StatisticsDialog(QWidget *parent = nullptr);
+    ~StatisticsDialog() override;
 
     void setDocument(PluginInterface::ScxmlDocument *doc);
 
 private:
-    Statistics *m_statistics;
+    std::unique_ptr<Statistics> m_statistics;
 };
 
 } // namespace Common

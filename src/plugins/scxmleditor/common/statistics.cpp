@@ -6,11 +6,15 @@
 #include "scxmltag.h"
 #include "statistics.h"
 
-#include <utils/itemviews.h>
 #include <utils/layoutbuilder.h>
 
+#include <coreplugin/dialogs/ioptionspage.h>
+
 #include <QDateTime>
-#include <QLabel>
+
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
 #include <QSortFilterProxyModel>
 
 using namespace ScxmlEditor::PluginInterface;
@@ -113,42 +117,99 @@ QVariant StatisticsModel::data(const QModelIndex &index, int role) const
     return QVariant();
 }
 
-Statistics::Statistics(QWidget *parent)
-    : QFrame(parent)
+// The counts, as an aspect the form draws as a tree. The model is the one that
+// was here before; what changed is that a form asks the aspect for it rather
+// than a view being handed it directly.
+class Statistics::TagCounts final : public Utils::BaseAspect
 {
-    m_model = new StatisticsModel(this);
+public:
+    explicit TagCounts(Utils::AspectContainer *container)
+        : Utils::BaseAspect(container)
+        // Parented, so that QML cannot take ownership of a model and delete it.
+        , m_model(new StatisticsModel(this))
+        , m_sorted(new QSortFilterProxyModel(this))
+    {
+        setQmlName("Counts");
+        m_sorted->setFilterKeyColumn(-1);
+        m_sorted->setSourceModel(m_model);
+    }
 
-    m_fileNameLabel = new QLabel;
-    m_fileNameLabel->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Preferred);
-    m_levels = new QLabel;
+    Utils::AspectPresentation presentation() const override
+    {
+        Utils::AspectPresentation p = Utils::BaseAspect::presentation();
+        p.control = Utils::AspectControls::Tree;
+        return p;
+    }
 
-    m_timeLabel = new QLabel;
-    m_timeLabel->setText(QDateTime::currentDateTime().toString(Tr::tr("yyyy/MM/dd hh:mm:ss")));
+    QAbstractItemModel *tableModel() override { return m_sorted; }
 
-    m_proxyModel = new QSortFilterProxyModel(this);
-    m_proxyModel->setFilterKeyColumn(-1);
-    m_proxyModel->setSourceModel(m_model);
+    void setDocument(ScxmlDocument *document) { m_model->setDocument(document); }
+    int levels() const { return m_model->levels(); }
 
-    m_statisticsView = new Utils::TreeView;
-    m_statisticsView->setModel(m_proxyModel);
-    m_statisticsView->setAlternatingRowColors(true);
-    m_statisticsView->setSortingEnabled(true);
+private:
+    StatisticsModel *m_model = nullptr;
+    QSortFilterProxyModel *m_sorted = nullptr;
+};
 
-    using namespace Layouting;
-    Grid {
-        Tr::tr("File"), m_fileNameLabel, br,
-        Tr::tr("Time"), m_timeLabel, br,
-        Tr::tr("Max. levels"), m_levels, br,
-        Span(2, m_statisticsView), br,
-        noMargin
-    }.attachTo(this);
+Statistics::Statistics()
+    : m_counts(new TagCounts(this))
+{
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/ScxmlEditor/Statistics.qml"));
+
+    fileName.setQmlName("FileName");
+    fileName.setLabelText(Tr::tr("File"));
+
+    time.setQmlName("Time");
+    time.setLabelText(Tr::tr("Time"));
+    time.setText(QDateTime::currentDateTime().toString(Tr::tr("yyyy/MM/dd hh:mm:ss")));
+
+    levels.setQmlName("Levels");
+    levels.setLabelText(Tr::tr("Max. levels"));
 }
+
+Statistics::~Statistics() = default;
 
 void Statistics::setDocument(ScxmlDocument *doc)
 {
-    m_fileNameLabel->setText(doc->filePath().toUserOutput());
-    m_model->setDocument(doc);
-    m_proxyModel->invalidate();
-    m_proxyModel->sort(1, Qt::DescendingOrder);
-    m_levels->setText(QString::fromLatin1("%1").arg(m_model->levels()));
+    fileName.setText(doc->filePath().toUserOutput());
+    m_counts->setDocument(doc);
+    levels.setText(QString::number(m_counts->levels()));
 }
+
+#ifdef WITH_TESTS
+
+namespace ScxmlEditor::Common {
+
+class StatisticsTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheCountsAreShownAsAForm()
+    {
+        Statistics statistics;
+        const Utils::Result<> rendered
+            = Core::aspectFormRenders(&statistics, "Statistics.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+
+        // The time is filled in when the form is built rather than when a
+        // document arrives: the dialog reports when it was opened.
+        QVERIFY2(!statistics.time.text().isEmpty(), "the form does not say when it was taken");
+
+        // Four things are shown - the three the file says and the tree of
+        // counts - and the tree is one the aspect hands over rather than a view
+        // that was handed a model.
+        QCOMPARE(statistics.aspects().size(), 4);
+    }
+};
+
+QObject *createStatisticsTest()
+{
+    return new StatisticsTest;
+}
+
+} // namespace ScxmlEditor::Common
+
+#include "statistics.moc"
+
+#endif // WITH_TESTS

@@ -3,6 +3,10 @@
 
 #include "scxmleditor.h"
 
+#ifdef WITH_TESTS
+#include "common/statistics.h"
+#endif
+
 #include <extensionsystem/iplugin.h>
 
 #include <coreplugin/designmode.h>
@@ -18,6 +22,9 @@ private:
     void initialize() final
     {
         setupScxmlEditor(this);
+#ifdef WITH_TESTS
+        addTestCreator(ScxmlEditor::Common::createStatisticsTest);
+#endif
     }
 
     void extensionsInitialized() final
