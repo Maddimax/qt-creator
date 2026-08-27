@@ -23,6 +23,7 @@ if(TARGET Perforce)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      ChangeNumberDialog.qml
       PerforceSettingsPage.qml
   )
 endif()

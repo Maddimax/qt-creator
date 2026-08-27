@@ -1546,6 +1546,9 @@ class PerforcePlugin final : public ExtensionSystem::IPlugin
     void initialize() final
     {
         dd = new PerforcePluginPrivate;
+#ifdef WITH_TESTS
+        addTestCreator(createChangeNumberDialogTest);
+#endif
     }
 
     void extensionsInitialized() final

@@ -5,22 +5,29 @@
 
 #include <QDialog>
 
-QT_BEGIN_NAMESPACE
-class QLineEdit;
-QT_END_NAMESPACE
+#include <memory>
 
 namespace Perforce::Internal {
 
-// Input a change number for pending changes.
+class ChangeNumberSettings;
+
+// Asks for a change number to describe.
 class ChangeNumberDialog : public QDialog
 {
-    Q_OBJECT
 public:
-    ChangeNumberDialog(QWidget *parent = nullptr);
+    explicit ChangeNumberDialog(QWidget *parent = nullptr);
+    ~ChangeNumberDialog() override;
+
+    // The number typed, or 0 for none - which is what the caller treats as
+    // "nothing to describe", the same as the -1 a line edit used to answer.
     int number() const;
 
 private:
-    QLineEdit *m_lineEdit = nullptr;
+    std::unique_ptr<ChangeNumberSettings> m_settings;
 };
+
+#ifdef WITH_TESTS
+QObject *createChangeNumberDialogTest();
+#endif
 
 } // Perforce::Internal

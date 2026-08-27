@@ -6,6 +6,7 @@
 #include "mercurialclient.h"
 #include "mercurialeditor.h"
 #include "mercurialsettings.h"
+#include "authenticationdialog.h"
 #include "mercurialtr.h"
 #include "revertdialog.h"
 #include "srcdestdialog.h"
@@ -874,6 +875,7 @@ class MercurialPlugin final : public ExtensionSystem::IPlugin
         dd = new MercurialPluginPrivate;
 #ifdef WITH_TESTS
         addTest<MercurialTest>();
+        addTestCreator(createAuthenticationDialogTest);
 #endif
     }
 

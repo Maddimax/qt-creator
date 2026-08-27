@@ -5,11 +5,11 @@
 
 #include <QDialog>
 
-QT_BEGIN_NAMESPACE
-class QLineEdit;
-QT_END_NAMESPACE
+#include <memory>
 
 namespace Mercurial::Internal {
+
+class AuthenticationSettings;
 
 class AuthenticationDialog : public QDialog
 {
@@ -19,12 +19,16 @@ public:
     ~AuthenticationDialog() override;
 
     void setPasswordEnabled(bool enabled);
+
     QString getUserName();
     QString getPassword();
 
 private:
-    QLineEdit *m_username;
-    QLineEdit *m_password;
+    std::unique_ptr<AuthenticationSettings> m_settings;
 };
+
+#ifdef WITH_TESTS
+QObject *createAuthenticationDialogTest();
+#endif
 
 } // Mercurial::Internal

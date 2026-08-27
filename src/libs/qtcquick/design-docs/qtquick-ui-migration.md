@@ -9233,6 +9233,40 @@ rerun, never a pass.
 
 The next dialog's test is now three lines.
 
+## Two dialogs at the new price
+
+With `aspectFormRenders()` in place, a dialog port is the QML, the aspects, and
+three lines of test. Mercurial's authentication dialog and Perforce's change
+number dialog went together in one batch, which is the first time two have.
+
+Both are the *other* kind of dialog - raw widgets, not aspects - so both needed
+aspects introducing. What that buys is visible in what the code stopped doing:
+
+- A `QLineEdit` with `setEchoMode(QLineEdit::Password)` became a `StringAspect`
+  with `PasswordLineEditDisplay`. The form does not know it is a password; the
+  delegate reads `presentation().control` and decides.
+- A `QLineEdit` with a `QIntValidator(0, 1000000)` became an `IntegerAspect`
+  with a range. The validator is gone: a spin box cannot hold a number outside
+  the range, so nothing has to reject one afterwards.
+
+**Two assertions that were wrong about the product, both caught by running.**
+
+*`SecretDelegate` is not the password delegate.* The presentation enum has both
+`PasswordLineEdit` and `Secret`, and the second is for a value that lives in the
+keychain and has to be fetched - not for a field that echoes dots. Password
+fields are `StringDelegate`, which reads `pres.password`. qmllint would not have
+caught it: both are real components.
+
+*`IntegerAspect::setRange()` does not clamp `setValue()`.* The test asserted
+that setting 2000000 would come back as 1000000, and it does not - the range
+bounds what can be **typed**, not what the aspect can hold. The assertion now
+says what the port actually guarantees: the presentation carries the minimum and
+maximum, which is what the spin box honours, and that is the same guarantee the
+`QIntValidator` gave. A test that had been written from the intention rather
+than the behaviour would have encoded a promise the code does not make.
+
+Nine controls between the two dialogs, all biting.
+
 ## The terminal spike: go, with the cleanest split in the tree
 
 **Status update: the spike is being productised.** `TerminalQuick` is now the

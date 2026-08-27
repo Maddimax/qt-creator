@@ -25,6 +25,7 @@ if(TARGET Mercurial)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      AuthenticationDialog.qml
       MercurialSettingsPage.qml
   )
 endif()
