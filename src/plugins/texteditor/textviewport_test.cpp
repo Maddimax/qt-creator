@@ -19,6 +19,7 @@
 #include "textdocument.h"
 #include "textdocumentlayout.h"
 #include "texteditorconstants.h"
+#include "marginsettings.h"
 #include "textviewport.h"
 #include "textmark.h"
 
@@ -3528,6 +3529,70 @@ private slots:
         QVERIFY(text->findBlockByNumber(1).text().startsWith("XY"));
         QTRY_VERIFY(viewport->visibleLine(1).value("width").toReal() > widthBefore);
         QCOMPARE(viewport->visibleLine(1).value("changed").toInt(), int(TextViewport::None));
+    }
+
+    void testTheRightMarginIsWhereTheSettingsPutIt()
+    {
+        TemporaryDirectory dir("right-margin");
+        QVERIFY(dir.isValid());
+        const FilePath file = writeLines(dir, "wide.txt", 20);
+
+        const bool wasShown = marginSettings().showMargin();
+        const int wasColumn = marginSettings().marginColumn();
+        const bool wasTint = marginSettings().tintMarginArea();
+        const QScopeGuard restore([wasShown, wasColumn, wasTint] {
+            marginSettings().showMargin.setValue(wasShown);
+            marginSettings().marginColumn.setValue(wasColumn);
+            marginSettings().tintMarginArea.setValue(wasTint);
+        });
+        marginSettings().showMargin.setValue(false);
+
+        // Wide enough that a margin at column 20 is on screen, or "where it
+        // is" would be a question about clipping instead.
+        CodeViewportFixture fixture(file, 800, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+
+        auto * const line = fixture.root->findChild<QQuickItem *>("marginLine");
+        QVERIFY2(line, "the form has no right margin at all");
+        auto * const area = fixture.root->findChild<QQuickItem *>("marginArea");
+        QVERIFY(area);
+
+        // Off: nothing drawn, and the viewport says there is nowhere to draw it.
+        QTRY_COMPARE(viewport->marginX(), qreal(-1));
+        QVERIFY2(!line->isVisible(), "a margin was drawn without the setting asking for one");
+        QVERIFY(!area->isVisible());
+
+        // On, at a column of the test's own choosing.
+        marginSettings().marginColumn.setValue(20);
+        marginSettings().tintMarginArea.setValue(false);
+        marginSettings().showMargin.setValue(true);
+        QTRY_VERIFY2(viewport->marginX() > 0, "turning the margin on put it nowhere");
+        QTRY_VERIFY2(line->isVisible(), "the margin line is not drawn");
+        QVERIFY2(!area->isVisible(), "the area past the margin was tinted without being asked");
+
+        const qreal at20 = viewport->marginX();
+
+        // Twice the column is about twice as far across - "about", because the
+        // widget adds a few pixels so a line exactly that long does not touch
+        // the margin, and this asserts the relationship rather than repeating
+        // the formula.
+        marginSettings().marginColumn.setValue(40);
+        QTRY_VERIFY(viewport->marginX() > at20);
+        const qreal at40 = viewport->marginX();
+        QVERIFY2(qAbs(at40 - 2 * at20) < at20 / 4,
+                 qPrintable(QString("column 20 at %1, column 40 at %2").arg(at20).arg(at40)));
+
+        // And the tint follows its own setting rather than the margin's.
+        marginSettings().tintMarginArea.setValue(true);
+        QTRY_VERIFY2(area->isVisible(), "the area past the margin is not tinted");
+        QVERIFY2(area->x() >= at40 - 1, "the tint starts before the margin");
+        QVERIFY2(area->property("color").value<QColor>()
+                     != line->property("color").value<QColor>(),
+                 "the tint and the line are the same colour");
     }
 };
 

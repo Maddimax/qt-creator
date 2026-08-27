@@ -15,6 +15,8 @@
 #include "texteditortr.h"
 #include "textdocument.h"
 #include "gutterframe.h"
+#include "indenter.h"
+#include "marginsettings.h"
 #include "textdocumentlayout.h"
 #include "textmark.h"
 #include "typingsettings.h"
@@ -89,6 +91,11 @@ TextViewport::TextViewport(QQuickItem *parent)
     // rather than on whatever is opened next.
     connect(&displaySettings(), &Utils::AspectContainer::changed, this, [this] {
         emit fileFormatChanged();
+        polish();
+        update();
+    });
+    // The same for where the right margin sits, which is a page of its own.
+    connect(&marginSettings(), &Utils::AspectContainer::changed, this, [this] {
         polish();
         update();
     });
@@ -207,6 +214,26 @@ QColor TextViewport::savedLineColor() const
 qreal TextViewport::indentWidth() const
 {
     return m_indentWidth;
+}
+
+qreal TextViewport::marginX() const
+{
+    return m_marginX;
+}
+
+QColor TextViewport::marginLineColor() const
+{
+    return m_marginLine;
+}
+
+QColor TextViewport::marginAreaColor() const
+{
+    return m_marginArea;
+}
+
+bool TextViewport::tintMarginArea() const
+{
+    return m_tintMarginArea;
 }
 
 QColor TextViewport::indentGuideColor() const
@@ -1447,6 +1474,14 @@ void TextViewport::updatePolish()
 
     // One level of indentation, in pixels, and what a guide is drawn in.
     m_indentWidth = doc->tabSettings().m_indentSize * metrics.horizontalAdvance(' ');
+
+    // The right margin. The widget editor puts the line four pixels past the
+    // column so that a line exactly that long does not touch it.
+    const int marginColumn = visibleMarginColumn(marginSettings().data(), doc->indenter());
+    m_marginX = marginColumn <= 0 ? -1 : metrics.horizontalAdvance(' ') * marginColumn + 4;
+    m_marginLine = rightMarginColor(fonts, false);
+    m_marginArea = rightMarginColor(fonts, true);
+    m_tintMarginArea = marginSettings().tintMarginArea();
 
     // What the document was at when the file was last written. Only a
     // TextDocumentLayout keeps it; without one there is nothing to compare a

@@ -5727,13 +5727,6 @@ void TextEditorWidgetPrivate::updateLineAnnotation(const PaintEventData &data,
         scheduleCleanupAnnotationCache();
 }
 
-static QColor blendRightMarginColor(const FontSettingsData &settings, bool areaColor)
-{
-    const QColor baseColor = settings.toTextCharFormat(C_TEXT).background().color();
-    const QColor col = (baseColor.value() > 128) ? Qt::black : Qt::white;
-    return blendColors(baseColor, col, areaColor ? 16 : 32);
-}
-
 void TextEditorWidgetPrivate::paintRightMarginArea(PaintEventData &data, QPainter &painter) const
 {
     if (m_visibleWrapColumn <= 0)
@@ -5747,7 +5740,7 @@ void TextEditorWidgetPrivate::paintRightMarginArea(PaintEventData &data, QPainte
                                   data.eventRect.top(),
                                   data.viewportRect.width() - data.rightMargin,
                                   data.eventRect.height());
-        painter.fillRect(behindMargin, blendRightMarginColor(m_document->fontSettings(), true));
+        painter.fillRect(behindMargin, rightMarginColor(m_document->fontSettings(), true));
     }
 }
 
@@ -5758,7 +5751,7 @@ void TextEditorWidgetPrivate::paintRightMarginLine(const PaintEventData &data,
         return;
 
     const QPen pen = painter.pen();
-    painter.setPen(blendRightMarginColor(m_document->fontSettings(), false));
+    painter.setPen(rightMarginColor(m_document->fontSettings(), false));
     painter.drawLine(QPointF(data.rightMargin, data.eventRect.top()),
                      QPointF(data.rightMargin, data.eventRect.bottom()));
     painter.setPen(pen);
@@ -6741,7 +6734,7 @@ void TextEditorWidgetPrivate::setBackgroundColor()
     auto localPalette = q->palette();
     QColor fontBackgroundColor;
     if (m_marginSettings.m_tintMarginArea)
-        fontBackgroundColor = blendRightMarginColor(m_document->fontSettings(), false);
+        fontBackgroundColor = rightMarginColor(m_document->fontSettings(), false);
     else
         fontBackgroundColor = m_document->fontSettings().toTextCharFormat(C_TEXT).background().color();
     if (localPalette.window() != fontBackgroundColor) {
@@ -10469,20 +10462,7 @@ bool TextEditorWidget::inFindScope(const QTextCursor &cursor) const
 
 void TextEditorWidget::updateVisualWrapColumn()
 {
-    auto calcMargin = [this] {
-        const auto &ms = d->m_marginSettings;
-
-        if (!ms.m_showMargin) {
-            return 0;
-        }
-        if (ms.m_useIndenter) {
-            if (auto margin = d->m_document->indenter()->margin()) {
-                return *margin;
-            }
-        }
-        return ms.m_marginColumn;
-    };
-    setVisibleWrapColumn(calcMargin());
+    setVisibleWrapColumn(visibleMarginColumn(d->m_marginSettings, d->m_document->indenter()));
 }
 
 void TextEditorWidgetPrivate::updateTabStops()

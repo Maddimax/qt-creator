@@ -7,7 +7,12 @@
 
 #include <utils/aspects.h>
 
+#include <QColor>
+
 namespace TextEditor {
+
+class Indenter;
+class FontSettingsData;
 
 class TEXTEDITOR_EXPORT MarginSettingsData
 {
@@ -37,6 +42,19 @@ public:
     Utils::IntegerAspect marginColumn{this};
     Utils::IntegerAspect centerEditorContentWidthPercent{this};
 };
+
+// Which column the right margin sits at, or 0 for no margin at all. The
+// indenter gets first refusal where the settings say so: a language whose
+// style has a line length of its own knows better than a number typed into
+// Preferences.
+TEXTEDITOR_EXPORT int visibleMarginColumn(const MarginSettingsData &settings,
+                                          const Indenter *indenter);
+
+// What the margin is drawn in: the line itself, and the tint over everything
+// past it. Both are the editor's own background nudged towards its opposite,
+// so a margin is visible on a light scheme and on a dark one without either
+// being named here.
+TEXTEDITOR_EXPORT QColor rightMarginColor(const FontSettingsData &fontSettings, bool areaColor);
 
 TEXTEDITOR_EXPORT MarginSettings &marginSettings();
 

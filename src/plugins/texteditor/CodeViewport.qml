@@ -337,6 +337,32 @@ Item {
                     root.editingFinished()
             }
 
+            // The area past the right margin, tinted where the settings ask.
+            // Behind the text like the indent guides, and for the same reason.
+            Rectangle {
+                objectName: "marginArea"
+
+                z: -1
+                x: viewport.marginX - viewport.scrollX
+                width: Math.max(0, viewport.width - x)
+                height: viewport.height
+                visible: viewport.tintMarginArea && viewport.marginX >= 0 && width > 0
+                color: viewport.marginAreaColor
+            }
+
+            // And the line itself, which is drawn whether or not the area past
+            // it is tinted.
+            Rectangle {
+                objectName: "marginLine"
+
+                z: -1
+                x: viewport.marginX - viewport.scrollX
+                width: 1
+                height: viewport.height
+                visible: viewport.marginX >= 0 && x < viewport.width
+                color: viewport.marginLineColor
+            }
+
             // The indent guides, behind the text rather than over it: a
             // negative z puts a child under its parent's own drawing, and the
             // parent here is what paints the glyphs.

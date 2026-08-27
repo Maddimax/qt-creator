@@ -3,11 +3,38 @@
 
 #include "marginsettings.h"
 
+#include "fontsettings.h"
+#include "indenter.h"
 #include "texteditortr.h"
 
 using namespace Utils;
 
 namespace TextEditor {
+
+static QColor blendColors(const QColor &a, const QColor &b, int alpha)
+{
+    return QColor((a.red()   * (256 - alpha) + b.red()   * alpha) / 256,
+                  (a.green() * (256 - alpha) + b.green() * alpha) / 256,
+                  (a.blue()  * (256 - alpha) + b.blue()  * alpha) / 256);
+}
+
+int visibleMarginColumn(const MarginSettingsData &settings, const Indenter *indenter)
+{
+    if (!settings.m_showMargin)
+        return 0;
+    if (settings.m_useIndenter && indenter) {
+        if (const std::optional<int> margin = indenter->margin())
+            return *margin;
+    }
+    return settings.m_marginColumn;
+}
+
+QColor rightMarginColor(const FontSettingsData &fontSettings, bool areaColor)
+{
+    const QColor baseColor = fontSettings.toTextCharFormat(C_TEXT).background().color();
+    const QColor towards = baseColor.value() > 128 ? QColor(Qt::black) : QColor(Qt::white);
+    return blendColors(baseColor, towards, areaColor ? 16 : 32);
+}
 
 MarginSettings &marginSettings()
 {

@@ -139,6 +139,16 @@ class TEXTEDITOR_EXPORT TextViewport : public QQuickItem
     // as it is drawn wide. cursorColumn is the character offset, which is what
     // IEditor asks for and not what a status display should show.
     Q_PROPERTY(int cursorDisplayColumn READ cursorDisplayColumn NOTIFY cursorPositionChanged)
+    // Where the right margin sits, in the viewport's own coordinates, or -1
+    // when there is none to draw. The column it stands for comes from the
+    // margin settings and may come from the language's own style.
+    Q_PROPERTY(qreal marginX READ marginX NOTIFY metricsChanged)
+    // The line, and the tint over everything past it.
+    Q_PROPERTY(QColor marginLineColor READ marginLineColor NOTIFY metricsChanged)
+    Q_PROPERTY(QColor marginAreaColor READ marginAreaColor NOTIFY metricsChanged)
+    // Whether the area past the margin is tinted at all.
+    Q_PROPERTY(bool tintMarginArea READ tintMarginArea NOTIFY metricsChanged)
+
     // What the gutter marks a changed line in. Two properties rather than a
     // colour per line: the form asks which of them a line wants.
     Q_PROPERTY(QColor changedLineColor READ changedLineColor CONSTANT)
@@ -206,6 +216,10 @@ public:
     QColor changedLineColor() const;
     QColor savedLineColor() const;
     qreal indentWidth() const;
+    qreal marginX() const;
+    QColor marginLineColor() const;
+    QColor marginAreaColor() const;
+    bool tintMarginArea() const;
     QColor indentGuideColor() const;
     QFont font() const;
     int lineCount() const;
@@ -489,6 +503,10 @@ private:
     QColor m_currentLine = Qt::transparent;
     QColor m_indentGuide = Qt::transparent;
     qreal m_indentWidth = 0;
+    qreal m_marginX = -1;
+    QColor m_marginLine = Qt::transparent;
+    QColor m_marginArea = Qt::transparent;
+    bool m_tintMarginArea = false;
     QFont m_font;
     int m_lineCount = 0;
     int m_firstVisibleLine = 0;

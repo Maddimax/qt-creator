@@ -8763,6 +8763,45 @@ exists on `QQuickItem`. That is now three delegates - `display`, `checkState`,
 `state` - where a required property would have shadowed the control's own.
 **Any short, obvious name for a delegate property is probably taken.**
 
+## The right margin, and looking before choosing
+
+The plan after change marks was `highlightBlocks`, on the grounds that it was
+the smallest of what was left. Reading it first said otherwise: it needs the
+block ranges around the cursor tracked as it moves, a timer, and nested blended
+fills - and it is **off by default**, so it is also the least visible thing
+left. Announcing a next step is not a reason to take it once the code says it is
+the wrong one.
+
+What the same look found instead: `DisplaySettings` was audited three batches
+ago, but **`MarginSettings` never was, and the Quick editor read none of its
+five fields**. That is a whole preferences page with no effect - the right
+margin, its column, the tint past it, whether the language's own style supplies
+the column, and the centred-content width. Auditing one settings struct and
+stopping there is how the next gap gets missed; the other two,
+`BehaviorSettings` and `MarginSettings`, should have been counted at the same
+time. `BehaviorSettings` is read for two of its seven fields, which is the next
+thing to look at.
+
+**Two more extractions.** `calcMargin()` was a lambda inside
+`updateVisualWrapColumn()` and `blendRightMarginColor()` a file-static in
+`texteditor.cpp`; both are now `visibleMarginColumn()` and `rightMarginColor()`
+in `marginsettings.cpp`, called by the widget and read by the viewport. The
+first carries the rule worth having in one place: the *indenter* gets first
+refusal on the column, because a language whose style has a line length of its
+own knows better than a number typed into Preferences.
+
+**A bug the test found rather than the change.** Setting the column to 40 left
+the margin where it was. The viewport connects to `displaySettings().changed`
+and re-polishes, and nothing was connected to `marginSettings()` - so every
+margin setting would have taken effect only on the *next* editor opened. The
+connection is one call; finding it needed a test that changed a setting twice
+rather than once.
+
+**And the rule from last batch paid immediately.** One control returned exit -6
+with no parsed failure, which the harness prints as "nothing bit". Re-running it
+gave a clean `FAIL!` on the expected assertion. That is twice now: an
+unexplained non-zero exit is a rerun, never a pass.
+
 ## The terminal spike: go, with the cleanest split in the tree
 
 **Status update: the spike is being productised.** `TerminalQuick` is now the
