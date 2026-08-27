@@ -185,6 +185,7 @@ private slots:
     void isNewerThan();
     void watch();
     void watchTheSameFileByTwoNames();
+    void watchAFileThatIsDeletedBeforeTheWatcherGoes();
 
     void coroTest();
 
@@ -2818,6 +2819,9 @@ void tst_filepath::isNewerThan()
     QVERIFY(!resultPath->isNewerThan(resultPath->lastModified()));
 }
 
+static QStringList *s_complaints = nullptr;
+static QtMessageHandler s_previousHandler = nullptr;
+
 // QSignalSpy does not work with signals from threads, because it uses a direct connection
 // so add a QObject in between
 class Spy : public QObject
@@ -2843,6 +2847,46 @@ signals:
 private:
     QSignalSpy signalSpy;
 };
+
+void tst_filepath::watchAFileThatIsDeletedBeforeTheWatcherGoes()
+{
+    // Temporary files are watched and then thrown away, and the watcher is
+    // dropped after them. The key a watch is filed under has to survive that:
+    // it is the canonical path, and a path that no longer exists cannot be
+    // resolved, so recomputing the key at removal time looks up a different
+    // one and finds nothing.
+    const FilePath asGiven = FilePath::fromString(tempDir.path()) / "goesAway.txt";
+    const FilePath canonical = FilePath::fromString(rootPath) / "goesAway.txt";
+    if (asGiven == canonical)
+        QSKIP("This host reaches the temporary directory by only one name.");
+    QVERIFY_RESULT(canonical.writeFileContents("one"));
+
+    QStringList complaints;
+    const auto handler = [](QtMsgType type, const QMessageLogContext &context,
+                            const QString &message) {
+        if (message.contains("SOFT ASSERT"))
+            s_complaints->append(message);
+        if (s_previousHandler)
+            s_previousHandler(type, context, message);
+    };
+    s_complaints = &complaints;
+    s_previousHandler = qInstallMessageHandler(handler);
+    const QScopeGuard restore([] {
+        qInstallMessageHandler(s_previousHandler);
+        s_complaints = nullptr;
+    });
+
+    {
+        Result<std::unique_ptr<FilePathWatcher>> watcher = asGiven.watch();
+        QVERIFY_RESULT(watcher);
+        QVERIFY_RESULT(canonical.removeFile());
+        QVERIFY(!canonical.exists());
+        // The watcher goes here, after the file it was watching.
+    }
+
+    QVERIFY2(complaints.isEmpty(), qPrintable("removing the watch complained:\n"
+                                              + complaints.join("\n")));
+}
 
 void tst_filepath::watchTheSameFileByTwoNames()
 {

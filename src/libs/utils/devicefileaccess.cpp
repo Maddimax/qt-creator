@@ -699,7 +699,7 @@ class DesktopFilePathWatcher final : public FilePathWatcher
                 // of the new client for the already watched file.
                 for (int i = 0; i < watchers.size(); ++i) {
                     DesktopFilePathWatcher *watcher = watchers.at(i);
-                    const FilePath path = watchKey(watcher->path());
+                    const FilePath path = watcher->key();
                     auto it = m_watchClients.find(path);
                     if (it == m_watchClients.end())
                         newToWatch[path].append({i, watcher});
@@ -739,7 +739,7 @@ class DesktopFilePathWatcher final : public FilePathWatcher
 
             Result<> _removeWatch(DesktopFilePathWatcher *watcher)
             {
-                const FilePath path = watchKey(watcher->path());
+                const FilePath path = watcher->key();
                 auto it = m_watchClients.find(path);
                 QTC_ASSERT(
                     it != m_watchClients.end(),
@@ -774,6 +774,7 @@ class DesktopFilePathWatcher final : public FilePathWatcher
 public:
     DesktopFilePathWatcher(const FilePath &path)
         : m_path(path)
+        , m_key(watchKey(path))
     {
     }
 
@@ -790,6 +791,11 @@ public:
     }
 
     FilePath path() const { return m_path; }
+    // What the watch is filed under, worked out once. A file can be deleted
+    // while it is still being watched - a temporary one usually is - and a
+    // path that no longer exists cannot be resolved, so asking again at
+    // removal time would look under a different name and find nothing.
+    FilePath key() const { return m_key; }
 
     void emitChanged() { emit pathChanged(m_path); }
 
@@ -815,6 +821,7 @@ public:
 
 private:
     const FilePath m_path;
+    const FilePath m_key;
     bool m_isWatched = false;
 };
 
