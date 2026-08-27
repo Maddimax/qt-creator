@@ -659,6 +659,7 @@ private:
 #ifdef WITH_TESTS
         addTestCreator(createBookmarkManagerTest);
         addTestCreator(createLocalHelpManagerTest);
+        addTestCreator(createFilterSettingsPageTest);
 #endif
     }
 

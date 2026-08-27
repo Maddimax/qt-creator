@@ -13,4 +13,8 @@ public:
     explicit FilterSettingsPage(const std::function<void()> &onChanged);
 };
 
+#ifdef WITH_TESTS
+QObject *createFilterSettingsPageTest();
+#endif
+
 } // Help::Internal

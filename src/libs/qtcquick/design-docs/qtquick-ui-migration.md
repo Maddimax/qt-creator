@@ -6006,15 +6006,14 @@ separates the two.
 
 ## Where the page migration ends, counted
 
-The census reports "aspect-driven pages: 107, rendered with Qt Quick: 107",
+The census reports "aspect-driven pages: 108, rendered with Qt Quick: 108",
 which says nothing about pages that offer no aspects at all - it skips those
-before counting. Counting them too: **109 options pages, of which exactly two
-are not aspect-driven.**
+before counting. Counting them too: **109 options pages, of which exactly one
+is not aspect-driven.**
 
-- **Filters** (`D.Filters`) wraps `QHelpFilterSettingsWidget`, which belongs to
-  the Qt Help module rather than to Creator. Its 63 lines are a `Column` with
-  that widget in it, so there is no closure to replace - moving it means
-  reimplementing a Qt widget against `QHelpFilterEngine`.
+- ~~**Filters** (`D.Filters`) wraps `QHelpFilterSettingsWidget`~~ - done, see
+  "Reimplementing a Qt widget" below. It is now an aspect page like any other,
+  which is what moved the census from 107 to 108.
 - **Browse** (`ExtensionManager.Browse`) is roughly 2,700 lines of
   `extensionsbrowser.cpp`, `extensionmanagerwidget.cpp` and
   `extensionsmodel.cpp`. It is an application view that happens to live in the
@@ -8364,6 +8363,77 @@ dropped *file* is refused so that whoever opens files still gets it, and that a
 read-only view refuses text before the drop rather than after. Seven controls
 were run; all seven bit, and the URL one and the read-only one bite on the QML
 edit alone, so the plumbing is covered and not just the behaviour.
+
+## Reimplementing a Qt widget: Help > Filters
+
+The first of the two pages that were never aspect-driven, and the one this file
+described as "reimplementing a Qt widget against `QHelpFilterEngine`". It was,
+and the interesting part was refusing to do it from memory.
+
+**Read the widget rather than remember it.** `QHelpFilterSettingsWidget` lives
+in `qttools`, which is not checked out here, so there was no source to read -
+only the four functions the documentation lists. Rather than guess at the rest,
+a forty-line program linked against QtHelp instantiated the widget, walked its
+children and printed them. That gave the exact control set in one run:
+
+    QLabel#filterLabel "Filter" / QListWidget#filterWidget
+    QLabel#componentsLabel "Components" / QOptionsWidget#componentWidget
+    QLabel#versionsLabel "Versions"    / QOptionsWidget#versionWidget
+    QToolButton "Add..." / "Rename..." / "Remove"
+
+A second probe, against a real `QHelpEngineCore` on a temporary collection
+file, answered the questions that matter for Apply and could not have been
+guessed:
+
+- `applySettings()` returns **true only if something actually changed**, which
+  is what the page's `onChanged` hangs off - a page that reported a change
+  every time would re-filter the documentation on every OK.
+- It leaves the **active filter** alone.
+- With nothing registered, the option lists are simply **empty** - there is no
+  placeholder row to reproduce.
+- The blank row that shows up in a populated component list is a **separator**:
+  the widget floats ticked options to the top. That is presentation, not
+  behaviour, and the port keeps a stable order instead - a list that reorders
+  itself under the pointer is harder to use, not easier.
+
+Two probes, about twenty minutes, and everything after them was writing rather
+than guessing. The alternative - porting from a memory of the dialog - would
+have got the three panes right and `applySettings`'s return value wrong, which
+is exactly the kind of thing no test of mine would have thought to check.
+
+**Shape.** `FiltersAspect` follows `DocsAspect` next door: a plain `BaseAspect`
+owning the models, with `apply()`/`cancel()` and an `isDirty()` that compares
+the working copy against what the engine holds. Add, rename and remove are the
+model's `insertRows`, `setData` and `removeRows`, which is what `TableDelegate`
+already calls - so the widget's three buttons and its two dialogs become
+editing in place, and the page needs no dialog of its own.
+
+The two option lists are a small component of their own rather than
+`MultiSelectionDelegate`, which renders `presentation().options` into a
+`Repeater` and does not scroll. Components come from whatever documentation is
+registered and there can be a lot of them.
+
+**qmllint earned its keep.** It reported that `display` and `checkState` are
+*final* members of `CheckBox`, so the delegate's `required property` of each
+name would have shadowed the control's own rather than read the model's - every
+box would have drawn unticked, and the page would have looked like it had lost
+the user's settings. Same failure as the `ActionModel`/`MenuItem` collision:
+**role names have to be prefixed whenever the delegate is a Control.** The roles
+are `optionText` and `optionChecked`, and a test asserts they are neither of the
+two names that clash, because the QML that would prove it needs registered
+documentation to draw anything.
+
+**A skip that was worth removing.** The test for the part that matters - that
+the two lists belong to the *current* filter - first shipped as a `QSKIP`: a
+test run registers no documentation, so the engine offers nothing to tick. The
+honest skip was also a hole over the feature's centre. The fix was a seam
+rather than test-only API: `setAvailableOptions(components, versions)` takes the
+lists, and `updateAvailableOptions()` is the one line that asks the engine for
+them. The aspect never needed to know where the options came from; separating
+the two is the same "what it lists versus what it does" split this migration
+applies to layout closures, applied to a data source.
+
+Nine controls, all biting on the test that names them.
 
 ## The terminal spike: go, with the cleanest split in the tree
 

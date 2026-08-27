@@ -97,6 +97,8 @@ if(TARGET Help)
     NO_PLUGIN
     QML_FILES
       DocSettingsPage.qml
+      FilterOptionList.qml
+      FilterSettingsPage.qml
       HelpSettingsPage.qml
   )
 endif()
