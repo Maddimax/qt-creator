@@ -28,6 +28,7 @@
 #include <qtcquick/qtciconprovider.h>
 
 #include <qtcquick/actionmodel.h>
+#include <qtcquick/qtcquickengine.h>
 
 #include <utils/utilsicons.h>
 
@@ -37,6 +38,7 @@
 #include <utils/hostosinfo.h>
 #include <utils/theme/theme.h>
 
+#include <QQuickStyle>
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QMimeData>
@@ -271,6 +273,16 @@ class TextViewportTest final : public QObject
     Q_OBJECT
 
 private slots:
+    // The fixtures build their own QQuickViews and CodeViewport.qml imports
+    // Qt Quick Controls, so without this the controls here are drawn by the
+    // default style rather than Creator's, and the setStyle() behind the
+    // shared engine is already too late by the time another test asks for it.
+    void initTestCase()
+    {
+        QtcQuick::engine();
+        QCOMPARE(QQuickStyle::name(), QString("QtCreatorStyle"));
+    }
+
     void testItDrawsOnlyWhatIsOnScreen()
     {
         // The whole reason this is worth building: what it costs to show a file
