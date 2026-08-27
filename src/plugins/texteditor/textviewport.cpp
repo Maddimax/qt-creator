@@ -482,6 +482,8 @@ QVariantMap TextViewport::visibleLine(int index) const
                        {"changed", int(line.changed)},
                        {"annotation", line.annotation},
                        {"newlineTail", line.newlineTail},
+                       // The selected part of this row, as one rectangle.
+                       {"selectionFill", line.selectionFill},
                        // What is being composed on this line, if anything. Not
                        // part of "text": it is not in the document yet, which
                        // is the whole distinction.
@@ -1796,6 +1798,7 @@ void TextViewport::updatePolish()
                                                            : currentLineBrush.color();
 
     const QTextCharFormat selectionFormat = fonts.toTextCharFormat(C_SELECTION);
+    m_selectionColour = selectionFormat.background().color();
     const int selectionFrom = qMin(m_selectionStart, m_selectionEnd);
     const int selectionTo = qMax(m_selectionStart, m_selectionEnd);
     const bool hasSelection = m_selectionStart >= 0 && m_selectionEnd >= 0
@@ -2065,6 +2068,20 @@ void TextViewport::updatePolish()
             }
             line.layout->endLayout();
 
+            // The selected part of this row as one rectangle. A format range's
+            // background is painted per glyph run, which leaves a gap wherever
+            // the runs are split - at every highlight boundary and around the
+            // spaces - so the fill is drawn behind the text instead.
+            if (hasSelection && textLine.isValid()) {
+                const int selFrom = qMax(selectionFrom, rowStart);
+                const int selTo = qMin(selectionTo, rowStart + length);
+                if (selTo > selFrom) {
+                    const qreal left = textLine.cursorToX(selFrom - rowStart);
+                    const qreal right = textLine.cursorToX(selTo - rowStart);
+                    line.selectionFill = QRectF(left, 0, right - left, m_lineHeight);
+                }
+            }
+
             line.at = QPointF(-m_scrollX, row * m_lineHeight - m_scrollY);
             line.blockPosition = rowStart;
             // The newline belongs to the last row: that is where the caret sits
@@ -2118,6 +2135,12 @@ QSGNode *TextViewport::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
 
     auto *root = new QSGNode;
     for (const Line &line : m_lines) {
+        if (!line.selectionFill.isEmpty()) {
+            QSGRectangleNode * const fill = win->createRectangleNode();
+            fill->setRect(line.selectionFill.translated(line.at));
+            fill->setColor(m_selectionColour);
+            root->appendChildNode(fill);
+        }
         if (!line.newlineTail.isEmpty()) {
             QSGRectangleNode * const tail = win->createRectangleNode();
             tail->setRect(line.newlineTail.translated(line.at));

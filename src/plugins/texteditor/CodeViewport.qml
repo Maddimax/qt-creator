@@ -539,6 +539,9 @@ Item {
 
         WheelHandler {
             target: null
+            // A WheelHandler takes only an actual wheel unless it is told
+            // otherwise, so without this a trackpad scrolls nothing at all.
+            acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
             onWheel: (event) => {
                 // Ctrl and the wheel is a zoom rather than a scroll, and the
                 // viewport is what knows whether the user allows it.
@@ -546,7 +549,13 @@ Item {
                     viewport.zoomBy(event.angleDelta.y / 120)
                     return
                 }
-                viewport.scrollY -= event.angleDelta.y / 120 * viewport.lineHeight * 3
+                // A trackpad says how far in pixels, which is what makes it
+                // follow the fingers; a wheel says how far in eighths of a
+                // degree, and one notch of 120 is three lines.
+                if (event.pixelDelta.y !== 0)
+                    viewport.scrollY -= event.pixelDelta.y
+                else
+                    viewport.scrollY -= event.angleDelta.y / 120 * viewport.lineHeight * 3
             }
         }
 

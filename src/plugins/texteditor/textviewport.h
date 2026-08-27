@@ -502,7 +502,15 @@ private:
         // Where a selection runs past the end of the line. Empty otherwise.
         QRectF newlineTail;
         QColor newlineTailColour;
+        // The selected part of this row, as one rectangle. The format ranges
+        // carry the selection's colours, but a background on a format range is
+        // painted per glyph run, so it comes out in pieces with gaps between
+        // them - see updatePaintNode().
+        QRectF selectionFill;
     };
+    // What a selection is filled with, read on the GUI thread in
+    // updatePolish() and used on the render thread in updatePaintNode().
+    QColor m_selectionColour;
 
     void documentChangedInternal();
     QTextBlock cursorBlock() const;

@@ -488,6 +488,50 @@ private slots:
         QVERIFY2(complaints.isEmpty(), qPrintable("QML complained: " + complaints.join("; ")));
     }
 
+    void testATrackpadScrollsTheViewport()
+    {
+        // A WheelHandler accepts an actual mouse wheel and nothing else unless
+        // it is told otherwise, so the editor did not scroll from a trackpad at
+        // all. A trackpad also says how far in pixels rather than in wheel
+        // notches, and following the fingers means using that.
+        TemporaryDirectory dir("codeviewport-trackpad");
+        QVERIFY(dir.isValid());
+        const FilePath file = writeLines(dir, "big.txt", 5000);
+
+        CodeViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+        QCOMPARE(viewport->scrollY(), 0.0);
+
+        // Not the default device: that one is a mouse, and a mouse was never
+        // the problem.
+        const QPointingDevice trackpad("test trackpad",
+                                       4242,
+                                       QInputDevice::DeviceType::TouchPad,
+                                       QPointingDevice::PointerType::Finger,
+                                       QInputDevice::Capability::Position
+                                           | QInputDevice::Capability::Scroll,
+                                       1,
+                                       0);
+        const QPointF centre(viewport->width() / 2, viewport->height() / 2);
+        QWheelEvent wheel(centre,
+                          fixture.view.mapToGlobal(centre.toPoint()),
+                          QPoint(0, -60),
+                          QPoint(0, -60),
+                          Qt::NoButton,
+                          Qt::NoModifier,
+                          Qt::ScrollUpdate,
+                          false,
+                          Qt::MouseEventNotSynthesized,
+                          &trackpad);
+        QCoreApplication::sendEvent(&fixture.view, &wheel);
+
+        // The pixels it reported, not a number of lines derived from them.
+        QTRY_COMPARE(viewport->scrollY(), 60.0);
+    }
+
     void testTheScrollBarAndTheViewportKeepFollowingEachOther()
     {
         // Both directions, and both of them again after a drag. Two-way
@@ -2872,6 +2916,51 @@ private slots:
         viewport->setFocus(false);
         QTRY_VERIFY(!viewport->hasActiveFocus());
         QTRY_COMPARE(snippet.volatileValue(), QString("Zalpha\nbeta\n"));
+    }
+
+    void testASelectionIsFilledAcrossTheWholeRow()
+    {
+        // The selection's colours are format ranges, but a background on a
+        // format range is painted per glyph run - so it arrives in pieces, with
+        // a gap wherever the runs are split, and the leading indentation of a
+        // selected line was not filled at all. The fill is one rectangle per
+        // row now, and this is what says so without reading pixels.
+        TemporaryDirectory dir("textviewport-selfill");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("indented.cpp");
+        QVERIFY(file.writeFileContents("void f()\n{\n    int a = 1;\n\n}\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+
+        const auto fillOn = [viewport](int row) {
+            return viewport->visibleLine(row).value("selectionFill").toRectF();
+        };
+        QVERIFY2(fillOn(2).isEmpty(), "a row with no selection was filled");
+
+        // Everything, so row 2 - "    int a = 1;" - is selected end to end.
+        viewport->setSelectionStart(0);
+        viewport->setSelectionEnd(200);
+        // The fill is built in updatePolish, so wait for it rather than for the
+        // property that changes straight away.
+        QTRY_VERIFY(!fillOn(2).isEmpty());
+
+        // From the very left: the four spaces are selected too, and they are
+        // what a per-glyph-run background missed.
+        QCOMPARE(fillOn(2).left(), 0.0);
+        QCOMPARE(fillOn(2).height(), viewport->lineHeight());
+        const qreal wholeRow = fillOn(2).width();
+        QVERIFY(wholeRow > 0);
+
+        // And a selection that starts inside the line starts where it starts,
+        // so the assertion above is about the selection and not about the row.
+        // "void f()\n" is 9 and "{\n" is 2, so row 2 starts at 11; +4 puts the
+        // start after its indentation.
+        viewport->setSelectionStart(15);
+        QTRY_VERIFY(fillOn(2).left() > 0);
+        QVERIFY(fillOn(2).width() < wholeRow);
     }
 
     void testASelectionIsMergedIntoTheLineFormats()
