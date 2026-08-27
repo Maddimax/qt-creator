@@ -816,6 +816,22 @@ QList<TextViewport::Highlight> TextViewport::highlights(Utils::Id kind) const
     return m_highlights.value(kind);
 }
 
+int TextViewport::cursorDisplayColumn() const
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    const QTextBlock block = cursorBlock();
+    if (!doc || !block.isValid())
+        return 0;
+    return doc->tabSettings().columnAt(block.text(), m_cursorPosition - block.position()) + 1;
+}
+
+int TextViewport::selectedCharacterCount() const
+{
+    if (m_selectionStart < 0 || m_selectionEnd < 0)
+        return 0;
+    return qAbs(m_selectionEnd - m_selectionStart);
+}
+
 void TextViewport::gotoLine(int line, int column, bool centerLine)
 {
     TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;

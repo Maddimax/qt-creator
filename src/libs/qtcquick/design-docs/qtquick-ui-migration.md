@@ -6898,6 +6898,81 @@ command. The cause was not established. Individual verification is what the
 result rests on; the loop is a convenience, and its output is only worth
 trusting when it says a control *did* bite.
 
+## The control loop, fixed
+
+Five false cleans in, the cause was finally found and it was the build check
+itself:
+
+    err=$( (cd $BUILD && ninja $TARGET 2>&1) | grep -E "error" | head -2 )
+    if [ -n "$err" ]; then echo "BUILD FAILED"; return; fi
+
+Wrong twice over. The message pattern is a guess at what a failure looks like,
+and putting `ninja` in a pipeline throws its exit status away - `$?` belongs to
+`head`. The fix is to stop reading the log for a verdict:
+
+    (cd $BUILD && ninja $TARGET >$log 2>&1); rc=$?
+    [ $rc -ne 0 ] && { echo "BUILD FAILED: $(grep -m1 error $log)"; return; }
+
+and to print **provenance** every iteration - `shasum` of the built library and
+of the source file. Distinct source hashes across controls, and a baseline hash
+that returns to where it started, is what proves each control was applied,
+built, and undone. With that in place the same three controls that had
+"not bitten" all bit, five runs out of five.
+
+The general rule, which cost most of a session to learn: **a check that reads a
+tool's output is a guess; a check that reads its exit code is a fact.**
+
+## Wrapping needs no height cache either
+
+Recorded because it changes the plan. The viewport's class comment says
+wrapping "needs a height cache before it can say which line is at a given
+scroll offset", and folding turned out not to need one because `QTextDocument`
+tracks per-block line counts. The same is true here:
+`PlainTextDocumentLayout::layoutBlock()` ends with
+`setBlockLineCount(block, tl->lineCount())` - the *wrapped* line count. So
+`document()->lineCount()` and `findBlockByLineNumber()` already answer for
+wrapping exactly as they do for folding, and a row within a block is
+`row - block.firstLineNumber()`.
+
+The one thing that looked like a blocker - two views of one document at
+different widths - Qt Creator already solves: `TextEditorLayout` is created
+**per `PlainTextEdit`** (`PlainTextEditPrivate::init()`), wrapping the
+document's shared `PlainTextDocumentLayout` and holding that view's own
+per-block `QTextLayout`s. A viewport would own one the same way. It is in
+`Utils` and its layout half needs no widget.
+
+Not started here: it restructures `updatePolish()` so a `Line` is a visual row
+rather than a block, and every position mapping with it. It deserves a batch of
+its own rather than the end of one.
+
+## A design-system component nobody had ever instantiated
+
+The editor supplied no `toolBar()`, so Core drew its own row - file list, close,
+split - and nothing of the editor's. Every other editor shows where the caret
+is. It does now: a small Qt Quick toolbar bound to the viewport, saying
+`Line: 1, Col: 3` in the same words the widget uses, with `(Sel: N)` when
+something is selected.
+
+The column there is **tab-expanded** (`TabSettings::columnAt()`), which is not
+what `IEditor::currentColumn()` returns - that is the character offset, and
+`BaseTextEditor` returns the same. Two different questions with the same name;
+the viewport now answers both, as `cursorColumn` and `cursorDisplayColumn`.
+
+Writing it turned up that **`QtcQuick`'s `QtcLabel` had never been used**. Its
+first line of real use failed with `Type QtcLabel unavailable`, because it
+assigns `implicitHeight` on a `Text` - which computes its own implicit size and
+will not be told one. The design system's intent (a fixed line height plus
+padding) is expressible in properties `Text` does own:
+
+    lineHeight: root.labelLineHeight
+    lineHeightMode: Text.FixedHeight
+    topPadding: root.vPadding
+    bottomPadding: root.vPadding
+
+A mirrored component with no call site is not "done", it is untested by
+construction - `grep -c 'QtcLabel {'` over the tree answered **1**, and that one
+was the new file. Worth running over the rest of the mirrored set.
+
 What is left of the editor: the extra-selection producers that genuinely need
 the widget's machinery (diagnostic underlines and occurrences, both fed by
 plugins calling `TextEditorWidget::setExtraSelections`), auto-insertion and

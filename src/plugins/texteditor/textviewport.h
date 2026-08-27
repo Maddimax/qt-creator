@@ -126,6 +126,12 @@ class TEXTEDITOR_EXPORT TextViewport : public QQuickItem
     // screen. What a status bar shows and what "copy path and line" copies.
     Q_PROPERTY(int cursorLine READ cursorLine NOTIFY cursorPositionChanged)
     Q_PROPERTY(int cursorColumn READ cursorColumn NOTIFY cursorPositionChanged)
+    // The column as the reader counts it, with a tab spanning as many columns
+    // as it is drawn wide. cursorColumn is the character offset, which is what
+    // IEditor asks for and not what a status display should show.
+    Q_PROPERTY(int cursorDisplayColumn READ cursorDisplayColumn NOTIFY cursorPositionChanged)
+    // How much is selected, for a display that says so.
+    Q_PROPERTY(int selectedCharacterCount READ selectedCharacterCount NOTIFY selectionChanged)
     // Whether typing does anything. A viewport is a view until told otherwise,
     // so that showing a file cannot accidentally change it.
     Q_PROPERTY(bool readOnly READ isReadOnly WRITE setReadOnly NOTIFY readOnlyChanged)
@@ -189,6 +195,8 @@ public:
 
     int cursorLine() const;
     int cursorColumn() const;
+    int cursorDisplayColumn() const;
+    int selectedCharacterCount() const;
 
     // Puts the caret on \a line, counting from one, and shows it. Column zero
     // means the line rather than its margin, so the caret lands on the first

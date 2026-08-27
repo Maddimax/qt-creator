@@ -233,7 +233,24 @@ public:
     }
 
     Core::IDocument *document() const final { return m_document.get(); }
-    QWidget *toolBar() final { return nullptr; }
+
+    // The editor's own part of the toolbar row. Built on demand and once: the
+    // editor manager asks whenever this editor becomes current, and a new one
+    // each time would drop whatever the previous one was showing.
+    QWidget *toolBar() final
+    {
+        if (m_toolBar)
+            return m_toolBar;
+        TextViewport * const view = viewport();
+        if (!view)
+            return nullptr;
+
+        auto bar = new QtcQuick::QuickWidget;
+        bar->quickWidget()->setInitialProperties({{"viewport", QVariant::fromValue(view)}});
+        bar->setSource(QUrl("qrc:/qt/qml/QtCreator/TextEditor/EditorToolBar.qml"));
+        m_toolBar = bar;
+        return m_toolBar;
+    }
 
     Core::IEditor *duplicate() final { return new QuickTextEditor(m_document); }
 
@@ -347,6 +364,8 @@ private:
     // editor manager is what decides that, not this.
     std::shared_ptr<TextDocument> m_document;
     QtcQuick::ActionModel m_contextActions;
+    // Owned by the toolbar the editor manager puts it in, so a QPointer.
+    QPointer<QWidget> m_toolBar;
     std::unique_ptr<AdoptedSource> m_source;
 };
 
@@ -1019,6 +1038,60 @@ private slots:
 
         QTRY_VERIFY2(viewport->highlights(kind).isEmpty(),
                      "brackets stayed paired although the setting says not to");
+    }
+
+    // Every other editor shows where the caret is in the toolbar row. Core
+    // draws the row either way, so an editor that supplies nothing looks like
+    // one whose indicator has stopped working.
+    void testTheToolBarSaysWhereTheCaretIs()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-toolbar");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("where.txt");
+        // A tab on the second line: a column count that ignores how wide a tab
+        // is drawn would say 2 where the reader sees the ninth column.
+        QVERIFY(file.writeFileContents("alpha\n\tbeta\n"));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        QWidget * const bar = editor->toolBar();
+        QVERIFY2(bar, "the editor puts nothing in the toolbar row");
+        // Asked twice, the same one: the editor manager asks on every
+        // activation, and a fresh one each time would lose what it was showing.
+        QCOMPARE(editor->toolBar(), bar);
+
+        auto * const quick = bar->findChild<QQuickWidget *>();
+        QVERIFY(quick);
+        QCOMPARE(quick->status(), QQuickWidget::Ready);
+        QVERIFY(quick->rootObject());
+        QObject * const label = quick->rootObject()->findChild<QObject *>("lineColumnLabel");
+        QVERIFY2(label, "the toolbar shows no line and column");
+
+        auto * const viewport = editor->widget()->findChild<QQuickWidget *>()
+                                    ->rootObject()->findChild<TextViewport *>();
+        QVERIFY(viewport);
+
+        viewport->setCursorPosition(2);
+        QTRY_COMPARE(label->property("text").toString(), QString("Line: 1, Col: 3"));
+
+        // After the tab on line 2, at one indent's width plus one.
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        const int tabWidth = document->tabSettings().m_tabSize;
+        QVERIFY(tabWidth > 1);
+        viewport->setCursorPosition(7); // "alpha\n" is 6, then the tab
+        QTRY_COMPARE(label->property("text").toString(),
+                     QString("Line: 2, Col: %1").arg(tabWidth + 1));
+
+        // And it says how much is selected, when something is.
+        viewport->setSelectionStart(6);
+        viewport->setSelectionEnd(10);
+        QTRY_VERIFY2(label->property("text").toString().contains("(Sel: 4)"),
+                     qPrintable("no selection count: " + label->property("text").toString()));
     }
 
     // A split view is two editors on one document. Duplicating has to share

@@ -29,7 +29,15 @@ Text {
     color: root.enabled ? Tokens.textMuted : Tokens.textSubtle
     verticalAlignment: Text.AlignVCenter
     elide: Text.ElideRight
-    implicitHeight: root.vPadding * 2 + root.labelLineHeight
+
+    // Text works out its own implicit size and will not be told one - assigning
+    // implicitHeight here is an error that stops the whole type loading. The
+    // design system's line height and padding are the same thing said in the
+    // properties Text does own, so implicitHeight comes out where it should.
+    lineHeight: root.labelLineHeight
+    lineHeightMode: Text.FixedHeight
+    topPadding: root.vPadding
+    bottomPadding: root.vPadding
 
     Accessible.role: Accessible.StaticText
     Accessible.name: root.text

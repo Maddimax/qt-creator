@@ -204,6 +204,7 @@ if(TARGET TextEditor)
       CodeView.qml
       CodeViewport.qml
       EditorGutter.qml
+      EditorToolBar.qml
       MainEditor.qml
       CommentsSettingsPage.qml
       CompletionSettingsPage.qml
