@@ -2872,6 +2872,59 @@ private slots:
         QCOMPARE(viewport->scrollX(), 800.0);
     }
 
+    void testWhitespaceIsDrawnWhenTheSettingAsksForIt()
+    {
+        // The setting reaches the document's text option, and there is a test
+        // for that - but QSGTextNode draws glyph runs and nothing else, so the
+        // dots and arrows QTextLine::draw() would add have to be drawn here.
+        // Counted rather than looked at.
+        TemporaryDirectory dir("qtc-viewport-ws");
+        const FilePath file = dir.filePath("spaces.txt");
+        QVERIFY(file.writeFileContents("alpha      beta\n"));
+
+        const bool was = displaySettings().visualizeWhitespace();
+        const QScopeGuard restore(
+            [was] { displaySettings().visualizeWhitespace.setValue(was); });
+        displaySettings().visualizeWhitespace.setValue(false);
+
+        // The marks are drawn by CodeViewport.qml, so this needs the form
+        // rather than a bare viewport - a TextViewport on its own paints
+        // glyphs and nothing around them.
+        CodeViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        // Pixels of the colour the marks are drawn in, over the whole band the
+        // first row occupies - a dot two pixels high is easy to miss with one
+        // scanline, and counting "not the background" would drown six dots in
+        // the text beside them.
+        const auto inkOnFirstRow = [&fixture, viewport] {
+            const QImage shot = fixture.view.grabWindow();
+            const qreal dpr = fixture.view.devicePixelRatio();
+            const int bottom = qMin(int(viewport->lineHeight() * 2 * dpr), shot.height());
+            const QColor mark = viewport->property("indentGuideColor").value<QColor>();
+            int ink = 0;
+            for (int y = 0; y < bottom; ++y) {
+                for (int x = 0; x < shot.width(); ++x) {
+                    if (shot.pixelColor(x, y) == mark)
+                        ++ink;
+                }
+            }
+            return ink;
+        };
+
+        // The test line has no leading indentation, so the guides - which are
+        // drawn in this same colour - cannot be mistaken for the marks.
+        QVERIFY(!viewport->visibleLine(0).value("text").toString().startsWith(' '));
+        QTRY_COMPARE(inkOnFirstRow(), 0);
+
+        displaySettings().visualizeWhitespace.setValue(true);
+        QTRY_VERIFY2(inkOnFirstRow() > 0,
+                     "the setting is on and not one pixel of the six spaces is marked");
+    }
+
     void testHomeGoesToTheCodeBeforeItGoesToTheMargin()
     {
         TemporaryDirectory dir("qtc-viewport-home");

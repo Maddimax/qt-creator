@@ -511,6 +511,11 @@ private:
         // painted per glyph run, so it comes out in pieces with gaps between
         // them - see updatePaintNode().
         QRectF selectionFill;
+        // Where the spaces and tabs on this row are, when they are being
+        // shown. QSGTextNode draws glyph runs and nothing else - the dots and
+        // arrows QTextLine::draw() would add are not among them - so they are
+        // drawn from here.
+        QVariantList whitespace;
     };
     // What a selection is filled with, read on the GUI thread in
     // updatePolish() and used on the render thread in updatePaintNode().

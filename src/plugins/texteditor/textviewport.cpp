@@ -489,6 +489,8 @@ QVariantMap TextViewport::visibleLine(int index) const
                        {"newlineTail", line.newlineTail},
                        // The selected part of this row, as one rectangle.
                        {"selectionFill", line.selectionFill},
+                       // The spaces and tabs on this row, where they are shown.
+                       {"whitespace", line.whitespace},
                        // What is being composed on this line, if anything. Not
                        // part of "text": it is not in the document yet, which
                        // is the whole distinction.
@@ -1936,6 +1938,8 @@ void TextViewport::updatePolish()
     m_indentGuide = whitespaceBrush.style() == Qt::NoBrush ? QColor(Qt::transparent)
                                                           : whitespaceBrush.color();
 
+    const bool showWhitespace = displaySettings().visualizeWhitespace();
+
     QTextOption option;
     option.setTabStopDistance(doc->tabSettings().m_tabSize * metrics.horizontalAdvance(' '));
     // Anywhere as well as at word boundaries: a single word longer than the
@@ -2168,6 +2172,21 @@ void TextViewport::updatePolish()
                     const qreal left = textLine.cursorToX(selFrom - rowStart);
                     const qreal right = textLine.cursorToX(selTo - rowStart);
                     line.selectionFill = QRectF(left, 0, right - left, m_lineHeight);
+                }
+            }
+
+            // Where the whitespace on this row is, for whoever draws it.
+            if (showWhitespace && textLine.isValid()) {
+                const QString rowText = line.layout->text();
+                for (int i = 0; i < rowText.size(); ++i) {
+                    const QChar at = rowText.at(i);
+                    if (at != QLatin1Char(' ') && at != QLatin1Char('\t'))
+                        continue;
+                    const qreal from = textLine.cursorToX(i);
+                    const qreal to = textLine.cursorToX(i + 1);
+                    line.whitespace.append(QVariantMap{{"x", from},
+                                                       {"width", to - from},
+                                                       {"tab", at == QLatin1Char('\t')}});
                 }
             }
 

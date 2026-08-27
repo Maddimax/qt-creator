@@ -412,6 +412,48 @@ Item {
                 color: viewport.marginLineColor
             }
 
+            // Spaces and tabs, where the reader asked to see them. A dot in
+            // the middle of a space and a rule across a tab, which is what the
+            // widget editor gets from QTextLine::draw() - the scene graph
+            // draws glyphs and would otherwise draw nothing here.
+            Repeater {
+                model: viewport.visibleLines
+
+                delegate: Item {
+                    id: whitespaceRow
+
+                    required property int index
+                    required property var modelData
+
+                    readonly property var marks: modelData.whitespace ?? []
+                    readonly property int row: viewport.firstVisibleLine + index
+
+                    z: -1
+                    y: whitespaceRow.row * viewport.lineHeight - viewport.scrollY
+                    height: viewport.lineHeight
+                    visible: whitespaceRow.marks.length > 0
+
+                    Repeater {
+                        model: whitespaceRow.marks
+
+                        delegate: Rectangle {
+                            required property var modelData
+
+                            readonly property bool isTab: modelData.tab ?? false
+                            // A dot sits in the middle of the space it stands
+                            // for; a tab is drawn across the width it took.
+                            x: (isTab ? modelData.x + 1
+                                      : modelData.x + modelData.width / 2 - 1)
+                               - viewport.scrollX
+                            y: viewport.lineHeight / 2
+                            width: isTab ? Math.max(1, modelData.width - 2) : 2
+                            height: isTab ? 1 : 2
+                            color: viewport.indentGuideColor
+                        }
+                    }
+                }
+            }
+
             // The indent guides, behind the text rather than over it: a
             // negative z puts a child under its parent's own drawing, and the
             // parent here is what paints the glyphs.
