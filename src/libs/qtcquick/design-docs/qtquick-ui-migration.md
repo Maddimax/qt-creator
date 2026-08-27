@@ -224,11 +224,20 @@ The targets do not fail a build, so nothing notices these unless they are run
 deliberately. Ten is small enough to read, so a future run that shows eleven
 means something.
 
-Qualifying 83 pages at once is only safe because the census checks it: it
-builds every registered page and fails on any QML warning, so a mis-qualified
-name is a red test rather than a control that silently draws nothing.
-Mistyping one to prove the point gives "ACP Servers: AspectListDelegate has no
-aspect".
+Qualifying 83 files at once is only safe because two censuses check them, and
+between them they cover all 82 that changed:
+
+- 65 settings pages by `testAspectDrivenPagesRenderWithQuick()`, which builds
+  every registered `IOptionsPage` and fails on any QML warning.
+- 17 project panels by `testPanelsThatSayWhatTheyShowRenderWithQuick()`, which
+  is the reason `ProjectPanelFactory::aspects()` exists - a panel says what it
+  shows so a test can ask without opening it. It reports "17 panel(s) say what
+  they show; 0 still build a widget", checks each form reaches
+  `QQuickWidget::Ready`, and checks every delegate found its aspect.
+
+So a mis-qualified name is a red test rather than a page that silently draws
+nothing. Mistyping one to prove the point gives "ACP Servers:
+AspectListDelegate has no aspect".
 
 **Setting the Quick Controls style is a startup job, not a lazy one.** It was
 being set inside the engine that `QtcQuick::engine()` creates on first use, so
