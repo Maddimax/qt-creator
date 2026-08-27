@@ -6971,7 +6971,27 @@ padding) is expressible in properties `Text` does own:
 
 A mirrored component with no call site is not "done", it is untested by
 construction - `grep -c 'QtcLabel {'` over the tree answered **1**, and that one
-was the new file. Worth running over the rest of the mirrored set.
+was the new file.
+
+**The sweep, and the guard it turned into.** Four more components in
+`QtCreator.Ui` have no call site anywhere: `QtcBadge`, `QtcButton`,
+`QtcIconDisplay`, `QtcPageIndicator`. All four do load, but nothing was
+checking. `testEveryComponentInTheModuleCanBeLoaded()` now compiles every
+`.qml` in the module and reports the ones that error - it names
+`QtcLabel.qml:37: Invalid property assignment` when the bug is put back, which
+is what makes it worth having rather than merely reassuring.
+
+Two things it deliberately does *not* do: it does not instantiate (a component
+with `required` properties compiles fine and cannot be created without them),
+and it asserts the file list is non-empty first, because
+`QDir(":/qt/qml/QtCreator/Ui")` finding nothing would otherwise be a pass.
+
+**And a reminder about the sweep itself:** the first version was
+`grep -r --include=*.qml ...`, and zsh ate the unquoted glob, so *every*
+component came back with zero uses - a list of 47 "never used" components,
+including ones visibly used on every page. Quoting it (`--include='*.qml'`)
+gave the real answer of four. A sweep that reports everything is as wrong as
+one that reports nothing; sanity-check it against something known to be used.
 
 What is left of the editor: the extra-selection producers that genuinely need
 the widget's machinery (diagnostic underlines and occurrences, both fed by

@@ -11,6 +11,8 @@
 #include <extensionsystem/pluginmanager.h>
 #include <extensionsystem/pluginspec.h>
 
+#include <QDir>
+
 #include <qtcquick/aspectmodels.h>
 #include <qtcquick/qtciconprovider.h>
 #include <qtcquick/qtcquickengine.h>
@@ -157,6 +159,7 @@ class QuickUiTest final : public QObject
     Q_OBJECT
 
 private slots:
+    void testEveryComponentInTheModuleCanBeLoaded();
     void testAspectDrivenPagesRenderWithQuick();
     void testNestedContainerIsAModelGroup();
     void testSelectionWithoutDescribedChoicesIsUnsupported();
@@ -273,6 +276,27 @@ static const QSet<QString> &knownUndrawnSettings()
         "Catch Test: WarnEmpty/WarnEmpty",
     };
     return settings;
+}
+
+// Every .qml in QtCreator.Ui has to at least compile. A component with no call
+// site anywhere is untested by construction, and QtcLabel was exactly that: it
+// assigned implicitHeight on a Text, which makes the whole type unavailable,
+// and nothing noticed until the first thing tried to use it years later.
+void QuickUiTest::testEveryComponentInTheModuleCanBeLoaded()
+{
+    const QDir module(":/qt/qml/QtCreator/Ui");
+    const QStringList files = module.entryList({"*.qml"}, QDir::Files);
+    QVERIFY2(!files.isEmpty(), "the module's QML is not where this looked, so this checks nothing");
+
+    QStringList broken;
+    for (const QString &file : files) {
+        QQmlComponent component(QtcQuick::engine(), QUrl("qrc:/qt/qml/QtCreator/Ui/" + file));
+        // Ready or Error: a component that needs required properties still
+        // *compiles*, and compiling is all this asks.
+        if (component.isError())
+            broken << file + ": " + component.errorString().trimmed();
+    }
+    QVERIFY2(broken.isEmpty(), qPrintable("\n" + broken.join("\n")));
 }
 
 void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
