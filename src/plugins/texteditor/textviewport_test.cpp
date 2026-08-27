@@ -2719,12 +2719,13 @@ private slots:
 
     void testGoingToALineStillWorksAfterTheWidthChanges()
     {
-        // Where a line starts, in rows, is cached by the layout, and that
-        // cache is not reset when the width changes - the layout says so
-        // itself, in a FIXME. What saves it is updatePolish() walking every
-        // block through blockBoundingRect(), which refreshes the cache as a
-        // side effect. That walk is the whole document on every polish and
-        // reads like something to optimise away; this is what would notice.
+        // Where a line starts, in rows, is cached by the layout, which warns in
+        // a FIXME that the cache is not reset when the width changes. It
+        // nonetheless comes out right, and what makes it so is not settled:
+        // neither dropping the cache when a block's line count changes nor the
+        // per-block walk in updatePolish() can be taken away and made to fail
+        // this. So it is here as a fact about the behaviour, not as a claim
+        // about the reason - if it ever goes red, the FIXME is where to look.
         TemporaryDirectory dir("qtc-viewport-rewrap");
         const FilePath file = dir.filePath("wrapped.txt");
         QString content;
