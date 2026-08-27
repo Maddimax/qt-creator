@@ -464,8 +464,8 @@ ToolChainOptionsWidget::ToolChainOptionsWidget()
     for (ToolchainFactory *factory : ToolchainFactory::allToolchainFactories()) {
         if (!factory->canCreate() || factory->supportedLanguages().isEmpty())
             continue;
-        kinds.append({factory->displayName(), {}, true,
-                      factory->supportedToolchainType().toSetting()});
+        kinds.append({.display = factory->displayName(),
+                      .id = factory->supportedToolchainType().toSetting()});
     }
     m_addButton.setChoices(kinds);
     m_addButton.setOnChoice([this](const QVariant &id) {
@@ -537,7 +537,7 @@ void ToolChainOptionsWidget::removeAll()
         }
     }
     if (anyRemoved)
-        checkSettingsDirty();
+        Utils::checkSettingsDirty();
 }
 
 void ToolChainOptionsWidget::editDetectionSettings()
@@ -548,7 +548,7 @@ void ToolChainOptionsWidget::editDetectionSettings()
     const bool old = m_detectionSettings.detectX64AsX32;
     m_detectionSettings = dlg.settings();
     if (m_detectionSettings.detectX64AsX32 != old)
-        checkSettingsDirty();
+        Utils::checkSettingsDirty();
 }
 
 void ToolChainOptionsWidget::handleToolchainsRegistered(const Toolchains &toolchains)
@@ -674,7 +674,7 @@ void ToolChainOptionsWidget::redetectToolchains()
         m_model.addBundle(bundle);
 
     if (!itemsToRemove.isEmpty() || !toAdd.isEmpty())
-        checkSettingsDirty();
+        Utils::checkSettingsDirty();
 }
 
 void ToolChainOptionsWidget::toolChainSelectionChanged()

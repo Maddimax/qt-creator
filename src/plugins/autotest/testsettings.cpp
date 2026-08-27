@@ -237,7 +237,7 @@ FrameworksAspect::FrameworksAspect(AspectContainer *container)
     // The warning depends on what is ticked, and a check box is ticked through
     // the model, so the model says when to look again.
     connect(&d->m_model, &QAbstractItemModel::dataChanged, this, [this] {
-        checkSettingsDirty();
+        Utils::checkSettingsDirty();
         emit volatileValueChanged();
     });
 }

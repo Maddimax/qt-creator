@@ -357,8 +357,8 @@ AnalyzerMessagesAspect::AnalyzerMessagesAspect(AspectContainer *container)
                       " files, but disabled checks cannot get explicitly"
                       " enabled for non Qt Quick UI files."));
 
-    connect(&d->m_model, &QAbstractItemModel::dataChanged, this, [this] {
-        checkSettingsDirty();
+    connect(&d->m_model, &QAbstractItemModel::dataChanged, this, [] {
+        Utils::checkSettingsDirty();
     });
 }
 
@@ -386,7 +386,7 @@ void AnalyzerMessagesAspect::resetToDefault()
 {
     d->m_volatileState = {defaultDisabledMessages(), defaultDisabledMessagesNonQuickUi()};
     d->m_model.reread();
-    checkSettingsDirty();
+    Utils::checkSettingsDirty();
 }
 
 void AnalyzerMessagesAspect::apply()
