@@ -166,6 +166,27 @@ a live copy and a dead one - and one test that dropped the result of
 `qWaitForWindowExposed`, so it compared positions in a window that need never
 have appeared.
 
+**qmllint over every plugin is worth running once.** All 67 `*_qmllint`
+targets give 665 warnings, and 655 of them are `[unqualified]` - the pages
+reach `aspects.Foo` through a scope qmllint cannot follow, which is noise here.
+The ten that are not are where to look:
+
+- `IntegerDelegate` declared `scale`, which `QQuickItem` already has, for the
+  factor between the value an aspect keeps and the one it shows. Renamed, and
+  now covered - the Qt Quick side had no test for the factor at all, though
+  the widget renderer's has one.
+- Seven `[missing-property]` are delegates reaching for members of a derived
+  aspect through a property typed `Utils::BaseAspect`, or through
+  `QQuickItem`. They work, because the object really has them; qmllint just
+  cannot see it from the declared type.
+- Two `[equality-type-coercion]` on `source != ""` are **not** to be changed
+  to `!==`. `source` is a url, and `!==` against a string is always true, so
+  the "fix" would make those items permanently visible. Compare
+  `String(source)` if they are ever worth silencing.
+
+The targets do not fail a build, so nothing notices these unless they are run
+deliberately.
+
 **Setting the Quick Controls style is a startup job, not a lazy one.** It was
 being set inside the engine that `QtcQuick::engine()` creates on first use, so
 it landed wherever the first QtcQuick widget was built - and Controls keep the
