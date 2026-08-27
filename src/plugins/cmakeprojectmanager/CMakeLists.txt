@@ -89,6 +89,7 @@ if(TARGET CMakeProjectManager)
     NO_PLUGIN
     QML_FILES
       CMakeFormatterSettingsPage.qml
+      CMakeProjectPanel.qml
       CMakeSpecificSettingsPage.qml
       CMakeToolsPage.qml
   )

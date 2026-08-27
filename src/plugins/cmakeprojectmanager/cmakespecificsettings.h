@@ -49,4 +49,8 @@ public:
 
 CMakeSpecificSettings &cmakeSettingsForProject(ProjectExplorer::Project *project);
 
+#ifdef WITH_TESTS
+QObject *createCMakeProjectPanelTest();
+#endif
+
 } // CMakeProjectManager::Internal

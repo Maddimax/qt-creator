@@ -20,6 +20,13 @@
 
 #include <QGuiApplication>
 
+#ifdef WITH_TESTS
+#include <coreplugin/dialogs/ioptionspage.h>
+#include <utils/algorithm.h>
+
+#include <QTest>
+#endif
+
 using namespace ProjectExplorer;
 using namespace Utils;
 
@@ -208,22 +215,38 @@ public:
 
 const CMakeSpecificSettingsPage settingsPage;
 
-class CMakeProjectSettingsWidget : public QWidget
+// What the panel shows. The flag is not one of the settings - see the comment
+// on its declaration - so the panel is a container of its own holding both.
+// It has no settings key, and neither does the flag, so what is stored stays
+// the settings container's business.
+class CMakeProjectPanel final : public AspectContainer
 {
 public:
-    explicit CMakeProjectSettingsWidget(Project *project)
+    explicit CMakeProjectPanel(CMakeSpecificSettings *settings)
     {
-        auto *cmakeProject = qobject_cast<CMakeProject *>(project);
-        QTC_ASSERT(cmakeProject, return);
-        CMakeSpecificSettings &ps = cmakeProject->settings();
-        using namespace Layouting;
-        Column {
-            ps.useGlobalSettings,
-            ps,
-            noMargin,
-        }.attachTo(this);
+        // Before registering anything: insertAspect() forces the container's
+        // own auto-apply onto what it takes in.
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/CMakeProjectManager/CMakeProjectPanel.qml"));
+
+        settings->useGlobalSettings.setQmlName("UseGlobalSettings");
+        registerAspect(&settings->useGlobalSettings);
+
+        settings->setQmlName("Settings");
+        registerAspect(settings);
     }
 };
+
+static CMakeProjectPanel *cmakeProjectPanel(Project *project)
+{
+    const Key key = "CMakeProjectPanel";
+    QVariant v = project->extraData(key);
+    if (v.isNull()) {
+        v = QVariant::fromValue(new CMakeProjectPanel(&cmakeSettingsForProject(project)));
+        project->setExtraData(key, v);
+    }
+    return v.value<CMakeProjectPanel *>();
+}
 
 class CMakeProjectSettingsPanelFactory final : public ProjectPanelFactory
 {
@@ -235,12 +258,73 @@ public:
         setSupportsFunction([](Project *project) {
             return qobject_cast<CMakeProject *>(project) != nullptr;
         });
-        setCreateWidgetFunction([](Project *project) {
-            return new CMakeProjectSettingsWidget(project);
-        });
+        setSettingsProvider([](Project *project) { return cmakeProjectPanel(project); });
     }
 };
 
 const CMakeProjectSettingsPanelFactory projectSettingsPane;
 
+#ifdef WITH_TESTS
+
+// Every QML warning raised while the panel is built. A wrong aspect name is not
+// a load error - the form still instantiates - it is a warning saying the
+// binding could not be resolved, and the control is simply missing.
+static QStringList s_qmlComplaints;
+
+static void collectComplaints(QtMsgType, const QMessageLogContext &, const QString &message)
+{
+    s_qmlComplaints.append(message);
+}
+
+// A project's CMake panel is not an options page, so the page census never sees
+// it - which is why it is asserted here.
+class CMakeProjectPanelTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testThePanelDrawsTheFlagAndTheSettings()
+    {
+        CMakeProjectPanel panel(&cmakeSettingsForProject(nullptr));
+
+        s_qmlComplaints.clear();
+        QtMessageHandler previous = qInstallMessageHandler(collectComplaints);
+        const std::unique_ptr<QWidget> form(Core::createAspectForm(&panel));
+        qInstallMessageHandler(previous);
+
+        QVERIFY2(form, "the panel produced no form at all");
+
+        QObject *quickWidget = nullptr;
+        const QList<QObject *> children = form->findChildren<QObject *>();
+        for (QObject * const child : children) {
+            if (QLatin1String(child->metaObject()->className()) == QLatin1String("QQuickWidget"))
+                quickWidget = child;
+        }
+        QVERIFY2(quickWidget, "the panel produced a widget form, so the Quick one was declined");
+
+        const int ready = 1; // QQuickWidget::Ready
+        QCOMPARE(quickWidget->property("status").toInt(), ready);
+
+        // Loaded is not enough: a form naming an aspect that is not there loads
+        // perfectly well and leaves the control out. Every name it reaches the
+        // settings by is a chance to get that wrong, and this is what says so.
+        const QStringList aboutThisPanel
+            = Utils::filtered(s_qmlComplaints, [](const QString &complaint) {
+                  return complaint.contains("CMakeProjectPanel.qml");
+              });
+        QVERIFY2(aboutThisPanel.isEmpty(), qPrintable(aboutThisPanel.join("; ")));
+    }
+};
+
+QObject *createCMakeProjectPanelTest()
+{
+    return new CMakeProjectPanelTest;
+}
+
+#endif // WITH_TESTS
+
 } // CMakeProjectManager::Internal
+
+#ifdef WITH_TESTS
+#include "cmakespecificsettings.moc"
+#endif

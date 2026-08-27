@@ -9105,6 +9105,45 @@ deliberate syntax error in the new group and watching qbs report
 parses it, which makes the clean run mean something. **A negative control turns
 an unusable verification into a usable one.**
 
+## A project panel, and a pattern that was already written down
+
+CMake's project settings panel is the same shape the dialogs are: a body of
+nothing but aspects.
+
+    Column { ps.useGlobalSettings, ps, noMargin }.attachTo(this);
+
+**Most of this batch was spent nearly solving a solved problem.**
+`AspectContainer::setEnabled(false)` disables every child, and the panel
+disables the settings container while the global settings are in use - so a
+"use global settings" flag *inside* that container would disable itself, leaving
+no way back. That looked like a trap the port had to design around.
+
+It is not, twice over. The flag's declaration says so:
+
+    ProjectExplorer::UseGlobalAspect useGlobalSettings; // not {this}: excluded from toMap/fromMap
+
+and `ProjectCommentsPanel` next door had already met the same question, solved
+it, and left a comment naming the exact failure - a flag inside the container
+"would be disabled too, leaving no way back". The solution is a *panel
+container* holding the flag and the settings container side by side, with a QML
+source of its own, reached through `AspectModels.named(aspects.Settings)`.
+
+So the port is that pattern applied: a `CMakeProjectPanel`, a QML form listing
+the same settings the General page lists, and
+`ProjectPanelFactory::setSettingsProvider()` in place of
+`setCreateWidgetFunction()`. Reading the neighbour first would have saved the
+detour, and the neighbour was findable by grepping the one identifier the code
+already shared.
+
+**The census still cannot see it.** It walks `IOptionsPage`s, and a project
+panel is a `ProjectPanelFactory`. That is now two kinds of Qt Quick form outside
+its reach - dialogs and panels - each needing a test of its own. The test is the
+same shape as the CompilerExplorer one: the form is a `QQuickWidget`, its
+`status` is Ready, and no QML warning was raised while building it. The last
+check is the one that matters here, because the panel reaches every setting
+through a *second* name (`aspects.Settings.Foo`), which doubles the chances of a
+typo that loads cleanly and silently omits a control. Its control confirms it.
+
 ## The terminal spike: go, with the cleanest split in the tree
 
 **Status update: the spike is being productised.** `TerminalQuick` is now the
