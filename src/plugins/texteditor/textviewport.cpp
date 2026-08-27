@@ -4,7 +4,9 @@
 #include "textviewport.h"
 
 #include "behaviorsettings.h"
+#include "autocompleter.h"
 #include "codesource.h"
+#include "completionsettings.h"
 #include "displaysettings.h"
 #include "fontsettings.h"
 #include "tabsettings.h"
@@ -13,6 +15,7 @@
 #include "textdocument.h"
 #include "textdocumentlayout.h"
 #include "textmark.h"
+#include "typingsettings.h"
 
 #include <qtcquick/qtciconprovider.h>
 
@@ -60,6 +63,12 @@ TextViewport::TextViewport(QQuickItem *parent)
     setFlag(ItemAcceptsInputMethod);
     setClip(true);
 
+    m_autoCompleter = std::make_unique<AutoCompleter>();
+    connect(&globalCompletionSettings(), &Utils::AspectContainer::changed, this, [this] {
+        applyCompletionSettings();
+    });
+    applyCompletionSettings();
+
     // Preferences are *pushed* into a document rather than read from one: a
     // TextDocument on its own never hears about them, which is why the widget
     // editor does exactly this for the document it shows. Doing it here covers
@@ -73,6 +82,16 @@ TextViewport::TextViewport(QQuickItem *parent)
         polish();
         update();
     });
+}
+
+void TextViewport::applyCompletionSettings()
+{
+    const CompletionSettings &settings = globalCompletionSettings();
+    m_autoCompleter->setAutoInsertBracketsEnabled(settings.autoInsertBrackets());
+    m_autoCompleter->setSurroundWithBracketsEnabled(settings.surroundingAutoBrackets());
+    m_autoCompleter->setAutoInsertQuotesEnabled(settings.autoInsertQuotes());
+    m_autoCompleter->setSurroundWithQuotesEnabled(settings.surroundingAutoQuotes());
+    m_autoCompleter->setOverwriteClosingCharsEnabled(settings.overwriteClosingChars());
 }
 
 void TextViewport::applyGlobalFontSettings()
@@ -505,6 +524,10 @@ void TextViewport::keyPressEvent(QKeyEvent *event)
 
     switch (event->key()) {
     case Qt::Key_Backspace:
+        // Between the two halves of a pair this editor inserted, Backspace
+        // takes both - otherwise it leaves the closing one orphaned.
+        if (!cursor.hasSelection() && m_autoCompleter->autoBackspace(cursor))
+            break;
         // With a selection, Backspace removes it rather than one more character
         // before it, which deletePreviousChar() already does.
         cursor.deletePreviousChar();

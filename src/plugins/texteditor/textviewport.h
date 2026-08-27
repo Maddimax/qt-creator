@@ -28,6 +28,8 @@ QT_END_NAMESPACE
 
 namespace TextEditor {
 
+class AutoCompleter;
+
 class CodeSource;
 class SyntaxHighlighter;
 class TextDocument;
@@ -314,6 +316,7 @@ private:
     // the editor installs one once it knows the file's language - and nothing
     // announces that, so this looks each time round.
     void connectHighlighter(TextDocument *doc);
+    void applyCompletionSettings();
     void applyGlobalFontSettings();
     void appendHighlights(QList<QTextLayout::FormatRange> &formats,
                           const QTextBlock &block) const;
@@ -333,6 +336,11 @@ private:
     // By kind, each sorted by where it starts so that the lines on screen can
     // be found without walking every match in the file.
     QMap<Utils::Id, QList<Highlight>> m_highlights;
+
+    // Backspace between the two halves of a bracket pair removes both. That is
+    // all the base AutoCompleter offers; inserting the closing half is a
+    // language-specific subclass, handed out per editor factory.
+    std::unique_ptr<AutoCompleter> m_autoCompleter;
 
     QPointer<CodeSource> m_document;
     // The QTextDocument currently connected to, which is not the same one

@@ -6855,9 +6855,53 @@ noting that a control that *cannot be applied* looks nothing like a control
 that does not bite, which is why the harness now says `CONTROL DID NOT APPLY`
 rather than failing silently.
 
+## The feature that turned out not to exist
+
+This batch set out to add auto-inserted brackets: type `(`, get `()`. It is one
+of the most visible things an editor does, and the Quick editor did not do it.
+
+It turned out the plain text **widget** editor does not do it either. The base
+`AutoCompleter` is almost entirely stubs - `contextAllowsAutoBrackets()` returns
+`false`, `insertMatchingBrace()` returns an empty string - and all the real
+behaviour lives in per-language subclasses that arrive through
+`TextEditorFactory::setAutoCompleterCreator()`: `CppAutoCompleter`,
+`JsonAutoCompleter`, `CMakeAutoCompleter`, QmlJS's. There is no registry from
+mime type to auto-completer, so an editor that is not built by a
+`TextEditorFactory` cannot obtain one.
+
+So the premise was wrong: this is not a gap in the port. A Quick editor with no
+auto-insertion matches the plain text editor exactly.
+
+**What was written and then deleted.** The first version wired all four hooks -
+`autoComplete()` on typing, `paragraphSeparatorAboutToBeInserted()` on Enter,
+electric-character re-indenting, and `autoBackspace()`. Three of them can never
+fire with a base `AutoCompleter`, because each goes through
+`contextAllowsAutoBrackets()`. They were removed rather than kept "for when a
+language completer arrives": code that cannot execute is not a hook, it is a
+claim that a feature exists.
+
+**One of the four is real.** `AutoCompleter::autoBackspace()` is implemented in
+the base class and does *not* consult the context, so Backspace between the two
+halves of a pair removes both - which the widget editor does for plain text
+files too. That one stayed, with its settings connection, and has a test and
+three controls.
+
+The general shape, worth repeating before adding anything else by analogy with
+the widget: **check that the widget actually does the thing, in the
+configuration being matched.** "The widget has an AutoCompleter" and "the plain
+text editor auto-inserts brackets" are different claims, and only the first one
+was true.
+
+**The control loop lied a fifth time**, differently again: two controls
+reported clean and then bit when re-run individually with the identical
+command. The cause was not established. Individual verification is what the
+result rests on; the loop is a convenience, and its output is only worth
+trusting when it says a control *did* bite.
+
 What is left of the editor: the extra-selection producers that genuinely need
 the widget's machinery (diagnostic underlines and occurrences, both fed by
-plugins calling `TextEditorWidget::setExtraSelections`), code completion,
+plugins calling `TextEditorWidget::setExtraSelections`), auto-insertion and
+completion (both needing a language completer this editor cannot be given),
 dragging text out of a selection, and wrapping.
 
 ## The same measurement, applied to kits

@@ -9,6 +9,7 @@
 #include "codestylepool.h"
 #include "icodestylepreferences.h"
 #include "behaviorsettings.h"
+#include "completionsettings.h"
 #include "fontsettings.h"
 #include "syntaxhighlighter.h"
 #include "tabsettings.h"
@@ -1309,6 +1310,52 @@ private slots:
     // somebody else asked to have drawn differently. They go through the same
     // format list the selection does, so this is the only way to see that one
     // arrived at all.
+    // Backspace between the two halves of a bracket pair takes both. That is
+    // the whole of what the base AutoCompleter offers - inserting the closing
+    // half is a language-specific subclass, handed out per editor factory, so
+    // the plain text widget editor does not do it either and neither can this.
+    void testBackspaceBetweenAPairTakesBothHalves()
+    {
+        const bool wasBrackets = globalCompletionSettings().autoInsertBrackets();
+        const QScopeGuard restore([wasBrackets] {
+            globalCompletionSettings().autoInsertBrackets.setValue(wasBrackets);
+        });
+        globalCompletionSettings().autoInsertBrackets.setValue(true);
+
+        TemporaryDirectory dir("qtc-viewport-autobrackets");
+        const FilePath file = dir.filePath("typed.txt");
+        QVERIFY(file.writeFileContents("()\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        QVERIFY2(fixture.hasFocus(), "the viewport never took focus, so no key arrives");
+
+        TextViewport * const viewport = fixture.viewport;
+        viewport->setReadOnly(false);
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        QTextDocument * const text = fixture.document.textDocument()->document();
+
+        // Between them, so the closing half would be orphaned.
+        viewport->setCursorPosition(1);
+        QTest::keyClick(&fixture.view, Qt::Key_Backspace);
+        QCOMPARE(text->toPlainText(), QString("\n"));
+
+        // Elsewhere it is an ordinary Backspace: only what is behind the caret.
+        text->setPlainText("ab()\n");
+        viewport->setCursorPosition(2);
+        QTest::keyClick(&fixture.view, Qt::Key_Backspace);
+        QCOMPARE(text->toPlainText(), QString("a()\n"));
+
+        // And the setting turns the pairing off, leaving a plain Backspace.
+        globalCompletionSettings().autoInsertBrackets.setValue(false);
+        text->setPlainText("()\n");
+        viewport->setCursorPosition(1);
+        QTest::keyClick(&fixture.view, Qt::Key_Backspace);
+        QCOMPARE(text->toPlainText(), QString(")\n"));
+    }
+
     // Changing the font in Preferences, or zooming, has to reach a viewport
     // that is already showing a file. Nothing else makes it lay out again, so
     // without a connection the editor keeps the size it opened with.
