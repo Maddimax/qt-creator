@@ -97,6 +97,11 @@ public:
     // Page 6: CDB Paths
     Utils::StringListAspect cdbSymbolPaths;
     Utils::StringListAspect cdbSourcePaths;
+    // The three ways of filling the symbol paths in without typing a
+    // "srv*<cache>*<url>" string by hand.
+    Utils::ActionAspect insertSymbolServer;
+    Utils::ActionAspect insertSymbolCache;
+    Utils::ActionAspect setUpSymbolPaths;
 
     // Without pages
     Utils::BoolAspect alwaysAdjustColumnWidths;

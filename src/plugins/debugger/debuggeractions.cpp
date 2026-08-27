@@ -6,6 +6,8 @@
 #include "commonoptionspage.h"
 #include "debuggerinternalconstants.h"
 #include "debuggertr.h"
+#include "shared/symbolpathsdialog.h"
+#include "shared/cdbsymbolpathlisteditor.h"
 #include "gdb/gdbsettings.h"
 
 #include <coreplugin/icore.h>
@@ -147,7 +149,49 @@ DebuggerSettings::DebuggerSettings() :
     cdbAdditionalArguments.setLabelText(Tr::tr("Additional arguments:"));
 
     cdbSymbolPaths.setSettingsKey(cdbSettingsGroup, "SymbolPaths");
+    cdbSymbolPaths.setQmlName("SymbolPaths");
     cdbSourcePaths.setSettingsKey(cdbSettingsGroup, "SourcePaths");
+    cdbSourcePaths.setQmlName("SourcePaths");
+
+    insertSymbolServer.setQmlName("InsertSymbolServer");
+    insertSymbolServer.setActionText(Tr::tr("Insert Symbol Server..."));
+    insertSymbolServer.setToolTip(
+        Tr::tr("Adds the Microsoft symbol server providing symbols for operating system "
+               "libraries. Requires specifying a local cache directory."));
+    insertSymbolServer.setAction([this] {
+        FilePath cacheDir;
+        if (CdbSymbolPathListEditor::promptCacheDirectory(nullptr, &cacheDir)) {
+            cdbSymbolPaths.appendValue(
+                CdbSymbolPathListEditor::symbolPath(cacheDir,
+                                                    CdbSymbolPathListEditor::SymbolServerPath));
+        }
+    });
+
+    insertSymbolCache.setQmlName("InsertSymbolCache");
+    insertSymbolCache.setActionText(Tr::tr("Insert Symbol Cache..."));
+    insertSymbolCache.setToolTip(Tr::tr("Uses a directory to cache symbols used by the debugger."));
+    insertSymbolCache.setAction([this] {
+        FilePath cacheDir;
+        if (CdbSymbolPathListEditor::promptCacheDirectory(nullptr, &cacheDir)) {
+            cdbSymbolPaths.appendValue(
+                CdbSymbolPathListEditor::symbolPath(cacheDir,
+                                                    CdbSymbolPathListEditor::SymbolCachePath));
+        }
+    });
+
+    setUpSymbolPaths.setQmlName("SetUpSymbolPaths");
+    setUpSymbolPaths.setActionText(Tr::tr("Set up Symbol Paths..."));
+    setUpSymbolPaths.setToolTip(
+        Tr::tr("Configure Symbol paths that are used to locate debug symbol files."));
+    setUpSymbolPaths.setAction([this] {
+        bool useSymbolServer = true;
+        bool useSymbolCache = true;
+        FilePath cacheDir = symbolCacheDirectory(cdbSymbolPaths.volatileValue());
+        if (!SymbolPathsDialog::useCommonSymbolPaths(useSymbolCache, useSymbolServer, cacheDir))
+            return;
+        cdbSymbolPaths.appendValues(
+            symbolPathsToAdd(useSymbolCache, useSymbolServer, cacheDir));
+    });
 
     cdbBreakEvents.setSettingsKey(cdbSettingsGroup, "BreakEvent");
     cdbBreakOnCrtDbgReport.setSettingsKey(cdbSettingsGroup, "BreakOnCrtDbgReport");
@@ -266,6 +310,13 @@ DebuggerSettings::DebuggerSettings() :
     // Page 6
     page6.registerAspect(&cdbSymbolPaths);
     page6.registerAspect(&cdbSourcePaths);
+    page6.registerAspect(&insertSymbolServer);
+    page6.registerAspect(&insertSymbolCache);
+    page6.registerAspect(&setUpSymbolPaths);
+    page6.setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Debugger/CdbPathsPage.qml"));
+    // After the registrations: registerAspect() turns auto-apply back on, and
+    // a settings page that auto-applies never writes anything.
+    page6.setAutoApply(false);
 
     // Pageless
     all.registerAspect(&autoDerefPointers);

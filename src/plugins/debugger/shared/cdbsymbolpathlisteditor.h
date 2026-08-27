@@ -3,28 +3,25 @@
 
 #pragma once
 
-#include <utils/pathlisteditor.h>
+#include <utils/filepath.h>
 
-namespace Utils { class FilePath; }
+#include <QStringList>
+
+QT_BEGIN_NAMESPACE
+class QWidget;
+QT_END_NAMESPACE
 
 namespace Debugger::Internal {
 
-// Internal helper dialog prompting for a cache directory
-// using a PathChooser.
-// Note that QFileDialog does not offer a way of suggesting
-// a non-existent folder, which is in turn automatically
-// created. This is done here (suggest $TEMP\symbolcache
-// regardless of its existence).
-
-class CdbSymbolPathListEditor : public Utils::PathListEditor
+// How a CDB symbol path is spelled, and what is in one. The formatting and
+// the parsing are a pair: "srv*<cache>*<url>" and "cache*<dir>".
+class CdbSymbolPathListEditor
 {
 public:
     enum SymbolPathMode{
         SymbolServerPath,
         SymbolCachePath
     };
-
-    explicit CdbSymbolPathListEditor(QWidget *parent = nullptr);
 
     static bool promptCacheDirectory(QWidget *parent, Utils::FilePath *cacheDirectory);
 
@@ -36,10 +33,18 @@ public:
     static bool isSymbolCachePath(const QString &path, QString *cacheDir = nullptr);
     // Check for symbol server in list of paths.
     static int indexOfSymbolPath(const QStringList &paths, SymbolPathMode mode, QString *cacheDir = nullptr);
-
-private:
-    void addSymbolPath(SymbolPathMode mode);
-    void setupSymbolPaths();
 };
+
+// The cache directory to offer when setting the symbol paths up: the one a
+// listed symbol server or cache entry already names, and otherwise a directory
+// under the temporary one. A symbol path is not itself a directory - it is
+// "srv*<cache>*<url>" - so the directory has to be taken out of it.
+Utils::FilePath symbolCacheDirectory(const QStringList &paths);
+
+// The paths to add for the answers the setup dialog came back with. With both
+// wanted the cache entry carries the directory and the server entry does not;
+// with only the server wanted, the server entry carries it.
+QStringList symbolPathsToAdd(bool useSymbolCache, bool useSymbolServer,
+                             const Utils::FilePath &cacheDir);
 
 } // Debugger::Internal

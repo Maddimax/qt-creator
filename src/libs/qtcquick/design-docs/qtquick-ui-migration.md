@@ -10177,3 +10177,48 @@ Three controls, and the third is the interesting one:
 The general form: **a C++ test of a Q_INVOKABLE proves the method, not the
 binding.** Every QML branch that decides whether to call it is invisible until
 something drives the form.
+
+## CDB Paths, and a bug that explains why nobody used the accessor
+
+Three `IOptionsPage`s still build a widget: the two CDB ones, Windows App SDK,
+and Designer's (which wraps `QDesignerOptionsPageInterface` and is not ours to
+port). CDB Paths is the first of them.
+
+It is two `StringListAspect`s and three buttons, and the buttons are where the
+substance is. "Set up Symbol Paths..." asks whether to use a cache, a server or
+both, and then writes the paths - and **which entry carries the cache
+directory depends on the answer**: with both, the cache entry names it and the
+server entry does not; with only the server, the server entry names it.
+Repeating it would make CDB cache into the same directory twice; omitting it
+from a server-only setup means symbols are downloaded and never kept. That was
+four lines inside a widget slot and is now `symbolPathsToAdd()`, with a test.
+
+**The dialog was pre-filled with a symbol path where a directory belongs.**
+`setupSymbolPaths()` did
+
+    path = FilePath::fromString(currentPaths.at(indexOfSymbolServer));
+
+- the whole `srv*C:\cache*http://msdl.microsoft.com/download/symbols` string,
+offered as a directory to write a cache into. `indexOfSymbolPath()` has an out
+parameter that extracts the cache directory, and the call ignored it.
+
+**And then the test found out why.** Reading the out parameter gave
+`/tmp/cache*h`, because the extraction itself is off by two:
+
+    *cacheDir = path.mid(prefixLength,
+                         path.size() - prefixLength - qstrlen(symbolServerPostfixC) + 1);
+
+`+ 1` keeps the separator and the first character of the URL. So the accessor
+that would have given the right answer never did, which is a fair explanation
+for why the caller worked around it by passing the whole path instead. Both are
+fixed, and the control that puts either back bites.
+
+This is the fourth widget-as-storage find in this bucket, and the first where
+the *reader* was broken rather than the storage - worth telling apart. A value
+kept in a widget is bad because the widget can go away; a value kept correctly
+but read wrongly looks identical from the outside, and only a test that names
+the expected value distinguishes them.
+
+`CdbSymbolPathListEditor` is no longer a widget at all - the class survives as
+the four static functions that say how a symbol path is spelled, and the
+`PathListEditor` subclass with its three buttons is deleted.

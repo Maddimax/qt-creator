@@ -7,7 +7,6 @@
 #include <debugger/debuggercore.h>
 #include <debugger/debuggerinternalconstants.h>
 #include <debugger/debuggertr.h>
-#include <debugger/shared/cdbsymbolpathlisteditor.h>
 
 #include <utils/aspects.h>
 #include <utils/guiutils.h>
@@ -240,58 +239,12 @@ CdbOptionsPage::CdbOptionsPage()
 
 // ---------- CdbPathsPage
 
-class CdbPathsPageWidget : public Core::IOptionsPageWidget
-{
-public:
-    CdbPathsPageWidget();
-
-    void apply() final;
-    void cancel() final;
-
-    AspectContainer &m_group = settings().page6;
-
-private:
-    PathListEditor *m_symbolPaths = nullptr;
-    PathListEditor *m_sourcePaths = nullptr;
-};
-
-CdbPathsPageWidget::CdbPathsPageWidget()
-    : m_symbolPaths(new CdbSymbolPathListEditor)
-    , m_sourcePaths(new PathListEditor)
-{
-    using namespace Layouting;
-
-    cancel();
-    Column {
-        Group { title(Tr::tr("Symbol Paths")), Column { m_symbolPaths } },
-        Group { title(Tr::tr("Source Paths")), Column { m_sourcePaths } },
-        st
-    }.attachTo(this);
-
-    installMarkSettingsDirtyTriggerRecursively(this);
-    connect(m_symbolPaths, &PathListEditor::changed, this, checkSettingsDirty);
-    connect(m_sourcePaths, &PathListEditor::changed, this, checkSettingsDirty);
-}
-
-void CdbPathsPageWidget::apply()
-{
-    settings().cdbSymbolPaths.setValue(m_symbolPaths->pathList());
-    settings().cdbSourcePaths.setValue(m_sourcePaths->pathList());
-    m_group.writeSettings();
-}
-
-void CdbPathsPageWidget::cancel()
-{
-    m_symbolPaths->setPathList(settings().cdbSymbolPaths());
-    m_sourcePaths->setPathList(settings().cdbSourcePaths());
-}
-
 CdbPathsPage::CdbPathsPage()
 {
     setId("F.Debugger.Cdb");
     setDisplayName(Tr::tr("CDB Paths"));
     setCategory(Debugger::Constants::DEBUGGER_SETTINGS_CATEGORY);
-    setWidgetCreator([] { return new CdbPathsPageWidget; });
+    setSettingsProvider([] { return &settings().page6; });
 }
 
 } // namespace Debugger::Internal

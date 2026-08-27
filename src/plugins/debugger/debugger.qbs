@@ -69,6 +69,7 @@ QtcPlugin {
             "sourceutils.cpp", "sourceutils.h",
             "stackframe.cpp", "stackframe.h",
             "sourcepathmap.cpp", "sourcepathmap.h",
+            "cdbpaths_test.cpp", "cdbpaths_test.h",
             "sourcepathmap_test.cpp", "sourcepathmap_test.h",
             "stackhandler.cpp", "stackhandler.h",
             "stackwindow.cpp", "stackwindow.h",

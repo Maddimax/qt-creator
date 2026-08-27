@@ -105,27 +105,6 @@ const char symbolServerPrefixC[] = "srv*";
 const char symbolServerPostfixC[] = "http://msdl.microsoft.com/download/symbols";
 const char symbolCachePrefixC[] = "cache*";
 
-CdbSymbolPathListEditor::CdbSymbolPathListEditor(QWidget *parent) :
-    PathListEditor(parent)
-{
-    QPushButton *button = insertButton(lastInsertButtonIndex + 1,
-                                       Tr::tr("Insert Symbol Server..."), this, [this] {
-        addSymbolPath(SymbolServerPath);
-    });
-    button->setToolTip(Tr::tr("Adds the Microsoft symbol server providing symbols for operating system "
-                              "libraries. Requires specifying a local cache directory."));
-
-    button = insertButton(lastInsertButtonIndex + 1, Tr::tr("Insert Symbol Cache..."), this, [this] {
-        addSymbolPath(SymbolCachePath);
-    });
-    button->setToolTip(Tr::tr("Uses a directory to cache symbols used by the debugger."));
-
-    button = insertButton(lastInsertButtonIndex + 1, Tr::tr("Set up Symbol Paths..."), this, [this] {
-        setupSymbolPaths();
-    });
-    button->setToolTip(Tr::tr("Configure Symbol paths that are used to locate debug symbol files."));
-}
-
 bool CdbSymbolPathListEditor::promptCacheDirectory(QWidget *parent, FilePath *cacheDirectory)
 {
     CacheDirectoryDialog dialog(parent);
@@ -136,42 +115,46 @@ bool CdbSymbolPathListEditor::promptCacheDirectory(QWidget *parent, FilePath *ca
     return true;
 }
 
-void CdbSymbolPathListEditor::addSymbolPath(CdbSymbolPathListEditor::SymbolPathMode mode)
+FilePath symbolCacheDirectory(const QStringList &paths)
 {
-    FilePath cacheDir;
-    if (promptCacheDirectory(this, &cacheDir))
-        insertPathAtCursor(CdbSymbolPathListEditor::symbolPath(cacheDir, mode));
+    // The directory out of the path, not the path itself: a symbol server
+    // entry reads "srv*C:\\cache*http://...", and offering that as a
+    // directory to write a cache into is nonsense.
+    QString cacheDir;
+    if (CdbSymbolPathListEditor::indexOfSymbolPath(
+            paths, CdbSymbolPathListEditor::SymbolServerPath, &cacheDir)
+            != -1
+        && !cacheDir.isEmpty()) {
+        return FilePath::fromUserInput(cacheDir);
+    }
+    cacheDir.clear();
+    if (CdbSymbolPathListEditor::indexOfSymbolPath(
+            paths, CdbSymbolPathListEditor::SymbolCachePath, &cacheDir)
+            != -1
+        && !cacheDir.isEmpty()) {
+        return FilePath::fromUserInput(cacheDir);
+    }
+    return TemporaryDirectory::masterDirectoryFilePath() / "symbolcache";
 }
 
-void CdbSymbolPathListEditor::setupSymbolPaths()
+QStringList symbolPathsToAdd(bool useSymbolCache, bool useSymbolServer, const FilePath &cacheDir)
 {
-    const QStringList &currentPaths = pathList();
-    const int indexOfSymbolServer = indexOfSymbolPath(currentPaths, SymbolServerPath);
-    const int indexOfSymbolCache = indexOfSymbolPath(currentPaths, SymbolCachePath);
-
-    FilePath path;
-    if (indexOfSymbolServer != -1)
-        path = FilePath::fromString(currentPaths.at(indexOfSymbolServer));
-    if (path.isEmpty() && indexOfSymbolCache != -1)
-        path = FilePath::fromString(currentPaths.at(indexOfSymbolCache));
-    if (path.isEmpty())
-        path = TemporaryDirectory::masterDirectoryFilePath() / "symbolcache";
-
-    bool useSymbolServer = true;
-    bool useSymbolCache = true;
-    bool addSymbolPaths = SymbolPathsDialog::useCommonSymbolPaths(useSymbolCache,
-                                                                  useSymbolServer,
-                                                                  path);
-    if (!addSymbolPaths)
-        return;
-
     if (useSymbolCache) {
-        insertPathAtCursor(CdbSymbolPathListEditor::symbolPath(path, SymbolCachePath));
-        if (useSymbolServer)
-            insertPathAtCursor(CdbSymbolPathListEditor::symbolPath({}, SymbolServerPath));
-    } else if (useSymbolServer) {
-        insertPathAtCursor(CdbSymbolPathListEditor::symbolPath(path, SymbolServerPath));
+        QStringList paths{
+            CdbSymbolPathListEditor::symbolPath(cacheDir, CdbSymbolPathListEditor::SymbolCachePath)};
+        // The cache entry already names the directory, so the server entry
+        // does not repeat it.
+        if (useSymbolServer) {
+            paths.append(
+                CdbSymbolPathListEditor::symbolPath({}, CdbSymbolPathListEditor::SymbolServerPath));
+        }
+        return paths;
     }
+    if (useSymbolServer) {
+        return {CdbSymbolPathListEditor::symbolPath(cacheDir,
+                                                    CdbSymbolPathListEditor::SymbolServerPath)};
+    }
+    return {};
 }
 
 QString CdbSymbolPathListEditor::symbolPath(const FilePath &cacheDir,
@@ -195,8 +178,11 @@ bool CdbSymbolPathListEditor::isSymbolServerPath(const QString &path, QString *c
         static const unsigned postfixLength = unsigned(qstrlen(symbolServerPostfixC));
         if (unsigned(path.size()) == prefixLength + postfixLength)
             return true;
-        // Split apart symbol server post/prefixes
-        *cacheDir = path.mid(prefixLength, path.size() - prefixLength - qstrlen(symbolServerPostfixC) + 1);
+        // Split apart symbol server post/prefixes. The path is
+        // "srv*<cacheDir>*<url>", so what is left after taking off both ends is
+        // the directory and the separator before the url.
+        *cacheDir = path.mid(prefixLength,
+                             path.size() - prefixLength - int(postfixLength) - 1);
     }
     return true;
 }
