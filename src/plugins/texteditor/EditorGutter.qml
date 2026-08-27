@@ -94,7 +94,12 @@ Item {
             width: widest.width
             height: root.viewport.lineHeight
 
-            text: String(number.modelData.lineNumber ?? 0)
+            // A wrapped line is numbered where it starts and nowhere else:
+            // the continuation rows belong to the same line, and numbering
+            // them again would be counting rows rather than lines.
+            text: number.modelData.firstRowOfLine
+                      ? String(number.modelData.lineNumber ?? 0)
+                      : ""
             font: root.viewport.font
             color: Tokens.textMuted
             horizontalAlignment: Text.AlignRight

@@ -195,7 +195,8 @@ public:
         // required property has to be there when the component is created.
         widget->quickWidget()->setInitialProperties(
             {{"source", QVariant::fromValue(m_source.get())},
-             {"contextActions", QVariant::fromValue(&m_contextActions)}});
+             {"contextActions", QVariant::fromValue(&m_contextActions)},
+             {"wrapLines", displaySettings().textWrapping()}});
         widget->setSource(QUrl("qrc:/qt/qml/QtCreator/TextEditor/MainEditor.qml"));
 
         // Preferences are pushed into a document, not read from one, so an
@@ -212,6 +213,13 @@ public:
             });
         }
         applyGlobalSettings();
+
+        // Wrapping is a display setting, so turning it on has to reach an
+        // editor that is already open.
+        connect(&displaySettings(), &Utils::AspectContainer::changed, this, [widget] {
+            if (QQuickItem * const form = widget->quickWidget()->rootObject())
+                form->setProperty("wrapLines", displaySettings().textWrapping());
+        });
 
         // Which language to colour the file as comes from its mime type,
         // and the editor manager opens the document *after* building the
@@ -1195,6 +1203,45 @@ private slots:
         QMetaObject::invokeMethod(unix, "triggered");
         QCOMPARE(document->lineTerminationMode(), Utils::TextFileFormat::LFLineTerminator);
         QTRY_COMPARE(label->property("text").toString(), QString("LF"));
+    }
+
+    // Wrapping is a display setting, so the editor has to open with whatever
+    // it says and follow it while open - the Wrap Lines action toggles exactly
+    // this while a file is in front of the reader.
+    void testTheEditorWrapsWhenThePreferenceSaysTo()
+    {
+        const bool wasWrapping = displaySettings().textWrapping();
+        const QScopeGuard restore(
+            [wasWrapping] { displaySettings().textWrapping.setValue(wasWrapping); });
+        displaySettings().textWrapping.setValue(true);
+
+        Utils::TemporaryDirectory dir("quick-editor-wrap");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("long.txt");
+        const QString longLine = QString("word ").repeated(80).trimmed();
+        QVERIFY(file.writeFileContents((longLine + "\n").toUtf8()));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+        auto * const viewport = quick->rootObject()->findChild<TextViewport *>();
+        QVERIFY(viewport);
+
+        // Opened with the setting on, so it is already wrapping.
+        QVERIFY2(viewport->isWrapping(),
+                 "the editor opened without wrapping although the preference is on");
+
+        // And turning it off reaches the editor that is already open.
+        displaySettings().textWrapping.setValue(false);
+        QTRY_VERIFY2(!viewport->isWrapping(),
+                     "turning wrapping off left the open editor wrapping");
+        displaySettings().textWrapping.setValue(true);
+        QTRY_VERIFY(viewport->isWrapping());
     }
 
     // A split view is two editors on one document. Duplicating has to share

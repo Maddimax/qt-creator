@@ -1358,6 +1358,179 @@ private slots:
         QCOMPARE(text->toPlainText(), QString(")\n"));
     }
 
+    // A line too long for the width is broken across rows. Off by default,
+    // because with it on the viewport has to know where every block starts and
+    // nothing knows that without laying out the whole file.
+    void testALongLineIsBrokenAcrossRowsWhenAsked()
+    {
+        TemporaryDirectory dir("qtc-viewport-wrap");
+        const FilePath file = dir.filePath("long.txt");
+        const QString longLine = QString("word ").repeated(60).trimmed();
+        QVERIFY(file.writeFileContents((longLine + "\nshort\n").toUtf8()));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        // Unwrapped: one row per line, and the long one runs off the edge.
+        QVERIFY(!viewport->isWrapping());
+        QCOMPARE(viewport->visibleLine(0).value("text").toString(), longLine);
+        QCOMPARE(viewport->visibleLine(1).value("text").toString(), QString("short"));
+        const qreal unwrappedHeight = viewport->contentHeight();
+
+        viewport->setWrapping(true);
+        QTRY_VERIFY2(viewport->visibleLineCount() > 3,
+                     qPrintable(QString("only %1 rows after wrapping was turned on")
+                                    .arg(viewport->visibleLineCount())));
+
+        // The long line now covers several rows, and they spell it out again.
+        QString rebuilt;
+        int rowsOfFirstLine = 0;
+        for (int row = 0; row < viewport->visibleLineCount(); ++row) {
+            const QVariantMap line = viewport->visibleLine(row);
+            if (line.value("lineNumber").toInt() != 1)
+                break;
+            rebuilt += line.value("text").toString();
+            ++rowsOfFirstLine;
+        }
+        QVERIFY2(rowsOfFirstLine > 1, "the long line still occupies one row");
+        QCOMPARE(rebuilt, longLine);
+
+        // Numbered once: the continuation rows carry the same line number but
+        // are not where the line starts, so the gutter leaves them blank.
+        QVERIFY(viewport->visibleLine(0).value("firstRowOfLine").toBool());
+        for (int row = 1; row < rowsOfFirstLine; ++row) {
+            QCOMPARE(viewport->visibleLine(row).value("lineNumber").toInt(), 1);
+            QVERIFY2(!viewport->visibleLine(row).value("firstRowOfLine").toBool(),
+                     "a continuation row claims to start the line");
+        }
+        // And the next line begins on the row after them.
+        QCOMPARE(viewport->visibleLine(rowsOfFirstLine).value("lineNumber").toInt(), 2);
+        QCOMPARE(viewport->visibleLine(rowsOfFirstLine).value("text").toString(), QString("short"));
+
+        // A taller document: the rows are real rows, not a relabelling.
+        QVERIFY2(viewport->contentHeight() > unwrappedHeight,
+                 "the document is no taller although a line now covers several rows");
+
+        // Clicking on the second row lands inside the line rather than at its
+        // end - which is the whole point of the row being its own row.
+        const qreal lineHeight = viewport->lineHeight();
+        const int onSecondRow = viewport->positionAt(1, lineHeight * 1.5);
+        const int firstRowLength = viewport->visibleLine(0).value("text").toString().size();
+        QVERIFY2(onSecondRow >= firstRowLength,
+                 qPrintable(QString("a click on row 2 gave position %1, inside row 1 (%2 long)")
+                                .arg(onSecondRow).arg(firstRowLength)));
+        QVERIFY(onSecondRow < longLine.size());
+
+        // And the caret for that position is drawn on that row.
+        const QRectF caret = viewport->rectangleAt(onSecondRow);
+        QCOMPARE(qRound(caret.y() / lineHeight), 1);
+
+        // Turning it off puts the line back on one row.
+        viewport->setWrapping(false);
+        QTRY_COMPARE(viewport->visibleLine(0).value("text").toString(), longLine);
+        QCOMPARE(viewport->contentHeight(), unwrappedHeight);
+    }
+
+    // Scrolling through a wrapped document, and what the gutter does with the
+    // rows a wrapped line covers. Scrolling is the part that needs the row
+    // index: which line is at an offset is no longer the offset divided by the
+    // line height.
+    void testScrollingAWrappedDocumentLandsOnTheRightLine()
+    {
+        TemporaryDirectory dir("qtc-viewport-wrapscroll");
+        const FilePath file = dir.filePath("wrapped.txt");
+        // Every line long enough to wrap, so a row number and a line number
+        // part company immediately and stay apart.
+        QString contents;
+        for (int i = 0; i < 40; ++i)
+            contents += QString("line %1 ").arg(i) + QString("filler ").repeated(30).trimmed() + "\n";
+        QVERIFY(file.writeFileContents(contents.toUtf8()));
+
+        QQuickView view;
+        installIconProvider(view);
+        view.resize(400, 200);
+        QQmlComponent component(view.engine());
+        component.setData(QByteArray("import QtQuick\n"
+                                     "import QtCreator.TextEditor\n"
+                                     "Row {\n"
+                                     "    property alias viewport: v\n"
+                                     "    property alias gutter: g\n"
+                                     "    property string path\n"
+                                     "    EditorGutter { id: g; viewport: v; height: 200 }\n"
+                                     "    TextViewport {\n"
+                                     "        id: v; objectName: \"wrapViewport\"\n"
+                                     "        width: 300; height: 200\n"
+                                     "        wrapping: true\n"
+                                     "        document: CodeDocument { filePath: path }\n"
+                                     "    }\n"
+                                     "}"),
+                          QUrl("qrc:/test/WrapScrollTest.qml"));
+        std::unique_ptr<QObject> created(component.createWithInitialProperties(
+            {{"path", file.toUrlishString()}}));
+        QVERIFY2(created != nullptr, qPrintable(component.errorString()));
+
+        auto * const item = qobject_cast<QQuickItem *>(created.get());
+        QVERIFY(item);
+        item->setParentItem(view.contentItem());
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+        auto * const viewport = item->findChild<TextViewport *>("wrapViewport");
+        QVERIFY(viewport);
+        QVERIFY(viewport->isWrapping());
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+
+        // More rows than lines, or the document is not wrapping at all.
+        const int rowsInAll = qRound(viewport->contentHeight() / viewport->lineHeight());
+        QVERIFY2(rowsInAll > viewport->lineCount(),
+                 qPrintable(QString("%1 rows for %2 lines - nothing wrapped")
+                                .arg(rowsInAll).arg(viewport->lineCount())));
+
+        // Scroll a long way down and ask what is at the top. The row is not
+        // the line, so this can only be right if the index is consulted.
+        viewport->setScrollY(viewport->lineHeight() * 50);
+        QTRY_COMPARE(viewport->firstVisibleLine(), 50);
+        const int lineAtTop = viewport->visibleLine(0).value("lineNumber").toInt();
+        QVERIFY2(lineAtTop > 1 && lineAtTop < 50,
+                 qPrintable(QString("row 50 says it is line %1; with every line wrapped it "
+                                    "should be well before line 50").arg(lineAtTop)));
+
+        // The rows on screen belong to consecutive lines, each starting once.
+        int previous = 0;
+        for (int row = 0; row < viewport->visibleLineCount(); ++row) {
+            const QVariantMap line = viewport->visibleLine(row);
+            const int number = line.value("lineNumber").toInt();
+            if (line.value("firstRowOfLine").toBool()) {
+                if (previous != 0)
+                    QCOMPARE(number, previous + 1);
+                previous = number;
+            } else if (previous != 0) {
+                QCOMPARE(number, previous);
+            }
+        }
+
+        // And the gutter numbers a line once, not once per row.
+        auto * const gutter = item->property("gutter").value<QQuickItem *>();
+        QVERIFY(gutter);
+        QStringList numbers = gutterNumbers(gutter);
+        QTRY_COMPARE(gutterNumbers(gutter).size(), viewport->visibleLineCount());
+        numbers = gutterNumbers(gutter);
+        const int blank = int(std::count(numbers.cbegin(), numbers.cend(), QString()));
+        QVERIFY2(blank > 0, "every row is numbered, so continuation rows are numbered too");
+        const int numbered = numbers.size() - blank;
+        QCOMPARE(numbered, int(std::count_if(numbers.cbegin(), numbers.cend(),
+                                             [](const QString &n) { return !n.isEmpty(); })));
+        // No number appears twice: that is what "once per line" means.
+        QStringList shown;
+        for (const QString &n : std::as_const(numbers)) {
+            if (!n.isEmpty())
+                shown << n;
+        }
+        QCOMPARE(shown.size(), QSet<QString>(shown.cbegin(), shown.cend()).size());
+    }
+
     // Utils::TextEditorLayout is the per-view index of which row each block
     // starts on - what a wrapped view needs and what this viewport would use.
     // firstLineNumberOf() carries a FIXME saying its cache is not recalculated

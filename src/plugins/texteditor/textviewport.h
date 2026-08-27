@@ -26,6 +26,8 @@ class QTextCursor;
 class QTextDocument;
 QT_END_NAMESPACE
 
+namespace Utils { class TextEditorLayout; }
+
 namespace TextEditor {
 
 class AutoCompleter;
@@ -56,9 +58,14 @@ class TextDocument;
 //    newline tail, which is a single rect.
 //
 // Cost is O(visible), not O(file), which is what makes a million lines the same
-// price as ten thousand. That holds only while every line is the same height,
-// so this does not wrap: a wrapped view needs a height cache before it can say
-// which line is at a given scroll offset without laying out the ones above.
+// price as ten thousand - while every line is one row tall, which row sits at a
+// scroll offset is arithmetic.
+//
+// Wrapping gives that up, which is why it is off by default: a wrapped line is
+// several rows, and nothing can say where a block starts without laying out
+// every block above it. Turned on, this pays that cost per relayout, taking the
+// row index from a per-view Utils::TextEditorLayout. The widget editor makes
+// the same trade for the same reason.
 //
 // Folding is the exception that costs nothing, because the document already
 // pays for it: a folded block's line count is zero, so lineCount() is the
@@ -142,6 +149,16 @@ class TEXTEDITOR_EXPORT TextViewport : public QQuickItem
     // Whether typing does anything. A viewport is a view until told otherwise,
     // so that showing a file cannot accidentally change it.
     Q_PROPERTY(bool readOnly READ isReadOnly WRITE setReadOnly NOTIFY readOnlyChanged)
+    // Whether a line too long for the width is broken across rows.
+    //
+    // Off by default, and off is the cheap path: with every line exactly one
+    // row tall, which row sits at a scroll offset is arithmetic, and that is
+    // what makes a million lines cost the same as ten thousand. Wrapping needs
+    // to know where every block starts, and nothing can know that without
+    // laying out every block above - so turning this on trades the O(visible)
+    // promise for O(file). The widget editor makes the same trade for the same
+    // reason; see the migration doc.
+    Q_PROPERTY(bool wrapping READ isWrapping WRITE setWrapping NOTIFY wrappingChanged)
 
 public:
     explicit TextViewport(QQuickItem *parent = nullptr);
@@ -261,6 +278,8 @@ public:
     QRectF cursorRectangle() const;
 
     bool isReadOnly() const;
+    bool isWrapping() const;
+    void setWrapping(bool wrapping);
     void setReadOnly(bool readOnly);
 
 signals:
@@ -274,6 +293,7 @@ signals:
     void cursorRectangleChanged();
     void readOnlyChanged();
     void fileFormatChanged();
+    void wrappingChanged();
 
 protected:
     void updatePolish() override;
@@ -307,6 +327,11 @@ private:
         // What the gutter calls this line. Folding makes it run ahead of the
         // row the line is drawn on.
         int lineNumber = 0;
+        // Whether this row is where its line starts. A wrapped line covers
+        // several rows and is numbered, marked and annotated only on the
+        // first - the continuation rows carry the same lineNumber but must
+        // not be labelled with it again.
+        bool firstRowOfLine = true;
         // Whether this line starts a fold, and whether that fold is closed.
         bool foldable = false;
         bool folded = false;
@@ -340,6 +365,11 @@ private:
     // announces that, so this looks each time round.
     void connectHighlighter(TextDocument *doc);
     void applyCompletionSettings();
+    // The per-view index of which row each block starts on, made when wrapping
+    // first needs one. A companion to the document's own layout rather than a
+    // replacement: the document keeps its TextDocumentLayout, and this answers
+    // for *this* view's width.
+    Utils::TextEditorLayout *editorLayout();
     void applyGlobalFontSettings();
     void appendHighlights(QList<QTextLayout::FormatRange> &formats,
                           const QTextBlock &block) const;
@@ -364,6 +394,8 @@ private:
     // all the base AutoCompleter offers; inserting the closing half is a
     // language-specific subclass, handed out per editor factory.
     std::unique_ptr<AutoCompleter> m_autoCompleter;
+    QPointer<Utils::TextEditorLayout> m_editorLayout;
+    bool m_wrapping = false;
 
     QPointer<CodeSource> m_document;
     // The QTextDocument currently connected to, which is not the same one

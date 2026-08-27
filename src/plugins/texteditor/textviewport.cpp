@@ -31,6 +31,7 @@
 #include <QSGTextNode>
 #include <utils/multitextcursor.h>
 #include <utils/plaintextedit/plaintextedit.h>
+#include <utils/plaintextedit/texteditorlayout.h>
 
 #include <QClipboard>
 #include <QGuiApplication>
@@ -273,6 +274,9 @@ QVariantMap TextViewport::visibleLine(int index) const
                        // What the gutter numbers this line, counting folded
                        // lines that are not on screen.
                        {"lineNumber", line.lineNumber},
+                       // Whether this row starts its line. A wrapped line is
+                       // numbered and marked only where it begins.
+                       {"firstRowOfLine", line.firstRowOfLine},
                        // What the gutter draws beside this line, if anything.
                        {"markIcon", line.markIcon},
                        // Whether a fold marker belongs beside this line, and
@@ -316,6 +320,53 @@ QRectF TextViewport::rectangleAt(int position) const
     int offset = found.offsetInLine;
     const qreal x = textLine.cursorToX(&offset);
     return QRectF(line.at.x() + x, line.at.y(), 1, m_lineHeight);
+}
+
+bool TextViewport::isWrapping() const
+{
+    return m_wrapping;
+}
+
+void TextViewport::setWrapping(bool wrapping)
+{
+    if (m_wrapping == wrapping)
+        return;
+    m_wrapping = wrapping;
+    polish();
+    update();
+    emit wrappingChanged();
+}
+
+// PlainTextDocumentLayout::setTextWidth() is protected and PlainTextEdit
+// reaches it as a friend, so anything else has to come at it this way.
+class ViewportLayout : public Utils::TextEditorLayout
+{
+public:
+    using Utils::TextEditorLayout::TextEditorLayout;
+    using Utils::TextEditorLayout::setTextWidth;
+};
+
+Utils::TextEditorLayout *TextViewport::editorLayout()
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    QTextDocument * const text = doc ? doc->document() : nullptr;
+    if (!text)
+        return nullptr;
+
+    auto * const documentLayout
+        = qobject_cast<Utils::PlainTextDocumentLayout *>(text->documentLayout());
+    if (!documentLayout)
+        return nullptr;
+
+    if (!m_editorLayout || m_editorLayout->document() != text) {
+        delete m_editorLayout;
+        m_editorLayout = new ViewportLayout(documentLayout);
+        // Owned by this view. TextEditorLayout takes the document as its
+        // QObject parent, which would leave one behind per viewport that ever
+        // showed the file.
+        m_editorLayout->setParent(this);
+    }
+    return m_editorLayout;
 }
 
 bool TextViewport::isReadOnly() const
@@ -1161,9 +1212,27 @@ void TextViewport::updatePolish()
     m_lineHeight = qMax(1.0, fonts.lineSpacing());
     m_font = font;
     m_lineCount = text->blockCount();
-    // A folded block counts as zero lines, so lineCount() is how tall the
-    // document is and blockCount() is only how far the gutter's numbers run.
-    m_contentHeight = m_lineHeight * text->lineCount();
+
+    // Which row a block starts on. Unwrapped, the document answers: a folded
+    // block counts as zero lines, so lineCount() is the height in rows and
+    // blockCount() is only how far the gutter's numbers run. Wrapped, no such
+    // answer exists until every block has been laid out at this width - see
+    // testTheEditorLayoutFollowsAWidthChange - so the index is built here and
+    // paid for in full.
+    const qreal wrapWidth = m_wrapping ? qMax(1.0, width() - m_lineHeight / 4)
+                                       : std::numeric_limits<qreal>::max();
+    Utils::TextEditorLayout *rows = m_wrapping ? editorLayout() : nullptr;
+    if (rows) {
+        // What the index measures with has to be what is drawn.
+        if (text->defaultFont() != font)
+            text->setDefaultFont(font);
+        static_cast<ViewportLayout *>(rows)->setTextWidth(wrapWidth);
+        for (QTextBlock b = text->firstBlock(); b.isValid(); b = b.next())
+            rows->blockBoundingRect(b);
+    }
+
+    const int totalRows = rows ? rows->lineCount() : text->lineCount();
+    m_contentHeight = m_lineHeight * totalRows;
     // The widget editor fills with the *brush*, so a scheme that sets no
     // background paints nothing and the palette shows through. A colour has no
     // way to say "nothing", and QBrush().color() is black, so ask the theme
@@ -1187,51 +1256,86 @@ void TextViewport::updatePolish()
 
     QTextOption option;
     option.setTabStopDistance(doc->tabSettings().m_tabSize * metrics.horizontalAdvance(' '));
-    // No wrapping: see the class comment. A wrapped line breaks the arithmetic
-    // above, not just the layout.
-    option.setWrapMode(QTextOption::NoWrap);
+    // Anywhere as well as at word boundaries: a single word longer than the
+    // viewport has to break somewhere, or it draws off the edge and the row
+    // count disagrees with what is shown.
+    option.setWrapMode(m_wrapping ? QTextOption::WrapAtWordBoundaryOrAnywhere
+                                  : QTextOption::NoWrap);
 
     m_firstVisibleLine = qMax(0, int(m_scrollY / m_lineHeight));
     // The last line that starts before the bottom edge - not one more. A hair
     // off the edge so that a viewport an exact number of lines tall does not
     // lay out one that begins where it ends.
     const int lastOnScreen = int((m_scrollY + height() - 0.001) / m_lineHeight);
-    const int last = qMin(text->lineCount() - 1, lastOnScreen);
+    const int last = qMin(totalRows - 1, lastOnScreen);
 
-    // By line rather than by block, so that what is folded above the screen
-    // costs nothing to skip: the document already knows which block a line
-    // belongs to, and a hidden one is no line at all.
-    QTextBlock block = text->findBlockByLineNumber(m_firstVisibleLine);
+    // By row rather than by block, so that what is folded above the screen
+    // costs nothing to skip: whoever indexes the rows already knows which
+    // block one belongs to, and a hidden block is no row at all.
+    QTextBlock block = rows ? rows->findBlockByLineNumber(m_firstVisibleLine)
+                            : text->findBlockByLineNumber(m_firstVisibleLine);
     while (block.isValid() && !block.isVisible())
         block = block.next();
-    for (int row = m_firstVisibleLine; row <= last && block.isValid(); ++row) {
-        Line line;
+    // Where in its block the first row on screen sits: a block scrolled
+    // half off the top starts partway down.
+    int rowInBlock = block.isValid()
+                         ? m_firstVisibleLine
+                               - (rows ? rows->firstLineNumberOf(block) : block.firstLineNumber())
+                         : 0;
+    rowInBlock = qMax(0, rowInBlock);
+
+    for (int row = m_firstVisibleLine; row <= last && block.isValid(); ) {
+        // Where this block's rows break. Unwrapped there is one row and it is
+        // the whole line, so this costs nothing on the fast path.
+        QList<QPair<int, int>> breaks; // start, length within the block
+        const QString blockText = block.text();
+        if (!m_wrapping) {
+            breaks.append({0, int(blockText.size())});
+        } else {
+            QTextLayout shaping(blockText, font);
+            shaping.setTextOption(option);
+            shaping.beginLayout();
+            while (true) {
+                QTextLine shaped = shaping.createLine();
+                if (!shaped.isValid())
+                    break;
+                shaped.setLineWidth(wrapWidth);
+                breaks.append({shaped.textStart(), shaped.textLength()});
+            }
+            shaping.endLayout();
+            if (breaks.isEmpty())
+                breaks.append({0, 0});
+        }
+
+        // Everything below is the block's, and is put on the row that starts
+        // it: a wrapped line is numbered, marked and annotated once.
+        Line blockLine;
         // The line the document calls this, which is not the row it is drawn
         // on once anything above it is folded.
-        line.lineNumber = block.blockNumber() + 1;
+        blockLine.lineNumber = block.blockNumber() + 1;
         // A line starts a fold when what follows it is indented deeper - the
         // same test the widget gutter makes - and that fold is closed when
         // what follows is not shown at all.
         const QTextBlock next = block.next();
-        line.foldable = next.isValid()
-                        && TextBlockUserData::foldingIndent(next)
-                               > TextBlockUserData::foldingIndent(block);
-        line.folded = line.foldable && !next.isVisible();
-        if (line.foldable)
-            line.foldIcon = foldMarkerUrl(line.folded);
-        if (line.folded) {
+        blockLine.foldable = next.isValid()
+                             && TextBlockUserData::foldingIndent(next)
+                                    > TextBlockUserData::foldingIndent(block);
+        blockLine.folded = blockLine.foldable && !next.isVisible();
+        if (blockLine.foldable)
+            blockLine.foldIcon = foldMarkerUrl(blockLine.folded);
+        if (blockLine.folded) {
             // Everything the fold swallowed, so that its last bracket can be
             // put back on the end of the replacement.
             QTextBlock lastHidden = next;
             while (lastHidden.next().isValid() && !lastHidden.next().isVisible())
                 lastHidden = lastHidden.next();
-            line.foldReplacement
+            blockLine.foldReplacement
                 = TextBlockUserData::foldReplacementText(QString("..."), next, lastHidden);
         }
         // The marks on this line - errors, warnings, breakpoints. The highest
         // priority one wins the slot, which is what the widget gutter does
         // with the space too.
-        const TextMarks marks = doc->marksAt(line.lineNumber);
+        const TextMarks marks = doc->marksAt(blockLine.lineNumber);
         const TextMark *shown = nullptr;
         for (TextMark * const mark : marks) {
             if (!mark->isVisible() || mark->icon().isNull())
@@ -1240,29 +1344,22 @@ void TextViewport::updatePolish()
                 shown = mark;
         }
         if (shown) {
-            line.markIcon = QtcQuick::iconUrl(shown->icon());
-            line.annotation = shown->lineAnnotation();
+            blockLine.markIcon = QtcQuick::iconUrl(shown->icon());
+            blockLine.annotation = shown->lineAnnotation();
         }
-
-        line.layout = std::make_unique<QTextLayout>(block.text(), font);
-        line.layout->setTextOption(option);
-        line.layout->setCacheEnabled(true);
 
         // What the highlighter said about this block, plus the selection over
         // the top of it. Read here, on the GUI thread: the block's own layout
         // belongs to the document and must not be reached from the render one.
-        // The highlighter's colours. This layout belongs to the document, which
-        // more than one view may be showing - so it is only ever read here, and
-        // everything this view alone knows (its selection, its preedit) goes on
-        // the copy below. See the migration doc for the one case where that is
-        // not enough, which is the widget editor writing *its* preedit formats
-        // into this shared list.
-        QList<QTextLayout::FormatRange> formats = block.layout()->formats();
+        // More than one view may be showing this document, so it is only ever
+        // read here, and everything this view alone knows - its selection, its
+        // preedit - goes on the copies below.
+        QList<QTextLayout::FormatRange> blockFormats = block.layout()->formats();
         // Under the selection rather than over it: a search result the reader
         // has selected should still look selected.
-        appendHighlights(formats, block);
+        appendHighlights(blockFormats, block);
+        const int blockStart = block.position();
         if (hasSelection) {
-            const int blockStart = block.position();
             const int from = qMax(0, selectionFrom - blockStart);
             const int to = qMin(block.length() - 1, selectionTo - blockStart);
             if (to > from) {
@@ -1270,52 +1367,102 @@ void TextViewport::updatePolish()
                 range.start = from;
                 range.length = to - from;
                 range.format = selectionFormat;
-                formats.append(range);
+                blockFormats.append(range);
             }
         }
-        // Composing text belongs to the line the caret is on and to no other,
-        // and it is not in the document: setPreeditArea() is where a layout
-        // keeps text that is being typed but has not been committed.
-        if (!m_preeditText.isEmpty() && m_cursorPosition >= block.position()
-            && m_cursorPosition < block.position() + block.length()) {
-            const int offset = m_cursorPosition - block.position();
-            line.layout->setPreeditArea(offset, m_preeditText);
-            // The input method says how it wants each part of it drawn -
-            // underlined for what is being composed, highlighted for the part
-            // under consideration - in positions relative to the preedit.
-            for (QTextLayout::FormatRange range : std::as_const(m_preeditFormats)) {
-                range.start += offset;
-                formats.append(range);
+
+        // One Line per row. A row is a slice of the block, so its formats are
+        // the block's clipped to the slice and shifted to start at zero - the
+        // same arithmetic a highlight needs, one level down.
+        for (; rowInBlock < breaks.size() && row <= last; ++rowInBlock, ++row) {
+            const int from = breaks.at(rowInBlock).first;
+            const int length = breaks.at(rowInBlock).second;
+            const bool lastRow = rowInBlock == breaks.size() - 1;
+
+            Line line;
+            line.lineNumber = blockLine.lineNumber;
+            line.firstRowOfLine = rowInBlock == 0;
+            // The gutter, the fold marker and what a mark says belong to the
+            // line, so they go on the row that starts it.
+            if (line.firstRowOfLine) {
+                line.foldable = blockLine.foldable;
+                line.folded = blockLine.folded;
+                line.foldIcon = blockLine.foldIcon;
+                line.foldReplacement = blockLine.foldReplacement;
+                line.markIcon = blockLine.markIcon;
+                line.annotation = blockLine.annotation;
             }
+
+            line.layout = std::make_unique<QTextLayout>(blockText.mid(from, length), font);
+            line.layout->setTextOption(option);
+            line.layout->setCacheEnabled(true);
+
+            QList<QTextLayout::FormatRange> formats;
+            for (const QTextLayout::FormatRange &range : std::as_const(blockFormats)) {
+                const int rangeFrom = qMax(range.start, from);
+                const int rangeTo = qMin(range.start + range.length, from + length);
+                if (rangeTo <= rangeFrom)
+                    continue;
+                QTextLayout::FormatRange clipped;
+                clipped.start = rangeFrom - from;
+                clipped.length = rangeTo - rangeFrom;
+                clipped.format = range.format;
+                formats.append(clipped);
+            }
+
+            // Composing text belongs to the row the caret is on and to no
+            // other, and it is not in the document: setPreeditArea() is where a
+            // layout keeps text that is being typed but not committed.
+            const int rowStart = blockStart + from;
+            const int rowEnd = rowStart + length + (lastRow ? 1 : 0);
+            if (!m_preeditText.isEmpty() && m_cursorPosition >= rowStart
+                && m_cursorPosition < rowEnd) {
+                const int offset = m_cursorPosition - rowStart;
+                line.layout->setPreeditArea(offset, m_preeditText);
+                // The input method says how it wants each part of it drawn -
+                // underlined for what is being composed, highlighted for the
+                // part under consideration - relative to the preedit.
+                for (QTextLayout::FormatRange range : std::as_const(m_preeditFormats)) {
+                    range.start += offset;
+                    formats.append(range);
+                }
+            }
+            line.layout->setFormats(formats);
+
+            line.layout->beginLayout();
+            QTextLine textLine = line.layout->createLine();
+            if (textLine.isValid()) {
+                textLine.setPosition(QPointF(0, 0));
+                // The slice is already one row's worth, so it must not break
+                // again - laying it out at the wrap width could split a row
+                // whose width came out a hair over.
+                textLine.setLineWidth(std::numeric_limits<qreal>::max());
+            }
+            line.layout->endLayout();
+
+            line.at = QPointF(-m_scrollX, row * m_lineHeight - m_scrollY);
+            line.blockPosition = rowStart;
+            // The newline belongs to the last row: that is where the caret sits
+            // at the end of the line. A continuation row ends where the next
+            // one starts.
+            line.blockLength = length + (lastRow ? 1 : 0);
+
+            // The one thing a format range cannot cover: a selection that runs
+            // past the end of the line covers the newline too, and there is no
+            // character there to format. One rect, a quarter of a line wide,
+            // which is what QTextLayout::draw() does for the same case.
+            const int blockEnd = blockStart + block.length() - 1;
+            if (lastRow && hasSelection && selectionFrom <= blockEnd && selectionTo > blockEnd
+                && textLine.isValid()) {
+                const qreal right = textLine.naturalTextRect().right();
+                line.newlineTail = QRectF(right, 0, m_lineHeight / 4, m_lineHeight);
+                line.newlineTailColour = selectionFormat.background().color();
+            }
+
+            m_lines.push_back(std::move(line));
         }
-        line.layout->setFormats(formats);
 
-        line.layout->beginLayout();
-        QTextLine textLine = line.layout->createLine();
-        if (textLine.isValid()) {
-            textLine.setPosition(QPointF(0, 0));
-            textLine.setLineWidth(std::numeric_limits<qreal>::max());
-        }
-        line.layout->endLayout();
-
-        line.at = QPointF(-m_scrollX, row * m_lineHeight - m_scrollY);
-        line.blockPosition = block.position();
-        line.blockLength = block.length();
-
-        // The one thing a format range cannot cover: a selection that runs past
-        // the end of the line covers the newline too, and there is no character
-        // there to format. One rect, a quarter of a line wide, which is what
-        // QTextLayout::draw() does for the same case.
-        const int blockEnd = block.position() + block.length() - 1;
-        if (hasSelection && selectionFrom <= blockEnd && selectionTo > blockEnd
-            && textLine.isValid()) {
-            const qreal right = textLine.naturalTextRect().right();
-            line.newlineTail = QRectF(right, 0, m_lineHeight / 4, m_lineHeight);
-            line.newlineTailColour = selectionFormat.background().color();
-        }
-
-        m_lines.push_back(std::move(line));
-
+        rowInBlock = 0;
         do
             block = block.next();
         while (block.isValid() && !block.isVisible());

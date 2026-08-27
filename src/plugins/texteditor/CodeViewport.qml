@@ -42,6 +42,11 @@ Item {
     // settings preview has no Find Usages to give.
     property ActionModel contextActions: null
 
+    // Whether long lines are broken across rows. Off for a preview, and the
+    // viewport's own default, because with it on the cost of showing a file
+    // stops being what is on screen.
+    property alias wrapping: viewport.wrapping
+
     // Focus has left, so whatever was being typed is finished. A page that
     // writes the text somewhere else uses this rather than every keystroke:
     // re-indenting rewrites the document, and it must not do that under the

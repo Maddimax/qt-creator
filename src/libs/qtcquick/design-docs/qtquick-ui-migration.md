@@ -7111,13 +7111,52 @@ the touched files before anything else. Splitting the loop and narrowing the
 test to one class (`-test TextEditor,QuickTextEditorTest`) keeps each command
 inside the limit.
 
+## Wrapping
+
+Done, and smaller than four analyses of it suggested. A `wrapping` property,
+off by default, wired to the `textWrapping` display setting for the editor.
+
+**A `Line` stays one visual row.** That was the decision that kept the change
+contained. The alternative - one `Line` per block, holding a multi-row layout -
+would have changed what `visibleLine(i)`, `visibleLineCount` and
+`firstVisibleLine` mean, and with them the gutter, the annotations, the caret
+and a dozen tests. Instead a wrapped block is *sliced*: each row gets its own
+single-line layout over `blockText.mid(from, length)`, with the block's formats
+clipped to the slice and shifted to start at zero - the same arithmetic
+`appendHighlights()` already does, one level down. Everything downstream was
+untouched.
+
+**The unwrapped path is untouched too**, deliberately: `breaks` is
+`{{0, text.size()}}` without shaping, and the row index still comes from the
+document. The 238 tests that existed before this went green unchanged, which is
+the evidence that matters for a change to the layout pass.
+
+**What a row carries that a line does not.** A wrapped line covers several rows
+but is *numbered, marked and annotated once*, on the row that starts it - so
+`Line` gained `firstRowOfLine`, and the gutter shows a number only when it is
+true. Getting this wrong is invisible until you look: every row numbered gives
+a gutter that counts rows, which is a different document.
+
+Two smaller things, both found by writing it rather than reading:
+
+- The newline belongs to the **last** row of a block: that is where the caret
+  sits at the end of a line. A continuation row's length stops where the next
+  row begins, or the two rows both claim the same position.
+- A row's own layout must be laid out at *infinite* width, not the wrap width.
+  It is already one row's worth of text, and re-wrapping at the same width can
+  split a row whose measured width came out a hair over.
+
+**The cost is stated rather than hidden.** Turning wrapping on gives up the
+O(visible) promise: `updatePolish()` lays out every block to build the index.
+That is what the class comment now says, and it is what the widget editor does
+too - its scrollbar range needs `documentPixelHeight()`, which needs the whole
+cache.
+
 What is left of the editor: the extra-selection producers that genuinely need
 the widget's machinery (diagnostic underlines and occurrences, both fed by
 plugins calling `TextEditorWidget::setExtraSelections`), auto-insertion and
 completion (both needing a language completer this editor cannot be given),
-changing the encoding or line ending from the toolbar, dragging text out of a
-selection, and wrapping - which needs the shared-row-count decision above
-settled first.
+changing the encoding from the toolbar, and dragging text out of a selection.
 
 ## The same measurement, applied to kits
 
