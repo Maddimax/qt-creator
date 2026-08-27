@@ -2963,6 +2963,65 @@ private slots:
         QVERIFY(fillOn(2).width() < wholeRow);
     }
 
+    void testASelectionIsFilledOnAWrappedLineAndWhenScrolledSideways()
+    {
+        // The fill is one rectangle per row, measured with cursorToX on that
+        // row's own layout, so the two cases where a row is not simply the
+        // whole line are worth stating: a wrapped line, whose rows each carry a
+        // slice of it, and a sideways scroll, where the row is drawn shifted.
+        TemporaryDirectory dir("textviewport-selwrap");
+        QVERIFY(dir.isValid());
+        const QString longLine(400, QLatin1Char('x'));
+        const FilePath file = dir.filePath("long.txt");
+        QVERIFY(file.writeFileContents((longLine + "\nshort\n").toUtf8()));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        const auto fillOn = [viewport](int row) {
+            return viewport->visibleLine(row).value("selectionFill").toRectF();
+        };
+
+        // Sideways first, while there is still one row per line: the fill is
+        // in the row's own coordinates, the same ones the text is drawn in, so
+        // scrolling must not move one without the other.
+        viewport->setSelectionStart(0);
+        viewport->setSelectionEnd(400);
+        QTRY_VERIFY(!fillOn(0).isEmpty());
+        const QRectF atRest = fillOn(0);
+        QCOMPARE(atRest.left(), 0.0);
+
+        viewport->setScrollX(50);
+        QTRY_COMPARE(viewport->scrollX(), 50.0);
+        QCOMPARE(fillOn(0), atRest);
+        viewport->setScrollX(0);
+        QTRY_COMPARE(viewport->scrollX(), 0.0);
+
+        // Wrapped: every row of the selected line is filled, each from its own
+        // left edge, and none of them claims the whole line's width.
+        viewport->setWrapping(true);
+        QTRY_VERIFY2(viewport->visibleLineCount() > 3,
+                     qPrintable(QString("only %1 rows after wrapping was turned on")
+                                    .arg(viewport->visibleLineCount())));
+        QTRY_VERIFY(!fillOn(0).isEmpty());
+
+        int rowsOfFirstLine = 0;
+        for (int i = 0; i < viewport->visibleLineCount(); ++i) {
+            if (viewport->visibleLine(i).value("lineNumber").toInt() != 1)
+                break;
+            ++rowsOfFirstLine;
+        }
+        QVERIFY2(rowsOfFirstLine > 1, "the long line did not wrap, so this proves nothing");
+        for (int i = 0; i < rowsOfFirstLine; ++i) {
+            QVERIFY2(!fillOn(i).isEmpty(),
+                     qPrintable(QString("row %1 of the wrapped line is not filled").arg(i)));
+            QCOMPARE(fillOn(i).left(), 0.0);
+            QVERIFY(fillOn(i).width() <= viewport->width() + 1);
+        }
+    }
+
     void testASelectionIsMergedIntoTheLineFormats()
     {
         // The spike's conclusion, kept true: a selection is format ranges on the
