@@ -19,14 +19,21 @@ Item {
     required property ActionModel contextActions
     // Whether long lines are broken across rows, from the display settings.
     required property bool wrapLines
+    // The rest of what Preferences > Text Editor > Display says about an
+    // editor. Required rather than defaulted, so that a form built without
+    // them fails loudly instead of quietly showing something else.
+    required property bool showLineNumbers
+    required property bool showFoldMarkers
+    required property bool highlightCurrentLine
 
     CodeViewport {
         anchors.fill: parent
 
         source: root.source
         contextActions: root.contextActions
-        showLineNumbers: true
-        showFoldMarkers: true
+        showLineNumbers: root.showLineNumbers
+        showFoldMarkers: root.showFoldMarkers
+        highlightCurrentLine: root.highlightCurrentLine
         // A viewport is a view until told otherwise - which is right for a
         // settings preview and wrong for this. The file's own read-only state
         // is a separate question, and the viewport asks the document that one

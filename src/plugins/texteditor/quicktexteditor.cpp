@@ -201,7 +201,10 @@ public:
         widget->quickWidget()->setInitialProperties(
             {{"source", QVariant::fromValue(m_source.get())},
              {"contextActions", QVariant::fromValue(&m_contextActions)},
-             {"wrapLines", displaySettings().textWrapping()}});
+             {"wrapLines", displaySettings().textWrapping()},
+             {"showLineNumbers", displaySettings().displayLineNumbers()},
+             {"showFoldMarkers", displaySettings().displayFoldingMarkers()},
+             {"highlightCurrentLine", displaySettings().highlightCurrentLine()}});
         widget->setSource(QUrl("qrc:/qt/qml/QtCreator/TextEditor/MainEditor.qml"));
 
         // Preferences are pushed into a document, not read from one, so an
@@ -219,12 +222,18 @@ public:
         }
         applyGlobalSettings();
 
-        // Wrapping is a display setting, so turning it on has to reach an
-        // editor that is already open.
-        connect(&displaySettings(), &Utils::AspectContainer::changed, this, [widget] {
-            if (QQuickItem * const form = widget->quickWidget()->rootObject())
-                form->setProperty("wrapLines", displaySettings().textWrapping());
-        });
+        // Changing any of these in Preferences has to reach an editor that is
+        // already open, not only the next one to be built.
+        const auto pushDisplaySettings = [widget] {
+            QQuickItem * const form = widget->quickWidget()->rootObject();
+            if (!form)
+                return;
+            form->setProperty("wrapLines", displaySettings().textWrapping());
+            form->setProperty("showLineNumbers", displaySettings().displayLineNumbers());
+            form->setProperty("showFoldMarkers", displaySettings().displayFoldingMarkers());
+            form->setProperty("highlightCurrentLine", displaySettings().highlightCurrentLine());
+        };
+        connect(&displaySettings(), &Utils::AspectContainer::changed, this, pushDisplaySettings);
 
         // Which language to colour the file as comes from its mime type,
         // and the editor manager opens the document *after* building the
@@ -1552,6 +1561,74 @@ private slots:
         viewport->removeSelectedText();
         QCOMPARE(document->plainText(), QString("\nbeta\n"));
         QVERIFY(viewport->selectedText().isEmpty());
+    }
+
+    // Preferences > Text Editor > Display describes what an editor draws. The
+    // widget editor consults every one of these; an editor that ignores them
+    // draws something the user did not ask for, and the current-line highlight
+    // is the one that shows: it is off by default, so an editor that always
+    // draws it is the odd one out on a stock Creator.
+    void testTheEditorDrawsWhatTheDisplaySettingsAskFor()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-display");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("display.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\ngamma\n"));
+
+        const bool wasCurrentLine = displaySettings().highlightCurrentLine();
+        const bool wasNumbers = displaySettings().displayLineNumbers();
+        const bool wasFolding = displaySettings().displayFoldingMarkers();
+        const QScopeGuard restore([wasCurrentLine, wasNumbers, wasFolding] {
+            displaySettings().highlightCurrentLine.setValue(wasCurrentLine);
+            displaySettings().displayLineNumbers.setValue(wasNumbers);
+            displaySettings().displayFoldingMarkers.setValue(wasFolding);
+        });
+
+        // Set before the editor is built, so that what is asserted first is
+        // the value the form was *created* with. Pushing a change into an open
+        // editor is a second path and is exercised below; a test that only
+        // changed things afterwards would leave the first one unstated.
+        displaySettings().highlightCurrentLine.setValue(false);
+        displaySettings().displayLineNumbers.setValue(false);
+        displaySettings().displayFoldingMarkers.setValue(false);
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+        QQuickItem * const form = quick->rootObject();
+        auto * const viewport = form->findChild<TextViewport *>();
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 2);
+
+        auto * const highlight = form->findChild<QQuickItem *>("currentLineHighlight");
+        QVERIFY2(highlight, "the form has no current-line highlight at all");
+        auto * const gutter = form->findChild<QQuickItem *>("codeGutter");
+        QVERIFY(gutter);
+
+        // Everything the form was *built* with, asserted before anything is
+        // changed: a single later change pushes all of these in again, which
+        // would cover for an initial value that was never read.
+        QVERIFY2(!highlight->isVisible(),
+                 "the current line was marked without the setting asking for it");
+        QCOMPARE(form->property("showLineNumbers").toBool(), false);
+        QCOMPARE(form->property("showFoldMarkers").toBool(), false);
+        QVERIFY2(gutter->width() < 1,
+                 "the gutter took room for numbers the settings turned off");
+
+        // And each of them reaches an editor that is already open, rather than
+        // only the next one to be built.
+        displaySettings().highlightCurrentLine.setValue(true);
+        QTRY_VERIFY2(highlight->isVisible(), "turning the setting on did not reach the editor");
+        displaySettings().displayLineNumbers.setValue(true);
+        QTRY_COMPARE(form->property("showLineNumbers").toBool(), true);
+        QTRY_VERIFY2(gutter->width() > 0, "turning the numbers on did not reach the editor");
+        displaySettings().displayFoldingMarkers.setValue(true);
+        QTRY_COMPARE(form->property("showFoldMarkers").toBool(), true);
     }
 };
 

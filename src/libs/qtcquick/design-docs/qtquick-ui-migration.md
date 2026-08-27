@@ -8493,6 +8493,57 @@ background, under 0.4 of the way to the text. Its control names both offenders
 with their numbers - `light-2024.xml` at 0.80 and `default.xml` at 0.77 - which
 is what a good failure message looks like: it says which scheme, and by how much.
 
+## The setting behind the bug report
+
+Fixing the reported highlight was worth doing, and it was still treating the
+symptom. The question the report should have prompted first is *why there was a
+band at all* - and the answer is that `DisplaySettingsData::m_highlightCurrentLine`
+defaults to **false**. On a stock Creator the widget editor marks no current
+line. The Quick editor marked one unconditionally, so the reporter was not
+looking at a mis-coloured highlight so much as a highlight that should not have
+been drawn.
+
+**Measured rather than assumed.** `DisplaySettings` is a checklist of what an
+editor draws, so it is also a checklist of what a port can quietly drop. Of the
+26 fields, the Quick editor consulted five - `textWrapping`,
+`highlightMatchingParentheses`, `highlightSelection`, `displayFileLineEnding`,
+`displayFileEncoding`. The rest it ignored, and two of them it contradicted:
+`displayLineNumbers` and `displayFoldingMarkers` were hard-coded `true` in
+`MainEditor.qml`, so turning either off in Preferences did nothing.
+
+Three are now wired through, with the same shape wrapping already used: an
+initial property when the form is built, and a push on
+`AspectContainer::changed` so a change reaches an editor that is already open.
+
+**Two lessons about the tests, both about assertions that cannot fail.**
+
+*Geometry is not visibility.* Gating the band on the setting broke nothing: the
+existing test asserted `y`, `height`, `width` and `x`, and **an invisible item
+has all of those**. It went on passing while the thing it was about stopped
+being drawn. It now asks `isVisible()` first, and its control - flipping the
+fixture's `highlightCurrentLine` to false - makes it fail.
+
+*A push covers for an initial value that was never read.* The first version of
+the new test set the settings, opened the editor, checked the current line, then
+changed a setting and checked the numbers. Two controls did not bite:
+hard-coding either initial property back to `true` still passed, because the
+change in the middle pushed all four values in again and corrected it. The fix
+is ordering - assert everything the form was *built* with before touching any
+setting, then change them one at a time. With that, all six controls bite.
+
+One control returned exit -6 with no failure recorded, which the harness
+reported as "nothing bit". It was a crash, not a pass - the same intermittent
+`QImage::toCGImage` abort seen twice earlier - and re-running it gave a clean
+`FAIL!` on the expected assertion. A control harness has to treat a non-zero
+exit with no parsed failure as a *result it did not understand*, not as a pass.
+
+**Still not honoured**, and listed rather than quietly left: `visualizeWhitespace`,
+`visualizeIndent`, `markTextChanges`, `displayAnnotations`, `highlightBlocks`,
+`animateMatchingParentheses`, `centerCursorOnScroll`, `scrollBarHighlights`,
+`markDiffChangeSigns`, `displayMinimap`, `autoFoldFirstComment`, and the three
+`breakindent` fields. Some of these are gates over things the viewport does not
+draw at all yet, which is a different job from reading a flag.
+
 ## The terminal spike: go, with the cleanest split in the tree
 
 **Status update: the spike is being productised.** `TerminalQuick` is now the

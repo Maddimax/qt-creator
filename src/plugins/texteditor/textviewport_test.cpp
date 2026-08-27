@@ -1117,6 +1117,7 @@ private slots:
                                      "CodeViewport {\n"
                                      "    width: 400; height: 200\n"
                                      "    showLineNumbers: true\n"
+                                     "    highlightCurrentLine: true\n"
                                      "    property string path\n"
                                      "    source: CodeDocument { filePath: path }\n"
                                      "}"),
@@ -1136,6 +1137,9 @@ private slots:
         QTRY_VERIFY(viewport->visibleLineCount() > 3);
         auto * const highlight = item->findChild<QQuickItem *>("currentLineHighlight");
         QVERIFY2(highlight, "no current-line highlight");
+        // Asked for above. Without this the assertions below still pass on a
+        // hidden band, because an invisible item has geometry like any other.
+        QTRY_VERIFY2(highlight->isVisible(), "the highlight was asked for and is not shown");
 
         // On the caret's line, in the same coordinates the caret is drawn in.
         const auto lineOf = [viewport, highlight] {

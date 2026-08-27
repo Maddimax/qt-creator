@@ -38,6 +38,11 @@ Item {
     // let a user say.
     property bool showFoldMarkers: false
 
+    // Whether the line the caret is on is marked. Off, like the display setting
+    // it follows: an editor that highlights the current line when the user did
+    // not ask for it is drawing something Creator does not.
+    property bool highlightCurrentLine: false
+
     // What a right click offers, or null for a view that offers nothing - a
     // settings preview has no Find Usages to give.
     property ActionModel contextActions: null
@@ -93,7 +98,7 @@ Item {
             height: viewport.lineHeight
             // An empty caret rect is how the viewport says the position is
             // scrolled off screen; there is no line to highlight then.
-            visible: viewport.cursorRectangle.height > 0
+            visible: root.highlightCurrentLine && viewport.cursorRectangle.height > 0
         }
 
         EditorGutter {
