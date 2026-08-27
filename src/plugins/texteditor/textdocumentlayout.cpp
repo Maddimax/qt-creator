@@ -1040,7 +1040,64 @@ class TextDocumentLayoutTest final : public QObject
 
 private slots:
     void testDeletingMarkOnReload();
+    void testFoldingTheLicenceHeader();
+    void testAFileOpeningWithADocumentationCommentIsLeftOpen();
+
+private:
+    // A document with foldable blocks and no Highlighter of its own, which is
+    // what an editor with a language of its own looks like to
+    // foldLicenseHeader(): the qobject_cast for the comment markers fails, so
+    // it falls back to the built-in ones - the path where a documentation
+    // comment is told apart from a licence.
+    static std::unique_ptr<TextDocument> foldableDocument(const QString &text);
 };
+
+std::unique_ptr<TextDocument> TextDocumentLayoutTest::foldableDocument(const QString &text)
+{
+    auto doc = std::make_unique<TextDocument>();
+    doc->setFilePath(Utils::TemporaryDirectory::masterDirectoryFilePath() / "Licence.txt");
+    doc->setPlainText(text);
+    // Everything after the first line belongs to the block it opens, which is
+    // what a highlighter would have said about a comment that spans them.
+    QTextDocument * const document = doc->document();
+    for (QTextBlock block = document->firstBlock(); block.isValid(); block = block.next())
+        TextBlockUserData::setFoldingIndent(block, block.blockNumber() == 0 ? 0 : 1);
+    return doc;
+}
+
+void TextDocumentLayoutTest::testFoldingTheLicenceHeader()
+{
+    const std::unique_ptr<TextDocument> doc = foldableDocument(
+        "/* Copyright (C) 2026 The Qt Company Ltd.\n"
+        "   SPDX-License-Identifier: whatever\n"
+        "*/\n"
+        "int main() { return 0; }\n");
+    const QTextBlock first = doc->document()->firstBlock();
+    QVERIFY2(TextBlockUserData::canFold(first),
+             "the fixture is not foldable, so folding it would say nothing");
+
+    doc->foldLicenseHeader();
+    QVERIFY2(TextBlockUserData::isFolded(first), "the licence header was left open");
+    QVERIFY2(!first.next().isVisible(), "the header is marked folded but still drawn");
+}
+
+void TextDocumentLayoutTest::testAFileOpeningWithADocumentationCommentIsLeftOpen()
+{
+    // A file that opens with a documentation comment opens with something to
+    // read about the code, not with boilerplate - so that one stays open.
+    const std::unique_ptr<TextDocument> doc = foldableDocument(
+        "/*! \\class Whatever\n"
+        "    Some documentation worth reading.\n"
+        "*/\n"
+        "int main() { return 0; }\n");
+    const QTextBlock first = doc->document()->firstBlock();
+    QVERIFY(TextBlockUserData::canFold(first));
+
+    doc->foldLicenseHeader();
+    QVERIFY2(!TextBlockUserData::isFolded(first),
+             "a documentation comment was folded away as if it were a licence");
+    QVERIFY(first.next().isVisible());
+}
 
 void TextDocumentLayoutTest::testDeletingMarkOnReload()
 {

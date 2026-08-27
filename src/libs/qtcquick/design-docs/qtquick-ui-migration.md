@@ -8593,6 +8593,55 @@ and they belong in different places:
 Split that way, all five controls bite the test that names them. Before it, two
 of them bit nothing at all.
 
+## Folding the licence header, and a branch that looked dead
+
+Every file in this repository opens with a licence header, so an editor that
+does not fold it starts every file several lines below where the widget editor
+starts. `m_autoFoldFirstComment` is on by default, which makes this one of the
+more visible of the settings still unread.
+
+**Another extraction, same shape as the others.** `TextEditorWidgetPrivate::
+foldLicenseHeader()` reads as widget code and is not: it touches the
+`QTextDocument`, the `TextDocumentLayout`, the highlighter's comment markers and
+the `TextBlockUserData` statics, and exactly one line of it -
+`moveCursorVisible()` - is the view's. So it moved to
+`TextDocument::foldLicenseHeader()` with that line left behind at the widget's
+call site, along with `singleShotAfterHighlightingDone()`, whose body only ever
+asked the document for its highlighter. Third time this pattern has paid:
+`handleMoveKeyEvent`, `insertWithIndentation`, now this.
+
+The waiting matters and is not incidental. Which markers open a comment comes
+from the file's *language*, and the language is not known until the highlighter
+has run - so the fold is a continuation, not a call. Its control (folding
+immediately instead of waiting) fails the test, because at that moment nothing
+in the document is foldable yet.
+
+**The branch that looked dead, and was not.** One control did not bite: the
+exception that leaves a *documentation* comment open when a file starts with
+`/*!` or `/**`. Reading why is more interesting than the control. `docMarker` is
+only filled in the `else` of
+
+    if (def.isValid()) { ...markers from the definition... }
+    else { commentMarker = {"/*", "#"}; docMarker = {"/*!", "/**"}; }
+
+and `def` comes from `qobject_cast<Highlighter *>(...)`. So the first read was
+"the exception is unreachable: no definition means no folding regions means
+nothing foldable". That was wrong, and the cast is why. It fails for every
+editor with a highlighter **of its own** - CppEditor's, QmlJS's - which do set
+folding indents. The branch is live there and dead only on the generic
+KSyntaxHighlighting path, which is the one the Quick editor uses.
+
+Which is also how to test it: a `TextDocument` with folding indents set by hand
+and no `Highlighter`, i.e. what a language with its own highlighter looks like
+to this function. Two tests on the extracted function directly - a `/*` header
+folds, a `/*!` header does not - and both controls now bite.
+
+The general lesson is the one from `layouter() cannot fail`: **"this branch
+cannot be reached" is a claim about every caller, and a `qobject_cast` in the
+middle of one is exactly where that claim goes wrong.** The cheap check is to
+ask which types the cast fails for, not whether the code below it looks
+reachable.
+
 ## The terminal spike: go, with the cleanest split in the tree
 
 **Status update: the spike is being productised.** `TerminalQuick` is now the

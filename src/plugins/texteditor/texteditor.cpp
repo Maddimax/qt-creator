@@ -2317,52 +2317,8 @@ static QTextBlock skipShebang(const QTextBlock &block)
   */
 void TextEditorWidgetPrivate::foldLicenseHeader()
 {
-    QTextDocument *doc = q->document();
-    auto documentLayout = qobject_cast<TextDocumentLayout*>(doc->documentLayout());
-    QTC_ASSERT(documentLayout, return);
-    QTextBlock block = skipShebang(doc->firstBlock());
-    while (block.isValid() && block.isVisible()) {
-        QString text = block.text();
-        if (TextBlockUserData::canFold(block) && block.next().isVisible()) {
-            const QString trimmedText = text.trimmed();
-            QStringList commentMarker;
-            QStringList docMarker;
-            HighlighterHelper::Definition def;
-            if (auto highlighter = qobject_cast<Highlighter *>(q->textDocument()->syntaxHighlighter()))
-                def = highlighter->definition();
-
-            if (def.isValid()) {
-                for (const QString &marker :
-                     {def.singleLineCommentMarker(), def.multiLineCommentMarker().first}) {
-                    if (!marker.isEmpty())
-                        commentMarker << marker;
-                }
-            } else {
-                commentMarker = QStringList({"/*", "#"});
-                docMarker = QStringList({"/*!", "/**"});
-            }
-
-            if (Utils::anyOf(commentMarker, [&](const QString &marker) {
-                    return trimmedText.startsWith(marker);
-                })) {
-                if (Utils::anyOf(docMarker, [&](const QString &marker) {
-                        return trimmedText.startsWith(marker)
-                               && (trimmedText.size() == marker.size()
-                                   || trimmedText.at(marker.size()).isSpace());
-                    })) {
-                    break;
-                }
-                TextBlockUserData::doFoldOrUnfold(block, false);
-                moveCursorVisible();
-                documentLayout->requestUpdate();
-                documentLayout->emitDocumentSizeChanged();
-                break;
-            }
-        }
-        if (TabSettingsData::firstNonSpace(text) < text.size())
-            break;
-        block = block.next();
-    }
+    m_document->foldLicenseHeader();
+    moveCursorVisible();
 }
 
 TextDocument *TextEditorWidget::textDocument() const
@@ -3919,15 +3875,7 @@ QByteArray TextEditorWidget::saveState() const
 
 bool TextEditorWidget::singleShotAfterHighlightingDone(std::function<void()> &&f)
 {
-    if (d->m_document->syntaxHighlighter()
-        && !d->m_document->syntaxHighlighter()->syntaxHighlighterUpToDate()) {
-        connect(d->m_document->syntaxHighlighter(),
-                &SyntaxHighlighter::finished,
-                this,
-                [f = std::move(f)] { f(); }, Qt::SingleShotConnection);
-        return true;
-    }
-    return false;
+    return d->m_document->singleShotAfterHighlightingDone(std::move(f));
 }
 
 void TextEditorWidget::restoreState(const QByteArray &state)

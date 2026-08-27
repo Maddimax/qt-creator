@@ -339,8 +339,27 @@ public:
 
     void restoreState(const QByteArray &state) final
     {
+        if (state.isEmpty()) {
+            // Opened rather than reopened: there are no folds to put back, so
+            // this is where the licence header gets folded if the user asked
+            // for that. Which markers start a comment comes from the file's
+            // language, which is not known until the highlighter has run.
+            //
+            // Captures the document rather than the editor, and the connection
+            // inside is on the document too - so an editor closed before the
+            // highlighter finishes takes the pending fold with it.
+            TextDocument * const doc = m_document.get();
+            const auto fold = [doc] {
+                if (displaySettings().autoFoldFirstComment())
+                    doc->foldLicenseHeader();
+            };
+            if (!doc->singleShotAfterHighlightingDone(fold))
+                fold();
+            return;
+        }
+
         TextViewport * const view = viewport();
-        if (!view || state.isEmpty())
+        if (!view)
             return;
 
         QDataStream stream(state);
@@ -1712,6 +1731,84 @@ private slots:
         QTRY_VERIFY2(!shown(), "turning the setting off did not reach the document");
     }
 
+
+    // Every file in this repository opens with a licence header, so an editor
+    // that does not fold it starts every file several lines further down than
+    // the widget editor does.
+    void testTheLicenceHeaderIsFoldedOnOpen()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-licence");
+        QVERIFY(dir.isValid());
+        // A C++ file, so that the highlighter has comment markers to offer.
+        const Utils::FilePath file = dir.filePath("licensed.cpp");
+        QVERIFY(file.writeFileContents("/* Copyright (C) 2026 The Qt Company Ltd.\n"
+                                       "   SPDX-License-Identifier: whatever\n"
+                                       "*/\n"
+                                       "\n"
+                                       "int main() { return 0; }\n"));
+
+        const bool was = displaySettings().autoFoldFirstComment();
+        const QScopeGuard restore(
+            [was] { displaySettings().autoFoldFirstComment.setValue(was); });
+        displaySettings().autoFoldFirstComment.setValue(true);
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        const QTextBlock first = document->document()->firstBlock();
+        // The highlighter is what makes a comment foldable, and it has not run
+        // when the editor comes back - which is exactly why the fold waits for
+        // it too.
+        QTRY_VERIFY2(TextBlockUserData::canFold(first),
+                     "the header is not foldable, so folding it would say nothing");
+
+        QTRY_VERIFY2(TextBlockUserData::isFolded(first),
+                     "the licence header was left open");
+        // Folded means the lines under it are not shown; the first line of the
+        // comment still is.
+        QVERIFY(first.isVisible());
+        QVERIFY2(!first.next().isVisible(), "the header is marked folded but still drawn");
+    }
+
+    void testTheLicenceHeaderIsLeftAloneWhenTheSettingIsOff()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-licence-off");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("licensed.cpp");
+        QVERIFY(file.writeFileContents("/* Copyright (C) 2026 The Qt Company Ltd.\n"
+                                       "   SPDX-License-Identifier: whatever\n"
+                                       "*/\n"
+                                       "\n"
+                                       "int main() { return 0; }\n"));
+
+        const bool was = displaySettings().autoFoldFirstComment();
+        const QScopeGuard restore(
+            [was] { displaySettings().autoFoldFirstComment.setValue(was); });
+        displaySettings().autoFoldFirstComment.setValue(false);
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        const QTextBlock first = document->document()->firstBlock();
+
+        // Wait for the highlighter, which is what the fold waits for: if the
+        // header were going to be folded it would have happened by then, so
+        // the check below is about the setting and not about being early.
+        QTRY_VERIFY2(TextBlockUserData::canFold(first),
+                     "the highlighter never made the header foldable");
+        QVERIFY2(!TextBlockUserData::isFolded(first),
+                 "the header was folded with the setting turned off");
+    }
 };
 
 QObject *createQuickTextEditorTest()

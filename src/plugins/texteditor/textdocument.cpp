@@ -9,6 +9,8 @@
 #include "refactoringchanges.h"
 #include "storagesettings.h"
 #include "syntaxhighlighter.h"
+#include "highlighter.h"
+#include "highlighterhelper.h"
 #include "tabsettings.h"
 #include "textdocumentlayout.h"
 #include "texteditor.h"
@@ -24,6 +26,7 @@
 #include <coreplugin/icore.h>
 #include <coreplugin/progressmanager/progressmanager.h>
 
+#include <utils/algorithm.h>
 #include <utils/guard.h>
 #include <utils/mimeutils.h>
 #include <utils/qtcassert.h>
@@ -613,6 +616,78 @@ void TextDocument::insertWithIndentation(QTextCursor &cursor, const QString &tex
         cursor.setPosition(startCursor.position());
         cursor.setPosition(endCursor.position(), QTextCursor::KeepAnchor);
     }
+}
+
+// A script's interpreter line is not the licence header, and neither is the
+// blank line under it - but a comment block starting on the line after that is.
+static QTextBlock skipShebang(const QTextBlock &block)
+{
+    if (!block.isValid() || !block.text().startsWith("#!"))
+        return block;
+    const QTextBlock nextBlock1 = block.next();
+    if (!nextBlock1.isValid() || !nextBlock1.text().isEmpty())
+        return block;
+    const QTextBlock nextBlock2 = nextBlock1.next();
+    return nextBlock2.isValid() && nextBlock2.text().startsWith('#') ? nextBlock2 : block;
+}
+
+void TextDocument::foldLicenseHeader()
+{
+    QTextDocument * const doc = document();
+    auto * const documentLayout = qobject_cast<TextDocumentLayout *>(doc->documentLayout());
+    QTC_ASSERT(documentLayout, return);
+    QTextBlock block = skipShebang(doc->firstBlock());
+    while (block.isValid() && block.isVisible()) {
+        const QString text = block.text();
+        if (TextBlockUserData::canFold(block) && block.next().isVisible()) {
+            const QString trimmedText = text.trimmed();
+            QStringList commentMarker;
+            QStringList docMarker;
+            HighlighterHelper::Definition def;
+            if (auto highlighter = qobject_cast<Highlighter *>(syntaxHighlighter()))
+                def = highlighter->definition();
+
+            if (def.isValid()) {
+                for (const QString &marker :
+                     {def.singleLineCommentMarker(), def.multiLineCommentMarker().first}) {
+                    if (!marker.isEmpty())
+                        commentMarker << marker;
+                }
+            } else {
+                commentMarker = QStringList({"/*", "#"});
+                docMarker = QStringList({"/*!", "/**"});
+            }
+
+            if (Utils::anyOf(commentMarker, [&](const QString &marker) {
+                    return trimmedText.startsWith(marker);
+                })) {
+                if (Utils::anyOf(docMarker, [&](const QString &marker) {
+                        return trimmedText.startsWith(marker)
+                               && (trimmedText.size() == marker.size()
+                                   || trimmedText.at(marker.size()).isSpace());
+                    })) {
+                    break;
+                }
+                TextBlockUserData::doFoldOrUnfold(block, false);
+                documentLayout->requestUpdate();
+                documentLayout->emitDocumentSizeChanged();
+                break;
+            }
+        }
+        if (TabSettingsData::firstNonSpace(text) < text.size())
+            break;
+        block = block.next();
+    }
+}
+
+bool TextDocument::singleShotAfterHighlightingDone(std::function<void()> &&f)
+{
+    if (syntaxHighlighter() && !syntaxHighlighter()->syntaxHighlighterUpToDate()) {
+        connect(syntaxHighlighter(), &SyntaxHighlighter::finished, this,
+                [f = std::move(f)] { f(); }, Qt::SingleShotConnection);
+        return true;
+    }
+    return false;
 }
 
 void TextDocument::autoFormatOrIndent(const QTextCursor &cursor)

@@ -106,6 +106,18 @@ public:
     // \a selectInsertedText, which is what a drop wants and a paste does not.
     void insertWithIndentation(QTextCursor &cursor, const QString &text,
                                bool selectInsertedText, bool skipReindent = false);
+
+    // Fold the comment a file opens with - the licence header - leaving a
+    // documentation comment alone, since that one is about the code rather
+    // than about the file. Does nothing if the first thing in the file is not
+    // a foldable comment.
+    void foldLicenseHeader();
+
+    // Run \a f once the highlighter has caught up, or answer false if it
+    // already has and the caller should just call it. What a file's comment
+    // markers are comes from its language, and the language is not known until
+    // the highlighter has been set up.
+    bool singleShotAfterHighlightingDone(std::function<void()> &&f);
     void autoFormatOrIndent(const QTextCursor &cursor);
     Utils::MultiTextCursor indent(const Utils::MultiTextCursor &cursor);
     Utils::MultiTextCursor unindent(const Utils::MultiTextCursor &cursor);
