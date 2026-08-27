@@ -5138,25 +5138,30 @@ under step 0 for why that compiles and does not link.
 open is not more porting but three decisions, none of which should be taken
 without the user:
 
-- **The file watcher imbalance**, and the earlier reading of it here was
-  wrong. Reading the warnings of five green suites - Core, QmlJSEditor,
-  QmlJSTools, CMakeProjectManager and TextEditor - gives 55 "Failed to watch"
-  lines, and **every one of them is an absolute path**. The relative path
-  found earlier is at most a sub-case, so "decide where a non-absolute path
-  gets refused" is not the question.
+- **The file watcher imbalance**, half of which turned out to be somewhere
+  else entirely. `QTC_CHECK_RESULT` named its argument twice - once to test
+  it, once to read the error off it - and it is handed calls, so every failing
+  one was made again. `~DesktopFilePathWatcher` removes its watch through it,
+  so a failed removal was retried and the retry found nothing and soft
+  asserted. That macro is fixed and `tests/auto/utils/result` covers it: the
+  TextEditor run went from 67 soft asserts to 34.
 
-  What the code says: `_watch()` drops a client whose `addPaths()` was
-  reported as failed, and `QFileSystemWatcher` reports a path it is *already*
-  watching as failed. It can be watching one the map no longer knows about,
-  because `_removeWatch()` erases its `m_watchClients` entry before
-  `removePath()` has succeeded and does not put it back if that fails. The
-  client is then never recorded, and the next `_removeWatch()` for it soft
-  asserts - which is why the warnings and the asserts move together.
+  What is left is the 20 "Failed to watch" lines, and they are not what this
+  document said before. `_watch()` drops a client whose `addPaths()` came back
+  as failed, and `QFileSystemWatcher` says that about a path it is already
+  watching - including a repeat inside one batch, since `m_watchClients` is
+  only written afterwards. Asking for each path once and treating "already
+  watched" as watched does clear all 20. **It was tried here and not kept**:
+  it moves the asserts from 34 to 54, one for each warning it removes.
 
-  So the fix is probably local to `devicefileaccess.cpp`: treat "already
-  watched" as watched rather than as failed. That is narrower than the change
-  tried here before, which took warnings to zero and the asserts from 33 to
-  53. It has not been attempted yet.
+  The reason is worth writing down. Two different `FilePath` keys can carry
+  the same path string - the trace shows two entries for one `revert.txt`,
+  each with a single client - so the second erase calls `removePath()` on a
+  path the first already removed, and that fails. `m_watchClients` is keyed by
+  `FilePath` while the watcher underneath is keyed by the string. Until those
+  agree, clearing the warnings just moves the noise, so **the keying is the
+  thing to fix first**.
+
 - **The Qt Quick editor's reach.** It has hover tooltips, follow symbol and
   Ctrl+click, and it draws Code Style, Snippets and Font && Colors. It is not
   Creator's editor. Making it so is a large change nobody has asked for.
