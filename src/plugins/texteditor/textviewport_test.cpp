@@ -2925,6 +2925,55 @@ private slots:
                      "the setting is on and not one pixel of the six spaces is marked");
     }
 
+    void testWrappedRowsSitUnderTheTextTheyContinue()
+    {
+        // vim's 'breakindent': a wrapped row starts under its line's own
+        // indent rather than hard against the margin, so the continuation
+        // reads as part of the line. The widget editor gets this from
+        // PlainTextDocumentLayout; this one shapes its own rows.
+        TemporaryDirectory dir("qtc-viewport-breakindent");
+        const FilePath file = dir.filePath("indented.txt");
+        QVERIFY(file.writeFileContents(QByteArray(8, ' ') + QByteArray(300, 'x') + "\n"));
+
+        const bool was = displaySettings().breakindent();
+        const QScopeGuard restore(
+            [was] { displaySettings().breakindent.setValue(was); });
+        displaySettings().breakindent.setValue(false);
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        const int unwrapped = viewport->visibleLineCount();
+        viewport->setWrapping(true);
+        QTRY_VERIFY2(viewport->visibleLineCount() > unwrapped,
+                     "the long line did not wrap, so there is no continuation row");
+
+        // The caret at the first character of the second row: that row starts
+        // where the first one broke.
+        const int firstRowLength = viewport->visibleLine(0).value("text").toString().size();
+        QVERIFY(firstRowLength > 0);
+        viewport->setCursorPosition(firstRowLength);
+
+        // Off: the continuation starts at the left margin like any other row.
+        QTRY_VERIFY(!viewport->cursorRectangle().isNull());
+        QCOMPARE(viewport->cursorRectangle().left(), 0.0);
+
+        // On: it starts under the eight spaces the line begins with.
+        viewport->setCursorPosition(firstRowLength);
+        displaySettings().breakindent.setValue(true);
+        QTRY_VERIFY2(viewport->cursorRectangle().left() > 0,
+                     "the wrapped row is still hard against the margin");
+
+        // The layout that counts rows is told the same indent, so that it and
+        // the rows drawn break in the same places. Not asserted by moving the
+        // caret two rows and checking where it lands: that disagrees with the
+        // rows drawn whether or not break indent is on, which is a separate
+        // fault and is written up in the migration notes.
+    }
+
     void testHomeGoesToTheCodeBeforeItGoesToTheMargin()
     {
         TemporaryDirectory dir("qtc-viewport-home");

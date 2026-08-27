@@ -1847,6 +1847,13 @@ void TextViewport::updatePolish()
     // answer exists until every block has been laid out at this width - see
     // testTheEditorLayoutFollowsAWidthChange - so the index is built here and
     // paid for in full.
+    // Wrapped rows indented under the text they continue, vim's 'breakindent'.
+    // The layout that counts rows is told the same, or it wraps somewhere else
+    // and moving by rows lands between the rows on screen.
+    const bool breakIndentOn = m_wrapping && displaySettings().breakindent();
+    const int breakIndentMin = displaySettings().breakindentMin();
+    const int breakIndentShift = displaySettings().breakindentShift();
+
     const qreal wrapWidth = m_wrapping ? qMax(1.0, width() - m_lineHeight / 4)
                                        : std::numeric_limits<qreal>::max();
     Utils::TextEditorLayout *rows = m_wrapping ? editorLayout() : nullptr;
@@ -1865,6 +1872,7 @@ void TextViewport::updatePolish()
             & QTextOption::AddSpaceForLineAndParagraphSeparators) {
             separator = QFontMetricsF(font).horizontalAdvance(QChar(0x21B5));
         }
+        rows->setBreakIndent(breakIndentOn, breakIndentMin, breakIndentShift);
         static_cast<ViewportLayout *>(rows)->setTextWidth(
             wrapWidth + 2 * text->documentMargin() + separator);
         for (QTextBlock b = text->firstBlock(); b.isValid(); b = b.next())
@@ -1974,6 +1982,8 @@ void TextViewport::updatePolish()
         // Where this block's rows break. Unwrapped there is one row and it is
         // the whole line, so this costs nothing on the fast path.
         QList<QPair<int, int>> breaks; // start, length within the block
+        // How far the block's continuation rows are pushed in.
+        qreal blockBreakIndent = 0;
         const QString blockText = block.text();
         if (!m_wrapping) {
             breaks.append({0, int(blockText.size())});
@@ -1985,7 +1995,27 @@ void TextViewport::updatePolish()
                 QTextLine shaped = shaping.createLine();
                 if (!shaped.isValid())
                     break;
-                shaped.setLineWidth(wrapWidth);
+                if (breaks.isEmpty()) {
+                    shaped.setLineWidth(wrapWidth);
+                    if (breakIndentOn) {
+                        // As far in as the block's own indent, plus the shift,
+                        // but never so far that less than breakIndentMin
+                        // columns of text are left - the same arithmetic
+                        // PlainTextDocumentLayout does for the widget editor.
+                        int ws = 0;
+                        while (ws < blockText.size()
+                               && (blockText.at(ws) == QLatin1Char(' ')
+                                   || blockText.at(ws) == QLatin1Char('\t'))) {
+                            ++ws;
+                        }
+                        const qreal spaceWidth = metrics.horizontalAdvance(QLatin1Char(' '));
+                        const qreal wanted = shaped.cursorToX(ws) + breakIndentShift * spaceWidth;
+                        const qreal most = wrapWidth - breakIndentMin * spaceWidth;
+                        blockBreakIndent = qBound(qreal(0), wanted, qMax(qreal(0), most));
+                    }
+                } else {
+                    shaped.setLineWidth(wrapWidth - blockBreakIndent);
+                }
                 breaks.append({shaped.textStart(), shaped.textLength()});
             }
             shaping.endLayout();
@@ -2175,7 +2205,12 @@ void TextViewport::updatePolish()
                 }
             }
 
-            // Where the whitespace on this row is, for whoever draws it.
+            // Continuation rows sit under the text they continue; the row that
+            // starts the line does not move.
+            const qreal rowIndent = rowInBlock == 0 ? 0 : blockBreakIndent;
+
+            // Where the whitespace on this row is, for whoever draws it. In the
+            // row's own space plus the indent, which is where it is drawn.
             if (showWhitespace && textLine.isValid()) {
                 const QString rowText = line.layout->text();
                 for (int i = 0; i < rowText.size(); ++i) {
@@ -2184,13 +2219,13 @@ void TextViewport::updatePolish()
                         continue;
                     const qreal from = textLine.cursorToX(i);
                     const qreal to = textLine.cursorToX(i + 1);
-                    line.whitespace.append(QVariantMap{{"x", from},
+                    line.whitespace.append(QVariantMap{{"x", rowIndent + from},
                                                        {"width", to - from},
                                                        {"tab", at == QLatin1Char('\t')}});
                 }
             }
 
-            line.at = QPointF(-m_scrollX, row * m_lineHeight - m_scrollY);
+            line.at = QPointF(rowIndent - m_scrollX, row * m_lineHeight - m_scrollY);
             line.blockPosition = rowStart;
             // The newline belongs to the last row: that is where the caret sits
             // at the end of the line. A continuation row ends where the next
