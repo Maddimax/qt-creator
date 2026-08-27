@@ -5,6 +5,8 @@
 
 #include "codesource.h"
 #include "textdocument.h"
+#include "icodestylepreferencesfactory.h"
+#include "indenter.h"
 #include "codestylepool.h"
 #include "autocompleter.h"
 #include "codeassist/documentcontentcompletion.h"
@@ -250,12 +252,14 @@ public:
         // editor - so this waits for the path rather than reading it now.
         // TextEditorFactory does the same thing for the widget editor, which
         // is why a document built outside one is never highlighted at all.
+        // The highlighter first: it is what puts the mime type on the document,
+        // and the language's services are looked up by mime type.
         connect(m_document.get(), &Core::IDocument::filePathChanged, this, [this] {
-            configureLanguageServices();
             configureHighlighter();
+            configureLanguageServices();
         });
-        configureLanguageServices();
         configureHighlighter();
+        configureLanguageServices();
 
         // Two contexts: the shared one, which is what a command meant for
         // "any editor of this kind" uses, and one of this editor's own. A
@@ -390,11 +394,13 @@ private:
         m_document->setStorageSettings(globalStorageSettings().data());
         m_document->setTypingSettings(globalTypingSettings().data());
         m_document->setExtraEncodingSettings(globalExtraEncodingSettings().data());
-        // The code style is what tab settings come from; the widget editor
-        // asks for its language's, and this editor has no language of its own.
-        // No connection needed: TextDocument::setCodeStyle() follows the
-        // preferences it is handed.
-        m_document->setCodeStyle(&globalCodeStyle());
+        // The code style is what tab settings come from, and what an indenter
+        // reads. The file's language has one where it registered a style
+        // factory; only a file whose language did not falls back to the
+        // editor's generic global. Chosen here rather than where the indenter
+        // is installed, because this runs again on every settings change and
+        // would otherwise put the generic one back.
+        m_document->setCodeStyle(languageCodeStyle());
     }
 
     // Whether spaces and tabs are drawn is a property of the *document's*
@@ -427,6 +433,21 @@ private:
     // Without this a C++ file is indented by the plain indenter, which copies
     // the previous line - so a brace opens no block and a paste lands at the
     // wrong depth.
+    // The language's own style, or the editor's generic one. Not the
+    // document's mime type when it has none yet: an empty path maps to no
+    // language, which is the generic answer anyway.
+    ICodeStylePreferences *languageCodeStyle() const
+    {
+        const Utils::Id language = TextEditor::languageId(m_document->mimeType());
+        if (language.isValid()) {
+            if (ICodeStylePreferencesFactory * const style = codeStyleFactory(language)) {
+                if (ICodeStylePreferences * const preferences = style->globalCodeStyle())
+                    return preferences;
+            }
+        }
+        return &globalCodeStyle();
+    }
+
     void configureLanguageServices()
     {
         if (m_document->filePath().isEmpty())
@@ -440,8 +461,28 @@ private:
         if (!factory)
             return;
 
-        if (const TextEditorFactory::IndenterCreator creator = factory->indenterCreator())
+        // The language's *style* first, which is where indenting really lives:
+        // codeStyleFactory() is keyed by a language id that a mime type maps
+        // to, and it is what CppEditorDocument asks - so this reaches C++,
+        // which keeps nothing on its editor factory. The editor factory's own
+        // creator is the answer for languages that registered there instead,
+        // JSON among them.
+        const Utils::Id language = TextEditor::languageId(m_document->mimeType());
+        ICodeStylePreferencesFactory * const style
+            = language.isValid() ? codeStyleFactory(language) : nullptr;
+        Indenter * const fromStyle = style ? style->createIndenter(m_document->document())
+                                           : nullptr;
+        if (fromStyle)
+            m_document->setIndenter(fromStyle);
+        else if (const TextEditorFactory::IndenterCreator creator = factory->indenterCreator())
             m_document->setIndenter(creator(m_document->document()));
+        // An indenter that formats through an external tool needs to know
+        // which file it is working on; ClangFormat is the one that does.
+        if (Indenter * const indenter = m_document->indenter())
+            indenter->setFileName(m_document->filePath());
+
+        // And the style the indenter reads, now that the language is known.
+        m_document->setCodeStyle(languageCodeStyle());
         // Set whether or not there is a popup to show it yet: the document is
         // where an assist processor looks, and a document that answers nothing
         // cannot be told apart from a language with no completions.
@@ -1988,6 +2029,62 @@ private slots:
         QCOMPARE(text->lastBlock().text(), QString("alphabetical"));
         QVERIFY2(!text->lastBlock().text().contains("alphalph"),
                  "the completion was appended to the prefix instead of replacing it");
+    }
+
+    // C++ keeps nothing on its editor factory - CppEditorDocument installs the
+    // indenter in its own constructor - so the factory lookup misses it. What
+    // it uses instead is codeStyleFactory(), keyed by a language id that a
+    // mime type maps to, and that is reachable from anywhere.
+    void testTheEditorIndentsCppLikeTheCppEditorDoes()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-cpp");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("main.cpp");
+        QVERIFY(file.writeFileContents("int main()\n{\n}\n"));
+
+        // The lookup, on its own: a C++ file maps to a language whose style
+        // has an indenter, and the editor factory for it has none - which is
+        // the whole reason this route exists.
+        const Utils::Id language
+            = TextEditor::languageId(Utils::mimeTypeForFile(file).name());
+        QVERIFY2(language.isValid(), "a C++ file maps to no language id");
+        ICodeStylePreferencesFactory * const style = codeStyleFactory(language);
+        QVERIFY2(style, "C++ has no code style factory");
+        TextEditorFactory * const editorFactory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(editorFactory);
+        QVERIFY2(!editorFactory->indenterCreator(),
+                 "the C++ editor factory grew an indenter, so this tests the wrong route");
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        QVERIFY(document->indenter());
+
+        // Which indenter it is, before what it does with it: a failure here
+        // and a failure below mean different things.
+        QVERIFY2(document->indenter()->isElectricCharacter('}'),
+                 "'}' is not electric, so this is not a C++ indenter");
+        // On the language's code style, not the editor's generic one - which is
+        // where the indenter reads its tab settings from.
+        QVERIFY(document->codeStyle());
+        QCOMPARE(document->codeStyle()->id(), QByteArray("CppGlobal"));
+
+        // A brace opens a block, which the plain indenter would not know.
+        QTextDocument * const text = document->document();
+        QTextCursor cursor(text);
+        cursor.setPosition(text->findBlockByNumber(1).position() + 1);
+        cursor.insertText("\n");
+        document->autoIndent(cursor);
+        const QString opened = cursor.block().text();
+        QVERIFY2(opened.startsWith(" ") || opened.startsWith("\t"),
+                 qPrintable(QString("the line after '{' was not indented: '%1'").arg(opened)));
+
+
     }
 };
 

@@ -8965,6 +8965,58 @@ Offering unbidden needs a view on how often to ask a language that may be slow,
 and `isActivationCharSequence()` is the hook for it. Stated rather than half
 done.
 
+## C++ was not blocked either
+
+Last batch ended by calling the C++ case "the single highest-value thing left,
+and a real design question": CppEditor keeps its services in a `TextDocument`
+subclass built by its document creator, and the Quick editor builds its document
+before the path is known. Both halves of that are true. The conclusion drawn
+from them was still wrong.
+
+**There is a second registry, and it is the one C++ actually uses.**
+`CppEditorDocument`'s constructor does not build its indenter itself:
+
+    ICodeStylePreferencesFactory *factory = codeStyleFactory(Constants::CPP_SETTINGS_ID);
+    setIndenter(factory->createIndenter(document()));
+
+and `codeStyleFactory()` is keyed by a **language id**, which
+`TextEditor::languageId(mimeType)` maps a mime type to. So the lookup from "this
+file" to "this language's indenter" exists, is used by the C++ editor itself,
+and is reachable from anywhere. The Quick editor now asks it first and falls
+back to the editor factory's creator for languages that registered there
+instead - JSON among them.
+
+That makes three registries found by reading rather than designed:
+`preferredEditorTypes()` for the factory, `codeStyleFactory()` for the language's
+style and indenter, and the document-content fallback inside
+`TextEditorFactory`'s editor creator. Each was found only after a claim that it
+did not exist.
+
+**Two things the tests caught that reading had not.**
+
+*The code style has to be the language's too.* An indenter reads its tab
+settings from `TextDocument::codeStyle()`, and the editor was setting the
+generic global one - so the C++ indenter was installed and produced nothing. It
+now uses the language's (`CppGlobal`), chosen in one place because
+`applyGlobalSettings()` runs again on every settings change and would otherwise
+put the generic one back.
+
+*The mime type has to be set before the language is looked up.* The first
+version called `configureLanguageServices()` before `configureHighlighter()`,
+and the highlighter is what puts the mime type on the document - so the lookup
+asked about an empty string. The test still passed its *mechanism* assertions,
+because it computed the language id from the file itself rather than from the
+document. That separation is what made the failure legible: the lookup works,
+the wiring did not.
+
+**A control run whose baseline crashed.** One control reported "nothing bit" and
+so did the baseline, with exit -6. Re-running showed the truth: an intermittent
+`QCocoaCursor::createCursorData` -> `QImage::toCGImage` SEGV inside
+`GenerigHighlighterTests::initTestCase()`, which aborts the whole run **before
+any test executes** - about one run in three, in a test this work never touched.
+A harness that reads only failures sees zero of them and calls it clean. The
+tell is `passed=0`: a run that passed nothing did not pass.
+
 ## The terminal spike: go, with the cleanest split in the tree
 
 **Status update: the spike is being productised.** `TerminalQuick` is now the
