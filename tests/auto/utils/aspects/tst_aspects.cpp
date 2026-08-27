@@ -42,6 +42,7 @@ private slots:
     void multiSelectionGuiWriteIsVolatileAndUndoable();
     void aContainerOnlyFreesWhatItWasToldToOwn();
     void aNestedContainerKeepsItsAspectsSettingsKeys();
+    void registeringAnAspectDoesNotResetItsEnabledState();
 };
 
 // Constructing an aspect with a container registers it there but does not hand
@@ -570,6 +571,38 @@ void tst_Aspects::aNestedContainerKeepsItsAspectsSettingsKeys()
     outer.readSettings();
     QCOMPARE(direct.value(), true);
     QCOMPARE(inNested.value(), true);
+}
+
+// A container's setEnabled() pushes its value onto every child, so registering
+// a child must not re-assert "enabled" as a matter of course: a container that
+// disables part of itself before being registered has to keep that. Found on
+// the C++ Code Style page, where the category groups are disabled for a
+// read-only style and were editable anyway.
+void tst_Aspects::registeringAnAspectDoesNotResetItsEnabledState()
+{
+    AspectContainer page;
+
+    AspectContainer settings;
+    BoolAspect locked(&settings);
+    locked.setEnabled(false);
+    QVERIFY(!locked.isEnabled());
+
+    page.registerAspect(&settings);
+    QVERIFY2(!locked.isEnabled(), "registering re-enabled an aspect that was disabled");
+    QVERIFY(settings.isEnabled());
+
+    // And the other way round: registering into a disabled container disables
+    // what goes into it, which is what makes a disabled group disable its rows.
+    AspectContainer disabledPage;
+    disabledPage.setEnabled(false);
+
+    AspectContainer more;
+    BoolAspect row(&more);
+    QVERIFY(row.isEnabled());
+
+    disabledPage.registerAspect(&more);
+    QVERIFY2(!more.isEnabled(), "a disabled container accepted an enabled child");
+    QVERIFY2(!row.isEnabled(), "the child's own rows stayed enabled");
 }
 
 int main(int argc, char *argv[])

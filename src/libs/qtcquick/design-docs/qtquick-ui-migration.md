@@ -10637,3 +10637,54 @@ the next. Restoring the whole `src/plugins/cppeditor` directory to HEAD and
 rebuilding reproduces both, so they belong to the machine's window state rather
 than to any of this - the focus one is the key-window case that has bitten
 before. Isolated by reverting rather than by argument.
+
+## The read-only rule, and a no-op write that was not one
+
+The previous entry left a question: a style delegating to a built-in should be
+shown but not editable, the rule is right there in `showCategory()`, and the
+group read as enabled anyway. Settled by instrumenting rather than reasoning,
+and it is a bug in `Utils::AspectContainer` rather than in any page.
+
+The trail, three diagnostics deep:
+
+1. In `CodeStyleAspect`'s constructor the page copy delegates to `qt` and
+   reports `currentReadOnly true` at **every** stage - after `syncFromReal()`,
+   after the selector, after the settings are built. So the setup was never
+   wrong.
+2. Inside `showCategory()` the cast succeeds, `isReadOnly()` is true, and
+   `group.isEnabled()` immediately afterwards is **false**. The rule runs and
+   does the right thing.
+3. By the time the page hands the group out, it is enabled again.
+
+What happens in between is `registerAspect()`, and this line in
+`insertAspect()`:
+
+    aspect->setEnabled(aspect->isEnabled() && isEnabled());
+
+Read as a value it is a no-op: an enabled aspect going into an enabled
+container is set enabled. But `setEnabled()` is virtual, and
+`AspectContainer::setEnabled()` **pushes its argument onto every child**
+unconditionally - including when its own flag did not change. So re-asserting
+"enabled" on a container flattens whatever per-child state that container had
+set for itself moments earlier.
+
+    if (!isEnabled())
+        aspect->setEnabled(false);
+
+is the whole fix: the only case where the old line could change anything was a
+disabled container, and now that is the only case it acts on.
+
+**Two tests, both controlled.** The behavioural one is on the C++ Code Style
+page, where the bug was visible: a style delegating to a built-in is shown and
+not editable. The unit one is in `tst_aspects`, in both directions - a disabled
+child survives registration, and a disabled container disables what goes into
+it. The second direction had no test at all before; the old line was its only
+implementation and nothing checked it.
+
+**Worth generalising.** A setter whose argument is computed to be a no-op is
+only a no-op if the setter has no side effects, and a virtual setter that fans
+out to children is exactly the case where it has one. The line had been read as
+"normalise the child's state on the way in" for as long as it existed.
+
+The page migration itself is finished; this is the first thing found by
+*asking* the finished pages a question they had never been asked.

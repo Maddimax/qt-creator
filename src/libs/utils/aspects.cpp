@@ -3676,7 +3676,12 @@ void AspectContainer::insertAspect(int index, BaseAspect *aspect, bool takeOwner
 {
     aspect->setContainer(this);
     aspect->setAutoApply(isAutoApply());
-    aspect->setEnabled(aspect->isEnabled() && isEnabled());
+    // Only when this container is disabled, and never as a no-op write: a
+    // container's setEnabled() pushes the value onto every child, so
+    // re-asserting "enabled" here undoes any per-child state the aspect set
+    // for itself before it was registered.
+    if (!isEnabled())
+        aspect->setEnabled(false);
     d->m_items.insert(qBound(0, index, int(d->m_items.size())), aspect);
     if (takeOwnership)
         d->m_ownedItems.append(aspect);

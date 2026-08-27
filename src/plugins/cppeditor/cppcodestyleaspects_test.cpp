@@ -139,6 +139,41 @@ private slots:
         QVERIFY(preview->value() != generalSnippet);
     }
 
+    // A built-in style is read-only, and writing over one would change it for
+    // every project delegating to it. The category groups carry that: shown
+    // either way, editable only when the style behind them is.
+    void testAStyleDelegatingToABuiltInIsShownButNotEditable()
+    {
+        ICodeStylePreferencesFactory * const factory
+            = codeStyleFactory(CppEditor::Constants::CPP_SETTINGS_ID);
+        QVERIFY(factory);
+        ICodeStylePreferences * const global = factory->globalCodeStyle();
+        QVERIFY2(global, "the C++ language has no global style, so this proves nothing");
+
+        // The page edits a *copy*, which is editable by design; what makes it
+        // read-only is the built-in the copy delegates to.
+        ICodeStylePreferences * const delegate = global->currentPreferences();
+        QVERIFY2(delegate && delegate != global, "the global style delegates to nothing here");
+        QVERIFY2(delegate->isReadOnly(), "the delegated-to style is not a built-in");
+
+        auto * const preferences = dynamic_cast<CppCodeStylePreferences *>(global);
+        QVERIFY(preferences);
+        const std::unique_ptr<CodeStyleAspect> page(
+            new CodeStyleAspect(preferences, CppEditor::Constants::CPP_SETTINGS_ID));
+        AspectContainer *settings = nullptr;
+        for (BaseAspect *aspect : page->aspects()) {
+            if (auto container = qobject_cast<AspectContainer *>(aspect))
+                settings = container;
+        }
+        QVERIFY(settings);
+        BaseAspect * const general = aspectNamed(settings, "GeneralSettings");
+        QVERIFY(general);
+
+        // Shown, so the reader can see what the style does - just not typed into.
+        QVERIFY2(general->isVisible(), "a read-only style was hidden rather than locked");
+        QVERIFY2(!general->isEnabled(), "a style delegating to a built-in could be edited");
+    }
+
     // The preview shows what the pointer settings do, which no indenter would.
     void testPreviewBindsPointersAsAsked()
     {
