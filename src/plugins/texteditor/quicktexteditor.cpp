@@ -11,6 +11,7 @@
 #include "highlighter.h"
 #include "icodestylepreferences.h"
 #include "storagesettings.h"
+#include "texteditor.h"
 #include "typingsettings.h"
 #include "highlighterhelper.h"
 #include "textdocumentlayout.h"
@@ -20,6 +21,7 @@
 
 #include <coreplugin/actionmanager/actioncontainer.h>
 #include <coreplugin/actionmanager/actionmanager.h>
+#include <coreplugin/coreconstants.h>
 #include <coreplugin/editormanager/editormanager.h>
 #include <coreplugin/editormanager/ieditor.h>
 #include <coreplugin/editormanager/ieditorfactory.h>
@@ -43,6 +45,7 @@
 #include <QQuickWidget>
 #include <QScopeGuard>
 #include <QSignalSpy>
+#include <QTextEdit>
 
 #ifdef WITH_TESTS
 #include <QTest>
@@ -1362,6 +1365,54 @@ private slots:
         QVERIFY2(collisions.hits().isEmpty(),
                  qPrintable("two editors of this kind collided over the same command: "
                             + collisions.hits().join("; ")));
+    }
+
+    // The other half of the same mechanism: a widget editor's diagnostics are
+    // put on the document too, so a view that is not a TextEditorWidget can
+    // draw them. Every producer of these - the language clients, the code
+    // model - goes through the one method this exercises.
+    void testAWidgetEditorsDiagnosticsReachTheDocument()
+    {
+        Utils::TemporaryDirectory dir("widget-editor-diagnostics");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("warned.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\n"));
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(
+            file, Core::Constants::K_DEFAULT_TEXT_EDITOR_ID);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const base = qobject_cast<BaseTextEditor *>(editor);
+        QVERIFY2(base, "the plain text editor is not a BaseTextEditor any more");
+        TextEditorWidget * const widget = base->editorWidget();
+        TextDocument * const document = base->textDocument();
+        QVERIFY(widget && document);
+
+        QTextCursor over(document->document());
+        over.setPosition(0);
+        over.setPosition(5, QTextCursor::KeepAnchor);
+        QTextCharFormat warning;
+        warning.setBackground(QColor(Qt::red));
+
+        QVERIFY(document->extraSelections(TextEditorWidget::CodeWarningsSelection).isEmpty());
+        widget->setExtraSelections(TextEditorWidget::CodeWarningsSelection, {{over, warning}});
+
+        const QList<TextDocument::ExtraSelection> shared
+            = document->extraSelections(TextEditorWidget::CodeWarningsSelection);
+        QCOMPARE(shared.size(), 1);
+        QCOMPARE(shared.first().cursor.selectionStart(), 0);
+        QCOMPARE(shared.first().cursor.selectionEnd(), 5);
+        QCOMPARE(shared.first().format.background().color(), QColor(Qt::red));
+
+        // And what belongs to one view stays there: which bracket *this* view
+        // is matching is not a fact about the file.
+        widget->setExtraSelections(TextEditorWidget::ParenthesesMatchingSelection,
+                                   {{over, warning}});
+        QCOMPARE(widget->extraSelections(TextEditorWidget::ParenthesesMatchingSelection).size(), 1);
+        QVERIFY2(document->extraSelections(TextEditorWidget::ParenthesesMatchingSelection).isEmpty(),
+                 "a view's own bracket match was published to the document");
     }
 
     // A split view is two editors on one document. Duplicating has to share

@@ -1531,6 +1531,61 @@ private slots:
         QCOMPARE(shown.size(), QSet<QString>(shown.cbegin(), shown.cend()).size());
     }
 
+    // A diagnostic is a fact about the document, not about one view of it, so
+    // the document is where it lives and any view can draw it. This is the
+    // mechanism the language clients' warnings and the code model's unused
+    // symbols travel on.
+    void testWhatTheDocumentSaysIsDrawnDifferentlyIsDrawn()
+    {
+        TemporaryDirectory dir("qtc-viewport-diagnostics");
+        const FilePath file = writeLines(dir, "warned.txt", 20);
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+
+        TextDocument * const document = fixture.document.textDocument();
+        QTextDocument * const text = document->document();
+
+        const auto backgrounds = [viewport](int row) {
+            QList<QColor> colours;
+            const QVariantList ranges = viewport->visibleLine(row).value("formats").toList();
+            for (const QVariant &range : ranges)
+                colours << range.toMap().value("background").value<QColor>();
+            return colours;
+        };
+        QVERIFY(!backgrounds(2).contains(QColor(Qt::cyan)));
+
+        // A warning across the third line, set the way a diagnostic producer
+        // sets one - on the document, with a cursor rather than offsets so an
+        // edit above carries it along.
+        QTextCharFormat warning;
+        warning.setBackground(QColor(Qt::cyan));
+        const QTextBlock third = text->findBlockByNumber(2);
+        QTextCursor over(text);
+        over.setPosition(third.position());
+        over.setPosition(third.position() + 4, QTextCursor::KeepAnchor);
+        document->setExtraSelections("Test.Warnings", {{over, warning}});
+
+        QTRY_VERIFY2(backgrounds(2).contains(QColor(Qt::cyan)),
+                     "the document says line 3 is warned about and nothing shows it");
+        QVERIFY(!backgrounds(1).contains(QColor(Qt::cyan)));
+
+        // Inserting a line above carries it with them: that is what a cursor
+        // buys over a pair of offsets.
+        QTextCursor top(text);
+        top.setPosition(0);
+        top.insertText("inserted\n");
+        QTRY_VERIFY2(backgrounds(3).contains(QColor(Qt::cyan)),
+                     "the warning stayed on the row instead of following its line");
+
+        // And emptying the kind takes it away - the document keeps the key so
+        // that a view knows there is nothing left to draw for it.
+        document->setExtraSelections("Test.Warnings", {});
+        QTRY_VERIFY(!backgrounds(3).contains(QColor(Qt::cyan)));
+    }
+
     // Utils::TextEditorLayout is the per-view index of which row each block
     // starts on - what a wrapped view needs and what this viewport would use.
     // firstLineNumberOf() carries a FIXME saying its cache is not recalculated

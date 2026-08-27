@@ -9241,8 +9241,40 @@ void TextEditorWidgetPrivate::setExtraSelections(Id kind, const QList<QTextEdit:
     }
 }
 
+// Which kinds are facts about the document rather than about one view of it,
+// and worth every view knowing. A diagnostic is on the line whoever is looking;
+// where the caret is, what this view just auto-inserted and which bracket it is
+// matching are not.
+//
+// An allowlist rather than a denylist, for a reason that is about cost. These
+// are kept as QTextCursors so that an edit above carries them along, and every
+// cursor in a document is updated on every change - so a second copy of a
+// *large* set doubles that work. CodeSemanticsSelection is the large one: it
+// is one range per identifier on screen and is deliberately not here. A Quick
+// view gets its semantic colouring from the highlighter's formats instead,
+// which is where it already came from.
+static bool isDocumentWideSelection(Id kind)
+{
+    static const QSet<Id> shared{TextEditorWidget::CodeWarningsSelection,
+                                 TextEditorWidget::UndefinedSymbolSelection,
+                                 TextEditorWidget::UnusedSymbolSelection,
+                                 TextEditorWidget::ObjCSelection,
+                                 TextEditorWidget::DebuggerExceptionSelection};
+    return shared.contains(kind);
+}
+
 void TextEditorWidget::setExtraSelections(Id kind, const QList<QTextEdit::ExtraSelection> &selections)
 {
+    // Told to the document as well, so that a view which is not a
+    // TextEditorWidget can draw them too. Every producer of these goes through
+    // here, so this is the one place that has to know.
+    if (isDocumentWideSelection(kind)) {
+        QList<TextDocument::ExtraSelection> shared;
+        shared.reserve(selections.size());
+        for (const QTextEdit::ExtraSelection &selection : selections)
+            shared.append({selection.cursor, selection.format});
+        d->m_document->setExtraSelections(kind, shared);
+    }
     d->setExtraSelections(kind, selections);
 }
 

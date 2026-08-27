@@ -72,6 +72,7 @@ public:
     QString m_suggestedFileName;
     TypingSettingsData m_typingSettings;
     StorageSettingsData m_storageSettings;
+    QMap<Utils::Id, QList<TextDocument::ExtraSelection>> m_extraSelections;
     ICodeStylePreferences *m_codeStylePreferences = nullptr;
     TabSettingsData m_tabSettings;
     ExtraEncodingSettingsData m_extraEncodingSettings;
@@ -350,6 +351,29 @@ QChar TextDocument::characterAt(int pos) const
 QString TextDocument::blockText(int blockNumber) const
 {
     return document()->findBlockByNumber(blockNumber).text();
+}
+
+void TextDocument::setExtraSelections(Utils::Id kind, const QList<ExtraSelection> &selections)
+{
+    // The key stays even when the list is emptied: a view has to be told that
+    // what it was drawing for this kind is gone, and an absent key says
+    // nothing at all.
+    auto existing = d->m_extraSelections.constFind(kind);
+    if (existing != d->m_extraSelections.constEnd() && existing->isEmpty() && selections.isEmpty())
+        return;
+
+    d->m_extraSelections[kind] = selections;
+    emit extraSelectionsChanged();
+}
+
+QList<TextDocument::ExtraSelection> TextDocument::extraSelections(Utils::Id kind) const
+{
+    return d->m_extraSelections.value(kind);
+}
+
+QList<Utils::Id> TextDocument::extraSelectionKinds() const
+{
+    return d->m_extraSelections.keys();
 }
 
 void TextDocument::setTypingSettings(const TypingSettingsData &typingSettings)

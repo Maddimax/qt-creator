@@ -7184,11 +7184,61 @@ on success. `join("; ")` is safe on an empty list. This is the second time this
 session - the first was `Result::error()` on a value - which is enough to call
 it a rule: **nothing in a `QVERIFY2` message may assume the assertion failed.**
 
-What is left of the editor: the extra-selection producers that genuinely need
-the widget's machinery (diagnostic underlines and occurrences, both fed by
-plugins calling `TextEditorWidget::setExtraSelections`), auto-insertion and
-completion (both needing a language completer this editor cannot be given),
-changing the encoding from the toolbar, and dragging text out of a selection.
+## Diagnostics belong to the document
+
+The last thing called architectural in this document turned out not to be. Every
+producer of an extra selection - the language clients' warnings, the code
+model's unused symbols, the debugger's exception line - goes through **one**
+method, `TextEditorWidget::setExtraSelections(Id, list)`. So no producer had to
+change: that method now also puts the document-wide kinds on the `TextDocument`,
+and any view of that document can draw them. `TextViewport` does.
+
+`TextDocument::ExtraSelection` is `{QTextCursor, QTextCharFormat}` -
+`QTextEdit::ExtraSelection` is the same pair with a QtWidgets header in front
+of it. A cursor rather than two offsets, because an edit above has to carry the
+warning with it; the test inserts a line at the top and checks the highlight
+followed rather than staying on its row.
+
+**An allowlist, and the reason is cost.** The first version shared everything
+except four view-only kinds. That included `CodeSemanticsSelection`, which is
+one range per identifier on screen - and every `QTextCursor` in a document is
+updated on every change, so a second copy of a large set doubles that work on
+every keystroke. The evidence was circumstantial but pointed: `LayoutPreviewTest`,
+whose assertion is a *timed* wait on semantic rehighlighting, failed in the full
+CppEditor run and passed alone. Narrowing to an explicit allowlist of the small
+diagnostic kinds made it stop failing.
+
+Semantic colouring was never the reason to do this anyway - a Quick view gets
+that from the highlighter's formats, which is where it already came from.
+
+**What stayed with the view:** the cursor, what this view just auto-inserted,
+the bracket it is matching, snippet placeholders. Those are not facts about the
+file, and the test checks a bracket match set on a widget editor does *not*
+appear on the document.
+
+## Two of my own notes, ignored in one command
+
+    for f in ...; do cp "src/plugins/texteditor/$f" "$backup/$f"; done
+    git checkout -- src/plugins/texteditor/
+
+`cp` is aliased to `cp -i` here, which **silently refuses** when the
+destination exists - six of seven copies did not happen - and then the checkout
+discarded the working tree. Both traps are already written down in this
+project's notes, and combining them nearly lost an afternoon's work.
+
+It survived by luck: the seventh file was new in the backup directory, so its
+copy succeeded, and the other six still held an earlier backup that happened to
+include everything but the last test. The recovery was `cat "$backup/$f" >|
+"$dest"`, which is the form the notes prescribe.
+
+The lesson worth keeping is narrower than "be careful": **a backup step whose
+failure is silent is not a backup.** Check it (`ls`, or compare a marker) before
+running anything destructive.
+
+What is left of the editor: occurrences highlighting (the widget computes it
+per view rather than publishing it), auto-insertion and completion (both
+needing a language completer this editor cannot be given), changing the
+encoding from the toolbar, and dragging text out of a selection.
 
 ## The same measurement, applied to kits
 

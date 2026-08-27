@@ -14,6 +14,8 @@
 
 #include <QList>
 #include <QMap>
+#include <QTextCursor>
+#include <QTextFormat>
 #include <QSharedPointer>
 
 #include <functional>
@@ -58,6 +60,27 @@ public:
     virtual QString textAt(int pos, int length) const;
     virtual QChar characterAt(int pos) const;
     QString blockText(int blockNumber) const;
+
+    // A range of the document drawn differently by whatever is showing it: a
+    // diagnostic, an unused symbol, a semantic highlight. These are facts
+    // about the *document* - a warning is on the line whoever is looking - as
+    // opposed to the ones that belong to one view, like where its caret is or
+    // which bracket it is matching.
+    //
+    // A cursor rather than two offsets, so that an edit above moves it, and
+    // QTextCharFormat rather than QTextEdit::ExtraSelection, which is the same
+    // pair with a QtWidgets header in front of it.
+    struct ExtraSelection
+    {
+        QTextCursor cursor;
+        QTextCharFormat format;
+    };
+
+    void setExtraSelections(Utils::Id kind, const QList<ExtraSelection> &selections);
+    QList<ExtraSelection> extraSelections(Utils::Id kind) const;
+    // Every kind that has ever been set, including those since emptied, so
+    // that a view can clear what it was drawing for one.
+    QList<Utils::Id> extraSelectionKinds() const;
 
     void setTypingSettings(const TypingSettingsData &typingSettings);
     void setStorageSettings(const StorageSettingsData &storageSettings);
@@ -157,6 +180,7 @@ signals:
     void contentsChangedWithPosition(int position, int charsRemoved, int charsAdded);
     void tabSettingsChanged();
     void fontSettingsChanged();
+    void extraSelectionsChanged();
     void markRemoved(TextEditor::TextMark *mark);
 
 protected:

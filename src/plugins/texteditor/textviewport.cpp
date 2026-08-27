@@ -794,6 +794,29 @@ void TextViewport::zoomBy(int steps)
 // replaces the previous pair and nobody else's ranges.
 const char PARENTHESES_MATCH[] = "TextEditor.TextViewport.ParenthesesMatch";
 
+void TextViewport::updateDocumentSelections()
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    if (!doc)
+        return;
+
+    // Every kind the document knows, including the ones since emptied: an
+    // emptied kind has to clear what was drawn for it.
+    const QList<Utils::Id> kinds = doc->extraSelectionKinds();
+    for (const Utils::Id &kind : kinds) {
+        QList<Highlight> highlights;
+        const QList<TextDocument::ExtraSelection> selections = doc->extraSelections(kind);
+        for (const TextDocument::ExtraSelection &selection : selections) {
+            if (selection.cursor.hasSelection()) {
+                highlights.append({selection.cursor.selectionStart(),
+                                   selection.cursor.selectionEnd(),
+                                   selection.format});
+            }
+        }
+        setHighlights(kind, highlights);
+    }
+}
+
 void TextViewport::updateParenthesesMatch()
 {
     TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
@@ -1070,6 +1093,13 @@ void TextViewport::documentChangedInternal()
             // The encoding and the line endings are part of what "the document
             // changed" covers - reopening with another encoding says so here.
             connect(doc, &Core::IDocument::changed, this, &TextViewport::fileFormatChanged);
+            // Only a request to lay out again: the ranges themselves are
+            // read in updatePolish(), because a cursor moves when the text
+            // above it changes and nothing announces that separately.
+            connect(doc, &TextDocument::extraSelectionsChanged, this, [this] {
+                polish();
+                update();
+            });
             // The font, the colours and the zoom are all read in updatePolish()
             // from the document's font settings, and nothing else makes this
             // lay out again - so without this an open file keeps the size and
@@ -1186,6 +1216,7 @@ void TextViewport::updatePolish()
     // this settles rather than loops.
     connectHighlighter(doc);
     updateParenthesesMatch();
+    updateDocumentSelections();
 
     if (!text || height() <= 0) {
         m_lineHeight = 0;

@@ -360,6 +360,9 @@ private:
     // the highlighter - which is what records where the brackets are -
     // finishes another pass.
     void updateParenthesesMatch();
+    // What the document says is drawn differently - diagnostics, unused
+    // symbols, semantic highlighting - turned into this view's highlights.
+    void updateDocumentSelections();
     // The highlighter is replaced on a document that is already being shown -
     // the editor installs one once it knows the file's language - and nothing
     // announces that, so this looks each time round.
