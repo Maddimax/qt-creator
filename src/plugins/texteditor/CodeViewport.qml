@@ -595,6 +595,29 @@ Item {
                     viewport.scrollY = position * viewport.contentHeight
             }
         }
+
+        ScrollBar {
+            id: horizontalScrollBar
+
+            objectName: "horizontalScrollBar"
+            anchors.left: parent.left
+            anchors.right: verticalScrollBar.left
+            anchors.bottom: parent.bottom
+            orientation: Qt.Horizontal
+            // Only where a line runs past the edge, which with wrapping on is
+            // never - the same rule the vertical one follows for a short file.
+            policy: size < 1 ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+            size: viewport.contentWidth > 0
+                  ? viewport.width / viewport.contentWidth
+                  : 1
+            position: viewport.contentWidth > 0
+                      ? viewport.scrollX / viewport.contentWidth
+                      : 0
+            onPositionChanged: {
+                if (pressed)
+                    viewport.scrollX = position * viewport.contentWidth
+            }
+        }
     }
 
     // The right-click menu. Qt Creator's menus are QActions assembled by the

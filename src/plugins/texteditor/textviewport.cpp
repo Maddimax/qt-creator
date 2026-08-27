@@ -2145,11 +2145,17 @@ void TextViewport::updatePolish()
         if (textLine.isValid())
             m_contentWidth = qMax(m_contentWidth, textLine.naturalTextRect().right());
     }
-    // The caret sits after the last character, so there is a little more to
-    // scroll to than there is text - without this the end of the longest line
-    // can be reached and the caret on it cannot.
-    if (m_contentWidth > 0)
+    if (m_wrapping) {
+        // Wrapping means no row is wider than the viewport, so there is nothing
+        // to scroll sideways to. Without this the caret allowance below puts a
+        // hair of a scroll bar on every wrapped document.
+        m_contentWidth = qMin(m_contentWidth, width());
+    } else if (m_contentWidth > 0) {
+        // The caret sits after the last character, so there is a little more to
+        // scroll to than there is text - without this the end of the longest
+        // line can be reached and the caret on it cannot.
         m_contentWidth += m_lineHeight;
+    }
 
     // Re-clamp both offsets against what there is to scroll through now. The
     // content changes size when the document does, when the line height does,

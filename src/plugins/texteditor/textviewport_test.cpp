@@ -555,6 +555,65 @@ private slots:
         QTRY_COMPARE(viewport->scrollX(), 30.0);
     }
 
+    void testTheHorizontalScrollBarSaysHowFarAcrossTheLineIs()
+    {
+        // With wrapping off a line runs past the right edge, and until there
+        // was a bar there was nothing saying so and nothing to drag: the line
+        // could only be followed by the caret or the wheel.
+        TemporaryDirectory dir("codeviewport-hbar");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("wide.txt");
+        QString content;
+        for (int i = 0; i < 50; ++i)
+            content += QString(300, QLatin1Char('x')) + QLatin1Char('\n');
+        QVERIFY(file.writeFileContents(content.toUtf8()));
+
+        CodeViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        QQuickItem * const bar = fixture.root->findChild<QQuickItem *>("horizontalScrollBar");
+        QVERIFY2(bar, "the viewport has no horizontal scroll bar");
+        const auto barSize = [bar] { return bar->property("size").toReal(); };
+        const auto barPosition = [bar] { return bar->property("position").toReal(); };
+
+        // There is more line than viewport, so the handle is shorter than the
+        // groove and the bar is worth showing.
+        QTRY_VERIFY(viewport->contentWidth() > viewport->width());
+        QTRY_VERIFY(barSize() < 1.0);
+        QCOMPARE(barPosition(), 0.0);
+
+        // The viewport moves, the handle follows.
+        viewport->setScrollX(200);
+        QTRY_COMPARE(viewport->scrollX(), 200.0);
+        QTRY_VERIFY(barPosition() > 0);
+        QVERIFY(qFuzzyCompare(barPosition() + 1,
+                              viewport->scrollX() / viewport->contentWidth() + 1));
+
+        // And the handle is dragged, the viewport follows.
+        const QPointF handle = bar->mapToScene(QPointF(bar->width() / 2, bar->height() / 2));
+        const qreal before = viewport->scrollX();
+        QTest::mousePress(&fixture.view, Qt::LeftButton, {}, handle.toPoint());
+        QTest::mouseMove(&fixture.view, handle.toPoint() + QPoint(60, 0));
+        QTest::mouseRelease(&fixture.view, Qt::LeftButton, {}, handle.toPoint() + QPoint(60, 0));
+        QTRY_VERIFY2(viewport->scrollX() > before,
+                     qPrintable(QString("dragging the handle right left scrollX at %1")
+                                    .arg(viewport->scrollX())));
+
+        // And with wrapping on there is nothing to scroll sideways to, so the
+        // bar has to go away rather than offer a groove that does nothing.
+        viewport->setWrapping(true);
+        QTRY_VERIFY2(barSize() >= 1.0,
+                     qPrintable(QString("wrapped, but the bar still shows a handle of %1 "
+                                        "(contentWidth %2, width %3)")
+                                    .arg(barSize())
+                                    .arg(viewport->contentWidth())
+                                    .arg(viewport->width())));
+        QTRY_COMPARE(viewport->scrollX(), 0.0);
+    }
+
     void testTheScrollBarAndTheViewportKeepFollowingEachOther()
     {
         // Both directions, and both of them again after a drag. Two-way
