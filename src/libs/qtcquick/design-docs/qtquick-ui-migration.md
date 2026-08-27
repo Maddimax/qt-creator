@@ -9482,6 +9482,49 @@ remote-and-default, local, empty, and a location the user typed - and each has a
 control that bites. What is left in the dialog is a `->exec()` and the merging
 around it, which is honestly untested and is the smallest that part can be made.
 
+## The fourth radio dialog is not the third one again
+
+Worth checking before extracting anything: Git's branch-checkout dialog also has
+radio buttons, and it is **not** the location question. It asks what to do with
+local changes - stash, move, or discard - so the location shape stands at three
+(Fossil, Bazaar, Mercurial) and a shared container would be extracted from those
+three, in `vcsbase`, once the bucket is done. Three call sites in three plugins
+is a reasonable basis; the fourth radio dialog being unrelated is the thing that
+would have made it a bad one.
+
+**What this dialog is really about is state, not layout.** Two methods -
+`foundNoLocalChanges()` and `foundStashForNextBranch()` - are called by the
+caller *after* construction, and between them they decided six widget
+properties:
+
+    m_discardChangesRadioButton->setChecked(true);
+    m_localChangesGroupBox->setEnabled(false);
+    m_diffButton->setEnabled(false);
+    m_popStashCheckBox->setChecked(true);
+    m_popStashCheckBox->setEnabled(true);
+    m_diffButton->setEnabled(true);
+
+As two booleans on the settings and one `followState()`, the same six become
+three rules that can be stated:
+
+- there is nothing to pop unless the next branch has a stash;
+- there is nothing to pop *into* if the local changes are being moved across;
+- there is no action to choose when there are no local changes.
+
+**And one rule that was hiding in an `&&`.** `discardLocalChanges()` was
+
+    return m_discardChangesRadioButton->isChecked() && m_localChangesGroupBox->isEnabled();
+
+The group box's enabled state was standing in for "there are local changes" -
+so the getter asked a *widget* whether the world was in a particular state. With
+no local changes the discard option is the one left selected, and without that
+second clause the caller would be told to discard changes that do not exist. It
+is now `action() == DiscardChanges && m_hasLocalChanges`, which says the same
+thing about the world rather than about a group box, and its control bites.
+
+That is the fourth dialog running where the rule lived in an accessor, and the
+second where a *widget's* state was being used as a fact about the model.
+
 ## The terminal spike: go, with the cleanest split in the tree
 
 **Status update: the spike is being productised.** `TerminalQuick` is now the

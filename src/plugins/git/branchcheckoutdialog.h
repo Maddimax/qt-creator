@@ -5,14 +5,11 @@
 
 #include <QDialog>
 
-QT_BEGIN_NAMESPACE
-class QCheckBox;
-class QGroupBox;
-class QPushButton;
-class QRadioButton;
-QT_END_NAMESPACE
+#include <memory>
 
 namespace Git::Internal {
+
+class CheckoutSettings;
 
 class BranchCheckoutDialog : public QDialog
 {
@@ -34,18 +31,12 @@ public:
     bool diffRequested() const;
 
 private:
-    void updatePopStashCheckBox(bool moveChangesChecked);
-
-    bool m_foundStashForNextBranch = false;
-    bool m_hasLocalChanges = true;
+    std::unique_ptr<CheckoutSettings> m_settings;
     bool m_diffRequested = false;
-
-    QGroupBox *m_localChangesGroupBox = nullptr;
-    QRadioButton *m_makeStashRadioButton = nullptr;
-    QRadioButton *m_moveChangesRadioButton = nullptr;
-    QRadioButton *m_discardChangesRadioButton = nullptr;
-    QCheckBox *m_popStashCheckBox = nullptr;
-    QPushButton *m_diffButton = nullptr;
 };
+
+#ifdef WITH_TESTS
+QObject *createBranchCheckoutDialogTest();
+#endif
 
 } // Git::Internal

@@ -15,6 +15,7 @@
 #include "githighlighters.h"
 #include "gitsettings.h"
 #include "gitsubmiteditor.h"
+#include "branchcheckoutdialog.h"
 #include "gitsubmiteditorwidget.h"
 #include "gittr.h"
 #include "gitutils.h"
@@ -3191,6 +3192,7 @@ class GITSHARED_EXPORT GitPlugin final : public ExtensionSystem::IPlugin
 #ifdef WITH_TESTS
         addTest<GitTest>();
         registerInstantBlameTests(this);
+        addTestCreator(createBranchCheckoutDialogTest);
 #endif
 
         dd = new GitPluginPrivate;

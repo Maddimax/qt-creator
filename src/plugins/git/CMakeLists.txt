@@ -54,6 +54,7 @@ if(TARGET Git)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      BranchCheckoutDialog.qml
       GitSettingsPage.qml
       gerrit/GerritSettingsPage.qml
   )
