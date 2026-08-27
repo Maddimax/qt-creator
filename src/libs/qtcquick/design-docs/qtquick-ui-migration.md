@@ -270,12 +270,19 @@ follows the caret, `gotoLine()`, and the arrows - and none of them showed up in
 ordinary use or in a test, because the suite runs unwrapped. Turning it on is
 the configuration to hammer.
 
-A fifth check came back clean: scrolled to the bottom of a wrapped file, the
-last row is the end of it. That one is kept as a guard rather than a fix. It
+Two further checks came back clean, and both are kept as guards. Scrolled to
+the bottom of a wrapped file, the last row is the end of it. That one is kept as a guard rather than a fix. It
 catches the coarse mistake - a content height that counts lines fails it, along
 with seven others - but not the two layouts wrapping at different widths, which
 lands the caret between rows and is what the Down test is for. Worth knowing
 which test covers which, because the two look like the same bug from outside.
+
+And clicking a later row of a wrapped line lands on it - the row under the
+pointer is not the line's first, so the character under it is in the middle of
+the block. Breaking the row offset out of `positionAt()` fails eleven tests,
+which sounds like ample cover until you look: that control breaks every
+position on screen, and not one of the eleven clicks a continuation row. A
+coarse control failing many tests is not the same as the case being covered.
 
 **A fourth, and the most used key there is: Down stepped over a whole wrapped
 line.** The move keys take a layout so they can move by what is on screen, and
