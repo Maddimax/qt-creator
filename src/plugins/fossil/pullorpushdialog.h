@@ -7,40 +7,34 @@
 
 #include <QDialog>
 
-QT_BEGIN_NAMESPACE
-class QCheckBox;
-class QLineEdit;
-class QRadioButton;
-QT_END_NAMESPACE
-
-namespace Utils { class PathChooser; }
+#include <memory>
 
 namespace Fossil::Internal {
 
 enum class FossilCommand { Pull, Push };
 
+class RemoteLocationSettings;
+
 class PullOrPushDialog : public QDialog
 {
 public:
     explicit PullOrPushDialog(FossilCommand command, QWidget *parent = nullptr);
+    ~PullOrPushDialog() override;
 
     // Common parameters and options
     QString remoteLocation() const;
     bool isRememberOptionEnabled() const;
     bool isPrivateOptionEnabled() const;
+
     void setDefaultRemoteLocation(const QString &url);
     void setLocalBaseDirectory(const Utils::FilePath &dir);
-    // Pull-specific options
-    // Push-specific options
 
 private:
-    QRadioButton *m_defaultButton;
-    QRadioButton *m_localButton;
-    Utils::PathChooser *m_localPathChooser;
-    QRadioButton *m_urlButton;
-    QLineEdit *m_urlLineEdit;
-    QCheckBox *m_rememberCheckBox;
-    QCheckBox *m_privateCheckBox;
+    std::unique_ptr<RemoteLocationSettings> m_settings;
 };
+
+#ifdef WITH_TESTS
+QObject *createPullOrPushDialogTest();
+#endif
 
 } // Fossil::Internal

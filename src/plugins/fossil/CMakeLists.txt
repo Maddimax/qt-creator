@@ -30,6 +30,7 @@ if(TARGET Fossil)
     NO_PLUGIN
     QML_FILES
       ConfigureDialog.qml
+      PullOrPushDialog.qml
       FossilSettingsPage.qml
   )
 endif()

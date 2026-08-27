@@ -9381,6 +9381,38 @@ no tests at all, so it needed its first `addTestCreator` and its first
 `qt_add_qml_module`. Both are small, but they are the difference between "port
 the dialog" and "port the dialog in a plugin nobody has tested".
 
+## Radio buttons are a value, and two rules that were hiding in accessors
+
+Fossil's pull/push dialog: three radio buttons, two fields, two check boxes, and
+five `connect()`s wiring the buttons to the fields' enabled states.
+
+As aspects the three buttons stop being three widgets and become **one value** -
+a `SelectionAspect` with `RadioButtons` display - which is what they always
+were. The five connections become one function in the constructor, called once
+at the end so that the initial state is arranged by the same code that maintains
+it, rather than by `setEnabled(false)` sprinkled at construction:
+
+    const auto followLocation = [this] {
+        localPath.setEnabled(location() == LocalFilesystem);
+        url.setEnabled(location() == Url);
+        remember.setEnabled(location() != Default);
+    };
+    location.addOnChanged(this, followLocation);
+    followLocation();
+
+**And two rules moved out of accessors into the settings.** `remoteLocation()`
+returns *nothing* for the default location - that empty string is how fossil is
+told to use the remote it already has - and `isRememberOptionEnabled()` is false
+for the default however the box is ticked. Both were `if` statements inside
+getters on a `QDialog`, which is a place a test cannot reach without building
+one and clicking it. On the container they are `remoteLocation()` and
+`rememberLocation()`, and both controls bite.
+
+That is the third dialog in a row where the interesting logic turned out to be
+in an accessor. It is worth expecting: **a widget dialog's getters are where the
+rules end up**, because that is the only place left once the layout has taken
+the widgets.
+
 ## The terminal spike: go, with the cleanest split in the tree
 
 **Status update: the spike is being productised.** `TerminalQuick` is now the
