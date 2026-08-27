@@ -166,6 +166,23 @@ a live copy and a dead one - and one test that dropped the result of
 `qWaitForWindowExposed`, so it compared positions in a window that need never
 have appeared.
 
+**Reading the QWARN lines of a green suite found one more.** TextEditor
+passes 281/281 and printed, in the middle of it, that
+`QQuickStyle::setStyle()` had been called too late to take. The viewport tests
+build their own `QQuickView`s and `CodeViewport.qml` imports Qt Quick
+Controls, so those controls were drawn by the default style, not Creator's -
+the tests were not looking at what the product draws. QQuickStyle is process
+wide and latches on the first Controls import, so this also disabled the
+`setStyle()` behind the shared engine for everything that ran afterwards.
+Asking for the engine in `initTestCase()` fixes both, and the test now asserts
+which style it got.
+
+The same tests are worth knowing about for a second reason: they wait with
+`QTRY_VERIFY(viewport->visibleLineCount() > n)` rather than
+`qWaitForWindowExposed`, which is the better of the two - it is bound to the
+state the viewport must reach, not to the window server. Eight fixtures with
+no exposure wait looked like the bug above and are not it.
+
 Warnings do not show up in an incremental build once the object file exists,
 so this is worth repeating rather than assuming: touch the branch's files,
 build, and read the log. The `-Winconsistent-missing-override` noise from
