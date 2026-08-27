@@ -142,6 +142,25 @@ Verified across every plugin the branch touches, one suite at a time:
 | CppEditor | 155/155 for `FollowSymbolTest` alone; the whole suite poisons itself and its number means nothing |
 | ProjectExplorer, Debugger | 2 and 1 pre-existing failures, each reproduced at the parent commit |
 
+**CMake/qbs agreement was audited across the branch**, since the project keeps
+two build descriptions and requires them to match. Comparing each directory's
+two files over all 905 the branch touches found one real gap: three new
+debugger autotests, qbs products for two. `tests/auto/debugger/nativemixed.qbs`
+now exists.
+
+Everything else the audit flagged was the audit's fault, and each flavour is
+worth knowing before running it again - a `files: ["*.qml"]` group, a
+`**/*.qml` recursive glob, qmldesigner's `files: ["*", "**/*"]`, a QML file
+delivered through a `.qrc`, and a source name that is commented out in both
+files. A checker that does not expand globs reports every ported page as
+missing from qbs, which is 78 false alarms and no findings.
+
+A full `qbs resolve` cannot complete here: the vendored `src/shared/qbs`
+wants `Qt.core5compat` and no installed Qt has it. That is pre-existing and
+unrelated to the branch. The new file was checked by breaking it on purpose
+and confirming qbs reported a syntax error against it, so its clean parse
+means something.
+
 The section below is the running commit log and the phase notes; the entries
 after "Next steps" are the batch-by-batch record.
 
