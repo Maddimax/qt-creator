@@ -5,15 +5,11 @@
 
 #include <QDialog>
 
-#include <utils/pathchooser.h>
-
-QT_BEGIN_NAMESPACE
-class QCheckBox;
-class QLineEdit;
-class QRadioButton;
-QT_END_NAMESPACE
+#include <memory>
 
 namespace Bazaar::Internal {
+
+class BranchLocationSettings;
 
 class PullOrPushDialog : public QDialog
 {
@@ -41,17 +37,11 @@ public:
 
 private:
     Mode m_mode;
-
-    QRadioButton *m_defaultButton;
-    QRadioButton *m_localButton;
-    Utils::PathChooser *m_localPathChooser;
-    QLineEdit *m_urlLineEdit;
-    QCheckBox *m_rememberCheckBox;
-    QCheckBox *m_overwriteCheckBox;
-    QCheckBox *m_useExistingDirCheckBox;
-    QCheckBox *m_createPrefixCheckBox;
-    QLineEdit *m_revisionLineEdit;
-    QCheckBox *m_localCheckBox;
+    std::unique_ptr<BranchLocationSettings> m_settings;
 };
+
+#ifdef WITH_TESTS
+QObject *createPullOrPushDialogTest();
+#endif
 
 } // Bazaar::Internal

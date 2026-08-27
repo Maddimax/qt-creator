@@ -9413,6 +9413,42 @@ in an accessor. It is worth expecting: **a widget dialog's getters are where the
 rules end up**, because that is the only place left once the layout has taken
 the widgets.
 
+## The same dialog twice, and what that is worth
+
+Bazaar has a pull/push dialog too, and it is Fossil's with more options: the
+same three-way location question, the same two fields following it, the same
+"nothing to remember about a default" rule in the same accessor - plus five
+check boxes, a revision field, and a *direction*.
+
+Porting it took a fraction of the time the Fossil one did, which is the first
+time in this bucket that a port has been genuinely cheap because of an earlier
+one. Two VCS plugins written years apart converged on the same dialog; the
+aspects converge on the same container. That is worth expecting for the rest of
+the VCS plugins - Git, Mercurial and Subversion all have pull/push-shaped
+dialogs.
+
+**The one thing Bazaar's has that Fossil's does not is a mode**, and it is the
+cron's rule in miniature. Before:
+
+    if (m_mode == PullMode) {
+        m_useExistingDirCheckBox->setVisible(false);
+        m_createPrefixCheckBox->setVisible(false);
+    } else {
+        m_localCheckBox->setVisible(false);
+    }
+
+Three `setVisible(false)` calls, in a constructor, deciding what the layout
+below them would show. As aspects it is stated the other way round - each option
+says which direction it belongs to:
+
+    local.setVisible(mode == PullOrPushDialog::PullMode);
+    useExistingDirectory.setVisible(mode == PullOrPushDialog::PushMode);
+    createPrefix.setVisible(mode == PullOrPushDialog::PushMode);
+
+and the form lists all six unconditionally. The form is now the same in both
+directions, which is what makes it a *list* rather than a program. Its two
+controls - dropping either line - bite.
+
 ## The terminal spike: go, with the cleanest split in the tree
 
 **Status update: the spike is being productised.** `TerminalQuick` is now the

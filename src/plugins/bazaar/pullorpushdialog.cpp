@@ -5,153 +5,248 @@
 
 #include "bazaartr.h"
 
-#include <utils/qtcassert.h>
-#include <utils/filepath.h>
-#include <utils/layoutbuilder.h>
+#include <coreplugin/dialogs/ioptionspage.h>
 
-#include <QCheckBox>
+#include <utils/aspects.h>
+#include <utils/pathvalidation.h>
+#include <utils/qtcassert.h>
+
 #include <QDialogButtonBox>
-#include <QLabel>
-#include <QLineEdit>
-#include <QRadioButton>
+#include <QVBoxLayout>
+
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
+using namespace Utils;
 
 namespace Bazaar::Internal {
 
-PullOrPushDialog::PullOrPushDialog(Mode mode, QWidget *parent)
-    : QDialog(parent), m_mode(mode)
+// Where a pull or push goes, and what to do when it gets there. Which options
+// are shown depends on the direction: a pull can be local, a push can create
+// the path it needs. That is the dialog's own knowledge and is arranged here
+// rather than in the form.
+class BranchLocationSettings final : public AspectContainer
 {
-    resize(477, 388);
+public:
+    enum Location { Default, LocalFilesystem, Url };
 
-    setWindowTitle(Tr::tr("Dialog"));
+    explicit BranchLocationSettings(PullOrPushDialog::Mode mode)
+    {
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Bazaar/PullOrPushDialog.qml"));
 
-    m_defaultButton = new QRadioButton(Tr::tr("Default location"));
-    m_defaultButton->setChecked(true);
+        const QString urlExample =
+            Tr::tr("For example: \"https://[user[:pass]@]host[:port]/[path]\".");
 
-    m_localButton = new QRadioButton(Tr::tr("Local filesystem:"));
+        location.setQmlName("Location");
+        location.setDisplayStyle(SelectionAspect::DisplayStyle::RadioButtons);
+        location.addOption(Tr::tr("Default location"));
+        location.addOption(Tr::tr("Local filesystem:"));
+        location.addOption(Tr::tr("Specify URL:"), urlExample);
+        location.setDefaultValue(Default);
 
-    m_localPathChooser = new Utils::PathChooser;
-    m_localPathChooser->setEnabled(false);
+        localPath.setQmlName("LocalPath");
+        localPath.setExpectedKind(PathChooserKind::Directory);
 
-    auto urlButton = new QRadioButton(Tr::tr("Specify URL:"));
-    urlButton->setToolTip(Tr::tr("For example: \"https://[user[:pass]@]host[:port]/[path]\"."));
+        url.setQmlName("Url");
+        url.setDisplayStyle(StringAspect::LineEditDisplay);
+        url.setToolTip(urlExample);
 
-    m_urlLineEdit = new QLineEdit;
-    m_urlLineEdit->setEnabled(false);
-    m_urlLineEdit->setToolTip(Tr::tr("For example: \"https://[user[:pass]@]host[:port]/[path]\"."));
+        remember.setQmlName("Remember");
+        remember.setLabelText(Tr::tr("Remember specified location as default"));
 
-    m_rememberCheckBox = new QCheckBox(Tr::tr("Remember specified location as default"));
-    m_rememberCheckBox->setEnabled(false);
+        overwrite.setQmlName("Overwrite");
+        overwrite.setLabelText(Tr::tr("Overwrite"));
+        overwrite.setToolTip(Tr::tr("Ignores differences between branches and overwrites\n"
+                                    "unconditionally."));
 
-    m_overwriteCheckBox = new QCheckBox(Tr::tr("Overwrite"));
-    m_overwriteCheckBox->setToolTip(Tr::tr("Ignores differences between branches and overwrites\n"
-        "unconditionally."));
+        local.setQmlName("Local");
+        local.setLabelText(Tr::tr("Local"));
+        local.setToolTip(Tr::tr("Performs a local pull in a bound branch.\n"
+                                "Local pulls are not applied to the master branch."));
 
-    m_useExistingDirCheckBox = new QCheckBox(Tr::tr("Use existing directory"));
-    m_useExistingDirCheckBox->setToolTip(Tr::tr("By default, push will fail if the target directory "
-        "exists, but does not already have a control directory.\n"
-        "This flag will allow push to proceed."));
+        useExistingDirectory.setQmlName("UseExistingDirectory");
+        useExistingDirectory.setLabelText(Tr::tr("Use existing directory"));
+        useExistingDirectory.setToolTip(
+            Tr::tr("By default, push will fail if the target directory exists, but does not "
+                   "already have a control directory.\n"
+                   "This flag will allow push to proceed."));
 
-    m_createPrefixCheckBox = new QCheckBox(Tr::tr("Create prefix"));
-    m_createPrefixCheckBox->setToolTip(Tr::tr("Creates the path leading up to the branch "
-                                          "if it does not already exist."));
+        createPrefix.setQmlName("CreatePrefix");
+        createPrefix.setLabelText(Tr::tr("Create prefix"));
+        createPrefix.setToolTip(
+            Tr::tr("Creates the path leading up to the branch if it does not already exist."));
 
-    m_revisionLineEdit = new QLineEdit;
+        revision.setQmlName("Revision");
+        revision.setLabelText(Tr::tr("Revision:"));
+        revision.setDisplayStyle(StringAspect::LineEditDisplay);
 
-    m_localCheckBox = new QCheckBox(Tr::tr("Local"));
-    m_localCheckBox->setToolTip(Tr::tr("Performs a local pull in a bound branch.\n"
-        "Local pulls are not applied to the master branch."));
+        // Half of the options belong to one direction only.
+        local.setVisible(mode == PullOrPushDialog::PullMode);
+        useExistingDirectory.setVisible(mode == PullOrPushDialog::PushMode);
+        createPrefix.setVisible(mode == PullOrPushDialog::PushMode);
 
-    auto buttonBox = new QDialogButtonBox(QDialogButtonBox::Cancel|QDialogButtonBox::Ok);
-
-    m_localPathChooser->setExpectedKind(Utils::PathChooserKind::Directory);
-    if (m_mode == PullMode) {
-        setWindowTitle(Tr::tr("Pull Source"));
-        m_useExistingDirCheckBox->setVisible(false);
-        m_createPrefixCheckBox->setVisible(false);
-    } else {
-        setWindowTitle(Tr::tr("Push Destination"));
-        m_localCheckBox->setVisible(false);
+        // A field belongs to the answer above it, and there is nothing to
+        // remember about a default location.
+        const auto followLocation = [this] {
+            localPath.setEnabled(location() == LocalFilesystem);
+            url.setEnabled(location() == Url);
+            remember.setEnabled(location() != Default);
+        };
+        location.addOnChanged(this, followLocation);
+        followLocation();
     }
 
-    using namespace Layouting;
-    Column {
-        Group {
-            title(Tr::tr("Branch Location")),
-            Form {
-                m_defaultButton, br,
-                m_localButton, m_localPathChooser, br,
-                urlButton,  m_urlLineEdit, br,
-            }
-        },
-        Group {
-            title(Tr::tr("Options")),
-            Column {
-                m_rememberCheckBox,
-                m_overwriteCheckBox,
-                m_localCheckBox,
-                m_useExistingDirCheckBox,
-                m_createPrefixCheckBox,
-                Row { Tr::tr("Revision:"), m_revisionLineEdit },
-            }
-        },
-        buttonBox,
-    }.attachTo(this);
+    // Empty for the default location, which is how bzr is told to use the one
+    // the branch already has.
+    QString branchLocation() const
+    {
+        switch (location()) {
+        case LocalFilesystem:
+            return localPath().path();
+        case Url:
+            return url();
+        default:
+            return {};
+        }
+    }
 
-    setFixedHeight(sizeHint().height());
+    // Nothing to remember about a location that was not given.
+    bool rememberLocation() const { return location() != Default && remember(); }
+
+    SelectionAspect location{this};
+    FilePathAspect localPath{this};
+    StringAspect url{this};
+    BoolAspect remember{this};
+    BoolAspect overwrite{this};
+    BoolAspect local{this};
+    BoolAspect useExistingDirectory{this};
+    BoolAspect createPrefix{this};
+    StringAspect revision{this};
+};
+
+PullOrPushDialog::PullOrPushDialog(Mode mode, QWidget *parent)
+    : QDialog(parent)
+    , m_mode(mode)
+    , m_settings(new BranchLocationSettings(mode))
+{
+    resize(477, 388);
+    setWindowTitle(mode == PullMode ? Tr::tr("Pull Source") : Tr::tr("Push Destination"));
+
+    auto buttonBox = new QDialogButtonBox(QDialogButtonBox::Cancel | QDialogButtonBox::Ok);
+
+    auto *layout = new QVBoxLayout(this);
+    layout->addWidget(Core::createAspectForm(m_settings.get()));
+    layout->addWidget(buttonBox);
+
     setSizeGripEnabled(true);
 
     connect(buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
-    connect(urlButton, &QRadioButton::toggled, m_urlLineEdit, &QWidget::setEnabled);
-    connect(m_localButton, &QAbstractButton::toggled, m_localPathChooser, &QWidget::setEnabled);
-    connect(urlButton, &QRadioButton::toggled, m_rememberCheckBox, &QWidget::setEnabled);
-    connect(m_localButton, &QRadioButton::toggled, m_rememberCheckBox, &QWidget::setEnabled);
 }
 
 PullOrPushDialog::~PullOrPushDialog() = default;
 
 QString PullOrPushDialog::branchLocation() const
 {
-    if (m_defaultButton->isChecked())
-        return {};
-    if (m_localButton->isChecked())
-        return m_localPathChooser->filePath().path();
-    return m_urlLineEdit->text();
+    return m_settings->branchLocation();
 }
 
 bool PullOrPushDialog::isRememberOptionEnabled() const
 {
-    if (m_defaultButton->isChecked())
-        return false;
-    return m_rememberCheckBox->isChecked();
+    return m_settings->rememberLocation();
 }
 
 bool PullOrPushDialog::isOverwriteOptionEnabled() const
 {
-    return m_overwriteCheckBox->isChecked();
+    return m_settings->overwrite();
 }
 
 QString PullOrPushDialog::revision() const
 {
-    return m_revisionLineEdit->text().simplified();
+    return m_settings->revision().simplified();
 }
 
 bool PullOrPushDialog::isLocalOptionEnabled() const
 {
     QTC_ASSERT(m_mode == PullMode, return false);
-    return m_localCheckBox->isChecked();
+    return m_settings->local();
 }
 
 bool PullOrPushDialog::isUseExistingDirectoryOptionEnabled() const
 {
     QTC_ASSERT(m_mode == PushMode, return false);
-    return m_useExistingDirCheckBox->isChecked();
+    return m_settings->useExistingDirectory();
 }
 
 bool PullOrPushDialog::isCreatePrefixOptionEnabled() const
 {
     QTC_ASSERT(m_mode == PushMode, return false);
-    return m_createPrefixCheckBox->isChecked();
+    return m_settings->createPrefix();
 }
 
+#ifdef WITH_TESTS
+
+class PullOrPushDialogTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheDirectionDecidesWhichOptionsAreOffered()
+    {
+        BranchLocationSettings pulling(PullOrPushDialog::PullMode);
+        const Utils::Result<> rendered
+            = Core::aspectFormRenders(&pulling, "PullOrPushDialog.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+
+        // A pull can be local; only a push creates the path it needs.
+        QVERIFY(pulling.local.isVisible());
+        QVERIFY(!pulling.useExistingDirectory.isVisible());
+        QVERIFY(!pulling.createPrefix.isVisible());
+
+        BranchLocationSettings pushing(PullOrPushDialog::PushMode);
+        QVERIFY(!pushing.local.isVisible());
+        QVERIFY(pushing.useExistingDirectory.isVisible());
+        QVERIFY(pushing.createPrefix.isVisible());
+    }
+
+    void testTheAnswerDecidesWhichFieldIsUsed()
+    {
+        BranchLocationSettings settings(PullOrPushDialog::PullMode);
+
+        QVERIFY2(!settings.localPath.isEnabled(), "a path was editable for the default location");
+        QVERIFY2(!settings.url.isEnabled(), "a URL was editable for the default location");
+        QVERIFY2(!settings.remember.isEnabled(),
+                 "there is nothing to remember about the default location");
+
+        settings.location.setValue(BranchLocationSettings::Url);
+        QVERIFY(settings.url.isEnabled());
+        QVERIFY(settings.remember.isEnabled());
+
+        settings.url.setValue("https://example.invalid/branch");
+        settings.localPath.setValue(FilePath::fromString("/tmp/branch"));
+        QCOMPARE(settings.branchLocation(), QString("https://example.invalid/branch"));
+
+        settings.location.setValue(BranchLocationSettings::LocalFilesystem);
+        QCOMPARE(settings.branchLocation(), QString("/tmp/branch"));
+
+        settings.remember.setValue(true);
+        settings.location.setValue(BranchLocationSettings::Default);
+        QCOMPARE(settings.branchLocation(), QString());
+        QCOMPARE(settings.rememberLocation(), false);
+    }
+};
+
+QObject *createPullOrPushDialogTest()
+{
+    return new PullOrPushDialogTest;
+}
+
+#endif // WITH_TESTS
+
 } // Bazaar::Internal
+
+#ifdef WITH_TESTS
+#include "pullorpushdialog.moc"
+#endif

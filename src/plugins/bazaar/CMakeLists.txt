@@ -24,6 +24,7 @@ if(TARGET Bazaar)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      PullOrPushDialog.qml
       BazaarSettingsPage.qml
   )
 endif()

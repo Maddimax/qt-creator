@@ -749,6 +749,9 @@ class BazaarPlugin final : public ExtensionSystem::IPlugin
 
     void initialize() final
     {
+#ifdef WITH_TESTS
+        addTestCreator(createPullOrPushDialogTest);
+#endif
         d = new BazaarPluginPrivate;
     }
 
