@@ -26,6 +26,7 @@
 #include <utils/utilsicons.h>
 
 #include <utils/aspects.h>
+#include <utils/plaintextedit/texteditorlayout.h>
 #include <utils/temporarydirectory.h>
 #include <utils/theme/theme.h>
 
@@ -34,6 +35,7 @@
 #include <QQmlError>
 #include <QQuickView>
 #include <QClipboard>
+#include <QFontDatabase>
 #include <QInputMethodEvent>
 #include <QGuiApplication>
 #include <QScopeGuard>
@@ -1354,6 +1356,71 @@ private slots:
         viewport->setCursorPosition(1);
         QTest::keyClick(&fixture.view, Qt::Key_Backspace);
         QCOMPARE(text->toPlainText(), QString(")\n"));
+    }
+
+    // Utils::TextEditorLayout is the per-view index of which row each block
+    // starts on - what a wrapped view needs and what this viewport would use.
+    // firstLineNumberOf() carries a FIXME saying its cache is not recalculated
+    // on a width change; this asks whether that is still true, because a Qt
+    // Quick item changes width constantly.
+    void testTheEditorLayoutFollowsAWidthChange()
+    {
+        QTextDocument document;
+        document.setDefaultFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+        auto * const documentLayout = new Utils::PlainTextDocumentLayout(&document);
+        document.setDocumentLayout(documentLayout);
+
+        QString contents;
+        for (int i = 0; i < 20; ++i)
+            contents += QString("word ").repeated(40).trimmed() + "\n";
+        document.setPlainText(contents);
+        QCOMPARE(document.blockCount(), 21);
+
+        // setTextWidth() is protected on PlainTextDocumentLayout, so anything
+        // that is not a PlainTextEdit has to subclass to reach it - the first
+        // thing a non-widget view has to work around.
+        struct WidthSettable : Utils::TextEditorLayout
+        {
+            using Utils::TextEditorLayout::TextEditorLayout;
+            using Utils::TextEditorLayout::setTextWidth;
+        };
+        WidthSettable layout(documentLayout);
+
+        // Wide enough that nothing wraps: every block is one row, so the last
+        // block starts on row 20.
+        layout.setTextWidth(100000);
+        for (QTextBlock b = document.firstBlock(); b.isValid(); b = b.next())
+            layout.blockBoundingRect(b); // force this width's layout
+        const int wideFirstLine = layout.firstLineNumberOf(document.lastBlock());
+        QCOMPARE(wideFirstLine, 20);
+
+        // Narrow enough that every line wraps several times, so the last block
+        // must start much further down.
+        layout.setTextWidth(120);
+        for (QTextBlock b = document.firstBlock(); b.isValid(); b = b.next())
+            layout.blockBoundingRect(b);
+        const int narrowFirstLine = layout.firstLineNumberOf(document.lastBlock());
+
+        QVERIFY2(narrowFirstLine > wideFirstLine,
+                 qPrintable(QString("the last block still starts on row %1 after the width "
+                                    "went from 100000 to 120; it started on %2 before")
+                                .arg(narrowFirstLine)
+                                .arg(wideFirstLine)));
+
+        // The part that decides how a view may use this. Above, every block
+        // was laid out again after the width changed. Without that, the index
+        // answers from line counts that are still 1 - so a view cannot ask
+        // where a block starts until the blocks above it have been laid out at
+        // the current width, and that is the O(file) cost wrapping carries.
+        WidthSettable lazy(documentLayout);
+        lazy.setTextWidth(120);
+        const int withoutLayout = lazy.firstLineNumberOf(document.lastBlock());
+        QVERIFY2(withoutLayout < narrowFirstLine,
+                 qPrintable(QString("asked without laying the blocks out first, the index "
+                                    "already answered %1 - the same as after layout (%2), so "
+                                    "this test says nothing about the cost")
+                                .arg(withoutLayout)
+                                .arg(narrowFirstLine)));
     }
 
     // Changing the font in Preferences, or zooming, has to reach a viewport

@@ -6974,10 +6974,45 @@ with the viewport still building its own `QTextLayout` copies for the render
 thread, as it does today - it needs the *index* from the layout, not its
 layouts.
 
-**The lesson, which cost two wrong entries in this document:** when a class
-answers a question this load-bearing, read the whole declaration. Excerpting a
-header is how you conclude that an override is missing when it is forty lines
-further down - twice, each time confidently.
+**And a third wrong entry, before it was finally measured.**
+`TextEditorLayout::firstLineNumberOf()` carries
+
+    // FIXME: The first line cache is not reset/recalculated on width change
+
+which reads like exactly the thing that would sink a wrapped Qt Quick view,
+since a Quick item changes width constantly. That became the next conclusion:
+blocked on a pre-existing `Utils` bug.
+
+It is not. `testTheEditorLayoutFollowsAWidthChange()` puts twenty long lines in
+a document, asks where the last block starts at width 100000 and again at 120,
+and the answer moves. The FIXME overstates the case.
+
+**What the same test pins is the part that does constrain a port**, and it took
+asking the question two ways to see it. Ask the index *without* laying the
+blocks out again at the new width and it answers from line counts that are
+still 1. So the contract is:
+
+> A view may ask where a block starts only after the blocks above it have been
+> laid out at the current width.
+
+That is the O(file) cost wrapping carries - and the widget carries it too, for
+the same reason: its scrollbar range needs `documentPixelHeight()`, which needs
+the whole cache. The viewport's O(visible) promise is a promise about the
+*unwrapped* path, which is why wrapping is opt-in rather than a mode the editor
+is in by default.
+
+One more practical obstacle the test surfaced: **`setTextWidth()` is protected**
+on `PlainTextDocumentLayout`. `PlainTextEdit` reaches it as a friend; anything
+else has to subclass. Three lines, but it is the sort of thing that is better
+found by a test than by an implementation half-written.
+
+**The lesson, which cost three wrong entries in this document:** I reasoned
+from a header excerpt, then from a fuller excerpt, then from a code comment,
+and was wrong every time. The test that settled it took twenty minutes and
+answers precisely what the implementation needs to know. When an API's
+behaviour is load-bearing, **measure it** - and keep the measurement as a test,
+because it is also the thing that will notice if `TextEditorLayout` changes
+underneath the port.
 
 Not started here: it restructures `updatePolish()` so a `Line` is a visual row
 rather than a block, and every position mapping with it. It deserves a batch of
