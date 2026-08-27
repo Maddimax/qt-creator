@@ -204,7 +204,8 @@ public:
              {"wrapLines", displaySettings().textWrapping()},
              {"showLineNumbers", displaySettings().displayLineNumbers()},
              {"showFoldMarkers", displaySettings().displayFoldingMarkers()},
-             {"highlightCurrentLine", displaySettings().highlightCurrentLine()}});
+             {"highlightCurrentLine", displaySettings().highlightCurrentLine()},
+             {"showAnnotations", displaySettings().displayAnnotations()}});
         widget->setSource(QUrl("qrc:/qt/qml/QtCreator/TextEditor/MainEditor.qml"));
 
         // Preferences are pushed into a document, not read from one, so an
@@ -221,6 +222,7 @@ public:
             });
         }
         applyGlobalSettings();
+        applyWhitespaceVisualization();
 
         // Changing any of these in Preferences has to reach an editor that is
         // already open, not only the next one to be built.
@@ -232,8 +234,13 @@ public:
             form->setProperty("showLineNumbers", displaySettings().displayLineNumbers());
             form->setProperty("showFoldMarkers", displaySettings().displayFoldingMarkers());
             form->setProperty("highlightCurrentLine", displaySettings().highlightCurrentLine());
+            form->setProperty("showAnnotations", displaySettings().displayAnnotations());
         };
-        connect(&displaySettings(), &Utils::AspectContainer::changed, this, pushDisplaySettings);
+        connect(&displaySettings(), &Utils::AspectContainer::changed, this,
+                [this, pushDisplaySettings] {
+                    pushDisplaySettings();
+                    applyWhitespaceVisualization();
+                });
 
         // Which language to colour the file as comes from its mime type,
         // and the editor manager opens the document *after* building the
@@ -364,6 +371,28 @@ private:
         // No connection needed: TextDocument::setCodeStyle() follows the
         // preferences it is handed.
         m_document->setCodeStyle(&globalCodeStyle());
+    }
+
+    // Whether spaces and tabs are drawn is a property of the *document's*
+    // layout rather than of anything the viewport owns, so it is set where the
+    // widget editor sets it. The colour comes for free: SyntaxHighlighter::
+    // formatSpaces() puts a C_VISUAL_WHITESPACE format on every whitespace run
+    // whenever it runs, and does not consult this flag - which is also why
+    // there is no rehighlight here. The widget editor does one; it cannot
+    // change any format, and on a large file it is not cheap.
+    void applyWhitespaceVisualization()
+    {
+        QTextDocument * const text = m_document->document();
+        const QTextOption current = text->defaultTextOption();
+        QTextOption::Flags flags = current.flags();
+        flags.setFlag(QTextOption::AddSpaceForLineAndParagraphSeparators);
+        flags.setFlag(QTextOption::ShowTabsAndSpaces, displaySettings().visualizeWhitespace());
+        if (flags == current.flags())
+            return;
+
+        QTextOption option = current;
+        option.setFlags(flags);
+        text->setDefaultTextOption(option);
     }
 
     void configureHighlighter()
@@ -1578,10 +1607,12 @@ private slots:
         const bool wasCurrentLine = displaySettings().highlightCurrentLine();
         const bool wasNumbers = displaySettings().displayLineNumbers();
         const bool wasFolding = displaySettings().displayFoldingMarkers();
-        const QScopeGuard restore([wasCurrentLine, wasNumbers, wasFolding] {
+        const bool wasAnnotations = displaySettings().displayAnnotations();
+        const QScopeGuard restore([wasCurrentLine, wasNumbers, wasFolding, wasAnnotations] {
             displaySettings().highlightCurrentLine.setValue(wasCurrentLine);
             displaySettings().displayLineNumbers.setValue(wasNumbers);
             displaySettings().displayFoldingMarkers.setValue(wasFolding);
+            displaySettings().displayAnnotations.setValue(wasAnnotations);
         });
 
         // Set before the editor is built, so that what is asserted first is
@@ -1591,6 +1622,7 @@ private slots:
         displaySettings().highlightCurrentLine.setValue(false);
         displaySettings().displayLineNumbers.setValue(false);
         displaySettings().displayFoldingMarkers.setValue(false);
+        displaySettings().displayAnnotations.setValue(false);
 
         Core::IEditor * const editor
             = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
@@ -1617,6 +1649,10 @@ private slots:
                  "the current line was marked without the setting asking for it");
         QCOMPARE(form->property("showLineNumbers").toBool(), false);
         QCOMPARE(form->property("showFoldMarkers").toBool(), false);
+        // What this one turns off is checked where the annotation can be seen,
+        // in TextViewportTest; here it is that the editor hands the setting to
+        // the form at all.
+        QCOMPARE(form->property("showAnnotations").toBool(), false);
         QVERIFY2(gutter->width() < 1,
                  "the gutter took room for numbers the settings turned off");
 
@@ -1629,7 +1665,53 @@ private slots:
         QTRY_VERIFY2(gutter->width() > 0, "turning the numbers on did not reach the editor");
         displaySettings().displayFoldingMarkers.setValue(true);
         QTRY_COMPARE(form->property("showFoldMarkers").toBool(), true);
+        displaySettings().displayAnnotations.setValue(true);
+        QTRY_COMPARE(form->property("showAnnotations").toBool(), true);
     }
+
+    void testWhitespaceIsShownWhenTheSettingAsksForIt()
+    {
+        // Whether spaces and tabs are drawn is a flag on the document's own
+        // text option, so this is about the document rather than about
+        // anything the form owns - and an editor that never sets it shows no
+        // whitespace however the setting is left.
+        Utils::TemporaryDirectory dir("quick-editor-whitespace");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("spaces.txt");
+        QVERIFY(file.writeFileContents("alpha  beta\n\tgamma\n"));
+
+        const bool was = displaySettings().visualizeWhitespace();
+        const QScopeGuard restore(
+            [was] { displaySettings().visualizeWhitespace.setValue(was); });
+        displaySettings().visualizeWhitespace.setValue(false);
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        const auto shown = [document] {
+            return document->document()->defaultTextOption().flags()
+                   .testFlag(QTextOption::ShowTabsAndSpaces);
+        };
+        QVERIFY2(!shown(), "whitespace was drawn without the setting asking for it");
+
+        displaySettings().visualizeWhitespace.setValue(true);
+        QTRY_VERIFY2(shown(), "turning the setting on did not reach the document");
+
+        // What colours the drawn spaces is the highlighter, which puts a
+        // C_VISUAL_WHITESPACE format on every whitespace run whenever it runs.
+        // Without one they would be drawn in the text colour.
+        QVERIFY2(document->syntaxHighlighter(),
+                 "no highlighter, so nothing would colour the whitespace");
+
+        displaySettings().visualizeWhitespace.setValue(false);
+        QTRY_VERIFY2(!shown(), "turning the setting off did not reach the document");
+    }
+
 };
 
 QObject *createQuickTextEditorTest()

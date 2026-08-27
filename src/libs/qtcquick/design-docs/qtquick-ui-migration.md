@@ -8544,6 +8544,55 @@ exit with no parsed failure as a *result it did not understand*, not as a pass.
 `breakindent` fields. Some of these are gates over things the viewport does not
 draw at all yet, which is a different job from reading a flag.
 
+## Two more display settings, and a rehighlight that was not earned
+
+Continuing down the list of settings the Quick editor ignored.
+
+**Visual whitespace turned out to belong to the document.** Whether spaces and
+tabs are drawn is `QTextOption::ShowTabsAndSpaces` on the *document's* default
+text option, not a property of any view - so an editor that never sets it shows
+no whitespace however the setting is left, and the viewport needed nothing new
+at all. The colour is free: `SyntaxHighlighter::formatSpaces()` puts a
+`C_VISUAL_WHITESPACE` format on every whitespace run whenever it runs.
+
+**And that is why the rehighlight is not copied.** `TextEditorWidget::
+applyDisplaySettings()` calls `highlighter->rehighlight()` whenever the flag
+changes. Reading `formatSpaces()` shows it never consults the flag - the formats
+are applied whichever way it is set - so the rehighlight cannot change any
+format. It is a full re-run of the highlighter over the whole document on every
+display-settings change, which on a large file is not cheap, and it buys
+nothing. The Quick editor sets the option and stops.
+
+This was nearly kept out of "match the widget" caution, and the thing that
+settled it was the control: removing the rehighlight broke no test, and rather
+than accept that as permission, the question was whether any test *could* break.
+`formatSpaces()` answers that - no - which turns "the control did not bite" from
+a weak result into a reason. A mechanism nobody can write a failing test for is
+one to leave out, not one to copy.
+
+**Annotations were a gate over something already drawn**, so the work was one
+binding. What took the time was testing it properly.
+
+**The property/outcome split, made explicit.** The first annotation test
+asserted `form->property("showAnnotations")` and nothing else. Its control -
+removing the gate from the QML - did not bite it; it bit an unrelated typing
+test instead, which is how a weak test announces itself. A property assertion
+proves the *plumbing* (the editor hands the setting to the form) and says
+nothing about the *outcome* (the message is not drawn). Both are worth having,
+and they belong in different places:
+
+- `TextViewportTest` asserts the outcome: a real `TextMark` with a
+  `lineAnnotation`, `showAnnotations: false` on the viewport, and then a search
+  of the item tree for a visible item whose `text` is the message. It waits for
+  `visibleLine(2).annotation` to arrive *first*, so the absence that follows is
+  "the message is here and is not drawn" rather than "the mark has not landed
+  yet" - the ordering trick, applied to a negative.
+- `QuickTextEditorTest` asserts the plumbing, as one more line in the existing
+  display-settings test.
+
+Split that way, all five controls bite the test that names them. Before it, two
+of them bit nothing at all.
+
 ## The terminal spike: go, with the cleanest split in the tree
 
 **Status update: the spike is being productised.** `TerminalQuick` is now the

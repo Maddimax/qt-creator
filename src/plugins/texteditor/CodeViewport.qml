@@ -43,6 +43,10 @@ Item {
     // not ask for it is drawing something Creator does not.
     property bool highlightCurrentLine: false
 
+    // Whether a text mark's message is written after the line it is on. On,
+    // like the display setting it follows.
+    property bool showAnnotations: true
+
     // What a right click offers, or null for a view that offers nothing - a
     // settings preview has no Find Usages to give.
     property ActionModel contextActions: null
@@ -388,7 +392,7 @@ Item {
                         verticalAlignment: Text.AlignVCenter
 
                         text: trailing.lineData.annotation ?? ""
-                        visible: text !== ""
+                        visible: root.showAnnotations && text !== ""
                         font: viewport.font
                         color: Tokens.textMuted
                         elide: Text.ElideRight

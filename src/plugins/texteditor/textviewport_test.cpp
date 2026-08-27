@@ -3195,6 +3195,66 @@ private slots:
         QVERIFY(text->toPlainText() != before);
     }
 
+
+    void testAMarksMessageIsNotDrawnWhenAnnotationsAreTurnedOff()
+    {
+        TemporaryDirectory dir("annotation-off-test");
+        QVERIFY(dir.isValid());
+        const FilePath file = writeLines(dir, "big.txt", 200);
+
+        QQuickView view;
+        installIconProvider(view);
+        view.resize(600, 200);
+        QQmlComponent component(view.engine());
+        component.setData(QByteArray("import QtCreator.TextEditor\n"
+                                     "CodeViewport {\n"
+                                     "    width: 600; height: 200\n"
+                                     "    showAnnotations: false\n"
+                                     "    property string path\n"
+                                     "    source: CodeDocument { filePath: path }\n"
+                                     "}"),
+                          QUrl("qrc:/test/AnnotationOffTest.qml"));
+        std::unique_ptr<QObject> created(component.createWithInitialProperties(
+            {{"path", file.toUrlishString()}}));
+        QVERIFY2(created != nullptr, qPrintable(component.errorString()));
+
+        auto * const item = qobject_cast<QQuickItem *>(created.get());
+        QVERIFY(item);
+        item->setParentItem(view.contentItem());
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+        auto * const viewport = item->findChild<TextViewport *>("codeViewport");
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+        auto * const source = viewport->document();
+        QVERIFY(source && source->textDocument());
+
+        const QString message = "expected ';' after expression";
+        TextMark mark(source->textDocument(), 3, TextMarkCategory{"Test", "TextEditor.Test.Mark"});
+        mark.setIcon(Utils::Icons::WARNING.icon());
+        mark.setLineAnnotation(message);
+
+        const auto drawnMessage = [item, &message] {
+            for (QQuickItem * const candidate : allItems(item)) {
+                if (candidate->property("text").toString() == message && candidate->isVisible())
+                    return true;
+            }
+            return false;
+        };
+
+        // The viewport still knows what the mark says - it is the drawing that
+        // the setting turns off, not the mark. Waiting for that is also what
+        // makes the absence below mean something: the message has arrived, and
+        // it is still not on screen.
+        QTRY_COMPARE(viewport->visibleLine(2).value("annotation").toString(), message);
+        QVERIFY2(!drawnMessage(), "the annotation was drawn with annotations turned off");
+
+        // And turning them on draws it, so the absence above was the setting
+        // and not a mark that never made it.
+        item->setProperty("showAnnotations", true);
+        QTRY_VERIFY2(drawnMessage(), "turning annotations on did not draw the message");
+    }
 };
 
 QObject *createTextViewportTest()

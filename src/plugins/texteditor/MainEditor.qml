@@ -25,6 +25,7 @@ Item {
     required property bool showLineNumbers
     required property bool showFoldMarkers
     required property bool highlightCurrentLine
+    required property bool showAnnotations
 
     CodeViewport {
         anchors.fill: parent
@@ -34,6 +35,7 @@ Item {
         showLineNumbers: root.showLineNumbers
         showFoldMarkers: root.showFoldMarkers
         highlightCurrentLine: root.highlightCurrentLine
+        showAnnotations: root.showAnnotations
         // A viewport is a view until told otherwise - which is right for a
         // settings preview and wrong for this. The file's own read-only state
         // is a separate question, and the viewport asks the document that one
