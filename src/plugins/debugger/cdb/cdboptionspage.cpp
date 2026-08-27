@@ -8,14 +8,11 @@
 #include <debugger/debuggerinternalconstants.h>
 #include <debugger/debuggertr.h>
 
+#include <utils/aspectpresentation.h>
 #include <utils/aspects.h>
 #include <utils/guiutils.h>
-#include <utils/layoutbuilder.h>
 
-#include <QCheckBox>
-#include <QFormLayout>
-#include <QLineEdit>
-#include <QTextStream>
+#include <QAbstractTableModel>
 
 using namespace Utils;
 
@@ -49,183 +46,182 @@ static inline int indexOfEvent(const QString &abbrev)
 
 // ---------- CdbOptionsPage
 
-// Widget displaying a list of break events for the 'sxe' command
-// with a checkbox to enable 'break' and optionally a QLineEdit for
-// events with parameters (like 'out:Needle').
-class CdbBreakEventWidget : public QWidget
+// Which "sxe" events stop the debugger, and the filter text for the three that
+// take one. The rows are the known events - they cannot be added to or removed
+// - so what the user changes is a check state and a parameter.
+class BreakEventsModel : public QAbstractTableModel
 {
 public:
-    explicit CdbBreakEventWidget(QWidget *parent = nullptr);
+    enum Column { EventColumn, ParameterColumn, ColumnCount };
 
-    void setBreakEvents(const QStringList &l);
-    QStringList breakEvents() const;
+    using QAbstractTableModel::QAbstractTableModel;
 
-private:
-    QString filterText(int i) const;
-    void clear();
+    QStringList breakEvents() const
+    {
+        // "eh" for an event that is simply on, "out:Needle" for one with a
+        // filter. An empty filter is left off rather than written as a
+        // trailing colon.
+        QStringList events;
+        for (int e = 0; e < eventCount(); ++e) {
+            if (!m_enabled.at(e))
+                continue;
+            QString event = QLatin1String(eventDescriptions[e].abbreviation);
+            if (!m_parameters.at(e).isEmpty())
+                event += ':' + m_parameters.at(e);
+            events.append(event);
+        }
+        return events;
+    }
 
-    QList<QCheckBox*> m_checkBoxes;
-    QList<QLineEdit*> m_lineEdits;
-};
+    void setBreakEvents(const QStringList &events)
+    {
+        beginResetModel();
+        m_enabled.fill(false, eventCount());
+        m_parameters.fill(QString(), eventCount());
+        for (const QString &event : events) {
+            const int colon = event.indexOf(':');
+            const int index = indexOfEvent(colon != -1 ? event.left(colon) : event);
+            if (index == -1)
+                continue;
+            m_enabled[index] = true;
+            // An event that takes no parameter never gets one, whatever the
+            // stored string says.
+            if (colon != -1 && eventDescriptions[index].hasParameter)
+                m_parameters[index] = event.mid(colon + 1);
+        }
+        endResetModel();
+    }
 
-CdbBreakEventWidget::CdbBreakEventWidget(QWidget *parent) : QWidget(parent)
-{
-    // 1 column with checkboxes only,
-    // further columns with checkbox + parameter
-    auto mainLayout = new QHBoxLayout;
-    mainLayout->setContentsMargins(0, 0, 0, 0);
-    auto leftLayout = new QVBoxLayout;
-    QFormLayout *parameterLayout = nullptr;
-    mainLayout->addLayout(leftLayout);
-    const size_t eventCount = sizeof(eventDescriptions) / sizeof(EventsDescription);
-    for (size_t e = 0; e < eventCount; e++) {
-        auto cb = new QCheckBox(Tr::tr(eventDescriptions[e].description));
-        QLineEdit *le = nullptr;
-        if (eventDescriptions[e].hasParameter) {
-            if (!parameterLayout) {
-                parameterLayout = new QFormLayout;
-                mainLayout->addSpacerItem(new QSpacerItem(20, 0, QSizePolicy::MinimumExpanding, QSizePolicy::Ignored));
-                mainLayout->addLayout(parameterLayout);
-            }
-            le = new QLineEdit;
-            parameterLayout->addRow(cb, le);
-            if (parameterLayout->count() >= 6) // New column
-                parameterLayout = nullptr;
+    int rowCount(const QModelIndex &parent) const override
+    {
+        return parent.isValid() ? 0 : eventCount();
+    }
+
+    int columnCount(const QModelIndex &parent) const override
+    {
+        return parent.isValid() ? 0 : ColumnCount;
+    }
+
+    QVariant data(const QModelIndex &index, int role) const override
+    {
+        const int row = index.row();
+        switch (role) {
+        case Qt::DisplayRole:
+        case Qt::EditRole:
+            if (index.column() == EventColumn)
+                return Tr::tr(eventDescriptions[row].description);
+            return m_parameters.at(row);
+        case Qt::CheckStateRole:
+            if (index.column() != EventColumn)
+                return {};
+            return m_enabled.at(row) ? Qt::Checked : Qt::Unchecked;
+        case AspectTable::CheckableRole:
+            return index.column() == EventColumn;
+        case AspectTable::EditableRole:
+            return AspectTable::isWritable(flags(index));
+        default:
+            return {};
+        }
+    }
+
+    bool setData(const QModelIndex &index, const QVariant &value, int role) override
+    {
+        const int row = index.row();
+        if (role == Qt::CheckStateRole && index.column() == EventColumn) {
+            m_enabled[row] = value.toInt() == Qt::Checked;
+        } else if (role == Qt::EditRole && index.column() == ParameterColumn) {
+            if (!eventDescriptions[row].hasParameter)
+                return false;
+            m_parameters[row] = value.toString();
         } else {
-            leftLayout->addWidget(cb);
+            return false;
         }
-        m_checkBoxes.push_back(cb);
-        m_lineEdits.push_back(le);
+        emit dataChanged(index, index);
+        markSettingsDirty();
+        return true;
     }
-    setLayout(mainLayout);
-}
 
-void CdbBreakEventWidget::clear()
-{
-    for (QLineEdit *l : std::as_const(m_lineEdits)) {
-        if (l)
-            l->clear();
+    QVariant headerData(int section, Qt::Orientation orientation, int role) const override
+    {
+        if (orientation == Qt::Vertical || role != Qt::DisplayRole)
+            return {};
+        return section == EventColumn ? Tr::tr("Break On") : Tr::tr("Parameter");
     }
-    for (QCheckBox *c : std::as_const(m_checkBoxes))
-        c->setChecked(false);
-}
 
-void CdbBreakEventWidget::setBreakEvents(const QStringList &l)
-{
-    clear();
-    // Split the list of ("eh", "out:MyOutput")
-    for (const QString &evt : l) {
-        const int colonPos = evt.indexOf(':');
-        const QString abbrev = colonPos != -1 ? evt.mid(0, colonPos) : evt;
-        const int index = indexOfEvent(abbrev);
-        if (index != -1)
-            m_checkBoxes.at(index)->setChecked(true);
-        if (colonPos != -1 && m_lineEdits.at(index))
-            m_lineEdits.at(index)->setText(evt.mid(colonPos + 1));
+    QHash<int, QByteArray> roleNames() const override
+    {
+        return AspectTable::withRoleNames(QAbstractTableModel::roleNames());
     }
-}
 
-QString CdbBreakEventWidget::filterText(int i) const
-{
-    return m_lineEdits.at(i) ? m_lineEdits.at(i)->text() : QString();
-}
-
-QStringList CdbBreakEventWidget::breakEvents() const
-{
-    // Compile a list of ("eh", "out:MyOutput")
-    QStringList rc;
-    const int eventCount = sizeof(eventDescriptions) / sizeof(EventsDescription);
-    for (int e = 0; e < eventCount; e++) {
-        if (m_checkBoxes.at(e)->isChecked()) {
-            const QString filter = filterText(e);
-            QString s = QLatin1String(eventDescriptions[e].abbreviation);
-            if (!filter.isEmpty()) {
-                s += ':';
-                s += filter;
-            }
-            rc.push_back(s);
-        }
+    Qt::ItemFlags flags(const QModelIndex &index) const override
+    {
+        Qt::ItemFlags f = QAbstractTableModel::flags(index);
+        if (index.column() == EventColumn)
+            return f | Qt::ItemIsUserCheckable;
+        // Only the three events that take one may have their filter typed.
+        if (eventDescriptions[index.row()].hasParameter)
+            return f | Qt::ItemIsEditable;
+        return f & ~Qt::ItemIsEnabled;
     }
-    return rc;
-}
-
-class CdbOptionsPageWidget : public Core::IOptionsPageWidget
-{
-public:
-    CdbOptionsPageWidget();
 
 private:
-    void apply() final;
-    void cancel() final;
+    static int eventCount() { return int(sizeof(eventDescriptions) / sizeof(EventsDescription)); }
 
-    Utils::AspectContainer &m_group = settings().page5;
-    CdbBreakEventWidget *m_breakEventWidget;
+    QList<bool> m_enabled = QList<bool>(eventCount(), false);
+    QStringList m_parameters = QStringList(eventCount());
 };
 
-CdbOptionsPageWidget::CdbOptionsPageWidget()
-    : m_breakEventWidget(new CdbBreakEventWidget)
+class CdbBreakEventsAspectPrivate
 {
-    using namespace Layouting;
-    DebuggerSettings &s = settings();
+public:
+    explicit CdbBreakEventsAspectPrivate(QObject *parent)
+        : m_model(parent)
+    {}
 
-    m_breakEventWidget->setBreakEvents(settings().cdbBreakEvents());
+    BreakEventsModel m_model;
+};
 
-    // clang-format off
-    Column {
-        Row {
-            Group {
-                title(Tr::tr("Startup")),
-                Column {
-                    s.cdbAdditionalArguments,
-                    s.useCdbConsole,
-                    st
-                 }
-            },
-
-            Group {
-                title(Tr::tr("Various")),
-                Column {
-                    s.ignoreFirstChanceAccessViolation,
-                    s.cdbBreakOnCrtDbgReport,
-                    s.cdbBreakPointCorrection,
-                    s.cdbUsePythonDumper,
-                    s.enableHeapDebugging
-                }
-            }
-        },
-
-        Group {
-            title(Tr::tr("Break On")),
-            Column { m_breakEventWidget }
-        },
-
-        Group {
-            title(Tr::tr("Add Exceptions to Issues View")),
-            Column {
-                s.firstChanceExceptionTaskEntry,
-                s.secondChanceExceptionTaskEntry
-            }
-        },
-
-        st
-
-    }.attachTo(this);
-    // clang-format on
-
-    installMarkSettingsDirtyTriggerRecursively(this);
+CdbBreakEventsAspect::CdbBreakEventsAspect(AspectContainer *container)
+    : TypedAspect(container)
+    , d(new CdbBreakEventsAspectPrivate(this))
+{
+    setQmlName("BreakEvents");
+    setLabelText(Tr::tr("Break on:"));
 }
 
-void CdbOptionsPageWidget::apply()
+CdbBreakEventsAspect::~CdbBreakEventsAspect()
 {
-    m_group.apply();
-    m_group.writeSettings();
-    settings().cdbBreakEvents.setValue(m_breakEventWidget->breakEvents());
+    delete d;
 }
 
-void CdbOptionsPageWidget::cancel()
+AspectPresentation CdbBreakEventsAspect::presentation() const
 {
-    m_breakEventWidget->setBreakEvents(settings().cdbBreakEvents());
-    m_group.cancel();
+    AspectPresentation p = TypedAspect::presentation();
+    p.control = AspectControls::Table;
+    return p;
+}
+
+QAbstractItemModel *CdbBreakEventsAspect::tableModel()
+{
+    return &d->m_model;
+}
+
+bool CdbBreakEventsAspect::isDirty() const
+{
+    const_cast<CdbBreakEventsAspect *>(this)->guiToVolatileValue();
+    return m_value != m_volatileValue;
+}
+
+bool CdbBreakEventsAspect::guiToVolatileValue()
+{
+    const QStringList old = m_volatileValue;
+    m_volatileValue = d->m_model.breakEvents();
+    return m_volatileValue != old;
+}
+
+void CdbBreakEventsAspect::volatileValueToGui()
+{
+    d->m_model.setBreakEvents(m_volatileValue);
 }
 
 CdbOptionsPage::CdbOptionsPage()
@@ -233,7 +229,7 @@ CdbOptionsPage::CdbOptionsPage()
     setId("F.Debugger.Cda");
     setDisplayName(Tr::tr("CDB"));
     setCategory(Debugger::Constants::DEBUGGER_SETTINGS_CATEGORY);
-    setWidgetCreator([] { return new CdbOptionsPageWidget; });
+    setSettingsProvider([] { return &settings().page5; });
 }
 
 

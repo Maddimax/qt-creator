@@ -10222,3 +10222,45 @@ the expected value distinguishes them.
 `CdbSymbolPathListEditor` is no longer a widget at all - the class survives as
 the four static functions that say how a symbol path is spelled, and the
 `PathListEditor` subclass with its three buttons is deleted.
+
+## CDB break events: a table whose rows are fixed
+
+The other CDB page. `CdbBreakEventWidget` built six check boxes and three line
+edits, and `breakEvents()` read the CDB command line back out of them - the
+same widget-as-storage shape, with the wrinkle that the *rows* are not the
+user's: they are the events CDB knows about. Nothing can be added or removed,
+so the table is check states and filter text.
+
+That makes it a good fit for `tableModel()`: two columns, the event one
+checkable and the parameter one editable **only for the three events that take
+a parameter**. `flags()` says so, `EditableRole` reports it to a Qt Quick view,
+and `setData()` refuses the write anyway.
+
+**Three encoding rules, and the tests that hold them:**
+
+- an event with no filter is written as `eh`, not `eh:` - the empty filter is
+  left off;
+- an event that takes no filter never gets one, however the stored string is
+  spelled (`ct:nonsense` reads back as `ct`);
+- an event CDB does not know is dropped, not carried along.
+
+**Two controls that did not bite, for two different reasons.**
+
+*A guard on a path the test never drove.* Removing the `hasParameter` check
+from `setData()` changed nothing, because the test only called `setValue()` -
+and `setBreakEvents()` has a *separate* guard on the same rule. The rule is
+enforced twice, and the test was only exercising one of them. Fixed by driving
+`setData()` on a row the model itself says is not editable, rather than on a
+row index picked by hand.
+
+*A fixture that masked the control.* Making `indexOfEvent()` answer 0 for an
+unknown event should have turned `{"eh", "zz:something"}` into two ticked
+events - except that index 0 *is* `eh`, which was ticked already, so the result
+was unchanged. The unknown event has to be tested **on its own**. A test that
+mixes the case under test with a case that would produce the same answer cannot
+tell them apart, and this one looked fine for two rounds.
+
+With both pages ported, the only `setWidgetCreator` left in the debugger is
+`DebugModeWidget`, which is an `IMode` and not a settings page. Of the pages
+that still build a widget anywhere, Windows App SDK remains, and Designer's
+wraps a `QDesignerOptionsPageInterface` that is not ours to port.

@@ -145,6 +145,7 @@ DebuggerSettings::DebuggerSettings() :
     //
 
     cdbAdditionalArguments.setSettingsKey(cdbSettingsGroup, "AdditionalArguments");
+    cdbAdditionalArguments.setQmlName("AdditionalArguments");
     cdbAdditionalArguments.setDisplayStyle(StringAspect::LineEditDisplay);
     cdbAdditionalArguments.setLabelText(Tr::tr("Additional arguments:"));
 
@@ -195,11 +196,13 @@ DebuggerSettings::DebuggerSettings() :
 
     cdbBreakEvents.setSettingsKey(cdbSettingsGroup, "BreakEvent");
     cdbBreakOnCrtDbgReport.setSettingsKey(cdbSettingsGroup, "BreakOnCrtDbgReport");
+    cdbBreakOnCrtDbgReport.setQmlName("BreakOnCrtDbgReport");
     cdbBreakOnCrtDbgReport.setLabelText(msgSetBreakpointAtFunction(Constants::CRT_DEBUG_REPORT));
     cdbBreakOnCrtDbgReport.setToolTip(msgSetBreakpointAtFunctionToolTip(Constants::CRT_DEBUG_REPORT,
         Tr::tr("Catches runtime error messages caused by assert(), for example.")));
 
     useCdbConsole.setSettingsKey(cdbSettingsGroup, "CDB_Console");
+    useCdbConsole.setQmlName("UseCdbConsole");
     useCdbConsole.setToolTip("<html><head/><body><p>" + Tr::tr(
         "Uses CDB's native console for console applications. "
         "This overrides the setting in Environment > System. "
@@ -210,6 +213,7 @@ DebuggerSettings::DebuggerSettings() :
     useCdbConsole.setLabelText(Tr::tr("Use CDB &console"));
 
     cdbBreakPointCorrection.setSettingsKey(cdbSettingsGroup, "BreakpointCorrection");
+    cdbBreakPointCorrection.setQmlName("BreakPointCorrection");
     cdbBreakPointCorrection.setDefaultValue(true);
     cdbBreakPointCorrection.setToolTip("<html><head/><body><p>" + Tr::tr(
         "Attempts to correct the location of a breakpoint based on file and line number should "
@@ -218,21 +222,26 @@ DebuggerSettings::DebuggerSettings() :
     cdbBreakPointCorrection.setLabelText(Tr::tr("Correct breakpoint location"));
 
     cdbUsePythonDumper.setSettingsKey(cdbSettingsGroup, "UsePythonDumper");
+    cdbUsePythonDumper.setQmlName("UsePythonDumper");
     cdbUsePythonDumper.setDefaultValue(true);
     cdbUsePythonDumper.setLabelText(Tr::tr("Use Python dumper"));
 
     firstChanceExceptionTaskEntry.setSettingsKey(cdbSettingsGroup, "FirstChanceExceptionTaskEntry");
+    firstChanceExceptionTaskEntry.setQmlName("FirstChanceExceptionTaskEntry");
     firstChanceExceptionTaskEntry.setDefaultValue(true);
     firstChanceExceptionTaskEntry.setLabelText(Tr::tr("First chance exceptions"));
 
     secondChanceExceptionTaskEntry.setSettingsKey(cdbSettingsGroup, "SecondChanceExceptionTaskEntry");
+    secondChanceExceptionTaskEntry.setQmlName("SecondChanceExceptionTaskEntry");
     secondChanceExceptionTaskEntry.setDefaultValue(true);
     secondChanceExceptionTaskEntry.setLabelText(Tr::tr("Second chance exceptions"));
 
     ignoreFirstChanceAccessViolation.setSettingsKey(cdbSettingsGroup, "IgnoreFirstChanceAccessViolation");
+    ignoreFirstChanceAccessViolation.setQmlName("IgnoreFirstChanceAccessViolation");
     ignoreFirstChanceAccessViolation.setLabelText(Tr::tr("Ignore first chance access violations"));
 
     enableHeapDebugging.setSettingsKey(cdbSettingsGroup, "EnableHeapDebugging");
+    enableHeapDebugging.setQmlName("EnableHeapDebugging");
     enableHeapDebugging.setLabelText(Tr::tr("Enable heap debugging"));
     enableHeapDebugging.setToolTip(
         "<p>"
@@ -306,6 +315,9 @@ DebuggerSettings::DebuggerSettings() :
     page5.registerAspect(&secondChanceExceptionTaskEntry);
     page5.registerAspect(&ignoreFirstChanceAccessViolation);
     page5.registerAspect(&enableHeapDebugging);
+    page5.setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Debugger/CdbOptionsPage.qml"));
+    // After the registrations, which turn auto-apply back on.
+    page5.setAutoApply(false);
 
     // Page 6
     page6.registerAspect(&cdbSymbolPaths);

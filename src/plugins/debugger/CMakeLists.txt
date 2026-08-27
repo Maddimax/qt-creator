@@ -171,6 +171,7 @@ if(TARGET Debugger)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      CdbOptionsPage.qml
       CdbPathsPage.qml
       CommonSettingsPage.qml
       DebuggersPage.qml

@@ -6,12 +6,15 @@
 #include "cdbpaths_test.h"
 
 #include "debuggeractions.h"
+#include "cdb/cdboptionspage.h"
 #include "shared/cdbsymbolpathlisteditor.h"
 
 #include <coreplugin/dialogs/ioptionspage.h>
 
+#include <utils/aspectpresentation.h>
 #include <utils/temporarydirectory.h>
 
+#include <QAbstractItemModel>
 #include <QTest>
 
 using namespace Utils;
@@ -86,11 +89,98 @@ private slots:
         QVERIFY(symbolPathsToAdd(false, false, dir).isEmpty());
     }
 
+    // The events are stored the way CDB spells them on its command line, and
+    // an event that takes no filter never gets one.
+    void testTheEventsRoundTripThroughTheirCdbSpelling()
+    {
+        CdbBreakEventsAspect aspect;
+        QAbstractItemModel * const model = aspect.tableModel();
+        QVERIFY(model);
+        QCOMPARE(model->columnCount({}), 2);
+        const int rows = model->rowCount({});
+        QVERIFY2(rows > 0, "the model offers no events to break on");
+
+        // Nothing ticked is no events, not a list of empty strings.
+        aspect.setValue({});
+        QVERIFY(aspect.value().isEmpty());
+
+        // What the model holds is what the page will commit, and the aspect
+        // reads it back rather than trusting the string it was given -
+        // isDirty() is what asks, so it is what makes the two agree.
+        const auto asShown = [&aspect] {
+            aspect.isDirty();
+            return aspect.volatileValue();
+        };
+
+        aspect.setValue({"eh", "out:Needle"});
+        QCOMPARE(asShown(), QStringList({"eh", "out:Needle"}));
+
+        // Which rows those are, read off the model rather than assumed.
+        int checked = 0;
+        int withFilter = 0;
+        for (int row = 0; row < rows; ++row) {
+            const QModelIndex event = model->index(row, 0);
+            if (model->data(event, Qt::CheckStateRole).toInt() == Qt::Checked)
+                ++checked;
+            if (!model->data(model->index(row, 1), Qt::DisplayRole).toString().isEmpty())
+                ++withFilter;
+            // The event column is a check box and never a field.
+            QVERIFY(model->data(event, Utils::AspectTable::CheckableRole).toBool());
+        }
+        QCOMPARE(checked, 2);
+        QCOMPARE(withFilter, 1);
+
+        // An event with no filter of its own cannot be given one, however the
+        // stored string is spelled.
+        aspect.setValue({"ct:nonsense"});
+        QCOMPARE(asShown(), QStringList{"ct"});
+
+        // And an event CDB does not know is dropped rather than carried
+        // along, which is what the check states can express and a string
+        // list cannot.
+        // On its own, so that it cannot be mistaken for the event that is
+        // ticked anyway: an unknown event has to leave nothing behind, not
+        // stand in for whichever event happens to be first.
+        aspect.setValue({"zz:something"});
+        QVERIFY2(asShown().isEmpty(), qPrintable(asShown().join(", ")));
+        aspect.setValue({"eh", "zz:something"});
+        QCOMPARE(asShown(), QStringList{"eh"});
+
+        // Typing into the view is refused for a row whose event takes no
+        // filter, and the cell says so rather than only rejecting the write.
+        aspect.setValue({});
+        int withoutFilter = -1;
+        int acceptsFilter = -1;
+        for (int row = 0; row < rows; ++row) {
+            const QModelIndex parameter = model->index(row, 1);
+            if (model->data(parameter, Utils::AspectTable::EditableRole).toBool())
+                acceptsFilter = row;
+            else
+                withoutFilter = row;
+        }
+        QVERIFY2(withoutFilter != -1 && acceptsFilter != -1,
+                 "the events are all of one kind, so this proves nothing");
+
+        QVERIFY2(!model->setData(model->index(withoutFilter, 1), "nonsense", Qt::EditRole),
+                 "an event that takes no filter accepted one");
+        QVERIFY(model->data(model->index(withoutFilter, 1), Qt::DisplayRole).toString().isEmpty());
+
+        QVERIFY(model->setData(model->index(acceptsFilter, 1), "Needle", Qt::EditRole));
+        QCOMPARE(model->data(model->index(acceptsFilter, 1), Qt::DisplayRole).toString(),
+                 QString("Needle"));
+    }
+
     void testThePageDrawsItself()
     {
         const Utils::Result<> rendered
             = Core::aspectFormRenders(&settings().page6, "CdbPathsPage.qml");
         QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+
+        const Utils::Result<> options
+            = Core::aspectFormRenders(&settings().page5, "CdbOptionsPage.qml");
+        QVERIFY2(options, qPrintable(options ? QString() : options.error()));
+        QVERIFY2(!settings().page5.isAutoApply(),
+                 "the CDB page auto-applies, so Apply would never save");
 
         // A settings page that auto-applies never writes anything: the aspects
         // are registered after the container is built, and registerAspect()

@@ -5,6 +5,8 @@
 
 #include <utils/aspects.h>
 
+#include "cdb/cdboptionspage.h"
+
 #include <QMap>
 
 namespace Debugger::Internal {
@@ -84,7 +86,7 @@ public:
 
     // Page 5: CDB
     Utils::StringAspect cdbAdditionalArguments;
-    Utils::StringListAspect cdbBreakEvents;
+    CdbBreakEventsAspect cdbBreakEvents;
     Utils::BoolAspect cdbBreakOnCrtDbgReport;
     Utils::BoolAspect useCdbConsole;
     Utils::BoolAspect cdbBreakPointCorrection;
