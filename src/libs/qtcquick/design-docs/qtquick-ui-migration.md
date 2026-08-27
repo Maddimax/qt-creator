@@ -220,6 +220,13 @@ And a `WheelHandler` accepts only an actual mouse wheel unless
 reports distance in pixels rather than wheel notches, and using that is what
 makes it follow the fingers.
 
+The fill is measured per row with `cursorToX`, so the cases where a row is not
+a whole line were checked after the fact: a wrapped line and a sideways
+scroll. Both were right already. They have a test of their own because the
+first one cannot see them - it selects short unwrapped lines, where a row
+starts where its block does, so measuring from the wrong one of the two gives
+the same answer.
+
 **qmllint over every plugin is worth running, and now worth reading.** All 67
 `*_qmllint` targets used to give 665 warnings, 654 of them one thing: a page
 reaching `aspects.Foo`, a property of the `AspectPage` around it, without
