@@ -277,20 +277,27 @@ with seven others - but not the two layouts wrapping at different widths, which
 lands the caret between rows and is what the Down test is for. Worth knowing
 which test covers which, because the two look like the same bug from outside.
 
+**Found while testing break indent, and not caused by it: moving the caret
+down two rows disagrees with the rows on screen.** In a document of one long
+wrapped line, rows of 54 characters, two presses of Down from the start land
+the caret at 162 rather than 108 - three rows rather than two. It happens with
+break indent off as well as on, so it predates that work. One press lands
+correctly, which is why `testDownMovesToTheNextRowWhenWrapping` passes: it
+moves once. The break indent test does not assert this; it would be asserting
+someone else's bug.
+
 **What the Qt Quick editor still does not do, audited rather than guessed.**
 Whitespace turned out to be one of a class - a display setting that reaches the
 document and then needs someone to draw it - so all thirty of them were checked
 against what the editor reads. Sixteen are unread, and they are not equally
 interesting:
 
-- **Wrapped-line indent** - `breakindent`, `breakindentMin`, `breakindentShift`,
-  `breakindentSbr`, `showBreak`. The widget editor hands these to
-  `TextEditorLayout::setBreakIndent()`, and this editor shapes its own rows, so
-  continuation rows start hard against the left margin instead of under the
-  text they continue. The most visible of the sixteen, and not a small change:
-  the rows would be shaped narrower and drawn offset, which moves everything
-  measured from them - `cursorToX`, the selection fill, the whitespace marks,
-  and where a click lands.
+- **Wrapped-line indent** - done. `breakindent`, `breakindentMin` and
+  `breakindentShift` are honoured: the rows are shaped narrower and drawn
+  pushed in, with the layout that counts rows told the same so the two break in
+  the same places. The arithmetic is `PlainTextDocumentLayout`'s, copied rather
+  than invented. `showBreak` and `breakindentSbr` - the marker drawn at the
+  start of a wrapped row - are not done.
 - **Whole features not started** - `displayMinimap`, `scrollBarHighlights`,
   `highlightBlocks` (thirty-four references in the widget editor), and
   `markDiffChangeSigns`.
