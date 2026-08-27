@@ -552,6 +552,11 @@ private:
     // the mouse.
     void ensureCursorVisible();
     void ensureCaretVisibleSideways();
+    // Which row a block starts on. A row and a line are the same thing only
+    // while wrapping is off; with it on, the layout that lays the rows out is
+    // the one that knows, and counting lines lands short by however many rows
+    // the lines above took.
+    int rowOfBlock(const QTextBlock &block);
     void insertTypedText(QTextCursor &cursor, const QString &text);
     void offerCompletionsIfAsked(const QTextCursor &cursor);
 

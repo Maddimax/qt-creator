@@ -2557,6 +2557,44 @@ private slots:
         QTRY_COMPARE(viewport->cursorLine(), 1);
     }
 
+    void testGoingToALineLandsOnItWhenWrapping()
+    {
+        // What a search result or a compiler message does. It scrolled to the
+        // line's number times the line height, which is a count of lines - so
+        // with wrapping on, where a line is several rows, it landed short by
+        // as many rows as the lines above it took.
+        TemporaryDirectory dir("qtc-viewport-goto");
+        const FilePath file = dir.filePath("wrapped.txt");
+        QString content;
+        for (int i = 0; i < 100; ++i)
+            content += QString(200, QLatin1Char('x')) + QLatin1Char('\n');
+        QVERIFY(file.writeFileContents(content.toUtf8()));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        viewport->setWrapping(true);
+        QTRY_VERIFY2(viewport->contentHeight() / viewport->lineHeight() > 150,
+                     "nothing wrapped, so a row and a line are still the same");
+
+        // Somewhere well down the file, centred.
+        viewport->gotoLine(60, 0, true);
+        QTRY_COMPARE(viewport->cursorLine(), 60);
+
+        // Wherever the view ended up, line 60 has to be on screen - that is
+        // the whole point of going to it.
+        QTRY_VERIFY2(!viewport->cursorRectangle().isNull(),
+                     "the caret is not laid out, so line 60 is not on screen");
+        const QRectF caret = viewport->cursorRectangle();
+        QVERIFY2(caret.top() >= 0 && caret.bottom() <= viewport->height(),
+                 qPrintable(QString("went to line 60 and it is at y=%1 in a view %2 tall")
+                                .arg(caret.top())
+                                .arg(viewport->height())));
+    }
+
     void testHomeGoesToTheCodeBeforeItGoesToTheMargin()
     {
         TemporaryDirectory dir("qtc-viewport-home");

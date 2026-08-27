@@ -772,14 +772,9 @@ void TextViewport::ensureCursorVisible()
 
     QTextCursor cursor(text);
     cursor.setPosition(qBound(0, m_cursorPosition, text->characterCount() - 1));
-    // Where the line sits on screen, not where it sits in the file: a folded
-    // block above it takes up no room, so the two part company as soon as
-    // anything is folded. And with wrapping on a line is several rows, so the
-    // count has to come from the layout that knows the rows - the block's own
-    // firstLineNumber() counts lines, and scrolling by it lands a page short.
-    const Utils::TextEditorLayout * const rows = m_wrapping ? editorLayout() : nullptr;
-    int row = rows ? rows->firstLineNumberOf(cursor.block()) : cursor.block().firstLineNumber();
-    if (rows) {
+    // Where the caret sits on screen, which is a row and not a line number.
+    int row = rowOfBlock(cursor.block());
+    if (m_wrapping) {
         // Which row of the block the caret is on. Without this the scroll is
         // measured to the top of the line, so a caret several rows into a
         // wrapped one pulls the view a row too far back every time.
@@ -804,6 +799,14 @@ void TextViewport::ensureCursorVisible()
         setScrollY(top - (height() - m_lineHeight) / 2);
     else
         setScrollY(above ? top : top + m_lineHeight - height());
+}
+
+int TextViewport::rowOfBlock(const QTextBlock &block)
+{
+    if (const Utils::TextEditorLayout * const rows = m_wrapping ? editorLayout() : nullptr)
+        return rows->firstLineNumberOf(block);
+    // Not the block number: whatever is folded above it takes up no room.
+    return block.firstLineNumber();
 }
 
 void TextViewport::ensureCaretVisibleSideways()
@@ -1568,9 +1571,9 @@ void TextViewport::gotoLine(int line, int column, bool centerLine)
     setSelectionEnd(-1);
     setCursorPosition(cursor.position());
 
-    // firstLineNumber() rather than the block number: whatever is folded above
-    // this line is not a row, and something may have just been unfolded.
-    const qreal top = block.firstLineNumber() * m_lineHeight;
+    // The row the line starts on, which is not its number once anything above
+    // it is folded away or wrapped over several rows.
+    const qreal top = rowOfBlock(block) * m_lineHeight;
     if (centerLine)
         setScrollY(top - (height() - m_lineHeight) / 2);
     else if (top < m_scrollY || top + m_lineHeight > m_scrollY + height())
