@@ -9868,3 +9868,136 @@ This is the third widget-as-storage find in the dialog bucket, after the
 Perforce `\d+?` regex and the two `isEnabled()` readers, and the only one where
 the storage was a *label* - the one widget with no state of its own to speak of,
 which is presumably why it looked harmless.
+
+## The hover handlers: an API that only a widget could satisfy
+
+Every tooltip in Qt Creator - a C++ symbol's documentation, an LSP diagnostic,
+a colour swatch, a qmake keyword - comes from a `BaseHoverHandler`, and the
+virtual they all implement was
+
+    virtual void identifyMatch(TextEditorWidget *editorWidget, int pos, ReportPriority);
+
+so the Qt Quick editor could not show a single one of them. This was written up
+earlier as a decision for the user rather than a batch, because widening it
+touches nine handlers across six plugins. The instruction came back: **change
+the API, and delete widget code if that makes it easier.**
+
+**What the handlers actually use is much less than a widget.** Grepping
+`editorWidget->` across all nine:
+
+| handler | uses |
+| --- | --- |
+| android manifest, cmake | `textCursor()` |
+| languageclient | `textCursor()`, `textDocument()` |
+| qmljs | `textDocument()` |
+| resource preview, profile, colour preview | `document()`, `extraSelectionTooltip()` |
+| cpp builtin | `textDocument()`, `document()` |
+| suggestion | `suggestionVisible()`, `cursorRect()`, `viewport()`, `insertSuggestion()` |
+
+Eight of the nine need the document, the cursor, and the message under the
+mouse. That is `TextEditor::HoverTarget`, which `TextEditorWidget` implements
+and `TextViewport` implements too.
+
+**The ninth says so.** The suggestion tooltip cycles and applies the
+suggestion, so it is genuinely about a view that has one - and it now casts,
+guarded by `suggestionVisible()`, which is a virtual whose base answers false.
+A view that cannot show a suggestion is never asked to drive one.
+
+**And one of the eight turned out not to need a widget at all.** The QmlJS
+handler took `qobject_cast<QmlJSEditorWidget *>(editorWidget)` and asserted on
+it, then used it for `qmlJsEditorDocument()->semanticInfo()`,
+`document()->characterAt()` and `extraSelections(CodeWarningsSelection)`. Every
+one of those is the *document's*. The cast is now to `QmlJSEditorDocument`, and
+`matchDiagnosticMessage()` takes the document rather than the editor.
+`CppElementEvaluator` was the same story: a `TextEditorWidget *` member used
+for `textDocument()`, `convertPosition()` and the code warnings, all three of
+which the document answers.
+
+**The message under the mouse moves to the document.** `extraSelectionTooltip()`
+was on the widget, over the widget's own extra selections. Before moving it,
+the question worth asking: *which selection kinds actually carry a tooltip?*
+Grepping `format.setToolTip` on extra selections gives four sites, and every one
+of them is `CodeWarningsSelection` or `DebuggerExceptionSelection` - both
+already published document-wide. So nothing is lost by asking the document, and
+a view that is not a `TextEditorWidget` can show diagnostics.
+
+(The two `qmljssemantichighlighter.cpp` hits are *highlighter* formats, not
+extra selections, and were never visible to this lookup at all.)
+
+**A test that renders after asserting would not have caught the real bug.**
+`TextDocument::extraSelectionTooltip()` is asserted before and after a warning
+is set, and the negative control that removes the range check bites - but the
+control that mattered was the one on `isDocumentWideSelection()`: with
+`CodeWarningsSelection` taken out of the shared set, both this test and the
+older sharing test go red, which is the honest coupling.
+
+## Hovering in a Quick view: three things Qt does for a widget and not for an item
+
+`HoverHandlerRunner` - the state machine that asks each handler in turn and runs
+the one with the highest priority - was a class inside `texteditor.cpp` holding
+a `TextEditorWidget *`. It is now `hoverhandlerrunner.{h,cpp}` over a
+`HoverTarget *`, and `TextViewport` owns one. What the item has to do for
+itself:
+
+1. **Ask for hover events.** `setAcceptHoverEvents(true)`; without it the scene
+   delivers nothing.
+2. **Time the resting.** A widget gets `QEvent::ToolTip` from Qt once the mouse
+   has been still for `SH_ToolTip_WakeUpDelay`. An item gets no such thing, so
+   the item runs the timer, reading the same style hint.
+3. **Name a widget to put the tooltip on.** `Utils::ToolTip` is widgets, so
+   `tooltipParent()` is the hosting `QQuickWidget`, handed over by the editor.
+
+**A comment that was confidently wrong.** The first version mapped item
+coordinates to the screen through the host widget, with a comment explaining
+that `QQuickItem::mapToGlobal()` cannot be used because the item lives in a
+`QQuickWidget`'s offscreen window whose position means nothing. The negative
+control on it did not bite, and printing both numbers showed why: they agree to
+within half a pixel. Qt keeps the offscreen window's position in step with the
+widget. The helper and its explanation came out.
+
+**And the wiring order was a bug the test found.** `configureLanguageServices()`
+runs in the constructor and looks the view up through `widget()` - which
+`setWidget()` had not yet been called with, so `viewport()` was null and
+everything it configured was silently skipped. It survived because the same
+function runs again on `filePathChanged`. `setWidget()` now happens directly
+after `setSource()`, with a comment saying why nothing may configure the view
+before it.
+
+## Four ways an on-screen hover test lies
+
+The hover test took six attempts to make honest, and every failure was
+instructive.
+
+**A synthetic event delivered to the item bypasses the property that makes it
+work.** `QCoreApplication::sendEvent(item, &hoverEvent)` reaches
+`hoverMoveEvent()` whether or not `acceptHoverEvents()` is set, so the control
+that turned it off did not bite. Fixed by asserting the property itself, which
+is the precondition the scene actually reads.
+
+**A point taken from the view and used half a second later is a point in a
+different layout.** `rectangleAt()` and `positionAt()` both read the same
+polished snapshot and are always consistent *at an instant* - but the view goes
+on laying itself out, and the tooltip timer fires 500 ms after the point was
+taken. First seen as `askedAt == 17` (the second block, because the view had
+scrolled a line), then as `askedAt == 11` (the next word, because the font had
+changed). Waiting with `QTRY_COMPARE` for the two to agree did not help: they
+agreed, and then disagreed again.
+
+**The real mouse is a participant.** The last of these was not a layout problem
+at all. The editor is a real window on a real screen, and a physical mouse
+moving across it delivers hover events that restart the view's timer with a
+point of its own - which is the view behaving correctly and the test losing its
+question. The fix is to put the pointer back and ask again, up to five times,
+with a comment saying so. Six consecutive full-suite runs, and five controls
+that all bite.
+
+**A single-block fixture removes a whole failure mode.** Writing the file
+without a trailing newline leaves the document one block, so wherever the view
+has scrolled to cannot change which block the pointer is over. Worth doing in
+any test that is not about scrolling.
+
+**And an exit code of -6 with no totals is not a result.** The final baseline
+came back SIGABRT with no test output, which the harness printed as "NOTHING
+BIT". It is the intermittent `QCocoaCursor::createCursorData ->
+QImage::toCGImage` SEGV that predates all of this work, and it crashes before
+the first test runs. Re-run, not diagnosed - but never counted as a pass.

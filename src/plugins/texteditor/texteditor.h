@@ -798,6 +798,7 @@ public:
     IndenterCreator indenterCreator() const;
     AutoCompleterCreator autoCompleterCreator() const;
     CompletionAssistProvider *completionAssistProvider() const;
+    QList<BaseHoverHandler *> hoverHandlers() const;
 
     // The one that would build an editor for \a filePath, or nullptr where no
     // factory claims it. Walks the mime type's parents, so a C++ file finds

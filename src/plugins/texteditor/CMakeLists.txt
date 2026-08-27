@@ -68,6 +68,7 @@ add_qtc_plugin(TextEditor
     formattexteditor.cpp formattexteditor.h
     gutterframe.cpp gutterframe.h
     highlighter.cpp highlighter.h
+    hoverhandlerrunner.cpp hoverhandlerrunner.h
     highlighterhelper.cpp highlighterhelper.h
     highlightersettings.cpp highlightersettings.h
     icodestylepreferences.cpp icodestylepreferences.h

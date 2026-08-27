@@ -94,6 +94,8 @@ Project {
             "gutterframe.h",
             "highlighter.cpp",
             "highlighter.h",
+            "hoverhandlerrunner.cpp",
+            "hoverhandlerrunner.h",
             "highlighterhelper.cpp",
             "highlighterhelper.h",
             "highlightersettings.cpp",

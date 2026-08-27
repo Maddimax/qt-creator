@@ -3,8 +3,8 @@
 
 #include "textviewport.h"
 
-#include "behaviorsettings.h"
 #include "autocompleter.h"
+#include "behaviorsettings.h"
 #include "codeassist/assistinterface.h"
 #include "codeassist/completionassistprovider.h"
 #include "codeassist/iassistprocessor.h"
@@ -20,6 +20,7 @@
 #include "texteditortr.h"
 #include "textdocument.h"
 #include "gutterframe.h"
+#include "hoverhandlerrunner.h"
 #include "indenter.h"
 #include "marginsettings.h"
 #include "textdocumentlayout.h"
@@ -34,6 +35,10 @@
 #include <qtcquick/qtciconprovider.h>
 
 #include <utils/theme/theme.h>
+#include <utils/tooltip/tooltip.h>
+
+#include <QApplication>
+#include <QStyle>
 #include <utils/utilsicons.h>
 
 #include <QFontMetricsF>
@@ -78,6 +83,18 @@ TextViewport::TextViewport(QQuickItem *parent)
     setFlag(ItemIsFocusScope);
     setFlag(ItemAcceptsInputMethod);
     setClip(true);
+
+    // Hover tooltips. A widget gets QEvent::ToolTip from Qt after the mouse
+    // rests; an item gets no such thing, so the resting is timed here.
+    setAcceptHoverEvents(true);
+    m_hoverRunner = std::make_unique<HoverHandlerRunner>(this, m_hoverHandlers);
+    m_hoverTimer = new QTimer(this);
+    m_hoverTimer->setSingleShot(true);
+    // The user's own rest-before-tooltip delay, which is a style hint rather
+    // than a setting; a widget gets it applied for it.
+    m_hoverTimer->setInterval(
+        QApplication::style()->styleHint(QStyle::SH_ToolTip_WakeUpDelay));
+    connect(m_hoverTimer, &QTimer::timeout, this, &TextViewport::askForTooltip);
 
     m_autoCompleter = std::make_unique<AutoCompleter>();
     connect(&globalCompletionSettings(), &Utils::AspectContainer::changed, this, [this] {
@@ -560,6 +577,86 @@ void TextViewport::setReadOnly(bool readOnly)
     if (QGuiApplication::inputMethod())
         QGuiApplication::inputMethod()->update(Qt::ImEnabled);
     emit readOnlyChanged();
+}
+
+TextDocument *TextViewport::textDocument() const
+{
+    return m_document ? m_document->textDocument() : nullptr;
+}
+
+void TextViewport::setContextHelpItem(const Core::HelpItem &item)
+{
+    m_contextHelpItem = item;
+}
+
+Core::HelpItem TextViewport::contextHelpItem() const
+{
+    return m_contextHelpItem;
+}
+
+QWidget *TextViewport::tooltipParent()
+{
+    return m_tooltipHost;
+}
+
+void TextViewport::setTooltipHost(QWidget *host)
+{
+    m_tooltipHost = host;
+}
+
+QPoint TextViewport::globalCursorTopLeft() const
+{
+    return mapToGlobal(cursorRectangle().topLeft()).toPoint();
+}
+
+void TextViewport::setHoverHandlers(const QList<BaseHoverHandler *> &handlers)
+{
+    m_hoverHandlers = handlers;
+}
+
+void TextViewport::hoverMoveEvent(QHoverEvent *event)
+{
+    QQuickItem::hoverMoveEvent(event);
+
+    if (m_hoverHandlers.isEmpty() || !m_tooltipHost)
+        return;
+
+    // Moving cancels whatever was about to be shown: what the tooltip would
+    // have been about is no longer under the mouse.
+    Utils::ToolTip::hide();
+    m_hoverItemPos = event->position();
+    m_hoverTimer->start();
+}
+
+void TextViewport::hoverLeaveEvent(QHoverEvent *event)
+{
+    QQuickItem::hoverLeaveEvent(event);
+    m_hoverTimer->stop();
+    Utils::ToolTip::hide();
+}
+
+void TextViewport::askForTooltip()
+{
+    TextDocument * const doc = textDocument();
+    if (!doc || !m_tooltipHost)
+        return;
+
+    const int position = positionAt(m_hoverItemPos.x(), m_hoverItemPos.y());
+    if (position < 0)
+        return;
+
+    QTextCursor cursor(doc->document());
+    cursor.setPosition(position);
+
+    // Below and right of the mouse, the way Qt places a widget's tooltip, so
+    // that the tooltip does not sit on top of what it is about.
+    const QPoint point = mapToGlobal(m_hoverItemPos).toPoint() + QPoint(2, 16);
+    m_hoverRunner->startChecking(
+        cursor,
+        [point](HoverTarget *target, BaseHoverHandler *handler, int) {
+            handler->showToolTip(target, point);
+        },
+        [](HoverTarget *) { Utils::ToolTip::hide(); });
 }
 
 QTextCursor TextViewport::textCursor() const

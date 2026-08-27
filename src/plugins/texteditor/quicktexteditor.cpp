@@ -3,6 +3,8 @@
 
 #include "quicktexteditor.h"
 
+#include "colorpreviewhoverhandler.h"
+
 #include "codesource.h"
 #include "textdocument.h"
 #include "icodestylepreferencesfactory.h"
@@ -41,6 +43,7 @@
 #include <coreplugin/find/ifindsupport.h>
 
 #include <utils/aggregate.h>
+#include <utils/textutils.h>
 #include <utils/algorithm.h>
 #include <utils/theme/theme.h>
 #include <utils/mimeutils.h>
@@ -212,6 +215,15 @@ public:
              {"highlightCurrentLine", displaySettings().highlightCurrentLine()},
              {"showAnnotations", displaySettings().displayAnnotations()}});
         widget->setSource(QUrl("qrc:/qt/qml/QtCreator/TextEditor/MainEditor.qml"));
+        // Before anything that configures the view: viewport() looks through
+        // widget(), so everything below this line would silently do nothing.
+        setWidget(widget);
+
+        // A tooltip is a widget and has to be placed in screen coordinates.
+        // The item is in a QQuickWidget's offscreen window, whose own position
+        // is meaningless, so the hosting widget is what it maps through.
+        if (TextViewport * const view = viewport())
+            view->setTooltipHost(widget->quickWidget());
 
         // Preferences are pushed into a document, not read from one, so an
         // editor that pushes nothing saves and indents differently from every
@@ -267,8 +279,6 @@ public:
         // next editor of the same kind collides with it - the widget editor
         // generates an id per instance for exactly this reason.
         setContext(Core::Context(QUICK_TEXT_EDITOR_ID, m_editorContext));
-        setWidget(widget);
-
         // The Wrap Lines menu item. The widget editor registers the same
         // command in its own context and toggles that editor rather than the
         // preference, so this does the same: without it the menu entry is
@@ -499,6 +509,15 @@ private:
         if (const TextEditorFactory::AutoCompleterCreator creator = factory->autoCompleterCreator()) {
             if (TextViewport * const view = viewport())
                 view->setAutoCompleter(creator());
+        }
+
+        // Tooltips. The handlers are the language's, plus the ones every
+        // editor gets; asking the factory is what makes a C++ file show C++
+        // tooltips here.
+        if (TextViewport * const view = viewport()) {
+            QList<BaseHoverHandler *> handlers = factory->hoverHandlers();
+            handlers.append(&colorPreviewHoverHandler());
+            view->setHoverHandlers(handlers);
         }
     }
 
@@ -1561,6 +1580,124 @@ private slots:
         QCOMPARE(widget->extraSelections(TextEditorWidget::ParenthesesMatchingSelection).size(), 1);
         QVERIFY2(document->extraSelections(TextEditorWidget::ParenthesesMatchingSelection).isEmpty(),
                  "a view's own bracket match was published to the document");
+    }
+
+    // Hovering. A tooltip in Creator is a hover handler's answer, and the
+    // handlers used to be reachable only from a TextEditorWidget. The Quick
+    // view answers the same questions, so the same handlers run over it.
+    void testRestingTheMouseAsksTheHoverHandlers()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-hover");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("hovered.txt");
+        // One line and no trailing newline, so the file is a single block:
+        // where the view has scrolled to cannot then change which block the
+        // pointer is over, and this test is not about scrolling.
+        QVERIFY(file.writeFileContents("alpha beta gamma"));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY(editor);
+        const QScopeGuard closeIt([editor] { Core::EditorManager::closeEditors({editor}); });
+
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+        auto * const viewport = quick->rootObject()->findChild<TextViewport *>();
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        // A tooltip is a widget wherever it is asked for, so the view has to
+        // name one to place it against - and it is the hosting QQuickWidget,
+        // not the offscreen window the item actually lives in.
+        QCOMPARE(viewport->tooltipParent(), quick);
+        // And it is listening for the mouse at all: without this the scene
+        // delivers no hover events and none of the below ever happens.
+        QVERIFY(viewport->acceptHoverEvents());
+        QCOMPARE(viewport->textDocument(), qobject_cast<TextDocument *>(editor->document()));
+
+        // Standing in for a language's handler: what matters here is that it
+        // is asked at all, and about the right place. It notes what the view
+        // says is under the pointer at the moment it is asked - the view goes
+        // on laying itself out, and a reading taken later is a reading of a
+        // different layout.
+        class RecordingHoverHandler final : public BaseHoverHandler
+        {
+        public:
+            TextViewport *view = nullptr;
+            QPointF pointer;
+
+            int askedAt = -1;
+            int underPointer = -1;
+            int shown = 0;
+            TextDocument *seenDocument = nullptr;
+            QPoint at;
+
+            void identifyMatch(HoverTarget *target, int pos, ReportPriority report) override
+            {
+                askedAt = pos;
+                underPointer = view->positionAt(pointer.x(), pointer.y());
+                seenDocument = target->textDocument();
+                setToolTip("the answer");
+                report(Priority_Tooltip);
+            }
+            void operateTooltip(HoverTarget *, const QPoint &point) override
+            {
+                ++shown;
+                at = point;
+            }
+        } handler;
+        handler.view = viewport;
+        viewport->setHoverHandlers({&handler});
+
+        // The pointer goes somewhere inside "beta". The y is a fraction of the
+        // view's own line height so that it is the first line whatever the
+        // font turns out to be, and the x is where the view is drawing the
+        // word.
+        //
+        // Put back and asked again if the answer is about somewhere else: a
+        // real mouse moving across the editor restarts the view's timer with
+        // a point of its own, which is the view doing its job and this test
+        // losing its question.
+        QVERIFY(viewport->lineHeight() > 0);
+        QPointF over;
+        for (int attempt = 0; attempt < 5 && handler.askedAt != 6; ++attempt) {
+            const QRectF beta = viewport->rectangleAt(8);
+            QVERIFY2(!beta.isNull(), "the view could not place the eighth character");
+            over = QPointF(beta.center().x(), viewport->lineHeight() / 2);
+            handler.pointer = over;
+
+            const int before = handler.shown;
+            QHoverEvent move(QEvent::HoverMove, over, over, QPointF(-1, -1));
+            QCoreApplication::sendEvent(viewport, &move);
+
+            // Asked once the mouse has rested, which is what the view times;
+            // nothing else in this test produces that event.
+            QTRY_VERIFY(handler.shown > before);
+        }
+
+        // About the start of the word under the mouse, the way a hover handler
+        // is always asked - not about the character the pointer is on, and not
+        // about the top of the file.
+        QCOMPARE(handler.askedAt, 6);
+        QCOMPARE(handler.underPointer, 8);
+        QCOMPARE(handler.seenDocument, qobject_cast<TextDocument *>(editor->document()));
+
+        // Placed on the screen, over the editor it is about. A tooltip is a
+        // window of its own, so an anchor in the item's own coordinates would
+        // put it in a corner of the display.
+        const QRect onScreen(quick->mapToGlobal(QPoint(0, 0)), quick->size());
+        QVERIFY2(onScreen.contains(handler.at),
+                 qPrintable(QString("tooltip at %1,%2 with the editor at %3,%4 %5x%6")
+                                .arg(handler.at.x()).arg(handler.at.y())
+                                .arg(onScreen.x()).arg(onScreen.y())
+                                .arg(onScreen.width()).arg(onScreen.height())));
+
+        // And moving on takes the question back: what it was about is no
+        // longer under the mouse.
+        const int shownBeforeLeaving = handler.shown;
+        QHoverEvent leave(QEvent::HoverLeave, QPointF(-1, -1), over, over);
+        QCoreApplication::sendEvent(viewport, &leave);
+        QCOMPARE(handler.shown, shownBeforeLeaving);
     }
 
     // A hover handler asks for the message under the mouse. It gets it from

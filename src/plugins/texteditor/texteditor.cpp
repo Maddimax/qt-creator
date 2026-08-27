@@ -19,6 +19,7 @@
 #include "fontsettings.h"
 #include "gutterframe.h"
 #include "highlighter.h"
+#include "hoverhandlerrunner.h"
 #include "highlighterhelper.h"
 #include "highlightersettings.h"
 #include "icodestylepreferences.h"
@@ -504,162 +505,6 @@ public:
     QByteArray m_savedNavigationState;
 };
 
-class HoverHandlerRunner
-{
-public:
-    using Callback = std::function<void(TextEditorWidget *, BaseHoverHandler *, int)>;
-    using FallbackCallback = std::function<void(TextEditorWidget *)>;
-
-    HoverHandlerRunner(TextEditorWidget *widget, QList<BaseHoverHandler *> &handlers)
-        : m_widget(widget)
-        , m_handlers(handlers)
-    {
-    }
-
-    ~HoverHandlerRunner() { abortHandlers(); }
-
-    void startChecking(const QTextCursor &textCursor, const Callback &callback, const FallbackCallback &fallbackCallback)
-    {
-        if (m_handlers.empty()) {
-            fallbackCallback(m_widget);
-            return;
-        }
-
-        // Does the last handler still applies?
-        const int documentRevision = textCursor.document()->revision();
-        const int position = Text::wordStartCursor(textCursor).position();
-        if (m_lastHandlerInfo.applies(documentRevision, position, m_widget)) {
-            callback(m_widget, m_lastHandlerInfo.handler, position);
-            return;
-        }
-
-        if (isCheckRunning(documentRevision, position))
-            return;
-
-        // Update invocation data
-        m_documentRevision = documentRevision;
-        m_position = position;
-        m_callback = callback;
-        m_fallbackCallback = fallbackCallback;
-
-        restart();
-    }
-
-    bool isCheckRunning(int documentRevision, int position) const
-    {
-        return m_currentHandlerIndex >= 0
-            && m_documentRevision == documentRevision
-            && m_position == position;
-    }
-
-    void checkNext()
-    {
-        QTC_ASSERT(m_currentHandlerIndex >= 0, return);
-        QTC_ASSERT(m_currentHandlerIndex < m_handlers.size(), return);
-        BaseHoverHandler *currentHandler = m_handlers[m_currentHandlerIndex];
-
-        currentHandler->checkPriority(m_widget, m_position, [this](int priority) {
-            onHandlerFinished(m_documentRevision, m_position, priority);
-        });
-    }
-
-    void onHandlerFinished(int documentRevision, int position, int priority)
-    {
-        QTC_ASSERT(m_currentHandlerIndex >= 0, return);
-        QTC_ASSERT(m_currentHandlerIndex < m_handlers.size(), return);
-        QTC_ASSERT(documentRevision == m_documentRevision, return);
-        QTC_ASSERT(position == m_position, return);
-
-        BaseHoverHandler *currentHandler = m_handlers[m_currentHandlerIndex];
-        if (priority > m_highestHandlerPriority) {
-            m_highestHandlerPriority = priority;
-            m_bestHandler = currentHandler;
-        }
-
-        // There are more, check next
-        ++m_currentHandlerIndex;
-        if (m_currentHandlerIndex < m_handlers.size()) {
-            checkNext();
-            return;
-        }
-        m_currentHandlerIndex = -1;
-
-        // All were queried, run the best
-        if (m_bestHandler) {
-            m_lastHandlerInfo = LastHandlerInfo(m_bestHandler, m_documentRevision, m_position);
-            m_callback(m_widget, m_bestHandler, m_position);
-        } else {
-            m_fallbackCallback(m_widget);
-        }
-    }
-
-    void handlerRemoved(BaseHoverHandler *handler)
-    {
-        if (m_lastHandlerInfo.handler == handler)
-            m_lastHandlerInfo = LastHandlerInfo();
-        if (m_currentHandlerIndex >= 0)
-            restart();
-    }
-
-    void abortHandlers()
-    {
-        for (BaseHoverHandler *handler : m_handlers)
-            handler->abort();
-        m_currentHandlerIndex = -1;
-    }
-
-private:
-    void restart()
-    {
-        abortHandlers();
-
-        if (m_handlers.empty())
-            return;
-
-        // Re-initialize process data
-        m_currentHandlerIndex = 0;
-        m_bestHandler = nullptr;
-        m_highestHandlerPriority = BaseHoverHandler::Priority_None;
-
-        // Start checking
-        checkNext();
-    }
-
-    TextEditorWidget *m_widget;
-    const QList<BaseHoverHandler *> &m_handlers;
-
-    struct LastHandlerInfo {
-        LastHandlerInfo() = default;
-        LastHandlerInfo(BaseHoverHandler *handler, int documentRevision, int cursorPosition)
-            : handler(handler)
-            , documentRevision(documentRevision)
-            , cursorPosition(cursorPosition)
-        {}
-
-        bool applies(int documentRevision, int cursorPosition, TextEditorWidget *widget) const
-        {
-            return handler
-                && handler->lastHelpItemAppliesTo(widget)
-                && documentRevision == this->documentRevision
-                && cursorPosition == this->cursorPosition;
-        }
-
-        BaseHoverHandler *handler = nullptr;
-        int documentRevision = -1;
-        int cursorPosition = -1;
-    } m_lastHandlerInfo;
-
-    // invocation data
-    Callback m_callback;
-    FallbackCallback m_fallbackCallback;
-    int m_position = -1;
-    int m_documentRevision = -1;
-
-    // processing data
-    int m_currentHandlerIndex = -1;
-    int m_highestHandlerPriority = BaseHoverHandler::Priority_None;
-    BaseHoverHandler *m_bestHandler = nullptr;
-};
 
 struct CursorData
 {
@@ -5100,11 +4945,11 @@ void TextEditorWidgetPrivate::processTooltipRequest(const QTextCursor &c)
     if (handled)
         return;
 
-    const auto callback = [toolTipPoint](TextEditorWidget *widget, BaseHoverHandler *handler, int) {
-        handler->showToolTip(widget, toolTipPoint);
+    const auto callback = [toolTipPoint](HoverTarget *target, BaseHoverHandler *handler, int) {
+        handler->showToolTip(target, toolTipPoint);
     };
-    const auto fallback = [toolTipPoint, position = c.position()](TextEditorWidget *widget) {
-        emit widget->tooltipRequested(toolTipPoint, position);
+    const auto fallback = [toolTipPoint, position = c.position(), this](HoverTarget *) {
+        emit q->tooltipRequested(toolTipPoint, position);
     };
     m_hoverHandlerRunner.startChecking(c, callback, fallback);
 }
@@ -10383,8 +10228,8 @@ void TextEditorWidget::contextHelpItem(const IContext::HelpCallback &callback)
     }
     const QString fallbackWordUnderCursor = Text::wordUnderCursor(textCursor());
     const auto hoverHandlerCallback = [fallbackWordUnderCursor, callback](
-            TextEditorWidget *widget, BaseHoverHandler *handler, int position) {
-        handler->contextHelpId(widget, position,
+            HoverTarget *target, BaseHoverHandler *handler, int position) {
+        handler->contextHelpId(target, position,
                                [fallbackWordUnderCursor, callback](const HelpItem &item) {
             if (item.isEmpty())
                 callback(fallbackWordUnderCursor);
@@ -10393,7 +10238,7 @@ void TextEditorWidget::contextHelpItem(const IContext::HelpCallback &callback)
         });
 
     };
-    const auto fallback = [callback, fallbackWordUnderCursor](TextEditorWidget *) {
+    const auto fallback = [callback, fallbackWordUnderCursor](HoverTarget *) {
         callback(fallbackWordUnderCursor);
     };
 
@@ -10962,6 +10807,11 @@ void TextEditorFactory::setAutoCompleterCreator(const AutoCompleterCreator &crea
 void TextEditorFactory::setOptionalActionMask(int optionalActions)
 {
     d->m_optionalActionMask = optionalActions;
+}
+
+QList<BaseHoverHandler *> TextEditorFactory::hoverHandlers() const
+{
+    return d->m_hoverHandlers;
 }
 
 void TextEditorFactory::addHoverHandler(BaseHoverHandler *handler)

@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "basehoverhandler.h"
 #include "texteditor_global.h"
 
 #include <utils/id.h>
@@ -21,6 +22,9 @@
 #include <vector>
 
 QT_BEGIN_NAMESPACE
+class QHoverEvent;
+class QTimer;
+class QWidget;
 class QInputMethodEvent;
 class QTextCursor;
 class QTextDocument;
@@ -33,6 +37,7 @@ namespace Utils { class TextEditorLayout; }
 namespace TextEditor {
 
 class AutoCompleter;
+class HoverHandlerRunner;
 class IAssistProcessor;
 class IAssistProposal;
 
@@ -77,7 +82,7 @@ class TextDocument;
 // Hence the distinction throughout between a *row* on screen and the *line*
 // the document calls it - they are the same number only while nothing is
 // folded, and code that assumes so is the bug folding leaves behind.
-class TEXTEDITOR_EXPORT TextViewport : public QQuickItem
+class TEXTEDITOR_EXPORT TextViewport : public QQuickItem, public HoverTarget
 {
     Q_OBJECT
     QML_ELEMENT
@@ -208,6 +213,30 @@ public:
 
     CodeSource *document() const;
     void setDocument(CodeSource *document);
+
+    // HoverTarget. What a hover handler is allowed to ask; the tooltip's
+    // parent is the widget hosting this item, which only the host knows.
+    TextDocument *textDocument() const override;
+    // The document cursor this viewport's caret and selection stand for. Edits
+    // go through it so that the document's own undo stack, its layout and the
+    // marks on it all see the change - writing the text out and back would
+    // lose every one of them.
+    QTextCursor textCursor() const override;
+    void setContextHelpItem(const Core::HelpItem &item) override;
+    QWidget *tooltipParent() override;
+    QPoint globalCursorTopLeft() const override;
+
+    void setTooltipHost(QWidget *host);
+    Core::HelpItem contextHelpItem() const;
+
+    // The handlers to ask on hover, in the order the editor factory listed
+    // them. Not owned - they are the plugins' singletons.
+    void setHoverHandlers(const QList<BaseHoverHandler *> &handlers);
+
+private:
+    void askForTooltip();
+
+public:
 
     qreal scrollY() const;
     void setScrollY(qreal scrollY);
@@ -364,11 +393,6 @@ public:
     void setHighlights(Utils::Id kind, const QList<Highlight> &highlights);
     QList<Highlight> highlights(Utils::Id kind) const;
 
-    // The document cursor this viewport's caret and selection stand for. Edits
-    // go through it so that the document's own undo stack, its layout and the
-    // marks on it all see the change - writing the text out and back would
-    // lose every one of them.
-    QTextCursor textCursor() const;
     void setTextCursor(const QTextCursor &cursor);
 
     int cursorPosition() const;
@@ -409,6 +433,8 @@ protected:
     // to invent one.
     void inputMethodEvent(QInputMethodEvent *event) override;
     QVariant inputMethodQuery(Qt::InputMethodQuery query) const override;
+    void hoverMoveEvent(QHoverEvent *event) override;
+    void hoverLeaveEvent(QHoverEvent *event) override;
     QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *) override;
     void geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry) override;
 
@@ -554,6 +580,15 @@ private:
     int m_lineCount = 0;
     int m_firstVisibleLine = 0;
     QColor m_background;
+
+    // Hovering. The timer is what turns "the mouse stopped here" into a
+    // request; Qt does that for widgets and not for items.
+    QList<BaseHoverHandler *> m_hoverHandlers;
+    std::unique_ptr<HoverHandlerRunner> m_hoverRunner;
+    QTimer *m_hoverTimer = nullptr;
+    QPointF m_hoverItemPos;
+    QPointer<QWidget> m_tooltipHost;
+    Core::HelpItem m_contextHelpItem;
 };
 
 } // namespace TextEditor
