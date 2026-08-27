@@ -1617,9 +1617,12 @@ private slots:
         QCOMPARE(viewport->visibleLine(1).value("text").toString(), QString("short"));
         const qreal unwrappedHeight = viewport->contentHeight();
 
+        const int unwrapped = viewport->visibleLineCount();
         viewport->setWrapping(true);
-        QTRY_VERIFY2(viewport->visibleLineCount() > 3,
-                     qPrintable(QString("only %1 rows after wrapping was turned on")
+        // Against the count before it, so this cannot pass on a document that
+        // already had more rows than the number would have asked for.
+        QTRY_VERIFY2(viewport->visibleLineCount() > unwrapped,
+                     qPrintable(QString("still %1 rows after wrapping was turned on")
                                     .arg(viewport->visibleLineCount())));
 
         // The long line now covers several rows, and they spell it out again.
@@ -2699,10 +2702,15 @@ private slots:
         TextViewport * const viewport = fixture.viewport;
         QTRY_VERIFY(viewport->visibleLineCount() > 0);
 
+        // Measured against what it was, not against a number: a threshold the
+        // document already meets is not a wait, and this one is three rows
+        // away from being one.
+        const int unwrapped = viewport->visibleLineCount();
         viewport->setWrapping(true);
         // The long line takes several rows, so there is a later row to click.
-        QTRY_VERIFY2(viewport->visibleLineCount() > 3,
-                     "nothing wrapped, so every row is a line of its own");
+        QTRY_VERIFY2(viewport->visibleLineCount() > unwrapped,
+                     qPrintable(QString("still %1 rows, so nothing wrapped")
+                                    .arg(viewport->visibleLineCount())));
         QCOMPARE(viewport->visibleLine(2).value("lineNumber").toInt(), 1);
         QVERIFY(!viewport->visibleLine(2).value("firstRowOfLine").toBool());
 
