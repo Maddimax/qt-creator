@@ -337,6 +337,41 @@ Item {
                     root.editingFinished()
             }
 
+            // The indent guides, behind the text rather than over it: a
+            // negative z puts a child under its parent's own drawing, and the
+            // parent here is what paints the glyphs.
+            Repeater {
+                model: viewport.visibleLines
+
+                delegate: Item {
+                    id: guideRow
+
+                    required property int index
+                    required property var modelData
+
+                    readonly property var lineData: modelData
+                    readonly property int row: viewport.firstVisibleLine + index
+
+                    z: -1
+                    y: guideRow.row * viewport.lineHeight - viewport.scrollY
+                    height: viewport.lineHeight
+                    visible: (guideRow.lineData.indentGuides ?? 0) > 0
+
+                    Repeater {
+                        model: guideRow.lineData.indentGuides ?? 0
+
+                        delegate: Rectangle {
+                            required property int index
+
+                            x: index * viewport.indentWidth - viewport.scrollX
+                            width: 1
+                            height: viewport.lineHeight
+                            color: viewport.indentGuideColor
+                        }
+                    }
+                }
+            }
+
             // What comes after a line's text: the box standing in for what a
             // fold hides, then what a mark on the line says. One delegate for
             // both, in a Row, because they land in the same place and a folded

@@ -193,6 +193,16 @@ QColor TextViewport::currentLineColor() const
     return m_currentLine;
 }
 
+qreal TextViewport::indentWidth() const
+{
+    return m_indentWidth;
+}
+
+QColor TextViewport::indentGuideColor() const
+{
+    return m_indentGuide;
+}
+
 QFont TextViewport::font() const
 {
     return m_font;
@@ -289,6 +299,8 @@ QVariantMap TextViewport::visibleLine(int index) const
                        {"folded", line.folded},
                        {"foldIcon", line.foldIcon},
                        {"foldReplacement", line.foldReplacement},
+                       // How many indent guides to draw on this row.
+                       {"indentGuides", line.indentGuides},
                        {"annotation", line.annotation},
                        {"newlineTail", line.newlineTail},
                        // What is being composed on this line, if anything. Not
@@ -1419,6 +1431,12 @@ void TextViewport::updatePolish()
         occurrenceFormat.setBackground(fill);
     }
 
+    // One level of indentation, in pixels, and what a guide is drawn in.
+    m_indentWidth = doc->tabSettings().m_indentSize * metrics.horizontalAdvance(' ');
+    const QBrush whitespaceBrush = fonts.toTextCharFormat(C_VISUAL_WHITESPACE).foreground();
+    m_indentGuide = whitespaceBrush.style() == Qt::NoBrush ? QColor(Qt::transparent)
+                                                          : whitespaceBrush.color();
+
     QTextOption option;
     option.setTabStopDistance(doc->tabSettings().m_tabSize * metrics.horizontalAdvance(' '));
     // Anywhere as well as at word boundaries: a single word longer than the
@@ -1478,6 +1496,13 @@ void TextViewport::updatePolish()
         // The line the document calls this, which is not the row it is drawn
         // on once anything above it is folded.
         blockLine.lineNumber = block.blockNumber() + 1;
+        // Off unless asked for, so a row that draws no guides and a row that
+        // has none look the same to the form.
+        if (displaySettings().visualizeIndent()) {
+            const int columns = indentDepthForBlock(block, doc->tabSettings());
+            const int perLevel = qMax(1, doc->tabSettings().m_indentSize);
+            blockLine.indentGuides = (columns + perLevel - 1) / perLevel;
+        }
         // A line starts a fold when what follows it is indented deeper - the
         // same test the widget gutter makes - and that fold is closed when
         // what follows is not shown at all.
@@ -1567,6 +1592,9 @@ void TextViewport::updatePolish()
             // The gutter, the fold marker and what a mark says belong to the
             // line, so they go on the row that starts it.
             if (line.firstRowOfLine) {
+                // Guides belong to the line, so a wrapped line's continuation
+                // rows get none - which is what the widget editor does too.
+                line.indentGuides = blockLine.indentGuides;
                 line.foldable = blockLine.foldable;
                 line.folded = blockLine.folded;
                 line.foldIcon = blockLine.foldIcon;

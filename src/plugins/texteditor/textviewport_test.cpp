@@ -3313,6 +3313,96 @@ private slots:
                      qPrintable(QString("caret on row %1 of %2, expected about %3")
                                     .arg(rowOnScreen()).arg(rows).arg(middle)));
     }
+
+    void testIndentGuidesFollowTheIndentation()
+    {
+        TemporaryDirectory dir("indent-guides");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("indented.txt");
+        // Four spaces to a level, so with the default indent size these are
+        // zero, one and two levels deep - and a blank line inside the deepest
+        // block, which has no indentation of its own.
+        QVERIFY(file.writeFileContents("alpha\n"
+                                       "    beta\n"
+                                       "        gamma\n"
+                                       "\n"
+                                       "        delta\n"));
+
+        const bool was = displaySettings().visualizeIndent();
+        const QScopeGuard restore(
+            [was] { displaySettings().visualizeIndent.setValue(was); });
+        displaySettings().visualizeIndent.setValue(true);
+
+        // The whole form: the guides are drawn by CodeViewport.qml, and a bare
+        // TextViewport has no QML around it to draw anything.
+        CodeViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 4);
+        QCOMPARE(fixture.document.textDocument()->tabSettings().m_indentSize, 4);
+
+        const auto guidesOn = [viewport](int row) {
+            return viewport->visibleLine(row).value("indentGuides").toInt();
+        };
+        QTRY_COMPARE(guidesOn(0), 0);
+        QCOMPARE(guidesOn(1), 1);
+        QCOMPARE(guidesOn(2), 2);
+        // The blank line takes the shallower of its neighbours, so the guides
+        // run through the gap instead of stopping at it.
+        QCOMPARE(guidesOn(3), 2);
+        QCOMPARE(guidesOn(4), 2);
+
+        // One level is worth a real number of pixels, or every guide would be
+        // drawn on top of the last.
+        QVERIFY2(viewport->indentWidth() > 0, "an indent level is worth no width");
+
+        // And they are drawn. A guide is a one-pixel-wide item; which row it
+        // is on comes from where it lands in the viewport rather than from its
+        // place in the tree.
+        const auto guidesDrawnOnRow = [&fixture, viewport](int row) {
+            int drawn = 0;
+            const qreal wanted = row * viewport->lineHeight();
+            for (QQuickItem * const candidate : allItems(fixture.root)) {
+                if (candidate->width() == 1 && candidate->isVisible()
+                    && qFuzzyCompare(candidate->mapToItem(viewport, QPointF(0, 0)).y() + 1,
+                                     wanted + 1)) {
+                    ++drawn;
+                }
+            }
+            return drawn;
+        };
+        QTRY_COMPARE(guidesDrawnOnRow(2), 2);
+        QCOMPARE(guidesDrawnOnRow(1), 1);
+        QCOMPARE(guidesDrawnOnRow(0), 0);
+    }
+
+    void testNoIndentGuidesWhenTheSettingIsOff()
+    {
+        TemporaryDirectory dir("indent-guides-off");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("indented.txt");
+        QVERIFY(file.writeFileContents("alpha\n        gamma\n"));
+
+        const bool was = displaySettings().visualizeIndent();
+        const QScopeGuard restore(
+            [was] { displaySettings().visualizeIndent.setValue(was); });
+        displaySettings().visualizeIndent.setValue(false);
+
+        CodeViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+
+        // The line is indented - it is the setting that says not to mark it,
+        // and without the indentation there would be nothing to leave undrawn.
+        QCOMPARE(fixture.document.textDocument()->document()
+                     ->findBlockByNumber(1).text().left(8), QString("        "));
+        QTRY_COMPARE(viewport->visibleLine(1).value("indentGuides").toInt(), 0);
+    }
 };
 
 QObject *createTextViewportTest()

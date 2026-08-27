@@ -139,6 +139,13 @@ class TEXTEDITOR_EXPORT TextViewport : public QQuickItem
     // as it is drawn wide. cursorColumn is the character offset, which is what
     // IEditor asks for and not what a status display should show.
     Q_PROPERTY(int cursorDisplayColumn READ cursorDisplayColumn NOTIFY cursorPositionChanged)
+    // What one level of indentation is worth on screen, so that the form can
+    // put a guide at every level without knowing the font.
+    Q_PROPERTY(qreal indentWidth READ indentWidth NOTIFY metricsChanged)
+    // What an indent guide is drawn in - the visual whitespace colour, which is
+    // what the widget editor draws them in too.
+    Q_PROPERTY(QColor indentGuideColor READ indentGuideColor NOTIFY metricsChanged)
+
     // How much is selected, for a display that says so.
     Q_PROPERTY(int selectedCharacterCount READ selectedCharacterCount NOTIFY selectionChanged)
     // What is selected, with real newlines rather than the U+2029 a QTextCursor
@@ -182,6 +189,8 @@ public:
     QColor backgroundColor() const;
     int firstVisibleLine() const;
     QColor currentLineColor() const;
+    qreal indentWidth() const;
+    QColor indentGuideColor() const;
     QFont font() const;
     int lineCount() const;
     int visibleLineCount() const;
@@ -359,6 +368,12 @@ private:
         // first - the continuation rows carry the same lineNumber but must
         // not be labelled with it again.
         bool firstRowOfLine = true;
+        // How many indent guides belong on this row - the line's indentation
+        // in columns divided by what one level is worth, rounded up, which is
+        // the count the widget editor's loop draws. Zero when the setting is
+        // off, so a row that draws none and a row that has none look the same
+        // to the form.
+        int indentGuides = 0;
         // Whether this line starts a fold, and whether that fold is closed.
         bool foldable = false;
         bool folded = false;
@@ -451,6 +466,8 @@ private:
     qreal m_contentHeight = 0;
     QPointer<TextDocument> m_connectedMarkSource;
     QColor m_currentLine = Qt::transparent;
+    QColor m_indentGuide = Qt::transparent;
+    qreal m_indentWidth = 0;
     QFont m_font;
     int m_lineCount = 0;
     int m_firstVisibleLine = 0;

@@ -224,6 +224,34 @@ public:
     }
 };
 
+int indentDepthForBlock(const QTextBlock &block, const TabSettingsData &tabSettings, int offset)
+{
+    // A line with nothing but space on it has no indentation of its own.
+    const auto ownDepth = [&](const QTextBlock &candidate) {
+        const QString text = candidate.text().mid(offset);
+        return text.simplified().isEmpty() ? -1 : tabSettings.indentationColumn(text);
+    };
+
+    const int depth = ownDepth(block);
+    if (depth >= 0)
+        return depth;
+
+    // Blank: take the shallower of its neighbours, so that a gap inside an
+    // indented block keeps the guides that run past it, and a gap between two
+    // blocks at different depths does not draw guides belonging to neither.
+    QTextBlock above = block.previous();
+    int aboveDepth = -1;
+    while (above.isValid() && (aboveDepth = ownDepth(above)) < 0)
+        above = above.previous();
+
+    QTextBlock below = block.next();
+    int belowDepth = -1;
+    while (below.isValid() && (belowDepth = ownDepth(below)) < 0)
+        below = below.next();
+
+    return aboveDepth > 0 && belowDepth > 0 ? qMin(aboveDepth, belowDepth) : 0;
+}
+
 TabSettings &globalTabSettings()
 {
     static GlobalTabSettings theGlobalTabSettings;

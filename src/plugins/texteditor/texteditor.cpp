@@ -6081,49 +6081,14 @@ void TextEditorWidgetPrivate::paintAdditionalVisualWhitespaces(PaintEventData &d
 
 int TextEditorWidgetPrivate::indentDepthForBlock(const QTextBlock &block, const PaintEventData &data)
 {
-    const auto blockDepth = [&](const QTextBlock &block) {
-        int depth = m_visualIndentCache.value(block.blockNumber(), -1);
-        if (depth < 0) {
-            const QString text = block.text().mid(m_visualIndentOffset);
-            depth = text.simplified().isEmpty() ? -1 : data.tabSettings.indentationColumn(text);
-        }
-        return depth;
-    };
-    const auto ensureCacheSize = [&](const int size) {
-        if (m_visualIndentCache.size() < size)
-            m_visualIndentCache.resize(size, -1);
-    };
-    int depth = blockDepth(block);
-    if (depth < 0) {
-        // find previous non empty block and get the indent depth of this block
-        QTextBlock it = block.previous();
-        int prevDepth = -1;
-        while (it.isValid()) {
-            prevDepth = blockDepth(it);
-            if (prevDepth >= 0)
-                break;
-            it = it.previous();
-        }
-        const int startBlockNumber = it.isValid() ? it.blockNumber() + 1 : 0;
+    const int cached = m_visualIndentCache.value(block.blockNumber(), -1);
+    if (cached >= 0)
+        return cached;
 
-        // find next non empty block and get the indent depth of this block
-        it = block.next();
-        int nextDepth = -1;
-        while (it.isValid()) {
-            nextDepth = blockDepth(it);
-            if (nextDepth >= 0)
-                break;
-            it = it.next();
-        }
-        const int endBlockNumber = it.isValid() ? it.blockNumber() : m_blockCount;
-
-        // get the depth for the whole range of empty blocks and fill the cache so we do not need to
-        // redo this for every paint event
-        depth = prevDepth > 0 && nextDepth > 0 ? qMin(prevDepth, nextDepth) : 0;
-        ensureCacheSize(endBlockNumber);
-        for (int i = startBlockNumber; i < endBlockNumber; ++i)
-            m_visualIndentCache[i] = depth;
-    }
+    const int depth = TextEditor::indentDepthForBlock(block, data.tabSettings, m_visualIndentOffset);
+    if (m_visualIndentCache.size() <= block.blockNumber())
+        m_visualIndentCache.resize(block.blockNumber() + 1, -1);
+    m_visualIndentCache[block.blockNumber()] = depth;
     return depth;
 }
 

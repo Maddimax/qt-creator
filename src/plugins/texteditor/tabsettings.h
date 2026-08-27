@@ -113,6 +113,17 @@ protected:
 
 TEXTEDITOR_EXPORT TabSettings &globalTabSettings();
 
+// How many indent guides belong on \a block: its own indentation in columns,
+// or - for a blank line, which has none of its own - the shallower of the
+// lines above and below it, so that a guide runs through a gap in a block
+// rather than stopping at it and starting again.
+//
+// \a offset is how many characters at the start of a line are not the text's
+// own; the diff editor puts a marker column there.
+TEXTEDITOR_EXPORT int indentDepthForBlock(const QTextBlock &block,
+                                          const TabSettingsData &tabSettings,
+                                          int offset = 0);
+
 } // namespace TextEditor
 
 Q_DECLARE_METATYPE(TextEditor::TabSettingsData)

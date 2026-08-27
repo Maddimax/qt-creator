@@ -8670,6 +8670,51 @@ caret lands on - the top edge, the bottom edge, or the middle - which is the
 difference the setting actually makes. Three controls: removing the gate,
 centring on the wrong fraction, and swapping the two branches. All three bite.
 
+## Indent guides: the first of these that needed drawing
+
+`m_visualizeIndent` defaults to **on**, so the widget editor draws indent guides
+on every indented file and the Quick editor drew none. Unlike the settings
+before it, this one is not a gate over something already there - the viewport had
+to learn to draw it.
+
+**The split fell out the same way as the rest.** The depth computation -
+`TextEditorWidgetPrivate::indentDepthForBlock()` - is pure: a block's text, the
+tab settings, and a walk to the neighbours when the line is blank. It moved to
+`TextEditor::indentDepthForBlock()` in `tabsettings.cpp`, and the widget's copy
+is now a cache in front of it. That cache is cleared on every content change, so
+holding more entries than before (the old code cached only the blank-line runs)
+is safe.
+
+The blank-line rule is the part worth having in one place: a line with nothing on
+it takes the *shallower* of the depths above and below, so a gap inside an
+indented block keeps the guides running through it and a gap between two blocks
+at different depths draws guides belonging to neither. Its control - returning 0
+for blank lines - is a real failure, not a cosmetic one.
+
+**Where the arithmetic goes.** The widget's paint loop steps `paintColumn` by
+`m_indentSize` and `x` by `charWidth * m_indentSize`, so the guide *count* is the
+column depth divided by the indent size, rounded up. That division happens in
+C++, where the tab settings already are, and the form is handed a count and a
+pixel width. QML draws a one-pixel `Rectangle` per guide at `i * indentWidth`,
+behind the text: a child with a negative `z` renders under its parent's own
+drawing, and the parent here is what paints the glyphs.
+
+**Two fixtures, and picking the wrong one.** The drawing assertions first ran
+against `ViewportFixture`, and found nothing. The dump said why in one line: the
+tree under it holds exactly **one** item, because that fixture builds a bare
+`TextViewport` - the guides are in `CodeViewport.qml`, and a bare viewport has no
+QML around it to draw anything. `CodeViewportFixture`, added earlier for the drop
+tests, is the one for anything a form draws.
+
+Worth stating as a rule, because the suite now has both: **`ViewportFixture` is
+for what the viewport computes, `CodeViewportFixture` for what the form draws.**
+A test that asserts a `visibleLine()` value can use either; a test that goes
+looking in the item tree can only use the second, and against the first it fails
+in the least informative way there is - by finding nothing.
+
+The suite time flagged it before the assertion did, again: 22 seconds against a
+usual 7.
+
 ## The terminal spike: go, with the cleanest split in the tree
 
 **Status update: the spike is being productised.** `TerminalQuick` is now the
