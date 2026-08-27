@@ -166,6 +166,30 @@ a live copy and a dead one - and one test that dropped the result of
 `qWaitForWindowExposed`, so it compared positions in a window that need never
 have appeared.
 
+**Comparing the two renderers' tests found no feature gap, which is worth
+recording so nobody repeats it.** Twelve aspect setters appear in
+`tst_aspectrenderer` and not in `quickui_test`, and every one of them has an
+innocent explanation:
+
+- plumbing for the widget test - `setAspectRenderer`, `setVariantValue`,
+  `setVolatileVariantValue`, `setUndoStack`, `setChecked`
+- QWidget properties with no meaning in Qt Quick - `setSizeAdjustPolicy`,
+  `setMinimumContentsLength`, `setControlObjectName`
+- carried, but as a delegate kind decided in C++ rather than a property the
+  QML reads, which is why grepping the .qml files for them finds nothing:
+  `setFlattened` becomes `FlattenedGroup`, and `LabelPlacement::
+  BesideCheckBox` becomes `BoolWithOwnLabelDelegate`
+- `setLabelPlacement`'s other values, which the Quick form does not need: it
+  has no separate label column, so each delegate carries its own label and
+  `AtCheckBox`, `Compact` and `InExtraLabel` all put the text beside the box.
+  Different furniture, same words on screen.
+- `LabelPlacement::ShowTip` has **no callers at all**. The widget renderer
+  implements it, the enum carries it, nothing asks for it.
+- `setPromptDialogTitle` and `setWordWrap` are honoured, just untested here.
+
+The one thing worth doing was covering the filter conversion, which is a real
+format change - `";;"`-separated for Qt, a list for QML - and it now is.
+
 **qmllint over every plugin is worth running once.** All 67 `*_qmllint`
 targets give 665 warnings, and 655 of them are `[unqualified]` - the pages
 reach `aspects.Foo` through a scope qmllint cannot follow, which is noise here.
