@@ -2365,6 +2365,77 @@ private slots:
         QTRY_COMPARE(viewport->scrollX(), 0.0);
     }
 
+    void testWideningTheViewportDoesNotLeaveItScrolledPastTheEnd()
+    {
+        // Both offsets are clamped against how big the content is, and both
+        // are left alone when the viewport changes size - so a view scrolled
+        // to the end and then widened stays where it was, showing blank space
+        // past the end of the longest line.
+        TemporaryDirectory dir("qtc-viewport-resize");
+        const FilePath file = dir.filePath("wide.txt");
+        QString content;
+        for (int i = 0; i < 200; ++i)
+            content += QString(200, QLatin1Char('x')) + QLatin1Char('\n');
+        QVERIFY(file.writeFileContents(content.toUtf8()));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+        QTRY_VERIFY(viewport->contentWidth() > viewport->width());
+
+        // All the way to the right.
+        viewport->setScrollX(100000);
+        QTRY_VERIFY(viewport->scrollX() > 0);
+        const qreal atNarrow = viewport->scrollX();
+        QCOMPARE(atNarrow, viewport->contentWidth() - viewport->width());
+
+        // Now there is far less to scroll through, so the offset has to come
+        // back with it rather than leaving the text off to the left.
+        viewport->setWidth(1200);
+        QTRY_COMPARE(viewport->width(), 1200.0);
+        // Wait for the offset to come back, not for the bound to hold: the
+        // bound holds the instant the width changes, because the content size
+        // has not been recomputed yet, so waiting on it waits for nothing.
+        QTRY_VERIFY2(viewport->scrollX() < atNarrow,
+                     qPrintable(QString("scrollX stayed at %1").arg(viewport->scrollX())));
+        QVERIFY2(viewport->scrollX()
+                     <= qMax(0.0, viewport->contentWidth() - viewport->width()) + 0.5,
+                 qPrintable(QString("scrollX %1 but only %2 to scroll through")
+                                .arg(viewport->scrollX())
+                                .arg(viewport->contentWidth() - viewport->width())));
+
+        // The same thing downwards. With wrapping on the same text needs fewer
+        // rows in a wider viewport, so widening leaves less to scroll through
+        // vertically as well.
+        viewport->setWidth(400);
+        QTRY_COMPARE(viewport->width(), 400.0);
+        viewport->setWrapping(true);
+        // Wait for the wrapped height to settle before scrolling to the end of
+        // it: setScrollY clamps against the height it knows now, so scrolling
+        // too early lands somewhere short of the bottom and the widening below
+        // has nothing to bring back.
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+        // More rows than the 200 lines in the file, which is what says the
+        // wrapping has actually been applied. lineCount() counts rows, so
+        // comparing it against the height proves nothing.
+        QTRY_VERIFY(viewport->contentHeight() / viewport->lineHeight() > 300);
+        viewport->setScrollY(1000000);
+        const qreal deepAtNarrow = viewport->scrollY();
+        QCOMPARE(deepAtNarrow, viewport->contentHeight() - viewport->height());
+
+        viewport->setWidth(1200);
+        QTRY_COMPARE(viewport->width(), 1200.0);
+        QTRY_VERIFY2(viewport->scrollY() < deepAtNarrow,
+                     qPrintable(QString("scrollY stayed at %1").arg(viewport->scrollY())));
+        QVERIFY2(viewport->scrollY()
+                     <= qMax(0.0, viewport->contentHeight() - viewport->height()) + 0.5,
+                 qPrintable(QString("scrollY %1 but only %2 to scroll through")
+                                .arg(viewport->scrollY())
+                                .arg(viewport->contentHeight() - viewport->height())));
+    }
+
     void testHomeGoesToTheCodeBeforeItGoesToTheMargin()
     {
         TemporaryDirectory dir("qtc-viewport-home");

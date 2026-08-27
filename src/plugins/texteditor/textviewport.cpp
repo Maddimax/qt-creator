@@ -1784,7 +1784,6 @@ void TextViewport::updatePolish()
     // arithmetic rather than a walk, which is what holds at a million lines.
     // lineSpacing() is what the widget editor lays out with, in pixels, so the
     // two backends put a line in the same place.
-    const qreal previousLineHeight = m_lineHeight;
     m_lineHeight = qMax(1.0, fonts.lineSpacing());
     m_font = font;
     m_lineCount = text->blockCount();
@@ -2152,8 +2151,13 @@ void TextViewport::updatePolish()
     if (m_contentWidth > 0)
         m_contentWidth += m_lineHeight;
 
-    if (!qFuzzyCompare(previousLineHeight + 1, m_lineHeight + 1))
-        setScrollY(m_scrollY); // re-clamp: the document is a different height now
+    // Re-clamp both offsets against what there is to scroll through now. The
+    // content changes size when the document does, when the line height does,
+    // and when the viewport is resized - and a view left scrolled past the end
+    // of the new content shows blank space rather than text. Setting them to
+    // what they already are is free when nothing moved.
+    setScrollY(m_scrollY);
+    setScrollX(m_scrollX);
     emit metricsChanged();
     // What is on screen has just been rebuilt, marks and all. Delegates read it
     // through visibleLines, so this is what tells them to look again.
