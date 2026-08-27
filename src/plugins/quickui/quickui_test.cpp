@@ -210,6 +210,7 @@ private slots:
     void testRadioStyledBoolIsARadioButton();
     void testATriStateSettingCanSayNeither();
     void testSpinBoxDrawsItsPrefixAndSuffix();
+    void testSpinBoxShowsTheValueScaledDown();
     void testPageQmlReachesANestedContainersAspects();
     void testAnAspectCanHandOutAContainerToDraw();
     void testMultiLineStringGetsATextArea();
@@ -2156,6 +2157,39 @@ void QuickUiTest::testSpinBoxDrawsItsPrefixAndSuffix()
             drawn << label->property("text").toString();
     }
     QCOMPARE(drawn, QStringList({"Timeout:", "s"}));
+}
+
+void QuickUiTest::testSpinBoxShowsTheValueScaledDown()
+{
+    // An aspect can keep a value in one unit and show it in another - the test
+    // timeout is milliseconds and reads in seconds - so the box shows the
+    // value, and its bounds, divided by that factor. The widget renderer has
+    // always done this; nothing checked that the Qt Quick one does.
+    Utils::AspectContainer page;
+    Utils::IntegerAspect timeout(&page);
+    timeout.setLabelText("Timeout:");
+    timeout.setRange(5000, 600000);
+    timeout.setValue(30000);
+    timeout.setDisplayScaleFactor(1000);
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QVERIFY(quickWidget->rootObject());
+
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "IntegerDelegate"));
+    QQuickItem *box = nullptr;
+    QTRY_VERIFY(box = findQmlComponent(delegate, "SpinBox"));
+
+    // Seconds, not milliseconds. Without the factor these read 30000/5000/600000.
+    QTRY_COMPARE(box->property("value").toInt(), 30);
+    QCOMPARE(box->property("from").toInt(), 5);
+    QCOMPARE(box->property("to").toInt(), 600);
+
+    // And the aspect keeps its own unit.
+    QCOMPARE(timeout.value(), 30000);
 }
 
 void QuickUiTest::testPageQmlReachesANestedContainersAspects()

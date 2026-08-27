@@ -33,7 +33,9 @@ RowLayout {
 
     // The value is stored scaled up: a timeout is kept in milliseconds and
     // shown in seconds. Never zero, so it is always safe to divide by.
-    readonly property int scale: Math.max(1, delegate.pres.displayScaleFactor ?? 1)
+    // Not "scale": that is QQuickItem's own, and shadowing it means this row
+    // can no longer be scaled and anything animating it binds to the wrong one.
+    readonly property int displayScale: Math.max(1, delegate.pres.displayScaleFactor ?? 1)
     readonly property int base: delegate.pres.displayIntegerBase ?? 10
     readonly property string specialValueText: delegate.pres.specialValueText ?? ""
 
@@ -61,10 +63,10 @@ RowLayout {
         enabled: (delegate.aspect?.enabled ?? false) && !(delegate.aspect?.readOnly ?? false)
         // A delegate can outlive its aspect: the property goes null and pres
         // becomes empty, so every bound needs a value of the right type.
-        from: Math.round((delegate.pres.minimum ?? 0) / delegate.scale)
-        to: Math.round((delegate.pres.maximum ?? 0) / delegate.scale)
+        from: Math.round((delegate.pres.minimum ?? 0) / delegate.displayScale)
+        to: Math.round((delegate.pres.maximum ?? 0) / delegate.displayScale)
         stepSize: delegate.pres.step ?? 1
-        value: Math.round((delegate.aspect?.value ?? 0) / delegate.scale)
+        value: Math.round((delegate.aspect?.value ?? 0) / delegate.displayScale)
         ToolTip.text: delegate.toolTip
         ToolTip.visible: hovered && delegate.toolTip !== ""
 
@@ -83,7 +85,7 @@ RowLayout {
             return isNaN(parsed) ? box.value : parsed
         }
 
-        onValueModified: if (delegate.aspect) delegate.aspect.value = value * delegate.scale
+        onValueModified: if (delegate.aspect) delegate.aspect.value = value * delegate.displayScale
     }
 
     Label {
