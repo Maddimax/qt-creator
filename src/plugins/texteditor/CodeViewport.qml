@@ -80,8 +80,12 @@ Item {
 
             objectName: "currentLineHighlight"
             color: viewport.currentLineColor
-            x: 0
-            width: parent.width
+            // The text, and not the gutter beside it: the widget editor draws
+            // this inside its viewport, and the gutter says which line is
+            // current by the colour of the number rather than by a band
+            // through it.
+            x: viewport.x
+            width: viewport.width
             // cursorRectangle is in the viewport's coordinates and the viewport
             // is inset, so the highlight has to be moved by the same inset or
             // it sits a margin above the line it is meant to be on.

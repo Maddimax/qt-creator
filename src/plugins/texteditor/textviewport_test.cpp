@@ -1111,9 +1111,12 @@ private slots:
         installIconProvider(view);
         view.resize(400, 200);
         QQmlComponent component(view.engine());
+        // With the numbers on: the band must not reach back over them, and a
+        // gutter of no width could not tell whether it did.
         component.setData(QByteArray("import QtCreator.TextEditor\n"
                                      "CodeViewport {\n"
                                      "    width: 400; height: 200\n"
+                                     "    showLineNumbers: true\n"
                                      "    property string path\n"
                                      "    source: CodeDocument { filePath: path }\n"
                                      "}"),
@@ -1141,8 +1144,18 @@ private slots:
         viewport->setCursorPosition(0);
         QTRY_COMPARE(lineOf(), 0);
         QCOMPARE(highlight->height(), viewport->lineHeight());
-        QVERIFY2(highlight->width() > viewport->width(),
-                 "the highlight does not span the editor");
+
+        // The text and all of it, and none of the gutter beside it. The widget
+        // editor draws this inside its viewport; a band that reaches back over
+        // the line numbers reads as a selection rather than as "you are here",
+        // and hides the current line number's own colour.
+        QCOMPARE(highlight->width(), viewport->width());
+        QCOMPARE(highlight->x(), viewport->x());
+        auto * const gutter = item->findChild<QQuickItem *>("codeGutter");
+        QVERIFY2(gutter, "no gutter, so there is nothing for the band to spill over");
+        QVERIFY2(gutter->width() > 0, "the gutter is not showing, so this asserts nothing");
+        QVERIFY2(highlight->x() >= gutter->x() + gutter->width(),
+                 "the current-line highlight reached over the line numbers");
 
         // And it follows the caret rather than staying where it started.
         viewport->forceActiveFocus();
@@ -3177,6 +3190,7 @@ private slots:
         QCoreApplication::sendEvent(&fixture.view, &second);
         QVERIFY(text->toPlainText() != before);
     }
+
 };
 
 QObject *createTextViewportTest()
