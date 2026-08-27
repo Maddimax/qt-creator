@@ -5315,6 +5315,14 @@ without the user:
   one entry. `Failed to watch` went from 20 to 0 and the soft asserts from 34
   to 1, and the one left is `qtversionmanager.cpp`, unrelated.
 
+  **A second bug was underneath it.** The key has to be worked out when the
+  watcher is built, not again when it is removed: a temporary file is usually
+  deleted before the thing watching it, and the canonical form of a path that
+  no longer exists is not the one it had. Sweeping the suites after the first
+  fix is what found it - the warnings were gone everywhere, and CMake still
+  had nine soft asserts about watches it had added. One left now, and it is
+  `qtversionmanager`'s.
+
   **The mechanism was measured, and two guesses before it were wrong.** It is
   not that `QFileSystemWatcher` refuses the second name: a standalone probe
   shows both adds succeed and both names appear in `files()`. It watches the
