@@ -136,7 +136,11 @@ Item {
 
             anchors.fill: viewport
             acceptedButtons: Qt.LeftButton | Qt.RightButton
-            cursorShape: Qt.IBeamCursor
+            // Off the screen while the user types, where the platform and the
+            // settings both allow it. The viewport says when; the shape is the
+            // form's to set.
+            cursorShape: viewport.mouseHidden ? Qt.BlankCursor : Qt.IBeamCursor
+            hoverEnabled: true
 
             // Set while a press is sitting on a selection without having moved
             // far enough to be a drag: -1 when there is no such press.
@@ -207,6 +211,8 @@ Item {
                 viewport.selectionEnd = position
             }
             onPositionChanged: (mouse) => {
+                // A mouse that has moved is one the user is looking for again.
+                viewport.showMouse()
                 if (!pressed)
                     return
                 if (textArea.pendingDragAt >= 0) {

@@ -139,6 +139,10 @@ class TEXTEDITOR_EXPORT TextViewport : public QQuickItem
     // as it is drawn wide. cursorColumn is the character offset, which is what
     // IEditor asks for and not what a status display should show.
     Q_PROPERTY(int cursorDisplayColumn READ cursorDisplayColumn NOTIFY cursorPositionChanged)
+    // Whether the mouse pointer should be off the screen because the user is
+    // typing. The form owns the cursor shape; this only says when to blank it.
+    Q_PROPERTY(bool mouseHidden READ isMouseHidden NOTIFY mouseHiddenChanged)
+
     // Where the right margin sits, in the viewport's own coordinates, or -1
     // when there is none to draw. The column it stands for comes from the
     // margin settings and may come from the language's own style.
@@ -216,6 +220,11 @@ public:
     QColor changedLineColor() const;
     QColor savedLineColor() const;
     qreal indentWidth() const;
+    bool isMouseHidden() const;
+    // Called by the form when the pointer moves: a mouse that has moved is a
+    // mouse the user is looking for again.
+    Q_INVOKABLE void showMouse();
+
     qreal marginX() const;
     QColor marginLineColor() const;
     QColor marginAreaColor() const;
@@ -353,6 +362,7 @@ signals:
     void scrollYChanged();
     void scrollXChanged();
     void metricsChanged();
+    void mouseHiddenChanged();
     void linesChanged();
     void selectionChanged();
     void cursorPositionChanged();
@@ -503,6 +513,7 @@ private:
     QColor m_currentLine = Qt::transparent;
     QColor m_indentGuide = Qt::transparent;
     qreal m_indentWidth = 0;
+    bool m_mouseHidden = false;
     qreal m_marginX = -1;
     QColor m_marginLine = Qt::transparent;
     QColor m_marginArea = Qt::transparent;

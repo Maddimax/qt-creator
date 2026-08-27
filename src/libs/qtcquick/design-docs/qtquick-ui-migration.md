@@ -8802,6 +8802,48 @@ with no parsed failure, which the harness prints as "nothing bit". Re-running it
 gave a clean `FAIL!` on the expected assertion. That is twice now: an
 unexplained non-zero exit is a rerun, never a pass.
 
+## The behaviour settings, and where the remaining ones actually go
+
+`BehaviorSettings` has seven fields and the Quick editor read two. Reading the
+other five before writing anything is what made this batch small, and the
+finding is worth more than the change:
+
+- **`smartSelectionChanging` is not the editor's at all.** Its only two readers
+  are in `cppeditorwidget.cpp`. It is a C++ feature that happens to be stored in
+  a shared struct, so a generic editor has nothing to do with it.
+- **`mouseNavigation`, `constrainHoverTooltips` and `keyboardTooltips` all wait
+  on the same thing.** The first needs `findLinkAt`, which `TextEditorWidget`
+  declares and does not implement - `CppEditorWidget` and friends do. The other
+  two need hover handlers, which are registered per editor factory. That is the
+  *same* blocker as completion and auto-insertion: services attached to an
+  editor factory with no lookup from a mime type.
+
+So the completion registry, still undecided, now gates four features rather than
+one. That is the number to weigh it against, and it was not visible until these
+were read one at a time.
+
+**Which left `mouseHiding`,** and its own lesson. The rule is
+`isMacHost() ? false : m_mouseHiding` - and that means on the machine this is
+developed on, **the feature is off and its code path is unreachable**. Three of
+four controls came back "nothing bit" for exactly that reason.
+
+The fix was not to accept them. Both rules became functions that can be asked
+directly: `hideMouseWhileTyping(settings, platformHidesPointerItself)` takes the
+platform as a parameter rather than reading it, and `isTypingKey(int)` is the
+modifier rule the pointer has to survive. Both are real seams and not test-only
+API - the widget reads the one-argument overload, and the parameterised one is
+the same shape as `setAvailableOptions()` on the filters aspect. With them, the
+platform exclusion, the setting, and the modifier rule are all covered on a
+machine where none of them fires.
+
+**One control still does not bite, and it is stated rather than removed:** that
+the viewport's key handler consults the rule at all. On a Mac the handler's
+condition is short-circuited by the platform before the rule is reached, so
+nothing observable changes when the call is removed. Testing that needs a run on
+Linux or Windows. The alternative - a way to tell the viewport it is not on a
+Mac - is test-only API, and a seam that exists only to make a test pass is worse
+than a stated gap.
+
 ## The terminal spike: go, with the cleanest split in the tree
 
 **Status update: the spike is being productised.** `TerminalQuick` is now the

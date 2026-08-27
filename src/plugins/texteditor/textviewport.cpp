@@ -216,6 +216,19 @@ qreal TextViewport::indentWidth() const
     return m_indentWidth;
 }
 
+bool TextViewport::isMouseHidden() const
+{
+    return m_mouseHidden;
+}
+
+void TextViewport::showMouse()
+{
+    if (!m_mouseHidden)
+        return;
+    m_mouseHidden = false;
+    emit mouseHiddenChanged();
+}
+
 qreal TextViewport::marginX() const
 {
     return m_marginX;
@@ -542,6 +555,12 @@ static void moveToFirstCharacter(QTextCursor &cursor, QTextCursor::MoveMode mode
 
 void TextViewport::keyPressEvent(QKeyEvent *event)
 {
+    if (!m_mouseHidden && isTypingKey(event->key())
+        && hideMouseWhileTyping(globalBehaviorSettings().data())) {
+        m_mouseHidden = true;
+        emit mouseHiddenChanged();
+    }
+
     QTextCursor cursor = textCursor();
     if (cursor.isNull()) {
         QQuickItem::keyPressEvent(event);

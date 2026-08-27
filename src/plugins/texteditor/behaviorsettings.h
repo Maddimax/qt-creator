@@ -46,6 +46,22 @@ public:
     Utils::BoolAspect smartSelectionChanging{this};
 };
 
+// Whether the mouse pointer is taken off the screen while the user types.
+// Never where the platform does it itself - a Mac, whose window server fights
+// a second attempt at it. That is a decision about the platform and not about
+// the editor, so both editors ask here rather than each remembering.
+//
+// \a platformHidesPointerItself is a parameter so that the answer can be
+// asked for both kinds of platform from the one the tests happen to run on.
+TEXTEDITOR_EXPORT bool hideMouseWhileTyping(const BehaviorSettingsData &settings,
+                                            bool platformHidesPointerItself);
+TEXTEDITOR_EXPORT bool hideMouseWhileTyping(const BehaviorSettingsData &settings);
+
+// Whether pressing \a key counts as typing for the purpose above. A key that
+// only says how to read the next one does not: the pointer has to survive
+// Shift being held down.
+TEXTEDITOR_EXPORT bool isTypingKey(int key);
+
 TEXTEDITOR_EXPORT BehaviorSettings &globalBehaviorSettings();
 
 namespace Internal { void setupBehaviorSettings(); }

@@ -105,6 +105,33 @@ BehaviorSettingsData BehaviorSettings::data() const
     return d;
 }
 
+bool hideMouseWhileTyping(const BehaviorSettingsData &settings, bool platformHidesPointerItself)
+{
+    return platformHidesPointerItself ? false : settings.m_mouseHiding;
+}
+
+bool isTypingKey(int key)
+{
+    switch (key) {
+    case Qt::Key_Shift:
+    case Qt::Key_Control:
+    case Qt::Key_Meta:
+    case Qt::Key_Alt:
+    case Qt::Key_AltGr:
+    case Qt::Key_CapsLock:
+    case Qt::Key_NumLock:
+    case Qt::Key_ScrollLock:
+        return false;
+    default:
+        return true;
+    }
+}
+
+bool hideMouseWhileTyping(const BehaviorSettingsData &settings)
+{
+    return hideMouseWhileTyping(settings, Utils::HostOsInfo::isMacHost());
+}
+
 BehaviorSettings &globalBehaviorSettings()
 {
     static BehaviorSettings theGlobalBehaviorSettings;

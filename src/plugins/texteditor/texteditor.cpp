@@ -4980,7 +4980,7 @@ void TextEditorWidget::setMouseHidingEnabled(bool b)
 
 bool TextEditorWidget::mouseHidingEnabled() const
 {
-    return Utils::HostOsInfo::isMacHost() ? false : d->m_behaviorSettings.m_mouseHiding;
+    return hideMouseWhileTyping(d->m_behaviorSettings);
 }
 
 void TextEditorWidget::setScrollWheelZoomingEnabled(bool b)

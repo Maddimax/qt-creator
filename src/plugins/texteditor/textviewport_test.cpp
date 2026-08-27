@@ -32,6 +32,7 @@
 #include <utils/aspects.h>
 #include <utils/plaintextedit/texteditorlayout.h>
 #include <utils/temporarydirectory.h>
+#include <utils/hostosinfo.h>
 #include <utils/theme/theme.h>
 
 #include <QDragEnterEvent>
@@ -3593,6 +3594,77 @@ private slots:
         QVERIFY2(area->property("color").value<QColor>()
                      != line->property("color").value<QColor>(),
                  "the tint and the line are the same colour");
+    }
+
+    void testTheMouseGetsOutOfTheWayWhileTyping()
+    {
+        TemporaryDirectory dir("mouse-hiding");
+        QVERIFY(dir.isValid());
+        const FilePath file = writeLines(dir, "typed.txt", 20);
+
+        const bool was = globalBehaviorSettings().mouseHiding();
+        const QScopeGuard restore(
+            [was] { globalBehaviorSettings().mouseHiding.setValue(was); });
+        globalBehaviorSettings().mouseHiding.setValue(true);
+
+        CodeViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+        viewport->forceActiveFocus();
+        QVERIFY(viewport->hasActiveFocus());
+        QVERIFY(!viewport->isMouseHidden());
+
+        // The two rules, asked directly rather than only through what this
+        // platform happens to do with them. Both branches of each, and both
+        // states of the setting - none of which is reachable through the
+        // viewport on a Mac.
+        const BehaviorSettingsData &on = globalBehaviorSettings().data();
+        QCOMPARE(hideMouseWhileTyping(on, false), true);
+        QCOMPARE(hideMouseWhileTyping(on, true), false);
+        BehaviorSettingsData off = on;
+        off.m_mouseHiding = false;
+        QCOMPARE(hideMouseWhileTyping(off, false), false);
+        QCOMPARE(hideMouseWhileTyping(off, true), false);
+
+        // A modifier says how to read the next key and is not itself typing.
+        QCOMPARE(isTypingKey(Qt::Key_A), true);
+        QCOMPARE(isTypingKey(Qt::Key_Backspace), true);
+        QCOMPARE(isTypingKey(Qt::Key_Shift), false);
+        QCOMPARE(isTypingKey(Qt::Key_Control), false);
+        QCOMPARE(isTypingKey(Qt::Key_CapsLock), false);
+
+        // The rest is what this platform actually does. On a Mac that is
+        // nothing: the pointer is never put away, so neither putting it away
+        // nor bringing it back can be exercised from here.
+        if (Utils::HostOsInfo::isMacHost()) {
+            QTest::keyClick(&fixture.view, Qt::Key_A);
+            QVERIFY2(!viewport->isMouseHidden(),
+                     "the editor hid the pointer on a platform that does that itself");
+            return;
+        }
+
+        // A modifier on its own is not typing: it says how to read the next
+        // key, and the pointer has to survive Shift being pressed.
+        QTest::keyPress(&fixture.view, Qt::Key_Shift);
+        QVERIFY2(!viewport->isMouseHidden(), "pressing Shift hid the pointer");
+        QTest::keyRelease(&fixture.view, Qt::Key_Shift);
+
+        QTest::keyClick(&fixture.view, Qt::Key_A);
+        QTRY_VERIFY2(viewport->isMouseHidden(), "typing did not put the pointer away");
+
+        // And moving the mouse is asking for it back.
+        viewport->showMouse();
+        QVERIFY(!viewport->isMouseHidden());
+
+        // With the setting off it stays put.
+        globalBehaviorSettings().mouseHiding.setValue(false);
+        QCOMPARE(hideMouseWhileTyping(globalBehaviorSettings().data(), false), false);
+        QTest::keyClick(&fixture.view, Qt::Key_B);
+        QVERIFY2(!viewport->isMouseHidden(),
+                 "the pointer was hidden with the setting turned off");
     }
 };
 
