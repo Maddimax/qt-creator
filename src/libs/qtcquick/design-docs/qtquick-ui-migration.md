@@ -5231,10 +5231,23 @@ without the user:
 - **The Qt Quick editor's reach.** It has hover tooltips, follow symbol and
   Ctrl+click, and it draws Code Style, Snippets and Font && Colors. It is not
   Creator's editor. Making it so is a large change nobody has asked for.
-- **`ICodeStylePreferencesFactory` lost `setValueEditorCreator()`**, which was
-  public on an exported class. An out-of-tree language plugin supplying a
-  widget code style editor no longer compiles. Intended under "never keep
-  widgets", easy to reverse if not.
+- **`ICodeStylePreferencesFactory` lost its widget editor API**, which was
+  public on an exported class. Five members went in
+  `TextEditor: Delete the code style widget fallback`:
+
+      using ValueEditorCreator = std::function<QWidget *(ICodeStylePreferences *)>;
+      QWidget *createValueEditor(ICodeStylePreferences *) const;
+      bool valueEditorHasPreview() const;
+      void setValueEditorCreator(const ValueEditorCreator &);
+      void setValueEditorHasPreview(bool);
+
+  Nothing in the tree calls them. An out-of-tree language plugin that supplied
+  a widget code style editor no longer compiles, and its way back is the one
+  every in-tree language took: `setSettingsAspectsCreator()` to hand over the
+  aspects the form edits, and `setQmlSource()` to name the form. A language
+  that names neither now gets `CodeStyleDefaultPage.qml`, so it still has a
+  working page without doing anything. Intended under "never keep widgets",
+  and the only deliberate source incompatibility on the branch.
 
 The numbered list below is the historical order the work was done in.
 
