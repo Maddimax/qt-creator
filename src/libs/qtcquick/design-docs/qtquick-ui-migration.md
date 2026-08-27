@@ -277,16 +277,23 @@ with seven others - but not the two layouts wrapping at different widths, which
 lands the caret between rows and is what the Down test is for. Worth knowing
 which test covers which, because the two look like the same bug from outside.
 
-**One loose end, stated as loose.** `TextEditorLayout` caches where each block
-starts in rows and warns in a FIXME that the cache is not reset when the width
-changes. Going to a line after a resize nonetheless works, and there is a test
-for that - but **what makes it work is not established**. Two candidates were
-tried and neither survives a control: taking away the per-block walk in
-`updatePolish()` fails ten tests because nothing wraps without it, which says
-nothing about the cache; and taking away the cache drop in
-`setBlockLineCount()` fails nothing at all. The test records the behaviour, the
-FIXME stays, and the next person to touch that cache has a red test to tell
-them it mattered.
+**One loose end, and a lesson about the test that chased it.**
+`TextEditorLayout` caches where each block starts in rows and warns in a FIXME
+that the cache is not reset when the width changes. Going to a line after a
+resize works, and there is a test for it.
+
+The test was worthless when first written, and said so only under
+instrumentation: it waited for the row count to pass a threshold the document
+was **already over**, so the wait returned immediately, `updatePolish()` never
+ran, and the rows were the same 55 characters at 400 wide and at 200. Every
+conclusion drawn from it was about a rewrap that had not happened. It waits for
+the rows to get narrower now, which cannot be true beforehand.
+
+With the test finally exercising a rewrap, the cache-drop candidate is properly
+rejected: taking away the `resize()` in `setBlockLineCount()` still fails
+nothing. So what keeps the row numbers right across a width change remains
+unknown - but the question is now open for an honest reason rather than because
+the experiment was empty.
 
 And clicking a later row of a wrapped line lands on it - the row under the
 pointer is not the line's first, so the character under it is in the middle of
