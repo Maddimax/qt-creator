@@ -33,4 +33,23 @@ Row {
             return selected > 0 ? where + " " + qsTr("(Sel: %1)").arg(selected) : where
         }
     }
+
+    // What the file is, beside where the caret is. Both empty themselves when
+    // the display settings say not to show them, so there is no second copy of
+    // that rule here.
+    QtcLabel {
+        objectName: "lineEndingLabel"
+
+        anchors.verticalCenter: parent.verticalCenter
+        text: root.viewport.fileLineEnding
+        visible: text !== ""
+    }
+
+    QtcLabel {
+        objectName: "encodingLabel"
+
+        anchors.verticalCenter: parent.verticalCenter
+        text: root.viewport.fileEncoding
+        visible: text !== ""
+    }
 }

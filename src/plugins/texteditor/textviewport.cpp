@@ -12,10 +12,13 @@
 #include "tabsettings.h"
 #include "syntaxhighlighter.h"
 #include "texteditorconstants.h"
+#include "texteditortr.h"
 #include "textdocument.h"
 #include "textdocumentlayout.h"
 #include "textmark.h"
 #include "typingsettings.h"
+
+#include <coreplugin/idocument.h>
 
 #include <qtcquick/qtciconprovider.h>
 
@@ -79,6 +82,7 @@ TextViewport::TextViewport(QQuickItem *parent)
     // Turning bracket matching off has to take effect on what is already open,
     // rather than on whatever is opened next.
     connect(&displaySettings(), &Utils::AspectContainer::changed, this, [this] {
+        emit fileFormatChanged();
         polish();
         update();
     });
@@ -832,6 +836,34 @@ int TextViewport::selectedCharacterCount() const
     return qAbs(m_selectionEnd - m_selectionStart);
 }
 
+QString TextViewport::fileLineEnding() const
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    // The widget editor hides this for a read-only file too: there is nothing
+    // to be done about the line endings of a file that cannot be written.
+    if (!doc || !displaySettings().displayFileLineEnding() || m_readOnly
+        || doc->isFileReadOnly()) {
+        return {};
+    }
+
+    switch (doc->lineTerminationMode()) {
+    case Utils::TextFileFormat::LFLineTerminator:
+        return Tr::tr("LF");
+    case Utils::TextFileFormat::CRLFLineTerminator:
+        return Tr::tr("CRLF");
+    default:
+        return {};
+    }
+}
+
+QString TextViewport::fileEncoding() const
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    if (!doc || !displaySettings().displayFileEncoding())
+        return {};
+    return doc->encoding().displayName();
+}
+
 void TextViewport::gotoLine(int line, int column, bool centerLine)
 {
     TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
@@ -967,6 +999,9 @@ void TextViewport::documentChangedInternal()
                 polish();
                 update();
             });
+            // The encoding and the line endings are part of what "the document
+            // changed" covers - reopening with another encoding says so here.
+            connect(doc, &Core::IDocument::changed, this, &TextViewport::fileFormatChanged);
             // The font, the colours and the zoom are all read in updatePolish()
             // from the document's font settings, and nothing else makes this
             // lay out again - so without this an open file keeps the size and

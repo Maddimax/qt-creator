@@ -6934,12 +6934,25 @@ tracks per-block line counts. The same is true here:
 wrapping exactly as they do for folding, and a row within a block is
 `row - block.firstLineNumber()`.
 
-The one thing that looked like a blocker - two views of one document at
-different widths - Qt Creator already solves: `TextEditorLayout` is created
-**per `PlainTextEdit`** (`PlainTextEditPrivate::init()`), wrapping the
-document's shared `PlainTextDocumentLayout` and holding that view's own
-per-block `QTextLayout`s. A viewport would own one the same way. It is in
-`Utils` and its layout half needs no widget.
+**Correction to that, from looking closer.** `TextEditorLayout` is indeed
+per-view (`PlainTextEditPrivate::init()`), and `PlainTextEdit::resizeEvent()`
+sets the wrap width on *it* rather than on the document's layout. But it
+overrides `blockLayout()` and not `blockLineCount()`/`setBlockLineCount()` -
+those go through `PlainTextDocumentLayout` to `QTextBlock::setLineCount()`,
+which is **document state**. So the per-block *layouts* are per-view and the
+per-block *row counts* are shared.
+
+Two views of one document at different widths therefore already disagree in
+Qt Creator: whichever laid out last owns `document()->lineCount()`. A Quick
+viewport doing what the widget does would inherit exactly that - no worse, but
+it means "wrapping needs no height cache" is only true if the port accepts
+writing its wrapped row counts into the shared document, where a widget editor
+on the same file will overwrite them.
+
+That is a design decision with a visible consequence, not a detail to settle at
+the end of a batch. The alternatives are to accept the shared state as the
+widget does, or to give `TextEditorLayout` per-view row counts - which is
+`Utils` code the widget editor depends on. Left open deliberately.
 
 Not started here: it restructures `updatePolish()` so a `Line` is a visual row
 rather than a block, and every position mapping with it. It deserves a batch of
@@ -6993,11 +7006,43 @@ including ones visibly used on every page. Quoting it (`--include='*.qml'`)
 gave the real answer of four. A sweep that reports everything is as wrong as
 one that reports nothing; sanity-check it against something known to be used.
 
+## The rest of the toolbar
+
+Beside the caret position, the widget's toolbar says what the *file* is: its
+line ending (`LF` / `CRLF`) and its encoding. Both are there now.
+
+Each hides itself the way the widget hides it, and the rule lives in C++ rather
+than in the QML: `fileLineEnding()` and `fileEncoding()` return an **empty
+string** when their display setting is off, and the labels are `visible: text
+!== ""`. One rule, one place. The line ending additionally hides for a
+read-only file, because there is nothing to be done about the line endings of a
+file that cannot be written - which is `TextEditorWidgetPrivate`'s rule too.
+
+**The defaults are not symmetric**, which the test assumed and got wrong:
+`m_displayFileLineEnding` defaults to **true** and `m_displayFileEncoding` to
+**false**. The first version asserted both were showing and failed on the
+encoding - correctly. The test now sets both explicitly, then turns each off
+*separately* and checks the other is unaffected: two labels reading one
+setting between them would otherwise pass a test that toggles both together.
+
+Not done: clicking either to change it. The widget pops a menu for the line
+ending and a codec chooser for the encoding; these are display only, and say so
+rather than looking like buttons.
+
+**A note on running controls at this size.** Six build-and-run cycles no longer
+fit in one command, and a control loop killed by a timeout leaves the *last*
+control applied - the restore never runs. The recovery is `git diff --stat` on
+the touched files before anything else. Splitting the loop and narrowing the
+test to one class (`-test TextEditor,QuickTextEditorTest`) keeps each command
+inside the limit.
+
 What is left of the editor: the extra-selection producers that genuinely need
 the widget's machinery (diagnostic underlines and occurrences, both fed by
 plugins calling `TextEditorWidget::setExtraSelections`), auto-insertion and
 completion (both needing a language completer this editor cannot be given),
-dragging text out of a selection, and wrapping.
+changing the encoding or line ending from the toolbar, dragging text out of a
+selection, and wrapping - which needs the shared-row-count decision above
+settled first.
 
 ## The same measurement, applied to kits
 

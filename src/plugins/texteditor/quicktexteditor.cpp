@@ -1092,6 +1092,37 @@ private slots:
         viewport->setSelectionEnd(10);
         QTRY_VERIFY2(label->property("text").toString().contains("(Sel: 4)"),
                      qPrintable("no selection count: " + label->property("text").toString()));
+
+        // Beside that, what the file is: its line endings and its encoding.
+        QObject * const ending
+            = quick->rootObject()->findChild<QObject *>("lineEndingLabel");
+        QObject * const encoding
+            = quick->rootObject()->findChild<QObject *>("encodingLabel");
+        QVERIFY(ending && encoding);
+
+        // The encoding is off by default and the line ending on - the same two
+        // defaults the widget editor has - so both are set here rather than
+        // assumed, and each is then checked to move when its own setting does.
+        const bool wasEnding = displaySettings().displayFileLineEnding();
+        const bool wasEncoding = displaySettings().displayFileEncoding();
+        const QScopeGuard restore([wasEnding, wasEncoding] {
+            displaySettings().displayFileLineEnding.setValue(wasEnding);
+            displaySettings().displayFileEncoding.setValue(wasEncoding);
+        });
+
+        displaySettings().displayFileLineEnding.setValue(true);
+        displaySettings().displayFileEncoding.setValue(true);
+        QVERIFY(!document->encoding().displayName().isEmpty());
+        QTRY_COMPARE(ending->property("text").toString(), QString("LF"));
+        QTRY_COMPARE(encoding->property("text").toString(), document->encoding().displayName());
+
+        // And each answers to its own setting rather than to the other's.
+        displaySettings().displayFileEncoding.setValue(false);
+        QTRY_COMPARE(encoding->property("text").toString(), QString());
+        QCOMPARE(ending->property("text").toString(), QString("LF"));
+
+        displaySettings().displayFileLineEnding.setValue(false);
+        QTRY_COMPARE(ending->property("text").toString(), QString());
     }
 
     // A split view is two editors on one document. Duplicating has to share

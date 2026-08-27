@@ -132,6 +132,13 @@ class TEXTEDITOR_EXPORT TextViewport : public QQuickItem
     Q_PROPERTY(int cursorDisplayColumn READ cursorDisplayColumn NOTIFY cursorPositionChanged)
     // How much is selected, for a display that says so.
     Q_PROPERTY(int selectedCharacterCount READ selectedCharacterCount NOTIFY selectionChanged)
+    // The file's line ending and encoding, as the toolbar shows them. The
+    // document's business rather than this view's, surfaced here because the
+    // form has a handle on the viewport and not on the document. Empty when
+    // the display settings say not to show them, which is how the widget
+    // editor hides its own - so the form has no rule of its own to get wrong.
+    Q_PROPERTY(QString fileLineEnding READ fileLineEnding NOTIFY fileFormatChanged)
+    Q_PROPERTY(QString fileEncoding READ fileEncoding NOTIFY fileFormatChanged)
     // Whether typing does anything. A viewport is a view until told otherwise,
     // so that showing a file cannot accidentally change it.
     Q_PROPERTY(bool readOnly READ isReadOnly WRITE setReadOnly NOTIFY readOnlyChanged)
@@ -197,6 +204,8 @@ public:
     int cursorColumn() const;
     int cursorDisplayColumn() const;
     int selectedCharacterCount() const;
+    QString fileLineEnding() const;
+    QString fileEncoding() const;
 
     // Puts the caret on \a line, counting from one, and shows it. Column zero
     // means the line rather than its margin, so the caret lands on the first
@@ -259,6 +268,7 @@ signals:
     void cursorPositionChanged();
     void cursorRectangleChanged();
     void readOnlyChanged();
+    void fileFormatChanged();
 
 protected:
     void updatePolish() override;
