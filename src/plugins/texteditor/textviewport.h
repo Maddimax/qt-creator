@@ -33,6 +33,8 @@ namespace Utils { class TextEditorLayout; }
 namespace TextEditor {
 
 class AutoCompleter;
+class IAssistProcessor;
+class IAssistProposal;
 
 class CodeSource;
 class SyntaxHighlighter;
@@ -220,12 +222,26 @@ public:
     QColor changedLineColor() const;
     QColor savedLineColor() const;
     qreal indentWidth() const;
+    // Asks the file's language what would finish the word the caret is in.
+    // The answer arrives on completionsAvailable() and not as a return value:
+    // a processor may go away and think about it, and the one every text file
+    // gets does exactly that.
+    Q_INVOKABLE void requestCompletions();
+    // The part of the word already typed, which is what the list is narrowed
+    // by and what a chosen completion replaces.
+    Q_INVOKABLE QString completionPrefix() const;
+    Q_INVOKABLE void applyCompletion(const QString &completion);
+
     // Replaces the base one with the file's language's, which is what knows to
     // close a bracket or a quote as the user types one. Takes ownership; the
     // completion settings are re-applied to whatever is handed in, so a caller
     // hands over a plain new object.
     void setAutoCompleter(AutoCompleter *completer);
     AutoCompleter *autoCompleter() const;
+
+    // Kept alive between the request and the answer: a processor asked to work
+    // in a thread is still using itself after start() has returned.
+    void deliverCompletions(IAssistProposal *proposal);
 
     bool isMouseHidden() const;
     // Called by the form when the pointer moves: a mouse that has moved is a
@@ -370,6 +386,12 @@ signals:
     void scrollXChanged();
     void metricsChanged();
     void mouseHiddenChanged();
+    // Ctrl+Space, which is the form's cue to ask.
+    void completionRequested();
+    // What came back, and what to narrow it by. Empty when the language had
+    // nothing to say, which the form treats as "no list" rather than "no
+    // matches".
+    void completionsAvailable(const QStringList &candidates, const QString &prefix);
     void linesChanged();
     void selectionChanged();
     void cursorPositionChanged();
@@ -492,6 +514,7 @@ private:
     // all the base AutoCompleter offers; inserting the closing half is a
     // language-specific subclass, handed out per editor factory.
     std::unique_ptr<AutoCompleter> m_autoCompleter;
+    std::unique_ptr<IAssistProcessor> m_completionProcessor;
     QPointer<Utils::TextEditorLayout> m_editorLayout;
     bool m_wrapping = false;
 

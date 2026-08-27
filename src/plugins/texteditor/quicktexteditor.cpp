@@ -7,6 +7,7 @@
 #include "textdocument.h"
 #include "codestylepool.h"
 #include "autocompleter.h"
+#include "codeassist/documentcontentcompletion.h"
 #include "completionsettings.h"
 #include "displaysettings.h"
 #include "extraencodingsettings.h"
@@ -444,8 +445,13 @@ private:
         // Set whether or not there is a popup to show it yet: the document is
         // where an assist processor looks, and a document that answers nothing
         // cannot be told apart from a language with no completions.
-        if (CompletionAssistProvider * const provider = factory->completionAssistProvider())
-            m_document->setCompletionAssistProvider(provider);
+        // The factory's own, or the words already in the file. That fallback is
+        // the widget editor's too - it is applied in TextEditorFactory's editor
+        // creator rather than kept on the factory, which is why asking the
+        // factory for it comes back empty for plain text.
+        static DocumentContentCompletionProvider wordsInTheDocument;
+        CompletionAssistProvider * const provider = factory->completionAssistProvider();
+        m_document->setCompletionAssistProvider(provider ? provider : &wordsInTheDocument);
 
         // The base AutoCompleter only knows how to take a bracket pair apart
         // again; closing one as it is typed is what a language's subclass adds.
@@ -1923,6 +1929,65 @@ private slots:
         const QString opened = cursor.block().text();
         QVERIFY2(opened.startsWith(" ") || opened.startsWith("\t"),
                  qPrintable(QString("the line after '{' was not indented: '%1'").arg(opened)));
+    }
+
+    // The provider is on the document, and asking it is what turns that into
+    // something a user sees. A plain text file gets the document-content
+    // provider, which proposes the words already in the file.
+    void testTheEditorOffersWhatTheLanguageProposes()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-completion");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("words.txt");
+        QVERIFY(file.writeFileContents("alphabetical\nbeta\ngamma\n"));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        QVERIFY2(document->completionAssistProvider(),
+                 "no provider, so there would be nothing to ask");
+
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+        auto * const view = quick->rootObject()->findChild<TextViewport *>();
+        QVERIFY(view);
+        QTRY_VERIFY(view->visibleLineCount() > 2);
+
+        // Typed half of a word that is in the file: the rest of it is on offer.
+        QTextDocument * const text = document->document();
+        QTextCursor cursor(text);
+        cursor.setPosition(text->characterCount() - 1);
+        cursor.insertText("alph");
+        view->setTextCursor(cursor);
+
+        QCOMPARE(view->completionPrefix(), QString("alph"));
+
+        // The answer comes back on a signal: the provider every text file gets
+        // works in a thread, so asking and reading in one breath would read
+        // before it had finished.
+        QStringList candidates;
+        QString prefix;
+        connect(view, &TextViewport::completionsAvailable, view,
+                [&candidates, &prefix](const QStringList &proposed, const QString &typed) {
+                    candidates = proposed;
+                    prefix = typed;
+                });
+        view->requestCompletions();
+        QTRY_VERIFY2(!candidates.isEmpty(), "the language proposed nothing at all");
+        QVERIFY2(candidates.contains("alphabetical"),
+                 qPrintable("proposed: " + candidates.join(", ")));
+        QCOMPARE(prefix, QString("alph"));
+
+        // And choosing one replaces what was typed rather than adding to it.
+        view->applyCompletion("alphabetical");
+        QCOMPARE(text->lastBlock().text(), QString("alphabetical"));
+        QVERIFY2(!text->lastBlock().text().contains("alphalph"),
+                 "the completion was appended to the prefix instead of replacing it");
     }
 };
 

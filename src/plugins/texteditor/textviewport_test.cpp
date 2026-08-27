@@ -13,6 +13,7 @@
 #include "icodestylepreferencesfactory.h"
 #include "autocompleter.h"
 #include "behaviorsettings.h"
+#include "codeassist/documentcontentcompletion.h"
 #include "completionsettings.h"
 #include "fontsettings.h"
 #include "syntaxhighlighter.h"
@@ -3731,6 +3732,55 @@ private slots:
         viewport->setCursorPosition(0);
         QTest::keyClick(&fixture.view, Qt::Key_BracketLeft);
         QTRY_COMPARE(text->firstBlock().text(), QString("[[][alpha"));
+    }
+
+    void testCtrlSpaceOffersTheListAndChoosingFromItReplacesTheWord()
+    {
+        TemporaryDirectory dir("completion-popup");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("words.txt");
+        QVERIFY(file.writeFileContents("alphabetical\nbeta\n"));
+
+        CodeViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+        viewport->forceActiveFocus();
+        QVERIFY(viewport->hasActiveFocus());
+
+        auto * const popup = fixture.root->findChild<QObject *>("completionPopup");
+        QVERIFY2(popup, "the form has no completion popup");
+        QVERIFY2(!popup->property("visible").toBool(), "the popup was open before being asked");
+
+        // A viewport made outside an editor has no provider, so the shortcut
+        // has nothing to offer and the popup must stay shut rather than open
+        // empty. That is also the assertion the editor test cannot make.
+        QTest::keyClick(&fixture.view, Qt::Key_Space, Qt::ControlModifier);
+        QVERIFY(!viewport->document()->textDocument()->completionAssistProvider());
+        QVERIFY2(!popup->property("visible").toBool(),
+                 "the popup opened with nothing to put in it");
+
+        // Given a provider - the one every text file gets from the editor -
+        // the same keystroke offers the words already in the file.
+        static DocumentContentCompletionProvider wordsInTheDocument;
+        viewport->document()->textDocument()->setCompletionAssistProvider(&wordsInTheDocument);
+
+        QTextCursor cursor(viewport->document()->textDocument()->document());
+        cursor.setPosition(cursor.document()->characterCount() - 1);
+        cursor.insertText("alph");
+        viewport->setTextCursor(cursor);
+
+        QTest::keyClick(&fixture.view, Qt::Key_Space, Qt::ControlModifier);
+        QTRY_VERIFY2(popup->property("visible").toBool(), "the popup never opened");
+        QCOMPARE(popup->property("prefix").toString(), QString("alph"));
+
+        // And choosing replaces what was typed rather than adding to it.
+        QMetaObject::invokeMethod(popup, "acceptCurrent");
+        QTRY_COMPARE(cursor.document()->lastBlock().text(), QString("alphabetical"));
+        QTRY_VERIFY2(!popup->property("visible").toBool(),
+                     "the popup stayed open after a choice was made");
     }
 };
 

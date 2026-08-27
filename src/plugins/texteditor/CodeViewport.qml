@@ -343,6 +343,39 @@ Item {
                     root.editingFinished()
             }
 
+            // What the language offers to finish the word being typed. Asked
+            // for by Ctrl+Space and nothing else for now: offering unbidden
+            // needs a view on how often to ask a language that may be slow.
+            CompletionPopup {
+                id: completions
+
+                objectName: "completionPopup"
+                completions: []
+                prefix: ""
+                x: viewport.cursorRectangle.x
+                y: viewport.cursorRectangle.y + viewport.lineHeight
+
+                onAccepted: (completion) => viewport.applyCompletion(completion)
+            }
+
+            Connections {
+                target: viewport
+
+                function onCompletionRequested(): void {
+                    viewport.requestCompletions()
+                }
+
+                // The answer, whenever it comes: the provider every text file
+                // gets works in a thread, so this is a second event and not a
+                // return value.
+                function onCompletionsAvailable(candidates: list<string>,
+                                                prefix: string): void {
+                    completions.completions = candidates
+                    completions.prefix = prefix
+                    completions.offer()
+                }
+            }
+
             // The area past the right margin, tinted where the settings ask.
             // Behind the text like the indent guides, and for the same reason.
             Rectangle {

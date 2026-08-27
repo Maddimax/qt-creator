@@ -5,6 +5,11 @@
 
 #include "behaviorsettings.h"
 #include "autocompleter.h"
+#include "codeassist/assistinterface.h"
+#include "codeassist/completionassistprovider.h"
+#include "codeassist/iassistprocessor.h"
+#include "codeassist/iassistproposal.h"
+#include "codeassist/iassistproposalmodel.h"
 #include "codesource.h"
 #include "completionsettings.h"
 #include "displaysettings.h"
@@ -214,6 +219,92 @@ QColor TextViewport::savedLineColor() const
 qreal TextViewport::indentWidth() const
 {
     return m_indentWidth;
+}
+
+// Where the word under the caret starts. What counts as part of a word is the
+// language's answer, not a general one: a '$' belongs to an identifier in some
+// languages and not in others.
+static int startOfWordBefore(const QTextCursor &cursor, const CompletionAssistProvider *provider)
+{
+    const QTextBlock block = cursor.block();
+    const QString text = block.text();
+    int at = cursor.position() - block.position();
+    while (at > 0 && provider->isContinuationChar(text.at(at - 1)))
+        --at;
+    return block.position() + at;
+}
+
+void TextViewport::requestCompletions()
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    CompletionAssistProvider * const provider = doc ? doc->completionAssistProvider() : nullptr;
+    const QTextCursor cursor = textCursor();
+    if (!provider || cursor.isNull()) {
+        emit completionsAvailable({}, {});
+        return;
+    }
+
+    // Whatever the last request is still doing, nobody is waiting for it now.
+    if (m_completionProcessor)
+        m_completionProcessor->cancel();
+
+    auto interface = std::make_unique<AssistInterface>(cursor, doc->filePath(),
+                                                       ExplicitlyInvoked);
+    m_completionProcessor.reset(provider->createProcessor(interface.get()));
+    if (!m_completionProcessor) {
+        emit completionsAvailable({}, {});
+        return;
+    }
+
+    m_completionProcessor->setAsyncCompletionAvailableHandler(
+        [this](IAssistProposal *proposal) { deliverCompletions(proposal); });
+
+    // A proposal now means the language answered on the spot; a null one means
+    // it went away to think, and the handler above is what hears back.
+    if (IAssistProposal * const proposal = m_completionProcessor->start(std::move(interface)))
+        deliverCompletions(proposal);
+}
+
+void TextViewport::deliverCompletions(IAssistProposal *proposal)
+{
+    const std::unique_ptr<IAssistProposal> owned(proposal);
+    QStringList candidates;
+    if (owned) {
+        if (const ProposalModelPtr model = owned->model()) {
+            candidates.reserve(model->size());
+            for (int i = 0; i < model->size(); ++i)
+                candidates.append(model->text(i));
+        }
+    }
+    emit completionsAvailable(candidates, completionPrefix());
+}
+
+QString TextViewport::completionPrefix() const
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    CompletionAssistProvider * const provider = doc ? doc->completionAssistProvider() : nullptr;
+    const QTextCursor cursor = textCursor();
+    if (!provider || cursor.isNull())
+        return {};
+
+    const int from = startOfWordBefore(cursor, provider);
+    return cursor.document()->toPlainText().mid(from, cursor.position() - from);
+}
+
+void TextViewport::applyCompletion(const QString &completion)
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    CompletionAssistProvider * const provider = doc ? doc->completionAssistProvider() : nullptr;
+    QTextCursor cursor = textCursor();
+    if (!provider || cursor.isNull() || completion.isEmpty() || m_readOnly)
+        return;
+
+    // What was typed is replaced rather than added to, or choosing "beta" for
+    // a half-typed "be" would leave "bebeta".
+    cursor.setPosition(startOfWordBefore(cursor, provider));
+    cursor.setPosition(textCursor().position(), QTextCursor::KeepAnchor);
+    cursor.insertText(completion);
+    setTextCursor(cursor);
 }
 
 void TextViewport::setAutoCompleter(AutoCompleter *completer)
@@ -697,6 +788,15 @@ void TextViewport::keyPressEvent(QKeyEvent *event)
         cursor.insertText("\n");
         doc->autoIndent(cursor);
         cursor.endEditBlock();
+        break;
+    case Qt::Key_Space:
+        // Ctrl+Space is what asks for the list; the form is what shows it.
+        if (event->modifiers().testFlag(Qt::ControlModifier)) {
+            emit completionRequested();
+            event->accept();
+            return;
+        }
+        insertTypedText(cursor, event->text());
         break;
     case Qt::Key_Tab:
         // One indent's worth of whatever the tab settings say, and a whole

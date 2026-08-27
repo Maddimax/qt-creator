@@ -8924,6 +8924,47 @@ All four controls bite. `AutoCompleter` has no `Q_OBJECT`, so the test asks it
 what it would do with a brace rather than what class it is - which is the better
 question anyway.
 
+## Completion, and the sanitizer catching a design mistake
+
+The last of what the factory lookup unblocked. `CompletionPopup.qml` already
+existed in `qtcquick`, and the provider was already on the document, so this is
+the wiring between them: Ctrl+Space emits `completionRequested()`, the form asks,
+and what comes back fills the popup. Choosing replaces the word already typed
+rather than appending to it.
+
+**The first version was synchronous, and wrong twice over.** It called
+`processor->start()`, read the proposal, and destroyed the processor. For the
+provider every text file gets - `DocumentContentCompletionProvider`, which reads
+the words in the document - `start()` returns **null** and the answer arrives
+later. So the list was always empty, and destroying a processor that was still
+working in a thread was a use-after-free. AddressSanitizer said so on the first
+run:
+
+    ERROR: AddressSanitizer: heap-use-after-free ... READ of size 8 thread T52
+
+That is worth writing down as a habit rather than a fix: **the test run is
+sanitized, so a lifetime mistake in new code is caught the first time it
+executes** - but only if the exit code is read. The failure message alone said
+"proposed: " and nothing more; the diagnosis was in the ASan block below it, and
+a harness that greps only for `FAIL!` would have shown an empty-list bug and
+hidden the memory error under it.
+
+The shape it forced is the right one anyway: `requestCompletions()` returns
+nothing, `completionsAvailable(candidates, prefix)` is a second event, the
+processor is a member that outlives the call, and a new request cancels the old
+one.
+
+**A fallback that is not on the factory.** Asking the factory for a completion
+provider comes back empty for plain text, because `TextEditorFactory` applies
+its default - the document-content provider - inside its *editor creator*, not
+by storing it. The Quick editor now does the same, which is why a plain text
+file offers the words already in it.
+
+**What is not done:** the popup is offered on Ctrl+Space and not while typing.
+Offering unbidden needs a view on how often to ask a language that may be slow,
+and `isActivationCharSequence()` is the hook for it. Stated rather than half
+done.
+
 ## The terminal spike: go, with the cleanest split in the tree
 
 **Status update: the spike is being productised.** `TerminalQuick` is now the
