@@ -1139,6 +1139,7 @@ class FossilPlugin final : public ExtensionSystem::IPlugin
 
 #ifdef WITH_TESTS
         addTest<FossilTests>();
+        addTestCreator(createConfigureDialogTest);
 #endif
     }
 

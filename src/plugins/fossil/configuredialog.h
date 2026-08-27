@@ -5,10 +5,12 @@
 
 #include <QDialog>
 
+#include <memory>
+
 namespace Fossil::Internal {
 
 struct RepositorySettings;
-class ConfigureDialogPrivate;
+class RepositoryConfiguration;
 
 class ConfigureDialog final : public QDialog
 {
@@ -22,7 +24,11 @@ public:
     void setSettings(const RepositorySettings &settings);
 
 private:
-    ConfigureDialogPrivate *d = nullptr;
+    std::unique_ptr<RepositoryConfiguration> m_settings;
 };
+
+#ifdef WITH_TESTS
+QObject *createConfigureDialogTest();
+#endif
 
 } // namespace Fossil::Internal

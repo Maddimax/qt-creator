@@ -26,6 +26,7 @@ if(TARGET Mercurial)
     NO_PLUGIN
     QML_FILES
       AuthenticationDialog.qml
+      RevertDialog.qml
       MercurialSettingsPage.qml
   )
 endif()

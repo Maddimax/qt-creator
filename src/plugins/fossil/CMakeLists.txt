@@ -29,6 +29,7 @@ if(TARGET Fossil)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      ConfigureDialog.qml
       FossilSettingsPage.qml
   )
 endif()

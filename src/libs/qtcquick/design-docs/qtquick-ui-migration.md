@@ -9267,6 +9267,45 @@ than the behaviour would have encoded a promise the code does not make.
 
 Nine controls between the two dialogs, all biting.
 
+## Two more, and a widget that was hiding a decision
+
+Mercurial's revert dialog and Fossil's configure dialog. Both raw widgets, both
+now aspects, and the first carried something worth stopping over.
+
+**A checkable group box is a decision nobody wrote down.** The revert dialog was
+
+    auto groupBox = new QGroupBox(Tr::tr("Specify a revision other than the default?"));
+    groupBox->setCheckable(true);
+
+with the revision field inside it, and `revision()` returning the field's text.
+A checkable group box *disables* its children when unchecked - it does not clear
+them - so a user who ticked the box, typed a revision, and unticked it again got
+that revision passed to `hg` while the dialog said the default was wanted.
+
+As aspects the two halves have to be named: a `BoolAspect`, and a `StringAspect`
+with `setEnabler()` on it. The enabling that the group box implied is now
+written down, and the question the group box hid - *what does the field mean
+when the flag is off?* - has to be answered rather than inherited. It is
+answered `QString()`, which is a **behaviour change** and the right one.
+
+**The rule needed somewhere to live to be testable.** First it was a line inside
+`RevertDialog::revision()`, and its control did not bite: a freshly built dialog
+has an empty field, so returning it unconditionally gives the same answer, and
+the dialog offers no way for a test to put a revision in it. Moving the rule to
+`RevertSettings::effectiveRevision()` makes it askable with the flag either way.
+Same move as `hideMouseWhileTyping(settings, isMac)` and
+`setAvailableOptions()`: when a control cannot bite, the usual cause is that the
+rule has no seam, not that the rule is wrong.
+
+**Fossil's is the round-trip kind.** The plugin passes a `RepositorySettings`
+struct around and the dialog is only a way of editing one, so the test is that
+the struct goes in and comes back out unchanged - plus one assertion about the
+inversion, because the struct stores a *mode* (`AutosyncOn`) and the dialog
+shows *"Disable auto-sync"*. A port that dropped that would leave every
+repository syncing when it had been told not to, and nothing else would notice.
+
+Eight controls across the two, all biting.
+
 ## The terminal spike: go, with the cleanest split in the tree
 
 **Status update: the spike is being productised.** `TerminalQuick` is now the

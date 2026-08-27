@@ -876,6 +876,7 @@ class MercurialPlugin final : public ExtensionSystem::IPlugin
 #ifdef WITH_TESTS
         addTest<MercurialTest>();
         addTestCreator(createAuthenticationDialogTest);
+        addTestCreator(createRevertDialogTest);
 #endif
     }
 
