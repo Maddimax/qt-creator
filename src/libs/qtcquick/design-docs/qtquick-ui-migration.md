@@ -277,6 +277,17 @@ with seven others - but not the two layouts wrapping at different widths, which
 lands the caret between rows and is what the Down test is for. Worth knowing
 which test covers which, because the two look like the same bug from outside.
 
+**One dependency worth knowing about, found while looking for a fifth bug.**
+`TextEditorLayout` caches where each block starts in rows, and a FIXME in it
+says the cache is not reset when the width changes. Nothing in the viewport
+resets it either - what keeps every row number right is `updatePolish()`
+walking every block through `blockBoundingRect()`, which refreshes it as a side
+effect. That walk is the whole document on every polish, so it looks like an
+optimisation waiting to happen, and what it holds up is going to a line,
+following the caret and moving by one. There is a test for it now. It passes,
+and no control isolates it - taking the walk away fails ten tests because
+nothing wraps without it - so it is kept for the dependency it names.
+
 And clicking a later row of a wrapped line lands on it - the row under the
 pointer is not the line's first, so the character under it is in the middle of
 the block. Breaking the row offset out of `positionAt()` fails eleven tests,
