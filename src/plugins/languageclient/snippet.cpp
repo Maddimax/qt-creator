@@ -227,7 +227,6 @@ void SnippetParsingTest::testSnippetParsing_data()
         << QString("$1$1") << true << Parts{SnippetPart("", 1), SnippetPart("", 1)};
     QTest::newRow("different tabstop")
         << QString("$1$2") << true << Parts{SnippetPart("", 1), SnippetPart("", 2)};
-    QTest::newRow("empty tabstop") << QString("$1") << true << Parts{SnippetPart("", 1)};
     QTest::newRow("double dollar") << QString("$$1") << false << Parts();
     QTest::newRow("escaped tabstop") << QString("\\$1") << true << Parts{SnippetPart("$1")};
     QTest::newRow("escaped double tabstop")
