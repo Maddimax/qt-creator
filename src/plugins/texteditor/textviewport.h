@@ -220,6 +220,13 @@ public:
     QColor changedLineColor() const;
     QColor savedLineColor() const;
     qreal indentWidth() const;
+    // Replaces the base one with the file's language's, which is what knows to
+    // close a bracket or a quote as the user types one. Takes ownership; the
+    // completion settings are re-applied to whatever is handed in, so a caller
+    // hands over a plain new object.
+    void setAutoCompleter(AutoCompleter *completer);
+    AutoCompleter *autoCompleter() const;
+
     bool isMouseHidden() const;
     // Called by the form when the pointer moves: a mouse that has moved is a
     // mouse the user is looking for again.
@@ -475,6 +482,7 @@ private:
     // Keeps the caret on screen after it has been moved by something other than
     // the mouse.
     void ensureCursorVisible();
+    void insertTypedText(QTextCursor &cursor, const QString &text);
 
     // By kind, each sorted by where it starts so that the lines on screen can
     // be found without walking every match in the file.

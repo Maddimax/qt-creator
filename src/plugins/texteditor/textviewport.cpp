@@ -216,6 +216,21 @@ qreal TextViewport::indentWidth() const
     return m_indentWidth;
 }
 
+void TextViewport::setAutoCompleter(AutoCompleter *completer)
+{
+    if (!completer)
+        return;
+    m_autoCompleter.reset(completer);
+    applyCompletionSettings();
+    if (TextDocument * const doc = m_document ? m_document->textDocument() : nullptr)
+        m_autoCompleter->setTabSettings(doc->tabSettings());
+}
+
+AutoCompleter *TextViewport::autoCompleter() const
+{
+    return m_autoCompleter.get();
+}
+
 bool TextViewport::isMouseHidden() const
 {
     return m_mouseHidden;
@@ -700,12 +715,50 @@ void TextViewport::keyPressEvent(QKeyEvent *event)
             QQuickItem::keyPressEvent(event);
             return;
         }
-        cursor.insertText(event->text());
+        insertTypedText(cursor, event->text());
         break;
     }
 
     setTextCursor(cursor);
     event->accept();
+}
+
+// Typing, as opposed to inserting: what the user typed goes in, and then the
+// language gets to say what else belongs with it - the closing bracket or
+// quote, and the indentation a character like '}' asks for. The closing text is
+// left *after* the caret, which is what makes it something to type over rather
+// than something to delete.
+void TextViewport::insertTypedText(QTextCursor &cursor, const QString &text)
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    if (!doc || !m_autoCompleter) {
+        cursor.insertText(text);
+        return;
+    }
+
+    QChar electricChar;
+    if (doc->typingSettings().m_autoIndent) {
+        for (const QChar c : text) {
+            if (doc->indenter()->isElectricCharacter(c)) {
+                electricChar = c;
+                break;
+            }
+        }
+    }
+
+    QTextCursor probe = cursor;
+    const QString closing = m_autoCompleter->autoComplete(probe, text, false);
+
+    cursor.beginEditBlock();
+    cursor.insertText(text);
+    if (!closing.isEmpty()) {
+        const int before = cursor.position();
+        cursor.insertText(closing);
+        cursor.setPosition(before);
+    }
+    if (!electricChar.isNull() && m_autoCompleter->contextAllowsElectricCharacters(cursor))
+        doc->autoIndent(cursor, electricChar, cursor.position());
+    cursor.endEditBlock();
 }
 
 void TextViewport::inputMethodEvent(QInputMethodEvent *event)

@@ -10927,6 +10927,11 @@ TextEditorFactory::IndenterCreator TextEditorFactory::indenterCreator() const
     return d->m_indenterCreator;
 }
 
+TextEditorFactory::AutoCompleterCreator TextEditorFactory::autoCompleterCreator() const
+{
+    return d->m_autoCompleterCreator;
+}
+
 CompletionAssistProvider *TextEditorFactory::completionAssistProvider() const
 {
     return d->m_completionAssistProvider.get();

@@ -789,6 +789,7 @@ public:
     // claims the file's mime type and asks it, rather than doing without a
     // language's indenter and completions entirely.
     IndenterCreator indenterCreator() const;
+    AutoCompleterCreator autoCompleterCreator() const;
     CompletionAssistProvider *completionAssistProvider() const;
 
     // The one that would build an editor for \a filePath, or nullptr where no

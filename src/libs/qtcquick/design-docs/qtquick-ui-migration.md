@@ -8884,6 +8884,46 @@ per-factory, and stopping there. What it never asked was the next question -
 about code that was not read, and it should be worth a grep before it is written
 down, let alone repeated.
 
+## Auto-insertion, which the viewport was already shaped for
+
+With the factory lookup in place, auto-insertion was the smaller of the two
+things it unblocked - and the viewport turned out to have been built for it.
+`TextViewport` already owned an `AutoCompleter` and already used it for
+backspace, with a comment saying exactly what was missing:
+
+    // Backspace between the two halves of a bracket pair removes both. That is
+    // all the base AutoCompleter offers; inserting the closing half is a
+    // language-specific subclass, handed out per editor factory.
+
+So the change is `setAutoCompleter()` replacing the base one, and typing going
+through `insertTypedText()` instead of `cursor.insertText()`. The closing text
+goes in *after* the caret, which is what makes it something to type over rather
+than something to delete, and an electric character re-indents through the
+indenter the previous batch supplied.
+
+**A duplicate member is a message.** The first attempt added a
+`m_autoCompleter` that already existed, and the compiler said so. That was worth
+more than an hour of design: the right shape was not "add an auto-completer to
+the viewport" but "replace the one it has", and the comment above it had said so
+since it was written. Reading what is already there is cheaper than the second
+draft.
+
+**The weak-test pattern, for the fourth time.** The control for "the editor
+hands the language's completer to the viewport" did not bite, because the test
+installed the completer itself before asserting - it did the thing it was
+checking. The fix is the same one as with the display settings: arrange the
+world *before* the object under test is built, then assert what it did, and
+never perform the step you are testing. Worth naming, since it has now appeared
+in four different batches:
+
+- assert what was **built**, not what a later push corrected;
+- assert what is **drawn**, not what a property says;
+- assert what the object **did**, not what the test just did for it.
+
+All four controls bite. `AutoCompleter` has no `Q_OBJECT`, so the test asks it
+what it would do with a brace rather than what class it is - which is the better
+question anyway.
+
 ## The terminal spike: go, with the cleanest split in the tree
 
 **Status update: the spike is being productised.** `TerminalQuick` is now the

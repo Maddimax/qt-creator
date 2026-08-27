@@ -6,6 +6,8 @@
 #include "codesource.h"
 #include "textdocument.h"
 #include "codestylepool.h"
+#include "autocompleter.h"
+#include "completionsettings.h"
 #include "displaysettings.h"
 #include "extraencodingsettings.h"
 #include "highlighter.h"
@@ -444,6 +446,13 @@ private:
         // cannot be told apart from a language with no completions.
         if (CompletionAssistProvider * const provider = factory->completionAssistProvider())
             m_document->setCompletionAssistProvider(provider);
+
+        // The base AutoCompleter only knows how to take a bracket pair apart
+        // again; closing one as it is typed is what a language's subclass adds.
+        if (const TextEditorFactory::AutoCompleterCreator creator = factory->autoCompleterCreator()) {
+            if (TextViewport * const view = viewport())
+                view->setAutoCompleter(creator());
+        }
     }
 
     void configureHighlighter()
@@ -1868,6 +1877,15 @@ private slots:
         QVERIFY2(forJson->indenterCreator(),
                  "the JSON factory holds no indenter, so this tests nothing");
 
+        // Before the editor is built, so that what is asserted below is the
+        // completer the editor installed with the settings as they stand -
+        // not one the test put there itself.
+        const bool wasBrackets = globalCompletionSettings().autoInsertBrackets();
+        const QScopeGuard restoreBrackets([wasBrackets] {
+            globalCompletionSettings().autoInsertBrackets.setValue(wasBrackets);
+        });
+        globalCompletionSettings().autoInsertBrackets.setValue(true);
+
         Core::IEditor * const editor
             = Core::EditorManager::openEditor(json, QUICK_TEXT_EDITOR_ID);
         QVERIFY2(editor, "the editor manager opened nothing");
@@ -1877,6 +1895,22 @@ private slots:
         auto * const document = qobject_cast<TextDocument *>(editor->document());
         QVERIFY(document);
         QVERIFY(document->indenter());
+
+        // And the language's own AutoCompleter, in place of the base one: the
+        // base knows how to take a bracket pair apart and not how to make one.
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+        auto * const view = quick->rootObject()->findChild<TextViewport *>();
+        QVERIFY(view);
+        QVERIFY(view->autoCompleter());
+
+        // Asked what it would do rather than what it is: the base completer
+        // answers nothing here, so a closing brace is the language's. Nothing
+        // is installed here - the setting was turned on before the editor was
+        // opened, so this is the completer the *editor* put in place.
+        QTextCursor probe(document->document());
+        probe.setPosition(document->document()->characterCount() - 1);
+        QCOMPARE(view->autoCompleter()->autoComplete(probe, "{", false), QString("}"));
 
         // What the indenter is for: a brace opens a block, and the line after
         // it is a level deeper. The plain indenter copies the previous line

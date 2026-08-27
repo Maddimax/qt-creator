@@ -11,6 +11,7 @@
 #include "icodestylepreferences.h"
 #include "snippets/snippetprovider.h"
 #include "icodestylepreferencesfactory.h"
+#include "autocompleter.h"
 #include "behaviorsettings.h"
 #include "completionsettings.h"
 #include "fontsettings.h"
@@ -164,6 +165,26 @@ public:
     CodeDocument document;
     QQuickItem *root = nullptr;
     TextViewport *viewport = nullptr;
+};
+
+// What a language's AutoCompleter subclass does and the base one does not:
+// close a bracket as it is typed. The base refuses in contextAllowsAutoBrackets,
+// so overriding that is what makes the pairing happen at all.
+class ClosingAutoCompleter : public AutoCompleter
+{
+public:
+    bool contextAllowsAutoBrackets(const QTextCursor &, const QString &) const override
+    {
+        return true;
+    }
+
+    QString insertMatchingBrace(const QTextCursor &, const QString &text, QChar, bool,
+                                int *skippedChars) const override
+    {
+        if (skippedChars)
+            *skippedChars = 0;
+        return text == "[" ? QString("]") : QString();
+    }
 };
 
 // Every item in the visual tree below \a root, itself included.
@@ -3665,6 +3686,51 @@ private slots:
         QTest::keyClick(&fixture.view, Qt::Key_B);
         QVERIFY2(!viewport->isMouseHidden(),
                  "the pointer was hidden with the setting turned off");
+    }
+
+    void testTypingABracketClosesItWhereTheLanguageSaysSo()
+    {
+        TemporaryDirectory dir("auto-brackets");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("typed.txt");
+        QVERIFY(file.writeFileContents("alpha\n"));
+
+        const bool was = globalCompletionSettings().autoInsertBrackets();
+        const QScopeGuard restore(
+            [was] { globalCompletionSettings().autoInsertBrackets.setValue(was); });
+        globalCompletionSettings().autoInsertBrackets.setValue(true);
+
+        CodeViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+        viewport->forceActiveFocus();
+        QVERIFY(viewport->hasActiveFocus());
+        QTextDocument * const text = fixture.document.textDocument()->document();
+
+        // The base completer knows how to take a pair apart and not how to
+        // make one, so typing a bracket types exactly that.
+        viewport->setCursorPosition(0);
+        QTest::keyClick(&fixture.view, Qt::Key_BracketLeft);
+        QTRY_COMPARE(text->firstBlock().text(), QString("[alpha"));
+
+        // The language's does the other half. What it adds goes *after* the
+        // caret, so the next keystroke lands between the two.
+        viewport->setAutoCompleter(new ClosingAutoCompleter);
+        viewport->setCursorPosition(0);
+        QTest::keyClick(&fixture.view, Qt::Key_BracketLeft);
+        QTRY_COMPARE(text->firstBlock().text(), QString("[][alpha"));
+        QCOMPARE(viewport->cursorPosition(), 1);
+
+        // And the setting still decides: turning it off types the bracket and
+        // nothing else, with the same completer in place.
+        globalCompletionSettings().autoInsertBrackets.setValue(false);
+        viewport->setAutoCompleter(new ClosingAutoCompleter);
+        viewport->setCursorPosition(0);
+        QTest::keyClick(&fixture.view, Qt::Key_BracketLeft);
+        QTRY_COMPARE(text->firstBlock().text(), QString("[[][alpha"));
     }
 };
 
