@@ -10824,3 +10824,47 @@ it fires for every editor test - but it is the same shape as the indenter bug:
 a green suite saying, every single run, that something is wrong. Recorded here
 rather than chased, because it belongs to the file-watching code and not to the
 settings pages.
+
+## The watcher imbalance: diagnosed, not fixed
+
+The 33-per-run soft assert from the previous entry, chased far enough to be
+worth someone's time and then deliberately left alone.
+
+    SOFT ASSERT: "it != m_watchClients.end()"   devicefileaccess.cpp:729
+
+**What it is.** `DesktopDeviceFileAccess` keeps two stores: a
+`QFileSystemWatcher` holding paths, and `m_watchClients` mapping a path to the
+watchers interested in it. `_watch()` only calls `addPaths()` for paths
+`m_watchClients` does not already know, and treats anything `addPaths()` reports
+back as a failure to watch.
+
+Instrumenting the failure says exactly what is happening:
+
+    watch failed: "revert.txt"   alreadyInWatcher true  watched 2  deleted 0  clients 1
+    watch failed: "edited.txt"   alreadyInWatcher true  watched 8  deleted 6  clients 1
+
+Two facts, both load-bearing. **Every** failing add is for a path the
+`QFileSystemWatcher` *already holds* - Qt reports an already-watched path as a
+failure to add, which is not a failure to watch. And the watcher is holding
+paths for files that no longer exist - six of the eight in that line - while
+`m_watchClients` knows about one. The two stores have drifted apart.
+
+So the chain is: a path stays in the `QFileSystemWatcher` after
+`m_watchClients` has forgotten it → the next client for that path is reported
+as a failed add and never recorded → removing that client finds no entry and
+soft-asserts.
+
+**The obvious fix makes it worse, which is why this is a report and not a
+patch.** Registering the client when the path is already watched removes every
+"Failed to watch" warning - 20 to 0 - and takes the soft asserts from 33 to
+**53**. Measured against two runs of the unmodified binary that both gave
+exactly 33 and 20, so the comparison is real and not run-to-run noise. Trading
+one symptom for more of another means the model is incomplete: the entry is
+disappearing between the add and the remove, and that second defect has to be
+understood before the first is touched.
+
+Reverted. This is shared file-watching code, not settings-page code, and a
+half-understood change to it is worth less than the diagnosis. What is now
+known and was not before: it is not a watcher limit, it is not deleted files
+being unwatchable, and it is not the settings migration - the two stores drift
+apart, and the assert is the second-order effect.
