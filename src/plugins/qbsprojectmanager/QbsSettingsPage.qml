@@ -10,13 +10,15 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
-    BoolDelegate { aspect: aspects.useCreatorDir }
+    id: root
+
+    BoolDelegate { aspect: root.aspects.useCreatorDir }
 
     RowLayout {
-        StringDelegate { aspect: aspects.QbsExecutable }
-        ButtonDelegate { aspect: aspects.ResetExecutablePath }
+        StringDelegate { aspect: root.aspects.QbsExecutable }
+        ButtonDelegate { aspect: root.aspects.ResetExecutablePath }
     }
 
-    StringDelegate { aspect: aspects.DefaultInstallDir }
-    TextDisplayDelegate { aspect: aspects.Version }
+    StringDelegate { aspect: root.aspects.DefaultInstallDir }
+    TextDisplayDelegate { aspect: root.aspects.Version }
 }

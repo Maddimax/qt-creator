@@ -10,18 +10,20 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
+    id: root
+
     AspectGroupBox {
         title: qsTr("Note")
 
-        TextDisplayDelegate { aspect: aspects.Note }
+        TextDisplayDelegate { aspect: root.aspects.Note }
     }
 
     AspectGroupBox {
         title: qsTr("Use External Repository")
-        checkAspect: aspects.UseExternalRepo
+        checkAspect: root.aspects.UseExternalRepo
 
-        StringListEditorDelegate { aspect: aspects.RepositoryUrls }
+        StringListEditorDelegate { aspect: root.aspects.RepositoryUrls }
     }
 
-    ButtonDelegate { aspect: aspects.InstallExtension }
+    ButtonDelegate { aspect: root.aspects.InstallExtension }
 }

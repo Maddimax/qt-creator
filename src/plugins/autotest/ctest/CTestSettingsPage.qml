@@ -12,31 +12,31 @@ import QtCreator.Ui
 AspectPage {
     id: root
 
-    BoolDelegate { aspect: aspects.OutputOnFail }
-    BoolDelegate { aspect: aspects.ScheduleRandom }
-    BoolDelegate { aspect: aspects.StopOnFail }
-    SelectionDelegate { aspect: aspects.OutputMode }
+    BoolDelegate { aspect: root.aspects.OutputOnFail }
+    BoolDelegate { aspect: root.aspects.ScheduleRandom }
+    BoolDelegate { aspect: root.aspects.StopOnFail }
+    SelectionDelegate { aspect: root.aspects.OutputMode }
 
     AspectGroupBox {
         title: qsTr("Repeat Tests")
-        checkAspect: aspects.Repeat
+        checkAspect: root.aspects.Repeat
 
         RowLayout {
-            SelectionDelegate { aspect: aspects.RepetitionMode }
-            IntegerDelegate { aspect: aspects.RepetitionCount }
+            SelectionDelegate { aspect: root.aspects.RepetitionMode }
+            IntegerDelegate { aspect: root.aspects.RepetitionCount }
         }
     }
 
     AspectGroupBox {
         title: qsTr("Run in Parallel")
-        checkAspect: aspects.Parallel
+        checkAspect: root.aspects.Parallel
 
         ColumnLayout {
-            IntegerDelegate { aspect: aspects.Jobs }
+            IntegerDelegate { aspect: root.aspects.Jobs }
 
             RowLayout {
-                BoolDelegate { aspect: aspects.TestLoad }
-                IntegerDelegate { aspect: aspects.Threshold }
+                BoolDelegate { aspect: root.aspects.TestLoad }
+                IntegerDelegate { aspect: root.aspects.Threshold }
             }
         }
     }

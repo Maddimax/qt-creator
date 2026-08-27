@@ -10,15 +10,17 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
+    id: root
+
     AspectGroupBox {
         title: qsTr("Projects Directory")
 
         ColumnLayout {
-            RadioDelegate { aspect: aspects.UseCurrentDirectory }
+            RadioDelegate { aspect: root.aspects.UseCurrentDirectory }
 
             RowLayout {
-                RadioDelegate { aspect: aspects.UseProjectDirectory }
-                StringDelegate { aspect: aspects.ProjectsDirectory }
+                RadioDelegate { aspect: root.aspects.UseProjectDirectory }
+                StringDelegate { aspect: root.aspects.ProjectsDirectory }
             }
         }
     }
@@ -26,39 +28,39 @@ AspectPage {
     AspectGroupBox {
         title: qsTr("Closing Projects")
 
-        BoolDelegate { aspect: aspects.CloseFilesWithProject }
+        BoolDelegate { aspect: root.aspects.CloseFilesWithProject }
     }
 
     AspectGroupBox {
         title: qsTr("Build and Run")
 
         ColumnLayout {
-            BoolDelegate { aspect: aspects.SaveBeforeBuild }
-            BoolDelegate { aspect: aspects.DeployBeforeRun }
-            BoolDelegate { aspect: aspects.AddLibraryPathsToRunEnv }
-            BoolDelegate { aspect: aspects.PromptToStopRunControl }
-            BoolDelegate { aspect: aspects.PromptToStopOnCloseTab }
-            BoolDelegate { aspect: aspects.AutomaticallyCreateRunConfigurations }
-            BoolDelegate { aspect: aspects.ClearIssuesOnRebuild }
-            BoolDelegate { aspect: aspects.AbortBuildAllOnError }
-            BoolDelegate { aspect: aspects.LowBuildPriority }
-            BoolDelegate { aspect: aspects.WarnAgainstNonAsciiBuildDir }
+            BoolDelegate { aspect: root.aspects.SaveBeforeBuild }
+            BoolDelegate { aspect: root.aspects.DeployBeforeRun }
+            BoolDelegate { aspect: root.aspects.AddLibraryPathsToRunEnv }
+            BoolDelegate { aspect: root.aspects.PromptToStopRunControl }
+            BoolDelegate { aspect: root.aspects.PromptToStopOnCloseTab }
+            BoolDelegate { aspect: root.aspects.AutomaticallyCreateRunConfigurations }
+            BoolDelegate { aspect: root.aspects.ClearIssuesOnRebuild }
+            BoolDelegate { aspect: root.aspects.AbortBuildAllOnError }
+            BoolDelegate { aspect: root.aspects.LowBuildPriority }
+            BoolDelegate { aspect: root.aspects.WarnAgainstNonAsciiBuildDir }
 
-            SelectionDelegate { aspect: aspects.ShowAllKits }
+            SelectionDelegate { aspect: root.aspects.ShowAllKits }
 
             RowLayout {
-                TextDisplayDelegate { aspect: aspects.AppEnvChangeDisplay }
-                ButtonDelegate { aspect: aspects.ChangeAppEnv }
+                TextDisplayDelegate { aspect: root.aspects.AppEnvChangeDisplay }
+                ButtonDelegate { aspect: root.aspects.ChangeAppEnv }
             }
 
-            SelectionDelegate { aspect: aspects.BuildBeforeDeploy }
-            SelectionDelegate { aspect: aspects.StopBeforeBuild }
-            SelectionDelegate { aspect: aspects.TerminalMode }
-            SelectionDelegate { aspect: aspects.SyncRunConfigurations }
-            IntegerDelegate { aspect: aspects.ReaperTimeout }
+            SelectionDelegate { aspect: root.aspects.BuildBeforeDeploy }
+            SelectionDelegate { aspect: root.aspects.StopBeforeBuild }
+            SelectionDelegate { aspect: root.aspects.TerminalMode }
+            SelectionDelegate { aspect: root.aspects.SyncRunConfigurations }
+            IntegerDelegate { aspect: root.aspects.ReaperTimeout }
 
-            TextDisplayDelegate { aspect: aspects.JomNote }
-            BoolDelegate { aspect: aspects.UseJom }
+            TextDisplayDelegate { aspect: root.aspects.JomNote }
+            BoolDelegate { aspect: root.aspects.UseJom }
         }
     }
 }

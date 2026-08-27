@@ -10,13 +10,15 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
-    BoolDelegate { aspect: aspects.EnableDoxygenBlocks }
+    id: root
+
+    BoolDelegate { aspect: root.aspects.EnableDoxygenBlocks }
 
     RowLayout {
         Item { Layout.preferredWidth: Spacing.GapHL }
-        BoolDelegate { aspect: aspects.GenerateBrief }
+        BoolDelegate { aspect: root.aspects.GenerateBrief }
     }
 
-    BoolDelegate { aspect: aspects.AddLeadingAsterisks }
-    SelectionDelegate { aspect: aspects.CommandPrefix }
+    BoolDelegate { aspect: root.aspects.AddLeadingAsterisks }
+    SelectionDelegate { aspect: root.aspects.CommandPrefix }
 }

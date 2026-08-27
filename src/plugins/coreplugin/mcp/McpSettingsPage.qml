@@ -10,6 +10,8 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
-    BoolDelegate { aspect: aspects.EnableQtDocsServer }
-    AspectListDelegate { aspect: aspects.McpServers }
+    id: root
+
+    BoolDelegate { aspect: root.aspects.EnableQtDocsServer }
+    AspectListDelegate { aspect: root.aspects.McpServers }
 }

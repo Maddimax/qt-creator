@@ -16,14 +16,14 @@ AspectPage {
 
     contentFillsHeight: true
 
-    readonly property var settings: AspectModels.named(aspects.Settings)
+    readonly property var settings: AspectModels.named(root.aspects.Settings)
 
-    BoolWithOwnLabelDelegate { aspect: aspects.UseGlobalSettings }
+    BoolWithOwnLabelDelegate { aspect: root.aspects.UseGlobalSettings }
 
     AspectGroupBox {
         title: qsTr("Active Test Frameworks")
 
-        TableDelegate { aspect: aspects.ActiveTestBases }
+        TableDelegate { aspect: root.aspects.ActiveTestBases }
     }
 
     SelectionDelegate { aspect: root.settings.RunAfterBuild }

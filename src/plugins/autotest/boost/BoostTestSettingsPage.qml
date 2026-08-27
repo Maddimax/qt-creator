@@ -10,15 +10,17 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
-    SelectionDelegate { aspect: aspects.LogLevel }
-    SelectionDelegate { aspect: aspects.ReportLevel }
+    id: root
+
+    SelectionDelegate { aspect: root.aspects.LogLevel }
+    SelectionDelegate { aspect: root.aspects.ReportLevel }
 
     RowLayout {
-        BoolDelegate { aspect: aspects.Randomize }
-        IntegerDelegate { aspect: aspects.Seed }
+        BoolDelegate { aspect: root.aspects.Randomize }
+        IntegerDelegate { aspect: root.aspects.Seed }
     }
 
-    BoolDelegate { aspect: aspects.SystemErrors }
-    BoolDelegate { aspect: aspects.FPExceptions }
-    BoolDelegate { aspect: aspects.MemoryLeaks }
+    BoolDelegate { aspect: root.aspects.SystemErrors }
+    BoolDelegate { aspect: root.aspects.FPExceptions }
+    BoolDelegate { aspect: root.aspects.MemoryLeaks }
 }

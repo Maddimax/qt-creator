@@ -13,7 +13,7 @@ AspectPage {
     id: root
 
     // The fallback font is a container of a family and a size.
-    readonly property var fallbackFont: AspectModels.named(aspects.FallbackFont)
+    readonly property var fallbackFont: AspectModels.named(root.aspects.FallbackFont)
 
     AspectGroupBox {
         title: qsTr("Font")
@@ -21,11 +21,11 @@ AspectPage {
         ColumnLayout {
             FontFamilyDelegate { aspect: root.fallbackFont.FallbackFontFamily }
             IntegerDelegate { aspect: root.fallbackFont.FallbackFontSize }
-            TextDisplayDelegate { aspect: aspects.StyleSheetNote }
+            TextDisplayDelegate { aspect: root.aspects.StyleSheetNote }
 
             RowLayout {
-                IntegerDelegate { aspect: aspects.FontZoom }
-                BoolDelegate { aspect: aspects.FontAntialias }
+                IntegerDelegate { aspect: root.aspects.FontZoom }
+                BoolDelegate { aspect: root.aspects.FontAntialias }
             }
         }
     }
@@ -34,14 +34,14 @@ AspectPage {
         title: qsTr("Startup")
 
         ColumnLayout {
-            SelectionDelegate { aspect: aspects.ContextHelpOption }
-            SelectionDelegate { aspect: aspects.StartOption }
-            StringDelegate { aspect: aspects.HomePage }
+            SelectionDelegate { aspect: root.aspects.ContextHelpOption }
+            SelectionDelegate { aspect: root.aspects.StartOption }
+            StringDelegate { aspect: root.aspects.HomePage }
 
             RowLayout {
-                ButtonDelegate { aspect: aspects.UseCurrentPage }
-                ButtonDelegate { aspect: aspects.UseBlankPage }
-                ButtonDelegate { aspect: aspects.ResetHomePage }
+                ButtonDelegate { aspect: root.aspects.UseCurrentPage }
+                ButtonDelegate { aspect: root.aspects.UseBlankPage }
+                ButtonDelegate { aspect: root.aspects.ResetHomePage }
             }
         }
     }
@@ -50,16 +50,16 @@ AspectPage {
         title: qsTr("Behavior")
 
         ColumnLayout {
-            BoolDelegate { aspect: aspects.UseScrollWheelZooming }
-            BoolDelegate { aspect: aspects.ReturnOnClose }
-            SelectionDelegate { aspect: aspects.ViewerBackend }
+            BoolDelegate { aspect: root.aspects.UseScrollWheelZooming }
+            BoolDelegate { aspect: root.aspects.ReturnOnClose }
+            SelectionDelegate { aspect: root.aspects.ViewerBackend }
         }
     }
 
-    TextDisplayDelegate { aspect: aspects.ErrorLabel }
+    TextDisplayDelegate { aspect: root.aspects.ErrorLabel }
 
     RowLayout {
-        ButtonDelegate { aspect: aspects.ImportBookmarks }
-        ButtonDelegate { aspect: aspects.ExportBookmarks }
+        ButtonDelegate { aspect: root.aspects.ImportBookmarks }
+        ButtonDelegate { aspect: root.aspects.ExportBookmarks }
     }
 }

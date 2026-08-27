@@ -10,9 +10,11 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
-    StringDelegate { aspect: aspects.BuildDirectoryTemplate }
-    StringDelegate { aspect: aspects.WorkingDirectoryTemplate }
-    SelectionDelegate { aspect: aspects.SeparateDebugInfo }
-    SelectionDelegate { aspect: aspects.QmlDebugging }
-    SelectionDelegate { aspect: aspects.QtQuickCompiler }
+    id: root
+
+    StringDelegate { aspect: root.aspects.BuildDirectoryTemplate }
+    StringDelegate { aspect: root.aspects.WorkingDirectoryTemplate }
+    SelectionDelegate { aspect: root.aspects.SeparateDebugInfo }
+    SelectionDelegate { aspect: root.aspects.QmlDebugging }
+    SelectionDelegate { aspect: root.aspects.QtQuickCompiler }
 }

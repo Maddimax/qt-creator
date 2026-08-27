@@ -10,20 +10,22 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
+    id: root
+
     AspectGroupBox {
         title: qsTr("Configuration")
 
-        StringDelegate { aspect: aspects.Command }
+        StringDelegate { aspect: root.aspects.Command }
     }
 
     AspectGroupBox {
         title: qsTr("Environment Variables")
-        checkAspect: aspects.Default
+        checkAspect: root.aspects.Default
 
         ColumnLayout {
-            StringDelegate { aspect: aspects.Port }
-            StringDelegate { aspect: aspects.Client }
-            StringDelegate { aspect: aspects.User }
+            StringDelegate { aspect: root.aspects.Port }
+            StringDelegate { aspect: root.aspects.Client }
+            StringDelegate { aspect: root.aspects.User }
         }
     }
 
@@ -32,16 +34,16 @@ AspectPage {
 
         ColumnLayout {
             RowLayout {
-                IntegerDelegate { aspect: aspects.LogCount }
-                IntegerDelegate { aspect: aspects.TimeOut }
+                IntegerDelegate { aspect: root.aspects.LogCount }
+                IntegerDelegate { aspect: root.aspects.TimeOut }
             }
 
-            BoolDelegate { aspect: aspects.PromptToOpen }
+            BoolDelegate { aspect: root.aspects.PromptToOpen }
         }
     }
 
     RowLayout {
-        TextDisplayDelegate { aspect: aspects.TestResult }
-        ButtonDelegate { aspect: aspects.Test }
+        TextDisplayDelegate { aspect: root.aspects.TestResult }
+        ButtonDelegate { aspect: root.aspects.Test }
     }
 }

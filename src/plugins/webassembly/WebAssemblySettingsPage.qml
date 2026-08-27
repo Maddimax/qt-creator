@@ -10,25 +10,27 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
+    id: root
+
     AspectGroupBox {
         title: qsTr("Emscripten SDK path:")
 
         ColumnLayout {
-            TextDisplayDelegate { aspect: aspects.Instruction }
-            StringDelegate { aspect: aspects.EmSdk }
-            TextDisplayDelegate { aspect: aspects.StatusIsEmsdkDir }
-            TextDisplayDelegate { aspect: aspects.StatusSdkInstalled }
-            TextDisplayDelegate { aspect: aspects.StatusSdkActivated }
-            TextDisplayDelegate { aspect: aspects.StatusSdkInvalid }
-            TextDisplayDelegate { aspect: aspects.EmSdkVersionDisplay }
+            TextDisplayDelegate { aspect: root.aspects.Instruction }
+            StringDelegate { aspect: root.aspects.EmSdk }
+            TextDisplayDelegate { aspect: root.aspects.StatusIsEmsdkDir }
+            TextDisplayDelegate { aspect: root.aspects.StatusSdkInstalled }
+            TextDisplayDelegate { aspect: root.aspects.StatusSdkActivated }
+            TextDisplayDelegate { aspect: root.aspects.StatusSdkInvalid }
+            TextDisplayDelegate { aspect: root.aspects.EmSdkVersionDisplay }
         }
     }
 
     AspectGroupBox {
         title: qsTr("Emscripten SDK environment:")
 
-        TextAreaDelegate { aspect: aspects.EmSdkEnvDisplay }
+        TextAreaDelegate { aspect: root.aspects.EmSdkEnvDisplay }
     }
 
-    TextDisplayDelegate { aspect: aspects.QtVersionDisplay }
+    TextDisplayDelegate { aspect: root.aspects.QtVersionDisplay }
 }

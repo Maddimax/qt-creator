@@ -14,10 +14,10 @@ import QtCreator.Ui
 AspectPage {
     id: root
 
-    readonly property var settings: AspectModels.named(aspects.Settings)
+    readonly property var settings: AspectModels.named(root.aspects.Settings)
 
-    BoolWithOwnLabelDelegate { aspect: aspects.UseGlobalSettings }
-    ButtonDelegate { aspect: aspects.RestoreGlobal }
+    BoolWithOwnLabelDelegate { aspect: root.aspects.UseGlobalSettings }
+    ButtonDelegate { aspect: root.aspects.RestoreGlobal }
 
     BoolDelegate { aspect: root.settings.AddLibraryPathsToRunEnv }
     BoolDelegate { aspect: root.settings.AutomaticallyCreateRunConfigurations }

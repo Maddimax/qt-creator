@@ -10,9 +10,11 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
-    SelectionDelegate { aspect: aspects.DefaultProtocol }
-    StringDelegate { aspect: aspects.UserName }
-    IntegerDelegate { aspect: aspects.ExpiryDays }
-    BoolDelegate { aspect: aspects.CopyToClipboard }
-    BoolDelegate { aspect: aspects.DisplayOutput }
+    id: root
+
+    SelectionDelegate { aspect: root.aspects.DefaultProtocol }
+    StringDelegate { aspect: root.aspects.UserName }
+    IntegerDelegate { aspect: root.aspects.ExpiryDays }
+    BoolDelegate { aspect: root.aspects.CopyToClipboard }
+    BoolDelegate { aspect: root.aspects.DisplayOutput }
 }

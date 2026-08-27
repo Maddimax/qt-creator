@@ -10,10 +10,12 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
-    BoolDelegate { aspect: aspects.UseConnectionSharing }
-    IntegerDelegate { aspect: aspects.ConnectionSharingTimeout }
-    StringDelegate { aspect: aspects.SshFilePath }
-    StringDelegate { aspect: aspects.SftpFilePath }
-    StringDelegate { aspect: aspects.AskpassFilePath }
-    StringDelegate { aspect: aspects.KeygenFilePath }
+    id: root
+
+    BoolDelegate { aspect: root.aspects.UseConnectionSharing }
+    IntegerDelegate { aspect: root.aspects.ConnectionSharingTimeout }
+    StringDelegate { aspect: root.aspects.SshFilePath }
+    StringDelegate { aspect: root.aspects.SftpFilePath }
+    StringDelegate { aspect: root.aspects.AskpassFilePath }
+    StringDelegate { aspect: root.aspects.KeygenFilePath }
 }

@@ -10,20 +10,22 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
+    id: root
+
     AspectGroupBox {
         title: qsTr("HarmonyOS SDK")
 
         ColumnLayout {
-            TextDisplayDelegate { aspect: aspects.Instruction }
+            TextDisplayDelegate { aspect: root.aspects.Instruction }
 
             RowLayout {
-                StringDelegate { aspect: aspects.SdkLocation }
-                ButtonDelegate { aspect: aspects.Autodetect }
+                StringDelegate { aspect: root.aspects.SdkLocation }
+                ButtonDelegate { aspect: root.aspects.Autodetect }
             }
 
-            TextDisplayDelegate { aspect: aspects.Status }
-            StringDelegate { aspect: aspects.AdditionalPackages }
-            BoolDelegate { aspect: aspects.AutomaticKitCreation }
+            TextDisplayDelegate { aspect: root.aspects.Status }
+            StringDelegate { aspect: root.aspects.AdditionalPackages }
+            BoolDelegate { aspect: root.aspects.AutomaticKitCreation }
         }
     }
 
@@ -39,13 +41,13 @@ AspectPage {
         title: qsTr("Package Signing")
 
         ColumnLayout {
-            TextDisplayDelegate { aspect: aspects.SigningNote }
-            StringDelegate { aspect: aspects.SigningCertificate }
-            StringDelegate { aspect: aspects.SigningProfile }
-            StringDelegate { aspect: aspects.SigningKeystore }
-            StringDelegate { aspect: aspects.SigningKeyAlias }
-            SecretDelegate { aspect: aspects.SigningKeyPassword }
-            SecretDelegate { aspect: aspects.SigningStorePassword }
+            TextDisplayDelegate { aspect: root.aspects.SigningNote }
+            StringDelegate { aspect: root.aspects.SigningCertificate }
+            StringDelegate { aspect: root.aspects.SigningProfile }
+            StringDelegate { aspect: root.aspects.SigningKeystore }
+            StringDelegate { aspect: root.aspects.SigningKeyAlias }
+            SecretDelegate { aspect: root.aspects.SigningKeyPassword }
+            SecretDelegate { aspect: root.aspects.SigningStorePassword }
         }
     }
 }

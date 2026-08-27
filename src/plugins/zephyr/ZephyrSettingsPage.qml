@@ -10,13 +10,15 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
+    id: root
+
     AspectGroupBox {
         title: qsTr("West Build Tool")
 
         ColumnLayout {
-            StringDelegate { aspect: aspects.WestFilePath }
-            StringDelegate { aspect: aspects.WorkspaceDir }
-            StringDelegate { aspect: aspects.QmlProjectExporterFilePath }
+            StringDelegate { aspect: root.aspects.WestFilePath }
+            StringDelegate { aspect: root.aspects.WorkspaceDir }
+            StringDelegate { aspect: root.aspects.QmlProjectExporterFilePath }
         }
     }
 }

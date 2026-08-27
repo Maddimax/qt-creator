@@ -15,8 +15,8 @@ AspectPage {
         title: qsTr("Executables")
 
         ColumnLayout {
-            StringDelegate { aspect: aspects.ClangTidyExecutable }
-            StringDelegate { aspect: aspects.ClazyStandaloneExecutable }
+            StringDelegate { aspect: root.aspects.ClangTidyExecutable }
+            StringDelegate { aspect: root.aspects.ClazyStandaloneExecutable }
         }
     }
 

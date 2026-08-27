@@ -10,14 +10,16 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
-    BoolDelegate { aspect: aspects.NoCrashhandlerOnDebug }
-    BoolDelegate { aspect: aspects.UseXMLOutput }
-    BoolDelegate { aspect: aspects.VerboseBench }
-    BoolDelegate { aspect: aspects.LogSignalsSlots }
+    id: root
+
+    BoolDelegate { aspect: root.aspects.NoCrashhandlerOnDebug }
+    BoolDelegate { aspect: root.aspects.UseXMLOutput }
+    BoolDelegate { aspect: root.aspects.VerboseBench }
+    BoolDelegate { aspect: root.aspects.LogSignalsSlots }
 
     RowLayout {
-        BoolDelegate { aspect: aspects.LimitWarnings }
-        IntegerDelegate { aspect: aspects.MaxWarnings }
+        BoolDelegate { aspect: root.aspects.LimitWarnings }
+        IntegerDelegate { aspect: root.aspects.MaxWarnings }
     }
 
     GroupBox {
@@ -25,10 +27,10 @@ AspectPage {
         Layout.fillWidth: true
 
         ColumnLayout {
-            RadioGroupDelegate { aspect: aspects.Metrics }
+            RadioGroupDelegate { aspect: root.aspects.Metrics }
         }
     }
 
-    BoolDelegate { aspect: aspects.QuickCheckForDerivedTests }
-    BoolDelegate { aspect: aspects.ParseMessages }
+    BoolDelegate { aspect: root.aspects.QuickCheckForDerivedTests }
+    BoolDelegate { aspect: root.aspects.ParseMessages }
 }

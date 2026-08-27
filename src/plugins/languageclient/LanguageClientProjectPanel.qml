@@ -17,9 +17,9 @@ AspectPage {
 
     contentFillsHeight: true
 
-    TextDisplayDelegate { aspect: aspects.GlobalLink }
+    TextDisplayDelegate { aspect: root.aspects.GlobalLink }
 
-    GroupDelegate { aspect: aspects.Overrides }
+    GroupDelegate { aspect: root.aspects.Overrides }
 
     AspectGroupBox {
         title: qsTr("Workspace Configuration")
@@ -36,5 +36,5 @@ AspectPage {
         }
     }
 
-    FlattenedGroupDelegate { aspect: aspects.ClientSettings }
+    FlattenedGroupDelegate { aspect: root.aspects.ClientSettings }
 }

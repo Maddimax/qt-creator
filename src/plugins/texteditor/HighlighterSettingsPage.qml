@@ -10,27 +10,29 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
-    TextDisplayDelegate { aspect: aspects.EngineNote }
+    id: root
+
+    TextDisplayDelegate { aspect: root.aspects.EngineNote }
 
     AspectGroupBox {
         title: qsTr("Syntax Highlight Definition Files")
 
         ColumnLayout {
             RowLayout {
-                ButtonDelegate { aspect: aspects.DownloadDefinitions }
-                TextDisplayDelegate { aspect: aspects.UpdateStatus }
+                ButtonDelegate { aspect: root.aspects.DownloadDefinitions }
+                TextDisplayDelegate { aspect: root.aspects.UpdateStatus }
             }
 
             RowLayout {
-                TextDisplayDelegate { aspect: aspects.UserFilesLabel }
-                StringDelegate { aspect: aspects.UserDefinitionFilesPath }
-                ButtonDelegate { aspect: aspects.ReloadDefinitions }
+                TextDisplayDelegate { aspect: root.aspects.UserFilesLabel }
+                StringDelegate { aspect: root.aspects.UserDefinitionFilesPath }
+                ButtonDelegate { aspect: root.aspects.ReloadDefinitions }
             }
 
-            ButtonDelegate { aspect: aspects.ResetRememberedDefinitions }
+            ButtonDelegate { aspect: root.aspects.ResetRememberedDefinitions }
         }
     }
 
-    StringListDelegate { aspect: aspects.skipUpdateCheckForFilesPatterns }
-    StringListDelegate { aspect: aspects.skipFilesPatterns }
+    StringListDelegate { aspect: root.aspects.skipUpdateCheckForFilesPatterns }
+    StringListDelegate { aspect: root.aspects.skipFilesPatterns }
 }

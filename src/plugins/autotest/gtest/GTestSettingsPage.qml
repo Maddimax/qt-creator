@@ -10,20 +10,22 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
-    BoolDelegate { aspect: aspects.RunDisabled }
-    BoolDelegate { aspect: aspects.ThrowOnFailure }
-    BoolDelegate { aspect: aspects.BreakOnFailure }
+    id: root
+
+    BoolDelegate { aspect: root.aspects.RunDisabled }
+    BoolDelegate { aspect: root.aspects.ThrowOnFailure }
+    BoolDelegate { aspect: root.aspects.BreakOnFailure }
 
     RowLayout {
-        BoolDelegate { aspect: aspects.Repeat }
-        IntegerDelegate { aspect: aspects.Iterations }
+        BoolDelegate { aspect: root.aspects.Repeat }
+        IntegerDelegate { aspect: root.aspects.Iterations }
     }
 
     RowLayout {
-        BoolDelegate { aspect: aspects.Shuffle }
-        IntegerDelegate { aspect: aspects.Seed }
+        BoolDelegate { aspect: root.aspects.Shuffle }
+        IntegerDelegate { aspect: root.aspects.Seed }
     }
 
-    SelectionDelegate { aspect: aspects.GroupMode }
-    StringDelegate { aspect: aspects.GTestFilter }
+    SelectionDelegate { aspect: root.aspects.GroupMode }
+    StringDelegate { aspect: root.aspects.GTestFilter }
 }

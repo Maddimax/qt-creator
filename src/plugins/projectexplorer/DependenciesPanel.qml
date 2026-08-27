@@ -16,10 +16,10 @@ AspectPage {
     contentFillsHeight: true
 
     TableDelegate {
-        aspect: aspects.Dependencies
+        aspect: root.aspects.Dependencies
         Layout.fillHeight: true
     }
 
-    BoolDelegate { aspect: aspects.CascadeSetActive }
-    BoolDelegate { aspect: aspects.DeployDependencies }
+    BoolDelegate { aspect: root.aspects.CascadeSetActive }
+    BoolDelegate { aspect: root.aspects.DeployDependencies }
 }

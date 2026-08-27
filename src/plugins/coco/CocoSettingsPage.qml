@@ -10,6 +10,8 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
-    StringDelegate { aspect: aspects.CocoDirectory }
-    TextDisplayDelegate { aspect: aspects.message }
+    id: root
+
+    StringDelegate { aspect: root.aspects.CocoDirectory }
+    TextDisplayDelegate { aspect: root.aspects.message }
 }

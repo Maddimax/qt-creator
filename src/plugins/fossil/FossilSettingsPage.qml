@@ -10,24 +10,26 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
+    id: root
+
     AspectGroupBox {
         title: qsTr("Configuration")
 
-        StringDelegate { aspect: aspects.BinaryPath }
+        StringDelegate { aspect: root.aspects.BinaryPath }
     }
 
     AspectGroupBox {
         title: qsTr("Local Repositories")
 
-        StringDelegate { aspect: aspects.defaultRepoPath }
+        StringDelegate { aspect: root.aspects.defaultRepoPath }
     }
 
     AspectGroupBox {
         title: qsTr("User")
 
         ColumnLayout {
-            StringDelegate { aspect: aspects.Username }
-            StringDelegate { aspect: aspects.sslIdentityFile }
+            StringDelegate { aspect: root.aspects.Username }
+            StringDelegate { aspect: root.aspects.sslIdentityFile }
         }
     }
 
@@ -36,11 +38,11 @@ AspectPage {
 
         ColumnLayout {
             RowLayout {
-                IntegerDelegate { aspect: aspects.LogCount }
-                IntegerDelegate { aspect: aspects.timelineWidth }
-                IntegerDelegate { aspect: aspects.Timeout }
+                IntegerDelegate { aspect: root.aspects.LogCount }
+                IntegerDelegate { aspect: root.aspects.timelineWidth }
+                IntegerDelegate { aspect: root.aspects.Timeout }
             }
-            BoolDelegate { aspect: aspects.disableAutosync }
+            BoolDelegate { aspect: root.aspects.disableAutosync }
         }
     }
 }

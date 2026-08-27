@@ -10,18 +10,20 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
+    id: root
+
     RowLayout {
-        TextDisplayDelegate { aspect: aspects.CommandNote }
-        StringDelegate { aspect: aspects.autoFormatCommand }
+        TextDisplayDelegate { aspect: root.aspects.CommandNote }
+        StringDelegate { aspect: root.aspects.autoFormatCommand }
     }
 
     AspectGroupBox {
         title: qsTr("Automatic Formatting on File Save")
-        checkAspect: aspects.autoFormatOnSave
+        checkAspect: root.aspects.autoFormatOnSave
 
         ColumnLayout {
-            StringDelegate { aspect: aspects.autoFormatMime }
-            BoolDelegate { aspect: aspects.autoFormatOnlyCurrentProject }
+            StringDelegate { aspect: root.aspects.autoFormatMime }
+            BoolDelegate { aspect: root.aspects.autoFormatOnlyCurrentProject }
         }
     }
 }

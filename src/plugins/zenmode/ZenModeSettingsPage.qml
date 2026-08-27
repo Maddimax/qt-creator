@@ -10,15 +10,17 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
+    id: root
+
     AspectGroupBox {
         title: qsTr("When Zen Mode or Distraction Free Mode Is Active")
 
         ColumnLayout {
-            IntegerDelegate { aspect: aspects.EditorContentWidth }
+            IntegerDelegate { aspect: root.aspects.EditorContentWidth }
 
             RowLayout {
-                TextDisplayDelegate { aspect: aspects.ModeSelectorNote }
-                RadioGroupDelegate { aspect: aspects.ModesBarState }
+                TextDisplayDelegate { aspect: root.aspects.ModeSelectorNote }
+                RadioGroupDelegate { aspect: root.aspects.ModesBarState }
             }
         }
     }

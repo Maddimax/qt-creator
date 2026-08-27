@@ -10,30 +10,32 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
-    BoolDelegate { aspect: aspects.UseDebuggingHelper }
-    BoolDelegate { aspect: aspects.AllowInferiorCalls }
+    id: root
 
-    TextDisplayDelegate { aspect: aspects.HelpersNote }
-    BoolDelegate { aspect: aspects.UseCodeModel }
-    BoolDelegate { aspect: aspects.ShowThreadNames }
+    BoolDelegate { aspect: root.aspects.UseDebuggingHelper }
+    BoolDelegate { aspect: root.aspects.AllowInferiorCalls }
+
+    TextDisplayDelegate { aspect: root.aspects.HelpersNote }
+    BoolDelegate { aspect: root.aspects.UseCodeModel }
+    BoolDelegate { aspect: root.aspects.ShowThreadNames }
 
     AspectGroupBox {
         title: qsTr("Extra Debugging Helper")
 
-        StringDelegate { aspect: aspects.ExtraDumperFile }
+        StringDelegate { aspect: root.aspects.ExtraDumperFile }
     }
 
     AspectGroupBox {
         title: qsTr("Debugging Helper Customization")
 
-        TextAreaDelegate { aspect: aspects.GdbCustomDumperCommands }
+        TextAreaDelegate { aspect: root.aspects.GdbCustomDumperCommands }
     }
 
-    BoolDelegate { aspect: aspects.ShowStandardNamespace }
-    BoolDelegate { aspect: aspects.ShowQtNamespace }
-    BoolDelegate { aspect: aspects.ShowQObjectNames2 }
+    BoolDelegate { aspect: root.aspects.ShowStandardNamespace }
+    BoolDelegate { aspect: root.aspects.ShowQtNamespace }
+    BoolDelegate { aspect: root.aspects.ShowQObjectNames2 }
 
-    IntegerDelegate { aspect: aspects.MaximalStringLength }
-    IntegerDelegate { aspect: aspects.DisplayStringLimit }
-    IntegerDelegate { aspect: aspects.DefaultArraySize }
+    IntegerDelegate { aspect: root.aspects.MaximalStringLength }
+    IntegerDelegate { aspect: root.aspects.DisplayStringLimit }
+    IntegerDelegate { aspect: root.aspects.DefaultArraySize }
 }

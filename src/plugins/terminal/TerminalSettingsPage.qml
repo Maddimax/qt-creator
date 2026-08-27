@@ -16,12 +16,12 @@ AspectPage {
         title: qsTr("General")
 
         ColumnLayout {
-            BoolDelegate { aspect: aspects.EnableTerminal }
-            BoolDelegate { aspect: aspects.SendEscapeToTerminal }
-            BoolDelegate { aspect: aspects.LockKeyboard }
-            BoolDelegate { aspect: aspects.AudibleBell }
-            BoolDelegate { aspect: aspects.AllowBlinkingCursor }
-            BoolDelegate { aspect: aspects.EnableMouseTracking }
+            BoolDelegate { aspect: root.aspects.EnableTerminal }
+            BoolDelegate { aspect: root.aspects.SendEscapeToTerminal }
+            BoolDelegate { aspect: root.aspects.LockKeyboard }
+            BoolDelegate { aspect: root.aspects.AudibleBell }
+            BoolDelegate { aspect: root.aspects.AllowBlinkingCursor }
+            BoolDelegate { aspect: root.aspects.EnableMouseTracking }
         }
     }
 
@@ -40,8 +40,8 @@ AspectPage {
         title: qsTr("Font")
 
         ColumnLayout {
-            FontFamilyDelegate { aspect: aspects.FontFamily }
-            IntegerDelegate { aspect: aspects.FontSize }
+            FontFamilyDelegate { aspect: root.aspects.FontFamily }
+            IntegerDelegate { aspect: root.aspects.FontSize }
         }
     }
 
@@ -49,10 +49,10 @@ AspectPage {
         title: qsTr("Colors")
 
         ColumnLayout {
-            ColorDelegate { aspect: aspects.ColorForeground }
-            ColorDelegate { aspect: aspects.ColorBackground }
-            ColorDelegate { aspect: aspects.ColorSelection }
-            ColorDelegate { aspect: aspects.ColorFindmatches }
+            ColorDelegate { aspect: root.aspects.ColorForeground }
+            ColorDelegate { aspect: root.aspects.ColorBackground }
+            ColorDelegate { aspect: root.aspects.ColorSelection }
+            ColorDelegate { aspect: root.aspects.ColorFindmatches }
 
             // The ANSI palette: swatches only, eight to a row.
             Grid {
@@ -60,28 +60,28 @@ AspectPage {
                 columns: 8
                 spacing: Spacing.GapHXs
 
-                ColorDelegate { aspect: aspects.Color0 }
-                ColorDelegate { aspect: aspects.Color1 }
-                ColorDelegate { aspect: aspects.Color2 }
-                ColorDelegate { aspect: aspects.Color3 }
-                ColorDelegate { aspect: aspects.Color4 }
-                ColorDelegate { aspect: aspects.Color5 }
-                ColorDelegate { aspect: aspects.Color6 }
-                ColorDelegate { aspect: aspects.Color7 }
-                ColorDelegate { aspect: aspects.Color8 }
-                ColorDelegate { aspect: aspects.Color9 }
-                ColorDelegate { aspect: aspects.Color10 }
-                ColorDelegate { aspect: aspects.Color11 }
-                ColorDelegate { aspect: aspects.Color12 }
-                ColorDelegate { aspect: aspects.Color13 }
-                ColorDelegate { aspect: aspects.Color14 }
-                ColorDelegate { aspect: aspects.Color15 }
+                ColorDelegate { aspect: root.aspects.Color0 }
+                ColorDelegate { aspect: root.aspects.Color1 }
+                ColorDelegate { aspect: root.aspects.Color2 }
+                ColorDelegate { aspect: root.aspects.Color3 }
+                ColorDelegate { aspect: root.aspects.Color4 }
+                ColorDelegate { aspect: root.aspects.Color5 }
+                ColorDelegate { aspect: root.aspects.Color6 }
+                ColorDelegate { aspect: root.aspects.Color7 }
+                ColorDelegate { aspect: root.aspects.Color8 }
+                ColorDelegate { aspect: root.aspects.Color9 }
+                ColorDelegate { aspect: root.aspects.Color10 }
+                ColorDelegate { aspect: root.aspects.Color11 }
+                ColorDelegate { aspect: root.aspects.Color12 }
+                ColorDelegate { aspect: root.aspects.Color13 }
+                ColorDelegate { aspect: root.aspects.Color14 }
+                ColorDelegate { aspect: root.aspects.Color15 }
             }
 
             RowLayout {
-                ButtonDelegate { aspect: aspects.LoadTheme }
-                ButtonDelegate { aspect: aspects.ResetTheme }
-                ButtonDelegate { aspect: aspects.CopyTheme }
+                ButtonDelegate { aspect: root.aspects.LoadTheme }
+                ButtonDelegate { aspect: root.aspects.ResetTheme }
+                ButtonDelegate { aspect: root.aspects.CopyTheme }
             }
         }
     }
@@ -90,8 +90,8 @@ AspectPage {
         title: qsTr("Default Shell")
 
         ColumnLayout {
-            StringDelegate { aspect: aspects.ShellPath }
-            StringDelegate { aspect: aspects.ShellArguments }
+            StringDelegate { aspect: root.aspects.ShellPath }
+            StringDelegate { aspect: root.aspects.ShellArguments }
         }
     }
 }

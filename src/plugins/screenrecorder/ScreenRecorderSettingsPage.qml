@@ -10,13 +10,15 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
+    id: root
+
     AspectGroupBox {
         title: qsTr("FFmpeg Installation")
 
         ColumnLayout {
-            StringDelegate { aspect: aspects.FFmpegTool }
-            StringDelegate { aspect: aspects.FFprobeTool }
-            TextDisplayDelegate { aspect: aspects.FFmpegWebsite }
+            StringDelegate { aspect: root.aspects.FFmpegTool }
+            StringDelegate { aspect: root.aspects.FFprobeTool }
+            TextDisplayDelegate { aspect: root.aspects.FFmpegWebsite }
         }
     }
 
@@ -24,18 +26,18 @@ AspectPage {
         title: qsTr("Record Settings")
 
         ColumnLayout {
-            BoolDelegate { aspect: aspects.CaptureCursor }
-            BoolDelegate { aspect: aspects.CaptureMouseClicks }
-            SelectionDelegate { aspect: aspects.ScreenCaptureType }
+            BoolDelegate { aspect: root.aspects.CaptureCursor }
+            BoolDelegate { aspect: root.aspects.CaptureMouseClicks }
+            SelectionDelegate { aspect: root.aspects.ScreenCaptureType }
 
             RowLayout {
-                BoolDelegate { aspect: aspects.EnableFileSizeLimit }
-                IntegerDelegate { aspect: aspects.FileSizeLimit }
+                BoolDelegate { aspect: root.aspects.EnableFileSizeLimit }
+                IntegerDelegate { aspect: root.aspects.FileSizeLimit }
             }
 
             RowLayout {
-                BoolDelegate { aspect: aspects.EnableRealTimeBuffer }
-                IntegerDelegate { aspect: aspects.RealTimeBufferSize }
+                BoolDelegate { aspect: root.aspects.EnableRealTimeBuffer }
+                IntegerDelegate { aspect: root.aspects.RealTimeBufferSize }
             }
         }
     }
@@ -43,8 +45,8 @@ AspectPage {
     AspectGroupBox {
         title: qsTr("Export Settings")
 
-        BoolDelegate { aspect: aspects.AnimatedImagesAsEndlessLoop }
+        BoolDelegate { aspect: root.aspects.AnimatedImagesAsEndlessLoop }
     }
 
-    BoolDelegate { aspect: aspects.LogFFMpegCommandLine }
+    BoolDelegate { aspect: root.aspects.LogFFMpegCommandLine }
 }

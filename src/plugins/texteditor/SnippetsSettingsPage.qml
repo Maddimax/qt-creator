@@ -15,7 +15,7 @@ AspectPage {
 
     contentFillsHeight: true
 
-    SelectionDelegate { aspect: aspects.Group }
+    SelectionDelegate { aspect: root.aspects.Group }
 
     RowLayout {
         spacing: Spacing.GapHM
@@ -30,7 +30,7 @@ AspectPage {
             TableDelegate {
                 id: table
 
-                aspect: aspects.Snippets
+                aspect: root.aspects.Snippets
                 Layout.fillHeight: true
 
                 // The content below is a view of whichever row is current, so
@@ -39,7 +39,7 @@ AspectPage {
             }
 
             SnippetEditor {
-                aspect: aspects.Content
+                aspect: root.aspects.Content
                 mimeType: root.aspects.Snippets.mimeType
                 Layout.fillHeight: true
             }
@@ -49,11 +49,11 @@ AspectPage {
             spacing: Spacing.GapVS
             Layout.alignment: Qt.AlignTop
 
-            ButtonDelegate { aspect: aspects.AddSnippet }
-            ButtonDelegate { aspect: aspects.RemoveSnippet }
-            ButtonDelegate { aspect: aspects.RevertBuiltIn }
-            ButtonDelegate { aspect: aspects.RestoreRemovedBuiltIns }
-            ButtonDelegate { aspect: aspects.ResetAll }
+            ButtonDelegate { aspect: root.aspects.AddSnippet }
+            ButtonDelegate { aspect: root.aspects.RemoveSnippet }
+            ButtonDelegate { aspect: root.aspects.RevertBuiltIn }
+            ButtonDelegate { aspect: root.aspects.RestoreRemovedBuiltIns }
+            ButtonDelegate { aspect: root.aspects.ResetAll }
         }
     }
 }

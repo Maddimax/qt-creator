@@ -10,13 +10,14 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
+    id: root
 
     contentFillsHeight: true
-    TableDelegate { aspect: aspects.Events }
-    ButtonDelegate { aspect: aspects.ResetToDefaults }
-    SelectionDelegate { aspect: aspects.CallgraphMode }
-    IntegerDelegate { aspect: aspects.StackSize }
-    SelectionDelegate { aspect: aspects.SampleMode }
-    IntegerDelegate { aspect: aspects.Frequency }
-    StringDelegate { aspect: aspects.ExtraArguments }
+    TableDelegate { aspect: root.aspects.Events }
+    ButtonDelegate { aspect: root.aspects.ResetToDefaults }
+    SelectionDelegate { aspect: root.aspects.CallgraphMode }
+    IntegerDelegate { aspect: root.aspects.StackSize }
+    SelectionDelegate { aspect: root.aspects.SampleMode }
+    IntegerDelegate { aspect: root.aspects.Frequency }
+    StringDelegate { aspect: root.aspects.ExtraArguments }
 }

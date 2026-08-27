@@ -10,13 +10,15 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
-    BoolDelegate { aspect: aspects.FlushEnabled }
-    IntegerDelegate { aspect: aspects.FlushInterval }
-    BoolDelegate { aspect: aspects.AggregateTraces }
-    IntegerDelegate { aspect: aspects.CompileThresholdMs }
-    IntegerDelegate { aspect: aspects.SyncLoadThresholdMs }
-    IntegerDelegate { aspect: aspects.PeriodicMinCount }
-    IntegerDelegate { aspect: aspects.PeriodicDeviationPercent }
-    DoubleDelegate { aspect: aspects.PixmapMegapixels }
-    IntegerDelegate { aspect: aspects.PerFrameBudgetUs }
+    id: root
+
+    BoolDelegate { aspect: root.aspects.FlushEnabled }
+    IntegerDelegate { aspect: root.aspects.FlushInterval }
+    BoolDelegate { aspect: root.aspects.AggregateTraces }
+    IntegerDelegate { aspect: root.aspects.CompileThresholdMs }
+    IntegerDelegate { aspect: root.aspects.SyncLoadThresholdMs }
+    IntegerDelegate { aspect: root.aspects.PeriodicMinCount }
+    IntegerDelegate { aspect: root.aspects.PeriodicDeviationPercent }
+    DoubleDelegate { aspect: root.aspects.PixmapMegapixels }
+    IntegerDelegate { aspect: root.aspects.PerFrameBudgetUs }
 }

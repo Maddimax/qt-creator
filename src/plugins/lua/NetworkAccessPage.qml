@@ -10,6 +10,8 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
-    StringListEditorDelegate { aspect: aspects.pluginsAllowedToFetch }
-    StringListEditorDelegate { aspect: aspects.pluginsNotAllowedToFetch }
+    id: root
+
+    StringListEditorDelegate { aspect: root.aspects.pluginsAllowedToFetch }
+    StringListEditorDelegate { aspect: root.aspects.pluginsNotAllowedToFetch }
 }

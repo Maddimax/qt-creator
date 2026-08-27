@@ -10,18 +10,20 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
-    BoolDelegate { aspect: aspects.WrapAppOutput }
-    BoolDelegate { aspect: aspects.CleanOldAppOutput }
-    BoolDelegate { aspect: aspects.DiscardAppOutput }
-    BoolDelegate { aspect: aspects.MergeStdErrAndStdOut }
+    id: root
 
-    SelectionDelegate { aspect: aspects.ShowRunOutput }
-    SelectionDelegate { aspect: aspects.ShowDebugOutput }
+    BoolDelegate { aspect: root.aspects.WrapAppOutput }
+    BoolDelegate { aspect: root.aspects.CleanOldAppOutput }
+    BoolDelegate { aspect: root.aspects.DiscardAppOutput }
+    BoolDelegate { aspect: root.aspects.MergeStdErrAndStdOut }
 
-    IntegerDelegate { aspect: aspects.MaxAppOutputLines }
+    SelectionDelegate { aspect: root.aspects.ShowRunOutput }
+    SelectionDelegate { aspect: root.aspects.ShowDebugOutput }
+
+    IntegerDelegate { aspect: root.aspects.MaxAppOutputLines }
 
     RowLayout {
-        BoolDelegate { aspect: aspects.OverwriteBackground }
-        ColorDelegate { aspect: aspects.BackgroundColor }
+        BoolDelegate { aspect: root.aspects.OverwriteBackground }
+        ColorDelegate { aspect: root.aspects.BackgroundColor }
     }
 }

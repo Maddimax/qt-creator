@@ -10,7 +10,9 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
-    BoolDelegate { aspect: aspects.UseFakeVim }
+    id: root
+
+    BoolDelegate { aspect: root.aspects.UseFakeVim }
 
     AspectGroupBox {
         title: qsTr("Vim Behavior")
@@ -20,34 +22,34 @@ AspectPage {
                 ColumnLayout {
                     Layout.alignment: Qt.AlignTop
 
-                    BoolDelegate { aspect: aspects.AutoIndent }
-                    BoolDelegate { aspect: aspects.SmartIndent }
-                    BoolDelegate { aspect: aspects.ExpandTab }
-                    BoolDelegate { aspect: aspects.SmartTab }
-                    BoolDelegate { aspect: aspects.UseEditorTabSettings }
-                    BoolDelegate { aspect: aspects.MatchBracketsLikeVim }
-                    BoolDelegate { aspect: aspects.HlSearch }
-                    BoolDelegate { aspect: aspects.ShowCmd }
-                    BoolDelegate { aspect: aspects.StartOfLine }
-                    BoolDelegate { aspect: aspects.PassKeys }
-                    BoolDelegate { aspect: aspects.BlinkingCursor }
+                    BoolDelegate { aspect: root.aspects.AutoIndent }
+                    BoolDelegate { aspect: root.aspects.SmartIndent }
+                    BoolDelegate { aspect: root.aspects.ExpandTab }
+                    BoolDelegate { aspect: root.aspects.SmartTab }
+                    BoolDelegate { aspect: root.aspects.UseEditorTabSettings }
+                    BoolDelegate { aspect: root.aspects.MatchBracketsLikeVim }
+                    BoolDelegate { aspect: root.aspects.HlSearch }
+                    BoolDelegate { aspect: root.aspects.ShowCmd }
+                    BoolDelegate { aspect: root.aspects.StartOfLine }
+                    BoolDelegate { aspect: root.aspects.PassKeys }
+                    BoolDelegate { aspect: root.aspects.BlinkingCursor }
                 }
 
                 ColumnLayout {
                     Layout.alignment: Qt.AlignTop
 
-                    BoolDelegate { aspect: aspects.IncSearch }
-                    BoolDelegate { aspect: aspects.UseCoreSearch }
-                    BoolDelegate { aspect: aspects.IgnoreCase }
-                    BoolDelegate { aspect: aspects.SmartCase }
-                    BoolDelegate { aspect: aspects.WrapScan }
-                    BoolDelegate { aspect: aspects.ShowMarks }
-                    BoolDelegate { aspect: aspects.PassControlKey }
-                    BoolDelegate { aspect: aspects.CommaPassesShortcuts }
-                    BoolDelegate { aspect: aspects.RelativeNumber }
-                    BoolDelegate { aspect: aspects.CommandLineInEditor }
-                    BoolDelegate { aspect: aspects.TildeOp }
-                    BoolDelegate { aspect: aspects.Timeout }
+                    BoolDelegate { aspect: root.aspects.IncSearch }
+                    BoolDelegate { aspect: root.aspects.UseCoreSearch }
+                    BoolDelegate { aspect: root.aspects.IgnoreCase }
+                    BoolDelegate { aspect: root.aspects.SmartCase }
+                    BoolDelegate { aspect: root.aspects.WrapScan }
+                    BoolDelegate { aspect: root.aspects.ShowMarks }
+                    BoolDelegate { aspect: root.aspects.PassControlKey }
+                    BoolDelegate { aspect: root.aspects.CommaPassesShortcuts }
+                    BoolDelegate { aspect: root.aspects.RelativeNumber }
+                    BoolDelegate { aspect: root.aspects.CommandLineInEditor }
+                    BoolDelegate { aspect: root.aspects.TildeOp }
+                    BoolDelegate { aspect: root.aspects.Timeout }
                 }
             }
 
@@ -55,20 +57,20 @@ AspectPage {
                 Layout.fillWidth: true
                 spacing: Spacing.GapHM
 
-                IntegerDelegate { aspect: aspects.ShiftWidth }
-                IntegerDelegate { aspect: aspects.TabStop }
-                IntegerDelegate { aspect: aspects.ScrollOff }
-                IntegerDelegate { aspect: aspects.TimeoutLen }
-                IntegerDelegate { aspect: aspects.CursorFlashTime }
+                IntegerDelegate { aspect: root.aspects.ShiftWidth }
+                IntegerDelegate { aspect: root.aspects.TabStop }
+                IntegerDelegate { aspect: root.aspects.ScrollOff }
+                IntegerDelegate { aspect: root.aspects.TimeoutLen }
+                IntegerDelegate { aspect: root.aspects.CursorFlashTime }
             }
 
-            StringDelegate { aspect: aspects.Backspace }
-            StringDelegate { aspect: aspects.IsKeyword }
-            StringDelegate { aspect: aspects.TabOut }
+            StringDelegate { aspect: root.aspects.Backspace }
+            StringDelegate { aspect: root.aspects.IsKeyword }
+            StringDelegate { aspect: root.aspects.TabOut }
 
             RowLayout {
-                BoolDelegate { aspect: aspects.ReadVimRc }
-                StringDelegate { aspect: aspects.VimRcPath }
+                BoolDelegate { aspect: root.aspects.ReadVimRc }
+                StringDelegate { aspect: root.aspects.VimRcPath }
             }
         }
     }
@@ -77,18 +79,18 @@ AspectPage {
         title: qsTr("Plugin Emulation")
 
         ColumnLayout {
-            BoolDelegate { aspect: aspects.commentary }
-            BoolDelegate { aspect: aspects.ReplaceWithRegister }
-            BoolDelegate { aspect: aspects.argtextobj }
-            BoolDelegate { aspect: aspects.exchange }
-            BoolDelegate { aspect: aspects.surround }
-            BoolDelegate { aspect: aspects.unimpaired }
+            BoolDelegate { aspect: root.aspects.commentary }
+            BoolDelegate { aspect: root.aspects.ReplaceWithRegister }
+            BoolDelegate { aspect: root.aspects.argtextobj }
+            BoolDelegate { aspect: root.aspects.exchange }
+            BoolDelegate { aspect: root.aspects.surround }
+            BoolDelegate { aspect: root.aspects.unimpaired }
         }
     }
 
     RowLayout {
-        ButtonDelegate { aspect: aspects.CopyTextEditorSettings }
-        ButtonDelegate { aspect: aspects.SetQtStyle }
-        ButtonDelegate { aspect: aspects.SetPlainStyle }
+        ButtonDelegate { aspect: root.aspects.CopyTextEditorSettings }
+        ButtonDelegate { aspect: root.aspects.SetQtStyle }
+        ButtonDelegate { aspect: root.aspects.SetPlainStyle }
     }
 }

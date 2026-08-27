@@ -10,5 +10,7 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
-    BoolDelegate { aspect: aspects.GeneratePointerToMemberConnections }
+    id: root
+
+    BoolDelegate { aspect: root.aspects.GeneratePointerToMemberConnections }
 }

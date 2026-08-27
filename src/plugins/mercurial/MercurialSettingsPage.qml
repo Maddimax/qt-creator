@@ -10,18 +10,20 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
+    id: root
+
     AspectGroupBox {
         title: qsTr("Configuration")
 
-        StringDelegate { aspect: aspects.BinaryPath }
+        StringDelegate { aspect: root.aspects.BinaryPath }
     }
 
     AspectGroupBox {
         title: qsTr("User")
 
         ColumnLayout {
-            StringDelegate { aspect: aspects.Username }
-            StringDelegate { aspect: aspects.UserEmail }
+            StringDelegate { aspect: root.aspects.Username }
+            StringDelegate { aspect: root.aspects.UserEmail }
         }
     }
 
@@ -29,8 +31,8 @@ AspectPage {
         title: qsTr("Miscellaneous")
 
         RowLayout {
-            IntegerDelegate { aspect: aspects.LogCount }
-            IntegerDelegate { aspect: aspects.Timeout }
+            IntegerDelegate { aspect: root.aspects.LogCount }
+            IntegerDelegate { aspect: root.aspects.Timeout }
         }
     }
 }

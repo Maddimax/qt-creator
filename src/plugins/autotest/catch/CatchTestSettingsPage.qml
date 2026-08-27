@@ -10,35 +10,37 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
-    BoolDelegate { aspect: aspects.ShowSuccess }
-    BoolDelegate { aspect: aspects.BreakOnFailure }
-    BoolDelegate { aspect: aspects.NoThrow }
-    BoolDelegate { aspect: aspects.VisibleWS }
+    id: root
+
+    BoolDelegate { aspect: root.aspects.ShowSuccess }
+    BoolDelegate { aspect: root.aspects.BreakOnFailure }
+    BoolDelegate { aspect: root.aspects.NoThrow }
+    BoolDelegate { aspect: root.aspects.VisibleWS }
 
     RowLayout {
-        BoolDelegate { aspect: aspects.AbortChecked }
-        IntegerDelegate { aspect: aspects.AbortAfter }
+        BoolDelegate { aspect: root.aspects.AbortChecked }
+        IntegerDelegate { aspect: root.aspects.AbortAfter }
     }
 
     RowLayout {
-        BoolDelegate { aspect: aspects.SamplesChecked }
-        IntegerDelegate { aspect: aspects.BenchSamples }
+        BoolDelegate { aspect: root.aspects.SamplesChecked }
+        IntegerDelegate { aspect: root.aspects.BenchSamples }
     }
 
     RowLayout {
-        BoolDelegate { aspect: aspects.ResamplesChecked }
-        IntegerDelegate { aspect: aspects.BenchResamples }
+        BoolDelegate { aspect: root.aspects.ResamplesChecked }
+        IntegerDelegate { aspect: root.aspects.BenchResamples }
     }
 
     RowLayout {
-        BoolDelegate { aspect: aspects.ConfIntChecked }
-        DoubleDelegate { aspect: aspects.BenchConfInt }
+        BoolDelegate { aspect: root.aspects.ConfIntChecked }
+        DoubleDelegate { aspect: root.aspects.BenchConfInt }
     }
 
     RowLayout {
-        BoolDelegate { aspect: aspects.WarmupChecked }
-        IntegerDelegate { aspect: aspects.BenchWarmup }
+        BoolDelegate { aspect: root.aspects.WarmupChecked }
+        IntegerDelegate { aspect: root.aspects.BenchWarmup }
     }
 
-    BoolDelegate { aspect: aspects.NoAnalysis }
+    BoolDelegate { aspect: root.aspects.NoAnalysis }
 }

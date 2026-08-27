@@ -10,21 +10,23 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
+    id: root
+
     AspectGroupBox {
         title: qsTr("General")
 
         ColumnLayout {
-            IntegerDelegate { aspect: aspects.WatchdogTimeout }
-            BoolDelegate { aspect: aspects.SkipKnownFrames }
-            BoolDelegate { aspect: aspects.UseMessageBoxForSignals }
-            BoolDelegate { aspect: aspects.AdjustBreakpointLocations }
-            BoolDelegate { aspect: aspects.UseDynamicType }
-            BoolDelegate { aspect: aspects.LoadGdbInit }
-            BoolDelegate { aspect: aspects.LoadGdbDumpers2 }
-            BoolDelegate { aspect: aspects.IntelFlavor }
-            BoolDelegate { aspect: aspects.UsePseudoTracepoints }
-            BoolDelegate { aspect: aspects.UseIndexCache }
-            SelectionDelegate { aspect: aspects.UseDebugInfoD }
+            IntegerDelegate { aspect: root.aspects.WatchdogTimeout }
+            BoolDelegate { aspect: root.aspects.SkipKnownFrames }
+            BoolDelegate { aspect: root.aspects.UseMessageBoxForSignals }
+            BoolDelegate { aspect: root.aspects.AdjustBreakpointLocations }
+            BoolDelegate { aspect: root.aspects.UseDynamicType }
+            BoolDelegate { aspect: root.aspects.LoadGdbInit }
+            BoolDelegate { aspect: root.aspects.LoadGdbDumpers2 }
+            BoolDelegate { aspect: root.aspects.IntelFlavor }
+            BoolDelegate { aspect: root.aspects.UsePseudoTracepoints }
+            BoolDelegate { aspect: root.aspects.UseIndexCache }
+            SelectionDelegate { aspect: root.aspects.UseDebugInfoD }
         }
     }
 
@@ -32,26 +34,26 @@ AspectPage {
         title: qsTr("Extended")
 
         ColumnLayout {
-            TextDisplayDelegate { aspect: aspects.ExtendedWarning }
-            BoolDelegate { aspect: aspects.TargetAsync }
-            BoolDelegate { aspect: aspects.AutoEnrichParameters }
-            BoolDelegate { aspect: aspects.BreakOnWarning }
-            BoolDelegate { aspect: aspects.BreakOnFatal }
-            BoolDelegate { aspect: aspects.BreakOnAbort }
-            BoolDelegate { aspect: aspects.EnableReverseDebugging }
-            BoolDelegate { aspect: aspects.MultiInferior }
+            TextDisplayDelegate { aspect: root.aspects.ExtendedWarning }
+            BoolDelegate { aspect: root.aspects.TargetAsync }
+            BoolDelegate { aspect: root.aspects.AutoEnrichParameters }
+            BoolDelegate { aspect: root.aspects.BreakOnWarning }
+            BoolDelegate { aspect: root.aspects.BreakOnFatal }
+            BoolDelegate { aspect: root.aspects.BreakOnAbort }
+            BoolDelegate { aspect: root.aspects.EnableReverseDebugging }
+            BoolDelegate { aspect: root.aspects.MultiInferior }
         }
     }
 
     AspectGroupBox {
         title: qsTr("Additional Startup Commands")
 
-        TextAreaDelegate { aspect: aspects.GdbStartupCommands }
+        TextAreaDelegate { aspect: root.aspects.GdbStartupCommands }
     }
 
     AspectGroupBox {
         title: qsTr("Additional Attach Commands")
 
-        TextAreaDelegate { aspect: aspects.GdbPostAttachCommands }
+        TextAreaDelegate { aspect: root.aspects.GdbPostAttachCommands }
     }
 }

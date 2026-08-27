@@ -10,19 +10,21 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
+    id: root
+
     AspectGroupBox {
         title: qsTr("Embedding of the UI Class")
 
-        RadioGroupDelegate { aspect: aspects.Embedding }
+        RadioGroupDelegate { aspect: root.aspects.Embedding }
     }
 
     AspectGroupBox {
         title: qsTr("Code Generation")
 
         ColumnLayout {
-            BoolDelegate { aspect: aspects.RetranslationSupport }
-            BoolDelegate { aspect: aspects.IncludeQtModule }
-            BoolDelegate { aspect: aspects.AddQtVersionCheck }
+            BoolDelegate { aspect: root.aspects.RetranslationSupport }
+            BoolDelegate { aspect: root.aspects.IncludeQtModule }
+            BoolDelegate { aspect: root.aspects.AddQtVersionCheck }
         }
     }
 }

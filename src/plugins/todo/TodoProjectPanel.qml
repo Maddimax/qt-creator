@@ -12,16 +12,16 @@ import QtCreator.Ui
 AspectPage {
     id: root
 
-    readonly property var settings: AspectModels.named(aspects.Settings)
+    readonly property var settings: AspectModels.named(root.aspects.Settings)
 
-    BoolWithOwnLabelDelegate { aspect: aspects.UseGlobalSettings }
+    BoolWithOwnLabelDelegate { aspect: root.aspects.UseGlobalSettings }
 
     AspectGroupBox {
         title: qsTr("Excluded Files")
         // The box follows what it holds. The settings are disabled as a whole
         // while the global list is in use, and the widget form kept the box in
-        // step by hand because a QGroupBox is not one of the aspects.
-        enabled: aspects.Settings?.enabled ?? true
+        // step by hand because a QGroupBox is not one of the root.aspects.
+        enabled: root.aspects.Settings?.enabled ?? true
 
         StringListEditorDelegate { aspect: root.settings.ExcludePatterns }
     }

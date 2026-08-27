@@ -10,19 +10,21 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
-    ColorDelegate { aspect: aspects.Color }
-    SelectionDelegate { aspect: aspects.CreatorTheme }
-    SelectionDelegate { aspect: aspects.ToolbarStyle }
-    SelectionDelegate { aspect: aspects.OverrideLanguage }
-    SelectionDelegate { aspect: aspects.HighDpiScaleFactorRoundingPolicy }
-    TextDisplayDelegate { aspect: aspects.EnvVarInfo }
-    SelectionDelegate { aspect: aspects.OverrideCodecForLocale }
+    id: root
 
-    BoolDelegate { aspect: aspects.ShowShortcutsInContextMenu }
-    BoolDelegate { aspect: aspects.OverrideSplitterCursors }
-    BoolDelegate { aspect: aspects.PreferInfoBarOverPopup }
-    BoolDelegate { aspect: aspects.UseTabsInEditorViews }
-    BoolDelegate { aspect: aspects.ShowOkAndCancelInSettingsMode }
+    ColorDelegate { aspect: root.aspects.Color }
+    SelectionDelegate { aspect: root.aspects.CreatorTheme }
+    SelectionDelegate { aspect: root.aspects.ToolbarStyle }
+    SelectionDelegate { aspect: root.aspects.OverrideLanguage }
+    SelectionDelegate { aspect: root.aspects.HighDpiScaleFactorRoundingPolicy }
+    TextDisplayDelegate { aspect: root.aspects.EnvVarInfo }
+    SelectionDelegate { aspect: root.aspects.OverrideCodecForLocale }
 
-    ButtonDelegate { aspect: aspects.ResetWarnings }
+    BoolDelegate { aspect: root.aspects.ShowShortcutsInContextMenu }
+    BoolDelegate { aspect: root.aspects.OverrideSplitterCursors }
+    BoolDelegate { aspect: root.aspects.PreferInfoBarOverPopup }
+    BoolDelegate { aspect: root.aspects.UseTabsInEditorViews }
+    BoolDelegate { aspect: root.aspects.ShowOkAndCancelInSettingsMode }
+
+    ButtonDelegate { aspect: root.aspects.ResetWarnings }
 }

@@ -16,16 +16,16 @@ AspectPage {
 
     contentFillsHeight: true
 
-    readonly property var settings: AspectModels.named(aspects.Settings)
+    readonly property var settings: AspectModels.named(root.aspects.Settings)
 
-    BoolWithOwnLabelDelegate { aspect: aspects.UseGlobalSettings }
+    BoolWithOwnLabelDelegate { aspect: root.aspects.UseGlobalSettings }
 
     RowLayout {
         Layout.fillWidth: true
 
-        ButtonDelegate { aspect: aspects.RestoreGlobal }
+        ButtonDelegate { aspect: root.aspects.RestoreGlobal }
         Item { Layout.fillWidth: true }
-        TextDisplayDelegate { aspect: aspects.GoToTools }
+        TextDisplayDelegate { aspect: root.aspects.GoToTools }
     }
 
     ClangToolsRunOptionsForm { aspects: root.settings }
@@ -38,7 +38,7 @@ AspectPage {
             spacing: Spacing.GapHM
 
             TableDelegate {
-                aspect: aspects.SuppressedDiagnostics
+                aspect: root.aspects.SuppressedDiagnostics
                 Layout.fillHeight: true
 
                 // Which row is current is the aspect's answer: the buttons
@@ -49,8 +49,8 @@ AspectPage {
             ColumnLayout {
                 Layout.alignment: Qt.AlignTop
 
-                ButtonDelegate { aspect: aspects.RemoveSelected }
-                ButtonDelegate { aspect: aspects.RemoveAll }
+                ButtonDelegate { aspect: root.aspects.RemoveSelected }
+                ButtonDelegate { aspect: root.aspects.RemoveAll }
             }
         }
     }

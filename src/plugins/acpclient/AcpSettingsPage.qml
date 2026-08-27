@@ -8,5 +8,7 @@ import QtQuick
 import QtCreator.Ui
 
 AspectPage {
-    AspectListDelegate { aspect: aspects.AcpServers }
+    id: root
+
+    AspectListDelegate { aspect: root.aspects.AcpServers }
 }

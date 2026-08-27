@@ -10,25 +10,27 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
+    id: root
+
     RowLayout {
-        BoolDelegate { aspect: aspects.ShowVcsStatus }
-        IntegerDelegate { aspect: aspects.ShowVcsStatusInterval }
+        BoolDelegate { aspect: root.aspects.ShowVcsStatus }
+        IntegerDelegate { aspect: root.aspects.ShowVcsStatusInterval }
     }
 
     RowLayout {
-        BoolDelegate { aspect: aspects.LineWrap }
-        IntegerDelegate { aspect: aspects.LineWrapWidth }
+        BoolDelegate { aspect: root.aspects.LineWrap }
+        IntegerDelegate { aspect: root.aspects.LineWrapWidth }
     }
 
     RowLayout {
-        BoolDelegate { aspect: aspects.SpellCheck }
-        SelectionDelegate { aspect: aspects.SpellCheckLanguage }
+        BoolDelegate { aspect: root.aspects.SpellCheck }
+        SelectionDelegate { aspect: root.aspects.SpellCheckLanguage }
     }
 
-    StringDelegate { aspect: aspects.SubmitMessageCheckScript }
-    StringDelegate { aspect: aspects.NickNameMailMap }
-    StringDelegate { aspect: aspects.NickNameFieldListFile }
-    StringDelegate { aspect: aspects.SshPasswordPrompt }
+    StringDelegate { aspect: root.aspects.SubmitMessageCheckScript }
+    StringDelegate { aspect: root.aspects.NickNameMailMap }
+    StringDelegate { aspect: root.aspects.NickNameFieldListFile }
+    StringDelegate { aspect: root.aspects.SshPasswordPrompt }
 
-    ButtonDelegate { aspect: aspects.ResetCache }
+    ButtonDelegate { aspect: root.aspects.ResetCache }
 }

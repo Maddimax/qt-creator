@@ -10,13 +10,15 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
-    BoolDelegate { aspect: aspects.AutorunCMake }
-    BoolDelegate { aspect: aspects.CleanOldOutput }
-    BoolDelegate { aspect: aspects.PackageManagerAutoSetup }
-    BoolDelegate { aspect: aspects.MaintenanceToolDependencyProvider }
-    BoolDelegate { aspect: aspects.AskReConfigureInitialParams }
-    BoolDelegate { aspect: aspects.AskBeforePresetsReload }
-    BoolDelegate { aspect: aspects.ShowSourceSubFolders }
-    BoolDelegate { aspect: aspects.ShowAdvancedOptionsByDefault }
-    BoolDelegate { aspect: aspects.UseJunctionsForSourceAndBuildDirectories }
+    id: root
+
+    BoolDelegate { aspect: root.aspects.AutorunCMake }
+    BoolDelegate { aspect: root.aspects.CleanOldOutput }
+    BoolDelegate { aspect: root.aspects.PackageManagerAutoSetup }
+    BoolDelegate { aspect: root.aspects.MaintenanceToolDependencyProvider }
+    BoolDelegate { aspect: root.aspects.AskReConfigureInitialParams }
+    BoolDelegate { aspect: root.aspects.AskBeforePresetsReload }
+    BoolDelegate { aspect: root.aspects.ShowSourceSubFolders }
+    BoolDelegate { aspect: root.aspects.ShowAdvancedOptionsByDefault }
+    BoolDelegate { aspect: root.aspects.UseJunctionsForSourceAndBuildDirectories }
 }

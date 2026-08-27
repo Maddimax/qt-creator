@@ -10,13 +10,15 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
-    BoolDelegate { aspect: aspects.WrapBuildOutput }
-    BoolDelegate { aspect: aspects.ShowCompilerOutput }
-    BoolDelegate { aspect: aspects.DiscardCompilerOutput }
-    IntegerDelegate { aspect: aspects.MaxBuildOutputLines }
+    id: root
+
+    BoolDelegate { aspect: root.aspects.WrapBuildOutput }
+    BoolDelegate { aspect: root.aspects.ShowCompilerOutput }
+    BoolDelegate { aspect: root.aspects.DiscardCompilerOutput }
+    IntegerDelegate { aspect: root.aspects.MaxBuildOutputLines }
 
     RowLayout {
-        BoolDelegate { aspect: aspects.OverwriteBackground }
-        ColorDelegate { aspect: aspects.BackgroundColor }
+        BoolDelegate { aspect: root.aspects.OverwriteBackground }
+        ColorDelegate { aspect: root.aspects.BackgroundColor }
     }
 }

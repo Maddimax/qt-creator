@@ -11,6 +11,8 @@ import QtCreator.Ui
 // Copilot's page in a project's settings. Whether the project setting below can
 // be changed at all is the container's answer, not this form's.
 AspectPage {
-    BoolWithOwnLabelDelegate { aspect: aspects.UseGlobalSettings }
-    BoolDelegate { aspect: aspects.EnableCopilot }
+    id: root
+
+    BoolWithOwnLabelDelegate { aspect: root.aspects.UseGlobalSettings }
+    BoolDelegate { aspect: root.aspects.EnableCopilot }
 }

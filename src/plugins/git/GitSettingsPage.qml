@@ -10,13 +10,15 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
+    id: root
+
     AspectGroupBox {
         title: qsTr("Configuration")
 
         ColumnLayout {
-            StringDelegate { aspect: aspects.BinaryPath }
-            StringDelegate { aspect: aspects.Path }
-            BoolDelegate { aspect: aspects.WinSetHomeEnvironment }
+            StringDelegate { aspect: root.aspects.BinaryPath }
+            StringDelegate { aspect: root.aspects.Path }
+            BoolDelegate { aspect: root.aspects.WinSetHomeEnvironment }
         }
     }
 
@@ -25,17 +27,17 @@ AspectPage {
 
         ColumnLayout {
             RowLayout {
-                IntegerDelegate { aspect: aspects.LogCount }
-                IntegerDelegate { aspect: aspects.Timeout }
+                IntegerDelegate { aspect: root.aspects.LogCount }
+                IntegerDelegate { aspect: root.aspects.Timeout }
             }
 
             Flow {
                 Layout.fillWidth: true
                 spacing: Spacing.GapHM
 
-                BoolDelegate { aspect: aspects.PullRebase }
-                BoolDelegate { aspect: aspects.RebaseMerges }
-                BoolDelegate { aspect: aspects.UpdateRefs }
+                BoolDelegate { aspect: root.aspects.PullRebase }
+                BoolDelegate { aspect: root.aspects.RebaseMerges }
+                BoolDelegate { aspect: root.aspects.UpdateRefs }
             }
         }
     }
@@ -43,25 +45,25 @@ AspectPage {
     AspectGroupBox {
         title: qsTr("Gitk")
 
-        StringDelegate { aspect: aspects.GitKOptions }
+        StringDelegate { aspect: root.aspects.GitKOptions }
     }
 
     AspectGroupBox {
         title: qsTr("Repository Browser")
 
-        StringDelegate { aspect: aspects.RepositoryBrowserCmd }
+        StringDelegate { aspect: root.aspects.RepositoryBrowserCmd }
     }
 
     AspectGroupBox {
         title: qsTr("Instant Blame")
-        checkAspect: aspects.InstantBlame
+        checkAspect: root.aspects.InstantBlame
 
         Flow {
             spacing: Spacing.GapHM
 
-            BoolDelegate { aspect: aspects.GitInstantIgnoreSpaceChanges }
-            BoolDelegate { aspect: aspects.GitInstantIgnoreLineMoves }
-            BoolDelegate { aspect: aspects.GitInstantShowSubject }
+            BoolDelegate { aspect: root.aspects.GitInstantIgnoreSpaceChanges }
+            BoolDelegate { aspect: root.aspects.GitInstantIgnoreLineMoves }
+            BoolDelegate { aspect: root.aspects.GitInstantShowSubject }
         }
     }
 }

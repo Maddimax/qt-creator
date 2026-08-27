@@ -10,7 +10,9 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
-    TextDisplayDelegate { aspect: aspects.Note }
-    StringDelegate { aspect: aspects.Path }
-    IntegerDelegate { aspect: aspects.DisplayCount }
+    id: root
+
+    TextDisplayDelegate { aspect: root.aspects.Note }
+    StringDelegate { aspect: root.aspects.Path }
+    IntegerDelegate { aspect: root.aspects.DisplayCount }
 }

@@ -10,19 +10,21 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
+    id: root
+
     AspectGroupBox {
         title: qsTr("Configuration")
 
-        StringDelegate { aspect: aspects.BinaryPath }
+        StringDelegate { aspect: root.aspects.BinaryPath }
     }
 
     AspectGroupBox {
         title: qsTr("Authentication")
-        checkAspect: aspects.Authentication
+        checkAspect: root.aspects.Authentication
 
         ColumnLayout {
-            StringDelegate { aspect: aspects.User }
-            StringDelegate { aspect: aspects.Password }
+            StringDelegate { aspect: root.aspects.User }
+            StringDelegate { aspect: root.aspects.Password }
         }
     }
 
@@ -31,10 +33,10 @@ AspectPage {
 
         ColumnLayout {
             RowLayout {
-                IntegerDelegate { aspect: aspects.LogCount }
-                IntegerDelegate { aspect: aspects.Timeout }
+                IntegerDelegate { aspect: root.aspects.LogCount }
+                IntegerDelegate { aspect: root.aspects.Timeout }
             }
-            BoolDelegate { aspect: aspects.SpaceIgnorantAnnotation }
+            BoolDelegate { aspect: root.aspects.SpaceIgnorantAnnotation }
         }
     }
 }

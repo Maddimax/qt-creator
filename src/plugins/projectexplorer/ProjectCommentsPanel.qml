@@ -16,9 +16,9 @@ AspectPage {
 
     // The settings the flag turns on are a container of their own, so they are
     // reached by name through it rather than through the panel.
-    readonly property var settings: AspectModels.named(aspects.Settings)
+    readonly property var settings: AspectModels.named(root.aspects.Settings)
 
-    BoolWithOwnLabelDelegate { aspect: aspects.UseGlobalSettings }
+    BoolWithOwnLabelDelegate { aspect: root.aspects.UseGlobalSettings }
 
     BoolDelegate { aspect: root.settings.EnableDoxygenBlocks }
 

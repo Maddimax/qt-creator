@@ -10,15 +10,17 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
-    StringDelegate { aspect: aspects.SquishPath }
-    StringDelegate { aspect: aspects.LicensePath }
+    id: root
+
+    StringDelegate { aspect: root.aspects.SquishPath }
+    StringDelegate { aspect: root.aspects.LicensePath }
 
     RowLayout {
-        BoolDelegate { aspect: aspects.Local }
-        StringDelegate { aspect: aspects.ServerHost }
-        IntegerDelegate { aspect: aspects.ServerPort }
+        BoolDelegate { aspect: root.aspects.Local }
+        StringDelegate { aspect: root.aspects.ServerHost }
+        IntegerDelegate { aspect: root.aspects.ServerPort }
     }
 
-    BoolDelegate { aspect: aspects.Verbose }
-    BoolDelegate { aspect: aspects.MinimizeIDE }
+    BoolDelegate { aspect: root.aspects.Verbose }
+    BoolDelegate { aspect: root.aspects.MinimizeIDE }
 }

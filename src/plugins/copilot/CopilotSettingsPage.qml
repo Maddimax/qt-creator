@@ -10,24 +10,26 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
+    id: root
+
     AspectGroupBox {
         title: qsTr("Note")
 
         ColumnLayout {
-            TextDisplayDelegate { aspect: aspects.Warning }
-            TextDisplayDelegate { aspect: aspects.Help }
+            TextDisplayDelegate { aspect: root.aspects.Warning }
+            TextDisplayDelegate { aspect: root.aspects.Help }
         }
     }
 
-    ButtonDelegate { aspect: aspects.SignIn }
-    TextDisplayDelegate { aspect: aspects.AuthStatus }
+    ButtonDelegate { aspect: root.aspects.SignIn }
+    TextDisplayDelegate { aspect: root.aspects.AuthStatus }
 
-    BoolDelegate { aspect: aspects.EnableCopilot }
-    StringDelegate { aspect: aspects.NodeJsPath }
-    StringDelegate { aspect: aspects.DistPath }
-    BoolDelegate { aspect: aspects.Autocomplete }
-    StringDelegate { aspect: aspects.GithubEnterpriseUrl }
+    BoolDelegate { aspect: root.aspects.EnableCopilot }
+    StringDelegate { aspect: root.aspects.NodeJsPath }
+    StringDelegate { aspect: root.aspects.DistPath }
+    BoolDelegate { aspect: root.aspects.Autocomplete }
+    StringDelegate { aspect: root.aspects.GithubEnterpriseUrl }
 
-    StringDelegate { aspect: aspects.Proxy }
-    BoolDelegate { aspect: aspects.ProxyRejectUnauthorized }
+    StringDelegate { aspect: root.aspects.Proxy }
+    BoolDelegate { aspect: root.aspects.ProxyRejectUnauthorized }
 }

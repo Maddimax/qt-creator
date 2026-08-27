@@ -15,10 +15,10 @@ import QtCreator.TextEditor
 AspectPage {
     id: root
 
-    readonly property var margins: AspectModels.named(aspects.Margins)
+    readonly property var margins: AspectModels.named(root.aspects.Margins)
 
-    BoolWithOwnLabelDelegate { aspect: aspects.UseGlobalSettings }
-    ButtonDelegate { aspect: aspects.RestoreGlobal }
+    BoolWithOwnLabelDelegate { aspect: root.aspects.UseGlobalSettings }
+    ButtonDelegate { aspect: root.aspects.RestoreGlobal }
 
     AspectGroupBox {
         title: qsTr("Display Settings")

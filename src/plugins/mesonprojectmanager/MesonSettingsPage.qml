@@ -8,6 +8,8 @@ import QtQuick
 import QtCreator.Ui
 
 AspectPage {
-    BoolDelegate { aspect: aspects.autorun }
-    BoolDelegate { aspect: aspects.verbose }
+    id: root
+
+    BoolDelegate { aspect: root.aspects.autorun }
+    BoolDelegate { aspect: root.aspects.verbose }
 }

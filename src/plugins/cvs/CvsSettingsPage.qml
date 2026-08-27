@@ -10,12 +10,14 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
+    id: root
+
     AspectGroupBox {
         title: qsTr("Configuration")
 
         ColumnLayout {
-            StringDelegate { aspect: aspects.BinaryPath }
-            StringDelegate { aspect: aspects.Root }
+            StringDelegate { aspect: root.aspects.BinaryPath }
+            StringDelegate { aspect: root.aspects.Root }
         }
     }
 
@@ -23,9 +25,9 @@ AspectPage {
         title: qsTr("Miscellaneous")
 
         ColumnLayout {
-            IntegerDelegate { aspect: aspects.Timeout }
-            StringDelegate { aspect: aspects.DiffOptions }
-            BoolDelegate { aspect: aspects.DescribeByCommitId }
+            IntegerDelegate { aspect: root.aspects.Timeout }
+            StringDelegate { aspect: root.aspects.DiffOptions }
+            BoolDelegate { aspect: root.aspects.DescribeByCommitId }
         }
     }
 }

@@ -21,7 +21,7 @@ AspectPage {
         Layout.fillHeight: true
 
         TableDelegate {
-            aspect: aspects.Variables
+            aspect: root.aspects.Variables
             Layout.fillHeight: true
 
             onCurrentRowChanged: root.aspects.Variables.setCurrentRow(currentRow)
@@ -31,15 +31,15 @@ AspectPage {
             spacing: Spacing.GapVXs
             Layout.alignment: Qt.AlignTop
 
-            ButtonDelegate { aspect: aspects.Edit }
-            ButtonDelegate { aspect: aspects.Add }
-            ButtonDelegate { aspect: aspects.Reset }
-            ButtonDelegate { aspect: aspects.Unset }
-            ButtonDelegate { aspect: aspects.Toggle }
-            ButtonDelegate { aspect: aspects.AppendPath }
-            ButtonDelegate { aspect: aspects.PrependPath }
+            ButtonDelegate { aspect: root.aspects.Edit }
+            ButtonDelegate { aspect: root.aspects.Add }
+            ButtonDelegate { aspect: root.aspects.Reset }
+            ButtonDelegate { aspect: root.aspects.Unset }
+            ButtonDelegate { aspect: root.aspects.Toggle }
+            ButtonDelegate { aspect: root.aspects.AppendPath }
+            ButtonDelegate { aspect: root.aspects.PrependPath }
         }
     }
 
-    TextAreaDelegate { aspect: aspects.Changes }
+    TextAreaDelegate { aspect: root.aspects.Changes }
 }

@@ -18,17 +18,17 @@ AspectPage {
         title: qsTr("Font")
 
         RowLayout {
-            FontFamilyDelegate { aspect: aspects.Family }
-            SelectionDelegate { aspect: aspects.Size }
+            FontFamilyDelegate { aspect: root.aspects.Family }
+            SelectionDelegate { aspect: root.aspects.Size }
         }
 
         RowLayout {
-            IntegerDelegate { aspect: aspects.Zoom }
-            IntegerDelegate { aspect: aspects.LineSpacing }
+            IntegerDelegate { aspect: root.aspects.Zoom }
+            IntegerDelegate { aspect: root.aspects.LineSpacing }
         }
 
-        TextDisplayDelegate { aspect: aspects.LineSpacingWarning }
-        BoolDelegate { aspect: aspects.Antialias }
+        TextDisplayDelegate { aspect: root.aspects.LineSpacingWarning }
+        BoolDelegate { aspect: root.aspects.Antialias }
     }
 
     AspectGroupBox {
@@ -36,21 +36,21 @@ AspectPage {
         title: root.aspects.Formats.groupTitle
 
         RowLayout {
-            SelectionDelegate { aspect: aspects.Scheme }
-            ButtonDelegate { aspect: aspects.CopyScheme }
-            ButtonDelegate { aspect: aspects.DeleteScheme }
-            ButtonDelegate { aspect: aspects.ImportScheme }
-            ButtonDelegate { aspect: aspects.ExportScheme }
+            SelectionDelegate { aspect: root.aspects.Scheme }
+            ButtonDelegate { aspect: root.aspects.CopyScheme }
+            ButtonDelegate { aspect: root.aspects.DeleteScheme }
+            ButtonDelegate { aspect: root.aspects.ImportScheme }
+            ButtonDelegate { aspect: root.aspects.ExportScheme }
         }
 
-        TextDisplayDelegate { aspect: aspects.BuiltinSchemeNote }
+        TextDisplayDelegate { aspect: root.aspects.BuiltinSchemeNote }
 
         RowLayout {
             spacing: Spacing.GapHM
             Layout.fillHeight: true
 
             TableDelegate {
-                aspect: aspects.Formats
+                aspect: root.aspects.Formats
                 Layout.fillHeight: true
                 // The list is long and is the thing being read, so it gets
                 // room rather than the height of a list editor.
@@ -67,16 +67,16 @@ AspectPage {
                 spacing: Spacing.GapVXs
                 Layout.alignment: Qt.AlignTop
 
-                ColorDelegate { aspect: aspects.Foreground }
-                ColorDelegate { aspect: aspects.Background }
-                DoubleDelegate { aspect: aspects.ForegroundSaturation }
-                DoubleDelegate { aspect: aspects.ForegroundLightness }
-                DoubleDelegate { aspect: aspects.BackgroundSaturation }
-                DoubleDelegate { aspect: aspects.BackgroundLightness }
-                BoolDelegate { aspect: aspects.Bold }
-                BoolDelegate { aspect: aspects.Italic }
-                ColorDelegate { aspect: aspects.UnderlineColor }
-                SelectionDelegate { aspect: aspects.UnderlineStyle }
+                ColorDelegate { aspect: root.aspects.Foreground }
+                ColorDelegate { aspect: root.aspects.Background }
+                DoubleDelegate { aspect: root.aspects.ForegroundSaturation }
+                DoubleDelegate { aspect: root.aspects.ForegroundLightness }
+                DoubleDelegate { aspect: root.aspects.BackgroundSaturation }
+                DoubleDelegate { aspect: root.aspects.BackgroundLightness }
+                BoolDelegate { aspect: root.aspects.Bold }
+                BoolDelegate { aspect: root.aspects.Italic }
+                ColorDelegate { aspect: root.aspects.UnderlineColor }
+                SelectionDelegate { aspect: root.aspects.UnderlineStyle }
             }
         }
     }

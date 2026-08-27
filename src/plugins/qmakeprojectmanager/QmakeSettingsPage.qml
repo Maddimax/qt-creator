@@ -8,7 +8,9 @@ import QtQuick
 import QtCreator.Ui
 
 AspectPage {
-    BoolDelegate { aspect: aspects.WarnAgainstUnalignedBuildDir }
-    BoolDelegate { aspect: aspects.AlwaysRunQmake }
-    BoolDelegate { aspect: aspects.RunSystemFunction }
+    id: root
+
+    BoolDelegate { aspect: root.aspects.WarnAgainstUnalignedBuildDir }
+    BoolDelegate { aspect: root.aspects.AlwaysRunQmake }
+    BoolDelegate { aspect: root.aspects.RunSystemFunction }
 }

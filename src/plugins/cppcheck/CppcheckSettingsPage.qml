@@ -12,7 +12,7 @@ import QtCreator.Ui
 AspectPage {
     id: root
 
-    StringDelegate { aspect: aspects.binary }
+    StringDelegate { aspect: root.aspects.binary }
 
     Label { text: qsTr("Checks:") }
 
@@ -21,26 +21,26 @@ AspectPage {
         Layout.leftMargin: Spacing.PaddingHL
         spacing: Spacing.GapHM
 
-        BoolDelegate { aspect: aspects.warning }
-        BoolDelegate { aspect: aspects.style }
-        BoolDelegate { aspect: aspects.performance }
-        BoolDelegate { aspect: aspects.portability }
-        BoolDelegate { aspect: aspects.information }
-        BoolDelegate { aspect: aspects.unusedFunction }
-        BoolDelegate { aspect: aspects.missingInclude }
+        BoolDelegate { aspect: root.aspects.warning }
+        BoolDelegate { aspect: root.aspects.style }
+        BoolDelegate { aspect: root.aspects.performance }
+        BoolDelegate { aspect: root.aspects.portability }
+        BoolDelegate { aspect: root.aspects.information }
+        BoolDelegate { aspect: root.aspects.unusedFunction }
+        BoolDelegate { aspect: root.aspects.missingInclude }
     }
 
-    StringDelegate { aspect: aspects.customArguments }
-    StringDelegate { aspect: aspects.ignoredPatterns }
+    StringDelegate { aspect: root.aspects.customArguments }
+    StringDelegate { aspect: root.aspects.ignoredPatterns }
 
     Flow {
         Layout.fillWidth: true
         spacing: Spacing.GapHM
 
-        BoolDelegate { aspect: aspects.inconclusive }
-        BoolDelegate { aspect: aspects.forceDefines }
-        BoolDelegate { aspect: aspects.showOutput }
-        BoolDelegate { aspect: aspects.addIncludePaths }
-        BoolDelegate { aspect: aspects.guessArguments }
+        BoolDelegate { aspect: root.aspects.inconclusive }
+        BoolDelegate { aspect: root.aspects.forceDefines }
+        BoolDelegate { aspect: root.aspects.showOutput }
+        BoolDelegate { aspect: root.aspects.addIncludePaths }
+        BoolDelegate { aspect: root.aspects.guessArguments }
     }
 }

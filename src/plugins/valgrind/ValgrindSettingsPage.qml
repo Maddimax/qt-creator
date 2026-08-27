@@ -10,13 +10,15 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
+    id: root
+
     AspectGroupBox {
         title: qsTr("Valgrind Generic Settings")
 
         ColumnLayout {
-            StringDelegate { aspect: aspects.ValgrindExecutable }
-            StringDelegate { aspect: aspects.ValgrindArguments }
-            SelectionDelegate { aspect: aspects.SelfModifyingCodeDetection }
+            StringDelegate { aspect: root.aspects.ValgrindExecutable }
+            StringDelegate { aspect: root.aspects.ValgrindArguments }
+            SelectionDelegate { aspect: root.aspects.SelfModifyingCodeDetection }
         }
     }
 
@@ -24,13 +26,13 @@ AspectPage {
         title: qsTr("Memcheck Memory Analysis Options")
 
         ColumnLayout {
-            StringDelegate { aspect: aspects.MemcheckArguments }
-            BoolDelegate { aspect: aspects.TrackOrigins }
-            BoolDelegate { aspect: aspects.ShowReachable }
-            SelectionDelegate { aspect: aspects.LeakCheckOnFinish }
-            IntegerDelegate { aspect: aspects.NumCallers }
-            BoolDelegate { aspect: aspects.FilterExternalIssues }
-            FilePathListDelegate { aspect: aspects.SuppressionFiles }
+            StringDelegate { aspect: root.aspects.MemcheckArguments }
+            BoolDelegate { aspect: root.aspects.TrackOrigins }
+            BoolDelegate { aspect: root.aspects.ShowReachable }
+            SelectionDelegate { aspect: root.aspects.LeakCheckOnFinish }
+            IntegerDelegate { aspect: root.aspects.NumCallers }
+            BoolDelegate { aspect: root.aspects.FilterExternalIssues }
+            FilePathListDelegate { aspect: root.aspects.SuppressionFiles }
         }
     }
 
@@ -38,18 +40,18 @@ AspectPage {
         title: qsTr("Callgrind Profiling Options")
 
         ColumnLayout {
-            StringDelegate { aspect: aspects.CallgrindArguments }
-            StringDelegate { aspect: aspects.KCachegrindExecutable }
-            DoubleDelegate { aspect: aspects.MinimumCostRatio }
-            DoubleDelegate { aspect: aspects.VisualisationMinimumCostRatio }
-            BoolDelegate { aspect: aspects.EnableEventToolTips }
+            StringDelegate { aspect: root.aspects.CallgrindArguments }
+            StringDelegate { aspect: root.aspects.KCachegrindExecutable }
+            DoubleDelegate { aspect: root.aspects.MinimumCostRatio }
+            DoubleDelegate { aspect: root.aspects.VisualisationMinimumCostRatio }
+            BoolDelegate { aspect: root.aspects.EnableEventToolTips }
 
             AspectGroupBox {
                 ColumnLayout {
-                    BoolDelegate { aspect: aspects.EnableCacheSim }
-                    BoolDelegate { aspect: aspects.EnableBranchSim }
-                    BoolDelegate { aspect: aspects.CollectSystime }
-                    BoolDelegate { aspect: aspects.CollectBusEvents }
+                    BoolDelegate { aspect: root.aspects.EnableCacheSim }
+                    BoolDelegate { aspect: root.aspects.EnableBranchSim }
+                    BoolDelegate { aspect: root.aspects.CollectSystime }
+                    BoolDelegate { aspect: root.aspects.CollectBusEvents }
                 }
             }
         }

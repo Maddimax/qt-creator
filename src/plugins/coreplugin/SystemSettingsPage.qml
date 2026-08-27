@@ -10,43 +10,45 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
-    TextWithActionDelegate { aspect: aspects.EnvironmentChanges }
-    TextWithActionDelegate { aspect: aspects.EnvVarSeparators }
+    id: root
+
+    TextWithActionDelegate { aspect: root.aspects.EnvironmentChanges }
+    TextWithActionDelegate { aspect: root.aspects.EnvVarSeparators }
 
     // One row: what the three fields come to, the button that opens them, and
     // the emulators this machine has. The fields are in a container of their
     // own that is hidden here and shown by the dialog.
-    InlineGroupDelegate { aspect: aspects.Terminal }
+    InlineGroupDelegate { aspect: root.aspects.Terminal }
 
-    StringDelegate { aspect: aspects.FileBrowser }
-    BoolDelegate { aspect: aspects.SupportDbusFileManagers }
-    StringDelegate { aspect: aspects.PatchCommand }
-    IntegerDelegate { aspect: aspects.MaxRecentFiles }
-    SelectionDelegate { aspect: aspects.ReloadBehavior }
+    StringDelegate { aspect: root.aspects.FileBrowser }
+    BoolDelegate { aspect: root.aspects.SupportDbusFileManagers }
+    StringDelegate { aspect: root.aspects.PatchCommand }
+    IntegerDelegate { aspect: root.aspects.MaxRecentFiles }
+    SelectionDelegate { aspect: root.aspects.ReloadBehavior }
 
     RowLayout {
-        BoolDelegate { aspect: aspects.AutoSaveEnabled }
-        IntegerDelegate { aspect: aspects.AutoSaveInterval }
+        BoolDelegate { aspect: root.aspects.AutoSaveEnabled }
+        IntegerDelegate { aspect: root.aspects.AutoSaveInterval }
     }
 
-    BoolDelegate { aspect: aspects.AutoSaveAfterRefactoring }
+    BoolDelegate { aspect: root.aspects.AutoSaveAfterRefactoring }
 
     BoolDelegate { aspect: aspects.DisableAtomicSave }
 
     RowLayout {
-        BoolDelegate { aspect: aspects.AutoSuspendEnabled }
-        IntegerDelegate { aspect: aspects.AutoSuspendMinDocuments }
+        BoolDelegate { aspect: root.aspects.AutoSuspendEnabled }
+        IntegerDelegate { aspect: root.aspects.AutoSuspendMinDocuments }
     }
 
     RowLayout {
-        BoolDelegate { aspect: aspects.WarnBeforeOpeningBigTextFiles }
-        IntegerDelegate { aspect: aspects.BigTextFileSizeLimitInMB }
+        BoolDelegate { aspect: root.aspects.WarnBeforeOpeningBigTextFiles }
+        IntegerDelegate { aspect: root.aspects.BigTextFileSizeLimitInMB }
     }
 
-    BoolDelegate { aspect: aspects.AskBeforeExit }
+    BoolDelegate { aspect: root.aspects.AskBeforeExit }
 
     RowLayout {
-        BoolDelegate { aspect: aspects.CrashReportingEnabled }
-        ButtonDelegate { aspect: aspects.CrashNow }
+        BoolDelegate { aspect: root.aspects.CrashReportingEnabled }
+        ButtonDelegate { aspect: root.aspects.CrashNow }
     }
 }

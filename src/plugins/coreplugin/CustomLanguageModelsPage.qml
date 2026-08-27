@@ -10,5 +10,7 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
-    AspectListDelegate { aspect: aspects.ModelList }
+    id: root
+
+    AspectListDelegate { aspect: root.aspects.ModelList }
 }

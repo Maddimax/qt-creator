@@ -10,14 +10,15 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
+    id: root
 
     contentFillsHeight: true
     AspectGroupBox {
         title: qsTr("Formatting")
 
         ColumnLayout {
-            BoolDelegate { aspect: aspects.AutoFormatOnSave }
-            BoolDelegate { aspect: aspects.AutoFormatOnlyCurrentProject }
+            BoolDelegate { aspect: root.aspects.AutoFormatOnSave }
+            BoolDelegate { aspect: root.aspects.AutoFormatOnlyCurrentProject }
         }
     }
 
@@ -25,20 +26,20 @@ AspectPage {
         title: qsTr("Qt Quick Toolbars")
 
         ColumnLayout {
-            BoolDelegate { aspect: aspects.ContextPanePinned }
-            BoolDelegate { aspect: aspects.ContextPaneEnabled }
+            BoolDelegate { aspect: root.aspects.ContextPanePinned }
+            BoolDelegate { aspect: root.aspects.ContextPaneEnabled }
         }
     }
 
     AspectGroupBox {
         title: qsTr("Qt Design Studio")
         // The whole group goes when there is no Design Studio to point at.
-        visible: aspects.qdsCommand?.visible ?? true
+        visible: root.aspects.qdsCommand?.visible ?? true
 
         ColumnLayout {
-            TextDisplayDelegate { aspect: aspects.QdsHint }
-            StringDelegate { aspect: aspects.qdsCommand }
-            ButtonDelegate { aspect: aspects.QdsInstall }
+            TextDisplayDelegate { aspect: root.aspects.QdsHint }
+            StringDelegate { aspect: root.aspects.qdsCommand }
+            ButtonDelegate { aspect: root.aspects.QdsInstall }
         }
     }
 
@@ -46,24 +47,24 @@ AspectPage {
         title: qsTr("Features")
 
         ColumnLayout {
-            BoolDelegate { aspect: aspects.FoldAuxData }
-            SelectionDelegate { aspect: aspects.openUiQmlMode }
+            BoolDelegate { aspect: root.aspects.FoldAuxData }
+            SelectionDelegate { aspect: root.aspects.openUiQmlMode }
         }
     }
 
     AspectGroupBox {
         title: qsTr("QML Language Server")
 
-        ButtonDelegate { aspect: aspects.OpenLanguageServerSettings }
+        ButtonDelegate { aspect: root.aspects.OpenLanguageServerSettings }
     }
 
     AspectGroupBox {
         title: qsTr("Static Analyzer")
 
         ColumnLayout {
-            BoolDelegate { aspect: aspects.useCustomAnalyzer }
-            TableDelegate { aspect: aspects.AnalyzerMessages }
-            ButtonDelegate { aspect: aspects.ResetAnalyzerMessages }
+            BoolDelegate { aspect: root.aspects.useCustomAnalyzer }
+            TableDelegate { aspect: root.aspects.AnalyzerMessages }
+            ButtonDelegate { aspect: root.aspects.ResetAnalyzerMessages }
         }
     }
 }

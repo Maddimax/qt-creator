@@ -15,21 +15,21 @@ import QtCreator.Ui
 AspectPage {
     id: root
 
-    TextDisplayDelegate { aspect: aspects.GlobalLink }
+    TextDisplayDelegate { aspect: root.aspects.GlobalLink }
 
-    SelectionDelegate { aspect: aspects.Host }
-    SelectionDelegate { aspect: aspects.LinkedServer }
+    SelectionDelegate { aspect: root.aspects.Host }
+    SelectionDelegate { aspect: root.aspects.LinkedServer }
 
-    TextDisplayDelegate { aspect: aspects.Info }
+    TextDisplayDelegate { aspect: root.aspects.Info }
 
     RowLayout {
         spacing: Spacing.GapHM
 
-        ButtonDelegate { aspect: aspects.LinkWithGitLab }
-        ButtonDelegate { aspect: aspects.Unlink }
-        ButtonDelegate { aspect: aspects.CheckConnection }
+        ButtonDelegate { aspect: root.aspects.LinkWithGitLab }
+        ButtonDelegate { aspect: root.aspects.Unlink }
+        ButtonDelegate { aspect: root.aspects.CheckConnection }
         Item { Layout.fillWidth: true }
     }
 
-    TextDisplayDelegate { aspect: aspects.Note }
+    TextDisplayDelegate { aspect: root.aspects.Note }
 }

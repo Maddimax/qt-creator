@@ -15,10 +15,10 @@ import QtCreator.Ui
 AspectPage {
     id: root
 
-    readonly property var settings: AspectModels.named(aspects.Settings)
+    readonly property var settings: AspectModels.named(root.aspects.Settings)
 
-    BoolWithOwnLabelDelegate { aspect: aspects.UseGlobalSettings }
-    ButtonDelegate { aspect: aspects.SettingsFileAction }
+    BoolWithOwnLabelDelegate { aspect: root.aspects.UseGlobalSettings }
+    ButtonDelegate { aspect: root.aspects.SettingsFileAction }
 
     CppQuickFixSettingsForm { aspects: root.settings }
 }

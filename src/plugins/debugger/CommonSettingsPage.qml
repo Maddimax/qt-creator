@@ -10,6 +10,7 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
+    id: root
 
     contentFillsHeight: true
     AspectGroupBox {
@@ -18,15 +19,15 @@ AspectPage {
         ColumnLayout {
             // Only Windows has a post-mortem debugger to register with; the
             // aspect is invisible elsewhere and the delegate follows that.
-            BoolDelegate { aspect: aspects.RegisterForPostMortem }
-            BoolDelegate { aspect: aspects.RaiseOnInterrupt }
-            BoolDelegate { aspect: aspects.WarnOnReleaseBuilds }
-            BoolDelegate { aspect: aspects.BreakpointsFullPath }
-            BoolDelegate { aspect: aspects.ResolveBreakpointSymlinks }
-            BoolDelegate { aspect: aspects.ForceLoggingToConsole }
-            BoolDelegate { aspect: aspects.UseNativeCombinedDebugging }
-            BoolDelegate { aspect: aspects.CollapseDebuggerMachineryFrames }
-            IntegerDelegate { aspect: aspects.MaximalStackDepth }
+            BoolDelegate { aspect: root.aspects.RegisterForPostMortem }
+            BoolDelegate { aspect: root.aspects.RaiseOnInterrupt }
+            BoolDelegate { aspect: root.aspects.WarnOnReleaseBuilds }
+            BoolDelegate { aspect: root.aspects.BreakpointsFullPath }
+            BoolDelegate { aspect: root.aspects.ResolveBreakpointSymlinks }
+            BoolDelegate { aspect: root.aspects.ForceLoggingToConsole }
+            BoolDelegate { aspect: root.aspects.UseNativeCombinedDebugging }
+            BoolDelegate { aspect: root.aspects.CollapseDebuggerMachineryFrames }
+            IntegerDelegate { aspect: root.aspects.MaximalStackDepth }
         }
     }
 
@@ -34,9 +35,9 @@ AspectPage {
         title: qsTr("When Debugging Stops")
 
         ColumnLayout {
-            BoolDelegate { aspect: aspects.CloseBuffersOnExit }
-            BoolDelegate { aspect: aspects.CloseMemoryBuffersOnExit }
-            BoolDelegate { aspect: aspects.SwitchModeOnExit }
+            BoolDelegate { aspect: root.aspects.CloseBuffersOnExit }
+            BoolDelegate { aspect: root.aspects.CloseMemoryBuffersOnExit }
+            BoolDelegate { aspect: root.aspects.SwitchModeOnExit }
         }
     }
 
@@ -44,16 +45,16 @@ AspectPage {
         title: qsTr("User Interface")
 
         ColumnLayout {
-            BoolDelegate { aspect: aspects.UseAnnotations }
-            BoolDelegate { aspect: aspects.UseToolTips }
-            BoolDelegate { aspect: aspects.UseAlternatingRowColours }
-            BoolDelegate { aspect: aspects.FontSizeFollowsEditor }
-            BoolDelegate { aspect: aspects.StationaryEditorWhileStepping }
-            BoolDelegate { aspect: aspects.ShowQmlObjectTree }
-            BoolDelegate { aspect: aspects.ShowUnsupportedBreakpointWarning }
+            BoolDelegate { aspect: root.aspects.UseAnnotations }
+            BoolDelegate { aspect: root.aspects.UseToolTips }
+            BoolDelegate { aspect: root.aspects.UseAlternatingRowColours }
+            BoolDelegate { aspect: root.aspects.FontSizeFollowsEditor }
+            BoolDelegate { aspect: root.aspects.StationaryEditorWhileStepping }
+            BoolDelegate { aspect: root.aspects.ShowQmlObjectTree }
+            BoolDelegate { aspect: root.aspects.ShowUnsupportedBreakpointWarning }
         }
     }
 
-    TableDelegate { aspect: aspects.SourcePathMap }
-    ButtonDelegate { aspect: aspects.AddQtSources }
+    TableDelegate { aspect: root.aspects.SourcePathMap }
+    ButtonDelegate { aspect: root.aspects.AddQtSources }
 }

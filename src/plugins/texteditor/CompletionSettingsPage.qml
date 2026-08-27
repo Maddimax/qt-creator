@@ -10,16 +10,18 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
+    id: root
+
     AspectGroupBox {
         title: qsTr("Behavior")
 
         ColumnLayout {
-            SelectionDelegate { aspect: aspects.CaseSensitivity }
-            SelectionDelegate { aspect: aspects.CompletionTrigger }
-            IntegerDelegate { aspect: aspects.AutomaticProposalTimeout }
-            IntegerDelegate { aspect: aspects.CharacterThreshold }
-            BoolDelegate { aspect: aspects.PartiallyComplete }
-            BoolDelegate { aspect: aspects.AutoSplitStrings }
+            SelectionDelegate { aspect: root.aspects.CaseSensitivity }
+            SelectionDelegate { aspect: root.aspects.CompletionTrigger }
+            IntegerDelegate { aspect: root.aspects.AutomaticProposalTimeout }
+            IntegerDelegate { aspect: root.aspects.CharacterThreshold }
+            BoolDelegate { aspect: root.aspects.PartiallyComplete }
+            BoolDelegate { aspect: root.aspects.AutoSplitStrings }
         }
     }
 
@@ -30,18 +32,18 @@ AspectPage {
             ColumnLayout {
                 Layout.alignment: Qt.AlignTop
 
-                BoolDelegate { aspect: aspects.AutoInsertBraces }
-                BoolDelegate { aspect: aspects.SurroundingAutoBrackets }
-                BoolDelegate { aspect: aspects.SpaceAfterFunctionName }
-                BoolDelegate { aspect: aspects.HighlightAutoComplete }
+                BoolDelegate { aspect: root.aspects.AutoInsertBraces }
+                BoolDelegate { aspect: root.aspects.SurroundingAutoBrackets }
+                BoolDelegate { aspect: root.aspects.SpaceAfterFunctionName }
+                BoolDelegate { aspect: root.aspects.HighlightAutoComplete }
 
                 BoolDelegate {
-                    aspect: aspects.SkipAutoComplete
+                    aspect: root.aspects.SkipAutoComplete
                     Layout.leftMargin: Spacing.PaddingHL
                 }
 
                 BoolDelegate {
-                    aspect: aspects.AutoRemove
+                    aspect: root.aspects.AutoRemove
                     Layout.leftMargin: Spacing.PaddingHL
                 }
             }
@@ -49,10 +51,10 @@ AspectPage {
             ColumnLayout {
                 Layout.alignment: Qt.AlignTop
 
-                BoolDelegate { aspect: aspects.AutoInsertQuotes }
-                BoolDelegate { aspect: aspects.SurroundingAutoQuotes }
-                BoolDelegate { aspect: aspects.AnimateAutoComplete }
-                BoolDelegate { aspect: aspects.OverwriteClosingChars }
+                BoolDelegate { aspect: root.aspects.AutoInsertQuotes }
+                BoolDelegate { aspect: root.aspects.SurroundingAutoQuotes }
+                BoolDelegate { aspect: root.aspects.AnimateAutoComplete }
+                BoolDelegate { aspect: root.aspects.OverwriteClosingChars }
             }
         }
     }

@@ -21,10 +21,10 @@ AspectPage {
     // reaches AspectModels.container() as a null model - a Repeater with
     // nothing in it and not one word of complaint. Declared as an Aspect, the
     // same mistake fails to assign.
-    readonly property Aspect forms: aspects.Forms
+    readonly property Aspect forms: root.aspects.Forms
 
-    TextDisplayDelegate { aspect: aspects.GlobalLink }
-    SelectionDelegate { aspect: aspects.Language }
+    TextDisplayDelegate { aspect: root.aspects.GlobalLink }
+    SelectionDelegate { aspect: root.aspects.Language }
 
     Repeater {
         model: AspectModels.container(root.forms)

@@ -10,12 +10,14 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
+    id: root
+
     AspectGroupBox {
         title: qsTr("Vcpkg installation")
 
         RowLayout {
-            StringDelegate { aspect: aspects.VcpkgRoot }
-            ButtonDelegate { aspect: aspects.OpenWebsite }
+            StringDelegate { aspect: root.aspects.VcpkgRoot }
+            ButtonDelegate { aspect: root.aspects.OpenWebsite }
         }
     }
 }

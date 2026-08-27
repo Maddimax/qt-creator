@@ -10,12 +10,14 @@ import QtQuick.Layouts
 import QtCreator.Ui
 
 AspectPage {
+    id: root
+
     GroupBox {
         title: qsTr("Configuration")
         Layout.fillWidth: true
 
         ColumnLayout {
-            StringDelegate { aspect: aspects.cli }
+            StringDelegate { aspect: root.aspects.cli }
         }
     }
 }
