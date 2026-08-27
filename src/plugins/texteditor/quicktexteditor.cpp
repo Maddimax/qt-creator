@@ -413,9 +413,10 @@ public:
         setId(QUICK_TEXT_EDITOR_ID);
         setDisplayName(Tr::tr("Code Editor (Qt Quick)"));
         // The same mime type the plain text editor takes, so a text file can be
-        // opened in this from Open With. Registered after it - the default for
-        // a mime type is the first factory that claims it - because this one
-        // still has no find, no completion and no wrapping.
+        // opened in this from Open With - and, since the lookup walks a mime
+        // type's parents, so can source files. Registered after it, because
+        // the default for a mime type is the first factory that claims it and
+        // this one still has no completion or auto-insertion.
         addMimeType(QLatin1String(Constants::C_TEXTEDITOR_MIMETYPE_TEXT));
         setEditorCreator([] { return new QuickTextEditor; });
     }
