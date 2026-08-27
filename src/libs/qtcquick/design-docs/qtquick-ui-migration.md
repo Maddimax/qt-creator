@@ -277,6 +277,15 @@ with seven others - but not the two layouts wrapping at different widths, which
 lands the caret between rows and is what the Down test is for. Worth knowing
 which test covers which, because the two look like the same bug from outside.
 
+**How wide the content is can only be asked of the rows on screen**, since
+those are the only ones laid out - and taking that as the answer made the
+horizontal scroll lose its place. In a file with lines of different lengths it
+swings hard: 50 pixels among short lines, 2179 among long ones. `setScrollX()`
+clamps against it, so scrolling right on a long line and then up past a short
+one put the reader back at the left with nothing to say why. It accumulates
+now, like the widget editor's `maximumWidth`, and resets with the document or
+the wrapping.
+
 **The defect that wasted the most time here was not in the editor.** Three
 times a test waited for a condition that was already true - a row count past a
 threshold the document already met, a scroll offset inside a bound that held
