@@ -67,8 +67,17 @@ Item {
         document: edit.textDocument
     }
 
-    Frame {
+    // A Rectangle rather than a Frame: a Frame's background is a Control
+    // customisation, and a native style declines those - the colour and the
+    // border were dropped without failing, so the editor drew on whatever the
+    // style painted.
+    Rectangle {
+        objectName: "codeEditorBackground"
         anchors.fill: parent
+        color: highlighting.backgroundColor
+        radius: Spacing.RadiusS
+        border.width: 1
+        border.color: Tokens.strokeSubtle
 
         RowLayout {
             anchors.fill: parent
@@ -156,12 +165,6 @@ Item {
             }
         }
 
-        background: Rectangle {
-            color: highlighting.backgroundColor
-            radius: Spacing.RadiusS
-            border.width: 1
-            border.color: Tokens.strokeSubtle
-        }
     }
 
     // What the provider offered, where the cursor is. A page that wants it

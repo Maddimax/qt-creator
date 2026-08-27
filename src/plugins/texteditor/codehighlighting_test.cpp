@@ -358,6 +358,20 @@ void CodeHighlightingTest::testTheEditorComponentShowsAFile()
     QVERIFY(editor->property("opened").toBool());
     QVERIFY(!editor->property("modified").toBool());
 
+    // The background is the scheme's, and it reaches the item that draws it.
+    // It used to be a Frame's background, which a native style declines to
+    // customise - so the colour was dropped and nothing failed.
+    auto background = editor->findChild<QQuickItem *>("codeEditorBackground");
+    QVERIFY2(background, "the editor draws no background of its own");
+    const QColor drawn = background->property("color").value<QColor>();
+    QVERIFY2(drawn.isValid() && drawn.alpha() > 0,
+             qPrintable("background is " + drawn.name(QColor::HexArgb)));
+    // The same colour a CodeHighlighting reports, which is where the editor
+    // binds it from - compared against the source rather than a literal, so
+    // this follows the scheme rather than pinning it.
+    CodeHighlighting scheme;
+    QCOMPARE(drawn, scheme.backgroundColor());
+
     auto text = editor->findChild<QQuickItem *>("codeEditorText");
     QVERIFY(text);
     QCOMPARE(text->property("text").toString(), QString("first line\nsecond line\n"));

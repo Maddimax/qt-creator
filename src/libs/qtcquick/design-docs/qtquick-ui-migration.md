@@ -10779,3 +10779,48 @@ because that is how the tool decides which settings apply.
 Worth noting how this was found: not by reading the code, but by running the
 census in the build that has the plugin, and reading the *warnings* rather than
 the totals. The suite was green both before and after.
+
+## Reading a green suite's warnings, deliberately
+
+Last entry's indenter bug was found by reading the *warnings* of a passing run
+rather than its totals. That is worth doing on purpose rather than by accident,
+so: both suites, green, warnings collected and triaged.
+
+`-test QuickUi` is quiet - two soft asserts, one of them a test fixture that
+deliberately leaves an `AspectList` without its data callback. `-test
+TextEditor` is not:
+
+    CodeEditor.qml:159: QML QQuickRectangle: The current style does not
+    support customization of this control (property: "background")
+
+`CodeEditor.qml` wrapped its contents in a `Frame` and gave the Frame a
+`background: Rectangle` with the scheme's colour, a radius and a border. A
+`Frame` is a `Control`, and a **native style declines Control customisations** -
+so on macOS the colour and the border were dropped, silently, and the component
+drew on whatever the platform style painted. The component has no production
+user yet; it is offered for pages to use, and it would have been wrong for the
+first one that did.
+
+A `Rectangle` instead of a `Frame`. There is nothing a Frame was providing here
+that is missed: its padding was already bypassed, because the contents anchor
+to the Frame rather than to its content item.
+
+**The test asserts the colour reaches the item that draws it**, compared
+against `CodeHighlighting::backgroundColor()` - the same source the QML binds
+from - rather than a literal, so it follows the scheme instead of pinning it.
+Both controls bite: putting the `Frame` back fails it, and so does a colour
+that is not the scheme's. Note which one matters - the *Frame* control is the
+actual regression, and an assertion that only checked "some valid colour" would
+have passed it, because a Frame's own background is a perfectly valid colour.
+
+**And one warning is left that is not cosmetic.** Thirty-three occurrences of
+
+    SOFT ASSERT: "it != m_watchClients.end()"   devicefileaccess.cpp:729
+    Failed to remove watcher for <file>, it was not found.
+
+one per Quick editor test that opens a file. Something removes a file watcher
+that was never added, or removes it twice. It is not this migration's doing -
+it fires for every editor test - but it is the same shape as the indenter bug:
+a green suite saying, every single run, that something is wrong. Recorded here
+rather than chased, because it belongs to the file-watching code and not to the
+settings pages.
