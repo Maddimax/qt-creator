@@ -277,6 +277,17 @@ with seven others - but not the two layouts wrapping at different widths, which
 lands the caret between rows and is what the Down test is for. Worth knowing
 which test covers which, because the two look like the same bug from outside.
 
+**A wheel notch was three lines because three is the usual default.** It is a
+setting - `QStyleHints::wheelScrollLines`, reachable from QML as
+`Application.styleHints` - and the widget editor honours it by way of a scroll
+bar whose step is one line. Anyone who had changed it got two editors that
+scrolled at different rates. Both axes follow it now, twenty pixels a
+notch-line sideways to match the widget bar's step.
+
+Worth copying: the test **sets** the number instead of reading it. Reading it
+would have got three on this machine, which is what the code was hard-coded to,
+so the old behaviour would have passed.
+
 **How wide the content is can only be asked of the rows on screen**, since
 those are the only ones laid out - and taking that as the answer made the
 horizontal scroll lose its place. In a file with lines of different lengths it
