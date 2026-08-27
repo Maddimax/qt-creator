@@ -10,7 +10,6 @@
 #include <QtTaskTree/QSingleTaskTreeRunner>
 
 #include <QVersionNumber>
-#include <QWidget>
 
 namespace QmlJSEditor {
 

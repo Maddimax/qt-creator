@@ -11,8 +11,6 @@
 #include <QPointer>
 
 QT_BEGIN_NAMESPACE
-class QCheckBox;
-class QComboBox;
 QT_END_NAMESPACE
 
 

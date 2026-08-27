@@ -9,8 +9,6 @@
 #include <projectexplorer/runconfigurationaspects.h>
 
 QT_BEGIN_NAMESPACE
-class QComboBox;
-class QPushButton;
 QT_END_NAMESPACE
 
 namespace Ios::Internal {

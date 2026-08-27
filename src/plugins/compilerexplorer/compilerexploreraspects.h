@@ -5,7 +5,6 @@
 
 #include <utils/aspects.h>
 
-#include <QComboBox>
 #include <QItemSelectionModel>
 #include <QJsonArray>
 #include <QJsonDocument>

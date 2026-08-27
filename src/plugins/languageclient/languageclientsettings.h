@@ -13,10 +13,8 @@
 #include <QJsonObject>
 #include <QPointer>
 #include <QUuid>
-#include <QWidget>
 
 QT_BEGIN_NAMESPACE
-class QComboBox;
 class QLineEdit;
 QT_END_NAMESPACE
 

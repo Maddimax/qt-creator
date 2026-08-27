@@ -23,8 +23,6 @@ class QAbstractButton;
 class QAbstractItemModel;
 class QAbstractSpinBox;
 class QAction;
-class QComboBox;
-class QLabel;
 class QSettings;
 class QUndoStack;
 class QStandardItem;

@@ -19,7 +19,6 @@ QT_BEGIN_NAMESPACE
 template <typename Key, typename T>
 class QMap;
 class QTextDocument;
-class QWidget;
 QT_END_NAMESPACE
 
 namespace Utils { class FilePath; }

@@ -10,10 +10,8 @@
 #include <utils/id.h>
 
 #include <QPointer>
-#include <QWidget>
 
 QT_BEGIN_NAMESPACE
-class QLabel;
 QT_END_NAMESPACE
 
 namespace Utils { class FilePath; }

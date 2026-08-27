@@ -27,7 +27,6 @@
 
 QT_BEGIN_NAMESPACE
 class QPixmap;
-class QWidget;
 QT_END_NAMESPACE
 
 namespace Utils {
