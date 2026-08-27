@@ -92,13 +92,17 @@ private:
 
 
 //! If \a result has an error the error will be printed and the \a action will be executed.
+// The result is bound first so that it is evaluated once: these are handed
+// expressions that do something, and asking a failed one for its error again
+// would do it a second time. `action` stays outside any loop of our own, so a
+// break or continue in it still belongs to the caller's.
 #define QTC_ASSERT_RESULT(result, action) \
-    if (Q_LIKELY(result)) { \
+    if (const auto &_qtcAssertResult = (result); Q_LIKELY(_qtcAssertResult)) { \
     } else { \
         ::Utils::writeAssertLocation(QString("%1:%2: %3") \
                                          .arg(__FILE__) \
                                          .arg(__LINE__) \
-                                         .arg(result.error()) \
+                                         .arg(_qtcAssertResult.error()) \
                                          .toUtf8() \
                                          .data()); \
         action; \
@@ -107,10 +111,14 @@ private:
     } while (0)
 
 #define QTC_CHECK_RESULT(result) \
-    if (Q_LIKELY(result)) { \
+    if (const auto &_qtcCheckResult = (result); Q_LIKELY(_qtcCheckResult)) { \
     } else { \
-        ::Utils::writeAssertLocation( \
-            QString("%1:%2: %3").arg(__FILE__).arg(__LINE__).arg(result.error()).toUtf8().data()); \
+        ::Utils::writeAssertLocation(QString("%1:%2: %3") \
+                                         .arg(__FILE__) \
+                                         .arg(__LINE__) \
+                                         .arg(_qtcCheckResult.error()) \
+                                         .toUtf8() \
+                                         .data()); \
     } \
     do { \
     } while (0)
