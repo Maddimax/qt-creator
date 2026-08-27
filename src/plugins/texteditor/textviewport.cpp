@@ -443,10 +443,18 @@ void TextViewport::ensureCursorVisible()
     // block above it takes up no room, so the two part company as soon as
     // anything is folded. firstLineNumber() is what the layout keeps for this.
     const qreal top = cursor.block().firstLineNumber() * m_lineHeight;
-    if (top < m_scrollY)
-        setScrollY(top);
-    else if (top + m_lineHeight > m_scrollY + height())
-        setScrollY(top + m_lineHeight - height());
+    const bool above = top < m_scrollY;
+    const bool below = top + m_lineHeight > m_scrollY + height();
+    if (!above && !below)
+        return;
+
+    // Put the caret in the middle rather than just inside the edge, where the
+    // user asked for that: a caret that stops one line into view leaves
+    // nothing to read in the direction it is heading.
+    if (displaySettings().centerCursorOnScroll())
+        setScrollY(top - (height() - m_lineHeight) / 2);
+    else
+        setScrollY(above ? top : top + m_lineHeight - height());
 }
 
 static Utils::PlainTextDocumentLayout *layoutOf(const QTextDocument *text)

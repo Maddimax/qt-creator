@@ -3255,6 +3255,64 @@ private slots:
         item->setProperty("showAnnotations", true);
         QTRY_VERIFY2(drawnMessage(), "turning annotations on did not draw the message");
     }
+
+    void testTheCaretIsCentredWhenTheSettingAsksForIt()
+    {
+        TemporaryDirectory dir("center-on-scroll");
+        QVERIFY(dir.isValid());
+        const FilePath file = writeLines(dir, "big.txt", 500);
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+        const qreal lineHeight = viewport->lineHeight();
+        QVERIFY(lineHeight > 0);
+        const int rows = viewport->visibleLineCount();
+        QVERIFY2(rows > 4, "the window is too short for a middle to be distinct from an edge");
+
+        const bool was = displaySettings().centerCursorOnScroll();
+        const QScopeGuard restore(
+            [was] { displaySettings().centerCursorOnScroll.setValue(was); });
+
+        QTextDocument * const text = fixture.document.textDocument()->document();
+        // Through setTextCursor, which is what moving the caret goes through
+        // and what shows it afterwards - the cursorPosition property is only
+        // the value and does not scroll.
+        const auto moveTo = [viewport, text](int blockNumber) {
+            QTextCursor cursor(text);
+            cursor.setPosition(text->findBlockByNumber(blockNumber).position());
+            viewport->setTextCursor(cursor);
+        };
+        const auto rowOnScreen = [viewport, lineHeight] {
+            return qRound(viewport->cursorRectangle().y() / lineHeight);
+        };
+
+        // Scrolling as little as possible puts the caret against the edge it
+        // came in from.
+        displaySettings().centerCursorOnScroll.setValue(false);
+        viewport->setScrollY(0);
+        moveTo(0);
+        QTRY_COMPARE(rowOnScreen(), 0);
+        moveTo(rows + 20);
+        QTRY_VERIFY2(rowOnScreen() >= rows - 2,
+                     qPrintable(QString("caret on row %1 of %2, expected the bottom edge")
+                                    .arg(rowOnScreen()).arg(rows)));
+
+        // Centring puts it in the middle of the window instead, which is the
+        // whole difference between the two settings.
+        displaySettings().centerCursorOnScroll.setValue(true);
+        viewport->setScrollY(0);
+        moveTo(0);
+        QTRY_COMPARE(rowOnScreen(), 0);
+        moveTo(rows + 20);
+        const int middle = rows / 2;
+        QTRY_VERIFY2(qAbs(rowOnScreen() - middle) <= 1,
+                     qPrintable(QString("caret on row %1 of %2, expected about %3")
+                                    .arg(rowOnScreen()).arg(rows).arg(middle)));
+    }
 };
 
 QObject *createTextViewportTest()

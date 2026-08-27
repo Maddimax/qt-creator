@@ -8642,6 +8642,34 @@ middle of one is exactly where that claim goes wrong.** The cheap check is to
 ask which types the cast fails for, not whether the code below it looks
 reachable.
 
+## Centring the caret, and a test that used the wrong door
+
+`m_centerCursorOnScroll` decides what happens when the caret leaves the window:
+scroll by as little as possible, or put the caret in the middle. The viewport
+already had both behaviours - `ensureCursorVisible()` did the first,
+`gotoLine(..., centerLine)` the second - so this was one branch, reading the
+setting where the viewport already reads `highlightSelection` and the two
+file-format ones.
+
+**What the failure taught, which is worth more than the change.** The first
+version of the test moved the caret with `setCursorPosition()` and asserted the
+view had scrolled. It had not: `scrollY 0, caret rect 0,0 0x0`. The property
+setter is the *value* and nothing else; `ensureCursorVisible()` hangs off
+`setTextCursor()`, which is what moving the caret actually goes through.
+
+Two things made that quick to find rather than slow. The assertion printed the
+state it was judging - scroll offset, caret rect, line height, window height -
+so the empty rect and the unmoved scroll were in the failure message rather than
+behind another run. And the suite's *time* was the first clue: 22 seconds
+against a usual 7, which is several `QTRY_*` blocks each waiting out five
+seconds for something that was never going to happen. **A suite that suddenly
+takes three times as long has failing waits in it, whatever its totals say.**
+
+The fixed test drives `setTextCursor` and checks which row of the window the
+caret lands on - the top edge, the bottom edge, or the middle - which is the
+difference the setting actually makes. Three controls: removing the gate,
+centring on the wrong fraction, and swapping the two branches. All three bite.
+
 ## The terminal spike: go, with the cleanest split in the tree
 
 **Status update: the spike is being productised.** `TerminalQuick` is now the
