@@ -54,6 +54,8 @@
 #include <QSignalSpy>
 #include <QTextCursor>
 #include <QTextDocument>
+#include <QApplication>
+#include <QStyleHints>
 #include <QWheelEvent>
 #include <QTest>
 
@@ -488,7 +490,7 @@ private slots:
         QVERIFY2(complaints.isEmpty(), qPrintable("QML complained: " + complaints.join("; ")));
     }
 
-    void testATrackpadScrollsTheViewport()
+    void testTheWheelAndTheTrackpadBothScroll()
     {
         // A WheelHandler accepts an actual mouse wheel and nothing else unless
         // it is told otherwise, so the editor did not scroll from a trackpad at
@@ -537,6 +539,32 @@ private slots:
 
         // The pixels it reported, not a number of lines derived from them.
         QTRY_COMPARE(viewport->scrollY(), 60.0);
+
+        // A wheel, which reports notches rather than pixels, goes as far as
+        // the reader's own setting says - the same number the widget editor
+        // scrolls by, through a scroll bar whose step is one line.
+        viewport->setScrollY(0);
+        QTRY_COMPARE(viewport->scrollY(), 0.0);
+        // Set rather than read: the default is three on most machines, which is
+        // exactly the number this used to be hard-coded to, so reading it
+        // would let the old behaviour pass.
+        const int wasNotchLines = QApplication::wheelScrollLines();
+        QApplication::setWheelScrollLines(7);
+        const QScopeGuard restoreNotch([wasNotchLines] {
+            QApplication::setWheelScrollLines(wasNotchLines);
+        });
+        const int notchLines = QGuiApplication::styleHints()->wheelScrollLines();
+        QCOMPARE(notchLines, 7);
+        QWheelEvent notch(centre,
+                          fixture.view.mapToGlobal(centre.toPoint()),
+                          QPoint(0, 0),
+                          QPoint(0, -120),
+                          Qt::NoButton,
+                          Qt::NoModifier,
+                          Qt::NoScrollPhase,
+                          false);
+        QCoreApplication::sendEvent(&fixture.view, &notch);
+        QTRY_COMPARE(viewport->scrollY(), viewport->lineHeight() * notchLines);
 
         // And sideways, which is the only way to follow a long line with the
         // hands rather than the caret: the handler used to read the vertical

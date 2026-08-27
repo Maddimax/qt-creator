@@ -554,19 +554,23 @@ Item {
                 }
                 // A trackpad says how far in pixels, which is what makes it
                 // follow the fingers; a wheel says how far in eighths of a
-                // degree, and one notch of 120 is three lines.
+                // degree, one notch being 120. How far a notch goes is the
+                // reader's own setting, and the widget editor takes it from
+                // here too - by way of a scroll bar whose step is one line.
+                const notchLines = Application.styleHints.wheelScrollLines
                 if (event.pixelDelta.y !== 0)
                     viewport.scrollY -= event.pixelDelta.y
                 else if (event.angleDelta.y !== 0)
-                    viewport.scrollY -= event.angleDelta.y / 120 * viewport.lineHeight * 3
+                    viewport.scrollY -= event.angleDelta.y / 120 * viewport.lineHeight * notchLines
 
                 // Sideways too. A long line runs off the edge with wrapping
                 // off, and this is the only way to follow it with the hands
-                // rather than the caret.
+                // rather than the caret. The widget editor's horizontal bar
+                // steps by twenty pixels rather than by a line.
                 if (event.pixelDelta.x !== 0)
                     viewport.scrollX -= event.pixelDelta.x
                 else if (event.angleDelta.x !== 0)
-                    viewport.scrollX -= event.angleDelta.x / 120 * viewport.lineHeight * 3
+                    viewport.scrollX -= event.angleDelta.x / 120 * 20 * notchLines
             }
         }
 
