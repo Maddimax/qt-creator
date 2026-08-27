@@ -155,6 +155,22 @@ delivered through a `.qrc`, and a source name that is commented out in both
 files. A checker that does not expand globs reports every ported page as
 missing from qbs, which is 78 false alarms and no findings.
 
+**The branch's own sources were recompiled and now build without a
+warning.** Forcing the 274 files it touched to rebuild produced 54 warning
+lines, nearly all of them one thing: `AspectPresentation::Choice` is built
+from a braced list that stops before `icon`, and twenty call sites said so by
+omission. `icon` has a default member initializer now, the way `enabled`
+already did, which is what "most choices have no icon" means in code. The
+others were leftovers of moving code - `skipShebang` and `trimVendor` each had
+a live copy and a dead one - and one test that dropped the result of
+`qWaitForWindowExposed`, so it compared positions in a window that need never
+have appeared.
+
+Warnings do not show up in an incremental build once the object file exists,
+so this is worth repeating rather than assuming: touch the branch's files,
+build, and read the log. The `-Winconsistent-missing-override` noise from
+`baremetal/idebugserverprovider.h` is not this branch's and is still there.
+
 A full `qbs resolve` cannot complete here: the vendored `src/shared/qbs`
 wants `Qt.core5compat` and no installed Qt has it. That is pre-existing and
 unrelated to the branch. The new file was checked by breaking it on purpose
