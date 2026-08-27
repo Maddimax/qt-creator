@@ -9816,3 +9816,55 @@ pattern to the repository root.
 the only credible reduction is leaving `qmldesigner` (200 k lines, 255 widget
 files, plus 18.7 k of vendored ADS) and `scxmleditor` on the compat shim
 permanently, or dropping them.
+
+## A key size that means nothing on its own
+
+The SSH key creation dialog offers two algorithms and a list of key sizes, and
+the two lists have nothing in common: RSA takes 1024/2048/4096, ECDSA takes
+256/384/521. `keyTypeChanged()` did the whole job on the combo box - clear it,
+add the right strings, select the first, and disable it if empty - which reads
+as a widget being maintained rather than as a rule.
+
+As a `StringSelectionAspect` the rule is a fill callback plus one line:
+
+    algorithm.addOnChanged(this, [this] { keySize.refill(); });
+
+**The `setValue` after `refill()` was redundant, and only the control said so.**
+The obvious reading is that refilling leaves the value dangling - 1024 is not an
+ECDSA key length - so the port set the first of the new sizes explicitly. That
+control did not bite, and the reason is in `volatileValueToGui()`: after a
+refill the aspect looks its value up among the new entries and, not finding it,
+takes the first one. The aspect already did it. The line came out and the
+control moved to `refill()` itself, where it bites.
+
+**The entries must carry their value, not just their text.** The first attempt
+built the list as `new QStandardItem(size)`, and the test failed on an
+assertion that only exists because of the paragraph above: the value is 1024
+before the form is drawn and empty after. `itemById()` matches on `data()`, so
+items with text alone are looked up, not found, and replaced by
+`m_model->item(0)->data()` - which is also empty. The failure is not "the combo
+shows the wrong thing", it is *drawing the form silently cleared the setting*,
+and it is invisible to any test that renders first and asserts afterwards.
+Assert the constructed value, render, then assert it again.
+
+    QCOMPARE(settings.keySize(), QString("1024"));
+    QVERIFY(Core::aspectFormRenders(&settings, "SshKeyCreationDialog.qml"));
+    QCOMPARE(settings.keySize(), QString("1024"));
+
+**And the dialog read its own labels back.** `privateKeyFilePath()` was
+
+    return FilePath::fromUserInput(m_privateKeyFileValueLabel->text());
+
+- the path was stored nowhere but in the text of a `QLabel`, having been put
+there by `toUserOutput()`, and every caller got it back through a round trip
+into display form. The public key was worse: a second label holding the first
+label's text with `".pub"` glued on, parsed back the same way. Both are now
+derived from the `FilePathAspect`'s value, and the public one is computed
+(`privateKey.stringAppended(".pub")`) rather than stored at all - with the empty
+case answering empty instead of a bare `.pub`, which is what the string
+concatenation used to produce.
+
+This is the third widget-as-storage find in the dialog bucket, after the
+Perforce `\d+?` regex and the two `isEnabled()` readers, and the only one where
+the storage was a *label* - the one widget with no state of its own to speak of,
+which is presumably why it looked harmless.

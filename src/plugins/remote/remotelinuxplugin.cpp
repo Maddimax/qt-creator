@@ -25,6 +25,7 @@
 
 #ifdef WITH_TESTS
 #include "filesystemaccess_test.h"
+#include "sshkeycreationdialog.h"
 #include "windowsdevicedetection_test.h"
 #endif
 
@@ -79,6 +80,7 @@ public:
 
 #ifdef WITH_TESTS
         addTestCreator(createSshKeyCreationTest);
+        addTestCreator(createSshKeyCreationDialogTest);
         addTest<AccessViaTest>();
         addTest<FileSystemAccessTest>();
         addTest<WindowsDeviceDetectionTest>();

@@ -5,16 +5,13 @@
 
 #include <QDialog>
 
-QT_BEGIN_NAMESPACE
-class QComboBox;
-class QLabel;
-class QPushButton;
-class QRadioButton;
-QT_END_NAMESPACE
+#include <memory>
 
 namespace Utils { class FilePath; }
 
 namespace Remote {
+
+class SshKeySettings;
 
 class SshKeyCreationDialog : public QDialog
 {
@@ -27,19 +24,14 @@ public:
     Utils::FilePath publicKeyFilePath() const;
 
 private:
-    void keyTypeChanged();
     void generateKeys();
-    void handleBrowseButtonClicked();
-    void setPrivateKeyFile(const Utils::FilePath &filePath);
     void showError(const QString &details);
 
-private:
-    QComboBox *m_comboBox;
-    QLabel *m_privateKeyFileValueLabel;
-    QLabel *m_publicKeyFileLabel;
-    QPushButton *m_generateButton;
-    QRadioButton *m_rsa;
-    QRadioButton *m_ecdsa;
+    std::unique_ptr<SshKeySettings> m_settings;
 };
+
+#ifdef WITH_TESTS
+QObject *createSshKeyCreationDialogTest();
+#endif
 
 } // namespace Remote
