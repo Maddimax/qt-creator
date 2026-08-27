@@ -263,6 +263,21 @@ rows now, and adds which row of the block the caret is on - without that a
 caret several rows into a wrapped line drags the view back a row every time.
 Neither half works alone, and the test says so: putting either back fails it.
 
+**A fourth, and the most used key there is: Down stepped over a whole wrapped
+line.** The move keys take a layout so they can move by what is on screen, and
+they were given the document's - `layoutOf()` returns that, while the viewport
+builds a `ViewportLayout` of its own for the rows and keeps it to itself.
+
+Fixing that exposed the two wrapping in different places: rows of 54 drawn,
+Down landing on 52. Both are handed the same width through different doors.
+**`setTextWidth()` is a document width** - the layout subtracts the document
+margin from both sides, and the width of a line separator glyph where the text
+option asks for one - while the rows are shaped with `setLineWidth()`, which is
+the width of the line. Passing the same number to both is what put them two
+characters apart. The compensation mirrors the layout's own arithmetic rather
+than guessing at it: the margin alone closes one character of the two, which is
+how it was found.
+
 **A third site had the same bug, found by grepping for the shape of it.**
 `gotoLine()` - what a search result and a compiler message use - scrolled to
 the line's number times the line height, so going to line 60 of a wrapped file
