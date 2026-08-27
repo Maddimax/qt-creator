@@ -505,6 +505,7 @@ private:
     // the mouse.
     void ensureCursorVisible();
     void insertTypedText(QTextCursor &cursor, const QString &text);
+    void offerCompletionsIfAsked(const QTextCursor &cursor);
 
     // By kind, each sorted by where it starts so that the lines on screen can
     // be found without walking every match in the file.

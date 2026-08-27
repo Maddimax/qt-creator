@@ -9017,6 +9017,43 @@ any test executes** - about one run in three, in a test this work never touched.
 A harness that reads only failures sees zero of them and calls it clean. The
 tell is `passed=0`: a run that passed nothing did not pass.
 
+## What is left, read rather than assumed
+
+Three times running, something called blocked turned out to be a registry that
+had not been read. So before saying it again about hover tooltips and
+follow-symbol, both were read to the bottom. This time the answer holds, and the
+*kind* of obstacle is different from the last three.
+
+**Hover handlers are widget-typed in the signature.**
+
+    virtual void identifyMatch(TextEditorWidget *editorWidget, int pos, ReportPriority);
+
+Not "reachable through a widget" - the parameter *is* the widget, and every
+implementation dereferences it. All six start with
+`editorWidget->extraSelectionTooltip(pos)`, which is widget state, and go on to
+`editorWidget->document()`. Making these callable from another editor means
+widening the parameter to something both can supply, and that changes every
+implementation in six plugins. That is a real design decision, and a sizeable
+one.
+
+**Follow-symbol is a method rather than a parameter.** `findLinkAt(const
+QTextCursor &, LinkHandler, bool, bool)` takes nothing widget-shaped at all -
+its problem is that it is a virtual on `TextEditorWidget`, overridden by
+`CppEditorWidget` and five others, with no factory-side or document-side
+equivalent to ask. A hidden widget per editor would answer it and would also be
+exactly the thing this migration exists to remove.
+
+So the honest list of what the Quick editor still lacks is two items, both
+needing an API change rather than a lookup, and both worth a decision rather
+than a batch.
+
+**What did not need one: completion while typing.** The hook is already in the
+provider - `activationCharSequenceLength()` and `isActivationCharSequence()` -
+and the gate is already a setting, `completionTrigger`. A language says which
+characters mean "you are about to name something"; the base provider names none,
+so nothing is offered unbidden until a language asks for it. Three controls,
+all biting.
+
 ## The terminal spike: go, with the cleanest split in the tree
 
 **Status update: the spike is being productised.** `TerminalQuick` is now the

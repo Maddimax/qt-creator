@@ -168,6 +168,19 @@ public:
     TextViewport *viewport = nullptr;
 };
 
+// A language that says "a dot means you are about to name something", which is
+// what an activation sequence is. The base provider has none, so nothing is
+// offered until the user asks.
+class DotActivatesCompletion : public DocumentContentCompletionProvider
+{
+public:
+    int activationCharSequenceLength() const override { return 1; }
+    bool isActivationCharSequence(const QString &sequence) const override
+    {
+        return sequence == ".";
+    }
+};
+
 // What a language's AutoCompleter subclass does and the base one does not:
 // close a bracket as it is typed. The base refuses in contextAllowsAutoBrackets,
 // so overriding that is what makes the pairing happen at all.
@@ -3781,6 +3794,54 @@ private slots:
         QTRY_COMPARE(cursor.document()->lastBlock().text(), QString("alphabetical"));
         QTRY_VERIFY2(!popup->property("visible").toBool(),
                      "the popup stayed open after a choice was made");
+    }
+
+    void testTypingAnActivationCharacterOffersTheListByItself()
+    {
+        TemporaryDirectory dir("completion-trigger");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("words.txt");
+        QVERIFY(file.writeFileContents("alphabetical\n"));
+
+        const CompletionTrigger was = globalCompletionSettings().completionTrigger();
+        const QScopeGuard restore(
+            [was] { globalCompletionSettings().completionTrigger.setValue(was); });
+        globalCompletionSettings().completionTrigger.setValue(TriggeredCompletion);
+
+        CodeViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+        viewport->forceActiveFocus();
+        QVERIFY(viewport->hasActiveFocus());
+
+        TextDocument * const doc = viewport->document()->textDocument();
+        static DotActivatesCompletion dotTriggers;
+        doc->setCompletionAssistProvider(&dotTriggers);
+
+        int asked = 0;
+        connect(viewport, &TextViewport::completionRequested, viewport, [&asked] { ++asked; });
+
+        // An ordinary letter is not an invitation.
+        viewport->setCursorPosition(0);
+        QTest::keyClick(&fixture.view, Qt::Key_A);
+        QTRY_COMPARE(doc->document()->firstBlock().text().left(1), QString("a"));
+        QCOMPARE(asked, 0);
+
+        // The language's activation character is.
+        QTest::keyClick(&fixture.view, Qt::Key_Period);
+        QTRY_COMPARE(asked, 1);
+
+        // And with the trigger set to manual, nothing is offered unbidden -
+        // the character still goes in, which is what makes this about the
+        // setting rather than about the keystroke.
+        globalCompletionSettings().completionTrigger.setValue(ManualCompletion);
+        const int before = doc->document()->characterCount();
+        QTest::keyClick(&fixture.view, Qt::Key_Period);
+        QTRY_VERIFY(doc->document()->characterCount() > before);
+        QCOMPARE(asked, 1);
     }
 };
 

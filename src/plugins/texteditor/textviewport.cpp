@@ -859,6 +859,32 @@ void TextViewport::insertTypedText(QTextCursor &cursor, const QString &text)
     if (!electricChar.isNull() && m_autoCompleter->contextAllowsElectricCharacters(cursor))
         doc->autoIndent(cursor, electricChar, cursor.position());
     cursor.endEditBlock();
+
+    offerCompletionsIfAsked(cursor);
+}
+
+// Some characters mean "you are about to name something" - a '.' or a '->' in
+// most languages - and the language is what says which. Asking after every
+// keystroke would put a list in front of the user constantly and, for a
+// language that thinks about it in a thread, do so at a cost.
+void TextViewport::offerCompletionsIfAsked(const QTextCursor &cursor)
+{
+    if (globalCompletionSettings().completionTrigger() == ManualCompletion)
+        return;
+
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    CompletionAssistProvider * const provider = doc ? doc->completionAssistProvider() : nullptr;
+    if (!provider)
+        return;
+
+    const int length = provider->activationCharSequenceLength();
+    if (length <= 0 || cursor.position() < length)
+        return;
+
+    const QString sequence = cursor.document()->toPlainText().mid(cursor.position() - length,
+                                                                  length);
+    if (provider->isActivationCharSequence(sequence))
+        emit completionRequested();
 }
 
 void TextViewport::inputMethodEvent(QInputMethodEvent *event)
