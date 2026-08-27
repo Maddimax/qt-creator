@@ -263,6 +263,20 @@ rows now, and adds which row of the block the caret is on - without that a
 caret several rows into a wrapped line drags the view back a row every time.
 Neither half works alone, and the test says so: putting either back fails it.
 
+**Wrapping is where this branch's editor bugs live, and the reason is worth
+stating: with it off a row is a line, so nothing distinguishes the two.** Four
+places counted lines where rows were meant - the page keys, the scroll that
+follows the caret, `gotoLine()`, and the arrows - and none of them showed up in
+ordinary use or in a test, because the suite runs unwrapped. Turning it on is
+the configuration to hammer.
+
+A fifth check came back clean: scrolled to the bottom of a wrapped file, the
+last row is the end of it. That one is kept as a guard rather than a fix. It
+catches the coarse mistake - a content height that counts lines fails it, along
+with seven others - but not the two layouts wrapping at different widths, which
+lands the caret between rows and is what the Down test is for. Worth knowing
+which test covers which, because the two look like the same bug from outside.
+
 **A fourth, and the most used key there is: Down stepped over a whole wrapped
 line.** The move keys take a layout so they can move by what is on screen, and
 they were given the document's - `layoutOf()` returns that, while the viewport
