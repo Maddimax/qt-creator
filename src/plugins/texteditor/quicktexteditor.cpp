@@ -22,6 +22,7 @@
 #include <coreplugin/actionmanager/actioncontainer.h>
 #include <coreplugin/actionmanager/actionmanager.h>
 #include <coreplugin/coreconstants.h>
+#include <coreplugin/dialogs/codecselector.h>
 #include <coreplugin/editormanager/editormanager.h>
 #include <coreplugin/editormanager/ieditor.h>
 #include <coreplugin/editormanager/ieditorfactory.h>
@@ -35,6 +36,7 @@
 #include <coreplugin/find/ifindsupport.h>
 
 #include <utils/aggregate.h>
+#include <utils/algorithm.h>
 #include <utils/theme/theme.h>
 #include <utils/mimeutils.h>
 #include <utils/temporarydirectory.h>
@@ -1413,6 +1415,84 @@ private slots:
         QCOMPARE(widget->extraSelections(TextEditorWidget::ParenthesesMatchingSelection).size(), 1);
         QVERIFY2(document->extraSelections(TextEditorWidget::ParenthesesMatchingSelection).isEmpty(),
                  "a view's own bracket match was published to the document");
+    }
+
+    // Choosing an encoding does one of two quite different things, and which
+    // one is the whole point of the dialog asking. Tested without the dialog:
+    // Core owns the asking, this owns what is done with the answer.
+    void testChoosingAnEncodingEitherRereadsOrRewrites()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-encoding");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("bytes.txt");
+
+        // Latin-1 bytes: 0xE4 is a-umlaut there and not valid UTF-8, so which
+        // encoding the file is read as is visible in the text.
+        const QByteArray latin1 = QByteArray("caf\xE4\n");
+        QVERIFY(file.writeFileContents(latin1));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+        auto * const viewport = quick->rootObject()->findChild<TextViewport *>();
+        QVERIFY(viewport);
+
+        // The label is what opens the chooser, so it has to accept a click.
+        // Only the handler can be asserted here: what it opens is a modal
+        // dialog, and a test that opened one would stop. It lives in the
+        // toolbar, which is its own form and is built on demand.
+        QWidget * const bar = editor->toolBar();
+        QVERIFY(bar);
+        auto * const barForm = bar->findChild<QQuickWidget *>();
+        QVERIFY(barForm && barForm->rootObject());
+        QObject * const label = barForm->rootObject()->findChild<QObject *>("encodingLabel");
+        QVERIFY(label);
+        const QList<QObject *> attached = label->findChildren<QObject *>();
+        QVERIFY2(Utils::anyOf(attached, [](QObject *child) {
+                     return QString::fromLatin1(child->metaObject()->className())
+                         .contains("TapHandler");
+                 }),
+                 "the encoding label takes no clicks, so it opens nothing");
+
+        const Utils::TextEncoding latin1Encoding("ISO-8859-1");
+        QVERIFY2(latin1Encoding.isValid(), "no Latin-1 codec, so this proves nothing");
+        QVERIFY(document->encoding() != latin1Encoding);
+
+        // Cancel does nothing at all - not even mark the document.
+        const QString before = document->plainText();
+        const bool wasModified = document->isModified();
+        viewport->applyEncodingChoice({Core::CodecSelectorResult::Cancel, latin1Encoding});
+        QCOMPARE(document->plainText(), before);
+        QCOMPARE(document->isModified(), wasModified);
+
+        // Reload reads the same bytes as something else: the text changes and
+        // the file does not.
+        viewport->applyEncodingChoice({Core::CodecSelectorResult::Reload, latin1Encoding});
+        QCOMPARE(document->encoding(), latin1Encoding);
+        QCOMPARE(document->plainText(), QString::fromLatin1("caf\xE4\n"));
+        const Utils::Result<QByteArray> onDisk = file.fileContents();
+        QVERIFY(onDisk.has_value());
+        QCOMPARE(*onDisk, latin1);
+
+        // Save is the other direction: the text stays and the bytes change.
+        const Utils::TextEncoding utf8("UTF-8");
+        QVERIFY(utf8.isValid());
+        const QString shown = document->plainText();
+        viewport->applyEncodingChoice({Core::CodecSelectorResult::Save, utf8});
+        QCOMPARE(document->encoding(), utf8);
+        QCOMPARE(document->plainText(), shown);
+        const Utils::Result<QByteArray> rewritten = file.fileContents();
+        QVERIFY(rewritten.has_value());
+        QVERIFY2(*rewritten != latin1,
+                 "saving as UTF-8 left the Latin-1 bytes on disk");
+        QCOMPARE(QString::fromUtf8(*rewritten), shown);
     }
 
     // A split view is two editors on one document. Duplicating has to share

@@ -75,5 +75,9 @@ Row {
         anchors.verticalCenter: parent.verticalCenter
         text: root.viewport.fileEncoding
         visible: text !== ""
+
+        TapHandler {
+            onTapped: root.viewport.selectEncoding()
+        }
     }
 }

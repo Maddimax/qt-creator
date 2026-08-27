@@ -7300,8 +7300,41 @@ the test with the three pages named in the message, which is what makes it worth
 having - a green run says the previews resolve, and a red one says which one
 does not.
 
-What is left of the editor: auto-insertion and completion, changing the
-encoding from the toolbar, and dragging text out of a selection.
+## Changing the encoding, and where to put a dialog
+
+The last of the toolbar. Clicking the encoding opens Core's codec chooser, and
+the answer is one of three quite different things - which is the whole reason
+the dialog asks rather than just setting something:
+
+- **Reload** reads the same bytes as something else. What is on screen changes;
+  what is on disk does not.
+- **Save** is the other direction: the text stays and the bytes change, and
+  that only reaches the file when it is saved.
+- **Cancel** does nothing at all, not even mark the document.
+
+**The dialog is at the edge and the decision is not.** `selectEncoding()` is
+two lines - ask Core, hand the answer to `applyEncodingChoice()` - and the
+second is what has the behaviour and the test. A test that called
+`selectEncoding()` would stop on a modal dialog; one that calls
+`applyEncodingChoice()` with each of the three answers checks the thing that
+matters. Splitting a function so the untestable part is trivially small is
+cheaper than any amount of dialog automation.
+
+The fixture is Latin-1 bytes - `0xE4` is a-umlaut there and not valid UTF-8 -
+so which encoding the file is read as is visible in the text, and the three
+outcomes are told apart by *both* what the document holds and what is on disk.
+
+**What could not be tested, and is asserted instead.** That the label opens the
+chooser cannot be exercised without opening it, so the test asserts the label
+carries a `TapHandler` - by class name, from `findChildren` - and says why. It
+is a weaker claim than "clicking it opens the chooser", and it is stated as
+the weaker claim rather than dressed up.
+
+That test also found its own bug first: it looked for the label in the editor's
+form, and the toolbar is a *separate* form built on demand by `toolBar()`.
+
+What is left of the editor: auto-insertion and completion, which need the
+provider registry described above, and dragging text out of a selection.
 
 **On completion, having looked properly.** It is not one missing call. The
 provider lives on the document (`TextDocument::completionAssistProvider()`),

@@ -18,7 +18,10 @@
 #include "textmark.h"
 #include "typingsettings.h"
 
+#include <coreplugin/dialogs/codecselector.h>
+#include <coreplugin/editormanager/editormanager.h>
 #include <coreplugin/idocument.h>
+#include <coreplugin/messagemanager.h>
 
 #include <qtcquick/qtciconprovider.h>
 
@@ -945,6 +948,39 @@ void TextViewport::setFileLineEndingIsWindows(bool windows)
 
     doc->setLineTerminationMode(wanted);
     doc->document()->setModified(true);
+    emit fileFormatChanged();
+}
+
+void TextViewport::selectEncoding()
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    if (!doc)
+        return;
+    applyEncodingChoice(Core::askForCodec(doc));
+}
+
+void TextViewport::applyEncodingChoice(const Core::CodecSelectorResult &choice)
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    if (!doc)
+        return;
+
+    switch (choice.action) {
+    case Core::CodecSelectorResult::Reload:
+        // Reading the same bytes as something else: what is on screen changes,
+        // and what is on disk does not.
+        if (const Utils::Result<> reloaded = doc->reload(choice.encoding); !reloaded)
+            Core::MessageManager::writeDisrupting(reloaded.error());
+        break;
+    case Core::CodecSelectorResult::Save:
+        // The other direction: the text stays, the bytes change, and that only
+        // reaches the file when it is saved.
+        doc->setEncoding(choice.encoding);
+        Core::EditorManager::saveDocument(doc);
+        break;
+    case Core::CodecSelectorResult::Cancel:
+        return;
+    }
     emit fileFormatChanged();
 }
 

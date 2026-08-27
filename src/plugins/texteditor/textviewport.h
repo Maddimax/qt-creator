@@ -26,6 +26,8 @@ class QTextCursor;
 class QTextDocument;
 QT_END_NAMESPACE
 
+namespace Core { struct CodecSelectorResult; }
+
 namespace Utils { class TextEditorLayout; }
 
 namespace TextEditor {
@@ -228,6 +230,13 @@ public:
     // becomes modified: the change is only on disk once it is saved, which is
     // what the widget editor does too.
     Q_INVOKABLE void setFileLineEndingIsWindows(bool windows);
+
+    // Asks which encoding the file should be read or written as, and does it.
+    // The asking is a modal dialog Core owns; what to do with the answer is
+    // applyEncodingChoice(), which is separate so that it can be tested
+    // without one.
+    Q_INVOKABLE void selectEncoding();
+    void applyEncodingChoice(const Core::CodecSelectorResult &choice);
 
     // Puts the caret on \a line, counting from one, and shows it. Column zero
     // means the line rather than its margin, so the caret lands on the first
