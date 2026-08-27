@@ -596,22 +596,11 @@ void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
     // went back to widgets rather than one waiting its turn. Nothing else here
     // says so: a page without QML and no QQuickWidget agrees with itself.
     //
-    // The one page that may be declined is C++'s, and only where ClangFormat
-    // is built: it replaces the C++ factory with one whose editor lays out its
-    // own selector and applies outside the preferences, and it has no form.
-    QStringList unported = declined;
-    if (Utils::anyOf(ExtensionSystem::PluginManager::plugins(),
-                     [](ExtensionSystem::PluginSpec *spec) {
-                         return spec->name() == "ClangFormat"
-                                && spec->state() == ExtensionSystem::PluginSpec::Running;
-                     })) {
-        // CppEditor::Constants::CPP_CODE_STYLE_SETTINGS_ID, spelled out rather
-        // than reached for: QuickUi does not depend on CppEditor. A rename
-        // fails safe, leaving the page named below.
-        unported.removeOne("Code Style [A.Cpp.Code Style]");
-    }
-    QVERIFY2(unported.isEmpty(),
-             qPrintable("pages back on widgets: " + unported.join(", ")));
+    // No exemptions. C++'s page used to be one, because ClangFormat replaced
+    // the C++ factory with a widget editor and named no form; it names one now,
+    // so the page it produces has to answer for itself like the rest.
+    QVERIFY2(declined.isEmpty(),
+             qPrintable("pages back on widgets: " + declined.join(", ")));
 
     Core::setAspectFormFactory({});
 }

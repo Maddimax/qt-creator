@@ -3,12 +3,17 @@
 
 #include "codeindenting.h"
 
+#include "codebuffer.h"
 #include "codesource.h"
 #include "icodestylepreferences.h"
 #include "icodestylepreferencesfactory.h"
 #include "indenter.h"
 #include "tabsettings.h"
 #include "textdocument.h"
+
+#include <coreplugin/icore.h>
+
+#include <utils/mimeutils.h>
 
 #include <QPointer>
 #include <QTextBlock>
@@ -100,6 +105,21 @@ void CodeIndenting::setSource(CodeSource *source)
     }
     reattach();
     emit sourceChanged();
+}
+
+// Somewhere for a formatter to resolve settings against. The name matters
+// only for its suffix and its directory; nothing is read from or written to it.
+static Utils::FilePath previewFileFor(CodeSource *source)
+{
+    QString mime;
+    if (auto buffer = qobject_cast<CodeBuffer *>(source))
+        mime = buffer->mimeType();
+    if (mime.isEmpty() && source && source->textDocument())
+        mime = source->textDocument()->mimeType();
+
+    const QString suffix = Utils::mimeTypeForName(mime).preferredSuffix();
+    return Core::ICore::userResourcePath(suffix.isEmpty() ? QString("snippet")
+                                                          : "snippet." + suffix);
 }
 
 QString CodeIndenting::languageId() const
@@ -215,8 +235,15 @@ void CodeIndenting::reattach()
         = d->m_languageId.isEmpty() ? nullptr
                                     : codeStyleFactory(Utils::Id::fromString(d->m_languageId));
 
-    if (target && factory)
+    if (target && factory) {
         d->m_indenter.reset(factory->createIndenter(target));
+        // An indenter that formats through an external tool needs a file to
+        // resolve its settings against - ClangFormat looks for a
+        // .clang-format beside one and refuses to run without a name at all.
+        // A preview has no file, so it gets a plausible name in the user's
+        // resource directory, which is what the widget preview used.
+        d->m_indenter->setFileName(previewFileFor(d->m_source));
+    }
 
     syncTabSettings();
 

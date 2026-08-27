@@ -10736,3 +10736,46 @@ createCursorData -> QImage::toCGImage` SEGV that predates all of this and fires
 roughly one run in three. The harness read "no FAIL lines" as "nothing bit".
 It now retries up to six times for a run that actually starts, and reports
 "DID NOT RUN" rather than a pass if none does.
+
+## The guard that keeps it done, and one thing it caught
+
+The census already had the guard that matters - *no aspect-driven page renders
+as a widget* - but it carried an exemption:
+
+    if (ClangFormat is running)
+        unported.removeOne("Code Style [A.Cpp.Code Style]");
+
+written when ClangFormat replaced the C++ factory with a widget editor and
+named no form. It names one now, so the exemption is stale and the page it
+produces has to answer for itself. Removed, and the census reports **0 pages
+still on widgets** in both builds - including the one with ClangFormat actually
+loaded, which is the case the exemption existed for.
+
+Controlled by taking `setQmlSource()` off the ClangFormat factory: the census
+fails. Interestingly it fails on `undrawn` rather than on `declined`, and that
+is the default page earning its keep - a language that loses its form now falls
+back to `CodeStyleDefaultPage.qml` rather than to a widget, so what the census
+notices is the language's settings going missing rather than a widget
+appearing. Either way it is caught, which it would not have been before.
+
+**And running the census with ClangFormat loaded surfaced a defect the port
+introduced.** Four soft asserts per run:
+
+    QTC_ASSERT(!m_fileName->isEmpty(), return {});   clangformatbaseindenter.cpp:638
+
+The widget preview used to do `m_indenter->setFileName(fileName)` with a
+`snippet.cpp` in the user resource directory. `CodeIndenting` - which is what
+builds the indenter for a Qt Quick preview - never did, so ClangFormat's
+indenter refused to run and **the C++ preview never re-indented at all**. It
+did not fail, it silently did nothing, which is why nothing caught it: the one
+test in this area drives a preview *formatter*, and the test languages all use
+`PlainTextIndenter`, which needs no file name.
+
+`CodeIndenting` now derives one from the source's mime type, and the test is a
+recording indenter that captures what it was handed. Both halves bite: no file
+name at all, and a name without the language's suffix - the suffix matters,
+because that is how the tool decides which settings apply.
+
+Worth noting how this was found: not by reading the code, but by running the
+census in the build that has the plugin, and reading the *warnings* rather than
+the totals. The suite was green both before and after.

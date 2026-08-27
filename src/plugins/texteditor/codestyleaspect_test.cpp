@@ -3,6 +3,8 @@
 
 #include "codestyleaspect_test.h"
 
+#include "codebuffer.h"
+#include "codeindenting.h"
 #include "codestyleeditor.h"
 #include "codestylepool.h"
 #include "icodestylepreferences.h"
@@ -49,6 +51,29 @@ public:
             return prefs;
         });
     }
+};
+
+const char INDENTER_TEST_LANGUAGE_ID[] = "TextEditor.CodeStyleAspectTest.Indenter";
+
+// Records the file name it is given. An indenter that formats through an
+// external tool needs one to resolve settings against - ClangFormat looks for
+// a .clang-format beside it - and a preview has no file of its own.
+class RecordingIndenter final : public PlainTextIndenter
+{
+public:
+    RecordingIndenter(QTextDocument *doc, Utils::FilePath *seen)
+        : PlainTextIndenter(doc)
+        , m_seen(seen)
+    {}
+
+    void setFileName(const Utils::FilePath &fileName) override
+    {
+        *m_seen = fileName;
+        PlainTextIndenter::setFileName(fileName);
+    }
+
+private:
+    Utils::FilePath * const m_seen;
 };
 
 const char QML_TEST_LANGUAGE_ID[] = "TextEditor.CodeStyleAspectTest.Qml";
@@ -531,6 +556,40 @@ private slots:
 
     // The Format button runs the language's own formatter over the preview,
     // because for QML/JS the formatting is qmlformat and not the indenter.
+    // A preview has no file, and an indenter that formats through an external
+    // tool refuses to run without a name to resolve settings against. So the
+    // preview gives it a plausible one - and the suffix has to be the
+    // language's, or the tool resolves the wrong settings.
+    void testThePreviewsIndenterIsGivenAFileToResolveAgainst()
+    {
+        Utils::FilePath seen;
+        class IndenterTestFactory final : public ICodeStylePreferencesFactory
+        {
+        public:
+            explicit IndenterTestFactory(Utils::FilePath *seen)
+                : ICodeStylePreferencesFactory(INDENTER_TEST_LANGUAGE_ID)
+            {
+                setDisplayName(QString("Indenter Test"));
+                setIndenterCreator([seen](QTextDocument *doc) {
+                    return new RecordingIndenter(doc, seen);
+                });
+                setCodeStyleCreator([] { return new ICodeStylePreferences; });
+            }
+        } factory(&seen);
+
+        CodeBuffer buffer;
+        buffer.setMimeType("text/x-c++src");
+        buffer.setText("int main() {}");
+
+        CodeIndenting indenting;
+        indenting.setSource(&buffer);
+        indenting.setLanguageId(INDENTER_TEST_LANGUAGE_ID);
+
+        QVERIFY2(indenting.isIndenting(), "no indenter was made, so this proves nothing");
+        QVERIFY2(!seen.isEmpty(), "the preview's indenter was given no file name");
+        QCOMPARE(seen.suffix(), QString("cpp"));
+    }
+
     void testFormattingThePreviewRunsTheLanguagesFormatter()
     {
         QmlPoolTestCodeStyleFactory factory;
