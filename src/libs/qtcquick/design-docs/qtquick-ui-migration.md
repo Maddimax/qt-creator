@@ -119,7 +119,7 @@ theme selector recolours the scene in place, without recreating it.
 
 ## Status
 
-Branch `utils-drop-printsupport`, 148 commits, not pushed.
+Branch `utils-drop-printsupport`, 166 commits, not pushed.
 
 **The settings-page migration is finished.** Every `IOptionsPage` that can be
 aspect driven is: the census reports **0 pages still on widgets**, with no
@@ -131,16 +131,22 @@ form of its own now gets `CodeStyleDefaultPage.qml` rather than a widget. The
 only `IOptionsPage` still building one wraps Qt Designer's own
 `QDesignerOptionsPageInterface`, which is not ours to port.
 
-Verified across every plugin the branch touches, one suite at a time:
+Verified one suite at a time, re-run in full after the shared headers changed
+(`result.h`, `aspectpresentation.h`) since those reach everything:
 
 | suite | result |
 | --- | --- |
-| Core, TextEditor, QuickUi | 81/81, 281/281, 87/87 |
-| QmlJSEditor, QmlJSTools, LanguageClient | 15/15, 12/12, 21/21 |
+| Core, TextEditor, QuickUi | 81/81, 281/281, 89/89 |
+| QmlJSEditor, QmlJSTools, LanguageClient | 15/15, 12/12, 20/20 |
 | CMake, Qmake, Qbs, Nim project managers | 69/69, 26/26, 8/8, 6/6 |
-| `tst_utils_aspects` | 27/27 |
+| AutoTest, BareMetal | 5/5 (1 skipped, wants a kit), 61/61 |
+| all 33 `tests/auto/utils` binaries | every one exit 0 - 1749 assertions, `filepath` and `expander` the biggest at 574 and 417 |
 | CppEditor | 155/155 for `FollowSymbolTest` alone; the whole suite poisons itself and its number means nothing |
 | ProjectExplorer, Debugger | 2 and 1 pre-existing failures, each reproduced at the parent commit |
+
+`ProjectTest::testMultipleBuildConfigs` fails in a full ProjectExplorer run
+often enough to look real and passes three times out of three on its own. It is
+not in the table because it is not a result.
 
 **CMake/qbs agreement was audited across the branch**, since the project keeps
 two build descriptions and requires them to match. Comparing each directory's
