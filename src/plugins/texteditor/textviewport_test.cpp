@@ -2643,6 +2643,47 @@ private slots:
         QTRY_COMPARE(caretDrop(), viewport->lineHeight());
     }
 
+    void testScrollingToTheBottomShowsTheLastLineWhenWrapping()
+    {
+        // How far there is to scroll comes from the layout's row count, and
+        // the rows on screen are shaped by the viewport. If the two wrap
+        // differently the range is wrong: scrolled all the way down, the file
+        // either ends early or runs on past the bottom.
+        TemporaryDirectory dir("qtc-viewport-bottom");
+        const FilePath file = dir.filePath("wrapped.txt");
+        QString content;
+        for (int i = 1; i <= 60; ++i)
+            content += QString(200, QLatin1Char('x')) + QString::number(i)
+                       + QLatin1Char('\n');
+        QVERIFY(file.writeFileContents(content.toUtf8()));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        viewport->setWrapping(true);
+        QTRY_VERIFY2(viewport->contentHeight() / viewport->lineHeight() > 100,
+                     "nothing wrapped, so a row and a line are still the same");
+
+        // All the way down, and let the clamp settle it.
+        viewport->setScrollY(1000000);
+        QTRY_COMPARE(viewport->scrollY(), viewport->contentHeight() - viewport->height());
+
+        // The last row on screen has to be the end of the file. A row count
+        // that is too high leaves blank space below the text instead.
+        // Waited for, not read once: the scroll asks for a polish, and until
+        // it runs the rows are still the ones from before it. The assertion
+        // above holds either way, so it does not wait for this on its own.
+        const auto lastRowLine = [viewport] {
+            const int rows = viewport->visibleLineCount();
+            return rows > 0 ? viewport->visibleLine(rows - 1).value("lineNumber").toInt() : -1;
+        };
+        // 60 lines of text and the empty one the trailing newline leaves.
+        QTRY_COMPARE(lastRowLine(), 61);
+    }
+
     void testHomeGoesToTheCodeBeforeItGoesToTheMargin()
     {
         TemporaryDirectory dir("qtc-viewport-home");
