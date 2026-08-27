@@ -211,6 +211,7 @@ private slots:
     void testATriStateSettingCanSayNeither();
     void testSpinBoxDrawsItsPrefixAndSuffix();
     void testSpinBoxShowsTheValueScaledDown();
+    void testFileChooserSplitsTheDialogFilter();
     void testPageQmlReachesANestedContainersAspects();
     void testAnAspectCanHandOutAContainerToDraw();
     void testMultiLineStringGetsATextArea();
@@ -2190,6 +2191,44 @@ void QuickUiTest::testSpinBoxShowsTheValueScaledDown()
 
     // And the aspect keeps its own unit.
     QCOMPARE(timeout.value(), 30000);
+}
+
+void QuickUiTest::testFileChooserSplitsTheDialogFilter()
+{
+    // Qt states its file filters as one ";;"-separated string and QML's
+    // FileDialog wants them one at a time, so the delegate splits. Handed the
+    // string whole, the chooser offers a single filter that reads
+    // "Scripts (*.script);;All files (*)" and matches nothing.
+    Utils::AspectContainer page;
+    Utils::FilePathAspect script(&page);
+    script.setLabelText("Script:");
+    script.setPromptDialogTitle("Choose Script");
+    script.setPromptDialogFilter("Scripts (*.script);;All files (*)");
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QVERIFY(quickWidget->rootObject());
+
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "StringDelegate"));
+
+    // A dialog is not an item, so it is not in the visual tree the other
+    // lookups walk - it is a plain child of the delegate.
+    QObject *dialog = nullptr;
+    const QList<QObject *> children = delegate->findChildren<QObject *>();
+    for (QObject *child : children) {
+        if (QString::fromLatin1(child->metaObject()->className()).contains("FileDialog")) {
+            dialog = child;
+            break;
+        }
+    }
+    QVERIFY2(dialog, "the delegate has no FileDialog to configure");
+
+    QCOMPARE(dialog->property("title").toString(), QString("Choose Script"));
+    QCOMPARE(dialog->property("nameFilters").toStringList(),
+             QStringList({"Scripts (*.script)", "All files (*)"}));
 }
 
 void QuickUiTest::testPageQmlReachesANestedContainersAspects()
