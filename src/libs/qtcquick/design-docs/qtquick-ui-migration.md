@@ -277,6 +277,17 @@ with seven others - but not the two layouts wrapping at different widths, which
 lands the caret between rows and is what the Down test is for. Worth knowing
 which test covers which, because the two look like the same bug from outside.
 
+**The caret's way back into view sideways was invented here too.** It nudged
+just inside the edge plus a quarter of the view, or four lines, whichever was
+smaller - numbers with nothing behind them. The widget editor centres the
+caret, in `PlainTextEditPrivate::ensureCursorVisible()`, and now so does this.
+
+The test for it had to be moved to where the rule shows. At the end of the
+longest line there is nothing to the right to scroll to, so the clamp puts the
+caret against the edge whichever rule is in force - and asserting "centred"
+there fails against correct code. Mid-line it is centred or 143 pixels off in
+a view 400 wide.
+
 **A wheel notch was three lines because three is the usual default.** It is a
 setting - `QStyleHints::wheelScrollLines`, reachable from QML as
 `Application.styleHints` - and the widget editor honours it by way of a scroll
