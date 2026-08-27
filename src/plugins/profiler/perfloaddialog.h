@@ -5,9 +5,7 @@
 
 #include <QDialog>
 
-QT_BEGIN_NAMESPACE
-class QLineEdit;
-QT_END_NAMESPACE
+#include <memory>
 
 namespace ProjectExplorer {
 class Kit;
@@ -15,6 +13,8 @@ class KitChooser;
 } // ProjectExplorer
 
 namespace Profiler::Internal {
+
+class PerfLoadSettings;
 
 class PerfLoadDialog : public QDialog
 {
@@ -27,14 +27,11 @@ public:
     ProjectExplorer::Kit *kit() const;
 
 private:
-    void on_browseTraceFileButton_pressed();
-    void on_browseExecutableDirButton_pressed();
-
-    void chooseDefaults();
-
-    QLineEdit *m_traceFileLineEdit;
-    QLineEdit *m_executableDirLineEdit;
-    ProjectExplorer::KitChooser *m_kitChooser;
+    std::unique_ptr<PerfLoadSettings> m_settings;
 };
+
+#ifdef WITH_TESTS
+QObject *createPerfLoadDialogTest();
+#endif
 
 } // namespace Profiler::Internal

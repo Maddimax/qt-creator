@@ -9525,6 +9525,54 @@ thing about the world rather than about a group box, and its control bites.
 That is the fourth dialog running where the rule lived in an accessor, and the
 second where a *widget's* state was being used as a fact about the model.
 
+## An audit that came back inconclusive, and said so
+
+Having found "a widget's state used as a fact about the model" twice, the same
+treatment as the regex bug: grep for it. `return ...->isEnabled()` and
+`isVisible()` appear 38 times, and nearly all are legitimate - asking whether a
+popup is showing is a fair question *about the popup*. Narrowing to dialogs
+leaves two:
+
+- `QnxDeployQtLibrariesDialog::closeEvent()` - `// A disabled Deploy button
+  indicates the upload is still running`. The comment admits the trick, so it is
+  a documented smell rather than a latent bug.
+- `InsertVirtualMethodsDialog` writes `overrideReplacement` only
+  `if (combo && combo->isEnabled())`, using enablement to mean "the user opted
+  in" - while writing `overrideReplacementIndex` unconditionally one line above.
+
+Neither can be shown to *misbehave* without more digging, and that is the honest
+result: unlike the `\d+?` audit, where the other four uses were proved safe by
+running them, this one ends at "a smell that porting removes". Worth recording
+the difference - an audit that cannot conclude should say so rather than round
+up to a finding.
+
+## Two paths and a kit
+
+The perf load dialog: two line edits with a Browse button and a handler each,
+plus a `KitChooser`.
+
+The two pairs become two `FilePathAspect`s and **the browsing disappears** -
+both handlers, both buttons, both connections. That is the clearest example so
+far of the migration removing code rather than moving it.
+
+The kit needed no new aspect either: `StringSelectionAspect` has a fill
+callback, which is how Compiler Explorer lists compilers, so listing kits is the
+same three lines. A "choose a kit" aspect looked necessary and was not.
+
+**Two assertions that could not fail, found by their controls.**
+
+*Asserting the control says nothing about the kind.* `presentation().control ==
+PathChooser` holds for every `FilePathAspect` whatever it looks for, so the
+control on `setExpectedKind()` could not bite. The meaningful assertion is
+`pathKind`, and with that the *directory* one bites.
+
+*And the file one still did not*, because `PathChooserKind::File` is already
+`FilePathAspect`'s default - the line was redundant. It is removed, and the
+assertion stays: that a trace is a file is this dialog's requirement, and if the
+aspect's default ever changed the test should notice. **A line no control can
+defend is either redundant or untested, and the two need telling apart** - here
+it was the first.
+
 ## The terminal spike: go, with the cleanest split in the tree
 
 **Status update: the spike is being productised.** `TerminalQuick` is now the

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "ctfvisualizertool.h"
+#include "perfloaddialog.h"
 #include "mcpsupport.h"
 #include "profilermode.h"
 #include "profilersamplerruncontrol.h"
@@ -75,6 +76,7 @@ class ProfilerPlugin final : public ExtensionSystem::IPlugin
 
 #ifdef WITH_TESTS
         addTest<CtfTimelineModelTest>();
+        addTestCreator(createPerfLoadDialogTest);
         addTest<DebugMessagesModelTest>();
         addTest<FlameGraphModelTest>();
         addTest<FlameGraphViewTest>();
