@@ -7,6 +7,13 @@
 
 #include <texteditor/tabsettings.h>
 
+#include <texteditor/icodestylepreferencesfactory.h>
+#include <texteditor/codestyleeditor.h>
+#include <texteditor/icodestylepreferences.h>
+#include <texteditor/codestylepool.h>
+#include <cppeditor/cppeditorconstants.h>
+#include <coreplugin/dialogs/ioptionspage.h>
+#include <utils/aspects.h>
 #include <QTest>
 #include <QTextCursor>
 #include <QTextDocument>
@@ -1045,9 +1052,121 @@ void ClangFormatTest::testReformatQualifier()
     QCOMPARE(documentLines(), expected);
 }
 
+// The C++ Code Style page is drawn from aspects now, so what it reports about
+// the .clang-format file being edited is testable without opening it.
+class ClangFormatCodeStylePageTest final : public QObject
+{
+    Q_OBJECT
+
+private:
+    // The form reaches aspects by the name it calls them; so does this.
+    static Utils::BaseAspect *named(Utils::AspectContainer *container, const QString &qmlName)
+    {
+        for (Utils::BaseAspect *aspect : container->aspects()) {
+            if (aspect->qmlName() == qmlName)
+                return aspect;
+        }
+        return nullptr;
+    }
+
+    static TextEditor::ICodeStylePreferencesFactory *cppFactory()
+    {
+        return TextEditor::codeStyleFactory(CppEditor::Constants::CPP_SETTINGS_ID);
+    }
+
+private slots:
+    void testThePageIsDrawnFromAspects()
+    {
+        TextEditor::ICodeStylePreferencesFactory * const factory = cppFactory();
+        QVERIFY2(factory, "no code style factory for C++");
+        QVERIFY2(!factory->qmlSource().isEmpty(),
+                 "the C++ code style page has no Qt Quick form");
+    }
+
+    // The form names aspects, and a name that is not there renders blank with
+    // no error. This is what the page census does for every other page and
+    // could never reach for this one.
+    void testTheFormRendersAgainstItsAspects()
+    {
+        TextEditor::ICodeStylePreferencesFactory * const factory = cppFactory();
+        QVERIFY(factory);
+        // The page, not the settings inside it: CodeStyleAspect is what
+        // renders the form, and it is what hands the language's aspects over
+        // as Settings.
+        // A style of this test's own, so nothing here depends on what the
+        // C++ plugin has registered by the time this runs.
+        const std::unique_ptr<TextEditor::ICodeStylePreferences> codeStyle(
+            factory->createCodeStyle());
+        QVERIFY(codeStyle);
+        TextEditor::CodeStyleAspect page(codeStyle.get(), CppEditor::Constants::CPP_SETTINGS_ID);
+        const Utils::Result<> rendered
+            = Core::aspectFormRenders(&page, "ClangFormatCodeStylePage.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+    }
+
+    void testTheWarningIsAboutTheTextOnScreen()
+    {
+        TextEditor::ICodeStylePreferencesFactory * const factory = cppFactory();
+        QVERIFY(factory);
+        const std::unique_ptr<TextEditor::ICodeStylePreferences> style(factory->createCodeStyle());
+        QVERIFY(style);
+        const std::unique_ptr<Utils::AspectContainer> aspects(
+            factory->createSettingsAspects(style.get(), nullptr));
+        QVERIFY2(aspects, "the C++ code style page builds no aspects");
+
+        auto * const styleText = qobject_cast<Utils::StringAspect *>(named(aspects.get(), "StyleText"));
+        auto * const problem = named(aspects.get(), "FileProblem");
+        QVERIFY2(styleText && problem, "the form's aspects are not there to be named");
+
+        // A file that parses says nothing. The form starts from the file on
+        // disk, which is written from the style, so this is the normal case.
+        QVERIFY2(!problem->isVisible(), "a valid .clang-format was reported as a problem");
+
+        // Nonsense in the editor is reported, and reported as *why*.
+        styleText->setValue("BasedOnStyle: [unclosed");
+        QVERIFY2(problem->isVisible(), "invalid YAML was accepted silently");
+        QVERIFY2(!problem->displayText().isEmpty(), "the warning says nothing");
+
+        // And putting it right clears it again rather than leaving the warning
+        // up until the page is reopened.
+        styleText->setValue("BasedOnStyle: LLVM\nIndentWidth: 3\n");
+        QVERIFY2(!problem->isVisible(), "the warning outlived the problem");
+    }
+
+    void testAReadOnlyStyleIsNotEditable()
+    {
+        TextEditor::ICodeStylePreferencesFactory * const factory = cppFactory();
+        QVERIFY(factory);
+        const std::unique_ptr<TextEditor::ICodeStylePreferences> style(factory->createCodeStyle());
+        QVERIFY(style);
+        style->setReadOnly(true);
+
+        const std::unique_ptr<Utils::AspectContainer> aspects(
+            factory->createSettingsAspects(style.get(), nullptr));
+        QVERIFY(aspects);
+        auto * const editable = qobject_cast<Utils::BoolAspect *>(named(aspects.get(), "Editable"));
+        QVERIFY2(editable, "the form cannot tell whether the file may be typed into");
+
+        // The built-in styles are read-only, and writing over one would lose
+        // it for every project that uses it.
+        QVERIFY2(!(*editable)(), "a read-only style was offered for editing");
+
+        // Which file is being edited follows the style rather than staying at
+        // whatever was opened first.
+        auto * const path = qobject_cast<Utils::StringAspect *>(named(aspects.get(), "StyleFilePath"));
+        QVERIFY(path);
+        QVERIFY2(!(*path)().isEmpty(), "the form does not know which file to show");
+    }
+};
+
 QObject *createClangFormatTest()
 {
     return new ClangFormatTest;
+}
+
+QObject *createClangFormatCodeStylePageTest()
+{
+    return new ClangFormatCodeStylePageTest;
 }
 
 } // namespace ClangFormat::Internal

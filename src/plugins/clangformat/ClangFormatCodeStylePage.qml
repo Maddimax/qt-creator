@@ -18,9 +18,10 @@ AspectPage {
 
     contentFillsHeight: true
 
-    // The plugin's own settings block, shown above the style: see
-    // Utils::ContainerAspect.
-    readonly property var global: AspectModels.named(root.aspects.Global.container)
+    // The page hands the language's own aspects over as Settings; the
+    // ClangFormat block inside them is Global. See CodeStyleAspect.
+    readonly property var settings: AspectModels.named(aspects.Settings)
+    readonly property var global: AspectModels.named(settings.Global)
 
     CodeStyleSelector { aspects: root.aspects }
 
@@ -46,7 +47,7 @@ AspectPage {
         TextDisplayDelegate { aspect: root.global.ProjectFileNote }
     }
 
-    TextDisplayDelegate { aspect: root.aspects.ClangVersion }
+    TextDisplayDelegate { aspect: root.settings.ClangVersion }
 
     RowLayout {
         spacing: Spacing.GapHM
@@ -65,7 +66,7 @@ AspectPage {
                 id: styleFile
 
                 objectName: "clangFormatStyleFile"
-                text: root.aspects.StyleText.value ?? ""
+                text: root.settings.StyleText.value ?? ""
                 mimeType: "text/x-yaml"
             }
 
@@ -74,7 +75,7 @@ AspectPage {
 
                 objectName: "clangFormatStyleEditor"
                 source: styleFile
-                readOnly: !(root.aspects.Editable.value ?? false)
+                readOnly: !(root.settings.Editable.value ?? false)
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 Layout.minimumHeight: Metrics.formTextAreaHeight
@@ -83,12 +84,12 @@ AspectPage {
                 // keystroke: re-indenting the preview rewrites a document, and
                 // that must not happen under the cursor.
                 onEditingFinished: {
-                    if (styleFile.text !== root.aspects.StyleText.value)
-                        root.aspects.StyleText.value = styleFile.text
+                    if (styleFile.text !== root.settings.StyleText.value)
+                        root.settings.StyleText.value = styleFile.text
                 }
             }
 
-            TextDisplayDelegate { aspect: root.aspects.FileProblem }
+            TextDisplayDelegate { aspect: root.settings.FileProblem }
         }
 
         CodeStylePreview { aspects: root.aspects }

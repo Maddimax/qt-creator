@@ -53,6 +53,7 @@ class ClangFormatPlugin final : public ExtensionSystem::IPlugin
 
 #ifdef WITH_TESTS
         addTestCreator(Internal::createClangFormatTest);
+        addTestCreator(Internal::createClangFormatCodeStylePageTest);
 #endif
     }
 };

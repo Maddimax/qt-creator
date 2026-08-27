@@ -8,5 +8,6 @@
 namespace ClangFormat::Internal  {
 
 QObject *createClangFormatTest();
+QObject *createClangFormatCodeStylePageTest();
 
 } // ClangFormat::Internal

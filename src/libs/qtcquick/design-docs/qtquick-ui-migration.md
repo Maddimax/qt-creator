@@ -10481,3 +10481,67 @@ LLVM whose build mode matches - not a different technique.
 
 The build tree was put back: the hand-built plugin is removed and the census
 re-run clean afterwards, so nothing of this is left in the user's build.
+
+## The ClangFormat page, verified - and the bug that found
+
+The previous two entries stopped at "compiles, links, type-checks, names
+resolve, never run". It can be run, and the way to get there is worth writing
+down because it took one wrong turn and one genuinely wrong assumption.
+
+**A second build, not a changed one.** `WITH_SANITIZE=OFF`,
+`CMAKE_BUILD_TYPE=Release`, LLVM on the prefix path, and `BUILD_PLUGINS` cut to
+the dependency closure of what is needed - `ClangFormat;Core;CppEditor;
+ProjectExplorer;QuickUi;TextEditor`, six plugins rather than a hundred. Nothing
+in the user's build directory changes. Two things that are not obvious:
+
+- `BUILD_TESTS_BY_DEFAULT=OFF` *breaks* the configure, on an unrelated manual
+  test whose resource list picks up a directory. Leave it at its default.
+- `BUILD_EXECUTABLES_BY_DEFAULT=OFF` leaves an app bundle with no executable
+  in it, so `-test` cannot run at all. Turn the `qtcreator` executable back on.
+- The bundle has no `Resources`, so Core fails with "No themes found in
+  installation" and every plugin below it fails to load. Symlink them from a
+  full build.
+
+**On macOS the exclusion was never about the build mode.**
+`QTC_CLANG_BUILDMODE_MATCH` is only computed on Windows; elsewhere
+`FindClang.cmake` sets it ON unconditionally. So the plugin's `CONDITION`
+reduces to "was Clang found", and this build simply did not have LLVM on its
+prefix path. The ASan crash from the hand-built attempt was real, but it was
+not what the condition is about.
+
+**Then the page did not render, and the reason was a real bug in the port.**
+`Core::aspectFormRenders()` reported "the form is a widget layout, so the Qt
+Quick one was declined". Three wrong guesses later - the wrong container, a
+code style that does not exist yet, a missing accessor - the diagnostic that
+settled it was printing the class names of what `createAspectForm()` returned:
+`QWidget`, `QVBoxLayout`, `CodeStyleSelectorWidget`. A widget layout, from a
+container whose `qmlSource()` was set. That can only happen when
+`Core::setAspectFormFactory()` was never called - **and it is called by
+QuickUi's `initialize()`, so `-test ClangFormat` without `-load all` never
+installs it.** The instruction has said `-load all` all along; dropping it
+turned a passing page into a failing one and cost half an hour.
+
+With `-load all` the form came back as `QtcQuick::QuickWidget` containing a
+`QQuickWidget` - and then the *page* was wrong, in a way none of the three
+static checks could see. The form said `root.aspects.ClangVersion`, but
+`CodeStyleAspect` hands the language's own aspects over as a **child container
+named `Settings`**; every other code style form reads
+`AspectModels.named(aspects.Settings)` first. The aspect-name cross-check
+passed because `Settings` was in its allow-list and it never modelled the
+nesting. The page would have rendered blank.
+
+So the check that mattered was the one that could not be faked, and the
+previous entry's claim - "the QML half is what fails silently" - was exactly
+right about the risk and wrong about having covered it.
+
+**Where it stands now.** Six tests in the plugin's own suite, all six controls
+biting: invalid YAML is reported and the warning clears when it is fixed, a
+read-only style is not offered for editing, the form knows which file it is
+showing, and the form renders as Qt Quick against the page container. 78
+pre-existing ClangFormat tests still pass.
+
+**One thing that is not fixed and is not mine.** The census in the cut-down
+build segfaults after 76 passes and 0 failures, in the tree-reordering test.
+Removing the ClangFormat plugin and running again gives 76 passes, 0 failures
+and the same segfault at the same point, so it belongs to the six-plugin
+Release configuration rather than to this work.
