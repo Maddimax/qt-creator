@@ -277,6 +277,33 @@ with seven others - but not the two layouts wrapping at different widths, which
 lands the caret between rows and is what the Down test is for. Worth knowing
 which test covers which, because the two look like the same bug from outside.
 
+**What the Qt Quick editor still does not do, audited rather than guessed.**
+Whitespace turned out to be one of a class - a display setting that reaches the
+document and then needs someone to draw it - so all thirty of them were checked
+against what the editor reads. Sixteen are unread, and they are not equally
+interesting:
+
+- **Wrapped-line indent** - `breakindent`, `breakindentMin`, `breakindentShift`,
+  `breakindentSbr`, `showBreak`. The widget editor hands these to
+  `TextEditorLayout::setBreakIndent()`, and this editor shapes its own rows, so
+  continuation rows start hard against the left margin instead of under the
+  text they continue. The most visible of the sixteen, and not a small change:
+  the rows would be shaped narrower and drawn offset, which moves everything
+  measured from them - `cursorToX`, the selection fill, the whitespace marks,
+  and where a click lands.
+- **Whole features not started** - `displayMinimap`, `scrollBarHighlights`,
+  `highlightBlocks` (thirty-four references in the widget editor), and
+  `markDiffChangeSigns`.
+- **Animations** - `animateMatchingParentheses`,
+  `animateNavigationWithinFile`, `animateWithinFileTimeMax`. Cosmetic.
+- **Editor-layer behaviour rather than drawing** - `openLinksInNextSplit`,
+  `forceOpenLinksInNextSplit`, `displayTabSettings`,
+  `minimalAnnotationContent`.
+
+None of these is a bug in what is there; they are things not written yet. The
+list is here so that the next person picks by value rather than by whichever
+one they trip over.
+
 **Visualised whitespace is drawn now, and was not before** - a green test said
 otherwise, because it checked that `ShowTabsAndSpaces` reaches the document's
 text option, which it does, and nothing then read it. `ShowTabsAndSpaces` is
