@@ -2684,6 +2684,39 @@ private slots:
         QTRY_COMPARE(lastRowLine(), 61);
     }
 
+    void testClickingALaterRowOfAWrappedLineLandsOnIt()
+    {
+        // Clicking is how the caret is placed most of the time. On a wrapped
+        // line the row under the pointer is not the line's first, so the
+        // character under it is somewhere in the middle of the block.
+        TemporaryDirectory dir("qtc-viewport-click");
+        const FilePath file = dir.filePath("wrapped.txt");
+        QVERIFY(file.writeFileContents(QByteArray(400, 'x') + "\nsecond\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        viewport->setWrapping(true);
+        // The long line takes several rows, so there is a later row to click.
+        QTRY_VERIFY2(viewport->visibleLineCount() > 3,
+                     "nothing wrapped, so every row is a line of its own");
+        QCOMPARE(viewport->visibleLine(2).value("lineNumber").toInt(), 1);
+        QVERIFY(!viewport->visibleLine(2).value("firstRowOfLine").toBool());
+
+        // The third row, a little way in.
+        const int rowLength = viewport->visibleLine(0).value("text").toString().size();
+        const qreal y = 2 * viewport->lineHeight() + viewport->lineHeight() / 2;
+        const int position = viewport->positionAt(0, y);
+
+        // Where the third row starts: two rows of the same line before it.
+        QCOMPARE(position, 2 * rowLength);
+        // And it is still the first line - the click did not land on line two.
+        QCOMPARE(viewport->cursorLine(), 1);
+    }
+
     void testHomeGoesToTheCodeBeforeItGoesToTheMargin()
     {
         TemporaryDirectory dir("qtc-viewport-home");
