@@ -174,7 +174,7 @@ public:
 
 LineColumnButton::LineColumnButton(TextEditorWidget *parent)
     : QToolButton(parent)
-    , m_d(new LineColumnButtonPrivate{parent})
+    , m_d(new LineColumnButtonPrivate{.m_editor = parent})
 {
     connect(m_d->m_editor, &PlainTextEdit::cursorPositionChanged, this, &LineColumnButton::update);
     connect(this, &QToolButton::clicked, ActionManager::instance(), [this] {
@@ -2144,17 +2144,6 @@ void TextEditorWidgetPrivate::updateCannotDecodeInfo()
 // '#!/bin/sh'
 // ''
 // '###############'
-
-static QTextBlock skipShebang(const QTextBlock &block)
-{
-    if (!block.isValid() || !block.text().startsWith("#!"))
-        return block;
-    const QTextBlock nextBlock1 = block.next();
-    if (!nextBlock1.isValid() || !nextBlock1.text().isEmpty())
-        return block;
-    const QTextBlock nextBlock2 = nextBlock1.next();
-    return nextBlock2.isValid() && nextBlock2.text().startsWith('#') ? nextBlock2 : block;
-}
 
 /*
   Collapses the first comment in a file, if there is only whitespace/shebang line

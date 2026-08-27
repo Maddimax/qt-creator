@@ -603,7 +603,7 @@ private:
                            5000});
         m_steps.push_back({QStringLiteral("wide chars render (CJK via fallback font)"),
                            [this] { sendText(QStringLiteral("echo 漢字テストwide\r")); },
-                           [this, surface] {
+                           [surface] {
                                if (!liveGridText(surface).contains(QStringLiteral("漢字テストwide")))
                                    return false;
                                // reported at the end via gridDeviationMaxPx
@@ -627,7 +627,7 @@ private:
                            60000});
         m_steps.push_back({QStringLiteral("scrollback: offset 0 shows the first command"),
                            [this] { m_item->setScrollOffset(0); },
-                           [this, surface] {
+                           [surface] {
                                return gridTextRows(surface, 0, 40)
                                    .contains(QLatin1String("spike-42"));
                            },

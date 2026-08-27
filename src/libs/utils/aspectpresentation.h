@@ -255,8 +255,8 @@ public:
         QVariant id;
         // What a QComboBox would show beside the text. Only a list of things
         // that are told apart by more than their names has one - the device
-        // types a kit can build for.
-        QIcon icon;
+        // types a kit can build for, so most choices leave it alone.
+        QIcon icon = {};
     };
     QList<Choice> choices;
 

@@ -21,12 +21,6 @@
 
 namespace BareMetal::Internal::Uv {
 
-static QString trimVendor(const QString &vendor)
-{
-    const int colonIndex = vendor.lastIndexOf(':');
-    return vendor.mid(0, colonIndex);
-}
-
 // DeviceSelectionDialog
 
 DeviceSelectionDialog::DeviceSelectionDialog(const Utils::FilePath &toolsIniFile, QWidget *parent)

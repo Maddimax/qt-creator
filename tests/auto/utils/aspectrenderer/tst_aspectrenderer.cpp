@@ -1922,7 +1922,12 @@ void tst_AspectRenderer::anInlineListItemThatReadsAsOneRowIsARow()
         keep = render(*list);
         keep->resize(800, 300);
         keep->show();
-        QTest::qWaitForWindowExposed(keep.get());
+        // QVERIFY returns void, and this one has positions to hand back.
+        if (!QTest::qVerify(QTest::qWaitForWindowExposed(keep.get()),
+                            "QTest::qWaitForWindowExposed(keep.get())", "",
+                            __FILE__, __LINE__)) {
+            return QList<QPoint>{};
+        }
 
         // Distinct positions rather than a count: the list replaces its layout
         // when its items change and the widgets it replaced are deleted later,
