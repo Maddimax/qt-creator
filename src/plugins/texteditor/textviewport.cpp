@@ -4,6 +4,7 @@
 #include "textviewport.h"
 
 #include "blockselection.h"
+#include "textoperations.h"
 
 #include "autocompleter.h"
 #include "behaviorsettings.h"
@@ -2068,6 +2069,15 @@ void TextViewport::selectBlockTo(qreal x, qreal y)
         return;
     Utils::MultiTextCursor cursors;
     cursors.addCursors(carets);
+    setMultiTextCursor(cursors);
+}
+
+void TextViewport::joinLines()
+{
+    if (isReadOnly())
+        return;
+    Utils::MultiTextCursor cursors = multiTextCursor();
+    TextEditor::joinLines(cursors);
     setMultiTextCursor(cursors);
 }
 

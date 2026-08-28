@@ -159,6 +159,8 @@ Project {
             "textindenter.h",
             "textmark.cpp",
             "textmark.h",
+            "textoperations.cpp",
+            "textoperations.h",
             "textstyles.h",
             "textsuggestion.cpp",
             "textsuggestion.h",

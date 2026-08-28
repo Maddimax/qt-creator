@@ -560,6 +560,8 @@ public:
     // Searches for the text as it stands: the find bar's case and whole-word
     // settings are the widget editor's, and this view does not share them.
     Q_INVOKABLE void addCaretAtNextMatch();
+    // Pulls the line after each caret onto the caret's own line.
+    Q_INVOKABLE void joinLines();
     // A rectangle of text, from where the caret is anchored to \a x, \a y.
     // One caret per line it covers, which is what makes it a selection that
     // can be typed over. The anchor is taken once, when the drag starts, so

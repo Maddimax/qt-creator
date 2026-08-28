@@ -4105,6 +4105,59 @@ private slots:
         }
     }
 
+    // Join Lines pulls the next line onto the caret's, collapsing the leading
+    // whitespace of what arrives to one space. The menu entry is the widget
+    // editor's, so the Quick editor has to answer the same command or it is
+    // dead whenever a Quick editor is the current one.
+    void testJoiningLinesPullsTheNextOneUp()
+    {
+        TemporaryDirectory dir("qtc-viewport-join");
+        const FilePath file = dir.filePath("two.txt");
+        QVERIFY(file.writeFileContents("first\n      second\nthird\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        viewport->setReadOnly(false);
+        QTRY_VERIFY(viewport->visibleLineCount() > 2);
+
+        viewport->setCursorPosition(0);
+        viewport->joinLines();
+
+        QTextDocument * const text = viewport->textDocument()->document();
+        QCOMPARE(text->findBlockByNumber(0).text(), QString("first second"));
+        // Three, not two: the trailing newline of the file is a block of its
+        // own, so "first second", "third" and the empty one.
+        QCOMPARE(text->blockCount(), 3);
+
+        // One undo step, not one per line, so that the command can be taken
+        // back the way it was given.
+        text->undo();
+        QCOMPARE(text->blockCount(), 4);
+        QCOMPARE(text->findBlockByNumber(0).text(), QString("first"));
+    }
+
+    // A read only buffer is not edited by a command any more than by a key.
+    void testJoiningLinesDoesNothingWhenReadOnly()
+    {
+        TemporaryDirectory dir("qtc-viewport-join-ro");
+        const FilePath file = dir.filePath("two.txt");
+        QVERIFY(file.writeFileContents("first\nsecond\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+        QVERIFY(viewport->isReadOnly());
+
+        viewport->setCursorPosition(0);
+        viewport->joinLines();
+
+        QCOMPARE(viewport->textDocument()->document()->blockCount(), 3);
+    }
+
     void testWrappedRowsSitUnderTheTextTheyContinue()
     {
         // vim's 'breakindent': a wrapped row starts under its line's own

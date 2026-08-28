@@ -13367,3 +13367,43 @@ The same batch shipped two entry points to a column selection and tested one.
 click to put the caret at column 2 of the first line, then Alt+Shift+click at
 column 5 of the fourth, and four carets each with "cde". Taking the Shift
 branch out leaves two carets - the plain Alt+click that adds one - so it bites.
+
+## What the Quick editor still cannot be asked to do
+
+The widget editor registers 96 commands; the Quick one registers three, plus
+follow-symbol. Matching method names between the two says 86 are missing, and
+that number is wrong in a way worth writing down, because it is the obvious
+survey to run and it overstates the answer badly.
+
+Most of those 86 are movement and clipboard - `gotoNextWord`,
+`selectAll`, `redo`. The viewport does all of them; it just does not have
+methods of those names, because it answers `QKeySequence::SelectAll`,
+`QKeySequence::Undo` and the rest directly, and routes cursor movement through
+the same `handleMoveKeyEvent` the widget uses. Press the key and it works.
+
+So the gap is not behaviour, it is that the behaviour cannot be *asked for*.
+An action registered in the widget's context is dead when a Quick editor is
+current, which means the menu entry is greyed, a shortcut the user rebound
+does not arrive, and `setScriptable(true)` reaches nothing. The three that were
+already done say exactly this in their comments.
+
+Underneath that there is a second, smaller gap that is real absence: the line
+commands. `moveLineUp`, `joinLines`, `duplicateSelection`, `sortLines`,
+`uppercaseSelection` and their neighbours have no viewport implementation under
+any name and no key handling either, so they are unreachable in a Quick editor
+by any route.
+
+Join Lines is the first of them, done the whole way: the implementation was
+nothing but a `MultiTextCursor` transformation, so it moved out of
+`TextEditorWidget` into `textoperations.h` - a home for the ones that follow,
+since every one of them is the same shape and every one has to be answerable
+by both editors. The widget calls it, the viewport calls it, and the Quick
+editor registers `JOIN_LINES` so the menu entry stops being dead.
+
+Two tests: joining pulls the next line up with its leading whitespace
+collapsed and undoes in one step, and a read-only buffer is left alone.
+Removing the read-only guard fails the second, which is the one worth having a
+control for - the first would fail if the command did nothing at all.
+
+The remaining line commands are the obvious next batch, and they are all the
+same shape as this one.
