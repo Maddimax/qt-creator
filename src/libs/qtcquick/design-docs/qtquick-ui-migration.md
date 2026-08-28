@@ -157,6 +157,39 @@ plugin does not exist" and returns nothing, which reads exactly like a clean
 pass if only the totals are looked at. `GlslEditor`, `VcsBase`, `Copilot` and
 `Lua` register no test classes at all - also zero, also not a pass.
 
+### The minimap, and a reason to defer that did not hold
+
+It was put off twice as "O(file), against the viewport's O(visible) premise".
+That reasoning is wrong on inspection: the premise is about **scrolling**, and
+a minimap is a separate item paying its own cost - the widget editor pays
+exactly the same one. What it is *not* is a change to the row model, unlike
+the between-lines annotation alignment, which really does need rows of
+different heights and really is a decision to take deliberately.
+
+So the first half is done. `Core::renderMinimap()` draws a document as one
+pixel per character, coloured by the highlighter, and it needs a document, a
+font and two colours - nothing else. `MinimapOverlay` asked its editor for all
+of that, which is what made the picture a widget's to draw. The pixel loop
+moved unchanged; everything read from the editor is passed in, including how
+much room a view that can scroll past the end needs.
+
+It has tests now, which it could not have before: a line with text is drawn
+and an empty one is not, a folded line takes no room, and asking for room to
+scroll past the end adds exactly that much. Three controls, one per test.
+
+**Two collisions came from moving the code mechanically.** Substituting the
+parameter names into the body produced `QColor defaultTextColor =
+defaultTextColor;` and an `overrideColor` local shadowing the callback of the
+same name - the second of which compiled far enough to complain that an
+`optional` is not callable. A rename fixed both. Moving a member function to a
+free one renames its inputs, and locals do not move out of the way.
+
+**qbs could not be re-resolved here and the reason matters.** No Qt profile is
+configured for qbs on this machine, so every product fails with "Dependency
+'Qt.core' not found". What that run *does* establish is that the project files
+**parse**: `coreplugin.qbs:4:1 Error while handling product 'Core'` means qbs
+read the file and got to the product. A syntax error never gets that far.
+
 **The build descriptions are in step, and the `.qml` half needs no work at
 all.** Every `.cpp` and `.h` this branch added is listed in its `.qbs`
 (`qtcquick` is 27 of 27). Nine files elsewhere are unlisted and all nine
@@ -372,11 +405,11 @@ interesting:
   copied - `blockNestingAt()` and `scopeLevelColor()` in textdocumentlayout -
   with where a level starts on screen passed in by the caller, that being the
   one part of it that is not a property of the document.
-- **Whole features not started** - `displayMinimap` (off by default), and
-  `markDiffChangeSigns`, which is not a feature of its own: it is a display
-  option on the inline diff, whose ghost rows the Quick editor does not have
-  at all. `scrollBarHighlights` **is done**, and needing a Core controller
-  turned out to be the wrong reason to put it off - see below.
+- **Whole features not started** - `displayMinimap` (off by default), now one
+  step closer: see below. And `markDiffChangeSigns`, which is not a feature of
+  its own - it is a display option on the inline diff, whose ghost rows the
+  Quick editor does not have at all. `scrollBarHighlights` **is done**, and
+  needing a Core controller turned out to be the wrong reason to put it off.
 - **Animations** - all three done. `animateMatchingParentheses` pulses the
   matching bracket; `animateNavigationWithinFile` and
   `animateWithinFileTimeMax` scroll to a jump within the file instead of
