@@ -26,6 +26,8 @@ class QTextCursor;
 class QTextDocument;
 QT_END_NAMESPACE
 
+namespace Core { class IEditor; }
+
 namespace TextEditor {
 
 class CompletionAssistProvider;
@@ -42,7 +44,8 @@ class TypingSettingsData;
 
 using TextMarks = QList<TextMark *>;
 
-class TEXTEDITOR_EXPORT TextDocument : public Core::BaseTextDocument
+class TEXTEDITOR_EXPORT TextDocument : public Core::BaseTextDocument,
+                                       public QEnableSharedFromThis<TextDocument>
 {
     Q_OBJECT
 
@@ -226,5 +229,11 @@ private:
 };
 
 using TextDocumentPtr = QSharedPointer<TextDocument>;
+
+// The shared document behind an editor, whatever kind of view is showing it.
+// Whoever wants to put the same text somewhere else needs the document, not
+// the view: asking for a widget to reach it is what stops a view that has
+// none from being usable. Null for an editor that holds no text document.
+TEXTEDITOR_EXPORT TextDocumentPtr textDocumentPtr(Core::IEditor *editor);
 
 } // namespace TextEditor

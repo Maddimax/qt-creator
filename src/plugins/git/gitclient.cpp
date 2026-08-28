@@ -1359,12 +1359,15 @@ static IEditor *openInlineDiff(const FilePath &topLevel,
 {
     // Open the main editor, but in the background, so when closing the inline diff
     // it switches back to the editor that the user had open
-    auto textEditor = qobject_cast<TextEditor::BaseTextEditor *>(EditorManager::openEditor(
-        filePath, {}, EditorManager::DoNotChangeCurrentEditor | EditorManager::DoNotMakeVisible));
-    if (!textEditor || !textEditor->editorWidget())
+    IEditor * const sourceEditor = EditorManager::openEditor(
+        filePath, {}, EditorManager::DoNotChangeCurrentEditor | EditorManager::DoNotMakeVisible);
+    // The document rather than the view: what the diff shows is the text, and
+    // demanding a widget to reach it is what made a file open in a view
+    // without one fall back to the classic diff.
+    const TextEditor::TextDocumentPtr sourceDocument = TextEditor::textDocumentPtr(sourceEditor);
+    if (!sourceDocument)
         return nullptr;
-    IEditor *diffEditor = DiffEditor::openInlineDiffEditor(
-        textEditor->editorWidget()->textDocumentPtr(), baseline, title);
+    IEditor *diffEditor = DiffEditor::openInlineDiffEditor(sourceDocument, baseline, title);
     if (diffEditor) {
         // Instant blame does not attach to the inline diff editor (its widget
         // is not the current text editor), so annotate the editable working
@@ -1377,6 +1380,8 @@ static IEditor *openInlineDiff(const FilePath &topLevel,
         }
         if (line > 0)
             diffEditor->gotoLine(line);
+        else
+            diffEditor->gotoLine(sourceEditor->currentLine(), sourceEditor->currentColumn());
     }
     return diffEditor;
 }

@@ -3,6 +3,8 @@
 
 #include "textdocument.h"
 
+#include <coreplugin/editormanager/ieditor.h>
+
 #include "extraencodingsettings.h"
 #include "fontsettings.h"
 #include "icodestylepreferences.h"
@@ -1363,6 +1365,16 @@ void TextDocument::moveMark(TextMark *mark, int previousLine)
     removeMarkFromMarksCache(mark);
     mark->setBaseTextDocument(nullptr);
     addMark(mark);
+}
+
+TextDocumentPtr textDocumentPtr(Core::IEditor *editor)
+{
+    auto * const document = qobject_cast<TextDocument *>(editor ? editor->document() : nullptr);
+    if (!document)
+        return {};
+    // Null when nothing holds the document through a shared handle, which is
+    // the honest answer: there is nothing to share.
+    return document->sharedFromThis();
 }
 
 } // namespace TextEditor

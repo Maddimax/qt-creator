@@ -189,12 +189,12 @@ class QuickTextEditor final : public Core::IEditor
 {
 public:
     QuickTextEditor()
-        : QuickTextEditor(std::shared_ptr<TextDocument>(new TextDocument(QUICK_TEXT_EDITOR_ID)))
+        : QuickTextEditor(TextDocumentPtr(new TextDocument(QUICK_TEXT_EDITOR_ID)))
     {}
 
     // A split view is two editors on one document, so duplicating shares it
     // rather than opening the file again.
-    explicit QuickTextEditor(std::shared_ptr<TextDocument> document)
+    explicit QuickTextEditor(TextDocumentPtr document)
         : m_document(std::move(document))
         , m_source(std::make_unique<AdoptedSource>(m_document.get()))
     {
@@ -583,8 +583,10 @@ private:
     }
 
     // Shared because a duplicated editor would show the same document; the
-    // editor manager is what decides that, not this.
-    std::shared_ptr<TextDocument> m_document;
+    // editor manager is what decides that, not this. The same handle the
+    // widget editor uses, so that whoever wants the document need not know
+    // which kind of view is showing it.
+    TextDocumentPtr m_document;
     QtcQuick::ActionModel m_contextActions;
     // Owned by the toolbar the editor manager puts it in, so a QPointer.
     QPointer<QWidget> m_toolBar;

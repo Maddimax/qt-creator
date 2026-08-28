@@ -12368,3 +12368,43 @@ would meet it: after downloading definitions, a document that should be back to
 Worth keeping: "this needs an API decision" was a conclusion about a call
 stack, reached without reading what the private method actually did. The half
 that looked entangled was four lines of widget state.
+
+## A regression found by widening the net, not by reasoning about it
+
+Everything so far had been verified against TextEditor, QuickUi and DiffEditor.
+Running the suites of the plugins that merely *depend* on TextEditor found two
+red tests in Git - `testInlineDiffFile` and `testInlineDiffConflictedFile` -
+expecting an inline diff called "file.txt (Unstaged)" and getting a classic one
+called `Git Diff "file.txt"`.
+
+This is production code, not a test fixture:
+
+    auto textEditor
+        = qobject_cast<TextEditor::BaseTextEditor *>(EditorManager::openEditor(filePath));
+    if (!textEditor || !textEditor->editorWidget())
+        return nullptr;
+
+`openInlineDiff()` opens the file *itself* to get at a widget. Once text files
+opened in the Quick editor that cast returned null, the function returned
+nullptr, and the caller fell back to `diffFile()`. Asking for Inline Diff on a
+plain text file gave the side by side view instead. Earlier this document said
+the inline diff "degrades by design", which was true of the diff editor's own
+guard and not of this: here the fallback exists for deleted files and was being
+taken for every text file.
+
+The widget was only ever a way to reach `textDocumentPtr()`. What the inline
+diff needs is the document, and the obstacle was that the two editors held it
+differently - `QSharedPointer<TextDocument>` in the widget, which is what
+`TextDocumentPtr` and `openInlineDiffEditor()` are written in, and
+`std::shared_ptr<TextDocument>` in the Quick editor. Three lines to align, and
+then `TextDocument` can hand out its own handle through `QEnableSharedFromThis`,
+so `textDocumentPtr(IEditor *)` answers for any view without knowing what kind
+it is.
+
+The lesson is about the earlier blast radius analysis rather than about this
+call. Reading the mime claim bounded which *files* moved correctly, and the
+cast survey classified the sites that a moved file could reach - but that survey
+was of `src/plugins` for `qobject_cast<BaseTextEditor *>` and this site is one
+of the ones it listed as "needs editorWidget - blocked on porting". It was
+filed as blocked when it was in fact broken. What separated the two was running
+the tests of a plugin I had no reason to think I had touched.
