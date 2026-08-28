@@ -4,6 +4,7 @@
 #include "effectsautocomplete.h"
 
 #include <texteditor/codeassist/genericproposal.h>
+#include <texteditor/codeassist/assisttarget.h>
 #include <texteditor/texteditor.h>
 
 
@@ -135,13 +136,10 @@ public:
                || (text().endsWith(QLatin1Char('.')) && c == QLatin1Char('.'));
     }
 
-    void applyContextualContent(
-        TextEditor::TextEditorWidget *textEditorWidget, int basePosition) const final
+    void applyContextualContent(TextEditor::AssistTarget &target, int basePosition) const final
     {
-        std::function<int()> currentPosition = [&]() -> int {
-            return textEditorWidget->position();
-        };
-        textEditorWidget->replace(basePosition, currentPosition() - basePosition, QString());
+        std::function<int()> currentPosition = [&]() -> int { return target.position(); };
+        target.replace(basePosition, currentPosition() - basePosition, QString());
 
         QString content = text();
         int cursorOffset = 0;
@@ -159,17 +157,17 @@ public:
         int replacedLength = 0;
         for (int i = 0; i < replaceable.size(); ++i) {
             const QChar a = replaceable.at(i);
-            const QChar b = textEditorWidget->characterAt(currentPosition() + i);
+            const QChar b = target.characterAt(currentPosition() + i);
             if (a == b)
                 ++replacedLength;
             else
                 break;
         }
         const int length = currentPosition() - basePosition + replacedLength;
-        textEditorWidget->replace(basePosition, length, content);
+        target.replace(basePosition, length, content);
         if (cursorOffset) {
-            textEditorWidget->setCursorPosition(currentPosition() + cursorOffset);
-            textEditorWidget->setAutoCompleteSkipPosition(textEditorWidget->textCursor());
+            target.setCursorPosition(currentPosition() + cursorOffset);
+            target.setAutoCompleteSkipPosition(target.textCursor());
         }
     }
 };
