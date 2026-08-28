@@ -2250,6 +2250,47 @@ private slots:
                      "the bar still carried marks with the setting turned off");
     }
 
+    // What the bar carries changes when the document's marks do, and not when
+    // the view merely scrolls. A bar told to look again rebuilds every mark
+    // on it, which for a search with a few thousand hits is a lot of nothing.
+    void testTheScrollBarIsToldOnlyWhenItsMarksChange()
+    {
+        const bool was = displaySettings().scrollBarHighlights();
+        const QScopeGuard restore(
+            [was] { displaySettings().scrollBarHighlights.setValue(was); });
+        displaySettings().scrollBarHighlights.setValue(true);
+
+        TemporaryDirectory dir("qtc-viewport-barnotify");
+        const FilePath file = writeLines(dir, "long.txt", 400);
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        TextViewport * const viewport = fixture.viewport;
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+
+        // The caret's line is on the bar from the start.
+        QTRY_VERIFY(!viewport->scrollBarHighlights().isEmpty());
+        const int carried = viewport->scrollBarHighlights().size();
+
+        QSignalSpy told(viewport, &TextViewport::scrollBarHighlightsChanged);
+
+        // Scrolling moves what is on screen, not what is marked.
+        viewport->setScrollY(viewport->lineHeight() * 100);
+        QTRY_COMPARE(viewport->firstVisibleLine(), 100);
+        QCOMPARE(viewport->scrollBarHighlights().size(), carried);
+        QCOMPARE(told.size(), 0);
+
+        // A mark is a change, and the bar is told once.
+        auto * const source = viewport->document();
+        QVERIFY(source && source->textDocument());
+        TextMark mark(source->textDocument(), 200,
+                      TextMarkCategory{"Test", "TextEditor.Test.Mark"});
+        mark.setColor(Utils::Theme::TextColorError);
+        QTRY_VERIFY2(told.size() > 0, "the bar was never told about a new mark");
+        QCOMPARE(viewport->scrollBarHighlights().size(), carried + 1);
+    }
+
     // A jump within the file can be scrolled to rather than snapped to, so
     // that the reader can see which way it went. Off by default, and the
     // Quick editor always snapped.

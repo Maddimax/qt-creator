@@ -124,7 +124,8 @@ class TEXTEDITOR_EXPORT TextViewport : public QQuickItem, public HoverTarget
     // Where this document's marks and its caret are, each as a fraction of
     // the document's height, so that a scroll bar can show them without
     // knowing what a line is. Empty when the display settings say not to.
-    Q_PROPERTY(QVariantList scrollBarHighlights READ scrollBarHighlights NOTIFY metricsChanged)
+    Q_PROPERTY(QVariantList scrollBarHighlights READ scrollBarHighlights
+                   NOTIFY scrollBarHighlightsChanged)
     // How many lines the document has, which a gutter needs to know how wide
     // to be before it has drawn anything. Every line, folded or not: the
     // gutter has to fit the highest number it can ever show.
@@ -401,7 +402,7 @@ public:
     // so it has to stop being here too.
     Q_INVOKABLE void removeSelectedText();
     int contentWidthPercent() const;
-    QVariantList scrollBarHighlights();
+    QVariantList scrollBarHighlights() const { return m_scrollBarHighlights; }
     QString fileLineEnding() const;
     QString tabSettingsLabel() const;
     int indentSize() const;
@@ -498,6 +499,10 @@ signals:
     void fileFormatChanged();
     // A character to pulse where it stands: the bracket that matches the one
     // the caret just arrived beside, once per arrival.
+    // What the bar carries, when it is not what it carried before. Every
+    // layout would say so otherwise, and a bar that is told to look again
+    // rebuilds every mark on it.
+    void scrollBarHighlightsChanged();
     void animateCharacter(const QRectF &at, const QString &text, const QColor &foreground,
                           const QColor &background);
     void wrappingChanged();
@@ -641,6 +646,7 @@ private:
     // the lines above took.
     int rowOfBlock(const QTextBlock &block);
     void setScopeBlock(int blockNumber);
+    void updateScrollBarHighlights();
     void modifyTabSettings(const std::function<void(TabSettingsData &)> &modify);
     void updateLink(const QPointF &pos, Qt::KeyboardModifiers modifiers);
     bool handleSmartBackspace(QTextCursor &cursor);
@@ -651,6 +657,7 @@ private:
     // be found without walking every match in the file.
     QMap<Utils::Id, QList<Highlight>> m_highlights;
     QMap<Utils::Id, QColor> m_highlightsOnScrollBar;
+    QVariantList m_scrollBarHighlights;
 
     // Backspace between the two halves of a bracket pair removes both. That is
     // all the base AutoCompleter offers; inserting the closing half is a

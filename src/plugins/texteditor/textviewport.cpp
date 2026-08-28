@@ -1697,14 +1697,20 @@ void TextViewport::dropText(const QString &text, qreal x, qreal y, bool moveFrom
     setCursorPosition(cursor.position());
 }
 
-// Not const: working out which row a block is on needs the per-view layout,
-// which is built the first time it is asked for.
-QVariantList TextViewport::scrollBarHighlights()
+// Worked out once per layout and kept, rather than answered afresh every time
+// the bar asks: a document with a few thousand search results in it would
+// otherwise rebuild every mark on the bar for each scroll of a wheel.
+void TextViewport::updateScrollBarHighlights()
 {
     TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
     const qreal height = contentHeight();
-    if (!doc || !displaySettings().scrollBarHighlights() || height <= 0 || m_lineHeight <= 0)
-        return {};
+    if (!doc || !displaySettings().scrollBarHighlights() || height <= 0 || m_lineHeight <= 0) {
+        if (!m_scrollBarHighlights.isEmpty()) {
+            m_scrollBarHighlights.clear();
+            emit scrollBarHighlightsChanged();
+        }
+        return;
+    }
 
     QVariantList highlights;
     QSet<QPair<int, QRgb>> already;
@@ -1744,7 +1750,11 @@ QVariantList TextViewport::scrollBarHighlights()
         for (const Highlight &highlight : found)
             add(doc->document()->findBlock(highlight.start), kind.value());
     }
-    return highlights;
+
+    if (highlights == m_scrollBarHighlights)
+        return;
+    m_scrollBarHighlights = highlights;
+    emit scrollBarHighlightsChanged();
 }
 
 int TextViewport::contentWidthPercent() const
@@ -2838,6 +2848,7 @@ void TextViewport::updatePolish()
     // what they already are is free when nothing moved.
     setScrollY(m_scrollY);
     setScrollX(m_scrollX);
+    updateScrollBarHighlights();
     emit metricsChanged();
     // What is on screen has just been rebuilt, marks and all. Delegates read it
     // through visibleLines, so this is what tells them to look again.
