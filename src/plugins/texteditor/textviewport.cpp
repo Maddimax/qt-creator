@@ -3,6 +3,8 @@
 
 #include "textviewport.h"
 
+#include "blockselection.h"
+
 #include "autocompleter.h"
 #include "behaviorsettings.h"
 #include "codeassist/assistinterface.h"
@@ -2021,6 +2023,52 @@ void TextViewport::addCaretsToLineEnds()
     // the carets with.
     if (!ends.isNull())
         setMultiTextCursor(ends);
+}
+
+void TextViewport::anchorBlockSelection(int position)
+{
+    m_blockSelectionAnchor = textCursor();
+    if (position < 0 || m_blockSelectionAnchor.isNull())
+        return;
+    QTextDocument * const text = m_blockSelectionAnchor.document();
+    m_blockSelectionAnchor.setPosition(qBound(0, position, text->characterCount() - 1));
+}
+
+void TextViewport::selectBlockTo(qreal x, qreal y)
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    QTextDocument * const text = doc ? doc->document() : nullptr;
+    if (!text || m_blockSelectionAnchor.isNull())
+        return;
+
+    QTextCursor corner(text);
+    corner.setPosition(qBound(0, positionAt(x, y), text->characterCount() - 1));
+
+    const TabSettingsData tabSettings = doc->tabSettings();
+    int column = tabSettings.columnAt(corner.block().text(), corner.positionInBlock());
+    // Past the end of the line there are no characters to count, so how far
+    // beyond it the pointer is has to be measured rather than counted. This
+    // is what lets a rectangle be dragged out over short lines.
+    if (corner.positionInBlock() == corner.block().length() - 1) {
+        const qreal charWidth = QFontMetricsF(m_font).horizontalAdvance(QLatin1Char(' '));
+        if (charWidth > 0) {
+            const QRectF at = rectangleAt(corner.position());
+            column += int((x + m_scrollX - at.center().x()) / charWidth);
+        }
+    }
+
+    const BlockSelection selection{corner.blockNumber(),
+                                   qMax(0, column),
+                                   m_blockSelectionAnchor.blockNumber(),
+                                   tabSettings.columnAt(m_blockSelectionAnchor.block().text(),
+                                                        m_blockSelectionAnchor.positionInBlock())};
+
+    const QList<QTextCursor> carets = cursorsForBlockSelection(text, tabSettings, selection);
+    if (carets.isEmpty())
+        return;
+    Utils::MultiTextCursor cursors;
+    cursors.addCursors(carets);
+    setMultiTextCursor(cursors);
 }
 
 void TextViewport::addCaretAtNextMatch()

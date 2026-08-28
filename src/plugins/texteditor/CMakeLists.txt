@@ -21,6 +21,7 @@ add_qtc_plugin(TextEditor
     basehoverhandler.cpp basehoverhandler.h
     behaviorsettings.cpp behaviorsettings.h
     blockrange.h
+    blockselection.cpp blockselection.h
     bookmark.cpp bookmark.h
     bookmarkfilter.cpp bookmarkfilter.h
     bookmarkmanager.cpp bookmarkmanager.h

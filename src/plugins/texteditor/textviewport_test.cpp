@@ -4026,6 +4026,47 @@ private slots:
                                     .arg(before)));
     }
 
+    // Dragging with Alt takes a rectangle of text: a caret on every line it
+    // covers, each selecting the same columns, which is what makes it
+    // typeable over. The widget editor does this on Alt+drag too.
+    void testAltDraggingTakesARectangleOfText()
+    {
+        TemporaryDirectory dir("qtc-viewport-blocksel");
+        const FilePath file = dir.filePath("cols.txt");
+        // Four lines long enough that the rectangle lands inside all of them.
+        QVERIFY(file.writeFileContents("abcdefgh\nabcdefgh\nabcdefgh\nabcdefgh\n"));
+
+        CodeViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+
+        const qreal columnWidth = viewport->rectangleAt(1).x() - viewport->rectangleAt(0).x();
+        QVERIFY2(columnWidth > 0, "a character was expected to have a width");
+
+        const auto scenePoint = [viewport](qreal x, int row) {
+            return viewport->mapToScene(QPointF(x, viewport->lineHeight() * row + 2)).toPoint();
+        };
+
+        // From column 2 of the first line to column 5 of the fourth.
+        QTest::mousePress(&fixture.view, Qt::LeftButton, Qt::AltModifier,
+                          scenePoint(columnWidth * 2, 0));
+        QTest::mouseMove(&fixture.view, scenePoint(columnWidth * 5, 3));
+        QTest::mouseRelease(&fixture.view, Qt::LeftButton, Qt::AltModifier,
+                            scenePoint(columnWidth * 5, 3));
+
+        QTRY_COMPARE(viewport->multiTextCursor().cursorCount(), 4);
+        const QList<QTextCursor> carets = viewport->multiTextCursor().cursors();
+        for (int i = 0; i < carets.size(); ++i) {
+            const QTextCursor &caret = carets.at(i);
+            QCOMPARE(caret.blockNumber(), i);
+            QVERIFY2(caret.hasSelection(),
+                     qPrintable(QString("line %1 selected nothing").arg(i)));
+            QCOMPARE(caret.selectedText(), QString("cde"));
+        }
+    }
+
     void testWrappedRowsSitUnderTheTextTheyContinue()
     {
         // vim's 'breakindent': a wrapped row starts under its line's own

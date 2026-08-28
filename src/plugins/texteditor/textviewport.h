@@ -560,6 +560,13 @@ public:
     // Searches for the text as it stands: the find bar's case and whole-word
     // settings are the widget editor's, and this view does not share them.
     Q_INVOKABLE void addCaretAtNextMatch();
+    // A rectangle of text, from where the caret is anchored to \a x, \a y.
+    // One caret per line it covers, which is what makes it a selection that
+    // can be typed over. The anchor is taken once, when the drag starts, so
+    // that dragging back up shrinks the rectangle rather than moving it.
+    // \a position of -1 anchors where the caret already is.
+    Q_INVOKABLE void anchorBlockSelection(int position);
+    Q_INVOKABLE void selectBlockTo(qreal x, qreal y);
     void setCursorPosition(int position);
     QRectF cursorRectangle() const;
 
@@ -804,6 +811,9 @@ private:
     // The carets after the first. The main one stays a position and a
     // selection, so everything that asks about "the caret" keeps its answer.
     QList<QTextCursor> m_extraCursors;
+    // Where a block selection was started, kept because the carets it makes
+    // replace the main one it would otherwise be read back from.
+    QTextCursor m_blockSelectionAnchor;
     int m_selectionStart = -1;
     int m_selectionEnd = -1;
     int m_cursorPosition = 0;

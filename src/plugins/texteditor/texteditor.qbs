@@ -31,6 +31,8 @@ Project {
             "behaviorsettings.cpp",
             "behaviorsettings.h",
             "blockrange.h",
+            "blockselection.cpp",
+            "blockselection.h",
             "bookmark.cpp",
             "bookmark.h",
             "bookmarkfilter.cpp",

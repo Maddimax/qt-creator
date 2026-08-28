@@ -13301,3 +13301,35 @@ AddressSanitizer build, because both configurations in this tree are; the
 ratios hold but the absolute figures do not. And a test suite opens, scrolls
 and closes far more than it types, so the numbers under-report the changes
 aimed at editing - which is most of what changes 3 and 4 were for.
+
+## Column selection, which the Quick editor did not have
+
+The widget editor takes a rectangle of text on Alt+drag and extends one on
+Alt+Shift+click - a caret per line, all selecting the same columns, which is
+what makes it typeable over. The Quick viewport had Alt+click for an extra
+caret and nothing for the rectangle.
+
+The arithmetic is worth sharing rather than writing twice. It is tab-aware in
+a way that is easy to get subtly wrong: what lines up on screen is columns, a
+tab is one character and several columns, and a line too short to reach either
+column carries no caret at all rather than an empty one. So
+`generateCursorsForBlockSelection` came out of `TextEditorWidgetPrivate` into
+`cursorsForBlockSelection()` in `blockselection.h`, with the widget calling it
+and keeping its own `BlockSelection` name for the struct that moved with it.
+
+The viewport gets `anchorBlockSelection(position)` and `selectBlockTo(x, y)`,
+and QML keeps only the policy - which modifiers mean a rectangle. The
+coordinates go to C++ rather than a document position because past the end of
+a line there are no characters to count: how far beyond it the pointer is has
+to be measured against the character width, and that is what lets a rectangle
+be dragged out over lines shorter than it.
+
+`testAltDraggingTakesARectangleOfText` drags from column 2 of the first line
+to column 5 of the fourth and asks for four carets each with "cde" selected.
+With the drag branch taken out it reports one caret, which is the ordinary
+selection it would otherwise be - the first test in three batches that failed
+the way it was meant to on the first try.
+
+Alt+Shift with the *arrow keys* is deliberately not ported: the widget editor
+guards it with `!HostOsInfo::isMacHost()`, so there is no behaviour to match on
+this platform and no way to test what was written for the others.

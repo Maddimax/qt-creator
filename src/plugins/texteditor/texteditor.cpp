@@ -31,6 +31,7 @@
 #include "snippets/snippetoverlay.h"
 #include "storagesettings.h"
 #include "tabsettings.h"
+#include "blockselection.h"
 #include "textdocument.h"
 #include "textdocumentlayout.h"
 #include "texteditorconstants.h"
@@ -936,13 +937,6 @@ public:
     bool m_scrollBarUpdateScheduled = false;
 
     const MultiTextCursor m_cursors;
-    struct BlockSelection
-    {
-        int blockNumber = -1;
-        int column = -1;
-        int anchorBlockNumber = -1;
-        int anchorColumn = -1;
-    };
     QList<BlockSelection> m_blockSelections;
     QList<QTextCursor> generateCursorsForBlockSelection(const BlockSelection &blockSelection);
     void initBlockSelection();
@@ -1904,33 +1898,8 @@ void TextEditorWidgetPrivate::updateAutoCompleteHighlight()
 QList<QTextCursor> TextEditorWidgetPrivate::generateCursorsForBlockSelection(
     const BlockSelection &blockSelection)
 {
-    const TabSettingsData tabSettings = m_document->tabSettings();
-
-    QList<QTextCursor> result;
-    QTextBlock block = m_document->document()->findBlockByNumber(blockSelection.anchorBlockNumber);
-    QTextCursor cursor(block);
-    cursor.setPosition(block.position()
-                       + tabSettings.positionAtColumn(block.text(), blockSelection.anchorColumn));
-
-    const bool forward = blockSelection.blockNumber > blockSelection.anchorBlockNumber
-                         || (blockSelection.blockNumber == blockSelection.anchorBlockNumber
-                             && blockSelection.column == blockSelection.anchorColumn);
-
-    while (block.isValid()) {
-        const QString &blockText = block.text();
-        const int columnCount = tabSettings.columnCountForText(blockText);
-        if (blockSelection.anchorColumn <= columnCount || blockSelection.column <= columnCount) {
-            const int anchor = tabSettings.positionAtColumn(blockText, blockSelection.anchorColumn);
-            const int position = tabSettings.positionAtColumn(blockText, blockSelection.column);
-            cursor.setPosition(block.position() + anchor);
-            cursor.setPosition(block.position() + position, QTextCursor::KeepAnchor);
-            result.append(cursor);
-        }
-        if (block.blockNumber() == blockSelection.blockNumber)
-            break;
-        block = forward ? block.next() : block.previous();
-    }
-    return result;
+    return cursorsForBlockSelection(m_document->document(), m_document->tabSettings(),
+                                    blockSelection);
 }
 
 void TextEditorWidgetPrivate::initBlockSelection()
@@ -7069,7 +7038,7 @@ void TextEditorWidget::mouseMoveEvent(QMouseEvent *e)
 
         int anchorColumn = tabSettings.columnAt(anchorCursor.block().text(),
                                                 anchorCursor.positionInBlock());
-        const TextEditorWidgetPrivate::BlockSelection blockSelection = {eventCursor.blockNumber(),
+        const BlockSelection blockSelection = {eventCursor.blockNumber(),
                                                                         eventColumn,
                                                                         anchorCursor.blockNumber(),
                                                                         anchorColumn};
@@ -7155,7 +7124,7 @@ void TextEditorWidget::mousePressEvent(QMouseEvent *e)
 
                 const int anchorColumn
                     = tabSettings.columnAt(anchor.block().text(), anchor.positionInBlock());
-                const TextEditorWidgetPrivate::BlockSelection blockSelection
+                const BlockSelection blockSelection
                     = {cursor.blockNumber(), eventColumn, anchor.blockNumber(), anchorColumn};
 
                 multiCursor.addCursors(d->generateCursorsForBlockSelection(blockSelection));

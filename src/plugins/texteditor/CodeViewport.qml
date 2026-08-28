@@ -145,6 +145,9 @@ Item {
             // Set while a press is sitting on a selection without having moved
             // far enough to be a drag: -1 when there is no such press.
             property int pendingDragAt: -1
+            // Set while a drag that began with Alt is taking a rectangle
+            // of text rather than a run of it.
+            property bool blockSelecting: false
             property real pressX: 0
             property real pressY: 0
             // A drag of ours that came back down on this same viewport. Its own
@@ -187,11 +190,22 @@ Item {
                     return
                 }
                 // Alt+click puts another caret there rather than moving the
-                // one there is. Not with Ctrl, which is the modifier that
-                // follows a symbol - and takes Alt to mean "in a split".
+                // one there is, and Alt+Shift takes the rectangle from where
+                // the caret is to where the click landed. Not with Ctrl,
+                // which is the modifier that follows a symbol - and takes Alt
+                // to mean "in a split".
                 if ((mouse.modifiers & Qt.AltModifier)
                         && !(mouse.modifiers & Qt.ControlModifier)) {
-                    viewport.addCaretAt(position)
+                    if (mouse.modifiers & Qt.ShiftModifier) {
+                        viewport.anchorBlockSelection(-1)
+                        viewport.selectBlockTo(mouse.x, mouse.y)
+                    } else {
+                        // The caret stays where it was: this only records
+                        // where a drag would start from.
+                        viewport.addCaretAt(position)
+                        viewport.anchorBlockSelection(position)
+                        textArea.blockSelecting = true
+                    }
                     return
                 }
                 // Ctrl+click follows the symbol under the pointer rather than
@@ -243,6 +257,14 @@ Item {
                     }
                     return
                 }
+                // Alt held while dragging takes a rectangle rather than a
+                // run of text, which is a selection per line rather than one
+                // that wraps round the ends of them.
+                if (textArea.blockSelecting) {
+                    viewport.selectBlockTo(mouse.x, mouse.y)
+                    autoScroll.running = mouse.y < 0 || mouse.y > textArea.height
+                    return
+                }
                 textArea.dragX = mouse.x
                 textArea.dragY = mouse.y
                 textArea.extendSelection()
@@ -253,6 +275,7 @@ Item {
             }
             onReleased: {
                 autoScroll.stop()
+                textArea.blockSelecting = false
                 // The press never became a drag, so it was a click, and a click
                 // inside a selection puts the caret where it landed.
                 if (textArea.pendingDragAt >= 0) {
@@ -264,6 +287,7 @@ Item {
             }
             onCanceled: {
                 autoScroll.stop()
+                textArea.blockSelecting = false
                 textArea.pendingDragAt = -1
             }
 
