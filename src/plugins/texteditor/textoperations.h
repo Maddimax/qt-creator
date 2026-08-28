@@ -84,6 +84,12 @@ TEXTEDITOR_EXPORT QTextCursor selectLinesToMove(const QTextCursor &cursor);
 // are commented out, on the grounds that a comment's indentation is the
 // reader's business rather than the indenter's. Returns where the moved text
 // now starts.
+// Reflows the paragraph the caret is in to \a paragraphWidth columns, keeping
+// its indentation - or the prefix its lines share, which is what makes it work
+// on a doxygen comment without eating the stars.
+TEXTEDITOR_EXPORT void rewrapParagraph(QTextCursor &cursor, const TabSettingsData &ts,
+                                       int paragraphWidth);
+
 TEXTEDITOR_EXPORT int moveSelectedLines(QTextCursor &move, bool up, bool hadSelection,
                                         TextDocument *document,
                                         const Utils::CommentDefinition &comment);

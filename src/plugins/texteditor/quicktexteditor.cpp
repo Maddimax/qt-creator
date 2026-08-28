@@ -29,6 +29,7 @@
 
 #include <coreplugin/actionmanager/actioncontainer.h>
 #include <coreplugin/actionmanager/actionmanager.h>
+#include <coreplugin/actionmanager/command.h>
 #include <coreplugin/coreconstants.h>
 #include <coreplugin/dialogs/codecselector.h>
 #include <coreplugin/editormanager/editormanager.h>
@@ -353,6 +354,7 @@ public:
         command(Constants::COPY_LINE_DOWN, &TextViewport::copyLineDown);
         command(Constants::MOVE_LINE_UP, &TextViewport::moveLineUp);
         command(Constants::MOVE_LINE_DOWN, &TextViewport::moveLineDown);
+        command(Constants::REWRAP_PARAGRAPH, &TextViewport::rewrapParagraph);
 
         Core::ActionBuilder(this, Constants::JOIN_LINES)
             .setContext(Core::Context(m_editorContext))
@@ -741,6 +743,58 @@ private slots:
         view->setSelectionStart(6);
         view->setSelectionEnd(10);
         QCOMPARE(editor->selectedText(), QString("beta"));
+    }
+
+    // The point of registering these commands rather than only implementing
+    // them: the menu entry and whatever shortcut the reader has bound to it
+    // are the action, and an action registered in the widget editor's context
+    // does nothing while a Quick editor is the current one. Every test so far
+    // has called the viewport's method directly, which proves the command
+    // works and not that anything can reach it.
+    void testTheLineCommandsAreReachableAsCommands()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-commands");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("lines.txt");
+        QVERIFY(file.writeFileContents("first\n      second\nthird\n"));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+        auto * const view = quick->rootObject()->findChild<TextViewport *>();
+        QVERIFY(view);
+        QTRY_VERIFY(view->visibleLineCount() > 2);
+        view->setReadOnly(false);
+
+        Core::Command * const command = Core::ActionManager::command(Constants::JOIN_LINES);
+        QVERIFY2(command, "Join Lines is not a registered command at all");
+
+        // Asked of the editor's own context rather than of the front action.
+        // Whether the front action is enabled depends on what has focus, and
+        // in a test nothing does - it is disabled for a widget editor here
+        // too, so it cannot tell a registration apart from a missing one.
+        // Every id the editor carries, not the first: an editor's context is
+        // the editor type and an id of its own, and the commands are
+        // registered against the second.
+        const Core::Context context = editor->context();
+        QVERIFY2(!context.isEmpty(), "the editor has no context of its own");
+        QAction *action = nullptr;
+        for (const Utils::Id &id : context) {
+            if ((action = command->actionForContext(id)))
+                break;
+        }
+        QVERIFY2(action, "Join Lines is not registered in the Quick editor's context");
+
+        view->setCursorPosition(0);
+        action->trigger();
+
+        QTextDocument * const text = view->textDocument()->document();
+        QCOMPARE(text->findBlockByNumber(0).text(), QString("first second"));
     }
 
     void testAFileWithNoEditorOfItsOwnOpensHereToo()

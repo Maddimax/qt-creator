@@ -2274,6 +2274,17 @@ void TextViewport::moveLineUpOrDown(bool up)
     m_lineMoveJoinsUndo = true;
 }
 
+void TextViewport::rewrapParagraph()
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    if (isReadOnly() || !doc)
+        return;
+    QTextCursor cursor = textCursor();
+    TextEditor::rewrapParagraph(cursor, doc->tabSettings(),
+                                marginSettings().data().m_marginColumn);
+    setTextCursor(cursor);
+}
+
 void TextViewport::joinLines()
 {
     if (isReadOnly())

@@ -13584,3 +13584,39 @@ see it.
 The Quick editor answers 20 commands now. What is left of the list is
 `rewrapParagraph`, and the movement and clipboard commands that already work
 by key but are not registered as actions.
+
+## Rewrap Paragraph, and testing the claim the rest of these batches made
+
+`rewrapParagraph` is the last of the line commands and the least interesting
+of them: a long function with no widget in it at all, needing only the tab
+settings and the margin column. It moved across whole. The test reflows three
+short comment lines into one and checks the ` * ` they share is still at the
+front rather than folded into the middle, because keeping that prefix is the
+only subtle thing the function does.
+
+The more useful part of this batch was testing something six batches have
+asserted and none had checked. Every test so far called the viewport's method
+directly, which shows the command works, not that anything can reach it - and
+"the menu entry stops being dead" was the reason for registering them at all.
+
+Testing it took three tries, and the first two looked exactly like the feature
+being broken:
+
+1. `command->action()->isEnabled()` is **false**, and asking the same of a
+   widget editor in the same test gives false too. Whether the front action is
+   enabled depends on what has focus, and in a `-test` run nothing does. It
+   cannot tell a registration from a missing one, in either editor.
+2. `command->actionForContext(editor->context().at(0))` finds nothing, because
+   an editor's context is two ids - the editor type and one of its own - and
+   the commands are registered against the second.
+
+Asking every id in the editor's context finds the action, and triggering it
+joins the lines. Taking the registration out fails the test. So the claim
+holds, and there is now something that would notice if it stopped holding.
+
+Worth keeping in mind for the commands still unregistered: a shortcut is
+processed before the key event reaches the item, so registering an action for
+a key the viewport already handles takes that key away from the viewport's own
+handler. Those registrations are only safe where the action and the key path
+run the same code, which for movement means exposing what `handleMoveKeyEvent`
+does rather than writing a second version of it.

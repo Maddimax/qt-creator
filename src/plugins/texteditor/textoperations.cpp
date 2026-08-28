@@ -7,6 +7,7 @@
 #include "textdocument.h"
 
 #include <utils/multitextcursor.h>
+#include <utils/qtcassert.h>
 #include <utils/uncommentselection.h>
 
 #include <QRegularExpression>
@@ -353,6 +354,149 @@ int moveSelectedLines(QTextCursor &move, bool up, bool hadSelection, TextDocumen
         document->autoReindent(move);
 
     return start;
+}
+
+void rewrapParagraph(QTextCursor &cursor, const TabSettingsData &ts, int paragraphWidth)
+{
+    static const QRegularExpression anyLettersOrNumbers("\\w");
+
+    cursor.beginEditBlock();
+
+    // A single-line ("//") comment forms a paragraph on its own: it must not
+    // be merged with adjacent code lines, which are not part of the comment
+    // (QTCREATORBUG-31149).
+    static const QRegularExpression lineCommentLeader("^\\s*//+[/!]*");
+    const auto commentLeader = [](const QString &text) {
+        return lineCommentLeader.match(text).captured(0);
+    };
+    const bool inLineComment = !commentLeader(cursor.block().text()).isEmpty();
+
+    // Blank lines end a plain-text paragraph; a comment paragraph also ends
+    // where the run of "//" comment lines does.
+    const auto isParagraphBoundary = [&](const QString &text) {
+        if (inLineComment)
+            return commentLeader(text).isEmpty();
+        return !text.contains(anyLettersOrNumbers);
+    };
+
+    // Find start of paragraph.
+
+    while (cursor.movePosition(QTextCursor::PreviousBlock, QTextCursor::MoveAnchor)) {
+        QTextBlock block = cursor.block();
+        QString text = block.text();
+
+        // If this block ends the paragraph, move marker back and terminate.
+        if (isParagraphBoundary(text)) {
+            cursor.movePosition(QTextCursor::NextBlock, QTextCursor::MoveAnchor);
+            break;
+        }
+    }
+
+    cursor.movePosition(QTextCursor::StartOfBlock, QTextCursor::MoveAnchor);
+
+    // Find indent level of current block.
+    const QString text = cursor.block().text();
+    int indentLevel = ts.indentationColumn(text);
+
+    // If there is a common prefix, it should be kept and expanded to all lines.
+    // this allows nice reflowing of doxygen style comments.
+    QTextCursor nextBlock = cursor;
+    QString commonPrefix;
+
+    const QString doxygenPrefix("^\\s*(?:///|/\\*\\*|/\\*\\!|\\*)?[ *]+");
+    if (nextBlock.movePosition(QTextCursor::NextBlock))
+    {
+         QString nText = nextBlock.block().text();
+         int maxLength = qMin(text.size(), nText.size());
+
+         const auto hasDoxygenPrefix = [&] {
+             static const QRegularExpression pattern(doxygenPrefix);
+             return pattern.match(commonPrefix).hasMatch();
+         };
+
+         for (int i = 0; i < maxLength; ++i) {
+             const QChar ch = text.at(i);
+
+             if (ch != nText[i] || ch.isLetterOrNumber()
+                     || ((ch == '@' || ch == '\\' ) && hasDoxygenPrefix())) {
+                 break;
+             }
+             commonPrefix.append(ch);
+         }
+    }
+
+    // A lone "//" comment line has no following comment line to derive the
+    // common prefix from; take it from the comment leader itself, so the
+    // leader is preserved instead of being reflowed away.
+    if (commonPrefix.isEmpty() && inLineComment) {
+        static const QRegularExpression leaderWithSpace("^\\s*//+[/!]*\\s?");
+        commonPrefix = leaderWithSpace.match(cursor.block().text()).captured(0);
+    }
+
+    // Find end of paragraph.
+    static const QRegularExpression immovableDoxygenCommand(doxygenPrefix + "[@\\\\][a-zA-Z]{2,}");
+    QTC_CHECK(immovableDoxygenCommand.isValid());
+    while (cursor.movePosition(QTextCursor::NextBlock, QTextCursor::KeepAnchor)) {
+        QString text = cursor.block().text();
+
+        if (isParagraphBoundary(text) || immovableDoxygenCommand.match(text).hasMatch())
+            break;
+    }
+
+
+    QString selectedText = cursor.selectedText();
+
+    // Preserve initial indent level.or common prefix.
+    QString spacing;
+
+    if (commonPrefix.isEmpty()) {
+        spacing = ts.indentationString(0, indentLevel, 0);
+    } else {
+        spacing = commonPrefix;
+        indentLevel = ts.columnCountForText(spacing);
+    }
+
+    int currentLength = indentLevel;
+    QString result;
+    result.append(spacing);
+
+    // Remove existing instances of any common prefix from paragraph to
+    // reflow.
+    selectedText.remove(0, commonPrefix.size());
+    commonPrefix.prepend(QChar::ParagraphSeparator);
+    selectedText.replace(commonPrefix, QLatin1String("\n"));
+
+    // remove any repeated spaces, trim lines to PARAGRAPH_WIDTH width and
+    // keep the same indentation level as first line in paragraph.
+    QString currentWord;
+
+    for (const QChar &ch : std::as_const(selectedText)) {
+        if (ch.isSpace() && ch != QChar::Nbsp) {
+            if (!currentWord.isEmpty()) {
+                currentLength += currentWord.size() + 1;
+
+                if (currentLength > paragraphWidth) {
+                    currentLength = currentWord.size() + 1 + indentLevel;
+                    result.chop(1); // remove trailing space
+                    result.append(QChar::ParagraphSeparator);
+                    result.append(spacing);
+                }
+
+                result.append(currentWord);
+                result.append(QLatin1Char(' '));
+                currentWord.clear();
+            }
+
+            continue;
+        }
+
+        currentWord.append(ch);
+    }
+    result.chop(1);
+    result.append(QChar::ParagraphSeparator);
+
+    cursor.insertText(result);
+    cursor.endEditBlock();
 }
 
 } // namespace TextEditor

@@ -591,6 +591,7 @@ public:
     Q_INVOKABLE void copyLineDown();
     Q_INVOKABLE void moveLineUp();
     Q_INVOKABLE void moveLineDown();
+    Q_INVOKABLE void rewrapParagraph();
     // A rectangle of text, from where the caret is anchored to \a x, \a y.
     // One caret per line it covers, which is what makes it a selection that
     // can be typed over. The anchor is taken once, when the drag starts, so

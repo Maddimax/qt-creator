@@ -4499,6 +4499,44 @@ private slots:
         QCOMPARE(text->toPlainText(), before);
     }
 
+    // Rewrap Paragraph reflows the lines around the caret to the margin
+    // column, and keeps the prefix its lines share - which is what stops it
+    // eating the stars of a doxygen comment.
+    void testRewrappingKeepsTheSharedPrefix()
+    {
+        TemporaryDirectory dir("qtc-viewport-rewrap");
+        const FilePath file = dir.filePath("comment.txt");
+        // Three short comment lines that fit on one at 80 columns.
+        QVERIFY(file.writeFileContents(" * alpha beta\n * gamma delta\n * epsilon\n"));
+
+        const int wasMargin = marginSettings().data().m_marginColumn;
+        const QScopeGuard restore([wasMargin] {
+            MarginSettingsData data = marginSettings().data();
+            data.m_marginColumn = wasMargin;
+            marginSettings().setData(data);
+        });
+        MarginSettingsData wide = marginSettings().data();
+        wide.m_marginColumn = 80;
+        marginSettings().setData(wide);
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        viewport->setReadOnly(false);
+        QTRY_VERIFY(viewport->visibleLineCount() > 2);
+
+        QTextDocument * const text = viewport->textDocument()->document();
+        viewport->setCursorPosition(text->findBlockByNumber(1).position() + 3);
+        viewport->rewrapParagraph();
+
+        // One line now, and it still starts with the prefix rather than
+        // having had it folded into the middle of the text.
+        QCOMPARE(text->findBlockByNumber(0).text(),
+                 QString(" * alpha beta gamma delta epsilon"));
+        QCOMPARE(text->blockCount(), 2);
+    }
+
     // None of the line commands edits a buffer that is read only, the same
     // as a key press does not. One test for all of them: each has its own
     // guard, and a guard that is missing on one of them is exactly the kind
@@ -4544,6 +4582,7 @@ private slots:
         viewport->copyLineDown();
         viewport->moveLineUp();
         viewport->moveLineDown();
+        viewport->rewrapParagraph();
         // Last, and after the lower case one: both go through the same guard,
         // so with the guard gone they would run one after the other and put
         // the text back exactly as it was between them.
