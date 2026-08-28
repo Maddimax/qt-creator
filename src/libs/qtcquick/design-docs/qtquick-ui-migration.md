@@ -13179,3 +13179,44 @@ layouts has changed - the wrap width, the font, the tab width, breakindent or
 showbreak. It is not a change to make at the end of a batch: the invalidation
 set has to be right or the row count is wrong, and a wrong row count misplaces
 every line on screen.
+
+## A wrapped document was laid out again on every layout
+
+The last batch left this as the thing to look at, and the guess in it was
+wrong. `setTextWidth()` is not slow - 0.010 ms median. What it *does* is throw
+away the block layouts that could wrap differently, and the priming loop right
+after builds every one of them again. It was called on every layout, with the
+same width 38 times out of 50.
+
+Counting rather than timing, because timings here go through a sanitizer and
+counts do not: of 2618 blocks walked, **2585 were cold and every one of them
+was laid out again**. Not the first layout of each document - one document of
+101 blocks shows six consecutive layouts relaying 101, 100, 100, 100, 100, 100
+of them, with the width unchanged in five.
+
+So the width is only handed over when it changed:
+
+    blocks laid out   2585 -> 1007
+    priming loop      median 2.162 ms -> 0.081 ms, total 157 ms -> 67 ms
+
+The loop itself stays. What `lineCount()` answers depends on every block having
+been laid out, and an edit or a fold leaves some that have not; it is now a
+walk of cache hits rather than a rebuild. The 1007 that remain are the genuine
+first layout of each document.
+
+Three notes on how this was arrived at, because two of them are corrections:
+
+- `setTextWidth` was blamed first for being slow. It is not. It is cheap *and*
+  destructive, which is worse, and only counting the blocks it invalidated
+  showed that.
+- The new test written to guard the change did not guard it. Breaking the guard
+  deliberately - applying the width once and never again - left
+  `testNarrowingTheViewWrapsOverMoreRows` passing and failed two tests that
+  were already there, `testWideningTheViewportDoesNotLeaveItScrolledPastTheEnd`
+  and `testGoingToALineStillWorksAfterTheWidthChanges`. The premise it was
+  written on, that nothing covered a width changing after the first layout, was
+  false. It was removed rather than kept: a test that passes either way is
+  worse than no test, because it reads like cover.
+- The remaining walk is still O(document) per layout. Making it O(screen) means
+  `lineCount()` not needing every block, which is a change to
+  `TextEditorLayout`, not to this view.

@@ -777,6 +777,10 @@ private:
     QFont m_shapedWith;
     qreal m_shapedTabStop = -1;
     qreal m_shapedWrapWidth = -1;
+    // The width last handed to the document's layout, which is not the same
+    // number as the width rows are shaped at: it carries the margins and the
+    // line-separator glyph as well.
+    qreal m_documentTextWidth = -1;
 
     // Backspace between the two halves of a bracket pair removes both. That is
     // all the base AutoCompleter offers; inserting the closing half is a

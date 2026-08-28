@@ -808,6 +808,8 @@ Utils::TextEditorLayout *TextViewport::editorLayout()
     if (!m_editorLayout || m_editorLayout->document() != text) {
         delete m_editorLayout;
         m_editorLayout = new ViewportLayout(documentLayout);
+        // A layout that was just made has been told no width at all.
+        m_documentTextWidth = -1;
         // Owned by this view. TextEditorLayout takes the document as its
         // QObject parent, which would leave one behind per viewport that ever
         // showed the file.
@@ -3019,8 +3021,18 @@ void TextViewport::updatePolish()
         }
         rows->setBreakIndent(breakIndentOn, breakIndentMin, breakIndentShift);
         rows->setShowBreak(breakMarker, markerBeforeIndent);
-        static_cast<ViewportLayout *>(rows)->setTextWidth(
-            wrapWidth + 2 * text->documentMargin() + separator);
+        // Handing it the width it already has is not free: setTextWidth()
+        // throws away every block layout that could wrap differently, and the
+        // loop below then builds every one of them again. That is the whole
+        // document, per layout, for a width that did not change.
+        const qreal documentWidth = wrapWidth + 2 * text->documentMargin() + separator;
+        if (documentWidth != m_documentTextWidth) {
+            static_cast<ViewportLayout *>(rows)->setTextWidth(documentWidth);
+            m_documentTextWidth = documentWidth;
+        }
+        // Still every block: what lineCount() answers with depends on all of
+        // them being laid out, and an edit or a fold leaves some that are not.
+        // They are only rebuilt when something threw them away.
         for (QTextBlock b = text->firstBlock(); b.isValid(); b = b.next())
             rows->blockBoundingRect(b);
     }
