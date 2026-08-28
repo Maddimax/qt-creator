@@ -607,7 +607,7 @@ QVariantMap TextViewport::visibleLine(int index) const
                        {"annotation", line.annotation},
                        {"newlineTail", line.newlineTail},
                        // The selected part of this row, as one rectangle.
-                       {"selectionFill", line.selectionFill},
+                       {"selectionFills", QVariant::fromValue(line.selectionFills)},
                        // The spaces and tabs on this row, where they are shown.
                        {"whitespace", line.whitespace},
                        // The wrapped-line marker, where this row has one.
@@ -1785,6 +1785,38 @@ QRectF TextViewport::cursorRectangle() const
     return rectangleAt(m_cursorPosition);
 }
 
+QVariantList TextViewport::caretRectangles() const
+{
+    QVariantList rects;
+    rects.append(rectangleAt(m_cursorPosition));
+    for (const QTextCursor &cursor : m_extraCursors)
+        rects.append(rectangleAt(cursor.position()));
+    return rects;
+}
+
+Utils::MultiTextCursor TextViewport::multiTextCursor() const
+{
+    QList<QTextCursor> cursors = {textCursor()};
+    cursors.append(m_extraCursors);
+    return Utils::MultiTextCursor(cursors);
+}
+
+void TextViewport::setMultiTextCursor(const Utils::MultiTextCursor &cursors)
+{
+    QList<QTextCursor> all = cursors.cursors();
+    if (all.isEmpty()) {
+        m_extraCursors.clear();
+        return;
+    }
+    // The main one is the caret; the rest are extra. setTextCursor() is what
+    // moves the view and marks the caret for redrawing, so the main one still
+    // goes through it.
+    const QTextCursor main = cursors.mainCursor();
+    all.removeOne(main);
+    m_extraCursors = all;
+    setTextCursor(main);
+}
+
 QTextBlock TextViewport::cursorBlock() const
 {
     TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
@@ -2753,6 +2785,15 @@ void TextViewport::updatePolish()
     const int selectionTo = qMax(m_selectionStart, m_selectionEnd);
     const bool hasSelection = m_selectionStart >= 0 && m_selectionEnd >= 0
                               && selectionFrom != selectionTo;
+    // What every caret has selected, the main one included. Drawn per row
+    // below; a row usually meets none of these or one.
+    QList<QPair<int, int>> selectedRanges;
+    if (hasSelection)
+        selectedRanges.append({selectionFrom, selectionTo});
+    for (const QTextCursor &extra : std::as_const(m_extraCursors)) {
+        if (extra.hasSelection())
+            selectedRanges.append({extra.selectionStart(), extra.selectionEnd()});
+    }
 
     // The other places the selected text appears. Usually that is why it was
     // selected, so the widget editor shows them and this does too - same rule:
@@ -3175,13 +3216,16 @@ void TextViewport::updatePolish()
             // background is painted per glyph run, which leaves a gap wherever
             // the runs are split - at every highlight boundary and around the
             // spaces - so the fill is drawn behind the text instead.
-            if (hasSelection && textLine.isValid()) {
-                const int selFrom = qMax(selectionFrom, rowStart);
-                const int selTo = qMin(selectionTo, rowStart + length);
-                if (selTo > selFrom) {
-                    const qreal left = textLine.cursorToX(selFrom - rowStart);
-                    const qreal right = textLine.cursorToX(selTo - rowStart);
-                    line.selectionFill = QRectF(left, 0, right - left, m_lineHeight);
+            if (textLine.isValid()) {
+                for (const QPair<int, int> &range : std::as_const(selectedRanges)) {
+                    const int selFrom = qMax(range.first, rowStart);
+                    const int selTo = qMin(range.second, rowStart + length);
+                    if (selTo > selFrom) {
+                        const qreal left = textLine.cursorToX(selFrom - rowStart);
+                        const qreal right = textLine.cursorToX(selTo - rowStart);
+                        line.selectionFills.append(
+                            QRectF(left, 0, right - left, m_lineHeight));
+                    }
                 }
             }
 
@@ -3419,9 +3463,9 @@ QSGNode *TextViewport::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
             rect->setColor(band.value("colour").value<QColor>());
             root->appendChildNode(rect);
         }
-        if (!line.selectionFill.isEmpty()) {
+        for (const QRectF &selected : line.selectionFills) {
             QSGRectangleNode * const fill = win->createRectangleNode();
-            fill->setRect(line.selectionFill.translated(line.at));
+            fill->setRect(selected.translated(line.at));
             fill->setColor(m_selectionColour);
             root->appendChildNode(fill);
         }

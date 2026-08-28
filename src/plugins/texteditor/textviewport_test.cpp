@@ -2309,7 +2309,7 @@ private slots:
         };
         // Line 6 is the fourth row now, and it is the one with a selection on
         // it. A row kept because the first one matched would show none.
-        QTRY_VERIFY2(!rowFromModel(3).value("selectionFill").toRectF().isEmpty(),
+        QTRY_VERIFY2(!rowFromModel(3).value("selectionFills").value<QList<QRectF>>().isEmpty(),
                      "the selected row was kept from before it was selected");
     }
 
@@ -4754,7 +4754,9 @@ private slots:
         QTRY_VERIFY(viewport->visibleLineCount() > 3);
 
         const auto fillOn = [viewport](int row) {
-            return viewport->visibleLine(row).value("selectionFill").toRectF();
+            const QList<QRectF> fills
+                = viewport->visibleLine(row).value("selectionFills").value<QList<QRectF>>();
+            return fills.isEmpty() ? QRectF() : fills.first();
         };
         QVERIFY2(fillOn(2).isEmpty(), "a row with no selection was filled");
 
@@ -4799,7 +4801,9 @@ private slots:
         QTRY_VERIFY(viewport->visibleLineCount() > 0);
 
         const auto fillOn = [viewport](int row) {
-            return viewport->visibleLine(row).value("selectionFill").toRectF();
+            const QList<QRectF> fills
+                = viewport->visibleLine(row).value("selectionFills").value<QList<QRectF>>();
+            return fills.isEmpty() ? QRectF() : fills.first();
         };
 
         // Sideways first, while there is still one row per line: the fill is
@@ -6164,6 +6168,71 @@ private slots:
         QVERIFY2(at.x() < lineWidth,
                  qPrintable(QString("message starts at %1, past the text at %2")
                                 .arg(at.x()).arg(lineWidth)));
+    }
+
+    void testASecondCaretIsDrawnAndSelectsAlongsideTheFirst()
+    {
+        // The viewport draws what its list of carets says, rather than one.
+        // Nothing puts a second one there yet; this is what will show it when
+        // something does.
+        TemporaryDirectory dir("textviewport-carets");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("carets.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\ngamma\n"));
+
+        CodeViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 2);
+
+        // Counted rather than looked at: a caret is only visible while the
+        // window has the focus, and that cannot be had reliably here.
+        const auto caretsDrawn = [&fixture] {
+            int drawn = 0;
+            for (QQuickItem * const item : allItems(fixture.root)) {
+                if (item->objectName() == "caret")
+                    ++drawn;
+            }
+            return drawn;
+        };
+        const auto fillsOnRow = [viewport](int row) {
+            return viewport->visibleLine(row).value("selectionFills")
+                .value<QList<QRectF>>().size();
+        };
+
+        QTRY_COMPARE(caretsDrawn(), 1);
+        QCOMPARE(viewport->caretRectangles().size(), 1);
+
+        QTextDocument * const text = viewport->document()->textDocument()->document();
+        // "alpha\n" is 0-5, "beta\n" is 6-10.
+        QTextCursor first(text);
+        first.setPosition(0);
+        first.setPosition(3, QTextCursor::KeepAnchor);
+        QTextCursor second(text);
+        second.setPosition(6);
+        second.setPosition(9, QTextCursor::KeepAnchor);
+        viewport->setMultiTextCursor(Utils::MultiTextCursor({first, second}));
+
+        QTRY_COMPARE(caretsDrawn(), 2);
+        QCOMPARE(viewport->caretRectangles().size(), 2);
+        // One selected run on each of the first two rows.
+        QTRY_COMPARE(fillsOnRow(0), 1);
+        QCOMPARE(fillsOnRow(1), 1);
+
+        // Two selections on one row are two runs on that row, which is the
+        // part a single rectangle could not have said.
+        QTextCursor third(text);
+        third.setPosition(0);
+        third.setPosition(2, QTextCursor::KeepAnchor);
+        QTextCursor fourth(text);
+        fourth.setPosition(3);
+        fourth.setPosition(5, QTextCursor::KeepAnchor);
+        viewport->setMultiTextCursor(Utils::MultiTextCursor({third, fourth}));
+
+        QTRY_COMPARE(fillsOnRow(0), 2);
+        QCOMPARE(fillsOnRow(1), 0);
     }
 
     void testWhatQmlDrawsOverTheTextFollowsAGapToo()

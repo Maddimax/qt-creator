@@ -12684,3 +12684,43 @@ deleted, which is a decision about someone else's build tree rather than
 something to do quietly. Per plugin runs are unaffected, and between them they
 cover Core, TextEditor, QuickUi, CppEditor, Git, DiffEditor, VcsBase, Macros,
 ProjectExplorer, QmlJSEditor, Python and LanguageClient.
+
+### Drawing more than one caret
+
+The first step of multiple cursors, and the one that stands up on its own: the
+viewport draws what its list of carets says rather than assuming there is one.
+
+- `caretRectangles` is a list, one entry per caret, and the QML caret becomes a
+  `Repeater` over it.
+- `Line::selectionFill` - one `QRectF` per row - becomes `selectionFills`, and
+  the row loop emits one per selected range reaching into that row.
+- `multiTextCursor()` and `setMultiTextCursor()` sit beside the existing
+  `textCursor()` pair. The main cursor is still the position and selection this
+  has always kept, so every accessor - `cursorLine`, `cursorColumn`,
+  `cursorBlock`, the lot - keeps answering exactly what it did.
+
+Nothing creates a second caret yet, so nothing changes for a reader. What the
+test does is install two cursors directly and check that two carets are drawn
+and that a row with two selected runs reports two fills - the part a single
+rectangle could not have expressed.
+
+Two things went wrong, and both were caught rather than reasoned about.
+
+The first was the renamed model key. Three existing tests read
+`selectionFill` and went red immediately, which is the rename working as it
+should: they were reading a key that no longer exists.
+
+The second is subtler and was a real bug. `caretRectangles` was given
+`NOTIFY cursorPositionChanged`, which sounds right and is not: where a caret is
+*on screen* is only known once the rows are laid out, and that happens after
+the position last changed. The existing property for this,
+`cursorRectangle`, is notified by `cursorRectangleChanged` for exactly that
+reason. With the wrong signal the carets kept a pre-layout, zero width
+rectangle - and what caught it was `testIndentGuidesFollowTheIndentation`,
+which now asserts the caret is one pixel wide at row 0. That assertion existed
+only because of the flake fix in the previous batch; a week ago this would have
+shipped.
+
+Two hover tests failed in one run and passed in the two after it. They are the
+physical pointer artefact recorded earlier, not the wrapping `Item` - which is
+zero by zero, accepts nothing, and sits where the caret Rectangle used to.

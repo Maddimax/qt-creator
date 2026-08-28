@@ -8,6 +8,7 @@
 #include "texteditor_global.h"
 
 #include <utils/id.h>
+#include <utils/multitextcursor.h>
 #include <utils/link.h>
 
 #include <QAbstractItemModel>
@@ -161,6 +162,13 @@ class TEXTEDITOR_EXPORT TextViewport : public QQuickItem, public HoverTarget
     // Where the caret is in the terms an editor talks about it: line and
     // column, both counting from one, both of the document rather than of the
     // screen. What a status bar shows and what "copy path and line" copies.
+    // Every caret's rectangle, the main one first. One entry until something
+    // adds a second caret; QML draws what is in here rather than assuming the
+    // count.
+    // Notified with the rectangle rather than with the position: where a caret
+    // is on screen is only known once the rows are laid out, which is after
+    // the position last changed.
+    Q_PROPERTY(QVariantList caretRectangles READ caretRectangles NOTIFY cursorRectangleChanged)
     Q_PROPERTY(int cursorLine READ cursorLine NOTIFY cursorPositionChanged)
     Q_PROPERTY(int cursorColumn READ cursorColumn NOTIFY cursorPositionChanged)
     // The column as the reader counts it, with a tab spanning as many columns
@@ -536,6 +544,14 @@ public:
     void setTextCursor(const QTextCursor &cursor);
 
     int cursorPosition() const;
+    QVariantList caretRectangles() const;
+    // The carets as one thing. The main one is the position and selection this
+    // has always kept; the rest are extra. Utils::MultiTextCursor is what the
+    // widget editor holds too, and it already knows how to apply an edit to
+    // several cursors in one undo step and in an order that does not shift the
+    // ones not yet reached.
+    Utils::MultiTextCursor multiTextCursor() const;
+    void setMultiTextCursor(const Utils::MultiTextCursor &cursors);
     void setCursorPosition(int position);
     QRectF cursorRectangle() const;
 
@@ -653,11 +669,12 @@ private:
         // Where a selection runs past the end of the line. Empty otherwise.
         QRectF newlineTail;
         QColor newlineTailColour;
-        // The selected part of this row, as one rectangle. The format ranges
+        // The selected parts of this row. One per caret that has a selection
+        // reaching into it, so usually none or one. The format ranges
         // carry the selection's colours, but a background on a format range is
         // painted per glyph run, so it comes out in pieces with gaps between
         // them - see updatePaintNode().
-        QRectF selectionFill;
+        QList<QRectF> selectionFills;
         // Where the spaces and tabs on this row are, when they are being
         // shown. QSGTextNode draws glyph runs and nothing else - the dots and
         // arrows QTextLine::draw() would add are not among them - so they are
@@ -773,6 +790,9 @@ private:
     QPointer<SyntaxHighlighter> m_connectedHighlighter;
     qreal m_scrollY = 0;
     qreal m_scrollX = 0;
+    // The carets after the first. The main one stays a position and a
+    // selection, so everything that asks about "the caret" keeps its answer.
+    QList<QTextCursor> m_extraCursors;
     int m_selectionStart = -1;
     int m_selectionEnd = -1;
     int m_cursorPosition = 0;

@@ -662,25 +662,47 @@ Item {
             // The caret. A Rectangle because that is what it is; the viewport
             // draws text and says where the caret belongs, and an empty rect
             // is how it says the position is scrolled off screen.
-            Rectangle {
-                id: caret
+            // One per caret. A single timer for all of them: carets blinking
+            // out of phase with each other would be unreadable, and each
+            // delegate owning one is how that happens.
+            Item {
+                id: carets
 
-                objectName: "caret"
+                property real blink: 1
+                readonly property bool shown: viewport.activeFocus
 
-                x: viewport.cursorRectangle.x
-                y: viewport.cursorRectangle.y
-                width: viewport.cursorRectangle.width
-                height: viewport.cursorRectangle.height
-                visible: viewport.cursorRectangle.width > 0 && viewport.activeFocus
-                color: Tokens.textDefault
+                Repeater {
+                    model: viewport.caretRectangles
+
+                    delegate: Rectangle {
+                        required property rect modelData
+
+                        objectName: "caret"
+
+                        x: modelData.x
+                        y: modelData.y
+                        width: modelData.width
+                        height: modelData.height
+                        visible: modelData.width > 0 && carets.shown
+                        opacity: carets.blink
+                        color: Tokens.textDefault
+                    }
+                }
 
                 Timer {
-                    running: caret.visible
+                    running: carets.shown
                     repeat: true
                     // The platform's own blink rate, halved because one blink
                     // is two of these. Zero or less means do not blink at all.
                     interval: Application.styleHints.cursorFlashTime / 2
-                    onTriggered: caret.opacity = caret.opacity > 0 ? 0 : 1
+                    onTriggered: carets.blink = carets.blink > 0 ? 0 : 1
+                }
+
+                // Steady again whenever the carets move, so that typing does
+                // not leave one invisible half the time.
+                Connections {
+                    target: viewport
+                    function onCursorRectangleChanged(): void { carets.blink = 1 }
                 }
             }
         }
