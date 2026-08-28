@@ -12408,3 +12408,42 @@ was of `src/plugins` for `qobject_cast<BaseTextEditor *>` and this site is one
 of the ones it listed as "needs editorWidget - blocked on porting". It was
 filed as blocked when it was in fact broken. What separated the two was running
 the tests of a plugin I had no reason to think I had touched.
+
+## The survey that could not have found them
+
+The Git regression was in a site my earlier cast survey had listed as "needs
+editorWidget - blocked on porting". Filed as blocked; actually broken. Looking
+at why, the survey itself was worse than that:
+
+    grep -rn "qobject_cast<BaseTextEditor" src/plugins --include=*.cpp
+
+Forty hits, duly classified. But the Git site reads
+`qobject_cast<TextEditor::BaseTextEditor *>`, and that string does not contain
+`qobject_cast<BaseTextEditor`. **Every namespace-qualified use was invisible to
+the search**, and there are twenty-five of them - a survey that missed 38% of
+its subject while reporting a confident three-way classification of the rest.
+
+Of the twenty-five, most are language editors a plain text file cannot reach.
+Two were not:
+
+- `macros/texteditormacrohandler.cpp` records keystrokes by installing an
+  event filter on the current editor's widget. The cast is null-checked, so
+  recording a macro in a plain text file now quietly records nothing.
+- `lua/luaplugin.cpp` adds a Run button to the tool bar of a script:
+
+      auto textEditor = qobject_cast<TextEditor::BaseTextEditor *>(editor);
+      TextEditor::TextEditorWidget *editorWidget = textEditor->editorWidget();
+
+  Unchecked, because when it was written every text file opened in a widget.
+  Lua registers no editor of its own, so a script is a plain text file, and
+  opening one from the scripts directory is a null dereference.
+
+That last one is the shape to remember. The other twenty-four sites are all
+null-checked; this one was not, and the reason it was not is that the
+assumption held when it was written. A default that changes does not break the
+code that tested the assumption - it breaks the code that had no reason to.
+
+The reachability is now asserted rather than reasoned: a test says the default
+editor for a lua script is the Quick editor. If someone gives Lua an editor of
+its own the test fails, which is the right moment to ask whether the guard
+still has a reason.
