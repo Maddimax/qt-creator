@@ -4255,6 +4255,34 @@ private slots:
         QCOMPARE(viewport->cursorPosition(), 14);
     }
 
+    void testASelectionPastTheEndIsStillASelection()
+    {
+        // Asking for more than there is - selecting "to 200" in a short file,
+        // or an edit shortening the document under a selection that was in
+        // range when it was made. QTextCursor refuses a position past the end
+        // and keeps the one it had, so a cursor built from the two ends came
+        // back with nothing selected at all while the viewport still drew the
+        // selection.
+        TemporaryDirectory dir("textviewport-past-the-end");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("short.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        viewport->setSelectionStart(0);
+        viewport->setSelectionEnd(200);
+
+        // Everything, rather than nothing.
+        QCOMPARE(viewport->selectedText(), QString("alpha\nbeta\n"));
+        QVERIFY(viewport->textCursor().hasSelection());
+    }
+
     void testTypingGoesInAtEveryCaret()
     {
         // What a second caret is for. The edits are one undo step, because

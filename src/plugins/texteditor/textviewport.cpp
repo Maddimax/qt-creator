@@ -558,18 +558,28 @@ void TextViewport::rebuildVisibleLines()
     m_visibleLines.clear();
     m_visibleLines.reserve(int(m_lines.size()));
     for (int i = 0; i < int(m_lines.size()); ++i)
-        m_visibleLines.append(visibleLine(i));
+        m_visibleLines.append(rowData(i, ForDrawing));
     static_cast<VisibleRowsModel *>(visibleRows())->setRows(m_visibleLines);
 }
 
 QVariantMap TextViewport::visibleLine(int index) const
 {
+    return rowData(index, WithIntrospection);
+}
+
+QVariantMap TextViewport::rowData(int index, RowDetail detail) const
+{
     if (index < 0 || index >= int(m_lines.size()))
         return {};
 
     const Line &line = m_lines.at(index);
+    // The formats over the row, the scope bands behind it and the selection
+    // fills on it are read by tests and by nothing in QML. Building them for
+    // every row of every layout was more than half of what a layout cost, so
+    // the model QML reads leaves them out.
     QVariantList formats;
-    const QList<QTextLayout::FormatRange> ranges = line.layout->formats();
+    const QList<QTextLayout::FormatRange> ranges
+        = detail == WithIntrospection ? line.layout->formats() : QList<QTextLayout::FormatRange>();
     for (const QTextLayout::FormatRange &range : ranges) {
         formats.append(QVariantMap{{"start", range.start},
                                    {"length", range.length},
@@ -1027,9 +1037,14 @@ QTextCursor TextViewport::textCursor() const
     // position, and collapsing it has to keep that straight.
     const bool selected = m_selectionStart >= 0 && m_selectionEnd >= 0
                           && m_selectionStart != m_selectionEnd;
-    cursor.setPosition(selected ? m_selectionStart : m_cursorPosition);
+    // Clamped: a position past the end is refused by QTextCursor, which keeps
+    // the one it had - so a selection running past the end came back as no
+    // selection at all, while the viewport went on drawing one. A selection
+    // can outlive the text it was made in, an edit being all it takes.
+    const int last = text->characterCount() - 1;
+    cursor.setPosition(qBound(0, selected ? m_selectionStart : m_cursorPosition, last));
     if (selected)
-        cursor.setPosition(m_selectionEnd, QTextCursor::KeepAnchor);
+        cursor.setPosition(qBound(0, m_selectionEnd, last), QTextCursor::KeepAnchor);
     return cursor;
 }
 
@@ -2822,6 +2837,7 @@ void TextViewport::appendHighlights(QList<QTextLayout::FormatRange> &formats,
 
 void TextViewport::updatePolish()
 {
+
     // Last time's rows, to be taken from rather than thrown away: scrolling
     // brings back text that has already been shaped, and shaping it again is
     // most of what a layout costs.
