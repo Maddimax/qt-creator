@@ -442,13 +442,24 @@ been recorded wrongly:
   class *is* a widget - a `QScrollBar`, a `QAbstractScrollArea` and an overlay
   - but what it holds is a list of places and colours. The viewport reports
   the same list as fractions of the document's height, and the QML bar draws
-  them. Marks and the caret are in; search results are not, coming from the
-  find machinery rather than from the document.
+  them. Search results are on it too now: they were the thing the setting is
+  named after, and leaving them out left a match below the fold saying nothing
+  about where it was. A highlight kind says whether it belongs on the bar and
+  in which colour - the theme keeps a separate one for that, and it is not the
+  colour the match is drawn in.
 - **`animateMatchingParentheses` defaults to `true`** as well, and is **done**
   now. It also turned out to gate more than the animation: the widget editor
   looks for a match when *either* it or the highlight is on, and the Quick
   editor only looked when the highlight was on - so with the highlight off and
   the animation on, it did nothing at all rather than pulsing.
+
+**A guard that compiles and never fires.** The per-row de-duplication for the
+bar was first written as `if (!already.insert(key).operator->()) return;`.
+`QSet::insert` hands back an iterator, and its `operator->` is never null, so
+the guard did nothing - it compiled, it read like a check, and every match got
+its own mark. Found by reading it back rather than by a test, because the
+fixture at the time had one match per line and could not have told the
+difference. The fixture was widened first, *then* the control was run.
 
 **Three of the four controls on the pulse did not bite at first, and every one
 of them was the test's fault.** Worth listing, because they are three
