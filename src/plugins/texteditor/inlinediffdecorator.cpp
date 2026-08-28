@@ -34,8 +34,9 @@ constexpr int INLINE_DIFF_FORMAT_PROPERTY_ID = QTextFormat::UserProperty + 44;
 // Deletion runs longer than this are elided to keep the ghost rows scannable.
 constexpr int maxGhostLines = 100;
 
-void applyInlineDiffGhosts(TextViewport *viewport,
-                           const QList<InlineDiffDecorator::GhostBlock> &ghosts)
+void applyInlineDiff(TextViewport *viewport,
+                     const QList<InlineDiffDecorator::GhostBlock> &ghosts,
+                     const QList<InlineDiffDecorator::ChangedRange> &changes)
 {
     QTC_ASSERT(viewport, return);
 
@@ -61,6 +62,18 @@ void applyInlineDiffGhosts(TextViewport *viewport,
         rows.append({row, text});
     }
     viewport->setGhostRows(rows);
+
+    // A range is a run of lines; the viewport wants them one at a time, with
+    // whichever characters of each one differ.
+    QList<TextViewport::ChangedLine> changedLines;
+    for (const InlineDiffDecorator::ChangedRange &range : changes) {
+        for (int line = range.startLine; line <= qMin(range.endLine, lines); ++line) {
+            if (line < 1)
+                continue;
+            changedLines.append({line, range.charHighlights.value(line)});
+        }
+    }
+    viewport->setChangedLines(changedLines);
 }
 
 Utils::Id inlineDiffGhostCategory()

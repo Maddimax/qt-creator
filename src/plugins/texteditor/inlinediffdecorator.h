@@ -99,7 +99,9 @@ private:
 // TextEditorWidget and does the whole job - the changed line highlights, the
 // character level ones, the spacers; this is the ghost rows alone, for the
 // view that has no widget to decorate.
-TEXTEDITOR_EXPORT void applyInlineDiffGhosts(
-    TextViewport *viewport, const QList<InlineDiffDecorator::GhostBlock> &ghosts);
+TEXTEDITOR_EXPORT void applyInlineDiff(
+    TextViewport *viewport,
+    const QList<InlineDiffDecorator::GhostBlock> &ghosts,
+    const QList<InlineDiffDecorator::ChangedRange> &changes = {});
 
 } // namespace TextEditor

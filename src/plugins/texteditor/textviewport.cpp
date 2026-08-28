@@ -1091,6 +1091,42 @@ void TextViewport::setRowGaps(const QList<Gap> &gaps)
         polish();
 }
 
+void TextViewport::setChangedLines(const QList<ChangedLine> &lines)
+{
+    if (lines == m_changedLines)
+        return;
+    m_changedLines = lines;
+    m_changedByLine.clear();
+    for (const ChangedLine &changed : std::as_const(m_changedLines))
+        m_changedByLine.insert(changed.line, changed.chars);
+    polish();
+}
+
+QStringList TextViewport::changedTextOnScreen() const
+{
+    QStringList texts;
+    for (const Line &line : m_lines) {
+        if (!line.layout)
+            continue;
+        const QString text = line.layout->text();
+        for (const QTextLayout::FormatRange &range : line.layout->formats()) {
+            if (range.format == m_changedCharFormat && range.length > 0)
+                texts.append(text.mid(range.start, range.length));
+        }
+    }
+    return texts;
+}
+
+QList<int> TextViewport::changedRowsOnScreen() const
+{
+    QList<int> rows;
+    for (const Line &line : m_lines) {
+        if (line.diffFill.isValid() && line.diffFill.alpha() > 0)
+            rows.append(line.lineNumber);
+    }
+    return rows;
+}
+
 void TextViewport::setGhostRows(const QList<GhostRows> &ghosts)
 {
     if (ghosts == m_ghosts)
@@ -2669,6 +2705,12 @@ void TextViewport::updatePolish()
     // background paints nothing and the palette shows through. A colour has no
     // way to say "nothing", and QBrush().color() is black, so ask the theme
     // instead of painting the fallback black.
+    // What a diff paints over a line it changed, and over the characters in it
+    // that differ. Read once a layout rather than per row.
+    const QBrush changedBrush = fonts.toTextCharFormat(C_DIFF_DEST_LINE).background();
+    m_changedBackground = changedBrush.style() == Qt::NoBrush ? QColor() : changedBrush.color();
+    m_changedCharFormat = fonts.toTextCharFormat(C_DIFF_DEST_CHAR);
+
     const QBrush backgroundBrush = fonts.toTextCharFormat(C_TEXT).background();
     m_background = backgroundBrush.style() == Qt::NoBrush
                        ? Utils::creatorColor(Utils::Theme::BackgroundColorNormal)
@@ -3026,6 +3068,25 @@ void TextViewport::updatePolish()
                 formats.append(clipped);
             }
 
+            // What a diff says about this line. The marks go on before the
+            // reuse check below, or a row whose diff changed would be taken
+            // from last time with the old marks still on it.
+            if (const auto changed = m_changedByLine.constFind(line.lineNumber);
+                changed != m_changedByLine.cend()) {
+                line.diffFill = m_changedBackground;
+                for (const QPair<int, int> &range : *changed) {
+                    const int rangeFrom = qMax(range.first, from);
+                    const int rangeTo = qMin(range.first + range.second, from + length);
+                    if (rangeTo <= rangeFrom)
+                        continue;
+                    QTextLayout::FormatRange mark;
+                    mark.start = rangeFrom - from;
+                    mark.length = rangeTo - rangeFrom;
+                    mark.format = m_changedCharFormat;
+                    formats.append(mark);
+                }
+            }
+
             // Composing text belongs to the row the caret is on and to no
             // other, and it is not in the document: setPreeditArea() is where a
             // layout keeps text that is being typed but not committed.
@@ -3310,6 +3371,12 @@ QSGNode *TextViewport::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
     for (const Line &line : m_lines) {
         // Below the selection and the text: this is the page the row is drawn
         // on, not a mark on it.
+        if (line.diffFill.isValid() && line.diffFill.alpha() > 0) {
+            QSGRectangleNode * const fill = win->createRectangleNode();
+            fill->setRect(QRectF(0, line.at.y(), width(), m_lineHeight));
+            fill->setColor(line.diffFill);
+            root->appendChildNode(fill);
+        }
         for (const QVariant &entry : line.scopeBands) {
             const QVariantMap band = entry.toMap();
             QSGRectangleNode * const rect = win->createRectangleNode();

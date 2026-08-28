@@ -12204,3 +12204,34 @@ What is still missing before this is a feature rather than a mechanism: the
 `changes` half - the full width highlight on lines a diff has added or
 modified - has no equivalent in the viewport yet, and character level
 highlights within a ghost line are carried in the description but not drawn.
+
+### The other half of a diff
+
+Removed lines needed a new kind of row. Changed lines need nothing of the
+sort: they are the document's own rows, with a background under them and the
+characters that differ marked over the top - the same two scheme entries the
+widget uses, `C_DIFF_DEST_LINE` and `C_DIFF_DEST_CHAR`.
+
+One thing about where the marks go in. A row's formats are assembled by
+clipping the block's formats to the row's slice, and then the row is compared
+against last layout's rows to see whether one can be reused:
+
+    if (it->layout->text() == rowText && it->layout->formats() == formats) {
+
+The diff marks have to be appended to `formats` *before* that comparison. Put
+them in afterwards and a row whose diff changed still matches last time's, so
+the old marks stay on it - the row would be reused precisely because the thing
+that changed was not being compared. The comparison is the reuse rule and
+anything that affects what a row looks like has to be inside it.
+
+The applier grew the second half at the same time and became
+`applyInlineDiff(viewport, ghosts, changes)`, since a caller has both and
+wants one call. A `ChangedRange` is a run of lines; the viewport takes them
+one at a time with whichever characters of each differ, because that is what
+it looks a row up by.
+
+Controls, run together because they fail different tests at different
+assertions: filling only the line a range starts on, and appending no
+character marks. The first fails the range test with `{2}` where `{2, 3, 4}`
+was expected, the second fails the fill test on its marks while its fill
+assertion still passes.

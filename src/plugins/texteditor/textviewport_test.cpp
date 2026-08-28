@@ -5983,20 +5983,76 @@ private slots:
         const int lines = viewport->lineCount();
 
         // Removed from above the second line, so above the second row.
-        applyInlineDiffGhosts(viewport, {{2, {"was here"}, {}}});
+        applyInlineDiff(viewport, {{2, {"was here"}, {}}});
         QTRY_COMPARE(viewport->ghostTextOnScreen(), QStringList({"was here"}));
         QCOMPARE(viewport->ghostRows().size(), 1);
         QCOMPARE(viewport->ghostRows().first().row, 1);
 
         // One past the last line is the end of the file rather than a line.
-        applyInlineDiffGhosts(viewport, {{lines + 1, {"at the end"}, {}}});
+        applyInlineDiff(viewport, {{lines + 1, {"at the end"}, {}}});
         QTRY_COMPARE(viewport->ghostRows().size(), 1);
         QCOMPARE(viewport->ghostRows().first().row, viewport->rowCount());
 
         // Further than that describes a document this is not, which happens
         // while a diff of the current contents is still being computed.
-        applyInlineDiffGhosts(viewport, {{lines + 2, {"nowhere"}, {}}});
+        applyInlineDiff(viewport, {{lines + 2, {"nowhere"}, {}}});
         QTRY_VERIFY(viewport->ghostRows().isEmpty());
+    }
+
+    void testAChangedLineIsFilledAndItsDifferingCharactersMarked()
+    {
+        // The other half of a diff: lines the file has that the baseline does
+        // not. The whole line takes a background, and the characters that
+        // actually differ are marked over the top of it.
+        TemporaryDirectory dir("textviewport-changes");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("changed.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\ngamma\ndelta\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+        QVERIFY(viewport->changedRowsOnScreen().isEmpty());
+
+        // Line 2 is "beta"; characters 1 to 2 of it are "et".
+        InlineDiffDecorator::ChangedRange range;
+        range.startLine = 2;
+        range.endLine = 2;
+        range.charHighlights.insert(2, {{1, 2}});
+        applyInlineDiff(viewport, {}, {range});
+
+        QTRY_COMPARE(viewport->changedRowsOnScreen(), QList<int>({2}));
+        QCOMPARE(viewport->changedTextOnScreen(), QStringList({"et"}));
+    }
+
+    void testAChangedRangeCoversEveryLineInIt()
+    {
+        // A range is a run of lines and every one of them is part of it, not
+        // just the one it starts on.
+        TemporaryDirectory dir("textviewport-change-range");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("changed.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\ngamma\ndelta\nepsilon\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 4);
+
+        InlineDiffDecorator::ChangedRange range;
+        range.startLine = 2;
+        range.endLine = 4;
+        applyInlineDiff(viewport, {}, {range});
+
+        QTRY_COMPARE(viewport->changedRowsOnScreen(), QList<int>({2, 3, 4}));
+        // No character marks were given, so the lines are filled and nothing
+        // inside them is picked out.
+        QVERIFY(viewport->changedTextOnScreen().isEmpty());
     }
 
     void testALongRemovalIsElidedRatherThanShownWhole()
@@ -6018,7 +6074,7 @@ private slots:
         QStringList removed;
         for (int i = 0; i < 150; ++i)
             removed << QString("gone %1").arg(i);
-        applyInlineDiffGhosts(viewport, {{2, removed, {}}});
+        applyInlineDiff(viewport, {{2, removed, {}}});
         QTRY_COMPARE(viewport->ghostRows().size(), 1);
 
         // The first hundred, and one line saying what is not shown.

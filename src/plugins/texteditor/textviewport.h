@@ -326,6 +326,22 @@ public:
         QStringList lines;
         bool operator==(const GhostRows &other) const = default;
     };
+    // Lines a diff has added or changed. The whole line takes a background,
+    // and the characters that differ within it are marked over the top - the
+    // same two scheme entries the decorated widget uses.
+    struct ChangedLine
+    {
+        int line = 1;                 // 1-based
+        QList<QPair<int, int>> chars; // (start, length), within the line
+        bool operator==(const ChangedLine &other) const = default;
+    };
+    void setChangedLines(const QList<ChangedLine> &lines);
+    QList<ChangedLine> changedLines() const { return m_changedLines; }
+    // The text the character level marks cover, in document order (for tests).
+    QStringList changedTextOnScreen() const;
+    // The line numbers of the rows carrying a diff's background (for tests).
+    QList<int> changedRowsOnScreen() const;
+
     void setGhostRows(const QList<GhostRows> &ghosts);
     QList<GhostRows> ghostRows() const { return m_ghosts; }
     // What is laid out on screen right now, in document order (for tests).
@@ -584,6 +600,9 @@ private:
 
         std::unique_ptr<QTextLayout> layout;
         QPointF at;
+        // Set when a diff says this row's line changed: the whole width of it
+        // takes this colour, under everything else drawn on the row.
+        QColor diffFill;
         // Where this line's text starts in the document, so that a screen
         // coordinate can be turned back into a document position.
         int blockPosition = 0;
@@ -774,6 +793,10 @@ private:
     // in updatePaintNode() like any other row.
     std::vector<Line> m_ghostLines;
     QColor m_ghostBackground;
+    QList<ChangedLine> m_changedLines;
+    QHash<int, QList<QPair<int, int>>> m_changedByLine;
+    QColor m_changedBackground;
+    QTextCharFormat m_changedCharFormat;
 
     qreal m_contentHeight = 0;
     qreal m_contentWidth = 0;
