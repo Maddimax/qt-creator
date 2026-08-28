@@ -123,6 +123,8 @@ add_qtc_plugin(Core
     find/itemviewfind.h
     find/minimapcontroller.cpp
     find/minimapcontroller.h
+    find/minimapimage.cpp
+    find/minimapimage.h
     find/minimapoverlay.cpp
     find/minimapoverlay.h
     find/optionspopup.cpp

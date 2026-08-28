@@ -12,6 +12,7 @@
 #include "dialogs/ioptionspage.h"
 #include "documentmanager.h"
 #include "documentmanager_test.h"
+#include "find/minimapimage.h"
 #include "editmode.h"
 #include "editormanager/editormanager_p.h"
 #include "externaltool_test.h"
@@ -521,6 +522,7 @@ Result<> CorePlugin::initialize(const QStringList &arguments)
     addTestCreator(createActionManagerTest);
     addTestCreator(createDocumentManagerTest);
     addTestCreator(createExternalToolTest);
+    addTestCreator(createMinimapImageTest);
     addTestCreator(createLocatorTest);
     addTestCreator(createVcsManagerTest);
     addTestCreator(createEditorManagerTest);

@@ -344,6 +344,8 @@ QtcPlugin {
             "itemviewfind.h",
             "minimapcontroller.cpp",
             "minimapcontroller.h",
+            "minimapimage.cpp",
+            "minimapimage.h",
             "minimapoverlay.cpp",
             "minimapoverlay.h",
             "optionspopup.cpp",

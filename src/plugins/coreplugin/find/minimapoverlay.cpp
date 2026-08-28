@@ -3,6 +3,8 @@
 
 #include "minimapoverlay.h"
 
+#include "minimapimage.h"
+
 #include <utils/plaintextedit/plaintextedit.h>
 #include <utils/plaintextedit/texteditorlayout.h>
 #include <utils/qtcassert.h>
@@ -110,165 +112,26 @@ void MinimapOverlay::onDocumentChanged()
     scheduleUpdate();
 }
 
-static inline void updatePixel(quint32 *dst, QRgb bgPremul, const QColor &fg, bool blend = false)
-{
-    if (!blend) {
-        *dst = bgPremul;
-        return;
-    }
-
-    // Convert the foreground colour to premultiplied ARGB32 once.
-    const QRgb fgPremul = qPremultiply(fg.rgba());
-
-    const quint32 aF = (fgPremul >> 24) & 0xff;
-    if (aF == 0) {
-        *dst = bgPremul; // fully transparent foreground -> keep bg
-        return;
-    }
-    if (aF == 255) {
-        *dst = fgPremul; // fully opaque foreground -> replace bg
-        return;
-    }
-
-    const quint32 aB = (bgPremul >> 24) & 0xff;
-
-    // src‑over (premultiplied)
-    const quint32 aOut = aF + aB * (255 - aF) / 255;
-    const quint32 rOut = ((fgPremul >> 16) & 0xff) + ((bgPremul >> 16) & 0xff) * (255 - aF) / 255;
-    const quint32 gOut = ((fgPremul >> 8) & 0xff) + ((bgPremul >> 8) & 0xff) * (255 - aF) / 255;
-    const quint32 bOut = (fgPremul & 0xff) + (bgPremul & 0xff) * (255 - aF) / 255;
-
-    *dst = (aOut << 24) | (rOut << 16) | (gOut << 8) | bOut;
-}
 
 void MinimapOverlay::updateImage()
 {
     if (!m_editor || !m_editor->isVisible())
         return;
 
-    int docLineCount = [this]() {
-        int lineCount = 0;
-        for (QTextBlock block = m_doc->firstBlock(); block.isValid(); block = block.next()) {
-            if (!block.isVisible())
-                continue;
-            ++lineCount;
-        }
-        return lineCount;
-    }();
-
+    // A view that can scroll past the end of the document needs the picture to
+    // run that far too, or the thumb reaches the bottom before the text does.
+    int extraLines = 0;
     if (m_editor->centerOnScroll()) {
-        // if center cursor on scroll is enabled, it is possible to scroll past the end of the
-        // document, so we need to add enough lines to fill the viewport
-        auto viewportHeight = m_editor->viewport()->height();
-        auto lineSpacing = m_editor->editorLayout()->lineSpacing();
-        docLineCount += viewportHeight / lineSpacing;
+        extraLines = m_editor->viewport()->height()
+                     / m_editor->editorLayout()->lineSpacing();
     }
 
-    const int imageWidth = m_minimapWidth - 2;
-    const int lineDup = m_pixelsPerLine;
-
-    const int imageHeight = miniLineHeight() * docLineCount;
-    if (imageWidth <= 0 || imageHeight <= 0)
-        return;
-
-    QImage img(imageWidth, imageHeight, QImage::Format_ARGB32_Premultiplied);
-    img.fill(Qt::transparent);
-    const QColor bgColor = QColor(Qt::transparent);
-    const quint32 bgPremul = qPremultiply(bgColor.rgba());
-
-    const QFontMetricsF fm(m_editor->font());
-    const int spaceWidth = qCeil(fm.horizontalAdvance(QLatin1Char(' ')));
-
-    quint32 *dstLine = reinterpret_cast<quint32 *>(img.bits());
-
-    auto advanceToNextLine = [&]() {
-        for (int i = 1; i < lineDup; ++i)
-            memcpy(dstLine + i * imageWidth, dstLine, imageWidth * sizeof(quint32));
-
-        dstLine += lineDup * imageWidth;
-
-        memset(dstLine, bgPremul, m_lineGap * imageWidth * sizeof(quint32));
-        dstLine += m_lineGap * imageWidth;
-    };
-
-    QColor defaultTextColor = m_editor->palette().brush(QPalette::Text).color();
-    for (QTextBlock block = m_doc->firstBlock(); block.isValid(); block = block.next()) {
-        if (!block.isVisible())
-            continue;
-
-        const QTextLayout *layout = block.layout();
-        std::optional<QColor> overrideColor = m_overrideBlockColor ? m_overrideBlockColor(block)
-                                                                   : std::nullopt;
-        QColor curFg = overrideColor.value_or(defaultTextColor);
-        QVector<QTextLayout::FormatRange> formats;
-        if (!overrideColor.has_value()) {
-            formats = layout->formats();
-            std::sort(
-                formats.begin(),
-                formats.end(),
-                [](const QTextLayout::FormatRange &a, const QTextLayout::FormatRange &b) {
-                    return a.start < b.start;
-                });
-        }
-
-        const QString text = block.text();
-
-        int formatIndex = 0;
-        int currentFormatEnd = formats.isEmpty() ? block.length() : formats.first().start;
-
-        int dstX = 0;
-        for (int i = 0; i < text.length() && dstX < imageWidth; ++i) {
-            if (i >= currentFormatEnd) {
-                if (formatIndex >= formats.size()) {
-                    currentFormatEnd = block.length();
-                    curFg = defaultTextColor;
-                } else {
-                    const QTextLayout::FormatRange &format = formats[formatIndex];
-                    if (i < format.start) {
-                        currentFormatEnd = format.start;
-                        curFg = defaultTextColor;
-                    } else {
-                        const QTextCharFormat &fmt = format.format;
-                        if (fmt.foreground().style() != Qt::NoBrush)
-                            curFg = fmt.foreground().color();
-                        else
-                            curFg = defaultTextColor;
-
-                        currentFormatEnd = format.start + format.length;
-                        ++formatIndex;
-                    }
-                }
-            }
-            QChar ch = text.at(i);
-            if (ch.isSpace()) {
-                updatePixel(&dstLine[dstX], bgPremul, curFg, false);
-                ++dstX;
-                continue;
-            }
-
-            if (ch == QLatin1Char('\t')) {
-                int nextTabX = ((dstX * spaceWidth) / spaceWidth + 1) * spaceWidth;
-                while (dstX < imageWidth && dstX < nextTabX) {
-                    updatePixel(&dstLine[dstX], bgPremul, curFg, false);
-                    ++dstX;
-                }
-                continue;
-            }
-
-            // printable character
-            updatePixel(&dstLine[dstX], bgPremul, curFg, true);
-            ++dstX;
-        }
-
-        while (dstX < imageWidth) {
-            updatePixel(&dstLine[dstX], bgPremul, curFg, false);
-            ++dstX;
-        }
-
-        advanceToNextLine();
-    }
-
-    m_minimap = img;
+    m_minimap = renderMinimap(m_doc,
+                              {m_minimapWidth, m_pixelsPerLine, m_lineGap},
+                              m_editor->font(),
+                              m_editor->palette().brush(QPalette::Text).color(),
+                              extraLines,
+                              m_overrideBlockColor);
     update();
 }
 
