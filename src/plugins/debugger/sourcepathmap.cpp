@@ -200,6 +200,21 @@ SourcePathMapAspect::SourcePathMapAspect(AspectContainer *container)
                   "regular expression to automatically determine the source path.</p>"
                   "<p>Example: <b>(/home/.*/Project)/KnownSubDir -> D:\\Project</b> will "
                   "substitute ELF built by any user to your local project directory."));
+
+    // The model is what the reader edits, so a change in it is a change in the
+    // volatile value. BaseAspect::apply() checks that invariant and barks when
+    // it does not hold - pulling only when someone asks left the value stale
+    // between an edit and an apply.
+    const auto modelEdited = [this] {
+        if (guiToVolatileValue()) {
+            Utils::checkSettingsDirty();
+            emit volatileValueChanged();
+        }
+    };
+    connect(&d->m_model, &QAbstractItemModel::dataChanged, this, modelEdited);
+    connect(&d->m_model, &QAbstractItemModel::rowsInserted, this, modelEdited);
+    connect(&d->m_model, &QAbstractItemModel::rowsRemoved, this, modelEdited);
+    connect(&d->m_model, &QAbstractItemModel::modelReset, this, modelEdited);
 }
 
 SourcePathMapAspect::~SourcePathMapAspect()

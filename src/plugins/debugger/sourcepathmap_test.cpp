@@ -25,6 +25,7 @@ class SourcePathMapTest : public QObject
 
 private slots:
     void testRowsAndValueRoundTrip();
+    void testEditingTheModelKeepsTheVolatileValueCurrent();
     void testHalfFilledRowStaysARowButNotAMapping();
     void testAddedRowsAreEditableAndEmpty();
     void testQtSourcesAddOneRowPerBuildPath();
@@ -64,6 +65,42 @@ void SourcePathMapTest::testRowsAndValueRoundTrip()
     QCOMPARE(aspect.value(), SourcePathMap({{"/build/one", "/elsewhere"},
                                             {"/build/two", "/src/two"}}));
     QVERIFY(!aspect.isDirty());
+}
+
+void SourcePathMapTest::testEditingTheModelKeepsTheVolatileValueCurrent()
+{
+    // BaseAspect::apply() checks that the volatile value already matches what
+    // the reader edited - "It's an aspect (-subclass) implementation problem
+    // if this doesn't hold" - and only barks through QTC_CHECK when it does
+    // not. A bark is a debug message, so a test that merely applies and looks
+    // at the value passes either way; this listens for the complaint instead.
+    QStringList complaints;
+    const auto previous = qInstallMessageHandler(nullptr);
+    struct Restore {
+        QtMessageHandler previous;
+        ~Restore() { qInstallMessageHandler(previous); }
+    } restore{previous};
+    static QStringList *collected = nullptr;
+    collected = &complaints;
+    qInstallMessageHandler([](QtMsgType, const QMessageLogContext &, const QString &message) {
+        if (collected && message.contains("guiToVolatileValue"))
+            collected->append(message);
+    });
+
+    AspectContainer page;
+    SourcePathMapAspect aspect(&page);
+    aspect.setValue({{"/build/one", "/src/one"}});
+
+    QAbstractItemModel *model = aspect.tableModel();
+    QVERIFY(model->insertRows(model->rowCount({}), 1, {}));
+    QVERIFY(model->setData(model->index(1, SourceColumn), QString("/build/two"), Qt::EditRole));
+    QVERIFY(model->setData(model->index(1, TargetColumn), QString("/src/two"), Qt::EditRole));
+    aspect.apply();
+
+    QCOMPARE(aspect.value(), SourcePathMap({{"/build/one", "/src/one"},
+                                            {"/build/two", "/src/two"}}));
+    collected = nullptr;
+    QVERIFY2(complaints.isEmpty(), qPrintable("apply() complained: " + complaints.join(", ")));
 }
 
 void SourcePathMapTest::testHalfFilledRowStaysARowButNotAMapping()

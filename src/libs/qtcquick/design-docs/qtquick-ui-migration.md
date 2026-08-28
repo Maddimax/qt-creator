@@ -12903,3 +12903,49 @@ refresh timing exactly.
 Worth keeping generally: `QTRY_VERIFY` on a *count* of objects is only as good
 as the objects being the ones meant. With `deleteLater()` anywhere nearby, a
 count can be satisfied by things on their way out.
+
+## The workstreams are done, and reading the warnings found the one defect left
+
+The instructions have named "Debugger General is next" for a long time. It is
+not next; it is done - `CommonSettingsPage.qml` draws
+`TableDelegate { aspect: root.aspects.SourcePathMap }`, the aspect hands out a
+model from `SourcePathMapAspect::tableModel()`, and there is a test file for
+it. All three workstreams check out item by item:
+
+| | |
+|---|---|
+| Tables | `AspectTable`, `tableModel()`, `TableDelegate`; CPU Usage and Debugger General both drawing one |
+| The three aspects | AnalyzerMessagesAspect, FrameworksAspect, SourcePathMapAspect all have `tableModel` **and** `presentation()` |
+| The editor pages | Snippets, Font && Colors and Code Style: `setQmlSource`, no `Layouting::` |
+
+What that verification turned up is more interesting than the verification.
+The Debugger suite passes, and in among the passes:
+
+    QDEBUG : SourcePathMapTest::testHalfFilledRowStaysARowButNotAMapping()
+      SOFT ASSERT: "!guiToVolatileValue()" in aspects.cpp:622
+
+The code it comes from says what it means:
+
+    // We assume m_volatileValue to reflect current gui state as invariant after
+    // signalling settled down. It's an aspect (-subclass) implementation problem
+    // if this doesn't hold. Fix it up and bark.
+    QTC_CHECK(!guiToVolatileValue());
+
+`SourcePathMapAspect` had **no `connect()` calls at all** - it pulled from its
+model only when someone asked, in `isDirty()` and inside `guiToVolatileValue()`
+itself. So between an edit and an apply the volatile value was stale, and
+`apply()` fixed it up and barked. Its sibling `FrameworksAspect` does connect
+to `dataChanged` and does not bark; only this one of the three was wrong.
+
+Three things worth keeping about how this was nearly missed:
+
+- The totals said 48 passed. A `QTC_CHECK` is a debug message, so the suite is
+  green either way. This is the second time in this effort that reading the
+  warnings of a passing run found a real defect.
+- It is not cosmetic: `QTC_CHECK` is fatal under `QTC_FATAL_ASSERTS`, so a
+  build configured that way crashes where this one merely complains.
+- A test asserting the *outcome* - apply, then check the value - passes with
+  or without the fix, because the fix-up in `apply()` makes the value right
+  either way. The test added here installs a message handler and asserts the
+  **complaint** is absent. Its control, removing the connections, fails it with
+  the soft assert quoted back.
