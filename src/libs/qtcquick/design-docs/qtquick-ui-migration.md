@@ -197,6 +197,20 @@ else. `pictureChanged()` says when the picture was really drawn again, which
 is what makes "scrolling left it alone" something a test can ask about - and
 the control for it is the bug itself, put back.
 
+**The same mistake was already sitting in the scroll bar marks.** Looking for
+it after the minimap found it: `scrollBarHighlights` was a property notified by
+`metricsChanged`, so every layout re-evaluated the binding, walked every mark
+and every search result to build a list of maps, and had the `Repeater` throw
+away and rebuild every rectangle on the bar. On a file with a few thousand
+search hits that is per frame while scrolling. It is worked out once with the
+rest of the layout now and the bar is told only when the answer differs, which
+a spy can check.
+
+**`NOTIFY metricsChanged` is the trap, and it is an easy one.** It reads like
+"when the numbers change" and means "at the end of every layout". Two features
+in a row bound expensive work to it. Anything whose value survives a scroll
+wants a signal of its own.
+
 **Both minimap bugs were mine, shipped in the same batch, and neither was
 visible.** One made dragging depend on having been painted; the other made
 painting happen far too often. A feature that looks right on screen can still
