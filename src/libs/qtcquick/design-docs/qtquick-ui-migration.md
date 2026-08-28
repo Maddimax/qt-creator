@@ -13267,3 +13267,37 @@ when it is typed into - and its comment now says so instead of claiming to
 guard the walk. What guards the walk is
 `testGoingToALineStillWorksAfterTheWidthChanges` and
 `testScrollingAWrappedDocumentLandsOnTheRightLine`.
+
+## Where the layout ended up
+
+Five changes later, measured with the same instrument on the same machine as
+the first reading in this effort:
+
+    updatePolish        median  0.882 -> 0.355    p90 6.041 -> 2.712
+    rebuildVisibleLines median  0.465 -> 0.011    p90 3.630 -> 1.696
+
+A layout is about two and a half times faster at the median and rather more
+than twice as fast at the ninetieth percentile, which is the one a reader
+feels: the median frame was never the problem, the slow one was. Building the
+rows, which started as more than half of a layout, is now 0.011 ms.
+
+The five, in the order they were found, and none of them where the search
+started:
+
+1. The rows QML reads carried the syntax formats, which no delegate reads.
+2. Every map key was built from UTF-8 again for every row of every layout.
+3. The map itself: a red-black tree per row, replaced by a role per value.
+4. `setRows` announced the whole screen whenever one row differed.
+5. The wrapped-document walk, twice - re-applying a width that had not
+   changed, and then walking the document at all when nothing was thrown away.
+
+What is left is shaping the text, at 58 ms over a suite, which is the work the
+editor exists to do. There is no obvious next thing to take out, and looking
+for one would be guessing rather than measuring - the last four batches each
+began by disproving where the time appeared to be.
+
+Two standing caveats on all of the above. Every number here is from an
+AddressSanitizer build, because both configurations in this tree are; the
+ratios hold but the absolute figures do not. And a test suite opens, scrolls
+and closes far more than it types, so the numbers under-report the changes
+aimed at editing - which is most of what changes 3 and 4 were for.
