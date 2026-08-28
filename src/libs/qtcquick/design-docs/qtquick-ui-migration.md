@@ -406,9 +406,10 @@ Of the four that were unread, two mattered and both are on by default:
   link being aimed at. `constrainHoverTooltips` is read at the same time. This
   is the one piece with no test at all: nothing yet drives the tooltip timer.
 
-Left unread on purpose: `keyboardTooltips` (off by default; Alt asks for a
-tooltip, a mechanism of its own), and `smartSelectionChanging`, which is not
-the text editor's at all - CppEditor reads it for expand/shrink selection.
+`keyboardTooltips` is done: Alt pressed and let go with nothing in between
+asks a hover handler about the caret, which was the only way of asking that
+needed no mouse. Left unread on purpose: `smartSelectionChanging`, which is
+not the text editor's at all - CppEditor reads it for expand/shrink selection.
 
 ### All ten settings containers, counted
 
@@ -455,6 +456,14 @@ been recorded wrongly:
   looks for a match when *either* it or the highlight is on, and the Quick
   editor only looked when the highlight was on - so with the highlight off and
   the animation on, it did nothing at all rather than pulsing.
+
+**A test that types makes the document dirty, and a dirty editor will not
+close.** The keyboard-tooltip test sends Alt with another key to show that a
+shortcut is not a request for a tooltip. Sending `Key_X` *with its text* typed
+an `x`, so the scope guard's `closeEditors()` put up a modal save prompt and
+the run hung until it was killed. Two things fix it and both are worth doing:
+send a key that types nothing (`Key_F5`), and close with `closeEditors(..., false)`
+the way the other editor tests here do.
 
 **Four lines that did nothing, in one branch.** A control that comes back
 clean has meant "the code was already right without it" four times now:
