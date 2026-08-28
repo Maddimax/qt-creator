@@ -3997,6 +3997,35 @@ private slots:
                      "the setting is on and not one pixel of the six spaces is marked");
     }
 
+    // Typing into a wrapped line makes it wrap over more rows. An edit is
+    // handled by the lazy path rather than by the walk that lays every block
+    // out, so this does not guard that walk - it covers the wrapped edit
+    // itself, which nothing else did.
+    void testTypingMoreTextWrapsOverMoreRows()
+    {
+        TemporaryDirectory dir("qtc-viewport-editwrap");
+        const FilePath file = dir.filePath("one.txt");
+        QVERIFY(file.writeFileContents(QByteArray(300, 'x') + "\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        viewport->setWrapping(true);
+        QTRY_VERIFY(viewport->rowCount() > 1);
+
+        const int before = viewport->rowCount();
+
+        QTextCursor edit(viewport->textDocument()->document());
+        edit.movePosition(QTextCursor::End);
+        edit.insertText(QString(600, 'x'));
+
+        QTRY_VERIFY2(viewport->rowCount() > before,
+                     qPrintable(QString("still %1 rows after tripling the line, was %2")
+                                    .arg(viewport->rowCount())
+                                    .arg(before)));
+    }
+
     void testWrappedRowsSitUnderTheTextTheyContinue()
     {
         // vim's 'breakindent': a wrapped row starts under its line's own

@@ -104,6 +104,12 @@ public:
     void clearBlockLayout(QTextBlock &block) const override;
     void clearBlockLayout(
         QTextBlock &start, QTextBlock &end, bool &blockVisibilityChanged) const override;
+    // Changes whenever a block layout is thrown away. Laying every block out
+    // is what a wrapped document costs, and a view that has done it once can
+    // compare this rather than walk the document to find out whether it has
+    // to do it again.
+    int layoutGeneration() const;
+
     void relayout() override;
     int additionalBlockHeight(const QTextBlock &block, bool includeEmbeddedWidgetsHeight) const override;
     QRectF replacementBlockBoundingRect(const QTextBlock &block) const override;

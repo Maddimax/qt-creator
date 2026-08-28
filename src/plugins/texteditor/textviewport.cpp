@@ -808,8 +808,10 @@ Utils::TextEditorLayout *TextViewport::editorLayout()
     if (!m_editorLayout || m_editorLayout->document() != text) {
         delete m_editorLayout;
         m_editorLayout = new ViewportLayout(documentLayout);
-        // A layout that was just made has been told no width at all.
+        // A layout that was just made has been told no width at all, and has
+        // laid nothing out.
         m_documentTextWidth = -1;
+        m_primedGeneration = -1;
         // Owned by this view. TextEditorLayout takes the document as its
         // QObject parent, which would leave one behind per viewport that ever
         // showed the file.
@@ -3030,11 +3032,15 @@ void TextViewport::updatePolish()
             static_cast<ViewportLayout *>(rows)->setTextWidth(documentWidth);
             m_documentTextWidth = documentWidth;
         }
-        // Still every block: what lineCount() answers with depends on all of
-        // them being laid out, and an edit or a fold leaves some that are not.
-        // They are only rebuilt when something threw them away.
-        for (QTextBlock b = text->firstBlock(); b.isValid(); b = b.next())
-            rows->blockBoundingRect(b);
+        // Every block, because nothing else lays them out and what a row is
+        // called depends on all of them - but only when one of them was
+        // thrown away since the last time. Scrolling throws none away, and
+        // this is the whole document.
+        if (const int generation = rows->layoutGeneration(); generation != m_primedGeneration) {
+            for (QTextBlock b = text->firstBlock(); b.isValid(); b = b.next())
+                rows->blockBoundingRect(b);
+            m_primedGeneration = generation;
+        }
     }
 
     // Before anything is placed: a ghost row's gap is as tall as the rows in

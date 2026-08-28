@@ -781,6 +781,9 @@ private:
     // number as the width rows are shaped at: it carries the margins and the
     // line-separator glyph as well.
     qreal m_documentTextWidth = -1;
+    // The layout generation every block was last laid out at. -1 until the
+    // first time, which is what makes it happen at all.
+    int m_primedGeneration = -1;
 
     // Backspace between the two halves of a bracket pair removes both. That is
     // all the base AutoCompleter offers; inserting the closing half is a

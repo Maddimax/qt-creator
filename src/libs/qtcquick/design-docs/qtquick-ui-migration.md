@@ -13220,3 +13220,50 @@ Three notes on how this was arrived at, because two of them are corrections:
 - The remaining walk is still O(document) per layout. Making it O(screen) means
   `lineCount()` not needing every block, which is a change to
   `TextEditorLayout`, not to this view.
+
+## Only walk the document when a block layout was thrown away
+
+Last batch stopped re-applying the wrap width, which took the priming walk from
+2.16 ms to 0.081 ms a layout. What was left was the walk itself: every block of
+the document, every layout, to find the handful that need laying out.
+
+Deleting the walk to see what it holds up answers that first - **14 tests fail,
+all of them saying nothing wrapped.** It is not a row-count refinement: it is
+the only thing that ever lays those blocks out, so wrapping does not happen
+without it.
+
+It cannot go, then, but it can be skipped. `TextEditorLayout` already tracks
+`layedOut` per block; what was missing was an aggregate. Three methods throw
+layouts away - `clearBlockLayout` in both its forms and `relayout()` - so a
+counter bumped in those three and read through `layoutGeneration()` says
+whether anything was discarded since a view last walked. The view remembers the
+generation it primed at and walks only when it differs.
+
+    blocks walked   2618 -> 1010     (26 of 50 layouts skip it entirely)
+    blocks laid out 1007 -> 1007     (unchanged: the necessary work)
+    priming walk    median 0.081 ms -> 0.000 ms
+
+1010 walked against 1007 laid out is the point: three wasted block visits in a
+whole suite, against 1611 before. The necessary work is untouched.
+
+The Utils side is additive - a private counter, three increments, a const
+accessor nothing that existed reads - so it cannot change what the widget
+editor does. FakeVim was run anyway: 253 passed, 2 failed, and HEAD gives the
+same two (`test_vim_visual_selection_focus_out`, `test_vim_script_throwpoint`).
+
+### The test written for this did not guard it, again
+
+`testTypingMoreTextWrapsOverMoreRows` was added because making
+`layoutGeneration()` a constant failed only one test, which is thin cover for a
+change in shared code. It passes with the constant too: an edit is served by
+the lazy path, not by the walk, so it never discriminated. That is the second
+batch running where a test written alongside a change turned out not to guard
+it - both times found by breaking the change on purpose and watching which
+tests noticed.
+
+It was kept this time rather than removed, because unlike last batch's it
+covers something real that nothing else covers - a wrapped line re-wrapping
+when it is typed into - and its comment now says so instead of claiming to
+guard the walk. What guards the walk is
+`testGoingToALineStillWorksAfterTheWidthChanges` and
+`testScrollingAWrappedDocumentLandsOnTheRightLine`.

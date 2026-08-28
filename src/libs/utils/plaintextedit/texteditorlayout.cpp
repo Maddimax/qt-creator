@@ -73,6 +73,11 @@ public:
         return m_layoutData[index];
     }
 
+    // Bumped whenever a block's layout is thrown away. A view that has laid
+    // every block out once can tell from this alone whether it still holds,
+    // without walking the document to look.
+    int m_generation = 0;
+
     void resetOffsetCache(int blockNumber)
     {
         if (m_offsetCache.size() > std::vector<OffsetData>::size_type(blockNumber))
@@ -198,6 +203,7 @@ QTextLayout *TextEditorLayout::existingBlockLayout(const QTextBlock &block) cons
 
 void TextEditorLayout::clearBlockLayout(QTextBlock &block) const
 {
+    ++d->m_generation;
     d->layoutData(block.fragmentIndex()).clearLayout();
     const int blockNumber = block.blockNumber();
     d->resetOffsetCache(blockNumber);
@@ -222,11 +228,18 @@ void TextEditorLayout::clearBlockLayout(QTextBlock &start, QTextBlock &end, bool
         if (block == end)
             break;
     }
+    ++d->m_generation;
     d->resetOffsetCache(start.blockNumber());
+}
+
+int TextEditorLayout::layoutGeneration() const
+{
+    return d->m_generation;
 }
 
 void TextEditorLayout::relayout()
 {
+    ++d->m_generation;
     for (LayoutData &data : d->m_layoutData)
         data.clearLayout();
     d->m_offsetCache.clear();
