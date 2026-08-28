@@ -12784,3 +12784,30 @@ That is the sort of mistake that only shows up when the second step is
 written. The first step's test could not have caught it - it never edited and
 then set a position - which is an argument for writing the next step rather
 than for having tested the first one harder.
+
+### Making a second caret
+
+The part a reader can reach. Alt+click puts another caret where it lands, and
+Escape goes back to one - the same two gestures the widget editor has, and
+Alt+click is what it uses too (Alt without Control; Alt *with* Control already
+means "follow this symbol into a split").
+
+`addCaretAt()` hands the work to `Utils::MultiTextCursor`: `addCursor()` makes
+the new one the main caret, which is right - the caret just placed is the one
+being worked with - and `mergeCursors()` means clicking where a caret already
+is does not put a second one on top of it.
+
+The Alt+click test drives a real click rather than calling `addCaretAt()`,
+because the branch that decides to call it is in QML and calling the invokable
+directly would test the viewport while leaving its caller untested. That has
+been a mistake here before.
+
+Escape moved, and where it ended up is the interesting part. Put in the
+switch, it never ran: `keyPressEvent()` returns early for a read-only viewport
+long before reaching there, and the test pressed Escape while the fixture was
+still read-only. The fix is not in the test. **Collapsing the carets is not an
+edit** - a view that cannot be typed into can still have been given several
+carets by Alt+click, and has to be able to be rid of them - so Escape is
+handled before the read-only check. And only when there is more than one
+caret: Escape means other things elsewhere, and taking it always would be
+taking it from them.

@@ -556,6 +556,10 @@ public:
     // later in the document first: an edit moves everything after it, and a
     // caret that has already been edited at does not have to be moved with it.
     void applyToEveryCaret(const std::function<void(QTextCursor &)> &edit);
+    // Another caret, at a document position. The new one becomes the main
+    // caret - it is the one just placed - and asking for one where there is
+    // already one leaves the count alone.
+    Q_INVOKABLE void addCaretAt(int position);
     void setCursorPosition(int position);
     QRectF cursorRectangle() const;
 

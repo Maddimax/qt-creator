@@ -1527,6 +1527,23 @@ void TextViewport::keyPressEvent(QKeyEvent *event)
         return;
     }
 
+    // Back to one caret. Before the read-only check, because collapsing them
+    // is not an edit - a view that cannot be typed into can still have been
+    // given several carets, and has to be able to be rid of them. Only when
+    // there is more than one: Escape means other things elsewhere, and taking
+    // it always would be taking it from them.
+    if (event->key() == Qt::Key_Escape) {
+        if (m_extraCursors.isEmpty()) {
+            QQuickItem::keyPressEvent(event);
+            return;
+        }
+        m_extraCursors.clear();
+        polish();
+        emit cursorRectangleChanged();
+        event->accept();
+        return;
+    }
+
     // Told not to edit, or editing a file the filesystem will not take back.
     // The widget editor offers to make it writable; this only refuses, which
     // is the half that must not be missing.
@@ -1836,6 +1853,23 @@ void TextViewport::setMultiTextCursor(const Utils::MultiTextCursor &cursors)
     all.removeOne(main);
     setTextCursor(main);
     m_extraCursors = all;
+}
+
+void TextViewport::addCaretAt(int position)
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    QTextDocument * const text = doc ? doc->document() : nullptr;
+    if (!text)
+        return;
+
+    QTextCursor added(text);
+    added.setPosition(qBound(0, position, text->characterCount() - 1));
+
+    Utils::MultiTextCursor cursors = multiTextCursor();
+    cursors.addCursor(added);
+    // Clicking where a caret already is does not put a second one there.
+    cursors.mergeCursors();
+    setMultiTextCursor(cursors);
 }
 
 void TextViewport::applyToEveryCaret(const std::function<void(QTextCursor &)> &edit)

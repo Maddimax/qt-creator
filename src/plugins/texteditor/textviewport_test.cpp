@@ -6221,6 +6221,72 @@ private slots:
                                 .arg(at.x()).arg(lineWidth)));
     }
 
+    void testAltClickPutsAnotherCaretThere()
+    {
+        // The branch that decides this lives in QML, so a real click is what
+        // covers it - calling addCaretAt() from here would test the viewport
+        // and leave the thing that calls it untested.
+        TemporaryDirectory dir("textviewport-alt-click");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("carets.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\ngamma\n"));
+
+        CodeViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 2);
+        QCOMPARE(viewport->caretRectangles().size(), 1);
+
+        // "alpha\nbeta\n": position 7 is inside "beta" on the second row.
+        const QRectF target = viewport->rectangleAt(7);
+        QVERIFY(!target.isEmpty());
+        const QPoint at = viewport->mapToScene(target.center()).toPoint();
+
+        QTest::mouseClick(&fixture.view, Qt::LeftButton, Qt::AltModifier, at);
+        QTRY_COMPARE(viewport->caretRectangles().size(), 2);
+
+        // Clicking the same place again does not stack a third one on it.
+        QTest::mouseClick(&fixture.view, Qt::LeftButton, Qt::AltModifier, at);
+        QTRY_COMPARE(viewport->caretRectangles().size(), 2);
+
+        // And a plain click is still a plain click: one caret, where it landed.
+        QTest::mouseClick(&fixture.view, Qt::LeftButton, Qt::NoModifier, at);
+        QTRY_COMPARE(viewport->caretRectangles().size(), 1);
+    }
+
+    void testEscapeGoesBackToOneCaret()
+    {
+        // Escape collapses them, and only does that when there is more than
+        // one - it means other things elsewhere.
+        TemporaryDirectory dir("textviewport-escape");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("carets.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        QVERIFY2(fixture.hasFocus(), "the viewport never took focus, so no key arrives");
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        viewport->addCaretAt(7);
+        QCOMPARE(viewport->caretRectangles().size(), 2);
+
+        QTest::keyClick(&fixture.view, Qt::Key_Escape);
+        QTRY_COMPARE(viewport->caretRectangles().size(), 1);
+
+        // The one left is the one Escape was pressed with, and typing goes in
+        // once from here.
+        viewport->setReadOnly(false);
+        QTextDocument * const text = fixture.document.textDocument()->document();
+        QTest::keyClick(&fixture.view, 'X');
+        QCOMPARE(text->toPlainText().count('X'), 1);
+    }
+
     void testASecondCaretIsDrawnAndSelectsAlongsideTheFirst()
     {
         // The viewport draws what its list of carets says, rather than one.

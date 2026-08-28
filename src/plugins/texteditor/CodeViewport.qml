@@ -186,6 +186,14 @@ Item {
                     }
                     return
                 }
+                // Alt+click puts another caret there rather than moving the
+                // one there is. Not with Ctrl, which is the modifier that
+                // follows a symbol - and takes Alt to mean "in a split".
+                if ((mouse.modifiers & Qt.AltModifier)
+                        && !(mouse.modifiers & Qt.ControlModifier)) {
+                    viewport.addCaretAt(position)
+                    return
+                }
                 // Ctrl+click follows the symbol under the pointer rather than
                 // putting the caret there. Which modifiers mean that, and
                 // whether the setting allows it at all, is the viewport's to
