@@ -593,6 +593,7 @@ private:
     int rowOfBlock(const QTextBlock &block);
     void setScopeBlock(int blockNumber);
     void updateLink(const QPointF &pos, Qt::KeyboardModifiers modifiers);
+    bool handleSmartBackspace(QTextCursor &cursor);
     void insertTypedText(QTextCursor &cursor, const QString &text);
     void offerCompletionsIfAsked(const QTextCursor &cursor);
 

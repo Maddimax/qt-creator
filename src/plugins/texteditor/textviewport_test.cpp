@@ -19,6 +19,7 @@
 #include "syntaxhighlighter.h"
 #include "tabsettings.h"
 #include "textdocument.h"
+#include "typingsettings.h"
 #include "textdocumentlayout.h"
 #include "texteditorconstants.h"
 #include "marginsettings.h"
@@ -1332,6 +1333,95 @@ private slots:
         QTest::keyRelease(&fixture.view, Qt::Key_Control);
         QTRY_VERIFY2(underlined().isEmpty(), "letting go of Control left the link underlined");
         QCOMPARE(viewport->cursor().shape(), plain);
+    }
+
+    // Backspace inside a line's indentation takes a whole level back rather
+    // than one space. That is the default - the Quick editor deleted a
+    // character whatever the typing settings said - and the other two
+    // behaviours are here because the setting has three.
+    void testBackspaceInTheIndentationFollowsTheTypingSettings()
+    {
+        TemporaryDirectory dir("qtc-viewport-backspace");
+        const FilePath file = dir.filePath("indented.txt");
+        QVERIFY(file.writeFileContents("    alpha\n        beta\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        TextViewport * const viewport = fixture.viewport;
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+        QVERIFY(fixture.hasFocus());
+
+        // A viewport is a view until told otherwise, and a read-only one
+        // never reaches the key at all.
+        viewport->setReadOnly(false);
+
+        TextDocument * const doc = viewport->textDocument();
+        QVERIFY(doc);
+        // Said here rather than taken from whatever the global code style is,
+        // so that what one level costs is not a shared setting's to change.
+        TabSettingsData tabs = doc->tabSettings();
+        tabs.m_indentSize = 4;
+        tabs.m_tabPolicy = TabSettingsData::SpacesOnlyTabPolicy;
+        doc->setTabSettings(tabs);
+
+        QTextDocument * const text = doc->document();
+        const auto secondLine = [text] { return text->findBlockByNumber(1).text(); };
+        // Each case starts from the same line rather than from what the one
+        // before it left, so that none of them depends on the others.
+        const auto startFrom = [text](const QString &line) {
+            QTextCursor c(text->findBlockByNumber(1));
+            c.movePosition(QTextCursor::StartOfBlock);
+            c.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+            c.insertText(line);
+        };
+        // Just before the first non-space, which counts as inside the
+        // indentation rather than after it.
+        const auto putCaretInTheIndent = [viewport, text] {
+            const QTextBlock block = text->findBlockByNumber(1);
+            const QString line = block.text();
+            int nonSpace = 0;
+            while (nonSpace < line.size() && line.at(nonSpace).isSpace())
+                ++nonSpace;
+            viewport->setCursorPosition(block.position() + nonSpace);
+        };
+
+        QCOMPARE(secondLine(), QString("        beta"));
+
+        // The default: a whole level, not one space.
+        TypingSettingsData typing = doc->typingSettings();
+        QCOMPARE(typing.m_smartBackspaceBehavior, TypingSettingsData::BackspaceUnindents);
+        putCaretInTheIndent();
+        QTest::keyClick(&fixture.view, Qt::Key_Backspace);
+        QCOMPARE(secondLine(), QString("    beta"));
+
+        // Turned off, it is one character again.
+        typing.m_smartBackspaceBehavior = TypingSettingsData::BackspaceNeverIndents;
+        doc->setTypingSettings(typing);
+        startFrom("        beta");
+        putCaretInTheIndent();
+        QTest::keyClick(&fixture.view, Qt::Key_Backspace);
+        QCOMPARE(secondLine(), QString("       beta"));
+
+        // Following the previous indents goes to the indentation of the
+        // nearest line above that is indented less than this one - "    alpha"
+        // at four, rather than one level back from eight.
+        typing.m_smartBackspaceBehavior = TypingSettingsData::BackspaceFollowsPreviousIndents;
+        doc->setTypingSettings(typing);
+        startFrom("        beta");
+        putCaretInTheIndent();
+        QTest::keyClick(&fixture.view, Qt::Key_Backspace);
+        QCOMPARE(secondLine(), QString("    beta"));
+
+        // Past the indentation there is nothing to unindent, so it is one
+        // character again even with the default behaviour.
+        typing.m_smartBackspaceBehavior = TypingSettingsData::BackspaceUnindents;
+        doc->setTypingSettings(typing);
+        startFrom("        beta");
+        const QTextBlock second = text->findBlockByNumber(1);
+        viewport->setCursorPosition(second.position() + second.text().size());
+        QTest::keyClick(&fixture.view, Qt::Key_Backspace);
+        QCOMPARE(secondLine(), QString("        bet"));
     }
 
     // A closed fold says what it swallowed. The widget editor draws "{...};"

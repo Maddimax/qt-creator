@@ -646,6 +646,54 @@ void TextViewport::followSymbolUnderCursor(bool inNextSplit)
     followSymbolAt(cursorPosition(), inNextSplit);
 }
 
+// Backspace inside a line's leading whitespace, where the typing settings say
+// it should do more than take one character back. Answers whether it did.
+bool TextViewport::handleSmartBackspace(QTextCursor &cursor)
+{
+    TextDocument * const doc = textDocument();
+    if (!doc)
+        return false;
+
+    const TypingSettingsData typing = doc->typingSettings();
+    if (typing.m_smartBackspaceBehavior == TypingSettingsData::BackspaceNeverIndents)
+        return false;
+
+    // Outside the indentation there is nothing to unindent, so both of the
+    // other behaviours take one character like the plain one.
+    const QTextBlock block = cursor.block();
+    const QString blockText = block.text();
+    if (cursor.positionInBlock() == 0
+        || cursor.positionInBlock() > TabSettingsData::firstNonSpace(blockText)) {
+        return false;
+    }
+
+    if (typing.m_smartBackspaceBehavior == TypingSettingsData::BackspaceUnindents) {
+        cursor = doc->unindent(Utils::MultiTextCursor({cursor})).mainCursor();
+        return true;
+    }
+
+    // BackspaceFollowsPreviousIndents: back to the indentation of the nearest
+    // line above that is indented less than this one.
+    const TabSettingsData tabSettings = doc->tabSettings();
+    const int indent = tabSettings.columnAt(blockText, cursor.positionInBlock());
+    for (QTextBlock previous = block.previous(); previous.isValid();
+         previous = previous.previous()) {
+        const QString previousText = previous.text();
+        if (previousText.trimmed().isEmpty())
+            continue;
+        const int previousIndent
+            = tabSettings.columnAt(previousText, TabSettingsData::firstNonSpace(previousText));
+        if (previousIndent >= indent)
+            continue;
+        cursor.beginEditBlock();
+        cursor.setPosition(block.position(), QTextCursor::KeepAnchor);
+        cursor.insertText(TabSettingsData::indentationString(previousText));
+        cursor.endEditBlock();
+        return true;
+    }
+    return false;
+}
+
 bool TextViewport::isMouseNavigation(Qt::KeyboardModifiers modifiers) const
 {
     return globalBehaviorSettings().mouseNavigation()
@@ -1126,7 +1174,8 @@ void TextViewport::keyPressEvent(QKeyEvent *event)
             break;
         // With a selection, Backspace removes it rather than one more character
         // before it, which deletePreviousChar() already does.
-        cursor.deletePreviousChar();
+        if (cursor.hasSelection() || !handleSmartBackspace(cursor))
+            cursor.deletePreviousChar();
         break;
     case Qt::Key_Delete:
         cursor.deleteChar();
