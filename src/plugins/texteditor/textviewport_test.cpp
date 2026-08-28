@@ -1083,6 +1083,119 @@ private slots:
         QVERIFY(!viewport->visibleLine(0).value("folded").toBool());
     }
 
+    // Hovering the folding column dims everything outside the scope the
+    // pointer is in, leaving that scope on the plain page colour. The widget
+    // editor does this whether or not the highlightBlocks setting is on - that
+    // setting widens what counts as a hover rather than switching the
+    // highlight on - so nothing here turns anything on.
+    void testHoveringTheFoldColumnLightsUpTheScopeAroundTheLine()
+    {
+        TemporaryDirectory dir("qtc-viewport-scope");
+        const FilePath file = dir.filePath("scope.txt");
+        // Two nested scopes at different indentation, so that a band ignoring
+        // the indent lands in the wrong place rather than merely in the wrong
+        // colour.
+        QVERIFY(file.writeFileContents("a\n"
+                                       "    b\n"
+                                       "        c\n"
+                                       "        d\n"
+                                       "    e\n"
+                                       "f\n"));
+
+        QQuickView view;
+        installIconProvider(view);
+        view.resize(400, 200);
+        QQmlComponent component(view.engine());
+        component.setData(QByteArray("import QtQuick\n"
+                                     "import QtCreator.TextEditor\n"
+                                     "Row {\n"
+                                     "    property alias viewport: v\n"
+                                     "    property alias gutter: g\n"
+                                     "    property string path\n"
+                                     "    EditorGutter {\n"
+                                     "        id: g; viewport: v; height: 200\n"
+                                     "        showFoldMarkers: true\n"
+                                     "    }\n"
+                                     "    TextViewport {\n"
+                                     "        id: v; objectName: \"scopeViewport\"\n"
+                                     "        width: 300; height: 200\n"
+                                     "        document: CodeDocument { filePath: path }\n"
+                                     "    }\n"
+                                     "}"),
+                          QUrl("qrc:/test/ScopeTest.qml"));
+        std::unique_ptr<QObject> created(component.createWithInitialProperties(
+            {{"path", file.toUrlishString()}}));
+        QVERIFY2(created != nullptr, qPrintable(component.errorString()));
+
+        auto * const item = qobject_cast<QQuickItem *>(created.get());
+        QVERIFY(item);
+        item->setParentItem(view.contentItem());
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+        auto * const viewport = item->findChild<TextViewport *>("scopeViewport");
+        QVERIFY(viewport);
+        // Seven: the file ends with a newline, so there is an empty block
+        // after "f".
+        QTRY_COMPARE(viewport->visibleLineCount(), 7);
+        auto * const gutter = item->property("gutter").value<QQuickItem *>();
+        QVERIFY(gutter);
+
+        // What a highlighter would have worked out. Saying it here keeps the
+        // test about the viewport.
+        QTextDocument * const text = viewport->document()->textDocument()->document();
+        auto * const layout = qobject_cast<TextDocumentLayout *>(text->documentLayout());
+        QVERIFY(layout);
+        const QList<int> indents = {0, 1, 2, 2, 1, 0};
+        for (int i = 0; i < indents.size(); ++i)
+            TextBlockUserData::setFoldingIndent(text->findBlockByNumber(i), indents.at(i));
+        layout->requestUpdate();
+
+        const auto bands = [viewport](int row) {
+            return viewport->visibleLine(row).value("scopeBands").toList();
+        };
+        // A band of a given colour, whichever piece of it the right margin
+        // left behind.
+        const auto bandColoured = [](const QVariantList &list, const QColor &colour) {
+            for (const QVariant &entry : list) {
+                const QVariantMap band = entry.toMap();
+                if (band.value("colour").value<QColor>() == colour)
+                    return band;
+            }
+            return QVariantMap();
+        };
+
+        // Nothing is hovered, so nothing is dimmed.
+        for (int row = 0; row < 7; ++row)
+            QVERIFY2(bands(row).isEmpty(), "a scope was highlighted before anything was hovered");
+
+        // Hover the folding column beside "        d", the innermost scope.
+        const qreal foldX = gutter->property("foldX").toReal();
+        const qreal foldWidth = gutter->property("foldWidth").toReal();
+        QVERIFY(foldWidth > 0);
+        const QPointF onD(foldX + foldWidth / 2, 3.5 * viewport->lineHeight());
+        QTest::mouseMove(&view, gutter->mapToScene(onD).toPoint());
+        QTRY_VERIFY2(!bands(3).isEmpty(), "hovering the folding column highlighted nothing");
+
+        // The scope the pointer is in keeps the page colour, and starts where
+        // the scope is indented rather than at the edge.
+        const QColor page = viewport->backgroundColor();
+        const qreal spaceWidth = QFontMetricsF(viewport->font()).horizontalAdvance(QLatin1Char(' '));
+        const QVariantMap inner = bandColoured(bands(3), page);
+        QVERIFY2(!inner.isEmpty(), "the scope under the pointer was dimmed along with the rest");
+        QCOMPARE(qRound(inner.value("x").toReal()), qRound(4 * spaceWidth));
+
+        // The line outside it is dimmed: none of its bands is the page.
+        QVERIFY(!bands(5).isEmpty());
+        QVERIFY2(bandColoured(bands(5), page).isEmpty(),
+                 "a line outside the scope was left undimmed");
+
+        // Moving off the column puts the page back.
+        QTest::mouseMove(&view, viewport->mapToScene(QPointF(viewport->width() / 2,
+                                                             viewport->height() / 2)).toPoint());
+        QTRY_VERIFY2(bands(3).isEmpty(), "the highlight outlived the hover");
+    }
+
     // A closed fold says what it swallowed. The widget editor draws "{...};"
     // after the line rather than leaving a gap, and puts back the brackets the
     // hidden text opened and closed - which is the part that has to come from

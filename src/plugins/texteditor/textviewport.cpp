@@ -494,6 +494,8 @@ QVariantMap TextViewport::visibleLine(int index) const
                        // The wrapped-line marker, where this row has one.
                        {"breakMarker", line.breakMarker},
                        {"breakMarkerX", line.breakMarkerX},
+                       // The nested-scope backgrounds behind this row.
+                       {"scopeBands", line.scopeBands},
                        // What is being composed on this line, if anything. Not
                        // part of "text": it is not in the document yet, which
                        // is the whole distinction.
@@ -1640,6 +1642,60 @@ void TextViewport::toggleFold(int lineNumber)
         setCursorPosition(block.position() + block.length() - 1);
 }
 
+void TextViewport::highlightScopeAt(qreal y)
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    if (!doc)
+        return;
+    const int position = positionAt(0, y);
+    if (position < 0) {
+        clearScopeHighlight();
+        return;
+    }
+    setScopeBlock(doc->document()->findBlock(position).blockNumber());
+}
+
+void TextViewport::clearScopeHighlight()
+{
+    setScopeBlock(-1);
+}
+
+void TextViewport::setScopeBlock(int blockNumber)
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    if (!doc)
+        return;
+
+    BlockNesting nesting;
+    if (blockNumber >= 0) {
+        QTextBlock block = doc->document()->findBlockByNumber(blockNumber);
+        // A line that opens a fold is taken as being inside what it opens, so
+        // that hovering a marker lights up the scope the marker names rather
+        // than the one around it.
+        if (block.isValid() && block.next().isValid()
+            && TextBlockUserData::foldingIndent(block.next())
+                   > TextBlockUserData::foldingIndent(block)) {
+            block = block.next();
+        }
+        // Where a level starts, in pixels. The widget asks its layout for the
+        // first non-space character's x; here the indent is counted in
+        // columns and multiplied out, which is what places the indent guides
+        // too, so a band and a guide agree.
+        const qreal spaceWidth = QFontMetricsF(m_font).horizontalAdvance(QLatin1Char(' '));
+        const auto tabs = doc->tabSettings();
+        nesting = blockNestingAt(block, [&tabs, spaceWidth](const QTextBlock &b) {
+            return b.isValid() ? qRound(indentDepthForBlock(b, tabs) * spaceWidth) : 0;
+        });
+    }
+
+    if (m_scopeBlock == blockNumber && m_scopeNesting == nesting)
+        return;
+    m_scopeBlock = blockNumber;
+    m_scopeNesting = nesting;
+    polish();
+    update();
+}
+
 int TextViewport::positionAt(qreal x, qreal y) const
 {
     if (m_lines.empty() || m_lineHeight <= 0)
@@ -2053,6 +2109,49 @@ void TextViewport::updatePolish()
         // The line the document calls this, which is not the row it is drawn
         // on once anything above it is folded.
         blockLine.lineNumber = block.blockNumber() + 1;
+        // The scopes around what the gutter is hovering. Every row of the
+        // block carries them - a wrapped line is inside the same scope all
+        // the way down - and a block outside the innermost scope still gets
+        // level zero, which is what dims everything the scope does not cover.
+        if (!m_scopeNesting.isEmpty()) {
+            const int number = block.blockNumber();
+            int depth = 0;
+            for (const int open : m_scopeNesting.open) {
+                if (number >= open)
+                    ++depth;
+            }
+            for (const int close : m_scopeNesting.close) {
+                if (number > close)
+                    --depth;
+            }
+            const int levels = m_scopeNesting.count();
+            const qreal right = qMax(width(), m_contentWidth) - m_scrollX;
+            const qreal margin = m_marginX > 0 ? m_marginX - m_scrollX : -1;
+            for (int level = 0; level <= depth; ++level) {
+                const qreal left
+                    = (level > 0 ? m_scopeNesting.visualIndent.at(level - 1) : 0) - m_scrollX;
+                if (left >= right)
+                    continue;
+                const QColor colour = scopeLevelColor(m_background, level, levels);
+                const auto band = [&](qreal x, qreal w) {
+                    if (w <= 0)
+                        return;
+                    QVariantMap entry;
+                    entry.insert("x", x);
+                    entry.insert("width", w);
+                    entry.insert("colour", colour);
+                    blockLine.scopeBands.append(entry);
+                };
+                // Split around the right margin so that the line marking it
+                // is not painted over, the way the widget editor splits it.
+                if (margin > 0 && left < margin && right > margin) {
+                    band(left, margin - 1 - left);
+                    band(margin + 1, right - margin - 1);
+                } else {
+                    band(left, right - left);
+                }
+            }
+        }
         // The block's revision against the one the file was written at: a
         // line edited since then is marked, and a negative revision is how the
         // document records an edit that was undone back to what is on disk.
@@ -2152,6 +2251,7 @@ void TextViewport::updatePolish()
 
             Line line;
             line.lineNumber = blockLine.lineNumber;
+            line.scopeBands = blockLine.scopeBands;
             line.firstRowOfLine = rowInBlock == 0;
             // The gutter, the fold marker and what a mark says belong to the
             // line, so they go on the row that starts it.
@@ -2366,6 +2466,16 @@ QSGNode *TextViewport::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
 
     auto *root = new QSGNode;
     for (const Line &line : m_lines) {
+        // Below the selection and the text: this is the page the row is drawn
+        // on, not a mark on it.
+        for (const QVariant &entry : line.scopeBands) {
+            const QVariantMap band = entry.toMap();
+            QSGRectangleNode * const rect = win->createRectangleNode();
+            rect->setRect(QRectF(band.value("x").toReal(), line.at.y(),
+                                 band.value("width").toReal(), m_lineHeight));
+            rect->setColor(band.value("colour").value<QColor>());
+            root->appendChildNode(rect);
+        }
         if (!line.selectionFill.isEmpty()) {
             QSGRectangleNode * const fill = win->createRectangleNode();
             fill->setRect(line.selectionFill.translated(line.at));

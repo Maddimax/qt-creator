@@ -4,6 +4,7 @@
 #pragma once
 
 #include "basehoverhandler.h"
+#include "textdocumentlayout.h"
 #include "texteditor_global.h"
 
 #include <utils/id.h>
@@ -335,6 +336,13 @@ public:
     // so a gutter may call it for whatever the user clicked.
     Q_INVOKABLE void toggleFold(int lineNumber);
 
+    // Highlights the folds enclosing the row at \a y, the way hovering the
+    // widget editor's folding column does - and, like it, whether or not the
+    // highlightBlocks setting is on. That setting widens what counts as a
+    // hover; it does not turn the highlight on.
+    Q_INVOKABLE void highlightScopeAt(qreal y);
+    Q_INVOKABLE void clearScopeHighlight();
+
     int cursorLine() const;
     int cursorColumn() const;
     int cursorDisplayColumn() const;
@@ -520,6 +528,10 @@ private:
         // is a continuation. Empty otherwise.
         QString breakMarker;
         qreal breakMarkerX = 0;
+        // The nested-scope backgrounds for this row, outermost first: one
+        // entry per level, each with the x it starts at, its width and its
+        // colour. Empty unless a scope is being highlighted.
+        QVariantList scopeBands;
     };
     // What a selection is filled with, read on the GUI thread in
     // updatePolish() and used on the render thread in updatePaintNode().
@@ -566,6 +578,7 @@ private:
     // the one that knows, and counting lines lands short by however many rows
     // the lines above took.
     int rowOfBlock(const QTextBlock &block);
+    void setScopeBlock(int blockNumber);
     void insertTypedText(QTextCursor &cursor, const QString &text);
     void offerCompletionsIfAsked(const QTextCursor &cursor);
 
@@ -627,6 +640,10 @@ private:
     QColor m_indentGuide = Qt::transparent;
     qreal m_indentWidth = 0;
     bool m_mouseHidden = false;
+    // Which block's enclosing folds are highlighted, and what they came out
+    // as. -1 when nothing is hovered.
+    int m_scopeBlock = -1;
+    BlockNesting m_scopeNesting;
     qreal m_marginX = -1;
     QColor m_marginLine = Qt::transparent;
     QColor m_marginArea = Qt::transparent;

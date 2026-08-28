@@ -163,4 +163,34 @@ Item {
             }
         }
     }
+
+    // Hovering the folding column lights up the scopes around the line under
+    // the pointer. The widget editor does this whenever the pointer is in that
+    // column, whether or not the highlightBlocks setting is on - the setting
+    // widens what counts as a hover rather than switching the highlight on.
+    Item {
+        id: foldColumn
+
+        x: root.foldX
+        width: root.foldWidth
+        height: root.height
+        visible: root.showFoldMarkers
+
+        HoverHandler {
+            id: foldHover
+
+            // In the viewport's coordinates, not the gutter's: the two are
+            // laid out separately and only happen to line up.
+            onPointChanged: {
+                if (!foldHover.hovered)
+                    return
+                const at = foldColumn.mapToItem(root.viewport, 0, foldHover.point.position.y)
+                root.viewport.highlightScopeAt(at.y)
+            }
+            onHoveredChanged: {
+                if (!foldHover.hovered)
+                    root.viewport.clearScopeHighlight()
+            }
+        }
+    }
 }
