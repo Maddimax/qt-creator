@@ -1824,7 +1824,12 @@ void DiffEditor::Internal::DiffEditorPlugin::testInlineDiff()
     const FilePath sourceFile
         = FilePath::fromString(temporaryDir.path()) / "testInlineDiff.txt";
     QVERIFY(sourceFile.writeFileContents(editorText.toUtf8()));
-    IEditor *sourceEditor = EditorManager::openEditor(sourceFile);
+    // In the widget editor by name rather than in whichever one a text file
+    // opens in: an inline diff decorates a TextEditorWidget, and an editor
+    // that is not one gets the classic diff view instead - which is what this
+    // is not about.
+    IEditor *sourceEditor = EditorManager::openEditor(sourceFile,
+                                                      Core::Constants::K_DEFAULT_TEXT_EDITOR_ID);
     QVERIFY(sourceEditor);
     auto sourceTextEditor = qobject_cast<BaseTextEditor *>(sourceEditor);
     QVERIFY(sourceTextEditor);
@@ -2039,7 +2044,12 @@ void DiffEditor::Internal::DiffEditorPlugin::testInlineDiffCollapse()
     const FilePath sourceFile
         = FilePath::fromString(temporaryDir.path()) / "testInlineDiffCollapse.txt";
     QVERIFY(sourceFile.writeFileContents(editorText.toUtf8()));
-    IEditor *sourceEditor = EditorManager::openEditor(sourceFile);
+    // In the widget editor by name rather than in whichever one a text file
+    // opens in: an inline diff decorates a TextEditorWidget, and an editor
+    // that is not one gets the classic diff view instead - which is what this
+    // is not about.
+    IEditor *sourceEditor = EditorManager::openEditor(sourceFile,
+                                                      Core::Constants::K_DEFAULT_TEXT_EDITOR_ID);
     QVERIFY(sourceEditor);
     auto sourceTextEditor = qobject_cast<BaseTextEditor *>(sourceEditor);
     QVERIFY(sourceTextEditor);
@@ -2223,7 +2233,12 @@ void DiffEditor::Internal::DiffEditorPlugin::testInlineDiffCollapseAddedLines()
     const FilePath sourceFile
         = FilePath::fromString(temporaryDir.path()) / "testInlineDiffCollapseAddedLines.txt";
     QVERIFY(sourceFile.writeFileContents(editorText.toUtf8()));
-    IEditor *sourceEditor = EditorManager::openEditor(sourceFile);
+    // In the widget editor by name rather than in whichever one a text file
+    // opens in: an inline diff decorates a TextEditorWidget, and an editor
+    // that is not one gets the classic diff view instead - which is what this
+    // is not about.
+    IEditor *sourceEditor = EditorManager::openEditor(sourceFile,
+                                                      Core::Constants::K_DEFAULT_TEXT_EDITOR_ID);
     QVERIFY(sourceEditor);
     auto sourceTextEditor = qobject_cast<BaseTextEditor *>(sourceEditor);
     QVERIFY(sourceTextEditor);
