@@ -140,6 +140,30 @@ AddressSanitizer on (`-fsanitize=address` is in the compile line), so the
 absolute figures are inflated, and the "45 ms per layout" the first
 measurement seemed to show was `QTRY_COMPARE` polling, not work.
 
+**And then the measurement itself turned out to be measuring the wrong end.**
+The 1.32 ms above was a timer that stopped before the *end* of
+`updatePolish()`. Timing the whole thing gives **10 to 19 ms a layout**, and
+the shape of it is:
+
+| | per layout |
+| --- | --- |
+| shaping rows | 0.19 ms |
+| building the list QML reads | 0.51 ms (was ~3.2 ms - see below) |
+| everything else, almost all of it QML | ~9 ms |
+
+`visibleLines` is a `QVariantList` property - a map of twenty-odd entries per
+row - and **eight repeaters bind to it**. Each binding read rebuilt the whole
+list, so a scroll built it eight times at ~0.4 ms each. It is built once with
+the layout now.
+
+**What is left is the big one, and it is not fixed.** Emitting `linesChanged`
+hands every repeater a brand new list, so all eight throw away their delegates
+and make new ones - several hundred QML items created and destroyed per scroll
+step. That is the ~9 ms. The fix is a stable model: a `QAbstractListModel`
+whose rows keep their identity, so a scroll updates delegates rather than
+replacing them. It touches all eight repeaters and every role name, which is
+why it is written down here rather than started at the end of a batch.
+
 **What I guessed first was wrong.** The obvious suspect was the loop over
 `m_highlights` inside the per-block loop - O(visible x highlights) by the look
 of it. Reading it showed a `std::lower_bound` per set, so it is already cheap,
