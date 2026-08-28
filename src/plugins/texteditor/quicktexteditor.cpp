@@ -655,6 +655,23 @@ private slots:
     // The one thing this must not do while it is unfinished: become what a
     // text file opens in. The default for a mime type is the first factory
     // that claims it, and the plain text editor is still offered beside it.
+    void testAFileWithNoEditorOfItsOwnOpensHereToo()
+    {
+        // Lua has no editor of its own, so a script is a text file like any
+        // other and lands here. Whoever assumed that every text file opened
+        // in a widget meets this view instead - the Lua plugin put a Run
+        // button on the tool bar without checking, which was a crash.
+        const Utils::MimeType lua = Utils::mimeTypeForName("text/x-lua");
+        if (!lua.isValid())
+            QSKIP("no lua mime type registered on this system");
+        QVERIFY2(lua.inherits(QLatin1String(Constants::C_TEXTEDITOR_MIMETYPE_TEXT)),
+                 "a lua script is not a text file here, so this proves nothing");
+
+        const Core::EditorFactories factories = Core::IEditorFactory::defaultEditorFactories(lua);
+        QVERIFY(!factories.isEmpty());
+        QCOMPARE(factories.first()->id().toString(), QLatin1String(QUICK_TEXT_EDITOR_ID));
+    }
+
     void testItIsWhatATextFileOpensIn()
     {
         const Utils::MimeType text = Utils::mimeTypeForName(

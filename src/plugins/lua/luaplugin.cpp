@@ -513,7 +513,14 @@ public:
         const FilePath path = editor->document()->filePath();
         if (path.isChildOf(Core::ICore::userResourcePath("scripts"))
             || path.isChildOf(Core::ICore::resourcePath("lua/scripts"))) {
+            // The button goes on a text editor widget's tool bar, and a script
+            // open in a view that has no widget has nowhere to put it. Every
+            // text file used to open in one, so the cast could not fail and
+            // was not checked; now it can, and an unchecked one is a crash on
+            // opening a script.
             auto textEditor = qobject_cast<TextEditor::BaseTextEditor *>(editor);
+            if (!textEditor || !textEditor->editorWidget())
+                return;
             TextEditor::TextEditorWidget *editorWidget = textEditor->editorWidget();
             editorWidget->toolBar()
                 ->addAction(Utils::Icons::RUN_SMALL_TOOLBAR.icon(), Tr::tr("Run"), [path]() {
