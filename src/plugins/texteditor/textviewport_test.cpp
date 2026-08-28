@@ -5819,6 +5819,103 @@ private slots:
         QTRY_VERIFY(doc->document()->characterCount() > before);
         QCOMPARE(asked, 1);
     }
+
+    void testAGapMovesTheRowsUnderItAndNothingAbove()
+    {
+        // An inline diff shows the lines a file no longer has between the ones
+        // it does. They are not rows: the rows keep their numbering, and the
+        // space only pushes the ones under it down.
+        TemporaryDirectory dir("textviewport-gaps");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("gaps.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\ngamma\ndelta\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+
+        // "alpha\n" is 0-5, "beta\n" 6-10, "gamma\n" 11-16.
+        const qreal firstY = viewport->rectangleAt(0).y();
+        const qreal secondY = viewport->rectangleAt(6).y();
+        const QRectF third = viewport->rectangleAt(11);
+        QVERIFY(!third.isEmpty());
+        const qreal contentBefore = viewport->contentHeight();
+
+        const qreal gap = 3 * viewport->lineHeight();
+        viewport->setRowGaps({{2, gap}});
+        QTRY_VERIFY(qAbs(viewport->contentHeight() - (contentBefore + gap)) < 0.01);
+
+        // Above the gap nothing moved.
+        QCOMPARE(viewport->rectangleAt(0).y(), firstY);
+        QCOMPARE(viewport->rectangleAt(6).y(), secondY);
+        // The row the gap sits above, and so everything after it, did.
+        QVERIFY(qAbs(viewport->rectangleAt(11).y() - (third.y() + gap)) < 0.01);
+        // And the row is no taller for it: a caret there is still text-sized.
+        QVERIFY(qAbs(viewport->rectangleAt(11).height() - third.height()) < 0.01);
+    }
+
+    void testAClickInAGapLandsOnTheRowUnderIt()
+    {
+        // A gap belongs to no row, so a press in one has to answer with
+        // something. The row it sits above is the one it was opened for.
+        TemporaryDirectory dir("textviewport-gap-click");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("gaps.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\ngamma\ndelta\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+
+        const qreal contentBefore = viewport->contentHeight();
+        const qreal gap = 3 * viewport->lineHeight();
+        viewport->setRowGaps({{2, gap}});
+        QTRY_VERIFY(qAbs(viewport->contentHeight() - (contentBefore + gap)) < 0.01);
+
+        // Half way up the gap, which sits directly above "gamma".
+        const QRectF third = viewport->rectangleAt(11);
+        QCOMPARE(viewport->positionAt(0, third.y() - gap / 2), 11);
+        // Just below it is the row itself, and just above is the row before.
+        QCOMPARE(viewport->positionAt(0, third.center().y()), 11);
+        QCOMPARE(viewport->positionAt(0, third.y() - gap - 1), 6);
+    }
+
+    void testAScreenPositionAndADocumentPositionAgreeAcrossAGap()
+    {
+        // The round trip has to survive a gap, or a click lands a row off for
+        // every line below the first removed one.
+        TemporaryDirectory dir("textviewport-gap-mapping");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("gaps.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\ngamma\ndelta\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+
+        const qreal contentBefore = viewport->contentHeight();
+        // Two gaps, so that the running total is exercised and not just one
+        // subtraction that would look right either way.
+        const qreal gap = 2 * viewport->lineHeight();
+        viewport->setRowGaps({{1, gap}, {3, gap}});
+        QTRY_VERIFY(qAbs(viewport->contentHeight() - (contentBefore + 2 * gap)) < 0.01);
+
+        for (int position = 0; position <= 16; ++position) {
+            const QRectF caret = viewport->rectangleAt(position);
+            QVERIFY2(!caret.isEmpty(),
+                     qPrintable(QString("no caret for position %1").arg(position)));
+            QCOMPARE(viewport->positionAt(caret.x(), caret.center().y()), position);
+        }
+    }
 };
 
 QObject *createTextViewportTest()

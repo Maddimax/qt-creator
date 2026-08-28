@@ -301,6 +301,20 @@ public:
     qreal scrollX() const;
     void setScrollX(qreal scrollX);
 
+    // Space claimed above a row by something that is not one of the document's
+    // rows: the removed lines an inline diff shows between two kept ones, or a
+    // spacer holding this view level with another. Rows keep their numbering
+    // and their height - a gap belongs to no row, it only moves the ones below
+    // it down.
+    struct Gap
+    {
+        int row = 0;
+        qreal height = 0;
+        bool operator==(const Gap &other) const = default;
+    };
+    void setRowGaps(const QList<Gap> &gaps);
+    QList<Gap> rowGaps() const { return m_rowGaps; }
+
     qreal contentHeight() const;
     qreal contentWidth() const;
     qreal lineHeight() const;
@@ -664,6 +678,8 @@ private:
     qreal yOfRow(int row) const;
     int rowAtY(qreal y) const;
     qreal rowSpan(int row) const;
+    // Total height of the gaps that sit at or above the top of a row.
+    qreal gapAbove(int row) const;
     void setScopeBlock(int blockNumber);
     void updateScrollBarHighlights();
     void rebuildVisibleLines();
@@ -719,6 +735,10 @@ private:
     // in updatePaintNode() on the render thread, with the GUI thread blocked.
     std::vector<Line> m_lines;
     qreal m_lineHeight = 0;
+    // Sorted by row, and the running total of their heights alongside, so that
+    // where a row sits is a binary search rather than a walk.
+    QList<Gap> m_rowGaps;
+    std::vector<qreal> m_gapSums;
     qreal m_contentHeight = 0;
     qreal m_contentWidth = 0;
     // Set when the caret moved and cleared once updatePolish() has put it back

@@ -12081,3 +12081,44 @@ up `additionalBlockHeight()` for the blocks above a row, which wants a prefix
 sum built once a layout rather than a walk per call, and `rowAtY` has to
 invert it. The gutter needs nothing - it reads the same `visibleRows` model
 the viewport builds, so the rows carry their own positions with them.
+
+### Teaching the one place
+
+With the arithmetic behind `yOfRow()`, the gap model itself is small. A gap is
+space above a row, claimed by something that is not one of the document's
+rows, and the invariant that makes it cheap is that rows keep both their
+numbering and their height. Nothing about wrapping, folding, hit testing or
+the caret has to learn a second notion of "row"; only where a row sits moves.
+
+    struct Gap
+    {
+        int row = 0;
+        qreal height = 0;
+    };
+
+Held sorted, with a running total beside it, so `gapAbove(row)` is an
+`upper_bound` rather than a walk - the count of gaps at or above a row indexes
+straight into the sums. `rowAtY()` inverts it with the same search over gap
+*starts*, and then has one case worth naming: a y inside a gap belongs to no
+row at all, so it answers with the row underneath rather than the one the
+division lands on part way through. That is what makes a press in the removed
+lines of a diff put the caret on the line that replaced them.
+
+`rowSpan()` deliberately did not change. A gap is not part of the row above
+it, so a caret there is still text-sized and scrolling to that row need not
+drag the gap onto the screen with it.
+
+Three tests: that a gap moves the rows under it and leaves the ones above
+alone, that a click inside one lands on the row under it, and that the screen
+to document round trip survives two of them - two, so that the running total
+is exercised rather than a single subtraction that would look right either
+way.
+
+The controls were run separately, because "does the feature work" and "does
+the test test it" are different questions:
+
+- `gapAbove()` returning 0 - the whole model off.
+- `rowAtY()` ignoring gaps, with `yOfRow()` left correct - only the inverse
+  broken. Placement still passed and both mapping tests failed, which is the
+  result that matters: the round trip tests are not coasting on the forward
+  direction being right.

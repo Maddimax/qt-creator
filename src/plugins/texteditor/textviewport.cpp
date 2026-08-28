@@ -1082,18 +1082,76 @@ void TextViewport::ensureCursorVisible()
         setScrollY(above ? top : top + rowSpan(row) - height());
 }
 
+void TextViewport::setRowGaps(const QList<Gap> &gaps)
+{
+    QList<Gap> sorted = gaps;
+    std::stable_sort(sorted.begin(), sorted.end(), [](const Gap &a, const Gap &b) {
+        return a.row < b.row;
+    });
+    if (sorted == m_rowGaps)
+        return;
+
+    m_rowGaps = sorted;
+    m_gapSums.clear();
+    m_gapSums.reserve(m_rowGaps.size());
+    qreal total = 0;
+    for (const Gap &gap : std::as_const(m_rowGaps)) {
+        total += gap.height;
+        m_gapSums.push_back(total);
+    }
+    polish();
+}
+
+qreal TextViewport::gapAbove(int row) const
+{
+    if (m_rowGaps.isEmpty())
+        return 0;
+
+    // The number of gaps sitting at or above the top of this row: a gap on the
+    // row itself is above its text, which is what puts the removed lines of a
+    // diff over the line that replaced them.
+    const auto behind = std::upper_bound(m_rowGaps.cbegin(), m_rowGaps.cend(), row,
+                                         [](int r, const Gap &gap) { return r < gap.row; });
+    const auto count = behind - m_rowGaps.cbegin();
+    return count > 0 ? m_gapSums.at(count - 1) : 0;
+}
+
 qreal TextViewport::yOfRow(int row) const
 {
-    return row * m_lineHeight;
+    return row * m_lineHeight + gapAbove(row);
 }
 
 int TextViewport::rowAtY(qreal y) const
 {
-    return m_lineHeight > 0 ? int(y / m_lineHeight) : 0;
+    if (m_lineHeight <= 0)
+        return 0;
+    if (m_rowGaps.isEmpty())
+        return int(y / m_lineHeight);
+
+    // How many gaps begin at or above y. A gap begins where the row it sits on
+    // would have started without it.
+    int lo = 0;
+    int hi = int(m_rowGaps.size());
+    while (lo < hi) {
+        const int mid = (lo + hi) / 2;
+        const qreal before = mid > 0 ? m_gapSums.at(mid - 1) : 0;
+        if (m_rowGaps.at(mid).row * m_lineHeight + before <= y)
+            lo = mid + 1;
+        else
+            hi = mid;
+    }
+
+    const qreal above = lo > 0 ? m_gapSums.at(lo - 1) : 0;
+    const int row = int((y - above) / m_lineHeight);
+    // A y inside a gap belongs to no row, so answer with the one under it
+    // rather than the one the arithmetic lands on part way through.
+    return lo > 0 ? qMax(row, m_rowGaps.at(lo - 1).row) : row;
 }
 
 qreal TextViewport::rowSpan(int row) const
 {
+    // A gap is not part of the row it sits above: a caret on that row is as
+    // tall as its text, and scrolling to it need not bring the gap along.
     Q_UNUSED(row)
     return m_lineHeight;
 }
