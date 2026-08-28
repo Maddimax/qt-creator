@@ -3825,27 +3825,16 @@ void TextEditorWidgetPrivate::configureGenericHighlighter(
 
 void TextEditorWidgetPrivate::setupFromDefinition(const KSyntaxHighlighting::Definition &definition)
 {
-    const TypingSettingsData::CommentPosition commentPosition
-        = m_document->typingSettings().m_commentPosition;
-    m_commentDefinition.isAfterWhitespace = commentPosition != TypingSettingsData::StartOfLine;
+    m_commentDefinition
+        = HighlighterHelper::commentDefinitionFor(definition, m_document->typingSettings());
     if (!definition.isValid())
         return;
-    m_commentDefinition.singleLine = definition.singleLineCommentMarker();
-    m_commentDefinition.multiLineStart = definition.multiLineCommentMarker().first;
-    m_commentDefinition.multiLineEnd = definition.multiLineCommentMarker().second;
-    if (commentPosition == TypingSettingsData::Automatic) {
-        m_commentDefinition.isAfterWhitespace
-            = definition.singleLineCommentPosition()
-              == KSyntaxHighlighting::CommentPosition::AfterWhitespace;
-    }
     q->setCodeFoldingSupported(true);
 }
 
 KSyntaxHighlighting::Definition TextEditorWidgetPrivate::currentDefinition()
 {
-    if (auto *highlighter = qobject_cast<Highlighter *>(m_document->syntaxHighlighter()))
-        return highlighter->definition();
-    return {};
+    return HighlighterHelper::definitionForDocument(m_document.data());
 }
 
 void TextEditorWidgetPrivate::rememberCurrentSyntaxDefinition()

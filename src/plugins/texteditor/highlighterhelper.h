@@ -10,10 +10,14 @@
 
 #include <functional>
 
-namespace Utils { class FilePath; }
+namespace Utils {
+class CommentDefinition;
+class FilePath;
+}
 
 namespace TextEditor {
 class TextDocument;
+class TypingSettingsData;
 
 namespace HighlighterHelper {
 
@@ -34,6 +38,17 @@ void clearDefinitionForDocumentCache();
 // the info bar about a missing definition - is the view's own business, and a
 // view that is not a widget has none of it.
 void setDefinitionOn(TextDocument *document, const Definition &definition);
+
+// What definition is on \a document now, which is the one its highlighter was
+// built from. Invalid when it has none.
+Definition definitionForDocument(const TextDocument *document);
+
+// The comment markers a language uses, in the form the comment commands want.
+// Derived from the definition and from the typing settings, which decide
+// whether a line comment goes at the margin or in front of the text - so a
+// view that is not a widget can have them too.
+Utils::CommentDefinition commentDefinitionFor(const Definition &definition,
+                                              const TypingSettingsData &typingSettings);
 
 void addCustomHighlighterPath(const Utils::FilePath &path);
 // Reports progress through \a logger where one is given, and to the message

@@ -546,6 +546,11 @@ public:
     // ones not yet reached.
     Utils::MultiTextCursor multiTextCursor() const;
     void transformSelectedText(const TextTransformation &transform);
+    // Which markers this file's language comments with, taken from the
+    // definition its highlighter was built from. Not cached: the definition
+    // arrives after the file does, and a comment taken before it would be the
+    // wrong one for the rest of the session.
+    Utils::CommentDefinition commentDefinition() const;
     void setMultiTextCursor(const Utils::MultiTextCursor &cursors);
     // Runs an edit at every caret, as one undo step. The carets are taken
     // later in the document first: an edit moves everything after it, and a
@@ -570,6 +575,8 @@ public:
     Q_INVOKABLE void insertLineBelow();
     Q_INVOKABLE void duplicateSelection();
     Q_INVOKABLE void sortLines();
+    Q_INVOKABLE void unCommentSelection();
+    Q_INVOKABLE void duplicateSelectionAndComment();
     // A rectangle of text, from where the caret is anchored to \a x, \a y.
     // One caret per line it covers, which is what makes it a selection that
     // can be typed over. The anchor is taken once, when the drag starts, so

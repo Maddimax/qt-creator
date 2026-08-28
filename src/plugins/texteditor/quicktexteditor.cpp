@@ -343,6 +343,9 @@ public:
         command(Constants::INSERT_LINE_BELOW, &TextViewport::insertLineBelow);
         command(Constants::DUPLICATE_SELECTION, &TextViewport::duplicateSelection);
         command(Constants::SORT_LINES, &TextViewport::sortLines);
+        command(Constants::UN_COMMENT_SELECTION, &TextViewport::unCommentSelection);
+        command(Constants::DUPLICATE_SELECTION_AND_COMMENT,
+                &TextViewport::duplicateSelectionAndComment);
 
         Core::ActionBuilder(this, Constants::JOIN_LINES)
             .setContext(Core::Context(m_editorContext))

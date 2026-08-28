@@ -3,6 +3,12 @@
 
 #include "highlighterhelper.h"
 
+#include "highlighter.h"
+#include "textdocument.h"
+#include "typingsettings.h"
+
+#include <utils/uncommentselection.h>
+
 #include "fontsettings.h"
 #include "highlighter.h"
 #include "highlightersettings.h"
@@ -343,6 +349,34 @@ QFuture<QTextDocument *> highlightCode(const QString &code, const QString &mimeT
     highlighter->setDocument(document);
 
     return promise->future();
+}
+
+Definition definitionForDocument(const TextDocument *document)
+{
+    if (!document)
+        return {};
+    if (auto * const highlighter = qobject_cast<Highlighter *>(document->syntaxHighlighter()))
+        return highlighter->definition();
+    return {};
+}
+
+Utils::CommentDefinition commentDefinitionFor(const Definition &definition,
+                                              const TypingSettingsData &typingSettings)
+{
+    Utils::CommentDefinition comment;
+    const TypingSettingsData::CommentPosition position = typingSettings.m_commentPosition;
+    comment.isAfterWhitespace = position != TypingSettingsData::StartOfLine;
+    if (!definition.isValid())
+        return comment;
+
+    comment.singleLine = definition.singleLineCommentMarker();
+    comment.multiLineStart = definition.multiLineCommentMarker().first;
+    comment.multiLineEnd = definition.multiLineCommentMarker().second;
+    if (position == TypingSettingsData::Automatic) {
+        comment.isAfterWhitespace = definition.singleLineCommentPosition()
+                                    == KSyntaxHighlighting::CommentPosition::AfterWhitespace;
+    }
+    return comment;
 }
 
 } // namespace TextEditor::HighlighterHelper

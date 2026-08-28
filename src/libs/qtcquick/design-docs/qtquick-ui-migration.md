@@ -13472,3 +13472,43 @@ new mechanism each time, which is why it is worth writing all three down:
 
 The third point is the one worth keeping. A control that bites tells you about
 the line you removed; it says nothing about the five you did not.
+
+## The comment definition, which was one gap holding three commands
+
+`highlighterhelper.h` already said this out loud - "which comment markers its
+shortcuts use ... a view that is not a widget has none of it". It was one
+missing piece, not three: `UN_COMMENT_SELECTION` and
+`DUPLICATE_SELECTION_AND_COMMENT` both wanted the same thing, and the widget
+derived it in a private method nobody else could reach.
+
+Deriving it needs only the syntax definition and the typing settings - which
+decide whether a line comment goes at the margin or in front of the text - and
+both are document-level. So `commentDefinitionFor()` and
+`definitionForDocument()` join the other helpers there, the widget's
+`setupFromDefinition()` and `currentDefinition()` become calls to them, and the
+viewport asks the same question of the same document. `Utils::unCommentSelection`
+needed no porting at all; it was already a free function taking a cursor and a
+definition.
+
+### Three notes on a test that would not bite
+
+The read-only test now covers eight commands, and getting there found three
+different things, only the first of which was interesting:
+
+1. Its document was a `.txt`, so it had no language, so the comment commands
+   had no markers and did nothing whether or not they were guarded. It is a
+   `.cpp` with a definition put on it now. Content has to be something every
+   command would change; a language is part of the content.
+2. Removing the guard from the two comment commands was "not caught" for the
+   dull reason that the test never called them: the edit that was supposed to
+   add the calls used a `replace()` whose anchor did not match, and nothing
+   asserted that it had. Every other edit in these batches asserted its anchor.
+   A silent no-op edit looks exactly like a subtle behaviour question, and
+   several minutes went into treating it as one.
+3. Only then did removing each of the eight guards in turn fail the test -
+   checked one at a time, because six of them passing says nothing about the
+   seventh.
+
+The two controls that mattered did bite first time: a comment definition with
+its single-line marker taken out fails the commenting test, and a
+`definitionForDocument()` that finds nothing fails both comment tests.

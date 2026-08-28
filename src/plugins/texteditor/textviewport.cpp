@@ -4,7 +4,10 @@
 #include "textviewport.h"
 
 #include "blockselection.h"
+#include "highlighterhelper.h"
 #include "textoperations.h"
+
+#include <utils/uncommentselection.h>
 
 #include "autocompleter.h"
 #include "behaviorsettings.h"
@@ -2135,6 +2138,35 @@ void TextViewport::sortLines()
     if (!TextEditor::sortLines(cursor, doc->tabSettings()))
         return;
     setTextCursor(cursor);
+}
+
+Utils::CommentDefinition TextViewport::commentDefinition() const
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    if (!doc)
+        return {};
+    return HighlighterHelper::commentDefinitionFor(HighlighterHelper::definitionForDocument(doc),
+                                                   doc->typingSettings());
+}
+
+void TextViewport::unCommentSelection()
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    if (isReadOnly() || !doc)
+        return;
+    const bool singleLine = doc->typingSettings().m_preferSingleLineComments;
+    setMultiTextCursor(
+        Utils::unCommentSelection(multiTextCursor(), commentDefinition(), singleLine));
+}
+
+void TextViewport::duplicateSelectionAndComment()
+{
+    if (isReadOnly())
+        return;
+    const Utils::CommentDefinition comment = commentDefinition();
+    Utils::MultiTextCursor cursors = multiTextCursor();
+    TextEditor::duplicateSelection(cursors, &comment);
+    setMultiTextCursor(cursors);
 }
 
 void TextViewport::joinLines()

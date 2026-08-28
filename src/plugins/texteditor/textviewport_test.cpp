@@ -24,6 +24,7 @@
 #include "textdocumentlayout.h"
 #include "texteditorconstants.h"
 #include "marginsettings.h"
+#include "highlighterhelper.h"
 #include "textviewport.h"
 #include "textmark.h"
 
@@ -4256,6 +4257,80 @@ private slots:
         QCOMPARE(text->toPlainText(), before);
     }
 
+    // Comment and uncomment use the markers of the file's own language, which
+    // the view reads off the definition its highlighter was built from. That
+    // is the piece the Quick editor was missing, and without it the command
+    // silently did nothing.
+    void testCommentingUsesTheLanguagesOwnMarkers()
+    {
+        TemporaryDirectory dir("qtc-viewport-comment");
+        const FilePath file = dir.filePath("code.cpp");
+        QVERIFY(file.writeFileContents("int x;\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        viewport->setReadOnly(false);
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        // Nothing puts a definition on a bare viewport's document, so the
+        // test puts one there itself - which is also the path being tested.
+        TextDocument * const doc = viewport->textDocument();
+        const HighlighterHelper::Definition definition
+            = HighlighterHelper::definitionForName("C++");
+        QVERIFY2(definition.isValid(), "no C++ syntax definition is installed");
+        HighlighterHelper::setDefinitionOn(doc, definition);
+        QTRY_VERIFY(HighlighterHelper::definitionForDocument(doc).isValid());
+
+        QTextDocument * const text = doc->document();
+        const QString before = text->toPlainText();
+
+        viewport->setCursorPosition(0);
+        viewport->unCommentSelection();
+        QVERIFY2(text->findBlockByNumber(0).text().contains("//"),
+                 qPrintable("the line was not commented: " + text->findBlockByNumber(0).text()));
+
+        // And again takes it back off, which is what one command doing both
+        // means.
+        viewport->unCommentSelection();
+        QCOMPARE(text->toPlainText(), before);
+    }
+
+    // Duplicate and Comment wraps the copy in the language's block comment.
+    // Without a comment definition it has nowhere to put the markers and does
+    // nothing at all, which is what it did here before.
+    void testDuplicateAndCommentWrapsTheCopy()
+    {
+        TemporaryDirectory dir("qtc-viewport-dupcomment");
+        const FilePath file = dir.filePath("code.cpp");
+        QVERIFY(file.writeFileContents("int x;\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        viewport->setReadOnly(false);
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        TextDocument * const doc = viewport->textDocument();
+        HighlighterHelper::setDefinitionOn(doc, HighlighterHelper::definitionForName("C++"));
+        QTRY_VERIFY(HighlighterHelper::definitionForDocument(doc).isValid());
+
+        QTextDocument * const text = doc->document();
+        viewport->setSelectionStart(0);
+        viewport->setSelectionEnd(6);
+        QTRY_VERIFY(viewport->textCursor().hasSelection());
+
+        viewport->duplicateSelectionAndComment();
+
+        const QString all = text->toPlainText();
+        QVERIFY2(all.contains("/*") && all.contains("*/"),
+                 qPrintable("the copy was not commented: " + all));
+        QVERIFY2(all.count("int x;") == 2,
+                 qPrintable("the selection was not duplicated: " + all));
+    }
+
     // None of the line commands edits a buffer that is read only, the same
     // as a key press does not. One test for all of them: each has its own
     // guard, and a guard that is missing on one of them is exactly the kind
@@ -4263,11 +4338,14 @@ private slots:
     void testTheLineCommandsLeaveAReadOnlyBufferAlone()
     {
         TemporaryDirectory dir("qtc-viewport-ro-commands");
-        const FilePath file = dir.filePath("two.txt");
+        // A source file, not a plain one, and with a definition put on it
+        // below: the comment commands have no markers without a language and
+        // would do nothing whether or not they were guarded.
+        const FilePath file = dir.filePath("code.cpp");
         // Out of alphabetical order and in lower case on purpose: content
         // that every one of these commands would visibly change, so that a
         // missing guard cannot hide behind a command that had nothing to do.
-        QVERIFY(file.writeFileContents("zebra\napple\n"));
+        QVERIFY(file.writeFileContents("zebra;\napple;\n"));
 
         ViewportFixture fixture(file, 400, 200);
         QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
@@ -4276,7 +4354,11 @@ private slots:
         QTRY_VERIFY(viewport->visibleLineCount() > 1);
         QVERIFY(viewport->isReadOnly());
 
-        QTextDocument * const text = viewport->textDocument()->document();
+        TextDocument * const doc = viewport->textDocument();
+        HighlighterHelper::setDefinitionOn(doc, HighlighterHelper::definitionForName("C++"));
+        QTRY_VERIFY(HighlighterHelper::definitionForDocument(doc).isValid());
+
+        QTextDocument * const text = doc->document();
         const QString before = text->toPlainText();
 
         viewport->setCursorPosition(2);
@@ -4286,6 +4368,8 @@ private slots:
         viewport->insertLineBelow();
         viewport->duplicateSelection();
         viewport->sortLines();
+        viewport->unCommentSelection();
+        viewport->duplicateSelectionAndComment();
         // Last, and after the lower case one: both go through the same guard,
         // so with the guard gone they would run one after the other and put
         // the text back exactly as it was between them.
