@@ -12593,3 +12593,60 @@ The evidence is worth stating plainly: four clean runs at a 9% failure rate is
 about a 69% outcome by chance, so the runs are supporting and not conclusive.
 What carries it is that the test now does what every working focus test in the
 same file does.
+
+## Multiple cursors: what it would actually take
+
+Asked whether the Quick editor has them: it does not. The four mentions of
+`MultiTextCursor` in `textviewport.cpp` are all `MultiTextCursor({cursor})` -
+wrapping *one* cursor to call an API shaped for many, then taking
+`.mainCursor()` straight back out. Nothing adds a second one.
+
+A first estimate here counted the state uses - 18 of `m_cursorPosition`, 15
+each of `m_selectionStart` and `m_selectionEnd`, 22 cursor references in the
+QML - and concluded this was a bigger piece of work than the inline diff. That
+was wrong, and reading rather than counting says why.
+
+**The state is concentrated, not scattered.** By function:
+
+    6  updatePolish        4  textCursor         2  ensureCursorVisible
+    2  setSelectionStart   2  setSelectionEnd    2  setCursorPosition
+    2  selectedCharacterCount  2  removeSelectedText  2  dropText
+    1  each of a dozen accessors (cursorLine, cursorColumn, cursorBlock, ...)
+
+The dozen one-line accessors all answer *about the caret*, and would keep
+answering about the main one. `textCursor()` is the funnel: it builds a
+`QTextCursor` from the position and the selection, and thirteen callers - all
+the editing - go through it.
+
+**And the hard part is already written.** `Utils::MultiTextCursor` has
+`setCursors`, `addCursor`, `mainCursor`, `hasMultipleCursors`, `mergeCursors`
+and an `insertText` that applies to every cursor. The subtleties that make
+multiple cursors hard - applying edits so earlier ones do not shift later
+positions, merging cursors that collide, one undo step for the lot - are in
+there, used by the widget editor. The viewport would hold one instead of three
+ints rather than inventing any of it.
+
+What is genuinely new is the drawing, and it is small:
+
+- `line.selectionFill` is one `QRectF` per row, set in one place and drawn in
+  one place. It becomes a list.
+- The caret is a single QML `Rectangle` bound to `cursorRectangle`. It becomes
+  a `Repeater` over a list of caret rectangles.
+
+Then the entry points: Alt+click to add one, Escape to collapse to one, and
+the two actions the widget has (`ADD_CURSORS_TO_LINE_ENDS`, add-cursor-at-next
+match).
+
+So a plausible staging, each part committable on its own:
+
+1. Hold a `MultiTextCursor`; every accessor answers for the main cursor.
+   Nothing changes for anyone, and the suites should be untouched.
+2. Draw them: selection fills and carets as lists.
+3. Edit through all of them, which is mostly deleting the loop-avoidance the
+   current code does with `MultiTextCursor({cursor}).mainCursor()`.
+4. The ways a second cursor gets created.
+
+The correction worth keeping is about the estimate rather than the feature:
+counting identifier occurrences measured how much text mentions the cursor,
+not how many decisions depend on it being single. Those are different numbers,
+and here they differ by a lot.
