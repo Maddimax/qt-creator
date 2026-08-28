@@ -378,6 +378,28 @@ public:
         folding(Constants::UNFOLD_RECURSIVELY, true, true);
         command(Constants::UNFOLD_ALL, &TextViewport::toggleFoldAll);
 
+        command(Constants::SELECT_WORD_UNDER_CURSOR, &TextViewport::selectWordUnderCursor);
+        command(Constants::CLEAR_SELECTION, &TextViewport::clearSelection);
+        command(Constants::VIEW_PAGE_UP, &TextViewport::viewPageUp);
+        command(Constants::VIEW_PAGE_DOWN, &TextViewport::viewPageDown);
+        command(Constants::VIEW_LINE_UP, &TextViewport::viewLineUp);
+        command(Constants::VIEW_LINE_DOWN, &TextViewport::viewLineDown);
+
+        // Home is not a plain move to the start of the line, so it does not
+        // go through the movement table above.
+        Core::ActionBuilder(this, Constants::GOTO_LINE_START)
+            .setContext(Core::Context(m_editorContext))
+            .addOnTriggered(this, [this] {
+                if (TextViewport * const view = viewport())
+                    view->gotoLineStart(QTextCursor::MoveAnchor);
+            });
+        Core::ActionBuilder(this, Constants::GOTO_LINE_START_WITH_SELECTION)
+            .setContext(Core::Context(m_editorContext))
+            .addOnTriggered(this, [this] {
+                if (TextViewport * const view = viewport())
+                    view->gotoLineStart(QTextCursor::KeepAnchor);
+            });
+
         // The editing commands every editor answers. These keys already
         // reached the viewport on their own, and a shortcut is handled before
         // the key gets there - so these must run the very code the key

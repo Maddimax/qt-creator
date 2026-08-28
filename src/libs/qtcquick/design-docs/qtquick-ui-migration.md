@@ -13740,3 +13740,35 @@ Fifty-three commands. What is left needs machinery this view does not have
 yet: the assist commands want a completion widget, the symbol ones want the
 language client, and Go to Line Start wants its two-step home lifted out of
 the key handler the way the clipboard ones were.
+
+## Home, the View commands, and selecting a word
+
+Eight, and the last of the ones that needed only wiring.
+
+Home is its own command because the key does more than move to the start of
+the line: it goes to the first thing *on* the line and only from there to
+column zero, and back again. The viewport already had `moveToFirstCharacter()`
+for the key, so the command calls that.
+
+The View commands move what is shown without moving the caret, which is the
+whole difference between View Page Down and Page Down. How big a page is was
+inline in the key handler and is now `rowsPerPage()` - a screen of rows less
+one, so the line the reader was looking at is still there afterwards - which
+both use, for the same reason every shared thing in these batches is shared.
+
+Three controls, and the third missed at first for a reason that has now come
+up four times in different clothes: `selectWordUnderCursor()` leaves a caret
+that already has a selection alone, and the test gave neither caret one, so
+removing the guard changed nothing. Giving one caret a selection *wider than a
+word* is what makes the two behaviours look different - a selection of exactly
+one word would be re-selected as itself and the control would still not bite.
+
+The other correction was smaller: the test expected the two carets in the
+order they were made, and adding a caret makes the added one the main one, so
+the order is the other way about. Sorting the selected texts asks what the
+test actually means.
+
+Sixty-one commands. What is left wants machinery rather than wiring - the
+assist commands need somewhere to show a completion list, the symbol commands
+need the language client, and the block ones need the parenthesis matching the
+widget keeps in its overlay.

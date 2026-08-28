@@ -4649,6 +4649,109 @@ private slots:
         QVERIFY2(TextEditor::hasUnfoldedBlocks(text), "nothing was opened again");
     }
 
+    // Home goes to the first thing on the line, and only from there to column
+    // zero. On an unindented line the two are the same place, so the test
+    // uses an indented one - otherwise it would pass either way.
+    void testGoingToTheLineStartStopsAtTheFirstCharacter()
+    {
+        TemporaryDirectory dir("qtc-viewport-home");
+        const FilePath file = dir.filePath("indented.txt");
+        QVERIFY(file.writeFileContents("    indented line\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        // In the middle of the word.
+        viewport->setCursorPosition(8);
+        viewport->gotoLineStart();
+        QCOMPARE(viewport->cursorPosition(), 4);
+
+        // And only now to the margin.
+        viewport->gotoLineStart();
+        QCOMPARE(viewport->cursorPosition(), 0);
+
+        // From the margin it goes back to the text, which is what makes it a
+        // toggle rather than a one way trip.
+        viewport->gotoLineStart();
+        QCOMPARE(viewport->cursorPosition(), 4);
+    }
+
+    // The View commands move what is shown without moving the caret, which is
+    // the whole difference between them and Page Up.
+    void testViewScrollingLeavesTheCaretWhereItIs()
+    {
+        TemporaryDirectory dir("qtc-viewport-viewscroll");
+        const FilePath file = writeLines(dir, "long.txt", 400);
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+
+        viewport->setCursorPosition(0);
+        const int caret = viewport->cursorPosition();
+        QCOMPARE(viewport->scrollY(), 0.0);
+
+        viewport->viewLineDown();
+        QTRY_COMPARE(viewport->scrollY(), viewport->lineHeight());
+        QCOMPARE(viewport->cursorPosition(), caret);
+
+        const qreal afterLine = viewport->scrollY();
+        viewport->viewPageDown();
+        QTRY_VERIFY2(viewport->scrollY() > afterLine + viewport->lineHeight(),
+                     "a page scrolled no further than a line");
+        QCOMPARE(viewport->cursorPosition(), caret);
+
+        viewport->viewPageUp();
+        QTRY_COMPARE(viewport->scrollY(), afterLine);
+        QCOMPARE(viewport->cursorPosition(), caret);
+    }
+
+    // Select Word gives every caret the word it stands in; Clear Selection
+    // takes the selections away and leaves the carets.
+    void testSelectingAndClearingWordsAtEveryCaret()
+    {
+        TemporaryDirectory dir("qtc-viewport-selectword");
+        const FilePath file = dir.filePath("words.txt");
+        QVERIFY(file.writeFileContents("alpha beta\ngamma delta\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+
+        QTextDocument * const text = viewport->textDocument()->document();
+        // One caret with a selection of its own that is wider than a word, so
+        // that leaving it alone and re-selecting it look different. The other
+        // has none and should be given the word it stands in.
+        viewport->setSelectionStart(0);
+        viewport->setSelectionEnd(10);
+        viewport->addCaretAt(text->findBlockByNumber(1).position() + 1);
+        QCOMPARE(viewport->multiTextCursor().cursorCount(), 2);
+
+        viewport->selectWordUnderCursor();
+        const QList<QTextCursor> carets = viewport->multiTextCursor().cursors();
+        QCOMPARE(carets.size(), 2);
+        // Sorted, because which of the two is the main one is not what this
+        // is asking: adding a caret makes the added one main, so the order
+        // here is the reverse of the order they were made in.
+        QStringList selected;
+        for (const QTextCursor &caret : carets)
+            selected << caret.selectedText();
+        selected.sort();
+        QCOMPARE(selected, QStringList({"alpha beta", "gamma"}));
+
+        viewport->clearSelection();
+        for (const QTextCursor &caret : viewport->multiTextCursor().cursors())
+            QVERIFY2(!caret.hasSelection(), "a selection survived Clear Selection");
+        QCOMPARE(viewport->multiTextCursor().cursorCount(), 2);
+    }
+
     // None of the line commands edits a buffer that is read only, the same
     // as a key press does not. One test for all of them: each has its own
     // guard, and a guard that is missing on one of them is exactly the kind

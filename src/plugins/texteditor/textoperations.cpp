@@ -535,4 +535,12 @@ bool hasUnfoldedBlocks(const QTextDocument *document)
     return false;
 }
 
+void selectWordUnderCursor(Utils::MultiTextCursor &cursor)
+{
+    for (QTextCursor &c : cursor) {
+        if (!c.hasSelection())
+            c.select(QTextCursor::WordUnderCursor);
+    }
+}
+
 } // namespace TextEditor

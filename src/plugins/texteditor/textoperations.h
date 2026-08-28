@@ -84,6 +84,10 @@ TEXTEDITOR_EXPORT QTextCursor selectLinesToMove(const QTextCursor &cursor);
 // folded and its next line is showing, and otherwise the innermost one around
 // it that can - so that asking to fold from inside a function folds the
 // function rather than nothing.
+// Gives each caret that has selected nothing the word it is standing in, and
+// leaves the ones that already have a selection alone.
+TEXTEDITOR_EXPORT void selectWordUnderCursor(Utils::MultiTextCursor &cursor);
+
 TEXTEDITOR_EXPORT QTextBlock blockToFold(const QTextBlock &block);
 
 // Which block unfolding \a block would open: itself when it is showing, and

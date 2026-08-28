@@ -1584,7 +1584,7 @@ void TextViewport::keyPressEvent(QKeyEvent *event)
         // Pages are the one move that depends on how tall the view is, so they
         // are not in the shared table below.
         const bool up = event->key() == Qt::Key_PageUp;
-        const int rows = qMax(1, int(height() / qMax(1.0, m_lineHeight)) - 1);
+        const int rows = rowsPerPage();
 
         // A page is a screen of rows, and a wrapped line is several rows, so
         // counting lines moves by as many screens as a line takes rows. The
@@ -2372,6 +2372,63 @@ void TextViewport::moveCamelCase(bool forward, QTextCursor::MoveMode mode)
     else
         Utils::CamelCaseCursor::left(&cursors, mode);
     setMultiTextCursor(cursors);
+}
+
+void TextViewport::gotoLineStart(QTextCursor::MoveMode mode)
+{
+    QTextCursor cursor = textCursor();
+    if (cursor.isNull())
+        return;
+    moveToFirstCharacter(cursor, mode);
+    setTextCursor(cursor);
+}
+
+void TextViewport::selectWordUnderCursor()
+{
+    Utils::MultiTextCursor cursors = multiTextCursor();
+    if (cursors.isNull())
+        return;
+    TextEditor::selectWordUnderCursor(cursors);
+    setMultiTextCursor(cursors);
+}
+
+void TextViewport::clearSelection()
+{
+    Utils::MultiTextCursor cursors = multiTextCursor();
+    if (cursors.isNull())
+        return;
+    cursors.clearSelection();
+    setMultiTextCursor(cursors);
+}
+
+int TextViewport::rowsPerPage() const
+{
+    return qMax(1, int(height() / qMax(1.0, m_lineHeight)) - 1);
+}
+
+void TextViewport::scrollByRows(int rows)
+{
+    setScrollY(m_scrollY + rows * m_lineHeight);
+}
+
+void TextViewport::viewPageUp()
+{
+    scrollByRows(-rowsPerPage());
+}
+
+void TextViewport::viewPageDown()
+{
+    scrollByRows(rowsPerPage());
+}
+
+void TextViewport::viewLineUp()
+{
+    scrollByRows(-1);
+}
+
+void TextViewport::viewLineDown()
+{
+    scrollByRows(1);
 }
 
 bool TextViewport::canEdit() const

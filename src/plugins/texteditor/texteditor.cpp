@@ -2433,10 +2433,7 @@ bool TextEditorWidget::selectBlockDown()
 void TextEditorWidget::selectWordUnderCursor()
 {
     MultiTextCursor cursor = multiTextCursor();
-    for (QTextCursor &c : cursor) {
-        if (!c.hasSelection())
-            c.select(QTextCursor::WordUnderCursor);
-    }
+    TextEditor::selectWordUnderCursor(cursor);
     setMultiTextCursor(cursor);
 }
 

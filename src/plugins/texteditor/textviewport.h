@@ -444,6 +444,20 @@ public:
     // once nothing is.
     Q_INVOKABLE void toggleFoldAll();
 
+    // Home, which goes to the first thing on the line and only to column zero
+    // from there. Its own command because the key does more than a plain move
+    // to the start of the line.
+    Q_INVOKABLE void gotoLineStart(QTextCursor::MoveMode mode = QTextCursor::MoveAnchor);
+    Q_INVOKABLE void selectWordUnderCursor();
+    Q_INVOKABLE void clearSelection();
+    // Moving what is shown without moving the caret, which is what the View
+    // commands are for.
+    Q_INVOKABLE void scrollByRows(int rows);
+    Q_INVOKABLE void viewPageUp();
+    Q_INVOKABLE void viewPageDown();
+    Q_INVOKABLE void viewLineUp();
+    Q_INVOKABLE void viewLineDown();
+
     // Highlights the folds enclosing the row at \a y, the way hovering the
     // widget editor's folding column does - and, like it, whether or not the
     // highlightBlocks setting is on. That setting widens what counts as a
@@ -570,6 +584,9 @@ public:
     bool waitsForHighlighter(const std::function<void()> &retry);
     // What every fold has to do once the blocks have been changed.
     void foldingChanged();
+    // How many rows a page is: a screen of them less one, so that the line
+    // the reader was looking at is still there after the page turns.
+    int rowsPerPage() const;
     Utils::PlainTextDocumentLayout *movementLayout() const;
     bool canEdit() const;
     Utils::CommentDefinition commentDefinition() const;
