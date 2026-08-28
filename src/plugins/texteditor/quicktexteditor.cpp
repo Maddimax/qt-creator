@@ -607,6 +607,7 @@ public:
         // claims it, so this is what a text file opens in. The lookup walks a
         // mime type's parents, so source files come here too.
         addMimeType(QLatin1String(Constants::C_TEXTEDITOR_MIMETYPE_TEXT));
+        addMimeType(QLatin1String("text/css")); // freedesktop calls css text/x-csrc
         setEditorCreator([] { return new QuickTextEditor; });
     }
 };

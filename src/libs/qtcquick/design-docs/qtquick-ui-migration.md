@@ -11964,3 +11964,68 @@ differently, and the soft assert is what surfaces at the end of that.
 Whether production hits it depends on scratch documents, which take the same
 `openEditorWithContents` path that the tests do - so this is likely not
 test-only, but that has not been demonstrated here and should not be assumed.
+
+## What making the Quick editor the default actually reaches
+
+Switching the default raised the obvious worry: forty-odd places in the tree
+do `qobject_cast<BaseTextEditor *>` on the current or a freshly opened editor,
+and a Quick editor makes every one of them null. Counting those casts makes
+the change look far-reaching. Counting what a *file* opens in does not.
+
+The factory claims one mime type:
+
+    addMimeType(QLatin1String(Constants::C_TEXTEDITOR_MIMETYPE_TEXT));
+
+which is the list the plain text editor already had, minus `text/css`. So the
+claim set is a strict subset of the factory it displaced: nothing that used to
+open in a language editor can have moved. C++ still resolves to CppEditor, and
+not because of registration order - the lookup walks a mime type's parents, so
+C++ matches `text/plain` too, and CppEditor wins by being the *more specific*
+match. The blast radius is exactly "files that used to open in the plain text
+editor", which is what the switch was asking for.
+
+That reduces the cast sites to three kinds:
+
+- **Unaffected**: the language-editor ones (the CppEditor quick fixes, the C++
+  outline, the .pro and CMake paths), and `debuggerplugin.cpp`'s scratch
+  buffers, which pass `K_DEFAULT_TEXT_EDITOR_ID` explicitly and so never see a
+  Quick editor at all.
+- **Degrading by design**: the inline diff. Its guard already reads *"custom
+  text based editors and too large documents get the classic diff view"*, so a
+  plain-text file gets the side-by-side diff instead of ghost rows. Not a
+  crash and not silent breakage - a fallback the code was written to take.
+- **Genuinely broken**: two sites in `vcsbase` that jump to a line after
+  opening a file. Both discarded the jump for anything that was not a
+  `BaseTextEditor`, so the file opened and the cursor stayed put.
+
+The last two needed no new API. `gotoLine` is already virtual on `IEditor`,
+and the Quick editor overrides it - the cast was narrowing to a subclass to
+call a method the base class declares for exactly this purpose. Deleting the
+cast fixes both, and every one of the eight callers of `gotoLineOfEditor`
+discards its `bool`, so widening what it accepts changes nothing observable.
+
+The lesson worth keeping is that the count of `qobject_cast<BaseTextEditor *>`
+sites was a bad estimate of the damage, off by more than an order of
+magnitude, because it measured code that *could* be reached rather than code a
+file can actually reach. The mime claim was the thing to read first.
+
+### Two gaps left open, deliberately
+
+Two sites are reachable with a plain-text file and are not fixed here, because
+neither has a base-class virtual to fall back on the way `gotoLine` did:
+
+- `HighlighterHelper::reload()` re-configures open editors after generic
+  highlight definitions are downloaded or reloaded. Its useful half is
+  `m_document->resetSyntaxHighlighter(...)`, a document operation, but it is
+  reached through a private `TextEditorWidgetPrivate` method that also sets
+  widget state (`setCodeFoldingSupported`, the syntax info bar). A Quick
+  editor's open text file will not pick up a newly downloaded definition until
+  it is reopened.
+- `AcpChatController` attaches the current editor's cursor position and
+  selection to the chat context. `textCursor()` is a `BaseTextEditor` method
+  with no `IEditor` equivalent, so for a plain-text file the *file contents*
+  resource is still attached but the editor-state one is not.
+
+Both are small, both have obvious workarounds, and both want an API decision
+(what the `IEditor` cursor interface should be) rather than a cast removed.
+Recorded rather than patched around.
