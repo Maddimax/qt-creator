@@ -156,13 +156,19 @@ row - and **eight repeaters bind to it**. Each binding read rebuilt the whole
 list, so a scroll built it eight times at ~0.4 ms each. It is built once with
 the layout now.
 
-**What is left is the big one, and it is not fixed.** Emitting `linesChanged`
-hands every repeater a brand new list, so all eight throw away their delegates
-and make new ones - several hundred QML items created and destroyed per scroll
-step. That is the ~9 ms. The fix is a stable model: a `QAbstractListModel`
-whose rows keep their identity, so a scroll updates delegates rather than
-replacing them. It touches all eight repeaters and every role name, which is
-why it is written down here rather than started at the end of a batch.
+**That was the big one, and it is done: about 10 ms a layout down to about
+5 ms.** Emitting `linesChanged` handed every repeater a brand new list, so all
+eight threw away their delegates and made new ones - several hundred QML items
+created and destroyed per scroll step. The rows are a `QAbstractListModel`
+now, and because its one role is called **`modelData`** a delegate reads a row
+exactly as it did from a list: eight repeaters converted by changing the model
+they bind to and nothing else. The row count rarely changes while scrolling,
+so the delegates stay and only what they read is announced.
+
+What is left of the ~5 ms is the delegates re-evaluating their bindings on
+`dataChanged`, and the list still being built to fill the model - so a row's
+map is made every layout whether or not anything in it changed. Comparing rows
+and announcing only the ones that differ is the next thing worth measuring.
 
 **What I guessed first was wrong.** The obvious suspect was the loop over
 `m_highlights` inside the per-block loop - O(visible x highlights) by the look
