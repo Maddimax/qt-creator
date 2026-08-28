@@ -468,7 +468,10 @@ QVariantMap TextViewport::visibleLine(int index) const
                                    // background cannot tell coloured text from
                                    // text drawn in one colour.
                                    {"foreground", range.format.foreground().color()},
-                                   {"background", range.format.background().color()}});
+                                   {"background", range.format.background().color()},
+                                   // A link is drawn by underlining it, which
+                                   // neither colour shows.
+                                   {"underline", range.format.fontUnderline()}});
     }
     return QVariantMap{{"text", line.layout->text()},
                        {"formats", formats},
@@ -643,6 +646,71 @@ void TextViewport::followSymbolUnderCursor(bool inNextSplit)
     followSymbolAt(cursorPosition(), inNextSplit);
 }
 
+bool TextViewport::isMouseNavigation(Qt::KeyboardModifiers modifiers) const
+{
+    return globalBehaviorSettings().mouseNavigation()
+           && modifiers.testFlag(Qt::ControlModifier)
+           && !modifiers.testFlag(Qt::ShiftModifier);
+}
+
+void TextViewport::showLink(const Utils::Link &link)
+{
+    if (m_currentLink == link)
+        return;
+    m_currentLink = link;
+    setCursor(Qt::PointingHandCursor);
+    polish();
+    update();
+}
+
+void TextViewport::clearLink()
+{
+    if (!m_currentLink.hasValidLinkText())
+        return;
+    m_currentLink = Utils::Link();
+    unsetCursor();
+    polish();
+    update();
+}
+
+void TextViewport::updateLink(const QPointF &pos, Qt::KeyboardModifiers modifiers)
+{
+    if (!isMouseNavigation(modifiers)) {
+        clearLink();
+        return;
+    }
+    TextDocument * const doc = textDocument();
+    if (!doc)
+        return;
+    const TextEditorFactory::LinkFinder finder = TextEditorFactory::linkFinderFor(doc);
+    if (!finder)
+        return;
+    const int position = positionAt(pos.x(), pos.y());
+    if (position < 0) {
+        clearLink();
+        return;
+    }
+    // Still inside what is already underlined: the answer cannot have changed,
+    // and asking again would be one lookup per mouse move.
+    if (m_currentLink.hasValidLinkText() && position >= m_currentLink.linkTextStart
+        && position < m_currentLink.linkTextEnd) {
+        return;
+    }
+
+    QTextCursor cursor(doc->document());
+    cursor.setPosition(position);
+    finder(doc, cursor,
+           [self = QPointer<TextViewport>(this)](const Utils::Link &link) {
+               if (!self)
+                   return;
+               if (link.hasValidLinkText())
+                   self->showLink(link);
+               else
+                   self->clearLink();
+           },
+           /*resolveTarget=*/false, /*inNextSplit=*/false);
+}
+
 bool TextViewport::followSymbolAt(int position, bool inNextSplit)
 {
     TextDocument * const doc = textDocument();
@@ -696,21 +764,49 @@ void TextViewport::hoverMoveEvent(QHoverEvent *event)
 {
     QQuickItem::hoverMoveEvent(event);
 
+    // Kept whether or not anything wants a tooltip: a Control press asks for
+    // the link under wherever the mouse last was.
+    m_hovering = true;
+    m_hoverItemPos = event->position();
+    updateLink(m_hoverItemPos, event->modifiers());
+
     if (m_hoverHandlers.isEmpty() || !m_tooltipHost)
         return;
 
     // Moving cancels whatever was about to be shown: what the tooltip would
     // have been about is no longer under the mouse.
     Utils::ToolTip::hide();
-    m_hoverItemPos = event->position();
+
+    // Control held means a link is being aimed at, and a tooltip on top of it
+    // would be in the way. Constrained tooltips are the same rule with Shift
+    // as the way to ask for one. Both are the widget editor's.
+    const auto behavior = globalBehaviorSettings().data();
+    if (event->modifiers().testFlag(Qt::ControlModifier)
+        || (!event->modifiers().testFlag(Qt::ShiftModifier)
+            && behavior.m_constrainHoverTooltips)) {
+        m_hoverTimer->stop();
+        return;
+    }
+
     m_hoverTimer->start();
 }
 
 void TextViewport::hoverLeaveEvent(QHoverEvent *event)
 {
     QQuickItem::hoverLeaveEvent(event);
+    m_hovering = false;
+    clearLink();
     m_hoverTimer->stop();
     Utils::ToolTip::hide();
+}
+
+void TextViewport::keyReleaseEvent(QKeyEvent *event)
+{
+    // Letting go of Control puts the link away, whether or not the mouse has
+    // moved since.
+    if (event->key() == Qt::Key_Control)
+        clearLink();
+    QQuickItem::keyReleaseEvent(event);
 }
 
 void TextViewport::askForTooltip()
@@ -876,6 +972,11 @@ static void moveToFirstCharacter(QTextCursor &cursor, QTextCursor::MoveMode mode
 
 void TextViewport::keyPressEvent(QKeyEvent *event)
 {
+    // Control pressed while the mouse is over the text asks for the link under
+    // it, rather than waiting for the mouse to move first.
+    if (event->key() == Qt::Key_Control && m_hovering)
+        updateLink(m_hoverItemPos, Qt::ControlModifier);
+
     if (!m_mouseHidden && isTypingKey(event->key())
         && hideMouseWhileTyping(globalBehaviorSettings().data())) {
         m_mouseHidden = true;
@@ -2014,6 +2115,11 @@ void TextViewport::updatePolish()
         occurrenceFormat.setBackground(fill);
     }
 
+    // What a link under the pointer looks like: the scheme's link colour,
+    // underlined, which is what the widget editor draws.
+    QTextCharFormat linkFormat = fonts.toTextCharFormat(C_LINK);
+    linkFormat.setFontUnderline(true);
+
     // One level of indentation, in pixels, and what a guide is drawn in.
     m_indentWidth = doc->tabSettings().m_indentSize * metrics.horizontalAdvance(' ');
 
@@ -2241,6 +2347,17 @@ void TextViewport::updatePolish()
                 range.start = at;
                 range.length = int(occurrence.size());
                 range.format = occurrenceFormat;
+                blockFormats.append(range);
+            }
+        }
+        if (m_currentLink.hasValidLinkText()) {
+            const int from = qMax(0, m_currentLink.linkTextStart - blockStart);
+            const int to = qMin(block.length() - 1, m_currentLink.linkTextEnd - blockStart);
+            if (to > from) {
+                QTextLayout::FormatRange range;
+                range.start = from;
+                range.length = to - from;
+                range.format = linkFormat;
                 blockFormats.append(range);
             }
         }

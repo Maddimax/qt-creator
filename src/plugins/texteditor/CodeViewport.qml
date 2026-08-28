@@ -187,11 +187,10 @@ Item {
                     return
                 }
                 // Ctrl+click follows the symbol under the pointer rather than
-                // putting the caret there. Shift is the exception: that is a
-                // selection gesture, which is why the widget editor tests for
-                // it too.
-                if ((mouse.modifiers & Qt.ControlModifier)
-                        && !(mouse.modifiers & Qt.ShiftModifier)
+                // putting the caret there. Which modifiers mean that, and
+                // whether the setting allows it at all, is the viewport's to
+                // say rather than restated here.
+                if (viewport.isMouseNavigation(mouse.modifiers)
                         && viewport.followSymbolAt(position,
                                                    (mouse.modifiers & Qt.AltModifier) !== 0)) {
                     return

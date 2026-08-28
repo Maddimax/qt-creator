@@ -244,6 +244,18 @@ public:
     // Ctrl+click. Answers whether it took the click, so that a file whose
     // language has no finder still gets an ordinary click.
     Q_INVOKABLE bool followSymbolAt(int position, bool inNextSplit = false);
+
+    // Whether a click with these modifiers is a request to follow a link.
+    // The widget editor keeps this rule in one place and so does this: the
+    // "Enable mouse navigation" setting turns it off, Control asks for it and
+    // Shift is a selection gesture rather than a navigation one.
+    Q_INVOKABLE bool isMouseNavigation(Qt::KeyboardModifiers modifiers) const;
+
+    // The link decoration under the pointer: the text is underlined in the
+    // scheme's link colour and the cursor becomes a hand, which is how the
+    // widget editor says that a Control-click from here will go somewhere.
+    void showLink(const Utils::Link &link);
+    void clearLink();
     bool openLink(const Utils::Link &link, bool inNextSplit = false);
 
 private:
@@ -448,6 +460,7 @@ signals:
 protected:
     void updatePolish() override;
     void keyPressEvent(QKeyEvent *event) override;
+    void keyReleaseEvent(QKeyEvent *event) override;
     // Composing text - a dead key, a CJK input method - is shown before it is
     // committed, and until it is committed it is not in the document. A
     // QTextLayout has a place for exactly that, so the viewport does not have
@@ -579,6 +592,7 @@ private:
     // the lines above took.
     int rowOfBlock(const QTextBlock &block);
     void setScopeBlock(int blockNumber);
+    void updateLink(const QPointF &pos, Qt::KeyboardModifiers modifiers);
     void insertTypedText(QTextCursor &cursor, const QString &text);
     void offerCompletionsIfAsked(const QTextCursor &cursor);
 
@@ -644,6 +658,10 @@ private:
     // as. -1 when nothing is asking for a highlight. The revision is what the
     // document was at when they were worked out, so that a caret moving along
     // one line does not walk the folds again.
+    // What is underlined as a link, and whether the pointer is over the text
+    // at all - a Control press only means "show me the link" while it is.
+    Utils::Link m_currentLink;
+    bool m_hovering = false;
     int m_scopeBlock = -1;
     int m_scopeRevision = -1;
     BlockNesting m_scopeNesting;

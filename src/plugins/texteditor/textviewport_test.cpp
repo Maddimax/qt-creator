@@ -1260,6 +1260,80 @@ private slots:
         QTRY_VERIFY2(bands(2).isEmpty(), "the highlight outlived the setting");
     }
 
+    // "Enable mouse navigation" turns Ctrl+click link following off. The Quick
+    // editor followed links whatever the setting said: the QML restated the
+    // widget editor's modifier rule and left the setting out of it, so a
+    // preference that is on by default could not be turned off.
+    void testMouseNavigationCanBeTurnedOff()
+    {
+        const bool was = globalBehaviorSettings().mouseNavigation();
+        const QScopeGuard restore(
+            [was] { globalBehaviorSettings().mouseNavigation.setValue(was); });
+
+        ViewportFixture fixture(nullptr);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        TextViewport * const viewport = fixture.viewport;
+
+        globalBehaviorSettings().mouseNavigation.setValue(true);
+        QVERIFY(viewport->isMouseNavigation(Qt::ControlModifier));
+        // Shift makes it a selection gesture rather than a navigation one.
+        QVERIFY(!viewport->isMouseNavigation(Qt::ControlModifier | Qt::ShiftModifier));
+        // And a plain click was never navigation.
+        QVERIFY(!viewport->isMouseNavigation(Qt::NoModifier));
+
+        // Turned off, Ctrl+click is an ordinary click again.
+        globalBehaviorSettings().mouseNavigation.setValue(false);
+        QVERIFY2(!viewport->isMouseNavigation(Qt::ControlModifier),
+                 "a link was followed with mouse navigation turned off");
+    }
+
+    // A link under the pointer is underlined in the scheme's link colour and
+    // turns the cursor into a hand, which is how the widget editor says a
+    // Control-click will go somewhere. Finding the link needs a language with
+    // a link finder registered; drawing one that has been found does not, and
+    // that is the half tested here.
+    void testALinkUnderThePointerIsUnderlined()
+    {
+        TemporaryDirectory dir("qtc-viewport-link");
+        const FilePath file = dir.filePath("link.txt");
+        QVERIFY(file.writeFileContents("alpha beta\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        TextViewport * const viewport = fixture.viewport;
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        const auto underlined = [viewport] {
+            QVariantList found;
+            const QVariantList ranges = viewport->visibleLine(0).value("formats").toList();
+            for (const QVariant &range : ranges) {
+                if (range.toMap().value("underline").toBool())
+                    found << range;
+            }
+            return found;
+        };
+
+        QVERIFY2(underlined().isEmpty(), "text was underlined before any link was shown");
+        const Qt::CursorShape plain = viewport->cursor().shape();
+
+        Utils::Link link;
+        link.linkTextStart = 0;
+        link.linkTextEnd = 5; // "alpha"
+        viewport->showLink(link);
+
+        QTRY_COMPARE(underlined().size(), 1);
+        const QVariantMap range = underlined().first().toMap();
+        QCOMPARE(range.value("start").toInt(), 0);
+        QCOMPARE(range.value("length").toInt(), 5);
+        QCOMPARE(viewport->cursor().shape(), Qt::PointingHandCursor);
+
+        // Letting go of Control puts it away again.
+        QTest::keyRelease(&fixture.view, Qt::Key_Control);
+        QTRY_VERIFY2(underlined().isEmpty(), "letting go of Control left the link underlined");
+        QCOMPARE(viewport->cursor().shape(), plain);
+    }
+
     // A closed fold says what it swallowed. The widget editor draws "{...};"
     // after the line rather than leaving a gap, and puts back the brackets the
     // hidden text opened and closed - which is the part that has to come from
