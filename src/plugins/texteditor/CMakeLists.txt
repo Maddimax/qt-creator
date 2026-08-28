@@ -167,6 +167,7 @@ extend_qtc_plugin(TextEditor
     codeindenting.cpp codeindenting.h
     codesource.cpp codesource.h
     quicktexteditor.cpp quicktexteditor.h
+    minimapview.cpp minimapview.h
     textviewport.cpp textviewport.h
 )
 

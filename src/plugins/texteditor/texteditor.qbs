@@ -149,6 +149,8 @@ Project {
             "texteditoroverlay.h",
             "texteditorplugin.cpp",
             "texteditortr.h",
+            "minimapview.cpp",
+            "minimapview.h",
             "textviewport.cpp",
             "textviewport.h",
             "textindenter.cpp",

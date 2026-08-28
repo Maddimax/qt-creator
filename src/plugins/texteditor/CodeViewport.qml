@@ -349,7 +349,7 @@ Item {
             anchors.fill: parent
             anchors.margins: Spacing.PaddingHXs
             anchors.leftMargin: Spacing.PaddingHXs + gutter.width + contentInset
-            anchors.rightMargin: Spacing.PaddingHXs + contentInset
+            anchors.rightMargin: Spacing.PaddingHXs + contentInset + minimap.width
             document: root.source
             // Keys go to the scene's active focus item. The viewport is a focus
             // scope, so focusing the root would stop one level short of it.
@@ -713,6 +713,22 @@ Item {
                 else if (event.angleDelta.x !== 0)
                     viewport.scrollX -= event.angleDelta.x / 120 * 20 * notchLines
             }
+        }
+
+        // The document drawn small, between the text and the bar. It takes no
+        // room at all when the settings do not ask for it, so the text is as
+        // wide as it would be without one.
+        MinimapView {
+            id: minimap
+
+            objectName: "minimap"
+
+            viewport: viewport
+            visible: wanted
+            width: visible ? 100 : 0
+            anchors.right: verticalScrollBar.left
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
         }
 
         ScrollBar {

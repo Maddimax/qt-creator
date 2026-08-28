@@ -2023,6 +2023,85 @@ private slots:
         QCOMPARE(qRound(viewport->x()), qRound(leftAtFullWidth));
     }
 
+    // The document drawn small beside it, and dragging the marked part
+    // scrolls the text. Off by default, so it takes no room until asked for.
+    void testTheMinimapShowsTheDocumentAndScrollsIt()
+    {
+        const bool was = displaySettings().displayMinimap();
+        const QScopeGuard restore([was] { displaySettings().displayMinimap.setValue(was); });
+        displaySettings().displayMinimap.setValue(false);
+
+        TemporaryDirectory dir("qtc-viewport-minimap");
+        const FilePath file = writeLines(dir, "long.txt", 400);
+
+        QQuickView view;
+        installIconProvider(view);
+        view.resize(600, 200);
+        QQmlComponent component(view.engine());
+        component.setData(QByteArray("import QtCreator.TextEditor\n"
+                                     "CodeViewport {\n"
+                                     "    width: 600; height: 200\n"
+                                     "    property string path\n"
+                                     "    source: CodeDocument { filePath: path }\n"
+                                     "}"),
+                          QUrl("qrc:/test/MinimapTest.qml"));
+        std::unique_ptr<QObject> created(component.createWithInitialProperties(
+            {{"path", file.toUrlishString()}}));
+        QVERIFY2(created != nullptr, qPrintable(component.errorString()));
+
+        auto * const item = qobject_cast<QQuickItem *>(created.get());
+        QVERIFY(item);
+        item->setParentItem(view.contentItem());
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+        auto * const viewport = item->findChild<TextViewport *>("codeViewport");
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+        auto * const minimap = item->findChild<QQuickItem *>("minimap");
+        QVERIFY(minimap);
+
+        // Off: no room taken, nothing drawn.
+        QVERIFY(!minimap->isVisible());
+        QCOMPARE(minimap->width(), qreal(0));
+        const qreal fullWidth = viewport->width();
+
+        // On: it appears and the text makes room for it.
+        displaySettings().displayMinimap.setValue(true);
+        QTRY_VERIFY(minimap->isVisible());
+        QVERIFY(minimap->width() > 0);
+        QTRY_COMPARE(viewport->width(), fullWidth - minimap->width());
+
+        // The marked part is at the top of a document scrolled to the top,
+        // and is shorter than the whole picture because the file is longer
+        // than the screen.
+        QVERIFY(viewport->contentHeight() > viewport->height());
+        QCOMPARE(viewport->scrollY(), qreal(0));
+
+        // Dragging it down scrolls the text down with it.
+        const QPoint onThumb = minimap->mapToScene(QPointF(minimap->width() / 2, 3)).toPoint();
+        const QPoint lower = minimap->mapToScene(QPointF(minimap->width() / 2, 60)).toPoint();
+        QTest::mousePress(&view, Qt::LeftButton, {}, onThumb);
+        QTest::mouseMove(&view, lower);
+        QTRY_VERIFY2(viewport->scrollY() > 0,
+                     "dragging the marked part did not scroll the text");
+        QTest::mouseRelease(&view, Qt::LeftButton, {}, lower);
+
+        // A press away from the marked part is not a handle. The widget
+        // editor ignores it rather than jumping there, and the drag above
+        // is what proves these events arrive at all.
+        viewport->setScrollY(0);
+        QTRY_COMPARE(viewport->scrollY(), qreal(0));
+        const QPoint belowThumb
+            = minimap->mapToScene(QPointF(minimap->width() / 2, minimap->height() - 10)).toPoint();
+        const QPoint higher
+            = minimap->mapToScene(QPointF(minimap->width() / 2, minimap->height() - 60)).toPoint();
+        QTest::mousePress(&view, Qt::LeftButton, {}, belowThumb);
+        QTest::mouseMove(&view, higher);
+        QTest::mouseRelease(&view, Qt::LeftButton, {}, higher);
+        QCOMPARE(viewport->scrollY(), qreal(0));
+    }
+
     // Marks show up on the scroll bar, which is how a file too long to see
     // says where its errors are. On by default, and the Quick editor had
     // none of it.
