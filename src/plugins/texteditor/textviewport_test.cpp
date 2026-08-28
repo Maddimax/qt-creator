@@ -2102,6 +2102,70 @@ private slots:
         QCOMPARE(viewport->scrollY(), qreal(0));
     }
 
+    // The picture is of the document, so it is drawn again when the document
+    // changes and not when the view merely scrolls. Redrawing a whole file
+    // because the caret moved is a repaint nobody asked for.
+    void testTheMinimapIsRedrawnForTheDocumentAndNotForScrolling()
+    {
+        const bool was = displaySettings().displayMinimap();
+        const QScopeGuard restore([was] { displaySettings().displayMinimap.setValue(was); });
+        displaySettings().displayMinimap.setValue(true);
+
+        TemporaryDirectory dir("qtc-viewport-minimap-redraw");
+        const FilePath file = writeLines(dir, "long.txt", 400);
+
+        QQuickView view;
+        installIconProvider(view);
+        view.resize(600, 200);
+        QQmlComponent component(view.engine());
+        component.setData(QByteArray("import QtCreator.TextEditor\n"
+                                     "CodeViewport {\n"
+                                     "    width: 600; height: 200\n"
+                                     "    property string path\n"
+                                     "    source: CodeDocument { filePath: path }\n"
+                                     "}"),
+                          QUrl("qrc:/test/MinimapRedrawTest.qml"));
+        std::unique_ptr<QObject> created(component.createWithInitialProperties(
+            {{"path", file.toUrlishString()}}));
+        QVERIFY2(created != nullptr, qPrintable(component.errorString()));
+
+        auto * const item = qobject_cast<QQuickItem *>(created.get());
+        QVERIFY(item);
+        item->setParentItem(view.contentItem());
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+        auto * const viewport = item->findChild<TextViewport *>("codeViewport");
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+        auto * const minimap = item->findChild<QQuickItem *>("minimap");
+        QVERIFY(minimap);
+        QTRY_VERIFY(minimap->isVisible());
+
+        // Drawn at least once, and as tall as the file is long.
+        QTRY_VERIFY(minimap->property("pictureHeight").toInt() > 0);
+        const int tall = minimap->property("pictureHeight").toInt();
+
+        QSignalSpy redraws(minimap, SIGNAL(pictureChanged()));
+
+        // Scrolling moves the marked part and nothing else.
+        viewport->setScrollY(viewport->lineHeight() * 100);
+        QTRY_COMPARE(viewport->firstVisibleLine(), 100);
+        QCOMPARE(minimap->property("pictureHeight").toInt(), tall);
+        QCOMPARE(redraws.size(), 0);
+
+        // Adding lines is a different document, so it is drawn again - and
+        // the picture grows, which is what proves it was drawn from the new
+        // text rather than merely announced.
+        QTextDocument * const text = viewport->textDocument()->document();
+        QTextCursor cursor(text);
+        cursor.movePosition(QTextCursor::End);
+        cursor.insertText(QString(50, QChar('\n')));
+        QTRY_VERIFY2(redraws.size() > 0, "the picture was not drawn again for a longer document");
+        QTRY_VERIFY2(minimap->property("pictureHeight").toInt() > tall,
+                     "the picture did not grow with the document");
+    }
+
     // Marks show up on the scroll bar, which is how a file too long to see
     // says where its errors are. On by default, and the Quick editor had
     // none of it.

@@ -59,20 +59,51 @@ void MinimapView::setViewport(TextViewport *viewport)
         // where the marked part sits changes far more often and only needs a
         // repaint.
         m_connections << connect(m_viewport, &TextViewport::documentChanged, this, [this] {
+            hookDocument();
             m_stale = true;
             update();
         });
-        m_connections << connect(m_viewport, &TextViewport::metricsChanged, this, [this] {
-            m_stale = true;
-            update();
-        });
+        // Where the view has scrolled to moves the marked part, which is a
+        // repaint. Nothing about the picture has changed.
         m_connections << connect(m_viewport, &TextViewport::scrollYChanged, this, [this] {
             update();
         });
     }
+    hookDocument();
     m_stale = true;
     update();
     emit viewportChanged();
+}
+
+void MinimapView::hookDocument()
+{
+    for (const QMetaObject::Connection &connection : std::as_const(m_documentConnections))
+        disconnect(connection);
+    m_documentConnections.clear();
+
+    TextDocument * const doc = m_viewport && m_viewport->document()
+                                   ? m_viewport->document()->textDocument()
+                                   : nullptr;
+    if (!doc)
+        return;
+
+    // What the picture is of, and what it is drawn with. Not the view's
+    // metrics: those are worked out again on every layout, and redrawing a
+    // whole document because the caret moved is not a repaint anybody asked
+    // for.
+    m_documentConnections << connect(doc->document(), &QTextDocument::contentsChanged, this, [this] {
+        m_stale = true;
+        update();
+    });
+    m_documentConnections << connect(doc, &TextDocument::fontSettingsChanged, this, [this] {
+        m_stale = true;
+        update();
+    });
+}
+
+int MinimapView::pictureHeight() const
+{
+    return m_picture.height();
 }
 
 bool MinimapView::wanted() const
@@ -94,13 +125,16 @@ void MinimapView::rebuild()
     TextDocument * const doc = m_viewport && m_viewport->document()
                                    ? m_viewport->document()->textDocument()
                                    : nullptr;
-    if (!doc || !wanted() || width() <= 0)
+    if (!doc || !wanted() || width() <= 0) {
+        emit pictureChanged();
         return;
+    }
 
     m_picture = Core::renderMinimap(doc->document(),
                                     metricsFor(width()),
                                     m_viewport->font(),
                                     doc->fontSettings().toTextCharFormat(C_TEXT).foreground().color());
+    emit pictureChanged();
 }
 
 qreal MinimapView::scrolledFraction() const

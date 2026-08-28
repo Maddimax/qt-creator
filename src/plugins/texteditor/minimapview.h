@@ -30,6 +30,10 @@ class TEXTEDITOR_EXPORT MinimapView : public QQuickPaintedItem
                    NOTIFY viewportChanged)
     // Whether the display settings ask for one at all. Off by default.
     Q_PROPERTY(bool wanted READ wanted NOTIFY wantedChanged)
+    // How tall the picture came out. Changes only when the picture is drawn
+    // again, which is what makes "it was not redrawn" something a test can
+    // ask about.
+    Q_PROPERTY(int pictureHeight READ pictureHeight NOTIFY pictureChanged)
 
 public:
     explicit MinimapView(QQuickItem *parent = nullptr);
@@ -38,12 +42,14 @@ public:
     void setViewport(TextViewport *viewport);
 
     bool wanted() const;
+    int pictureHeight() const;
 
     void paint(QPainter *painter) override;
 
 signals:
     void viewportChanged();
     void wantedChanged();
+    void pictureChanged();
 
 protected:
     void mousePressEvent(QMouseEvent *event) override;
@@ -68,7 +74,12 @@ private:
     // How far down the marked part the drag started, so that it does not jump
     // to the pointer when the drag begins.
     std::optional<qreal> m_dragOffset;
+    void hookDocument();
+
     QList<QMetaObject::Connection> m_connections;
+    // Kept apart from the view's: the document is replaced when a file is
+    // reopened, and only these follow it.
+    QList<QMetaObject::Connection> m_documentConnections;
 };
 
 } // namespace TextEditor
