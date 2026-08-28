@@ -5,6 +5,7 @@
 #include "macroevent.h"
 #include "macro.h"
 
+#include <texteditor/textdocument.h>
 #include <texteditor/texteditor.h>
 #include <texteditor/texteditorconstants.h>
 
@@ -105,7 +106,12 @@ void TextEditorMacroHandler::changeEditor(Core::IEditor *editor)
     if (isRecording() && m_currentEditor && m_currentEditor->widget())
         m_currentEditor->widget()->removeEventFilter(this);
 
-    m_currentEditor = qobject_cast<TextEditor::BaseTextEditor *>(editor);
+    // An editor showing text, rather than one built out of a particular
+    // widget: recording used to attach only to the widget editor, so a file
+    // open in any other view recorded nothing at all.
+    m_currentEditor
+        = qobject_cast<TextEditor::TextDocument *>(editor ? editor->document() : nullptr) ? editor
+                                                                                         : nullptr;
     if (isRecording() && m_currentEditor && m_currentEditor->widget())
         m_currentEditor->widget()->installEventFilter(this);
 }

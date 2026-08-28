@@ -3,7 +3,16 @@
 
 #include "macrooptions_test.h"
 
+#include "macroevent.h"
 #include "macrooptionspage.h"
+#include "texteditormacrohandler.h"
+
+#include <coreplugin/editormanager/editormanager.h>
+#include <coreplugin/editormanager/ieditor.h>
+
+#include <texteditor/texteditor.h>
+
+#include <utils/temporarydirectory.h>
 
 #include <utils/aspectpresentation.h>
 #include <utils/aspects.h>
@@ -20,6 +29,45 @@ class MacroOptionsTest final : public QObject
     Q_OBJECT
 
 private slots:
+    // Recording and replaying reach whatever view is showing the text. The
+    // handler used to take only the widget editor, so a file open in any
+    // other one recorded and replayed nothing at all.
+    void testAMacroReachesAViewThatIsNotAWidget()
+    {
+        Utils::TemporaryDirectory dir("macro-quick-editor");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("recorded.txt");
+        QVERIFY(file.writeFileContents("one\ntwo\n"));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, "TextEditor.QuickTextEditor");
+        QVERIFY2(editor, "the quick text editor did not open the file");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!qobject_cast<TextEditor::BaseTextEditor *>(editor),
+                 "this opened in a widget editor, so it proves nothing");
+
+        TextEditorMacroHandler handler;
+        handler.changeEditor(editor);
+
+        // The ids the handler writes its key events with; they are private to
+        // it, so a macro recorded elsewhere is what this imitates.
+        MacroEvent keyEvent;
+        keyEvent.setId(Utils::Id("TextEditorKey"));
+        keyEvent.setValue(0, QString("x"));                       // text
+        keyEvent.setValue(1, int(QEvent::KeyPress));              // type
+        keyEvent.setValue(2, int(Qt::NoModifier));                // modifiers
+        keyEvent.setValue(3, int(Qt::Key_X));                     // key
+        keyEvent.setValue(4, false);                              // autorepeat
+        keyEvent.setValue(5, 1);                                  // count
+
+        QVERIFY(handler.canExecuteEvent(keyEvent));
+        // False when the handler adopted no editor, which is what taking only
+        // widget editors amounted to here.
+        QVERIFY2(handler.executeEvent(keyEvent),
+                 "the handler is attached to nothing, so a macro replays nowhere");
+    }
+
     // What the page shows of a macro: its name, what it does, and how it is
     // invoked. The name and the shortcut are not the page's to change.
     void testTheTableShowsWhatAMacroIs()

@@ -12447,3 +12447,30 @@ The reachability is now asserted rather than reasoned: a test says the default
 editor for a lua script is the Quick editor. If someone gives Lua an editor of
 its own the test fails, which is the right moment to ask whether the guard
 still has a reason.
+
+### The macro handler wanted nothing a widget had
+
+The second of the two sites the corrected survey turned up. Recording a macro
+in a plain text file recorded nothing, because the handler kept
+
+    TextEditor::BaseTextEditor *m_currentEditor = nullptr;
+
+and every use of it in the file is `m_currentEditor->widget()` - watching
+keystrokes, and sending them back on replay. `widget()` is on `Core::IEditor`.
+The narrower type contributed nothing at all; it only decided which editors the
+handler would agree to attach to.
+
+It now attaches to an editor whose *document* is a `TextDocument`, which is
+what "a text editor" was trying to say. That keeps macros away from views
+showing something other than text, which is presumably why the cast was there,
+without tying the handler to one implementation of showing it.
+
+The test asserts the thing that changed: `executeEvent()` returns false when
+the handler has adopted nothing, so replaying into a Quick editor is exactly
+the difference between the two versions. It also asserts that the editor it
+opened is *not* a `BaseTextEditor`, so it cannot pass by opening the widget
+editor and proving nothing.
+
+What it does not assert is that the keystroke arrives in the document - that
+needs focus, and focus-dependent assertions here have been the least reliable
+thing in this whole effort.

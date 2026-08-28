@@ -7,7 +7,7 @@
 
 namespace Core { class IEditor; }
 
-namespace TextEditor { class BaseTextEditor; }
+
 
 namespace Macros::Internal {
 
@@ -28,7 +28,10 @@ public:
     void closeEditor(Core::IEditor *editor);
 
 private:
-    TextEditor::BaseTextEditor *m_currentEditor = nullptr;
+    // Whatever is showing a text document. Only its widget is ever used, to
+    // watch keystrokes and to replay them, and that is on Core::IEditor - so
+    // there is nothing here for a narrower type to add.
+    Core::IEditor *m_currentEditor = nullptr;
 };
 
 } // namespace Macros::Internal
