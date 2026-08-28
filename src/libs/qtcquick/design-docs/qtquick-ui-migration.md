@@ -444,8 +444,30 @@ been recorded wrongly:
   the same list as fractions of the document's height, and the QML bar draws
   them. Marks and the caret are in; search results are not, coming from the
   find machinery rather than from the document.
-- **`animateMatchingParentheses` defaults to `true`** as well. The matching
-  itself is implemented; the animation is not. Still open.
+- **`animateMatchingParentheses` defaults to `true`** as well, and is **done**
+  now. It also turned out to gate more than the animation: the widget editor
+  looks for a match when *either* it or the highlight is on, and the Quick
+  editor only looked when the highlight was on - so with the highlight off and
+  the animation on, it did nothing at all rather than pulsing.
+
+**Three of the four controls on the pulse did not bite at first, and every one
+of them was the test's fault.** Worth listing, because they are three
+different mistakes:
+
+1. The whole test ran with the *highlight* off, and what stops a second pulse
+   for the same pair is whether that bracket was marked last time - with
+   nothing marked, the rule can never fire. Fixed by turning the highlight on
+   for that part.
+2. "Move away and come back" did not move away. Two `setCursorPosition` calls
+   in a row are **one** layout, so the position in between is never processed
+   and the pair stayed marked. Fixed by arriving at a second pair that had
+   never been visited.
+3. The "nothing was pulsed" assertion ran before the layout that would have
+   pulsed. `QTRY_VERIFY(cursorPosition() == n)` waits for nothing - the caret
+   moves synchronously. Fixed by waiting for the pair to be *marked*, which
+   only happens in that layout, and checking the absence after it. This is the
+   ordering rule that is already written down, applied to a case that did not
+   look like it needed it.
 
 **Checking a default is not the same as checking it once.** The
 `highlightBlocks` correction earlier fixed one wrong "off by default" claim
