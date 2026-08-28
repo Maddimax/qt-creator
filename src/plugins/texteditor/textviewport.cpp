@@ -1640,14 +1640,12 @@ void TextViewport::keyPressEvent(QKeyEvent *event)
     // Reading a file means being able to select all of it and copy it, so
     // these come before the read-only guard.
     if (event->matches(QKeySequence::SelectAll)) {
-        cursor.select(QTextCursor::Document);
-        setTextCursor(cursor);
+        selectAll();
         event->accept();
         return;
     }
     if (event->matches(QKeySequence::Copy)) {
-        if (cursor.hasSelection())
-            QGuiApplication::clipboard()->setText(selectedPlainText(cursor));
+        copy();
         event->accept();
         return;
     }
@@ -1673,7 +1671,7 @@ void TextViewport::keyPressEvent(QKeyEvent *event)
     // The widget editor offers to make it writable; this only refuses, which
     // is the half that must not be missing.
     TextDocument * const doc = m_document->textDocument();
-    if (m_readOnly || (doc && doc->isFileReadOnly())) {
+    if (!canEdit()) {
         QQuickItem::keyPressEvent(event);
         return;
     }
@@ -1684,26 +1682,20 @@ void TextViewport::keyPressEvent(QKeyEvent *event)
     // of it did as well - which is the point of editing through a cursor.
     if (event->matches(QKeySequence::Undo) || event->matches(QKeySequence::Redo)) {
         if (event->matches(QKeySequence::Undo))
-            text->undo(&cursor);
+            undo();
         else
-            text->redo(&cursor);
-        setTextCursor(cursor);
+            redo();
         event->accept();
         return;
     }
 
     if (event->matches(QKeySequence::Cut)) {
-        if (cursor.hasSelection()) {
-            QGuiApplication::clipboard()->setText(selectedPlainText(cursor));
-            cursor.removeSelectedText();
-            setTextCursor(cursor);
-        }
+        cut();
         event->accept();
         return;
     }
     if (event->matches(QKeySequence::Paste)) {
-        cursor.insertText(QGuiApplication::clipboard()->text());
-        setTextCursor(cursor);
+        paste();
         event->accept();
         return;
     }
@@ -2090,7 +2082,7 @@ void TextViewport::lowercaseSelection()
 
 void TextViewport::transformSelectedText(const TextTransformation &transform)
 {
-    if (isReadOnly())
+    if (!canEdit())
         return;
     Utils::MultiTextCursor cursors = multiTextCursor();
     TextEditor::transformSelection(cursors, transform);
@@ -2099,7 +2091,7 @@ void TextViewport::transformSelectedText(const TextTransformation &transform)
 
 void TextViewport::insertLineAbove()
 {
-    if (isReadOnly())
+    if (!canEdit())
         return;
     Utils::MultiTextCursor cursors = multiTextCursor();
     TextEditor::insertLineAbove(cursors, m_document ? m_document->textDocument() : nullptr);
@@ -2108,7 +2100,7 @@ void TextViewport::insertLineAbove()
 
 void TextViewport::insertLineBelow()
 {
-    if (isReadOnly())
+    if (!canEdit())
         return;
     Utils::MultiTextCursor cursors = multiTextCursor();
     TextEditor::insertLineBelow(cursors, m_document ? m_document->textDocument() : nullptr);
@@ -2117,7 +2109,7 @@ void TextViewport::insertLineBelow()
 
 void TextViewport::duplicateSelection()
 {
-    if (isReadOnly())
+    if (!canEdit())
         return;
     Utils::MultiTextCursor cursors = multiTextCursor();
     // No comment definition here: which markers a language uses is something
@@ -2130,7 +2122,7 @@ void TextViewport::duplicateSelection()
 void TextViewport::sortLines()
 {
     TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
-    if (isReadOnly() || !doc)
+    if (!canEdit() || !doc)
         return;
     // Sorting several disjoint runs at once has no obvious meaning, the same
     // conclusion the widget editor came to.
@@ -2155,7 +2147,7 @@ Utils::CommentDefinition TextViewport::commentDefinition() const
 void TextViewport::unCommentSelection()
 {
     TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
-    if (isReadOnly() || !doc)
+    if (!canEdit() || !doc)
         return;
     const bool singleLine = doc->typingSettings().m_preferSingleLineComments;
     setMultiTextCursor(
@@ -2164,7 +2156,7 @@ void TextViewport::unCommentSelection()
 
 void TextViewport::duplicateSelectionAndComment()
 {
-    if (isReadOnly())
+    if (!canEdit())
         return;
     const Utils::CommentDefinition comment = commentDefinition();
     Utils::MultiTextCursor cursors = multiTextCursor();
@@ -2184,7 +2176,7 @@ void TextViewport::selectWholeLines()
 
 void TextViewport::deleteLine()
 {
-    if (isReadOnly())
+    if (!canEdit())
         return;
     selectWholeLines();
     // The main caret's line, as the widget editor does it: with several
@@ -2206,7 +2198,7 @@ void TextViewport::copyLine()
 
 void TextViewport::cutLine()
 {
-    if (isReadOnly())
+    if (!canEdit())
         return;
     selectWholeLines();
     QTextCursor cursor = textCursor();
@@ -2230,7 +2222,7 @@ void TextViewport::copyLineDown()
 void TextViewport::copyLineUpOrDown(bool up)
 {
     TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
-    if (isReadOnly() || !doc)
+    if (!canEdit() || !doc)
         return;
     // One caret only, the same conclusion the widget editor came to: where
     // the copies of several lines would go is not a question with an answer.
@@ -2254,7 +2246,7 @@ void TextViewport::moveLineDown()
 void TextViewport::moveLineUpOrDown(bool up)
 {
     TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
-    if (isReadOnly() || !doc)
+    if (!canEdit() || !doc)
         return;
     if (multiTextCursor().hasMultipleCursors())
         return;
@@ -2277,7 +2269,7 @@ void TextViewport::moveLineUpOrDown(bool up)
 void TextViewport::rewrapParagraph()
 {
     TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
-    if (isReadOnly() || !doc)
+    if (!canEdit() || !doc)
         return;
     QTextCursor cursor = textCursor();
     TextEditor::rewrapParagraph(cursor, doc->tabSettings(),
@@ -2285,9 +2277,79 @@ void TextViewport::rewrapParagraph()
     setTextCursor(cursor);
 }
 
+void TextViewport::selectAll()
+{
+    // Reading a file means being able to select all of it, so no edit check.
+    QTextCursor cursor = textCursor();
+    if (cursor.isNull())
+        return;
+    cursor.select(QTextCursor::Document);
+    setTextCursor(cursor);
+}
+
+void TextViewport::copy()
+{
+    const QTextCursor cursor = textCursor();
+    if (!cursor.isNull() && cursor.hasSelection())
+        QGuiApplication::clipboard()->setText(selectedPlainText(cursor));
+}
+
+void TextViewport::cut()
+{
+    if (!canEdit())
+        return;
+    QTextCursor cursor = textCursor();
+    if (cursor.isNull() || !cursor.hasSelection())
+        return;
+    QGuiApplication::clipboard()->setText(selectedPlainText(cursor));
+    cursor.removeSelectedText();
+    setTextCursor(cursor);
+}
+
+void TextViewport::paste()
+{
+    if (!canEdit())
+        return;
+    QTextCursor cursor = textCursor();
+    if (cursor.isNull())
+        return;
+    cursor.insertText(QGuiApplication::clipboard()->text());
+    setTextCursor(cursor);
+}
+
+void TextViewport::undo()
+{
+    if (!canEdit())
+        return;
+    QTextCursor cursor = textCursor();
+    if (cursor.isNull())
+        return;
+    // The document's, so it takes back what any other view of it did as well,
+    // which is the point of editing through a cursor.
+    cursor.document()->undo(&cursor);
+    setTextCursor(cursor);
+}
+
+void TextViewport::redo()
+{
+    if (!canEdit())
+        return;
+    QTextCursor cursor = textCursor();
+    if (cursor.isNull())
+        return;
+    cursor.document()->redo(&cursor);
+    setTextCursor(cursor);
+}
+
+bool TextViewport::canEdit() const
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    return !m_readOnly && !(doc && doc->isFileReadOnly());
+}
+
 void TextViewport::joinLines()
 {
-    if (isReadOnly())
+    if (!canEdit())
         return;
     Utils::MultiTextCursor cursors = multiTextCursor();
     TextEditor::joinLines(cursors);

@@ -550,6 +550,11 @@ public:
     // definition its highlighter was built from. Not cached: the definition
     // arrives after the file does, and a comment taken before it would be the
     // wrong one for the rest of the session.
+    // Whether the text may be changed at all. Two separate questions: the
+    // view can be told to be read only, and the file itself can be one the
+    // filesystem will not take back. Nothing sets either from the other, so a
+    // command that asks only the first edits a locked file.
+    bool canEdit() const;
     Utils::CommentDefinition commentDefinition() const;
     // Grows the carets to whole lines where they have selected nothing, which
     // is what makes the line commands work without selecting first.
@@ -592,6 +597,17 @@ public:
     Q_INVOKABLE void moveLineUp();
     Q_INVOKABLE void moveLineDown();
     Q_INVOKABLE void rewrapParagraph();
+
+    // What the keys already did, as methods, so that the menu entries and
+    // whatever shortcuts the reader has bound can run the same code. A
+    // shortcut is handled before the key reaches this item, so an action that
+    // did its own version would quietly replace the key handling below.
+    Q_INVOKABLE void selectAll();
+    Q_INVOKABLE void copy();
+    Q_INVOKABLE void cut();
+    Q_INVOKABLE void paste();
+    Q_INVOKABLE void undo();
+    Q_INVOKABLE void redo();
     // A rectangle of text, from where the caret is anchored to \a x, \a y.
     // One caret per line it covers, which is what makes it a selection that
     // can be typed over. The anchor is taken once, when the drag starts, so

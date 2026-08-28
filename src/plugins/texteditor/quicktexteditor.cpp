@@ -54,6 +54,7 @@
 #include <QDataStream>
 #include <QMenu>
 #include <QQuickItem>
+#include <QClipboard>
 #include <QQuickWidget>
 #include <QScopeGuard>
 #include <QSignalSpy>
@@ -355,6 +356,17 @@ public:
         command(Constants::MOVE_LINE_UP, &TextViewport::moveLineUp);
         command(Constants::MOVE_LINE_DOWN, &TextViewport::moveLineDown);
         command(Constants::REWRAP_PARAGRAPH, &TextViewport::rewrapParagraph);
+
+        // The editing commands every editor answers. These keys already
+        // reached the viewport on their own, and a shortcut is handled before
+        // the key gets there - so these must run the very code the key
+        // handler runs, or registering them would quietly replace it.
+        command(Core::Constants::SELECTALL, &TextViewport::selectAll);
+        command(Core::Constants::COPY, &TextViewport::copy);
+        command(Core::Constants::CUT, &TextViewport::cut);
+        command(Core::Constants::PASTE, &TextViewport::paste);
+        command(Core::Constants::UNDO, &TextViewport::undo);
+        command(Core::Constants::REDO, &TextViewport::redo);
 
         Core::ActionBuilder(this, Constants::JOIN_LINES)
             .setContext(Core::Context(m_editorContext))
@@ -795,6 +807,33 @@ private slots:
 
         QTextDocument * const text = view->textDocument()->document();
         QCOMPARE(text->findBlockByNumber(0).text(), QString("first second"));
+
+        // The editing commands too. These are the ones whose keys the
+        // viewport already handled, so the risk was the opposite one: an
+        // action registered for Ctrl+C is handled before the key reaches the
+        // item, and would replace the handling rather than add to it.
+        const auto inContext = [&context](const Utils::Id &id) -> QAction * {
+            Core::Command * const cmd = Core::ActionManager::command(id);
+            if (!cmd)
+                return nullptr;
+            for (const Utils::Id &each : context) {
+                if (QAction * const a = cmd->actionForContext(each))
+                    return a;
+            }
+            return nullptr;
+        };
+
+        QAction * const selectAll = inContext(Core::Constants::SELECTALL);
+        QVERIFY2(selectAll, "Select All is not registered in the Quick editor's context");
+        selectAll->trigger();
+        QCOMPARE(view->selectionStart(), 0);
+        QCOMPARE(view->selectionEnd(), text->characterCount() - 1);
+
+        QGuiApplication::clipboard()->clear();
+        QAction * const copy = inContext(Core::Constants::COPY);
+        QVERIFY2(copy, "Copy is not registered in the Quick editor's context");
+        copy->trigger();
+        QCOMPARE(QGuiApplication::clipboard()->text(), text->toPlainText());
     }
 
     void testAFileWithNoEditorOfItsOwnOpensHereToo()

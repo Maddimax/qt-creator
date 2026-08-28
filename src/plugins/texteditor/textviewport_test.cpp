@@ -50,6 +50,7 @@
 #include <QQmlError>
 #include <QQuickView>
 #include <QClipboard>
+#include <QFile>
 #include <QFontDatabase>
 #include <QInputMethodEvent>
 #include <QGuiApplication>
@@ -4535,6 +4536,45 @@ private slots:
         QCOMPARE(text->findBlockByNumber(0).text(),
                  QString(" * alpha beta gamma delta epsilon"));
         QCOMPARE(text->blockCount(), 2);
+    }
+
+    // A file the filesystem will not take back is not edited either, which
+    // is a different question from the view being told to be read only -
+    // nothing sets one from the other, and typing checks both.
+    void testTheLineCommandsLeaveAFileThatIsReadOnlyOnDiskAlone()
+    {
+        TemporaryDirectory dir("qtc-viewport-ro-file");
+        const FilePath file = dir.filePath("locked.txt");
+        QVERIFY(file.writeFileContents("zebra\napple\n"));
+        QVERIFY(QFile::setPermissions(file.toFSPathString(), QFile::ReadOwner));
+        const QScopeGuard restore([file] {
+            QFile::setPermissions(file.toFSPathString(), QFile::ReadOwner | QFile::WriteOwner);
+        });
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+
+        TextDocument * const doc = viewport->textDocument();
+        QVERIFY2(doc->isFileReadOnly(), "the file was expected to be read only on disk");
+        // The view itself was not told to be read only, which is the whole
+        // point: the two are separate and both have to be honoured.
+        viewport->setReadOnly(false);
+
+        QTextDocument * const text = doc->document();
+        const QString before = text->toPlainText();
+
+        viewport->setCursorPosition(2);
+        viewport->joinLines();
+        viewport->sortLines();
+        viewport->insertLineAbove();
+        viewport->duplicateSelection();
+        viewport->moveLineDown();
+        viewport->uppercaseSelection();
+
+        QCOMPARE(text->toPlainText(), before);
     }
 
     // None of the line commands edits a buffer that is read only, the same

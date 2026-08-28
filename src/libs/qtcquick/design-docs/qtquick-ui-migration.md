@@ -13620,3 +13620,41 @@ a key the viewport already handles takes that key away from the viewport's own
 handler. Those registrations are only safe where the action and the key path
 run the same code, which for movement means exposing what `handleMoveKeyEvent`
 does rather than writing a second version of it.
+
+## A locked file was being edited, and the clipboard commands
+
+Two questions decide whether this view may change its text, and they are
+separate: the view can be told to be read only, and the file itself can be one
+the filesystem will not take back. Nothing sets either from the other. The key
+handler has always asked both - `m_readOnly || doc->isFileReadOnly()`, in five
+places - and every command added over the last six batches asked only the
+first.
+
+So opening a file that is read only on disk and pressing Ctrl+J edited it,
+while typing into the same file did nothing. A test that locks a file with
+`QFile::setPermissions` and runs six of the commands over it fails on the old
+code with `"\n\nzebra apple\n"` where the file had said `"zebra\napple\n"`.
+
+`canEdit()` is now the one place that answers it, and the fourteen guards -
+thirteen commands and the key handler the definition came from - all ask it.
+
+### Registering the commands whose keys already worked
+
+Select All, Copy, Cut, Paste, Undo and Redo were handled inline in
+`keyPressEvent`, so the keys worked and the menu entries did not. Registering
+them needed care rather than more of the same: **a shortcut is processed
+before the key event reaches the item**, so an action for Ctrl+C would not add
+a way to copy, it would take the existing one away and put its own in place.
+Had the two drifted, the key would quietly have started doing something
+slightly different.
+
+So the bodies moved out of the key handler into methods, the key handler calls
+them, and the actions call the same methods. Whatever a shortcut does now,
+the key does, because there is only one of each. The reachability test covers
+Select All and Copy through the action system on a real editor, and removing
+either registration fails it.
+
+Twenty-eight commands now, from three. What is left is movement - and it needs
+the same treatment, one level harder: the movement keys go through
+`handleMoveKeyEvent`, so the actions have to be given a way to ask for the
+same thing rather than a second implementation of it.
