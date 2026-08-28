@@ -394,14 +394,51 @@ Left unread on purpose: `keyboardTooltips` (off by default; Alt asks for a
 tooltip, a mechanism of its own), and `smartSelectionChanging`, which is not
 the text editor's at all - CppEditor reads it for expand/shrink selection.
 
-**A hover test failed once here and was not the change.** The full-suite run
-after the tooltip work reported `testRestingTheMouseAsksTheHoverHandlers`
-failing; it passed in every run after, including the same full suite. The
-first guess - that the new `constrainHoverTooltips` branch was suppressing the
-tooltip - was checked by printing the value rather than reasoned about, and it
-was 0, so that branch never ran. The test moves a real pointer and already
-retries five times for that reason. Guessing at a mechanism and *then*
-measuring it is the right order; the guess was wrong and cost only one build.
+### All ten settings containers, counted
+
+Stopping at three was the same mistake again, so here is the whole set. Ten
+containers: `Display`, `Margin`, `Behavior`, `Font`, `Tab`, `Typing`,
+`Storage`, `Completion`, `Comments`, `ExtraEncoding`. The Quick side reads
+`Typing`, `Storage`, `Completion` and `ExtraEncoding` at least as often as the
+widget editor does, and `Comments` is read by neither - CppEditor owns it.
+
+`TypingSettings` had the gap. **`m_smartBackspaceBehavior` defaults to
+`BackspaceUnindents`** - inside a line's leading whitespace, Backspace takes a
+whole level - and the Quick editor deleted one character whatever the setting
+said, so the default was missing and the preference had no effect. All three
+behaviours are implemented now, including `BackspaceFollowsPreviousIndents`,
+which goes back to the indentation of the nearest line above indented less
+than this one. Past the indentation there is nothing to unindent and all three
+take one character, which is its own test case.
+
+**A `TextViewport` is read-only until told otherwise.** The first version of
+that test pressed Backspace and nothing happened at all - not one character
+removed, the line untouched - because every key was landing on the read-only
+guard. An existing test says so in as many words; a new one has to call
+`setReadOnly(false)` or it is testing the guard. The tell is *nothing*
+happening rather than the wrong thing happening.
+
+**A hover test failed once here, and calling it a flake was wrong.** The
+full-suite run after the tooltip work reported
+`testRestingTheMouseAsksTheHoverHandlers` failing; it passed on re-run, and
+that was written up here as flakiness. It failed again the next batch, which
+is what a pattern looks like. Counting settled it: **three failures in six
+runs with the suppression, none in nine without it.**
+
+The mechanism is only half known. The hover event that triggered the
+suppression carried `ControlModifier` while nothing was holding Control -
+printed, not guessed. One contributor was mine: the link test sent
+`QTest::keyRelease(Qt::Key_Control)` with no matching press, and **QTest keeps
+modifier state for the whole process**, so every later test was told Control
+was down. Pressing as well as releasing took it from six failures in six to
+three in six - real, and not the whole story.
+
+So the suppression came back out. It was the one piece of that change with no
+test of its own; a nicety is not worth a suite that fails half the time. What
+this cost was two wrong conclusions in a row - first "the constrain branch is
+firing" (measured: it was not), then "it is a flake" (counted: it was not) -
+and what fixed both was measuring rather than arguing. **One green re-run is
+not evidence that something is a flake.** Two arms of six runs is.
 
 
 **Visualised whitespace is drawn now, and was not before** - a green test said
