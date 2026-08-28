@@ -12269,3 +12269,38 @@ the scene at all and "line 3 is not drawn" was the truth about the fixture,
 not about the code. Rewritten against the indent guides, which that file does
 draw, it passes and its control - putting `row * lineHeight` back in the
 guide's binding - fails it.
+
+### A message on a line of its own
+
+`AnnotationAlignment::BetweenLines` was in the switch and did nothing:
+
+    case AnnotationAlignment::NextToContent:
+    case AnnotationAlignment::BetweenLines:
+        break;
+
+Choosing it in the settings gave you `NextToContent` - the message after the
+text, exactly where it goes when you have not asked for it to be anywhere
+else. The comment above the switch already said why: it "needs the block to be
+taller than the text in it", which nothing could do until rows could have
+something between them.
+
+So this is the third thing that opens a gap, and unlike the other two it is
+not installed from outside - the viewport works it out from what it is already
+drawing. The cost is worth naming: the gaps have to be known before the rows
+are placed, and which lines carry a message is not something a visible-row
+walk can answer, because a message above the screen still moves everything
+under it. `TextDocument::marks()` enumerates them, and there are as many marks
+as there are diagnostics rather than as there are lines, so this is paid per
+mark and not per document.
+
+The message then needs its own y: the row is where it belongs to, not where it
+is drawn. The row model carries `annotationY` beside `annotationX`, and for
+this alignment it is the row's y plus a line. Its x changes too - lined up
+with the text rather than trailing it, which is the point of giving it a line
+of its own.
+
+The control is the one that separates the two halves: leave the gap open but
+draw the message at the row's y. The setup assertions - the document is a row
+taller, the line below moved down - still pass, and the placement one fails.
+Had the control been "turn the whole thing off", all three would have failed
+together and the placement assertion would not have been shown to do anything.

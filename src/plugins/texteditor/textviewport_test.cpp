@@ -6085,6 +6085,72 @@ private slots:
         QVERIFY2(shown.last().contains("50"), qPrintable(shown.last()));
     }
 
+    void testAMessageAskedForOnItsOwnLineGetsOne()
+    {
+        // BetweenLines puts the message under the line instead of after it,
+        // which means there has to be a line under it to put it on: the row
+        // opens a gap of its own and everything below moves down.
+        TemporaryDirectory dir("annotation-between");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("annotated.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\ngamma\ndelta\n"));
+
+        const auto was = displaySettings().annotationAlignment();
+        const QScopeGuard restore(
+            [was] { displaySettings().annotationAlignment.setValue(was); });
+        displaySettings().annotationAlignment.setValue(AnnotationAlignment::BetweenLines);
+
+        CodeViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+        auto * const source = viewport->document();
+        QVERIFY(source && source->textDocument());
+
+        const qreal contentBefore = viewport->contentHeight();
+        const qreal fourthBefore = viewport->visibleLine(3).value("y").toReal();
+
+        const QString message = "expected ';' after expression";
+        TextMark mark(source->textDocument(), 3, TextMarkCategory{"Test", "TextEditor.Test.Mark"});
+        mark.setIcon(Utils::Icons::WARNING.icon());
+        mark.setLineAnnotation(message);
+
+        QTRY_COMPARE(viewport->visibleLine(2).value("annotation").toString(), message);
+        // The document is one row taller for it, and the line under the marked
+        // one has moved down by exactly that row.
+        const qreal row = viewport->lineHeight();
+        QTRY_VERIFY(qAbs(viewport->contentHeight() - (contentBefore + row)) < 0.01);
+        QVERIFY(qAbs(viewport->visibleLine(3).value("y").toReal() - (fourthBefore + row)) < 0.01);
+
+        QQuickItem *drawn = nullptr;
+        QTRY_VERIFY([&] {
+            for (QQuickItem * const candidate : allItems(fixture.root)) {
+                if (candidate->property("text").toString() == message && candidate->isVisible()) {
+                    drawn = candidate;
+                    return true;
+                }
+            }
+            return false;
+        }());
+
+        // Under the line it belongs to, in the room made for it.
+        const QPointF at = drawn->mapToItem(viewport, QPointF(0, 0));
+        const qreal markedRowY = viewport->visibleLine(2).value("y").toReal();
+        QVERIFY2(qAbs(at.y() - (markedRowY + row - viewport->scrollY())) < 0.01,
+                 qPrintable(QString("message at %1, wanted %2")
+                                .arg(at.y()).arg(markedRowY + row - viewport->scrollY())));
+
+        // And lined up with the text rather than trailing it, which is the
+        // point of giving it a line of its own.
+        const qreal lineWidth = viewport->visibleLine(2).value("width").toReal();
+        QVERIFY2(lineWidth > 0, "the line has no width, so 'before it' means nothing");
+        QVERIFY2(at.x() < lineWidth,
+                 qPrintable(QString("message starts at %1, past the text at %2")
+                                .arg(at.x()).arg(lineWidth)));
+    }
+
     void testWhatQmlDrawsOverTheTextFollowsAGapToo()
     {
         // The indent guides are QML items positioned from the row's own y.

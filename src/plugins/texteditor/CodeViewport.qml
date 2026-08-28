@@ -582,7 +582,7 @@ Item {
                     readonly property int row: viewport.firstVisibleLine + index
 
                     x: annotation.lineData.annotationX ?? 0
-                    y: annotation.modelData.y - viewport.scrollY
+                    y: annotation.modelData.annotationY - viewport.scrollY
                     height: viewport.lineHeight
                     verticalAlignment: Text.AlignVCenter
 

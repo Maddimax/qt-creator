@@ -600,6 +600,10 @@ private:
 
         std::unique_ptr<QTextLayout> layout;
         QPointF at;
+        // Where the line's message goes. Usually the row's own y, but a
+        // message asked for on a line of its own sits in the space opened
+        // under the row for it.
+        qreal annotationY = 0;
         // Set when a diff says this row's line changed: the whole width of it
         // takes this colour, under everything else drawn on the row.
         QColor diffFill;

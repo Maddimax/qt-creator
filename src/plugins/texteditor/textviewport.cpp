@@ -618,6 +618,9 @@ QVariantMap TextViewport::visibleLine(int index) const
                        // Where the line's message starts, which the display
                        // settings decide.
                        {"annotationX", line.annotationX},
+                       // And how far down, which is not the row's own y when
+                       // the message was asked for on a line of its own.
+                       {"annotationY", line.annotationY},
                        // What is being composed on this line, if anything. Not
                        // part of "text": it is not in the document yet, which
                        // is the whole distinction.
@@ -1148,6 +1151,24 @@ bool TextViewport::rebuildGaps()
     for (const GhostRows &ghost : std::as_const(m_ghosts)) {
         if (!ghost.lines.isEmpty())
             gaps.append({ghost.row, ghost.lines.size() * m_lineHeight});
+    }
+
+    // A message asked for on a line of its own needs a line for it to be on.
+    // Marks are enumerable and there are as many of them as there are
+    // diagnostics, so this costs the marks rather than the document.
+    if (displaySettings().annotationAlignment() == AnnotationAlignment::BetweenLines
+        && m_lineHeight > 0) {
+        TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+        if (doc) {
+            for (TextMark * const mark : doc->marks()) {
+                if (!mark->isVisible() || mark->icon().isNull()
+                    || mark->lineAnnotation().isEmpty()) {
+                    continue;
+                }
+                // Below the line it belongs to, which is above the next row.
+                gaps.append({rowOfLine(mark->lineNumber()) + 1, m_lineHeight});
+            }
+        }
     }
     std::stable_sort(gaps.begin(), gaps.end(), [](const Gap &a, const Gap &b) {
         return a.row < b.row;
@@ -3196,10 +3217,19 @@ void TextViewport::updatePolish()
                     x = qMax(x, width() - metrics.horizontalAdvance(line.annotation));
                     break;
                 case AnnotationAlignment::NextToContent:
+                    break;
                 case AnnotationAlignment::BetweenLines:
+                    // On its own line under the row, lined up with the text
+                    // rather than trailing it.
+                    x = rowIndent - m_scrollX;
                     break;
                 }
                 line.annotationX = x;
+                line.annotationY
+                    = yOfRow(row)
+                      + (displaySettings().annotationAlignment() == AnnotationAlignment::BetweenLines
+                             ? m_lineHeight
+                             : 0);
             }
 
             // The marker goes on the rows that continue a line: at the far
