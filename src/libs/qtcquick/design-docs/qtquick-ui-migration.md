@@ -12979,3 +12979,50 @@ asserts to one. That is worth doing for its own sake: the reason the
 `guiToVolatileValue` defect went unnoticed for so long is that a run's output
 was mostly complaints nobody had a reason to read. Noise is not free; it is the
 thing a real complaint has to be spotted among.
+
+## Scrolling, measured again - and the build is the headline
+
+Reported as still laggy. The obvious suspect was `updatePaintNode()`, which
+deletes the whole scene graph and rebuilds a `QSGTextNode` per row every
+frame - the classic Qt Quick anti-pattern. Measuring says it is not:
+
+    updatePaintNode   median 0.261 ms   p90 0.538   max  1.395
+    updatePolish      median 0.812 ms   p90 5.698   max 16.902
+
+The layout is typically fine and has a long tail, and the tail is where lag
+lives. Splitting the layout:
+
+    rebuildVisibleLines   median 0.465   p90 3.630   max 14.910   total 398 ms
+    ghost rows            median 0.000   p90 0.001   max  0.066   total   0.4
+    scroll bar            median 0.016   p90 0.111   max  0.222   total  10.1
+
+**55% of all layout time is turning rows into QVariantMaps** - the very code
+added earlier in this effort to make scrolling faster. The most expensive part
+of a row is the list of syntax formats over it, and no QML reads it: the four
+mentions of `formats` in .qml files are all comments, and the twelve readers
+are all tests. Building the model without it is 12% off a layout.
+
+That leaves the QVariantMap itself, which is the real remaining cost: about
+twenty-seven keys per row per layout, each a string key and a QVariant.
+
+And the thing that matters more than any of it: **both configurations in this
+tree are AddressSanitizer builds.**
+
+    WITH_SANITIZE:STRING=ON
+    SANITIZE_FLAGS:STRING=address
+    Debug:   4300 of 4423 entries built with -fsanitize=address
+    Release: 4715 of 4836
+
+ASan costs a few times the CPU generally, and it is worst on exactly what this
+hot path does: many small allocations. Twenty-seven QVariants per row per frame
+is a shape that a sanitised allocator punishes far more than an ordinary one.
+So the numbers above are inflated, and a reader scrolling either build is
+scrolling a sanitised one.
+
+Which means there are two separate answers. A build without the sanitizer is
+very likely to feel different, and that costs a reconfigure rather than a code
+change. Independently, allocating twenty-seven QVariants per row per frame is
+worth fixing on its own terms - either by not rebuilding rows a scroll did not
+change, or by giving the model real roles instead of a map. Both are larger
+than this batch and neither should be guessed at while the measurement is
+taken through a sanitizer.
