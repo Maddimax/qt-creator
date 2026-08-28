@@ -198,6 +198,12 @@ public:
         : m_document(std::move(document))
         , m_source(std::make_unique<AdoptedSource>(m_document.get()))
     {
+        // duplicate() answers, so say so: the editor manager asks this rather
+        // than trying, and an editor it thinks cannot be duplicated is moved
+        // between split views instead of copied - which loses the tab the
+        // first view was keeping for it.
+        setDuplicateSupported(true);
+
         // What a right click offers. Taken from the same place the widget
         // editor takes it, and asked again each time the menu opens, because
         // the ActionManager's containers gain entries as plugins register
@@ -2159,6 +2165,13 @@ private slots:
             = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
         QVERIFY(editor);
         const QScopeGuard closeIt([editor] { Core::EditorManager::closeEditors({editor}); });
+
+        // Said as well as done: the editor manager asks this rather than
+        // trying, and one it believes cannot be duplicated is moved between
+        // split views instead of copied, which loses the tab the first view
+        // was keeping for it.
+        QVERIFY2(editor->duplicateSupported(),
+                 "the editor can be split but does not say so");
 
         std::unique_ptr<Core::IEditor> other(editor->duplicate());
         QVERIFY2(other, "the editor cannot be split");
