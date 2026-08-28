@@ -119,7 +119,7 @@ theme selector recolours the scene in place, without recreating it.
 
 ## Status
 
-Branch `utils-drop-printsupport`, 187 commits, not pushed.
+Branch `utils-drop-printsupport`, 227 commits, not pushed.
 
 **The settings-page migration is finished.** Every `IOptionsPage` that can be
 aspect driven is: the census reports **0 pages still on widgets**, with no
@@ -136,7 +136,7 @@ Verified one suite at a time, re-run in full after the shared headers changed
 
 | suite | result |
 | --- | --- |
-| Core, TextEditor, QuickUi | 81/81, 287/287, 89/89 |
+| Core, TextEditor, QuickUi | 81/81, 301/301, 89/89 |
 | QmlJSEditor, QmlJSTools, LanguageClient | 15/15, 12/12, 20/20 |
 | CMake, Qmake, Qbs, Nim project managers | 69/69, 26/26, 8/8, 6/6 |
 | AutoTest, BareMetal | 5/5 (1 skipped, wants a kit), 61/61 |
@@ -324,19 +324,41 @@ interesting:
   the same places. The arithmetic is `PlainTextDocumentLayout`'s, copied rather
   than invented - including that the marker takes room whether or not the rows
   are indented.
-- **Whole features not started** - `displayMinimap`, `scrollBarHighlights`,
-  `highlightBlocks` (thirty-four references in the widget editor), and
-  `markDiffChangeSigns`.
+- **Scope highlight** - done. Hovering the folding column dims everything
+  outside the folds that enclose the line under the pointer, leaving that
+  scope on the plain page colour; the `highlightBlocks` setting makes the same
+  highlight follow the caret instead of waiting to be hovered. The nesting
+  walk and the colour ramp are shared with the widget editor rather than
+  copied - `blockNestingAt()` and `scopeLevelColor()` in textdocumentlayout -
+  with where a level starts on screen passed in by the caller, that being the
+  one part of it that is not a property of the document.
+- **Whole features not started** - `displayMinimap` and `scrollBarHighlights`,
+  neither of which is viewport drawing: both are fed by controllers living in
+  Core (`Core::MinimapController`, `Core::HighlightScrollBarController`) which
+  the widget editor hangs off its own scroll bar. `markDiffChangeSigns` is not
+  a feature of its own either - it is a display option on the inline diff,
+  whose ghost rows the Quick editor does not have at all.
 - **Animations** - `animateMatchingParentheses`,
   `animateNavigationWithinFile`, `animateWithinFileTimeMax`. Cosmetic.
 - **Editor-layer behaviour rather than drawing** - `openLinksInNextSplit`,
   `forceOpenLinksInNextSplit`, `displayTabSettings`,
   `minimalAnnotationContent`.
 
-Everything still on the list is **off by default** - `highlightBlocks` and
-`highlightCurrentLine` included, which was worth checking before ranking them:
-nobody sees any of it unless they turn it on. That is the argument for having
-finished the wrapped-line pair first rather than starting the biggest one.
+**"Everything left is off by default" was wrong, and the way it was wrong is
+the useful part.** That claim came from reading the settings' defaults, which
+is not the same as reading the defaults of the behaviour they gate.
+`highlightBlocks` does default to false - and the scope highlight it is named
+after is drawn anyway: `paintBlockHighlight()` is called unconditionally and
+returns early only on an empty info, and that info is filled in by hovering
+the folding column, which no setting guards. The setting widens what counts as
+a hover; it does not switch the highlight on. So a list of settings reported
+as opt-in was hiding behaviour the widget editor has by default and the Quick
+editor did not have at all.
+
+What finds this is asking what a setting *gates* rather than what it is
+called, and the same question re-sorted the rest of the list: of the four
+entries once filed as "features not started", one was an option on a feature
+nobody has started, and two are not viewport work at all.
 
 None of these is a bug in what is there; they are things not written yet. The
 list is here so that the next person picks by value rather than by whichever
@@ -9299,6 +9321,13 @@ block ranges around the cursor tracked as it moves, a timer, and nested blended
 fills - and it is **off by default**, so it is also the least visible thing
 left. Announcing a next step is not a reason to take it once the code says it is
 the wrong one.
+
+**Half of that reading was wrong, and stood for several batches.** The cost
+held - the ranges, the nesting, the blended fills were all really there - but
+"off by default" did not: the highlight is drawn on hover with the setting
+off, and the setting only widens what counts as a hover. Reading what a
+setting gates is a different act from reading its default, and only the second
+was done here. See the display-settings audit above.
 
 What the same look found instead: `DisplaySettings` was audited three batches
 ago, but **`MarginSettings` never was, and the Quick editor read none of its
