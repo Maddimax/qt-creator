@@ -1862,6 +1862,113 @@ private slots:
         QCOMPARE(qRound(at.y() / viewport->lineHeight()), 2);
     }
 
+    // Where that message goes is a setting, and its default is the right
+    // side - not after the text. The test above only asks that the message
+    // does not overlap the line, which every alignment satisfies, so it never
+    // said where the message actually is.
+    void testWhereAMarksMessageGoesIsASetting()
+    {
+        const AnnotationAlignment was = displaySettings().annotationAlignment();
+        const QScopeGuard restore(
+            [was] { displaySettings().annotationAlignment.setValue(was); });
+
+        TemporaryDirectory dir("annotation-alignment");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("big.txt");
+        // Line 5 is long enough that the right edge is left of where the text
+        // ends, which is the case that decides whether a right-aligned
+        // message is allowed to sit on top of the line.
+        QString contents;
+        for (int i = 0; i < 200; ++i)
+            contents += (i == 4 ? QString(80, 'x') : QString("line %1").arg(i)) + '\n';
+        QVERIFY(file.writeFileContents(contents.toUtf8()));
+
+        QQuickView view;
+        installIconProvider(view);
+        view.resize(600, 200);
+        QQmlComponent component(view.engine());
+        component.setData(QByteArray("import QtCreator.TextEditor\n"
+                                     "CodeViewport {\n"
+                                     "    width: 600; height: 200\n"
+                                     "    property string path\n"
+                                     "    source: CodeDocument { filePath: path }\n"
+                                     "}"),
+                          QUrl("qrc:/test/AnnotationAlignmentTest.qml"));
+        std::unique_ptr<QObject> created(component.createWithInitialProperties(
+            {{"path", file.toUrlishString()}}));
+        QVERIFY2(created != nullptr, qPrintable(component.errorString()));
+
+        auto * const item = qobject_cast<QQuickItem *>(created.get());
+        QVERIFY(item);
+        item->setParentItem(view.contentItem());
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+        auto * const viewport = item->findChild<TextViewport *>("codeViewport");
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+        auto * const source = viewport->document();
+        QVERIFY(source && source->textDocument());
+
+        const QString message = "expected ';' after expression";
+        TextMark mark(source->textDocument(), 3, TextMarkCategory{"Test", "TextEditor.Test.Mark"});
+        mark.setIcon(Utils::Icons::WARNING.icon());
+        mark.setLineAnnotation(message);
+        QTRY_COMPARE(viewport->visibleLine(2).value("annotation").toString(), message);
+
+        const auto annotationX = [viewport] {
+            return viewport->visibleLine(2).value("annotationX").toReal();
+        };
+        const qreal messageWidth
+            = QFontMetricsF(viewport->font()).horizontalAdvance(message);
+        const qreal lineWidth = viewport->visibleLine(2).value("width").toReal();
+        QVERIFY(lineWidth > 0);
+
+        // The default: the message ends at the right edge of the view.
+        QCOMPARE(displaySettings().annotationAlignment(), AnnotationAlignment::RightSide);
+        QTRY_COMPARE(qRound(annotationX() + messageWidth), qRound(viewport->width()));
+
+        // And what is drawn is where the viewport said, rather than wherever
+        // the row happens to put it. Looked up again each time: the delegates
+        // are rebuilt when the rows change, so a pointer kept from before is
+        // an item that is no longer the one on screen.
+        const auto drawnX = [&]() -> qreal {
+            for (QQuickItem * const candidate : allItems(item)) {
+                if (candidate->property("text").toString() == message && candidate->isVisible())
+                    return candidate->mapToItem(viewport, QPointF(0, 0)).x();
+            }
+            return -1;
+        };
+        QTRY_COMPARE(qRound(drawnX()), qRound(annotationX()));
+
+        // Next to the content instead: just after the text, nowhere near the
+        // right edge.
+        displaySettings().annotationAlignment.setValue(AnnotationAlignment::NextToContent);
+        QTRY_VERIFY2(annotationX() < viewport->width() - messageWidth,
+                     "the message stayed at the right edge after being told to follow the text");
+        QVERIFY2(annotationX() > lineWidth, "the message was drawn over the line it is about");
+        QTRY_COMPARE(qRound(drawnX()), qRound(annotationX()));
+
+        // Back to the right side, on a line whose text reaches past where the
+        // right edge would put the message. The edge is a minimum, not a
+        // position: the message goes after the text instead of over it.
+        displaySettings().annotationAlignment.setValue(AnnotationAlignment::RightSide);
+        const QString longMessage = "unused variable";
+        TextMark onLongLine(source->textDocument(), 5,
+                            TextMarkCategory{"Test", "TextEditor.Test.Mark"});
+        onLongLine.setIcon(Utils::Icons::WARNING.icon());
+        onLongLine.setLineAnnotation(longMessage);
+        QTRY_COMPARE(viewport->visibleLine(4).value("annotation").toString(), longMessage);
+
+        const qreal longLineWidth = viewport->visibleLine(4).value("width").toReal();
+        const qreal longMessageWidth
+            = QFontMetricsF(viewport->font()).horizontalAdvance(longMessage);
+        QVERIFY2(longLineWidth > viewport->width() - longMessageWidth,
+                 "the line is not long enough for the right edge to fall inside it");
+        QTRY_VERIFY2(viewport->visibleLine(4).value("annotationX").toReal() > longLineWidth,
+                     "a right-aligned message was drawn over the line it is about");
+    }
+
     void testAnEditTheViewportDidNotMakeStillShows()
     {
         // The indenter, another view, a refactoring: nothing tells the viewport

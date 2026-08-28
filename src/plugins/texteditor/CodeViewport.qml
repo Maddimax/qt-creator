@@ -511,12 +511,9 @@ Item {
                 }
             }
 
-            // What comes after a line's text: the box standing in for what a
-            // fold hides, then what a mark on the line says. One delegate for
-            // both, in a Row, because they land in the same place and a folded
-            // line with an error on it would otherwise draw them on top of
-            // each other. The viewport reports each line's natural width, so
-            // they start where the text actually ends rather than at a column.
+            // The box standing in for what a fold hides. The viewport reports
+            // each line's natural width, so it starts where the text actually
+            // ends rather than at a column.
             Repeater {
                 model: viewport.visibleLines
 
@@ -558,22 +555,38 @@ Item {
                             onTapped: viewport.toggleFold(trailing.lineData.lineNumber)
                         }
                     }
+                }
+            }
 
-                    Text {
-                        id: annotation
+            // What a mark on the line says. Placed where the viewport puts it
+            // rather than after the text: the display settings choose between
+            // the end of the line, the right margin and the right edge, and
+            // only the viewport knows where those are.
+            Repeater {
+                model: viewport.visibleLines
 
-                        height: viewport.lineHeight
-                        verticalAlignment: Text.AlignVCenter
+                delegate: Text {
+                    id: annotation
 
-                        text: trailing.lineData.annotation ?? ""
-                        visible: root.showAnnotations && text !== ""
-                        font: viewport.font
-                        color: Tokens.textMuted
-                        elide: Text.ElideRight
-                        // Never wider than what is left of the line, so a long
-                        // message does not draw past the edge of the editor.
-                        width: Math.max(0, viewport.width - trailing.x - x)
-                    }
+                    required property int index
+                    required property var modelData
+
+                    readonly property var lineData: modelData
+                    readonly property int row: viewport.firstVisibleLine + index
+
+                    x: annotation.lineData.annotationX ?? 0
+                    y: annotation.row * viewport.lineHeight - viewport.scrollY
+                    height: viewport.lineHeight
+                    verticalAlignment: Text.AlignVCenter
+
+                    text: annotation.lineData.annotation ?? ""
+                    visible: root.showAnnotations && text !== ""
+                    font: viewport.font
+                    color: Tokens.textMuted
+                    elide: Text.ElideRight
+                    // Never past the right edge, so a long message is cut
+                    // rather than drawn outside the editor.
+                    width: Math.max(0, viewport.width - x)
                 }
             }
 

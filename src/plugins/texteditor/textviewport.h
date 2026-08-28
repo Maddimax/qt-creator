@@ -545,6 +545,10 @@ private:
         // What the mark says about the line, drawn after the text and
         // shown again when the icon is hovered.
         QString annotation;
+        // Where that message starts, in item coordinates. The display
+        // settings decide: after the text, at the right margin, or against
+        // the right edge.
+        qreal annotationX = 0;
         // Where a selection runs past the end of the line. Empty otherwise.
         QRectF newlineTail;
         QColor newlineTailColour;

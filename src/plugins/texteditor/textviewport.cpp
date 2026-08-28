@@ -505,6 +505,9 @@ QVariantMap TextViewport::visibleLine(int index) const
                        {"breakMarkerX", line.breakMarkerX},
                        // The nested-scope backgrounds behind this row.
                        {"scopeBands", line.scopeBands},
+                       // Where the line's message starts, which the display
+                       // settings decide.
+                       {"annotationX", line.annotationX},
                        // What is being composed on this line, if anything. Not
                        // part of "text": it is not in the document yet, which
                        // is the whole distinction.
@@ -2562,6 +2565,40 @@ void TextViewport::updatePolish()
             // Continuation rows sit under the text they continue; the row that
             // starts the line does not move.
             const qreal rowIndent = rowInBlock == 0 ? 0 : blockBreakIndent;
+
+            // Where the line's message goes. The widget editor measures from
+            // the end of the text and leaves two line spacings; the alignment
+            // moves it right from there. "Between lines" is not here: it puts
+            // the message on a line of its own, which needs the block to be
+            // taller than the text in it.
+            if (!line.annotation.isEmpty() && textLine.isValid()) {
+                const qreal gap = 2 * metrics.lineSpacing();
+                qreal x = rowIndent - m_scrollX + textLine.naturalTextWidth() + gap;
+                // Past the box standing in for a fold, so that a folded line
+                // with an error on it does not draw both in one place.
+                if (!line.foldReplacement.isEmpty())
+                    x += metrics.horizontalAdvance(line.foldReplacement) + gap;
+
+                switch (displaySettings().annotationAlignment()) {
+                case AnnotationAlignment::NextToMargin: {
+                    const qreal margin = m_marginX > 0 ? m_marginX - m_scrollX : -1;
+                    // Only when there is room left for a readable amount of
+                    // it, which is what minimalAnnotationContent measures.
+                    const qreal minimalContent = metrics.horizontalAdvance(QLatin1Char('x'))
+                                                 * displaySettings().minimalAnnotationContent();
+                    if (margin > x && width() > margin + minimalContent)
+                        x = margin;
+                    break;
+                }
+                case AnnotationAlignment::RightSide:
+                    x = qMax(x, width() - metrics.horizontalAdvance(line.annotation));
+                    break;
+                case AnnotationAlignment::NextToContent:
+                case AnnotationAlignment::BetweenLines:
+                    break;
+                }
+                line.annotationX = x;
+            }
 
             // The marker goes on the rows that continue a line: at the far
             // left where it is asked for before the indent, otherwise right in
