@@ -486,6 +486,10 @@ signals:
     void cursorRectangleChanged();
     void readOnlyChanged();
     void fileFormatChanged();
+    // A character to pulse where it stands: the bracket that matches the one
+    // the caret just arrived beside, once per arrival.
+    void animateCharacter(const QRectF &at, const QString &text, const QColor &foreground,
+                          const QColor &background);
     void wrappingChanged();
 
 protected:
@@ -697,6 +701,16 @@ private:
     // one line does not walk the folds again.
     // What is underlined as a link, and whether the pointer is over the text
     // at all - a Control press only means "show me the link" while it is.
+    // A bracket waiting to be pulsed. Worked out while matching, which
+    // happens before the rows are laid out, so where it is on screen is not
+    // known until they are.
+    struct PendingPulse
+    {
+        int position = -1;
+        QColor foreground;
+        QColor background;
+    };
+    std::optional<PendingPulse> m_pendingPulse;
     Utils::Link m_currentLink;
     bool m_hovering = false;
     int m_scopeBlock = -1;

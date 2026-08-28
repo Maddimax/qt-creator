@@ -597,6 +597,63 @@ Item {
                 }
             }
 
+            // The matching bracket, pulsed once where it stands. The widget
+            // editor grows the character to half again its size and back over
+            // a quarter of a second, which is what this is.
+            Rectangle {
+                id: bracketPulse
+
+                objectName: "bracketPulse"
+
+                visible: false
+                transformOrigin: Item.Center
+
+                Text {
+                    id: bracketPulseText
+
+                    anchors.centerIn: parent
+                    font: viewport.font
+                }
+
+                SequentialAnimation {
+                    id: bracketPulseAnimation
+
+                    NumberAnimation {
+                        target: bracketPulse
+                        property: "scale"
+                        from: 1.0
+                        to: 1.5
+                        duration: 128
+                        easing.type: Easing.InOutSine
+                    }
+                    NumberAnimation {
+                        target: bracketPulse
+                        property: "scale"
+                        to: 1.0
+                        duration: 128
+                        easing.type: Easing.InOutSine
+                    }
+                    onFinished: bracketPulse.visible = false
+                }
+
+                Connections {
+                    target: viewport
+
+                    function onAnimateCharacter(at: rect, text: string, foreground: color,
+                                                background: color) {
+                        bracketPulse.x = at.x
+                        bracketPulse.y = at.y
+                        bracketPulse.width = at.width
+                        bracketPulse.height = at.height
+                        bracketPulse.color = background
+                        bracketPulseText.text = text
+                        bracketPulseText.color = foreground
+                        bracketPulse.visible = true
+                        bracketPulseAnimation.restart()
+                    }
+                }
+            }
+
             // The caret. A Rectangle because that is what it is; the viewport
             // draws text and says where the caret belongs, and an empty rect
             // is how it says the position is scrolled off screen.

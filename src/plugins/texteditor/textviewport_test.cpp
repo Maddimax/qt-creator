@@ -2107,6 +2107,89 @@ private slots:
                      "the bar still carried marks with the setting turned off");
     }
 
+    // The bracket that matches the one the caret arrives beside is pulsed
+    // once. On by default, and the Quick editor did not do it - nor did it
+    // even look for a match unless the highlight was on as well.
+    void testTheMatchingBracketIsPulsedOnce()
+    {
+        const bool wasAnimate = displaySettings().animateMatchingParentheses();
+        const bool wasHighlight = displaySettings().highlightMatchingParentheses();
+        const QScopeGuard restore([wasAnimate, wasHighlight] {
+            displaySettings().animateMatchingParentheses.setValue(wasAnimate);
+            displaySettings().highlightMatchingParentheses.setValue(wasHighlight);
+        });
+        displaySettings().animateMatchingParentheses.setValue(true);
+        // Off, so that what is tested is the animation rather than the pair
+        // being drawn: the widget editor looks for a match on either setting.
+        displaySettings().highlightMatchingParentheses.setValue(false);
+
+        TemporaryDirectory dir("qtc-viewport-brackets");
+        const FilePath file = dir.filePath("brackets.txt");
+        // A second pair, never arrived at until the last case: two
+        // setCursorPosition calls in a row are one layout, so "move away and
+        // come back" does not clear what was marked, and a pair that was
+        // already marked is not pulsed again whatever the setting says.
+        QVERIFY(file.writeFileContents("(alpha)\n[beta]\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        TextViewport * const viewport = fixture.viewport;
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+
+        // A highlighter is what records these; saying it here keeps the test
+        // about the viewport.
+        QTextDocument * const text = viewport->textDocument()->document();
+        const QTextBlock first = text->findBlockByNumber(0);
+        TextBlockUserData::setParentheses(
+            first,
+            Parentheses{Parenthesis(Parenthesis::Opened, '(', 0),
+                        Parenthesis(Parenthesis::Closed, ')', 6)});
+        const QTextBlock second = text->findBlockByNumber(1);
+        TextBlockUserData::setParentheses(
+            second,
+            Parentheses{Parenthesis(Parenthesis::Opened, '[', 0),
+                        Parenthesis(Parenthesis::Closed, ']', 5)});
+
+        QSignalSpy pulses(viewport, &TextViewport::animateCharacter);
+
+        // With only the animation on, the pair is still looked for: the
+        // highlight is not what decides whether to match.
+        viewport->setCursorPosition(3);
+        viewport->setCursorPosition(0);
+        QTRY_COMPARE(pulses.size(), 1);
+        QCOMPARE(pulses.first().at(1).toString(), QString(")"));
+        const QRectF at = pulses.first().at(0).toRectF();
+        QVERIFY2(at.width() > 0 && at.height() > 0, "the bracket was pulsed with no size");
+
+        // The rest needs the highlight on, because what stops a second pulse
+        // for the same pair is whether that bracket was marked last time -
+        // and nothing is marked while the highlight is off.
+        displaySettings().highlightMatchingParentheses.setValue(true);
+        pulses.clear();
+        viewport->setCursorPosition(4);
+        viewport->setCursorPosition(0);
+        QTRY_COMPARE(pulses.size(), 1);
+
+        // Round to the other end of the same pair: still the same pair, so it
+        // is not pulsed again.
+        viewport->setCursorPosition(7);
+        QTRY_VERIFY(viewport->cursorPosition() == 7);
+        QCOMPARE(pulses.size(), 1);
+
+        // With the animation off and the highlight still on, arriving at a
+        // pair for the first time marks it and pulses nothing.
+        displaySettings().animateMatchingParentheses.setValue(false);
+        pulses.clear();
+        viewport->setCursorPosition(second.position());
+        // Waiting for the pair to be *marked* rather than for the caret to
+        // move: the caret moves at once and the pulse would come with the
+        // next layout, so asking straight away asks before the answer exists.
+        QTRY_VERIFY2(!viewport->visibleLine(1).value("formats").toList().isEmpty(),
+                     "the second pair was never marked, so nothing was laid out to pulse");
+        QCOMPARE(pulses.size(), 0);
+    }
+
     void testAnEditTheViewportDidNotMakeStillShows()
     {
         // The indenter, another view, a refactoring: nothing tells the viewport

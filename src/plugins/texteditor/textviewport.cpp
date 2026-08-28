@@ -1487,7 +1487,12 @@ void TextViewport::updateParenthesesMatch()
 {
     TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
     QTextDocument * const text = doc ? doc->document() : nullptr;
-    if (!text || !displaySettings().data().m_highlightMatchingParentheses) {
+    // Either setting is a reason to look: with only the animation on there is
+    // nothing to draw but still something to pulse, which is what the widget
+    // editor does too.
+    const bool highlight = displaySettings().data().m_highlightMatchingParentheses;
+    const bool animate = displaySettings().data().m_animateMatchingParentheses;
+    if (!text || !(highlight || animate)) {
         setHighlights(PARENTHESES_MATCH, {});
         return;
     }
@@ -1516,8 +1521,10 @@ void TextViewport::updateParenthesesMatch()
     }
 
     QList<Highlight> found;
-    const auto add = [&found, &matched, &mismatched](const QTextCursor &cursor,
-                                                     TextBlockUserData::MatchType type) {
+    // Which character to pulse, if any: the far half of the pair the caret is
+    // beside. Only one of the two, and only for a real match.
+    int animatePosition = -1;
+    const auto add = [&](const QTextCursor &cursor, TextBlockUserData::MatchType type, bool isForward) {
         if (!cursor.hasSelection())
             return;
         if (type == TextBlockUserData::Mismatch) {
@@ -1528,11 +1535,32 @@ void TextViewport::updateParenthesesMatch()
         // whole function body in the parenthesis colour is not a hint.
         found.append({cursor.selectionStart(), cursor.selectionStart() + 1, matched});
         found.append({cursor.selectionEnd() - 1, cursor.selectionEnd(), matched});
+        if (animate && cursor.block().isVisible())
+            animatePosition = isForward ? cursor.selectionEnd() - 1 : cursor.selectionStart();
     };
-    add(backward, backwardType);
-    add(forward, forwardType);
+    add(backward, backwardType, false);
+    add(forward, forwardType, true);
 
-    setHighlights(PARENTHESES_MATCH, found);
+    // Not again for a bracket that was already marked: the caret moving along
+    // the same pair is one arrival, not one per keystroke.
+    if (animatePosition >= 0) {
+        const QList<Highlight> before = m_highlights.value(PARENTHESES_MATCH);
+        for (const Highlight &highlighted : before) {
+            if (highlighted.start == animatePosition || highlighted.end - 1 == animatePosition) {
+                animatePosition = -1;
+                break;
+            }
+        }
+    }
+
+    setHighlights(PARENTHESES_MATCH, highlight ? found : QList<Highlight>());
+
+    // Left for the end of the layout: this runs before the rows are built, so
+    // asking now where the bracket is on screen answers nowhere.
+    if (animatePosition >= 0) {
+        m_pendingPulse = PendingPulse{animatePosition, matched.foreground().color(),
+                                      matched.background().color()};
+    }
 }
 
 void TextViewport::setHighlights(Utils::Id kind, const QList<Highlight> &highlights)
@@ -2743,6 +2771,21 @@ void TextViewport::updatePolish()
     // already cleared, so this settles rather than repeating.
     if (m_caretVisibleXPending)
         ensureCaretVisibleSideways();
+
+    // The rows are there now, so the bracket that was matched before they
+    // were laid out has somewhere to be pulsed.
+    if (m_pendingPulse) {
+        const PendingPulse pulse = *m_pendingPulse;
+        m_pendingPulse.reset();
+        TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+        QTextDocument * const text = doc ? doc->document() : nullptr;
+        const QString character = text ? QString(text->characterAt(pulse.position)) : QString();
+        QRectF at = rectangleAt(pulse.position);
+        if (!at.isNull() && !character.isEmpty()) {
+            at.setWidth(QFontMetricsF(m_font).horizontalAdvance(character));
+            emit animateCharacter(at, character, pulse.foreground, pulse.background);
+        }
+    }
 
     // The rows are laid out again, so the screen point a page key remembered
     // can be turned back into a position.
