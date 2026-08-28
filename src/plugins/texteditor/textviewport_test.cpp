@@ -1969,6 +1969,60 @@ private slots:
                      "a right-aligned message was drawn over the line it is about");
     }
 
+    // "Editor content width" narrows the text from both sides. It is what Zen
+    // mode changes to make a file readable, and the Quick editor read it
+    // nowhere - so the preference and Zen mode both did nothing to it.
+    void testTheContentCanBeNarrowedFromBothSides()
+    {
+        const int was = marginSettings().centerEditorContentWidthPercent();
+        const QScopeGuard restore(
+            [was] { marginSettings().centerEditorContentWidthPercent.setValue(was); });
+        marginSettings().centerEditorContentWidthPercent.setValue(100);
+
+        TemporaryDirectory dir("qtc-viewport-contentwidth");
+        const FilePath file = dir.filePath("wide.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\n"));
+
+        QQuickView view;
+        installIconProvider(view);
+        view.resize(600, 200);
+        QQmlComponent component(view.engine());
+        component.setData(QByteArray("import QtCreator.TextEditor\n"
+                                     "CodeViewport {\n"
+                                     "    width: 600; height: 200\n"
+                                     "    property string path\n"
+                                     "    source: CodeDocument { filePath: path }\n"
+                                     "}"),
+                          QUrl("qrc:/test/ContentWidthTest.qml"));
+        std::unique_ptr<QObject> created(component.createWithInitialProperties(
+            {{"path", file.toUrlishString()}}));
+        QVERIFY2(created != nullptr, qPrintable(component.errorString()));
+
+        auto * const item = qobject_cast<QQuickItem *>(created.get());
+        QVERIFY(item);
+        item->setParentItem(view.contentItem());
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+        auto * const viewport = item->findChild<TextViewport *>("codeViewport");
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        const qreal fullWidth = viewport->width();
+        const qreal leftAtFullWidth = viewport->x();
+        QVERIFY(fullWidth > 0);
+
+        // Half the width means a quarter of the view taken off each side.
+        marginSettings().centerEditorContentWidthPercent.setValue(50);
+        QTRY_COMPARE(qRound(viewport->width()), qRound(fullWidth - item->width() / 2));
+        QCOMPARE(qRound(viewport->x()), qRound(leftAtFullWidth + item->width() / 4));
+
+        // And back: the whole width means no inset at all.
+        marginSettings().centerEditorContentWidthPercent.setValue(100);
+        QTRY_COMPARE(qRound(viewport->width()), qRound(fullWidth));
+        QCOMPARE(qRound(viewport->x()), qRound(leftAtFullWidth));
+    }
+
     void testAnEditTheViewportDidNotMakeStillShows()
     {
         // The indenter, another view, a refactoring: nothing tells the viewport

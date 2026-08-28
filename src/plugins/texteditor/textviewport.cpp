@@ -1643,6 +1643,11 @@ void TextViewport::dropText(const QString &text, qreal x, qreal y, bool moveFrom
     setCursorPosition(cursor.position());
 }
 
+int TextViewport::contentWidthPercent() const
+{
+    return marginSettings().centerEditorContentWidthPercent();
+}
+
 QString TextViewport::tabSettingsLabel() const
 {
     TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;

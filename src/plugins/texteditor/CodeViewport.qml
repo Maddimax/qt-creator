@@ -340,9 +340,16 @@ Item {
             id: viewport
 
             objectName: "codeViewport"
+            // Narrowed from both sides when the content is not allowed the
+            // whole width. The gutter stays where it is: it is the text that
+            // is being centred, which is what the widget editor insets too.
+            readonly property real contentInset: root.width
+                                                 * (100 - viewport.contentWidthPercent) / 200
+
             anchors.fill: parent
             anchors.margins: Spacing.PaddingHXs
-            anchors.leftMargin: Spacing.PaddingHXs + gutter.width
+            anchors.leftMargin: Spacing.PaddingHXs + gutter.width + contentInset
+            anchors.rightMargin: Spacing.PaddingHXs + contentInset
             document: root.source
             // Keys go to the scene's active focus item. The viewport is a focus
             // scope, so focusing the root would stop one level short of it.

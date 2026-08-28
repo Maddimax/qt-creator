@@ -116,6 +116,10 @@ class TEXTEDITOR_EXPORT TextViewport : public QQuickItem, public HoverTarget
     // The font the text is drawn with, zoom applied. A gutter has to measure
     // its numbers in the same font or its rows do not line up with the text.
     Q_PROPERTY(QFont font READ font NOTIFY metricsChanged)
+    // How wide the text is allowed to be, as a percentage of the view. Below
+    // a hundred the content is centred in what is left - which is what Zen
+    // mode narrows, as well as a preference of its own.
+    Q_PROPERTY(int contentWidthPercent READ contentWidthPercent NOTIFY metricsChanged)
     // How many lines the document has, which a gutter needs to know how wide
     // to be before it has drawn anything. Every line, folded or not: the
     // gutter has to fit the highest number it can ever show.
@@ -386,6 +390,7 @@ public:
     // Text dragged out of here and moved into something else: it has gone,
     // so it has to stop being here too.
     Q_INVOKABLE void removeSelectedText();
+    int contentWidthPercent() const;
     QString fileLineEnding() const;
     QString tabSettingsLabel() const;
     int indentSize() const;
