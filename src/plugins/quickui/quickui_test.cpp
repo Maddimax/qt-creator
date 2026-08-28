@@ -1414,6 +1414,13 @@ void QuickUiTest::testQmlOnlyContainerStillLaysOutInAWidgetLayout()
     page.setAutoApply(false);
     Utils::AspectList servers(&page);
     servers.setDisplayStyle(Utils::AspectList::DisplayStyle::ListViewWithDetails);
+    // What the rows say. Every list in the product sets this; without it the
+    // model answers "No listViewDataCallback set" and barks once per row per
+    // repaint - noise in the log of a run that passes, which is where a real
+    // complaint has to be noticed.
+    servers.listViewDataCallback = [](Utils::BaseAspect *, int role) -> QVariant {
+        return role == Qt::DisplayRole ? QVariant("A server") : QVariant();
+    };
     servers.setCreateItemFunction([] {
         auto item = std::make_shared<Utils::AspectContainer>();
         item->setQmlSource(QUrl("qrc:/nothing/AtAll.qml"));

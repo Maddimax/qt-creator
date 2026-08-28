@@ -12949,3 +12949,33 @@ Three things worth keeping about how this was nearly missed:
   either way. The test added here installs a message handler and asserts the
   **complaint** is absent. Its control, removing the connections, fails it with
   the soft assert quoted back.
+
+### Clearing the noise that hid it
+
+Having found one defect by reading a passing run's warnings, the obvious next
+move is to read all of them. Sorting every soft assert in the recent logs:
+
+     95  "isLoaded()" qtversionmanager.cpp:738          - startup, unrelated
+     18  "inner.spanCols == 1 && ..." layoutbuilder      - ProjectExplorer's two
+     15  "listViewDataCallback" aspectlist.cpp:249         known-failing tests
+      4  "!guiToVolatileValue()" aspects.cpp:622        - the one just fixed
+      2  "renderAspect(*this, parent)" aspects.cpp:553
+
+The `renderAspect` one reads alarmingly - an aspect the renderer could not
+draw - but its comment says "Reaching the check means no renderer was
+installed", and it only appears in the two ProjectExplorer tests that fail
+here anyway. A test-setup condition, not a page that loses a setting.
+
+The `listViewDataCallback` one is worth acting on. `AspectList` answers with
+the literal string "No listViewDataCallback set" when its owner never supplied
+one - text a reader would see in the list. Every list in the product does
+supply it: cppeditor's custom templates, gitlab's servers, axivion's mappings,
+todo's keywords. The fifteen barks all come from one QuickUi test whose
+fixture did not, because that test is about the *details pane* and never looks
+at the row text.
+
+Setting a callback in that fixture takes the QuickUi suite from sixteen soft
+asserts to one. That is worth doing for its own sake: the reason the
+`guiToVolatileValue` defect went unnoticed for so long is that a run's output
+was mostly complaints nobody had a reason to read. Noise is not free; it is the
+thing a real complaint has to be spotted among.
