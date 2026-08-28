@@ -5385,7 +5385,7 @@ private slots:
             int drawn = 0;
             const qreal wanted = row * viewport->lineHeight();
             for (QQuickItem * const candidate : allItems(fixture.root)) {
-                if (candidate->width() == 1 && candidate->isVisible()
+                if (candidate->objectName() == "indentGuide" && candidate->isVisible()
                     && qFuzzyCompare(candidate->mapToItem(viewport, QPointF(0, 0)).y() + 1,
                                      wanted + 1)) {
                     ++drawn;
@@ -5396,6 +5396,21 @@ private slots:
         QTRY_COMPARE(guidesDrawnOnRow(2), 2);
         QCOMPARE(guidesDrawnOnRow(1), 1);
         QCOMPARE(guidesDrawnOnRow(0), 0);
+
+        // The caret is a one pixel wide item on row 0 as well, so counting by
+        // width rather than by what an item is made this fail about one run in
+        // ten - whenever the window took focus and the caret became visible.
+        // Focus cannot be had reliably here, so this records the collision
+        // instead of reproducing it: the two are the same shape in the same
+        // place, and only their names tell them apart.
+        QQuickItem *caret = nullptr;
+        for (QQuickItem * const item : allItems(fixture.root)) {
+            if (item->objectName() == "caret")
+                caret = item;
+        }
+        QVERIFY2(caret, "no caret, so nothing here is being told apart from anything");
+        QCOMPARE(caret->width(), 1);
+        QCOMPARE(caret->mapToItem(viewport, QPointF(0, 0)).y(), qreal(0));
     }
 
     void testNoIndentGuidesWhenTheSettingIsOff()
@@ -6178,7 +6193,7 @@ private slots:
         const auto guideYs = [&fixture, viewport] {
             QList<qreal> ys;
             for (QQuickItem * const item : allItems(fixture.root)) {
-                if (item->width() == 1 && item->isVisible())
+                if (item->objectName() == "indentGuide" && item->isVisible())
                     ys.append(item->mapToItem(viewport, QPointF(0, 0)).y());
             }
             std::sort(ys.begin(), ys.end());

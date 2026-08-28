@@ -12518,3 +12518,46 @@ failed and QuickUi 89 passed 0 failed - both of the tests this document has
 been calling "known focus flakes" passed. One run is not evidence that they
 were never flaky, but it is a reason to stop assuming a partial build is
 equivalent to a whole one.
+
+## The flake was mine, and it was not flaky for the reason I said
+
+Two tests have been failing about one run in ten for weeks of this effort, and
+this document has been calling them "known focus flakes" and moving on. Both
+are mine. Counting the session's logs put a number on them:
+
+    testIndentGuidesFollowTheIndentation   340 pass  36 fail
+    testMultiLineStringGetsATextArea       282 pass  29 fail
+
+A first guess - that they were artefacts of partial builds - is wrong, and the
+same counting says so: 10% is far too high, and they had failed after full
+builds too. What they are is a test identifying an item by an accidental
+property:
+
+    if (candidate->width() == 1 && candidate->isVisible()
+        && qFuzzyCompare(candidate->mapToItem(viewport, ...).y() + 1, wanted + 1))
+
+An indent guide is a one pixel wide Rectangle. So is the **caret**, and it sits
+on whichever row the reader left it on - row 0 in this test. Instrumenting said
+so exactly:
+
+    PROBE focus= false windowActive= false
+    PROBE caret visible= false w= 1 y= 0
+
+Width 1, y 0: the same shape in the same place as the thing being counted. The
+caret's `visible` follows `activeFocus` (its blink is opacity, not visibility),
+so the count is right whenever the window has no focus and one too many when it
+does. That is the one-in-ten.
+
+The fix is for the items to say what they are - `objectName: "indentGuide"` -
+and for both tests to ask for that instead of for a width. The second test was
+one I had added earlier this session with the same predicate copied across, so
+it carried the same latent flake without ever having failed.
+
+Worth being precise about the evidence, because a control here is awkward:
+`requestActivate()` does not reliably get focus in this environment, so the
+obvious red/green - force focus, watch the old predicate miscount - passes
+vacuously by skipping. Three clean runs afterwards are not proof either, at a
+90% base rate. What actually establishes this is the probe: the caret is width
+1 at y 0, and the old predicate selected on width 1 at y 0. The mechanism is
+demonstrated by construction rather than by sampling, and the test now records
+that collision so the next person does not have to rediscover it.

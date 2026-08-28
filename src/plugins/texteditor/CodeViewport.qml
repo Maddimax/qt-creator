@@ -509,6 +509,11 @@ Item {
                         delegate: Rectangle {
                             required property int index
 
+                            // Named because a one pixel wide item is not only
+                            // ever a guide - the caret is one too, and sits on
+                            // whichever row the reader left it on.
+                            objectName: "indentGuide"
+
                             x: index * viewport.indentWidth - viewport.scrollX
                             width: 1
                             height: viewport.lineHeight
@@ -659,6 +664,8 @@ Item {
             // is how it says the position is scrolled off screen.
             Rectangle {
                 id: caret
+
+                objectName: "caret"
 
                 x: viewport.cursorRectangle.x
                 y: viewport.cursorRectangle.y
