@@ -52,6 +52,7 @@
 #include <QInputMethodEvent>
 #include <QGuiApplication>
 #include <QScopeGuard>
+#include <QElapsedTimer>
 #include <QSignalSpy>
 #include <QTextCursor>
 #include <QTextDocument>
@@ -2248,6 +2249,45 @@ private slots:
         displaySettings().scrollBarHighlights.setValue(false);
         QTRY_VERIFY2(viewport->scrollBarHighlights().isEmpty(),
                      "the bar still carried marks with the setting turned off");
+    }
+
+    // Scrolling brings back text that has already been shaped, and shaping is
+    // most of what a layout costs. A row whose text and formats are what they
+    // were is kept rather than built again.
+    void testScrollingKeepsTheRowsItAlreadyShaped()
+    {
+        TemporaryDirectory dir("qtc-viewport-reshape");
+        const FilePath file = writeLines(dir, "long.txt", 400);
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        TextViewport * const viewport = fixture.viewport;
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+
+        // The first layout has nothing to keep, so it shapes what it shows.
+        const int onScreen = viewport->visibleLineCount();
+        QVERIFY(onScreen > 3);
+
+        // Two scrolls, and the second is the one measured: a view still
+        // settling its geometry lays out at a different width, and a row
+        // shaped at another width cannot be kept.
+        viewport->setScrollY(viewport->lineHeight());
+        QTRY_COMPARE(viewport->firstVisibleLine(), 1);
+        viewport->setScrollY(viewport->lineHeight() * 2);
+        QTRY_COMPARE(viewport->firstVisibleLine(), 2);
+        QVERIFY2(viewport->rowsShapedInLastLayout() < onScreen,
+                 qPrintable(QString("shaped %1 of %2 rows again after scrolling one line")
+                                .arg(viewport->rowsShapedInLastLayout()).arg(onScreen)));
+
+        // Editing a line changes its text without changing the formats over
+        // it, so what is shown has to be the new text: keeping the old row
+        // because its formats still match would leave the edit invisible.
+        QTextDocument * const text = viewport->textDocument()->document();
+        QTextCursor cursor(text->findBlockByNumber(5));
+        cursor.insertText("x");
+        // Line 5 is the fourth row on screen once the top two are scrolled off.
+        QTRY_COMPARE(viewport->visibleLine(3).value("text").toString(), QString("xline 5"));
     }
 
     // What the bar carries changes when the document's marks do, and not when

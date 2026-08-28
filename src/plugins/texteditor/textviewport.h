@@ -402,6 +402,10 @@ public:
     // so it has to stop being here too.
     Q_INVOKABLE void removeSelectedText();
     int contentWidthPercent() const;
+    // How many of the rows on screen had to be shaped by the last layout.
+    // Scrolling brings back text that has already been shaped, and the rest
+    // are kept, so this is normally far short of what is visible.
+    int rowsShapedInLastLayout() const { return m_rowsShaped; }
     QVariantList scrollBarHighlights() const { return m_scrollBarHighlights; }
     QString fileLineEnding() const;
     QString tabSettingsLabel() const;
@@ -658,6 +662,12 @@ private:
     QMap<Utils::Id, QList<Highlight>> m_highlights;
     QMap<Utils::Id, QColor> m_highlightsOnScrollBar;
     QVariantList m_scrollBarHighlights;
+    // What the rows were shaped with last time. Anything here changing makes
+    // every row's shaping wrong, so none of them can be kept.
+    int m_rowsShaped = 0;
+    QFont m_shapedWith;
+    qreal m_shapedTabStop = -1;
+    qreal m_shapedWrapWidth = -1;
 
     // Backspace between the two halves of a bracket pair removes both. That is
     // all the base AutoCompleter offers; inserting the closing half is a

@@ -2244,6 +2244,10 @@ void TextViewport::appendHighlights(QList<QTextLayout::FormatRange> &formats,
 
 void TextViewport::updatePolish()
 {
+    // Last time's rows, to be taken from rather than thrown away: scrolling
+    // brings back text that has already been shaped, and shaping it again is
+    // most of what a layout costs.
+    std::vector<Line> previous = std::move(m_lines);
     m_lines.clear();
 
     TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
@@ -2408,6 +2412,23 @@ void TextViewport::updatePolish()
     // count disagrees with what is shown.
     option.setWrapMode(m_wrapping ? QTextOption::WrapAtWordBoundaryOrAnywhere
                                   : QTextOption::NoWrap);
+
+    // A row can only be kept if it would be shaped the same way again.
+    if (font != m_shapedWith || option.tabStopDistance() != m_shapedTabStop
+        || wrapWidth != m_shapedWrapWidth) {
+        previous.clear();
+        m_shapedWith = font;
+        m_shapedTabStop = option.tabStopDistance();
+        m_shapedWrapWidth = wrapWidth;
+    }
+    // By where the text starts, which is what a row is identified by once the
+    // text on it and the formats over it are the same.
+    std::unordered_map<int, std::vector<Line>> reusable;
+    int shaped = 0;
+    for (Line &line : previous) {
+        if (line.layout)
+            reusable[line.blockPosition].push_back(std::move(line));
+    }
 
     m_firstVisibleLine = qMax(0, int(m_scrollY / m_lineHeight));
     // The last line that starts before the bottom edge - not one more. A hair
@@ -2658,9 +2679,7 @@ void TextViewport::updatePolish()
                 line.annotation = blockLine.annotation;
             }
 
-            line.layout = std::make_unique<QTextLayout>(blockText.mid(from, length), font);
-            line.layout->setTextOption(option);
-            line.layout->setCacheEnabled(true);
+            const QString rowText = blockText.mid(from, length);
 
             QList<QTextLayout::FormatRange> formats;
             for (const QTextLayout::FormatRange &range : std::as_const(blockFormats)) {
@@ -2680,30 +2699,59 @@ void TextViewport::updatePolish()
             // layout keeps text that is being typed but not committed.
             const int rowStart = blockStart + from;
             const int rowEnd = rowStart + length + (lastRow ? 1 : 0);
-            if (!m_preeditText.isEmpty() && m_cursorPosition >= rowStart
-                && m_cursorPosition < rowEnd) {
-                const int offset = m_cursorPosition - rowStart;
-                line.layout->setPreeditArea(offset, m_preeditText);
-                // The input method says how it wants each part of it drawn -
-                // underlined for what is being composed, highlighted for the
-                // part under consideration - relative to the preedit.
-                for (QTextLayout::FormatRange range : std::as_const(m_preeditFormats)) {
-                    range.start += offset;
-                    formats.append(range);
+            const bool composing = !m_preeditText.isEmpty() && m_cursorPosition >= rowStart
+                                   && m_cursorPosition < rowEnd;
+
+            // The same text with the same formats over it shapes to the same
+            // thing, so last time's row will do. Not while composing: what is
+            // being typed is not in the text and would not be compared.
+            if (!composing) {
+                const auto candidates = reusable.find(blockStart);
+                if (candidates != reusable.end()) {
+                    std::vector<Line> &rows = candidates->second;
+                    for (auto it = rows.begin(); it != rows.end(); ++it) {
+                        if (it->layout->text() == rowText && it->layout->formats() == formats) {
+                            line.layout = std::move(it->layout);
+                            rows.erase(it);
+                            break;
+                        }
+                    }
                 }
             }
-            line.layout->setFormats(formats);
 
-            line.layout->beginLayout();
-            QTextLine textLine = line.layout->createLine();
-            if (textLine.isValid()) {
-                textLine.setPosition(QPointF(0, 0));
-                // The slice is already one row's worth, so it must not break
-                // again - laying it out at the wrap width could split a row
-                // whose width came out a hair over.
-                textLine.setLineWidth(std::numeric_limits<qreal>::max());
+            QTextLine textLine;
+            if (line.layout) {
+                textLine = line.layout->lineAt(0);
+            } else {
+                ++shaped;
+                line.layout = std::make_unique<QTextLayout>(rowText, font);
+                line.layout->setTextOption(option);
+                line.layout->setCacheEnabled(true);
+
+                if (composing) {
+                    const int offset = m_cursorPosition - rowStart;
+                    line.layout->setPreeditArea(offset, m_preeditText);
+                    // The input method says how it wants each part of it drawn
+                    // - underlined for what is being composed, highlighted for
+                    // the part under consideration - relative to the preedit.
+                    for (QTextLayout::FormatRange range : std::as_const(m_preeditFormats)) {
+                        range.start += offset;
+                        formats.append(range);
+                    }
+                }
+                line.layout->setFormats(formats);
+
+                line.layout->beginLayout();
+                textLine = line.layout->createLine();
+                if (textLine.isValid()) {
+                    textLine.setPosition(QPointF(0, 0));
+                    // The slice is already one row's worth, so it must not
+                    // break again - laying it out at the wrap width could
+                    // split a row whose width came out a hair over.
+                    textLine.setLineWidth(std::numeric_limits<qreal>::max());
+                }
+                line.layout->endLayout();
             }
-            line.layout->endLayout();
 
             // The selected part of this row as one rectangle. A format range's
             // background is painted per glyph run, which leaves a gap wherever
@@ -2848,6 +2896,8 @@ void TextViewport::updatePolish()
     // what they already are is free when nothing moved.
     setScrollY(m_scrollY);
     setScrollX(m_scrollX);
+    m_rowsShaped = shaped;
+
     updateScrollBarHighlights();
     emit metricsChanged();
     // What is on screen has just been rebuilt, marks and all. Delegates read it
