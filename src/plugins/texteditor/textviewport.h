@@ -281,6 +281,11 @@ public:
 
 private:
     void askForTooltip();
+    // The same question asked about the caret rather than the mouse, which is
+    // what Alt on its own does when "Show help tooltips using the keyboard"
+    // is on.
+    void askForTooltipAtCaret();
+    void askForTooltipAt(int position, const QPointF &at);
 
 public:
 
@@ -722,6 +727,9 @@ private:
     QPointer<QSequentialAnimationGroup> m_navigationAnimation;
     Utils::Link m_currentLink;
     bool m_hovering = false;
+    // Whether the Alt being held was pressed on its own: any other key while
+    // it is down means it was a shortcut rather than a request for a tooltip.
+    bool m_maybeKeyboardTooltip = false;
     int m_scopeBlock = -1;
     int m_scopeRevision = -1;
     BlockNesting m_scopeNesting;

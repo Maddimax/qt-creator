@@ -851,25 +851,40 @@ void TextViewport::keyReleaseEvent(QKeyEvent *event)
     // moved since.
     if (event->key() == Qt::Key_Control)
         clearLink();
+    if (event->key() == Qt::Key_Alt && m_maybeKeyboardTooltip) {
+        m_maybeKeyboardTooltip = false;
+        askForTooltipAtCaret();
+    }
     QQuickItem::keyReleaseEvent(event);
 }
 
 void TextViewport::askForTooltip()
 {
-    TextDocument * const doc = textDocument();
-    if (!doc || !m_tooltipHost)
-        return;
+    askForTooltipAt(positionAt(m_hoverItemPos.x(), m_hoverItemPos.y()), m_hoverItemPos);
+}
 
-    const int position = positionAt(m_hoverItemPos.x(), m_hoverItemPos.y());
-    if (position < 0)
+void TextViewport::askForTooltipAtCaret()
+{
+    // Where the caret is drawn, which is empty when it is scrolled off - and
+    // then there is nothing on screen to put a tooltip beside.
+    const QRectF caret = cursorRectangle();
+    if (caret.isNull())
+        return;
+    askForTooltipAt(m_cursorPosition, caret.bottomLeft());
+}
+
+void TextViewport::askForTooltipAt(int position, const QPointF &at)
+{
+    TextDocument * const doc = textDocument();
+    if (!doc || !m_tooltipHost || position < 0)
         return;
 
     QTextCursor cursor(doc->document());
     cursor.setPosition(position);
 
-    // Below and right of the mouse, the way Qt places a widget's tooltip, so
-    // that the tooltip does not sit on top of what it is about.
-    const QPoint point = mapToGlobal(m_hoverItemPos).toPoint() + QPoint(2, 16);
+    // Below and right of the place asked about, the way Qt places a widget's
+    // tooltip, so that the tooltip does not sit on top of what it is about.
+    const QPoint point = mapToGlobal(at).toPoint() + QPoint(2, 16);
     m_hoverRunner->startChecking(
         cursor,
         [point](HoverTarget *target, BaseHoverHandler *handler, int) {
@@ -1017,6 +1032,11 @@ static void moveToFirstCharacter(QTextCursor &cursor, QTextCursor::MoveMode mode
 
 void TextViewport::keyPressEvent(QKeyEvent *event)
 {
+    // Alt on its own asks for a tooltip when it is let go; Alt with anything
+    // else is a shortcut, so any other key takes the offer back.
+    m_maybeKeyboardTooltip = event->key() == Qt::Key_Alt
+                             && globalBehaviorSettings().keyboardTooltips();
+
     // Control pressed while the mouse is over the text asks for the link under
     // it, rather than waiting for the mouse to move first.
     if (event->key() == Qt::Key_Control && m_hovering)

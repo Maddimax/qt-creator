@@ -13,6 +13,7 @@
 #include "autocompleter.h"
 #include "codeassist/documentcontentcompletion.h"
 #include "completionsettings.h"
+#include "behaviorsettings.h"
 #include "displaysettings.h"
 #include "extraencodingsettings.h"
 #include "highlighter.h"
@@ -1935,6 +1936,95 @@ private slots:
         QHoverEvent leave(QEvent::HoverLeave, QPointF(-1, -1), over, over);
         QCoreApplication::sendEvent(viewport, &leave);
         QCOMPARE(handler.shown, shownBeforeLeaving);
+    }
+
+    // The same question without a mouse: Alt on its own asks about the caret.
+    // "Show help tooltips using the keyboard" is off by default and was read
+    // nowhere, so it did nothing at all.
+    void testAltOnItsOwnAsksAboutTheCaret()
+    {
+        const bool was = globalBehaviorSettings().keyboardTooltips();
+        const QScopeGuard restore(
+            [was] { globalBehaviorSettings().keyboardTooltips.setValue(was); });
+        globalBehaviorSettings().keyboardTooltips.setValue(true);
+
+        Utils::TemporaryDirectory dir("quick-editor-keytooltip");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("asked.txt");
+        QVERIFY(file.writeFileContents("alpha beta gamma"));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+        auto * const viewport = quick->rootObject()->findChild<TextViewport *>();
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        class AskedHandler final : public BaseHoverHandler
+        {
+        public:
+            int askedAt = -1;
+            int shown = 0;
+
+            void identifyMatch(HoverTarget *, int pos, ReportPriority report) override
+            {
+                askedAt = pos;
+                setToolTip("the answer");
+                report(Priority_Tooltip);
+            }
+            void operateTooltip(HoverTarget *, const QPoint &) override { ++shown; }
+        } handler;
+        viewport->setHoverHandlers({&handler});
+
+        // The caret goes inside "beta", and a handler is asked about the word
+        // rather than the character, so it is asked about 6.
+        viewport->setCursorPosition(8);
+        QTRY_VERIFY(viewport->cursorRectangle().height() > 0);
+
+        // Sent to the view rather than typed at the window: which item has
+        // the keyboard is a question about focus, and this test is about what
+        // the view does with the keys it gets.
+        const auto altDown = [viewport] {
+            QKeyEvent press(QEvent::KeyPress, Qt::Key_Alt, Qt::AltModifier);
+            QCoreApplication::sendEvent(viewport, &press);
+        };
+        const auto altUp = [viewport] {
+            QKeyEvent release(QEvent::KeyRelease, Qt::Key_Alt, Qt::NoModifier);
+            QCoreApplication::sendEvent(viewport, &release);
+        };
+
+        // Alt down and up again with nothing in between.
+        altDown();
+        altUp();
+        QTRY_COMPARE(handler.shown, 1);
+        QCOMPARE(handler.askedAt, 6);
+
+        // Alt as part of a shortcut is not a request for a tooltip.
+        handler.shown = 0;
+        altDown();
+        QKeyEvent shortcut(QEvent::KeyPress, Qt::Key_F5, Qt::AltModifier);
+        QCoreApplication::sendEvent(viewport, &shortcut);
+        altUp();
+        QVERIFY2(handler.shown == 0, "a shortcut asked for a tooltip");
+
+        // And with the setting off, Alt on its own asks nothing. Checked
+        // after a request that does go through, so that the absence is read
+        // once the view has had its chance rather than before it.
+        globalBehaviorSettings().keyboardTooltips.setValue(false);
+        viewport->setCursorPosition(2);
+        QTRY_VERIFY(viewport->cursorRectangle().height() > 0);
+        altDown();
+        altUp();
+        globalBehaviorSettings().keyboardTooltips.setValue(true);
+        altDown();
+        altUp();
+        QTRY_COMPARE(handler.shown, 1);
+        QCOMPARE(handler.askedAt, 0);
     }
 
     // A hover handler asks for the message under the mouse. It gets it from
