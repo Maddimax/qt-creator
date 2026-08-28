@@ -13333,3 +13333,37 @@ the way it was meant to on the first try.
 Alt+Shift with the *arrow keys* is deliberately not ported: the widget editor
 guards it with `!HostOsInfo::isMacHost()`, so there is no behaviour to match on
 this platform and no way to test what was written for the others.
+
+## The qbs resolve that could not be run, run
+
+Last batch reported the `.qbs` edit as verified only statically, because the
+qbs binary hung. It was the wrong binary: the one in
+`Qt Creator 18.0.1` hangs on `--version`, never mind a resolve. `16.0.1` ships
+qbs 2.6.0 and works.
+
+Two things that were not obvious. Global options go *after* the subcommand, so
+`setup-toolchains --detect --settings-dir <dir>` - which also keeps the user's
+own qbs settings untouched. And the generated Qt profile needs
+`baseProfile clang`, not one of the xcode ones: the xcode module dies on this
+Xcode with "MacOSX Architectures.xcspec: No such file or directory".
+
+The resolve still does not succeed overall - every product under vendored
+`src/shared/qbs` fails with "product 'qbscore' is disabled", which is
+environmental and aborts the run. So "exit 0" is not available as a check, and
+the useful question is whether the resolve reached *this* product. It does, and
+the way to know is a negative control: adding a `"thisfiledoesnotexist.cpp"` to
+`texteditor.qbs` makes it print
+
+    texteditor.qbs:6:5 Error while handling product 'TextEditor':
+    texteditor.qbs:24:16 File '...thisfiledoesnotexist.cpp' does not exist.
+
+It names the product when broken, so its silence when whole means something.
+`blockselection.cpp` and `.h` resolve.
+
+## Alt+Shift+click, tested rather than assumed
+
+The same batch shipped two entry points to a column selection and tested one.
+`testAltShiftClickingTakesTheRectangleFromTheCaret` covers the other: a plain
+click to put the caret at column 2 of the first line, then Alt+Shift+click at
+column 5 of the fourth, and four carets each with "cde". Taking the Shift
+branch out leaves two carets - the plain Alt+click that adds one - so it bites.

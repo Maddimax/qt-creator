@@ -4067,6 +4067,44 @@ private slots:
         }
     }
 
+    // Alt+Shift+click takes the rectangle between where the caret already is
+    // and where the click landed, which is how a column selection is made
+    // without holding the button down across it.
+    void testAltShiftClickingTakesTheRectangleFromTheCaret()
+    {
+        TemporaryDirectory dir("qtc-viewport-blockclick");
+        const FilePath file = dir.filePath("cols.txt");
+        QVERIFY(file.writeFileContents("abcdefgh\nabcdefgh\nabcdefgh\nabcdefgh\n"));
+
+        CodeViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+
+        const qreal columnWidth = viewport->rectangleAt(1).x() - viewport->rectangleAt(0).x();
+        QVERIFY(columnWidth > 0);
+
+        const auto scenePoint = [viewport](qreal x, int row) {
+            return viewport->mapToScene(QPointF(x, viewport->lineHeight() * row + 2)).toPoint();
+        };
+
+        // The caret goes to column 2 of the first line the ordinary way, so
+        // that the rectangle has a corner to be measured from.
+        QTest::mouseClick(&fixture.view, Qt::LeftButton, {}, scenePoint(columnWidth * 2, 0));
+        QTRY_COMPARE(viewport->multiTextCursor().cursorCount(), 1);
+
+        QTest::mouseClick(&fixture.view, Qt::LeftButton,
+                          Qt::AltModifier | Qt::ShiftModifier, scenePoint(columnWidth * 5, 3));
+
+        QTRY_COMPARE(viewport->multiTextCursor().cursorCount(), 4);
+        const QList<QTextCursor> carets = viewport->multiTextCursor().cursors();
+        for (int i = 0; i < carets.size(); ++i) {
+            QCOMPARE(carets.at(i).blockNumber(), i);
+            QCOMPARE(carets.at(i).selectedText(), QString("cde"));
+        }
+    }
+
     void testWrappedRowsSitUnderTheTextTheyContinue()
     {
         // vim's 'breakindent': a wrapped row starts under its line's own
