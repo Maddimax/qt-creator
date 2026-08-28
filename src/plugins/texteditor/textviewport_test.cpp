@@ -5886,6 +5886,112 @@ private slots:
         QCOMPARE(viewport->positionAt(0, third.y() - gap - 1), 6);
     }
 
+    void testGhostRowsOpenAGapAsTallAsTheyAreAndShowTheirText()
+    {
+        // What an inline diff shows for lines the file no longer has. They
+        // size their own gap - two removed lines take two rows - and they are
+        // drawn in it.
+        TemporaryDirectory dir("textviewport-ghosts");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("ghosts.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\ngamma\ndelta\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+
+        const qreal contentBefore = viewport->contentHeight();
+        const QRectF thirdBefore = viewport->rectangleAt(11);
+        QVERIFY(!thirdBefore.isEmpty());
+        QVERIFY(viewport->ghostTextOnScreen().isEmpty());
+
+        viewport->setGhostRows({{2, {"was one", "was two"}, QColor()}});
+        const qreal twoRows = 2 * viewport->lineHeight();
+        QTRY_VERIFY(qAbs(viewport->contentHeight() - (contentBefore + twoRows)) < 0.01);
+
+        // The text is laid out, in the order it was given.
+        QCOMPARE(viewport->ghostTextOnScreen(), QStringList({"was one", "was two"}));
+        // And the row it sits above moved down by exactly the two rows.
+        const QRectF third = viewport->rectangleAt(11);
+        QVERIFY(qAbs(third.y() - (thirdBefore.y() + twoRows)) < 0.01);
+
+        // Drawn in the gap they opened rather than merely somewhere: they run
+        // up from the row they sit above, in order, one row apart.
+        const QList<QRectF> ghosts = viewport->ghostRectanglesOnScreen();
+        QCOMPARE(ghosts.size(), 2);
+        QVERIFY(qAbs(ghosts.at(0).y() - (third.y() - twoRows)) < 0.01);
+        QVERIFY(qAbs(ghosts.at(1).y() - (third.y() - viewport->lineHeight())) < 0.01);
+    }
+
+    void testAGhostRowIsNotAPlaceInTheDocument()
+    {
+        // The removed lines are not in the file, so nothing may map a screen
+        // position onto them and the positions of the real rows must be
+        // exactly what they were.
+        TemporaryDirectory dir("textviewport-ghost-positions");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("ghosts.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\ngamma\ndelta\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+
+        const qreal contentBefore = viewport->contentHeight();
+        viewport->setGhostRows({{2, {"was one", "was two"}, QColor()}});
+        const qreal twoRows = 2 * viewport->lineHeight();
+        QTRY_VERIFY(qAbs(viewport->contentHeight() - (contentBefore + twoRows)) < 0.01);
+
+        // Every position still maps to itself, ghost rows or not.
+        for (int position = 0; position <= 16; ++position) {
+            const QRectF caret = viewport->rectangleAt(position);
+            QVERIFY2(!caret.isEmpty(),
+                     qPrintable(QString("no caret for position %1").arg(position)));
+            QCOMPARE(viewport->positionAt(caret.x(), caret.center().y()), position);
+        }
+
+        // And a press among the removed lines lands on the line that replaced
+        // them rather than on one of them.
+        const QRectF third = viewport->rectangleAt(11);
+        QCOMPARE(viewport->positionAt(0, third.y() - twoRows / 2), 11);
+    }
+
+    void testGhostRowsScrolledOffScreenAreNotLaidOut()
+    {
+        // A diff of a long file has more removed lines than fit on screen.
+        // Laying out the ones nobody can see would make scrolling cost more
+        // the bigger the diff is.
+        TemporaryDirectory dir("textviewport-ghost-culling");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("long.txt");
+        QString contents;
+        for (int i = 0; i < 400; ++i)
+            contents += QString("line %1\n").arg(i);
+        QVERIFY(file.writeFileContents(contents.toUtf8()));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+
+        // The far one is near the end of the file rather than merely a long
+        // way down it, so that scrolling to the bottom really does show it.
+        viewport->setGhostRows({{1, {"near the top"}}, {398, {"far below"}}});
+        QTRY_COMPARE(viewport->ghostTextOnScreen(), QStringList({"near the top"}));
+
+        // Scrolled to the far one, only it is laid out.
+        viewport->setScrollY(viewport->contentHeight() - viewport->height());
+        QTRY_COMPARE(viewport->ghostTextOnScreen(), QStringList({"far below"}));
+    }
+
     void testAScreenPositionAndADocumentPositionAgreeAcrossAGap()
     {
         // The round trip has to survive a gap, or a click lands a row off for

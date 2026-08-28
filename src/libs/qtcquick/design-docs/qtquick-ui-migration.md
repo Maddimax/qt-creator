@@ -12122,3 +12122,49 @@ the test test it" are different questions:
   broken. Placement still passed and both mapping tests failed, which is the
   result that matters: the round trip tests are not coasting on the forward
   direction being right.
+
+### Rows that are not in the file
+
+Gaps gave the height half. The other half is that something has to be drawn in
+them, and the shape that falls out is a second kind of row:
+
+    struct GhostRows
+    {
+        int row = 0;
+        QStringList lines;
+        QColor background;
+    };
+
+They are not in the document, so they have no position in it - a ghost row's
+`blockPosition` is -1, and nothing maps a screen coordinate onto one. They are
+laid out in `updatePolish()` and drawn in `updatePaintNode()` exactly like the
+document's own rows, before them, so a real row drawn over the same pixels
+wins.
+
+The one thing that could not stay as it was: a gap's height was being set,
+and a ghost row's is not given but follows from how many rows there are times
+the line height. So the gaps are no longer set at all - they are *derived*,
+from the spacers someone asked for and the ghost rows they installed, and
+rebuilt in `updatePolish()` once there is a line height to multiply by. Two
+things opening a gap above the same row open one gap, or the running total
+counts a row twice.
+
+Ghost rows off screen are not laid out, for the same reason the document's own
+rows are not: a diff of a long file has more removed lines than fit, and
+laying out the ones nobody can see would make scrolling cost more the bigger
+the diff got.
+
+Two things worth recording about the tests rather than the code.
+
+The culling test failed first time, and the code was right: a ghost at row 350
+of a 400 line file is still off screen when you scroll to the bottom, because
+the bottom shows the last thirty-odd rows and not the last fifty. The test's
+premise was wrong, not the culling.
+
+And the first three tests were weaker than they looked. They asserted that the
+ghost text was laid out, that the gap opened to the right size, and that the
+document's positions were untouched - and every one of them would have passed
+with the ghost rows drawn at the top of the viewport, because none of them
+asked *where* the text went. That is the assertion that cannot fail. They now
+check that the rows run up from the row they sit above, one line apart, and
+the control for it is to draw them below that row instead.

@@ -315,6 +315,25 @@ public:
     void setRowGaps(const QList<Gap> &gaps);
     QList<Gap> rowGaps() const { return m_rowGaps; }
 
+    // Rows shown between the document's own: the lines an inline diff has
+    // that the file no longer does. They are not in the document, so they
+    // have no position in it and nothing can be typed into them. Their height
+    // is not given but follows from how many there are, which is why they
+    // open their gap when the rows are laid out rather than when they are set.
+    struct GhostRows
+    {
+        int row = 0;
+        QStringList lines;
+        QColor background;
+        bool operator==(const GhostRows &other) const = default;
+    };
+    void setGhostRows(const QList<GhostRows> &ghosts);
+    QList<GhostRows> ghostRows() const { return m_ghosts; }
+    // What is laid out on screen right now, in document order (for tests).
+    QStringList ghostTextOnScreen() const;
+    // Where those rows are drawn, in the same order (for tests).
+    QList<QRectF> ghostRectanglesOnScreen() const;
+
     qreal contentHeight() const;
     qreal contentWidth() const;
     qreal lineHeight() const;
@@ -680,6 +699,10 @@ private:
     qreal rowSpan(int row) const;
     // Total height of the gaps that sit at or above the top of a row.
     qreal gapAbove(int row) const;
+    // Recomputes the gaps from the spacers and the ghost rows. True when they
+    // changed, so a caller can decide whether a relayout is owed.
+    bool rebuildGaps();
+    void layOutGhostRows();
     void setScopeBlock(int blockNumber);
     void updateScrollBarHighlights();
     void rebuildVisibleLines();
@@ -736,9 +759,16 @@ private:
     std::vector<Line> m_lines;
     qreal m_lineHeight = 0;
     // Sorted by row, and the running total of their heights alongside, so that
-    // where a row sits is a binary search rather than a walk.
+    // where a row sits is a binary search rather than a walk. Derived from the
+    // two things that can open one rather than set directly.
     QList<Gap> m_rowGaps;
     std::vector<qreal> m_gapSums;
+    QList<Gap> m_spacers;
+    QList<GhostRows> m_ghosts;
+    // The ghost rows that are on screen, laid out in updatePolish() and drawn
+    // in updatePaintNode() like any other row.
+    std::vector<Line> m_ghostLines;
+    std::vector<QColor> m_ghostBackgrounds;
     qreal m_contentHeight = 0;
     qreal m_contentWidth = 0;
     // Set when the caret moved and cleared once updatePolish() has put it back

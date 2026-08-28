@@ -1084,14 +1084,49 @@ void TextViewport::ensureCursorVisible()
 
 void TextViewport::setRowGaps(const QList<Gap> &gaps)
 {
-    QList<Gap> sorted = gaps;
-    std::stable_sort(sorted.begin(), sorted.end(), [](const Gap &a, const Gap &b) {
+    if (gaps == m_spacers)
+        return;
+    m_spacers = gaps;
+    if (rebuildGaps())
+        polish();
+}
+
+void TextViewport::setGhostRows(const QList<GhostRows> &ghosts)
+{
+    if (ghosts == m_ghosts)
+        return;
+    m_ghosts = ghosts;
+    // Their height is a row count times a line height, so the gaps they open
+    // can only be sized once there is a line height to multiply by.
+    rebuildGaps();
+    polish();
+}
+
+bool TextViewport::rebuildGaps()
+{
+    QList<Gap> gaps = m_spacers;
+    for (const GhostRows &ghost : std::as_const(m_ghosts)) {
+        if (!ghost.lines.isEmpty())
+            gaps.append({ghost.row, ghost.lines.size() * m_lineHeight});
+    }
+    std::stable_sort(gaps.begin(), gaps.end(), [](const Gap &a, const Gap &b) {
         return a.row < b.row;
     });
-    if (sorted == m_rowGaps)
-        return;
 
-    m_rowGaps = sorted;
+    // Two things opening a gap above the same row open one gap, or the running
+    // total counts a row twice.
+    QList<Gap> merged;
+    for (const Gap &gap : std::as_const(gaps)) {
+        if (!merged.isEmpty() && merged.last().row == gap.row)
+            merged.last().height += gap.height;
+        else
+            merged.append(gap);
+    }
+
+    if (merged == m_rowGaps)
+        return false;
+
+    m_rowGaps = merged;
     m_gapSums.clear();
     m_gapSums.reserve(m_rowGaps.size());
     qreal total = 0;
@@ -1099,7 +1134,73 @@ void TextViewport::setRowGaps(const QList<Gap> &gaps)
         total += gap.height;
         m_gapSums.push_back(total);
     }
-    polish();
+    return true;
+}
+
+void TextViewport::layOutGhostRows()
+{
+    m_ghostLines.clear();
+    m_ghostBackgrounds.clear();
+    if (m_ghosts.isEmpty() || m_lineHeight <= 0)
+        return;
+
+    QTextOption option;
+    option.setWrapMode(QTextOption::NoWrap);
+
+    for (const GhostRows &ghost : std::as_const(m_ghosts)) {
+        if (ghost.lines.isEmpty())
+            continue;
+
+        // The gap sits above the row, so its rows run up to where that row
+        // starts rather than down from it.
+        const qreal bottom = yOfRow(ghost.row);
+        const qreal top = bottom - ghost.lines.size() * m_lineHeight;
+        if (bottom < m_scrollY || top > m_scrollY + height())
+            continue;
+
+        for (int i = 0; i < ghost.lines.size(); ++i) {
+            const qreal y = top + i * m_lineHeight;
+            if (y + m_lineHeight < m_scrollY || y > m_scrollY + height())
+                continue;
+
+            Line line;
+            line.layout = std::make_unique<QTextLayout>(ghost.lines.at(i), m_font);
+            line.layout->setTextOption(option);
+            line.layout->beginLayout();
+            QTextLine textLine = line.layout->createLine();
+            if (textLine.isValid()) {
+                textLine.setLineWidth(qreal(INT_MAX));
+                textLine.setPosition(QPointF(0, 0));
+            }
+            line.layout->endLayout();
+            // A ghost row is in no block: nothing may map a screen position
+            // onto it, which is what -1 says to anyone who asks.
+            line.blockPosition = -1;
+            line.at = QPointF(-m_scrollX, y - m_scrollY);
+            m_ghostLines.push_back(std::move(line));
+            m_ghostBackgrounds.push_back(ghost.background);
+        }
+    }
+}
+
+QStringList TextViewport::ghostTextOnScreen() const
+{
+    QStringList texts;
+    for (const Line &line : m_ghostLines) {
+        if (line.layout)
+            texts.append(line.layout->text());
+    }
+    return texts;
+}
+
+QList<QRectF> TextViewport::ghostRectanglesOnScreen() const
+{
+    QList<QRectF> rects;
+    for (const Line &line : m_ghostLines) {
+        if (line.layout)
+            rects.append(QRectF(line.at.x(), line.at.y(), width(), m_lineHeight));
+    }
+    return rects;
 }
 
 qreal TextViewport::gapAbove(int row) const
@@ -2521,6 +2622,10 @@ void TextViewport::updatePolish()
             rows->blockBoundingRect(b);
     }
 
+    // Before anything is placed: a ghost row's gap is as tall as the rows in
+    // it, so it is only the right size once there is a line height.
+    rebuildGaps();
+
     const int totalRows = rows ? rows->lineCount() : text->lineCount();
     m_contentHeight = yOfRow(totalRows);
     // The widget editor fills with the *brush*, so a scheme that sets no
@@ -3087,6 +3192,7 @@ void TextViewport::updatePolish()
     setScrollY(m_scrollY);
     setScrollX(m_scrollX);
     m_rowsShaped = shaped;
+    layOutGhostRows();
     rebuildVisibleLines();
 
     updateScrollBarHighlights();
@@ -3146,6 +3252,25 @@ QSGNode *TextViewport::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
         return nullptr;
 
     auto *root = new QSGNode;
+    // First, so that a document row drawn over the same pixels wins: a ghost
+    // row lives in a gap of its own, but a stale layout should not paint over
+    // the file.
+    for (size_t i = 0; i < m_ghostLines.size(); ++i) {
+        const Line &line = m_ghostLines.at(i);
+        if (!line.layout)
+            continue;
+        const QColor background = m_ghostBackgrounds.at(i);
+        if (background.isValid() && background.alpha() > 0) {
+            QSGRectangleNode * const fill = win->createRectangleNode();
+            fill->setRect(QRectF(0, line.at.y(), width(), m_lineHeight));
+            fill->setColor(background);
+            root->appendChildNode(fill);
+        }
+        QSGTextNode * const node = win->createTextNode();
+        node->setRenderType(QSGTextNode::NativeRendering);
+        node->addTextLayout(line.at, line.layout.get());
+        root->appendChildNode(node);
+    }
     for (const Line &line : m_lines) {
         // Below the selection and the text: this is the page the row is drawn
         // on, not a mark on it.
