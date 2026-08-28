@@ -929,6 +929,12 @@ void TextViewport::keyPressEvent(QKeyEvent *event)
     // on a Mac and a Ctrl chord elsewhere, and Home means the top of the file
     // on one and the start of the line on the other - plus camel-case stepping
     // and moving through what is on screen rather than what is in the file.
+    // Moving down a wrapped line has to keep the column the caret started
+    // from. A QTextCursor carries that; this one is built fresh from a
+    // position each key, so the memory is handed back before the move and
+    // taken after. Without it the second Down measures from the end of the row
+    // it is on and steps over one.
+    cursor.setVerticalMovementX(m_verticalMovementX);
     Utils::MultiTextCursor cursors({cursor});
     // The layout that knows where the rows are. While the viewport is wrapping
     // that is its own - the document's layout never sees that wrapping, so
@@ -941,6 +947,7 @@ void TextViewport::keyPressEvent(QKeyEvent *event)
     }
     if (cursors.handleMoveKeyEvent(event, globalBehaviorSettings().camelCaseNavigation(),
                                    movement)) {
+        m_verticalMovementX = cursors.mainCursor().verticalMovementX();
         setTextCursor(cursors.mainCursor());
         return event->accept();
     }
@@ -1200,6 +1207,8 @@ void TextViewport::setCursorPosition(int position)
 {
     if (m_cursorPosition == position)
         return;
+    // Put somewhere rather than moved there, so there is no column to keep.
+    m_verticalMovementX = -1;
     m_cursorPosition = position;
     polish();
     emit cursorPositionChanged();

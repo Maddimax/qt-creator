@@ -603,6 +603,10 @@ private:
     // Set when the caret moved and cleared once updatePolish() has put it back
     // on screen: where it is sideways is only known once the rows are laid out.
     bool m_caretVisibleXPending = false;
+    // The column the caret is trying to keep while it moves up and down. A
+    // QTextCursor carries it, and this view builds a fresh one for every key,
+    // so it is kept here instead. -1 means it has none yet.
+    int m_verticalMovementX = -1;
     // A page key scrolls a screen and then puts the caret back where it was on
     // screen. Where that is can only be turned back into a position once the
     // rows are laid out again, so it waits for updatePolish() like the sideways

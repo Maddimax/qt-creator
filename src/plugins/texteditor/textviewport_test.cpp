@@ -2974,6 +2974,49 @@ private slots:
         // fault and is written up in the migration notes.
     }
 
+    void testHoldingDownWalksTheRowsOneAtATime()
+    {
+        // The caret keeps the column it started from while it moves up and
+        // down - a QTextCursor carries that, and this view builds a fresh one
+        // for every key. Without handing the column back, the second Down
+        // measures from the end of the row the caret is on, which is the far
+        // side of the viewport, and lands a row further on every press.
+        TemporaryDirectory dir("qtc-viewport-downrows");
+        const FilePath file = dir.filePath("long.txt");
+        QVERIFY(file.writeFileContents(QByteArray(300, 'x') + "\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        QVERIFY2(fixture.hasFocus(), "the viewport never took focus, so no key arrives");
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        const int unwrapped = viewport->visibleLineCount();
+        viewport->setWrapping(true);
+        QTRY_VERIFY2(viewport->visibleLineCount() > unwrapped,
+                     "the long line did not wrap, so every row is a line");
+
+        // Every row of this line is the same width, so each press should add
+        // exactly that many characters.
+        const int rowLength = viewport->visibleLine(0).value("text").toString().size();
+        QVERIFY(rowLength > 0);
+        QCOMPARE(viewport->visibleLine(1).value("text").toString().size(), rowLength);
+
+        viewport->setCursorPosition(0);
+        QStringList walked;
+        for (int i = 1; i <= 3; ++i) {
+            keyMove(fixture.view, QKeySequence::MoveToNextLine);
+            walked << QString::number(viewport->cursorPosition());
+        }
+        QVERIFY2(walked == QStringList({QString::number(rowLength),
+                                        QString::number(2 * rowLength),
+                                        QString::number(3 * rowLength)}),
+                 qPrintable(QString("rows are %1 wide and Down walked to %2")
+                                .arg(rowLength)
+                                .arg(walked.join(", "))));
+    }
+
     void testHomeGoesToTheCodeBeforeItGoesToTheMargin()
     {
         TemporaryDirectory dir("qtc-viewport-home");
