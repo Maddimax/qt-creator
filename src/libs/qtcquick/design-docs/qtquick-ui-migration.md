@@ -316,12 +316,14 @@ document and then needs someone to draw it - so all thirty of them were checked
 against what the editor reads. Sixteen are unread, and they are not equally
 interesting:
 
-- **Wrapped-line indent** - done. `breakindent`, `breakindentMin` and
-  `breakindentShift` are honoured: the rows are shaped narrower and drawn
-  pushed in, with the layout that counts rows told the same so the two break in
+- **Wrapped-line indent and marker** - done, all five settings.
+  `breakindent`, `breakindentMin` and `breakindentShift` push the continuation
+  rows in; `showBreak` and `breakindentSbr` draw a marker at the start of them,
+  before the indent or in front of the text. The rows are shaped narrower by
+  both, and the layout that counts rows is told about both, so the two break in
   the same places. The arithmetic is `PlainTextDocumentLayout`'s, copied rather
-  than invented. `showBreak` and `breakindentSbr` - the marker drawn at the
-  start of a wrapped row - are not done.
+  than invented - including that the marker takes room whether or not the rows
+  are indented.
 - **Whole features not started** - `displayMinimap`, `scrollBarHighlights`,
   `highlightBlocks` (thirty-four references in the widget editor), and
   `markDiffChangeSigns`.
@@ -330,6 +332,11 @@ interesting:
 - **Editor-layer behaviour rather than drawing** - `openLinksInNextSplit`,
   `forceOpenLinksInNextSplit`, `displayTabSettings`,
   `minimalAnnotationContent`.
+
+Everything still on the list is **off by default** - `highlightBlocks` and
+`highlightCurrentLine` included, which was worth checking before ranking them:
+nobody sees any of it unless they turn it on. That is the argument for having
+finished the wrapped-line pair first rather than starting the biggest one.
 
 None of these is a bug in what is there; they are things not written yet. The
 list is here so that the next person picks by value rather than by whichever
