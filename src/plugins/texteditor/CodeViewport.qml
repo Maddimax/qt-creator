@@ -439,8 +439,8 @@ Item {
 
                     z: -1
                     visible: text !== ""
-                    text: model.breakMarker ?? ""
-                    x: (model.breakMarkerX ?? 0) - viewport.scrollX
+                    text: model.breakMarker
+                    x: model.breakMarkerX - viewport.scrollX
                     y: model.y - viewport.scrollY
                     height: viewport.lineHeight
                     verticalAlignment: Text.AlignVCenter
@@ -462,7 +462,7 @@ Item {
                     required property int index
                     required property var model
 
-                    readonly property var marks: model.whitespace ?? []
+                    readonly property var marks: model.whitespace
                     readonly property int row: viewport.firstVisibleLine + index
 
                     z: -1
@@ -509,10 +509,10 @@ Item {
                     z: -1
                     y: guideRow.model.y - viewport.scrollY
                     height: viewport.lineHeight
-                    visible: (guideRow.lineData.indentGuides ?? 0) > 0
+                    visible: guideRow.lineData.indentGuides > 0
 
                     Repeater {
-                        model: guideRow.lineData.indentGuides ?? 0
+                        model: guideRow.lineData.indentGuides
 
                         delegate: Rectangle {
                             required property int index
@@ -563,7 +563,7 @@ Item {
                             id: replacement
 
                             anchors.centerIn: parent
-                            text: trailing.lineData.foldReplacement ?? ""
+                            text: trailing.lineData.foldReplacement
                             font: viewport.font
                             color: Tokens.textMuted
                         }
@@ -594,12 +594,12 @@ Item {
                     readonly property var lineData: model
                     readonly property int row: viewport.firstVisibleLine + index
 
-                    x: annotation.lineData.annotationX ?? 0
+                    x: annotation.lineData.annotationX
                     y: annotation.model.annotationY - viewport.scrollY
                     height: viewport.lineHeight
                     verticalAlignment: Text.AlignVCenter
 
-                    text: annotation.lineData.annotation ?? ""
+                    text: annotation.lineData.annotation
                     visible: root.showAnnotations && text !== ""
                     font: viewport.font
                     color: Tokens.textMuted

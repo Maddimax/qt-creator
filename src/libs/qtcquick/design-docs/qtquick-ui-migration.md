@@ -13098,6 +13098,11 @@ Two details that this depends on and would silently break:
   tests and renaming `y` fails five, all of them reading through the
   delegates rather than through `visibleLine()`.
 
-The `?? ""` fallbacks in those bindings are now dead - `data()` answers every
-role - and they are what would swallow a misspelled role. Worth removing, but
-not in the same change as the rewrite they are guarding.
+The `?? ""` fallbacks in those bindings were dead once `data()` answered every
+role, and they were what would swallow a misspelled one. Removing them changed
+nothing - both suites stayed green and not one new warning appeared, which is
+what "dead" means - but it changed what a mistake looks like. Renaming
+`annotationX` in `roleNames()` now fails
+`testTheComponentTurnsAClickIntoACaretAndADragIntoASelection`, which asserts
+that QML complained about nothing, with the file and line of the binding that
+broke. With the `?? 0` it drew every annotation at x=0 and no test minded.

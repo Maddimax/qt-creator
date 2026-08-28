@@ -54,7 +54,7 @@ Item {
 
             readonly property int row: root.viewport.firstVisibleLine + index
             // Not "state": QQuickItem has one of those already.
-            readonly property int changeState: change.model.changed ?? 0
+            readonly property int changeState: change.model.changed
 
             x: root.width - width
             y: change.model.y - root.viewport.scrollY
@@ -86,10 +86,10 @@ Item {
             height: root.viewport.lineHeight
             fillMode: Image.PreserveAspectFit
 
-            source: mark.lineData.markIcon ?? ""
+            source: mark.lineData.markIcon
             visible: source !== ""
 
-            ToolTip.text: mark.lineData.annotation ?? ""
+            ToolTip.text: mark.lineData.annotation
             ToolTip.visible: hover.hovered && ToolTip.text !== ""
 
             HoverHandler { id: hover }
@@ -121,7 +121,7 @@ Item {
             // the continuation rows belong to the same line, and numbering
             // them again would be counting rows rather than lines.
             text: number.model.firstRowOfLine
-                      ? String(number.model.lineNumber ?? 0)
+                      ? String(number.model.lineNumber)
                       : ""
             font: root.viewport.font
             color: Tokens.textMuted
@@ -150,7 +150,7 @@ Item {
             height: root.viewport.lineHeight
             fillMode: Image.PreserveAspectFit
 
-            source: fold.lineData.foldIcon ?? ""
+            source: fold.lineData.foldIcon
             visible: source !== ""
 
             TapHandler {
