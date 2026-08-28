@@ -12304,3 +12304,35 @@ draw the message at the row's y. The setup assertions - the document is a row
 taller, the line below moved down - still pass, and the placement one fails.
 Had the control been "turn the whole thing off", all three would have failed
 together and the placement assertion would not have been shown to do anything.
+
+## Counting what is left, rather than saying it is done
+
+The migration this document has been tracking is finished, and the way to see
+that is to count layouters rather than to count ported pages. Three mentions
+of `setLayouter` remain in the tree:
+
+- `aspectwidgets.cpp`, which defines it.
+- `quickui_test.cpp`, which builds a widget page on purpose. Its comment says
+  why: *"The widget path says the same thing, so a page that has not been
+  ported behaves the same way."* That is a test **of** the fallback, and it
+  has to keep working for as long as the fallback exists.
+- `lua/bindings/settings.cpp`, where a Lua script passes its own `layouter`
+  function. That is a public API for other people's scripts, not a Creator
+  page; porting it would mean changing what those scripts are allowed to say.
+
+So no Qt Creator settings page builds itself from a Layouting closure any
+more.
+
+A page can also be a widget without a layouter, through
+`IOptionsPage::setWidgetCreator`, so that route is worth checking too. Twelve
+uses, and all but one are `IMode::setWidgetCreator` - whole modes (Edit,
+Debug, Profiler, the extension manager), which were never in scope. The
+remaining one is Qt Designer's:
+
+    vbox->addWidget(m_designerPage->createPage(nullptr));
+
+`QDesignerOptionsPageInterface` is Qt Designer's own interface and
+`createPage()` hands back a widget Qt Designer built. Creator does not own
+that UI and there is nothing in it to express in QML - it is a widget from
+another library, embedded. That one is not a gap in this migration; it is the
+edge of what this migration could ever have covered.
