@@ -337,8 +337,11 @@ interesting:
   option on the inline diff, whose ghost rows the Quick editor does not have
   at all. `scrollBarHighlights` **is done**, and needing a Core controller
   turned out to be the wrong reason to put it off - see below.
-- **Animations** - `animateMatchingParentheses`,
-  `animateNavigationWithinFile`, `animateWithinFileTimeMax`. Cosmetic.
+- **Animations** - all three done. `animateMatchingParentheses` pulses the
+  matching bracket; `animateNavigationWithinFile` and
+  `animateWithinFileTimeMax` scroll to a jump within the file instead of
+  snapping to it, in two halves with a deliberate gap in the middle so that a
+  long jump's direction stays readable.
 - **Editor-layer behaviour rather than drawing** - all four accounted for.
   `minimalAnnotationContent` is read now; it turned out to be a parameter of
   `annotationAlignment` rather than a setting of its own, and the margin
@@ -452,6 +455,21 @@ been recorded wrongly:
   looks for a match when *either* it or the highlight is on, and the Quick
   editor only looked when the highlight was on - so with the highlight off and
   the animation on, it did nothing at all rather than pulsing.
+
+**Four lines that did nothing, in one branch.** A control that comes back
+clean has meant "the code was already right without it" four times now:
+
+| the line | why it did nothing |
+| --- | --- |
+| `enabled: root.showFoldMarkers` on a `HoverHandler` | `enabled` does not gate a pointer handler; `visible` does |
+| `emit metricsChanged()` in the margin-settings handler | `polish()` emits it anyway, from `updatePolish()` |
+| `if (!already.insert(key).operator->())` | `QSet::insert` hands back an iterator that is never null |
+| `setScrollY(start)` before starting the animation | `QPropertyAnimation` applies its start value as it starts |
+
+Three were found by a control, one by reading. None of them broke anything -
+that is the point. **A negative control that does not bite is a question about
+the code as often as about the test**, and the answer here was usually "that
+line was never doing the work you thought".
 
 **A guard that compiles and never fires.** The per-row de-duplication for the
 bar was first written as `if (!already.insert(key).operator->()) return;`.
