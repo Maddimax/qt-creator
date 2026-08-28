@@ -364,6 +364,46 @@ None of these is a bug in what is there; they are things not written yet. The
 list is here so that the next person picks by value rather than by whichever
 one they trip over.
 
+### The behaviour settings, audited the same way
+
+`BehaviorSettings` was recorded above as read for two of its seven fields.
+That count was wrong, and wrong in the way a name-based audit always is:
+`mouseHiding` is read through `hideMouseWhileTyping()`, so grepping for the
+aspect's name misses it. **Count reads of the container, not mentions of the
+name** - `globalBehaviorSettings()` had three call sites, not two.
+
+Of the four that were unread, two mattered and both are on by default:
+
+- `mouseNavigation` was **a setting that could not be turned off**. The QML
+  restated the widget's modifier rule - Control yes, Shift no - and left out
+  the half that consults the setting, so Ctrl+click followed symbols however
+  the preference was set. The rule now lives in `isMouseNavigation()` and the
+  QML asks rather than restates it.
+- The rest of that same setting was missing outright: the widget underlines
+  the link under the pointer in `C_LINK` and turns the cursor into a hand, and
+  the Quick editor drew nothing. It does now, including Control pressed while
+  hovering asking for the link without waiting for a move, and letting go
+  putting it away. **Finding** a link needs a language with a link finder
+  registered, which no test here has, so the test covers the drawing and not
+  the lookup - `showLink()` is called directly with a link.
+- Tooltips are now suppressed while Control is held, so one does not cover the
+  link being aimed at. `constrainHoverTooltips` is read at the same time. This
+  is the one piece with no test at all: nothing yet drives the tooltip timer.
+
+Left unread on purpose: `keyboardTooltips` (off by default; Alt asks for a
+tooltip, a mechanism of its own), and `smartSelectionChanging`, which is not
+the text editor's at all - CppEditor reads it for expand/shrink selection.
+
+**A hover test failed once here and was not the change.** The full-suite run
+after the tooltip work reported `testRestingTheMouseAsksTheHoverHandlers`
+failing; it passed in every run after, including the same full suite. The
+first guess - that the new `constrainHoverTooltips` branch was suppressing the
+tooltip - was checked by printing the value rather than reasoned about, and it
+was 0, so that branch never ran. The test moves a real pointer and already
+retries five times for that reason. Guessing at a mechanism and *then*
+measuring it is the right order; the guess was wrong and cost only one build.
+
+
 **Visualised whitespace is drawn now, and was not before** - a green test said
 otherwise, because it checked that `ShowTabsAndSpaces` reaches the document's
 text option, which it does, and nothing then read it. `ShowTabsAndSpaces` is
