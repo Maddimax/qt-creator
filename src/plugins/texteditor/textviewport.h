@@ -552,6 +552,10 @@ public:
     // ones not yet reached.
     Utils::MultiTextCursor multiTextCursor() const;
     void setMultiTextCursor(const Utils::MultiTextCursor &cursors);
+    // Runs an edit at every caret, as one undo step. The carets are taken
+    // later in the document first: an edit moves everything after it, and a
+    // caret that has already been edited at does not have to be moved with it.
+    void applyToEveryCaret(const std::function<void(QTextCursor &)> &edit);
     void setCursorPosition(int position);
     QRectF cursorRectangle() const;
 

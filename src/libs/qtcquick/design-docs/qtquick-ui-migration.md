@@ -12724,3 +12724,37 @@ shipped.
 Two hover tests failed in one run and passed in the two after it. They are the
 physical pointer artefact recorded earlier, not the wrapping `Item` - which is
 zero by zero, accepts nothing, and sits where the caret Rectangle used to.
+
+### Typing at more than one caret
+
+The second step: an edit happens at every caret rather than at the one.
+
+    void applyToEveryCaret(const std::function<void(QTextCursor &)> &edit);
+
+Two things it has to get right, and both are the reason `Utils::MultiTextCursor`
+exists rather than something to reinvent:
+
+- **Order.** The carets are taken later in the document first, because an edit
+  moves everything after it. Going the other way, typing at the first caret
+  would leave every caret after it pointing one character too early.
+- **One undo step.** The whole run is wrapped in a single edit block. Typing
+  once should not take two undos to take back merely because it happened in
+  two places.
+
+The carets are sorted *by index* rather than by value, so the main caret is
+still the first one afterwards however the order came out - everything that
+asks about "the caret" gets the same answer as before.
+
+The other half is `setTextCursor()`, which now clears the extra carets. Putting
+the caret somewhere - a click, a jump, a search result - means putting *the*
+caret somewhere, and the extra ones are gone. Whoever wants to keep them says
+so with `setMultiTextCursor()` afterwards. Without that, clicking somewhere
+would leave invisible carets behind that the next keystroke would type into.
+
+Three paths go through it so far: Return, Space and the default text case.
+Backspace, Delete, Tab and Backtab still edit only the main caret; nothing
+creates a second one yet, so no reader can meet the difference, but it is the
+next thing.
+
+The control - edit only the main caret - fails with `"alpha\nbetaX\n"` where
+`"alphaX\nbetaX\n"` was wanted, which is the feature stated as a diff.

@@ -1035,6 +1035,10 @@ QTextCursor TextViewport::textCursor() const
 
 void TextViewport::setTextCursor(const QTextCursor &cursor)
 {
+    // Putting the caret somewhere is putting *the* caret somewhere: a click,
+    // a jump, anything that says where the cursor now is, means the extra
+    // carets are gone. Whoever wants to keep them says so afterwards.
+    m_extraCursors.clear();
     setCursorPosition(cursor.position());
     if (cursor.hasSelection()) {
         setSelectionStart(cursor.anchor());
@@ -1584,11 +1588,12 @@ void TextViewport::keyPressEvent(QKeyEvent *event)
     case Qt::Key_Enter:
         // The new line starts where the language says it should, which is the
         // difference between an editor and a text box.
-        cursor.beginEditBlock();
-        cursor.insertText("\n");
-        doc->autoIndent(cursor);
-        cursor.endEditBlock();
-        break;
+        applyToEveryCaret([doc](QTextCursor &caret) {
+            caret.insertText("\n");
+            doc->autoIndent(caret);
+        });
+        event->accept();
+        return;
     case Qt::Key_Space:
         // Ctrl+Space is what asks for the list; the form is what shows it.
         if (event->modifiers().testFlag(Qt::ControlModifier)) {
@@ -1596,8 +1601,11 @@ void TextViewport::keyPressEvent(QKeyEvent *event)
             event->accept();
             return;
         }
-        insertTypedText(cursor, event->text());
-        break;
+        applyToEveryCaret([this, typed = event->text()](QTextCursor &caret) {
+            insertTypedText(caret, typed);
+        });
+        event->accept();
+        return;
     case Qt::Key_Tab:
         // One indent's worth of whatever the tab settings say, and a whole
         // block where something is selected. A literal tab is what a text box
@@ -1615,8 +1623,11 @@ void TextViewport::keyPressEvent(QKeyEvent *event)
             QQuickItem::keyPressEvent(event);
             return;
         }
-        insertTypedText(cursor, event->text());
-        break;
+        applyToEveryCaret([this, typed = event->text()](QTextCursor &caret) {
+            insertTypedText(caret, typed);
+        });
+        event->accept();
+        return;
     }
 
     setTextCursor(cursor);
@@ -1810,11 +1821,39 @@ void TextViewport::setMultiTextCursor(const Utils::MultiTextCursor &cursors)
     }
     // The main one is the caret; the rest are extra. setTextCursor() is what
     // moves the view and marks the caret for redrawing, so the main one still
-    // goes through it.
+    // goes through it - and it clears the extras, so they are put back after.
     const QTextCursor main = cursors.mainCursor();
     all.removeOne(main);
-    m_extraCursors = all;
     setTextCursor(main);
+    m_extraCursors = all;
+}
+
+void TextViewport::applyToEveryCaret(const std::function<void(QTextCursor &)> &edit)
+{
+    QList<QTextCursor> carets = {textCursor()};
+    carets.append(m_extraCursors);
+    if (carets.first().isNull())
+        return;
+
+    // By index, so that the main caret is still the first one afterwards
+    // however the order came out.
+    QList<int> order;
+    for (int i = 0; i < carets.size(); ++i)
+        order.append(i);
+    std::sort(order.begin(), order.end(), [&carets](int a, int b) {
+        return carets.at(a).position() > carets.at(b).position();
+    });
+
+    // One undo step for the lot: typing once should not take several undos to
+    // take back merely because it happened at several carets.
+    QTextCursor group = carets.first();
+    group.beginEditBlock();
+    for (const int i : std::as_const(order))
+        edit(carets[i]);
+    group.endEditBlock();
+
+    setTextCursor(carets.first());
+    m_extraCursors = carets.mid(1);
 }
 
 QTextBlock TextViewport::cursorBlock() const

@@ -4255,6 +4255,49 @@ private slots:
         QCOMPARE(viewport->cursorPosition(), 14);
     }
 
+    void testTypingGoesInAtEveryCaret()
+    {
+        // What a second caret is for. The edits are one undo step, because
+        // typing once should not take two undos to take back merely because
+        // it happened in two places.
+        TemporaryDirectory dir("textviewport-typing-carets");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("two.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        QVERIFY2(fixture.hasFocus(), "the viewport never took focus, so no key arrives");
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+        QTextDocument * const text = fixture.document.textDocument()->document();
+        viewport->setReadOnly(false);
+
+        // "alpha\nbeta\n": the end of each word is 5 and 10.
+        QTextCursor first(text);
+        first.setPosition(5);
+        QTextCursor second(text);
+        second.setPosition(10);
+        viewport->setMultiTextCursor(Utils::MultiTextCursor({first, second}));
+        QCOMPARE(viewport->caretRectangles().size(), 2);
+
+        QTest::keyClick(&fixture.view, 'X');
+        QCOMPARE(text->toPlainText(), QString("alphaX\nbetaX\n"));
+
+        // One step, not two.
+        QTest::keyClick(&fixture.view, Qt::Key_Z, Qt::ControlModifier);
+        QCOMPARE(text->toPlainText(), QString("alpha\nbeta\n"));
+
+        // And putting the caret somewhere is putting *the* caret somewhere:
+        // the extra one is gone, so the next character goes in once.
+        viewport->setCursorPosition(0);
+        QCOMPARE(viewport->caretRectangles().size(), 1);
+        QTest::keyClick(&fixture.view, 'Y');
+        QCOMPARE(text->toPlainText(), QString("Yalpha\nbeta\n"));
+    }
+
     void testUndoTakesBackWhatWasTyped()
     {
         // The undo stack is the document's, which is what makes editing through
