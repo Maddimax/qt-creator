@@ -2251,6 +2251,67 @@ private slots:
                      "the bar still carried marks with the setting turned off");
     }
 
+    // Scrolling moves the rows up: what row five said is what row four says
+    // now, word for word. Telling the view they all changed makes it read
+    // every one again, so a scroll is reported as the rows that left the top
+    // and the ones that arrived at the bottom.
+    void testAScrollIsReportedAsRowsLeavingAndArriving()
+    {
+        TemporaryDirectory dir("qtc-viewport-shift");
+        const FilePath file = writeLines(dir, "long.txt", 400);
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        TextViewport * const viewport = fixture.viewport;
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+
+        QAbstractItemModel * const rows = viewport->visibleRows();
+        QVERIFY(rows);
+
+        // Settled first: a view still finding its width lays out differently,
+        // and those rows really have all changed.
+        viewport->setScrollY(viewport->lineHeight());
+        QTRY_COMPARE(viewport->firstVisibleLine(), 1);
+
+        QSignalSpy changed(rows, &QAbstractItemModel::dataChanged);
+        QSignalSpy removed(rows, &QAbstractItemModel::rowsRemoved);
+
+        viewport->setScrollY(viewport->lineHeight() * 2);
+        QTRY_COMPARE(viewport->firstVisibleLine(), 2);
+
+        QCOMPARE(removed.size(), 1);
+        QVERIFY2(changed.isEmpty(),
+                 qPrintable(QString("the rows that stayed were announced as changed %1 times")
+                                .arg(changed.size())));
+
+        // And what is on screen is still right, which is the thing the
+        // shortcut must not cost.
+        QCOMPARE(viewport->visibleLine(0).value("text").toString(), QString("line 2"));
+        QCOMPARE(viewport->visibleLine(1).value("text").toString(), QString("line 3"));
+
+        // A scroll that happens in the same layout as something else: the
+        // rows still line up one for one, but one of them says something new.
+        // Matching the first row is not enough to conclude the rest are
+        // unchanged, which is why the whole overlap is compared.
+        QTextDocument * const text = viewport->textDocument()->document();
+        const QTextBlock marked = text->findBlockByNumber(6);
+        viewport->setScrollY(viewport->lineHeight() * 3);
+        viewport->setSelectionStart(marked.position());
+        viewport->setSelectionEnd(marked.position() + 4);
+        QTRY_COMPARE(viewport->firstVisibleLine(), 3);
+        // Asked of the model rather than of the view: the view's own rows are
+        // right whatever the model was told, so reading them would not notice
+        // a row the model kept when it should not have.
+        const auto rowFromModel = [rows](int row) {
+            return rows->data(rows->index(row, 0), Qt::UserRole).toMap();
+        };
+        // Line 6 is the fourth row now, and it is the one with a selection on
+        // it. A row kept because the first one matched would show none.
+        QTRY_VERIFY2(!rowFromModel(3).value("selectionFill").toRectF().isEmpty(),
+                     "the selected row was kept from before it was selected");
+    }
+
     // Scrolling brings back text that has already been shaped, and shaping is
     // most of what a layout costs. A row whose text and formats are what they
     // were is kept rather than built again.

@@ -467,6 +467,25 @@ public:
 
     void setRows(QVariantList rows)
     {
+        // Scrolling down moves what was row n to row n-shift, and the rows
+        // that stayed say exactly what they said before. Telling the view
+        // that they changed makes it read all of them again, so look for the
+        // shift and report it as rows leaving the top instead.
+        if (const int shift = shiftOf(rows); shift > 0) {
+            beginRemoveRows({}, 0, shift - 1);
+            const int kept = int(m_rows.size()) - shift;
+            m_rows.remove(0, shift);
+            endRemoveRows();
+
+            if (const int arriving = int(rows.size()) - kept; arriving > 0) {
+                beginInsertRows({}, kept, kept + arriving - 1);
+                for (int i = kept; i < int(rows.size()); ++i)
+                    m_rows.append(rows.at(i));
+                endInsertRows();
+            }
+            return;
+        }
+
         const int before = int(m_rows.size());
         const int now = int(rows.size());
         if (now > before)
@@ -481,11 +500,41 @@ public:
         else if (now < before)
             endRemoveRows();
 
-        // Scrolling changes what every row says without changing how many
-        // there are, so the ones that stayed have to be re-read.
+        // Anything else changes what a row says, and the ones that stayed
+        // have to be re-read.
         if (const int shared = qMin(before, now); shared > 0)
             emit dataChanged(index(0), index(shared - 1), {Qt::UserRole});
     }
+
+private:
+    // How far the rows moved up, if that is all that happened. Answered by
+    // comparing them rather than by working it out from where the view has
+    // scrolled to: a row that compares equal says the same thing, whatever
+    // the reason, and one that does not must be re-read whatever the scroll
+    // says.
+    int shiftOf(const QVariantList &rows) const
+    {
+        if (m_rows.isEmpty() || rows.isEmpty())
+            return 0;
+
+        int shift = 1;
+        for (; shift < int(m_rows.size()); ++shift) {
+            if (m_rows.at(shift) == rows.at(0))
+                break;
+        }
+        if (shift >= int(m_rows.size()))
+            return 0;
+
+        // The whole overlap has to match, not just the row it starts at.
+        const int overlap = qMin(int(m_rows.size()) - shift, int(rows.size()));
+        for (int i = 0; i < overlap; ++i) {
+            if (!(m_rows.at(shift + i) == rows.at(i)))
+                return 0;
+        }
+        return shift;
+    }
+
+public:
 
 private:
     QVariantList m_rows;
