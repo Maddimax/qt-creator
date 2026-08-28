@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "textoperations.h"
 #include "basehoverhandler.h"
 #include "textdocumentlayout.h"
 #include "texteditor_global.h"
@@ -544,6 +545,7 @@ public:
     // several cursors in one undo step and in an order that does not shift the
     // ones not yet reached.
     Utils::MultiTextCursor multiTextCursor() const;
+    void transformSelectedText(const TextTransformation &transform);
     void setMultiTextCursor(const Utils::MultiTextCursor &cursors);
     // Runs an edit at every caret, as one undo step. The carets are taken
     // later in the document first: an edit moves everything after it, and a
@@ -562,6 +564,10 @@ public:
     Q_INVOKABLE void addCaretAtNextMatch();
     // Pulls the line after each caret onto the caret's own line.
     Q_INVOKABLE void joinLines();
+    Q_INVOKABLE void uppercaseSelection();
+    Q_INVOKABLE void lowercaseSelection();
+    Q_INVOKABLE void insertLineAbove();
+    Q_INVOKABLE void insertLineBelow();
     // A rectangle of text, from where the caret is anchored to \a x, \a y.
     // One caret per line it covers, which is what makes it a selection that
     // can be typed over. The anchor is taken once, when the drag starts, so

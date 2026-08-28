@@ -3,6 +3,8 @@
 
 #include "textoperations.h"
 
+#include "textdocument.h"
+
 #include <utils/multitextcursor.h>
 
 #include <QRegularExpression>
@@ -43,6 +45,59 @@ void joinLines(Utils::MultiTextCursor &cursor)
     }
     cursor.endEditBlock();
     cursor.mergeCursors();
+}
+
+void transformSelection(Utils::MultiTextCursor &cursor, const TextTransformation &transform)
+{
+    const bool several = cursor.hasMultipleCursors();
+    cursor.beginEditBlock();
+    for (QTextCursor &c : cursor) {
+        const int pos = c.position();
+        const int anchor = c.anchor();
+
+        if (!c.hasSelection() && !several)
+            c.select(QTextCursor::WordUnderCursor);
+
+        const QString text = c.selectedText();
+        const QString transformed = transform(text);
+        if (transformed == text)
+            continue;
+
+        c.insertText(transformed);
+
+        // Select the changed text again, which assumes the transformation did
+        // not change its length.
+        c.setPosition(anchor);
+        c.setPosition(pos, QTextCursor::KeepAnchor);
+    }
+    cursor.endEditBlock();
+}
+
+void insertLineAbove(Utils::MultiTextCursor &cursor, TextDocument *document)
+{
+    cursor.beginEditBlock();
+    for (QTextCursor &c : cursor) {
+        // At the very start of the document there is no previous block to
+        // open one after, so the line is opened here and stepped back onto.
+        c.movePosition(QTextCursor::StartOfBlock, QTextCursor::MoveAnchor);
+        c.insertBlock();
+        c.movePosition(QTextCursor::PreviousBlock, QTextCursor::MoveAnchor);
+        if (document)
+            document->autoIndent(c);
+    }
+    cursor.endEditBlock();
+}
+
+void insertLineBelow(Utils::MultiTextCursor &cursor, TextDocument *document)
+{
+    cursor.beginEditBlock();
+    for (QTextCursor &c : cursor) {
+        c.movePosition(QTextCursor::EndOfBlock, QTextCursor::MoveAnchor);
+        c.insertBlock();
+        if (document)
+            document->autoIndent(c);
+    }
+    cursor.endEditBlock();
 }
 
 } // namespace TextEditor

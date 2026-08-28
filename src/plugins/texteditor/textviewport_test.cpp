@@ -4158,6 +4158,101 @@ private slots:
         QCOMPARE(viewport->textDocument()->document()->blockCount(), 3);
     }
 
+    // Upper Case Selection with nothing selected takes the word the caret is
+    // in. That is only right while there is one caret: several carets each
+    // swallowing a word is not what one key press meant.
+    void testUppercasingWithNoSelectionTakesTheWordUnderTheCaret()
+    {
+        TemporaryDirectory dir("qtc-viewport-upper");
+        const FilePath file = dir.filePath("words.txt");
+        QVERIFY(file.writeFileContents("alpha beta\ngamma delta\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        viewport->setReadOnly(false);
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+
+        QTextDocument * const text = viewport->textDocument()->document();
+
+        // One caret, inside "beta", nothing selected.
+        viewport->setCursorPosition(7);
+        viewport->uppercaseSelection();
+        QCOMPARE(text->findBlockByNumber(0).text(), QString("alpha BETA"));
+
+        // Two carets, neither with a selection, both sitting in a lower case
+        // word: no word is swallowed, so upper casing changes nothing. Asked
+        // with uppercase rather than lowercase on purpose - lowercasing words
+        // that are already lower case cannot tell the two behaviours apart.
+        viewport->setCursorPosition(1);
+        viewport->addCaretAt(text->findBlockByNumber(1).position() + 1);
+        QCOMPARE(viewport->multiTextCursor().cursorCount(), 2);
+        viewport->uppercaseSelection();
+        QCOMPARE(text->findBlockByNumber(0).text(), QString("alpha BETA"));
+        QCOMPARE(text->findBlockByNumber(1).text(), QString("gamma delta"));
+    }
+
+    // None of the line commands edits a buffer that is read only, the same
+    // as a key press does not. One test for all of them: each has its own
+    // guard, and a guard that is missing on one of them is exactly the kind
+    // of thing a per-command test would be written for and then not written.
+    void testTheLineCommandsLeaveAReadOnlyBufferAlone()
+    {
+        TemporaryDirectory dir("qtc-viewport-ro-commands");
+        const FilePath file = dir.filePath("two.txt");
+        QVERIFY(file.writeFileContents("first\nsecond\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+        QVERIFY(viewport->isReadOnly());
+
+        QTextDocument * const text = viewport->textDocument()->document();
+        const QString before = text->toPlainText();
+
+        viewport->setCursorPosition(2);
+        viewport->joinLines();
+        viewport->uppercaseSelection();
+        viewport->lowercaseSelection();
+        viewport->insertLineAbove();
+        viewport->insertLineBelow();
+
+        QCOMPARE(text->toPlainText(), before);
+    }
+
+    // Insert Line Above and Below open a line and leave the caret on it,
+    // which is the whole point of them over pressing Return.
+    void testInsertingALineLeavesTheCaretOnIt()
+    {
+        TemporaryDirectory dir("qtc-viewport-insertline");
+        const FilePath file = dir.filePath("two.txt");
+        QVERIFY(file.writeFileContents("first\nsecond\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        viewport->setReadOnly(false);
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+
+        QTextDocument * const text = viewport->textDocument()->document();
+
+        // On "second", open a line above it.
+        viewport->setCursorPosition(text->findBlockByNumber(1).position() + 2);
+        viewport->insertLineAbove();
+        QCOMPARE(text->findBlockByNumber(1).text(), QString());
+        QCOMPARE(text->findBlockByNumber(2).text(), QString("second"));
+        QCOMPARE(viewport->textCursor().blockNumber(), 1);
+
+        viewport->insertLineBelow();
+        QCOMPARE(text->findBlockByNumber(2).text(), QString());
+        QCOMPARE(viewport->textCursor().blockNumber(), 2);
+        QCOMPARE(text->findBlockByNumber(3).text(), QString("second"));
+    }
+
     void testWrappedRowsSitUnderTheTextTheyContinue()
     {
         // vim's 'breakindent': a wrapped row starts under its line's own

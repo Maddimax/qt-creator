@@ -326,6 +326,22 @@ public:
                     view->addCaretsToLineEnds();
             });
 
+        // The line commands. Each is the widget editor's menu entry answered
+        // in this editor's context, so that it stops being dead when a Quick
+        // editor is the current one.
+        const auto command = [this](Utils::Id id, void (TextViewport::*run)()) {
+            Core::ActionBuilder(this, id)
+                .setContext(Core::Context(m_editorContext))
+                .addOnTriggered(this, [this, run] {
+                    if (TextViewport * const view = viewport())
+                        (view->*run)();
+                });
+        };
+        command(Constants::UPPERCASE_SELECTION, &TextViewport::uppercaseSelection);
+        command(Constants::LOWERCASE_SELECTION, &TextViewport::lowercaseSelection);
+        command(Constants::INSERT_LINE_ABOVE, &TextViewport::insertLineAbove);
+        command(Constants::INSERT_LINE_BELOW, &TextViewport::insertLineBelow);
+
         Core::ActionBuilder(this, Constants::JOIN_LINES)
             .setContext(Core::Context(m_editorContext))
             .addOnTriggered(this, [this] {

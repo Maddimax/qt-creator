@@ -13407,3 +13407,38 @@ control for - the first would fail if the command did nothing at all.
 
 The remaining line commands are the obvious next batch, and they are all the
 same shape as this one.
+
+## Four more line commands, and two controls that did not bite
+
+Case transformation and line insertion, the same shape as Join Lines: pure
+`MultiTextCursor` transformations that belonged to neither editor, so they
+moved into `textoperations.h` and both call them. `insertLineAbove` and
+`insertLineBelow` take the `TextDocument` as well, because the line they open
+is indented the way that document would indent it. The Quick editor registers
+`UPPERCASE_SELECTION`, `LOWERCASE_SELECTION`, `INSERT_LINE_ABOVE` and
+`INSERT_LINE_BELOW`, so four more menu entries stop being dead.
+
+The interesting part of this batch was that both negative controls passed.
+
+The first was meant to guard the rule that upper casing with nothing selected
+takes the word under the caret, but only while there is one caret - several
+carets each swallowing a word is not what one key press meant. Taking the
+`&& !several` out changed nothing, because the test asked two carets sitting
+in `alpha` and `gamma` to **lower** case. Words that are already lower case
+come back identical whether or not they were selected, so the assertion could
+not tell the two behaviours apart. Asking for upper case instead makes the
+same test fail when the rule is removed.
+
+The second was worse: removing the read-only guard from `insertLineAbove`
+failed nothing at all, because the read-only test written the batch before
+covered only `joinLines`. Each command carries its own guard, and a test per
+command is exactly the kind of thing that gets written for the first one and
+then not for the rest - so there is now one test that puts all five commands
+to a read-only buffer and compares the whole text before and after. Removing
+any single guard fails it.
+
+Both now fail when the behaviour they describe is removed. The pattern in
+these three batches is consistent enough to be worth stating plainly: a test
+written alongside a change is not evidence until the change has been broken
+and the test has been watched to fail. Four times out of six here, the first
+version of the test did not.

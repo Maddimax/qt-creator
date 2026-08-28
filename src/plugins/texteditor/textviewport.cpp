@@ -2072,6 +2072,43 @@ void TextViewport::selectBlockTo(qreal x, qreal y)
     setMultiTextCursor(cursors);
 }
 
+void TextViewport::uppercaseSelection()
+{
+    transformSelectedText([](const QString &text) { return text.toUpper(); });
+}
+
+void TextViewport::lowercaseSelection()
+{
+    transformSelectedText([](const QString &text) { return text.toLower(); });
+}
+
+void TextViewport::transformSelectedText(const TextTransformation &transform)
+{
+    if (isReadOnly())
+        return;
+    Utils::MultiTextCursor cursors = multiTextCursor();
+    TextEditor::transformSelection(cursors, transform);
+    setMultiTextCursor(cursors);
+}
+
+void TextViewport::insertLineAbove()
+{
+    if (isReadOnly())
+        return;
+    Utils::MultiTextCursor cursors = multiTextCursor();
+    TextEditor::insertLineAbove(cursors, m_document ? m_document->textDocument() : nullptr);
+    setMultiTextCursor(cursors);
+}
+
+void TextViewport::insertLineBelow()
+{
+    if (isReadOnly())
+        return;
+    Utils::MultiTextCursor cursors = multiTextCursor();
+    TextEditor::insertLineBelow(cursors, m_document ? m_document->textDocument() : nullptr);
+    setMultiTextCursor(cursors);
+}
+
 void TextViewport::joinLines()
 {
     if (isReadOnly())

@@ -2529,29 +2529,14 @@ void TextEditorWidget::joinLines()
 void TextEditorWidget::insertLineAbove()
 {
     MultiTextCursor cursor = multiTextCursor();
-    cursor.beginEditBlock();
-    for (QTextCursor &c : cursor) {
-        // If the cursor is at the beginning of the document,
-        // it should still insert a line above the current line.
-        c.movePosition(QTextCursor::StartOfBlock, QTextCursor::MoveAnchor);
-        c.insertBlock();
-        c.movePosition(QTextCursor::PreviousBlock, QTextCursor::MoveAnchor);
-        d->m_document->autoIndent(c);
-    }
-    cursor.endEditBlock();
+    TextEditor::insertLineAbove(cursor, d->m_document.data());
     setMultiTextCursor(cursor);
 }
 
 void TextEditorWidget::insertLineBelow()
 {
     MultiTextCursor cursor = multiTextCursor();
-    cursor.beginEditBlock();
-    for (QTextCursor &c : cursor) {
-        c.movePosition(QTextCursor::EndOfBlock, QTextCursor::MoveAnchor);
-        c.insertBlock();
-        d->m_document->autoIndent(c);
-    }
-    cursor.endEditBlock();
+    TextEditor::insertLineBelow(cursor, d->m_document.data());
     setMultiTextCursor(cursor);
 }
 
@@ -10207,30 +10192,7 @@ int TextEditorWidget::rowCount() const
 void TextEditorWidgetPrivate::transformSelection(TransformationMethod method)
 {
     MultiTextCursor cursor = m_cursors;
-    cursor.beginEditBlock();
-    for (QTextCursor &c : cursor) {
-        int pos = c.position();
-        int anchor = c.anchor();
-
-        if (!c.hasSelection() && !m_cursors.hasMultipleCursors()) {
-            // if nothing is selected, select the word under the cursor
-            c.select(QTextCursor::WordUnderCursor);
-        }
-
-        QString text = c.selectedText();
-        QString transformedText = method(text);
-
-        if (transformedText == text)
-            continue;
-
-        c.insertText(transformedText);
-
-        // (re)select the changed text
-        // Note: this assumes the transformation did not change the length,
-        c.setPosition(anchor);
-        c.setPosition(pos, QTextCursor::KeepAnchor);
-    }
-    cursor.endEditBlock();
+    TextEditor::transformSelection(cursor, method);
     q->setMultiTextCursor(cursor);
 }
 
