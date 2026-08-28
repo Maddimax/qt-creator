@@ -12830,3 +12830,36 @@ two lines gives carets at 5 and 10 rather than merely "two carets somewhere",
 and that calling it with nothing selected leaves the single caret alone rather
 than clearing it - `setMultiTextCursor()` with an empty set would have, which
 is why the method checks before calling it.
+
+### A caret on the next occurrence, and a convention I had got backwards
+
+The last of the widget's two actions: select a word, ask again, and the next
+one of it gets a caret too. Ported from the widget, where it is also pure
+cursor work - with one honest difference. The widget searches with the find
+bar's current flags (`m_findFlags`); this view does not have them, so it looks
+for the text as it stands. Case-insensitive multi-caret selection is therefore
+the one thing here that the widget does and this does not.
+
+Writing it found a bug in the API from three steps ago. `multiTextCursor()`
+returned the main caret **first**. `Utils::MultiTextCursor` keeps it **last**:
+
+    QTextCursor MultiTextCursor::mainCursor() const
+    {
+        ...
+        return m_cursorList.back();
+    }
+
+So `cursors().first()` means "the oldest one", and the widget's algorithm uses
+exactly that as the anchor it stops at when the search comes back around. With
+the main caret first, the anchor was whichever caret had just been added - the
+search wrapped straight onto it and stopped, so a third caret could never be
+made. Two carets worked, three did not.
+
+Both `multiTextCursor()` and `setMultiTextCursor()` now keep the main one last,
+and `applyToEveryCaret()` follows the same order so there is one convention
+rather than two.
+
+Worth naming the shape: the first two steps were consistent *with themselves*,
+so their tests passed. What they were not consistent with was the type they
+hand out, and nothing found that until an algorithm written against the type
+was reused. A borrowed algorithm is a test of the borrowed type's conventions.

@@ -1834,8 +1834,12 @@ QVariantList TextViewport::caretRectangles() const
 
 Utils::MultiTextCursor TextViewport::multiTextCursor() const
 {
-    QList<QTextCursor> cursors = {textCursor()};
-    cursors.append(m_extraCursors);
+    // The main caret last, which is where MultiTextCursor keeps it -
+    // mainCursor() is the back of the list. Anything reading cursors().first()
+    // means the oldest one, and the algorithms reused here are written that
+    // way; putting the main one first quietly gives them the wrong anchor.
+    QList<QTextCursor> cursors = m_extraCursors;
+    cursors.append(textCursor());
     return Utils::MultiTextCursor(cursors);
 }
 
@@ -1846,11 +1850,11 @@ void TextViewport::setMultiTextCursor(const Utils::MultiTextCursor &cursors)
         m_extraCursors.clear();
         return;
     }
-    // The main one is the caret; the rest are extra. setTextCursor() is what
-    // moves the view and marks the caret for redrawing, so the main one still
-    // goes through it - and it clears the extras, so they are put back after.
-    const QTextCursor main = cursors.mainCursor();
-    all.removeOne(main);
+    // The last is the main one; the rest are extra, in the order they were
+    // made. setTextCursor() is what moves the view and marks the caret for
+    // redrawing, so the main one goes through it - and it clears the extras,
+    // so they are put back after.
+    const QTextCursor main = all.takeLast();
     setTextCursor(main);
     m_extraCursors = all;
 }
@@ -1903,14 +1907,58 @@ void TextViewport::addCaretsToLineEnds()
         setMultiTextCursor(ends);
 }
 
-void TextViewport::applyToEveryCaret(const std::function<void(QTextCursor &)> &edit)
+void TextViewport::addCaretAtNextMatch()
 {
-    QList<QTextCursor> carets = {textCursor()};
-    carets.append(m_extraCursors);
-    if (carets.first().isNull())
+    const Utils::MultiTextCursor carets = multiTextCursor();
+    const QList<QTextCursor> all = carets.cursors();
+    if (all.isEmpty() || !all.first().hasSelection())
         return;
 
-    // By index, so that the main caret is still the first one afterwards
+    const QString selected = all.first().selectedText();
+    // A selection running over a line break is not a thing to look for again.
+    if (selected.contains(QChar::ParagraphSeparator))
+        return;
+
+    // Every caret has to have the same text selected, or "the next one" is
+    // not a question with an answer.
+    const QString folded = selected.toCaseFolded();
+    for (const QTextCursor &caret : all) {
+        if (caret.selectedText().toCaseFolded() != folded)
+            return;
+    }
+
+    QTextDocument * const text = all.first().document();
+    if (!text)
+        return;
+
+    int searchFrom = all.last().selectionEnd();
+    while (true) {
+        const QTextCursor next = text->find(selected, searchFrom);
+        if (next.isNull()) {
+            // Nothing after the last caret: start again from the top, once.
+            if (searchFrom == 0)
+                return;
+            searchFrom = 0;
+            continue;
+        }
+        // Back at the first one, so every occurrence already has a caret.
+        if (next.selectionStart() == all.first().selectionStart())
+            return;
+        Utils::MultiTextCursor added = carets;
+        added.addCursor(next);
+        setMultiTextCursor(added);
+        return;
+    }
+}
+
+void TextViewport::applyToEveryCaret(const std::function<void(QTextCursor &)> &edit)
+{
+    QList<QTextCursor> carets = m_extraCursors;
+    carets.append(textCursor());
+    if (carets.last().isNull())
+        return;
+
+    // By index, so that the main caret is still the last one afterwards
     // however the order came out.
     QList<int> order;
     for (int i = 0; i < carets.size(); ++i)
@@ -1927,8 +1975,8 @@ void TextViewport::applyToEveryCaret(const std::function<void(QTextCursor &)> &e
         edit(carets[i]);
     group.endEditBlock();
 
-    setTextCursor(carets.first());
-    m_extraCursors = carets.mid(1);
+    setTextCursor(carets.takeLast());
+    m_extraCursors = carets;
 }
 
 QTextBlock TextViewport::cursorBlock() const

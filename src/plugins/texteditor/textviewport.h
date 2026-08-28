@@ -563,6 +563,10 @@ public:
     // A caret at the end of every line a selection covers, which is how a
     // column of them is made without clicking each one.
     Q_INVOKABLE void addCaretsToLineEnds();
+    // A caret on the next occurrence of what is selected, wrapping at the end.
+    // Searches for the text as it stands: the find bar's case and whole-word
+    // settings are the widget editor's, and this view does not share them.
+    Q_INVOKABLE void addCaretAtNextMatch();
     void setCursorPosition(int position);
     QRectF cursorRectangle() const;
 

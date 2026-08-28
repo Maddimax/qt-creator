@@ -326,6 +326,13 @@ public:
                     view->addCaretsToLineEnds();
             });
 
+        Core::ActionBuilder(this, Constants::ADD_SELECT_NEXT_FIND_MATCH)
+            .setContext(Core::Context(m_editorContext))
+            .addOnTriggered(this, [this] {
+                if (TextViewport * const view = viewport())
+                    view->addCaretAtNextMatch();
+            });
+
         followSymbol(Constants::FOLLOW_SYMBOL_UNDER_CURSOR, false);
         followSymbol(Constants::FOLLOW_SYMBOL_UNDER_CURSOR_IN_NEXT_SPLIT, true);
 

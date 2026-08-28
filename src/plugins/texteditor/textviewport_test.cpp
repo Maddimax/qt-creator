@@ -6292,6 +6292,52 @@ private slots:
         QCOMPARE(positions, QList<int>({5, 10}));
     }
 
+    void testACaretGoesToTheNextOccurrenceOfWhatIsSelected()
+    {
+        // Select a word, ask again, and the next one of it gets a caret too -
+        // the way a name is renamed without a refactoring engine.
+        TemporaryDirectory dir("textviewport-next-match");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("matches.txt");
+        QVERIFY(file.writeFileContents("alpha beta\nalpha gamma\nalpha delta\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 2);
+
+        // With nothing selected there is no word to look for, and the caret
+        // is left alone rather than cleared.
+        viewport->setCursorPosition(0);
+        viewport->addCaretAtNextMatch();
+        QCOMPARE(viewport->caretRectangles().size(), 1);
+
+        // The first "alpha".
+        viewport->setSelectionStart(0);
+        viewport->setSelectionEnd(5);
+        viewport->addCaretAtNextMatch();
+        QCOMPARE(viewport->caretRectangles().size(), 2);
+
+        viewport->addCaretAtNextMatch();
+        QCOMPARE(viewport->caretRectangles().size(), 3);
+
+        // All three are on "alpha", each on a different line.
+        QList<int> starts;
+        for (const QTextCursor &caret : viewport->multiTextCursor().cursors()) {
+            QCOMPARE(caret.selectedText(), QString("alpha"));
+            starts.append(caret.selectionStart());
+        }
+        std::sort(starts.begin(), starts.end());
+        QCOMPARE(starts, QList<int>({0, 11, 23}));
+
+        // Asking again has nowhere left to go, so it stops rather than
+        // wrapping onto one that already has a caret.
+        viewport->addCaretAtNextMatch();
+        QCOMPARE(viewport->caretRectangles().size(), 3);
+    }
+
     void testEscapeGoesBackToOneCaret()
     {
         // Escape collapses them, and only does that when there is more than
