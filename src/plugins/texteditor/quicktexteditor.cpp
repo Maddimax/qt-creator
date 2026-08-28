@@ -316,6 +316,16 @@ public:
                         view->followSymbolUnderCursor(view->opensInNextSplit(inNextSplit));
                 });
         };
+        // The same action the widget editor answers; which editor is current
+        // decides who does. Without this the menu entry is dead whenever a
+        // Quick editor is the current one.
+        Core::ActionBuilder(this, Constants::ADD_CURSORS_TO_LINE_ENDS)
+            .setContext(Core::Context(m_editorContext))
+            .addOnTriggered(this, [this] {
+                if (TextViewport * const view = viewport())
+                    view->addCaretsToLineEnds();
+            });
+
         followSymbol(Constants::FOLLOW_SYMBOL_UNDER_CURSOR, false);
         followSymbol(Constants::FOLLOW_SYMBOL_UNDER_CURSOR_IN_NEXT_SPLIT, true);
 

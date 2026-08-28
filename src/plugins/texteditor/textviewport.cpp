@@ -1872,6 +1872,37 @@ void TextViewport::addCaretAt(int position)
     setMultiTextCursor(cursors);
 }
 
+void TextViewport::addCaretsToLineEnds()
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    QTextDocument * const text = doc ? doc->document() : nullptr;
+    if (!text)
+        return;
+
+    // The lines a selection covers, except the one it ends on: a selection
+    // stopping part way through a line was not asking for that line's end.
+    Utils::MultiTextCursor ends;
+    for (const QTextCursor &caret : multiTextCursor().cursors()) {
+        if (!caret.hasSelection())
+            continue;
+        QTextBlock block = text->findBlock(caret.selectionStart());
+        while (block.isValid()) {
+            const int blockEnd = block.position() + block.length() - 1;
+            if (blockEnd >= caret.selectionEnd())
+                break;
+            QTextCursor atEnd(text);
+            atEnd.setPosition(blockEnd);
+            ends.addCursor(atEnd);
+            block = block.next();
+        }
+    }
+
+    // Nothing spanned more than its own line, so there is nothing to replace
+    // the carets with.
+    if (!ends.isNull())
+        setMultiTextCursor(ends);
+}
+
 void TextViewport::applyToEveryCaret(const std::function<void(QTextCursor &)> &edit)
 {
     QList<QTextCursor> carets = {textCursor()};

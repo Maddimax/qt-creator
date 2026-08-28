@@ -560,6 +560,9 @@ public:
     // caret - it is the one just placed - and asking for one where there is
     // already one leaves the count alone.
     Q_INVOKABLE void addCaretAt(int position);
+    // A caret at the end of every line a selection covers, which is how a
+    // column of them is made without clicking each one.
+    Q_INVOKABLE void addCaretsToLineEnds();
     void setCursorPosition(int position);
     QRectF cursorRectangle() const;
 

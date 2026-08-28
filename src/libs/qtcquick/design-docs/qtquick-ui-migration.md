@@ -12811,3 +12811,22 @@ carets by Alt+click, and has to be able to be rid of them - so Escape is
 handled before the read-only check. And only when there is more than one
 caret: Escape means other things elsewhere, and taking it always would be
 taking it from them.
+
+### A caret at the end of every selected line
+
+The widget editor's "Add Cursors to Line Ends", answered by the Quick editor
+too. The action id is global and the context decides who handles it, which is
+the same arrangement Follow Symbol and Text Wrapping already use here - so
+this is a registration and a method rather than anything new.
+
+The method is the widget's algorithm, which turned out to need nothing from a
+widget: for every caret that has a selection, walk the blocks from where the
+selection starts, and put a caret at the end of each one that ends before the
+selection does. The line the selection *stops on* is left out, because
+stopping part way through a line was not asking for that line's end.
+
+Two things the test pins besides the obvious one: that a selection covering
+two lines gives carets at 5 and 10 rather than merely "two carets somewhere",
+and that calling it with nothing selected leaves the single caret alone rather
+than clearing it - `setMultiTextCursor()` with an empty set would have, which
+is why the method checks before calling it.

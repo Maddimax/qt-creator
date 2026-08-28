@@ -6256,6 +6256,42 @@ private slots:
         QTRY_COMPARE(viewport->caretRectangles().size(), 1);
     }
 
+    void testACaretGoesToTheEndOfEveryLineASelectionCovers()
+    {
+        // How a column of carets is made without clicking each one. The line
+        // the selection ends on is left out: stopping part way through it was
+        // not asking for its end.
+        TemporaryDirectory dir("textviewport-line-ends");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("lines.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\ngamma\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 2);
+
+        // Nothing selected is nothing to do, and it must not clear the caret.
+        viewport->setCursorPosition(0);
+        viewport->addCaretsToLineEnds();
+        QCOMPARE(viewport->caretRectangles().size(), 1);
+
+        // Selecting from the start into "gamma": "alpha\n" ends at 5,
+        // "beta\n" at 10, and "gamma" is where it stops.
+        viewport->setSelectionStart(0);
+        viewport->setSelectionEnd(12);
+        viewport->addCaretsToLineEnds();
+
+        QCOMPARE(viewport->caretRectangles().size(), 2);
+        QList<int> positions;
+        for (const QTextCursor &caret : viewport->multiTextCursor().cursors())
+            positions.append(caret.position());
+        std::sort(positions.begin(), positions.end());
+        QCOMPARE(positions, QList<int>({5, 10}));
+    }
+
     void testEscapeGoesBackToOneCaret()
     {
         // Escape collapses them, and only does that when there is more than
