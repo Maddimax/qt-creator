@@ -3059,6 +3059,47 @@ private slots:
         QCOMPARE(viewport->selectionStart(), 0);
     }
 
+    void testAWrappedRowCanCarryAMarker()
+    {
+        // vim's 'showbreak': a marker at the start of every row that continues
+        // a line. It takes room whether or not the rows are indented, so the
+        // rows must be shaped narrower by it - and the layout that counts rows
+        // has to be told, or the two disagree about where a row breaks.
+        TemporaryDirectory dir("qtc-viewport-showbreak");
+        const FilePath file = dir.filePath("long.txt");
+        QVERIFY(file.writeFileContents(QByteArray(300, 'x') + "\n"));
+
+        const QString wasMarker = displaySettings().showBreak();
+        const QScopeGuard restore(
+            [wasMarker] { displaySettings().showBreak.setValue(wasMarker); });
+        displaySettings().showBreak.setValue(QString());
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        const int unwrapped = viewport->visibleLineCount();
+        viewport->setWrapping(true);
+        QTRY_VERIFY2(viewport->visibleLineCount() > unwrapped,
+                     "the long line did not wrap, so no row continues another");
+
+        // No marker asked for, so none anywhere - including the row that
+        // starts the line, which never carries one.
+        const int plainRow = viewport->visibleLine(1).value("text").toString().size();
+        QVERIFY(plainRow > 0);
+        QCOMPARE(viewport->visibleLine(1).value("breakMarker").toString(), QString());
+
+        displaySettings().showBreak.setValue("...");
+        // The row that starts the line still has none; the ones that continue
+        // it do, and they are narrower for it.
+        QTRY_COMPARE(viewport->visibleLine(1).value("breakMarker").toString(), QString("..."));
+        QCOMPARE(viewport->visibleLine(0).value("breakMarker").toString(), QString());
+        QVERIFY2(viewport->visibleLine(1).value("text").toString().size() < plainRow,
+                 "the marker was drawn without any room being made for it");
+    }
+
     void testHomeGoesToTheCodeBeforeItGoesToTheMargin()
     {
         TemporaryDirectory dir("qtc-viewport-home");

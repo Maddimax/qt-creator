@@ -516,6 +516,10 @@ private:
         // arrows QTextLine::draw() would add are not among them - so they are
         // drawn from here.
         QVariantList whitespace;
+        // The wrapped-line marker for this row, where one is set and this row
+        // is a continuation. Empty otherwise.
+        QString breakMarker;
+        qreal breakMarkerX = 0;
     };
     // What a selection is filled with, read on the GUI thread in
     // updatePolish() and used on the render thread in updatePaintNode().

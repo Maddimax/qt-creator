@@ -412,6 +412,28 @@ Item {
                 color: viewport.marginLineColor
             }
 
+            // The wrapped-line marker, on the rows that continue a line.
+            Repeater {
+                model: viewport.visibleLines
+
+                delegate: Text {
+                    required property int index
+                    required property var modelData
+
+                    readonly property int row: viewport.firstVisibleLine + index
+
+                    z: -1
+                    visible: text !== ""
+                    text: modelData.breakMarker ?? ""
+                    x: (modelData.breakMarkerX ?? 0) - viewport.scrollX
+                    y: row * viewport.lineHeight - viewport.scrollY
+                    height: viewport.lineHeight
+                    verticalAlignment: Text.AlignVCenter
+                    font: viewport.font
+                    color: viewport.indentGuideColor
+                }
+            }
+
             // Spaces and tabs, where the reader asked to see them. A dot in
             // the middle of a space and a rule across a tab, which is what the
             // widget editor gets from QTextLine::draw() - the scene graph

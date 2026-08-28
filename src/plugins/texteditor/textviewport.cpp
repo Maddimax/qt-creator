@@ -491,6 +491,9 @@ QVariantMap TextViewport::visibleLine(int index) const
                        {"selectionFill", line.selectionFill},
                        // The spaces and tabs on this row, where they are shown.
                        {"whitespace", line.whitespace},
+                       // The wrapped-line marker, where this row has one.
+                       {"breakMarker", line.breakMarker},
+                       {"breakMarkerX", line.breakMarkerX},
                        // What is being composed on this line, if anything. Not
                        // part of "text": it is not in the document yet, which
                        // is the whole distinction.
@@ -1862,6 +1865,11 @@ void TextViewport::updatePolish()
     const bool breakIndentOn = m_wrapping && displaySettings().breakindent();
     const int breakIndentMin = displaySettings().breakindentMin();
     const int breakIndentShift = displaySettings().breakindentShift();
+    // The marker drawn at the start of a wrapped row, vim's 'showbreak'. It
+    // takes room whether or not the rows are indented, so it is part of the
+    // same measurement.
+    const QString breakMarker = m_wrapping ? displaySettings().showBreak() : QString();
+    const bool markerBeforeIndent = displaySettings().breakindentSbr();
 
     const qreal wrapWidth = m_wrapping ? qMax(1.0, width() - m_lineHeight / 4)
                                        : std::numeric_limits<qreal>::max();
@@ -1882,6 +1890,7 @@ void TextViewport::updatePolish()
             separator = QFontMetricsF(font).horizontalAdvance(QChar(0x21B5));
         }
         rows->setBreakIndent(breakIndentOn, breakIndentMin, breakIndentShift);
+        rows->setShowBreak(breakMarker, markerBeforeIndent);
         static_cast<ViewportLayout *>(rows)->setTextWidth(
             wrapWidth + 2 * text->documentMargin() + separator);
         for (QTextBlock b = text->firstBlock(); b.isValid(); b = b.next())
@@ -2006,7 +2015,7 @@ void TextViewport::updatePolish()
                     break;
                 if (breaks.isEmpty()) {
                     shaped.setLineWidth(wrapWidth);
-                    if (breakIndentOn) {
+                    if (breakIndentOn || !breakMarker.isEmpty()) {
                         // As far in as the block's own indent, plus the shift,
                         // but never so far that less than breakIndentMin
                         // columns of text are left - the same arithmetic
@@ -2018,7 +2027,13 @@ void TextViewport::updatePolish()
                             ++ws;
                         }
                         const qreal spaceWidth = metrics.horizontalAdvance(QLatin1Char(' '));
-                        const qreal wanted = shaped.cursorToX(ws) + breakIndentShift * spaceWidth;
+                        const qreal indent = breakIndentOn
+                                                 ? shaped.cursorToX(ws)
+                                                       + breakIndentShift * spaceWidth
+                                                 : 0;
+                        // Room for the marker too, whether or not the rows are
+                        // indented - the layout reserves it the same way.
+                        const qreal wanted = indent + metrics.horizontalAdvance(breakMarker);
                         const qreal most = wrapWidth - breakIndentMin * spaceWidth;
                         blockBreakIndent = qBound(qreal(0), wanted, qMax(qreal(0), most));
                     }
@@ -2217,6 +2232,16 @@ void TextViewport::updatePolish()
             // Continuation rows sit under the text they continue; the row that
             // starts the line does not move.
             const qreal rowIndent = rowInBlock == 0 ? 0 : blockBreakIndent;
+
+            // The marker goes on the rows that continue a line: at the far
+            // left where it is asked for before the indent, otherwise right in
+            // front of the text.
+            if (!breakMarker.isEmpty() && rowInBlock > 0) {
+                line.breakMarker = breakMarker;
+                line.breakMarkerX = markerBeforeIndent
+                                        ? 0
+                                        : rowIndent - metrics.horizontalAdvance(breakMarker);
+            }
 
             // Where the whitespace on this row is, for whoever draws it. In the
             // row's own space plus the indent, which is where it is drawn.
