@@ -184,6 +184,25 @@ exactly as wide as it was. Only the marked part is a handle - a press anywhere
 else does nothing, which is what the widget editor does rather than jumping to
 where it was clicked.
 
+**And it was drawn again on every layout, which is worse than it sounds.** The
+first version marked the picture stale on `metricsChanged`. That is emitted at
+the end of *every* `updatePolish()` - scrolling, moving the caret, typing - so
+each of them threw away a file-sized image and drew it again on the next
+frame. Nothing looked wrong; it was simply doing the most expensive thing in
+the editor several times a second.
+
+It follows the document now: contents, font settings, and the replacement that
+happens when a file is reopened. Scrolling moves the marked part and nothing
+else. `pictureChanged()` says when the picture was really drawn again, which
+is what makes "scrolling left it alone" something a test can ask about - and
+the control for it is the bug itself, put back.
+
+**Both minimap bugs were mine, shipped in the same batch, and neither was
+visible.** One made dragging depend on having been painted; the other made
+painting happen far too often. A feature that looks right on screen can still
+be wrong in what it does and when it does it, and neither question is asked by
+looking at it.
+
 **Building the picture in `paint()` made dragging depend on having been
 drawn.** The picture is what says where the marked part *is*, so a click needs
 it as much as a repaint does. The first version built it lazily on paint, and
