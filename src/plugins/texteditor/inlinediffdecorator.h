@@ -25,6 +25,8 @@ TEXTEDITOR_EXPORT Utils::Id inlineDiffGhostCategory();
 // applied to the widget, in document order (for tests)
 TEXTEDITOR_EXPORT QStringList inlineDiffChangedCharTexts(TextEditorWidget *widget);
 
+class TextViewport;
+
 // Displays one side of a diff on top of an editable TextEditorWidget: lines
 // removed from a baseline are rendered as read-only "ghost rows" between the
 // real lines (inline view) or as empty spacer rows that align the widget with
@@ -91,5 +93,13 @@ private:
     QList<QPair<QTextCursor, int>> m_itemAnchors;
     int m_lastBlockCount = 0;
 };
+
+// Shows the removed lines of a diff on a Quick viewport, from the same
+// description the decorator applies to a widget. The decorator drives a
+// TextEditorWidget and does the whole job - the changed line highlights, the
+// character level ones, the spacers; this is the ghost rows alone, for the
+// view that has no widget to decorate.
+TEXTEDITOR_EXPORT void applyInlineDiffGhosts(
+    TextViewport *viewport, const QList<InlineDiffDecorator::GhostBlock> &ghosts);
 
 } // namespace TextEditor

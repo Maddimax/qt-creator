@@ -4,6 +4,7 @@
 #include "textviewport_test.h"
 
 #include "codebuffer.h"
+#include "inlinediffdecorator.h"
 #include "displaysettings.h"
 #include "codedocument.h"
 #include "codeindenting.h"
@@ -5908,7 +5909,7 @@ private slots:
         QVERIFY(!thirdBefore.isEmpty());
         QVERIFY(viewport->ghostTextOnScreen().isEmpty());
 
-        viewport->setGhostRows({{2, {"was one", "was two"}, QColor()}});
+        viewport->setGhostRows({{2, {"was one", "was two"}}});
         const qreal twoRows = 2 * viewport->lineHeight();
         QTRY_VERIFY(qAbs(viewport->contentHeight() - (contentBefore + twoRows)) < 0.01);
 
@@ -5944,7 +5945,7 @@ private slots:
         QTRY_VERIFY(viewport->visibleLineCount() > 3);
 
         const qreal contentBefore = viewport->contentHeight();
-        viewport->setGhostRows({{2, {"was one", "was two"}, QColor()}});
+        viewport->setGhostRows({{2, {"was one", "was two"}}});
         const qreal twoRows = 2 * viewport->lineHeight();
         QTRY_VERIFY(qAbs(viewport->contentHeight() - (contentBefore + twoRows)) < 0.01);
 
@@ -5960,6 +5961,72 @@ private slots:
         // them rather than on one of them.
         const QRectF third = viewport->rectangleAt(11);
         QCOMPARE(viewport->positionAt(0, third.y() - twoRows / 2), 11);
+    }
+
+    void testTheGhostRowsOfADiffLandWhereTheLinesWereRemovedFrom()
+    {
+        // The widget decorator and the viewport are handed the same
+        // description of a diff. This is the viewport's half of reading it:
+        // anchorLine counts from one and rows do not, and a block anchored
+        // past the last line belongs after everything.
+        TemporaryDirectory dir("textviewport-diff-ghosts");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("diffed.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\ngamma\ndelta\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+        const int lines = viewport->lineCount();
+
+        // Removed from above the second line, so above the second row.
+        applyInlineDiffGhosts(viewport, {{2, {"was here"}, {}}});
+        QTRY_COMPARE(viewport->ghostTextOnScreen(), QStringList({"was here"}));
+        QCOMPARE(viewport->ghostRows().size(), 1);
+        QCOMPARE(viewport->ghostRows().first().row, 1);
+
+        // One past the last line is the end of the file rather than a line.
+        applyInlineDiffGhosts(viewport, {{lines + 1, {"at the end"}, {}}});
+        QTRY_COMPARE(viewport->ghostRows().size(), 1);
+        QCOMPARE(viewport->ghostRows().first().row, viewport->rowCount());
+
+        // Further than that describes a document this is not, which happens
+        // while a diff of the current contents is still being computed.
+        applyInlineDiffGhosts(viewport, {{lines + 2, {"nowhere"}, {}}});
+        QTRY_VERIFY(viewport->ghostRows().isEmpty());
+    }
+
+    void testALongRemovalIsElidedRatherThanShownWhole()
+    {
+        // Deleting a thousand lines should not put a thousand rows between
+        // two lines of the file.
+        TemporaryDirectory dir("textviewport-elision");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("diffed.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\ngamma\ndelta\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+
+        QStringList removed;
+        for (int i = 0; i < 150; ++i)
+            removed << QString("gone %1").arg(i);
+        applyInlineDiffGhosts(viewport, {{2, removed, {}}});
+        QTRY_COMPARE(viewport->ghostRows().size(), 1);
+
+        // The first hundred, and one line saying what is not shown.
+        const QStringList shown = viewport->ghostRows().first().lines;
+        QCOMPARE(shown.size(), 101);
+        QCOMPARE(shown.first(), QString("gone 0"));
+        QCOMPARE(shown.at(99), QString("gone 99"));
+        QVERIFY2(shown.last().contains("50"), qPrintable(shown.last()));
     }
 
     void testGhostRowsScrolledOffScreenAreNotLaidOut()

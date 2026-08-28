@@ -1140,9 +1140,21 @@ bool TextViewport::rebuildGaps()
 void TextViewport::layOutGhostRows()
 {
     m_ghostLines.clear();
-    m_ghostBackgrounds.clear();
+    m_ghostBackground = QColor();
     if (m_ghosts.isEmpty() || m_lineHeight <= 0)
         return;
+
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    if (!doc)
+        return;
+
+    // The same scheme entry the decorated widget uses for the lines a diff
+    // has removed, so the two views of one diff are coloured alike and follow
+    // the theme together.
+    const QTextCharFormat removed = doc->fontSettings().toTextCharFormat(C_DIFF_SOURCE_LINE);
+    m_ghostBackground = removed.background().style() == Qt::NoBrush
+                            ? QColor()
+                            : removed.background().color();
 
     QTextOption option;
     option.setWrapMode(QTextOption::NoWrap);
@@ -1166,6 +1178,11 @@ void TextViewport::layOutGhostRows()
             Line line;
             line.layout = std::make_unique<QTextLayout>(ghost.lines.at(i), m_font);
             line.layout->setTextOption(option);
+            QTextLayout::FormatRange range;
+            range.start = 0;
+            range.length = int(ghost.lines.at(i).size());
+            range.format = removed;
+            line.layout->setFormats({range});
             line.layout->beginLayout();
             QTextLine textLine = line.layout->createLine();
             if (textLine.isValid()) {
@@ -1178,7 +1195,6 @@ void TextViewport::layOutGhostRows()
             line.blockPosition = -1;
             line.at = QPointF(-m_scrollX, y - m_scrollY);
             m_ghostLines.push_back(std::move(line));
-            m_ghostBackgrounds.push_back(ghost.background);
         }
     }
 }
@@ -1255,6 +1271,27 @@ qreal TextViewport::rowSpan(int row) const
     // tall as its text, and scrolling to it need not bring the gap along.
     Q_UNUSED(row)
     return m_lineHeight;
+}
+
+int TextViewport::rowOfLine(int line)
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    QTextDocument * const text = doc ? doc->document() : nullptr;
+    if (!text)
+        return 0;
+    const QTextBlock block = text->findBlockByNumber(qBound(0, line - 1, text->blockCount() - 1));
+    return block.isValid() ? rowOfBlock(block) : 0;
+}
+
+int TextViewport::rowCount()
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    QTextDocument * const text = doc ? doc->document() : nullptr;
+    if (!text)
+        return 0;
+    if (const Utils::TextEditorLayout * const rows = m_wrapping ? editorLayout() : nullptr)
+        return rows->lineCount();
+    return text->lineCount();
 }
 
 int TextViewport::rowOfBlock(const QTextBlock &block)
@@ -3259,11 +3296,10 @@ QSGNode *TextViewport::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
         const Line &line = m_ghostLines.at(i);
         if (!line.layout)
             continue;
-        const QColor background = m_ghostBackgrounds.at(i);
-        if (background.isValid() && background.alpha() > 0) {
+        if (m_ghostBackground.isValid() && m_ghostBackground.alpha() > 0) {
             QSGRectangleNode * const fill = win->createRectangleNode();
             fill->setRect(QRectF(0, line.at.y(), width(), m_lineHeight));
-            fill->setColor(background);
+            fill->setColor(m_ghostBackground);
             root->appendChildNode(fill);
         }
         QSGTextNode * const node = win->createTextNode();

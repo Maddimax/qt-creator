@@ -12168,3 +12168,39 @@ with the ghost rows drawn at the top of the viewport, because none of them
 asked *where* the text went. That is the assertion that cannot fail. They now
 check that the rows run up from the row they sit above, one line apart, and
 the control for it is to draw them below that row instead.
+
+### Reading a diff without a widget to decorate
+
+The computation was already done and already widget-free:
+
+    DIFFEDITOR_EXPORT InlineDiffRenderModel mapChunkToRenderModel(
+        const ChunkData &chunk, bool baselineEndsWithNewline, bool editorEndsWithNewline);
+
+It produces `ghosts`, `changes` and `hunks` from a chunk, and its
+`GhostBlock` type lives in **texteditor**, not in the diff editor. So nothing
+about turning a diff into removed lines needed porting. What was missing was
+only a sink: something to hand those ghosts to a viewport instead of to a
+widget. `applyInlineDiffGhosts()` is that, and it sits beside the decorator
+because it reads the same description.
+
+Reading it is where the work is, and it is all conventions:
+
+- `anchorLine` counts from one, rows do not.
+- `anchorLine == lineCount + 1` is not a line at all - it means below the last
+  one, which for a gap is the row one past the end.
+- Anything beyond that describes a document this no longer is, which happens
+  while the diff of the current contents is still being computed. The widget
+  drops those and so does this.
+- A removal of more than a hundred lines is elided to a hundred and a line
+  saying how many are not shown, or deleting a thousand lines would put a
+  thousand rows between two lines of the file.
+
+Ghost rows also stopped taking a colour from whoever installs them. They are
+drawn in `C_DIFF_SOURCE_LINE`, the scheme entry the decorated widget uses for
+the same lines, so the two views of one diff are coloured alike and follow the
+theme together without a caller having to know that.
+
+What is still missing before this is a feature rather than a mechanism: the
+`changes` half - the full width highlight on lines a diff has added or
+modified - has no equivalent in the viewport yet, and character level
+highlights within a ghost line are carried in the description but not drawn.

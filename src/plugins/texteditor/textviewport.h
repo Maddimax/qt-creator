@@ -324,13 +324,18 @@ public:
     {
         int row = 0;
         QStringList lines;
-        QColor background;
         bool operator==(const GhostRows &other) const = default;
     };
     void setGhostRows(const QList<GhostRows> &ghosts);
     QList<GhostRows> ghostRows() const { return m_ghosts; }
     // What is laid out on screen right now, in document order (for tests).
     QStringList ghostTextOnScreen() const;
+    // The row a 1-based document line starts on. Folding and wrapping make
+    // the two differ, so a caller working in line numbers has to ask.
+    Q_INVOKABLE int rowOfLine(int line);
+    // One past the last row, which is where something anchored below the last
+    // line of the file belongs.
+    Q_INVOKABLE int rowCount();
     // Where those rows are drawn, in the same order (for tests).
     QList<QRectF> ghostRectanglesOnScreen() const;
 
@@ -768,7 +773,8 @@ private:
     // The ghost rows that are on screen, laid out in updatePolish() and drawn
     // in updatePaintNode() like any other row.
     std::vector<Line> m_ghostLines;
-    std::vector<QColor> m_ghostBackgrounds;
+    QColor m_ghostBackground;
+
     qreal m_contentHeight = 0;
     qreal m_contentWidth = 0;
     // Set when the caret moved and cleared once updatePolish() has put it back

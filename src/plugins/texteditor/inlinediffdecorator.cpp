@@ -3,6 +3,8 @@
 
 #include "inlinediffdecorator.h"
 
+#include "textviewport.h"
+
 #include "fontsettings.h"
 #include "textdocument.h"
 #include "texteditor.h"
@@ -31,6 +33,35 @@ constexpr int INLINE_DIFF_FORMAT_PROPERTY_ID = QTextFormat::UserProperty + 44;
 
 // Deletion runs longer than this are elided to keep the ghost rows scannable.
 constexpr int maxGhostLines = 100;
+
+void applyInlineDiffGhosts(TextViewport *viewport,
+                           const QList<InlineDiffDecorator::GhostBlock> &ghosts)
+{
+    QTC_ASSERT(viewport, return);
+
+    const int lines = viewport->lineCount();
+    QList<TextViewport::GhostRows> rows;
+    for (const InlineDiffDecorator::GhostBlock &ghost : ghosts) {
+        // The description may be of an older revision than the document is
+        // now; the next diff brings one that fits.
+        if (ghost.lines.isEmpty() || ghost.anchorLine > lines + 1)
+            continue;
+
+        QStringList text = ghost.lines;
+        if (text.size() > maxGhostLines) {
+            const int elided = int(text.size()) - maxGhostLines;
+            text = text.mid(0, maxGhostLines);
+            text << Tr::tr("... (%n more removed lines)", nullptr, elided);
+        }
+
+        // Above the line they were removed from, or after everything when
+        // that is past the end of the file.
+        const int row = ghost.anchorLine > lines ? viewport->rowCount()
+                                                 : viewport->rowOfLine(ghost.anchorLine);
+        rows.append({row, text});
+    }
+    viewport->setGhostRows(rows);
+}
 
 Utils::Id inlineDiffGhostCategory()
 {
