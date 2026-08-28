@@ -2357,6 +2357,12 @@ void QuickUiTest::testMultiLineStringGetsATextArea()
 
     const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
     QVERIFY(form);
+    // Shown, because what this checks is what happens when the editor gains
+    // and loses the focus, and an unshown window hands it to nothing - which
+    // is why this failed about one run in ten.
+    form->resize(400, 300);
+    form->show();
+    QVERIFY(QTest::qWaitForWindowExposed(form.get()));
     auto quickWidget = form->findChild<QQuickWidget *>();
     QVERIFY(quickWidget);
     QQuickItem *rootItem = quickWidget->rootObject();

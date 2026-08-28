@@ -12561,3 +12561,35 @@ vacuously by skipping. Three clean runs afterwards are not proof either, at a
 1 at y 0, and the old predicate selected on width 1 at y 0. The mechanism is
 demonstrated by construction rather than by sampling, and the test now records
 that collision so the next person does not have to rediscover it.
+
+### And the second one asked for focus without a window
+
+The other long-running flake, at 282 pass and 29 fail, is
+`testMultiLineStringGetsATextArea`. What it checks is that a multi-line editor
+writes its value back when it *loses* the focus rather than on every keystroke,
+so it does this:
+
+    QMetaObject::invokeMethod(area, "forceActiveFocus");
+    QTRY_VERIFY(area->hasActiveFocus());
+
+on a form it never showed. An unshown window hands the focus to nothing, so
+whether this worked depended on what else was on screen - and about one time in
+ten it did not.
+
+Every other focus-using test in that file goes through `showPage()`, which
+resizes, shows, waits for `qWaitForWindowExposed` and processes events before
+touching focus; a scan of the file found this was the only one that did not.
+Adding the same three lines is the fix.
+
+Both fixes are the same mistake in different clothing: a test that describes
+what the user sees, checked through something the test never actually put on
+screen. The indent guides one counted an item by its width because the window
+was usually not focused enough for the caret to appear; this one asked for
+focus in a window that could not give it. Neither is a timing problem, and
+neither would have been fixed by waiting longer - which is what "flaky" had
+been quietly implying for weeks.
+
+The evidence is worth stating plainly: four clean runs at a 9% failure rate is
+about a 69% outcome by chance, so the runs are supporting and not conclusive.
+What carries it is that the test now does what every working focus test in the
+same file does.
