@@ -157,6 +157,25 @@ plugin does not exist" and returns nothing, which reads exactly like a clean
 pass if only the totals are looked at. `GlslEditor`, `VcsBase`, `Copilot` and
 `Lua` register no test classes at all - also zero, also not a pass.
 
+**The build descriptions are in step, and the `.qml` half needs no work at
+all.** Every `.cpp` and `.h` this branch added is listed in its `.qbs`
+(`qtcquick` is 27 of 27). Nine files elsewhere are unlisted and all nine
+predate this work by months - mostly headers, which qbs does not need.
+
+The `.qml` files are covered by a **wildcard**: the "qml" group is
+`files: ["*.qml"]` with `fileTags: []`, above a comment saying qbs has no QML
+module support and CMake builds them. So a new `.qml` needs a
+`qt_add_qml_module` entry and nothing in the `.qbs` at all.
+
+**Both of the checks that established this were wrong the first time, in
+opposite directions.** The first reported all seventy `.qml` files as missing -
+it looked for filenames in a file that globs them. The second reported 335
+`utils` sources as missing - `ls *.qml.qbs | head -1` had picked
+`process_ctrlc_stub.qbs`, the alphabetically first `.qbs` in the directory,
+rather than `utils.qbs`. A check that flags *everything* is exactly as
+suspect as one that flags nothing, and both were caught by asking why the
+answer was implausible rather than by acting on it.
+
 **The FakeVim failures are older than this branch and one of them cannot pass
 on macOS.** `test_vim_script_throwpoint` builds its expectation from
 `QTemporaryDir::path()` - `/var/folders/...` - while FakeVim reports what
