@@ -340,10 +340,10 @@ interesting:
   whose ghost rows the Quick editor does not have at all.
 - **Animations** - `animateMatchingParentheses`,
   `animateNavigationWithinFile`, `animateWithinFileTimeMax`. Cosmetic.
-- **Editor-layer behaviour rather than drawing** - one left,
-  `minimalAnnotationContent` (default 15), which the widget multiplies by the
-  character width to keep a minimum of an annotation visible. The other three
-  turned out not to be a list of things to port:
+- **Editor-layer behaviour rather than drawing** - all four accounted for.
+  `minimalAnnotationContent` is read now; it turned out to be a parameter of
+  `annotationAlignment` rather than a setting of its own, and the margin
+  alignment is the only reader it has ever had. The other three:
   - `openLinksInNextSplit` is **done**. It swaps what Alt means rather than
     being a second way of asking for the other split - the widget takes Alt
     exclusive-or the setting, and its two Follow Symbol actions negate each
@@ -431,6 +431,30 @@ removed, the line untouched - because every key was landing on the read-only
 guard. An existing test says so in as many words; a new one has to call
 `setReadOnly(false)` or it is testing the guard. The tell is *nothing*
 happening rather than the wrong thing happening.
+
+### Where a mark's message goes
+
+`annotationAlignment` was not on any of the lists above, which is how it went
+unnoticed the longest: the audit was built from the settings named in the
+gaps, and this one is named in none of them. It **defaults to the right side**,
+and the Quick editor drew every message immediately after the text - the
+setting was read nowhere at all. Three of its four positions are implemented
+now (next to the content, at the right margin, against the right edge), and
+`BetweenLines` is not: it puts the message on a line of its own, which needs
+the block to be taller than the text in it.
+
+**The existing test could not have caught this.** It asserted
+`x >= lineWidth` - that the message does not overlap the line it is about -
+which every one of the four alignments satisfies. A lower bound is not a
+position. The new test pins the actual x against what the viewport reports and
+against what is drawn, for two alignments.
+
+**And the first control that did not bite was the fixture's fault, not the
+harness's.** Removing the `qMax` that keeps a right-aligned message off the
+end of a long line changed nothing, because every line in the fixture was
+"line 42" and the right edge was never left of where the text ended. A
+long line had to be put in the file before that control could bite. A control
+that does not bite is a question about the fixture first.
 
 **A `Repeater` inside a `Menu` cannot be reached from it.** The indent sizes
 started as a `Repeater` over `model: 8`. `findChild` on the menu found
