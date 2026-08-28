@@ -1307,9 +1307,8 @@ void VcsBaseEditorWidget::jumpToDiffTarget(const FilePath &filePath,
                                            const QTextBlock &contextBlock)
 {
     Q_UNUSED(contextBlock)
-    IEditor *ed = EditorManager::openEditor(filePath);
-    if (auto editor = qobject_cast<BaseTextEditor *>(ed))
-        editor->gotoLine(lineNumber);
+    if (IEditor *ed = EditorManager::openEditor(filePath))
+        ed->gotoLine(lineNumber);
 }
 
 // cut out chunk and determine file name.
@@ -1454,10 +1453,8 @@ int VcsBaseEditor::lineNumberOfCurrentEditor(const FilePath &currentFile)
 bool VcsBaseEditor::gotoLineOfEditor(IEditor *e, int lineNumber)
 {
     if (lineNumber >= 0 && e) {
-        if (auto be = qobject_cast<BaseTextEditor*>(e)) {
-            be->gotoLine(lineNumber);
-            return true;
-        }
+        e->gotoLine(lineNumber);
+        return true;
     }
     return false;
 }
