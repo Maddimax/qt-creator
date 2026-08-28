@@ -57,7 +57,7 @@ Item {
             readonly property int changeState: change.modelData.changed ?? 0
 
             x: root.width - width
-            y: change.row * root.viewport.lineHeight - root.viewport.scrollY
+            y: change.modelData.y - root.viewport.scrollY
             width: 2
             height: root.viewport.lineHeight
             visible: change.changeState !== 0
@@ -83,7 +83,7 @@ Item {
             readonly property var lineData: modelData
 
             x: Spacing.PaddingHS
-            y: row * root.viewport.lineHeight - root.viewport.scrollY
+            y: modelData.y - root.viewport.scrollY
             width: root.markWidth
             height: root.viewport.lineHeight
             fillMode: Image.PreserveAspectFit
@@ -115,7 +115,7 @@ Item {
             readonly property int row: root.viewport.firstVisibleLine + index
 
             x: Spacing.PaddingHS + root.markWidth
-            y: row * root.viewport.lineHeight - root.viewport.scrollY
+            y: modelData.y - root.viewport.scrollY
             width: widest.width
             height: root.viewport.lineHeight
 
@@ -147,7 +147,7 @@ Item {
             readonly property int row: root.viewport.firstVisibleLine + index
 
             x: root.foldX
-            y: row * root.viewport.lineHeight - root.viewport.scrollY
+            y: modelData.y - root.viewport.scrollY
             width: root.foldWidth
             height: root.viewport.lineHeight
             fillMode: Image.PreserveAspectFit

@@ -6085,6 +6085,58 @@ private slots:
         QVERIFY2(shown.last().contains("50"), qPrintable(shown.last()));
     }
 
+    void testWhatQmlDrawsOverTheTextFollowsAGapToo()
+    {
+        // The indent guides are QML items positioned from the row's own y.
+        // Working it out as row * lineHeight instead - the same thing until
+        // something claims space between rows - leaves every one of them a
+        // gap's worth too high.
+        TemporaryDirectory dir("gap-guides");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("gapped.txt");
+        QVERIFY(file.writeFileContents("alpha\n    beta\n        gamma\n"));
+
+        const bool was = displaySettings().visualizeIndent();
+        const QScopeGuard restore([was] { displaySettings().visualizeIndent.setValue(was); });
+        displaySettings().visualizeIndent.setValue(true);
+
+        CodeViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 2);
+
+        // A guide is a one pixel wide item; where it is drawn is what this is
+        // about, so gather them by position rather than by place in the tree.
+        const auto guideYs = [&fixture, viewport] {
+            QList<qreal> ys;
+            for (QQuickItem * const item : allItems(fixture.root)) {
+                if (item->width() == 1 && item->isVisible())
+                    ys.append(item->mapToItem(viewport, QPointF(0, 0)).y());
+            }
+            std::sort(ys.begin(), ys.end());
+            return ys;
+        };
+
+        QTRY_VERIFY(guideYs.operator()().size() >= 2);
+        const QList<qreal> before = guideYs();
+        const qreal topBefore = before.first();
+        const qreal bottomBefore = before.last();
+        QVERIFY2(bottomBefore > topBefore, "every guide is on one row");
+
+        // Above the deepest row, so the guides on it move and the ones above
+        // it do not.
+        const qreal gap = 3 * viewport->lineHeight();
+        viewport->setRowGaps({{2, gap}});
+
+        QTRY_VERIFY2(qAbs(guideYs().last() - (bottomBefore + gap)) < 0.01,
+                     qPrintable(QString("deepest guide at %1, wanted %2")
+                                    .arg(guideYs().last()).arg(bottomBefore + gap)));
+        QCOMPARE(guideYs().size(), before.size());
+        QVERIFY(qAbs(guideYs().first() - topBefore) < 0.01);
+    }
+
     void testGhostRowsScrolledOffScreenAreNotLaidOut()
     {
         // A diff of a long file has more removed lines than fit on screen.

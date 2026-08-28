@@ -433,7 +433,7 @@ Item {
                     visible: text !== ""
                     text: modelData.breakMarker ?? ""
                     x: (modelData.breakMarkerX ?? 0) - viewport.scrollX
-                    y: row * viewport.lineHeight - viewport.scrollY
+                    y: modelData.y - viewport.scrollY
                     height: viewport.lineHeight
                     verticalAlignment: Text.AlignVCenter
                     font: viewport.font
@@ -458,7 +458,7 @@ Item {
                     readonly property int row: viewport.firstVisibleLine + index
 
                     z: -1
-                    y: whitespaceRow.row * viewport.lineHeight - viewport.scrollY
+                    y: whitespaceRow.modelData.y - viewport.scrollY
                     height: viewport.lineHeight
                     visible: whitespaceRow.marks.length > 0
 
@@ -499,7 +499,7 @@ Item {
                     readonly property int row: viewport.firstVisibleLine + index
 
                     z: -1
-                    y: guideRow.row * viewport.lineHeight - viewport.scrollY
+                    y: guideRow.modelData.y - viewport.scrollY
                     height: viewport.lineHeight
                     visible: (guideRow.lineData.indentGuides ?? 0) > 0
 
@@ -534,7 +534,7 @@ Item {
                     readonly property int row: viewport.firstVisibleLine + index
 
                     x: lineData.width + Spacing.GapHM - viewport.scrollX
-                    y: row * viewport.lineHeight - viewport.scrollY
+                    y: modelData.y - viewport.scrollY
                     height: viewport.lineHeight
                     spacing: Spacing.GapHM
 
@@ -582,7 +582,7 @@ Item {
                     readonly property int row: viewport.firstVisibleLine + index
 
                     x: annotation.lineData.annotationX ?? 0
-                    y: annotation.row * viewport.lineHeight - viewport.scrollY
+                    y: annotation.modelData.y - viewport.scrollY
                     height: viewport.lineHeight
                     verticalAlignment: Text.AlignVCenter
 

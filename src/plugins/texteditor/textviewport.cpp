@@ -622,7 +622,11 @@ QVariantMap TextViewport::visibleLine(int index) const
                        // part of "text": it is not in the document yet, which
                        // is the whole distinction.
                        {"preedit", line.layout->preeditAreaText()},
-                       {"width", line.layout->lineAt(0).naturalTextWidth()}};
+                       {"width", line.layout->lineAt(0).naturalTextWidth()},
+                       // Where the row sits in the document, before the scroll
+                       // is taken off it. Not row * lineHeight: anything that
+                       // claims space between rows moves this and not that.
+                       {"y", line.at.y() + m_scrollY}};
 }
 
 TextViewport::Located TextViewport::locate(int position) const

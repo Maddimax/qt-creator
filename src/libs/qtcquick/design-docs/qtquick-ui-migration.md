@@ -12235,3 +12235,37 @@ assertions: filling only the line a range starts on, and appending no
 character marks. The first fails the range test with `{2}` where `{2, 3, 4}`
 was expected, the second fails the fill test on its marks while its fill
 assertion still passes.
+
+### The arithmetic QML was doing behind the viewport's back
+
+Adding gaps broke something that had been right for as long as it existed. Nine
+bindings across `CodeViewport.qml` and `EditorGutter.qml` placed themselves
+like this:
+
+    y: row * viewport.lineHeight - viewport.scrollY
+
+Which is exactly the formula the C++ side had just stopped using. Every one of
+them - line numbers, fold markers, change marks, indent guides, whitespace
+dots, wrapped-line markers, annotations - would sit a gap's worth too high the
+moment anything claimed space between rows. Nothing installs a gap in
+production yet, so it was latent rather than live, but it was wrong in code
+that was already committed.
+
+The fix is for the row to carry its own position instead of QML deriving one.
+The model now has a `y`, in document space - *before* the scroll is taken off
+it, which matters: QML has to keep subtracting the live `scrollY`, or a row
+would hold the scroll position it had when it was last laid out and lag a
+frame behind every scroll.
+
+The first attempt wrote `modelData.y ?? row * viewport.lineHeight`. That
+fallback is dead - `y` is always supplied - and what it falls back to is
+precisely the bug being fixed, so it would have hidden a regression rather
+than caught one. Removed.
+
+The test for this went through two wrong premises before it bit. It first
+looked for the gutter's line numbers, which the fixture does not have:
+`CodeViewportFixture` loads `CodeViewport.qml` alone, so the gutter is not in
+the scene at all and "line 3 is not drawn" was the truth about the fixture,
+not about the code. Rewritten against the indent guides, which that file does
+draw, it passes and its control - putting `row * lineHeight` back in the
+guide's binding - fails it.
