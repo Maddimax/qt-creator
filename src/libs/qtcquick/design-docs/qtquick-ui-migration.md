@@ -117,6 +117,44 @@ time: it is a cross-cutting audit, not a localised fix. Item 5 overlaps with the
 The gallery (`tests/manual/quick/gallery`) demonstrates the result: switching its
 theme selector recolours the scene in place, without recreating it.
 
+## Scrolling: where the time actually went
+
+Measured rather than guessed, on a five thousand line file with a nine hundred
+pixel view, timing the phases of `updatePolish()`:
+
+| | before | after |
+| --- | --- | --- |
+| a whole layout | 1.32 ms | 0.43 ms |
+| shaping the rows | 0.92 ms | 0.19 ms |
+| selections and parentheses | 0.04 ms | 0.04 ms |
+
+**Seventy percent of a layout was shaping text that had not changed.** Every
+layout built a fresh `QTextLayout` for every row on screen, including the rows
+that had been there a moment earlier saying the same thing. A row is now kept
+when it would be shaped identically - same text, same formats - and the font,
+tab stop and wrap width are remembered so that any of *them* moving throws
+every row away rather than inviting an argument about which ones survive.
+
+Two things worth keeping in mind about those numbers: this build has
+AddressSanitizer on (`-fsanitize=address` is in the compile line), so the
+absolute figures are inflated, and the "45 ms per layout" the first
+measurement seemed to show was `QTRY_COMPARE` polling, not work.
+
+**What I guessed first was wrong.** The obvious suspect was the loop over
+`m_highlights` inside the per-block loop - O(visible x highlights) by the look
+of it. Reading it showed a `std::lower_bound` per set, so it is already cheap,
+and the measurement put selections at three percent of a layout. Guessing
+would have optimised the wrong thing.
+
+**The test for this had to be told to wait.** Asserting on the layout right
+after one scroll failed about half the time in class-only runs: a view still
+settling its geometry lays out at a different width, and a row shaped at
+another width cannot be kept - correctly. Measuring the *second* scroll makes
+it stable. The control for the text comparison does not bite and I have left
+it that way rather than pretend: rows are keyed by where they start, which
+already tells them apart, so comparing the text is defensive rather than
+load-bearing.
+
 ## The Quick editor is the default now
 
 Registered before the plain text editor, so a text file - and, since the
