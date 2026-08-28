@@ -172,7 +172,12 @@ private:
                     at.movePosition(QTextCursor::NextCharacter); // an empty match never advances
             }
         }
-        m_viewport->setHighlights(QUICK_FIND_HIGHLIGHTS, found);
+        // On the scroll bar too, in the colour the theme keeps for that -
+        // which is not the one they are drawn in, so that a match off screen
+        // still says where it is.
+        m_viewport->setHighlights(
+            QUICK_FIND_HIGHLIGHTS, found,
+            Utils::creatorColor(Utils::Theme::TextEditor_SearchResult_ScrollBarColor));
     }
 
     const QPointer<TextViewport> m_viewport;
@@ -874,8 +879,30 @@ private slots:
         // current find target, so a test that spun the event loop here would
         // be measuring focus rather than drawing.
 
+        // They are on the scroll bar as well, which is how a match below the
+        // fold says where it is. Once per line: both matches on one line
+        // would be one place to scroll to.
+        const QColor onBarColour
+            = Utils::creatorColor(Utils::Theme::TextEditor_SearchResult_ScrollBarColor);
+        const auto onBar = [viewport, onBarColour] {
+            int count = 0;
+            const QVariantList bar = viewport->scrollBarHighlights();
+            for (const QVariant &entry : bar) {
+                if (entry.toMap().value("color").value<QColor>() == onBarColour)
+                    ++count;
+            }
+            return count;
+        };
+        QTRY_COMPARE(onBar(), 2);
+
+        // Seven matches over three lines, and three places to scroll to: the
+        // bar says which lines carry one, not how many each carries.
+        find->highlightAll("a", {});
+        QTRY_COMPARE(onBar(), 3);
+
         find->clearHighlights();
         QVERIFY(viewport->highlights(QUICK_FIND_HIGHLIGHTS).isEmpty());
+        QTRY_COMPARE(onBar(), 0);
 
         // Replacing writes through the document, so undo can take it back.
         find->replaceStep("beta", "delta", {});

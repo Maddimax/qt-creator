@@ -1563,8 +1563,14 @@ void TextViewport::updateParenthesesMatch()
     }
 }
 
-void TextViewport::setHighlights(Utils::Id kind, const QList<Highlight> &highlights)
+void TextViewport::setHighlights(Utils::Id kind, const QList<Highlight> &highlights,
+                                 const QColor &onScrollBar)
 {
+    if (onScrollBar.isValid())
+        m_highlightsOnScrollBar.insert(kind, onScrollBar);
+    else
+        m_highlightsOnScrollBar.remove(kind);
+
     if (highlights.isEmpty()) {
         if (m_highlights.remove(kind) == 0)
             return;
@@ -1681,14 +1687,19 @@ QVariantList TextViewport::scrollBarHighlights()
         return {};
 
     QVariantList highlights;
+    QSet<QPair<int, QRgb>> already;
     const auto add = [&](const QTextBlock &block, const QColor &colour) {
         // A folded-away line has no row of its own, so there is nowhere on the
         // bar to point at.
         if (!block.isValid() || !block.isVisible() || !colour.isValid())
             return;
+        const int row = rowOfBlock(block);
+        const QPair<int, QRgb> where{row, colour.rgba()};
+        if (already.contains(where))
+            return;
+        already.insert(where);
         highlights.append(
-            QVariantMap{{"position", rowOfBlock(block) * m_lineHeight / height},
-                        {"color", colour}});
+            QVariantMap{{"position", row * m_lineHeight / height}, {"color", colour}});
     };
 
     // The line the caret is on.
@@ -1702,6 +1713,16 @@ QVariantList TextViewport::scrollBarHighlights()
             continue;
         add(doc->document()->findBlockByNumber(mark->lineNumber() - 1),
             Utils::creatorColor(*mark->color()));
+    }
+
+    // What is highlighted in the text and asked to show on the bar as well -
+    // search results, above all. Once per row: a hundred matches on one line
+    // are one place to scroll to.
+    for (auto kind = m_highlightsOnScrollBar.cbegin(); kind != m_highlightsOnScrollBar.cend();
+         ++kind) {
+        const QList<Highlight> found = m_highlights.value(kind.key());
+        for (const Highlight &highlight : found)
+            add(doc->document()->findBlock(highlight.start), kind.value());
     }
     return highlights;
 }

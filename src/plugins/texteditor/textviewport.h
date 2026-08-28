@@ -454,7 +454,11 @@ public:
     // what makes the two agree about how big the text is.
     Q_INVOKABLE void zoomBy(int steps);
 
-    void setHighlights(Utils::Id kind, const QList<Highlight> &highlights);
+    // \a onScrollBar is the colour to mark these on the scroll bar in, which
+    // the widget editor picks per kind and separately from the colour they are
+    // drawn in. An invalid one keeps them out of the bar.
+    void setHighlights(Utils::Id kind, const QList<Highlight> &highlights,
+                       const QColor &onScrollBar = {});
     QList<Highlight> highlights(Utils::Id kind) const;
 
     void setTextCursor(const QTextCursor &cursor);
@@ -640,6 +644,7 @@ private:
     // By kind, each sorted by where it starts so that the lines on screen can
     // be found without walking every match in the file.
     QMap<Utils::Id, QList<Highlight>> m_highlights;
+    QMap<Utils::Id, QColor> m_highlightsOnScrollBar;
 
     // Backspace between the two halves of a bracket pair removes both. That is
     // all the base AutoCompleter offers; inserting the closing half is a
