@@ -1318,6 +1318,11 @@ private slots:
         QVERIFY2(underlined().isEmpty(), "text was underlined before any link was shown");
         const Qt::CursorShape plain = viewport->cursor().shape();
 
+        // Held rather than only let go of: QTest tracks modifier state for the
+        // whole process, so a release with no press leaves every later test
+        // being told Control is down.
+        QTest::keyPress(&fixture.view, Qt::Key_Control);
+
         Utils::Link link;
         link.linkTextStart = 0;
         link.linkTextEnd = 5; // "alpha"

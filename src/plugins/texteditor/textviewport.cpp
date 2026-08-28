@@ -825,17 +825,6 @@ void TextViewport::hoverMoveEvent(QHoverEvent *event)
     // have been about is no longer under the mouse.
     Utils::ToolTip::hide();
 
-    // Control held means a link is being aimed at, and a tooltip on top of it
-    // would be in the way. Constrained tooltips are the same rule with Shift
-    // as the way to ask for one. Both are the widget editor's.
-    const auto behavior = globalBehaviorSettings().data();
-    if (event->modifiers().testFlag(Qt::ControlModifier)
-        || (!event->modifiers().testFlag(Qt::ShiftModifier)
-            && behavior.m_constrainHoverTooltips)) {
-        m_hoverTimer->stop();
-        return;
-    }
-
     m_hoverTimer->start();
 }
 
