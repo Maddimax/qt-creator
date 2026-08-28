@@ -301,7 +301,7 @@ public:
                 .setContext(Core::Context(m_editorContext))
                 .addOnTriggered(this, [this, inNextSplit] {
                     if (TextViewport * const view = viewport())
-                        view->followSymbolUnderCursor(inNextSplit);
+                        view->followSymbolUnderCursor(view->opensInNextSplit(inNextSplit));
                 });
         };
         followSymbol(Constants::FOLLOW_SYMBOL_UNDER_CURSOR, false);

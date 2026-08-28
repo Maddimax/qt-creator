@@ -694,6 +694,11 @@ bool TextViewport::handleSmartBackspace(QTextCursor &cursor)
     return false;
 }
 
+bool TextViewport::opensInNextSplit(bool asked) const
+{
+    return asked != displaySettings().openLinksInNextSplit();
+}
+
 bool TextViewport::isMouseNavigation(Qt::KeyboardModifiers modifiers) const
 {
     return globalBehaviorSettings().mouseNavigation()

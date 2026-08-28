@@ -251,6 +251,12 @@ public:
     // Shift is a selection gesture rather than a navigation one.
     Q_INVOKABLE bool isMouseNavigation(Qt::KeyboardModifiers modifiers) const;
 
+    // Whether a request to follow a link should land in the other split.
+    // \a asked is what the gesture said - Alt on the mouse, or the "in next
+    // split" action - and "Always open links in another split" swaps which
+    // split that means, the way it does for the widget editor.
+    Q_INVOKABLE bool opensInNextSplit(bool asked) const;
+
     // The link decoration under the pointer: the text is underlined in the
     // scheme's link colour and the cursor becomes a hand, which is how the
     // widget editor says that a Control-click from here will go somewhere.

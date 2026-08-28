@@ -191,8 +191,9 @@ Item {
                 // whether the setting allows it at all, is the viewport's to
                 // say rather than restated here.
                 if (viewport.isMouseNavigation(mouse.modifiers)
-                        && viewport.followSymbolAt(position,
-                                                   (mouse.modifiers & Qt.AltModifier) !== 0)) {
+                        && viewport.followSymbolAt(
+                            position,
+                            viewport.opensInNextSplit((mouse.modifiers & Qt.AltModifier) !== 0))) {
                     return
                 }
                 // The third click of a triple click arrives as a plain press -

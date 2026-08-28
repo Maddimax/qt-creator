@@ -1288,6 +1288,33 @@ private slots:
                  "a link was followed with mouse navigation turned off");
     }
 
+    // "Always open links in another split" swaps what Alt means, rather than
+    // being a second way of asking for the other split. The Quick editor
+    // passed Alt straight through, so the setting did nothing at all.
+    void testAlwaysOpeningLinksInAnotherSplitSwapsWhatAltMeans()
+    {
+        const bool was = displaySettings().openLinksInNextSplit();
+        const QScopeGuard restore(
+            [was] { displaySettings().openLinksInNextSplit.setValue(was); });
+
+        ViewportFixture fixture(nullptr);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        TextViewport * const viewport = fixture.viewport;
+
+        // Off: Alt asks for the other split and nothing else does.
+        displaySettings().openLinksInNextSplit.setValue(false);
+        QVERIFY(!viewport->opensInNextSplit(false));
+        QVERIFY(viewport->opensInNextSplit(true));
+
+        // On: the other split is where a link goes by default, and Alt is
+        // what asks for this one.
+        displaySettings().openLinksInNextSplit.setValue(true);
+        QVERIFY2(viewport->opensInNextSplit(false),
+                 "a link went to this split with the setting asking for the other one");
+        QVERIFY2(!viewport->opensInNextSplit(true),
+                 "Alt did not ask for this split once the setting had swapped them");
+    }
+
     // A link under the pointer is underlined in the scheme's link colour and
     // turns the cursor into a hand, which is how the widget editor says a
     // Control-click will go somewhere. Finding the link needs a language with
