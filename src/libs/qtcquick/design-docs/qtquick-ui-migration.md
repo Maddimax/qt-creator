@@ -432,6 +432,37 @@ guard. An existing test says so in as many words; a new one has to call
 `setReadOnly(false)` or it is testing the guard. The tell is *nothing*
 happening rather than the wrong thing happening.
 
+### Counting the fields instead of the gaps
+
+`annotationAlignment` was missed because every audit here was built from a
+list of *known gaps* and checked against that list. The fix is to enumerate
+the struct: all 31 fields of `DisplaySettingsData`, each checked for a reader
+on the Quick side. Seven come back unread, and all seven were already on the
+list - the three animations, the minimap, the scroll bar highlights, the diff
+signs, and the dead one. Nothing else was hiding.
+
+Doing the same to the other containers found two more things and one mistake
+of method:
+
+- **`centerEditorContentWidthPercent`** was read nowhere, so "Editor content
+  width" did nothing - **and neither did Zen mode**, whose entire effect on an
+  editor is to set this. Implemented by insetting the view rather than making
+  the viewport inset itself, so no coordinate inside it changes.
+- **`lineEndingSetting`** ("Default line endings:", with a settings key and a
+  combo box) has **no reader anywhere in the tree**. Like
+  `forceOpenLinksInNextSplit` it is dead in the widget editor too - but unlike
+  it, this one is shown to users. Not a porting gap, and not this branch's to
+  fix; recorded so somebody can decide.
+- **A check that finds nothing has to be shown to be able to find something.**
+  The first pass over the other containers reported no unread fields anywhere,
+  which was a lie: the pattern matched `final : public AspectContainer` and
+  those classes are not `final`, so it enumerated zero fields and cleared them
+  all. Printing the count per container is what caught it.
+
+`showMargin` and `useIndenter` looked unread and are not: `visibleMarginColumn()`
+reads them, the same helper trap as `hideMouseWhileTyping`. The storage
+settings are applied by `TextDocument` on save, which is not the view's job.
+
 ### Where a mark's message goes
 
 `annotationAlignment` was not on any of the lists above, which is how it went
