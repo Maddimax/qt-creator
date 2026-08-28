@@ -12650,3 +12650,37 @@ The correction worth keeping is about the estimate rather than the feature:
 counting identifier occurrences measured how much text mentions the cursor,
 not how many decisions depend on it being single. Those are different numbers,
 and here they differ by a lot.
+
+### Why the whole suite has never been run here
+
+Every verification in this document is per plugin - `-test TextEditor`,
+`-test QuickUi` and so on. Trying `-test all` explains why:
+
+    [ QmlDesigner ] Plugin error: Symbol not found:
+      __ZN5Utils15AspectContainer11setLayouterE...
+      Referenced from: libQmlDesigner.dylib
+      Expected in:     libUtils.20.0.82.dylib
+    Errors occurred while loading plugins, skipping test run.
+
+Not a source problem, and not this branch: `AspectContainer::setLayouter` was
+removed by this migration long ago - what exists now is the free
+`AspectWidgets::setLayouter` - and QmlDesigner's sources do not mention
+`setLayouter` at all. The Release configuration compiles all 388 of them
+without complaint.
+
+The dylib is simply old:
+
+    Jul 16  libQmlDesigner.dylib
+    Aug 28  libUtils.20.0.82.dylib
+
+This Debug configuration does not build QmlDesigner, so nothing regenerates
+that file and nothing removes it. It sits in the plugin directory failing to
+load, and one plugin failing to load makes Creator skip the test run entirely
+- which `-noload QmlDesigner` does not prevent, because the failure happens
+while reading what is there rather than while starting it.
+
+So `-test all` is unavailable in this build directory until the stale dylib is
+deleted, which is a decision about someone else's build tree rather than
+something to do quietly. Per plugin runs are unaffected, and between them they
+cover Core, TextEditor, QuickUi, CppEditor, Git, DiffEditor, VcsBase, Macros,
+ProjectExplorer, QmlJSEditor, Python and LanguageClient.
