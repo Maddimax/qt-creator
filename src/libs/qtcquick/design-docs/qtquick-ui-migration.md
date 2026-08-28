@@ -440,6 +440,29 @@ firing" (measured: it was not), then "it is a flake" (counted: it was not) -
 and what fixed both was measuring rather than arguing. **One green re-run is
 not evidence that something is a flake.** Two arms of six runs is.
 
+**Where the phantom Control comes from, since the answer decides whether
+anything shipped is at risk.** Printing both the event's modifiers and
+`QGuiApplication::keyboardModifiers()` on every hover showed the global state
+stuck at `ControlModifier` across four consecutive tests, with the event
+sometimes inheriting it and sometimes not. Qt takes the application-wide
+modifier state from the last event it delivered, and the test that runs
+immediately before the hover test ends on
+`QTest::mouseClick(quick, Qt::LeftButton, Qt::ControlModifier, ...)`. Nothing
+after it says Control is up, so the whole process believes it is.
+
+**This is an artefact of synthetic events, not a production risk.** It matters
+because the link decoration that did ship also reads `event->modifiers()`: if
+hover events could carry a Control nobody is holding, links would underline
+themselves. They cannot outside a test - real events carry the window system's
+modifier state, which tracks the real keyboard. Only `QTest`-delivered events
+can leave a stale one behind.
+
+Adding a plain `QTest::mouseMove` after that Control+click to put the state
+back **did not work** - still three failures in six. So the leak is understood
+and the repair is not, and the suppression stays out rather than being shipped
+on a hypothesis. What would let it back in: a way to clear the process's
+modifier state between tests, and a test for the suppression itself.
+
 
 **Visualised whitespace is drawn now, and was not before** - a green test said
 otherwise, because it checked that `ShowTabsAndSpaces` reaches the document's
