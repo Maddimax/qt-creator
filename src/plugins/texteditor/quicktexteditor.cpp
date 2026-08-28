@@ -368,6 +368,50 @@ public:
         command(Core::Constants::UNDO, &TextViewport::undo);
         command(Core::Constants::REDO, &TextViewport::redo);
 
+        // Moving about. Same reasoning as the editing commands above and the
+        // same requirement: these go through the movePosition() the key
+        // handler ends up in, so a shortcut and its key cannot drift apart.
+        const auto movement = [this](Utils::Id id, QTextCursor::MoveOperation operation,
+                                     QTextCursor::MoveMode mode) {
+            Core::ActionBuilder(this, id)
+                .setContext(Core::Context(m_editorContext))
+                .addOnTriggered(this, [this, operation, mode] {
+                    if (TextViewport * const view = viewport())
+                        view->moveCursor(operation, mode);
+                });
+        };
+        const auto camelCase = [this](Utils::Id id, bool forward, QTextCursor::MoveMode mode) {
+            Core::ActionBuilder(this, id)
+                .setContext(Core::Context(m_editorContext))
+                .addOnTriggered(this, [this, forward, mode] {
+                    if (TextViewport * const view = viewport())
+                        view->moveCamelCase(forward, mode);
+                });
+        };
+        const QTextCursor::MoveMode keep = QTextCursor::KeepAnchor;
+        const QTextCursor::MoveMode move = QTextCursor::MoveAnchor;
+        movement(Constants::GOTO_DOCUMENT_END, QTextCursor::End, move);
+        movement(Constants::GOTO_DOCUMENT_START, QTextCursor::Start, move);
+        movement(Constants::GOTO_LINE_END, QTextCursor::EndOfLine, move);
+        movement(Constants::GOTO_LINE_END_WITH_SELECTION, QTextCursor::EndOfLine, keep);
+        movement(Constants::GOTO_NEXT_CHARACTER, QTextCursor::NextCharacter, move);
+        movement(Constants::GOTO_NEXT_CHARACTER_WITH_SELECTION, QTextCursor::NextCharacter, keep);
+        movement(Constants::GOTO_NEXT_LINE, QTextCursor::Down, move);
+        movement(Constants::GOTO_NEXT_LINE_WITH_SELECTION, QTextCursor::Down, keep);
+        movement(Constants::GOTO_NEXT_WORD, QTextCursor::NextWord, move);
+        movement(Constants::GOTO_NEXT_WORD_WITH_SELECTION, QTextCursor::NextWord, keep);
+        movement(Constants::GOTO_PREVIOUS_CHARACTER, QTextCursor::PreviousCharacter, move);
+        movement(Constants::GOTO_PREVIOUS_CHARACTER_WITH_SELECTION,
+                 QTextCursor::PreviousCharacter, keep);
+        movement(Constants::GOTO_PREVIOUS_LINE, QTextCursor::Up, move);
+        movement(Constants::GOTO_PREVIOUS_LINE_WITH_SELECTION, QTextCursor::Up, keep);
+        movement(Constants::GOTO_PREVIOUS_WORD, QTextCursor::PreviousWord, move);
+        movement(Constants::GOTO_PREVIOUS_WORD_WITH_SELECTION, QTextCursor::PreviousWord, keep);
+        camelCase(Constants::GOTO_NEXT_WORD_CAMEL_CASE, true, move);
+        camelCase(Constants::GOTO_NEXT_WORD_CAMEL_CASE_WITH_SELECTION, true, keep);
+        camelCase(Constants::GOTO_PREVIOUS_WORD_CAMEL_CASE, false, move);
+        camelCase(Constants::GOTO_PREVIOUS_WORD_CAMEL_CASE_WITH_SELECTION, false, keep);
+
         Core::ActionBuilder(this, Constants::JOIN_LINES)
             .setContext(Core::Context(m_editorContext))
             .addOnTriggered(this, [this] {
@@ -834,6 +878,30 @@ private slots:
         QVERIFY2(copy, "Copy is not registered in the Quick editor's context");
         copy->trigger();
         QCOMPARE(QGuiApplication::clipboard()->text(), text->toPlainText());
+
+        // And moving about. The selection Select All just made has to go
+        // first: setting the position does not clear it, and a move with
+        // MoveAnchor over a selection collapses it to its end rather than
+        // moving a word - which looks exactly like a word move that worked.
+        view->setSelectionStart(-1);
+        view->setSelectionEnd(-1);
+        view->setCursorPosition(0);
+        QVERIFY(!view->textCursor().hasSelection());
+
+        QAction * const nextWord = inContext(Constants::GOTO_NEXT_WORD);
+        QVERIFY2(nextWord, "Go to Next Word is not registered in the editor's context");
+        nextWord->trigger();
+        // "first second": the start of the second word, not one character on
+        // and not the end of the document.
+        const int afterWord = view->cursorPosition();
+        QCOMPARE(afterWord, 6);
+
+        // With selection, which is the same operation and the other mode.
+        QAction * const selectWord = inContext(Constants::GOTO_NEXT_WORD_WITH_SELECTION);
+        QVERIFY2(selectWord, "Select Next Word is not registered in the editor's context");
+        selectWord->trigger();
+        QVERIFY2(view->textCursor().hasSelection(), "the selecting move selected nothing");
+        QCOMPARE(view->textCursor().anchor(), afterWord);
     }
 
     void testAFileWithNoEditorOfItsOwnOpensHereToo()

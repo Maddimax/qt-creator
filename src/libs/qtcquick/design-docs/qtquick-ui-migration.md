@@ -13658,3 +13658,43 @@ Twenty-eight commands now, from three. What is left is movement - and it needs
 the same treatment, one level harder: the movement keys go through
 `handleMoveKeyEvent`, so the actions have to be given a way to ask for the
 same thing rather than a second implementation of it.
+
+## Moving about, and a test that passed for the wrong reason
+
+The movement commands were the ones left, and the constraint from the batch
+before applied: their keys already worked, a shortcut is handled before the key
+reaches the item, so an action must ask for the very thing the key asks for.
+`handleMoveKeyEvent()` moves every caret through
+`MultiTextCursor::movePosition()`, so the actions call that - one level below
+the key event, not a second implementation of it. Which layout the movement is
+measured against went the same way: it was inline in the key handler and is now
+`movementLayout()`, which both use, because a wrapped view moves down a row
+rather than over a whole line and only its own layout knows that.
+
+Twenty commands: sixteen that the widget maps straight onto a
+`QTextCursor::MoveOperation` - taken out of `texteditor.cpp` by reading the
+mapping rather than by guessing it - and four camel case ones, which go through
+`Utils::CamelCaseCursor` and were already shared.
+
+The test for it passed while being wrong, which is worth writing down because
+the assertion looked careful. It moved the caret to 0, triggered Go to Next
+Word, and checked the result was past position 1 - "a word, not a character".
+It reported 19. The document was nineteen characters long, and the caret had
+not moved at all: the Select All two lines earlier had left a selection,
+setting the position does not clear one, and a move with `MoveAnchor` over a
+selection collapses it to its end. So the assertion held for a caret that never
+moved, and would have held whatever the operation was.
+
+Clearing the selection first and comparing against 6 - the start of the second
+word in "first second" - makes it a real question. Wiring the same action to
+`NextCharacter` instead now fails it, and so does ignoring the move mode.
+
+That is the sixth kind: content that could not show the difference, two
+commands that undid each other, an edit that never applied, a branch no fixture
+reached, an assertion too coarse to see the answer, and now a fixture whose
+earlier steps made the later ones meaningless. Every one of them was a passing
+test.
+
+Forty-eight commands now. What is left of the ninety-six is what needs
+machinery rather than wiring: the assist commands, the symbol commands, folding
+and the block ones, and Go to Line Start with its two-step home.

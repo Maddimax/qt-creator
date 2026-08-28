@@ -554,6 +554,10 @@ public:
     // view can be told to be read only, and the file itself can be one the
     // filesystem will not take back. Nothing sets either from the other, so a
     // command that asks only the first edits a locked file.
+    // What movement is measured against. A wrapped view has a layout of its
+    // own that the document's does not know about, and moving down a row
+    // rather than over a whole wrapped line depends on using it.
+    Utils::PlainTextDocumentLayout *movementLayout() const;
     bool canEdit() const;
     Utils::CommentDefinition commentDefinition() const;
     // Grows the carets to whole lines where they have selected nothing, which
@@ -608,6 +612,14 @@ public:
     Q_INVOKABLE void paste();
     Q_INVOKABLE void undo();
     Q_INVOKABLE void redo();
+
+    // The movement commands, for the menu entries and the shortcuts bound to
+    // them. The keys reach handleMoveKeyEvent(), which moves every caret
+    // through the same MultiTextCursor::movePosition() this calls - one level
+    // below the key event rather than a second implementation of it.
+    void moveCursor(QTextCursor::MoveOperation operation,
+                    QTextCursor::MoveMode mode = QTextCursor::MoveAnchor);
+    void moveCamelCase(bool forward, QTextCursor::MoveMode mode = QTextCursor::MoveAnchor);
     // A rectangle of text, from where the caret is anchored to \a x, \a y.
     // One caret per line it covers, which is what makes it a selection that
     // can be typed over. The anchor is taken once, when the drag starts, so

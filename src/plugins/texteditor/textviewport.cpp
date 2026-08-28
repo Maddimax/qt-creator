@@ -53,6 +53,7 @@
 #include <QQuickWindow>
 #include <QSGRectangleNode>
 #include <QSGTextNode>
+#include <utils/camelcasecursor.h>
 #include <utils/multitextcursor.h>
 #include <utils/plaintextedit/plaintextedit.h>
 #include <utils/stylehelper.h>
@@ -1625,13 +1626,8 @@ void TextViewport::keyPressEvent(QKeyEvent *event)
     // that is its own - the document's layout never sees that wrapping, so
     // handing it over makes Down step over a whole wrapped line instead of on
     // to the next row of it.
-    Utils::PlainTextDocumentLayout *movement = layoutOf(cursor.document());
-    if (m_wrapping) {
-        if (Utils::TextEditorLayout * const rows = editorLayout())
-            movement = rows;
-    }
     if (cursors.handleMoveKeyEvent(event, globalBehaviorSettings().camelCaseNavigation(),
-                                   movement)) {
+                                   movementLayout())) {
         m_verticalMovementX = cursors.mainCursor().verticalMovementX();
         setTextCursor(cursors.mainCursor());
         return event->accept();
@@ -2339,6 +2335,43 @@ void TextViewport::redo()
         return;
     cursor.document()->redo(&cursor);
     setTextCursor(cursor);
+}
+
+Utils::PlainTextDocumentLayout *TextViewport::movementLayout() const
+{
+    const QTextCursor cursor = textCursor();
+    Utils::PlainTextDocumentLayout *movement = cursor.isNull()
+                                                   ? nullptr
+                                                   : layoutOf(cursor.document());
+    if (m_wrapping) {
+        if (Utils::TextEditorLayout * const rows
+            = const_cast<TextViewport *>(this)->editorLayout()) {
+            movement = rows;
+        }
+    }
+    return movement;
+}
+
+void TextViewport::moveCursor(QTextCursor::MoveOperation operation, QTextCursor::MoveMode mode)
+{
+    Utils::MultiTextCursor cursors = multiTextCursor();
+    if (cursors.isNull())
+        return;
+    cursors.movePosition(operation, mode, 1, movementLayout());
+    m_verticalMovementX = cursors.mainCursor().verticalMovementX();
+    setMultiTextCursor(cursors);
+}
+
+void TextViewport::moveCamelCase(bool forward, QTextCursor::MoveMode mode)
+{
+    Utils::MultiTextCursor cursors = multiTextCursor();
+    if (cursors.isNull())
+        return;
+    if (forward)
+        Utils::CamelCaseCursor::right(&cursors, mode);
+    else
+        Utils::CamelCaseCursor::left(&cursors, mode);
+    setMultiTextCursor(cursors);
 }
 
 bool TextViewport::canEdit() const
