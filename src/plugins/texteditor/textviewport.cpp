@@ -443,15 +443,77 @@ void TextViewport::setSelectionEnd(int position)
     emit selectionChanged();
 }
 
-// The rows as something a repeater can keep its delegates for. One role, and
-// it is called "modelData" so that a delegate reads a row exactly as it did
-// when this was a plain list.
+// What a row on screen says to the form drawing it. Only what QML reads: the
+// text itself, the formats over it and the selection on it are drawn by
+// updatePaintNode() straight from the Line, and never travel through here.
+struct RowView
+{
+    qreal y = 0;
+    qreal width = 0;
+    int lineNumber = 0;
+    bool firstRowOfLine = true;
+    int changed = 0;
+    int indentGuides = 0;
+    QString markIcon;
+    QString foldIcon;
+    QString foldReplacement;
+    QString annotation;
+    qreal annotationX = 0;
+    qreal annotationY = 0;
+    QString breakMarker;
+    qreal breakMarkerX = 0;
+    QVariantList whitespace;
+
+    bool operator==(const RowView &other) const = default;
+};
+
+// The rows as something a repeater can keep its delegates for, with a role per
+// value. One map per row meant building the whole row whenever a delegate
+// wanted any of it, and building the keys cost more than the values did; a
+// role is read when a binding asks for it and notified on its own.
 class VisibleRowsModel final : public QAbstractListModel
 {
 public:
     using QAbstractListModel::QAbstractListModel;
 
-    QHash<int, QByteArray> roleNames() const override { return {{Qt::UserRole, "modelData"}}; }
+    enum Role {
+        YRole = Qt::UserRole,
+        WidthRole,
+        LineNumberRole,
+        FirstRowOfLineRole,
+        ChangedRole,
+        IndentGuidesRole,
+        MarkIconRole,
+        FoldIconRole,
+        FoldReplacementRole,
+        AnnotationRole,
+        AnnotationXRole,
+        AnnotationYRole,
+        BreakMarkerRole,
+        BreakMarkerXRole,
+        WhitespaceRole,
+    };
+
+    QHash<int, QByteArray> roleNames() const override
+    {
+        // Read as model.<name> rather than as a property of the delegate: a
+        // role called "y" or "width" would otherwise shadow the Item's own.
+        return {{YRole, "y"},
+                {WidthRole, "width"},
+                {LineNumberRole, "lineNumber"},
+                {FirstRowOfLineRole, "firstRowOfLine"},
+                {ChangedRole, "changed"},
+                {IndentGuidesRole, "indentGuides"},
+                {MarkIconRole, "markIcon"},
+                {FoldIconRole, "foldIcon"},
+                {FoldReplacementRole, "foldReplacement"},
+                {AnnotationRole, "annotation"},
+                {AnnotationXRole, "annotationX"},
+                {AnnotationYRole, "annotationY"},
+                {BreakMarkerRole, "breakMarker"},
+                {BreakMarkerXRole, "breakMarkerX"},
+                {WhitespaceRole, "whitespace"}};
+    }
 
     int rowCount(const QModelIndex &parent = {}) const override
     {
@@ -460,12 +522,30 @@ public:
 
     QVariant data(const QModelIndex &at, int role) const override
     {
-        if (!at.isValid() || role != Qt::UserRole || at.row() >= m_rows.size())
+        if (!at.isValid() || at.row() < 0 || at.row() >= m_rows.size())
             return {};
-        return m_rows.at(at.row());
+        const RowView &row = m_rows.at(at.row());
+        switch (role) {
+        case YRole: return row.y;
+        case WidthRole: return row.width;
+        case LineNumberRole: return row.lineNumber;
+        case FirstRowOfLineRole: return row.firstRowOfLine;
+        case ChangedRole: return row.changed;
+        case IndentGuidesRole: return row.indentGuides;
+        case MarkIconRole: return row.markIcon;
+        case FoldIconRole: return row.foldIcon;
+        case FoldReplacementRole: return row.foldReplacement;
+        case AnnotationRole: return row.annotation;
+        case AnnotationXRole: return row.annotationX;
+        case AnnotationYRole: return row.annotationY;
+        case BreakMarkerRole: return row.breakMarker;
+        case BreakMarkerXRole: return row.breakMarkerX;
+        case WhitespaceRole: return row.whitespace;
+        }
+        return {};
     }
 
-    void setRows(QVariantList rows)
+    void setRows(QList<RowView> rows)
     {
         // Scrolling down moves what was row n to row n-shift, and the rows
         // that stayed say exactly what they said before. Telling the view
@@ -503,7 +583,7 @@ public:
         // Anything else changes what a row says, and the ones that stayed
         // have to be re-read.
         if (const int shared = qMin(before, now); shared > 0)
-            emit dataChanged(index(0), index(shared - 1), {Qt::UserRole});
+            emit dataChanged(index(0), index(shared - 1));
     }
 
 private:
@@ -512,7 +592,7 @@ private:
     // scrolled to: a row that compares equal says the same thing, whatever
     // the reason, and one that does not must be re-read whatever the scroll
     // says.
-    int shiftOf(const QVariantList &rows) const
+    int shiftOf(const QList<RowView> &rows) const
     {
         if (m_rows.isEmpty() || rows.isEmpty())
             return 0;
@@ -534,16 +614,8 @@ private:
         return shift;
     }
 
-public:
-
-private:
-    QVariantList m_rows;
+    QList<RowView> m_rows;
 };
-
-QVariantList TextViewport::visibleLines() const
-{
-    return m_visibleLines;
-}
 
 QAbstractItemModel *TextViewport::visibleRows() const
 {
@@ -555,32 +627,42 @@ QAbstractItemModel *TextViewport::visibleRows() const
 
 void TextViewport::rebuildVisibleLines()
 {
-    m_visibleLines.clear();
-    m_visibleLines.reserve(int(m_lines.size()));
-    for (int i = 0; i < int(m_lines.size()); ++i)
-        m_visibleLines.append(rowData(i, ForDrawing));
-    static_cast<VisibleRowsModel *>(visibleRows())->setRows(m_visibleLines);
+    QList<RowView> rows;
+    rows.reserve(int(m_lines.size()));
+    for (const Line &line : m_lines) {
+        rows.append(RowView{// Where the row sits in the document, before the
+                            // scroll is taken off it. Not row * lineHeight:
+                            // anything that claims space between rows moves
+                            // this and not that.
+                            line.at.y() + m_scrollY,
+                            line.layout->lineAt(0).naturalTextWidth(),
+                            line.lineNumber,
+                            line.firstRowOfLine,
+                            int(line.changed),
+                            line.indentGuides,
+                            line.markIcon,
+                            line.foldIcon,
+                            line.foldReplacement,
+                            line.annotation,
+                            line.annotationX,
+                            // Not the row's own y when the message was asked
+                            // for on a line of its own.
+                            line.annotationY,
+                            line.breakMarker,
+                            line.breakMarkerX,
+                            line.whitespace});
+    }
+    static_cast<VisibleRowsModel *>(visibleRows())->setRows(std::move(rows));
 }
 
 QVariantMap TextViewport::visibleLine(int index) const
-{
-    return rowData(index, WithIntrospection);
-}
-
-QVariantMap TextViewport::rowData(int index, RowDetail detail) const
 {
     if (index < 0 || index >= int(m_lines.size()))
         return {};
 
     const Line &line = m_lines.at(index);
-    // The formats over the row, the scope bands behind it and the selection
-    // fills on it are read by tests and by nothing in QML. Building them for
-    // every row of every layout was more than half of what a layout cost, so
-    // the model QML reads leaves them out.
     QVariantList formats;
-    const QList<QTextLayout::FormatRange> ranges
-        = detail == WithIntrospection ? line.layout->formats() : QList<QTextLayout::FormatRange>();
-    for (const QTextLayout::FormatRange &range : ranges) {
+    for (const QTextLayout::FormatRange &range : line.layout->formats()) {
         formats.append(QVariantMap{{QStringLiteral("start"), range.start},
                                    {QStringLiteral("length"), range.length},
                                    // Syntax highlighting is mostly a foreground
@@ -2862,9 +2944,7 @@ void TextViewport::updatePolish()
         m_firstVisibleLine = 0;
         // There are no rows now, and what QML holds has to say so rather than
         // keep describing the ones there used to be.
-        m_visibleLines.clear();
         static_cast<VisibleRowsModel *>(visibleRows())->setRows({});
-        emit linesChanged();
         emit metricsChanged();
         emit cursorRectangleChanged();
         update();
@@ -3551,9 +3631,6 @@ void TextViewport::updatePolish()
 
     updateScrollBarHighlights();
     emit metricsChanged();
-    // What is on screen has just been rebuilt, marks and all. Delegates read it
-    // through visibleLines, so this is what tells them to look again.
-    emit linesChanged();
     // Everything the caret's position on screen depends on was just recomputed.
     emit cursorRectangleChanged();
 

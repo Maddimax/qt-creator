@@ -13060,3 +13060,44 @@ a binding on `y` costs a `data()` call rather than a whole row. That needs the
 delegates in `CodeViewport.qml` and `EditorGutter.qml` to name their roles,
 and the names have to be prefixed: a role called `y` or `width` shadows the
 `Item` property of the same name.
+
+## A role per value instead of a map per row
+
+Making the keys static took 16% off building the rows, which left the `QMap`
+itself: a red-black tree of twenty-three entries per row per layout, handed to
+QML as one `modelData` object.
+
+The map was doing two jobs. It was what the delegates read, and it was the
+fingerprint `setRows()` compares to tell a scroll from a change - so it had to
+carry values no delegate ever reads. Asking which keys QML actually binds to
+settles it: fifteen, and `text`, `formats`, `selectionFills`, `scopeBands`,
+`newlineTail`, `preedit`, `folded` and `foldable` are not among them. The text,
+its highlighting and its selection are drawn by `updatePaintNode()` straight
+from the `Line`, and `updatePolish()` ends in an unconditional `update()`, so
+what the model says has no bearing on whether they are repainted.
+
+So the model now holds a `RowView` - a plain struct of the fifteen values a
+form reads - and `VisibleRowsModel` has a role for each. A binding reads the
+one role it wants; the comparison that finds a scroll compares two structs
+instead of walking two trees. `visibleLine()` still builds the whole map, which
+is what the tests read a row through.
+
+    rebuildVisibleLines  before 0.359 0.353 0.355   after 0.013 0.016 0.014
+    updatePolish         before 0.733 0.716 0.706   after 0.364 0.402 0.396
+
+Building the rows is now about 25 times faster at the median and half the total
+time; a whole layout is 45% faster. Together with the keys, a layout went from
+0.80 ms to 0.39 ms at the median - it more than halved.
+
+Two details that this depends on and would silently break:
+
+- The delegates read `model.y`, not a required property called `y`. A role of
+  that name would shadow `Item.y`, and so would `width`.
+- A role name is a string, and a wrong one is `undefined` rather than an error.
+  The control is direct: renaming `lineNumber` in `roleNames()` fails six
+  tests and renaming `y` fails five, all of them reading through the
+  delegates rather than through `visibleLine()`.
+
+The `?? ""` fallbacks in those bindings are now dead - `data()` answers every
+role - and they are what would swallow a misspelled role. Worth removing, but
+not in the same change as the rewrite they are guarding.

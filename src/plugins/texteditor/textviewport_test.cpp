@@ -2291,26 +2291,34 @@ private slots:
         QCOMPARE(viewport->visibleLine(0).value("text").toString(), QString("line 2"));
         QCOMPARE(viewport->visibleLine(1).value("text").toString(), QString("line 3"));
 
+        // Asked of the model rather than of the view: the view's own rows are
+        // right whatever the model was told, so reading them would not notice
+        // a row the model kept when it should not have. By role name, which
+        // is what a delegate binds to.
+        const auto rowFromModel = [rows](int row, const QByteArray &role) {
+            const int id = rows->roleNames().key(role, -1);
+            return rows->data(rows->index(row, 0), id);
+        };
+
         // A scroll that happens in the same layout as something else: the
         // rows still line up one for one, but one of them says something new.
         // Matching the first row is not enough to conclude the rest are
         // unchanged, which is why the whole overlap is compared.
         QTextDocument * const text = viewport->textDocument()->document();
-        const QTextBlock marked = text->findBlockByNumber(6);
+        // Line 6 is the fifth row at this scroll and the fourth at the next
+        // one. How wide it is is read by the form, so widening it is a change
+        // a kept row would be caught still denying.
+        const qreal before = rowFromModel(4, "width").toReal();
+        QVERIFY(before > 0);
+
+        QTextCursor edit(text);
+        edit.setPosition(text->findBlockByNumber(6).position());
+        edit.insertText("wider wider wider");
         viewport->setScrollY(viewport->lineHeight() * 3);
-        viewport->setSelectionStart(marked.position());
-        viewport->setSelectionEnd(marked.position() + 4);
         QTRY_COMPARE(viewport->firstVisibleLine(), 3);
-        // Asked of the model rather than of the view: the view's own rows are
-        // right whatever the model was told, so reading them would not notice
-        // a row the model kept when it should not have.
-        const auto rowFromModel = [rows](int row) {
-            return rows->data(rows->index(row, 0), Qt::UserRole).toMap();
-        };
-        // Line 6 is the fourth row now, and it is the one with a selection on
-        // it. A row kept because the first one matched would show none.
-        QTRY_VERIFY2(!rowFromModel(3).value("selectionFills").value<QList<QRectF>>().isEmpty(),
-                     "the selected row was kept from before it was selected");
+
+        QTRY_VERIFY2(rowFromModel(3, "width").toReal() > before,
+                     "the widened row was kept from before it was widened");
     }
 
     // Scrolling brings back text that has already been shaped, and shaping is

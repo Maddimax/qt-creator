@@ -433,15 +433,15 @@ Item {
 
                 delegate: Text {
                     required property int index
-                    required property var modelData
+                    required property var model
 
                     readonly property int row: viewport.firstVisibleLine + index
 
                     z: -1
                     visible: text !== ""
-                    text: modelData.breakMarker ?? ""
-                    x: (modelData.breakMarkerX ?? 0) - viewport.scrollX
-                    y: modelData.y - viewport.scrollY
+                    text: model.breakMarker ?? ""
+                    x: (model.breakMarkerX ?? 0) - viewport.scrollX
+                    y: model.y - viewport.scrollY
                     height: viewport.lineHeight
                     verticalAlignment: Text.AlignVCenter
                     font: viewport.font
@@ -460,13 +460,13 @@ Item {
                     id: whitespaceRow
 
                     required property int index
-                    required property var modelData
+                    required property var model
 
-                    readonly property var marks: modelData.whitespace ?? []
+                    readonly property var marks: model.whitespace ?? []
                     readonly property int row: viewport.firstVisibleLine + index
 
                     z: -1
-                    y: whitespaceRow.modelData.y - viewport.scrollY
+                    y: whitespaceRow.model.y - viewport.scrollY
                     height: viewport.lineHeight
                     visible: whitespaceRow.marks.length > 0
 
@@ -501,13 +501,13 @@ Item {
                     id: guideRow
 
                     required property int index
-                    required property var modelData
+                    required property var model
 
-                    readonly property var lineData: modelData
+                    readonly property var lineData: model
                     readonly property int row: viewport.firstVisibleLine + index
 
                     z: -1
-                    y: guideRow.modelData.y - viewport.scrollY
+                    y: guideRow.model.y - viewport.scrollY
                     height: viewport.lineHeight
                     visible: (guideRow.lineData.indentGuides ?? 0) > 0
 
@@ -541,13 +541,13 @@ Item {
                     id: trailing
 
                     required property int index
-                    required property var modelData
+                    required property var model
 
-                    readonly property var lineData: modelData
+                    readonly property var lineData: model
                     readonly property int row: viewport.firstVisibleLine + index
 
                     x: lineData.width + Spacing.GapHM - viewport.scrollX
-                    y: modelData.y - viewport.scrollY
+                    y: model.y - viewport.scrollY
                     height: viewport.lineHeight
                     spacing: Spacing.GapHM
 
@@ -589,13 +589,13 @@ Item {
                     id: annotation
 
                     required property int index
-                    required property var modelData
+                    required property var model
 
-                    readonly property var lineData: modelData
+                    readonly property var lineData: model
                     readonly property int row: viewport.firstVisibleLine + index
 
                     x: annotation.lineData.annotationX ?? 0
-                    y: annotation.modelData.annotationY - viewport.scrollY
+                    y: annotation.model.annotationY - viewport.scrollY
                     height: viewport.lineHeight
                     verticalAlignment: Text.AlignVCenter
 

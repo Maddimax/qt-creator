@@ -50,14 +50,14 @@ Item {
             id: change
 
             required property int index
-            required property var modelData
+            required property var model
 
             readonly property int row: root.viewport.firstVisibleLine + index
             // Not "state": QQuickItem has one of those already.
-            readonly property int changeState: change.modelData.changed ?? 0
+            readonly property int changeState: change.model.changed ?? 0
 
             x: root.width - width
-            y: change.modelData.y - root.viewport.scrollY
+            y: change.model.y - root.viewport.scrollY
             width: 2
             height: root.viewport.lineHeight
             visible: change.changeState !== 0
@@ -75,15 +75,13 @@ Item {
             id: mark
 
             required property int index
-            // Not called "data": that is Item's default property, and a child
-            // would then be assigned to this instead of to the item.
-            required property var modelData
+            required property var model
 
             readonly property int row: root.viewport.firstVisibleLine + index
-            readonly property var lineData: modelData
+            readonly property var lineData: model
 
             x: Spacing.PaddingHS
-            y: modelData.y - root.viewport.scrollY
+            y: model.y - root.viewport.scrollY
             width: root.markWidth
             height: root.viewport.lineHeight
             fillMode: Image.PreserveAspectFit
@@ -105,7 +103,7 @@ Item {
             id: number
 
             required property int index
-            required property var modelData
+            required property var model
 
             // The row the viewport put this on - the same arithmetic, so the
             // number sits on its own line at any scroll offset rather than
@@ -115,15 +113,15 @@ Item {
             readonly property int row: root.viewport.firstVisibleLine + index
 
             x: Spacing.PaddingHS + root.markWidth
-            y: modelData.y - root.viewport.scrollY
+            y: model.y - root.viewport.scrollY
             width: widest.width
             height: root.viewport.lineHeight
 
             // A wrapped line is numbered where it starts and nowhere else:
             // the continuation rows belong to the same line, and numbering
             // them again would be counting rows rather than lines.
-            text: number.modelData.firstRowOfLine
-                      ? String(number.modelData.lineNumber ?? 0)
+            text: number.model.firstRowOfLine
+                      ? String(number.model.lineNumber ?? 0)
                       : ""
             font: root.viewport.font
             color: Tokens.textMuted
@@ -141,13 +139,13 @@ Item {
             id: fold
 
             required property int index
-            required property var modelData
+            required property var model
 
-            readonly property var lineData: modelData
+            readonly property var lineData: model
             readonly property int row: root.viewport.firstVisibleLine + index
 
             x: root.foldX
-            y: modelData.y - root.viewport.scrollY
+            y: model.y - root.viewport.scrollY
             width: root.foldWidth
             height: root.viewport.lineHeight
             fillMode: Image.PreserveAspectFit

@@ -138,15 +138,9 @@ class TEXTEDITOR_EXPORT TextViewport : public QQuickItem, public HoverTarget
     // How many rows are laid out. Readable so that a test can say what was
     // drawn without reading the scene graph.
     Q_PROPERTY(int visibleLineCount READ visibleLineCount NOTIFY metricsChanged)
-    // Everything on screen, one entry per line, as a property rather than
-    // through visibleLine(): an invokable has nothing to notify on, so a
-    // delegate that called it would show whatever was true when it was built
-    // and never hear that a mark had arrived.
-    Q_PROPERTY(QVariantList visibleLines READ visibleLines NOTIFY linesChanged)
-    // The same rows as a model. A list property hands out a new list every
-    // layout, which makes a repeater drop every delegate it has and build
-    // them again; a model whose rows keep their place lets it keep them and
-    // re-read what changed.
+    // The rows on screen, a role per value. A repeater keeps the delegates
+    // whose rows kept their place, and a binding reads the one role it wants
+    // rather than the whole row.
     Q_PROPERTY(QAbstractItemModel *visibleRows READ visibleRows CONSTANT)
     // The selection, as positions in the document. Both -1 for none.
     Q_PROPERTY(int selectionStart READ selectionStart WRITE setSelectionStart
@@ -414,17 +408,12 @@ public:
 
     // What the visible line at \a index was laid out with: its "text", its
     // "formats" as a list of {start, length} maps, its "newlineTail" rect, the
-    // "preedit" being composed on it and the "width" it came to.
-    // A selection is merged into the layout's formats rather than drawn as
-    // anything of its own - that is the whole conclusion of the spike - so this
-    // is the only way to see that it arrived. Empty for an index that is not on
-    // screen.
+    // "preedit" being composed on it and the "width" it came to. Everything,
+    // that is, rather than the part the form draws - a selection is merged
+    // into the layout's formats rather than drawn as anything of its own, so
+    // this is the only way to see that it arrived, and it is what the tests
+    // read rows through. Empty for an index that is not on screen.
     Q_INVOKABLE QVariantMap visibleLine(int index) const;
-    // How much of a row to describe. The model QML reads needs what QML draws;
-    // tests ask for the rest, which costs more than all the rest together.
-    enum RowDetail { ForDrawing, WithIntrospection };
-    QVariantMap rowData(int index, RowDetail detail) const;
-    QVariantList visibleLines() const;
     QAbstractItemModel *visibleRows() const;
 
     // The two halves of the mapping between the document and the screen, which
@@ -591,7 +580,6 @@ signals:
     // nothing to say, which the form treats as "no list" rather than "no
     // matches".
     void completionsAvailable(const QStringList &candidates, const QString &prefix);
-    void linesChanged();
     void selectionChanged();
     void cursorPositionChanged();
     void cursorRectangleChanged();
@@ -784,10 +772,7 @@ private:
     // What the rows were shaped with last time. Anything here changing makes
     // every row's shaping wrong, so none of them can be kept.
     int m_rowsShaped = 0;
-    // The rows as QML reads them. Built once with the layout: eight repeaters
-    // bind to this, and building it per read meant building it eight times a
-    // scroll.
-    QVariantList m_visibleLines;
+    // The rows as QML reads them, rebuilt with the layout.
     class VisibleRowsModel *m_visibleRows = nullptr;
     QFont m_shapedWith;
     qreal m_shapedTabStop = -1;
