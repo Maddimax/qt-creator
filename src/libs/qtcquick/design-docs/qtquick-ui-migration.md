@@ -13111,7 +13111,7 @@ broke. With the `?? 0` it drew every annotation at x=0 and no test minded.
 
 With the map gone, the phases of `updatePolish()` measured across the suite:
 
-    selections   median 0.054  p90 0.234  max 539.347  total 725.9
+    selections   median 0.062  p90 0.234  max  12.729  total 189.6
     gaps         median 0.005  p90 0.005  max   0.046  total   1.8
     colors       median 0.019  p90 0.039  max   0.214  total  10.0
     reuse        median 0.007  p90 0.020  max   0.048  total   3.7
@@ -13145,8 +13145,37 @@ every row. The case it is for is the one a reader is in all day, and the test
 pins it exactly: typing announces one row, and with the old policy the same
 assertion reports row 0 of the whole range.
 
-`selections` is the outstanding thread: normally 0.054 ms, but one call in the
-suite took **539 ms**. A half-second stall is exactly what "laggy" feels like,
-and it is worth knowing whether that is a pathological test document or
-something a reader can hit. That is the next thing to look at, not another
-row-building change.
+The `selections` figure above is a correction. It first measured a 539 ms
+maximum, reproducibly, and a half-second stall is exactly what "laggy" feels
+like - so it went in as the outstanding thread. It was not real.
+`updatePolish()` returns early for an empty document, and that return sits
+*after* the calls the first phase marker enclosed, so every early return left
+that phase's clock running until the next layout and charged it all the idle
+time in between. Closing the phase before the return brings its maximum to
+12.7 ms and its total from 726 ms to 190.
+
+The lesson is worth more than the number: a phase timer that brackets a region
+containing a `return` measures wall-clock between calls, not work. Three things
+were blamed and cleared by measurement before the instrument itself was
+suspected - `updateParenthesesMatch`, `updateDocumentSelections` and
+`editorLayout()` are all under 0.02 ms.
+
+What the same investigation did turn up is real, and is in the `rowsBlock`
+line: when wrapping is on, every layout runs
+
+    for (QTextBlock b = text->firstBlock(); b.isValid(); b = b.next())
+        rows->blockBoundingRect(b);
+
+over the *whole document*, not the screen. Fifty such layouts in the suite:
+median 2.1 ms, max 10.8 ms, total 155 ms, on documents of 81 and 201 blocks.
+That is roughly 0.05-0.13 ms a block, every layout, which is a full block
+layout rather than a cache hit - so a wrapped file of ten thousand lines would
+spend something like a second per layout on it. The view is otherwise careful
+to be O(screen): its own comment says the arithmetic is what "holds at a
+million lines".
+
+The fix is to prime only when something that invalidates the cached block
+layouts has changed - the wrap width, the font, the tab width, breakindent or
+showbreak. It is not a change to make at the end of a batch: the invalidation
+set has to be right or the row count is wrong, and a wrong row count misplaces
+every line on screen.
