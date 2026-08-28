@@ -437,6 +437,12 @@ public:
     // visibleLine() reports it. Does nothing for a line that starts no fold,
     // so a gutter may call it for whatever the user clicked.
     Q_INVOKABLE void toggleFold(int lineNumber);
+    // Folding at the caret rather than at a line the pointer landed on.
+    Q_INVOKABLE void foldCurrentBlock(bool recursive = false);
+    Q_INVOKABLE void unfoldCurrentBlock(bool recursive = false);
+    // Closes everything while anything is still open, and opens everything
+    // once nothing is.
+    Q_INVOKABLE void toggleFoldAll();
 
     // Highlights the folds enclosing the row at \a y, the way hovering the
     // widget editor's folding column does - and, like it, whether or not the
@@ -557,6 +563,13 @@ public:
     // What movement is measured against. A wrapped view has a layout of its
     // own that the document's does not know about, and moving down a row
     // rather than over a whole wrapped line depends on using it.
+    // Folding indents come from the highlighter, so folding before it has
+    // finished would fold whatever range it had worked out so far. Returns
+    // true when it had to wait, in which case \a retry runs once it is done
+    // and the caller should do nothing now.
+    bool waitsForHighlighter(const std::function<void()> &retry);
+    // What every fold has to do once the blocks have been changed.
+    void foldingChanged();
     Utils::PlainTextDocumentLayout *movementLayout() const;
     bool canEdit() const;
     Utils::CommentDefinition commentDefinition() const;

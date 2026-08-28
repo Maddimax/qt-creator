@@ -4,6 +4,7 @@
 #include "textoperations.h"
 
 #include "tabsettings.h"
+#include "textdocumentlayout.h"
 #include "textdocument.h"
 
 #include <utils/multitextcursor.h>
@@ -497,6 +498,41 @@ void rewrapParagraph(QTextCursor &cursor, const TabSettingsData &ts, int paragra
 
     cursor.insertText(result);
     cursor.endEditBlock();
+}
+
+QTextBlock blockToFold(const QTextBlock &block)
+{
+    QTextBlock candidate = block;
+    if (TextBlockUserData::canFold(candidate) && candidate.next().isVisible())
+        return candidate;
+
+    // Nothing folds here, so the fold that contains this line is the one
+    // meant: walk out until the indentation drops.
+    const int indent = TextBlockUserData::foldingIndent(candidate);
+    while (candidate.isValid()
+           && (TextBlockUserData::foldingIndent(candidate) >= indent || !candidate.isVisible())) {
+        candidate = candidate.previous();
+    }
+    return candidate;
+}
+
+QTextBlock blockToUnfold(const QTextBlock &block)
+{
+    QTextBlock candidate = block;
+    while (candidate.isValid() && !candidate.isVisible())
+        candidate = candidate.previous();
+    return candidate;
+}
+
+bool hasUnfoldedBlocks(const QTextDocument *document)
+{
+    if (!document)
+        return false;
+    for (QTextBlock block = document->firstBlock(); block.isValid(); block = block.next()) {
+        if (block.isVisible() && TextBlockUserData::canFold(block) && block.next().isVisible())
+            return true;
+    }
+    return false;
 }
 
 } // namespace TextEditor

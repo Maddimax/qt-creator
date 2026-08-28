@@ -17,6 +17,7 @@ class MultiTextCursor;
 }
 
 QT_BEGIN_NAMESPACE
+class QTextBlock;
 class QTextCursor;
 class QTextDocument;
 QT_END_NAMESPACE
@@ -78,6 +79,22 @@ TEXTEDITOR_EXPORT void copyLineUpDown(QTextCursor &cursor, bool up, TextDocument
 // before it does - the widget editor's refactor markers have to be measured
 // against the old text, because removing it takes their positions with it.
 TEXTEDITOR_EXPORT QTextCursor selectLinesToMove(const QTextCursor &cursor);
+
+// Which block folding \a block would actually fold: itself when it can be
+// folded and its next line is showing, and otherwise the innermost one around
+// it that can - so that asking to fold from inside a function folds the
+// function rather than nothing.
+TEXTEDITOR_EXPORT QTextBlock blockToFold(const QTextBlock &block);
+
+// Which block unfolding \a block would open: itself when it is showing, and
+// otherwise the one that swallowed it.
+TEXTEDITOR_EXPORT QTextBlock blockToUnfold(const QTextBlock &block);
+
+// Whether anything in \a document could still be folded and is not. This is
+// what decides which way "fold all" goes, and it is asked this way round on
+// purpose: while anything is open the command closes everything, and only
+// when nothing is left open does it open everything again.
+TEXTEDITOR_EXPORT bool hasUnfoldedBlocks(const QTextDocument *document);
 
 // Moves the lines \a move has selected one line up or down and leaves \a move
 // on them, selected again when \a hadSelection. Re-indents them unless they

@@ -13698,3 +13698,45 @@ test.
 Forty-eight commands now. What is left of the ninety-six is what needs
 machinery rather than wiring: the assist commands, the symbol commands, folding
 and the block ones, and Go to Line Start with its two-step home.
+
+## Folding, and two tests that were wrong in different ways
+
+Five commands. The viewport could already fold a line the pointer landed on;
+what it could not do was fold *the block the caret is in*, which is what the
+menu entry means - standing in the middle of a function and asking to fold
+means the function. That choice is pure, so `blockToFold()`, `blockToUnfold()`
+and `hasUnfoldedBlocks()` are shared and the widget's `fold()`, `unfold()` and
+`toggleFoldAll()` are now three lines each.
+
+`hasUnfoldedBlocks()` is deliberately that way round rather than
+`hasFoldedBlocks()`. It was written the other way first and would have
+inverted Fold All: the widget closes everything while anything is still open,
+and only opens everything once nothing is. Reading the widget's loop rather
+than naming the predicate by intuition is what caught it, before it was wired
+to anything.
+
+The rest of the viewport's folding - waiting for the highlighter, asking the
+layout to redraw, bringing a caret back out of what was just folded - was
+already there for `toggleFold()` and now sits in `waitsForHighlighter()` and
+`foldingChanged()`, which all five commands use.
+
+Both tests failed, and neither failure was the code:
+
+1. They waited for `hasUnfoldedBlocks()` and folded as soon as it was true.
+   That is true as soon as the highlighter has produced *some* folding
+   indents, and folding while it is still running defers until it has
+   finished - so the fold was scheduled rather than done, and the assertion
+   ran first. Waiting for `syntaxHighlighterUpToDate()` is waiting for the
+   right thing.
+2. The fold was then asserted to leave the brace line showing. It does not:
+   the block that owns the fold is `int f()`, and the brace is inside what was
+   folded. The test said what was expected rather than what folding means.
+
+That is the seventh and eighth. Neither would have been visible without
+watching them fail for a reason and checking whether the reason was the one
+being claimed.
+
+Fifty-three commands. What is left needs machinery this view does not have
+yet: the assist commands want a completion widget, the symbol ones want the
+language client, and Go to Line Start wants its two-step home lifted out of
+the key handler the way the clipboard ones were.

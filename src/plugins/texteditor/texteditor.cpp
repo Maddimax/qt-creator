@@ -8906,13 +8906,7 @@ void TextEditorWidget::fold(const QTextBlock &block, bool recursive)
     QTextDocument *doc = document();
     auto documentLayout = qobject_cast<TextDocumentLayout*>(doc->documentLayout());
     QTC_ASSERT(documentLayout, return);
-    QTextBlock b = block;
-    if (!(TextBlockUserData::canFold(b) && b.next().isVisible())) {
-        // find the closest previous block which can fold
-        int indent = TextBlockUserData::foldingIndent(b);
-        while (b.isValid() && (TextBlockUserData::foldingIndent(b) >= indent || !b.isVisible()))
-            b = b.previous();
-    }
+    const QTextBlock b = TextEditor::blockToFold(block);
     if (b.isValid()) {
         TextBlockUserData::doFoldOrUnfold(b, false, recursive);
         d->moveCursorVisible();
@@ -8929,9 +8923,7 @@ void TextEditorWidget::unfold(const QTextBlock &block, bool recursive)
     QTextDocument *doc = document();
     auto documentLayout = qobject_cast<TextDocumentLayout*>(doc->documentLayout());
     QTC_ASSERT(documentLayout, return);
-    QTextBlock b = block;
-    while (b.isValid() && !b.isVisible())
-        b = b.previous();
+    const QTextBlock b = TextEditor::blockToUnfold(block);
     TextBlockUserData::doFoldOrUnfold(b, true, recursive);
     d->moveCursorVisible();
     documentLayout->requestUpdate();
@@ -8948,19 +8940,7 @@ void TextEditorWidget::toggleFoldAll()
     if (singleShotAfterHighlightingDone([this] { toggleFoldAll(); }))
         return;
 
-    QTextDocument *doc = document();
-    QTextBlock block = doc->firstBlock();
-
-    bool makeVisible = true;
-    while (block.isValid()) {
-        if (block.isVisible() && TextBlockUserData::canFold(block) && block.next().isVisible()) {
-            makeVisible = false;
-            break;
-        }
-        block = block.next();
-    }
-
-    unfoldAll(makeVisible);
+    unfoldAll(!TextEditor::hasUnfoldedBlocks(document()));
 }
 
 void TextEditorWidget::unfoldAll(bool unfold)

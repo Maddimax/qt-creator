@@ -3043,30 +3043,88 @@ void TextViewport::toggleFold(int lineNumber)
     if (!block.isValid() || !TextBlockUserData::canFold(block))
         return;
 
-    // Folding indents come from the highlighter, so folding while it is still
-    // running would fold the range it had worked out so far. The widget editor
-    // waits; looking the line up again afterwards rather than keeping the
-    // block means it does not matter what the highlighter did to the document.
-    if (SyntaxHighlighter * const highlighter = doc->syntaxHighlighter();
-        highlighter && !highlighter->syntaxHighlighterUpToDate()) {
-        connect(highlighter, &SyntaxHighlighter::finished, this,
-                [this, lineNumber] { toggleFold(lineNumber); }, Qt::SingleShotConnection);
+    // Looking the line up again after the wait, rather than keeping the block,
+    // means it does not matter what the highlighter did to the document.
+    if (waitsForHighlighter([this, lineNumber] { toggleFold(lineNumber); }))
         return;
-    }
-
-    auto * const layout = qobject_cast<TextDocumentLayout *>(text->documentLayout());
-    QTC_ASSERT(layout, return);
 
     TextBlockUserData::doFoldOrUnfold(block, TextBlockUserData::isFolded(block));
+    foldingChanged();
+}
+
+bool TextViewport::waitsForHighlighter(const std::function<void()> &retry)
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    SyntaxHighlighter * const highlighter = doc ? doc->syntaxHighlighter() : nullptr;
+    if (!highlighter || highlighter->syntaxHighlighterUpToDate())
+        return false;
+    connect(highlighter, &SyntaxHighlighter::finished, this, retry, Qt::SingleShotConnection);
+    return true;
+}
+
+void TextViewport::foldingChanged()
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    QTextDocument * const text = doc ? doc->document() : nullptr;
+    if (!text)
+        return;
+    auto * const layout = qobject_cast<TextDocumentLayout *>(text->documentLayout());
+    QTC_ASSERT(layout, return);
     layout->requestUpdate();
     layout->emitDocumentSizeChanged();
 
     // A caret left inside what was just folded would type into text nobody can
-    // see. The line that owns the fold is visible by construction, so that is
-    // where it goes.
+    // see, so it comes out to the end of the line that swallowed it.
     const QTextBlock cursorBlock = text->findBlock(m_cursorPosition);
-    if (cursorBlock.isValid() && !cursorBlock.isVisible())
-        setCursorPosition(block.position() + block.length() - 1);
+    if (cursorBlock.isValid() && !cursorBlock.isVisible()) {
+        const QTextBlock owner = TextEditor::blockToUnfold(cursorBlock);
+        if (owner.isValid())
+            setCursorPosition(owner.position() + owner.length() - 1);
+    }
+}
+
+void TextViewport::foldCurrentBlock(bool recursive)
+{
+    if (waitsForHighlighter([this, recursive] { foldCurrentBlock(recursive); }))
+        return;
+    const QTextCursor cursor = textCursor();
+    if (cursor.isNull())
+        return;
+    const QTextBlock block = TextEditor::blockToFold(cursor.block());
+    if (!block.isValid())
+        return;
+    TextBlockUserData::doFoldOrUnfold(block, false, recursive);
+    foldingChanged();
+}
+
+void TextViewport::unfoldCurrentBlock(bool recursive)
+{
+    if (waitsForHighlighter([this, recursive] { unfoldCurrentBlock(recursive); }))
+        return;
+    const QTextCursor cursor = textCursor();
+    if (cursor.isNull())
+        return;
+    const QTextBlock block = TextEditor::blockToUnfold(cursor.block());
+    if (!block.isValid())
+        return;
+    TextBlockUserData::doFoldOrUnfold(block, true, recursive);
+    foldingChanged();
+}
+
+void TextViewport::toggleFoldAll()
+{
+    if (waitsForHighlighter([this] { toggleFoldAll(); }))
+        return;
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    QTextDocument * const text = doc ? doc->document() : nullptr;
+    if (!text)
+        return;
+    const bool unfold = !TextEditor::hasUnfoldedBlocks(text);
+    for (QTextBlock block = text->firstBlock(); block.isValid(); block = block.next()) {
+        if (TextBlockUserData::canFold(block))
+            TextBlockUserData::doFoldOrUnfold(block, unfold);
+    }
+    foldingChanged();
 }
 
 void TextViewport::highlightScopeAt(qreal y)

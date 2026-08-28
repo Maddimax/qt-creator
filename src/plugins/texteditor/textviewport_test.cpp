@@ -25,6 +25,7 @@
 #include "texteditorconstants.h"
 #include "marginsettings.h"
 #include "highlighterhelper.h"
+#include "textoperations.h"
 #include "textviewport.h"
 #include "textmark.h"
 
@@ -4575,6 +4576,77 @@ private slots:
         viewport->uppercaseSelection();
 
         QCOMPARE(text->toPlainText(), before);
+    }
+
+    // Fold at the caret folds the block the caret is inside, not the line it
+    // is on - standing in the middle of a function and asking to fold means
+    // the function. Unfold opens it again.
+    void testFoldingAtTheCaretTakesTheBlockAroundIt()
+    {
+        TemporaryDirectory dir("qtc-viewport-fold");
+        const FilePath file = dir.filePath("code.cpp");
+        QVERIFY(file.writeFileContents("int f()\n{\n    int a = 1;\n    int b = 2;\n}\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+
+        TextDocument * const doc = viewport->textDocument();
+        HighlighterHelper::setDefinitionOn(doc, HighlighterHelper::definitionForName("C++"));
+        QTRY_VERIFY(HighlighterHelper::definitionForDocument(doc).isValid());
+        QTextDocument * const text = doc->document();
+        // Folding indents are the highlighter's, so there is nothing to fold
+        // until it has been over the file - and folding while it is still
+        // going defers until it has finished, which is not something a test
+        // can assert against. Wait for it to be done, not merely started.
+        QTRY_VERIFY(TextEditor::hasUnfoldedBlocks(text));
+        QTRY_VERIFY(doc->syntaxHighlighter()
+                    && doc->syntaxHighlighter()->syntaxHighlighterUpToDate());
+
+        // The caret inside the body, on a line that folds nothing itself.
+        viewport->setCursorPosition(text->findBlockByNumber(2).position() + 4);
+        viewport->foldCurrentBlock();
+
+        // The body is hidden and the line that owns the fold is not - which
+        // is "int f()", not the brace: the brace is inside what was folded.
+        QVERIFY2(!text->findBlockByNumber(2).isVisible(), "the body was not folded away");
+        QVERIFY2(text->findBlockByNumber(0).isVisible(), "the line owning the fold went too");
+        QVERIFY(!text->findBlockByNumber(1).isVisible());
+
+        viewport->unfoldCurrentBlock();
+        QVERIFY2(text->findBlockByNumber(2).isVisible(), "unfolding did not open it again");
+    }
+
+    // Fold All closes everything while anything is still open, and only opens
+    // everything once nothing is left open.
+    void testFoldingAllClosesFirstAndOpensAfterwards()
+    {
+        TemporaryDirectory dir("qtc-viewport-foldall");
+        const FilePath file = dir.filePath("code.cpp");
+        QVERIFY(file.writeFileContents("int f()\n{\n    int a = 1;\n}\n"
+                                       "int g()\n{\n    int b = 2;\n}\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 4);
+
+        TextDocument * const doc = viewport->textDocument();
+        HighlighterHelper::setDefinitionOn(doc, HighlighterHelper::definitionForName("C++"));
+        QTRY_VERIFY(HighlighterHelper::definitionForDocument(doc).isValid());
+        QTextDocument * const text = doc->document();
+        QTRY_VERIFY(TextEditor::hasUnfoldedBlocks(text));
+        QTRY_VERIFY(doc->syntaxHighlighter()
+                    && doc->syntaxHighlighter()->syntaxHighlighterUpToDate());
+
+        viewport->toggleFoldAll();
+        QVERIFY2(!TextEditor::hasUnfoldedBlocks(text), "something was left open");
+
+        viewport->toggleFoldAll();
+        QVERIFY2(TextEditor::hasUnfoldedBlocks(text), "nothing was opened again");
     }
 
     // None of the line commands edits a buffer that is read only, the same

@@ -357,6 +357,27 @@ public:
         command(Constants::MOVE_LINE_DOWN, &TextViewport::moveLineDown);
         command(Constants::REWRAP_PARAGRAPH, &TextViewport::rewrapParagraph);
 
+        // Folding. The recursive pair take the same method with its argument
+        // set, which is why they are built here rather than through command().
+        const auto folding = [this](Utils::Id id, bool unfold, bool recursive) {
+            Core::ActionBuilder(this, id)
+                .setContext(Core::Context(m_editorContext))
+                .addOnTriggered(this, [this, unfold, recursive] {
+                    TextViewport * const view = viewport();
+                    if (!view)
+                        return;
+                    if (unfold)
+                        view->unfoldCurrentBlock(recursive);
+                    else
+                        view->foldCurrentBlock(recursive);
+                });
+        };
+        folding(Constants::FOLD, false, false);
+        folding(Constants::UNFOLD, true, false);
+        folding(Constants::FOLD_RECURSIVELY, false, true);
+        folding(Constants::UNFOLD_RECURSIVELY, true, true);
+        command(Constants::UNFOLD_ALL, &TextViewport::toggleFoldAll);
+
         // The editing commands every editor answers. These keys already
         // reached the viewport on their own, and a shortcut is handled before
         // the key gets there - so these must run the very code the key
