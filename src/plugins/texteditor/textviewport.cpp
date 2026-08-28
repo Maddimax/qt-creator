@@ -581,65 +581,65 @@ QVariantMap TextViewport::rowData(int index, RowDetail detail) const
     const QList<QTextLayout::FormatRange> ranges
         = detail == WithIntrospection ? line.layout->formats() : QList<QTextLayout::FormatRange>();
     for (const QTextLayout::FormatRange &range : ranges) {
-        formats.append(QVariantMap{{"start", range.start},
-                                   {"length", range.length},
+        formats.append(QVariantMap{{QStringLiteral("start"), range.start},
+                                   {QStringLiteral("length"), range.length},
                                    // Syntax highlighting is mostly a foreground
                                    // colour, so a test that reads only the
                                    // background cannot tell coloured text from
                                    // text drawn in one colour.
-                                   {"foreground", range.format.foreground().color()},
-                                   {"background", range.format.background().color()},
+                                   {QStringLiteral("foreground"), range.format.foreground().color()},
+                                   {QStringLiteral("background"), range.format.background().color()},
                                    // A link is drawn by underlining it, which
                                    // neither colour shows.
-                                   {"underline", range.format.fontUnderline()}});
+                                   {QStringLiteral("underline"), range.format.fontUnderline()}});
     }
-    return QVariantMap{{"text", line.layout->text()},
-                       {"formats", formats},
+    return QVariantMap{{QStringLiteral("text"), line.layout->text()},
+                       {QStringLiteral("formats"), formats},
                        // What the gutter numbers this line, counting folded
                        // lines that are not on screen.
-                       {"lineNumber", line.lineNumber},
+                       {QStringLiteral("lineNumber"), line.lineNumber},
                        // Whether this row starts its line. A wrapped line is
                        // numbered and marked only where it begins.
-                       {"firstRowOfLine", line.firstRowOfLine},
+                       {QStringLiteral("firstRowOfLine"), line.firstRowOfLine},
                        // What the gutter draws beside this line, if anything.
-                       {"markIcon", line.markIcon},
+                       {QStringLiteral("markIcon"), line.markIcon},
                        // Whether a fold marker belongs beside this line, and
                        // which way round it points.
-                       {"foldable", line.foldable},
-                       {"folded", line.folded},
-                       {"foldIcon", line.foldIcon},
-                       {"foldReplacement", line.foldReplacement},
+                       {QStringLiteral("foldable"), line.foldable},
+                       {QStringLiteral("folded"), line.folded},
+                       {QStringLiteral("foldIcon"), line.foldIcon},
+                       {QStringLiteral("foldReplacement"), line.foldReplacement},
                        // How many indent guides to draw on this row.
-                       {"indentGuides", line.indentGuides},
+                       {QStringLiteral("indentGuides"), line.indentGuides},
                        // Whether the line differs from what is on disk, and
                        // which way. See TextViewport::ChangeMark.
-                       {"changed", int(line.changed)},
-                       {"annotation", line.annotation},
-                       {"newlineTail", line.newlineTail},
+                       {QStringLiteral("changed"), int(line.changed)},
+                       {QStringLiteral("annotation"), line.annotation},
+                       {QStringLiteral("newlineTail"), line.newlineTail},
                        // The selected part of this row, as one rectangle.
-                       {"selectionFills", QVariant::fromValue(line.selectionFills)},
+                       {QStringLiteral("selectionFills"), QVariant::fromValue(line.selectionFills)},
                        // The spaces and tabs on this row, where they are shown.
-                       {"whitespace", line.whitespace},
+                       {QStringLiteral("whitespace"), line.whitespace},
                        // The wrapped-line marker, where this row has one.
-                       {"breakMarker", line.breakMarker},
-                       {"breakMarkerX", line.breakMarkerX},
+                       {QStringLiteral("breakMarker"), line.breakMarker},
+                       {QStringLiteral("breakMarkerX"), line.breakMarkerX},
                        // The nested-scope backgrounds behind this row.
-                       {"scopeBands", line.scopeBands},
+                       {QStringLiteral("scopeBands"), line.scopeBands},
                        // Where the line's message starts, which the display
                        // settings decide.
-                       {"annotationX", line.annotationX},
+                       {QStringLiteral("annotationX"), line.annotationX},
                        // And how far down, which is not the row's own y when
                        // the message was asked for on a line of its own.
-                       {"annotationY", line.annotationY},
+                       {QStringLiteral("annotationY"), line.annotationY},
                        // What is being composed on this line, if anything. Not
                        // part of "text": it is not in the document yet, which
                        // is the whole distinction.
-                       {"preedit", line.layout->preeditAreaText()},
-                       {"width", line.layout->lineAt(0).naturalTextWidth()},
+                       {QStringLiteral("preedit"), line.layout->preeditAreaText()},
+                       {QStringLiteral("width"), line.layout->lineAt(0).naturalTextWidth()},
                        // Where the row sits in the document, before the scroll
                        // is taken off it. Not row * lineHeight: anything that
                        // claims space between rows moves this and not that.
-                       {"y", line.at.y() + m_scrollY}};
+                       {QStringLiteral("y"), line.at.y() + m_scrollY}};
 }
 
 TextViewport::Located TextViewport::locate(int position) const
@@ -2317,7 +2317,7 @@ void TextViewport::updateScrollBarHighlights()
             return;
         already.insert(where);
         highlights.append(
-            QVariantMap{{"position", yOfRow(row) / height}, {"color", colour}});
+            QVariantMap{{QStringLiteral("position"), yOfRow(row) / height}, {QStringLiteral("color"), colour}});
     };
 
     // The line the caret is on.
@@ -3155,9 +3155,9 @@ void TextViewport::updatePolish()
                     if (w <= 0)
                         return;
                     QVariantMap entry;
-                    entry.insert("x", x);
-                    entry.insert("width", w);
-                    entry.insert("colour", colour);
+                    entry.insert(QStringLiteral("x"), x);
+                    entry.insert(QStringLiteral("width"), w);
+                    entry.insert(QStringLiteral("colour"), colour);
                     blockLine.scopeBands.append(entry);
                 };
                 // Split around the right margin so that the line marking it
@@ -3474,9 +3474,9 @@ void TextViewport::updatePolish()
                         continue;
                     const qreal from = textLine.cursorToX(i);
                     const qreal to = textLine.cursorToX(i + 1);
-                    line.whitespace.append(QVariantMap{{"x", rowIndent + from},
-                                                       {"width", to - from},
-                                                       {"tab", at == QLatin1Char('\t')}});
+                    line.whitespace.append(QVariantMap{{QStringLiteral("x"), rowIndent + from},
+                                                       {QStringLiteral("width"), to - from},
+                                                       {QStringLiteral("tab"), at == QLatin1Char('\t')}});
                 }
             }
 

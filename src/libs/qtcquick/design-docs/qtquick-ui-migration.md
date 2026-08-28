@@ -13026,3 +13026,37 @@ worth fixing on its own terms - either by not rebuilding rows a scroll did not
 change, or by giving the model real roles instead of a map. Both are larger
 than this batch and neither should be guessed at while the measurement is
 taken through a sanitizer.
+
+## The row map's keys were being built from UTF-8 every frame
+
+Half of a layout is turning rows into `QVariantMap`s, and the question was
+what inside that is expensive. It is not the values: `whitespace` and
+`scopeBands` are already `QVariantList`s on the row, `text` is a shared
+`QString`. It is the keys.
+
+`QVariantMap{{"text", ...}, {"lineNumber", ...}, ...}` builds a `QString` from
+a `const char *` for every key of every row of every layout - twenty-three
+UTF-8 conversions and allocations per row, before the red-black tree nodes
+`QMap` needs to hold them. Fifty rows on screen is over a thousand string
+allocations a frame, for keys that never change.
+
+`QStringLiteral` makes each one a static, allocation-free `QString`. Nothing
+else changed - same keys, same values, same map. Three before/after pairs, run
+alternately so a drifting machine cannot favour one:
+
+    rebuildVisibleLines  before 0.419 0.420 0.424   after 0.355 0.350 0.357
+    updatePolish         before 0.801 0.731 0.772   after 0.683 0.665 0.685
+
+16% off building the rows and 12% off the whole layout, with the two sets not
+overlapping at all. All six runs 339 passed, 0 failed.
+
+A key name is what the tests read rows by, so the control is direct: spelling
+one of the twenty-three `linenumber` instead of `lineNumber` fails eleven
+tests.
+
+What is left is the `QMap` itself. The next step is the one that removes it -
+giving `VisibleRowsModel` a role per value instead of one map per row, so that
+a binding on `y` costs a `data()` call rather than a whole row. That needs the
+delegates in `CodeViewport.qml` and `EditorGutter.qml` to name their roles,
+and the names have to be prefixed: a role called `y` or `width` shadows the
+`Item` property of the same name.
