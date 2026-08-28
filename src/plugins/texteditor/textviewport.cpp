@@ -1537,6 +1537,9 @@ static void moveToFirstCharacter(QTextCursor &cursor, QTextCursor::MoveMode mode
 
 void TextViewport::keyPressEvent(QKeyEvent *event)
 {
+    // Any key ends a run of line moves, so the next one starts its own
+    // undo step rather than joining what was typed before it.
+    m_lineMoveJoinsUndo = false;
     // Alt on its own asks for a tooltip when it is let go; Alt with anything
     // else is a shortcut, so any other key takes the offer back.
     m_maybeKeyboardTooltip = event->key() == Qt::Key_Alt
@@ -2236,6 +2239,39 @@ void TextViewport::copyLineUpOrDown(bool up)
     QTextCursor cursor = textCursor();
     TextEditor::copyLineUpDown(cursor, up, doc);
     setTextCursor(cursor);
+}
+
+void TextViewport::moveLineUp()
+{
+    moveLineUpOrDown(true);
+}
+
+void TextViewport::moveLineDown()
+{
+    moveLineUpOrDown(false);
+}
+
+void TextViewport::moveLineUpOrDown(bool up)
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    if (isReadOnly() || !doc)
+        return;
+    if (multiTextCursor().hasMultipleCursors())
+        return;
+
+    const QTextCursor cursor = textCursor();
+    QTextCursor move = TextEditor::selectLinesToMove(cursor);
+    if (m_lineMoveJoinsUndo)
+        move.joinPreviousEditBlock();
+    else
+        move.beginEditBlock();
+
+    // No refactor markers to carry along: that overlay is the widget editor's.
+    TextEditor::moveSelectedLines(move, up, cursor.hasSelection(), doc, commentDefinition());
+
+    move.endEditBlock();
+    setTextCursor(move);
+    m_lineMoveJoinsUndo = true;
 }
 
 void TextViewport::joinLines()

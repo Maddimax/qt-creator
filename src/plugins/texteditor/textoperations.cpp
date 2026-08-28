@@ -274,4 +274,85 @@ void copyLineUpDown(QTextCursor &cursor, bool up, TextDocument *document)
     cursor = move;
 }
 
+QTextCursor selectLinesToMove(const QTextCursor &cursor)
+{
+    QTextCursor move = cursor;
+    // Opens folded items rather than destroying them.
+    move.setVisualNavigation(false);
+
+    if (cursor.hasSelection()) {
+        move.setPosition(cursor.selectionStart());
+        move.movePosition(QTextCursor::StartOfBlock);
+        move.setPosition(cursor.selectionEnd(), QTextCursor::KeepAnchor);
+        move.movePosition(move.atBlockStart() ? QTextCursor::PreviousCharacter
+                                              : QTextCursor::EndOfBlock,
+                          QTextCursor::KeepAnchor);
+    } else {
+        move.movePosition(QTextCursor::StartOfBlock);
+        move.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+    }
+    return move;
+}
+
+int moveSelectedLines(QTextCursor &move, bool up, bool hadSelection, TextDocument *document,
+                      const Utils::CommentDefinition &comment)
+{
+    const QString text = move.selectedText();
+
+    move.movePosition(QTextCursor::NextCharacter, QTextCursor::KeepAnchor);
+    move.removeSelectedText();
+
+    if (up) {
+        move.movePosition(QTextCursor::PreviousBlock);
+        move.insertBlock();
+        move.movePosition(QTextCursor::PreviousCharacter);
+    } else {
+        move.movePosition(QTextCursor::EndOfBlock);
+        if (move.atBlockStart()) { // empty block
+            move.movePosition(QTextCursor::NextBlock);
+            move.insertBlock();
+            move.movePosition(QTextCursor::PreviousCharacter);
+        } else {
+            move.insertBlock();
+        }
+    }
+
+    const int start = move.position();
+    move.clearSelection();
+    move.insertText(text);
+    const int end = move.position();
+
+    if (hadSelection) {
+        move.setPosition(end);
+        move.setPosition(start, QTextCursor::KeepAnchor);
+    } else {
+        move.setPosition(start);
+    }
+
+    // Text that is entirely commented out keeps the indentation it was given:
+    // where a comment sits is the reader's business, and re-indenting it would
+    // undo that every time the line moved.
+    bool shouldReindent = true;
+    if (comment.isValid()) {
+        if (comment.hasMultiLineStyle()) {
+            if (text.startsWith(comment.multiLineStart) && text.endsWith(comment.multiLineEnd))
+                shouldReindent = false;
+        }
+        if (shouldReindent && comment.hasSingleLineStyle()) {
+            shouldReindent = false;
+            QTextBlock block = move.block();
+            while (block.isValid() && block.position() < end) {
+                if (!block.text().startsWith(comment.singleLine))
+                    shouldReindent = true;
+                block = block.next();
+            }
+        }
+    }
+
+    if (shouldReindent && document)
+        document->autoReindent(move);
+
+    return start;
+}
+
 } // namespace TextEditor

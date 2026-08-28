@@ -4439,6 +4439,66 @@ private slots:
         QCOMPARE(viewport->textCursor().blockNumber(), 1);
     }
 
+    // Move Line Down swaps the line with the one under it and keeps the caret
+    // on the line that moved, so that moving it twice moves the same line.
+    void testMovingALineDownTakesTheCaretWithIt()
+    {
+        TemporaryDirectory dir("qtc-viewport-moveline");
+        const FilePath file = dir.filePath("three.txt");
+        QVERIFY(file.writeFileContents("one\ntwo\nthree\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        viewport->setReadOnly(false);
+        QTRY_VERIFY(viewport->visibleLineCount() > 2);
+
+        QTextDocument * const text = viewport->textDocument()->document();
+        viewport->setCursorPosition(text->findBlockByNumber(0).position() + 1);
+        viewport->moveLineDown();
+
+        QCOMPARE(text->findBlockByNumber(0).text(), QString("two"));
+        QCOMPARE(text->findBlockByNumber(1).text(), QString("one"));
+        // At the start of the line it moved to, not at its end: the block
+        // number alone cannot tell those apart, because they are the same
+        // line.
+        QCOMPARE(viewport->cursorPosition(), text->findBlockByNumber(1).position());
+
+        // Again, and the same line keeps going rather than the caret being
+        // left behind on the one that took its place.
+        viewport->moveLineDown();
+        QCOMPARE(text->findBlockByNumber(2).text(), QString("one"));
+        QCOMPARE(viewport->cursorPosition(), text->findBlockByNumber(2).position());
+    }
+
+    // Two moves in a row are one thing the reader did, so one undo puts both
+    // back. A key pressed between them ends the run.
+    void testMovingALineTwiceUndoesInOneStep()
+    {
+        TemporaryDirectory dir("qtc-viewport-moveundo");
+        const FilePath file = dir.filePath("three.txt");
+        QVERIFY(file.writeFileContents("one\ntwo\nthree\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        viewport->setReadOnly(false);
+        QTRY_VERIFY(viewport->visibleLineCount() > 2);
+
+        QTextDocument * const text = viewport->textDocument()->document();
+        const QString before = text->toPlainText();
+
+        viewport->setCursorPosition(text->findBlockByNumber(0).position() + 1);
+        viewport->moveLineDown();
+        viewport->moveLineDown();
+        QCOMPARE(text->findBlockByNumber(2).text(), QString("one"));
+
+        text->undo();
+        QCOMPARE(text->toPlainText(), before);
+    }
+
     // None of the line commands edits a buffer that is read only, the same
     // as a key press does not. One test for all of them: each has its own
     // guard, and a guard that is missing on one of them is exactly the kind
@@ -4482,6 +4542,8 @@ private slots:
         viewport->cutLine();
         viewport->copyLineUp();
         viewport->copyLineDown();
+        viewport->moveLineUp();
+        viewport->moveLineDown();
         // Last, and after the lower case one: both go through the same guard,
         // so with the guard gone they would run one after the other and put
         // the text back exactly as it was between them.

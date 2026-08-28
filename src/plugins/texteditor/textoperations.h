@@ -73,4 +73,19 @@ TEXTEDITOR_EXPORT void maybeSelectLine(Utils::MultiTextCursor &cursor, QTextDocu
 // leaves the caret on the copy so that it can be edited straight away.
 TEXTEDITOR_EXPORT void copyLineUpDown(QTextCursor &cursor, bool up, TextDocument *document);
 
+// The whole lines that \a cursor covers, as a cursor selecting them. Separate
+// from the move below so that a caller can look at what is about to move
+// before it does - the widget editor's refactor markers have to be measured
+// against the old text, because removing it takes their positions with it.
+TEXTEDITOR_EXPORT QTextCursor selectLinesToMove(const QTextCursor &cursor);
+
+// Moves the lines \a move has selected one line up or down and leaves \a move
+// on them, selected again when \a hadSelection. Re-indents them unless they
+// are commented out, on the grounds that a comment's indentation is the
+// reader's business rather than the indenter's. Returns where the moved text
+// now starts.
+TEXTEDITOR_EXPORT int moveSelectedLines(QTextCursor &move, bool up, bool hadSelection,
+                                        TextDocument *document,
+                                        const Utils::CommentDefinition &comment);
+
 } // namespace TextEditor

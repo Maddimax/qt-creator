@@ -351,6 +351,8 @@ public:
         command(Constants::CUT_LINE, &TextViewport::cutLine);
         command(Constants::COPY_LINE_UP, &TextViewport::copyLineUp);
         command(Constants::COPY_LINE_DOWN, &TextViewport::copyLineDown);
+        command(Constants::MOVE_LINE_UP, &TextViewport::moveLineUp);
+        command(Constants::MOVE_LINE_DOWN, &TextViewport::moveLineDown);
 
         Core::ActionBuilder(this, Constants::JOIN_LINES)
             .setContext(Core::Context(m_editorContext))

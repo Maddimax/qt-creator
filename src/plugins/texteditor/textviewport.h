@@ -555,6 +555,7 @@ public:
     // is what makes the line commands work without selecting first.
     void selectWholeLines();
     void copyLineUpOrDown(bool up);
+    void moveLineUpOrDown(bool up);
     void setMultiTextCursor(const Utils::MultiTextCursor &cursors);
     // Runs an edit at every caret, as one undo step. The carets are taken
     // later in the document first: an edit moves everything after it, and a
@@ -588,6 +589,8 @@ public:
     Q_INVOKABLE void cutLine();
     Q_INVOKABLE void copyLineUp();
     Q_INVOKABLE void copyLineDown();
+    Q_INVOKABLE void moveLineUp();
+    Q_INVOKABLE void moveLineDown();
     // A rectangle of text, from where the caret is anchored to \a x, \a y.
     // One caret per line it covers, which is what makes it a selection that
     // can be typed over. The anchor is taken once, when the drag starts, so
@@ -842,6 +845,10 @@ private:
     // Where a block selection was started, kept because the carets it makes
     // replace the main one it would otherwise be read back from.
     QTextCursor m_blockSelectionAnchor;
+    // Set after a line has been moved and cleared by the next key. Moving a
+    // line twice is one thing the reader did, so the second move joins the
+    // first one's undo step rather than making its own.
+    bool m_lineMoveJoinsUndo = false;
     int m_selectionStart = -1;
     int m_selectionEnd = -1;
     int m_cursorPosition = 0;

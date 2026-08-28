@@ -2602,109 +2602,37 @@ void TextEditorWidgetPrivate::moveLineUpDown(bool up)
 {
     if (m_cursors.hasMultipleCursors())
         return;
-    QTextCursor cursor = q->textCursor();
-    QTextCursor move = cursor;
-
-    move.setVisualNavigation(false); // this opens folded items instead of destroying them
+    const QTextCursor cursor = q->textCursor();
+    QTextCursor move = TextEditor::selectLinesToMove(cursor);
 
     if (m_moveLineUndoHack)
         move.joinPreviousEditBlock();
     else
         move.beginEditBlock();
 
-    bool hasSelection = cursor.hasSelection();
-
-    if (hasSelection) {
-        move.setPosition(cursor.selectionStart());
-        move.movePosition(QTextCursor::StartOfBlock);
-        move.setPosition(cursor.selectionEnd(), QTextCursor::KeepAnchor);
-        move.movePosition(move.atBlockStart() ? QTextCursor::PreviousCharacter: QTextCursor::EndOfBlock,
-                          QTextCursor::KeepAnchor);
-    } else {
-        move.movePosition(QTextCursor::StartOfBlock);
-        move.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
-    }
-    QString text = move.selectedText();
-
+    // Measured before the text moves, because removing it takes the markers'
+    // positions with it - a QTextCursor inside removed text collapses.
     RefactorMarkers affectedMarkers;
     RefactorMarkers nonAffectedMarkers;
     QList<int> markerOffsets;
-
     const QList<RefactorMarker> markers = m_refactorOverlay.markers();
     for (const RefactorMarker &marker : markers) {
-        //test if marker is part of the selection to be moved
-        if ((move.selectionStart() <= marker.cursor.position())
-                && (move.selectionEnd() >= marker.cursor.position())) {
+        if (move.selectionStart() <= marker.cursor.position()
+            && move.selectionEnd() >= marker.cursor.position()) {
             affectedMarkers.append(marker);
-            //remember the offset of markers in text
-            int offset = marker.cursor.position() - move.selectionStart();
-            markerOffsets.append(offset);
+            markerOffsets.append(marker.cursor.position() - move.selectionStart());
         } else {
             nonAffectedMarkers.append(marker);
         }
     }
 
-    move.movePosition(QTextCursor::NextCharacter, QTextCursor::KeepAnchor);
-    move.removeSelectedText();
+    const int start = TextEditor::moveSelectedLines(move, up, cursor.hasSelection(),
+                                                    m_document.data(), m_commentDefinition);
 
-    if (up) {
-        move.movePosition(QTextCursor::PreviousBlock);
-        move.insertBlock();
-        move.movePosition(QTextCursor::PreviousCharacter);
-    } else {
-        move.movePosition(QTextCursor::EndOfBlock);
-        if (move.atBlockStart()) { // empty block
-            move.movePosition(QTextCursor::NextBlock);
-            move.insertBlock();
-            move.movePosition(QTextCursor::PreviousCharacter);
-        } else {
-            move.insertBlock();
-        }
-    }
-
-    int start = move.position();
-    move.clearSelection();
-    move.insertText(text);
-    int end = move.position();
-
-    if (hasSelection) {
-        move.setPosition(end);
-        move.setPosition(start, QTextCursor::KeepAnchor);
-    } else {
-        move.setPosition(start);
-    }
-
-    //update positions of affectedMarkers
-    for (int i=0;i < affectedMarkers.count(); i++) {
-        int newPosition = start + markerOffsets.at(i);
-        affectedMarkers[i].cursor.setPosition(newPosition);
-    }
+    for (int i = 0; i < affectedMarkers.count(); ++i)
+        affectedMarkers[i].cursor.setPosition(start + markerOffsets.at(i));
     m_refactorOverlay.setMarkers(nonAffectedMarkers + affectedMarkers);
 
-    bool shouldReindent = true;
-    if (m_commentDefinition.isValid()) {
-        if (m_commentDefinition.hasMultiLineStyle()) {
-            // Don't have any single line comments; try multi line.
-            if (text.startsWith(m_commentDefinition.multiLineStart)
-                && text.endsWith(m_commentDefinition.multiLineEnd)) {
-                shouldReindent = false;
-            }
-        }
-        if (shouldReindent && m_commentDefinition.hasSingleLineStyle()) {
-            shouldReindent = false;
-            QTextBlock block = move.block();
-            while (block.isValid() && block.position() < end) {
-                if (!block.text().startsWith(m_commentDefinition.singleLine))
-                    shouldReindent = true;
-                block = block.next();
-            }
-        }
-    }
-
-    if (shouldReindent) {
-        // The text was not commented at all; re-indent.
-        m_document->autoReindent(move);
-    }
     move.endEditBlock();
 
     q->setTextCursor(move);

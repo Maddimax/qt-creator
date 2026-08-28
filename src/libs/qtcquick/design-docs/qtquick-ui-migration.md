@@ -13545,3 +13545,42 @@ silently did not apply, and now a branch no fixture ever reached. None of them
 were visible from a passing test.
 
 The Quick editor answers 18 commands now, from three.
+
+## Moving a line, which was the one that needed reading
+
+The 112 lines of `moveLineUpDown` were the reason this command was left until
+last, and most of them turned out to be one thing: the widget editor's
+refactor markers have to be measured against the old text, because a
+`QTextCursor` inside text that is removed collapses with it. That measurement
+sits in the middle of the operation, so the operation could not simply be
+lifted out around it.
+
+It splits in two instead. `selectLinesToMove()` says which lines are about to
+move, and `moveSelectedLines()` moves them. The marker bookkeeping stays in the
+widget, between the two calls, where it belongs - the Quick editor has no
+refactor overlay and now says so in one line rather than carrying the code for
+one.
+
+Two details came with it. The moved text is re-indented unless it is entirely
+commented out, on the grounds that where a comment sits is the reader's
+business - which needs the comment definition, and that arrived last batch, so
+this command could not have been ported before it. And moving a line twice is
+one thing the reader did, so the second move joins the first one's undo step;
+the widget tracks that with a flag cleared on every key press, and the viewport
+now has the same, cleared in its own key handler.
+
+### An assertion that could not see what it was checking
+
+The control for "the caret goes with the line" did not bite. The test asked
+for `blockNumber()`, and the two candidate positions - the start of the moved
+text and its end - are on the same line, so the number is the same either way.
+Comparing `cursorPosition()` against the block's own position tells them
+apart, and then removing the behaviour fails the test.
+
+That is the fifth distinct way one of these tests has failed to bite, and the
+first where the assertion was about the right thing but not precise enough to
+see it.
+
+The Quick editor answers 20 commands now. What is left of the list is
+`rewrapParagraph`, and the movement and clipboard commands that already work
+by key but are not registered as actions.
