@@ -13106,3 +13106,47 @@ what "dead" means - but it changed what a mistake looks like. Renaming
 `testTheComponentTurnsAClickIntoACaretAndADragIntoASelection`, which asserts
 that QML complained about nothing, with the file and line of the binding that
 broke. With the `?? 0` it drew every annotation at x=0 and no test minded.
+
+## Where a layout's time goes now, and telling QML less
+
+With the map gone, the phases of `updatePolish()` measured across the suite:
+
+    selections   median 0.054  p90 0.234  max 539.347  total 725.9
+    gaps         median 0.005  p90 0.005  max   0.046  total   1.8
+    colors       median 0.019  p90 0.039  max   0.214  total  10.0
+    reuse        median 0.007  p90 0.020  max   0.048  total   3.7
+    shape        median 0.080  p90 0.327  max   0.995  total  58.2
+    widest       median 0.001  p90 0.001  max   0.002  total   0.3
+    scrollclamp  median 0.001  p90 0.001  max   0.042  total   0.3
+    ghosts       median 0.000  p90 0.001  max   0.063  total   0.4
+    rowbuild     median 0.005  p90 0.007  max   0.021  total   2.2
+    setrows      median 0.006  p90 1.650  max  16.089  total 227.4
+    scrollbar    median 0.019  p90 0.108  max   0.207  total  14.6
+    emitMetrics  median 0.000  p90 0.155  max   1.301  total  25.6
+    emitCaret    median 0.000  p90 0.131  max   0.191  total  12.3
+
+Two things worth reading twice. Shaping the text - the thing a text editor is
+supposed to spend its time on, and the thing the row cache exists to avoid -
+is 58 ms of it. And building the rows, which was half a layout three changes
+ago, is now 2.2 ms. What is left is `setRows`, at 227 ms, and it is not doing
+arithmetic: it is telling QML that rows changed, and QML is believing it.
+
+It announced the whole screen whenever anything at all was different, so typing
+a character made every delegate on every visible row evaluate every binding it
+has. The model can do better now that it holds comparable structs: work out
+which rows actually differ, in runs, and announce only those. Over the suite
+that is **853 row-announcements instead of 2293** - a number that owes nothing
+to the sanitizer, unlike the timings here.
+
+The timing improvement is real but small: `rebuildVisibleLines` 231 ms to 212
+(-8%), a whole layout -4%, over three alternating pairs. That is because a test
+suite opens and scrolls far more than it types, and opening really does change
+every row. The case it is for is the one a reader is in all day, and the test
+pins it exactly: typing announces one row, and with the old policy the same
+assertion reports row 0 of the whole range.
+
+`selections` is the outstanding thread: normally 0.054 ms, but one call in the
+suite took **539 ms**. A half-second stall is exactly what "laggy" feels like,
+and it is worth knowing whether that is a pathological test document or
+something a reader can hit. That is the next thing to look at, not another
+row-building change.

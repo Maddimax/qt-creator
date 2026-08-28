@@ -568,6 +568,23 @@ public:
 
         const int before = int(m_rows.size());
         const int now = int(rows.size());
+
+        // Which rows actually say something new, in runs, worked out before
+        // the old ones are gone. Typing changes the row it was typed on and
+        // leaves the rest alone; announcing the lot makes every delegate on
+        // screen evaluate every binding it has for nothing.
+        QList<QPair<int, int>> changedRuns;
+        for (int i = 0, shared = qMin(before, now); i < shared;) {
+            if (m_rows.at(i) == rows.at(i)) {
+                ++i;
+                continue;
+            }
+            const int from = i;
+            while (i < shared && !(m_rows.at(i) == rows.at(i)))
+                ++i;
+            changedRuns.append({from, i - 1});
+        }
+
         if (now > before)
             beginInsertRows({}, before, now - 1);
         else if (now < before)
@@ -580,10 +597,8 @@ public:
         else if (now < before)
             endRemoveRows();
 
-        // Anything else changes what a row says, and the ones that stayed
-        // have to be re-read.
-        if (const int shared = qMin(before, now); shared > 0)
-            emit dataChanged(index(0), index(shared - 1));
+        for (const auto &[from, to] : std::as_const(changedRuns))
+            emit dataChanged(index(from), index(to));
     }
 
 private:

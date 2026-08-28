@@ -2321,6 +2321,47 @@ private slots:
                      "the widened row was kept from before it was widened");
     }
 
+    // Typing changes the row it was typed on and leaves the others saying
+    // exactly what they said. Announcing all of them makes every delegate on
+    // screen evaluate every binding it has, which is the cost a role per
+    // value was meant to avoid.
+    void testAnEditAnnouncesTheRowItChangedAndNoOthers()
+    {
+        TemporaryDirectory dir("qtc-viewport-onerow");
+        const FilePath file = writeLines(dir, "long.txt", 400);
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        TextViewport * const viewport = fixture.viewport;
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        QTRY_VERIFY(viewport->visibleLineCount() > 4);
+
+        QAbstractItemModel * const rows = viewport->visibleRows();
+        QVERIFY(rows);
+
+        // Settled first: a view still finding its width lays out differently,
+        // and those rows really have all changed.
+        viewport->setScrollY(viewport->lineHeight());
+        QTRY_COMPARE(viewport->firstVisibleLine(), 1);
+
+        QSignalSpy changed(rows, &QAbstractItemModel::dataChanged);
+
+        QTextDocument * const text = viewport->textDocument()->document();
+        QTextCursor edit(text);
+        edit.setPosition(text->findBlockByNumber(3).position());
+        edit.insertText("!");
+
+        // Line 3 is the third row at this scroll, and it is the only one that
+        // says anything new.
+        QTRY_VERIFY(!changed.isEmpty());
+        for (const QList<QVariant> &announcement : std::as_const(changed)) {
+            const int from = qvariant_cast<QModelIndex>(announcement.at(0)).row();
+            const int to = qvariant_cast<QModelIndex>(announcement.at(1)).row();
+            QCOMPARE(from, 2);
+            QCOMPARE(to, 2);
+        }
+    }
+
     // Scrolling brings back text that has already been shaped, and shaping is
     // most of what a layout costs. A row whose text and formats are what they
     // were is kept rather than built again.
