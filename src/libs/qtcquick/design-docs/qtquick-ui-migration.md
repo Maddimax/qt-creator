@@ -166,7 +166,7 @@ exactly the same one. What it is *not* is a change to the row model, unlike
 the between-lines annotation alignment, which really does need rows of
 different heights and really is a decision to take deliberately.
 
-So the first half is done. `Core::renderMinimap()` draws a document as one
+It is done now, in two halves. `Core::renderMinimap()` draws a document as one
 pixel per character, coloured by the highlighter, and it needs a document, a
 font and two colours - nothing else. `MinimapOverlay` asked its editor for all
 of that, which is what made the picture a widget's to draw. The pixel loop
@@ -176,6 +176,21 @@ much room a view that can scroll past the end needs.
 It has tests now, which it could not have before: a line with text is drawn
 and an empty one is not, a folded line takes no room, and asking for room to
 scroll past the end adds exactly that much. Three controls, one per test.
+
+The second half is `MinimapView`, a `QQuickPaintedItem` beside the text: where
+the picture goes, how much of it is showing, and dragging the marked part to
+scroll. It takes no width at all until the setting asks for it, so the text is
+exactly as wide as it was. Only the marked part is a handle - a press anywhere
+else does nothing, which is what the widget editor does rather than jumping to
+where it was clicked.
+
+**Building the picture in `paint()` made dragging depend on having been
+drawn.** The picture is what says where the marked part *is*, so a click needs
+it as much as a repaint does. The first version built it lazily on paint, and
+the drag test failed with the image still null - the press landed, the drag
+started, and the scroll arithmetic divided by a span of zero. Built on demand
+instead, from both paths. **Anything used for hit-testing cannot be built only
+when drawing.**
 
 **Two collisions came from moving the code mechanically.** Substituting the
 parameter names into the body produced `QColor defaultTextColor =
@@ -405,11 +420,11 @@ interesting:
   copied - `blockNestingAt()` and `scopeLevelColor()` in textdocumentlayout -
   with where a level starts on screen passed in by the caller, that being the
   one part of it that is not a property of the document.
-- **Whole features not started** - `displayMinimap` (off by default), now one
-  step closer: see below. And `markDiffChangeSigns`, which is not a feature of
-  its own - it is a display option on the inline diff, whose ghost rows the
-  Quick editor does not have at all. `scrollBarHighlights` **is done**, and
-  needing a Core controller turned out to be the wrong reason to put it off.
+- **Whole features not started** - one left: `markDiffChangeSigns`, which is
+  not a feature of its own anyway - it is a display option on the inline diff,
+  whose ghost rows the Quick editor does not have at all. `displayMinimap` and
+  `scrollBarHighlights` are **done**, and in both cases needing something from
+  Core turned out to be the wrong reason to put them off.
 - **Animations** - all three done. `animateMatchingParentheses` pulses the
   matching bracket; `animateNavigationWithinFile` and
   `animateWithinFileTimeMax` scroll to a jump within the file instead of
