@@ -3017,6 +3017,48 @@ private slots:
                                 .arg(walked.join(", "))));
     }
 
+    void testShiftDownSelectsARowAtATime()
+    {
+        // The same column the caret keeps while moving is kept while
+        // selecting, and the selection goes through the same rebuilt cursor -
+        // so if either the column or the anchor were lost between presses,
+        // this would take a row and then some.
+        TemporaryDirectory dir("qtc-viewport-shiftdown");
+        const FilePath file = dir.filePath("long.txt");
+        QVERIFY(file.writeFileContents(QByteArray(300, 'x') + "\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        QVERIFY2(fixture.hasFocus(), "the viewport never took focus, so no key arrives");
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        const int unwrapped = viewport->visibleLineCount();
+        viewport->setWrapping(true);
+        QTRY_VERIFY2(viewport->visibleLineCount() > unwrapped,
+                     "the long line did not wrap, so every row is a line");
+
+        const int rowLength = viewport->visibleLine(0).value("text").toString().size();
+        QVERIFY(rowLength > 0);
+
+        viewport->setCursorPosition(0);
+        QStringList taken;
+        for (int i = 1; i <= 3; ++i) {
+            keyMove(fixture.view, QKeySequence::SelectNextLine);
+            taken << QString::number(viewport->selectedCharacterCount());
+        }
+        QVERIFY2(taken == QStringList({QString::number(rowLength),
+                                       QString::number(2 * rowLength),
+                                       QString::number(3 * rowLength)}),
+                 qPrintable(QString("rows are %1 wide and the selection grew to %2")
+                                .arg(rowLength)
+                                .arg(taken.join(", "))));
+
+        // And the anchor stayed where it started rather than following.
+        QCOMPARE(viewport->selectionStart(), 0);
+    }
+
     void testHomeGoesToTheCodeBeforeItGoesToTheMargin()
     {
         TemporaryDirectory dir("qtc-viewport-home");
