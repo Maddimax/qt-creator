@@ -117,6 +117,36 @@ time: it is a cross-cutting audit, not a localised fix. Item 5 overlaps with the
 The gallery (`tests/manual/quick/gallery`) demonstrates the result: switching its
 theme selector recolours the scene in place, without recreating it.
 
+## The Quick editor is the default now
+
+Registered before the plain text editor, so a text file - and, since the
+lookup walks a mime type's parents, a source file - opens in it. The reason
+recorded for not doing this, "no completion or auto-insertion", had stopped
+being true; both have tests. The plain text editor is still offered beside it.
+
+**Two things do not survive it, and neither is fixed:**
+
+- **The inline diff is broken.** `DiffEditorPlugin` casts the source editor to
+  `BaseTextEditor` and reaches for its `TextEditorWidget`; the Quick editor is
+  neither. Three tests fail on it. This is the ghost-row feature the Quick
+  editor has never had - the same reason `markDiffChangeSigns` is unported -
+  so it is a known gap arriving somewhere new rather than a fresh one.
+- **Core's tabbed editor loses a tab.** Moving an editor to another split view
+  should leave a suspended tab behind in the first; with this editor it does
+  not. Three of `TabbedEditorTest`'s cases fail.
+
+**Almost everything alarming about the first measurement was my own mess.**
+The first sweep after the change reported 27 failures in TextEditor, a hang in
+ProjectExplorer, and a suite that produced no test output at all. All of it
+came from Qt Creator instances I had killed earlier: the log says
+`Failed to initialize instances shared memory`, and a new instance waits on the
+single-instance state a dead one left behind. Killing every stray process and
+running again gave **315/315 in TextEditor and ProjectExplorer back to its
+usual three**. This is written down in the memory as "a startup hang right
+after a timeout kill means state, not a regression", and it still took three
+wrong readings before I applied it. **Clear the processes before measuring, not
+after being surprised.**
+
 ## Status
 
 Branch `utils-drop-printsupport`, 227 commits, not pushed.
