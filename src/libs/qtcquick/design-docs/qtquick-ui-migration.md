@@ -332,12 +332,11 @@ interesting:
   copied - `blockNestingAt()` and `scopeLevelColor()` in textdocumentlayout -
   with where a level starts on screen passed in by the caller, that being the
   one part of it that is not a property of the document.
-- **Whole features not started** - `displayMinimap` and `scrollBarHighlights`,
-  neither of which is viewport drawing: both are fed by controllers living in
-  Core (`Core::MinimapController`, `Core::HighlightScrollBarController`) which
-  the widget editor hangs off its own scroll bar. `markDiffChangeSigns` is not
-  a feature of its own either - it is a display option on the inline diff,
-  whose ghost rows the Quick editor does not have at all.
+- **Whole features not started** - `displayMinimap` (off by default), and
+  `markDiffChangeSigns`, which is not a feature of its own: it is a display
+  option on the inline diff, whose ghost rows the Quick editor does not have
+  at all. `scrollBarHighlights` **is done**, and needing a Core controller
+  turned out to be the wrong reason to put it off - see below.
 - **Animations** - `animateMatchingParentheses`,
   `animateNavigationWithinFile`, `animateWithinFileTimeMax`. Cosmetic.
 - **Editor-layer behaviour rather than drawing** - all four accounted for.
@@ -431,6 +430,28 @@ removed, the line untouched - because every key was landing on the read-only
 guard. An existing test says so in as many words; a new one has to call
 `setReadOnly(false)` or it is testing the guard. The tell is *nothing*
 happening rather than the wrong thing happening.
+
+### Two more that were not off by default
+
+The list above said the rest was opt-in. Two of them are not, and both had
+been recorded wrongly:
+
+- **`scrollBarHighlights` defaults to `true`.** A file too long to see said
+  nothing about where its errors were. It was put off as "needs
+  `Core::HighlightScrollBarController`", which was the wrong reason: that
+  class *is* a widget - a `QScrollBar`, a `QAbstractScrollArea` and an overlay
+  - but what it holds is a list of places and colours. The viewport reports
+  the same list as fractions of the document's height, and the QML bar draws
+  them. Marks and the caret are in; search results are not, coming from the
+  find machinery rather than from the document.
+- **`animateMatchingParentheses` defaults to `true`** as well. The matching
+  itself is implemented; the animation is not. Still open.
+
+**Checking a default is not the same as checking it once.** The
+`highlightBlocks` correction earlier fixed one wrong "off by default" claim
+and left these two standing, because it corrected the entry rather than
+re-reading the column. A claim about a *set* has to be re-checked over the
+whole set.
 
 ### Counting the fields instead of the gaps
 
