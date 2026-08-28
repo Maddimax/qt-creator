@@ -291,6 +291,19 @@ side of the viewport. The next move starts from there. It is handed back before
 the move and taken after now; a caret put somewhere rather than moved there
 still has none, so a click starts afresh.
 
+Selecting had the same fault for the same reason - Shift and Down go through
+the same rebuilt cursor - and the fix covered both, but only one had a test.
+Now both do. The selection's anchor was already safe, because the cursor is
+rebuilt from the selection's own start and end rather than from the caret, and
+that is asserted too: it is the other half of what a rebuilt cursor can lose.
+
+**The general shape is worth naming.** This view rebuilds a `QTextCursor` from
+a bare position for every key, so anything the cursor was carrying is gone
+unless it is kept somewhere. Two things it carries matter: the column for
+vertical movement, which was being lost, and the selection anchor, which was
+not. A third exists in principle - the char format for typing - and nothing
+here depends on it yet.
+
 Worth remembering how it was found: the break indent test asserted two rows
 down and got three. Measuring the same move with break indent **off** gave the
 same disagreement, which is what said the new feature had not caused it. The
