@@ -2471,52 +2471,8 @@ void TextEditorWidgetPrivate::copyLineUpDown(bool up)
     if (q->multiTextCursor().hasMultipleCursors())
         return;
     QTextCursor cursor = q->textCursor();
-    QTextCursor move = cursor;
-    move.beginEditBlock();
-
-    bool hasSelection = cursor.hasSelection();
-
-    if (hasSelection) {
-        move.setPosition(cursor.selectionStart());
-        move.movePosition(QTextCursor::StartOfBlock);
-        move.setPosition(cursor.selectionEnd(), QTextCursor::KeepAnchor);
-        move.movePosition(move.atBlockStart() ? QTextCursor::Left: QTextCursor::EndOfBlock,
-                          QTextCursor::KeepAnchor);
-    } else {
-        move.movePosition(QTextCursor::StartOfBlock);
-        move.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
-    }
-
-    QString text = move.selectedText();
-
-    if (up) {
-        move.setPosition(cursor.selectionStart());
-        move.movePosition(QTextCursor::StartOfBlock);
-        move.insertBlock();
-        move.movePosition(QTextCursor::Left);
-    } else {
-        move.movePosition(QTextCursor::EndOfBlock);
-        if (move.atBlockStart()) {
-            move.movePosition(QTextCursor::NextBlock);
-            move.insertBlock();
-            move.movePosition(QTextCursor::Left);
-        } else {
-            move.insertBlock();
-        }
-    }
-
-    int start = move.position();
-    move.clearSelection();
-    move.insertText(text);
-    int end = move.position();
-
-    move.setPosition(start);
-    move.setPosition(end, QTextCursor::KeepAnchor);
-
-    m_document->autoIndent(move);
-    move.endEditBlock();
-
-    q->setTextCursor(move);
+    TextEditor::copyLineUpDown(cursor, up, m_document.data());
+    q->setTextCursor(cursor);
 }
 
 void TextEditorWidget::joinLines()
@@ -8500,20 +8456,7 @@ void TextEditorWidget::focusOutEvent(QFocusEvent *e)
 void TextEditorWidgetPrivate::maybeSelectLine()
 {
     MultiTextCursor cursor = m_cursors;
-    if (cursor.hasSelection())
-        return;
-    for (QTextCursor &c : cursor) {
-        const QTextBlock &block = m_document->document()->findBlock(c.selectionStart());
-        const QTextBlock &end = m_document->document()->findBlock(c.selectionEnd()).next();
-        c.setPosition(block.position());
-        if (!end.isValid()) {
-            c.movePosition(QTextCursor::PreviousCharacter);
-            c.movePosition(QTextCursor::End, QTextCursor::KeepAnchor);
-        } else {
-            c.setPosition(end.position(), QTextCursor::KeepAnchor);
-        }
-    }
-    cursor.mergeCursors();
+    TextEditor::maybeSelectLine(cursor, m_document->document());
     q->setMultiTextCursor(cursor);
 }
 

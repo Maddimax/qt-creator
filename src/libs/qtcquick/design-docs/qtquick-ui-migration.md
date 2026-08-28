@@ -13512,3 +13512,36 @@ different things, only the first of which was interesting:
 The two controls that mattered did bite first time: a comment definition with
 its single-line marker taken out fails the commenting test, and a
 `definitionForDocument()` that finds nothing fails both comment tests.
+
+## Delete, cut and copy a line
+
+Five more, and the two pieces underneath them: `maybeSelectLine`, which grows
+a caret that has selected nothing to cover its whole line, and
+`copyLineUpDown`, which puts a copy above or below and leaves the caret on the
+copy. Both were private to the widget and are now shared.
+
+One distinction worth keeping rather than smoothing over: Copy Line has no
+read-only guard and Cut Line does. Copying does not change the text, so there
+is no reason a buffer that cannot be edited should refuse it, and a test says
+so - it copies out of a read-only buffer and checks the text is untouched.
+
+Delete Line takes the main caret's line even when there are several carets,
+which is what the widget editor does. That looks like it should take all of
+them, but the Quick editor matching the widget matters more than the Quick
+editor being right on its own, so it is written down here rather than quietly
+changed.
+
+The sweep of read-only guards caught three of four. The fourth was not a guard
+but a branch: `maybeSelectLine` handles the last line of a file that does not
+end in a newline separately, because there is no newline after it to swallow
+and it has to take the one before instead. Nothing exercised it - every test
+so far used a file ending in a newline, where that branch is never reached,
+including the ones written this batch. A file without one, and deleting its
+last line, fails when the branch is taken out.
+
+That is now the fourth kind of hole these sweeps have turned up: content that
+cannot show the difference, two commands that undo each other, an edit that
+silently did not apply, and now a branch no fixture ever reached. None of them
+were visible from a passing test.
+
+The Quick editor answers 18 commands now, from three.

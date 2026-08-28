@@ -205,4 +205,73 @@ bool sortLines(QTextCursor &cursor, const TabSettingsData &tabSettings)
     return true;
 }
 
+void maybeSelectLine(Utils::MultiTextCursor &cursor, QTextDocument *document)
+{
+    if (!document || cursor.hasSelection())
+        return;
+    for (QTextCursor &c : cursor) {
+        const QTextBlock &block = document->findBlock(c.selectionStart());
+        const QTextBlock &end = document->findBlock(c.selectionEnd()).next();
+        c.setPosition(block.position());
+        if (!end.isValid()) {
+            // The last line has no newline after it to swallow, so the line
+            // before it gives up its own instead.
+            c.movePosition(QTextCursor::PreviousCharacter);
+            c.movePosition(QTextCursor::End, QTextCursor::KeepAnchor);
+        } else {
+            c.setPosition(end.position(), QTextCursor::KeepAnchor);
+        }
+    }
+    cursor.mergeCursors();
+}
+
+void copyLineUpDown(QTextCursor &cursor, bool up, TextDocument *document)
+{
+    QTextCursor move = cursor;
+    move.beginEditBlock();
+
+    if (cursor.hasSelection()) {
+        move.setPosition(cursor.selectionStart());
+        move.movePosition(QTextCursor::StartOfBlock);
+        move.setPosition(cursor.selectionEnd(), QTextCursor::KeepAnchor);
+        move.movePosition(move.atBlockStart() ? QTextCursor::Left : QTextCursor::EndOfBlock,
+                          QTextCursor::KeepAnchor);
+    } else {
+        move.movePosition(QTextCursor::StartOfBlock);
+        move.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+    }
+
+    const QString text = move.selectedText();
+
+    if (up) {
+        move.setPosition(cursor.selectionStart());
+        move.movePosition(QTextCursor::StartOfBlock);
+        move.insertBlock();
+        move.movePosition(QTextCursor::Left);
+    } else {
+        move.movePosition(QTextCursor::EndOfBlock);
+        if (move.atBlockStart()) {
+            move.movePosition(QTextCursor::NextBlock);
+            move.insertBlock();
+            move.movePosition(QTextCursor::Left);
+        } else {
+            move.insertBlock();
+        }
+    }
+
+    const int start = move.position();
+    move.clearSelection();
+    move.insertText(text);
+    const int end = move.position();
+
+    move.setPosition(start);
+    move.setPosition(end, QTextCursor::KeepAnchor);
+
+    if (document)
+        document->autoIndent(move);
+    move.endEditBlock();
+
+    cursor = move;
+}
+
 } // namespace TextEditor

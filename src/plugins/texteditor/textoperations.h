@@ -18,6 +18,7 @@ class MultiTextCursor;
 
 QT_BEGIN_NAMESPACE
 class QTextCursor;
+class QTextDocument;
 QT_END_NAMESPACE
 
 namespace TextEditor {
@@ -61,5 +62,15 @@ TEXTEDITOR_EXPORT void duplicateSelection(Utils::MultiTextCursor &cursor,
 // command useful without selecting first. False when there was nothing to
 // sort, so that the caller leaves the cursor where it was.
 TEXTEDITOR_EXPORT bool sortLines(QTextCursor &cursor, const TabSettingsData &tabSettings);
+
+// Grows each caret that has selected nothing to cover its whole line, newline
+// and all, so that the line commands have something to work on. Carets that
+// have a selection are left as they are: the reader already said what to act
+// on.
+TEXTEDITOR_EXPORT void maybeSelectLine(Utils::MultiTextCursor &cursor, QTextDocument *document);
+
+// Puts a copy of the line, or of the selected lines, above or below them, and
+// leaves the caret on the copy so that it can be edited straight away.
+TEXTEDITOR_EXPORT void copyLineUpDown(QTextCursor &cursor, bool up, TextDocument *document);
 
 } // namespace TextEditor

@@ -346,6 +346,11 @@ public:
         command(Constants::UN_COMMENT_SELECTION, &TextViewport::unCommentSelection);
         command(Constants::DUPLICATE_SELECTION_AND_COMMENT,
                 &TextViewport::duplicateSelectionAndComment);
+        command(Constants::DELETE_LINE, &TextViewport::deleteLine);
+        command(Constants::COPY_LINE, &TextViewport::copyLine);
+        command(Constants::CUT_LINE, &TextViewport::cutLine);
+        command(Constants::COPY_LINE_UP, &TextViewport::copyLineUp);
+        command(Constants::COPY_LINE_DOWN, &TextViewport::copyLineDown);
 
         Core::ActionBuilder(this, Constants::JOIN_LINES)
             .setContext(Core::Context(m_editorContext))

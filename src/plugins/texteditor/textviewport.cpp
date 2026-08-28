@@ -2169,6 +2169,75 @@ void TextViewport::duplicateSelectionAndComment()
     setMultiTextCursor(cursors);
 }
 
+void TextViewport::selectWholeLines()
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    if (!doc)
+        return;
+    Utils::MultiTextCursor cursors = multiTextCursor();
+    TextEditor::maybeSelectLine(cursors, doc->document());
+    setMultiTextCursor(cursors);
+}
+
+void TextViewport::deleteLine()
+{
+    if (isReadOnly())
+        return;
+    selectWholeLines();
+    // The main caret's line, as the widget editor does it: with several
+    // carets it takes the one line rather than all of them.
+    QTextCursor cursor = textCursor();
+    if (!cursor.hasSelection())
+        return;
+    cursor.removeSelectedText();
+    setTextCursor(cursor);
+}
+
+void TextViewport::copyLine()
+{
+    selectWholeLines();
+    const QTextCursor cursor = textCursor();
+    if (cursor.hasSelection())
+        QGuiApplication::clipboard()->setText(selectedPlainText(cursor));
+}
+
+void TextViewport::cutLine()
+{
+    if (isReadOnly())
+        return;
+    selectWholeLines();
+    QTextCursor cursor = textCursor();
+    if (!cursor.hasSelection())
+        return;
+    QGuiApplication::clipboard()->setText(selectedPlainText(cursor));
+    cursor.removeSelectedText();
+    setTextCursor(cursor);
+}
+
+void TextViewport::copyLineUp()
+{
+    copyLineUpOrDown(true);
+}
+
+void TextViewport::copyLineDown()
+{
+    copyLineUpOrDown(false);
+}
+
+void TextViewport::copyLineUpOrDown(bool up)
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    if (isReadOnly() || !doc)
+        return;
+    // One caret only, the same conclusion the widget editor came to: where
+    // the copies of several lines would go is not a question with an answer.
+    if (multiTextCursor().hasMultipleCursors())
+        return;
+    QTextCursor cursor = textCursor();
+    TextEditor::copyLineUpDown(cursor, up, doc);
+    setTextCursor(cursor);
+}
+
 void TextViewport::joinLines()
 {
     if (isReadOnly())

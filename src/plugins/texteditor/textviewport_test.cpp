@@ -4331,6 +4331,114 @@ private slots:
                  qPrintable("the selection was not duplicated: " + all));
     }
 
+    // Delete Line and Cut Line take the whole line when nothing is selected,
+    // newline and all, so the lines below move up rather than a blank one
+    // being left behind.
+    void testDeletingAndCuttingTakeTheWholeLine()
+    {
+        TemporaryDirectory dir("qtc-viewport-deleteline");
+        const FilePath file = dir.filePath("three.txt");
+        QVERIFY(file.writeFileContents("one\ntwo\nthree\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        viewport->setReadOnly(false);
+        QTRY_VERIFY(viewport->visibleLineCount() > 2);
+
+        QTextDocument * const text = viewport->textDocument()->document();
+
+        // Nothing selected, caret on "two".
+        viewport->setCursorPosition(text->findBlockByNumber(1).position() + 1);
+        viewport->deleteLine();
+        QCOMPARE(text->findBlockByNumber(0).text(), QString("one"));
+        QCOMPARE(text->findBlockByNumber(1).text(), QString("three"));
+
+        QGuiApplication::clipboard()->clear();
+        viewport->setCursorPosition(text->findBlockByNumber(0).position() + 1);
+        viewport->cutLine();
+        QCOMPARE(text->findBlockByNumber(0).text(), QString("three"));
+        QCOMPARE(QGuiApplication::clipboard()->text(), QString("one\n"));
+    }
+
+    // The last line of a file that does not end in a newline has none of its
+    // own to swallow, so deleting it takes the newline of the line before
+    // instead - otherwise the line above is left with a trailing blank.
+    void testDeletingTheLastLineWithNoNewlineAfterIt()
+    {
+        TemporaryDirectory dir("qtc-viewport-deletelast");
+        const FilePath file = dir.filePath("nonewline.txt");
+        QVERIFY(file.writeFileContents("one\ntwo\nthree"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        viewport->setReadOnly(false);
+        QTRY_VERIFY(viewport->visibleLineCount() > 2);
+
+        QTextDocument * const text = viewport->textDocument()->document();
+        QCOMPARE(text->blockCount(), 3);
+
+        viewport->setCursorPosition(text->findBlockByNumber(2).position() + 1);
+        viewport->deleteLine();
+
+        QCOMPARE(text->toPlainText(), QString("one\ntwo"));
+        QCOMPARE(text->blockCount(), 2);
+    }
+
+    // Copy Line does not change the text, so it works on a buffer that cannot
+    // be edited - which is the difference between it and Cut Line.
+    void testCopyingALineWorksOnAReadOnlyBuffer()
+    {
+        TemporaryDirectory dir("qtc-viewport-copyline");
+        const FilePath file = dir.filePath("two.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+        QVERIFY(viewport->isReadOnly());
+
+        QTextDocument * const text = viewport->textDocument()->document();
+        const QString before = text->toPlainText();
+
+        QGuiApplication::clipboard()->clear();
+        viewport->setCursorPosition(text->findBlockByNumber(1).position() + 1);
+        viewport->copyLine();
+
+        QCOMPARE(QGuiApplication::clipboard()->text(), QString("beta\n"));
+        QCOMPARE(text->toPlainText(), before);
+    }
+
+    // Copy Line Down puts a copy under the line and leaves the caret on the
+    // copy, so that typing changes the new line and not the original.
+    void testCopyingALineDownLeavesTheCaretOnTheCopy()
+    {
+        TemporaryDirectory dir("qtc-viewport-copylinedown");
+        const FilePath file = dir.filePath("two.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        viewport->setReadOnly(false);
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+
+        QTextDocument * const text = viewport->textDocument()->document();
+        viewport->setCursorPosition(text->findBlockByNumber(0).position() + 1);
+        viewport->copyLineDown();
+
+        QCOMPARE(text->findBlockByNumber(0).text(), QString("alpha"));
+        QCOMPARE(text->findBlockByNumber(1).text(), QString("alpha"));
+        QCOMPARE(text->findBlockByNumber(2).text(), QString("beta"));
+        QCOMPARE(viewport->textCursor().blockNumber(), 1);
+    }
+
     // None of the line commands edits a buffer that is read only, the same
     // as a key press does not. One test for all of them: each has its own
     // guard, and a guard that is missing on one of them is exactly the kind
@@ -4370,6 +4478,10 @@ private slots:
         viewport->sortLines();
         viewport->unCommentSelection();
         viewport->duplicateSelectionAndComment();
+        viewport->deleteLine();
+        viewport->cutLine();
+        viewport->copyLineUp();
+        viewport->copyLineDown();
         // Last, and after the lower case one: both go through the same guard,
         // so with the guard gone they would run one after the other and put
         // the text back exactly as it was between them.

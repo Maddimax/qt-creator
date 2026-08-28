@@ -551,6 +551,10 @@ public:
     // arrives after the file does, and a comment taken before it would be the
     // wrong one for the rest of the session.
     Utils::CommentDefinition commentDefinition() const;
+    // Grows the carets to whole lines where they have selected nothing, which
+    // is what makes the line commands work without selecting first.
+    void selectWholeLines();
+    void copyLineUpOrDown(bool up);
     void setMultiTextCursor(const Utils::MultiTextCursor &cursors);
     // Runs an edit at every caret, as one undo step. The carets are taken
     // later in the document first: an edit moves everything after it, and a
@@ -577,6 +581,13 @@ public:
     Q_INVOKABLE void sortLines();
     Q_INVOKABLE void unCommentSelection();
     Q_INVOKABLE void duplicateSelectionAndComment();
+    Q_INVOKABLE void deleteLine();
+    // Copying does not change the text, so it is allowed on a buffer that
+    // cannot be edited; cutting is not.
+    Q_INVOKABLE void copyLine();
+    Q_INVOKABLE void cutLine();
+    Q_INVOKABLE void copyLineUp();
+    Q_INVOKABLE void copyLineDown();
     // A rectangle of text, from where the caret is anchored to \a x, \a y.
     // One caret per line it covers, which is what makes it a selection that
     // can be typed over. The anchor is taken once, when the drag starts, so
