@@ -656,6 +656,14 @@ private:
     // the one that knows, and counting lines lands short by however many rows
     // the lines above took.
     int rowOfBlock(const QTextBlock &block);
+
+    // Where a row sits and how tall it is, as opposed to how tall the text in
+    // it is. The two are the same until something claims space of its own
+    // between rows, which is what an inline diff's ghost rows and an
+    // annotation placed on its own line both need.
+    qreal yOfRow(int row) const;
+    int rowAtY(qreal y) const;
+    qreal rowSpan(int row) const;
     void setScopeBlock(int blockNumber);
     void updateScrollBarHighlights();
     void rebuildVisibleLines();

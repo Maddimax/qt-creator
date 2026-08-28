@@ -12029,3 +12029,55 @@ neither has a base-class virtual to fall back on the way `gotoLine` did:
 Both are small, both have obvious workarounds, and both want an API decision
 (what the `IEditor` cursor interface should be) rather than a cast removed.
 Recorded rather than patched around.
+
+## Where a row is, as distinct from how tall its text is
+
+The inline diff is the one feature the Quick editor falls back out of, so it
+is the next thing to build. Reading how the widget does it corrected the
+assumption I started with.
+
+Ghost rows are not rows. They are `Utils::LayoutItem`s attached to a block in
+`Utils::TextEditorLayout` - `TextLayoutItem` for a removed line rendered as
+text, `EmptyLayoutItem` for a spacer that only takes up room - and the row
+numbering does not count them:
+
+    int effectiveLineCount(int index)
+    {
+        const LayoutData &data = layoutData(index);
+        return data.editorHidden ? 0 : data.lineCount;
+    }
+
+`data.lineCount` is the block's own wrapped line count. So an item contributes
+no line number, and `firstLineNumberOf()` is unchanged by one being there.
+What it contributes is height, through a separate call:
+
+    int additionalBlockHeight(const QTextBlock &block, bool includeEmbeddedWidgetsHeight) const
+
+That is the shape of the problem. Rows stay uniformly tall and keep their
+numbering; some *blocks* claim extra space between them. Which means the thing
+in the way is not the row model but the arithmetic `row * m_lineHeight`,
+written out in a dozen places across `textviewport.cpp`.
+
+This batch replaces that arithmetic with three functions - `yOfRow(row)`,
+`rowAtY(y)` and `rowSpan(row)` - which for now return exactly what the
+arithmetic did. No behaviour changes; the point is to have one place to teach
+about `additionalBlockHeight` instead of a dozen.
+
+Worth saying which `m_lineHeight` uses are *not* row positions, because they
+look identical and must not be converted: the caret rect, the selection fill,
+the newline tail, the wrap-width margin and the page-up/down step are all
+sized by the text, not by the row's claim on the page. Converting those would
+make a caret grow to fill a ghost gap.
+
+A refactor has no new behaviour to test, so the control was to make `yOfRow`
+lie - `row * m_lineHeight + 7` for every row past the first - and check the
+suite noticed. It did, in the right places: 307 passed and 10 failed, across
+what is drawn on screen, screen and document positions agreeing, where the
+current line is highlighted, wrapping, caret movement between rows and every
+drag and drop test. Restored, the suite is 317 passed and 0 failed.
+
+What is left for the next batch is the arithmetic itself: `yOfRow` has to add
+up `additionalBlockHeight()` for the blocks above a row, which wants a prefix
+sum built once a layout rather than a walk per call, and `rowAtY` has to
+invert it. The gutter needs nothing - it reads the same `visibleRows` model
+the viewport builds, so the rows carry their own positions with them.

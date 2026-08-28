@@ -1067,9 +1067,9 @@ void TextViewport::ensureCursorVisible()
                 row += line.lineNumber();
         }
     }
-    const qreal top = row * m_lineHeight;
+    const qreal top = yOfRow(row);
     const bool above = top < m_scrollY;
-    const bool below = top + m_lineHeight > m_scrollY + height();
+    const bool below = top + rowSpan(row) > m_scrollY + height();
     if (!above && !below)
         return;
 
@@ -1077,9 +1077,25 @@ void TextViewport::ensureCursorVisible()
     // user asked for that: a caret that stops one line into view leaves
     // nothing to read in the direction it is heading.
     if (displaySettings().centerCursorOnScroll())
-        setScrollY(top - (height() - m_lineHeight) / 2);
+        setScrollY(top - (height() - rowSpan(row)) / 2);
     else
-        setScrollY(above ? top : top + m_lineHeight - height());
+        setScrollY(above ? top : top + rowSpan(row) - height());
+}
+
+qreal TextViewport::yOfRow(int row) const
+{
+    return row * m_lineHeight;
+}
+
+int TextViewport::rowAtY(qreal y) const
+{
+    return m_lineHeight > 0 ? int(y / m_lineHeight) : 0;
+}
+
+qreal TextViewport::rowSpan(int row) const
+{
+    Q_UNUSED(row)
+    return m_lineHeight;
 }
 
 int TextViewport::rowOfBlock(const QTextBlock &block)
@@ -1835,7 +1851,7 @@ void TextViewport::updateScrollBarHighlights()
             return;
         already.insert(where);
         highlights.append(
-            QVariantMap{{"position", row * m_lineHeight / height}, {"color", colour}});
+            QVariantMap{{"position", yOfRow(row) / height}, {"color", colour}});
     };
 
     // The line the caret is on.
@@ -2038,12 +2054,13 @@ void TextViewport::gotoLine(int line, int column, bool centerLine)
 
     // The row the line starts on, which is not its number once anything above
     // it is folded away or wrapped over several rows.
-    const qreal top = rowOfBlock(block) * m_lineHeight;
+    const int row = rowOfBlock(block);
+    const qreal top = yOfRow(row);
     const qreal start = m_scrollY;
     if (centerLine)
-        setScrollY(top - (height() - m_lineHeight) / 2);
-    else if (top < m_scrollY || top + m_lineHeight > m_scrollY + height())
-        setScrollY(top < m_scrollY ? top : top + m_lineHeight - height());
+        setScrollY(top - (height() - rowSpan(row)) / 2);
+    else if (top < m_scrollY || top + rowSpan(row) > m_scrollY + height())
+        setScrollY(top < m_scrollY ? top : top + rowSpan(row) - height());
 
     // Where it ended up rather than where it was asked to go: setScrollY
     // refuses to leave the document, and the animation has to end somewhere
@@ -2186,7 +2203,7 @@ int TextViewport::positionAt(qreal x, qreal y) const
     // Clamped to what is laid out rather than to the document: a drag that
     // leaves the viewport should select to the edge of it, not jump to the end
     // of the file.
-    const int index = qBound(0, int((y + m_scrollY) / m_lineHeight) - m_firstVisibleLine,
+    const int index = qBound(0, rowAtY(y + m_scrollY) - m_firstVisibleLine,
                              int(m_lines.size()) - 1);
     const Line &line = m_lines.at(index);
     const QTextLine textLine = line.layout->lineAt(0);
@@ -2447,7 +2464,7 @@ void TextViewport::updatePolish()
     }
 
     const int totalRows = rows ? rows->lineCount() : text->lineCount();
-    m_contentHeight = m_lineHeight * totalRows;
+    m_contentHeight = yOfRow(totalRows);
     // The widget editor fills with the *brush*, so a scheme that sets no
     // background paints nothing and the palette shows through. A colour has no
     // way to say "nothing", and QBrush().color() is black, so ask the theme
@@ -2545,11 +2562,11 @@ void TextViewport::updatePolish()
             reusable[line.blockPosition].push_back(std::move(line));
     }
 
-    m_firstVisibleLine = qMax(0, int(m_scrollY / m_lineHeight));
+    m_firstVisibleLine = qMax(0, rowAtY(m_scrollY));
     // The last line that starts before the bottom edge - not one more. A hair
     // off the edge so that a viewport an exact number of lines tall does not
     // lay out one that begins where it ends.
-    const int lastOnScreen = int((m_scrollY + height() - 0.001) / m_lineHeight);
+    const int lastOnScreen = rowAtY(m_scrollY + height() - 0.001);
     const int last = qMin(totalRows - 1, lastOnScreen);
 
     // By row rather than by block, so that what is folded above the screen
@@ -2946,7 +2963,7 @@ void TextViewport::updatePolish()
                 }
             }
 
-            line.at = QPointF(rowIndent - m_scrollX, row * m_lineHeight - m_scrollY);
+            line.at = QPointF(rowIndent - m_scrollX, yOfRow(row) - m_scrollY);
             line.blockPosition = rowStart;
             // The newline belongs to the last row: that is where the caret sits
             // at the end of the line. A continuation row ends where the next
