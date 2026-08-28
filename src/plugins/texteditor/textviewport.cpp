@@ -114,6 +114,12 @@ TextViewport::TextViewport(QQuickItem *parent)
     // Turning bracket matching off has to take effect on what is already open,
     // rather than on whatever is opened next.
     connect(&displaySettings(), &Utils::AspectContainer::changed, this, [this] {
+        // A scope lit up because the setting was on has to go out when it is
+        // turned off, and the caret's scope has to light up when it goes on.
+        if (displaySettings().highlightBlocks())
+            setScopeBlock(cursorBlock().blockNumber());
+        else
+            clearScopeHighlight();
         emit fileFormatChanged();
         polish();
         update();
@@ -1215,6 +1221,10 @@ void TextViewport::setCursorPosition(int position)
     // Put somewhere rather than moved there, so there is no column to keep.
     m_verticalMovementX = -1;
     m_cursorPosition = position;
+    // What "Highlight blocks" adds: the scope around the caret lights up as it
+    // moves, without anything being hovered.
+    if (displaySettings().highlightBlocks())
+        setScopeBlock(cursorBlock().blockNumber());
     polish();
     emit cursorPositionChanged();
     emit cursorRectangleChanged();
@@ -1666,6 +1676,12 @@ void TextViewport::setScopeBlock(int blockNumber)
     if (!doc)
         return;
 
+    const int revision = doc->document()->revision();
+    if (m_scopeBlock == blockNumber && m_scopeRevision == revision)
+        return;
+    m_scopeBlock = blockNumber;
+    m_scopeRevision = revision;
+
     BlockNesting nesting;
     if (blockNumber >= 0) {
         QTextBlock block = doc->document()->findBlockByNumber(blockNumber);
@@ -1688,9 +1704,8 @@ void TextViewport::setScopeBlock(int blockNumber)
         });
     }
 
-    if (m_scopeBlock == blockNumber && m_scopeNesting == nesting)
+    if (m_scopeNesting == nesting)
         return;
-    m_scopeBlock = blockNumber;
     m_scopeNesting = nesting;
     polish();
     update();

@@ -641,8 +641,11 @@ private:
     qreal m_indentWidth = 0;
     bool m_mouseHidden = false;
     // Which block's enclosing folds are highlighted, and what they came out
-    // as. -1 when nothing is hovered.
+    // as. -1 when nothing is asking for a highlight. The revision is what the
+    // document was at when they were worked out, so that a caret moving along
+    // one line does not walk the folds again.
     int m_scopeBlock = -1;
+    int m_scopeRevision = -1;
     BlockNesting m_scopeNesting;
     qreal m_marginX = -1;
     QColor m_marginLine = Qt::transparent;

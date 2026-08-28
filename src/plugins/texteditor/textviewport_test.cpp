@@ -1196,6 +1196,70 @@ private slots:
         QTRY_VERIFY2(bands(3).isEmpty(), "the highlight outlived the hover");
     }
 
+    // What the "Highlight blocks" setting adds on top: the scope around the
+    // caret lights up as it moves, with nothing hovered. Off by default,
+    // unlike the folding column's own highlight, which is why the two are
+    // tested apart.
+    void testHighlightBlocksFollowsTheCaret()
+    {
+        const bool was = displaySettings().highlightBlocks();
+        const QScopeGuard restore([was] { displaySettings().highlightBlocks.setValue(was); });
+        displaySettings().highlightBlocks.setValue(false);
+
+        TemporaryDirectory dir("qtc-viewport-caretscope");
+        const FilePath file = dir.filePath("scope.txt");
+        QVERIFY(file.writeFileContents("a\n"
+                                       "    b\n"
+                                       "        c\n"
+                                       "        d\n"
+                                       "    e\n"
+                                       "f\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        TextViewport * const viewport = fixture.viewport;
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        QTRY_COMPARE(viewport->visibleLineCount(), 7);
+
+        QTextDocument * const text = viewport->document()->textDocument()->document();
+        auto * const layout = qobject_cast<TextDocumentLayout *>(text->documentLayout());
+        QVERIFY(layout);
+        const QList<int> indents = {0, 1, 2, 2, 1, 0};
+        for (int i = 0; i < indents.size(); ++i)
+            TextBlockUserData::setFoldingIndent(text->findBlockByNumber(i), indents.at(i));
+        layout->requestUpdate();
+
+        const auto bands = [viewport](int row) {
+            return viewport->visibleLine(row).value("scopeBands").toList();
+        };
+
+        // Off: the caret moves into the innermost scope and nothing lights up.
+        viewport->setCursorPosition(text->findBlockByNumber(3).position());
+        QVERIFY2(bands(3).isEmpty(), "a scope was highlighted with the setting off");
+
+        // On: the scope the caret is already in lights up.
+        displaySettings().highlightBlocks.setValue(true);
+        QTRY_VERIFY2(!bands(3).isEmpty(), "turning the setting on highlighted nothing");
+
+        // And it follows the caret out. The last line is at the top level,
+        // where there is no enclosing fold to light up at all.
+        viewport->setCursorPosition(text->findBlockByNumber(5).position());
+        QTRY_VERIFY2(bands(3).isEmpty(), "the highlight stayed where the caret had been");
+
+        // Back in, and the scope under the caret is the one left undimmed.
+        viewport->setCursorPosition(text->findBlockByNumber(2).position());
+        QTRY_VERIFY(!bands(2).isEmpty());
+        const QColor page = viewport->backgroundColor();
+        bool undimmed = false;
+        for (const QVariant &entry : bands(2))
+            undimmed = undimmed || entry.toMap().value("colour").value<QColor>() == page;
+        QVERIFY2(undimmed, "the scope the caret is in was dimmed along with the rest");
+
+        // Turning it off puts the page back.
+        displaySettings().highlightBlocks.setValue(false);
+        QTRY_VERIFY2(bands(2).isEmpty(), "the highlight outlived the setting");
+    }
+
     // A closed fold says what it swallowed. The widget editor draws "{...};"
     // after the line rather than leaving a gap, and puts back the brackets the
     // hidden text opened and closed - which is the part that has to come from
