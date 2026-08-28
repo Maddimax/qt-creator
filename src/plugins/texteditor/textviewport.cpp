@@ -1899,10 +1899,48 @@ void TextViewport::gotoLine(int line, int column, bool centerLine)
     // The row the line starts on, which is not its number once anything above
     // it is folded away or wrapped over several rows.
     const qreal top = rowOfBlock(block) * m_lineHeight;
+    const qreal start = m_scrollY;
     if (centerLine)
         setScrollY(top - (height() - m_lineHeight) / 2);
     else if (top < m_scrollY || top + m_lineHeight > m_scrollY + height())
         setScrollY(top < m_scrollY ? top : top + m_lineHeight - height());
+
+    // Where it ended up rather than where it was asked to go: setScrollY
+    // refuses to leave the document, and the animation has to end somewhere
+    // real.
+    const qreal end = m_scrollY;
+    if (end == start || !displaySettings().animateNavigationWithinFile())
+        return;
+
+    if (m_navigationAnimation)
+        m_navigationAnimation->stop();
+
+    // Two halves, with a gap in the middle for a jump longer than the setting
+    // allows: it sets off, skips, and settles, which is what makes a long
+    // jump's direction readable. The widget editor's arithmetic exactly.
+    const int most = displaySettings().animateWithinFileTimeMax();
+    const int steps = qMax(-most, qMin(most, qRound(end - start)));
+    // Four frames on a sixty hertz monitor, so that even a short jump is seen.
+    const int duration = qMax(4 * 1000 / 60, qAbs(steps));
+
+    auto * const group = new QSequentialAnimationGroup(this);
+    // Starting the group puts the scroll back where it set off from: a
+    // QPropertyAnimation applies its start value as it starts, so saying so
+    // again here would be a line that does nothing.
+    auto * const setOff = new QPropertyAnimation(this, "scrollY", group);
+    setOff->setEasingCurve(QEasingCurve::InExpo);
+    setOff->setStartValue(start);
+    setOff->setEndValue(start + steps / 2.0);
+    setOff->setDuration(duration / 2);
+    group->addAnimation(setOff);
+    auto * const settle = new QPropertyAnimation(this, "scrollY", group);
+    settle->setEasingCurve(QEasingCurve::OutExpo);
+    settle->setStartValue(end - steps / 2.0);
+    settle->setEndValue(end);
+    settle->setDuration(duration / 2);
+    group->addAnimation(settle);
+    m_navigationAnimation = group;
+    group->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
 void TextViewport::toggleFold(int lineNumber)

@@ -25,6 +25,7 @@
 
 QT_BEGIN_NAMESPACE
 class QHoverEvent;
+class QSequentialAnimationGroup;
 class QTimer;
 class QWidget;
 class QInputMethodEvent;
@@ -716,6 +717,9 @@ private:
         QColor background;
     };
     std::optional<PendingPulse> m_pendingPulse;
+    // A jump within the file being scrolled to rather than snapped to. Kept
+    // so that a second jump replaces the first instead of fighting it.
+    QPointer<QSequentialAnimationGroup> m_navigationAnimation;
     Utils::Link m_currentLink;
     bool m_hovering = false;
     int m_scopeBlock = -1;

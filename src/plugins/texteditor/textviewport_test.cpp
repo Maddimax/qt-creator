@@ -2107,6 +2107,42 @@ private slots:
                      "the bar still carried marks with the setting turned off");
     }
 
+    // A jump within the file can be scrolled to rather than snapped to, so
+    // that the reader can see which way it went. Off by default, and the
+    // Quick editor always snapped.
+    void testAJumpWithinTheFileCanBeScrolledTo()
+    {
+        const bool was = displaySettings().animateNavigationWithinFile();
+        const QScopeGuard restore(
+            [was] { displaySettings().animateNavigationWithinFile.setValue(was); });
+        displaySettings().animateNavigationWithinFile.setValue(false);
+
+        TemporaryDirectory dir("qtc-viewport-navanim");
+        const FilePath file = writeLines(dir, "long.txt", 400);
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        TextViewport * const viewport = fixture.viewport;
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+
+        // Off: the jump is a jump, and where it lands is what the animated
+        // one has to reach.
+        viewport->gotoLine(200);
+        const qreal target = viewport->scrollY();
+        QVERIFY2(target > 0, "the jump did not scroll at all, so there is nothing to animate");
+
+        viewport->setScrollY(0);
+        QCOMPARE(viewport->scrollY(), qreal(0));
+
+        // On: the same jump sets off rather than arriving.
+        displaySettings().animateNavigationWithinFile.setValue(true);
+        viewport->gotoLine(200);
+        QVERIFY2(viewport->scrollY() < target,
+                 "the jump arrived at once rather than scrolling to it");
+        QTRY_COMPARE(viewport->scrollY(), target);
+    }
+
     // The bracket that matches the one the caret arrives beside is pulsed
     // once. On by default, and the Quick editor did not do it - nor did it
     // even look for a match unless the highlight was on as well.
