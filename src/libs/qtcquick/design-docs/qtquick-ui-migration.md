@@ -131,9 +131,20 @@ being true; both have tests. The plain text editor is still offered beside it.
   neither. Three tests fail on it. This is the ghost-row feature the Quick
   editor has never had - the same reason `markDiffChangeSigns` is unported -
   so it is a known gap arriving somewhere new rather than a fresh one.
-- **Core's tabbed editor loses a tab.** Moving an editor to another split view
-  should leave a suspended tab behind in the first; with this editor it does
-  not. Three of `TabbedEditorTest`'s cases fail.
+- **Core's tabbed editor lost a tab** - **fixed**. `duplicate()` had always
+  answered, but `IEditor::duplicateSupported()` defaults to false and nothing
+  set it. The editor manager *asks* rather than tries, so it moved the editor
+  between split views instead of copying it, and the first view dropped the
+  tab it was keeping. One line, and Core is 86/86 again. The bug was there all
+  along; becoming the default is what made anything ask.
+
+**`testIndentGuidesFollowTheIndentation` fails about one run in two and is not
+this change's doing.** Measured both ways - the editor default swapped back and
+forth, three runs each - and the rate is the same: `103/2, 103/2, 103/2`
+against `103/2, 104/1, 103/2`. Which test fails varies between runs, which is
+the signature of the focus contention these `QQuickView` tests have always been
+prone to. It is worth someone's time; it is not worth blaming on the editor
+that happens to be default.
 
 **Almost everything alarming about the first measurement was my own mess.**
 The first sweep after the change reported 27 failures in TextEditor, a hang in
