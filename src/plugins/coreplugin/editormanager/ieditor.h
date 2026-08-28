@@ -31,6 +31,10 @@ public:
 
     virtual int currentLine() const { return 0; }
     virtual int currentColumn() const { return 0; }
+    // What the reader has selected, for whoever wants to act on that rather
+    // than on the whole document. Empty when nothing is selected, and for a
+    // view where selecting means nothing.
+    virtual QString selectedText() const { return {}; }
     virtual void gotoLine(int line, int column = 0, bool centerLine = true) { Q_UNUSED(line) Q_UNUSED(column) Q_UNUSED(centerLine) }
 
     virtual QWidget *toolBar() = 0;

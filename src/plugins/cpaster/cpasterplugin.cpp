@@ -202,8 +202,9 @@ static inline void textFromCurrentEditor(QString *text, QString *mimeType)
         return;
     const IDocument *document = editor->document();
     QString data;
-    if (auto textEditor = qobject_cast<const BaseTextEditor *>(editor))
-        data = textEditor->selectedText();
+    // Whatever is showing the text: pasting the whole file because the view
+    // was not a widget is the wrong end of the fallback below.
+    data = editor->selectedText();
     if (data.isEmpty()) {
         if (auto textDocument = qobject_cast<const TextDocument *>(document)) {
             data = textDocument->plainText();

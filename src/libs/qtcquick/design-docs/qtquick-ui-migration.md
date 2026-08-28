@@ -12474,3 +12474,47 @@ editor and proving nothing.
 What it does not assert is that the keystroke arrives in the document - that
 needs focus, and focus-dependent assertions here have been the least reliable
 thing in this whole effort.
+
+### Three callers wanted the same missing thing
+
+Sweeping for casts that are *dereferenced without a check* found one crash
+(Lua) and, among the guarded ones, a quieter problem in cpaster:
+
+    if (auto textEditor = qobject_cast<const BaseTextEditor *>(editor))
+        data = textEditor->selectedText();
+    if (data.isEmpty()) {
+        if (auto textDocument = qobject_cast<const TextDocument *>(document))
+            data = textDocument->plainText();
+
+Perfectly guarded, and wrong in a way a guard cannot help with: for a view
+that is not a widget the selection is unreachable, `data` stays empty, and the
+fallback pastes **the whole file** to a paste service. Not a crash - the wrong
+end of a fallback that was written for a different reason.
+
+That is the third caller for the same missing thing. The ACP chat controller
+wants the cursor and the selection to describe the editor's state; a
+multicursor implementation would have to define it; cpaster wants it here. It
+had been recorded twice in this document as "wants an API decision", which was
+true only until the third instance made the answer obvious: `IEditor` already
+has `currentLine()`, `currentColumn()` and `gotoLine()`, so a `selectedText()`
+beside them is the existing design and not a new direction. Both editors
+already implement it; it was simply not on the interface.
+
+**Adding it cost a full rebuild, and skipping that produced a crash that had
+nothing to do with the change.** A new virtual on `IEditor` moves the vtable of
+every editor in the tree. Building only TextEditor, Core and CodePaster left
+every other plugin's editor compiled against the old layout, and the suite died
+with
+
+    SEGV on unknown address 0x000000000000 (pc 0x000000000000)
+    #1 TextEditor::TextEditorFactory::setEditorCreator(...)::$_0::operator()()
+
+a call through a slot that was no longer where the caller thought. 968 targets
+rebuild for one virtual; the partial build is not a shortcut, it is a
+different program.
+
+Worth a further note: with everything rebuilt, TextEditor ran 332 passed 0
+failed and QuickUi 89 passed 0 failed - both of the tests this document has
+been calling "known focus flakes" passed. One run is not evidence that they
+were never flaky, but it is a reason to stop assuming a partial build is
+equivalent to a whole one.

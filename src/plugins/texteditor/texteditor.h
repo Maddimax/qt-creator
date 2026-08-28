@@ -172,7 +172,7 @@ public:
     /*! Converts the \a pos in characters from beginning of document to \a line and \a column */
     void convertPosition(int pos, int *line, int *column) const;
 
-    QString selectedText() const;
+    QString selectedText() const override;
 
     /*! Removes \a length characters to the right of the cursor. */
     void remove(int length);

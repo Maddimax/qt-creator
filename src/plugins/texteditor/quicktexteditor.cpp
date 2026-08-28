@@ -347,6 +347,12 @@ public:
 
     Core::IEditor *duplicate() final { return new QuickTextEditor(m_document); }
 
+    QString selectedText() const final
+    {
+        TextViewport * const view = viewport();
+        return view ? view->selectedText() : QString();
+    }
+
     int currentLine() const final
     {
         TextViewport * const view = viewport();
@@ -655,6 +661,36 @@ private slots:
     // The one thing this must not do while it is unfinished: become what a
     // text file opens in. The default for a mime type is the first factory
     // that claims it, and the plain text editor is still offered beside it.
+    void testTheEditorSaysWhatIsSelected()
+    {
+        // Whoever wants to act on a selection rather than on the file asks
+        // the editor. Answering with nothing is how pasting a selection came
+        // to paste the whole document instead.
+        Utils::TemporaryDirectory dir("quick-editor-selection");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("selected.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\ngamma\n"));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        QVERIFY2(editor->selectedText().isEmpty(), "nothing is selected yet");
+
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+        auto * const view = quick->rootObject()->findChild<TextViewport *>();
+        QVERIFY(view);
+        QTRY_VERIFY(view->visibleLineCount() > 2);
+
+        // "alpha\nbeta\ngamma\n": positions 6 to 10 are "beta".
+        view->setSelectionStart(6);
+        view->setSelectionEnd(10);
+        QCOMPARE(editor->selectedText(), QString("beta"));
+    }
+
     void testAFileWithNoEditorOfItsOwnOpensHereToo()
     {
         // Lua has no editor of its own, so a script is a text file like any
