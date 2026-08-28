@@ -4290,6 +4290,14 @@ private slots:
         QTest::keyClick(&fixture.view, Qt::Key_Z, Qt::ControlModifier);
         QCOMPARE(text->toPlainText(), QString("alpha\nbeta\n"));
 
+        // Deleting goes to every caret too, or Backspace after typing would
+        // not take back what was just typed.
+        viewport->setMultiTextCursor(Utils::MultiTextCursor({first, second}));
+        QTest::keyClick(&fixture.view, 'X');
+        QCOMPARE(text->toPlainText(), QString("alphaX\nbetaX\n"));
+        QTest::keyClick(&fixture.view, Qt::Key_Backspace);
+        QCOMPARE(text->toPlainText(), QString("alpha\nbeta\n"));
+
         // And putting the caret somewhere is putting *the* caret somewhere:
         // the extra one is gone, so the next character goes in once.
         viewport->setCursorPosition(0);

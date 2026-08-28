@@ -1035,10 +1035,6 @@ QTextCursor TextViewport::textCursor() const
 
 void TextViewport::setTextCursor(const QTextCursor &cursor)
 {
-    // Putting the caret somewhere is putting *the* caret somewhere: a click,
-    // a jump, anything that says where the cursor now is, means the extra
-    // carets are gone. Whoever wants to keep them says so afterwards.
-    m_extraCursors.clear();
     setCursorPosition(cursor.position());
     if (cursor.hasSelection()) {
         setSelectionStart(cursor.anchor());
@@ -1572,18 +1568,22 @@ void TextViewport::keyPressEvent(QKeyEvent *event)
 
     switch (event->key()) {
     case Qt::Key_Backspace:
-        // Between the two halves of a pair this editor inserted, Backspace
-        // takes both - otherwise it leaves the closing one orphaned.
-        if (!cursor.hasSelection() && m_autoCompleter->autoBackspace(cursor))
-            break;
-        // With a selection, Backspace removes it rather than one more character
-        // before it, which deletePreviousChar() already does.
-        if (cursor.hasSelection() || !handleSmartBackspace(cursor))
-            cursor.deletePreviousChar();
-        break;
+        applyToEveryCaret([this](QTextCursor &caret) {
+            // Between the two halves of a pair this editor inserted, Backspace
+            // takes both - otherwise it leaves the closing one orphaned.
+            if (!caret.hasSelection() && m_autoCompleter->autoBackspace(caret))
+                return;
+            // With a selection, Backspace removes it rather than one more
+            // character before it, which deletePreviousChar() already does.
+            if (caret.hasSelection() || !handleSmartBackspace(caret))
+                caret.deletePreviousChar();
+        });
+        event->accept();
+        return;
     case Qt::Key_Delete:
-        cursor.deleteChar();
-        break;
+        applyToEveryCaret([](QTextCursor &caret) { caret.deleteChar(); });
+        event->accept();
+        return;
     case Qt::Key_Return:
     case Qt::Key_Enter:
         // The new line starts where the language says it should, which is the
@@ -1610,11 +1610,16 @@ void TextViewport::keyPressEvent(QKeyEvent *event)
         // One indent's worth of whatever the tab settings say, and a whole
         // block where something is selected. A literal tab is what a text box
         // types; it is not what a code style asks for.
-        cursor = doc->indent(Utils::MultiTextCursor({cursor})).mainCursor();
-        break;
+        // The indenter already takes several cursors and knows how to apply
+        // one indent to all of them, so this hands over the carets rather
+        // than unwrapping a single one and putting it back.
+        setMultiTextCursor(doc->indent(multiTextCursor()));
+        event->accept();
+        return;
     case Qt::Key_Backtab:
-        cursor = doc->unindent(Utils::MultiTextCursor({cursor})).mainCursor();
-        break;
+        setMultiTextCursor(doc->unindent(multiTextCursor()));
+        event->accept();
+        return;
     default:
         // Anything else is text only if it produced any. A modifier chord
         // produces none, and neither does a function key.
@@ -1777,6 +1782,11 @@ int TextViewport::cursorPosition() const
 
 void TextViewport::setCursorPosition(int position)
 {
+    // Putting the caret somewhere is putting *the* caret somewhere, so the
+    // extra ones are gone - before the early return, because putting it where
+    // it already is still says there is one of it. Whoever wants to keep them
+    // says so with setMultiTextCursor() afterwards.
+    m_extraCursors.clear();
     if (m_cursorPosition == position)
         return;
     // Put somewhere rather than moved there, so there is no column to keep.

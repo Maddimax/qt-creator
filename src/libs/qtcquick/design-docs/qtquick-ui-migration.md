@@ -12758,3 +12758,29 @@ next thing.
 
 The control - edit only the main caret - fails with `"alpha\nbetaX\n"` where
 `"alphaX\nbetaX\n"` was wanted, which is the feature stated as a diff.
+
+### Deleting, indenting, and where the carets go away
+
+The rest of the editing keys. Backspace and Delete go through
+`applyToEveryCaret()` like typing did. Tab and Backtab do not need it: the
+indenter already takes a `MultiTextCursor` and knows how to apply one indent
+to all of them, so what was
+
+    cursor = doc->indent(Utils::MultiTextCursor({cursor})).mainCursor();
+
+- wrapping one cursor to call an API shaped for many and unwrapping the answer
+- becomes `setMultiTextCursor(doc->indent(multiTextCursor()))`. Four of those
+round trips existed; this is what they were always waiting for.
+
+Writing the test for it turned up something the previous step had got wrong.
+`setTextCursor()` cleared the extra carets, but `setCursorPosition()` did not -
+and they mean the same thing. So after an edit, setting the position left the
+extra carets in place, invisible to whoever set it and waiting to receive the
+next keystroke. The clearing now lives in `setCursorPosition()`, which is the
+setter that says "the caret is here", and it happens **before** its early
+return: putting the caret where it already is still says there is one of it.
+
+That is the sort of mistake that only shows up when the second step is
+written. The first step's test could not have caught it - it never edited and
+then set a position - which is an argument for writing the next step rather
+than for having tested the first one harder.
