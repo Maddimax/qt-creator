@@ -138,19 +138,24 @@ Verified one suite at a time, re-run in full after the shared headers changed
 | --- | --- |
 | Core, TextEditor, QuickUi | 81/81, 312/312, 89/89 |
 | QmlJSEditor, QmlJSTools, LanguageClient | 15/15, 12/12, 20/20 |
-| CMake, Qmake project managers | 69/69, 26/26 |
+| CMake, Qmake, Qbs, Nim project managers | 69/69, 26/26, 8/8 (1 skipped), 6/6 |
+| AutoTest, BareMetal | 5/5 (1 skipped, wants a kit), 61/61 |
 | DiffEditor, Python | 48/48, 30/30 |
+| all 35 `tests/auto/utils` binaries | every one exit 0, 2003 assertions between them |
 | CppEditor | 155/155 for `FollowSymbolTest` alone; the whole suite poisons itself and its number means nothing |
 | ProjectExplorer, Debugger | 2 and 1 pre-existing failures |
 | FakeVim | 253/2, both pre-existing - see below |
 
 Re-measured after the editor batches, because those changed an **exported
 header** (`textdocumentlayout.h`) that twelve other plugins include: building
-proves it compiles, not that it still behaves. Not re-run this time and
-therefore not claimed: Qbs and Nim project managers, AutoTest, BareMetal, and
-the `tests/auto/utils` binaries. `ClangFormat` is not built in this
-configuration - asking for it says "the plugin does not exist", which is worth
-knowing before reading an empty result as a pass.
+proves it compiles, not that it still behaves. The `tests/auto/utils` binaries
+are 35 now rather than 33 - this branch added `result` and `aspectrenderer` -
+and matter most here, since `utils` itself was changed early on.
+
+`ClangFormat` is not built in this configuration: asking for it says "the
+plugin does not exist" and returns nothing, which reads exactly like a clean
+pass if only the totals are looked at. `GlslEditor`, `VcsBase`, `Copilot` and
+`Lua` register no test classes at all - also zero, also not a pass.
 
 **The FakeVim failures are older than this branch and one of them cannot pass
 on macOS.** `test_vim_script_throwpoint` builds its expectation from
