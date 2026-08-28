@@ -14,8 +14,11 @@
 
 #include <KSyntaxHighlighting/State>
 
+#include <QColor>
 #include <QPlainTextDocumentLayout>
 #include <QTextBlockUserData>
+
+#include <functional>
 
 namespace TextEditor {
 
@@ -172,6 +175,38 @@ private:
     QList<QPointer<QWidget>> m_embeddedWidgets;
     quint8 m_attrState = 0;
 };
+
+// The chain of foldable blocks enclosing one block. The two lists run in
+// opposite directions - open outermost first, close innermost first - so the
+// innermost pair is open.last() and close.first().
+class TEXTEDITOR_EXPORT BlockNesting
+{
+public:
+    QList<int> open;
+    QList<int> close;
+    QList<int> visualIndent;
+
+    int count() const { return visualIndent.size(); }
+    bool isEmpty() const
+    {
+        return open.isEmpty() || close.isEmpty() || visualIndent.isEmpty();
+    }
+    bool operator==(const BlockNesting &other) const
+    {
+        return open == other.open && close == other.close
+               && visualIndent == other.visualIndent;
+    }
+};
+
+// Where a level begins on screen is a question about the view, not the
+// document, so the caller says where a block's text starts.
+using VisualIndentFunction = std::function<int(const QTextBlock &)>;
+TEXTEDITOR_EXPORT BlockNesting blockNestingAt(const QTextBlock &block,
+                                              const VisualIndentFunction &visualIndent);
+
+// The background one nesting level is drawn with: the deeper the level, the
+// further the editor background is pushed away from itself.
+TEXTEDITOR_EXPORT QColor scopeLevelColor(const QColor &baseColor, int level, int count);
 
 class TEXTEDITOR_EXPORT TextDocumentLayout : public Utils::PlainTextDocumentLayout
 {

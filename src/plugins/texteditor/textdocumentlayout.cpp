@@ -348,6 +348,75 @@ void TextBlockUserData::addMark(TextMark *mark)
     m_marks.insert(i, mark);
 }
 
+static QColor blendColors(const QColor &a, const QColor &b, int alpha)
+{
+    return QColor((a.red()   * (256 - alpha) + b.red()   * alpha) / 256,
+                  (a.green() * (256 - alpha) + b.green() * alpha) / 256,
+                  (a.blue()  * (256 - alpha) + b.blue()  * alpha) / 256);
+}
+
+QColor scopeLevelColor(const QColor &baseColor, int level, int count)
+{
+    QColor color80;
+    QColor color90;
+
+    if (baseColor.value() > 128) {
+        const int f90 = 15;
+        const int f80 = 30;
+        color80.setRgb(qMax(0, baseColor.red() - f80),
+                       qMax(0, baseColor.green() - f80),
+                       qMax(0, baseColor.blue() - f80));
+        color90.setRgb(qMax(0, baseColor.red() - f90),
+                       qMax(0, baseColor.green() - f90),
+                       qMax(0, baseColor.blue() - f90));
+    } else {
+        const int f90 = 20;
+        const int f80 = 40;
+        color80.setRgb(qMin(255, baseColor.red() + f80),
+                       qMin(255, baseColor.green() + f80),
+                       qMin(255, baseColor.blue() + f80));
+        color90.setRgb(qMin(255, baseColor.red() + f90),
+                       qMin(255, baseColor.green() + f90),
+                       qMin(255, baseColor.blue() + f90));
+    }
+
+    if (level == count)
+        return baseColor;
+    if (level == 0)
+        return color80;
+    if (level == count - 1)
+        return color90;
+
+    const int blendFactor = level * (256 / (count - 1));
+
+    return blendColors(color80, color90, blendFactor);
+}
+
+BlockNesting blockNestingAt(const QTextBlock &block, const VisualIndentFunction &visualIndent)
+{
+    BlockNesting nesting;
+
+    QTextBlock openBlock = block;
+    QTextBlock closeBlock = block;
+    while (openBlock.isValid()) {
+        const int foldingIndent = TextBlockUserData::foldingIndent(openBlock);
+
+        while (openBlock.previous().isValid()
+               && TextBlockUserData::foldingIndent(openBlock) >= foldingIndent)
+            openBlock = openBlock.previous();
+        if (TextBlockUserData::foldingIndent(openBlock) == foldingIndent)
+            break;
+        nesting.open.prepend(openBlock.blockNumber());
+        while (closeBlock.next().isValid()
+               && TextBlockUserData::foldingIndent(closeBlock.next()) >= foldingIndent)
+            closeBlock = closeBlock.next();
+        nesting.close.append(closeBlock.blockNumber());
+        nesting.visualIndent.prepend(qMin(visualIndent(openBlock), visualIndent(closeBlock)));
+    }
+
+    return nesting;
+}
+
 TextDocumentLayout::TextDocumentLayout(QTextDocument *doc)
     : PlainTextDocumentLayout(doc)
 {}
