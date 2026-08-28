@@ -165,10 +165,33 @@ exactly as it did from a list: eight repeaters converted by changing the model
 they bind to and nothing else. The row count rarely changes while scrolling,
 so the delegates stay and only what they read is announced.
 
-What is left of the ~5 ms is the delegates re-evaluating their bindings on
-`dataChanged`, and the list still being built to fill the model - so a row's
-map is made every layout whether or not anything in it changed. Comparing rows
-and announcing only the ones that differ is the next thing worth measuring.
+**And announcing less took it to about 3.6 ms.** "Compare the rows and
+announce only what differs" was the obvious next step and it is wrong on its
+own terms: rows are numbered by where they are on screen, so a scroll changes
+every one of them. What is true is that they *move* - what row five said is
+what row four says now, word for word - so the model looks for that shift and
+reports it as rows leaving the top and arriving at the bottom. The rows
+between are not announced at all.
+
+The shift is found by **comparing rows**, not by working it out from
+`firstVisibleLine`. A row that compares equal says the same thing whatever the
+reason it moved, and one that does not is re-read whatever the scroll says, so
+the shortcut cannot show anything stale. Measuring a layout that announces
+nothing at all gives 2.4 ms, so of the ~2.6 ms that announcing cost, this
+recovers about 1.4 ms and the rest is the comparing and the arriving rows.
+
+**A control here does not bite and it is worth saying why.** Removing the loop
+that verifies the whole overlap changes no test. The reason is that a row's
+map carries its line number, so matching the first row already pins the
+alignment; the verification only earns its keep when a scroll and a content
+change land in the *same* layout, and in practice they do not - three attempts
+at constructing one failed. It stays, because that is what makes correctness
+independent of "in practice", but it is not covered.
+
+**And the first version of that test asked the wrong object.** It read
+`viewport->visibleLine()`, which is the view's own copy and is right whatever
+the model was told - so a model left holding a stale row would not have shown
+up. The test asks the model now.
 
 **What I guessed first was wrong.** The obvious suspect was the loop over
 `m_highlights` inside the per-block loop - O(visible x highlights) by the look
