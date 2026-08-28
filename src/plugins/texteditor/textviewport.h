@@ -420,6 +420,10 @@ public:
     // is the only way to see that it arrived. Empty for an index that is not on
     // screen.
     Q_INVOKABLE QVariantMap visibleLine(int index) const;
+    // How much of a row to describe. The model QML reads needs what QML draws;
+    // tests ask for the rest, which costs more than all the rest together.
+    enum RowDetail { ForDrawing, WithIntrospection };
+    QVariantMap rowData(int index, RowDetail detail) const;
     QVariantList visibleLines() const;
     QAbstractItemModel *visibleRows() const;
 
