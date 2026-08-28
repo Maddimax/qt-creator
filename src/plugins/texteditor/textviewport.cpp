@@ -445,11 +445,15 @@ void TextViewport::setSelectionEnd(int position)
 
 QVariantList TextViewport::visibleLines() const
 {
-    QVariantList lines;
-    lines.reserve(int(m_lines.size()));
+    return m_visibleLines;
+}
+
+void TextViewport::rebuildVisibleLines()
+{
+    m_visibleLines.clear();
+    m_visibleLines.reserve(int(m_lines.size()));
     for (int i = 0; i < int(m_lines.size()); ++i)
-        lines.append(visibleLine(i));
-    return lines;
+        m_visibleLines.append(visibleLine(i));
 }
 
 QVariantMap TextViewport::visibleLine(int index) const
@@ -2266,6 +2270,10 @@ void TextViewport::updatePolish()
         m_lineHeight = 0;
         m_contentHeight = 0;
         m_firstVisibleLine = 0;
+        // There are no rows now, and what QML holds has to say so rather than
+        // keep describing the ones there used to be.
+        m_visibleLines.clear();
+        emit linesChanged();
         emit metricsChanged();
         emit cursorRectangleChanged();
         update();
@@ -2897,6 +2905,7 @@ void TextViewport::updatePolish()
     setScrollY(m_scrollY);
     setScrollX(m_scrollX);
     m_rowsShaped = shaped;
+    rebuildVisibleLines();
 
     updateScrollBarHighlights();
     emit metricsChanged();

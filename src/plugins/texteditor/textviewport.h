@@ -651,6 +651,7 @@ private:
     int rowOfBlock(const QTextBlock &block);
     void setScopeBlock(int blockNumber);
     void updateScrollBarHighlights();
+    void rebuildVisibleLines();
     void modifyTabSettings(const std::function<void(TabSettingsData &)> &modify);
     void updateLink(const QPointF &pos, Qt::KeyboardModifiers modifiers);
     bool handleSmartBackspace(QTextCursor &cursor);
@@ -665,6 +666,10 @@ private:
     // What the rows were shaped with last time. Anything here changing makes
     // every row's shaping wrong, so none of them can be kept.
     int m_rowsShaped = 0;
+    // The rows as QML reads them. Built once with the layout: eight repeaters
+    // bind to this, and building it per read meant building it eight times a
+    // scroll.
+    QVariantList m_visibleLines;
     QFont m_shapedWith;
     qreal m_shapedTabStop = -1;
     qreal m_shapedWrapWidth = -1;
