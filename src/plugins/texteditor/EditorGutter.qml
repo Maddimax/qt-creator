@@ -44,7 +44,7 @@ Item {
     // How the line differs from the file on disk, drawn hard against the text
     // at the gutter's right edge - which is where the widget editor puts it.
     Repeater {
-        model: root.viewport.visibleLines
+        model: root.viewport.visibleRows
 
         delegate: Rectangle {
             id: change
@@ -69,7 +69,7 @@ Item {
     // What the line is marked with - an error, a warning, a breakpoint. One
     // per line on screen, the same as the numbers.
     Repeater {
-        model: root.viewport.visibleLines
+        model: root.viewport.visibleRows
 
         delegate: Image {
             id: mark
@@ -99,7 +99,7 @@ Item {
     }
 
     Repeater {
-        model: root.viewport.visibleLines
+        model: root.viewport.visibleRows
 
         delegate: Text {
             id: number
@@ -135,7 +135,7 @@ Item {
     // What closes and opens a fold. Only foldable lines have one, so most rows
     // draw nothing - and the whole column is absent when nobody asked for it.
     Repeater {
-        model: root.showFoldMarkers ? root.viewport.visibleLines : []
+        model: root.showFoldMarkers ? root.viewport.visibleRows : []
 
         delegate: Image {
             id: fold

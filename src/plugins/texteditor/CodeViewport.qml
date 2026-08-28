@@ -421,7 +421,7 @@ Item {
 
             // The wrapped-line marker, on the rows that continue a line.
             Repeater {
-                model: viewport.visibleLines
+                model: viewport.visibleRows
 
                 delegate: Text {
                     required property int index
@@ -446,7 +446,7 @@ Item {
             // widget editor gets from QTextLine::draw() - the scene graph
             // draws glyphs and would otherwise draw nothing here.
             Repeater {
-                model: viewport.visibleLines
+                model: viewport.visibleRows
 
                 delegate: Item {
                     id: whitespaceRow
@@ -487,7 +487,7 @@ Item {
             // negative z puts a child under its parent's own drawing, and the
             // parent here is what paints the glyphs.
             Repeater {
-                model: viewport.visibleLines
+                model: viewport.visibleRows
 
                 delegate: Item {
                     id: guideRow
@@ -522,7 +522,7 @@ Item {
             // each line's natural width, so it starts where the text actually
             // ends rather than at a column.
             Repeater {
-                model: viewport.visibleLines
+                model: viewport.visibleRows
 
                 delegate: Row {
                     id: trailing
@@ -570,7 +570,7 @@ Item {
             // the end of the line, the right margin and the right edge, and
             // only the viewport knows where those are.
             Repeater {
-                model: viewport.visibleLines
+                model: viewport.visibleRows
 
                 delegate: Text {
                     id: annotation

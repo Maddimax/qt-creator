@@ -443,9 +443,65 @@ void TextViewport::setSelectionEnd(int position)
     emit selectionChanged();
 }
 
+// The rows as something a repeater can keep its delegates for. One role, and
+// it is called "modelData" so that a delegate reads a row exactly as it did
+// when this was a plain list.
+class VisibleRowsModel final : public QAbstractListModel
+{
+public:
+    using QAbstractListModel::QAbstractListModel;
+
+    QHash<int, QByteArray> roleNames() const override { return {{Qt::UserRole, "modelData"}}; }
+
+    int rowCount(const QModelIndex &parent = {}) const override
+    {
+        return parent.isValid() ? 0 : int(m_rows.size());
+    }
+
+    QVariant data(const QModelIndex &at, int role) const override
+    {
+        if (!at.isValid() || role != Qt::UserRole || at.row() >= m_rows.size())
+            return {};
+        return m_rows.at(at.row());
+    }
+
+    void setRows(QVariantList rows)
+    {
+        const int before = int(m_rows.size());
+        const int now = int(rows.size());
+        if (now > before)
+            beginInsertRows({}, before, now - 1);
+        else if (now < before)
+            beginRemoveRows({}, now, before - 1);
+
+        m_rows = std::move(rows);
+
+        if (now > before)
+            endInsertRows();
+        else if (now < before)
+            endRemoveRows();
+
+        // Scrolling changes what every row says without changing how many
+        // there are, so the ones that stayed have to be re-read.
+        if (const int shared = qMin(before, now); shared > 0)
+            emit dataChanged(index(0), index(shared - 1), {Qt::UserRole});
+    }
+
+private:
+    QVariantList m_rows;
+};
+
 QVariantList TextViewport::visibleLines() const
 {
     return m_visibleLines;
+}
+
+QAbstractItemModel *TextViewport::visibleRows() const
+{
+    if (!m_visibleRows)
+        const_cast<TextViewport *>(this)->m_visibleRows = new VisibleRowsModel(
+            const_cast<TextViewport *>(this));
+    return m_visibleRows;
 }
 
 void TextViewport::rebuildVisibleLines()
@@ -454,6 +510,7 @@ void TextViewport::rebuildVisibleLines()
     m_visibleLines.reserve(int(m_lines.size()));
     for (int i = 0; i < int(m_lines.size()); ++i)
         m_visibleLines.append(visibleLine(i));
+    static_cast<VisibleRowsModel *>(visibleRows())->setRows(m_visibleLines);
 }
 
 QVariantMap TextViewport::visibleLine(int index) const
@@ -2273,6 +2330,7 @@ void TextViewport::updatePolish()
         // There are no rows now, and what QML holds has to say so rather than
         // keep describing the ones there used to be.
         m_visibleLines.clear();
+        static_cast<VisibleRowsModel *>(visibleRows())->setRows({});
         emit linesChanged();
         emit metricsChanged();
         emit cursorRectangleChanged();

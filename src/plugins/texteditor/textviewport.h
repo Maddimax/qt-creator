@@ -10,6 +10,7 @@
 #include <utils/id.h>
 #include <utils/link.h>
 
+#include <QAbstractItemModel>
 #include <QColor>
 #include <QMap>
 #include <QTextLayout>
@@ -141,6 +142,11 @@ class TEXTEDITOR_EXPORT TextViewport : public QQuickItem, public HoverTarget
     // delegate that called it would show whatever was true when it was built
     // and never hear that a mark had arrived.
     Q_PROPERTY(QVariantList visibleLines READ visibleLines NOTIFY linesChanged)
+    // The same rows as a model. A list property hands out a new list every
+    // layout, which makes a repeater drop every delegate it has and build
+    // them again; a model whose rows keep their place lets it keep them and
+    // re-read what changed.
+    Q_PROPERTY(QAbstractItemModel *visibleRows READ visibleRows CONSTANT)
     // The selection, as positions in the document. Both -1 for none.
     Q_PROPERTY(int selectionStart READ selectionStart WRITE setSelectionStart
                    NOTIFY selectionChanged)
@@ -353,6 +359,7 @@ public:
     // screen.
     Q_INVOKABLE QVariantMap visibleLine(int index) const;
     QVariantList visibleLines() const;
+    QAbstractItemModel *visibleRows() const;
 
     // The two halves of the mapping between the document and the screen, which
     // is what a caret and a mouse need and what nothing above the scene graph
@@ -670,6 +677,7 @@ private:
     // bind to this, and building it per read meant building it eight times a
     // scroll.
     QVariantList m_visibleLines;
+    class VisibleRowsModel *m_visibleRows = nullptr;
     QFont m_shapedWith;
     qreal m_shapedTabStop = -1;
     qreal m_shapedWrapWidth = -1;
