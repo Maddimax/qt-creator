@@ -684,6 +684,31 @@ Item {
             }
         }
 
+        // Where the marks and the caret are, over the bar rather than in it:
+        // a ScrollBar draws its own handle and this has to stay visible when
+        // the handle passes under it.
+        Item {
+            objectName: "scrollBarHighlights"
+
+            anchors.fill: verticalScrollBar
+            visible: verticalScrollBar.visible
+            z: 1
+
+            Repeater {
+                model: viewport.scrollBarHighlights
+
+                delegate: Rectangle {
+                    required property var modelData
+
+                    x: 0
+                    y: Math.round(modelData.position * parent.height)
+                    width: parent.width
+                    height: 2
+                    color: modelData.color
+                }
+            }
+        }
+
         ScrollBar {
             id: horizontalScrollBar
 

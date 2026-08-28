@@ -1643,6 +1643,41 @@ void TextViewport::dropText(const QString &text, qreal x, qreal y, bool moveFrom
     setCursorPosition(cursor.position());
 }
 
+// Not const: working out which row a block is on needs the per-view layout,
+// which is built the first time it is asked for.
+QVariantList TextViewport::scrollBarHighlights()
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    const qreal height = contentHeight();
+    if (!doc || !displaySettings().scrollBarHighlights() || height <= 0 || m_lineHeight <= 0)
+        return {};
+
+    QVariantList highlights;
+    const auto add = [&](const QTextBlock &block, const QColor &colour) {
+        // A folded-away line has no row of its own, so there is nowhere on the
+        // bar to point at.
+        if (!block.isValid() || !block.isVisible() || !colour.isValid())
+            return;
+        highlights.append(
+            QVariantMap{{"position", rowOfBlock(block) * m_lineHeight / height},
+                        {"color", colour}});
+    };
+
+    // The line the caret is on.
+    add(cursorBlock(), Utils::creatorColor(Utils::Theme::TextEditor_CurrentLine_ScrollBarColor));
+
+    // And every mark that says what colour to draw it in. One without is one
+    // the widget editor leaves off the bar too.
+    const TextMarks marks = doc->marks();
+    for (TextMark * const mark : marks) {
+        if (!mark->isVisible() || !mark->color().has_value())
+            continue;
+        add(doc->document()->findBlockByNumber(mark->lineNumber() - 1),
+            Utils::creatorColor(*mark->color()));
+    }
+    return highlights;
+}
+
 int TextViewport::contentWidthPercent() const
 {
     return marginSettings().centerEditorContentWidthPercent();

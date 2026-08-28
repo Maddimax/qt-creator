@@ -120,6 +120,10 @@ class TEXTEDITOR_EXPORT TextViewport : public QQuickItem, public HoverTarget
     // a hundred the content is centred in what is left - which is what Zen
     // mode narrows, as well as a preference of its own.
     Q_PROPERTY(int contentWidthPercent READ contentWidthPercent NOTIFY metricsChanged)
+    // Where this document's marks and its caret are, each as a fraction of
+    // the document's height, so that a scroll bar can show them without
+    // knowing what a line is. Empty when the display settings say not to.
+    Q_PROPERTY(QVariantList scrollBarHighlights READ scrollBarHighlights NOTIFY metricsChanged)
     // How many lines the document has, which a gutter needs to know how wide
     // to be before it has drawn anything. Every line, folded or not: the
     // gutter has to fit the highest number it can ever show.
@@ -391,6 +395,7 @@ public:
     // so it has to stop being here too.
     Q_INVOKABLE void removeSelectedText();
     int contentWidthPercent() const;
+    QVariantList scrollBarHighlights();
     QString fileLineEnding() const;
     QString tabSettingsLabel() const;
     int indentSize() const;

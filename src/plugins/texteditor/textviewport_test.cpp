@@ -2023,6 +2023,90 @@ private slots:
         QCOMPARE(qRound(viewport->x()), qRound(leftAtFullWidth));
     }
 
+    // Marks show up on the scroll bar, which is how a file too long to see
+    // says where its errors are. On by default, and the Quick editor had
+    // none of it.
+    void testMarksAreShownOnTheScrollBar()
+    {
+        const bool was = displaySettings().scrollBarHighlights();
+        const QScopeGuard restore(
+            [was] { displaySettings().scrollBarHighlights.setValue(was); });
+        displaySettings().scrollBarHighlights.setValue(true);
+
+        TemporaryDirectory dir("qtc-viewport-scrollmarks");
+        const FilePath file = writeLines(dir, "long.txt", 400);
+
+        QQuickView view;
+        installIconProvider(view);
+        view.resize(600, 200);
+        QQmlComponent component(view.engine());
+        component.setData(QByteArray("import QtCreator.TextEditor\n"
+                                     "CodeViewport {\n"
+                                     "    width: 600; height: 200\n"
+                                     "    property string path\n"
+                                     "    source: CodeDocument { filePath: path }\n"
+                                     "}"),
+                          QUrl("qrc:/test/ScrollMarkTest.qml"));
+        std::unique_ptr<QObject> created(component.createWithInitialProperties(
+            {{"path", file.toUrlishString()}}));
+        QVERIFY2(created != nullptr, qPrintable(component.errorString()));
+
+        auto * const item = qobject_cast<QQuickItem *>(created.get());
+        QVERIFY(item);
+        item->setParentItem(view.contentItem());
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+        auto * const viewport = item->findChild<TextViewport *>("codeViewport");
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+        auto * const source = viewport->document();
+        QVERIFY(source && source->textDocument());
+
+        // The caret's line is on the bar whether or not anything is marked,
+        // so a mark has to be told apart by its colour.
+        const int before = viewport->scrollBarHighlights().size();
+
+        TextMark mark(source->textDocument(), 200,
+                      TextMarkCategory{"Test", "TextEditor.Test.Mark"});
+        mark.setColor(Utils::Theme::TextColorError);
+        const QColor marked = Utils::creatorColor(Utils::Theme::TextColorError);
+
+        const auto positionOfMark = [viewport, marked]() -> qreal {
+            const QVariantList highlights = viewport->scrollBarHighlights();
+            for (const QVariant &entry : highlights) {
+                if (entry.toMap().value("color").value<QColor>() == marked)
+                    return entry.toMap().value("position").toReal();
+            }
+            return -1;
+        };
+
+        QTRY_COMPARE(viewport->scrollBarHighlights().size(), before + 1);
+        // Line 200 of 401 is about halfway down.
+        const qreal at = positionOfMark();
+        QVERIFY2(at > 0.45 && at < 0.55,
+                 qPrintable(QString("a mark halfway down the file is at %1").arg(at)));
+
+        // And it is drawn there, on the bar rather than somewhere in the text.
+        QQuickItem * const overlay = item->findChild<QQuickItem *>("scrollBarHighlights");
+        QVERIFY(overlay);
+        // The whole visual tree under it: a Repeater's delegates are children
+        // of the item the Repeater is in, not of the Repeater.
+        const auto drawnAt = [overlay, marked]() -> qreal {
+            for (QQuickItem * const rect : allItems(overlay)) {
+                if (rect->property("color").value<QColor>() == marked)
+                    return rect->y();
+            }
+            return -1;
+        };
+        QTRY_COMPARE(qRound(drawnAt()), qRound(at * overlay->height()));
+
+        // Turned off, the bar carries nothing at all - not even the caret.
+        displaySettings().scrollBarHighlights.setValue(false);
+        QTRY_VERIFY2(viewport->scrollBarHighlights().isEmpty(),
+                     "the bar still carried marks with the setting turned off");
+    }
+
     void testAnEditTheViewportDidNotMakeStillShows()
     {
         // The indenter, another view, a refactoring: nothing tells the viewport
