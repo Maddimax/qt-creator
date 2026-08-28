@@ -340,9 +340,23 @@ interesting:
   whose ghost rows the Quick editor does not have at all.
 - **Animations** - `animateMatchingParentheses`,
   `animateNavigationWithinFile`, `animateWithinFileTimeMax`. Cosmetic.
-- **Editor-layer behaviour rather than drawing** - `openLinksInNextSplit`,
-  `forceOpenLinksInNextSplit`, `displayTabSettings`,
-  `minimalAnnotationContent`.
+- **Editor-layer behaviour rather than drawing** - one left,
+  `minimalAnnotationContent` (default 15), which the widget multiplies by the
+  character width to keep a minimum of an annotation visible. The other three
+  turned out not to be a list of things to port:
+  - `openLinksInNextSplit` is **done**. It swaps what Alt means rather than
+    being a second way of asking for the other split - the widget takes Alt
+    exclusive-or the setting, and its two Follow Symbol actions negate each
+    other through it. The Quick editor passed Alt straight through and
+    hard-coded the actions, so the setting did nothing at all.
+  - `displayTabSettings` is **done**, and was the bigger find: it defaults to
+    **true** and shows a toolbar button saying what the document indents with,
+    with a menu to change it. The Quick editor had the line ending and the
+    encoding beside it but not this one.
+  - `forceOpenLinksInNextSplit` is **not a porting gap at all**. It has no
+    settings key, no label, no entry on any page and no reader anywhere in the
+    tree - it is dead in the widget editor too. Listing it as unported was
+    wrong.
 
 **"Everything left is off by default" was wrong, and the way it was wrong is
 the useful part.** That claim came from reading the settings' defaults, which
@@ -417,6 +431,14 @@ removed, the line untouched - because every key was landing on the read-only
 guard. An existing test says so in as many words; a new one has to call
 `setReadOnly(false)` or it is testing the guard. The tell is *nothing*
 happening rather than the wrong thing happening.
+
+**A `Repeater` inside a `Menu` cannot be reached from it.** The indent sizes
+started as a `Repeater` over `model: 8`. `findChild` on the menu found
+nothing, and opening the submenu first did not help either - the delegates are
+not `QObject` children of the menu that shows them. Written out one by one
+they are found immediately, like the plain `MenuItem`s next to them. A
+submenu is also a popup of its own, so it is not under the menu that opens it;
+both have to be asked for by name from the root object.
 
 **A hover test failed once here, and calling it a flake was wrong.** The
 full-suite run after the tooltip work reported
