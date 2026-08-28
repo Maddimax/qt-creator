@@ -2853,14 +2853,16 @@ void GitTest::testInlineDiffFile()
 
     // the index baseline offers stage and revert buttons per hunk
     QList<QAbstractButton *> buttons;
-    QTRY_VERIFY((buttons = diffWidget->findChildren<QAbstractButton *>(),
+    QTRY_VERIFY((QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete),
+                 buttons = diffWidget->findChildren<QAbstractButton *>(),
                  buttons.size() == 2));
     QVERIFY(!buttons.first()->icon().isNull());
     QVERIFY(!buttons.last()->icon().isNull());
 
     // staging the hunk moves the change to the index and empties the diff
     buttons.first()->click();
-    QTRY_VERIFY(diffWidget->findChildren<QAbstractButton *>().isEmpty());
+    QTRY_VERIFY((QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete),
+                 diffWidget->findChildren<QAbstractButton *>().isEmpty()));
     QTRY_VERIFY(gitClient().vcsSynchronousExec(repo, {"diff", "--cached"})
                     .cleanedStdOut().contains("+two changed"));
 
@@ -2874,19 +2876,22 @@ void GitTest::testInlineDiffFile()
                  QString("file.txt (Unstaged vs HEAD)"));
     // two hunks, but only the unstaged "four" gets buttons; the already
     // staged "two changed" offers no actions
-    QTRY_VERIFY((buttons = diffWidget->findChildren<QAbstractButton *>(),
+    QTRY_VERIFY((QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete),
+                 buttons = diffWidget->findChildren<QAbstractButton *>(),
                  buttons.size() == 2));
     buttons.first()->click(); // stage button of the unstaged hunk
     QTRY_VERIFY(gitClient().vcsSynchronousExec(repo, {"diff", "--cached"})
                     .cleanedStdOut().contains("+four"));
     // afterwards nothing is unstaged, so no hunk offers actions anymore
-    QTRY_VERIFY(diffWidget->findChildren<QAbstractButton *>().isEmpty());
+    QTRY_VERIFY((QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete),
+                 diffWidget->findChildren<QAbstractButton *>().isEmpty()));
 
     // staging a block that ends on a last line without trailing newline
     // needs "no newline at end of file" markers in the patch
     cursor.movePosition(QTextCursor::End);
     cursor.insertText("five");
-    QTRY_VERIFY((buttons = diffWidget->findChildren<QAbstractButton *>(),
+    QTRY_VERIFY((QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete),
+                 buttons = diffWidget->findChildren<QAbstractButton *>(),
                  buttons.size() == 2));
     buttons.first()->click();
     QTRY_VERIFY(gitClient().vcsSynchronousExec(repo, {"diff", "--cached"})
@@ -2894,7 +2899,8 @@ void GitTest::testInlineDiffFile()
     // ... also on the removal side, against index contents without newline
     cursor.movePosition(QTextCursor::End);
     cursor.insertText(" and more");
-    QTRY_VERIFY((buttons = diffWidget->findChildren<QAbstractButton *>(),
+    QTRY_VERIFY((QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete),
+                 buttons = diffWidget->findChildren<QAbstractButton *>(),
                  buttons.size() == 2));
     buttons.first()->click();
     QTRY_VERIFY(gitClient().vcsSynchronousExec(repo, {"diff", "--cached"})

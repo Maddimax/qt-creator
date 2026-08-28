@@ -12863,3 +12863,43 @@ Worth naming the shape: the first two steps were consistent *with themselves*,
 so their tests passed. What they were not consistent with was the type they
 hand out, and nothing found that until an algorithm written against the type
 was reused. A borrowed algorithm is a test of the borrowed type's conventions.
+
+## A flake my own fix made visible
+
+`GitTest::testInlineDiffFile` failed 4 times in 10 runs, always on the same
+assertion - staging a hunk and finding `+four` in the index. Not noise, and
+not pre-existing in any useful sense: before the inline diff was fixed to open
+from the document, this test died thirty lines earlier and never reached the
+staging step at all. Making the feature work is what exposed it.
+
+The mechanism is in how the hunk controls go away:
+
+    row.widget->deleteLater(); // an action button may be the caller
+
+`deleteLater()` means the old buttons are still children until the event loop
+runs. The test waits like this:
+
+    QTRY_VERIFY((buttons = diffWidget->findChildren<QAbstractButton *>(),
+                 buttons.size() == 2));
+    buttons.first()->click();
+
+Two buttons existing is not two of the *right* buttons. When the diff is
+recomputed the previous hunk's controls are pending deletion, the count passes
+through 2 on the way down, and the click lands on a button whose hunk is gone -
+so nothing is staged and the assertion after it fails.
+
+The fix is to make the count mean what it says, by flushing the deferred
+deletions before taking it:
+
+    QTRY_VERIFY((QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete),
+                 buttons = diffWidget->findChildren<QAbstractButton *>(),
+                 buttons.size() == 2));
+
+Six of these in the test, four counting and two checking for none. Six runs
+afterwards, all green: against a 40% failure rate that is about a 5% outcome by
+chance, which is the strongest evidence available short of understanding the
+refresh timing exactly.
+
+Worth keeping generally: `QTRY_VERIFY` on a *count* of objects is only as good
+as the objects being the ones meant. With `deleteLater()` anywhere nearby, a
+count can be satisfied by things on their way out.
