@@ -277,14 +277,25 @@ with seven others - but not the two layouts wrapping at different widths, which
 lands the caret between rows and is what the Down test is for. Worth knowing
 which test covers which, because the two look like the same bug from outside.
 
-**Found while testing break indent, and not caused by it: moving the caret
-down two rows disagrees with the rows on screen.** In a document of one long
-wrapped line, rows of 54 characters, two presses of Down from the start land
-the caret at 162 rather than 108 - three rows rather than two. It happens with
-break indent off as well as on, so it predates that work. One press lands
-correctly, which is why `testDownMovesToTheNextRowWhenWrapping` passes: it
-moves once. The break indent test does not assert this; it would be asserting
-someone else's bug.
+**Holding Down on a wrapped line skipped a row, and the cause was not where it
+looked.** Rows of 54 characters, and the caret walked 54, 162, 269 - one row on
+the first press, two on every one after. The rows were right, the layout's line
+numbers were right, and the key handler ran once per press. What grew was `x`:
+4, then 393, then 1173.
+
+`x` is the column the caret keeps while moving up and down, and a `QTextCursor`
+carries it. This view builds a fresh cursor from a position for every key, so
+it was lost between presses and recomputed - and recomputed from a caret at the
+start of a row it comes out as the *end of the row before*, which is the far
+side of the viewport. The next move starts from there. It is handed back before
+the move and taken after now; a caret put somewhere rather than moved there
+still has none, so a click starts afresh.
+
+Worth remembering how it was found: the break indent test asserted two rows
+down and got three. Measuring the same move with break indent **off** gave the
+same disagreement, which is what said the new feature had not caused it. The
+assertion was dropped rather than committed against someone else's fault, and
+the fault chased separately.
 
 **What the Qt Quick editor still does not do, audited rather than guessed.**
 Whitespace turned out to be one of a class - a display setting that reaches the
