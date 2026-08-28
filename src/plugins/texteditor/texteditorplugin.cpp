@@ -151,10 +151,10 @@ void TextEditorPlugin::initialize()
     setupTypeHierarchyFactory();
     setupLineNumberFilter(); // Goto line functionality for quick open
 
-    setupPlainTextEditor();
-    // After the plain text editor: the default for a mime type is the first
-    // factory that claims it, and this one is not finished.
+    // Before the plain text editor: the default for a mime type is the first
+    // factory that claims it, and this is what a text file opens in now.
     setupQuickTextEditor();
+    setupPlainTextEditor();
 
     setupBookmarkManager(this);
     setupBookmarkView();

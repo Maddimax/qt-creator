@@ -596,11 +596,10 @@ public:
     {
         setId(QUICK_TEXT_EDITOR_ID);
         setDisplayName(Tr::tr("Code Editor (Qt Quick)"));
-        // The same mime type the plain text editor takes, so a text file can be
-        // opened in this from Open With - and, since the lookup walks a mime
-        // type's parents, so can source files. Registered after it, because
-        // the default for a mime type is the first factory that claims it and
-        // this one still has no completion or auto-insertion.
+        // The same mime type the plain text editor takes, and registered
+        // before it: the default for a mime type is the first factory that
+        // claims it, so this is what a text file opens in. The lookup walks a
+        // mime type's parents, so source files come here too.
         addMimeType(QLatin1String(Constants::C_TEXTEDITOR_MIMETYPE_TEXT));
         setEditorCreator([] { return new QuickTextEditor; });
     }
@@ -645,9 +644,9 @@ class QuickTextEditorTest final : public QObject
 
 private slots:
     // The one thing this must not do while it is unfinished: become what a
-    // text file opens in. It is offered beside the plain text editor, and the
-    // default for a mime type is the first factory that claims it.
-    void testItIsOfferedWithoutBecomingTheDefault()
+    // text file opens in. The default for a mime type is the first factory
+    // that claims it, and the plain text editor is still offered beside it.
+    void testItIsWhatATextFileOpensIn()
     {
         const Utils::MimeType text = Utils::mimeTypeForName(
             QLatin1String(Constants::C_TEXTEDITOR_MIMETYPE_TEXT));
@@ -660,8 +659,8 @@ private slots:
 
         QVERIFY2(ids.contains(QLatin1String(QUICK_TEXT_EDITOR_ID)),
                  qPrintable("not offered for a text file at all: " + ids.join(", ")));
-        QVERIFY2(ids.first() != QLatin1String(QUICK_TEXT_EDITOR_ID),
-                 "the unfinished editor is what a text file now opens in");
+        QCOMPARE(ids.first(), QLatin1String(QUICK_TEXT_EDITOR_ID));
+        QVERIFY2(ids.size() > 1, "nothing else is offered, so Open With has no choice to make");
     }
 
     // Opening a file goes through the editor manager, which creates the editor
