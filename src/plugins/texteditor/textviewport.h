@@ -189,6 +189,12 @@ class TEXTEDITOR_EXPORT TextViewport : public QQuickItem, public HoverTarget
     // editor hides its own - so the form has no rule of its own to get wrong.
     Q_PROPERTY(QString fileLineEnding READ fileLineEnding NOTIFY fileFormatChanged)
     Q_PROPERTY(QString fileEncoding READ fileEncoding NOTIFY fileFormatChanged)
+    // What the document indents with, as the toolbar shows it - "Spaces: 4".
+    // Empty when the display settings say not to show it, so that the rule
+    // lives here rather than being restated by whoever draws it.
+    Q_PROPERTY(QString tabSettingsLabel READ tabSettingsLabel NOTIFY fileFormatChanged)
+    // How wide one level is, so a menu can tick the size in use.
+    Q_PROPERTY(int indentSize READ indentSize NOTIFY fileFormatChanged)
     // Whether typing does anything. A viewport is a view until told otherwise,
     // so that showing a file cannot accidentally change it.
     Q_PROPERTY(bool readOnly READ isReadOnly WRITE setReadOnly NOTIFY readOnlyChanged)
@@ -381,6 +387,15 @@ public:
     // so it has to stop being here too.
     Q_INVOKABLE void removeSelectedText();
     QString fileLineEnding() const;
+    QString tabSettingsLabel() const;
+    int indentSize() const;
+
+    // Changing what this document indents with. Each stops the auto-detection
+    // first, the way the widget editor's menu does: having said what to use,
+    // the file is no longer being guessed at.
+    Q_INVOKABLE void setTabPolicyIsSpaces(bool spaces);
+    Q_INVOKABLE void setIndentSize(int size);
+    Q_INVOKABLE void detectTabSettings();
     QString fileEncoding() const;
 
     // Switches the file between Unix and Windows line endings. The document
@@ -598,6 +613,7 @@ private:
     // the lines above took.
     int rowOfBlock(const QTextBlock &block);
     void setScopeBlock(int blockNumber);
+    void modifyTabSettings(const std::function<void(TabSettingsData &)> &modify);
     void updateLink(const QPointF &pos, Qt::KeyboardModifiers modifiers);
     bool handleSmartBackspace(QTextCursor &cursor);
     void insertTypedText(QTextCursor &cursor, const QString &text);

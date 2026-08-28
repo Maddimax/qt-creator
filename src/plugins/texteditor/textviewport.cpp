@@ -1640,6 +1640,59 @@ void TextViewport::dropText(const QString &text, qreal x, qreal y, bool moveFrom
     setCursorPosition(cursor.position());
 }
 
+QString TextViewport::tabSettingsLabel() const
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    // Hidden for a read-only file for the same reason as the line ending
+    // beside it: there is nothing to be done about the indentation of a file
+    // that cannot be written.
+    if (!doc || !displaySettings().displayTabSettings() || m_readOnly
+        || doc->isFileReadOnly()) {
+        return {};
+    }
+
+    const TabSettingsData tabs = doc->tabSettings();
+    const QString policy = tabs.m_tabPolicy == TabSettingsData::TabsOnlyTabPolicy
+                               ? Tr::tr("Tabs")
+                               : Tr::tr("Spaces");
+    return QString("%1: %2").arg(policy).arg(tabs.m_indentSize);
+}
+
+int TextViewport::indentSize() const
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    return doc ? doc->tabSettings().m_indentSize : 0;
+}
+
+void TextViewport::modifyTabSettings(const std::function<void(TabSettingsData &)> &modify)
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    if (!doc)
+        return;
+    TabSettingsData tabs = doc->tabSettings();
+    tabs.m_autoDetect = false;
+    modify(tabs);
+    doc->setTabSettings(tabs);
+}
+
+void TextViewport::setTabPolicyIsSpaces(bool spaces)
+{
+    modifyTabSettings([spaces](TabSettingsData &tabs) {
+        tabs.m_tabPolicy = spaces ? TabSettingsData::SpacesOnlyTabPolicy
+                                  : TabSettingsData::TabsOnlyTabPolicy;
+    });
+}
+
+void TextViewport::setIndentSize(int size)
+{
+    modifyTabSettings([size](TabSettingsData &tabs) { tabs.m_indentSize = size; });
+}
+
+void TextViewport::detectTabSettings()
+{
+    modifyTabSettings([](TabSettingsData &tabs) { tabs.m_autoDetect = true; });
+}
+
 QString TextViewport::fileLineEnding() const
 {
     TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
@@ -1918,6 +1971,8 @@ void TextViewport::documentChangedInternal()
             // The encoding and the line endings are part of what "the document
             // changed" covers - reopening with another encoding says so here.
             connect(doc, &Core::IDocument::changed, this, &TextViewport::fileFormatChanged);
+            connect(doc, &TextDocument::tabSettingsChanged, this,
+                    &TextViewport::fileFormatChanged);
             // Only a request to lay out again: the ranges themselves are
             // read in updatePolish(), because a cursor moves when the text
             // above it changes and nothing announces that separately.

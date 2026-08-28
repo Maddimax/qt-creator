@@ -1437,6 +1437,77 @@ private slots:
         QTRY_COMPARE(label->property("text").toString(), QString("LF"));
     }
 
+    // Beside the line ending, what the document indents with - and a menu to
+    // change it for this document. "Display tab settings" is on by default,
+    // so this is a button every user of the widget editor has.
+    void testTheToolbarSaysWhatTheDocumentIndentsWith()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-tabsettings");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("indent.txt");
+        QVERIFY(file.writeFileContents("alpha\n"));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        const bool was = displaySettings().displayTabSettings();
+        const QScopeGuard restore(
+            [was] { displaySettings().displayTabSettings.setValue(was); });
+        displaySettings().displayTabSettings.setValue(true);
+
+        // Said outright rather than taken from the global code style, which
+        // another test in this process may have moved.
+        TabSettingsData tabs = document->tabSettings();
+        tabs.m_tabPolicy = TabSettingsData::SpacesOnlyTabPolicy;
+        tabs.m_indentSize = 4;
+        document->setTabSettings(tabs);
+
+        QWidget * const bar = editor->toolBar();
+        QVERIFY(bar);
+        auto * const quick = bar->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+        QObject * const label = quick->rootObject()->findChild<QObject *>("tabSettingsLabel");
+        QVERIFY(label);
+        QTRY_COMPARE(label->property("text").toString(), QString("Spaces: 4"));
+
+        // The menu is a popup, so it has to be asked directly rather than
+        // found under the toolbar.
+        QObject * const menu = quick->rootObject()->findChild<QObject *>("tabSettingsMenu");
+        QVERIFY2(menu, "the tab settings offer nothing to choose from");
+
+        QObject * const useTabs = menu->findChild<QObject *>("indentWithTabs");
+        QVERIFY(useTabs);
+        QMetaObject::invokeMethod(useTabs, "triggered");
+        QCOMPARE(document->tabSettings().m_tabPolicy, TabSettingsData::TabsOnlyTabPolicy);
+        QTRY_COMPARE(label->property("text").toString(), QString("Tabs: 4"));
+
+        // A submenu is a popup of its own, so it is not under the menu that
+        // opens it - it has to be asked in the same way.
+        // A submenu is a popup of its own, so it is not under the menu that
+        // opens it and has to be asked in the same way.
+        QObject * const sizes = quick->rootObject()->findChild<QObject *>("indentSizeMenu");
+        QVERIFY(sizes);
+        QObject * const twoWide = sizes->findChild<QObject *>("indentSize2");
+        QVERIFY2(twoWide, "the indent size menu offers no sizes");
+        QMetaObject::invokeMethod(twoWide, "triggered");
+        QCOMPARE(document->tabSettings().m_indentSize, 2);
+        QTRY_COMPARE(label->property("text").toString(), QString("Tabs: 2"));
+
+        // Choosing any of it stops the file being guessed at, which is what
+        // the widget editor's menu does before every change.
+        QVERIFY(!document->tabSettings().m_autoDetect);
+
+        // And the display setting takes the whole thing away.
+        displaySettings().displayTabSettings.setValue(false);
+        QTRY_COMPARE(label->property("text").toString(), QString());
+    }
+
     // Wrapping is a display setting, so the editor has to open with whatever
     // it says and follow it while open - the Wrap Lines action toggles exactly
     // this while a file is in front of the reader.
