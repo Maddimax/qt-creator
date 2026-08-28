@@ -2566,66 +2566,8 @@ void TextEditorWidget::sortLines()
         return;
 
     QTextCursor cursor = textCursor();
-    if (!cursor.hasSelection()) {
-        // try to get a sensible scope for the sort
-        const QTextBlock currentBlock = cursor.block();
-        QString text = currentBlock.text();
-        if (text.simplified().isEmpty())
-            return;
-        const TabSettingsData ts = textDocument()->tabSettings();
-        const int currentIndent = ts.columnAt(text, TabSettingsData::firstNonSpace(text));
-
-        int anchor = currentBlock.position();
-        for (auto block = currentBlock.previous(); block.isValid(); block = block.previous()) {
-            text = block.text();
-            if (text.simplified().isEmpty()
-                || ts.columnAt(text, TabSettingsData::firstNonSpace(text)) != currentIndent) {
-                break;
-            }
-            anchor = block.position();
-        }
-
-        int pos = currentBlock.position();
-        for (auto block = currentBlock.next(); block.isValid(); block = block.next()) {
-            text = block.text();
-            if (text.simplified().isEmpty()
-                || ts.columnAt(text, TabSettingsData::firstNonSpace(text)) != currentIndent) {
-                break;
-            }
-            pos = block.position();
-        }
-        if (anchor == pos)
-            return;
-
-        cursor.setPosition(anchor);
-        cursor.setPosition(pos, QTextCursor::KeepAnchor);
-        cursor.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
-    }
-
-    const bool downwardDirection = cursor.anchor() < cursor.position();
-    int startPosition = cursor.selectionStart();
-    int endPosition = cursor.selectionEnd();
-
-    cursor.setPosition(startPosition);
-    cursor.movePosition(QTextCursor::StartOfBlock);
-    startPosition = cursor.position();
-
-    cursor.setPosition(endPosition, QTextCursor::KeepAnchor);
-    if (cursor.positionInBlock() == 0)
-        cursor.movePosition(QTextCursor::PreviousBlock, QTextCursor::KeepAnchor);
-    cursor.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
-    endPosition = qMax(cursor.position(), endPosition);
-
-    const QString text = cursor.selectedText();
-    QStringList lines = text.split(QChar::ParagraphSeparator);
-    lines.sort();
-    cursor.insertText(lines.join(QChar::ParagraphSeparator));
-
-    // (re)select the changed lines
-    // Note: this assumes the transformation did not change the length
-    cursor.setPosition(downwardDirection ? startPosition : endPosition);
-    cursor.setPosition(downwardDirection ? endPosition : startPosition, QTextCursor::KeepAnchor);
-    setTextCursor(cursor);
+    if (TextEditor::sortLines(cursor, textDocument()->tabSettings()))
+        setTextCursor(cursor);
 }
 
 void TextEditorWidget::indent()
@@ -8683,40 +8625,8 @@ void TextEditorWidgetPrivate::addSelectionNextFindMatch()
 
 void TextEditorWidgetPrivate::duplicateSelection(bool comment)
 {
-    if (comment && !m_commentDefinition.hasMultiLineStyle())
-        return;
-
     MultiTextCursor cursor = q->multiTextCursor();
-    cursor.beginEditBlock();
-    for (QTextCursor &c : cursor) {
-        if (c.hasSelection()) {
-            // Cannot "duplicate and comment" files without multi-line comment
-
-            QString dupText = c.selectedText().replace(QChar::ParagraphSeparator,
-                                                            QLatin1Char('\n'));
-            if (comment) {
-                dupText = (m_commentDefinition.multiLineStart + dupText
-                           + m_commentDefinition.multiLineEnd);
-            }
-            const int selStart = c.selectionStart();
-            const int selEnd = c.selectionEnd();
-            const bool cursorAtStart = (c.position() == selStart);
-            c.setPosition(selEnd);
-            c.insertText(dupText);
-            c.setPosition(cursorAtStart ? selEnd : selStart);
-            c.setPosition(cursorAtStart ? selStart : selEnd, QTextCursor::KeepAnchor);
-        } else if (!m_cursors.hasMultipleCursors()) {
-            const int curPos = c.position();
-            const QTextBlock &block = c.block();
-            QString dupText = block.text() + QLatin1Char('\n');
-            if (comment && m_commentDefinition.hasSingleLineStyle())
-                dupText.append(m_commentDefinition.singleLine);
-            c.setPosition(block.position());
-            c.insertText(dupText);
-            c.setPosition(curPos);
-        }
-    }
-    cursor.endEditBlock();
+    TextEditor::duplicateSelection(cursor, comment ? &m_commentDefinition : nullptr);
     q->setMultiTextCursor(cursor);
 }
 

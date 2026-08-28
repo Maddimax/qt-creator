@@ -4193,6 +4193,69 @@ private slots:
         QCOMPARE(text->findBlockByNumber(1).text(), QString("gamma delta"));
     }
 
+    // Sort Lines with nothing selected takes the run of lines around the
+    // caret that share its indentation, and stops at one that does not.
+    void testSortingTakesTheIndentedRunAroundTheCaret()
+    {
+        TemporaryDirectory dir("qtc-viewport-sort");
+        const FilePath file = dir.filePath("list.txt");
+        // The indented run is delta/beta/charlie; "outside" is at column 0
+        // and must be left where it is, above and below.
+        QVERIFY(file.writeFileContents("outside\n  delta\n  beta\n  charlie\nzoutside\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        viewport->setReadOnly(false);
+        QTRY_VERIFY(viewport->visibleLineCount() > 4);
+
+        QTextDocument * const text = viewport->textDocument()->document();
+        viewport->setCursorPosition(text->findBlockByNumber(2).position() + 3);
+        viewport->sortLines();
+
+        QCOMPARE(text->findBlockByNumber(0).text(), QString("outside"));
+        QCOMPARE(text->findBlockByNumber(1).text(), QString("  beta"));
+        QCOMPARE(text->findBlockByNumber(2).text(), QString("  charlie"));
+        QCOMPARE(text->findBlockByNumber(3).text(), QString("  delta"));
+        // The line below the run is at another indent, so it was not in it.
+        QCOMPARE(text->findBlockByNumber(4).text(), QString("zoutside"));
+    }
+
+    // Duplicate Selection with nothing selected copies the whole line, and
+    // leaves the caret where it was rather than on the copy.
+    void testDuplicatingWithNoSelectionCopiesTheLine()
+    {
+        TemporaryDirectory dir("qtc-viewport-dup");
+        const FilePath file = dir.filePath("two.txt");
+        QVERIFY(file.writeFileContents("first\nsecond\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        viewport->setReadOnly(false);
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+
+        QTextDocument * const text = viewport->textDocument()->document();
+        const int at = text->findBlockByNumber(1).position() + 2;
+        viewport->setCursorPosition(at);
+        viewport->duplicateSelection();
+
+        QCOMPARE(text->findBlockByNumber(1).text(), QString("second"));
+        QCOMPARE(text->findBlockByNumber(2).text(), QString("second"));
+        QCOMPARE(text->blockCount(), 4);
+
+        // Two carets and no selection: a line each is not what one key press
+        // asked for, so nothing is duplicated at all.
+        const QString before = text->toPlainText();
+        viewport->setCursorPosition(1);
+        viewport->addCaretAt(text->findBlockByNumber(2).position() + 1);
+        QCOMPARE(viewport->multiTextCursor().cursorCount(), 2);
+        viewport->duplicateSelection();
+        QCOMPARE(text->toPlainText(), before);
+    }
+
     // None of the line commands edits a buffer that is read only, the same
     // as a key press does not. One test for all of them: each has its own
     // guard, and a guard that is missing on one of them is exactly the kind
@@ -4201,7 +4264,10 @@ private slots:
     {
         TemporaryDirectory dir("qtc-viewport-ro-commands");
         const FilePath file = dir.filePath("two.txt");
-        QVERIFY(file.writeFileContents("first\nsecond\n"));
+        // Out of alphabetical order and in lower case on purpose: content
+        // that every one of these commands would visibly change, so that a
+        // missing guard cannot hide behind a command that had nothing to do.
+        QVERIFY(file.writeFileContents("zebra\napple\n"));
 
         ViewportFixture fixture(file, 400, 200);
         QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
@@ -4215,10 +4281,15 @@ private slots:
 
         viewport->setCursorPosition(2);
         viewport->joinLines();
-        viewport->uppercaseSelection();
         viewport->lowercaseSelection();
         viewport->insertLineAbove();
         viewport->insertLineBelow();
+        viewport->duplicateSelection();
+        viewport->sortLines();
+        // Last, and after the lower case one: both go through the same guard,
+        // so with the guard gone they would run one after the other and put
+        // the text back exactly as it was between them.
+        viewport->uppercaseSelection();
 
         QCOMPARE(text->toPlainText(), before);
     }

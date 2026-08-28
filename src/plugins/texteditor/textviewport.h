@@ -568,6 +568,8 @@ public:
     Q_INVOKABLE void lowercaseSelection();
     Q_INVOKABLE void insertLineAbove();
     Q_INVOKABLE void insertLineBelow();
+    Q_INVOKABLE void duplicateSelection();
+    Q_INVOKABLE void sortLines();
     // A rectangle of text, from where the caret is anchored to \a x, \a y.
     // One caret per line it covers, which is what makes it a selection that
     // can be typed over. The anchor is taken once, when the drag starts, so

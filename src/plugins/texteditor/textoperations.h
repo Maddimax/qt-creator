@@ -11,10 +11,18 @@ QT_BEGIN_NAMESPACE
 class QString;
 QT_END_NAMESPACE
 
-namespace Utils { class MultiTextCursor; }
+namespace Utils {
+class CommentDefinition;
+class MultiTextCursor;
+}
+
+QT_BEGIN_NAMESPACE
+class QTextCursor;
+QT_END_NAMESPACE
 
 namespace TextEditor {
 
+class TabSettingsData;
 class TextDocument;
 
 // Editor commands that are nothing but a transformation of where the carets
@@ -39,5 +47,19 @@ TEXTEDITOR_EXPORT void transformSelection(Utils::MultiTextCursor &cursor,
 // indented the way the document would indent it.
 TEXTEDITOR_EXPORT void insertLineAbove(Utils::MultiTextCursor &cursor, TextDocument *document);
 TEXTEDITOR_EXPORT void insertLineBelow(Utils::MultiTextCursor &cursor, TextDocument *document);
+
+// Puts a second copy of what each caret has selected after it, and selects
+// the copy. A caret with no selection duplicates its whole line - but only
+// when it is the only caret, for the same reason the case commands take a
+// word only then. \a comment, when given, wraps the copy in that language's
+// comment markers, which is what "Duplicate and Comment" is.
+TEXTEDITOR_EXPORT void duplicateSelection(Utils::MultiTextCursor &cursor,
+                                          const Utils::CommentDefinition *comment = nullptr);
+
+// Sorts the selected lines. With nothing selected it takes the run of lines
+// around the caret that share its indentation, which is what makes the
+// command useful without selecting first. False when there was nothing to
+// sort, so that the caller leaves the cursor where it was.
+TEXTEDITOR_EXPORT bool sortLines(QTextCursor &cursor, const TabSettingsData &tabSettings);
 
 } // namespace TextEditor

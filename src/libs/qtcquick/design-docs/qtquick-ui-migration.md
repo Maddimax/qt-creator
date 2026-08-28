@@ -13442,3 +13442,33 @@ these three batches is consistent enough to be worth stating plainly: a test
 written alongside a change is not evidence until the change has been broken
 and the test has been watched to fail. Four times out of six here, the first
 version of the test did not.
+
+## Sort and Duplicate, and a control that cancelled itself out
+
+Two more, the same shape. `sortLines` needed the tab settings, because what it
+sorts without a selection is the run of lines around the caret sharing its
+indentation, and indentation is measured in columns. `duplicateSelection`
+needed the comment definition - and that is where the Quick editor stops:
+which markers a language comments with is something it is not told, so
+`DUPLICATE_SELECTION_AND_COMMENT` and `UN_COMMENT_SELECTION` stay with the
+widget editor until it is. That is one gap blocking several commands rather
+than several gaps, which is worth knowing before porting them one at a time.
+
+Six commands now share one read-only test, and getting it to actually catch
+anything took three goes. It is the same lesson as the last two batches with a
+new mechanism each time, which is why it is worth writing all three down:
+
+1. The fixture said `first\nsecond`. Removing the guard from `sortLines` let
+   it sort - and those lines were already in order, so nothing changed and the
+   test passed. Content that the command would visibly change is part of the
+   assertion, not scenery. It says `zebra\napple` now.
+2. Removing the guard from the case commands still changed nothing, because
+   the test called `uppercaseSelection()` and then `lowercaseSelection()`.
+   Both go through the same guard, so removing it enabled both, and the second
+   put back exactly what the first had done. The uppercase call is last now.
+3. Only after those two did removing any one of the six guards fail the test,
+   which was checked by removing each of the six in turn rather than by
+   removing one and assuming.
+
+The third point is the one worth keeping. A control that bites tells you about
+the line you removed; it says nothing about the five you did not.

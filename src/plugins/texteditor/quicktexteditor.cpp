@@ -341,6 +341,8 @@ public:
         command(Constants::LOWERCASE_SELECTION, &TextViewport::lowercaseSelection);
         command(Constants::INSERT_LINE_ABOVE, &TextViewport::insertLineAbove);
         command(Constants::INSERT_LINE_BELOW, &TextViewport::insertLineBelow);
+        command(Constants::DUPLICATE_SELECTION, &TextViewport::duplicateSelection);
+        command(Constants::SORT_LINES, &TextViewport::sortLines);
 
         Core::ActionBuilder(this, Constants::JOIN_LINES)
             .setContext(Core::Context(m_editorContext))

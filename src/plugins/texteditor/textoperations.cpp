@@ -3,9 +3,11 @@
 
 #include "textoperations.h"
 
+#include "tabsettings.h"
 #include "textdocument.h"
 
 #include <utils/multitextcursor.h>
+#include <utils/uncommentselection.h>
 
 #include <QRegularExpression>
 #include <QTextBlock>
@@ -98,6 +100,109 @@ void insertLineBelow(Utils::MultiTextCursor &cursor, TextDocument *document)
             document->autoIndent(c);
     }
     cursor.endEditBlock();
+}
+
+void duplicateSelection(Utils::MultiTextCursor &cursor, const Utils::CommentDefinition *comment)
+{
+    // There is nowhere to put the markers of a language that has no block
+    // comment, so the command does nothing rather than something wrong.
+    if (comment && !comment->hasMultiLineStyle())
+        return;
+
+    const bool several = cursor.hasMultipleCursors();
+    cursor.beginEditBlock();
+    for (QTextCursor &c : cursor) {
+        if (c.hasSelection()) {
+            QString duplicate
+                = c.selectedText().replace(QChar::ParagraphSeparator, QLatin1Char('\n'));
+            if (comment)
+                duplicate = comment->multiLineStart + duplicate + comment->multiLineEnd;
+            const int selStart = c.selectionStart();
+            const int selEnd = c.selectionEnd();
+            const bool cursorAtStart = c.position() == selStart;
+            c.setPosition(selEnd);
+            c.insertText(duplicate);
+            c.setPosition(cursorAtStart ? selEnd : selStart);
+            c.setPosition(cursorAtStart ? selStart : selEnd, QTextCursor::KeepAnchor);
+        } else if (!several) {
+            const int at = c.position();
+            const QTextBlock &block = c.block();
+            QString duplicate = block.text() + QLatin1Char('\n');
+            if (comment && comment->hasSingleLineStyle())
+                duplicate.append(comment->singleLine);
+            c.setPosition(block.position());
+            c.insertText(duplicate);
+            c.setPosition(at);
+        }
+    }
+    cursor.endEditBlock();
+}
+
+bool sortLines(QTextCursor &cursor, const TabSettingsData &tabSettings)
+{
+    if (!cursor.hasSelection()) {
+        // Without a selection the scope is the run of lines around the caret
+        // at the same indentation, which is usually the list it is standing
+        // in.
+        const QTextBlock currentBlock = cursor.block();
+        QString text = currentBlock.text();
+        if (text.simplified().isEmpty())
+            return false;
+        const int currentIndent
+            = tabSettings.columnAt(text, TabSettingsData::firstNonSpace(text));
+
+        int anchor = currentBlock.position();
+        for (auto block = currentBlock.previous(); block.isValid(); block = block.previous()) {
+            text = block.text();
+            if (text.simplified().isEmpty()
+                || tabSettings.columnAt(text, TabSettingsData::firstNonSpace(text))
+                       != currentIndent) {
+                break;
+            }
+            anchor = block.position();
+        }
+
+        int pos = currentBlock.position();
+        for (auto block = currentBlock.next(); block.isValid(); block = block.next()) {
+            text = block.text();
+            if (text.simplified().isEmpty()
+                || tabSettings.columnAt(text, TabSettingsData::firstNonSpace(text))
+                       != currentIndent) {
+                break;
+            }
+            pos = block.position();
+        }
+        if (anchor == pos)
+            return false;
+
+        cursor.setPosition(anchor);
+        cursor.setPosition(pos, QTextCursor::KeepAnchor);
+        cursor.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+    }
+
+    const bool downwardDirection = cursor.anchor() < cursor.position();
+    int startPosition = cursor.selectionStart();
+    int endPosition = cursor.selectionEnd();
+
+    cursor.setPosition(startPosition);
+    cursor.movePosition(QTextCursor::StartOfBlock);
+    startPosition = cursor.position();
+
+    cursor.setPosition(endPosition, QTextCursor::KeepAnchor);
+    if (cursor.positionInBlock() == 0)
+        cursor.movePosition(QTextCursor::PreviousBlock, QTextCursor::KeepAnchor);
+    cursor.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+    endPosition = qMax(cursor.position(), endPosition);
+
+    QStringList lines = cursor.selectedText().split(QChar::ParagraphSeparator);
+    lines.sort();
+    cursor.insertText(lines.join(QChar::ParagraphSeparator));
+
+    // Select the sorted lines again, which assumes sorting did not change how
+    // long they are altogether.
+    cursor.setPosition(downwardDirection ? startPosition : endPosition);
+    cursor.setPosition(downwardDirection ? endPosition : startPosition, QTextCursor::KeepAnchor);
+    return true;
 }
 
 } // namespace TextEditor

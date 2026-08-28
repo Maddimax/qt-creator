@@ -2109,6 +2109,34 @@ void TextViewport::insertLineBelow()
     setMultiTextCursor(cursors);
 }
 
+void TextViewport::duplicateSelection()
+{
+    if (isReadOnly())
+        return;
+    Utils::MultiTextCursor cursors = multiTextCursor();
+    // No comment definition here: which markers a language uses is something
+    // the Quick editor is not told yet, so "Duplicate and Comment" stays with
+    // the widget editor for now.
+    TextEditor::duplicateSelection(cursors);
+    setMultiTextCursor(cursors);
+}
+
+void TextViewport::sortLines()
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    if (isReadOnly() || !doc)
+        return;
+    // Sorting several disjoint runs at once has no obvious meaning, the same
+    // conclusion the widget editor came to.
+    if (multiTextCursor().hasMultipleCursors())
+        return;
+
+    QTextCursor cursor = textCursor();
+    if (!TextEditor::sortLines(cursor, doc->tabSettings()))
+        return;
+    setTextCursor(cursor);
+}
+
 void TextViewport::joinLines()
 {
     if (isReadOnly())
