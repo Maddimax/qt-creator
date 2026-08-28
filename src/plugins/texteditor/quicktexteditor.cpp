@@ -1037,6 +1037,53 @@ private slots:
     // chosen from the file's mime type, which is something the *factory* does
     // for the widget editor - a document created without it shows every
     // language as grey text.
+    void testReloadedDefinitionsReachAnEditorThatIsNotAWidget()
+    {
+        // Downloading or reloading the generic definitions rebuilds the
+        // highlighter on the open documents. It used to walk the editors and
+        // ask each widget to reconfigure itself, so a file open in a view that
+        // is not a widget kept whatever it had until it was closed and
+        // reopened.
+        Utils::TemporaryDirectory dir("quick-editor-reload");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("sample.json");
+        QVERIFY(file.writeFileContents("{ \"key\": 42 }\n"));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        const HighlighterHelper::Definitions own
+            = HighlighterHelper::definitionsForDocument(document);
+        if (own.isEmpty())
+            QSKIP("no syntax definitions are installed, so nothing could colour anything");
+
+        const auto definitionOnDocument = [document] {
+            auto * const highlighter = qobject_cast<Highlighter *>(document->syntaxHighlighter());
+            return highlighter ? highlighter->definition().name() : QString();
+        };
+        QCOMPARE(definitionOnDocument(), own.first().name());
+
+        // Put a definition on it that is not this file's, so that leaving it
+        // alone and putting the right one back are different outcomes.
+        const HighlighterHelper::Definition other
+            = HighlighterHelper::definitionForName("Bash");
+        if (!other.isValid() || other.name() == own.first().name())
+            QSKIP("no second definition to tell apart from this file's own");
+        HighlighterHelper::setDefinitionOn(document, other);
+        QCOMPARE(definitionOnDocument(), other.name());
+
+        // A reload puts the file's own definition back, here as much as in a
+        // widget.
+        HighlighterHelper::reload();
+        QTRY_COMPARE(definitionOnDocument(), own.first().name());
+    }
+
     void testOpeningASourceFileHighlightsIt()
     {
         Utils::TemporaryDirectory dir("quick-editor-highlight");

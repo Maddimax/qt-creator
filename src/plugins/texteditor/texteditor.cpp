@@ -3953,13 +3953,7 @@ void TextEditorWidgetPrivate::configureGenericHighlighter(
         q->setCodeFoldingSupported(false);
     }
 
-    m_document->resetSyntaxHighlighter([definition] {
-        auto highlighter = new Highlighter;
-        highlighter->setDefinition(definition);
-        return highlighter;
-    });
-
-    m_document->setFontSettings(globalFontSettings().data());
+    HighlighterHelper::setDefinitionOn(m_document.get(), definition);
 }
 
 void TextEditorWidgetPrivate::setupFromDefinition(const KSyntaxHighlighting::Definition &definition)

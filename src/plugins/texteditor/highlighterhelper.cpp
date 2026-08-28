@@ -264,6 +264,17 @@ void downloadDefinitions(const std::function<void(const QString &)> &logger)
     downloader->start();
 }
 
+void setDefinitionOn(TextDocument *document, const Definition &definition)
+{
+    QTC_ASSERT(document, return);
+    document->resetSyntaxHighlighter([definition] {
+        auto highlighter = new Highlighter;
+        highlighter->setDefinition(definition);
+        return highlighter;
+    });
+    document->setFontSettings(globalFontSettings().data());
+}
+
 void reload()
 {
     highlightRepository()->reload();
@@ -272,6 +283,18 @@ void reload()
             if (auto highlighter = textEditor->textDocument()->syntaxHighlighter();
                 highlighter && qobject_cast<SyntaxHighlighter*>(highlighter)) {
                 textEditor->editorWidget()->configureGenericHighlighter();
+            }
+        } else if (auto document = qobject_cast<TextDocument *>(editor->document())) {
+            // A view that is not a widget shows the same document, highlighted
+            // by the same definitions, and they have just been reloaded from
+            // disk: the reason to skip it would be that it has no info bar and
+            // no comment markers to update, and neither is a reason to leave
+            // its text coloured by a definition that is gone.
+            if (auto highlighter = document->syntaxHighlighter();
+                highlighter && qobject_cast<SyntaxHighlighter *>(highlighter)) {
+                const Definitions definitions = definitionsForDocument(document);
+                setDefinitionOn(document,
+                                definitions.isEmpty() ? Definition() : definitions.first());
             }
         }
     }

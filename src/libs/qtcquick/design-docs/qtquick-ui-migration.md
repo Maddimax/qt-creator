@@ -12336,3 +12336,35 @@ remaining one is Qt Designer's:
 that UI and there is nothing in it to express in QML - it is a widget from
 another library, embedded. That one is not a gap in this migration; it is the
 edge of what this migration could ever have covered.
+
+### A gap that turned out not to want an API decision
+
+This was recorded a few batches ago as one of two things that "want an API
+decision rather than a cast removed", on the grounds that the useful half of
+`configureGenericHighlighter` sat behind a private widget method that also set
+widget state. Reading the widget state is what settles it:
+
+    m_commentDefinition.singleLine = definition.singleLineCommentMarker();
+    ...
+    q->setCodeFoldingSupported(true);
+
+Which comment markers the shortcuts insert, and whether folding is offered.
+Neither is a property of the document, and neither has anything a view without
+a widget would do with it. What is left over is two calls - put a highlighter
+carrying the definition on the document, and give it the font settings - and
+those are the whole of what a reload has to do.
+
+So the seam was already there and only needed naming. `setDefinitionOn(document,
+definition)` is the document half, the widget's private method now calls it
+instead of repeating it, and `reload()` handles an editor that is not a widget
+by applying the definitions itself. The reason to have skipped such an editor
+would be that it has no info bar and no comment markers to update; neither is a
+reason to leave its text coloured by a definition that has just been replaced.
+
+The control is the branch removed again, and its message is the bug as a user
+would meet it: after downloading definitions, a document that should be back to
+`JSONC` is still `Bash`.
+
+Worth keeping: "this needs an API decision" was a conclusion about a call
+stack, reached without reading what the private method actually did. The half
+that looked entangled was four lines of widget state.
