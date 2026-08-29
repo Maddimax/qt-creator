@@ -177,6 +177,7 @@ private slots:
     void testAPagesGroupsFillTheWidthTheyAreGiven();
     void testNoButtonOffersAMnemonicItCannotHave();
     void testAFieldSaysWhatBelongsInIt();
+    void testAFieldDrawsTheIconItsAspectAsksFor();
     void testANumberOnItsOwnSaysWhatItCounts();
     void testMakeDefaultSaysWhatItWouldDefault();
     void testALabelTooLongForItsColumnSaysItInFull();
@@ -663,6 +664,37 @@ void QuickUiTest::testANumberOnItsOwnSaysWhatItCounts()
     QVERIFY2(numbers > 0, "no page opened a row with a number, so this proves nothing");
     QVERIFY2(bare.isEmpty(),
              qPrintable("numbers with nothing to say what they count: " + bare.join(", ")));
+}
+
+// A string aspect can ask for an icon inside its field, at the right, and be
+// told when it is pressed. The widget line edit has drawn it all along, and
+// the settings API a Lua extension uses offers it - so a page that asked for
+// one got nothing once it was drawn with Qt Quick.
+void QuickUiTest::testAFieldDrawsTheIconItsAspectAsksFor()
+{
+    Utils::AspectContainer page;
+    Utils::StringAspect withIcon(&page);
+    withIcon.setLabelText("Token:");
+    withIcon.setDisplayStyle(Utils::StringAspect::LineEditDisplay);
+    withIcon.setRightSideIconPath(Utils::FilePath::fromString(":/utils/images/eye_open.png"));
+
+    int pressed = 0;
+    withIcon.addOnRightSideIconClicked(&page, [&pressed] { ++pressed; });
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+
+    QQuickItem *icon = nullptr;
+    QTRY_VERIFY(icon = findQmlNamed(quickWidget->rootObject(), "rightSideIcon")
+                           .value(0, nullptr));
+    QVERIFY2(icon->isVisible(), "the field draws no icon for an aspect that asks for one");
+
+    // Pressed: the aspect is told, and what that means is the aspect's own
+    // business - the widget line edit connects its button to the same signal.
+    QMetaObject::invokeMethod(&withIcon, "clickRightSideIcon");
+    QCOMPARE(pressed, 1);
 }
 
 // An aspect that says what its field is for says it through the presentation,

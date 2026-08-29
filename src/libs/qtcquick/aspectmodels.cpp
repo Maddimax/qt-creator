@@ -19,6 +19,7 @@
 #include <utils/stringutils.h>
 
 #include <QMimeData>
+#include <QUrl>
 
 #include <QMetaEnum>
 
@@ -227,6 +228,12 @@ QVariantMap AspectModels::presentation(BaseAspect *aspect)
         // ordinary line edit: it differs only in not echoing what it holds.
         {"password", p.control == AspectControls::PasswordLineEdit},
         {"placeholderText", p.placeholderText},
+        // As a URL, the way QML takes an image source. Empty where the aspect
+        // asks for no icon, which leaves the field as it was.
+        {"rightSideIcon",
+         p.rightSideIconPath.isEmpty()
+             ? QString()
+             : QUrl::fromLocalFile(p.rightSideIconPath.toFSPathString()).toString()},
         // A label showing a path says the path when the pointer rests on it:
         // the row is too narrow for it and the tooltip is the rest.
         {"toolTipShowsValue", p.toolTipShowsValue},

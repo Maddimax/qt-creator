@@ -15535,3 +15535,50 @@ it has nothing to read.
 
 So the class the MIME Types bug belongs to is closed, and it was closed by
 asking the running pages a question rather than by reading their history.
+
+### The parity axes, swept properly
+
+The renderer sweeps done during the port covered the delegates that were being
+worked on. Two of the four axes can be swept over *everything* mechanically,
+and both are now done.
+
+**Presentation fields.** `AspectPresentation` has 57 of them. For each: does
+the widget renderer read it, does the bridge publish it, does any `.qml` read
+what it publishes? Everything the widget renderer uses reaches Qt Quick - most
+through the presentation map, and `enabled`, `visible`, `readOnly`,
+`labelText` and `toolTip` through the aspect itself, which 24 to 30 QML files
+read directly. `inlineRow` and `flattened` are consumed in
+`AspectContainerModel` to pick a delegate. Two are genuinely unread:
+`minimumContentsLength`, which the File Naming page's suffix combo asks for and
+which is moot because the Qt Quick combo is already wider than eight
+characters, and `minimumSize`, which the terminal palette sets to `{0, 0}` to
+make its colour buttons small - and the compact swatch is already that size.
+
+**Connected signals.** Eighteen aspect signals are connected by the widget
+renderer. Thirteen have a QML handler or are covered by a property binding -
+`visibleChanged` and `readOnlyChanged` by 30-odd bindings each. Four of the
+rest are moot: `validChanged` (the field asks `validationMessage()` and
+re-asks), `historyCompleterKeyChanged`, `elideModeChanged` and
+`acceptRichTextChanged` are all set before a page is drawn and never change
+under it.
+
+The fifth was a whole missing affordance.
+
+### An icon a field would not draw
+
+`StringAspect::setRightSideIconPath()` puts a clickable icon inside the line
+edit, at its right, and tells the aspect when it is pressed. The widget
+renderer draws it and connects it; no Qt Quick delegate did. No aspect in this
+tree asks for one - it is API a Lua extension's settings page uses, and
+`meta/settings.lua` documents it - so it renders perfectly and does nothing.
+
+The path now travels as a presentation field, reaches QML as a URL, and
+`StringDelegate` draws it with the field's padding making room. A signal
+cannot be emitted from QML, so the aspect grew a `clickRightSideIcon()` for
+the delegate to call - the same shape as `triggerAction()`.
+
+The delegate was briefly typed `required property StringAspect aspect`, which
+is what this module's own comment asks for - "a delegate that drives one
+aspect type declares that type". `StringAspect` derives from a template base
+and qmllint cannot resolve it, which trades one warning for two, so the
+property stays `Aspect`.

@@ -116,6 +116,29 @@ RowLayout {
             // was drawn from its tail with its beginning scrolled out of
             // sight. The widget line edit shows the start of what it holds.
             onTextChanged: if (!activeFocus) cursorPosition = 0
+            // Room for the icon below, so what is typed does not run under it.
+            rightPadding: rightSideIcon.visible
+                          ? rightSideIcon.width + 2 * Spacing.PaddingHS : padding
+
+            // An icon inside the field at its right, which the reader can
+            // press: the aspect is told and decides what it means. The widget
+            // line edit has drawn it all along, and a Lua extension's settings
+            // can ask for one.
+            QtcIconDisplay {
+                id: rightSideIcon
+
+                objectName: "rightSideIcon"
+                anchors.right: parent.right
+                anchors.rightMargin: Spacing.PaddingHS
+                anchors.verticalCenter: parent.verticalCenter
+                iconSource: delegate.pres.rightSideIcon ?? ""
+                visible: rightSideIcon.iconSource !== ""
+
+                TapHandler {
+                    enabled: field.enabled && !field.readOnly
+                    onTapped: delegate.aspect?.clickRightSideIcon()
+                }
+            }
             echoMode: delegate.pres.password ? TextInput.Password : TextInput.Normal
             enabled: delegate.aspect?.enabled ?? false
             readOnly: delegate.aspect?.readOnly ?? true

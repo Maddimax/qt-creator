@@ -1341,7 +1341,13 @@ AspectPresentation StringAspect::presentation() const
     // last thing that worked is the likeliest next one.
     p.toolTipShowsValue = d->m_showToolTipOnLabel;
     p.completions = CompletionHistory::entries(d->m_historyCompleterKey) + d->m_completions;
+    p.rightSideIconPath = d->m_rightSideIconPath;
     return p;
+}
+
+void StringAspect::clickRightSideIcon()
+{
+    emit rightSideIconClicked();
 }
 
 void StringAspect::rememberValue()

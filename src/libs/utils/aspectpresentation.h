@@ -5,6 +5,8 @@
 
 #include "utils_global.h"
 
+#include "filepath.h"
+
 #include <QColor>
 #include <QHash>
 #include <QIcon>
@@ -239,6 +241,13 @@ public:
     // this; what they have to say about themselves is the path.
     bool toolTipShowsValue = false;
     QString placeholderText;
+
+    // LineEdit. An icon drawn inside the field at its right, which the reader
+    // can click - the aspect is told and decides what it means. Empty where
+    // there is none, which is every aspect in this tree: it is an API a Lua
+    // extension's settings can use, and one the widget line edit has always
+    // drawn.
+    FilePath rightSideIconPath;
 
     // LineEdit and TextEdit. What typing in the control completes against.
     // Empty where the aspect offers no completion, which is most of them.

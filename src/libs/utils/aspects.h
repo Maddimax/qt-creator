@@ -939,6 +939,9 @@ public:
 
     void setRightSideIconPath(const FilePath &path);
     void addOnRightSideIconClicked(QObject *guard, const std::function<void()> &);
+    // The control says the reader pressed it. A signal cannot be emitted from
+    // QML, and the widget line edit connects its own button to the signal.
+    Q_INVOKABLE void clickRightSideIcon();
     void setMinimumHeight(int);
     // What typing in the control completes against. The control owns the
     // completer; the aspect only says what to complete.
