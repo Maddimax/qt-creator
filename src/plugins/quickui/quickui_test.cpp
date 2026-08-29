@@ -5660,6 +5660,28 @@ void QuickUiTest::testAPathFieldSaysWhetherWhatItHoldsIsThere()
     missing.validationMessage(QVariant::fromValue(QString("/another/missing/thing")));
     QVERIFY2(!missing.isValid(),
              "a path counts as valid while the answer is still being fetched");
+
+    // An untouched field that offers a placeholder is not complained about,
+    // which is what the widget line edit does with one: it shows neither
+    // valid nor invalid while the placeholder is what is on screen. Without
+    // this every empty path field on every page would say so in red.
+    Utils::FilePathAspect empty(&page);
+    empty.setLabelText("Empty");
+    empty.setPlaceHolderText("Leave blank for the default");
+    QVERIFY2(empty.validationMessage(QVariant::fromValue(QString())).isEmpty(),
+             "an untouched field with a placeholder is complained about");
+    QVERIFY(!empty.isValid());
+
+    // An untouched field is not complained about even with no placeholder to
+    // show instead. The widget line edit does say "the path must not be
+    // empty" in that case, and this deliberately does not: the message would
+    // appear under the field on every page with a path that has not been
+    // filled in yet, which is a great deal of red about nothing being wrong.
+    // What matters for a page asking is that it is not *valid* either.
+    Utils::FilePathAspect blank(&page);
+    blank.setLabelText("Blank");
+    QVERIFY(blank.validationMessage(QVariant::fromValue(QString())).isEmpty());
+    QVERIFY2(!blank.isValid(), "an empty path is taken for a usable one");
 }
 
 void QuickUiTest::testSeveralLinesCompleteTheWordTheCursorIsIn()

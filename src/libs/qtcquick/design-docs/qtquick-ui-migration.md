@@ -14887,6 +14887,20 @@ aspect now falls back to its own `defaultValidationFunction()` when it was
 given no validator, which is where that check already lived and where both
 kinds of form can reach it, and it records the answer as its validity.
 
+Two things about empty fields, because the difference from the widget is
+deliberate. An untouched path field is not complained about, even with no
+placeholder to show instead: the widget line edit does say "the path must not
+be empty" there, and saying it here would put that message under every path on
+every page that has not been filled in yet. What a page asking gets is that
+such a field is not *valid*, which is the half that matters.
+
+The rule that keeps quiet about an empty value with a placeholder is only
+reached when a field that had a value is cleared - a field that starts empty is
+never validated at all, because the validation cache starts empty too and takes
+the first empty candidate for one it has already answered. Its control
+therefore does not bite, and the case it does cover has no event to wait for.
+Said here rather than left as a branch that looks tested.
+
 The last control is worth keeping. Validity must not be set from an answer that
 has not arrived: there is no message while the path is being looked for, and an
 empty message is exactly what "nothing is wrong with it" looks like. A page

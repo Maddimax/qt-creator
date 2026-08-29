@@ -2069,6 +2069,15 @@ QString FilePathAspect::validationMessage(const QVariant &candidate) const
         return message;
     }
 
+    // An empty field offering a placeholder is not being complained about:
+    // the widget line edit calls that "displaying placeholder text" and shows
+    // neither valid nor invalid. Without this every untouched path field on
+    // every Quick page would say the path must not be empty.
+    if (candidate.toString().isEmpty() && !d->m_placeHolderText.isEmpty()) {
+        self->setValid(false);
+        return {};
+    }
+
     // Whether the path is there, and is the kind of thing that was asked for.
     // The widget path chooser does this itself with a validator of its own,
     // so an aspect that was given none was checked in a widget form and not
