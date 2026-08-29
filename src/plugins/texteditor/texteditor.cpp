@@ -1329,7 +1329,6 @@ QString TextEditorWidget::plainTextFromSelection(const Utils::MultiTextCursor &c
     return TextDocument::convertToPlainText(cursor.selectedText());
 }
 
-static const char kTextBlockMimeType[] = "application/vnd.qtcreator.blocktext";
 
 Id TextEditorWidget::SnippetPlaceholderSelection("TextEdit.SnippetPlaceHolderSelection");
 Id TextEditorWidget::CurrentLineSelection("TextEdit.CurrentLineSelection");
@@ -8970,7 +8969,7 @@ void TextEditorWidgetPrivate::collectToCircularClipboard()
     if (!mimeData)
         return;
     CircularClipboard *circularClipBoard = CircularClipboard::instance();
-    circularClipBoard->collect(TextEditorWidget::duplicateMimeData(mimeData));
+    circularClipBoard->collect(Internal::duplicateMimeData(mimeData));
     // We want the latest copied content to be the first one to appear on circular paste.
     circularClipBoard->toLastCollect();
 }
@@ -8979,7 +8978,7 @@ void TextEditorWidget::circularPaste()
 {
     CircularClipboard *circularClipBoard = CircularClipboard::instance();
     if (const QMimeData *clipboardData = QApplication::clipboard()->mimeData()) {
-        circularClipBoard->collect(TextEditorWidget::duplicateMimeData(clipboardData));
+        circularClipBoard->collect(Internal::duplicateMimeData(clipboardData));
         circularClipBoard->toLastCollect();
     }
 
@@ -8989,7 +8988,7 @@ void TextEditorWidget::circularPaste()
     }
 
     if (const QMimeData *mimeData = circularClipBoard->next().get()) {
-        QApplication::clipboard()->setMimeData(TextEditorWidget::duplicateMimeData(mimeData));
+        QApplication::clipboard()->setMimeData(Internal::duplicateMimeData(mimeData));
         paste();
     }
 }
@@ -9103,7 +9102,7 @@ QMimeData *TextEditorWidget::createMimeDataFromSelection(bool withHtml) const
                 cursor.setPosition(selstart.position());
                 cursor.setPosition(selend.position(), QTextCursor::KeepAnchor);
                 text = plainTextFromSelection(cursor);
-                mimeData->setData(QLatin1String(kTextBlockMimeType), text.toUtf8());
+                mimeData->setData(QLatin1String(Internal::textBlockMimeType()), text.toUtf8());
             }
         }
         return mimeData;
@@ -9163,8 +9162,8 @@ void TextEditorWidget::insertFromMimeData(const QMimeData *source)
         return;
     }
 
-    if (source->hasFormat(QLatin1String(kTextBlockMimeType))) {
-        text = QString::fromUtf8(source->data(QLatin1String(kTextBlockMimeType)));
+    if (source->hasFormat(QLatin1String(Internal::textBlockMimeType()))) {
+        text = QString::fromUtf8(source->data(QLatin1String(Internal::textBlockMimeType())));
         if (text.isEmpty())
             return;
     }
@@ -9229,20 +9228,6 @@ void TextEditorWidget::dropEvent(QDropEvent *e)
     e->acceptProposedAction();
 }
 
-QMimeData *TextEditorWidget::duplicateMimeData(const QMimeData *source)
-{
-    Q_ASSERT(source);
-
-    auto mimeData = new QMimeData;
-    mimeData->setText(source->text());
-    mimeData->setHtml(source->html());
-    if (source->hasFormat(QLatin1String(kTextBlockMimeType))) {
-        mimeData->setData(QLatin1String(kTextBlockMimeType),
-                          source->data(QLatin1String(kTextBlockMimeType)));
-    }
-
-    return mimeData;
-}
 
 QString TextEditorWidget::lineNumber(int blockNumber) const
 {

@@ -45,6 +45,13 @@ public:
     // The text was changed from underneath; anything watching it should catch
     // up. A view with nothing watching has nothing to do here either.
     virtual void encourageApply();
+
+    // Puts the clipboard in. Named here because an item that offers a choice
+    // of things to paste has to be able to paste one, and until now it could
+    // only do that by asking whether the target was a widget - which made the
+    // clipboard history a widget feature by accident. The default is what a
+    // plain view can do: the text, where the cursor is.
+    virtual void paste();
 };
 
 // An AssistTarget over a plain document and a cursor, which is what a Qt Quick
@@ -97,6 +104,8 @@ public:
                            const SnippetParser &parse) override;
     void setAutoCompleteSkipPosition(const QTextCursor &cursor) override;
     void encourageApply() override;
+    // The widget's own, which knows about rich text and block selections.
+    void paste() override;
 
     // For the few places that still have to reach the widget itself.
     TextEditorWidget *widget() const { return m_widget; }

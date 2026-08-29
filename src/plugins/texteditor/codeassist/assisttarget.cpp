@@ -3,6 +3,10 @@
 
 #include "assisttarget.h"
 
+#include <QGuiApplication>
+
+#include <QClipboard>
+
 #include <texteditor/texteditor.h>
 
 #include <QTextDocument>
@@ -17,6 +21,15 @@ void AssistTarget::setAutoCompleteSkipPosition(const QTextCursor &cursor)
 }
 
 void AssistTarget::encourageApply() {}
+
+void AssistTarget::paste()
+{
+    QTextCursor cursor = textCursor();
+    if (cursor.isNull())
+        return;
+    cursor.insertText(QGuiApplication::clipboard()->text());
+    setCursorPosition(cursor.position());
+}
 
 DocumentAssistTarget::DocumentAssistTarget(QTextDocument *document)
     : m_document(document)
@@ -129,6 +142,11 @@ void WidgetAssistTarget::insertCodeSnippet(int basePosition,
                                            const SnippetParser &parse)
 {
     m_widget->insertCodeSnippet(basePosition, snippet, parse);
+}
+
+void WidgetAssistTarget::paste()
+{
+    m_widget->paste();
 }
 
 void WidgetAssistTarget::setAutoCompleteSkipPosition(const QTextCursor &cursor)

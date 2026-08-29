@@ -5369,6 +5369,53 @@ private slots:
         QCOMPARE(asked.size(), 1);
     }
 
+    // Circular Paste with nothing else in the history is an ordinary paste;
+    // with a history it offers what is in it, through the list quick fixes
+    // are offered in - and taking one pastes it, which is what used to need
+    // the target to be a widget.
+    void testCircularPasteOffersTheHistoryAndPastesTheChoice()
+    {
+        TemporaryDirectory dir("qtc-viewport-circular");
+        const FilePath file = dir.filePath("plain.txt");
+        QVERIFY(file.writeFileContents("\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        viewport->setReadOnly(false);
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        QSignalSpy offered(viewport, &TextViewport::quickFixesAvailable);
+        QTextDocument * const text = viewport->textDocument()->document();
+
+        // One thing copied, so there is nothing to choose between and it is
+        // an ordinary paste.
+        QGuiApplication::clipboard()->setText("first");
+        viewport->setCursorPosition(0);
+        viewport->circularPaste();
+        QCOMPARE(text->findBlockByNumber(0).text(), QString("first"));
+
+        // A second thing copied, and now there is a choice.
+        QGuiApplication::clipboard()->setText("second");
+        viewport->circularPaste();
+        QTRY_VERIFY2(!offered.isEmpty(), "the history was not offered");
+        const QStringList fixes = offered.last().at(0).toStringList();
+        QVERIFY2(fixes.size() > 1,
+                 qPrintable(QString("only %1 offered").arg(fixes.size())));
+        QVERIFY2(fixes.contains("first"), qPrintable("what was offered: " + fixes.join(", ")));
+
+        // Taking the older one puts it in, which is the step that used to
+        // need the view to be a widget.
+        const int older = fixes.indexOf("first");
+        const int before = text->characterCount();
+        viewport->applyQuickFix(older);
+        QVERIFY2(text->characterCount() > before, "choosing from the history pasted nothing");
+        QVERIFY2(text->toPlainText().contains("firstfirst")
+                     || text->toPlainText().count("first") >= 2,
+                 qPrintable("the document says: " + text->toPlainText()));
+    }
+
     // None of the line commands edits a buffer that is read only, the same
     // as a key press does not. One test for all of them: each has its own
     // guard, and a guard that is missing on one of them is exactly the kind

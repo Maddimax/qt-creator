@@ -49,11 +49,10 @@ public:
 
         //Copy the selected item
         QApplication::clipboard()->setMimeData(
-                    TextEditorWidget::duplicateMimeData(m_mimeData.get()));
+                    duplicateMimeData(m_mimeData.get()));
 
-        //Paste
-        if (auto widgetTarget = dynamic_cast<WidgetAssistTarget *>(&target))
-            widgetTarget->widget()->paste();
+        //Paste, however the view being written into does that
+        target.paste();
     }
 
 private:

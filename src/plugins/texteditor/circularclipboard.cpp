@@ -4,10 +4,37 @@
 #include "circularclipboard.h"
 
 #include <utils/algorithm.h>
+#include <utils/qtcassert.h>
+
+#include <QMimeData>
 
 using namespace TextEditor::Internal;
 
 static const int kMaxSize = 10;
+
+namespace TextEditor::Internal {
+
+const char *textBlockMimeType()
+{
+    return "application/vnd.qtcreator.blocktext";
+}
+
+QMimeData *duplicateMimeData(const QMimeData *source)
+{
+    QTC_ASSERT(source, return nullptr);
+
+    auto mimeData = new QMimeData;
+    mimeData->setText(source->text());
+    mimeData->setHtml(source->html());
+    if (source->hasFormat(QLatin1String(textBlockMimeType()))) {
+        mimeData->setData(QLatin1String(textBlockMimeType()),
+                          source->data(QLatin1String(textBlockMimeType())));
+    }
+
+    return mimeData;
+}
+
+} // namespace TextEditor::Internal
 
 CircularClipboard::CircularClipboard() = default;
 

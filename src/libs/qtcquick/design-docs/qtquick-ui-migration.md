@@ -14108,3 +14108,48 @@ Ninety-five of a hundred and four. The nine left are `PRINT`, which this branch
 exists to avoid; `CIRCULAR_PASTE`, waiting on a mime helper that should move to
 Utils first; and `GOTO`, `SELECT_ENCODING`, `SWITCH_UTF8BOM`, `COPY_WITH_HTML`
 and the three `SUGGESTION_APPLY*`, each of which wants something built.
+
+## Circular Paste, and the line in it that made it a widget feature
+
+The blocker was not what the last batch guessed. `duplicateMimeData()` being a
+static on `TextEditorWidget` was awkward but movable. What actually stopped
+this working anywhere but a widget was the end of
+`ClipboardProposalItem::apply()`:
+
+    if (auto widgetTarget = dynamic_cast<WidgetAssistTarget *>(&target))
+        widgetTarget->widget()->paste();
+
+An item offering a choice of things to paste could only paste into a widget,
+so the clipboard history was a widget feature by accident rather than by
+design. `AssistTarget` exists precisely so that an item need not ask what it is
+writing into, and it was missing the one operation this item needed. It has
+`paste()` now: the default puts the clipboard text in where the cursor is,
+which is what a plain view can do, and `WidgetAssistTarget` overrides it with
+the widget's own, which knows about rich text and column selections. The item
+just calls `target.paste()`.
+
+With that, circular paste is the same shape as everything else here: collect
+what is on the clipboard, and if there is more than one thing in the history
+offer it through the list quick fixes already use - the same question, after
+all, of here are some things that could be done. `requestQuickFixes()` takes
+the provider to ask, defaulting to the document's.
+
+`duplicateMimeData()` and the column-selection mime type moved to
+`circularclipboard.h` so there is one definition rather than a copy that would
+quietly drop the column payload out of the history.
+
+### What the CppEditor suite could and could not say
+
+A new virtual on an exported base is a full rebuild, and it is also worth
+asking whether anything else noticed. CppEditor exercises this machinery, so
+it was run - and it cannot answer. On **unmodified HEAD** it gave 40 tests and
+an ASan abort one run, and 1549 tests with 2 failures the next. Its totals are
+not a signal in either direction.
+
+`-test CppEditor,FollowSymbolTest` is stable where the whole suite is not:
+155 passed twice on HEAD, and with these changes 155 passed in five runs of
+six. The sixth failed on
+`waitForRehighlightedSemanticDocument()` timing out, which is the rehighlight
+flake this tree is already known for and has nothing to do with assist. So
+there is no evidence of a regression, and it is worth being plain that this is
+the strongest statement available rather than a clean bill.

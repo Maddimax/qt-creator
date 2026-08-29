@@ -318,7 +318,6 @@ public:
 
     virtual std::unique_ptr<AssistInterface> createAssistInterface(AssistKind assistKind,
                                                                    AssistReason assistReason) const;
-    static QMimeData *duplicateMimeData(const QMimeData *source);
 
     static QString msgTextTooLarge(quint64 size);
 

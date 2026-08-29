@@ -12,6 +12,8 @@
 
 #include "autocompleter.h"
 #include "behaviorsettings.h"
+#include "circularclipboard.h"
+#include "circularclipboardassist.h"
 #include "codeassist/assistinterface.h"
 #include "codeassist/assistproposaliteminterface.h"
 #include "codeassist/assisttarget.h"
@@ -307,10 +309,11 @@ void TextViewport::requestCompletions()
         deliverCompletions(proposal);
 }
 
-void TextViewport::requestQuickFixes()
+void TextViewport::requestQuickFixes(IAssistProvider *asked)
 {
     TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
-    IAssistProvider * const provider = doc ? doc->quickFixAssistProvider() : nullptr;
+    IAssistProvider * const provider = asked ? asked
+                                             : (doc ? doc->quickFixAssistProvider() : nullptr);
     const QTextCursor cursor = textCursor();
     m_quickFixProposal.reset();
     if (!provider || cursor.isNull() || !canEdit()) {
@@ -2830,6 +2833,31 @@ void TextViewport::cleanWhitespace()
     if (cursor.isNull())
         return;
     doc->cleanWhitespace(cursor);
+}
+
+void TextViewport::circularPaste()
+{
+    if (!canEdit())
+        return;
+
+    Internal::CircularClipboard * const history = Internal::CircularClipboard::instance();
+    if (const QMimeData * const current = QGuiApplication::clipboard()->mimeData()) {
+        history->collect(Internal::duplicateMimeData(current));
+        history->toLastCollect();
+    }
+
+    // More than one thing to choose between, so it is a choice: offered
+    // through the list quick fixes use, which is the same question - here are
+    // some things that could be done, pick one.
+    if (history->size() > 1) {
+        requestQuickFixes(&Internal::clipboardAssistProvider());
+        return;
+    }
+
+    if (const std::shared_ptr<const QMimeData> only = history->next()) {
+        QGuiApplication::clipboard()->setMimeData(Internal::duplicateMimeData(only.get()));
+        paste();
+    }
 }
 
 void TextViewport::pasteWithoutFormat()

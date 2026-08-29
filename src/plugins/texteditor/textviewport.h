@@ -392,7 +392,9 @@ public:
     // form decides how to show it. Applying goes back through the proposal
     // rather than inserting text - a fix rewrites the file, and only the item
     // itself knows how.
-    Q_INVOKABLE void requestQuickFixes();
+    // \a provider of nullptr asks the document's own, which is the ordinary
+    // case; the clipboard history brings one of its own instead.
+    Q_INVOKABLE void requestQuickFixes(IAssistProvider *provider = nullptr);
     Q_INVOKABLE void applyQuickFix(int index);
 
     // The signature of the call the caret is inside. Unlike the other two
@@ -728,6 +730,10 @@ public:
     // paste - it puts the clipboard in as it stands - so it is the same thing
     // as Paste here, and the entry exists so that the menu is not dead.
     Q_INVOKABLE void pasteWithoutFormat();
+    // Pasting something other than the last thing copied. With nothing else
+    // in the history it is an ordinary paste; with a history it offers it,
+    // through the same list quick fixes are offered in.
+    Q_INVOKABLE void circularPaste();
     // Asks the form for its context menu at the caret, which is where a
     // keyboard request means rather than wherever the pointer was left.
     Q_INVOKABLE void showContextMenu();

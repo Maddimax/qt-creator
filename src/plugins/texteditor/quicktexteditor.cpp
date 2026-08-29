@@ -544,7 +544,16 @@ public:
         // and any shortcut the reader has bound instead. Same method the key
         // handler calls, so the two cannot come to mean different things.
         command(Constants::COMPLETE_THIS, &TextViewport::requestCompletions);
-        command(Constants::QUICKFIX_THIS, &TextViewport::requestQuickFixes);
+        // Its own lambda rather than command(): asking for quick fixes takes
+        // an optional provider now, so the member pointer no longer fits the
+        // no-argument shape.
+        Core::ActionBuilder(this, Constants::QUICKFIX_THIS)
+            .setContext(Core::Context(m_editorContext))
+            .addOnTriggered(this, [this] {
+                if (TextViewport * const view = viewport())
+                    view->requestQuickFixes();
+            });
+        command(Constants::CIRCULAR_PASTE, &TextViewport::circularPaste);
         command(Constants::FUNCTION_HINT, &TextViewport::requestFunctionHint);
 
         command(Constants::FIND_USAGES, &TextViewport::findUsages);
