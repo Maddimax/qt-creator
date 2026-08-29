@@ -14718,3 +14718,22 @@ written, and nothing noticed: the column did not exist yet, and a role nothing
 reads is a role nothing can be wrong about. It is a string now, and the
 search's own hits fill the same three from the walk's `FilePathInfo` - a search
 is a way of finding a file, not a poorer view of one.
+
+### Renaming, binning, and dotfiles
+
+The rest of what the widget dialog's context menu does to an entry, less
+copying and pasting files, which is not ported.
+
+Three controls all failed to bite at first, and each for the same underlying
+reason: the test was reaching the *outcome* through a path that produced it
+anyway. Renaming to an empty name was refused by my own guard and by the model
+underneath, so removing the guard changed nothing - the guard is gone, because
+what a name may be is the model's to say and saying it twice is how the two
+come to disagree. A rename that fails was never exercised at all until the test
+tried a name naming a directory that is not there. And binning something on a
+device was asked of a browser pointed at a device that does not exist, so the
+answer was always "there is nothing there" and never reached the rule.
+
+That last one turned into `whyNotBinned()`, which is the rule on its own: it is
+what the test asks, and it is what a menu should ask before offering to bin
+something rather than letting the reader pick an entry that then fails.

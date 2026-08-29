@@ -9,7 +9,10 @@
 
 #include <utils/async.h>
 
+#include <utils/utilstr.h>
+
 #include <QDir>
+#include <QFile>
 #include <QLocale>
 #include <QDirIterator>
 #include <QElapsedTimer>
@@ -496,6 +499,48 @@ void FileBrowser::rebuildEntries()
         rows.append(entry);
     }
     d->m_entries.setEntries(rows);
+}
+
+bool FileBrowser::rename(int row, const QString &name)
+{
+    // What a name may be is the model's to say - it refuses an empty one and
+    // one that is not a change - and saying it twice is how the two come to
+    // disagree.
+    const QString path = filePathAt(row);
+    if (path.isEmpty())
+        return false;
+    const QModelIndex index = d->m_model.index(FilePath::fromUserInput(path));
+    if (!index.isValid())
+        return false;
+    if (!d->m_model.setData(index, name, Qt::EditRole))
+        return false;
+    rebuildEntries();
+    return true;
+}
+
+QString FileBrowser::whyNotBinned(const QString &path) const
+{
+    if (path.isEmpty())
+        return Tr::tr("There is nothing there to move to the bin.");
+    // The bin belongs to the machine Qt Creator is running on. A device has
+    // none of its own, and quietly deleting instead of binning is not what
+    // was asked for.
+    const FilePath target = FilePath::fromUserInput(path);
+    if (!target.isLocal())
+        return Tr::tr("%1 is on a device, which has no bin.").arg(target.toUserOutput());
+    return {};
+}
+
+QString FileBrowser::moveToTrash(int row)
+{
+    const QString path = filePathAt(row);
+    if (const QString refusal = whyNotBinned(path); !refusal.isEmpty())
+        return refusal;
+    const FilePath target = FilePath::fromUserInput(path);
+    if (!QFile::moveToTrash(target.toFSPathString()))
+        return Tr::tr("Could not move %1 to the bin.").arg(target.toUserOutput());
+    rebuildEntries();
+    return {};
 }
 
 // The same settings the widget dialog keeps them in, so a directory kept in

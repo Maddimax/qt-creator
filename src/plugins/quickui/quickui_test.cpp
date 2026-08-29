@@ -263,6 +263,7 @@ private slots:
     void testTheFileDialogOffersEachKindOfFileSeparately();
     void testTheFileDialogCanChooseSeveralFilesAtOnce();
     void testEachEntrySaysHowBigItIsAndWhatItIs();
+    void testAnEntryCanBeRenamedOrBinned();
     void testSeveralLinesCompleteTheWordTheCursorIsIn();
     void testColourOffersToGoBackToItsDefault();
     void testColourWithNoResetHasNoButton();
@@ -5233,6 +5234,66 @@ void QuickUiTest::testEachEntrySaysHowBigItIsAndWhatItIs()
     QTRY_COMPARE(entries->rowCount(), 1);
     QVERIFY2(!valueOf("some.txt", QtcQuick::FileEntries::SizeRole).isEmpty(),
              "a file found by searching says nothing about how big it is");
+}
+
+// The two things the widget dialog's context menu does to an entry. Copying
+// and pasting files it also does, and this does not yet.
+void QuickUiTest::testAnEntryCanBeRenamedOrBinned()
+{
+    Utils::TemporaryDirectory dir("quickui-browser-entryactions");
+    QVERIFY(dir.isValid());
+    const Utils::FilePath root = dir.path();
+    QVERIFY((root / "before.txt").writeFileContents("x"));
+    QVERIFY((root / "doomed.txt").writeFileContents("x"));
+
+    QtcQuick::FileBrowser browser;
+    browser.setDirectory(root.toUserOutput());
+    QtcQuick::FileEntries * const entries = browser.entries();
+    QTRY_COMPARE(entries->rowCount(), 2);
+    const auto rowOf = [&browser, entries](const QString &name) {
+        for (int row = 0; row < entries->rowCount(); ++row) {
+            if (browser.filePathAt(row).endsWith(name))
+                return row;
+        }
+        return -1;
+    };
+
+    // Renamed on disk, not just in the listing.
+    const int before = rowOf("before.txt");
+    QVERIFY(before >= 0);
+    QVERIFY(browser.rename(before, "after.txt"));
+    QVERIFY((root / "after.txt").exists());
+    QVERIFY(!(root / "before.txt").exists());
+    QTRY_VERIFY(rowOf("after.txt") >= 0);
+
+    // Renaming to nothing is refused rather than making a file with no name,
+    // and so is a name that cannot be created - "sub/name" names a directory
+    // that is not there. Either way the file keeps the name it had.
+    QVERIFY(!browser.rename(rowOf("after.txt"), ""));
+    QVERIFY(!browser.rename(rowOf("after.txt"), "sub/name"));
+    QVERIFY((root / "after.txt").exists());
+    QVERIFY(!(root / "sub" / "name").exists());
+
+    // And into the bin, which is the machine's own - the file goes.
+    const int doomed = rowOf("doomed.txt");
+    QVERIFY(doomed >= 0);
+    const QString failed = browser.moveToTrash(doomed);
+    QVERIFY2(failed.isEmpty(), qPrintable(failed));
+    QVERIFY(!(root / "doomed.txt").exists());
+    QTRY_COMPARE(entries->rowCount(), 1);
+
+    // A path on a device has no bin, and the browser says so rather than
+    // deleting it instead, which is not what "move to the bin" means. Asked
+    // of the rule rather than by binning something on a device: a browser
+    // pointed at one has no entries to bin unless the device is really there,
+    // and then the answer would be about there being no rows.
+    QVERIFY(browser.whyNotBinned((root / "after.txt").toUserOutput()).isEmpty());
+    const QString refused = browser.whyNotBinned("docker://nosuchimage/tmp/thing");
+    QVERIFY2(!refused.isEmpty(), "something with no bin can be put in one");
+    // And says *why*: "could not" is what a failed bin says as well, and the
+    // reader can do something about one of those and not the other.
+    QVERIFY2(refused.contains("device"), qPrintable("it said: " + refused));
+    QVERIFY(!browser.whyNotBinned("").isEmpty());
 }
 
 void QuickUiTest::testSeveralLinesCompleteTheWordTheCursorIsIn()

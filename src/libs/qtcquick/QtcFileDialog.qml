@@ -48,6 +48,11 @@ Window {
         }
         return groups
     }
+    // What went wrong with the last thing the reader asked for, which the
+    // browser's own error does not cover: it is about listing a directory,
+    // and this is about renaming or binning something in one.
+    property string trouble: ""
+
     // What the reader settled on. Empty until they do.
     property string selectedFile: ""
     property var selectedFiles: []
@@ -148,6 +153,64 @@ Window {
         }
     }
 
+    // What can be done to the entry under the pointer.
+    Menu {
+        id: entryMenu
+
+        objectName: "entryMenu"
+        property int row: -1
+        property string entryName: ""
+
+        MenuItem {
+            objectName: "renameItem"
+            text: qsTr("Rename...")
+            onTriggered: {
+                renamePrompt.row = entryMenu.row
+                renameName.text = entryMenu.entryName
+                renamePrompt.open()
+            }
+        }
+
+        MenuItem {
+            objectName: "trashItem"
+            text: qsTr("Move to Bin")
+            onTriggered: {
+                const failed = browser.moveToTrash(entryMenu.row)
+                if (failed !== "")
+                    root.trouble = failed
+            }
+        }
+    }
+
+    // Renaming. A prompt rather than editing in place: the row is a delegate
+    // with three columns, and an editor in the middle of one is a lot of
+    // machinery for something asked for rarely.
+    Dialog {
+        id: renamePrompt
+
+        objectName: "renamePrompt"
+        property int row: -1
+
+        title: qsTr("Rename")
+        anchors.centerIn: Overlay.overlay
+        modal: true
+        standardButtons: Dialog.Ok | Dialog.Cancel
+
+        onOpened: renameName.forceActiveFocus()
+        onAccepted: {
+            if (!browser.rename(renamePrompt.row, renameName.text))
+                root.trouble = qsTr("Could not rename %1.").arg(entryMenu.entryName)
+        }
+
+        QtcLineEdit {
+            id: renameName
+
+            objectName: "renameName"
+            width: Metrics.lineEditWidth
+            onAccepted: renamePrompt.accept()
+        }
+    }
+
     // Naming a new directory. A dialog of its own rather than an inline row:
     // it is asked for rarely and answered at once.
     Dialog {
@@ -237,6 +300,12 @@ Window {
                 text: qsTr("New Folder")
                 enabled: browser.directory !== ""
                 onClicked: newFolderPrompt.open()
+            }
+
+            QtcButton {
+                objectName: "hiddenButton"
+                text: browser.showHiddenFiles ? qsTr("Hide Hidden") : qsTr("Show Hidden")
+                onClicked: browser.showHiddenFiles = !browser.showHiddenFiles
             }
 
             QtcSearchBox {
@@ -428,6 +497,18 @@ Window {
                             if (!entry.isDir && !adding)
                                 nameField.text = entry.name
                         }
+                        // Right-clicking acts on the entry under the pointer
+                        // without changing what is selected, the way the
+                        // widget dialog's menu does.
+                        TapHandler {
+                            acceptedButtons: Qt.RightButton
+                            onTapped: {
+                                entryMenu.row = entry.index
+                                entryMenu.entryName = entry.name
+                                entryMenu.popup()
+                            }
+                        }
+
                         onDoubleClicked: {
                             if (entry.isDir)
                                 browser.enter(entry.index)
@@ -442,8 +523,8 @@ Window {
 
                 Label {
                     objectName: "errorLabel"
-                    text: browser.error
-                    visible: browser.error !== ""
+                    text: browser.error !== "" ? browser.error : root.trouble
+                    visible: text !== ""
                     color: Tokens.notificationDangerDefault
                     wrapMode: Text.WordWrap
                     Layout.fillWidth: true

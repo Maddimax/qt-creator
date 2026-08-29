@@ -153,6 +153,16 @@ public:
     // A new directory here, named \a name. Answers with its path, or empty
     // when it could not be made.
     Q_INVOKABLE QString createDirectory(const QString &name);
+    // Renames \a row to \a name. Says whether it worked; the listing catches
+    // up on its own.
+    Q_INVOKABLE bool rename(int row, const QString &name);
+    // Puts \a row in the bin. Answers with what went wrong, or empty when
+    // nothing did - a dialog has to be able to say why nothing happened.
+    Q_INVOKABLE QString moveToTrash(int row);
+    // Why \a path cannot go in the bin, or empty when it can. Asked before
+    // offering to bin something as well as when binning it: an entry that
+    // cannot be binned should say so rather than fail when picked.
+    Q_INVOKABLE QString whyNotBinned(const QString &path) const;
     // Into \a row of entries() when it is a directory. Says whether it went.
     Q_INVOKABLE bool enter(int row);
     // The full path of \a row, for a view that has to hand one back.
