@@ -14042,3 +14042,41 @@ Eighty-seven of a hundred and four. What is left needs machinery of its own -
 printing, encoding, the context menu, suggestions, the last symbol commands
 and the paste variants - and is one or two at a time from here rather than
 another sweep.
+
+## Clean Whitespace, No-Format Paste, and asking for the context menu
+
+Three that needed nothing built. Cleaning whitespace is the document's work
+and the command only asks for it. The context menu already existed in the
+form, opened by the pointer; asking from the keyboard opens the same one at
+the caret, which is where a keyboard request means.
+
+No-Format Paste is worth a sentence because it looks like a shortcut and is
+not. The widget editor reformats what it pastes and this command turns that
+off for one paste; this view has never reformatted a paste - it puts the
+clipboard in as it stands - so pasting without formatting is what its ordinary
+Paste already does. Registering the entry to `paste()` is the honest answer
+rather than leaving the menu dead, and the comment says why rather than
+leaving a reader to wonder whether the flag was forgotten.
+
+The read-only control for cleaning whitespace did not bite at first: the
+shared fixture had no trailing whitespace, so the command had nothing to do
+whether or not it was guarded. That is the third time content has hidden a
+missing guard, and the same fix each time - the fixture now ends a line with
+two spaces.
+
+Ninety of a hundred and four, and the fourteen left are named rather than
+counted now:
+
+- **Deliberately not ported.** `PRINT`. This branch is called
+  utils-drop-printsupport; a view that has never needed QPrintSupport is not
+  the place to bring it back.
+- **Wants a piece that lives on the widget.** `CIRCULAR_PASTE` needs the
+  clipboard history offered as a proposal - which this view can now show,
+  since it has the quick fix path - but also `duplicateMimeData()`, a static
+  on `TextEditorWidget`. That helper wants to be in Utils before this view
+  calls it, which is a change to make deliberately rather than in passing.
+- **Wants machinery.** the three `SUGGESTION_APPLY*`, `COPY_WITH_HTML`,
+  `SELECT_ENCODING`, `SWITCH_UTF8BOM`, `GOTO`.
+- **Language questions this view does not ask yet.** `FOLLOW_SYMBOL_TO_TYPE`
+  and its split variant, `JUMP_TO_FILE_UNDER_CURSOR` and its split variant,
+  `OPEN_TYPE_HIERARCHY`.

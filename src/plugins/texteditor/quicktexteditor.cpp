@@ -394,6 +394,10 @@ public:
         command(Core::Constants::ZOOM_OUT, &TextViewport::decreaseFontZoom);
         command(Core::Constants::ZOOM_RESET, &TextViewport::resetFontZoom);
 
+        command(Constants::CLEAN_WHITESPACE, &TextViewport::cleanWhitespace);
+        command(Constants::NO_FORMAT_PASTE, &TextViewport::pasteWithoutFormat);
+        command(Constants::SHOWCONTEXTMENU, &TextViewport::showContextMenu);
+
         // Folding. The recursive pair take the same method with its argument
         // set, which is why they are built here rather than through command().
         const auto folding = [this](Utils::Id id, bool unfold, bool recursive) {

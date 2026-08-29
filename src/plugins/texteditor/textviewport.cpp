@@ -2807,6 +2807,27 @@ void TextViewport::autoFormat()
     cursor.endEditBlock();
 }
 
+void TextViewport::cleanWhitespace()
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    if (!canEdit() || !doc)
+        return;
+    const QTextCursor cursor = textCursor();
+    if (cursor.isNull())
+        return;
+    doc->cleanWhitespace(cursor);
+}
+
+void TextViewport::pasteWithoutFormat()
+{
+    paste();
+}
+
+void TextViewport::showContextMenu()
+{
+    emit contextMenuRequested();
+}
+
 bool TextViewport::canEdit() const
 {
     TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;

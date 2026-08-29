@@ -716,6 +716,17 @@ public:
     Q_INVOKABLE void unindent();
     Q_INVOKABLE void autoIndent();
     Q_INVOKABLE void autoFormat();
+
+    // Takes the trailing whitespace off the lines the carets cover, which the
+    // document does and this only asks for.
+    Q_INVOKABLE void cleanWhitespace();
+    // Pasting without reformatting what arrives. This view never reformats on
+    // paste - it puts the clipboard in as it stands - so it is the same thing
+    // as Paste here, and the entry exists so that the menu is not dead.
+    Q_INVOKABLE void pasteWithoutFormat();
+    // Asks the form for its context menu at the caret, which is where a
+    // keyboard request means rather than wherever the pointer was left.
+    Q_INVOKABLE void showContextMenu();
     // A rectangle of text, from where the caret is anchored to \a x, \a y.
     // One caret per line it covers, which is what makes it a selection that
     // can be typed over. The anchor is taken once, when the drag starts, so
@@ -749,6 +760,7 @@ signals:
     void mouseHiddenChanged();
     // Ctrl+Space, which is the form's cue to ask.
     void completionRequested();
+    void contextMenuRequested();
     // What came back, and what to narrow it by. Empty when the language had
     // nothing to say, which the form treats as "no list" rather than "no
     // matches".

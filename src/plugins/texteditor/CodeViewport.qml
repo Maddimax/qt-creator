@@ -498,6 +498,18 @@ Item {
                     viewport.requestCompletions()
                 }
 
+                // Asked for from the keyboard, so it opens at the caret
+                // rather than wherever the pointer happens to be.
+                function onContextMenuRequested(): void {
+                    if (!root.contextActions)
+                        return
+                    root.contextActions.refresh()
+                    contextMenu.popup(viewport.x + viewport.cursorRectangle.x
+                                          - viewport.scrollX,
+                                      viewport.y + viewport.cursorRectangle.y
+                                          - viewport.scrollY + viewport.lineHeight)
+                }
+
                 function onQuickFixesAvailable(fixes: list<string>): void {
                     quickFixes.fixes = fixes
                 }

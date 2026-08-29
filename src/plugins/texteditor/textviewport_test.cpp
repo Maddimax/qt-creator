@@ -5325,6 +5325,50 @@ private slots:
         QCOMPARE(globalFontSettings().fontZoom(), 100);
     }
 
+    // Clean Whitespace takes the trailing spaces off, which is the document's
+    // work; what is asked here is whether the command reaches it and honours
+    // a buffer that cannot be edited.
+    void testCleaningWhitespaceTakesTheTrailingSpacesOff()
+    {
+        TemporaryDirectory dir("qtc-viewport-clean");
+        const FilePath file = dir.filePath("trailing.txt");
+        QVERIFY(file.writeFileContents("text   \nmore\t\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        viewport->setReadOnly(false);
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+
+        QTextDocument * const text = viewport->textDocument()->document();
+        QCOMPARE(text->findBlockByNumber(0).text(), QString("text   "));
+
+        viewport->setCursorPosition(0);
+        viewport->cleanWhitespace();
+
+        QCOMPARE(text->findBlockByNumber(0).text(), QString("text"));
+    }
+
+    // Asking for the context menu from the keyboard asks the form, which is
+    // what has one - and at the caret, because that is where the reader is.
+    void testAskingForTheContextMenuAsksTheForm()
+    {
+        TemporaryDirectory dir("qtc-viewport-menu");
+        const FilePath file = dir.filePath("plain.txt");
+        QVERIFY(file.writeFileContents("text\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        QSignalSpy asked(viewport, &TextViewport::contextMenuRequested);
+        viewport->showContextMenu();
+        QCOMPARE(asked.size(), 1);
+    }
+
     // None of the line commands edits a buffer that is read only, the same
     // as a key press does not. One test for all of them: each has its own
     // guard, and a guard that is missing on one of them is exactly the kind
@@ -5336,10 +5380,11 @@ private slots:
         // below: the comment commands have no markers without a language and
         // would do nothing whether or not they were guarded.
         const FilePath file = dir.filePath("code.cpp");
-        // Out of alphabetical order and in lower case on purpose: content
-        // that every one of these commands would visibly change, so that a
-        // missing guard cannot hide behind a command that had nothing to do.
-        QVERIFY(file.writeFileContents("zebra;\napple;\n"));
+        // Out of alphabetical order, in lower case, and with trailing spaces
+        // on purpose: content that every one of these commands would visibly
+        // change, so that a missing guard cannot hide behind a command that
+        // had nothing to do.
+        QVERIFY(file.writeFileContents("zebra;  \napple;\n"));
 
         ViewportFixture fixture(file, 400, 200);
         QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
@@ -5378,6 +5423,8 @@ private slots:
         viewport->unindent();
         viewport->autoIndent();
         viewport->autoFormat();
+        viewport->cleanWhitespace();
+        viewport->pasteWithoutFormat();
         // Last, and after the lower case one: both go through the same guard,
         // so with the guard gone they would run one after the other and put
         // the text back exactly as it was between them.
