@@ -16427,3 +16427,61 @@ So: compare only what the harness feeds identically, and when a difference
 appears, find the number behind it before changing anything. Two of the three
 above would have produced a "fix" that made the Quick side wrong.
 
+### Every ported plugin's tests, run once
+
+The migration has been verified page by page throughout this document, but its
+*blast radius* never had been: it touched 64 plugins, and only four of them
+were ever run. So each plugin that ships page QML was run on its own.
+
+`-test all` cannot do it here. It aborts with "Errors occurred while loading
+plugins, skipping test run", and `-noload` does not help because the plugin is
+still opened before it is skipped. The plugin in question is
+`libQmlDesigner.dylib`, dated **six weeks before** the `libUtils` beside it and
+referencing `Utils::AspectContainer::setLayouter`, a member this branch
+replaced with `AspectWidgets::setLayouter`. Nothing produces that file any
+more - there is no such build rule - so it is left over from a configuration
+that no longer exists. QmlDesigner's own sources do not use the symbol, so the
+branch has not broken it; the dylib is simply stale, and that is what every
+`-noload QmlDesigner` in this document has been working around.
+
+**The result: 2799 passed, 23 failed, across all 62, and the working tree was
+clean afterwards.** Twenty-one of the twenty-three are one thing: a test that
+needs a configured environment. `QtSupport::testQtProjectImporter_oneProject`
+fails all nineteen of its data rows on the same line - `QVERIFY(defaultQt)` -
+because a scratch `-settingspath` has no Qt version registered. The other two
+of that kind:
+
+- `ProjectExplorer::testSourceToBinaryMapping(qbs)` and
+  `Debugger::testStateMachine` both open a project, and both need a kit with a
+  toolchain. The first is characterised above.
+
+The remaining two are not environmental:
+
+- `FakeVim::test_vim_visual_selection_focus_out` and
+  `test_vim_script_throwpoint` fail deterministically - twice out of twice. The
+  first is a regression test for QTCREATORBUG-22207: a visual selection must be
+  extended when focus leaves, and it comes back one character short ("tes" for
+  "test"). It was added on 2026-07-14 and the handler it exercises was last
+  touched by upstream commits in August; nothing in this migration goes near
+  `fakevimhandler.cpp`. **Not this work, but really failing** - worth someone
+  who owns FakeVim looking at.
+
+Two plugins exit non-zero without failing a test: `CppEditor` aborts on
+shutdown *after* 709 pass (the flakiness recorded elsewhere here) and
+`Profiler` aborts with no tests run. Exit codes are worth reading separately
+from totals for exactly this reason.
+
+**Two traps in running it this way**, both of which made a run look like it
+had happened when it had not:
+
+- `-test` matches a plugin's **Id**, not its display name. Of the 62 only one
+  differs - the MCP server is `mcpserver` and "Qt Creator MCP Server" - and
+  passing the name prints the usage text and exits 255. `ClangFormat` exits
+  the same way for a different reason: it is not built in this configuration
+  at all.
+- A shell `while read name; do ... done < list` loop hands its stdin to the
+  program it runs, and Qt Creator consumes it. The loop stopped after six
+  entries the first time and swallowed five characters of a plugin's name the
+  second, recording a run of "nRecorder". Redirect the child's stdin from
+  `/dev/null`, or drive it from something that does not share the stream.
+
