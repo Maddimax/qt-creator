@@ -6085,19 +6085,36 @@ asked whether it opens with rows, the porting commits re-read for strings that
 went away with the layouts they lived in, and the qbs description resolved
 with a control proving a break would be reported.
 
-Two of the four questions this section used to list have been answered, and
-the answer to both was "as the widget did it" - see *Both arrangements, and
-who opens which dialog* at the end. What is left is two, and neither is mine
-to answer:
+**One piece of porting is left**, and it is the only one:
+
+- **Build configurations.** `BuildConfiguration::createConfigWidget()` builds
+  a `Layouting::Form` from `aspects()` by hand, and no build-configuration
+  class names any QML, so nothing is being ignored - it simply has not been
+  done. It is a build system at a time (CMake, qmake, qbs, Meson, ...) rather
+  than a batch, which is why it is called out here rather than started. Read
+  the loop before porting it: every aspect is added, including the ones
+  currently hidden, because the build directory's warnings and the Qt Quick
+  compiler row appear while the page is open and an aspect left out could
+  never come back.
+
+Two questions remain that are not mine to answer:
 
 - **The trackpad scrollbar.** The Quick editor shows one while a wheel or
   trackpad scroll is under way; whether it feels right needs the hardware,
   and a test that asserts `active` cannot answer it.
 - **Three Quick primitives with no consumer.** `QtcBadge`,
   `QtcPageIndicator` and `QtcProgressBar` are the Qt Quick counterparts of
-  widgets `Utils` already has and that the profiler, the learning page and the
-  ACP chat panel use. No QML instantiates them. Whether a design system keeps
-  a primitive ahead of its first page is a design call, not a cleanup.
+  widgets `Utils` already has. No QML instantiates them. They have since been
+  rendered beside their widget originals and match, so the question is only
+  whether a design system keeps a primitive ahead of its first page - a design
+  call, not a cleanup.
+
+And one limit worth knowing before relying on the widget fallback:
+**`KeySequence`, `Table` and `Tree` are drawn only by the Qt Quick renderer.**
+An aspect asking for one of them draws nothing at all on the widget path, and
+says so now. Every page in the tree names its QML, so this bites only
+something that falls back - which is how the Perf events table came to be
+missing under Run Settings.
 
 Three more things are settled, and worth knowing when picking this up:
 
