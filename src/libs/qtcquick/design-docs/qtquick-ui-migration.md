@@ -6085,6 +6085,16 @@ asked whether it opens with rows, the porting commits re-read for strings that
 went away with the layouts they lived in, and the qbs description resolved
 with a control proving a break would be reported.
 
+**The three workstreams are done**, checked against the tree rather than
+against this document, because a plan is the last thing to notice it has gone
+stale:
+
+| workstream | what says so |
+| --- | --- |
+| Multi-column tables | `SourcePathMapAspect` holds a `SourcePathMappingModel` in its own private and overrides `tableModel()`; Debugger General names `CommonSettingsPage.qml` |
+| Aspects keeping state in their widget | `AnalyzerMessagesAspect` and `FrameworksAspect` each have a private and a `tableModel()`, and neither header mentions `QWidget` |
+| The Qt Quick text editor | `CodeStyleDefaultPage`, `CodeStylePreview`, `CodeStyleProjectForm`, `SnippetsSettingsPage` and `FontSettingsPage` exist, and `CodeStylePreview`, `MainEditor` and `SnippetEditor` drive the Quick viewport |
+
 **One piece of porting is left**, and it is the only one:
 
 - **Build configurations.** `BuildConfiguration::createConfigWidget()` builds
