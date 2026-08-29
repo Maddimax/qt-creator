@@ -14942,3 +14942,17 @@ The timing test guards the shape, not the laziness: a rebuild per inserted row,
 or a filesystem question per row up front, turns seconds into minutes and it
 would catch that. Whether each row still says the right thing is the column
 test's business, and both of its controls bite.
+
+### One decision, in one place
+
+Which dialog a field opens - the platform's, or ours that reaches a device -
+was written twice, once in the path field and once in the list of paths, and
+the two had already begun to differ: one knew about saving a file and the other
+did not. It is `DeviceBrowse.qml` now, which both use, and the rule has a test
+of its own rather than being covered incidentally by whichever delegate a test
+happened to render.
+
+That test was worth writing for its own sake. The delegates' tests asserted the
+*inputs* to the decision - that a field knows it may take a device path, that
+the bridge can tell a device path from a local one - and never the decision.
+All three of its controls bite.

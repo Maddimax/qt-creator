@@ -31,33 +31,17 @@ RowLayout {
     // Whether this field will take a path that is not on this machine.
     readonly property bool allowsDevicePaths: delegate.pres.allowPathFromDevice ?? false
 
-    // Qt Creator's own file dialog, which reaches devices. Made when it is
-    // needed and destroyed with it: it is a window, and a form that made one
-    // per path field would make a window per field.
-    function browseOnADevice(start: string): void {
-        const dialog = deviceDialog.createObject(null, {
-            "mode": delegate.wantsDirectory
-                    ? QtcFileDialog.OpenDirectory
-                    : (delegate.pathKind === "SaveFile" ? QtcFileDialog.SaveFile
-                                                        : QtcFileDialog.OpenFile),
-            "currentFolder": start,
-            "nameFilter": delegate.pres.promptDialogFilter ?? ""
-        })
-        if (!dialog)
-            return
-        dialog.accepted.connect((paths) => {
+    // Qt Creator's own file dialog, which reaches devices.
+    DeviceBrowse {
+        id: deviceBrowse
+
+        allowed: delegate.allowsDevicePaths
+        pathKind: delegate.pathKind
+
+        onChosen: (paths) => {
             if (delegate.aspect && paths.length > 0)
                 delegate.aspect.value = paths[0]
-            dialog.destroy()
-        })
-        dialog.rejected.connect(() => dialog.destroy())
-        dialog.show()
-    }
-
-    Component {
-        id: deviceDialog
-
-        QtcFileDialog {}
+        }
     }
 
     // An answer that had to be fetched has arrived, so the field asks again.
@@ -225,13 +209,9 @@ RowLayout {
 
             // A path on a device cannot be browsed by the platform's dialog,
             // which knows only the machine it runs on - the widget path
-            // chooser reaches for Qt Creator's own dialog for exactly this.
-            // Holding Shift asks for it as well, which is how a device is
-            // reached from a path that is not on one yet.
-            const onADevice = field.text !== "" && !AspectModels.isLocalPath(field.text)
-            const asked = (mouse.modifiers & Qt.ShiftModifier) !== 0
-            if (delegate.allowsDevicePaths && (onADevice || asked)) {
-                delegate.browseOnADevice(start)
+            // chooser reaches for Qt Creator's own for exactly this.
+            if (deviceBrowse.wanted(field.text, mouse.modifiers)) {
+                deviceBrowse.open(start, delegate.pres.promptDialogFilter ?? "", false)
                 return
             }
 

@@ -30,23 +30,13 @@ RowLayout {
     // Whether an entry may name somewhere that is not this machine.
     readonly property bool allowsDevicePaths: pres.allowPathFromDevice ?? false
 
-    // Qt Creator's own dialog, which reaches a device. Made when it is needed
-    // and destroyed with it, because it is a window.
-    function browseOnADevice(): void {
-        const dialog = deviceDialog.createObject(null, {
-            "mode": root.wantsDirectory ? QtcFileDialog.OpenDirectory
-                                        : QtcFileDialog.OpenFiles,
-            "currentFolder": root.startFolder,
-            "nameFilter": root.pres.promptDialogFilter ?? ""
-        })
-        if (!dialog)
-            return
-        dialog.accepted.connect((paths) => {
-            root.append(paths)
-            dialog.destroy()
-        })
-        dialog.rejected.connect(() => dialog.destroy())
-        dialog.show()
+    DeviceBrowse {
+        id: deviceBrowse
+
+        allowed: root.allowsDevicePaths
+        pathKind: root.pathKind
+
+        onChosen: (paths) => root.append(paths)
     }
 
     // Where browsing starts: beside the last entry in the list, which is the
@@ -113,10 +103,9 @@ RowLayout {
             // otherwise, so that its usual picker is not taken away.
             const values = root.aspect?.value ?? []
             const last = values.length > 0 ? String(values[values.length - 1]) : ""
-            const onADevice = last !== "" && !AspectModels.isLocalPath(last)
-            const asked = (mouse.modifiers & Qt.ShiftModifier) !== 0
-            if (root.allowsDevicePaths && (onADevice || asked)) {
-                root.browseOnADevice()
+            if (deviceBrowse.wanted(last, mouse.modifiers)) {
+                deviceBrowse.open(root.startFolder,
+                                  root.pres.promptDialogFilter ?? "", true)
                 return
             }
 
@@ -132,12 +121,6 @@ RowLayout {
                 fileDialog.open()
             }
         }
-    }
-
-    Component {
-        id: deviceDialog
-
-        QtcFileDialog {}
     }
 
     FileDialog {

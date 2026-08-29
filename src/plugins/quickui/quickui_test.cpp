@@ -263,6 +263,7 @@ private slots:
     void testTheFileDialogChoosesAFileWithoutAskingThePlatform();
     void testAPathOnADeviceIsBrowsedWithOurOwnDialog();
     void testAPathFieldSaysWhetherWhatItHoldsIsThere();
+    void testWhichDialogAFieldOpensIsOneDecision();
     void testTheFileBrowserRemembersWhereItHasBeen();
     void testTheFileBrowserFindsFilesBelowTheDirectory();
     void testTheFileDialogOffersEachKindOfFileSeparately();
@@ -5714,6 +5715,46 @@ void QuickUiTest::testABigDirectoryIsListedWithoutTheDialogHanging()
     // takes about half a second here.
     QVERIFY2(took < 5000,
              qPrintable(QString("listing %1 files took %2 ms").arg(many).arg(took)));
+}
+
+// Which dialog a field opens was decided in two delegates, and they had begun
+// to differ. It is one component now, so the rule is tested once.
+void QuickUiTest::testWhichDialogAFieldOpensIsOneDecision()
+{
+    QQmlComponent component(QtcQuick::engine(),
+                            QUrl("qrc:/qt/qml/QtCreator/Ui/DeviceBrowse.qml"));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    const std::unique_ptr<QObject> browse(
+        component.createWithInitialProperties({{"allowed", true}, {"pathKind", "ExistingCommand"}}));
+    QVERIFY(browse);
+
+    const auto wanted = [&browse](const QString &current, int modifiers) {
+        bool answer = false;
+        QMetaObject::invokeMethod(browse.get(), "wanted", Q_RETURN_ARG(bool, answer),
+                                  Q_ARG(QString, current), Q_ARG(int, modifiers));
+        return answer;
+    };
+
+    // A path on this machine is the platform's business.
+    QVERIFY(!wanted(QDir::homePath(), Qt::NoModifier));
+    QVERIFY(!wanted("", Qt::NoModifier));
+    // One on a device is ours: the platform's dialog cannot see it.
+    QVERIFY2(wanted("docker://nosuchimage/tmp", Qt::NoModifier),
+             "a path on a device would be browsed with the platform's dialog");
+    // And Shift asks for ours, which is how a device is reached from a path
+    // that is not on one yet.
+    QVERIFY2(wanted(QDir::homePath(), Qt::ShiftModifier),
+             "holding Shift does not ask for the dialog that reaches a device");
+
+    // A field that refuses device paths never opens it, however it is asked.
+    const std::unique_ptr<QObject> hereOnly(
+        component.createWithInitialProperties({{"allowed", false}, {"pathKind", "ExistingCommand"}}));
+    QVERIFY(hereOnly);
+    bool answer = true;
+    QMetaObject::invokeMethod(hereOnly.get(), "wanted", Q_RETURN_ARG(bool, answer),
+                              Q_ARG(QString, QString("docker://nosuchimage/tmp")),
+                              Q_ARG(int, int(Qt::ShiftModifier)));
+    QVERIFY2(!answer, "a field that takes no device path was sent to a device anyway");
 }
 
 void QuickUiTest::testSeveralLinesCompleteTheWordTheCursorIsIn()
