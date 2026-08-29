@@ -9,7 +9,9 @@ import QtCreator.Ui
 import QtCreator.TextEditor
 
 // Directives that are compiled, so they are read as C++ rather than as prose:
-// the same editor a snippet gets, with the language's highlighting on.
+// the same editor a snippet gets, with the language on. The group is where the
+// C++ plugin registers how C++ is highlighted, indented and completed - see
+// Constants::CPP_SNIPPETS_GROUP_ID, which this has to match.
 AspectPage {
     id: root
 
@@ -18,6 +20,7 @@ AspectPage {
     SnippetEditor {
         aspect: root.aspects.Directives
         mimeType: "text/x-c++src"
+        snippetGroup: "C++"
         Layout.fillHeight: true
     }
 }

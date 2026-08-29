@@ -14417,3 +14417,21 @@ highlighter's formats and the mime type already made the line a comment. What
 the test says now is that the view takes the completer the source offers and
 gives it back when the source stops offering one - the mechanism this change
 adds. How a C++ completer differs from a plain one is CppEditor's own test.
+
+### The same loss, one page earlier
+
+The C++ Preprocessor Directives dialog lost the same thing and for the same
+reason: the widget dialog ran `decorateCppEditor()` over its `SnippetEditorWidget`,
+and porting it to `SnippetEditor.qml` dropped the call. It edits text that is
+compiled, so it now names the C++ group and gets the language back.
+
+Its test reads the binding out of the form's source rather than out of the
+loaded form. CppEditor does not link Qt Quick - `aspectFormRenders()` exists
+precisely so a plugin need not - so there is no way from there to ask what a
+loaded form bound. What the test can say is that the form names the group and
+that the group exists; that naming it has any effect is TextViewport's test.
+Worth knowing which half is being checked where.
+
+A sweep for other API left callerless by the migration - exported functions
+taking a `TextEditorWidget *` whose only mentions are their own declaration and
+definition - turned up nothing else.

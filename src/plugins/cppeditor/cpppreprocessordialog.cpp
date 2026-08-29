@@ -9,6 +9,8 @@
 #include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/session.h>
 
+#include <texteditor/snippets/snippetprovider.h>
+
 #include <utils/aspects.h>
 
 #include <QDialogButtonBox>
@@ -17,6 +19,7 @@
 #ifdef WITH_TESTS
 
 
+#include <QFile>
 #include <QTest>
 #endif
 
@@ -109,6 +112,29 @@ private slots:
         Core::SessionManager::setValue(key, QString("#define TWO 2"));
         CppPreProcessorDialog dialog(file, nullptr);
         QCOMPARE(dialog.extraPreprocessorDirectives(), QString("#define TWO 2"));
+    }
+
+    // The widget dialog ran decorateCppEditor() over its editor, which is what
+    // made the directives indent and complete like C++. That call went when
+    // the dialog stopped being built out of widgets; the form asks for the
+    // same thing by naming the group instead.
+    //
+    // Read out of the form's source, because a plugin that does not link Qt
+    // Quick cannot ask the loaded form what it bound. That the group is
+    // honoured once bound is TextViewport's test.
+    void testTheDirectivesAreEditedAsCppRatherThanAsText()
+    {
+        QFile form(":/qt/qml/QtCreator/CppEditor/CppPreProcessorDialog.qml");
+        QVERIFY2(form.open(QIODevice::ReadOnly), "the form is not in the resources");
+        const QString source = QString::fromUtf8(form.readAll());
+
+        const QString binding = QString("snippetGroup: \"%1\"")
+                                    .arg(QLatin1String(Constants::CPP_SNIPPETS_GROUP_ID));
+        QVERIFY2(source.contains(binding),
+                 qPrintable("the form does not say the directives are C++: " + binding));
+        // And that group is one that exists - the string is only a key.
+        QVERIFY2(!TextEditor::SnippetProvider::mimeTypeForGroup(Constants::CPP_SNIPPETS_GROUP_ID).isEmpty(),
+                 "no C++ snippet group is registered under that id");
     }
 };
 
