@@ -5099,6 +5099,82 @@ private slots:
                  QString("expanded()"));
     }
 
+    // Deleting to the end of the line takes what is after the caret and
+    // leaves the line itself; deleting to the start takes what is before it.
+    // Neither joins the line to its neighbour, which is the difference
+    // between these and Delete or Backspace at the ends.
+    void testDeletingToTheEndsOfTheLineLeavesTheLine()
+    {
+        TemporaryDirectory dir("qtc-viewport-deleteends");
+        const FilePath file = dir.filePath("two.txt");
+        QVERIFY(file.writeFileContents("alpha beta\nsecond\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        viewport->setReadOnly(false);
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+
+        QTextDocument * const text = viewport->textDocument()->document();
+        viewport->setCursorPosition(6);
+        viewport->deleteEndOfLine();
+        QCOMPARE(text->findBlockByNumber(0).text(), QString("alpha "));
+        QCOMPARE(text->blockCount(), 3);
+
+        viewport->deleteStartOfLine();
+        QCOMPARE(text->findBlockByNumber(0).text(), QString());
+        // Still its own line: the one below did not come up to meet it.
+        QCOMPARE(text->findBlockByNumber(1).text(), QString("second"));
+    }
+
+    // Deleting a word takes the word, and the camel case variant stops inside
+    // one - which is the whole reason they are separate commands.
+    void testDeletingAWordStopsWhereTheWordDoes()
+    {
+        TemporaryDirectory dir("qtc-viewport-deleteword");
+        const FilePath file = dir.filePath("words.txt");
+        QVERIFY(file.writeFileContents("alpha beta\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        viewport->setReadOnly(false);
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        QTextDocument * const text = viewport->textDocument()->document();
+        viewport->setCursorPosition(0);
+        viewport->deleteEndOfWord();
+        QCOMPARE(text->findBlockByNumber(0).text(), QString("beta"));
+
+        viewport->setCursorPosition(4);
+        viewport->deleteStartOfWord();
+        QCOMPARE(text->findBlockByNumber(0).text(), QString());
+    }
+
+    void testDeletingACamelCaseWordStopsInsideTheWord()
+    {
+        TemporaryDirectory dir("qtc-viewport-deletecamel");
+        const FilePath file = dir.filePath("camel.txt");
+        QVERIFY(file.writeFileContents("oneTwoThree\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        viewport->setReadOnly(false);
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        QTextDocument * const text = viewport->textDocument()->document();
+        viewport->setCursorPosition(0);
+        viewport->deleteEndOfWordCamelCase();
+
+        // "one" and not the whole of "oneTwoThree", which is what the plain
+        // word command would have taken.
+        QCOMPARE(text->findBlockByNumber(0).text(), QString("TwoThree"));
+    }
+
     // None of the line commands edits a buffer that is read only, the same
     // as a key press does not. One test for all of them: each has its own
     // guard, and a guard that is missing on one of them is exactly the kind
@@ -5145,6 +5221,9 @@ private slots:
         viewport->moveLineUp();
         viewport->moveLineDown();
         viewport->rewrapParagraph();
+        viewport->deleteEndOfLine();
+        viewport->deleteStartOfWord();
+        viewport->deleteEndOfWordCamelCase();
         // Last, and after the lower case one: both go through the same guard,
         // so with the guard gone they would run one after the other and put
         // the text back exactly as it was between them.

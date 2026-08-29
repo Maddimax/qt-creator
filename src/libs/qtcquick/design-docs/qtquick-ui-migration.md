@@ -13964,3 +13964,28 @@ The other gap is still open and is a question rather than a defect: Delete Line
 takes the main caret's line when there are several, because that is what the
 widget does. Making the Quick editor right on its own would make the two
 disagree, so it stays written down until someone decides which matters more.
+
+## What is still dead, counted rather than guessed
+
+With the assist group done it was worth asking what a reader would still find
+grey, rather than working from memory. Comparing the ids the widget registers
+against the ids this editor answers: 104 against 73, so 31 were still dead.
+The list is worth having because it sorts itself into groups that need quite
+different work, and only one of those groups was wiring:
+
+- **Deleting to somewhere** (6). The movement commands' twins: each is that
+  move with the anchor kept and what is under it taken out. Done here.
+- **Indentation** (4) - Indent, Unindent, Auto-indent, Auto-format.
+- **Zoom** (3), **paste variants** (2), **whitespace** (2).
+- **The rest** - printing, encoding, the context menu, suggestions, the
+  remaining symbol commands - each wanting something of its own.
+
+The six deletions are the movement work from two batches ago used again:
+`deleteTo()` is `moveCursor(op, KeepAnchor)` and `removeSelectedText()`, and
+the camel case pair go through `moveCamelCase()` the same way. Because they
+are the same primitives, the control that matters is the one that shows they
+are *not* the same command: wiring the camel case deletion to `NextWord`
+deletes `oneTwoThree` where it should take `one`, and fails.
+
+Seventy-nine of a hundred and four now. The twenty-five left are in the table
+above, and none of them is a line of wiring away.

@@ -627,6 +627,8 @@ public:
     // The item behind a word the form is showing, or nullptr when the words
     // did not come from a proposal this still has.
     AssistProposalItemInterface *completionItemFor(const QString &text) const;
+    void deleteTo(QTextCursor::MoveOperation operation);
+    void deleteToCamelCase(bool forward);
     void updateFunctionHint();
     bool canEdit() const;
     Utils::CommentDefinition commentDefinition() const;
@@ -690,6 +692,17 @@ public:
     void moveCursor(QTextCursor::MoveOperation operation,
                     QTextCursor::MoveMode mode = QTextCursor::MoveAnchor);
     void moveCamelCase(bool forward, QTextCursor::MoveMode mode = QTextCursor::MoveAnchor);
+
+    // Deleting as far as a move would have gone. Every one of these is that
+    // move with the anchor kept and the selection taken out, which is what
+    // makes them the movement commands' twins rather than editing of their
+    // own.
+    Q_INVOKABLE void deleteEndOfLine();
+    Q_INVOKABLE void deleteStartOfLine();
+    Q_INVOKABLE void deleteEndOfWord();
+    Q_INVOKABLE void deleteStartOfWord();
+    Q_INVOKABLE void deleteEndOfWordCamelCase();
+    Q_INVOKABLE void deleteStartOfWordCamelCase();
     // A rectangle of text, from where the caret is anchored to \a x, \a y.
     // One caret per line it covers, which is what makes it a selection that
     // can be typed over. The anchor is taken once, when the drag starts, so

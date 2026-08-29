@@ -2683,6 +2683,60 @@ void TextViewport::openCallHierarchy()
     symbolRequests()->askForCallHierarchy();
 }
 
+void TextViewport::deleteTo(QTextCursor::MoveOperation operation)
+{
+    if (!canEdit())
+        return;
+    moveCursor(operation, QTextCursor::KeepAnchor);
+    Utils::MultiTextCursor cursors = multiTextCursor();
+    if (cursors.isNull())
+        return;
+    cursors.removeSelectedText();
+    setMultiTextCursor(cursors);
+}
+
+void TextViewport::deleteToCamelCase(bool forward)
+{
+    if (!canEdit())
+        return;
+    moveCamelCase(forward, QTextCursor::KeepAnchor);
+    Utils::MultiTextCursor cursors = multiTextCursor();
+    if (cursors.isNull())
+        return;
+    cursors.removeSelectedText();
+    setMultiTextCursor(cursors);
+}
+
+void TextViewport::deleteEndOfLine()
+{
+    deleteTo(QTextCursor::EndOfLine);
+}
+
+void TextViewport::deleteStartOfLine()
+{
+    deleteTo(QTextCursor::StartOfLine);
+}
+
+void TextViewport::deleteEndOfWord()
+{
+    deleteTo(QTextCursor::NextWord);
+}
+
+void TextViewport::deleteStartOfWord()
+{
+    deleteTo(QTextCursor::PreviousWord);
+}
+
+void TextViewport::deleteEndOfWordCamelCase()
+{
+    deleteToCamelCase(true);
+}
+
+void TextViewport::deleteStartOfWordCamelCase()
+{
+    deleteToCamelCase(false);
+}
+
 bool TextViewport::canEdit() const
 {
     TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;

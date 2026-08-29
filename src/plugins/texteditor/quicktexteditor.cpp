@@ -360,6 +360,18 @@ public:
         command(Constants::MOVE_LINE_DOWN, &TextViewport::moveLineDown);
         command(Constants::REWRAP_PARAGRAPH, &TextViewport::rewrapParagraph);
 
+        // Deleting as far as a move would go. The movement commands above and
+        // these are the same operations; what differs is whether the anchor
+        // is kept and what is under it taken out.
+        command(Constants::DELETE_END_OF_LINE, &TextViewport::deleteEndOfLine);
+        command(Constants::DELETE_START_OF_LINE, &TextViewport::deleteStartOfLine);
+        command(Constants::DELETE_END_OF_WORD, &TextViewport::deleteEndOfWord);
+        command(Constants::DELETE_START_OF_WORD, &TextViewport::deleteStartOfWord);
+        command(Constants::DELETE_END_OF_WORD_CAMEL_CASE,
+                &TextViewport::deleteEndOfWordCamelCase);
+        command(Constants::DELETE_START_OF_WORD_CAMEL_CASE,
+                &TextViewport::deleteStartOfWordCamelCase);
+
         // Folding. The recursive pair take the same method with its argument
         // set, which is why they are built here rather than through command().
         const auto folding = [this](Utils::Id id, bool unfold, bool recursive) {
