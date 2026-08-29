@@ -13868,3 +13868,36 @@ worse than a grey one, and registering them would produce exactly that.
 Seventy-one commands. The remaining two are the first real feature work rather
 than plumbing, and the lesson from this batch applies to them: read what the
 form already does before deciding what it needs.
+
+## Quick fixes, which needed less than they looked like
+
+The audit first, after last batch: the widget answers this through
+`CodeAssistant`, which mentions `TextEditorWidget` forty-two times and owns a
+proposal *widget*. Porting that would be a large job, and it is not the job.
+The viewport has never used `CodeAssistant`: it asks a provider directly and
+hands the words to the form, and quick fixes fit that shape too.
+
+What made it small is that the pieces were already there and already say so.
+`AssistTarget` exists because a proposal item used to need a widget to apply
+itself to - "naming them here is what lets a Qt Quick view offer completion
+too" - and `DocumentAssistTarget` is described as "what a Qt Quick view has".
+Neither had a caller in the viewport. So `requestQuickFixes()` asks the
+document's quick fix provider, `applyQuickFix()` hands the item a
+`DocumentAssistTarget` and lets it rewrite the file itself, and the answer
+goes to the form as a list of descriptions.
+
+Applying through the item rather than inserting its text is the whole point.
+A completion puts a word in; a fix can move code about, and only the item
+knows how. The test says so by giving the view a provider whose one fix
+replaces the word it was asked about, and the control that applies at the
+caret instead of the proposal's base position fails it.
+
+The fixes get their own list rather than reusing `CompletionPopup`. That one
+narrows what it shows by what has been typed and shows nothing when nothing
+has - right for finishing a word, wrong for a list of fixes that is complete
+as it stands. Bending it would have changed the completion path to fix the
+quick fix path.
+
+Seventy-two commands. `FUNCTION_HINT` is the last, and is still genuinely
+absent - no hint anywhere, and unlike this one it has no half-built machinery
+waiting for a caller.

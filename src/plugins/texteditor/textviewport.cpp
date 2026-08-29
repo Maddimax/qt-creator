@@ -13,7 +13,10 @@
 #include "autocompleter.h"
 #include "behaviorsettings.h"
 #include "codeassist/assistinterface.h"
+#include "codeassist/assistproposaliteminterface.h"
+#include "codeassist/assisttarget.h"
 #include "codeassist/completionassistprovider.h"
+#include "codeassist/genericproposalmodel.h"
 #include "codeassist/iassistprocessor.h"
 #include "codeassist/iassistproposal.h"
 #include "codeassist/iassistproposalmodel.h"
@@ -301,6 +304,73 @@ void TextViewport::requestCompletions()
     // it went away to think, and the handler above is what hears back.
     if (IAssistProposal * const proposal = m_completionProcessor->start(std::move(interface)))
         deliverCompletions(proposal);
+}
+
+void TextViewport::requestQuickFixes()
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    IAssistProvider * const provider = doc ? doc->quickFixAssistProvider() : nullptr;
+    const QTextCursor cursor = textCursor();
+    m_quickFixProposal.reset();
+    if (!provider || cursor.isNull() || !canEdit()) {
+        emit quickFixesAvailable({});
+        return;
+    }
+
+    if (m_quickFixProcessor)
+        m_quickFixProcessor->cancel();
+
+    auto interface = std::make_unique<AssistInterface>(cursor, doc->filePath(),
+                                                       ExplicitlyInvoked);
+    m_quickFixProcessor.reset(provider->createProcessor(interface.get()));
+    if (!m_quickFixProcessor) {
+        emit quickFixesAvailable({});
+        return;
+    }
+
+    const auto deliver = [this](IAssistProposal *proposal) {
+        m_quickFixProposal.reset(proposal);
+        QStringList fixes;
+        if (m_quickFixProposal) {
+            if (const ProposalModelPtr model = m_quickFixProposal->model()) {
+                fixes.reserve(model->size());
+                for (int i = 0; i < model->size(); ++i)
+                    fixes.append(model->text(i));
+            }
+        }
+        emit quickFixesAvailable(fixes);
+    };
+    m_quickFixProcessor->setAsyncCompletionAvailableHandler(deliver);
+
+    // A proposal now means the language answered on the spot; a null one means
+    // it will answer through the handler above, or not at all.
+    if (IAssistProposal * const immediate = m_quickFixProcessor->start(std::move(interface)))
+        deliver(immediate);
+}
+
+void TextViewport::applyQuickFix(int index)
+{
+    if (!canEdit() || !m_quickFixProposal)
+        return;
+    const ProposalModelPtr model = m_quickFixProposal->model();
+    auto * const generic = dynamic_cast<GenericProposalModel *>(model.data());
+    if (!generic || index < 0 || index >= model->size())
+        return;
+    AssistProposalItemInterface * const item = generic->proposalItem(index);
+    QTextDocument * const text = textCursor().isNull() ? nullptr : textCursor().document();
+    if (!item || !text)
+        return;
+
+    // The item rewrites the document itself; all this supplies is somewhere
+    // for it to do that, which is what DocumentAssistTarget is.
+    DocumentAssistTarget target(text);
+    target.setCursorPosition(cursorPosition());
+    item->apply(target, m_quickFixProposal->basePosition());
+
+    // Whatever was on offer was for the text as it stood.
+    m_quickFixProposal.reset();
+    emit quickFixesAvailable({});
+    setCursorPosition(target.position());
 }
 
 void TextViewport::deliverCompletions(IAssistProposal *proposal)

@@ -504,6 +504,7 @@ public:
         // and any shortcut the reader has bound instead. Same method the key
         // handler calls, so the two cannot come to mean different things.
         command(Constants::COMPLETE_THIS, &TextViewport::requestCompletions);
+        command(Constants::QUICKFIX_THIS, &TextViewport::requestQuickFixes);
 
         command(Constants::FIND_USAGES, &TextViewport::findUsages);
         command(Constants::RENAME_SYMBOL, &TextViewport::renameSymbolUnderCursor);

@@ -380,6 +380,14 @@ public:
     Q_INVOKABLE QString completionPrefix() const;
     Q_INVOKABLE void applyCompletion(const QString &completion);
 
+    // What the language would offer to fix where the caret is. Same shape as
+    // completion: asking is one call, the answer arrives as a signal, and the
+    // form decides how to show it. Applying goes back through the proposal
+    // rather than inserting text - a fix rewrites the file, and only the item
+    // itself knows how.
+    Q_INVOKABLE void requestQuickFixes();
+    Q_INVOKABLE void applyQuickFix(int index);
+
     // Replaces the base one with the file's language's, which is what knows to
     // close a bracket or a quote as the user types one. Takes ownership; the
     // completion settings are re-applied to whatever is handed in, so a caller
@@ -696,6 +704,10 @@ signals:
     // nothing to say, which the form treats as "no list" rather than "no
     // matches".
     void completionsAvailable(const QStringList &candidates, const QString &prefix);
+    // What could be fixed here, in the order the language ranked them. Empty
+    // when it offered nothing, which the form shows as no list rather than an
+    // empty one.
+    void quickFixesAvailable(const QStringList &fixes);
     void selectionChanged();
     void cursorPositionChanged();
     void cursorRectangleChanged();
@@ -906,6 +918,10 @@ private:
     // language-specific subclass, handed out per editor factory.
     std::unique_ptr<AutoCompleter> m_autoCompleter;
     std::unique_ptr<IAssistProcessor> m_completionProcessor;
+    // The fixes on offer are kept, not just their words: applying one asks
+    // the item to do it, and the item belongs to the proposal.
+    std::unique_ptr<IAssistProcessor> m_quickFixProcessor;
+    std::unique_ptr<IAssistProposal> m_quickFixProposal;
     QPointer<Utils::TextEditorLayout> m_editorLayout;
     bool m_wrapping = false;
 

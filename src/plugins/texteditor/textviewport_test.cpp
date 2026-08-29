@@ -24,6 +24,13 @@
 #include "textdocumentlayout.h"
 #include "texteditorconstants.h"
 #include "marginsettings.h"
+#include "codeassist/assistproposalitem.h"
+#include "codeassist/genericproposal.h"
+#include "codeassist/genericproposalmodel.h"
+#include "codeassist/iassistprocessor.h"
+#include "codeassist/iassistprovider.h"
+#include "codeassist/assistinterface.h"
+#include "codeassist/assisttarget.h"
 #include "highlighterhelper.h"
 #include "textoperations.h"
 #include "textviewport.h"
@@ -274,6 +281,47 @@ public:
 private:
     QObject m_lifetime;
     QStringList m_messages;
+};
+
+
+// A quick fix that knows one thing to do: replace what it was asked about with
+// "fixed". What a real one does is ask a code model; what it hands back is a
+// proposal, and applying it is the item's own business - which is the part
+// this checks can happen without a widget.
+class OneFixItem final : public TextEditor::AssistProposalItem
+{
+public:
+    void apply(TextEditor::AssistTarget &target, int basePosition) const override
+    {
+        target.replace(basePosition, target.position() - basePosition, "fixed");
+    }
+};
+
+class OneFixProcessor final : public TextEditor::IAssistProcessor
+{
+public:
+    TextEditor::IAssistProposal *perform() override
+    {
+        auto * const item = new OneFixItem;
+        item->setText("Replace with fixed");
+        QSharedPointer<TextEditor::GenericProposalModel> model(
+            new TextEditor::GenericProposalModel);
+        model->loadContent({item});
+        // From the start of the line, so that applying it replaces the word
+        // rather than adding to it - a fix that replaced nothing would look
+        // the same as one that was never applied.
+        return new TextEditor::GenericProposal(0, model);
+    }
+};
+
+class OneFixProvider final : public TextEditor::IAssistProvider
+{
+public:
+    TextEditor::IAssistProcessor *createProcessor(
+        const TextEditor::AssistInterface *) const override
+    {
+        return new OneFixProcessor;
+    }
 };
 
 class TextViewportTest final : public QObject
@@ -4826,6 +4874,68 @@ private slots:
         viewport->gotoBlockEnd(true);
         QVERIFY2(viewport->textCursor().hasSelection(), "the selecting variant selected nothing");
         QVERIFY(viewport->textCursor().selectedText().contains("b();"));
+    }
+
+    // A quick fix rewrites the file, so applying one cannot be a matter of
+    // putting text in where the caret is: the item does it, and all the view
+    // supplies is somewhere for it to happen. That is what lets a view with
+    // no widget behind it offer fixes at all.
+    void testAQuickFixIsAppliedByTheProposalItself()
+    {
+        TemporaryDirectory dir("qtc-viewport-quickfix");
+        const FilePath file = dir.filePath("code.txt");
+        QVERIFY(file.writeFileContents("broken\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        viewport->setReadOnly(false);
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        OneFixProvider provider;
+        viewport->textDocument()->setQuickFixAssistProvider(&provider);
+
+        QSignalSpy offered(viewport, &TextViewport::quickFixesAvailable);
+        viewport->setCursorPosition(6);
+        viewport->requestQuickFixes();
+
+        QTRY_COMPARE(offered.size(), 1);
+        QCOMPARE(offered.at(0).at(0).toStringList(), QStringList({"Replace with fixed"}));
+
+        viewport->applyQuickFix(0);
+        QCOMPARE(viewport->textDocument()->document()->findBlockByNumber(0).text(),
+                 QString("fixed"));
+
+        // What was on offer was for the text as it stood, so it is withdrawn.
+        QTRY_COMPARE(offered.size(), 2);
+        QVERIFY(offered.at(1).at(0).toStringList().isEmpty());
+    }
+
+    // A buffer that cannot be edited is not fixed either.
+    void testQuickFixesAreNotOfferedForAReadOnlyBuffer()
+    {
+        TemporaryDirectory dir("qtc-viewport-quickfix-ro");
+        const FilePath file = dir.filePath("code.txt");
+        QVERIFY(file.writeFileContents("broken\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+        QVERIFY(viewport->isReadOnly());
+
+        OneFixProvider provider;
+        viewport->textDocument()->setQuickFixAssistProvider(&provider);
+
+        QSignalSpy offered(viewport, &TextViewport::quickFixesAvailable);
+        viewport->setCursorPosition(6);
+        viewport->requestQuickFixes();
+
+        QTRY_COMPARE(offered.size(), 1);
+        QVERIFY2(offered.at(0).at(0).toStringList().isEmpty(),
+                 "a read only buffer was offered a fix");
     }
 
     // None of the line commands edits a buffer that is read only, the same

@@ -407,11 +407,58 @@ Item {
                 onAccepted: (completion) => viewport.applyCompletion(completion)
             }
 
+            // What the language would fix here. Not a CompletionPopup: that
+            // one narrows a list by what has been typed and shows nothing
+            // when nothing has been, which is right for finishing a word and
+            // wrong for a list of fixes that is complete as it stands.
+            Popup {
+                id: quickFixes
+
+                objectName: "quickFixPopup"
+
+                // The fixes on offer, in the order the language ranked them,
+                // which is the order applyQuickFix() counts in.
+                property var fixes: []
+
+                visible: fixes.length > 0
+                x: viewport.cursorRectangle.x
+                y: viewport.cursorRectangle.y + viewport.lineHeight
+                padding: 0
+                closePolicy: Popup.NoAutoClose
+
+                contentItem: ListView {
+                    objectName: "quickFixList"
+
+                    implicitWidth: Metrics.lineEditWidth
+                    implicitHeight: Math.min(contentHeight, Metrics.formListHeight)
+                    model: quickFixes.fixes
+                    clip: true
+                    keyNavigationEnabled: true
+                    currentIndex: 0
+
+                    delegate: ItemDelegate {
+                        required property int index
+                        required property string modelData
+
+                        width: ListView.view.width
+                        text: modelData
+                        highlighted: ListView.isCurrentItem
+                        // By position in the list, which is what the proposal
+                        // counts in - two fixes may read the same.
+                        onClicked: viewport.applyQuickFix(index)
+                    }
+                }
+            }
+
             Connections {
                 target: viewport
 
                 function onCompletionRequested(): void {
                     viewport.requestCompletions()
+                }
+
+                function onQuickFixesAvailable(fixes: list<string>): void {
+                    quickFixes.fixes = fixes
                 }
 
                 // The answer, whenever it comes: the provider every text file
