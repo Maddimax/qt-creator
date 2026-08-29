@@ -34,6 +34,12 @@ class TEXTEDITOR_EXPORT CodeBuffer : public CodeSource
     // Whether a highlight definition was found. Worth reading in a test, and
     // worth knowing before blaming the colours.
     Q_PROPERTY(bool highlighting READ isHighlighting NOTIFY highlightingChanged)
+    // Which group of snippets this is one of, when it is a snippet at all.
+    // The mime type says how to colour the text; the group says how it
+    // indents and completes, which the language's own plugin knows and a
+    // definition file does not.
+    Q_PROPERTY(QString snippetGroup READ snippetGroup WRITE setSnippetGroup
+                   NOTIFY snippetGroupChanged)
 
 public:
     explicit CodeBuffer(QObject *parent = nullptr);
@@ -47,16 +53,21 @@ public:
 
     bool isHighlighting() const;
 
+    QString snippetGroup() const;
+    void setSnippetGroup(const QString &groupId);
+
     TextDocument *textDocument() const override;
     void setTabSettings(const TabSettingsData &tabSettings) override;
+    AutoCompleter *createAutoCompleter() const override;
 
 signals:
     void textChanged();
     void mimeTypeChanged();
     void highlightingChanged();
+    void snippetGroupChanged();
 
 private:
-    void applyHighlighting();
+    void applyLanguage();
 
     CodeBufferPrivate *d = nullptr;
 };

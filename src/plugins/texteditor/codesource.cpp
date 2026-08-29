@@ -10,6 +10,11 @@
 
 namespace TextEditor {
 
+AutoCompleter *CodeSource::createAutoCompleter() const
+{
+    return nullptr;
+}
+
 void CodeSource::setTabSettings(const TabSettingsData &tabSettings)
 {
     if (TextDocument * const document = textDocument())

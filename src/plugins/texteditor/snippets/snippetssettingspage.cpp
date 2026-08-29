@@ -265,8 +265,10 @@ class SnippetsAspect final : public BaseAspect
     Q_OBJECT
 
     // What a snippet in the selected group is written in, so that the page can
-    // highlight it. A group's decorator only speaks to a TextEditorWidget.
+    // colour it.
     Q_PROPERTY(QString mimeType READ mimeType NOTIFY currentSnippetChanged)
+    // And which group it is, which is what says how it indents and completes.
+    Q_PROPERTY(QString groupId READ groupId NOTIFY currentSnippetChanged)
 
 public:
     explicit SnippetsAspect(Utils::AspectContainer *container)
@@ -277,6 +279,8 @@ public:
     }
 
     QString mimeType() const { return SnippetProvider::mimeTypeForGroup(m_groupId); }
+
+    QString groupId() const { return m_groupId; }
 
     void apply() override;
     void cancel() override;

@@ -14390,3 +14390,30 @@ a second caret leaves the line the suggestion is about, which ends it. The
 control for the ordering half accordingly did not bite, and the assertion that
 the caret had not moved could not fail either, so both are gone. What is left
 says Escape reaches the suggestion, which is what was actually built.
+
+### Snippets: getting the language back
+
+Drawing the Snippets page with Qt Quick lost something that was never noticed
+because nothing complained about it. `SnippetProvider::decorateEditor()` took a
+`TextEditorWidget`, and it was the widget page that called it; once that page
+was gone the function had no callers at all, and every group's decoration - a
+better highlighter, an indenter, an auto-completer - was dead code. Editing a
+C++ snippet in the Quick page indented like plain text.
+
+Of the three things a decorator did, two are the document's (highlighter,
+indenter) and one is the view's (completer). So the decorator now takes a
+`TextDocument *`, and the completer is *made* through a separate creator rather
+than installed: a document can be shown by more than one view, and each needs
+its own. `CodeBuffer` gained a `snippetGroup` - the mime type says how the text
+is coloured, the group says how it indents and completes - and `CodeSource`
+gained `createAutoCompleter()`, which the viewport asks. It asks again on a new
+`languageChanged` signal, because QML sets the group *after* it has bound the
+view to the source.
+
+The second test had to be rewritten because its premise was false. It was going
+to show a language completer differing from the plain one by typing a quote
+inside a comment; both leave it alone, because the plain completer reads the
+highlighter's formats and the mime type already made the line a comment. What
+the test says now is that the view takes the completer the source offers and
+gives it back when the source stops offering one - the mechanism this change
+adds. How a C++ completer differs from a plain one is CppEditor's own test.

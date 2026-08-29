@@ -10,6 +10,7 @@
 
 namespace TextEditor {
 
+class AutoCompleter;
 class TabSettingsData;
 class TextDocument;
 
@@ -40,9 +41,18 @@ public:
     // the answer is always "however it looks now".
     virtual void setTabSettings(const TabSettingsData &tabSettings);
 
+    // How the text completes as it is typed - the closing half of a bracket,
+    // a quote. Made rather than handed over: it belongs to the view, and one
+    // source can be shown by more than one. Null when the source knows of
+    // nothing language-specific, which leaves the view its plain default.
+    virtual AutoCompleter *createAutoCompleter() const;
+
 signals:
     // A different document from now on - not a change to the one there was.
     void textDocumentChanged();
+    // The same document, but written in something else from now on: what a
+    // view took from the source is out of date.
+    void languageChanged();
 
 protected:
     // Gives \a document a highlighter for \a mimeType, and says whether a

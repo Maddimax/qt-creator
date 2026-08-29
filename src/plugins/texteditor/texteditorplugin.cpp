@@ -170,7 +170,7 @@ void TextEditorPlugin::initialize()
     // Add text snippet provider.
     SnippetProvider::registerGroup(Constants::TEXT_SNIPPET_GROUP_ID,
                                     Tr::tr("Text", "SnippetProvider"),
-                                    SnippetProvider::EditorDecorator(),
+                                    SnippetProvider::DocumentDecorator(),
                                     "text/plain");
 
     createStandardContextMenu();

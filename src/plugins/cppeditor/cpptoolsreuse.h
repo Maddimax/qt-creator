@@ -18,6 +18,7 @@ class LookupContext;
 namespace ProjectExplorer { class Project; }
 namespace TextEditor {
 class AssistInterface;
+class TextDocument;
 class TextEditorWidget;
 }
 namespace Utils { namespace Text { class Range; } }
@@ -83,7 +84,7 @@ QList<Utils::Text::Range> CPPEDITOR_EXPORT symbolOccurrencesInDeclarationComment
 bool fileSizeExceedsLimit(const Utils::FilePath &filePath, int sizeLimitInMb);
 
 namespace Internal {
-void decorateCppEditor(TextEditor::TextEditorWidget *editor);
+void decorateCppDocument(TextEditor::TextDocument *document);
 } // namespace Internal
 
 } // CppEditor

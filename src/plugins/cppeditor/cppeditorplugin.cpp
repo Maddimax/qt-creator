@@ -290,7 +290,8 @@ void CppEditorPlugin::initialize()
     registerTests();
 
     SnippetProvider::registerGroup(Constants::CPP_SNIPPETS_GROUP_ID, Tr::tr("C++", "SnippetProvider"),
-                                   &decorateCppEditor, "text/x-c++src");
+                                   &decorateCppDocument, "text/x-c++src",
+                                   [] { return new CppAutoCompleter; });
 
     connect(ProgressManager::instance(), &ProgressManager::taskStarted,
             d, &CppEditorPluginPrivate::onTaskStarted);

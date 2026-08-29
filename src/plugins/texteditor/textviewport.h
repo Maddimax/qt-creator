@@ -409,6 +409,9 @@ public:
     // completion settings are re-applied to whatever is handed in, so a caller
     // hands over a plain new object.
     void setAutoCompleter(AutoCompleter *completer);
+    // Takes the completer the source offers, if it offers one. What makes a
+    // snippet in a language complete like that language.
+    void adoptSourceCompleter();
     AutoCompleter *autoCompleter() const;
 
     // Kept alive between the request and the answer: a processor asked to work
@@ -1024,6 +1027,10 @@ private:
     // all the base AutoCompleter offers; inserting the closing half is a
     // language-specific subclass, handed out per editor factory.
     std::unique_ptr<AutoCompleter> m_autoCompleter;
+    // Whether the one in use came from the source, so that a source that
+    // stops offering one gets the plain default back rather than keeping the
+    // last language's.
+    bool m_autoCompleterFromSource = false;
     std::unique_ptr<IAssistProcessor> m_completionProcessor;
     // Kept, not just its words: a completion is applied by asking the item to
     // do it, and an item can do more than put its own text in.

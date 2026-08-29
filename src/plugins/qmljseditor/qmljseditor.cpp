@@ -1217,11 +1217,10 @@ QmlJSEditorFactory::QmlJSEditorFactory(Utils::Id _id)
                             | OptionalActions::FindUsage);
 }
 
-static void decorateEditor(TextEditorWidget *editor)
+static void decorateDocument(TextEditor::TextDocument *document)
 {
-    editor->textDocument()->resetSyntaxHighlighter([] { return new QmlJSHighlighter(); });
-    editor->textDocument()->setIndenter(createQmlJsIndenter(editor->textDocument()->document()));
-    editor->setAutoCompleter(new AutoCompleter);
+    document->resetSyntaxHighlighter([] { return new QmlJSHighlighter(); });
+    document->setIndenter(createQmlJsIndenter(document->document()));
 }
 
 namespace Internal {
@@ -1244,8 +1243,9 @@ void setupQmlJSEditor()
 
     TextEditor::SnippetProvider::registerGroup(Constants::QML_SNIPPETS_GROUP_ID,
                                                Tr::tr("QML", "SnippetProvider"),
-                                               &decorateEditor,
-                                               "text/x-qml");
+                                               &decorateDocument,
+                                               "text/x-qml",
+                                               [] { return new AutoCompleter; });
 
 }
 

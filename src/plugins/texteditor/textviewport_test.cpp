@@ -6356,6 +6356,17 @@ private slots:
                  "highlight: false still put a highlighter on");
     }
 
+    // The group C++ snippets are in, asked for by what they are written in
+    // rather than by a constant this plugin would have to borrow.
+    static QString cppSnippetGroup()
+    {
+        for (const SnippetProvider &provider : SnippetProvider::snippetProviders()) {
+            if (provider.mimeType() == "text/x-c++src")
+                return provider.groupId();
+        }
+        return {};
+    }
+
     void testABufferDrawsTextThatWasNeverAFile()
     {
         // What the code style preview and the snippet editor hold: text that
@@ -6399,6 +6410,78 @@ private slots:
         QVERIFY2(foregrounds.size() > 1,
                  qPrintable(QString("every format draws in one colour (%1), so nothing is "
                                     "highlighted").arg(foregrounds.size())));
+    }
+
+    // A snippet is written in a language, and the group it is in is what says
+    // which. Colours come from the mime type, but indenting and completing
+    // come from the language's own plugin, which is what the group hands over.
+    // Both were lost when the Snippets page stopped being built out of
+    // widgets: the decoration only spoke to a TextEditorWidget.
+    void testASnippetIsIndentedByItsGroupsLanguage()
+    {
+        const QString group = cppSnippetGroup();
+        QVERIFY2(!group.isEmpty(), "no C++ snippet group - is the CppEditor plugin loaded?");
+
+        CodeBuffer buffer;
+        buffer.setMimeType("text/x-c++src");
+        buffer.setSnippetGroup(group);
+        buffer.setText("void f()\n{");
+
+        ViewportFixture fixture(&buffer);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        viewport->setReadOnly(false);
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+
+        // A new line after an opening brace, which is where a language that
+        // indents differs from one that does not.
+        viewport->setCursorPosition(buffer.textDocument()->document()->characterCount() - 1);
+        QTest::keyClick(&fixture.view, Qt::Key_Return);
+
+        const QString written = buffer.text();
+        const QString lastLine = written.mid(written.lastIndexOf(QLatin1Char('\n')) + 1);
+        QVERIFY2(lastLine.startsWith(QLatin1Char(' ')) || lastLine.startsWith(QLatin1Char('\t')),
+                 qPrintable("the line after an opening brace was not indented: " + written));
+    }
+
+    // The other half a group hands over: the completer, which decides what
+    // happens as characters are typed. Unlike the indenter this is the
+    // *view's*, so what is checked here is that the view takes the one the
+    // source offers - a language's completer differs from the plain one in
+    // how it reads context, and CppEditor tests that of its own.
+    void testASnippetTakesTheCompleterItsGroupOffers()
+    {
+        const QString group = cppSnippetGroup();
+        QVERIFY2(!group.isEmpty(), "no C++ snippet group - is the CppEditor plugin loaded?");
+
+        CodeBuffer buffer;
+        buffer.setMimeType("text/x-c++src");
+
+        ViewportFixture fixture(&buffer);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+
+        // Text that is not a snippet has no language to ask, and the view
+        // keeps the plain completer it makes for itself.
+        QVERIFY2(!buffer.createAutoCompleter(), "a group-less buffer offered a completer");
+        AutoCompleter * const plain = viewport->autoCompleter();
+        QVERIFY(plain);
+
+        // Said after the view was bound to the source, which is the order QML
+        // sets properties in and the reason the source announces it.
+        buffer.setSnippetGroup(group);
+        const std::unique_ptr<AutoCompleter> offered(buffer.createAutoCompleter());
+        QVERIFY2(offered, "the C++ group offered no completer");
+        QVERIFY2(viewport->autoCompleter() != plain,
+                 "the view kept its plain completer after the source offered one");
+
+        // And a source that stops being a snippet gets the plain one back,
+        // rather than keeping the last language's.
+        buffer.setSnippetGroup({});
+        QVERIFY2(viewport->autoCompleter() != plain, "the completer was not replaced at all");
+        QVERIFY2(!buffer.createAutoCompleter(), "a group-less buffer offered a completer");
     }
 
     void testABufferCanBeIndentedByALanguagesOwnIndenter()

@@ -44,10 +44,10 @@ NimEditorFactory::NimEditorFactory()
     setCodeFoldingSupported(true);
 }
 
-void NimEditorFactory::decorateEditor(TextEditorWidget *editor)
+void NimEditorFactory::decorateDocument(TextEditor::TextDocument *document)
 {
-    editor->textDocument()->resetSyntaxHighlighter(&createNimHighlighter);
-    editor->textDocument()->setIndenter(createNimIndenter(editor->textDocument()->document()));
+    document->resetSyntaxHighlighter(&createNimHighlighter);
+    document->setIndenter(createNimIndenter(document->document()));
 }
 
 } // Nim

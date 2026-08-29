@@ -41,6 +41,7 @@ AspectPage {
             SnippetEditor {
                 aspect: root.aspects.Content
                 mimeType: root.aspects.Snippets.mimeType
+                snippetGroup: root.aspects.Snippets.groupId
                 Layout.fillHeight: true
             }
         }

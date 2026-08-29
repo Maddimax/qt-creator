@@ -12,7 +12,7 @@ class NimEditorFactory final : public TextEditor::TextEditorFactory
 public:
     NimEditorFactory();
 
-    static void decorateEditor(TextEditor::TextEditorWidget *editor);
+    static void decorateDocument(TextEditor::TextDocument *document);
 };
 
 } // Nim

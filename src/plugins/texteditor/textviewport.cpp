@@ -184,9 +184,14 @@ void TextViewport::setDocument(CodeSource *document)
         // A source hands out a different document when it reopens, and says so.
         connect(m_document, &CodeSource::textDocumentChanged,
                 this, &TextViewport::documentChangedInternal);
+        // And it can stay the same document but change what it is written in,
+        // which the source is told after the view was bound to it.
+        connect(m_document, &CodeSource::languageChanged,
+                this, &TextViewport::adoptSourceCompleter);
     }
 
     documentChangedInternal();
+    adoptSourceCompleter();
     emit documentChanged();
 }
 
@@ -531,6 +536,17 @@ void TextViewport::setAutoCompleter(AutoCompleter *completer)
 AutoCompleter *TextViewport::autoCompleter() const
 {
     return m_autoCompleter.get();
+}
+
+void TextViewport::adoptSourceCompleter()
+{
+    if (AutoCompleter * const offered = m_document ? m_document->createAutoCompleter() : nullptr) {
+        setAutoCompleter(offered);
+        m_autoCompleterFromSource = true;
+    } else if (m_autoCompleterFromSource) {
+        setAutoCompleter(new AutoCompleter);
+        m_autoCompleterFromSource = false;
+    }
 }
 
 bool TextViewport::isMouseHidden() const

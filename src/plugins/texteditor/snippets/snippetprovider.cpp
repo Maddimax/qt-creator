@@ -93,24 +93,36 @@ QString SnippetProvider::mimeTypeForGroup(const QString &groupId)
 /*!
     Applies customizations such as highlighting or indentation to the snippet editor.
  */
-void SnippetProvider::decorateEditor(TextEditorWidget *editor, const QString &groupId)
+void SnippetProvider::decorateDocument(TextDocument *document, const QString &groupId)
 {
     for (const SnippetProvider &provider : std::as_const(g_snippetProviders)) {
-        if (provider.m_groupId == groupId && provider.m_editorDecorator)
-            provider.m_editorDecorator(editor);
+        if (provider.m_groupId == groupId && provider.m_documentDecorator)
+            provider.m_documentDecorator(document);
     }
 }
 
+AutoCompleter *SnippetProvider::createAutoCompleter(const QString &groupId)
+{
+    for (const SnippetProvider &provider : std::as_const(g_snippetProviders)) {
+        if (provider.m_groupId == groupId && provider.m_autoCompleterCreator)
+            return provider.m_autoCompleterCreator();
+    }
+    return nullptr;
+}
+
 /*!
-    Registers a snippet group with \a groupId, \a displayName and \a editorDecorator.
+    Registers a snippet group with \a groupId, \a displayName, \a documentDecorator,
+    \a mimeType and \a autoCompleterCreator.
  */
 void SnippetProvider::registerGroup(const QString &groupId, const QString &displayName,
-                                     EditorDecorator editorDecorator, const QString &mimeType)
+                                    DocumentDecorator documentDecorator, const QString &mimeType,
+                                    AutoCompleterCreator autoCompleterCreator)
 {
     SnippetProvider provider;
     provider.m_groupId = groupId;
     provider.m_displayName = displayName;
     provider.m_mimeType = mimeType;
-    provider.m_editorDecorator = editorDecorator;
+    provider.m_documentDecorator = documentDecorator;
+    provider.m_autoCompleterCreator = autoCompleterCreator;
     g_snippetProviders.append(provider);
 }

@@ -11,15 +11,22 @@ import QtCreator.Ui
 import QtCreator.TextEditor
 
 // A string aspect edited as code: the same write-back discipline as any other
-// text area, with the group's highlighting on top. There is no language here
-// and so no code style, which is why nothing re-indents and why an indent is
-// whatever the global tab settings say. See CodeBuffer.
+// text area, with the group's highlighting, indenting and bracket completion
+// on top. There is still no code style - an indent is whatever the global tab
+// settings say - because a style belongs to a project and a snippet is in
+// none. See CodeBuffer.
 RowLayout {
     id: root
 
     required property Aspect aspect
     // What the text is, so that a highlight definition can be found.
     required property string mimeType
+    // Which group of snippets it belongs to, which is what says how it
+    // indents and completes: the language's own plugin knows that, and a
+    // highlight definition does not. Empty where the text is not a snippet -
+    // this is also what a plain code-shaped text area is built from - and
+    // then the colours from the mime type are all there is.
+    property string snippetGroup: ""
 
     readonly property string labelText: aspect?.plainLabelText ?? ""
     readonly property bool aspectVisible: aspect?.visible ?? true
@@ -45,6 +52,7 @@ RowLayout {
         objectName: "snippetEditorBuffer"
         text: root.aspect?.value ?? ""
         mimeType: root.mimeType
+        snippetGroup: root.snippetGroup
     }
 
     CodeViewport {

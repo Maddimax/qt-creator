@@ -93,7 +93,7 @@ class NimPlugin final : public ExtensionSystem::IPlugin
 
         TextEditor::SnippetProvider::registerGroup(Constants::C_NIMSNIPPETSGROUP_ID,
                                                    Tr::tr("Nim", "SnippetProvider"),
-                                                   &NimEditorFactory::decorateEditor,
+                                                   &NimEditorFactory::decorateDocument,
                                                    "text/x-nim");
     }
 

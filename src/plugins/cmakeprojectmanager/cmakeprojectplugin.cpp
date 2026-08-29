@@ -103,7 +103,7 @@ class CMakeProjectPlugin final : public ExtensionSystem::IPlugin
 
         TextEditor::SnippetProvider::registerGroup(Constants::CMAKE_SNIPPETS_GROUP_ID,
                                                    Tr::tr("CMake", "SnippetProvider"),
-                                                   TextEditor::SnippetProvider::EditorDecorator(),
+                                                   TextEditor::SnippetProvider::DocumentDecorator(),
                                                    "text/x-cmake");
         const auto issuesGenerator = [](const Kit *k) {
             Tasks result;

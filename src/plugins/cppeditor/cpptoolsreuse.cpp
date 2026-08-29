@@ -563,11 +563,10 @@ QList<Text::Range> symbolOccurrencesInDeclarationComments(CppEditorWidget *edito
 
 namespace Internal {
 
-void decorateCppEditor(TextEditor::TextEditorWidget *editor)
+void decorateCppDocument(TextEditor::TextDocument *document)
 {
-    editor->textDocument()->resetSyntaxHighlighter([] { return new CppHighlighter(); });
-    editor->textDocument()->setIndenter(createCppQtStyleIndenter(editor->textDocument()->document()));
-    editor->setAutoCompleter(new CppAutoCompleter);
+    document->resetSyntaxHighlighter([] { return new CppHighlighter(); });
+    document->setIndenter(createCppQtStyleIndenter(document->document()));
 }
 
 } // Internal

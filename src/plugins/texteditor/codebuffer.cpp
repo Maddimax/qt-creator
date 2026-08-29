@@ -3,6 +3,7 @@
 
 #include "codebuffer.h"
 
+#include "snippets/snippetprovider.h"
 #include "tabsettings.h"
 #include "textdocument.h"
 
@@ -55,6 +56,7 @@ class CodeBufferPrivate
 public:
     std::unique_ptr<BufferDocument> m_document;
     QString m_mimeType;
+    QString m_snippetGroup;
     // Whether a definition was found for the mime type. The document always has
     // *a* highlighter after the first setMimeType(), so its presence says
     // nothing.
@@ -113,8 +115,27 @@ void CodeBuffer::setMimeType(const QString &mimeType)
     if (d->m_mimeType == mimeType)
         return;
     d->m_mimeType = mimeType;
-    applyHighlighting();
+    applyLanguage();
     emit mimeTypeChanged();
+}
+
+QString CodeBuffer::snippetGroup() const
+{
+    return d->m_snippetGroup;
+}
+
+void CodeBuffer::setSnippetGroup(const QString &groupId)
+{
+    if (d->m_snippetGroup == groupId)
+        return;
+    d->m_snippetGroup = groupId;
+    applyLanguage();
+    emit snippetGroupChanged();
+}
+
+AutoCompleter *CodeBuffer::createAutoCompleter() const
+{
+    return SnippetProvider::createAutoCompleter(d->m_snippetGroup);
 }
 
 bool CodeBuffer::isHighlighting() const
@@ -127,12 +148,19 @@ TextDocument *CodeBuffer::textDocument() const
     return d->m_document.get();
 }
 
-void CodeBuffer::applyHighlighting()
+// What the text is written in, as far as anything here can act on it: the
+// colours from the mime type, and then whatever the group's own plugin knows
+// on top - which is a better highlighter than a definition file, and the
+// indenter, which no definition file has.
+void CodeBuffer::applyLanguage()
 {
     const bool was = isHighlighting();
     d->m_hasDefinition = CodeSource::applyHighlighting(d->m_document.get(), d->m_mimeType);
+    if (!d->m_snippetGroup.isEmpty())
+        SnippetProvider::decorateDocument(d->m_document.get(), d->m_snippetGroup);
     if (was != isHighlighting())
         emit highlightingChanged();
+    emit languageChanged();
 }
 
 } // namespace TextEditor
