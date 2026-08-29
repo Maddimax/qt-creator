@@ -375,10 +375,18 @@ void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
         QObject::disconnect(warningConnection);
     });
 
+    // Pages that hold no aspects at all build their own widgets, so there is
+    // nothing here to draw with Qt Quick until they are aspects first. What
+    // is left of the migration is that list, and it is worth reporting rather
+    // than passing over in silence.
+    QStringList notAspectDriven;
+
     for (Core::IOptionsPage *page : Core::IOptionsPage::allOptionsPages()) {
         const std::optional<Utils::AspectContainer *> aspects = page->aspects();
-        if (!aspects || !*aspects)
+        if (!aspects || !*aspects) {
+            notAspectDriven << page->displayName();
             continue;
+        }
         ++aspectDriven;
 
         Core::IOptionsPageWidget *widget = page->createWidget();
@@ -615,6 +623,10 @@ void QuickUiTest::testAspectDrivenPagesRenderWithQuick()
                       << "\n  of the" << declined.size() << "still on widgets,"
                       << genericWouldDo << "have only aspects the generic form knows"
                       << "\n  still on widgets:" << declined.join(", ");
+
+    notAspectDriven.sort();
+    qInfo().noquote() << "pages that hold no aspects:" << notAspectDriven.size()
+                      << "\n  " << notAspectDriven.join(", ");
 
     QVERIFY(aspectDriven > 0);
     QCOMPARE(renderedWithQuick, withQml);

@@ -14956,3 +14956,23 @@ That test was worth writing for its own sake. The delegates' tests asserted the
 *inputs* to the decision - that a field knows it may take a device path, that
 the bridge can tell a device path from a local one - and never the decision.
 All three of its controls bite.
+
+## Where the migration stands
+
+The census now reports both halves of the question, and the answer is that
+there is nothing left to port:
+
+    aspect-driven pages: 108   rendered with Qt Quick: 108
+    pages that hold no aspects: 1 - Browse
+
+Every settings page built out of aspects draws itself with Qt Quick. The one
+page that holds no aspects is the Extension Manager's Browse page, and it is
+not a settings form at all: nine hundred lines of list, search, details pane
+and install buttons - a small application that happens to live in the
+Preferences dialog. Turning that into aspects would not be finishing this job;
+it would be starting a different one.
+
+The count of pages with no aspects is reported, not asserted. A test that
+failed when someone added a feature page under Preferences would be imposing a
+rule nobody agreed to; what it is for is that the number is *visible* when it
+changes.
