@@ -254,8 +254,14 @@ after being surprised.**
 Branch `utils-drop-printsupport`, 787 commits since the plan was written, not
 pushed.
 
-**The settings-page migration is finished.** Every `IOptionsPage` that can be
-aspect driven is: the census reports **0 pages still on widgets**, with no
+**The settings-page migration is finished**, and the forms *outside*
+`IOptionsPage` that draw the same containers are now finished with it - Run
+Settings and the Cppcheck manual-run dialog were each drawing a container's
+aspects with widgets while its own page drew them from QML. Build
+configurations are the one form left, and nothing is being ignored there; see
+the sweep at the end.
+
+Every `IOptionsPage` that can be aspect driven is: the census reports **0 pages still on widgets**, with no
 exemptions, in both the ordinary build and one with ClangFormat loaded. The
 widget fallback is gone - `CodeStyleAspect`'s layouter, the factory's value
 editor API, `CodeStyleEditor`, `codestyleselectorwidget` and
@@ -269,21 +275,39 @@ Verified one suite at a time, re-run in full after the shared headers changed
 
 | suite | result |
 | --- | --- |
-| Core, TextEditor, QuickUi | 87/87, 399/399, 131/131 |
+| Core, TextEditor, QuickUi | 87/87, 399/399, 148/148 (1 skipped) |
 | QmlJSEditor, QmlJSTools, LanguageClient | 15/15, 12/12, 20/20 |
 | CMake, Qmake, Qbs, Nim project managers | 69/69, 26/26, 8/8 (1 skipped), 6/6 |
 | AutoTest, BareMetal | 0/0 (1 skipped, wants a kit), 61/61 |
 | DiffEditor, Python | 48/48, 30/30 |
 | all 35 `tests/auto/utils` binaries | every one exit 0, 2003 assertions between them |
 | CppEditor | flaky by the run: 8 failures at HEAD against 4 with a change in the tree, the same rehighlight waits either way |
-| ProjectExplorer | 433 passed, 2 pre-existing failures and one flake - see below |
-| Debugger | 49 passed, 1 pre-existing failure (`testStateMachine` cannot open its project) |
-| FakeVim | 256 passed, 2 pre-existing - see below |
+| ProjectExplorer | 434 passed, 2 failures and one flake - see below |
+| Debugger | 49 passed, 1 failure: `testStateMachine` wants a kit with a Qt |
+| QtSupport | 58 passed, **19 skipped** where no Qt version is registered |
+| FakeVim | 258 passed, **0 failures** |
 
-The three `ProjectExplorer` failures are not three: `testSourceToBinaryMapping(qbs)`
-and `RunWorkerConflictTest::testConflict` fail identically with the tree
-untouched, and `testMultipleBuildConfigs` comes and goes - it failed once here
-and passed in two runs of the same binary immediately after.
+Re-measured after the run of every ported plugin (below), which is also where
+most of these were explained. Four of them are no longer what this table used
+to say:
+
+- **FakeVim's two are fixed.** Neither was pre-existing in any useful sense:
+  one needed a key window the run cannot get, the other compared a path
+  against `/var/...` where `:source` reports `/private/var/...`.
+- **QtSupport's nineteen now skip** instead of failing. They clone the default
+  kit's Qt version and there is none registered, so the importer is never
+  reached. With `~/Qt/6.11.1/macos/bin` on `PATH` they run - and ten of them
+  fail on `setupQmake()`, which copies a real qmake into a temporary directory
+  and says in its own comment that this only works for standard installations.
+- **`Debugger::testStateMachine` is environmental, shown rather than assumed**:
+  with a Qt on `PATH` the whole suite goes to exit 0.
+- **`testSourceToBinaryMapping(qbs)` says what is wrong with it now.** Its
+  cmake and qmake siblings pass in the same run, so the kit is not the
+  difference; the qbs build fails, and the test used to report the five-second
+  wait that followed rather than the build.
+
+`RunWorkerConflictTest::testConflict` fails only under `-load all`, which is
+the artefact described below, and `testMultipleBuildConfigs` comes and goes.
 
 Re-measured after the editor batches, because those changed an **exported
 header** (`textdocumentlayout.h`) that twelve other plugins include: building
