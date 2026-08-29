@@ -16674,3 +16674,33 @@ So the door is one door now, and the count that says so is four. The dialog
 has no test home - cppcheck has no test infrastructure at all and the dialog
 needs a Project - so what stands behind it is that exhaustive count rather
 than an assertion.
+
+### The same defect, swept for properly
+
+Twice in a row a settings container that names QML turned out to be drawn with
+widgets by somebody. Two instances is a class, so it was swept rather than
+guessed at, three shapes at a time:
+
+- **A layout-returning member left on a class that names QML** - which is what
+  Cppcheck had. Across every `.cpp` that calls `setQmlSource()`: **none left**.
+  Deleting Cppcheck's was the last of them.
+- **A caller of `AspectWidgets::layouter()`** - four outside its own file, all
+  accounted for in the entry above.
+- **Code that walks a container's aspects into a layout by hand**, which would
+  bypass its QML the same way. Five, and only one of them lays anything out:
+  two are tests collecting names to assert on, one is the locator gathering
+  entries, one is the widget renderer's own default layouter.
+
+The one that lays out is `BuildConfiguration::createConfigWidget()`, which
+builds a `Layouting::Form` from `aspects()` by hand. **Nothing is being
+ignored there**: no build-configuration class in the tree names QML, so there
+is no form being passed over - it is simply a piece that has not been ported.
+Its hand-built loop has a reason worth keeping in mind for whoever does port
+it: every aspect is added, including the ones currently hidden, because the
+build directory's warnings and the Qt Quick compiler row appear while the page
+is open and an aspect left out of the form could never come back.
+
+That is the last widget-drawn settings form in the tree that this migration
+has not touched, and it is a large one - a build configuration per build
+system - rather than a batch. The panels around it are done: the census
+reports 17 panels saying what they show and 0 still building a widget.
