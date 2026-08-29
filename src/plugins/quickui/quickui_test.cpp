@@ -185,6 +185,19 @@ static QQuickItem *findButton(QQuickItem *root, const QString &text)
     });
 }
 
+// Clicking a checkable button. It flips itself and then reports, which is the
+// order a real click produces and the order its handler reads: emitting
+// clicked() on its own leaves checked as it was, so a handler that passes
+// `checked` on is told the opposite of what the click meant.
+static void clickCheckableButton(QQuickItem *button)
+{
+    QVERIFY(button);
+    QVERIFY2(button->property("checkable").toBool(),
+             "this button does not toggle, so click it directly");
+    QVERIFY(QMetaObject::invokeMethod(button, "toggle"));
+    QVERIFY(QMetaObject::invokeMethod(button, "clicked"));
+}
+
 // Clicking a menu entry. A checkable one flips before it reports, which is
 // the order a real click produces and the order its handler reads. The
 // invocations are checked: MenuItem has no trigger() - that is Action - and
@@ -290,6 +303,7 @@ private slots:
     void testSecretIsFetchedBeforeItCanBeEdited();
     void testASecretTheAspectAlreadyHoldsNeedsNoKeychain();
     void testAControlOffersTheContextActionItsAspectDescribes();
+    void testRecordingAKeySequenceIsTheAspectsToStartAndStop();
     void testTableAspectDrawsWhatItsModelOffers();
     void testATableCellShowsTheIconItsModelGives();
     void testATableWithNoColumnNamesHasNoHeader();
@@ -3659,6 +3673,97 @@ void QuickUiTest::testAControlOffersTheContextActionItsAspectDescribes()
     emit mutable_.controlConfigurationChanged();
     QTRY_VERIFY2(!entry->property("enabled").toBool(),
                  "an action the aspect disabled is still offered");
+}
+
+
+// The Record button on a key sequence. KeySequenceDelegate is deliberately
+// generic - the aspect that drives it lives in coreplugin, which QtcQuick
+// cannot see - so `recording` and `setRecording` are read off an untyped
+// Aspect and qmllint reports both as missing. That left the button's whole
+// behaviour resting on two names, exercised by nothing.
+//
+// The Keyboard page is not needed to check it: the delegate is chosen by
+// AspectPresentation::control, so an aspect that says KeySequence and offers
+// the same two members is drawn by it.
+class RecordingAspect final : public Utils::StringAspect
+{
+    Q_OBJECT
+    Q_PROPERTY(bool recording READ isRecording NOTIFY recordingChanged)
+
+public:
+    using StringAspect::StringAspect;
+
+    Utils::AspectPresentation presentation() const override
+    {
+        Utils::AspectPresentation p = StringAspect::presentation();
+        p.control = Utils::AspectControls::KeySequence;
+        return p;
+    }
+
+    bool isRecording() const { return m_recording; }
+
+    Q_INVOKABLE void setRecording(bool recording)
+    {
+        ++m_asked;
+        if (m_recording == recording)
+            return;
+        m_recording = recording;
+        emit recordingChanged();
+    }
+
+    int m_asked = 0;
+
+signals:
+    void recordingChanged();
+
+private:
+    bool m_recording = false;
+};
+
+void QuickUiTest::testRecordingAKeySequenceIsTheAspectsToStartAndStop()
+{
+    Utils::AspectContainer page;
+    page.setAutoApply(false);
+    RecordingAspect keys(&page);
+    keys.setLabelText("Shortcut");
+    keys.setValue("Ctrl+K");
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "KeySequenceDelegate"));
+    QQuickItem * const record = findQmlNamed(delegate, "keySequenceRecordButton").value(0);
+    QVERIFY2(record, "a key sequence offers no way to record one");
+
+    // Not recording: the button offers to start, and says so.
+    QCOMPARE(record->property("text").toString(), QString("Record"));
+    QVERIFY(!record->property("checked").toBool());
+
+    // The button says what the aspect is doing, not what it was last
+    // clicked - checked here by starting the recording from elsewhere, which
+    // is the only order that tells a binding from a button toggling itself.
+    keys.setRecording(true);
+    QTRY_COMPARE(record->property("text").toString(), QString("Stop Recording"));
+    QVERIFY2(record->property("checked").toBool(),
+             "the aspect is recording and its button says it is not");
+    keys.setRecording(false);
+    QTRY_COMPARE(record->property("text").toString(), QString("Record"));
+
+    // And clicking it is what asks the aspect to start: the delegate cannot
+    // record anything itself, because the keys it would record never reach a
+    // control.
+    const int asked = keys.m_asked;
+    clickCheckableButton(record);
+    QCOMPARE(keys.m_asked, asked + 1);
+    QVERIFY2(keys.isRecording(), "clicking Record did not start the recording");
+    QTRY_COMPARE(record->property("text").toString(), QString("Stop Recording"));
+
+    // Clicking again stops it, which is the same button.
+    clickCheckableButton(record);
+    QVERIFY2(!keys.isRecording(), "clicking Stop Recording did not stop it");
+    QTRY_COMPARE(record->property("text").toString(), QString("Record"));
 }
 
 void QuickUiTest::testAnInlineListItemCanReadAsOneRow()

@@ -16264,3 +16264,40 @@ order that can tell a binding from a toggle. This is the second time that
 exact trap has appeared in this file; the first was the file dialog's view
 menu.
 
+### The last of the uncovered calls
+
+The sweep was extended from the shared module to the 217 `.qml` files under
+`src/plugins`. They make only **five** distinct calls into C++ - a page's QML
+lists aspects and lets the delegates do the talking - and the one name absent
+from `quickui_test.cpp`, `setSelectedRows`, is covered by
+`customparserspage_test.cpp`, in the plugin that owns it. No gaps.
+
+**A parity question answered, with nothing to change.** `AspectContextMenu` is
+attached only by `SelectionDelegate`, so a kit aspect drawn as radio buttons
+would lose its context action. It cannot happen: `KitAspect::addMutableAction()`,
+the widget route, has **no callers anywhere** - the live path is
+`decorateWithMutability()` filling the presentation, which every renderer
+reads. The method is kept on purpose for out-of-tree subclasses that still
+draw their own widgets, which this document already recorded; `mutableAction()`
+is still used by `kitoptionspage.cpp`. Reading that entry before deleting what
+looked like dead code is what stopped a wrong removal.
+
+**And `recording` is covered after all.** It was twice left alone on the
+grounds that reaching it meant rendering the Keyboard page. That was wrong:
+the delegate is chosen by `AspectPresentation::control`, so an aspect that
+says `KeySequence` and offers the same two members is drawn by
+`KeySequenceDelegate` - the same trick the context-action test uses. The
+button says what the aspect is doing (checked by starting the recording from
+elsewhere, the order that tells a binding from a button toggling itself), and
+clicking it is what asks the aspect to start and stop.
+
+**The checkable-click trap, a third time.** `QMetaObject::invokeMethod(button,
+"clicked")` emits the signal without the toggle a real click performs first,
+so `onClicked: aspect.setRecording(checked)` was told `false` when the click
+meant `true`. The test failed with "clicking Record did not start the
+recording" while the call had plainly been made. There is a
+`clickCheckableButton()` helper now, beside `triggerMenuItem()`, and both
+check that their invocations landed. Three appearances is enough to say the
+rule plainly: **a checkable control flips before it reports, and a test that
+skips the flip tests the opposite of what it means to.**
+
