@@ -119,6 +119,9 @@ class QTCQUICK_EXPORT FileBrowser : public QObject
     Q_PROPERTY(bool canGoForward READ canGoForward NOTIFY historyChanged)
     // Whether the clipboard holds anything that could be pasted here.
     Q_PROPERTY(bool canPaste READ canPaste NOTIFY canPasteChanged)
+    // Whether a paste is under way, and what it is copying right now.
+    Q_PROPERTY(bool pasting READ isPasting NOTIFY pastingChanged)
+    Q_PROPERTY(QString pasteStatus READ pasteStatus NOTIFY pasteStatusChanged)
 
 public:
     explicit FileBrowser(QObject *parent = nullptr);
@@ -148,6 +151,8 @@ public:
     bool canGoBack() const;
     bool canGoForward() const;
     bool canPaste() const;
+    bool isPasting() const;
+    QString pasteStatus() const;
 
     // To the directory above, if there is one.
     Q_INVOKABLE void goUp();
@@ -173,10 +178,14 @@ public:
     // pastes them into a file manager as well as back into this dialog.
     Q_INVOKABLE void copyToClipboard(const QList<int> &rows);
     // Copies whatever is on the clipboard into the directory being looked at.
-    // Answers with what could not be copied, or empty when all of it was. A
-    // name already taken here gets "<name> copy", so pasting into the
+    // A name already taken here gets "<name> copy", so pasting into the
     // directory something came from duplicates rather than overwrites.
-    Q_INVOKABLE QString paste();
+    //
+    // It runs in the background and says when it is done: a directory of any
+    // size, or anything at all on a device, takes long enough that a dialog
+    // frozen until it finishes looks broken.
+    Q_INVOKABLE void startPaste();
+    Q_INVOKABLE void cancelPaste();
     // Into \a row of entries() when it is a directory. Says whether it went.
     Q_INVOKABLE bool enter(int row);
     // The full path of \a row, for a view that has to hand one back.
@@ -200,6 +209,11 @@ signals:
     void favoritesChanged();
     void historyChanged();
     void canPasteChanged();
+    void pastingChanged();
+    void pasteStatusChanged();
+    // What could not be copied, or empty when all of it was. Also emitted
+    // when the reader cancels, listing nothing.
+    void pasteFinished(const QString &failed);
 
 private:
     void rebuildEntries();

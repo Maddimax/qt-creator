@@ -269,6 +269,7 @@ private slots:
     void testTheFileDialogGetsAboutByKeyboard();
     void testFilesCanBeCopiedAndPasted();
     void testTheFileDialogShowsIconsAndCanBeAGrid();
+    void testALongPasteSaysWhatItIsDoingAndCanBeStopped();
     void testSeveralLinesCompleteTheWordTheCursorIsIn();
     void testColourOffersToGoBackToItsDefault();
     void testColourWithNoResetHasNoButton();
@@ -5409,22 +5410,36 @@ void QuickUiTest::testFilesCanBeCopiedAndPasted()
     QCOMPARE(Utils::FilePath::fromUrl(clipboard->mimeData()->urls().first()),
              root / "copied.txt");
 
-    // Pasted somewhere else: the file is there, with what was in it.
+    // Pasted somewhere else: the file is there, with what was in it. The
+    // copy runs in the background, so this waits for it to say it is done
+    // rather than for the file to appear - a paste that never finishes would
+    // otherwise look the same as one that copied nothing.
     QtcQuick::FileBrowser into;
     into.setDirectory(other.toUserOutput());
-    QCOMPARE(into.paste(), QString());
+    const auto pasteInto = [](QtcQuick::FileBrowser &browser) {
+        QSignalSpy done(&browser, &QtcQuick::FileBrowser::pasteFinished);
+        browser.startPaste();
+        if (!done.wait(30000))
+            return QString("the paste never finished");
+        return done.at(0).at(0).toString();
+    };
+    QCOMPARE(pasteInto(into), QString());
     QVERIFY((other / "copied.txt").exists());
     QCOMPARE((other / "copied.txt").fileContents().value_or(QByteArray()), QByteArray("contents"));
 
     // And pasted back where it came from: a duplicate rather than nothing,
     // and named the way the widget dialog names one.
-    QCOMPARE(browser.paste(), QString());
+    QCOMPARE(pasteInto(browser), QString());
     QVERIFY2((root / "copied copy.txt").exists(),
              "pasting into the directory a file came from did not duplicate it");
     QVERIFY((root / "copied.txt").exists());
     // Twice over, so the second duplicate does not overwrite the first.
-    QCOMPARE(browser.paste(), QString());
+    QCOMPARE(pasteInto(browser), QString());
     QVERIFY((root / "copied copy 2.txt").exists());
+
+    // Nothing is left saying it is still copying.
+    QVERIFY(!browser.isPasting());
+    QVERIFY(browser.pasteStatus().isEmpty());
 }
 
 // Icons beside the names, and the icon view the widget dialog also offers.
@@ -5481,6 +5496,75 @@ void QuickUiTest::testTheFileDialogShowsIconsAndCanBeAGrid()
     dialog->setProperty("showingIcons", true);
     QVERIFY2(gridView->isVisible() && !list->isVisible(),
              "asking for icons did not swap the views");
+}
+
+// The widget dialog puts up a progress dialog while it copies, with a Cancel.
+// A paste that blocks the dialog until it finishes looks broken, and one that
+// cannot be stopped is worse on a device than on this machine.
+void QuickUiTest::testALongPasteSaysWhatItIsDoingAndCanBeStopped()
+{
+    Utils::TemporaryDirectory dir("quickui-browser-longpaste");
+    QVERIFY(dir.isValid());
+    const Utils::FilePath root = dir.path();
+    const Utils::FilePath many = root / "many";
+    const Utils::FilePath into = root / "into";
+    QVERIFY(many.createDir());
+    QVERIFY(into.createDir());
+    // Enough of them that the copy is still going when it is asked to stop.
+    // Empty, so that making them is quick: what takes the time is the number
+    // of files, not their size.
+    for (int i = 0; i < 6000; ++i)
+        QVERIFY((many / QString("file%1.txt").arg(i)).writeFileContents({}));
+
+    QClipboard * const clipboard = QGuiApplication::clipboard();
+    const QScopeGuard restore([clipboard] { clipboard->clear(); });
+
+    QtcQuick::FileBrowser browser;
+    browser.setDirectory(root.toUserOutput());
+    QTRY_COMPARE(browser.entries()->rowCount(), 2);
+    int manyRow = -1;
+    for (int row = 0; row < browser.entries()->rowCount(); ++row) {
+        if (browser.filePathAt(row).endsWith("many"))
+            manyRow = row;
+    }
+    QVERIFY(manyRow >= 0);
+    browser.copyToClipboard({manyRow});
+
+    QtcQuick::FileBrowser target;
+    target.setDirectory(into.toUserOutput());
+    QVERIFY(!target.isPasting());
+
+    // What it said it was copying, as opposed to how often it said anything:
+    // the status is also cleared when the paste ends, so counting the signal
+    // would be satisfied by that alone.
+    QStringList saidWhat;
+    QSignalSpy finished(&target, &QtcQuick::FileBrowser::pasteFinished);
+    target.startPaste();
+    QVERIFY2(target.isPasting(), "the paste did not start, or finished before it could be seen");
+
+    // Stopped as soon as it says it has started, which is the earliest a
+    // reader could press Cancel too.
+    connect(&target, &QtcQuick::FileBrowser::pasteStatusChanged, &target, [&] {
+        if (!target.pasteStatus().isEmpty())
+            saidWhat << target.pasteStatus();
+        target.cancelPaste();
+    });
+
+    // It says which file it is copying while it copies, which is the whole
+    // reason for doing it in the background.
+    QTRY_VERIFY2(!saidWhat.isEmpty(), "the paste never said which file it was copying");
+    QVERIFY2(saidWhat.first().startsWith("file"),
+             qPrintable("it said it was copying " + saidWhat.first()));
+    QTRY_VERIFY2(finished.size() > 0, "the paste did not stop when it was asked to");
+    QVERIFY(!target.isPasting());
+    QVERIFY(target.pasteStatus().isEmpty());
+
+    // Half a directory is not what was asked for, so what was copied so far
+    // goes rather than being left behind. No skip for "it finished first":
+    // the cancel went in on the first file it reported, so a copy that ran to
+    // the end is one that ignored it - which is what this is here to catch.
+    QVERIFY2(!(into / "many").exists(),
+             "a cancelled copy left the half it had made behind");
 }
 
 void QuickUiTest::testSeveralLinesCompleteTheWordTheCursorIsIn()

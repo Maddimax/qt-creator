@@ -14827,3 +14827,31 @@ loading, because the delegate hosts the dialog that hosts the offending
 delegate. The suite aborted rather than failed, and the test that named the
 cause was the one that only asks whether each component in the module can be
 loaded at all. It is called `iconSource` now.
+
+### A paste that says what it is doing
+
+The last thing the widget dialog does that this one did not: it puts up a
+progress dialog while it copies, with a Cancel. The Quick paste copied on the
+GUI thread and said nothing, so a directory of any size - or anything at all on
+a device - froze the dialog until it was done.
+
+It runs in the background now, reports each file as it copies it, and can be
+stopped. A cancelled copy takes back the half it had made: half a directory is
+not what anyone asked for.
+
+Testing this took three attempts and the first two were worse than nothing.
+
+`QSignalSpy::wait()` waits for the *next* signal, so a paste that finished
+before the wait began timed out and the test failed although the code was
+right. Then, with 400 small files, the copy was over before Cancel could
+possibly land - a test of cancellation that never cancelled anything. Six
+thousand empty files make the copy long enough, and the cancel goes in from the
+first file it reports, which is also the earliest a reader could press it.
+
+Worse, the version that skipped when the copy had finished first turned a real
+regression into a pass: with cancellation broken the copy always finishes, and
+the skip swallowed it. There is no skip now - the cancel is sent on the first
+reported file, so a copy that runs to the end is one that ignored it.
+
+And "it said something while copying" was satisfied by the status being
+*cleared* at the end. It checks what was said, not how often.

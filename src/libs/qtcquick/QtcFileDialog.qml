@@ -150,6 +150,12 @@ Window {
         id: browser
 
         objectName: "fileBrowser"
+
+        // A copy that failed says so where the other troubles are said.
+        onPasteFinished: (failed) => {
+            if (failed !== "")
+                root.trouble = failed
+        }
         // Going somewhere else is a fresh question; what was typed was about
         // the directory that was being looked at.
         onDirectoryChanged: {
@@ -223,12 +229,8 @@ Window {
     Shortcut {
         objectName: "pasteShortcut"
         sequences: [StandardKey.Paste]
-        enabled: browser.canPaste
-        onActivated: {
-            const failed = browser.paste()
-            if (failed !== "")
-                root.trouble = failed
-        }
+        enabled: browser.canPaste && !browser.pasting
+        onActivated: browser.startPaste()
     }
 
     Shortcut {
@@ -264,12 +266,8 @@ Window {
         MenuItem {
             objectName: "pasteItem"
             text: qsTr("Paste")
-            enabled: browser.canPaste
-            onTriggered: {
-                const failed = browser.paste()
-                if (failed !== "")
-                    root.trouble = failed
-            }
+            enabled: browser.canPaste && !browser.pasting
+            onTriggered: browser.startPaste()
         }
 
         MenuItem {
@@ -701,6 +699,35 @@ Window {
 
                     Keys.onReturnPressed: root.accept()
                     Keys.onEnterPressed: root.accept()
+                }
+
+                RowLayout {
+                    objectName: "pasteProgress"
+                    spacing: Spacing.GapHM
+                    visible: browser.pasting
+                    Layout.fillWidth: true
+
+                    BusyIndicator {
+                        running: browser.pasting
+                        implicitWidth: Metrics.listRowIconSize
+                        implicitHeight: Metrics.listRowIconSize
+                    }
+
+                    Label {
+                        objectName: "pasteStatusLabel"
+                        text: browser.pasteStatus !== ""
+                              ? qsTr("Copying %1").arg(browser.pasteStatus)
+                              : qsTr("Copying")
+                        elide: Text.ElideMiddle
+                        color: Tokens.textMuted
+                        Layout.fillWidth: true
+                    }
+
+                    QtcButton {
+                        objectName: "cancelPasteButton"
+                        text: qsTr("Cancel")
+                        onClicked: browser.cancelPaste()
+                    }
                 }
 
                 Label {

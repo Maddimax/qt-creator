@@ -114,6 +114,10 @@ public:
     QFuture<FileEntries::Entry> m_search;
     QFutureWatcher<FileEntries::Entry> *m_searchWatcher = nullptr;
     QList<FileEntries::Entry> m_hits;
+    QFuture<QString> m_paste;
+    QFutureWatcher<QString> *m_pasteWatcher = nullptr;
+    QString m_pasteStatus;
+    QString m_pasteFailure;
     QString m_error;
     bool m_busy = false;
 };
@@ -567,30 +571,92 @@ void FileBrowser::copyToClipboard(const QList<int> &rows)
     QGuiApplication::clipboard()->setMimeData(mime);
 }
 
-QString FileBrowser::paste()
+bool FileBrowser::isPasting() const
+{
+    return d->m_pasteWatcher && d->m_pasteWatcher->isRunning();
+}
+
+QString FileBrowser::pasteStatus() const
+{
+    return d->m_pasteStatus;
+}
+
+void FileBrowser::cancelPaste()
+{
+    if (d->m_pasteWatcher)
+        d->m_pasteWatcher->cancel();
+}
+
+void FileBrowser::startPaste()
 {
     const QMimeData * const clipboard = QGuiApplication::clipboard()->mimeData();
-    if (!clipboard || !clipboard->hasUrls() || d->m_directory.isEmpty())
-        return {};
+    if (!clipboard || !clipboard->hasUrls() || d->m_directory.isEmpty() || isPasting())
+        return;
 
-    QStringList failed;
     const QList<QUrl> urls = clipboard->urls();
-    for (const QUrl &url : urls) {
-        const FilePath source = FilePath::fromUrl(url);
-        if (source.isEmpty())
-            continue;
-        const FilePath target = FileUtils::uniqueCopyTarget(source, d->m_directory);
-        FileUtils::CopyAskingForOverwrite copy;
-        const Result<FileUtils::CopyResult> done
-            = FileUtils::copyRecursively(source, target, copy());
-        if (!done)
-            failed << source.toUserOutput();
-    }
+    const FilePath into = d->m_directory;
+    d->m_paste = Utils::asyncRun([urls, into](QPromise<QString> &promise) {
+        QStringList failed;
+        for (const QUrl &url : urls) {
+            if (promise.isCanceled())
+                break;
+            const FilePath source = FilePath::fromUrl(url);
+            if (source.isEmpty())
+                continue;
+            const FilePath target = FileUtils::uniqueCopyTarget(source, into);
+            // Reported per file so that copying a directory says what it is
+            // up to, and so that cancelling takes effect between files
+            // rather than only between the things on the clipboard.
+            FileUtils::CopyAskingForOverwrite copy([&promise](const FilePath &copied) {
+                promise.addResult(copied.fileName());
+                return !promise.isCanceled();
+            });
+            const Result<FileUtils::CopyResult> done
+                = FileUtils::copyRecursively(source, target, copy());
+            if (!done) {
+                failed << source.toUserOutput();
+            } else if (*done == FileUtils::CopyResult::Canceled) {
+                // Half a directory is not what was asked for.
+                target.removeRecursively();
+                break;
+            }
+        }
+        // The last result is what went wrong, marked so that it is not read
+        // as another file name.
+        if (!failed.isEmpty()) {
+            promise.addResult(QLatin1Char('\0')
+                              + Tr::tr("Could not paste the following:\n%1")
+                                    .arg(failed.join(QLatin1Char('\n'))));
+        }
+    });
 
-    rebuildEntries();
-    if (failed.isEmpty())
-        return {};
-    return Tr::tr("Could not paste the following:\n%1").arg(failed.join(QLatin1Char('\n')));
+    if (!d->m_pasteWatcher) {
+        d->m_pasteWatcher = new QFutureWatcher<QString>(this);
+        connect(d->m_pasteWatcher, &QFutureWatcherBase::resultsReadyAt, this,
+                [this](int begin, int end) {
+                    for (int i = begin; i < end; ++i) {
+                        const QString result = d->m_pasteWatcher->future().resultAt(i);
+                        if (result.startsWith(QLatin1Char('\0'))) {
+                            d->m_pasteFailure = result.mid(1);
+                            continue;
+                        }
+                        d->m_pasteStatus = result;
+                        emit pasteStatusChanged();
+                    }
+                });
+        connect(d->m_pasteWatcher, &QFutureWatcherBase::finished, this, [this] {
+            d->m_pasteStatus.clear();
+            emit pasteStatusChanged();
+            emit pastingChanged();
+            rebuildEntries();
+            const QString failed = d->m_pasteFailure;
+            d->m_pasteFailure.clear();
+            emit pasteFinished(failed);
+        });
+    }
+    d->m_pasteFailure.clear();
+    d->m_pasteWatcher->setFuture(d->m_paste);
+    emit pastingChanged();
 }
 
 QString FileBrowser::whyNotBinned(const QString &path) const
