@@ -15019,3 +15019,28 @@ was reworked to dismiss a suggestion.
 Forty-seven files across the Quick work were rebuilt from scratch afterwards;
 what is left in the log is `-Winconsistent-missing-override` in baremetal,
 which the plan already records as not this branch's.
+
+### What the dialog looked like
+
+Nobody had seen it. Everything about the file dialog was tested headlessly -
+components instantiated, properties read, signals counted - and that turned out
+to be a real gap in its own right, because the first picture of it showed four
+things wrong that no test asked about.
+
+The listing was **not sorted**. `FileSystemProxyModel` has a `lessThan` and the
+widget dialog sets `FileSortRole` and sorts by it; the browser did neither, so
+rows came out in the order the directory happened to be read. Directories first
+and then by name without regard to case now, and the test builds its fixture in
+an order that is neither the answer nor its reverse.
+
+The rest was layout. Every button in the toolbar was a primary green one, so
+Back and Show Hidden shouted as loudly as Open. "File name:" was followed by
+the *filter* combo, so it labelled the wrong control. The path field - the one
+thing that says where you are - was the narrowest control in the row. And eight
+buttons across the top made the dialog wider than its own window: the search
+box and both dialog buttons were clipped. The view options went behind an
+Options menu, which is where the widget dialog keeps its own.
+
+Worth keeping as a lesson rather than a paragraph about buttons: a component
+can be green in every test it has and still be obviously wrong the first time
+anybody looks at it. The tests were asking whether it *worked*, and it did.

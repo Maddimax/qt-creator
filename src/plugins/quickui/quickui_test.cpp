@@ -259,6 +259,7 @@ private slots:
     void testAColourOffersAnAlphaOnlyWhenItIsAllowed();
     void testAFontPickerOffersOnlyTheFamiliesTheAspectAccepts();
     void testTheFileBrowserListsWhatIsInADirectory();
+    void testADirectoryIsListedInAnOrderAReaderExpects();
     void testABigDirectoryIsListedWithoutTheDialogHanging();
     void testTheFileDialogChoosesAFileWithoutAskingThePlatform();
     void testAPathOnADeviceIsBrowsedWithOurOwnDialog();
@@ -5767,6 +5768,34 @@ void QuickUiTest::testWhichDialogAFieldOpensIsOneDecision()
                               Q_ARG(QString, QString("docker://nosuchimage/tmp")),
                               Q_ARG(int, int(Qt::ShiftModifier)));
     QVERIFY2(!answer, "a field that takes no device path was sent to a device anyway");
+}
+
+// Directories first, then by name without regard to case - the order the
+// widget dialog shows and the one a reader looks for a file in. Without it a
+// listing comes out in whatever order the directory was read.
+void QuickUiTest::testADirectoryIsListedInAnOrderAReaderExpects()
+{
+    Utils::TemporaryDirectory dir("quickui-browser-order");
+    QVERIFY(dir.isValid());
+    const Utils::FilePath root = dir.path();
+    // Made in an order that is neither the answer nor its reverse, so that
+    // "it happens to come out right" is not what is being seen.
+    for (const QString &name : QStringList{"widget.cpp", "Alpha.txt", "main.cpp", "zebra.h"})
+        QVERIFY((root / name).writeFileContents({}));
+    for (const QString &name : QStringList{"tests", "Include", "src"})
+        QVERIFY((root / name).createDir());
+
+    QtcQuick::FileBrowser browser;
+    browser.setDirectory(root.toUserOutput());
+    QtcQuick::FileEntries * const entries = browser.entries();
+    QTRY_COMPARE(entries->rowCount(), 7);
+
+    QStringList listed;
+    for (int row = 0; row < entries->rowCount(); ++row)
+        listed << browser.nameAt(row);
+
+    QCOMPARE(listed, QStringList({"Include", "src", "tests",
+                                  "Alpha.txt", "main.cpp", "widget.cpp", "zebra.h"}));
 }
 
 void QuickUiTest::testSeveralLinesCompleteTheWordTheCursorIsIn()

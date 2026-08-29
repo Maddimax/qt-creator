@@ -131,9 +131,9 @@ Window {
         root.close()
     }
 
-    width: 720
-    height: 480
-    minimumWidth: 480
+    width: 900
+    height: 560
+    minimumWidth: 560
     minimumHeight: 320
     modality: Qt.ApplicationModal
     title: root.choosingDirectory ? qsTr("Choose Directory") : qsTr("Choose File")
@@ -237,6 +237,50 @@ Window {
         objectName: "closeShortcut"
         sequences: [StandardKey.Cancel]
         onActivated: root.reject()
+    }
+
+    // What the toolbar used to carry as four more buttons. The widget dialog
+    // keeps its view options behind a menu too, and a row of eight buttons
+    // was wider than the dialog.
+    Menu {
+        id: optionsMenu
+
+        objectName: "optionsMenu"
+
+        MenuItem {
+            objectName: "viewModeItem"
+            text: root.showingIcons ? qsTr("Show as List") : qsTr("Show as Icons")
+            onTriggered: root.showingIcons = !root.showingIcons
+        }
+
+        MenuItem {
+            objectName: "hiddenItem"
+            text: browser.showHiddenFiles ? qsTr("Hide Hidden Files")
+                                          : qsTr("Show Hidden Files")
+            onTriggered: browser.showHiddenFiles = !browser.showHiddenFiles
+        }
+
+        MenuSeparator {}
+
+        MenuItem {
+            objectName: "favoriteItem"
+            text: browser.currentIsFavorite ? qsTr("Stop Keeping This Folder")
+                                            : qsTr("Keep This Folder")
+            enabled: browser.directory !== ""
+            onTriggered: {
+                if (browser.currentIsFavorite)
+                    browser.removeFavorite(browser.directory)
+                else
+                    browser.addFavorite(browser.directory)
+            }
+        }
+
+        MenuItem {
+            objectName: "newFolderItem"
+            text: qsTr("New Folder...")
+            enabled: browser.directory !== ""
+            onTriggered: newFolderPrompt.open()
+        }
     }
 
     // What can be done to a kept directory.
@@ -381,6 +425,7 @@ Window {
 
             QtcButton {
                 objectName: "backButton"
+                role: QtcButton.Role.MediumSecondary
                 text: qsTr("Back")
                 enabled: browser.canGoBack
                 onClicked: browser.goBack()
@@ -388,6 +433,7 @@ Window {
 
             QtcButton {
                 objectName: "forwardButton"
+                role: QtcButton.Role.MediumSecondary
                 text: qsTr("Forward")
                 enabled: browser.canGoForward
                 onClicked: browser.goForward()
@@ -395,6 +441,7 @@ Window {
 
             QtcButton {
                 objectName: "upButton"
+                role: QtcButton.Role.MediumSecondary
                 text: qsTr("Up")
                 enabled: browser.canGoUp
                 onClicked: browser.goUp()
@@ -405,42 +452,25 @@ Window {
 
                 objectName: "pathField"
                 text: browser.directory
+                // The widest thing in the row: it says where you are, and the
+                // buttons beside it are two words each.
                 Layout.fillWidth: true
+                Layout.minimumWidth: Metrics.formControlWidth
 
                 onEditingFinished: browser.directory = text
             }
 
             // Keeping a directory to hand. The same list the widget dialog
             // shows, so one kept here is kept there.
+            
+            
+            
+            
             QtcButton {
-                objectName: "favoriteButton"
-                text: browser.currentIsFavorite ? qsTr("Unkeep") : qsTr("Keep")
-                enabled: browser.directory !== ""
-                onClicked: {
-                    if (browser.currentIsFavorite)
-                        browser.removeFavorite(browser.directory)
-                    else
-                        browser.addFavorite(browser.directory)
-                }
-            }
-
-            QtcButton {
-                objectName: "newFolderButton"
-                text: qsTr("New Folder")
-                enabled: browser.directory !== ""
-                onClicked: newFolderPrompt.open()
-            }
-
-            QtcButton {
-                objectName: "viewModeButton"
-                text: root.showingIcons ? qsTr("List") : qsTr("Icons")
-                onClicked: root.showingIcons = !root.showingIcons
-            }
-
-            QtcButton {
-                objectName: "hiddenButton"
-                text: browser.showHiddenFiles ? qsTr("Hide Hidden") : qsTr("Show Hidden")
-                onClicked: browser.showHiddenFiles = !browser.showHiddenFiles
+                objectName: "optionsButton"
+                role: QtcButton.Role.MediumSecondary
+                text: qsTr("Options")
+                onClicked: optionsMenu.popup(0, height)
             }
 
             QtcSearchBox {
@@ -467,7 +497,10 @@ Window {
             // device that can be browsed.
             ColumnLayout {
                 spacing: Spacing.GapVS
-                Layout.preferredWidth: Metrics.formLabelWidth
+                // Wide enough for a place's name and no wider: the listing is
+                // what the reader came for.
+                Layout.preferredWidth: Metrics.lineEditWidth
+                Layout.maximumWidth: Metrics.formLabelWidth
                 Layout.fillHeight: true
 
                 Label {
@@ -769,6 +802,7 @@ Window {
 
                     QtcButton {
                         objectName: "cancelPasteButton"
+                role: QtcButton.Role.MediumSecondary
                         text: qsTr("Cancel")
                         onClicked: browser.cancelPaste()
                     }
@@ -794,6 +828,23 @@ Window {
                 visible: !root.choosingDirectory
             }
 
+            // Beside the label that names it. It sat after the filter before,
+            // so "File name:" read as the label of the kind of file.
+            QtcLineEdit {
+                id: nameField
+
+                objectName: "nameField"
+                visible: !root.choosingDirectory
+                Layout.fillWidth: true
+
+                onAccepted: root.accept()
+            }
+
+            Label {
+                text: qsTr("Kind:")
+                visible: filterBox.visible
+            }
+
             ComboBox {
                 id: filterBox
 
@@ -809,20 +860,11 @@ Window {
                 }
             }
 
-            QtcLineEdit {
-                id: nameField
-
-                objectName: "nameField"
-                visible: !root.choosingDirectory
-                Layout.fillWidth: true
-
-                onAccepted: root.accept()
-            }
-
             Item { Layout.fillWidth: root.choosingDirectory }
 
             QtcButton {
                 objectName: "cancelButton"
+                role: QtcButton.Role.MediumSecondary
                 text: qsTr("Cancel")
                 onClicked: root.reject()
             }

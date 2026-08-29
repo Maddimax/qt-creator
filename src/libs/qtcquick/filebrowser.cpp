@@ -136,6 +136,11 @@ FileBrowser::FileBrowser(QObject *parent)
     , d(new FileBrowserPrivate)
 {
     d->m_proxy.setSourceModel(&d->m_model);
+    // Directories first, then by name without regard to case - which is what
+    // FileSortRole answers and what the widget dialog sorts by. Without this
+    // a listing comes out in the order the directory happened to be read in.
+    d->m_proxy.setSortRole(FileSystemModel::FileSortRole);
+    d->m_proxy.sort(0);
 
     // The listing arrives after the directory is set, so the rows are built
     // when it does rather than when it was asked for.
