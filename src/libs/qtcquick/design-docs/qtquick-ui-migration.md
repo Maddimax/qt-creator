@@ -14348,3 +14348,32 @@ own suite.
 Still missing before this is a feature: the three apply commands remain
 unregistered, because reaching them needs the popup work the Quick editor does
 not have yet.
+
+### Inline suggestions: taking one
+
+With something able to offer a suggestion and the view able to draw it, the
+three commands that take one - Apply, Apply one Word, Apply Line - are
+registered in the Quick editor's context. They are disabled until a suggestion
+is showing, exactly as the widget editor keeps them: their shortcuts are Tab,
+Shift+Tab and the next-word key, and an enabled shortcut is taken before the
+key ever reaches the view, so a live entry would quietly stop Tab from
+indenting.
+
+That needed the half nobody had written yet: the view has to know *which* line
+a suggestion is on. `currentSuggestion()` used to ask the block the caret was
+in, which answers "no" as soon as the caret moves - while the drawing, which
+asks each block for itself, went on showing the ghost text on the line the
+caret had left. The view now keeps the block, and the suggestion is looked at
+again whenever the caret moves or the text changes: kept while what is there
+still leads to it, dropped when it does not.
+
+Both re-checks earn their place, which one negative control had to be rewritten
+to show. Typing seems to prove the content one, but typing moves the caret too,
+so the caret path alone passed that test. The case only the content path
+catches is text changing without this view's caret moving - another view
+editing the same document, or an undo - and that is what the test does now.
+
+Taking a suggestion in full does *not* end it: the line then reads what was
+offered, so it still describes the text and stays. The widget editor does the
+same, and the test says so rather than asserting a tidier rule that neither
+editor follows.

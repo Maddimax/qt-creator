@@ -574,6 +574,9 @@ public:
     // Puts \a suggestion on the line the caret is on and shows it. What
     // something offering one - Copilot today - calls.
     void insertSuggestion(std::unique_ptr<TextSuggestion> &&suggestion);
+    // Takes away the one being shown, if any: it describes something that can
+    // no longer happen.
+    void clearSuggestion();
     // Gives a suggestion just put on \a block the look and the tab stops of
     // this view, and asks for a layout so that it appears.
     void prepareSuggestion(const QTextBlock &block);
@@ -656,6 +659,7 @@ public:
     // the reader was looking at is still there after the page turns.
     int rowsPerPage() const;
     QTextBlock suggestionRowFor(const QTextBlock &block) const;
+    void updateSuggestion();
     Utils::PlainTextDocumentLayout *movementLayout() const;
     // Asks the hint what it says now, and takes it away when the call the
     // caret was in has ended.
@@ -808,6 +812,10 @@ signals:
     void functionHintAvailable(const QStringList &signatures, int activeArgument);
     void selectionChanged();
     void cursorPositionChanged();
+    // One appeared, or the one that was there is gone. What the commands that
+    // take a suggestion listen to, so that they are offered only when there
+    // is something to take.
+    void suggestionChanged();
     void cursorRectangleChanged();
     void readOnlyChanged();
     void fileFormatChanged();
@@ -1053,6 +1061,9 @@ private:
     // was taken for.
     QTextCursor m_selectBlockAnchor;
     SymbolRequests *m_symbolRequests = nullptr;
+    // The line a suggestion is being shown on, so that it can be taken away
+    // again when the caret leaves it.
+    QTextBlock m_suggestionBlock;
     // Set after a line has been moved and cleared by the next key. Moving a
     // line twice is one thing the reader did, so the second move joins the
     // first one's undo step rather than making its own.

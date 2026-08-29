@@ -350,6 +350,46 @@ public:
                     view->addCaretsToLineEnds();
             });
 
+        // Taking the suggestion that is showing. Disabled until one is,
+        // because their shortcuts are Tab, Shift+Tab and the next-word key,
+        // which have to go on meaning what they usually mean the rest of the
+        // time - an enabled shortcut is taken before the key ever reaches the
+        // view.
+        const auto suggestionCommand = [this](Utils::Id id, const QString &text,
+                                              const QString &tip,
+                                              void (TextViewport::*take)()) {
+            m_suggestionActions << Core::ActionBuilder(this, id)
+                                       .setContext(Core::Context(m_editorContext))
+                                       .setText(text)
+                                       .setToolTip(tip)
+                                       .addOnTriggered(this, [this, take] {
+                                           if (TextViewport * const view = viewport())
+                                               (view->*take)();
+                                       })
+                                       .setScriptable(true)
+                                       .setEnabled(false)
+                                       .contextAction();
+        };
+        suggestionCommand(Constants::SUGGESTION_APPLY, Tr::tr("Apply"),
+                          Tr::tr("Apply the current suggestion."),
+                          &TextViewport::applySuggestion);
+        suggestionCommand(Constants::SUGGESTION_APPLY_WORD, Tr::tr("Apply one Word"),
+                          Tr::tr("Apply one word of the current suggestion."),
+                          &TextViewport::applySuggestionWord);
+        suggestionCommand(Constants::SUGGESTION_APPLY_LINE, Tr::tr("Apply Line"),
+                          Tr::tr("Apply one line of the current suggestion."),
+                          &TextViewport::applySuggestionLine);
+        if (TextViewport * const view = viewport()) {
+            connect(view, &TextViewport::suggestionChanged, this, [this] {
+                TextViewport * const view = viewport();
+                const bool takeable = view && view->currentSuggestion();
+                for (const QPointer<QAction> &action : std::as_const(m_suggestionActions)) {
+                    if (action)
+                        action->setEnabled(takeable);
+                }
+            });
+        }
+
         // The line commands. Each is the widget editor's menu entry answered
         // in this editor's context, so that it stops being dead when a Quick
         // editor is the current one.
@@ -887,6 +927,8 @@ public:
     // Owned by the toolbar the editor manager puts it in, so a QPointer.
     QPointer<QWidget> m_toolBar;
     QPointer<QAction> m_wrapAction;
+    // Enabled only while there is a suggestion to take.
+    QList<QPointer<QAction>> m_suggestionActions;
     QPointer<QAction> m_whitespaceAction;
     // This editor alone, so that a per-editor action does not collide with
     // the same action on the next one.
@@ -1227,6 +1269,73 @@ private slots:
         QVERIFY2(host->suggestionVisible(), "the suggestion it just put there is not showing");
         // A picture of what taking it would do, not the doing of it.
         QCOMPARE(host->document()->findBlockByNumber(0).text(), QString("ret"));
+    }
+
+    // The three ways of taking a suggestion are menu entries, not only
+    // methods - and they are offered only while there is one to take. Their
+    // shortcuts are Tab, Shift+Tab and the next-word key, so an entry left
+    // enabled would take those keys away from what they usually do.
+    void testTakingASuggestionIsOfferedOnlyWhileThereIsOne()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-suggestion-cmds");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("plain.txt");
+        QVERIFY(file.writeFileContents("ret\nsecond\n"));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+        auto * const view = quick->rootObject()->findChild<TextViewport *>();
+        QVERIFY(view);
+        QTRY_VERIFY(view->visibleLineCount() > 1);
+
+        const Core::Context context = editor->context();
+        const auto inContext = [&context](const Utils::Id &id) -> QAction * {
+            Core::Command * const cmd = Core::ActionManager::command(id);
+            if (!cmd)
+                return nullptr;
+            for (const Utils::Id &each : context) {
+                if (QAction * const a = cmd->actionForContext(each))
+                    return a;
+            }
+            return nullptr;
+        };
+        QAction * const apply = inContext(Constants::SUGGESTION_APPLY);
+        QAction * const applyWord = inContext(Constants::SUGGESTION_APPLY_WORD);
+        QAction * const applyLine = inContext(Constants::SUGGESTION_APPLY_LINE);
+        QVERIFY2(apply && applyWord && applyLine,
+                 "taking a suggestion is not registered in the editor's context");
+        QVERIFY2(!apply->isEnabled() && !applyWord->isEnabled() && !applyLine->isEnabled(),
+                 "the entries are live with no suggestion to take");
+
+        view->setReadOnly(false);
+        view->setCursorPosition(3);
+        QTextDocument * const text = view->textDocument()->document();
+        auto suggestion = std::make_unique<CyclicSuggestion>(
+            QList<TextSuggestion::Data>{{{{1, 0}, {1, 3}}, {1, 3}, "return value;"}}, text, 0);
+        suggestion->setCurrentPosition(3);
+        view->insertSuggestion(std::move(suggestion));
+
+        QVERIFY2(apply->isEnabled(), "there is a suggestion but no way to take it");
+        QVERIFY(applyWord->isEnabled() && applyLine->isEnabled());
+
+        // And triggering the entry takes it, so the entry is wired to
+        // something and not merely lit up.
+        apply->trigger();
+        QCOMPARE(text->findBlockByNumber(0).text(), QString("return value;"));
+
+        // They go dead again when the suggestion does. Taking one does not
+        // end it - the line then reads what it offered, so it still describes
+        // the text and the widget editor keeps it too - but leaving the line
+        // does.
+        view->setCursorPosition(text->findBlockByNumber(1).position());
+        QVERIFY2(!apply->isEnabled() && !applyWord->isEnabled() && !applyLine->isEnabled(),
+                 "the entries stayed live with no suggestion to take");
     }
 
     // And the widget editor still is, which is what the handle replaced: it

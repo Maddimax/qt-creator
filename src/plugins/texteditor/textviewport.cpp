@@ -2140,6 +2140,7 @@ void TextViewport::setCursorPosition(int position)
     // caret is what changes what it says - or ends it.
     if (m_functionHintProposal)
         updateFunctionHint();
+    updateSuggestion();
     emit cursorPositionChanged();
     emit cursorRectangleChanged();
 }
@@ -3469,18 +3470,60 @@ private:
 
 void TextViewport::insertSuggestion(std::unique_ptr<TextSuggestion> &&suggestion)
 {
+    clearSuggestion();
     const QTextCursor cursor = textCursor();
     if (cursor.isNull())
         return;
-    const QTextBlock block = cursor.block();
-    TextBlockUserData::insertSuggestion(block, std::move(suggestion));
-    prepareSuggestion(block);
+    m_suggestionBlock = cursor.block();
+    TextBlockUserData::insertSuggestion(m_suggestionBlock, std::move(suggestion));
+    prepareSuggestion(m_suggestionBlock);
+    emit suggestionChanged();
+}
+
+void TextViewport::clearSuggestion()
+{
+    if (!m_suggestionBlock.isValid())
+        return;
+    TextBlockUserData::clearSuggestion(m_suggestionBlock);
+    m_suggestionBlock = QTextBlock();
+    polish();
+    emit suggestionChanged();
+}
+
+// A suggestion stays while what is typed still leads to it, and goes when it
+// does not - so it is never a picture of something that could no longer
+// happen. The same rule the widget editor follows.
+void TextViewport::updateSuggestion()
+{
+    if (!m_suggestionBlock.isValid())
+        return;
+    const QTextCursor cursor = textCursor();
+    if (!cursor.isNull() && cursor.block() == m_suggestionBlock) {
+        TextSuggestion * const suggestion = TextBlockUserData::suggestion(m_suggestionBlock);
+        if (QTC_GUARD(suggestion)) {
+            const int position = cursor.position();
+            if (position >= suggestion->currentPosition()) {
+                suggestion->setCurrentPosition(position);
+                ViewportSuggestionTarget target(this);
+                if (suggestion->filterSuggestions(target)) {
+                    if (TextDocument * const doc = textDocument()) {
+                        TextBlockUserData::updateSuggestionFormats(
+                            m_suggestionBlock, doc->fontSettings());
+                    }
+                    polish();
+                    return;
+                }
+            }
+        }
+    }
+    clearSuggestion();
 }
 
 TextSuggestion *TextViewport::currentSuggestion() const
 {
-    const QTextCursor cursor = textCursor();
-    return cursor.isNull() ? nullptr : TextBlockUserData::suggestion(cursor.block());
+    if (!m_suggestionBlock.isValid())
+        return nullptr;
+    return TextBlockUserData::suggestion(m_suggestionBlock);
 }
 
 void TextViewport::applySuggestion()
@@ -3847,6 +3890,10 @@ void TextViewport::documentChangedInternal()
         m_connectedDocument = text;
         if (text) {
             connect(text, &QTextDocument::contentsChanged, this, [this] {
+                // What was typed decides whether the suggestion still
+                // describes anything - including the case where taking it is
+                // what changed the text.
+                updateSuggestion();
                 polish();
                 update();
             });

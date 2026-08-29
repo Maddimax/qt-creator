@@ -5512,15 +5512,15 @@ private slots:
         QTextDocument * const text = viewport->textDocument()->document();
         QVERIFY2(!viewport->currentSuggestion(), "there is nothing to take yet");
 
-        // "ret" with "return value;" offered from the start of the line.
+        // "ret" with "return value;" offered from the start of the line, put
+        // there the way something offering one does it.
+        viewport->setCursorPosition(3);
         const Utils::Text::Range range{{1, 0}, {1, 3}};
         TextSuggestion::Data offered{range, {1, 3}, "return value;"};
         auto suggestion = std::make_unique<CyclicSuggestion>(
             QList<TextSuggestion::Data>{offered}, text, 0);
         suggestion->setCurrentPosition(3);
-        TextBlockUserData::insertSuggestion(text->findBlockByNumber(0), std::move(suggestion));
-
-        viewport->setCursorPosition(3);
+        viewport->insertSuggestion(std::move(suggestion));
         QVERIFY2(viewport->currentSuggestion(), "the suggestion was not found at the caret");
 
         // One word of it, which is the case that needed a widget: it asks
@@ -5558,9 +5558,7 @@ private slots:
         auto suggestion = std::make_unique<CyclicSuggestion>(
             QList<TextSuggestion::Data>{offered}, text, 0);
         suggestion->setCurrentPosition(3);
-        const QTextBlock block = text->findBlockByNumber(0);
-        TextBlockUserData::insertSuggestion(block, std::move(suggestion));
-        viewport->prepareSuggestion(block);
+        viewport->insertSuggestion(std::move(suggestion));
 
         // The row now reads what the suggestion offers.
         QTRY_COMPARE(viewport->visibleLine(0).value("text").toString(),
@@ -5590,6 +5588,98 @@ private slots:
         QCOMPARE(text->findBlockByNumber(0).text(), QString("ret"));
     }
 
+    // A suggestion describes what would happen on one line. Leave that line
+    // and it describes nothing, so it goes - otherwise the grey text sits
+    // there offering something the reader can no longer take.
+    void testASuggestionGoesWhenTheCaretLeavesItsLine()
+    {
+        TemporaryDirectory dir("qtc-viewport-suggestiongone");
+        const FilePath file = dir.filePath("plain.txt");
+        QVERIFY(file.writeFileContents("ret\nsecond\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        viewport->setReadOnly(false);
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+
+        QTextDocument * const text = viewport->textDocument()->document();
+        const Utils::Text::Range range{{1, 0}, {1, 3}};
+        const auto offer = [&] {
+            auto suggestion = std::make_unique<CyclicSuggestion>(
+                QList<TextSuggestion::Data>{{range, {1, 3}, "return value;"}}, text, 0);
+            suggestion->setCurrentPosition(3);
+            viewport->insertSuggestion(std::move(suggestion));
+        };
+
+        viewport->setCursorPosition(3);
+        offer();
+        QTRY_COMPARE(viewport->visibleLine(0).value("text").toString(), QString("return value;"));
+
+        QSignalSpy changed(viewport, &TextViewport::suggestionChanged);
+        viewport->setCursorPosition(text->findBlockByNumber(1).position());
+        QVERIFY2(!viewport->currentSuggestion(), "the suggestion outlived the line it was about");
+        QCOMPARE(changed.size(), 1);
+        // And it stops being drawn there, which is the half a reader sees.
+        QTRY_COMPARE(viewport->visibleLine(0).value("text").toString(), QString("ret"));
+
+        viewport->setCursorPosition(3);
+        offer();
+        QTRY_COMPARE(viewport->visibleLine(0).value("text").toString(), QString("return value;"));
+        viewport->setCursorPosition(2);
+        QVERIFY2(!viewport->currentSuggestion(),
+                 "the suggestion survived the caret moving back before it");
+
+        // And typing something the suggestion does not begin with ends it:
+        // what is on the line can no longer become what it offers.
+        viewport->setCursorPosition(3);
+        offer();
+        QTRY_COMPARE(viewport->visibleLine(0).value("text").toString(), QString("return value;"));
+        QTest::keyClick(&fixture.view, 'x');
+        QCOMPARE(text->findBlockByNumber(0).text(), QString("retx"));
+        QVERIFY2(!viewport->currentSuggestion(),
+                 "the suggestion survived text it cannot be reached from");
+    }
+
+    // The text can also change without this view's caret moving - another
+    // view editing the same document, or an undo. The suggestion is about
+    // that text, so it is looked at again then too.
+    void testASuggestionIsLookedAtAgainWhenTheTextChangesUnderIt()
+    {
+        TemporaryDirectory dir("qtc-viewport-suggestionunder");
+        const FilePath file = dir.filePath("plain.txt");
+        QVERIFY(file.writeFileContents("ret\nsecond\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        viewport->setReadOnly(false);
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+
+        QTextDocument * const text = viewport->textDocument()->document();
+        viewport->setCursorPosition(3);
+        auto suggestion = std::make_unique<CyclicSuggestion>(
+            QList<TextSuggestion::Data>{{{{1, 0}, {1, 3}}, {1, 3}, "return value;"}}, text, 0);
+        suggestion->setCurrentPosition(3);
+        viewport->insertSuggestion(std::move(suggestion));
+        QTRY_COMPARE(viewport->visibleLine(0).value("text").toString(), QString("return value;"));
+
+        // Written through the document rather than through this view, so the
+        // caret it knows about does not move and the change is all there is
+        // to go on.
+        const int caret = viewport->cursorPosition();
+        QTextCursor elsewhere(text);
+        elsewhere.setPosition(0);
+        elsewhere.insertText("x");
+        QCOMPARE(text->findBlockByNumber(0).text(), QString("xret"));
+        QCOMPARE(viewport->cursorPosition(), caret);
+
+        QVERIFY2(!viewport->currentSuggestion(),
+                 "the suggestion survived text it can no longer be reached from");
+    }
+
     // A suggestion of several lines is not shown at all, because showing it
     // would need rows this view has not laid out - and showing the first line
     // of one would be a lie about where the rest lands. The same for a view
@@ -5615,14 +5705,12 @@ private slots:
 
         QTextDocument * const text = viewport->textDocument()->document();
         const Utils::Text::Range range{{1, 0}, {1, 3}};
-        const QTextBlock block = text->findBlockByNumber(0);
 
         const auto offer = [&](const QString &suggested) {
             auto suggestion = std::make_unique<CyclicSuggestion>(
                 QList<TextSuggestion::Data>{{range, {1, 3}, suggested}}, text, 0);
             suggestion->setCurrentPosition(3);
-            TextBlockUserData::insertSuggestion(block, std::move(suggestion));
-            viewport->prepareSuggestion(block);
+            viewport->insertSuggestion(std::move(suggestion));
         };
 
         offer("one line;");
