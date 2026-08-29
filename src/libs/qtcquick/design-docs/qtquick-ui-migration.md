@@ -16593,3 +16593,35 @@ Six soft asserts of another kind survive - `renderAspect(*this, parent)` in
 `aspects.cpp`, which is an aspect asked to draw where no widget renderer was
 installed. That is the next thread.
 
+### The setting that is simply not there
+
+The other soft assert in the same run - six of them - was
+`renderAspect(*this, parent)` in `aspects.cpp`, under a comment saying
+"Reaching the check means no renderer was installed". That comment is wrong,
+and it is the reason nobody had followed the assert anywhere: it sends the
+reader to `installAspectWidgetRenderer()`, which is not the fault.
+
+`AspectWidgetRenderer::render()` returns false when it has no drawing for the
+control an aspect asks for. Comparing the enum against the switch: of 32
+controls it handles 27, `Custom` and `Invisible` return before it, and three -
+**`KeySequence`, `Table` and `Tree`** - are drawn only by the Qt Quick
+renderer. An aspect asking for one of those draws **nothing** on the widget
+path, and what the reader sees is a setting that is simply absent.
+
+Instrumenting the guard named it: `Analyzer.Perf.Events`, the Perf profiler's
+"Events:" table, six times. `PerfSettings` has a `qmlSource`, so its options
+page is fine - but `PerfRunConfigurationAspect` is a `GlobalOrProjectAspect`,
+so the same settings appear under **Run Settings**, and that is the path the
+test renders. More than ten aspects across the tree declare `Table`.
+
+It cannot be drawn with widgets, so what was fixed is the report. It names the
+setting, the control and what the page needs, instead of blaming a missing
+renderer - and `tst_utils_aspectrenderer` now holds it to that, since a
+setting that vanishes silently is the failure and the message is the only
+evidence of it. Both controls bite: saying nothing, and saying it without
+naming the setting.
+
+Worth someone deciding: whether `Run Settings -> Perf` should draw its Events
+table through Qt Quick like its options page does, or whether the widget
+renderer should learn `Table`. The warning now says which pages are affected
+the moment anyone runs the tests.

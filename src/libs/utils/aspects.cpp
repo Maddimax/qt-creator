@@ -568,10 +568,22 @@ void BaseAspect::addToLayoutImpl(Layout &parent)
     if (control == AspectControls::Invisible || control == AspectControls::Custom)
         return;
 
-    // Reaching the check means no renderer was installed; see
-    // installAspectWidgetRenderer().
-    if (!QTC_GUARD(renderAspect(*this, parent)))
+    // A renderer that declines is not a renderer that is missing. Three
+    // controls - KeySequence, Table and Tree - are drawn by the Qt Quick
+    // renderer and have no widget counterpart, so an aspect asking for one of
+    // them draws nothing here. That is worth saying, because what the reader
+    // sees is a setting that is simply absent; and it is worth saying *what*
+    // happened, because "no renderer was installed" sent the last person to
+    // look at installAspectWidgetRenderer() instead of at the control.
+    if (!renderAspect(*this, parent)) {
+        qWarning("%s asks for a control the widget renderer cannot draw (%d), so it is "
+                 "not drawn at all: the page holding it needs Qt Quick.",
+                 qPrintable(labelText().isEmpty()
+                                ? QString::fromLatin1(metaObject()->className())
+                                : labelText()),
+                 int(control));
         return;
+    }
 
     // Drawn: an aspect that has to go and find out what it should say may do
     // so now. Nothing happens by default; the ones that override it are a

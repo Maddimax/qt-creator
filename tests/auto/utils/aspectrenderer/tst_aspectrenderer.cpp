@@ -110,6 +110,7 @@ private slots:
     void initTestCase();
 
     void spanReachesAcrossColumnsAndIsQuietWhereThereAreNone();
+    void aControlWithNoWidgetDrawingSaysSoRatherThanVanishing();
     void checkBox_data() { addRendererRows(); }
     void checkBox();
     void radioButton_data() { addRendererRows(); }
@@ -231,6 +232,52 @@ void tst_AspectRenderer::initTestCase()
 // not: the drop was reported with QTC_CHECK, which printed a soft assert
 // seventy-two times in one run of ProjectExplorer's tests - and is fatal
 // under QTC_FATAL_ASSERTS.
+// Three controls - KeySequence, Table and Tree - are drawn by the Qt Quick
+// renderer and have no widget counterpart. An aspect asking for one of them
+// draws nothing here, and what the reader sees is a setting that is simply
+// absent: the Perf profiler's "Events:" table is one, six times over in a run
+// of ProjectExplorer's tests.
+//
+// It cannot be drawn, so what is tested is that it is *reported*, and
+// reported usefully. The guard used to say "no renderer was installed", which
+// is a different fault and sends the next reader to the wrong function.
+void tst_AspectRenderer::aControlWithNoWidgetDrawingSaysSoRatherThanVanishing()
+{
+    setRendererInstalled(true);
+
+    // What PerfSettings' "Events:" asks for: a table.
+    class TableAspect final : public StringListAspect
+    {
+    public:
+        AspectPresentation presentation() const override
+        {
+            AspectPresentation p = StringListAspect::presentation();
+            p.control = AspectControls::Table;
+            return p;
+        }
+    };
+    TableAspect aspect;
+    aspect.setLabelText("Events:");
+    QCOMPARE(aspect.presentation().control, AspectControls::Table);
+
+    static QStringList *sink = nullptr;
+    QStringList said;
+    sink = &said;
+    QtMessageHandler previous = qInstallMessageHandler(
+        [](QtMsgType type, const QMessageLogContext &, const QString &m) {
+            if (sink && type == QtWarningMsg)
+                *sink << m;
+        });
+    const std::unique_ptr<QWidget> widget = render(aspect);
+    qInstallMessageHandler(previous);
+    sink = nullptr;
+
+    QVERIFY2(!said.isEmpty(), "a setting that cannot be drawn vanished without a word");
+    const QString message = said.join("\n");
+    QVERIFY2(message.contains("Events:"), qPrintable(message));
+    QVERIFY2(message.contains("Qt Quick"), qPrintable(message));
+}
+
 void tst_AspectRenderer::spanReachesAcrossColumnsAndIsQuietWhereThereAreNone()
 {
     setRendererInstalled(true);
