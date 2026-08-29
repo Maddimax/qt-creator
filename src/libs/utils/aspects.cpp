@@ -12,6 +12,7 @@
 #include "macroexpander.h"
 #include "pathvalidation.h"
 #include "completionhistory.h"
+#include "datafromprocess.h"
 #include "qtcassert.h"
 #include "qtcsettings.h"
 #include "store.h"
@@ -335,6 +336,16 @@ QString BaseAspect::browseStartDirectory(const QString &current) const
 {
     Q_UNUSED(current)
     return {};
+}
+
+QString BaseAspect::extendedToolTip() const
+{
+    return {};
+}
+
+void BaseAspect::requestExtendedToolTip(const QString &current)
+{
+    Q_UNUSED(current)
 }
 
 QString BaseAspect::plainLabelText() const
@@ -1548,6 +1559,11 @@ public:
     CheckableAspectImplementation m_checkerImpl;
 
     bool m_showToolTipOnLabel = false;
+    // The version the command last asked about reported, and which command
+    // that was: a field being hovered over must not start a process a second
+    // time for an answer it already has.
+    QString m_commandVersion;
+    QString m_commandVersionAskedFor;
     bool m_fileDialogOnly = false;
     bool m_autoApplyOnEditingFinished = false;
     bool m_allowPathFromDevice = true;
@@ -1804,6 +1820,46 @@ AspectPresentation FilePathAspect::presentation() const
 // whose value may be a project's, worked out when someone actually browses.
 // Answering it for every form that is merely described evaluates it far too
 // early, and asks the filesystem what is a directory while doing so.
+QString FilePathAspect::extendedToolTip() const
+{
+    return d->m_commandVersion;
+}
+
+// The version the command reports, which is what hovering over a compiler or a
+// debugger path shows. Asked for rather than kept up to date: it costs a
+// process, and nobody wants it until they look.
+void FilePathAspect::requestExtendedToolTip(const QString &current)
+{
+    if (d->m_commandVersionArguments.isEmpty())
+        return;
+    if (current == d->m_commandVersionAskedFor)
+        return;
+
+    d->m_commandVersionAskedFor = current;
+    if (!d->m_commandVersion.isEmpty()) {
+        d->m_commandVersion.clear();
+        emit extendedToolTipChanged();
+    }
+
+    const FilePath command = FilePath::fromUserInput(current);
+    if (command.isEmpty())
+        return;
+
+    DataFromProcess<QString>::Parameters params(
+        CommandLine(command, d->m_commandVersionArguments),
+        [](const QString &output, const QString &) { return output; });
+    params.callback = [self = QPointer(this), current](const std::optional<QString> &version) {
+        if (!self || !version || version->isEmpty())
+            return;
+        // What was asked about may not be what is in the field any more.
+        if (self->d->m_commandVersionAskedFor != current)
+            return;
+        self->d->m_commandVersion = *version;
+        emit self->extendedToolTipChanged();
+    };
+    DataFromProcess<QString>::provideData(params);
+}
+
 QString FilePathAspect::browseStartDirectory(const QString &current) const
 {
     // PathChooser::slotBrowse()'s order: what is in the field - the file's own

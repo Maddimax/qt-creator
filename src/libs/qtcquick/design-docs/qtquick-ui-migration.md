@@ -14517,3 +14517,27 @@ Also closed with no work: `elideMode`. Thirty-eight calls, all but one on
 `ElidingLabel` widgets in welcome pages rather than on aspects, and the one
 that is an aspect asks for the elide the Quick label already does. A count of
 call sites is not a measure of a gap.
+
+### What version is that command?
+
+Fifteen aspects call `setCommandVersionArguments()`. In a widget path chooser
+that installs a tooltip filter: rest the pointer on a compiler, a debugger or a
+cmake path and it runs the command and shows what it reports. On a Quick page
+nothing ran.
+
+`extendedToolTip()` and `requestExtendedToolTip()` follow the shape already
+used for secrets - ask, and be told when the answer arrives - because the
+answer costs a process and nobody wants it until they look. The field asks when
+the pointer arrives, the aspect remembers which command it asked about so a
+pointer crossing the field twice does not start it twice, and an aspect with no
+version arguments never asks at all.
+
+That last one took three attempts to test, and the first two passed while
+proving nothing. With `/bin/echo` and no arguments the process prints an empty
+line, so "said nothing" was true whether or not it ran. With `/bin/pwd` it
+would have printed something - but the assertion ran immediately, before any
+process could have answered, so it was still true either way. The absence is
+only checkable against something that must happen later: the test now runs the
+very command the aspect would have run, waits for *that*, and only then asks
+whether the aspect said anything. Both earlier versions passed with the guard
+deleted.

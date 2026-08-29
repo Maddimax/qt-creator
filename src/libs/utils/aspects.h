@@ -106,6 +106,7 @@ class QTCREATOR_UTILS_EXPORT BaseAspect : public QObject
     Q_PROPERTY(bool visible READ isVisible WRITE setVisible NOTIFY visibleChanged)
     Q_PROPERTY(bool readOnly READ isReadOnly WRITE setReadOnly NOTIFY readOnlyChanged)
     Q_PROPERTY(QString displayText READ displayText NOTIFY displayTextChanged)
+    Q_PROPERTY(QString extendedToolTip READ extendedToolTip NOTIFY extendedToolTipChanged)
     Q_PROPERTY(QString placeholderText READ placeholderText NOTIFY placeholderTextChanged)
 
 public:
@@ -190,6 +191,16 @@ public:
     // has an answer; asking any of them is how a form avoids having to know
     // which is which.
     Q_INVOKABLE virtual QString browseStartDirectory(const QString &current) const;
+
+    // What hovering over this field can say beyond the aspect's own tooltip,
+    // once it has been gone and got: the version a command reports when it is
+    // asked for one. Empty until requested and answered, and empty for good
+    // for an aspect that has nothing of the kind - which is most of them.
+    virtual QString extendedToolTip() const;
+    // Asks for it, for \a current - what is in the field. Answers with
+    // extendedToolTipChanged(), and says nothing at all when there is nothing
+    // to say, so a form must not wait for it.
+    Q_INVOKABLE virtual void requestExtendedToolTip(const QString &current);
     void setLabelText(const QString &labelText);
     void setLabelPixmap(const QPixmap &labelPixmap);
     void setControlObjectName(const QString &objectName);
@@ -352,6 +363,7 @@ signals:
     void validationMessageChanged();
     void labelPixmapChanged();
     void displayTextChanged();
+    void extendedToolTipChanged();
     void placeholderTextChanged(const QString &placeholderText);
 
     // Renderer-facing. An aspect holds no control, so a setter that has to
@@ -1034,6 +1046,8 @@ public:
     void setHistoryCompleter(const Key &historyCompleterKey);
     void rememberValue() override;
     QString browseStartDirectory(const QString &current) const override;
+    QString extendedToolTip() const override;
+    void requestExtendedToolTip(const QString &current) override;
     void setShowToolTipOnLabel(bool show);
     void setAutoApplyOnEditingFinished(bool applyOnEditingFinished);
     // Offers a way back to the default value beside the field.

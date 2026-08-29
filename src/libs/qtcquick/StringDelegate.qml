@@ -94,8 +94,21 @@ RowLayout {
             echoMode: delegate.pres.password ? TextInput.Password : TextInput.Normal
             enabled: delegate.aspect?.enabled ?? false
             readOnly: delegate.aspect?.readOnly ?? true
-            ToolTip.text: delegate.toolTip
-            ToolTip.visible: hovered && delegate.toolTip !== ""
+            // A path to a command says what version it is, which costs a
+            // process and so is asked for when the pointer arrives rather
+            // than kept up to date. Aspects with nothing of the kind never
+            // answer and the tooltip stays what the aspect says.
+            onHoveredChanged: {
+                if (hovered)
+                    delegate.aspect?.requestExtendedToolTip(field.text)
+            }
+
+            readonly property string extended: delegate.aspect?.extendedToolTip ?? ""
+            ToolTip.text: field.extended !== ""
+                          ? (delegate.toolTip !== ""
+                             ? delegate.toolTip + "\n\n" + field.extended : field.extended)
+                          : delegate.toolTip
+            ToolTip.visible: hovered && ToolTip.text !== ""
             Layout.fillWidth: true
 
             // A value the aspect has said is wrong does not go into it. The

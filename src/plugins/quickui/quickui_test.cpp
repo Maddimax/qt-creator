@@ -6,6 +6,7 @@
 #include <coreplugin/dialogs/ioptionspage.h>
 
 #include <utils/completionhistory.h>
+#include <utils/datafromprocess.h>
 #include <utils/temporarydirectory.h>
 #include <utils/historycompleter.h>
 #include <utils/aspectwidgets.h>
@@ -246,6 +247,7 @@ private slots:
     void testAFieldOffersWhatWasTypedIntoItBefore();
     void testBrowsingStartsWhereThePathAlreadyPointsTo();
     void testALabelSaysTheValueItCannotShowInFull();
+    void testAPathToACommandSaysWhatVersionItIs();
     void testSeveralLinesCompleteTheWordTheCursorIsIn();
     void testColourOffersToGoBackToItsDefault();
     void testColourWithNoResetHasNoButton();
@@ -4517,6 +4519,68 @@ void QuickUiTest::testALabelSaysTheValueItCannotShowInFull()
              QString("/a/very/long/path/to/the/executable"));
     // The one that did not says what it is for, as every other delegate does.
     QCOMPARE(tooltipOfTheOneShowing("2.6.1"), QString("What is installed"));
+}
+
+// Hovering over a path to a command shows what version it reports - what a
+// compiler, a debugger or a cmake field says about itself. Fifteen aspects ask
+// for it with setCommandVersionArguments(), and only the widget path chooser
+// ever ran it.
+//
+// The hover itself is not what is tested: a hover test answers to the physical
+// pointer as well as the synthetic one. This is what the hover asks for.
+void QuickUiTest::testAPathToACommandSaysWhatVersionItIs()
+{
+    Utils::AspectContainer page;
+    page.setAutoApply(false);
+    Utils::FilePathAspect command(&page);
+    command.setLabelText("Command");
+    command.setExpectedKind(Utils::PathChooserKind::ExistingCommand);
+    command.setToolTip("The tool to run");
+    // A command that exists everywhere this builds and says something known.
+    command.setCommandVersionArguments({"a version line"});
+
+    // Nothing until it is asked for: it costs a process.
+    QVERIFY(command.extendedToolTip().isEmpty());
+
+    QSignalSpy answered(&command, &Utils::BaseAspect::extendedToolTipChanged);
+    command.requestExtendedToolTip("/bin/echo");
+    QTRY_VERIFY2(!command.extendedToolTip().isEmpty(), "the command was never run");
+    QVERIFY2(command.extendedToolTip().contains("a version line"),
+             qPrintable("it said: " + command.extendedToolTip()));
+    QVERIFY(answered.size() > 0);
+
+    // Asking again about the same command does not run it again.
+    const int soFar = answered.size();
+    command.requestExtendedToolTip("/bin/echo");
+    QCOMPARE(answered.size(), soFar);
+
+    // An aspect that asks for no version says nothing, which is what stops
+    // every path field on every page from starting a process when the pointer
+    // crosses it. Pointed at a command that prints something whether or not
+    // it is given arguments: saying nothing then means it was never run, and
+    // not merely that it had nothing to say.
+    Utils::FilePathAspect plain(&page);
+    plain.setLabelText("Directory");
+    QSignalSpy plainAnswers(&plain, &Utils::BaseAspect::extendedToolTipChanged);
+    plain.requestExtendedToolTip("/bin/pwd");
+
+    // "Nothing happens" is not something to wait for, so wait for something
+    // that must happen after it: the very command the aspect would have run,
+    // run here. DataFromProcess answers these in the order they are asked
+    // for, so by the time this one is back, one started before it would be
+    // back too.
+    bool ranItHere = false;
+    Utils::DataFromProcess<QString>::Parameters params(
+        Utils::CommandLine(Utils::FilePath::fromUserInput("/bin/pwd"), {}),
+        [](const QString &out, const QString &) { return out; });
+    params.callback = [&ranItHere](const std::optional<QString> &) { ranItHere = true; };
+    Utils::DataFromProcess<QString>::provideData(params);
+    QTRY_VERIFY2(ranItHere, "the command never ran here either, so this proves nothing");
+
+    QVERIFY2(plain.extendedToolTip().isEmpty(),
+             qPrintable("a field that asks for no version reported one: "
+                        + plain.extendedToolTip()));
+    QCOMPARE(plainAnswers.size(), 0);
 }
 
 void QuickUiTest::testSeveralLinesCompleteTheWordTheCursorIsIn()
