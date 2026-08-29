@@ -16180,3 +16180,45 @@ aspect; what is uncovered is the click. Its natural home is coreplugin's own
 `ShortcutSettingsTest`, which already has a `page()` helper that reaches the
 real aspects.
 
+### The keychain test, fixed rather than tolerated
+
+The section above characterised `testSecretIsFetchedBeforeItCanBeEdited` as
+environmental and left it alone. That was the wrong call: it reddened the gate
+on most runs, and a gate that is always red hides everything else - which is
+exactly how the dead click survived inside a warning that was always there.
+
+Reading `SecretAspect::requestDisplayText()` sharpened the diagnosis:
+
+    if (value)
+        setReadOnly(false);
+
+A secret that *could not be read* leaves the field read-only on purpose, with
+the reason in its placeholder, so that typing does not overwrite a secret that
+is still there. So `QTRY_VERIFY(!secret.isReadOnly())` was asserting that the
+keychain **succeeded** - one of three outcomes, and not the one this machine
+produces. Instrumenting it showed the truth is narrower still: here the fetch
+never finishes at all. `displayTextChanged()`, which the aspect emits on the
+way out whether it found a secret or a reason, is never emitted.
+
+The test now waits for that signal and then asserts whichever outcome
+happened - read, and the field is editable; or not read, and the field is
+still guarded and says why. Only when the fetch never finishes does it
+`QSKIP`, because then there is no outcome to assert. That is the
+[[CLAUDE.md]] rule applied rather than dodged, and the skip cannot swallow a
+regression: a fetch that finishes and leaves the field read-only fails.
+
+**A skip is still a hole where the keychain never answers**, so the delegate's
+half of the contract is now tested without one.
+`requestValue()` answers from what the aspect holds when it has been given a
+value, so `testASecretTheAspectAlreadyHoldsNeedsNoKeychain` runs every branch
+synchronously: the guard comes down, the field follows it, the text is what
+the aspect holds, and it is echoed as a password rather than as text.
+
+Four controls, all biting - including **the one the skipped test existed to
+catch**: removing `setReadOnly(false)` from the aspect. It fails the new test
+on this machine, where the old one would now skip. That is the check that
+matters, and it is why the skip is safe.
+
+The suite is green again: 144 passed, 1 skipped, exit 0, twice; ~45s rather
+than the ~56s a failing run cost.
+

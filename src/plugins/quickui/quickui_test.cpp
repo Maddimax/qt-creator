@@ -275,6 +275,7 @@ private slots:
     void testAnAspectCanHandOutAContainerToDraw();
     void testMultiLineStringGetsATextArea();
     void testSecretIsFetchedBeforeItCanBeEdited();
+    void testASecretTheAspectAlreadyHoldsNeedsNoKeychain();
     void testTableAspectDrawsWhatItsModelOffers();
     void testATableCellShowsTheIconItsModelGives();
     void testATableWithNoColumnNamesHasNoHeader();
@@ -3426,12 +3427,47 @@ void QuickUiTest::testSecretIsFetchedBeforeItCanBeEdited()
     QQuickItem *field = findQmlComponent(delegate, "TextField");
     QVERIFY(field);
 
-    // The delegate asks on completion, and the aspect is what says the secret
-    // has arrived: it starts read-only and lifts that once it has read one.
-    // Whether the keychain answers at all depends on the machine, so wait for
-    // the answer either way.
+    // The delegate asks on completion, and the aspect is what says the answer
+    // arrived: displayTextChanged() is emitted on the way out of the fetch
+    // whether the keychain gave a secret or a reason. Waiting on that rather
+    // than on the field becoming writable is what makes this test say
+    // something on a machine whose keychain refuses - see below.
     QVERIFY(secret.isReadOnly());
-    QTRY_VERIFY(!secret.isReadOnly());
+    QSignalSpy fetched(&secret, &Utils::BaseAspect::displayTextChanged);
+    if (!QTest::qWaitFor([&fetched] { return fetched.count() > 0; }, 5000)) {
+        // Not a failure and not something to wait longer for: on a machine
+        // whose keychain does not answer there is no fetch to check. Skipping
+        // here is safe precisely because the outcomes below are asserted -
+        // a fetch that *does* finish and still leaves the field read-only is
+        // a failure, so this cannot swallow that.
+        QSKIP("the keychain did not answer, so there is no fetch to check");
+    }
+
+    // What it found decides what the field may do, and both outcomes are the
+    // aspect's design rather than an accident: a secret that was read can be
+    // edited, and one that could not be read leaves the field guarded with
+    // the reason in it, so that typing does not overwrite a secret that is
+    // still there. The fetch is finished, so this answers from the cache.
+    bool wasRead = false;
+    QString reason;
+    secret.requestValue([&wasRead, &reason](const Utils::Result<QString> &value) {
+        wasRead = bool(value);
+        if (!value)
+            reason = value.error();
+    });
+
+    if (!wasRead) {
+        // Nothing was read - a locked keychain, or none. The guard stays up
+        // and the field says why instead of pretending the secret is empty.
+        QVERIFY2(secret.isReadOnly(),
+                 "a secret that could not be read left its field writable");
+        QVERIFY2(!reason.isEmpty(), "the field guards itself and says nothing");
+        QTRY_COMPARE(field->property("placeholderText").toString(), reason);
+        return;
+    }
+
+    QVERIFY2(!secret.isReadOnly(),
+             "the keychain answered and the field is still read-only");
     QVERIFY(!field->property("readOnly").toBool());
 
     // Not echoed until asked for.
@@ -3440,6 +3476,54 @@ void QuickUiTest::testSecretIsFetchedBeforeItCanBeEdited()
     QCOMPARE(field->property("echoMode").toInt(), echoModes.keyToValue("Password"));
 
     // Written through the value property, which is all a delegate has.
+    field->setProperty("text", "hunter2");
+    QMetaObject::invokeMethod(field, "editingFinished");
+    QCOMPARE(secret.displayText(), QString("hunter2"));
+}
+
+
+// The delegate's half of the secret contract, with no keychain in the way.
+//
+// requestValue() answers from what the aspect holds when it has been given a
+// value, so the fetch finishes synchronously and every branch below runs.
+// testSecretIsFetchedBeforeItCanBeEdited covers the same ground through the
+// keychain and skips where the keychain does not answer - which is most runs
+// on some machines, and would leave this uncovered entirely.
+void QuickUiTest::testASecretTheAspectAlreadyHoldsNeedsNoKeychain()
+{
+    Utils::AspectContainer page;
+    Core::SecretAspect secret(&page);
+    secret.setSettingsKey("Test.Known");
+    secret.setLabelText("Password:");
+    secret.setValue("already known");
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QVERIFY(quickWidget->rootObject());
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "SecretDelegate"));
+    QQuickItem * const field = findQmlComponent(delegate, "TextField");
+    QVERIFY(field);
+
+    // Nothing to wait for: the aspect has it, so the guard is down by the
+    // time the field is drawn.
+    QTRY_VERIFY2(!secret.isReadOnly(),
+                 "a secret the aspect already holds still guards its field");
+    QVERIFY2(!field->property("readOnly").toBool(),
+             "the aspect stopped guarding and the field did not");
+
+    // Shown as a secret rather than as text.
+    const QMetaObject *mo = field->metaObject();
+    const QMetaEnum echoModes = mo->property(mo->indexOfProperty("echoMode")).enumerator();
+    QCOMPARE(field->property("echoMode").toInt(), echoModes.keyToValue("Password"));
+
+    // And what it holds is what it shows, read through displayText() because
+    // a secret has no value property for a delegate to bind to.
+    QTRY_COMPARE(field->property("text").toString(), QString("already known"));
+
+    // Written back the same way.
     field->setProperty("text", "hunter2");
     QMetaObject::invokeMethod(field, "editingFinished");
     QCOMPARE(secret.displayText(), QString("hunter2"));
