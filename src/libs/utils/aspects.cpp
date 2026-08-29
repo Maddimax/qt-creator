@@ -875,12 +875,14 @@ QString AsyncValidation::messageFor(const std::optional<ValidationFunction> &val
 
     m_candidate = text;
     m_message.clear();
+    m_answered = false;
     (*async)(text).then(aspect, [this, aspect, text](const AsyncValidationResult &result) {
         // A later candidate has been asked about since; this answer is about
         // text that is no longer there.
         if (text != m_candidate)
             return;
         m_message = result ? QString() : result.error();
+        m_answered = true;
         emit aspect->validationMessageChanged();
     });
     return {};
@@ -2061,10 +2063,24 @@ std::optional<ValidationFunction> FilePathAspect::validationFunction() const
 
 QString FilePathAspect::validationMessage(const QVariant &candidate) const
 {
-    if (const QString message = validationMessageFor(d->m_validator, candidate); !message.isEmpty())
+    auto * const self = const_cast<FilePathAspect *>(this);
+    if (const QString message = validationMessageFor(d->m_validator, candidate); !message.isEmpty()) {
+        self->setValid(false);
         return message;
-    return d->m_asyncValidation.messageFor(d->m_validator, candidate,
-                                           const_cast<FilePathAspect *>(this));
+    }
+
+    // Whether the path is there, and is the kind of thing that was asked for.
+    // The widget path chooser does this itself with a validator of its own,
+    // so an aspect that was given none was checked in a widget form and not
+    // checked at all in a Quick one - and never came to be valid, which is
+    // what a page asks before offering the options that need the command.
+    const std::optional<ValidationFunction> validator
+        = d->m_validator ? d->m_validator
+                         : std::optional<ValidationFunction>(defaultValidationFunction());
+    const QString message = d->m_asyncValidation.messageFor(validator, candidate, self);
+    if (d->m_asyncValidation.answered())
+        self->setValid(message.isEmpty());
+    return message;
 }
 
 Environment FilePathAspect::environment() const

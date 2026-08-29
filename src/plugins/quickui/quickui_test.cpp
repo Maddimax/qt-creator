@@ -260,6 +260,7 @@ private slots:
     void testTheFileBrowserListsWhatIsInADirectory();
     void testTheFileDialogChoosesAFileWithoutAskingThePlatform();
     void testAPathOnADeviceIsBrowsedWithOurOwnDialog();
+    void testAPathFieldSaysWhetherWhatItHoldsIsThere();
     void testTheFileBrowserRemembersWhereItHasBeen();
     void testTheFileBrowserFindsFilesBelowTheDirectory();
     void testTheFileDialogOffersEachKindOfFileSeparately();
@@ -5595,6 +5596,70 @@ void QuickUiTest::testALongPasteSaysWhatItIsDoingAndCanBeStopped()
     // the end is one that ignored it - which is what this is here to catch.
     QVERIFY2(!(into / "many").exists(),
              "a cancelled copy left the half it had made behind");
+}
+
+// Whether a path aspect holds something usable. The widget path chooser checks
+// this itself and tells the aspect; on a Quick page nothing did, so a page that
+// offers its options only when the command is there - every beautifier does -
+// had them greyed out for good.
+void QuickUiTest::testAPathFieldSaysWhetherWhatItHoldsIsThere()
+{
+    Utils::AspectContainer page;
+    page.setAutoApply(false);
+    Utils::FilePathAspect command(&page);
+    command.setLabelText("Command");
+    command.setExpectedKind(Utils::PathChooserKind::ExistingCommand);
+    command.setValue(Utils::FilePath::fromUserInput("/bin/echo"));
+
+    Utils::FilePathAspect missing(&page);
+    missing.setLabelText("Missing");
+    missing.setExpectedKind(Utils::PathChooserKind::ExistingCommand);
+    missing.setValue(Utils::FilePath::fromUserInput("/no/such/command/at/all"));
+
+    // Nobody has looked yet, so neither is valid: an aspect is not valid
+    // because it has never been questioned.
+    QVERIFY(!command.isValid());
+    QVERIFY(!missing.isValid());
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QList<QQuickItem *> delegates;
+    QTRY_COMPARE((delegates = findQmlComponents(quickWidget->rootObject(), "StringDelegate"))
+                     .size(), 2);
+
+    // Showing the field is what asks, and the answer comes back from another
+    // thread - the path is looked for on whatever device it names.
+    QTRY_VERIFY2(command.isValid(), "a command that is there never came to be valid");
+    QVERIFY2(!missing.isValid(), "a command that is not there is taken for one that is");
+
+    // And the field says what is wrong with it, which is the same answer read
+    // by a reader rather than by a page.
+    const auto messageOf = [&delegates](Utils::BaseAspect *aspect) {
+        for (QQuickItem *item : delegates) {
+            if (item->property("aspect").value<Utils::BaseAspect *>() != aspect)
+                continue;
+            for (QQuickItem *part : findQmlComponents(item, "")) {
+                if (part->objectName() == "validationMessage")
+                    return part->property("text").toString();
+            }
+        }
+        return QString();
+    };
+    QTRY_VERIFY2(!messageOf(&missing).isEmpty(),
+                 "the field says nothing about a command that is not there");
+    QVERIFY2(messageOf(&command).isEmpty(),
+             qPrintable("a command that is there is complained about: " + messageOf(&command)));
+
+    // Asking about something new does not make it valid until the answer is
+    // back. There is no message while the path is being looked for, and an
+    // empty message is exactly what "nothing is wrong with it" looks like -
+    // so a page watching this would light up its options for whatever a bad
+    // path takes to answer.
+    missing.validationMessage(QVariant::fromValue(QString("/another/missing/thing")));
+    QVERIFY2(!missing.isValid(),
+             "a path counts as valid while the answer is still being fetched");
 }
 
 void QuickUiTest::testSeveralLinesCompleteTheWordTheCursorIsIn()

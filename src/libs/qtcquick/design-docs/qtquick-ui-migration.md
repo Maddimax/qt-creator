@@ -14866,3 +14866,31 @@ The widget dialog changes it by dragging. This one offers Move Up and Move
 Down on the right-click menu, which is the same ability by a different gesture
 and is reachable without a pointer. Dragging is not ported; if it is wanted it
 goes on top of `moveFavorite()` rather than instead of it.
+
+### The path nobody checked
+
+A third sweep of the same comparison - this time the *signals* the widget
+renderer connects - turned up one that matters. The widget path chooser
+validates what is typed into it and tells the aspect: `PathChooser::validChanged`
+to `FilePathAspect::setValid()`. Nothing else in the tree calls that, so on a
+Quick page `isValid()` was false for good.
+
+That is not cosmetic. Every beautifier settings page greys out all of its
+options unless `command.isValid()` - ClangFormat, Uncrustify, Artistic Style -
+and all three are drawn with Qt Quick. Their options were disabled whatever the
+command was.
+
+Underneath was a second half of the same hole: the kind check - does this path
+exist, is it a command - lives in the widget path chooser's own validator, so a
+Quick field showed no complaint about a path that is not there either. The
+aspect now falls back to its own `defaultValidationFunction()` when it was
+given no validator, which is where that check already lived and where both
+kinds of form can reach it, and it records the answer as its validity.
+
+The last control is worth keeping. Validity must not be set from an answer that
+has not arrived: there is no message while the path is being looked for, and an
+empty message is exactly what "nothing is wrong with it" looks like. A page
+watching validity would light up its options for however long a bad path takes
+to answer. Asking about a new path and checking that validity did *not* change
+is the deterministic version of that - the flicker itself is a race, and a test
+of it would be one too.

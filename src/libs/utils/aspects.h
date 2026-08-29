@@ -83,9 +83,16 @@ public:
                        const QVariant &candidate,
                        BaseAspect *aspect);
 
+    // What the last answer was, and whether one has come back at all. While
+    // it is waiting there is no answer to act on - a path is not invalid
+    // because nobody has looked yet.
+    QString message() const { return m_message; }
+    bool answered() const { return m_answered; }
+
 private:
     QString m_candidate;
     QString m_message;
+    bool m_answered = false;
 };
 
 class QTCREATOR_UTILS_EXPORT BaseAspect : public QObject
