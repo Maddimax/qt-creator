@@ -282,6 +282,7 @@ private slots:
     void testTabTypesAnIndentInACodeEditor();
     void testEditingThePreviewReachesTheAspectThatOwnsIt();
     void testAGroupPutsItsContentAtItsTop();
+    void testAPageSaysAHeadingOnlyOnce();
 };
 
 // Settings a page carries but does not draw. Each was checked against the
@@ -5855,6 +5856,47 @@ void QuickUiTest::testAGroupPutsItsContentAtItsTop()
     // hundred pixels an unfilled group used to leave.
     QVERIFY2(gap < 150,
              qPrintable(QString("%1 pixels of nothing between the groups").arg(gap)));
+}
+
+// A group whose title repeats the label of the one aspect inside it says the
+// same thing twice, one above the other. The To-Do page did: a group called
+// "Scanning Scope" around an aspect called "Scanning Scope".
+void QuickUiTest::testAPageSaysAHeadingOnlyOnce()
+{
+    Core::setAspectFormFactory([](Utils::AspectContainer *container) {
+        return QtcQuick::createAspectForm(container);
+    });
+
+    Core::IOptionsPage *page = nullptr;
+    for (Core::IOptionsPage *candidate : Core::IOptionsPage::allOptionsPages()) {
+        if (candidate->displayName() == "To-Do")
+            page = candidate;
+    }
+    QVERIFY2(page, "no To-Do page - is the Todo plugin loaded?");
+
+    const std::unique_ptr<QWidget> widget(page->createWidget());
+    QVERIFY(widget);
+    widget->resize(900, 700);
+    widget->show();
+    QVERIFY(QTest::qWaitForWindowExposed(widget.get()));
+    auto * const quickWidget = widget->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QQuickItem * const root = quickWidget->rootObject();
+    QVERIFY(root);
+
+    int saidIt = 0;
+    QTRY_VERIFY([&] {
+        saidIt = 0;
+        for (QQuickItem *item : findQmlComponents(root, "")) {
+            if (!item->isVisible())
+                continue;
+            const QVariant text = item->property("text");
+            if (text.isValid() && text.toString() == "Scanning Scope")
+                ++saidIt;
+        }
+        return saidIt > 0;
+    }());
+    QCOMPARE(saidIt, 1);
 }
 
 void QuickUiTest::testSeveralLinesCompleteTheWordTheCursorIsIn()

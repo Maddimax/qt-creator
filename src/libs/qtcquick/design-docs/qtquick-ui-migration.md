@@ -15069,3 +15069,33 @@ The same picture showed both halves of the validity work behaving on a real
 page: ClangFormat's command resolves, so its options are live, and Uncrustify -
 not installed on this machine - says "The path "uncrustify" does not exist." and
 greys its options out.
+
+### Twelve pages, looked at
+
+Following the beautifier find, a batch of twelve pages was rendered and read:
+Kits, Compilers, Devices, Qt Versions, QML/JS Editing, CPU Usage, To-Do,
+Font && Colors, Snippets, Locator, External Tools, Custom Output Parsers.
+
+One real defect, and it is small: the To-Do page wrapped its scanning-scope
+radios in a group titled "Scanning Scope", and the aspect inside is *called*
+"Scanning Scope" - so the page said it twice, one line above the other. The
+group is gone; the delegate's own label is the heading. A group's title belongs
+to a container's label, which is what the plan says and what every other page
+does.
+
+Two things looked wrong and were not, which is worth recording because both
+nearly became changes:
+
+The Kits page appeared to have labels with no control - "Device:" with nothing
+after it, on both device rows. That was the grab being 760 pixels wide when the
+page wants about 1100; the controls were off the right edge, where the real
+dialog puts a scrollbar. Renders for review want a realistic width.
+
+The Snippets page opens with no snippet chosen and an empty editor, which
+looked like a missing initial selection. The widget page did exactly the same -
+`loadSnippetGroup()` clears the editor and loads the model without selecting a
+row. Matching it is the point.
+
+So: after the group fix, the sampled pages are in good order. The method is
+worth repeating on the rest, and it is cheap to be wrong in the safe direction -
+check what the widget did before changing what the Quick page does.

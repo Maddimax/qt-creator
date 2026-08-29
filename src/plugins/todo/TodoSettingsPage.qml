@@ -20,9 +20,7 @@ AspectPage {
         AspectListDelegate { aspect: root.aspects.Keywords }
     }
 
-    AspectGroupBox {
-        title: qsTr("Scanning Scope")
-
-        RadioGroupDelegate { aspect: root.aspects.ScanningScope }
-    }
+    // No group around it: the aspect is called "Scanning Scope" and the
+    // delegate draws that, so a group of the same name said it twice.
+    RadioGroupDelegate { aspect: root.aspects.ScanningScope }
 }
