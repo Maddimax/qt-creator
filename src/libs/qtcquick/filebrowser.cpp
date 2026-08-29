@@ -26,12 +26,18 @@
 #include <QElapsedTimer>
 #include <QFutureWatcher>
 #include <QSettings>
+
+#include <utils/hostosinfo.h>
 #include <QRegularExpression>
 #include <QStandardPaths>
 
 using namespace Utils;
 
 namespace QtcQuick {
+
+static const char kSettingsGroup[] = "FileDialog";
+static const char kFavoritesKey[] = "Favorites";
+static const char kClassicLayoutKey[] = "ClassicLayout";
 
 // What the model says about \a entry in \a column, or \a fallback when the
 // row is not one of the model's - a search hit carries its own.
@@ -115,6 +121,18 @@ public:
     FilePaths m_history;
     int m_historyIndex = -1;
     bool m_walkingHistory = false;
+    // Read once, the way the widget dialog reads it: a dialog that is already
+    // open does not rearrange itself because another one was told to.
+    bool m_classicLayout = [] {
+        QSettings settings;
+        settings.beginGroup(QLatin1String("FileDialog"));
+        // The host's habit. Every dialog but a Mac one names the file below
+        // the listing.
+        const bool on = settings.value(QLatin1String("ClassicLayout"),
+                                       !HostOsInfo::isMacHost()).toBool();
+        settings.endGroup();
+        return on;
+    }();
     FilePath m_directory;
     QStringList m_nameFilters;
     QString m_searchText;
@@ -366,6 +384,23 @@ void FileBrowser::setShowHiddenFiles(bool show)
     d->m_proxy.setShowHiddenFiles(show);
     rebuildEntries();
     emit showHiddenFilesChanged();
+}
+
+bool FileBrowser::classicLayout() const
+{
+    return d->m_classicLayout;
+}
+
+void FileBrowser::setClassicLayout(bool on)
+{
+    if (d->m_classicLayout == on)
+        return;
+    d->m_classicLayout = on;
+    QSettings settings;
+    settings.beginGroup(QLatin1String(kSettingsGroup));
+    settings.setValue(QLatin1String(kClassicLayoutKey), on);
+    settings.endGroup();
+    emit classicLayoutChanged();
 }
 
 bool FileBrowser::isBusy() const
@@ -707,15 +742,13 @@ QString FileBrowser::moveToTrash(int row)
 }
 
 // The same settings the widget dialog keeps them in, so a directory kept in
-// one is there in the other.
-static const char kFavoritesGroup[] = "FileDialog";
-static const char kFavoritesKey[] = "Favorites";
+// one is there in the other. The keys are at the top of this file.
 
 void FileBrowser::rebuildFavorites()
 {
     if (d->m_favoritePaths.isEmpty()) {
         QSettings settings;
-        settings.beginGroup(QLatin1String(kFavoritesGroup));
+        settings.beginGroup(QLatin1String(kSettingsGroup));
         const QStringList paths = settings.value(QLatin1String(kFavoritesKey)).toStringList();
         settings.endGroup();
         for (const QString &path : paths)
@@ -741,7 +774,7 @@ void FileBrowser::saveFavorites()
     for (const FilePath &favorite : std::as_const(d->m_favoritePaths))
         paths << favorite.toFSPathString();
     QSettings settings;
-    settings.beginGroup(QLatin1String(kFavoritesGroup));
+    settings.beginGroup(QLatin1String(kSettingsGroup));
     settings.setValue(QLatin1String(kFavoritesKey), paths);
     settings.endGroup();
 }

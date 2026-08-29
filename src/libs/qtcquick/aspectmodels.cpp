@@ -14,6 +14,7 @@
 #include <utils/aspectlist.h>
 #include <utils/algorithm.h>
 #include <utils/aspects.h>
+#include <utils/filedialogs.h>
 
 #include <utils/qtcassert.h>
 #include <utils/stringutils.h>
@@ -155,6 +156,11 @@ QStringList AspectModels::fontFamilies(BaseAspect *aspect)
 bool AspectModels::isLocalPath(const QString &path)
 {
     return FilePath::fromUserInput(path).isLocal();
+}
+
+bool AspectModels::hasNativeFileDialog()
+{
+    return FileUtils::hasNativeFileDialog();
 }
 
 QString AspectModels::localPath(const QUrl &url)

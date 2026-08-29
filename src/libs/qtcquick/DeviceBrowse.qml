@@ -26,15 +26,21 @@ QtObject {
     // one and a caller wanting one takes the first.
     signal chosen(list<string> paths)
 
-    // Whether \a current and the modifiers of a click call for our own dialog
-    // rather than the platform's: a path already on a device cannot be
-    // browsed by the platform's, and holding Shift asks for ours from a path
-    // that is not on one yet.
-    function wanted(current: string, modifiers: int): bool {
+    // Whether \a current calls for our own dialog rather than the platform's:
+    // a path already on a device cannot be browsed by the platform's, which
+    // knows only the machine it runs on. Asking for one deliberately is the
+    // other way in - see the menu on the browse button, which is where the
+    // widget path chooser also put the choice.
+    //
+    //     remote = remote || !filePath().isLocal();   PathChooser::slotBrowse
+    //
+    // And where the platform has no dialog to offer there is nothing to give
+    // up by using ours, which is what the widget did as well.
+    function wanted(current: string): bool {
         if (!root.allowed)
             return false
-        const onADevice = current !== "" && !AspectModels.isLocalPath(current)
-        return onADevice || (modifiers & Qt.ShiftModifier) !== 0
+        return !AspectModels.hasNativeFileDialog()
+            || (current !== "" && !AspectModels.isLocalPath(current))
     }
 
     // Opens it at \a start, offering \a nameFilter, and choosing \a several at

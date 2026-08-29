@@ -86,6 +86,11 @@ public:
     // runs on. QML has no way to tell one from the other.
     Q_INVOKABLE bool isLocalPath(const QString &path);
 
+    // Whether the platform has a file dialog of its own to offer. Where it
+    // has none the widget path chooser reached for ours, which at least
+    // reaches a device; the Quick fallback picker does neither.
+    Q_INVOKABLE bool hasNativeFileDialog();
+
     // What a model put in Qt::DecorationRole, as something an Image can load.
     // A QIcon is what a widget view wants and what QML cannot carry, so the
     // conversion happens here rather than in every model that has one. Empty

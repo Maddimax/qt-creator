@@ -46,8 +46,33 @@ Window {
             }
             groups.push({"label": parts[i].trim(), "patterns": patterns})
         }
+        // The classic row has a place for the kinds whether or not the caller
+        // named any, and an empty box beside "Kind:" says nothing. The widget
+        // dialog falls back to the same entry.
+        if (groups.length === 0 && root.classic)
+            groups.push({"label": qsTr("All files (*)"), "patterns": ["*"]})
         return groups
     }
+    // Which arrangement to draw. Classic names the file below the listing and
+    // offers the kinds beside it, whatever the dialog is for; the other only
+    // names it when saving, above the listing, the way a Mac dialog does. The
+    // browser holds the preference because the widget dialog keeps it in the
+    // same place.
+    // Not readonly: the browser holds what the reader chose, and a test can
+    // ask for either arrangement without writing to their settings.
+    property bool classic: browser.classicLayout
+
+    // What the reader typed, wherever they typed it. Each arrangement has its
+    // own field and only one is ever visible, so this reads whichever that is
+    // rather than driving it: the text is an alias of what is being typed
+    // into, and a binding on it would fight the typing.
+    readonly property string typedName: root.classic ? nameField.text : saveAsField.text
+
+    function setTypedName(name: string): void {
+        nameField.text = name
+        saveAsField.text = name
+    }
+
     // Icons or a list, which the widget dialog also offers. Kept for next
     // time, because it is a preference and not a per-dialog decision.
     property bool showingIcons: false
@@ -81,8 +106,8 @@ Window {
     // What accepting now would choose: what is typed if anything is, then the
     // row that is selected, and for a directory dialog the directory itself.
     readonly property string wouldChoose: {
-        if (root.naming || nameField.text !== "")
-            return nameField.text === "" ? "" : browser.resolve(nameField.text)
+        if (root.naming || root.typedName !== "")
+            return root.typedName === "" ? "" : browser.resolve(root.typedName)
         if (list.currentIndex >= 0 && list.currentIndex < browser.entries.rowCount())
             return browser.filePathAt(list.currentIndex)
         return root.choosingDirectory ? browser.directory : ""
@@ -116,7 +141,7 @@ Window {
         // answer: the reader clicked Open on a folder.
         if (!root.choosingDirectory && list.currentIndex >= 0
                 && root.alsoPicked.length === 0
-                && nameField.text === "" && browser.isDirectoryAt(list.currentIndex)) {
+                && root.typedName === "" && browser.isDirectoryAt(list.currentIndex)) {
             browser.enter(list.currentIndex)
             return
         }
@@ -162,7 +187,7 @@ Window {
             list.currentIndex = -1
             root.alsoPicked = []
             if (!root.naming)
-                nameField.text = ""
+                root.setTypedName("")
         }
         // The browser ends a search when the directory changes; the box that
         // started it has to stop saying it is on.
@@ -258,6 +283,16 @@ Window {
             text: browser.showHiddenFiles ? qsTr("Hide Hidden Files")
                                           : qsTr("Show Hidden Files")
             onTriggered: browser.showHiddenFiles = !browser.showHiddenFiles
+        }
+
+        MenuItem {
+            objectName: "classicLayoutItem"
+            text: qsTr("Classic Layout")
+            checkable: true
+            checked: root.classic
+            // Kept, so the next dialog opens the way this one was left - and
+            // the widget dialog reads the same setting.
+            onTriggered: browser.classicLayout = checked
         }
 
         MenuSeparator {}
@@ -488,6 +523,34 @@ Window {
             }
         }
 
+        // The other arrangement names the file here, above the listing and
+        // centred over it, and only when there is a name to give. Opening a
+        // file needs no field: the listing is the answer.
+        RowLayout {
+            objectName: "saveAsRow"
+            spacing: Spacing.GapHM
+            Layout.fillWidth: true
+            visible: !root.classic && root.naming
+
+            Item { Layout.fillWidth: true }
+
+            Label {
+                objectName: "saveAsLabel"
+                text: qsTr("Save As:")
+            }
+
+            QtcLineEdit {
+                id: saveAsField
+
+                objectName: "saveAsField"
+                Layout.preferredWidth: Metrics.formControlWidth * 2
+
+                onAccepted: root.accept()
+            }
+
+            Item { Layout.fillWidth: true }
+        }
+
         RowLayout {
             spacing: Spacing.GapHM
             Layout.fillWidth: true
@@ -659,7 +722,7 @@ Window {
                             grid.currentIndex = tile.index
                             list.currentIndex = tile.index
                             if (!tile.isDir)
-                                nameField.text = tile.name
+                                root.setTypedName(tile.name)
                         }
                         onDoubleClicked: {
                             if (tile.isDir)
@@ -752,7 +815,7 @@ Window {
                             }
                             list.currentIndex = entry.index
                             if (!entry.isDir && !adding)
-                                nameField.text = entry.name
+                                root.setTypedName(entry.name)
                         }
                         // Right-clicking acts on the entry under the pointer
                         // without changing what is selected, the way the
@@ -824,8 +887,9 @@ Window {
             Layout.fillWidth: true
 
             Label {
-                text: root.naming ? qsTr("Save as:") : qsTr("File name:")
-                visible: !root.choosingDirectory
+                objectName: "nameLabel"
+                text: root.naming ? qsTr("Save As:") : qsTr("File name:")
+                visible: nameField.visible
             }
 
             // Beside the label that names it. It sat after the filter before,
@@ -834,13 +898,16 @@ Window {
                 id: nameField
 
                 objectName: "nameField"
-                visible: !root.choosingDirectory
+                // The other arrangement names the file above the listing, and
+                // only when there is a name to give.
+                visible: root.classic && !root.choosingDirectory
                 Layout.fillWidth: true
 
                 onAccepted: root.accept()
             }
 
             Label {
+                objectName: "kindLabel"
                 text: qsTr("Kind:")
                 visible: filterBox.visible
             }
@@ -851,7 +918,11 @@ Window {
                 objectName: "filterBox"
                 model: root.filterGroups
                 textRole: "label"
-                visible: root.filterGroups.length > 1
+                // Classic offers the kinds whatever the caller asked for -
+                // falling back to every file - because the row is there
+                // anyway. The other only offers a choice worth making.
+                visible: root.classic ? root.filterGroups.length > 0
+                                      : root.filterGroups.length > 1
                 Layout.preferredWidth: Metrics.formControlWidth
 
                 onCurrentIndexChanged: {

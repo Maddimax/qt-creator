@@ -178,6 +178,8 @@ private slots:
     void testNoButtonOffersAMnemonicItCannotHave();
     void testAFieldSaysWhatBelongsInIt();
     void testAFieldDrawsTheIconItsAspectAsksFor();
+    void testEachArrangementNamesTheFileWhereItBelongs();
+    void testTheArrangementFollowsTheHostUnlessItIsToldOtherwise();
     void testANumberOnItsOwnSaysWhatItCounts();
     void testMakeDefaultSaysWhatItWouldDefault();
     void testALabelTooLongForItsColumnSaysItInFull();
@@ -665,6 +667,125 @@ void QuickUiTest::testANumberOnItsOwnSaysWhatItCounts()
     QVERIFY2(numbers > 0, "no page opened a row with a number, so this proves nothing");
     QVERIFY2(bare.isEmpty(),
              qPrintable("numbers with nothing to say what they count: " + bare.join(", ")));
+}
+
+// The dialog draws one of two arrangements, which is what the widget dialog
+// has always done. Classic names the file below the listing whatever the
+// dialog is for and offers the kinds beside it; the other only names it when
+// there is a name to give, above the listing, the way a Mac dialog does.
+void QuickUiTest::testEachArrangementNamesTheFileWhereItBelongs()
+{
+    const auto dialogFor = [](bool classic, int mode, const QString &filter) -> QObject * {
+        QQmlComponent component(QtcQuick::engine(),
+                                QUrl("qrc:/qt/qml/QtCreator/Ui/QtcFileDialog.qml"));
+        QTC_ASSERT(!component.isError(), qDebug() << component.errorString(); return nullptr);
+        // Set here rather than after: the arrangement decides what is built.
+        return component.createWithInitialProperties(
+            {{"classic", classic}, {"mode", mode}, {"nameFilter", filter}});
+    };
+    // OpenFile and SaveFile, as QtcFileDialog numbers them.
+    const int openFile = 0;
+    const int saveFile = 2;
+    // The dialog is a Window, so what it draws is found by name rather than
+    // walked from a root item.
+    const auto shows = [](QObject *dialog, const QString &name) {
+        QQuickItem * const item = dialog->findChild<QQuickItem *>(name);
+        return item && item->isVisible();
+    };
+
+    // Classic, opening: the file is named below the listing, and the kinds
+    // are on offer even though the caller named none.
+    {
+        const std::unique_ptr<QObject> dialog(dialogFor(true, openFile, ""));
+        QVERIFY(dialog);
+        QVERIFY2(shows(dialog.get(), "nameField"), "classic does not name the file");
+        QVERIFY2(!shows(dialog.get(), "saveAsRow"), "classic names it twice");
+        QVERIFY2(shows(dialog.get(), "filterBox"), "classic offers no kind at all");
+        const QVariantList groups = dialog->property("filterGroups").toList();
+        QCOMPARE(groups.size(), 1);
+        QCOMPARE(groups.first().toMap().value("patterns").toStringList(), QStringList({"*"}));
+    }
+
+    // The other, opening: the listing is the answer, so there is no field and
+    // no choice of kind worth making.
+    {
+        const std::unique_ptr<QObject> dialog(dialogFor(false, openFile, ""));
+        QVERIFY(dialog);
+        QVERIFY2(!shows(dialog.get(), "nameField"), "the compact arrangement names the file anyway");
+        QVERIFY2(!shows(dialog.get(), "saveAsRow"), "it asks for a name to open a file");
+        QVERIFY2(!shows(dialog.get(), "filterBox"), "it offers a choice of one kind");
+    }
+
+    // The other, saving: named above the listing.
+    {
+        const std::unique_ptr<QObject> dialog(dialogFor(false, saveFile, ""));
+        QVERIFY(dialog);
+        QVERIFY2(shows(dialog.get(), "saveAsRow"), "saving asks for no name");
+        QVERIFY2(!shows(dialog.get(), "nameField"), "it names the file twice");
+
+        // And what is typed there is the answer, wherever the field is.
+        dialog->setProperty("currentFolder", QDir::tempPath());
+        QQuickItem * const field = dialog->findChild<QQuickItem *>("saveAsField");
+        QVERIFY(field);
+        field->setProperty("text", "notes.txt");
+        QCOMPARE(dialog->property("typedName").toString(), QString("notes.txt"));
+        QCOMPARE(dialog->property("wouldChooseAll").toStringList().size(), 1);
+    }
+
+    // Classic, saving: the one field asks, worded for saving, and the row the
+    // other arrangement puts above the listing stays away. This is the only
+    // combination where the two disagree about which field is which.
+    {
+        const std::unique_ptr<QObject> dialog(dialogFor(true, saveFile, ""));
+        QVERIFY(dialog);
+        QVERIFY2(shows(dialog.get(), "nameField"), "classic saving asks for no name");
+        QVERIFY2(!shows(dialog.get(), "saveAsRow"), "classic names it twice when saving");
+        QQuickItem * const label = dialog->findChild<QQuickItem *>("nameLabel");
+        QVERIFY(label);
+        QCOMPARE(label->property("text").toString(), QString("Save As:"));
+
+        dialog->setProperty("currentFolder", QDir::tempPath());
+        QQuickItem * const field = dialog->findChild<QQuickItem *>("nameField");
+        QVERIFY(field);
+        field->setProperty("text", "notes.txt");
+        QCOMPARE(dialog->property("typedName").toString(), QString("notes.txt"));
+        QCOMPARE(dialog->property("wouldChooseAll").toStringList().size(), 1);
+    }
+
+    // A choice worth making is offered by both.
+    {
+        const std::unique_ptr<QObject> dialog(
+            dialogFor(false, openFile, "Sources (*.cpp);;All files (*)"));
+        QVERIFY(dialog);
+        QVERIFY2(shows(dialog.get(), "filterBox"), "two kinds and no way to pick one");
+    }
+}
+
+// Which arrangement a dialog opens with follows the host - every dialog but a
+// Mac one names the file below the listing - and the reader's choice, which
+// the browser keeps where the widget dialog keeps it.
+void QuickUiTest::testTheArrangementFollowsTheHostUnlessItIsToldOtherwise()
+{
+    QtcQuick::FileBrowser browser;
+    QCOMPARE(browser.classicLayout(), !Utils::HostOsInfo::isMacHost());
+
+    QQmlComponent component(QtcQuick::engine(),
+                            QUrl("qrc:/qt/qml/QtCreator/Ui/QtcFileDialog.qml"));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    const std::unique_ptr<QObject> dialog(component.create());
+    QVERIFY(dialog);
+
+    // The dialog draws what the browser holds, without being told.
+    auto * const its = dialog->findChild<QtcQuick::FileBrowser *>("fileBrowser");
+    QVERIFY(its);
+    QCOMPARE(dialog->property("classic").toBool(), its->classicLayout());
+
+    // The menu says which one it is drawing. Triggering it would write the
+    // reader's settings, which a test has no business doing, so this asks
+    // what it offers rather than taking it up.
+    QObject * const item = dialog->findChild<QObject *>("classicLayoutItem");
+    QVERIFY(item);
+    QCOMPARE(item->property("checked").toBool(), its->classicLayout());
 }
 
 // A string aspect can ask for an icon inside its field, at the right, and be
@@ -5848,7 +5969,10 @@ void QuickUiTest::testTheFileDialogChoosesAFileWithoutAskingThePlatform()
     // button is live with no answer would hand back an empty path.
     QVERIFY(dialog->property("wouldChooseAll").toStringList().isEmpty());
 
-    // Picking the file by name is what typing into the field does.
+    // Picking the file by name is what typing into the field does - in the
+    // arrangement that has one. The other names a file only when saving, so
+    // this asks for the classic one rather than depending on the host.
+    dialog->setProperty("classic", true);
     QObject * const nameField = dialog->findChild<QObject *>("nameField");
     QVERIFY(nameField);
     nameField->setProperty("text", "chosen.txt");
@@ -5881,6 +6005,18 @@ void QuickUiTest::testTheFileDialogChoosesAFileWithoutAskingThePlatform()
     QVERIFY(forDirectory->property("selectedFile").toString().isEmpty());
 
     QVERIFY2(complaints.isEmpty(), qPrintable("\n" + complaints.join("\n")));
+}
+
+// The window our own file dialog is, if one is open. It is a window with no
+// parent, made and destroyed with the browsing, so it is found among the
+// windows rather than under an item.
+static QQuickWindow *deviceBrowseWindow()
+{
+    for (QWindow *window : QGuiApplication::topLevelWindows()) {
+        if (QString::fromLatin1(window->metaObject()->className()).startsWith("QtcFileDialog"))
+            return qobject_cast<QQuickWindow *>(window);
+    }
+    return nullptr;
 }
 
 // Which dialog a path field opens. The platform's cannot see a device, so a
@@ -5932,6 +6068,30 @@ void QuickUiTest::testAPathOnADeviceIsBrowsedWithOurOwnDialog()
     QVERIFY2(!models.isLocalPath("docker://nosuchimage/tmp"),
              "a path on a device is taken for one on this machine, so the "
              "platform dialog would be opened for it");
+
+    // A path that is not on a device yet is reached by asking. The widget
+    // path chooser hung Local and Remote off the browse button; the field
+    // does the same, and offers it only where a device path would be taken.
+    auto * const options = anywhere->findChild<QQuickItem *>("browseOptionsButton");
+    QVERIFY(options);
+    QVERIFY2(options->isVisible(),
+             "a field that takes a device path does not offer to browse one");
+    auto * const noOptions = hereOnly->findChild<QQuickItem *>("browseOptionsButton");
+    QVERIFY(noOptions);
+    QVERIFY2(!noOptions->isVisible(),
+             "a field that refuses device paths offers to browse one anyway");
+
+    // And asking opens ours, from a local path, where the rule alone would
+    // have left it to the platform. Only this half can be tried: the other
+    // opens the platform's own dialog, which on this host is modal and real.
+    QVERIFY(!deviceBrowseWindow());
+    QMetaObject::invokeMethod(anywhere, "browse", Q_ARG(bool, true));
+    QQuickWindow *dialog = nullptr;
+    QTRY_VERIFY2((dialog = deviceBrowseWindow()),
+                 "asking for Remote did not open the dialog that reaches a device");
+    dialog->close();
+    dialog->deleteLater();
+    QTRY_VERIFY(!deviceBrowseWindow());
 }
 
 // Getting about: back and forward over where the reader has been, and the
@@ -6223,6 +6383,8 @@ void QuickUiTest::testTheFileDialogCanChooseSeveralFilesAtOnce()
     const std::unique_ptr<QObject> single(component.create());
     QVERIFY(single);
     single->setProperty("currentFolder", root.toUserOutput());
+    // The arrangement with a field to type the name into; see above.
+    single->setProperty("classic", true);
     QObject * const nameField = single->findChild<QObject *>("nameField");
     QVERIFY(nameField);
     nameField->setProperty("text", "two.txt");
@@ -6733,23 +6895,30 @@ void QuickUiTest::testWhichDialogAFieldOpensIsOneDecision()
         component.createWithInitialProperties({{"allowed", true}, {"pathKind", "ExistingCommand"}}));
     QVERIFY(browse);
 
-    const auto wanted = [&browse](const QString &current, int modifiers) {
+    const auto wanted = [&browse](const QString &current) {
         bool answer = false;
         QMetaObject::invokeMethod(browse.get(), "wanted", Q_RETURN_ARG(bool, answer),
-                                  Q_ARG(QString, current), Q_ARG(int, modifiers));
+                                  Q_ARG(QString, current));
         return answer;
     };
 
-    // A path on this machine is the platform's business.
-    QVERIFY(!wanted(QDir::homePath(), Qt::NoModifier));
-    QVERIFY(!wanted("", Qt::NoModifier));
-    // One on a device is ours: the platform's dialog cannot see it.
-    QVERIFY2(wanted("docker://nosuchimage/tmp", Qt::NoModifier),
+    // The rule the widget path chooser follows, which is one line of it:
+    //     remote = remote || !filePath().isLocal();
+    QtcQuick::AspectModels models;
+    if (models.hasNativeFileDialog()) {
+        // A path on this machine is the platform's business.
+        QVERIFY(!wanted(QDir::homePath()));
+        QVERIFY(!wanted(""));
+    } else {
+        // Unless the platform has nothing to offer, when there is nothing to
+        // give up by using ours - as the widget dialog also reasoned.
+        QVERIFY2(wanted(QDir::homePath()),
+                 "the platform has no dialog and ours was not used anyway");
+    }
+    // One on a device is ours whatever the platform offers: its dialog cannot
+    // see a device.
+    QVERIFY2(wanted("docker://nosuchimage/tmp"),
              "a path on a device would be browsed with the platform's dialog");
-    // And Shift asks for ours, which is how a device is reached from a path
-    // that is not on one yet.
-    QVERIFY2(wanted(QDir::homePath(), Qt::ShiftModifier),
-             "holding Shift does not ask for the dialog that reaches a device");
 
     // A field that refuses device paths never opens it, however it is asked.
     const std::unique_ptr<QObject> hereOnly(
@@ -6757,8 +6926,7 @@ void QuickUiTest::testWhichDialogAFieldOpensIsOneDecision()
     QVERIFY(hereOnly);
     bool answer = true;
     QMetaObject::invokeMethod(hereOnly.get(), "wanted", Q_RETURN_ARG(bool, answer),
-                              Q_ARG(QString, QString("docker://nosuchimage/tmp")),
-                              Q_ARG(int, int(Qt::ShiftModifier)));
+                              Q_ARG(QString, QString("docker://nosuchimage/tmp")));
     QVERIFY2(!answer, "a field that takes no device path was sent to a device anyway");
 }
 

@@ -229,35 +229,81 @@ RowLayout {
         }
     }
 
-    Button {
-        objectName: "browseButton"
-        text: qsTr("Browse...")
+    // Browsing, and which dialog does it. A path already on a device can only
+    // be browsed by ours; otherwise the platform's, so its usual picker is not
+    // taken away. \a remote asks for ours whatever the path is, which is the
+    // menu below - the widget path chooser puts the same choice on the same
+    // button.
+    function browse(remote: bool): void {
+        // Where to open is worked out now rather than bound: it depends on
+        // what is in the field, and on what the filesystem says about it.
+        const start = delegate.aspect
+                    ? delegate.aspect.browseStartDirectory(field.text) : ""
+
+        if (remote || deviceBrowse.wanted(field.text)) {
+            deviceBrowse.open(start, delegate.pres.promptDialogFilter ?? "", false)
+            return
+        }
+
+        const url = start !== "" ? Qt.resolvedUrl("file://" + start) : ""
+        if (delegate.wantsDirectory) {
+            if (url !== "")
+                folderDialog.currentFolder = url
+            folderDialog.open()
+        } else {
+            if (url !== "")
+                fileDialog.currentFolder = url
+            fileDialog.open()
+        }
+    }
+
+    RowLayout {
+        spacing: 0
         visible: delegate.isPath
-        enabled: (delegate.aspect?.enabled ?? false) && !(delegate.aspect?.readOnly ?? true)
-        onClicked: (mouse) => {
-            // Where to open is worked out now rather than bound: it depends on
-            // what is in the field, and on what the filesystem says about it.
-            const start = delegate.aspect
-                        ? delegate.aspect.browseStartDirectory(field.text) : ""
 
-            // A path on a device cannot be browsed by the platform's dialog,
-            // which knows only the machine it runs on - the widget path
-            // chooser reaches for Qt Creator's own for exactly this.
-            if (deviceBrowse.wanted(field.text, mouse.modifiers)) {
-                deviceBrowse.open(start, delegate.pres.promptDialogFilter ?? "", false)
-                return
-            }
+        Button {
+            objectName: "browseButton"
+            text: qsTr("Browse...")
+            enabled: (delegate.aspect?.enabled ?? false) && !(delegate.aspect?.readOnly ?? true)
+            onClicked: delegate.browse(false)
+        }
 
-            const url = start !== "" ? Qt.resolvedUrl("file://" + start) : ""
-            if (delegate.wantsDirectory) {
-                if (url !== "")
-                    folderDialog.currentFolder = url
-                folderDialog.open()
-            } else {
-                if (url !== "")
-                    fileDialog.currentFolder = url
-                fileDialog.open()
+        // Only where there is a choice to make: a field that will not take a
+        // path from a device has nothing to offer here.
+        Button {
+            id: browseOptions
+
+            objectName: "browseOptionsButton"
+            visible: delegate.pres.allowPathFromDevice ?? false
+            enabled: (delegate.aspect?.enabled ?? false) && !(delegate.aspect?.readOnly ?? true)
+            Layout.preferredWidth: implicitHeight
+            onClicked: browseMenu.popup(browseOptions, 0, browseOptions.height)
+
+            contentItem: Image {
+                source: "image://qtcreator/utils/images/arrowdown.png?color=Token_Text_Muted"
+                fillMode: Image.Pad
+                horizontalAlignment: Image.AlignHCenter
+                verticalAlignment: Image.AlignVCenter
+                opacity: browseOptions.enabled ? 1.0 : Metrics.disabledIconOpacity
             }
+        }
+    }
+
+    Menu {
+        id: browseMenu
+
+        objectName: "browseMenu"
+
+        MenuItem {
+            objectName: "browseLocalItem"
+            text: qsTr("Local")
+            onTriggered: delegate.browse(false)
+        }
+
+        MenuItem {
+            objectName: "browseRemoteItem"
+            text: qsTr("Remote")
+            onTriggered: delegate.browse(true)
         }
     }
 

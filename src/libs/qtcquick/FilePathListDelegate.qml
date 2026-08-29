@@ -88,35 +88,36 @@ RowLayout {
         }
     }
 
+    // The same rule the path field follows: our own dialog for a path already
+    // on a device, the platform's otherwise so that its usual picker is not
+    // taken away, and \a remote to ask for ours whatever the path is.
+    function browse(remote: bool): void {
+        const values = root.aspect?.value ?? []
+        const last = values.length > 0 ? String(values[values.length - 1]) : ""
+        if (remote || deviceBrowse.wanted(last)) {
+            deviceBrowse.open(root.startFolder, root.pres.promptDialogFilter ?? "", true)
+            return
+        }
+
+        const url = root.startFolder !== ""
+                  ? Qt.resolvedUrl("file://" + root.startFolder) : ""
+        if (root.wantsDirectory) {
+            if (url !== "")
+                folderDialog.currentFolder = url
+            folderDialog.open()
+        } else {
+            if (url !== "")
+                fileDialog.currentFolder = url
+            fileDialog.open()
+        }
+    }
+
     Button {
         objectName: "addButton"
         text: qsTr("Add...")
         visible: root.pres.allowAdding ?? true
         enabled: root.editable
-        onClicked: (mouse) => {
-            // The same rule the path field follows: our own dialog for a path
-            // on a device, or when Shift asks for one; the platform's
-            // otherwise, so that its usual picker is not taken away.
-            const values = root.aspect?.value ?? []
-            const last = values.length > 0 ? String(values[values.length - 1]) : ""
-            if (deviceBrowse.wanted(last, mouse.modifiers)) {
-                deviceBrowse.open(root.startFolder,
-                                  root.pres.promptDialogFilter ?? "", true)
-                return
-            }
-
-            const url = root.startFolder !== ""
-                      ? Qt.resolvedUrl("file://" + root.startFolder) : ""
-            if (root.wantsDirectory) {
-                if (url !== "")
-                    folderDialog.currentFolder = url
-                folderDialog.open()
-            } else {
-                if (url !== "")
-                    fileDialog.currentFolder = url
-                fileDialog.open()
-            }
-        }
+        onClicked: root.browse(false)
     }
 
     FileDialog {

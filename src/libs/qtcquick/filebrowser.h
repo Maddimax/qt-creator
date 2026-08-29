@@ -108,6 +108,12 @@ class QTCQUICK_EXPORT FileBrowser : public QObject
                    NOTIFY nameFiltersChanged)
     Q_PROPERTY(bool showHiddenFiles READ showHiddenFiles WRITE setShowHiddenFiles
                    NOTIFY showHiddenFilesChanged)
+    // Which of the two arrangements the dialog draws: the file's name below
+    // the listing with the kinds beside it, or - the Mac habit - only above
+    // it and only when saving. The widget dialog offers both and keeps the
+    // choice under the same key, so the two agree about it.
+    Q_PROPERTY(bool classicLayout READ classicLayout WRITE setClassicLayout
+                   NOTIFY classicLayoutChanged)
     // What to look for below the directory being looked at. While it is set,
     // entries() is what was found rather than what is in the directory - the
     // same swap the widget dialog makes. Clearing it goes back to the listing.
@@ -148,6 +154,9 @@ public:
 
     bool showHiddenFiles() const;
     void setShowHiddenFiles(bool show);
+
+    bool classicLayout() const;
+    void setClassicLayout(bool on);
 
     QString searchText() const;
     void setSearchText(const QString &text);
@@ -213,6 +222,7 @@ signals:
     void directoryChanged();
     void nameFiltersChanged();
     void showHiddenFilesChanged();
+    void classicLayoutChanged();
     void searchTextChanged();
     void searchingChanged();
     void busyChanged();

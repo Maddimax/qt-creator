@@ -6061,15 +6061,11 @@ asked whether it opens with rows, the porting commits re-read for strings that
 went away with the layouts they lived in, and the qbs description resolved
 with a control proving a break would be reported.
 
-What is open is not porting but four questions, and none of them is mine to
-answer:
+Two of the four questions this section used to list have been answered, and
+the answer to both was "as the widget did it" - see *Both arrangements, and
+who opens which dialog* at the end. What is left is two, and neither is mine
+to answer:
 
-- **The file dialog's second layout.** The Quick file dialog draws one. The
-  widget dialog offers a compact and a classic arrangement, and nobody has
-  said the second one is wanted. The recommendation is to skip it.
-- **Whether the Quick dialog becomes the default** for every
-  `FileUtils::getOpenFilePath` caller, rather than the pages that ask for it.
-  That is a change in what every plugin in the tree opens.
 - **The trackpad scrollbar.** The Quick editor shows one while a wheel or
   trackpad scroll is under way; whether it feels right needs the hardware,
   and a test that asserts `active` cannot answer it.
@@ -15688,3 +15684,65 @@ group and `texteditorsupport.qbs` does not, so checking only the first one
 found reports 24 pages as unlisted. And a product can list its files with a
 bare `"*"`: `qmldesigner.qbs` is four lines long and covers everything, so its
 settings page is listed without the word `qml` appearing in the file.
+
+### Both arrangements, and who opens which dialog
+
+Two questions this document had left open were answered directly: the classic
+arrangement is wanted and is the default off macOS, and Qt Creator's own
+dialog is to be the default exactly where it was before - an explicit "open
+from device", or a start path already on a device. Neither is a design call
+any more, so both now follow the widget rather than approximate it.
+
+**The arrangement.** `FileDialog::classicLayoutEnabled()` reads
+`FileDialog/ClassicLayout` from a default-constructed `QSettings`, defaulting
+to `!HostOsInfo::isMacHost()`. `FileBrowser` now reads and writes the same key
+in the same group as the favourites it already shared, so a reader who
+switches in one dialog finds the other switched too; `QtcFileDialog.classic`
+follows it and is settable, which is how a test asks for an arrangement
+without writing to anyone's settings.
+
+What the two arrangements disagree about is only visibility, exactly as
+`updateLayoutVisibility()` has it: classic names the file in the row under the
+listing and always offers a kind - falling back to "All files (\*)" when the
+caller named none, because the row is there anyway - while the compact one
+puts a Save As row above the listing when there is a name to give, and offers
+a kind only when there is a choice worth making. The one combination where
+they disagree about *which* field is which is classic saving, and it is the
+one the first three test cases missed: the control that made `saveAsRow`
+visible in both arrangements passed a full suite. A fourth case covers it, and
+with it the label that reads "Save As:" there and "File name:" otherwise -
+matching the widget down to the capital A, which the QML had as "Save as:".
+
+**Which dialog.** The rule is one line of `PathChooser::slotBrowse`:
+
+    remote = remote || !filePath().isLocal();
+
+plus the clause underneath it in `FileUtils::getFilePaths`, that where the
+platform has no dialog of its own there is nothing to give up by using ours.
+`DeviceBrowse.wanted()` is now both, `AspectModels::hasNativeFileDialog()`
+being the second - it matters on a Linux without a platform file dialog, where
+the Quick fallback picker would otherwise replace a Creator dialog that could
+at least reach a device.
+
+What went with it is the Shift modifier the Quick delegates had been reading
+off the click. The widget does query Shift, but live and at browse time, and
+it is not the affordance a reader is given: the path chooser hangs **Local**
+and **Remote** off the browse button whenever the field takes a device path.
+The delegates now do the same - a small arrow button beside Browse, visible
+only where there is a choice to make - and `browse(remote)` on both delegates
+is the one place that decides. Shift is not carried over; the menu is what it
+was a shortcut for.
+
+**Seven controls, six of which bit first time.** Flipping the classic default,
+detaching the name field from the arrangement, making `wanted()` refuse
+everything, dropping `remote` from `browse()`, showing the options button
+unconditionally, and reading `hasNativeFileDialog()` the wrong way round each
+failed exactly one test. The seventh - showing the Save As row in both
+arrangements - passed, which is what found the missing classic-saving case;
+it bites now, and so does wording the classic label as if it never saves.
+
+The end-to-end half is worth keeping: asking for Remote from a *local* path
+opens our dialog, checked by looking for the `QtcFileDialog` window it makes.
+Only that half can be tried. The other opens the platform's own dialog, which
+on this host is native and modal, and a test that opens one does not come
+back.
