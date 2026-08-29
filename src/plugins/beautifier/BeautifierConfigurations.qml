@@ -50,4 +50,13 @@ ColumnLayout {
     }
 
     TextDisplayDelegate { aspect: root.configurations.Documentation }
+
+    // With no configuration chosen there is no editor to show, and nothing
+    // else here grows - so the group's spare height had nowhere to go and
+    // pushed what little there is to the bottom of it. This takes the space
+    // when the editor is not there to take it.
+    Item {
+        visible: !editor.visible
+        Layout.fillHeight: true
+    }
 }

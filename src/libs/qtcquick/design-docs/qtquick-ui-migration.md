@@ -15044,3 +15044,28 @@ Options menu, which is where the widget dialog keeps its own.
 Worth keeping as a lesson rather than a paragraph about buttons: a component
 can be green in every test it has and still be obviously wrong the first time
 anybody looks at it. The tests were asking whether it *worked*, and it did.
+
+### The hole in the beautifier pages
+
+Looking at the pages that use the delegates this branch changed found a second
+thing no test asked about, and it was not the delegates: on a machine with no
+saved configurations, the Options group on all three beautifier pages had about
+four hundred pixels of nothing between its title and its first control.
+
+`BeautifierConfigurations` shows the editor for a configuration only once one
+is chosen. With none, the tall thing in the group is invisible, so the group's
+spare height had nothing to fill and the handful of visible controls ended up
+at the bottom of it. A spacer that appears exactly when the editor does not
+takes the space instead - the editor still grows when it is there, which is
+what it wants.
+
+The test asserts *placement*: the gap between the last control of one group and
+the first of the next. Every control was present, the right size and correct
+before - which is precisely the shape of bug that presence and value
+assertions cannot see. The control puts the gap at 237 pixels against a limit
+of 150.
+
+The same picture showed both halves of the validity work behaving on a real
+page: ClangFormat's command resolves, so its options are live, and Uncrustify -
+not installed on this machine - says "The path "uncrustify" does not exist." and
+greys its options out.

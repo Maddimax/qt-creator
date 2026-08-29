@@ -281,6 +281,7 @@ private slots:
     void testACodeEditorScrollsInsteadOfGrowingThePage();
     void testTabTypesAnIndentInACodeEditor();
     void testEditingThePreviewReachesTheAspectThatOwnsIt();
+    void testAGroupPutsItsContentAtItsTop();
 };
 
 // Settings a page carries but does not draw. Each was checked against the
@@ -5796,6 +5797,64 @@ void QuickUiTest::testADirectoryIsListedInAnOrderAReaderExpects()
 
     QCOMPARE(listed, QStringList({"Include", "src", "tests",
                                   "Alpha.txt", "main.cpp", "widget.cpp", "zebra.h"}));
+}
+
+// Where a group's spare height goes. A beautifier page shows the editor for a
+// configuration only once one is chosen, so on a machine with none the tall
+// thing in the group is invisible - and the group's spare height, having
+// nothing to fill, pushed the handful of visible controls to the bottom of it.
+// Four hundred pixels of nothing between the group's title and its first
+// control, which no test asked about because every control was present, the
+// right size, and correct.
+void QuickUiTest::testAGroupPutsItsContentAtItsTop()
+{
+    Core::setAspectFormFactory([](Utils::AspectContainer *container) {
+        return QtcQuick::createAspectForm(container);
+    });
+
+    Core::IOptionsPage *page = nullptr;
+    for (Core::IOptionsPage *candidate : Core::IOptionsPage::allOptionsPages()) {
+        if (candidate->displayName() == "ClangFormat")
+            page = candidate;
+    }
+    QVERIFY2(page, "no ClangFormat page - is the Beautifier plugin loaded?");
+
+    const std::unique_ptr<QWidget> widget(page->createWidget());
+    QVERIFY(widget);
+    widget->resize(900, 700);
+    widget->show();
+    QVERIFY(QTest::qWaitForWindowExposed(widget.get()));
+    auto * const quickWidget = widget->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QQuickItem * const root = quickWidget->rootObject();
+    QVERIFY(root);
+
+    // The last control of the first group, and the first of the second.
+    QQuickItem *mimeTypes = nullptr;
+    QQuickItem *firstOption = nullptr;
+    QTRY_VERIFY([&] {
+        mimeTypes = nullptr;
+        firstOption = nullptr;
+        for (QQuickItem *item : findQmlComponents(root, "StringDelegate")) {
+            auto aspect = item->property("aspect").value<Utils::BaseAspect *>();
+            if (aspect && aspect->qmlName() == "SupportedMimeTypes")
+                mimeTypes = item;
+        }
+        const QList<QQuickItem *> radios = findQmlComponents(root, "RadioDelegate");
+        if (!radios.isEmpty())
+            firstOption = radios.first();
+        return mimeTypes && firstOption;
+    }());
+
+    const QPointF mimeBottom = mimeTypes->mapToItem(root, QPointF(0, mimeTypes->height()));
+    const QPointF optionTop = firstOption->mapToItem(root, QPointF(0, 0));
+    const qreal gap = optionTop.y() - mimeBottom.y();
+    QVERIFY2(gap >= 0, qPrintable(QString("the options are above the group before them: %1")
+                                      .arg(gap)));
+    // Room for the group's title and its padding, and nothing like the four
+    // hundred pixels an unfilled group used to leave.
+    QVERIFY2(gap < 150,
+             qPrintable(QString("%1 pixels of nothing between the groups").arg(gap)));
 }
 
 void QuickUiTest::testSeveralLinesCompleteTheWordTheCursorIsIn()
