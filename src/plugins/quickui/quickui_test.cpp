@@ -186,6 +186,7 @@ private slots:
     void testALabelInAContinuationRowStaysWithItsControl();
     void testACompactColourKeepsItsNumbersBehindItsSwatch();
     void testTheFormatListOpensOnAFormat();
+    void testTheComponentsNoPageUsesYetStillDraw();
     void testEveryComponentInTheModuleCanBeLoaded();
     void testAspectDrivenPagesRenderWithQuick();
     void testNestedContainerIsAModelGroup();
@@ -1059,6 +1060,55 @@ void QuickUiTest::testACompactColourKeepsItsNumbersBehindItsSwatch()
     boxes.first()->setProperty("value", 0);
     QMetaObject::invokeMethod(boxes.first(), "valueModified");
     QCOMPARE(colour.volatileValue().red(), 0);
+}
+
+// Three of the module's components have no call site in any QML: QtcBadge,
+// QtcPageIndicator and QtcProgressBar are the Qt Quick counterparts of widgets
+// that Utils already has, drawn for pages that have not been written yet.
+// That is what QtcLabel was when it broke - a component nothing instantiated,
+// which compiled for years while being unusable. Compiling is what
+// testEveryComponentInTheModuleCanBeLoaded checks; this asks whether they draw.
+void QuickUiTest::testTheComponentsNoPageUsesYetStillDraw()
+{
+    struct Case
+    {
+        QString component;
+        QVariantMap properties;
+        QString mustShow;
+    };
+    const QList<Case> cases = {
+        {"QtcBadge", {{"text", "7"}}, "7"},
+        {"QtcPageIndicator", {{"pagesCount", 4}, {"currentPage", 2}}, {}},
+        {"QtcProgressBar", {{"from", 0}, {"to", 10}, {"value", 5}}, {}},
+    };
+
+    for (const Case &c : cases) {
+        QQmlComponent component(QtcQuick::engine(),
+                                QUrl("qrc:/qt/qml/QtCreator/Ui/" + c.component + ".qml"));
+        QVERIFY2(!component.isError(), qPrintable(c.component + ": " + component.errorString()));
+        const std::unique_ptr<QObject> object(component.createWithInitialProperties(c.properties));
+        QVERIFY2(object.get(), qPrintable(c.component + ": " + component.errorString()));
+        auto *item = qobject_cast<QQuickItem *>(object.get());
+        QVERIFY2(item, qPrintable(c.component + " is not an item"));
+
+        // Something to see: a component whose implicit size is zero draws
+        // nothing wherever it is put, which is how one rots unnoticed.
+        QVERIFY2(item->implicitWidth() > 0,
+                 qPrintable(QString("%1 asks for no width").arg(c.component)));
+        QVERIFY2(item->implicitHeight() > 0,
+                 qPrintable(QString("%1 asks for no height").arg(c.component)));
+
+        if (c.mustShow.isEmpty())
+            continue;
+        QStringList drawn;
+        for (QQuickItem *label : findQmlComponents(item, "Label"))
+            drawn << label->property("text").toString();
+        for (QQuickItem *text : findQmlComponents(item, "QQuickText"))
+            drawn << text->property("text").toString();
+        QVERIFY2(drawn.contains(c.mustShow),
+                 qPrintable(QString("%1 does not show \"%2\": %3")
+                                .arg(c.component, c.mustShow, drawn.join(", "))));
+    }
 }
 
 // Every .qml in QtCreator.Ui has to at least compile. A component with no call

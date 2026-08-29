@@ -15582,3 +15582,46 @@ is what this module's own comment asks for - "a delegate that drives one
 aspect type declares that type". `StringAspect` derives from a template base
 and qmllint cannot resolve it, which trades one warning for two, so the
 property stays `Aspect`.
+
+### The other two axes, and what they were worth
+
+The four parity axes were reads, presentation fields, connected signals and
+writes. Fields and signals were swept in full; the other two have cheap
+mechanical forms that are worth doing and a thorough form that is not.
+
+**Writes.** Every delegate that edits something has to write it back. Scanning
+for a write expression - `aspect.value =`, `triggerAction()`, `model.edit =` -
+finds nine delegates with none, and all nine are containers, an action or
+`UnsupportedDelegate`. No value-bearing delegate is missing its write.
+
+**Reads, and staying read.** A delegate reads its descriptor once:
+`property var pres: aspect ? AspectModels.presentation(aspect) : ({})`
+re-evaluates when the *aspect* changes, not when the aspect changes its mind.
+Thirteen delegates listen for `controlConfigurationChanged` and re-read; four
+do not - `AspectListDelegate`, `FilePathListDelegate`, `GroupedListDelegate`
+and `TreeDelegate`.
+
+That looks like four bugs and is none. Between them they read `allowAdding`,
+`allowReordering`, `allowPathFromDevice`, `pathKind`, `promptDialogTitle`,
+`promptDialogFilter`, `placeholderText`, `filterPlaceholderText` and
+`showsDefault`, and every aspect in the tree either sets those in its
+constructor or writes a constant into `presentation()`. `setShowsDefault` has
+five call sites and all five are constructors. So no control bites, and four
+speculative `Connections` blocks would be four changes justified by nothing.
+Worth knowing if one of those fields ever becomes dynamic.
+
+### Components no page uses yet
+
+Three of the module's fifty QML files have no call site in any QML:
+`QtcBadge`, `QtcPageIndicator` and `QtcProgressBar`, the Qt Quick counterparts
+of widgets `Utils` already has and the profiler, the learning page and the ACP
+chat panel already use.
+
+That is precisely what `QtcLabel` was when it broke: a component nothing
+instantiated, which compiled for years while being unusable because it
+assigned `implicitHeight` on a `Text`.
+`testEveryComponentInTheModuleCanBeLoaded` catches that exact failure and
+nothing else. So the three are now instantiated with properties and asked
+whether they draw - an implicit size at all, and the badge's text among what
+it shows. Its controls: blanking the badge's text, and pinning the progress
+bar's implicit width to zero.
