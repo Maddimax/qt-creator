@@ -20,6 +20,7 @@
 #include <QDir>
 
 #include <qtcquick/aspectmodels.h>
+#include <qtcquick/filebrowser.h>
 #include <qtcquick/qtciconprovider.h>
 #include <qtcquick/qtcquickengine.h>
 #include <qtcquick/aspectcontainermodel.h>
@@ -252,6 +253,9 @@ private slots:
     void testAPathToACommandSaysWhatVersionItIs();
     void testAColourOffersAnAlphaOnlyWhenItIsAllowed();
     void testAFontPickerOffersOnlyTheFamiliesTheAspectAccepts();
+    void testTheFileBrowserListsWhatIsInADirectory();
+    void testTheFileDialogChoosesAFileWithoutAskingThePlatform();
+    void testAPathOnADeviceIsBrowsedWithOurOwnDialog();
     void testSeveralLinesCompleteTheWordTheCursorIsIn();
     void testColourOffersToGoBackToItsDefault();
     void testColourWithNoResetHasNoButton();
@@ -4689,6 +4693,203 @@ void QuickUiTest::testAFontPickerOffersOnlyTheFamiliesTheAspectAccepts()
     QVERIFY(!dropped.isEmpty());
     for (const QString &family : dropped)
         QVERIFY2(!QFontDatabase::isFixedPitch(family), qPrintable(family + " was dropped anyway"));
+}
+
+// Browsing a filesystem without a view. The Quick file dialog is built on
+// this, and it exists because QtQuick.Dialogs' FileDialog can only see the
+// machine it runs on - a path aspect that allows a path from a device has
+// nowhere to send the reader.
+void QuickUiTest::testTheFileBrowserListsWhatIsInADirectory()
+{
+    Utils::TemporaryDirectory dir("quickui-filebrowser");
+    QVERIFY(dir.isValid());
+    const Utils::FilePath root = dir.path();
+    const Utils::FilePath inner = root / "inner";
+    QVERIFY(inner.createDir());
+    QVERIFY((root / "one.cpp").writeFileContents("1"));
+    QVERIFY((root / "two.txt").writeFileContents("2"));
+    QVERIFY((root / ".hidden").writeFileContents("3"));
+
+    QtcQuick::FileBrowser browser;
+    QtcQuick::FileEntries * const entries = browser.entries();
+    QVERIFY(entries);
+    // The role names a Quick delegate reads. Without them the view draws
+    // nothing and says nothing about why.
+    const QList<QByteArray> roles = entries->roleNames().values();
+    for (const QByteArray &role : {"name", "filePath", "isDir"})
+        QVERIFY2(roles.contains(role), role.constData());
+
+    browser.setDirectory(root.toUserOutput());
+    QCOMPARE(browser.directory(), root.toUserOutput());
+
+    // The listing is fetched in the background, so it arrives rather than
+    // being there.
+    const auto names = [entries] {
+        QStringList found;
+        for (int row = 0; row < entries->rowCount(); ++row)
+            found << entries->data(entries->index(row, 0), QtcQuick::FileEntries::NameRole)
+                         .toString();
+        found.sort();
+        return found;
+    };
+    QTRY_COMPARE(names(), QStringList({"inner", "one.cpp", "two.txt"}));
+
+    // Hidden files are not shown until they are asked for.
+    browser.setShowHiddenFiles(true);
+    QTRY_COMPARE(names(), QStringList({".hidden", "inner", "one.cpp", "two.txt"}));
+    browser.setShowHiddenFiles(false);
+    QTRY_COMPARE(names(), QStringList({"inner", "one.cpp", "two.txt"}));
+
+    // A name filter hides the files it does not name and leaves directories
+    // alone: a directory is how the reader reaches a file that does match.
+    browser.setNameFilters({"*.cpp"});
+    QTRY_COMPARE(names(), QStringList({"inner", "one.cpp"}));
+    browser.setNameFilters({});
+
+    // Going in and coming back out.
+    QTRY_COMPARE(names(), QStringList({"inner", "one.cpp", "two.txt"}));
+    int innerRow = -1;
+    for (int row = 0; row < entries->rowCount(); ++row) {
+        if (browser.filePathAt(row) == inner.toUserOutput())
+            innerRow = row;
+    }
+    QVERIFY(innerRow >= 0);
+    QVERIFY(browser.isDirectoryAt(innerRow));
+    QVERIFY(browser.enter(innerRow));
+    QCOMPARE(browser.directory(), inner.toUserOutput());
+    QVERIFY(browser.canGoUp());
+    browser.goUp();
+    QCOMPARE(browser.directory(), root.toUserOutput());
+
+    // A file cannot be entered - that is how a view knows to choose it
+    // instead of navigating into it.
+    int fileRow = -1;
+    QTRY_VERIFY(entries->rowCount() == 3);
+    for (int row = 0; row < entries->rowCount(); ++row) {
+        if (browser.filePathAt(row).endsWith("one.cpp"))
+            fileRow = row;
+    }
+    QVERIFY(fileRow >= 0);
+    QVERIFY(!browser.isDirectoryAt(fileRow));
+    QVERIFY(!browser.enter(fileRow));
+    QCOMPARE(browser.directory(), root.toUserOutput());
+
+    // What a typed name means: relative to what is being looked at, unless it
+    // says otherwise.
+    QCOMPARE(Utils::FilePath::fromUserInput(browser.resolve("one.cpp")), root / "one.cpp");
+    QCOMPARE(Utils::FilePath::fromUserInput(browser.resolve(inner.toUserOutput())), inner);
+
+    // And the places to start from include this machine's own.
+    QVERIFY2(browser.places()->rowCount() > 0, "nowhere at all to start from");
+}
+
+// The dialog over that browser. Not shown here - what is checked is what it
+// would choose, which is the part a platform dialog does for us and which
+// therefore has to be right before anyone sees it.
+void QuickUiTest::testTheFileDialogChoosesAFileWithoutAskingThePlatform()
+{
+    Utils::TemporaryDirectory dir("quickui-filedialog");
+    QVERIFY(dir.isValid());
+    const Utils::FilePath root = dir.path();
+    const Utils::FilePath inner = root / "inner";
+    QVERIFY(inner.createDir());
+    QVERIFY((root / "chosen.txt").writeFileContents("x"));
+
+    QQmlComponent component(QtcQuick::engine(),
+                            QUrl("qrc:/qt/qml/QtCreator/Ui/QtcFileDialog.qml"));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    const std::unique_ptr<QObject> dialog(component.create());
+    QVERIFY(dialog);
+
+    dialog->setProperty("currentFolder", root.toUserOutput());
+    auto * const browser = dialog->findChild<QtcQuick::FileBrowser *>("fileBrowser");
+    QVERIFY(browser);
+    QTRY_COMPARE(browser->entries()->rowCount(), 2);
+
+    // Nothing picked yet, so there is nothing to accept: a dialog whose Open
+    // button is live with no answer would hand back an empty path.
+    QVERIFY(dialog->property("wouldChoose").toString().isEmpty());
+
+    // Picking the file by name is what typing into the field does.
+    QObject * const nameField = dialog->findChild<QObject *>("nameField");
+    QVERIFY(nameField);
+    nameField->setProperty("text", "chosen.txt");
+    QCOMPARE(Utils::FilePath::fromUserInput(dialog->property("wouldChoose").toString()),
+             root / "chosen.txt");
+
+    QSignalSpy accepted(dialog.get(), SIGNAL(accepted(QString)));
+    QMetaObject::invokeMethod(dialog.get(), "accept");
+    QCOMPARE(accepted.size(), 1);
+    QCOMPARE(Utils::FilePath::fromUserInput(accepted.at(0).at(0).toString()),
+             root / "chosen.txt");
+    QCOMPARE(Utils::FilePath::fromUserInput(dialog->property("selectedFile").toString()),
+             root / "chosen.txt");
+
+    // A dialog asking for a directory answers with the one being looked at,
+    // which is how "choose this folder" works with nothing selected in it.
+    const std::unique_ptr<QObject> forDirectory(component.create());
+    QVERIFY(forDirectory);
+    forDirectory->setProperty("mode", 1); // QtcFileDialog.OpenDirectory
+    forDirectory->setProperty("currentFolder", inner.toUserOutput());
+    QCOMPARE(Utils::FilePath::fromUserInput(forDirectory->property("wouldChoose").toString()),
+             inner);
+
+    // And cancelling says so and chooses nothing.
+    QSignalSpy rejected(forDirectory.get(), SIGNAL(rejected()));
+    QMetaObject::invokeMethod(forDirectory.get(), "reject");
+    QCOMPARE(rejected.size(), 1);
+    QVERIFY(forDirectory->property("selectedFile").toString().isEmpty());
+}
+
+// Which dialog a path field opens. The platform's cannot see a device, so a
+// field holding a path on one has to be browsed with Qt Creator's own - the
+// rule the widget path chooser follows, which no Quick page did.
+void QuickUiTest::testAPathOnADeviceIsBrowsedWithOurOwnDialog()
+{
+    Utils::AspectContainer page;
+    page.setAutoApply(false);
+    Utils::FilePathAspect path(&page);
+    path.setLabelText("Path");
+    path.setExpectedKind(Utils::PathChooserKind::ExistingCommand);
+
+    Utils::FilePathAspect localOnly(&page);
+    localOnly.setLabelText("Here only");
+    localOnly.setExpectedKind(Utils::PathChooserKind::ExistingCommand);
+    localOnly.setAllowPathFromDevice(false);
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QList<QQuickItem *> delegates;
+    QTRY_COMPARE((delegates = findQmlComponents(quickWidget->rootObject(), "StringDelegate"))
+                     .size(), 2);
+    const auto delegateFor = [&delegates](Utils::BaseAspect *aspect) -> QQuickItem * {
+        for (QQuickItem *item : delegates) {
+            if (item->property("aspect").value<Utils::BaseAspect *>() == aspect)
+                return item;
+        }
+        return nullptr;
+    };
+    QQuickItem * const anywhere = delegateFor(&path);
+    QQuickItem * const hereOnly = delegateFor(&localOnly);
+    QVERIFY(anywhere && hereOnly);
+
+    // What the aspect says reaches the form. It defaults to allowing one, so
+    // the field that forbids one is the interesting half.
+    QVERIFY2(anywhere->property("allowsDevicePaths").toBool(),
+             "the field does not know it may take a path from a device");
+    QVERIFY2(!hereOnly->property("allowsDevicePaths").toBool(),
+             "a field that refuses device paths says it takes them");
+
+    // And the browser behind our dialog does reach a device path, which is
+    // the whole reason for having one: it works in Utils::FilePath, so a
+    // device root is a directory like any other.
+    QtcQuick::AspectModels models;
+    QVERIFY(models.isLocalPath(QDir::homePath()));
+    QVERIFY2(!models.isLocalPath("docker://nosuchimage/tmp"),
+             "a path on a device is taken for one on this machine, so the "
+             "platform dialog would be opened for it");
 }
 
 void QuickUiTest::testSeveralLinesCompleteTheWordTheCursorIsIn()

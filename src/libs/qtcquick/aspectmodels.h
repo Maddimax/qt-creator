@@ -81,6 +81,11 @@ public:
     // question for the font database.
     Q_INVOKABLE QStringList fontFamilies(Utils::BaseAspect *aspect);
 
+    // Whether \a path is on this machine. A path on a device has to be
+    // browsed with our own dialog: the platform's knows only the machine it
+    // runs on. QML has no way to tell one from the other.
+    Q_INVOKABLE bool isLocalPath(const QString &path);
+
     // What a model put in Qt::DecorationRole, as something an Image can load.
     // A QIcon is what a widget view wants and what QML cannot carry, so the
     // conversion happens here rather than in every model that has one. Empty

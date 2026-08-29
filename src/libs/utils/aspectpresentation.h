@@ -301,6 +301,10 @@ public:
     AspectControls::PathKind pathKind = AspectControls::PathKind::Any;
     QString promptDialogTitle;
     QString promptDialogFilter;
+    // Whether the reader may pick a path on a device rather than on this
+    // machine. The platform's own file dialog cannot: it only knows the
+    // machine it runs on, which is why there is a file dialog of our own.
+    bool allowPathFromDevice = false;
 
     // Table. The text in an empty filter field; no filter where it is empty.
     QString filterPlaceholderText;

@@ -1811,6 +1811,7 @@ AspectPresentation FilePathAspect::presentation() const
     p.pathKind = static_cast<AspectControls::PathKind>(expectedKind());
     p.promptDialogTitle = promptDialogTitle();
     p.promptDialogFilter = promptDialogFilter();
+    p.allowPathFromDevice = d->m_allowPathFromDevice;
     p.toolTipShowsValue = d->m_showToolTipOnLabel;
     p.completions = CompletionHistory::entries(d->m_historyCompleterKey);
     return p;

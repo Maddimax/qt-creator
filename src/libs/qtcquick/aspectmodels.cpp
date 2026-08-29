@@ -150,6 +150,11 @@ QStringList AspectModels::fontFamilies(BaseAspect *aspect)
     });
 }
 
+bool AspectModels::isLocalPath(const QString &path)
+{
+    return FilePath::fromUserInput(path).isLocal();
+}
+
 QString AspectModels::localPath(const QUrl &url)
 {
     return url.toLocalFile();
@@ -222,6 +227,9 @@ QVariantMap AspectModels::presentation(BaseAspect *aspect)
         // Whether the colour may be see-through, which decides whether there
         // is an alpha to edit at all.
         {"alphaAllowed", p.alphaAllowed},
+        // Whether browsing may leave this machine, which decides which file
+        // dialog the field opens.
+        {"allowPathFromDevice", p.allowPathFromDevice},
         {"completions", p.completions},
         // SpinBox. Qt Quick's has no prefix or suffix of its own, so the
         // delegates put them beside it.

@@ -14,6 +14,7 @@ QtcLibrary {
         "aspectitemlistmodel.cpp", "aspectitemlistmodel.h",
         "aspectmodels.cpp", "aspectmodels.h",
         "aspectform.cpp", "aspectform.h",
+        "filebrowser.cpp", "filebrowser.h",
         "namedaspects.cpp", "namedaspects.h",
         "qtcdesignsystem.cpp", "qtcdesignsystem.h",
         "qtciconprovider.cpp", "qtciconprovider.h",

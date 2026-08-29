@@ -28,6 +28,58 @@ RowLayout {
     readonly property bool isPath: pathKind !== "" && pathKind !== "Any"
     readonly property bool wantsDirectory:
         pathKind === "ExistingDirectory" || pathKind === "Directory"
+    // Whether this field will take a path that is not on this machine.
+    readonly property bool allowsDevicePaths: delegate.pres.allowPathFromDevice ?? false
+
+    // Qt Creator's own file dialog, which reaches devices. Made when it is
+    // needed and destroyed with it: it is a window, and a form that made one
+    // per path field would make a window per field.
+    function browseOnADevice(start: string): void {
+        const dialog = deviceDialog.createObject(null, {
+            "mode": delegate.wantsDirectory
+                    ? QtcFileDialog.OpenDirectory
+                    : (delegate.pathKind === "SaveFile" ? QtcFileDialog.SaveFile
+                                                        : QtcFileDialog.OpenFile),
+            "currentFolder": start,
+            "nameFilters": delegate.deviceNameFilters
+        })
+        if (!dialog)
+            return
+        dialog.accepted.connect((path) => {
+            if (delegate.aspect)
+                delegate.aspect.value = path
+            dialog.destroy()
+        })
+        dialog.rejected.connect(() => dialog.destroy())
+        dialog.show()
+    }
+
+    // The dialog takes glob patterns; an aspect's filter is Qt's usual
+    // "Sources (*.cpp *.h);;All files (*)".
+    readonly property var deviceNameFilters: {
+        const filter = delegate.pres.promptDialogFilter ?? ""
+        const patterns = []
+        const groups = filter === "" ? [] : filter.split(";;")
+        for (let i = 0; i < groups.length; ++i) {
+            const open = groups[i].indexOf("(")
+            const close = groups[i].lastIndexOf(")")
+            if (open < 0 || close < open)
+                continue
+            const inside = groups[i].substring(open + 1, close).trim()
+            const each = inside.split(" ")
+            for (let j = 0; j < each.length; ++j) {
+                if (each[j] !== "")
+                    patterns.push(each[j])
+            }
+        }
+        return patterns
+    }
+
+    Component {
+        id: deviceDialog
+
+        QtcFileDialog {}
+    }
 
     // An answer that had to be fetched has arrived, so the field asks again.
     // Bumping a counter the binding reads is what makes it re-evaluate: what
@@ -186,11 +238,24 @@ RowLayout {
         text: qsTr("Browse...")
         visible: delegate.isPath
         enabled: (delegate.aspect?.enabled ?? false) && !(delegate.aspect?.readOnly ?? true)
-        onClicked: {
+        onClicked: (mouse) => {
             // Where to open is worked out now rather than bound: it depends on
             // what is in the field, and on what the filesystem says about it.
             const start = delegate.aspect
                         ? delegate.aspect.browseStartDirectory(field.text) : ""
+
+            // A path on a device cannot be browsed by the platform's dialog,
+            // which knows only the machine it runs on - the widget path
+            // chooser reaches for Qt Creator's own dialog for exactly this.
+            // Holding Shift asks for it as well, which is how a device is
+            // reached from a path that is not on one yet.
+            const onADevice = field.text !== "" && !AspectModels.isLocalPath(field.text)
+            const asked = (mouse.modifiers & Qt.ShiftModifier) !== 0
+            if (delegate.allowsDevicePaths && (onADevice || asked)) {
+                delegate.browseOnADevice(start)
+                return
+            }
+
             const url = start !== "" ? Qt.resolvedUrl("file://" + start) : ""
             if (delegate.wantsDirectory) {
                 if (url !== "")

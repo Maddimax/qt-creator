@@ -14586,3 +14586,37 @@ the offered part of the line above is in.
 
 A wrapping view still shows none of it: it works out its own rows from its
 width, so it has none to give.
+
+### A file dialog that can see a device
+
+`allowPathFromDevice` was the one item left needing a decision, because
+`QtQuick.Dialogs`' `FileDialog` asks the platform and the platform knows only
+the machine it runs on. The answer was: port the dialog, not reach for the
+widget one.
+
+It comes in three pieces, and only the first two are done.
+
+`FileBrowser` is the browsing itself with no view: which directory is being
+looked at, what is in it, the places to start from - this machine's usual ones
+and every device that can be browsed - name filters, hidden files, and what a
+typed name means. It sits on `Utils::FileSystemModel`, which already works in
+`Utils::FilePath` and so reaches a device as readily as this machine. One thing
+had to be learnt the hard way: a model like that hands out a directory's
+contents only when someone asks, and in the widget dialog the *view* is what
+asks. With no view, the browser has to call `fetchMore()` itself, and until it
+did every directory looked empty.
+
+`QtcFileDialog.qml` is the dialog over it - places, listing, path field, name
+field, Open and Cancel. A `Window`, because a dialog inside a `QQuickWidget`
+cannot be bigger than the page that opened it. The test drives what it *would*
+choose rather than showing it: that is the part the platform dialog used to do,
+so it is the part that has to be right.
+
+The path field opens it when the path in it is on a device, and on Shift as
+well so that a device can be reached from a path that is not on one yet -
+otherwise the platform dialog, which is the widget path chooser's own rule.
+
+What is not ported: the icon view, search, inline rename, favourites and
+navigation history. The widget dialog keeps all of those and is untouched;
+this one is the browsing half. Said plainly because "the file dialog is ported"
+would not be true yet.
