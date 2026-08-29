@@ -3037,6 +3037,40 @@ void TextViewport::zoomBy(int steps)
 // replaces the previous pair and nobody else's ranges.
 const char PARENTHESES_MATCH[] = "TextEditor.TextViewport.ParenthesesMatch";
 
+void TextViewport::prepareSuggestion(const QTextBlock &block)
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    TextSuggestion * const suggestion = TextBlockUserData::suggestion(block);
+    if (!doc || !suggestion)
+        return;
+
+    // The same two things the widget editor does when one arrives: give it
+    // the tab stops the text is drawn with, and the colours the scheme says
+    // a suggestion is shown in.
+    QTextOption option = suggestion->replacementDocument()->defaultTextOption();
+    option.setTabStopDistance(doc->tabSettings().m_tabSize
+                              * QFontMetricsF(m_font).horizontalAdvance(QLatin1Char(' ')));
+    suggestion->replacementDocument()->setDefaultTextOption(option);
+    TextBlockUserData::updateSuggestionFormats(block, doc->fontSettings());
+    polish();
+}
+
+// The one line a suggestion on \a block would put there, or an invalid
+// block when there is nothing to show: no suggestion, more than one line
+// of it, or a view that wraps and would have to find rows for it.
+QTextBlock TextViewport::suggestionRowFor(const QTextBlock &block) const
+{
+    if (m_wrapping)
+        return {};
+    TextSuggestion * const suggestion = TextBlockUserData::suggestion(block);
+    if (!suggestion)
+        return {};
+    QTextDocument * const replacement = suggestion->replacementDocument();
+    if (!replacement || replacement->blockCount() != 1)
+        return {};
+    return replacement->firstBlock();
+}
+
 void TextViewport::updateDocumentSelections()
 {
     TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
@@ -3427,8 +3461,11 @@ public:
     void insertSuggestion(std::unique_ptr<TextSuggestion> &&suggestion) override
     {
         const QTextCursor cursor = m_view->textCursor();
-        if (!cursor.isNull())
-            TextBlockUserData::insertSuggestion(cursor.block(), std::move(suggestion));
+        if (cursor.isNull())
+            return;
+        const QTextBlock block = cursor.block();
+        TextBlockUserData::insertSuggestion(block, std::move(suggestion));
+        m_view->prepareSuggestion(block);
     }
 
 private:
@@ -4196,7 +4233,13 @@ void TextViewport::updatePolish()
         QList<QPair<int, int>> breaks; // start, length within the block
         // How far the block's continuation rows are pushed in.
         qreal blockBreakIndent = 0;
-        const QString blockText = block.text();
+        // A block with a suggestion on it is shown as the suggestion says it
+        // could read, which is what makes the grey text appear where it will
+        // land. Only when it is one line and this view is not wrapping: a
+        // multi-line suggestion needs rows this view has not made, and
+        // showing part of one would be worse than showing none.
+        const QTextBlock suggested = suggestionRowFor(block);
+        const QString blockText = suggested.isValid() ? suggested.text() : block.text();
         if (!m_wrapping) {
             breaks.append({0, int(blockText.size())});
         } else {
@@ -4345,7 +4388,18 @@ void TextViewport::updatePolish()
         // More than one view may be showing this document, so it is only ever
         // read here, and everything this view alone knows - its selection, its
         // preedit - goes on the copies below.
-        QList<QTextLayout::FormatRange> blockFormats = block.layout()->formats();
+        QList<QTextLayout::FormatRange> blockFormats;
+        if (suggested.isValid()) {
+            // Both halves, because they are kept in different places: the
+            // grey a suggestion is shown in is set as character formats on
+            // the replacement document, and the highlighting carried over
+            // from the real line is set on its layout.
+            blockFormats = suggested.textFormats();
+            if (suggested.layout())
+                blockFormats += suggested.layout()->formats();
+        } else {
+            blockFormats = block.layout()->formats();
+        }
         // Under the selection rather than over it: a search result the reader
         // has selected should still look selected.
         appendHighlights(blockFormats, block);

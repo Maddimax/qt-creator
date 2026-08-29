@@ -5533,6 +5533,112 @@ private slots:
                  qPrintable("it took more than a word: " + afterWord));
     }
 
+    // A block with a suggestion on it is drawn as the suggestion says the
+    // line could read, so the reader sees where taking it would land. The
+    // text underneath is unchanged - it is a picture of what would happen,
+    // not what has happened.
+    void testASuggestionIsShownOnTheLineItWouldChange()
+    {
+        TemporaryDirectory dir("qtc-viewport-showsuggestion");
+        const FilePath file = dir.filePath("plain.txt");
+        QVERIFY(file.writeFileContents("ret\nsecond\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        viewport->setReadOnly(false);
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+
+        QTextDocument * const text = viewport->textDocument()->document();
+        QCOMPARE(viewport->visibleLine(0).value("text").toString(), QString("ret"));
+
+        const Utils::Text::Range range{{1, 0}, {1, 3}};
+        const TextSuggestion::Data offered{range, {1, 3}, "return value;"};
+        auto suggestion = std::make_unique<CyclicSuggestion>(
+            QList<TextSuggestion::Data>{offered}, text, 0);
+        suggestion->setCurrentPosition(3);
+        const QTextBlock block = text->findBlockByNumber(0);
+        TextBlockUserData::insertSuggestion(block, std::move(suggestion));
+        viewport->prepareSuggestion(block);
+
+        // The row now reads what the suggestion offers.
+        QTRY_COMPARE(viewport->visibleLine(0).value("text").toString(),
+                     QString("return value;"));
+        // Drawn the way a suggestion is drawn: the three characters that are
+        // really there and the ten being offered are in different colours,
+        // which is the whole of what tells the reader which is which. Asking
+        // only whether the row has any formatting would not say that - an
+        // unstyled row carries format ranges too.
+        const auto colourAt = [&](int index) {
+            QColor colour;
+            for (const QVariant &range : viewport->visibleLine(0).value("formats").toList()) {
+                const QVariantMap format = range.toMap();
+                const int start = format.value("start").toInt();
+                if (index >= start && index < start + format.value("length").toInt())
+                    colour = format.value("foreground").value<QColor>();
+            }
+            return colour;
+        };
+        QVERIFY2(colourAt(0) != colourAt(6),
+                 "the suggestion was drawn in the same colour as the real text");
+
+        // And the line below is where it was: showing a one line suggestion
+        // does not move anything.
+        QCOMPARE(viewport->visibleLine(1).value("text").toString(), QString("second"));
+        // The document still says what it said - this is a picture, not an edit.
+        QCOMPARE(text->findBlockByNumber(0).text(), QString("ret"));
+    }
+
+    // A suggestion of several lines is not shown at all, because showing it
+    // would need rows this view has not laid out - and showing the first line
+    // of one would be a lie about where the rest lands. The same for a view
+    // that wraps, where the rows are its own to work out.
+    //
+    // Both are "nothing happens", which is not something to wait for. So a
+    // one line suggestion is shown first and waited for, and the one being
+    // asked about replaces it: going back to the original text is an event,
+    // and it cannot arrive before the layout that would have shown the new
+    // suggestion had it been going to.
+    void testASuggestionThisViewCannotDrawIsNotDrawn()
+    {
+        TemporaryDirectory dir("qtc-viewport-multiline");
+        const FilePath file = dir.filePath("plain.txt");
+        QVERIFY(file.writeFileContents("ret\nsecond\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        viewport->setReadOnly(false);
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+
+        QTextDocument * const text = viewport->textDocument()->document();
+        const Utils::Text::Range range{{1, 0}, {1, 3}};
+        const QTextBlock block = text->findBlockByNumber(0);
+
+        const auto offer = [&](const QString &suggested) {
+            auto suggestion = std::make_unique<CyclicSuggestion>(
+                QList<TextSuggestion::Data>{{range, {1, 3}, suggested}}, text, 0);
+            suggestion->setCurrentPosition(3);
+            TextBlockUserData::insertSuggestion(block, std::move(suggestion));
+            viewport->prepareSuggestion(block);
+        };
+
+        offer("one line;");
+        QTRY_COMPARE(viewport->visibleLine(0).value("text").toString(), QString("one line;"));
+
+        // Several lines: back to the file's own text.
+        offer("return one;\nreturn two;");
+        QTRY_COMPARE(viewport->visibleLine(0).value("text").toString(), QString("ret"));
+
+        // And one line again, but in a view that wraps.
+        offer("one line;");
+        QTRY_COMPARE(viewport->visibleLine(0).value("text").toString(), QString("one line;"));
+        viewport->setWrapping(true);
+        QTRY_COMPARE(viewport->visibleLine(0).value("text").toString(), QString("ret"));
+    }
+
     // None of the line commands edits a buffer that is read only, the same
     // as a key press does not. One test for all of them: each has its own
     // guard, and a guard that is missing on one of them is exactly the kind

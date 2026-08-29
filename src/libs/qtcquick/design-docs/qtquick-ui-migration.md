@@ -14289,3 +14289,31 @@ The two FakeVim failures are `test_vim_script_throwpoint` and
 `test_vim_visual_selection_focus_out`, which are the same two this tree failed
 before any of this work - baselined against HEAD when the Utils layout
 counter went in, and unchanged since.
+
+### Inline suggestions: the drawing
+
+The Quick editor now draws a one-line suggestion on the line it would change,
+which is the grey preview text a completion offers. `prepareSuggestion()` does
+the two things the widget editor does when one arrives — hand the replacement
+document this view's tab stops, and ask `updateSuggestionFormats()` for the
+colours the scheme shows a suggestion in — and the layout pass substitutes the
+suggestion's single row for the block's own text.
+
+Two pieces of formatting have to be read, not one, and that was a real bug
+caught by a test that had to be sharpened first. The grey is set as *character*
+formats on the replacement document; the syntax highlighting carried over from
+the real line is set on that document's *layout*. Reading only the layout's
+ranges drew the suggestion in ordinary colours — correct text, no indication it
+was not really there. The first attempt to assert this ("the row has some
+formatting") was not enough: an unstyled row carries format ranges too. What
+the test asks now is that the characters the reader typed and the characters
+being offered come out in *different* colours, which is the whole of what tells
+them apart.
+
+A suggestion of several lines, or any suggestion in a wrapping view, is not
+drawn at all: both need rows this view has not laid out, and showing the first
+line of a multi-line suggestion would be a lie about where the rest lands.
+
+Suggestions still have no producer in the Quick editor — Copilot, the only one,
+is still widget-coupled — so the three apply commands remain unregistered. A
+live menu entry that can do nothing is worse than a grey one.

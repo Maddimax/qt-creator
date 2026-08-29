@@ -571,6 +571,9 @@ public:
     // suggestion needs of a view is here, so taking one works when something
     // puts it there.
     TextSuggestion *currentSuggestion() const;
+    // Gives a suggestion just put on \a block the look and the tab stops of
+    // this view, and asks for a layout so that it appears.
+    void prepareSuggestion(const QTextBlock &block);
     Q_INVOKABLE void applySuggestion();
     Q_INVOKABLE void applySuggestionWord();
     Q_INVOKABLE void applySuggestionLine();
@@ -649,6 +652,7 @@ public:
     // How many rows a page is: a screen of them less one, so that the line
     // the reader was looking at is still there after the page turns.
     int rowsPerPage() const;
+    QTextBlock suggestionRowFor(const QTextBlock &block) const;
     Utils::PlainTextDocumentLayout *movementLayout() const;
     // Asks the hint what it says now, and takes it away when the call the
     // caret was in has ended.
