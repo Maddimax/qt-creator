@@ -40,7 +40,11 @@ RowLayout {
 
     visible: aspectVisible
     spacing: Spacing.GapHM
-    Layout.fillWidth: true
+    // A button takes the width it needs and sits at the left. Filling the row
+    // and pushing itself left with a spacer of its own did the same thing for
+    // a button alone in a column - and put two buttons beside each other at
+    // opposite ends of the row they share.
+    Layout.alignment: Qt.AlignLeft | Qt.AlignVCenter
 
     // The aspect is being drawn, so let it find out what its label should say.
 
@@ -103,6 +107,4 @@ RowLayout {
             }
         }
     }
-
-    Item { Layout.fillWidth: true }
 }
