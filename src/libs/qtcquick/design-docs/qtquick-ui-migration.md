@@ -15154,3 +15154,44 @@ full *before* anyone loads it.
 This is the second kind of thing a render finds that a test does not: the first
 was placement, this is a page whose every aspect is correct and whose data
 never arrives. Both are invisible to assertions about the aspects themselves.
+
+### Three findings from one page of colours
+
+The Terminal page put its sixteen ANSI colours through `ColorDelegate`, which
+draws R, G, B and A beside every swatch. The page's own comment says "swatches
+only, eight to a row"; what it got was two per row and the rest past the right
+edge. A compact colour now keeps the numbers in a popup behind the swatch,
+which is what the widget page's colour button did. Font && Colors uses it for
+the same reason: with the numbers inline the format list beside them was
+squeezed to three characters wide.
+
+That page turned up the counterpart to the Snippets non-defect. Snippets opens
+with nothing selected, and so did the widget page - so it was left alone.
+Font && Colors opens with nothing selected and the widget page did *not*:
+`ColorSchemeEdit::setFormatDescriptions()` put the keyboard on the first
+format, and the port left that behind. The page was a list beside an empty
+half. The rule holds both ways: look at what the widget did, then decide.
+
+The third came out of the same render. `ButtonDelegate` filled the row it was
+in and pushed its button left with a spacer of its own - right for a lone
+button, and for two beside each other it hands each half the row. Load Theme
+and Reset Theme were 438 pixels apart.
+
+The test for it is worth recording, because three earlier versions of it
+passed on broken code:
+
+- Measuring the delegates rather than the buttons: a stretched delegate keeps
+  its button at its own left edge, so the delegates stayed 5 pixels apart
+  while the buttons drifted 438. `findQmlComponents` matches by *prefix*, so
+  asking a ButtonDelegate for its "Button" returns the delegate itself - which
+  is how the second version came to measure the same thing again.
+- Reading positions after `qWaitForWindowExposed` but before the scene had
+  taken the widget's width, when every row is still at its implicit width and
+  nothing has had room to spread.
+- Asserting on a fixture of two buttons written by the test, which proves what
+  the test's own QML does and not what the pages do.
+
+The version that stands walks every page, measures the buttons in the row's
+own coordinates, and allows a gap that has something in it - External Tools
+deliberately keeps Revert away from Add and Remove with a spacer. Its control
+puts five pages in the failure message.
