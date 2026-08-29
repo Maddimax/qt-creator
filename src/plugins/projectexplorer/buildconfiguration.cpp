@@ -27,6 +27,7 @@
 #include "target.h"
 
 #include <coreplugin/fileutils.h>
+#include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/icore.h>
 
 #include <projectexplorer/devicesupport/idevice.h>
@@ -518,14 +519,22 @@ QWidget *BuildConfiguration::createConfigWidget()
     // hidden and to show itself later - the build directory's warnings appear
     // as you type, and the Qt Quick compiler row when the kit changes - and an
     // aspect left out of the form here could never come back while the page
-    // was open.
-    Layouting::Form form;
-    form.setNoMargins();
-    for (BaseAspect *aspect : aspects()) {
-        form.addItem(aspect);
-        form.flush();
+    // was open. The Qt Quick form lists them all for the same reason: its
+    // model keeps every aspect and each delegate hides itself, so a row that
+    // appears later has something to appear in.
+    if (QWidget * const form = Core::createGenericAspectForm(this)) {
+        auto vbox = new QVBoxLayout(widget);
+        vbox->setContentsMargins(0, 0, 0, 0);
+        vbox->addWidget(form);
+    } else {
+        Layouting::Form rows;
+        rows.setNoMargins();
+        for (BaseAspect *aspect : aspects()) {
+            rows.addItem(aspect);
+            rows.flush();
+        }
+        rows.attachTo(widget);
     }
-    form.attachTo(widget);
 
     return named;
 }

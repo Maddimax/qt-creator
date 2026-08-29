@@ -227,6 +227,7 @@ private slots:
     void testTheDialogLooksLikeTheOneItReplaces();
     void testTheListingCanBeReadBothWaysRound();
     void testASearchBoxSaysWhatItIsWhenItIsEmpty();
+    void testAFormKeepsAnAspectThatIsHiddenForNow();
     void testAFileTheFilterRejectsIsShownAndNotOffered();
     void testEveryEnclosingFolderIsSomewhereToGo();
     void testASearchCanBeUndoneWithoutTheKeyboard();
@@ -7186,6 +7187,64 @@ static void drawsAnIcon(QQuickItem *item, const QString &what)
 }
 
 
+
+
+// A form that lists a container's aspects keeps the hidden ones. Build
+// settings depend on it: the build directory's warnings appear as you type
+// and the Qt Quick compiler row when the kit changes, and an aspect left out
+// when the page was built could never appear at all. The widget form said so
+// in a comment and added every aspect by hand; the generic Qt Quick form is
+// what draws it now, so the same thing has to be true of the model.
+void QuickUiTest::testAFormKeepsAnAspectThatIsHiddenForNow()
+{
+    Utils::AspectContainer page;
+    page.setAutoApply(false);
+
+    Utils::BoolAspect always(&page);
+    always.setSettingsKey("Always");
+    always.setLabelText("Always here");
+
+    Utils::BoolAspect later(&page);
+    later.setSettingsKey("Later");
+    later.setLabelText("Not yet");
+    later.setVisible(false);
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QQuickItem * const root = quickWidget->rootObject();
+    QVERIFY(root);
+
+    // Both are built. The hidden one is drawn and not shown, which is what
+    // lets it appear later without the form being made again.
+    const auto delegateFor = [root](Utils::BaseAspect *aspect) -> QQuickItem * {
+        const QList<QQuickItem *> delegates = findAspectDelegates(root);
+        return Utils::findOr(delegates, nullptr, [aspect](QQuickItem *item) {
+            return item->property("aspect").value<Utils::BaseAspect *>() == aspect;
+        });
+    };
+    QQuickItem *hidden = nullptr;
+    QTRY_VERIFY2((hidden = delegateFor(&later)),
+                 "an aspect that starts hidden was left out of the form");
+    QVERIFY(delegateFor(&always));
+    QVERIFY2(!hidden->isVisible(), "an aspect that is hidden is drawn anyway");
+
+    // And it arrives when the aspect says so - no rebuilding, which is the
+    // whole point.
+    later.setVisible(true);
+    QTRY_VERIFY2(hidden->isVisible(),
+                 "an aspect that stopped being hidden never appeared");
+    QCOMPARE(delegateFor(&later), hidden);
+
+    // And the door a caller outside this library comes through: a container
+    // with no page of its own to name still gets the Qt Quick form, which is
+    // what a build configuration asks for.
+    const std::unique_ptr<QWidget> throughCore(Core::createGenericAspectForm(&page));
+    QVERIFY2(throughCore, "a container with no page of its own got no form at all");
+    QVERIFY2(throughCore->findChild<QQuickWidget *>(),
+             "the generic form came back as a widget layout");
+}
 
 // A search field that is empty says what it is. Utils::QtcSearchBox gets
 // "Filter" from FancyLineEdit's filtering mode; the Quick one said nothing,

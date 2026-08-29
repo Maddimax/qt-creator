@@ -6095,17 +6095,30 @@ stale:
 | Aspects keeping state in their widget | `AnalyzerMessagesAspect` and `FrameworksAspect` each have a private and a `tableModel()`, and neither header mentions `QWidget` |
 | The Qt Quick text editor | `CodeStyleDefaultPage`, `CodeStylePreview`, `CodeStyleProjectForm`, `SnippetsSettingsPage` and `FontSettingsPage` exist, and `CodeStylePreview`, `MainEditor` and `SnippetEditor` drive the Quick viewport |
 
-**One piece of porting is left**, and it is the only one:
+**Build configurations are drawn with Qt Quick now**, and it did not need a
+build system at a time after all. `createConfigWidget()` was listing
+`aspects()` into a `Layouting::Form` one row at a time - which is precisely
+what the generic Qt Quick form does, so no page QML had to be written for
+CMake, qmake, qbs or any of the others. The only thing missing was a way to
+ask for that form from outside this library: `createAspectForm()` gives a
+container the page it *names*, and a build configuration names none.
+`Core::createGenericAspectForm()` is that way, installed by QuickUi beside the
+other factory, and the widget loop stays as the fallback for a Creator without
+Qt Quick.
 
-- **Build configurations.** `BuildConfiguration::createConfigWidget()` builds
-  a `Layouting::Form` from `aspects()` by hand, and no build-configuration
-  class names any QML, so nothing is being ignored - it simply has not been
-  done. It is a build system at a time (CMake, qmake, qbs, Meson, ...) rather
-  than a batch, which is why it is called out here rather than started. Read
-  the loop before porting it: every aspect is added, including the ones
-  currently hidden, because the build directory's warnings and the Qt Quick
-  compiler row appear while the page is open and an aspect left out could
-  never come back.
+What made it safe is the comment that was already there: every aspect is
+added, including the hidden ones, because the build directory's warnings and
+the Qt Quick compiler row appear while the page is open. The Qt Quick form has
+the same property for a different reason - `AspectContainerModel` keeps every
+aspect and each delegate hides itself - and that is now asserted rather than
+assumed: a hidden aspect is built, is not shown, and appears when its aspect
+says so, with the same delegate. Filtering the invisible ones out of the model
+fails it.
+
+**What is not covered:** that `BuildConfiguration` calls the new door. Removing
+the call fails nothing, because reaching `createConfigWidget()` needs a project
+and a target. The seam it calls and the property it relies on are both tested;
+the one line joining them is not.
 
 Two questions remain that are not mine to answer:
 

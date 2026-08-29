@@ -41,6 +41,19 @@ void setAspectFormFactory(const AspectFormFactory &factory)
     s_aspectFormFactory = factory;
 }
 
+static AspectFormFactory s_genericAspectFormFactory;
+
+void setGenericAspectFormFactory(const AspectFormFactory &factory)
+{
+    s_genericAspectFormFactory = factory;
+}
+
+QWidget *createGenericAspectForm(AspectContainer *container)
+{
+    QTC_ASSERT(container, return nullptr);
+    return s_genericAspectFormFactory ? s_genericAspectFormFactory(container) : nullptr;
+}
+
 namespace {
 
 // Building a page is not showing it: the page census builds every one of them

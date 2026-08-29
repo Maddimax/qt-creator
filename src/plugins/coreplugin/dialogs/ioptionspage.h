@@ -55,6 +55,13 @@ CORE_EXPORT void setAspectFormFactory(const AspectFormFactory &factory);
 // that both surfaces show the same thing.
 CORE_EXPORT QWidget *createAspectForm(Utils::AspectContainer *container);
 
+// The same, for a container that has no page of its own to name: its aspects
+// are listed generically, in order, the way an unported page used to be drawn
+// with widgets. Null where Qt Quick is not there to draw it, so a caller can
+// keep whatever it did before.
+CORE_EXPORT void setGenericAspectFormFactory(const AspectFormFactory &factory);
+CORE_EXPORT QWidget *createGenericAspectForm(Utils::AspectContainer *container);
+
 #ifdef WITH_TESTS
 // Builds \a container's Qt Quick form and reports what is wrong with it, or
 // nothing when it is fine. For the containers no census walks - a dialog is not

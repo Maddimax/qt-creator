@@ -30,6 +30,11 @@ private:
         Core::setAspectFormFactory([](Utils::AspectContainer *container) {
             return QtcQuick::createAspectForm(container);
         });
+        // For the forms that list a container's aspects rather than naming a
+        // page: a build configuration has no QML of its own to name.
+        Core::setGenericAspectFormFactory([](Utils::AspectContainer *container) {
+            return QtcQuick::createGenericAspectForm(container);
+        });
     }
 };
 
