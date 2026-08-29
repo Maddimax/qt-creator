@@ -16445,15 +16445,30 @@ branch has not broken it; the dylib is simply stale, and that is what every
 `-noload QmlDesigner` in this document has been working around.
 
 **The result: 2799 passed, 23 failed, across all 62, and the working tree was
-clean afterwards.** Twenty-one of the twenty-three are one thing: a test that
-needs a configured environment. `QtSupport::testQtProjectImporter_oneProject`
-fails all nineteen of its data rows on the same line - `QVERIFY(defaultQt)` -
-because a scratch `-settingspath` has no Qt version registered. The other two
-of that kind:
+clean afterwards.** Twenty-one of the twenty-three were one thing: a test that
+needs a configured environment.
 
-- `ProjectExplorer::testSourceToBinaryMapping(qbs)` and
-  `Debugger::testStateMachine` both open a project, and both need a kit with a
-  toolchain. The first is characterised above.
+`QtSupport::testQtProjectImporter_oneProject` failed all nineteen of its data
+rows on the same line, `QVERIFY(defaultQt)`, because a scratch
+`-settingspath` has no Qt version registered. Every kit and Qt version the
+test uses is cloned from that one, so without it there is nothing to import
+with - the importer is never reached. It skips now, with the reason, the way
+`testSourceToBinaryMapping(qmake)` two files away already skips for want of a
+toolchain. A skip reads differently from a pass in the output, so this cannot
+be mistaken for coverage.
+
+Two remain, and they are **left alone deliberately**:
+
+- `ProjectExplorer::testSourceToBinaryMapping(qbs)` waits five seconds for a
+  project update; its qmake sibling skips on the kit-with-toolchain guard the
+  same test already has, so the qbs row gets past that guard and then times
+  out. `Debugger::testStateMachine` fails at `projectManager.open(proFile)`.
+  Both are "a project would not open here", which is *probably* the missing
+  environment - but unlike the Qt version above that cannot be demonstrated
+  from here, and a project failing to open is also what a real regression
+  would look like. Turning them into skips on a guess would hide exactly the
+  thing they are for. A kit with a toolchain and a working qbs would settle
+  it in one run.
 
 The remaining two were FakeVim's, and they turned out to be environmental as
 well - but only after two wrong answers, which is the interesting part.

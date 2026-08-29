@@ -416,10 +416,15 @@ void QtProjectImporterTest::testQtProjectImporter_oneProject()
     // --------------------------------------------------------------------
 
     Kit *defaultKit = KitManager::defaultKit();
-    QVERIFY(defaultKit);
+    if (!defaultKit)
+        QSKIP("The test requires a default kit.");
 
+    // Every kit and Qt version below is cloned from this one, so without it
+    // there is nothing to import with - not a failure, just a machine this
+    // test cannot run on.
     QtVersion *defaultQt = QtKitAspect::qtVersion(defaultKit);
-    QVERIFY(defaultQt);
+    if (!defaultQt)
+        QSKIP("The test requires the default kit to have a Qt version.");
 
     const Utils::TemporaryDirectory tempDir1("tmp1");
     const Utils::TemporaryDirectory tempDir2("tmp2");
