@@ -1933,8 +1933,6 @@ void TextViewport::keyPressEvent(QKeyEvent *event)
         return;
     }
 
-    QTextDocument * const text = doc->document();
-
     // Undo and redo are the document's, so they take back what any other view
     // of it did as well - which is the point of editing through a cursor.
     if (event->matches(QKeySequence::Undo) || event->matches(QKeySequence::Redo)) {

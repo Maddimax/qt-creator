@@ -15000,3 +15000,22 @@ So the resize pass is gone again, and with it the standing instruction to
 repeat it by hand. What remains true is the narrower claim it started from: a
 warning is only seen where something evaluates the binding, which is why the
 census builds every page rather than trusting qmllint.
+### Two warnings the incremental build was hiding
+
+The plan's standing advice - touch the branch's files, rebuild, read the log,
+because a warning does not reappear once the object file exists - turned up two
+of mine after a session of writing C++ that had only ever been built
+incrementally.
+
+`FileEntries::Entry` grew a field when the columns became lazy, and two places
+still built one from a list of values in order: they filled the new field and
+left the *last* one, `modified`, default. The values were all empty either way,
+so nothing was wrong on screen - but a struct that grows a field should not
+silently drop the last one, so those two build their entry field by field now.
+
+And `keyPressEvent` kept a `QTextDocument *` that lost its last use when Escape
+was reworked to dismiss a suggestion.
+
+Forty-seven files across the Quick work were rebuilt from scratch afterwards;
+what is left in the log is `-Winconsistent-missing-override` in baremetal,
+which the plan already records as not this branch's.

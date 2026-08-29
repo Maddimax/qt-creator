@@ -719,8 +719,13 @@ void FileBrowser::rebuildFavorites()
 
     QList<FileEntries::Entry> rows;
     for (const FilePath &favorite : std::as_const(d->m_favoritePaths)) {
-        if (favorite.isDir())
-            rows.append({favorite.fileName(), favorite, true, {}, {}, {}});
+        if (!favorite.isDir())
+            continue;
+        FileEntries::Entry entry;
+        entry.name = favorite.fileName();
+        entry.path = favorite;
+        entry.isDir = true;
+        rows.append(entry);
     }
     d->m_favorites.setEntries(rows);
 }
@@ -742,7 +747,14 @@ void FileBrowser::rebuildPlaces()
     const auto addPlace = [&rows](const QString &name, const FilePath &path) {
         if (path.isEmpty())
             return;
-        rows.append({name, path, true, {}, {}, {}});
+        // Field by field rather than in order: a place has nothing to say
+        // about its size or its date, and an entry that grows a field should
+        // not silently leave the last one behind.
+        FileEntries::Entry entry;
+        entry.name = name;
+        entry.path = path;
+        entry.isDir = true;
+        rows.append(entry);
     };
 
     using SP = QStandardPaths;
