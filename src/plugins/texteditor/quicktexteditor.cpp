@@ -1215,6 +1215,51 @@ private slots:
                  "Switch UTF-8 BOM is not registered in the editor's context");
     }
 
+    // Scrolling shows the scrollbar. A ScrollBar attached to a Flickable is
+    // made active while that Flickable moves, and an inactive one is drawn at
+    // zero opacity - these are attached to nothing, so scrolling with a wheel
+    // or a trackpad moved the text and left the bar invisible.
+    void testScrollingShowsTheScrollBar()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-scrollbar");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("long.txt");
+        QString text;
+        for (int line = 0; line < 500; ++line)
+            text += QString("line %1\n").arg(line);
+        QVERIFY(file.writeFileContents(text.toUtf8()));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+        auto * const view = quick->rootObject()->findChild<TextViewport *>();
+        QVERIFY(view);
+        QTRY_VERIFY(view->visibleLineCount() > 1);
+
+        auto * const bar = quick->rootObject()->findChild<QQuickItem *>("verticalScrollBar");
+        QVERIFY2(bar, "the editor has no vertical scrollbar");
+        auto * const handle = bar->property("contentItem").value<QQuickItem *>();
+        QVERIFY(handle);
+        // There is more text than fits, or there would be nothing to show.
+        QTRY_VERIFY(bar->property("size").toReal() < 1.0);
+
+        // The pointer resting on the bar makes it active by itself, and then
+        // this proves nothing either way.
+        if (bar->property("hovered").toBool())
+            QSKIP("the pointer is over the scrollbar, which shows it regardless");
+
+        QCOMPARE(handle->opacity(), 0.0);
+
+        // What the wheel handler does when a trackpad is used.
+        view->setScrollY(view->contentHeight() / 4);
+        QTRY_VERIFY2(handle->opacity() > 0.0, "the scrollbar stayed invisible while scrolling");
+    }
+
     // Something offering an inline suggestion - Copilot is the only one -
     // reaches this editor through a handle rather than through a widget, and
     // the suggestion it puts there is drawn. Driven in the order the client

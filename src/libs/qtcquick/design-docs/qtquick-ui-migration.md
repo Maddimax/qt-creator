@@ -14737,3 +14737,21 @@ answer was always "there is nothing there" and never reached the rule.
 That last one turned into `whyNotBinned()`, which is the rule on its own: it is
 what the test asks, and it is what a menu should ask before offering to bin
 something rather than letting the reader pick an entry that then fails.
+
+### The scrollbar that only appeared when touched
+
+Reported from use: the Quick editor showed no scrollbar when scrolling with a
+trackpad. The style draws a `ScrollBar`'s handle at zero opacity unless the bar
+is `active`, and what normally makes one active is the `Flickable` it is
+attached to, while that Flickable moves. The editor's bars are attached to
+nothing - the viewport is not a Flickable, it scrolls itself - so nothing ever
+set `active`, and only hovering or dragging a bar revealed it. Scrolling by any
+means, wheel or trackpad or keyboard, moved the text under an invisible bar.
+
+They are now held active for a moment after the viewport's scroll position
+changes, which is what a transient scrollbar does anyway.
+
+The test guards against the one thing that would make it lie: a pointer resting
+on the bar makes it active by itself, so it skips with that as the reason
+rather than passing for it. These are the only two standalone `ScrollBar`s in
+the tree - everything else attaches one to a Flickable and gets this for free.

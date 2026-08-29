@@ -898,10 +898,32 @@ Item {
             anchors.bottom: parent.bottom
         }
 
+        // A ScrollBar attached to a Flickable is made active while that
+        // Flickable moves, and a bar that is not active is drawn at zero
+        // opacity. These are attached to nothing - the viewport is not a
+        // Flickable - so scrolling with a wheel or a trackpad moved the text
+        // and left the bars invisible; only hovering or dragging them showed
+        // one. Held active for a moment after a scroll, which is what a
+        // transient scrollbar does.
+        Timer {
+            id: scrolledRecently
+
+            objectName: "scrolledRecently"
+            interval: 700
+        }
+
+        Connections {
+            target: viewport
+
+            function onScrollYChanged(): void { scrolledRecently.restart() }
+            function onScrollXChanged(): void { scrolledRecently.restart() }
+        }
+
         ScrollBar {
             id: verticalScrollBar
 
             objectName: "verticalScrollBar"
+            active: hovered || pressed || scrolledRecently.running
             anchors.right: parent.right
             anchors.top: parent.top
             anchors.bottom: parent.bottom
@@ -953,6 +975,7 @@ Item {
             id: horizontalScrollBar
 
             objectName: "horizontalScrollBar"
+            active: hovered || pressed || scrolledRecently.running
             anchors.left: parent.left
             anchors.right: verticalScrollBar.left
             anchors.bottom: parent.bottom
