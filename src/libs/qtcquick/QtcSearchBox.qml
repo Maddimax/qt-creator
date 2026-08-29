@@ -29,6 +29,12 @@ QtcLineEdit {
     // it replaces is a hand-built FancyLineEdit with the magnifier on the left.
     property bool iconLeading: false
 
+    // What Utils::QtcSearchBox says when it is empty: FancyLineEdit's
+    // filtering mode gives it "Filter", and a search field that says nothing
+    // at all does not tell the reader it is one. A caller with a better word
+    // - the file dialog searches rather than filters - sets its own.
+    placeholderText: qsTr("Filter")
+
     leftContentPadding: root.iconLeading
                         ? Spacing.PaddingHM + Metrics.listRowIconSize + Spacing.GapHXs
                         : Spacing.PaddingHM

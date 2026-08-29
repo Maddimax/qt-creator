@@ -16390,3 +16390,40 @@ Six controls, all biting - the heading not turning the listing, the caret not
 following, the direction not reaching the proxy, the glyph on the wrong side,
 the splitter gone, and the gear back after the path.
 
+### The primitives, beside the widgets they mirror
+
+Nine QML files in this module say they mirror a `Utils::` widget that still
+exists, so unlike a ported settings page they *can* be put side by side. Two
+bugs had already been found in one of them by eye - `QtcSearchBox`'s magnifier
+drawn at twice its size, and on the wrong side - so all nine were rendered in
+one process, one column each, same theme.
+
+**They match.** All fifteen `QtcButton` roles, `QtcLabel` in both, the line
+edit, the switch on and off, the progress bar, the page indicator and all six
+badge role/status pairs are the same colours, sizes, radii and borders. The
+one real difference: an empty `QtcSearchBox` said **nothing**, where
+`Utils::QtcSearchBox` says "Filter" - `FancyLineEdit`'s filtering mode gives it
+that. It says it now, and the file dialog still says "Search", which is the
+better word for what it does.
+
+**Three of the four differences the first grab appeared to show were the
+harness, not the code**, and that is the part worth passing on. This method is
+much more productive than reading - it found five real differences in the file
+dialog in one pass - but its false-positive rate is high unless the harness is
+controlled:
+
+- **The progress bar looked empty.** `QtcProgressBar` mirrors `QProgressBar`
+  and so runs 0..100; the harness passed `value: 0.4` against the widget's
+  `setValue(40)`. Reading the QML's `from`/`to` is what settled it.
+- **`QtcLabel` looked far too dim.** Both use `Token_Text_Muted`. But
+  `QtcLabel::setRole()` sets only `QPalette::Active`, and a grabbed window is
+  *inactive*, so the widget painted the near-white `Inactive` fallback -
+  0.949 against the token's 0.682. The Quick one was right and the widget was
+  showing a colour nobody chose. Printing the palette settled it.
+- **The badges looked half the size.** Both grabs are already at device pixel
+  ratio 2; the comparison upscaled the widget crop again.
+
+So: compare only what the harness feeds identically, and when a difference
+appears, find the number behind it before changing anything. Two of the three
+above would have produced a "fix" that made the Quick side wrong.
+

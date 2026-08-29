@@ -226,6 +226,7 @@ private slots:
     void testTheArrangementFollowsTheHostUnlessItIsToldOtherwise();
     void testTheDialogLooksLikeTheOneItReplaces();
     void testTheListingCanBeReadBothWaysRound();
+    void testASearchBoxSaysWhatItIsWhenItIsEmpty();
     void testAFileTheFilterRejectsIsShownAndNotOffered();
     void testEveryEnclosingFolderIsSomewhereToGo();
     void testASearchCanBeUndoneWithoutTheKeyboard();
@@ -7184,6 +7185,32 @@ static void drawsAnIcon(QQuickItem *item, const QString &what)
     QVERIFY2(drawn, qPrintable(what + " draws no icon"));
 }
 
+
+
+// A search field that is empty says what it is. Utils::QtcSearchBox gets
+// "Filter" from FancyLineEdit's filtering mode; the Quick one said nothing,
+// which is only visible beside the widget it mirrors - the two were grabbed
+// side by side to find it.
+void QuickUiTest::testASearchBoxSaysWhatItIsWhenItIsEmpty()
+{
+    QQmlComponent component(QtcQuick::engine(),
+                            QUrl("qrc:/qt/qml/QtCreator/Ui/QtcSearchBox.qml"));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    const std::unique_ptr<QObject> box(component.create());
+    QVERIFY(box);
+    QCOMPARE(box->property("placeholderText").toString(), QString("Filter"));
+
+    // And a caller with a better word keeps it: the file dialog searches
+    // rather than filters, so its field must not be relabelled by this.
+    QQmlComponent dialogComponent(QtcQuick::engine(),
+                                  QUrl("qrc:/qt/qml/QtCreator/Ui/QtcFileDialog.qml"));
+    QVERIFY2(!dialogComponent.isError(), qPrintable(dialogComponent.errorString()));
+    const std::unique_ptr<QObject> dialog(dialogComponent.create());
+    QVERIFY(dialog);
+    QQuickItem * const search = dialog->findChild<QQuickItem *>("searchBox");
+    QVERIFY(search);
+    QCOMPARE(search->property("placeholderText").toString(), QString("Search"));
+}
 
 // Turning the listing round. The widget dialog's header sorts on one key
 // whichever column is clicked - FileSortRole is directories first, then name
