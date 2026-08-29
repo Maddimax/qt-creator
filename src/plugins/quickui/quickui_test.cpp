@@ -173,6 +173,7 @@ class QuickUiTest final : public QObject
 
 private slots:
     void testARowOfButtonsIsDrawnAsARowOfButtons();
+    void testACompactColourKeepsItsNumbersBehindItsSwatch();
     void testEveryComponentInTheModuleCanBeLoaded();
     void testAspectDrivenPagesRenderWithQuick();
     void testNestedContainerIsAModelGroup();
@@ -442,6 +443,83 @@ void QuickUiTest::testARowOfButtonsIsDrawnAsARowOfButtons()
     QVERIFY2(rowsChecked > 0,
              "no page drew two buttons beside each other, so this proves nothing");
     QVERIFY2(spread.isEmpty(), qPrintable("\n" + spread.join("\n")));
+}
+
+// Sixteen palette colours do not fit beside sixteen sets of numbers, so a
+// compact one keeps the numbers behind its swatch - and has to still be as
+// editable as any other colour.
+void QuickUiTest::testACompactColourKeepsItsNumbersBehindItsSwatch()
+{
+    Utils::AspectContainer page;
+    Utils::ColorAspect colour(&page);
+    colour.setValue(QColor(Qt::red));
+    // A palette colour is put back by loading a theme, not one button at a
+    // time; a Reset beside every swatch is the thing that does not fit.
+    colour.setWithResetButton(false);
+
+    QQmlComponent component(QtcQuick::engine());
+    component.setData(R"(
+        import QtQuick
+        import QtCreator.Ui
+
+        Item {
+            id: form
+
+            required property var colour
+
+            width: 800
+            height: 80
+
+            ColorDelegate {
+                objectName: "swatchOnly"
+                aspect: form.colour
+                compact: true
+                width: parent.width
+            }
+        }
+    )",
+                      QUrl("qrc:/qt/qml/QtCreator/Ui/inline.qml"));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+
+    const std::unique_ptr<QObject> object(
+        component.createWithInitialProperties({{"colour", QVariant::fromValue(&colour)}}));
+    QVERIFY2(object.get(), qPrintable(component.errorString()));
+    auto *form = qobject_cast<QQuickItem *>(object.get());
+    QVERIFY(form);
+
+    QQuickItem *delegate = findQmlNamed(form, "swatchOnly").value(0, nullptr);
+    QVERIFY(delegate);
+    QQuickItem *swatch = findQmlNamed(delegate, "colorSwatch").value(0, nullptr);
+    QVERIFY(swatch);
+    QTRY_VERIFY(swatch->width() > 0);
+
+    int visible = 0;
+    for (QQuickItem *part : findQmlComponents(delegate, "SpinBox")) {
+        if (part->isVisible())
+            ++visible;
+    }
+    QCOMPARE(visible, 0);
+
+    // The swatch and nothing else: what the delegate asks the row for has to
+    // be a swatch's worth of width, or eight to a row is still too many.
+    QVERIFY2(delegate->implicitWidth() <= swatch->width() + 24,
+             qPrintable(QString("a compact colour asks for %1px, its swatch is %2px")
+                            .arg(delegate->implicitWidth())
+                            .arg(swatch->width())));
+
+    // Behind the swatch, not gone: the picker holds the same four numbers and
+    // they write to the aspect. Read off the popup rather than opened - a
+    // popup needs a window to open into, and this form has none.
+    QObject *picker = delegate->findChild<QObject *>("colorPicker");
+    QVERIFY(picker);
+    auto *numbers = picker->property("contentItem").value<QQuickItem *>();
+    QVERIFY(numbers);
+    const QList<QQuickItem *> boxes = findQmlComponents(numbers, "SpinBox");
+    QCOMPARE(boxes.size(), 4);
+
+    boxes.first()->setProperty("value", 0);
+    QMetaObject::invokeMethod(boxes.first(), "valueModified");
+    QCOMPARE(colour.volatileValue().red(), 0);
 }
 
 // Every .qml in QtCreator.Ui has to at least compile. A component with no call

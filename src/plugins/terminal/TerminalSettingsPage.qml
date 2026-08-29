@@ -60,22 +60,22 @@ AspectPage {
                 columns: 8
                 spacing: Spacing.GapHXs
 
-                ColorDelegate { aspect: root.aspects.Color0 }
-                ColorDelegate { aspect: root.aspects.Color1 }
-                ColorDelegate { aspect: root.aspects.Color2 }
-                ColorDelegate { aspect: root.aspects.Color3 }
-                ColorDelegate { aspect: root.aspects.Color4 }
-                ColorDelegate { aspect: root.aspects.Color5 }
-                ColorDelegate { aspect: root.aspects.Color6 }
-                ColorDelegate { aspect: root.aspects.Color7 }
-                ColorDelegate { aspect: root.aspects.Color8 }
-                ColorDelegate { aspect: root.aspects.Color9 }
-                ColorDelegate { aspect: root.aspects.Color10 }
-                ColorDelegate { aspect: root.aspects.Color11 }
-                ColorDelegate { aspect: root.aspects.Color12 }
-                ColorDelegate { aspect: root.aspects.Color13 }
-                ColorDelegate { aspect: root.aspects.Color14 }
-                ColorDelegate { aspect: root.aspects.Color15 }
+                ColorDelegate { aspect: root.aspects.Color0; compact: true }
+                ColorDelegate { aspect: root.aspects.Color1; compact: true }
+                ColorDelegate { aspect: root.aspects.Color2; compact: true }
+                ColorDelegate { aspect: root.aspects.Color3; compact: true }
+                ColorDelegate { aspect: root.aspects.Color4; compact: true }
+                ColorDelegate { aspect: root.aspects.Color5; compact: true }
+                ColorDelegate { aspect: root.aspects.Color6; compact: true }
+                ColorDelegate { aspect: root.aspects.Color7; compact: true }
+                ColorDelegate { aspect: root.aspects.Color8; compact: true }
+                ColorDelegate { aspect: root.aspects.Color9; compact: true }
+                ColorDelegate { aspect: root.aspects.Color10; compact: true }
+                ColorDelegate { aspect: root.aspects.Color11; compact: true }
+                ColorDelegate { aspect: root.aspects.Color12; compact: true }
+                ColorDelegate { aspect: root.aspects.Color13; compact: true }
+                ColorDelegate { aspect: root.aspects.Color14; compact: true }
+                ColorDelegate { aspect: root.aspects.Color15; compact: true }
             }
 
             RowLayout {

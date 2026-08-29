@@ -52,6 +52,11 @@ AspectPage {
             TableDelegate {
                 aspect: root.aspects.Formats
                 Layout.fillHeight: true
+                Layout.fillWidth: true
+                // The names are what the list is read for. Without a floor the
+                // properties beside it take the width and the list is drawn
+                // three characters wide.
+                Layout.minimumWidth: 320
                 // The list is long and is the thing being read, so it gets
                 // room rather than the height of a list editor.
                 Layout.minimumHeight: 320
@@ -67,15 +72,15 @@ AspectPage {
                 spacing: Spacing.GapVXs
                 Layout.alignment: Qt.AlignTop
 
-                ColorDelegate { aspect: root.aspects.Foreground }
-                ColorDelegate { aspect: root.aspects.Background }
+                ColorDelegate { aspect: root.aspects.Foreground; compact: true }
+                ColorDelegate { aspect: root.aspects.Background; compact: true }
                 DoubleDelegate { aspect: root.aspects.ForegroundSaturation }
                 DoubleDelegate { aspect: root.aspects.ForegroundLightness }
                 DoubleDelegate { aspect: root.aspects.BackgroundSaturation }
                 DoubleDelegate { aspect: root.aspects.BackgroundLightness }
                 BoolDelegate { aspect: root.aspects.Bold }
                 BoolDelegate { aspect: root.aspects.Italic }
-                ColorDelegate { aspect: root.aspects.UnderlineColor }
+                ColorDelegate { aspect: root.aspects.UnderlineColor; compact: true }
                 SelectionDelegate { aspect: root.aspects.UnderlineStyle }
             }
         }

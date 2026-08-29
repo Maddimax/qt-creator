@@ -27,6 +27,12 @@ RowLayout {
         }
     }
 
+    // A palette is a grid of swatches, and the numbers do not fit beside
+    // sixteen of them - eight to a row is 3800 pixels of spin box. Compact
+    // moves them behind the swatch instead of dropping them, so a palette
+    // colour stays as editable as any other.
+    property bool compact: false
+
     readonly property color currentColor: root.aspect?.value ?? Tokens.backgroundMuted
     readonly property bool controlsEnabled:
         (root.aspect?.enabled ?? false) && !(root.aspect?.readOnly ?? false)
@@ -50,87 +56,116 @@ RowLayout {
     }
 
     Rectangle {
+        id: swatch
+
+        objectName: "colorSwatch"
         implicitWidth: Metrics.colorSwatchSize
         implicitHeight: Metrics.colorSwatchSize
         radius: Spacing.RadiusS
         color: root.currentColor
         border.width: 1
-        border.color: Tokens.strokeMuted
+        border.color: swatchHover.hovered && root.compact ? Tokens.strokeStrong
+                                                          : Tokens.strokeMuted
 
         ToolTip.text: root.toolTip
         ToolTip.visible: swatchHover.hovered && root.toolTip !== ""
 
         HoverHandler { id: swatchHover }
+
+        TapHandler {
+            enabled: root.compact && root.controlsEnabled
+            onTapped: picker.open()
+        }
+
+        Popup {
+            id: picker
+
+            objectName: "colorPicker"
+            y: swatch.height + Spacing.GapVXs
+            padding: Spacing.PaddingHS
+
+            contentItem: ColorNumbers {}
+        }
     }
 
-    Label {
-        text: qsTr("R")
+    ColorNumbers {
+        visible: !root.compact
     }
 
-    SpinBox {
-        id: redBox
-        from: 0
-        to: 255
-        editable: true
-        enabled: root.controlsEnabled
-        value: Math.round(root.currentColor.r * 255)
+    // Declared once and used twice: inline beside the swatch, and inside the
+    // popup a compact swatch opens.
+    component ColorNumbers: RowLayout {
+        spacing: Spacing.GapHM
 
-        onValueModified: if (root.aspect)
-            root.aspect.value = Qt.rgba(value / 255, greenBox.value / 255,
-                                        blueBox.value / 255, root.alpha)
-    }
+        Label {
+            text: qsTr("R")
+        }
 
-    Label {
-        text: qsTr("G")
-    }
+        SpinBox {
+            id: redBox
+            from: 0
+            to: 255
+            editable: true
+            enabled: root.controlsEnabled
+            value: Math.round(root.currentColor.r * 255)
 
-    SpinBox {
-        id: greenBox
-        from: 0
-        to: 255
-        editable: true
-        enabled: root.controlsEnabled
-        value: Math.round(root.currentColor.g * 255)
+            onValueModified: if (root.aspect)
+                root.aspect.value = Qt.rgba(value / 255, greenBox.value / 255,
+                                            blueBox.value / 255, root.alpha)
+        }
 
-        onValueModified: if (root.aspect)
-            root.aspect.value = Qt.rgba(redBox.value / 255, value / 255,
-                                        blueBox.value / 255, root.alpha)
-    }
+        Label {
+            text: qsTr("G")
+        }
 
-    Label {
-        text: qsTr("B")
-    }
+        SpinBox {
+            id: greenBox
+            from: 0
+            to: 255
+            editable: true
+            enabled: root.controlsEnabled
+            value: Math.round(root.currentColor.g * 255)
 
-    SpinBox {
-        id: blueBox
-        from: 0
-        to: 255
-        editable: true
-        enabled: root.controlsEnabled
-        value: Math.round(root.currentColor.b * 255)
+            onValueModified: if (root.aspect)
+                root.aspect.value = Qt.rgba(redBox.value / 255, value / 255,
+                                            blueBox.value / 255, root.alpha)
+        }
 
-        onValueModified: if (root.aspect)
-            root.aspect.value = Qt.rgba(redBox.value / 255, greenBox.value / 255,
-                                        value / 255, root.alpha)
-    }
+        Label {
+            text: qsTr("B")
+        }
 
-    Label {
-        text: qsTr("A")
-        visible: root.alphaAllowed
-    }
+        SpinBox {
+            id: blueBox
+            from: 0
+            to: 255
+            editable: true
+            enabled: root.controlsEnabled
+            value: Math.round(root.currentColor.b * 255)
 
-    SpinBox {
-        id: alphaBox
-        from: 0
-        to: 255
-        editable: true
-        visible: root.alphaAllowed
-        enabled: root.controlsEnabled
-        value: Math.round(root.currentColor.a * 255)
+            onValueModified: if (root.aspect)
+                root.aspect.value = Qt.rgba(redBox.value / 255, greenBox.value / 255,
+                                            value / 255, root.alpha)
+        }
 
-        onValueModified: if (root.aspect)
-            root.aspect.value = Qt.rgba(redBox.value / 255, greenBox.value / 255,
-                                        blueBox.value / 255, value / 255)
+        Label {
+            text: qsTr("A")
+            visible: root.alphaAllowed
+        }
+
+        SpinBox {
+            id: alphaBox
+            from: 0
+            to: 255
+            editable: true
+            visible: root.alphaAllowed
+            enabled: root.controlsEnabled
+            value: Math.round(root.currentColor.a * 255)
+
+            onValueModified: if (root.aspect)
+                root.aspect.value = Qt.rgba(redBox.value / 255, greenBox.value / 255,
+                                            blueBox.value / 255, value / 255)
+        }
     }
 
     // A colour that can be put back to its default offers a button for it, the
