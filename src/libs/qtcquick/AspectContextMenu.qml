@@ -18,6 +18,8 @@ import QtCreator.Ui
 MouseArea {
     id: root
 
+    objectName: "aspectContextMenu"
+
     required property Aspect aspect
     required property var pres
 
@@ -31,7 +33,10 @@ MouseArea {
     Menu {
         id: menu
 
+        objectName: "aspectContextMenuPopup"
+
         MenuItem {
+            objectName: "aspectContextAction"
             text: root.actionText
             checkable: true
             checked: root.pres?.contextActionChecked ?? false

@@ -16222,3 +16222,45 @@ matters, and it is why the skip is safe.
 The suite is green again: 144 passed, 1 skipped, exit 0, twice; ~45s rather
 than the ~56s a failing run cost.
 
+### Sweeping for the rest of the class
+
+The dead click, `itemModel`, `columnWidthProvider` and `recording` are all one
+kind of defect: a call from QML into a C++ object that no test makes. So the
+module was swept for the rest - every `aspect.x()`, `browser.x()`,
+`AspectModels.x()` and `itemListModel.x()` in `src/libs/qtcquick/*.qml`,
+cross-checked against the test file. 51 distinct calls, 16 whose names appear
+nowhere in it.
+
+**Most of those 16 are false alarms**, and it is worth saying why: a test
+reaches a call by clicking the thing that makes it, not by naming it. `Clone`,
+`Move Up`, `Move Down` and `Remove` are all exercised through their
+objectNames. Reading each one's trigger and looking for *that* is what turns
+the list into signal.
+
+What survived was one component with **no test at all**: `AspectContextMenu`,
+the right-click entry an aspect can hang off its control - on the Kits page,
+whether a setting may be changed per run configuration. Every part of it is
+read with `?.`, so every failure is silent: no `contextActionText` and the
+menu never opens, a wrong `triggerContextAction` and choosing it does nothing.
+
+It is covered now, against a stub aspect rather than a kit: the entry is
+offered only where there is something to offer, worded by the aspect, says
+whether the action is on, is disabled when the aspect says so, and tells the
+aspect what it was set to.
+
+**Two of the five controls corrected the test rather than confirming it.**
+
+`MouseArea::enabled` is not `QQuickItem::isEnabled()`. It governs whether the
+area handles mouse events; the item stays enabled either way. The first
+version read `isEnabled()` and reported an area that takes no clicks as one
+that does - it failed on correct code, which is the good direction to fail in,
+but the fix was to read the property the component actually binds.
+
+And "the entry keeps saying what the aspect holds" was asserted *after*
+triggering it, where `toggle()` has already set `checked` - so it passed with
+the binding pinned to `false`. It is asserted before triggering now, by
+changing the aspect and waiting for the entry to follow, which is the only
+order that can tell a binding from a toggle. This is the second time that
+exact trap has appeared in this file; the first was the file dialog's view
+menu.
+

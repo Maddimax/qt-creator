@@ -185,6 +185,19 @@ static QQuickItem *findButton(QQuickItem *root, const QString &text)
     });
 }
 
+// Clicking a menu entry. A checkable one flips before it reports, which is
+// the order a real click produces and the order its handler reads. The
+// invocations are checked: MenuItem has no trigger() - that is Action - and
+// invokeMethod fails silently, so a test that guessed wrong would sit there
+// asserting that nothing had changed.
+static void triggerMenuItem(QObject *item)
+{
+    QVERIFY(item);
+    if (item->property("checkable").toBool())
+        QVERIFY(QMetaObject::invokeMethod(item, "toggle"));
+    QVERIFY(QMetaObject::invokeMethod(item, "triggered"));
+}
+
 class QuickUiTest final : public QObject
 {
     Q_OBJECT
@@ -276,6 +289,7 @@ private slots:
     void testMultiLineStringGetsATextArea();
     void testSecretIsFetchedBeforeItCanBeEdited();
     void testASecretTheAspectAlreadyHoldsNeedsNoKeychain();
+    void testAControlOffersTheContextActionItsAspectDescribes();
     void testTableAspectDrawsWhatItsModelOffers();
     void testATableCellShowsTheIconItsModelGives();
     void testATableWithNoColumnNamesHasNoHeader();
@@ -3527,6 +3541,124 @@ void QuickUiTest::testASecretTheAspectAlreadyHoldsNeedsNoKeychain()
     field->setProperty("text", "hunter2");
     QMetaObject::invokeMethod(field, "editingFinished");
     QCOMPARE(secret.displayText(), QString("hunter2"));
+}
+
+
+// An aspect can hang one entry off its control's right-click menu: on the
+// Kits page it is whether a setting may be changed per run configuration.
+// AspectContextMenu draws it, and nothing tested that component at all - so
+// the whole feature rested on three names resolving, each read with ?. and
+// each silent when it does not.
+class ContextActionAspect final : public Utils::SelectionAspect
+{
+public:
+    using SelectionAspect::SelectionAspect;
+
+    Utils::AspectPresentation presentation() const override
+    {
+        Utils::AspectPresentation p = SelectionAspect::presentation();
+        p.contextActionText = m_text;
+        p.contextActionChecked = m_checked;
+        p.contextActionEnabled = m_enabled;
+        return p;
+    }
+
+    void triggerContextAction(bool checked) override
+    {
+        ++m_triggered;
+        m_checked = checked;
+        // What a kit aspect does: the action is the state, so saying it
+        // changed is what redraws the entry.
+        emit controlConfigurationChanged();
+    }
+
+    QString m_text = "Change on Run Configuration";
+    bool m_checked = false;
+    bool m_enabled = true;
+    int m_triggered = 0;
+};
+
+void QuickUiTest::testAControlOffersTheContextActionItsAspectDescribes()
+{
+    Utils::AspectContainer page;
+    page.setAutoApply(false);
+    ContextActionAspect mutable_(&page);
+    mutable_.setLabelText("Compiler");
+    // A combo box: RadioButtons is the enum's first value and so the default,
+    // and only the combo hangs a context menu off itself.
+    mutable_.setDisplayStyle(Utils::SelectionAspect::DisplayStyle::ComboBox);
+    mutable_.addOption("gcc");
+    mutable_.addOption("clang");
+
+    // One that offers nothing, to show the menu is not simply always there.
+    ContextActionAspect plain(&page);
+    plain.setLabelText("Debugger");
+    plain.setDisplayStyle(Utils::SelectionAspect::DisplayStyle::ComboBox);
+    plain.addOption("lldb");
+    plain.m_text.clear();
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QList<QQuickItem *> menus;
+    QTRY_COMPARE((menus = findQmlComponents(quickWidget->rootObject(),
+                                            "AspectContextMenu")).size(), 2);
+
+    const auto menuFor = [&menus](Utils::BaseAspect *aspect) -> QQuickItem * {
+        for (QQuickItem *menu : menus) {
+            if (menu->property("aspect").value<Utils::BaseAspect *>() == aspect)
+                return menu;
+        }
+        return nullptr;
+    };
+    QQuickItem * const offered = menuFor(&mutable_);
+    QQuickItem * const none = menuFor(&plain);
+    QVERIFY(offered && none);
+
+    // Right-clicking reaches it only where there is something to offer. The
+    // area is over the control, so an area that is enabled for nothing would
+    // take the click and pop up an empty menu.
+    // MouseArea::enabled is its own property - whether the area handles mouse
+    // events - and is not QQuickItem::isEnabled(), which stays true for a
+    // MouseArea that takes nothing. Reading the item's would pass either way.
+    const auto takesClicks = [](QQuickItem *area) {
+        return area->property("enabled").toBool();
+    };
+    QVERIFY2(takesClicks(offered), "an aspect offering a context action has no menu");
+    QVERIFY2(!takesClicks(none), "an aspect offering nothing still takes right-clicks");
+
+    QObject * const entry = offered->findChild<QObject *>("aspectContextAction");
+    QVERIFY(entry);
+    QCOMPARE(entry->property("text").toString(), QString("Change on Run Configuration"));
+    QVERIFY(entry->property("checkable").toBool());
+    QVERIFY(entry->property("enabled").toBool());
+    QVERIFY(!entry->property("checked").toBool());
+
+    // It says what the aspect holds, and follows it when something else
+    // changes it. Checked here rather than after triggering: triggering a
+    // checkable entry flips it whatever the binding says, so an entry that
+    // had stopped following would pass that way round.
+    mutable_.m_checked = true;
+    emit mutable_.controlConfigurationChanged();
+    QTRY_VERIFY2(entry->property("checked").toBool(),
+                 "the entry does not say what the aspect holds");
+    mutable_.m_checked = false;
+    emit mutable_.controlConfigurationChanged();
+    QTRY_VERIFY2(!entry->property("checked").toBool(),
+                 "the entry kept saying the action was on after it went off");
+
+    // Choosing it tells the aspect, with what it was set to.
+    triggerMenuItem(entry);
+    QCOMPARE(mutable_.m_triggered, 1);
+    QVERIFY2(mutable_.m_checked, "the aspect was told the entry was unchecked");
+
+    // What the aspect says about the entry is read, not assumed: an action
+    // that cannot be used right now is drawn as such.
+    mutable_.m_enabled = false;
+    emit mutable_.controlConfigurationChanged();
+    QTRY_VERIFY2(!entry->property("enabled").toBool(),
+                 "an action the aspect disabled is still offered");
 }
 
 void QuickUiTest::testAnInlineListItemCanReadAsOneRow()
@@ -6829,19 +6961,6 @@ void QuickUiTest::testChoosingADirectoryStillShowsWhatIsInIt()
     QQuickItem * const folder = rowFor("sub");
     QVERIFY(folder);
     QVERIFY(folder->isEnabled());
-}
-
-// Clicking a menu entry. A checkable one flips before it reports, which is
-// the order a real click produces and the order its handler reads. The
-// invocations are checked: MenuItem has no trigger() - that is Action - and
-// invokeMethod fails silently, so a test that guessed wrong would sit there
-// asserting that nothing had changed.
-static void triggerMenuItem(QObject *item)
-{
-    QVERIFY(item);
-    if (item->property("checkable").toBool())
-        QVERIFY(QMetaObject::invokeMethod(item, "toggle"));
-    QVERIFY(QMetaObject::invokeMethod(item, "triggered"));
 }
 
 // The options menu, which the widget dialog builds from checkable actions:
