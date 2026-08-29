@@ -10,6 +10,7 @@
 #include <utils/async.h>
 
 #include <QDir>
+#include <QLocale>
 #include <QDirIterator>
 #include <QElapsedTimer>
 #include <QFutureWatcher>
@@ -41,6 +42,8 @@ QVariant FileEntries::data(const QModelIndex &index, int role) const
         return entry.isDir;
     case SizeRole:
         return entry.size;
+    case TypeRole:
+        return entry.type;
     case ModifiedRole:
         return entry.modified;
     default:
@@ -55,6 +58,7 @@ QHash<int, QByteArray> FileEntries::roleNames() const
         {FilePathRole, "filePath"},
         {IsDirRole, "isDir"},
         {SizeRole, "size"},
+        {TypeRole, "type"},
         {ModifiedRole, "modified"},
     };
 }
@@ -261,6 +265,10 @@ void FileBrowser::startSearch()
                         entry.name = item.relativePathFromDir(root);
                         entry.path = item;
                         entry.isDir = info.fileFlags & FilePathInfo::DirectoryType;
+                        if (!entry.isDir)
+                            entry.size = QLocale().formattedDataSize(info.fileSize);
+                        entry.modified = QLocale().toString(info.lastModified,
+                                                            QLocale::ShortFormat);
                         batch.append(entry);
                         if (batch.size() >= 256 || sinceFlush.elapsed() >= 100)
                             flush();
@@ -481,7 +489,8 @@ void FileBrowser::rebuildEntries()
         entry.isDir = d->m_model.isDir(source);
         if (!entry.isDir && !matchesFilters(entry.name, d->m_nameFilters))
             continue;
-        entry.size = d->m_proxy.index(row, FileSystemModel::SizeColumn, root).data().toLongLong();
+        entry.size = d->m_proxy.index(row, FileSystemModel::SizeColumn, root).data().toString();
+        entry.type = d->m_proxy.index(row, FileSystemModel::TypeColumn, root).data().toString();
         entry.modified
             = d->m_proxy.index(row, FileSystemModel::DateModifiedColumn, root).data().toString();
         rows.append(entry);
@@ -508,7 +517,7 @@ void FileBrowser::rebuildFavorites()
     QList<FileEntries::Entry> rows;
     for (const FilePath &favorite : std::as_const(d->m_favoritePaths)) {
         if (favorite.isDir())
-            rows.append({favorite.fileName(), favorite, true, 0, {}});
+            rows.append({favorite.fileName(), favorite, true, {}, {}, {}});
     }
     d->m_favorites.setEntries(rows);
 }
@@ -530,7 +539,7 @@ void FileBrowser::rebuildPlaces()
     const auto addPlace = [&rows](const QString &name, const FilePath &path) {
         if (path.isEmpty())
             return;
-        rows.append({name, path, true, 0, {}});
+        rows.append({name, path, true, {}, {}, {}});
     };
 
     using SP = QStandardPaths;

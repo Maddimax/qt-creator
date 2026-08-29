@@ -38,6 +38,7 @@ public:
         FilePathRole,
         IsDirRole,
         SizeRole,
+        TypeRole,
         ModifiedRole,
     };
 
@@ -52,7 +53,11 @@ public:
         QString name;
         Utils::FilePath path;
         bool isDir = false;
-        qint64 size = 0;
+        // As the model writes them for a reader - "1.2 MB", "C++ source",
+        // a date in this locale - rather than as numbers a view would have to
+        // format again, and differently from the widget dialog.
+        QString size;
+        QString type;
         QString modified;
         bool operator==(const Entry &other) const = default;
     };

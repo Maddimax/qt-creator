@@ -10,6 +10,7 @@
 
 #include <QFontDatabase>
 #include <QSettings>
+#include <QLocale>
 #include <utils/temporarydirectory.h>
 #include <utils/historycompleter.h>
 #include <utils/aspectwidgets.h>
@@ -261,6 +262,7 @@ private slots:
     void testTheFileBrowserFindsFilesBelowTheDirectory();
     void testTheFileDialogOffersEachKindOfFileSeparately();
     void testTheFileDialogCanChooseSeveralFilesAtOnce();
+    void testEachEntrySaysHowBigItIsAndWhatItIs();
     void testSeveralLinesCompleteTheWordTheCursorIsIn();
     void testColourOffersToGoBackToItsDefault();
     void testColourWithNoResetHasNoButton();
@@ -5180,6 +5182,57 @@ void QuickUiTest::testTheFileDialogCanChooseSeveralFilesAtOnce()
     nameField->setProperty("text", "two.txt");
     QCOMPARE(single->property("wouldChooseAll").toStringList(),
              QStringList({(root / "two.txt").toUserOutput()}));
+}
+
+// A dialog showing only names makes the reader open a file to find out which
+// one it is. The model already writes the size, the kind and the date the way
+// a reader wants them; the browser was reading the size as a number, which it
+// is not, and so had nothing to show.
+void QuickUiTest::testEachEntrySaysHowBigItIsAndWhatItIs()
+{
+    Utils::TemporaryDirectory dir("quickui-browser-columns");
+    QVERIFY(dir.isValid());
+    const Utils::FilePath root = dir.path();
+    QVERIFY((root / "sub").createDir());
+    QVERIFY((root / "some.txt").writeFileContents(QByteArray(2048, 'x')));
+
+    QtcQuick::FileBrowser browser;
+    browser.setDirectory(root.toUserOutput());
+    QtcQuick::FileEntries * const entries = browser.entries();
+    QTRY_COMPARE(entries->rowCount(), 2);
+
+    const auto valueOf = [entries](const QString &name, int role) {
+        for (int row = 0; row < entries->rowCount(); ++row) {
+            const QModelIndex index = entries->index(row, 0);
+            if (entries->data(index, QtcQuick::FileEntries::NameRole).toString() == name)
+                return entries->data(index, role).toString();
+        }
+        return QString("no such entry");
+    };
+
+    // A size a reader can read, not a count of bytes and not an empty string
+    // where a number failed to parse.
+    const QString size = valueOf("some.txt", QtcQuick::FileEntries::SizeRole);
+    QVERIFY2(!size.isEmpty(), "the file says nothing about how big it is");
+    QVERIFY2(size != "0", qPrintable("the size was read as a number: " + size));
+    QVERIFY2(size.contains(QLocale().formattedDataSize(2048)),
+             qPrintable("it says " + size + " rather than "
+                        + QLocale().formattedDataSize(2048)));
+
+    // A directory has no size, which is what the widget dialog shows too.
+    QCOMPARE(valueOf("sub", QtcQuick::FileEntries::SizeRole), QString());
+
+    // What each of them is, and when it changed.
+    QVERIFY(!valueOf("some.txt", QtcQuick::FileEntries::TypeRole).isEmpty());
+    QVERIFY(!valueOf("sub", QtcQuick::FileEntries::TypeRole).isEmpty());
+    QVERIFY(!valueOf("some.txt", QtcQuick::FileEntries::ModifiedRole).isEmpty());
+
+    // A hit from a search says the same things: a search is a way of finding
+    // a file, not a poorer view of one.
+    browser.setSearchText("some");
+    QTRY_COMPARE(entries->rowCount(), 1);
+    QVERIFY2(!valueOf("some.txt", QtcQuick::FileEntries::SizeRole).isEmpty(),
+             "a file found by searching says nothing about how big it is");
 }
 
 void QuickUiTest::testSeveralLinesCompleteTheWordTheCursorIsIn()

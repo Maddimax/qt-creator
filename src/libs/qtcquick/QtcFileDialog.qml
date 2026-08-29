@@ -326,6 +326,35 @@ Window {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
 
+                // What each column is. A file dialog that shows only names
+                // makes the reader open a file to find out which one it is.
+                RowLayout {
+                    spacing: Spacing.GapHM
+                    Layout.fillWidth: true
+
+                    Label {
+                        text: qsTr("Name")
+                        font: Fonts.captionStrong
+                        color: Tokens.textMuted
+                        Layout.fillWidth: true
+                    }
+
+                    Label {
+                        text: qsTr("Size")
+                        font: Fonts.captionStrong
+                        color: Tokens.textMuted
+                        horizontalAlignment: Text.AlignRight
+                        Layout.preferredWidth: Metrics.lineEditWidth / 2
+                    }
+
+                    Label {
+                        text: qsTr("Date Modified")
+                        font: Fonts.captionStrong
+                        color: Tokens.textMuted
+                        Layout.preferredWidth: Metrics.formControlWidth / 2
+                    }
+                }
+
                 ListView {
                     id: list
 
@@ -345,11 +374,41 @@ Window {
                         required property int index
                         required property string name
                         required property bool isDir
+                        required property string size
+                        required property string modified
+                        required property string type
 
                         width: list.width
-                        text: entry.isDir ? entry.name + "/" : entry.name
                         highlighted: list.currentIndex === entry.index
                                      || root.alsoPicked.indexOf(entry.index) >= 0
+                        // What it is, for a reader who wants to know without
+                        // opening it. The columns say the rest.
+                        ToolTip.text: entry.type
+                        ToolTip.visible: hovered && entry.type !== ""
+
+                        contentItem: RowLayout {
+                            spacing: Spacing.GapHM
+
+                            Label {
+                                text: entry.isDir ? entry.name + "/" : entry.name
+                                elide: Text.ElideMiddle
+                                Layout.fillWidth: true
+                            }
+
+                            Label {
+                                text: entry.size
+                                color: Tokens.textMuted
+                                horizontalAlignment: Text.AlignRight
+                                Layout.preferredWidth: Metrics.lineEditWidth / 2
+                            }
+
+                            Label {
+                                text: entry.modified
+                                color: Tokens.textMuted
+                                elide: Text.ElideRight
+                                Layout.preferredWidth: Metrics.formControlWidth / 2
+                            }
+                        }
 
                         onClicked: (mouse) => {
                             const adding = root.choosingSeveral

@@ -14703,3 +14703,18 @@ The control worth keeping: what was picked is picked *by row*, so going to
 another directory has to forget it. Nothing was testing that, and rows 0 and 2
 of another directory are other files entirely - accepting would have handed
 those back without a word.
+
+### What each entry is
+
+The dialog showed names only, which makes the reader open a file to find out
+which one it is. The model already writes the size, the kind and the date the
+way a reader wants them - `QLocale().formattedDataSize()`, "C++ source", a date
+in this locale - so a view that formats them again would only manage to differ
+from the widget dialog.
+
+The browser was asking for the size with `toLongLong()`, and the model answers
+that column with a *string*. So the size role had been zero since it was
+written, and nothing noticed: the column did not exist yet, and a role nothing
+reads is a role nothing can be wrong about. It is a string now, and the
+search's own hits fill the same three from the walk's `FilePathInfo` - a search
+is a way of finding a file, not a poorer view of one.
