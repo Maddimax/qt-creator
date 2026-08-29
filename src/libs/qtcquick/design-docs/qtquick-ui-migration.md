@@ -6120,6 +6120,36 @@ the call fails nothing, because reaching `createConfigWidget()` needs a project
 and a target. The seam it calls and the property it relies on are both tested;
 the one line joining them is not.
 
+### Why the other configuration forms cannot follow it
+
+`RunConfiguration::createConfigurationWidget()` lists its aspects into a
+`Layouting::Form` exactly as the build one did, so it looks like the same
+change. It is not, and the reason is worth writing down before someone tries:
+
+    VariableChooser::addSupportForChildWidgets(widget, {this, macroExpander()});
+
+That is what puts "Insert variable" on a run configuration's fields, and it
+works by walking the **child widgets** of the form. A Qt Quick form has none,
+and **`QtcQuick` has no variable chooser at all** - not a delegate, not a
+helper, nothing. Porting this form the way the build one went would quietly
+take the macro expander away from every run-configuration field.
+
+So the remaining widget forms are exactly the ones that need it:
+`RunConfiguration`, `BuildStep` and `DeployConfiguration`. **A Qt Quick
+variable chooser is the prerequisite**, and it is a feature rather than a
+batch: a popup that lists what a `MacroExpander` offers and inserts into the
+field that asked for it.
+
+**Nothing has been lost so far**, which was checked rather than hoped: every
+other caller of `VariableChooser` is a dialog that is still a widget -
+`NameValuesDialog` (which is what the environment *kit aspect* decorates,
+not the Kits page), the spotlight filter's configuration, the LSP inspector,
+the CMake kit dialog, target setup. A ported page never had one.
+
+That also corrects the note above: build configurations were not "the one
+piece of porting left", they were the one that could be done without building
+something first.
+
 Two questions remain that are not mine to answer:
 
 - **The trackpad scrollbar.** The Quick editor shows one while a wheel or
