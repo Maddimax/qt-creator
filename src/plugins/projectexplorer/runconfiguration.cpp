@@ -19,6 +19,7 @@
 #include "runconfigurationaspects.h"
 #include "target.h"
 
+#include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/icore.h>
 
 #include <projectexplorer/devicesupport/idevice.h>
@@ -156,7 +157,13 @@ public:
         auto restoreButton = new QPushButton(Tr::tr("Restore Global"));
 
         auto innerPane = new QWidget;
-        auto configWidget = Utils::AspectWidgets::layouter(aspect->projectSettings())().emerge();
+        // The same way an options page is built: a settings container that
+        // has QML of its own is drawn with it, and one that has not keeps its
+        // widget layout. Laying it out directly here meant a page's QML was
+        // ignored under Run Settings - the Perf profiler's events table is
+        // drawn by a control the widget renderer has none of, so it was not
+        // drawn at all - and that the container was never told it was shown.
+        auto configWidget = Core::createAspectForm(aspect->projectSettings());
 
         Column {
             Row { useGlobalCheckBox, useGlobalLabel, st },
@@ -1019,6 +1026,35 @@ class RunConfigurationTest : public QObject
     Q_OBJECT
 
 private slots:
+    // Run Settings draws a setting group the same way an options page does.
+    // It used to lay the container out with widgets directly, which ignored
+    // the QML the container names: the Perf profiler's events table asks for
+    // a control the widget renderer has none of, so under Run Settings it was
+    // not drawn at all, while its options page drew it perfectly well.
+    void testASettingGroupIsDrawnWithTheQmlItNames()
+    {
+        // Any page QML of this plugin's own will do: what is being checked is
+        // that the container's QML is what gets built, not what it draws. A
+        // name it does not hold is undefined in QML rather than an error.
+        auto * const settings = new AspectContainer;
+        settings->setQmlSource(
+            QUrl("qrc:/qt/qml/QtCreator/ProjectExplorer/ProjectCommentsPanel.qml"));
+
+        // Handed over, not borrowed: the aspect deletes what it is given.
+        GlobalOrProjectAspect aspect;
+        aspect.setProjectSettings(settings);
+        const std::unique_ptr<QWidget> widget(createGlobalOrProjectAspectWidget(&aspect));
+        QVERIFY(widget);
+        // By name rather than by type: this plugin does not link Qt Quick
+        // Widgets, and what matters is that the QML form is what was built.
+        const QList<QWidget *> children = widget->findChildren<QWidget *>();
+        const bool drawnWithQml = Utils::anyOf(children, [](const QWidget *child) {
+            return qstrcmp(child->metaObject()->className(), "QQuickWidget") == 0;
+        });
+        QVERIFY2(drawnWithQml,
+                 "a setting group that names its own QML was laid out with widgets");
+    }
+
     void testNoRemoteExecutableIssues_data()
     {
         QTest::addColumn<bool>("hasExecutableAspect");

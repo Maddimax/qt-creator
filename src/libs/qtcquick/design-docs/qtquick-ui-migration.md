@@ -16625,3 +16625,33 @@ Worth someone deciding: whether `Run Settings -> Perf` should draw its Events
 table through Qt Quick like its options page does, or whether the widget
 renderer should learn `Table`. The warning now says which pages are affected
 the moment anyone runs the tests.
+
+### Run Settings was drawing its own way
+
+The warning added above named `Analyzer.Perf.Events` six times, and following
+it found a page still on widgets - the last one, and one nobody had looked for
+because it is not an options page.
+
+`GlobalOrProjectAspectWidget` built its contents with
+
+    Utils::AspectWidgets::layouter(aspect->projectSettings())().emerge();
+
+which lays a container out with widgets **whatever QML it names**. So a
+settings group reached through Run Settings was drawn one way and the same
+group reached through Preferences another. For Perf that is the difference
+between a table and nothing at all, because `Table` is one of the three
+controls only the Qt Quick renderer draws.
+
+It calls `Core::createAspectForm()` now, which is what an options page uses:
+the container's own QML if it names one, its widget layout if it does not.
+Two things follow from the same line. The events table appears under Run
+Settings, and the container is finally told it is on screen - the old code
+never reported `pageShown()`, so an aspect that fetches something when it is
+drawn (a secret, an action whose label costs something to find out) was never
+asked to.
+
+The control does both halves at once: put the layouter back and the new test
+fails *and* the six warnings return.
+
+That is the whole of it - every place that draws an aspect container now goes
+through the same door.
