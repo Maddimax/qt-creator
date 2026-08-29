@@ -3,6 +3,9 @@
 
 #include "filebrowser.h"
 
+#include "qtciconprovider.h"
+
+#include <utils/fsengine/fileiconprovider.h>
 #include <utils/filesystemmodel.h>
 #include <utils/fsengine/fsengine.h>
 #include <utils/qtcassert.h>
@@ -54,6 +57,11 @@ QVariant FileEntries::data(const QModelIndex &index, int role) const
         return entry.type;
     case ModifiedRole:
         return entry.modified;
+    case IconRole:
+        // Asked for when a row is drawn rather than kept on the entry: a
+        // directory of ten thousand files would otherwise make ten thousand
+        // icons for the handful on screen.
+        return QtcQuick::iconUrl(FileIconProvider::icon(entry.path));
     default:
         return {};
     }
@@ -68,6 +76,10 @@ QHash<int, QByteArray> FileEntries::roleNames() const
         {SizeRole, "size"},
         {TypeRole, "type"},
         {ModifiedRole, "modified"},
+        // Not "icon": a Control has a FINAL icon property, and a delegate
+        // that is one cannot take a role of that name at all - every page
+        // using the delegate stops loading.
+        {IconRole, "iconSource"},
     };
 }
 

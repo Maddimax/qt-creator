@@ -14809,3 +14809,21 @@ you nothing.
 Not ported: the progress dialog the widget shows while copying, and cancelling
 a copy. A dialog's copies are usually small, but a big one will sit there
 silently.
+
+### Icons, and the icon view
+
+Names with nothing beside them make a file dialog hard to read at a glance, so
+each entry now carries what to draw: the same `FileIconProvider` icon the
+widget dialog uses, turned into something an `Image` can load. It is produced
+when a row is drawn rather than kept on the entry - a directory of ten thousand
+files would otherwise make ten thousand icons for the dozen on screen.
+
+There is an icon view to switch to as well, a grid over the same rows.
+
+The role was called `icon` for about ten minutes. A `Control` has a FINAL
+`icon` property, so a delegate that is one cannot take a role of that name -
+and the failure is not local: *every* page that uses `StringDelegate` stopped
+loading, because the delegate hosts the dialog that hosts the offending
+delegate. The suite aborted rather than failed, and the test that named the
+cause was the one that only asks whether each component in the module can be
+loaded at all. It is called `iconSource` now.

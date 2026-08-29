@@ -48,6 +48,10 @@ Window {
         }
         return groups
     }
+    // Icons or a list, which the widget dialog also offers. Kept for next
+    // time, because it is a preference and not a per-dialog decision.
+    property bool showingIcons: false
+
     // What went wrong with the last thing the reader asked for, which the
     // browser's own error does not cover: it is about listing a directory,
     // and this is about renaming or binning something in one.
@@ -400,6 +404,12 @@ Window {
             }
 
             QtcButton {
+                objectName: "viewModeButton"
+                text: root.showingIcons ? qsTr("List") : qsTr("Icons")
+                onClicked: root.showingIcons = !root.showingIcons
+            }
+
+            QtcButton {
                 objectName: "hiddenButton"
                 text: browser.showHiddenFiles ? qsTr("Hide Hidden") : qsTr("Show Hidden")
                 onClicked: browser.showHiddenFiles = !browser.showHiddenFiles
@@ -496,6 +506,7 @@ Window {
                 // makes the reader open a file to find out which one it is.
                 RowLayout {
                     spacing: Spacing.GapHM
+                    visible: !root.showingIcons
                     Layout.fillWidth: true
 
                     Label {
@@ -521,11 +532,75 @@ Window {
                     }
                 }
 
+                GridView {
+                    id: grid
+
+                    objectName: "entryGrid"
+                    model: browser.entries
+                    visible: root.showingIcons
+                    clip: true
+                    currentIndex: -1
+                    cellWidth: Metrics.formControlWidth / 2
+                    cellHeight: Metrics.formControlWidth / 2
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+
+                    ScrollBar.vertical: ScrollBar {}
+
+                    delegate: ItemDelegate {
+                        id: tile
+
+                        required property int index
+                        required property string name
+                        required property bool isDir
+                        required property string iconSource
+
+                        width: grid.cellWidth
+                        height: grid.cellHeight
+                        highlighted: grid.currentIndex === tile.index
+
+                        contentItem: ColumnLayout {
+                            spacing: Spacing.GapVS
+
+                            Image {
+                                source: tile.iconSource
+                                sourceSize.width: Metrics.colorSwatchSize
+                                sourceSize.height: Metrics.colorSwatchSize
+                                fillMode: Image.PreserveAspectFit
+                                Layout.alignment: Qt.AlignHCenter
+                                Layout.preferredWidth: Metrics.colorSwatchSize
+                                Layout.preferredHeight: Metrics.colorSwatchSize
+                            }
+
+                            Label {
+                                text: tile.name
+                                elide: Text.ElideMiddle
+                                horizontalAlignment: Text.AlignHCenter
+                                Layout.fillWidth: true
+                            }
+                        }
+
+                        onClicked: {
+                            grid.currentIndex = tile.index
+                            list.currentIndex = tile.index
+                            if (!tile.isDir)
+                                nameField.text = tile.name
+                        }
+                        onDoubleClicked: {
+                            if (tile.isDir)
+                                browser.enter(tile.index)
+                            else
+                                root.accept()
+                        }
+                    }
+                }
+
                 ListView {
                     id: list
 
                     objectName: "entryList"
                     model: browser.entries
+                    visible: !root.showingIcons
                     clip: true
                     currentIndex: -1
                     focus: true
@@ -543,6 +618,7 @@ Window {
                         required property string size
                         required property string modified
                         required property string type
+                        required property string iconSource
 
                         width: list.width
                         highlighted: list.currentIndex === entry.index
@@ -554,6 +630,15 @@ Window {
 
                         contentItem: RowLayout {
                             spacing: Spacing.GapHM
+
+                            Image {
+                                source: entry.iconSource
+                                sourceSize.width: Metrics.listRowIconSize
+                                sourceSize.height: Metrics.listRowIconSize
+                                fillMode: Image.PreserveAspectFit
+                                Layout.preferredWidth: Metrics.listRowIconSize
+                                Layout.preferredHeight: Metrics.listRowIconSize
+                            }
 
                             Label {
                                 text: entry.isDir ? entry.name + "/" : entry.name

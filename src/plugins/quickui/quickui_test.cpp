@@ -268,6 +268,7 @@ private slots:
     void testAnEntryCanBeRenamedOrBinned();
     void testTheFileDialogGetsAboutByKeyboard();
     void testFilesCanBeCopiedAndPasted();
+    void testTheFileDialogShowsIconsAndCanBeAGrid();
     void testSeveralLinesCompleteTheWordTheCursorIsIn();
     void testColourOffersToGoBackToItsDefault();
     void testColourWithNoResetHasNoButton();
@@ -5424,6 +5425,62 @@ void QuickUiTest::testFilesCanBeCopiedAndPasted()
     // Twice over, so the second duplicate does not overwrite the first.
     QCOMPARE(browser.paste(), QString());
     QVERIFY((root / "copied copy 2.txt").exists());
+}
+
+// Icons beside the names, and the icon view the widget dialog also offers.
+void QuickUiTest::testTheFileDialogShowsIconsAndCanBeAGrid()
+{
+    Utils::TemporaryDirectory dir("quickui-dialog-icons");
+    QVERIFY(dir.isValid());
+    const Utils::FilePath root = dir.path();
+    QVERIFY((root / "sub").createDir());
+    QVERIFY((root / "code.cpp").writeFileContents("x"));
+
+    QtcQuick::FileBrowser browser;
+    browser.setDirectory(root.toUserOutput());
+    QtcQuick::FileEntries * const entries = browser.entries();
+    QTRY_COMPARE(entries->rowCount(), 2);
+
+    // Something an Image can load, which a QIcon is not. The role is called
+    // iconSource because a Control's own icon property is FINAL: a delegate
+    // that took a role called "icon" would not load at all.
+    const auto iconOf = [entries](const QString &name) {
+        for (int row = 0; row < entries->rowCount(); ++row) {
+            const QModelIndex index = entries->index(row, 0);
+            if (entries->data(index, QtcQuick::FileEntries::NameRole).toString() == name)
+                return entries->data(index, QtcQuick::FileEntries::IconRole).toString();
+        }
+        return QString();
+    };
+    const QString fileIcon = iconOf("code.cpp");
+    const QString dirIcon = iconOf("sub");
+    QVERIFY2(!fileIcon.isEmpty(), "a file has no icon to draw");
+    QVERIFY2(fileIcon.startsWith("image://"), qPrintable("it is not loadable: " + fileIcon));
+    QVERIFY2(!dirIcon.isEmpty(), "a directory has no icon to draw");
+    // A directory does not look like a file, which is the whole point of
+    // showing an icon at all.
+    QVERIFY2(fileIcon != dirIcon, "a file and a directory are drawn with the same icon");
+
+    // And the two views over those rows: one shows at a time, and both are
+    // fed by the same entries.
+    QQmlComponent component(QtcQuick::engine(),
+                            QUrl("qrc:/qt/qml/QtCreator/Ui/QtcFileDialog.qml"));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    const std::unique_ptr<QObject> dialog(component.create());
+    QVERIFY(dialog);
+    dialog->setProperty("currentFolder", root.toUserOutput());
+
+    auto * const list = dialog->findChild<QQuickItem *>("entryList");
+    auto * const gridView = dialog->findChild<QQuickItem *>("entryGrid");
+    QVERIFY(list && gridView);
+    QVERIFY2(list->isVisible() && !gridView->isVisible(),
+             "the dialog does not open as a list");
+    QCOMPARE(gridView->property("model").value<QObject *>(),
+             list->property("model").value<QObject *>());
+
+    dialog->setProperty("showingIcons", true);
+    QVERIFY2(gridView->isVisible() && !list->isVisible(),
+             "asking for icons did not swap the views");
 }
 
 void QuickUiTest::testSeveralLinesCompleteTheWordTheCursorIsIn()

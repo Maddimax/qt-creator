@@ -40,6 +40,9 @@ public:
         SizeRole,
         TypeRole,
         ModifiedRole,
+        // What to draw beside the name, as something an Image can load. The
+        // provider hands out a QIcon, which QML cannot show.
+        IconRole,
     };
 
     using QAbstractListModel::QAbstractListModel;
