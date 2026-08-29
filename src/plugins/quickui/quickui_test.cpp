@@ -643,6 +643,7 @@ void QuickUiTest::testAPagesGroupsFillTheWidthTheyAreGiven()
 
     int groups = 0;
     QStringList bare;
+    QStringList unfilled;
     for (Core::IOptionsPage *page : Core::IOptionsPage::allOptionsPages()) {
         const std::optional<Utils::AspectContainer *> aspects = page->aspects();
         if (!aspects || !*aspects)
@@ -654,17 +655,36 @@ void QuickUiTest::testAPagesGroupsFillTheWidthTheyAreGiven()
         if (!quickWidget || !quickWidget->rootObject())
             continue;
 
-        groups += findQmlComponents(quickWidget->rootObject(), "AspectGroupBox").size();
         // findQmlComponents matches by prefix, and an AspectGroupBox answers
         // its own name - so this finds the plain ones only.
         if (!findQmlComponents(quickWidget->rootObject(), "GroupBox").isEmpty())
             bare << page->displayName();
+
+        // And the same thing one level in: a group whose content item is a
+        // plain Item holds its layout *inside* that item, where nothing tells
+        // the layout to fill - which is the whole defect. AspectGroupBox and
+        // GroupDelegate make the column their content item.
+        for (const QString &kind : {QString("AspectGroupBox"), QString("GroupDelegate")}) {
+            for (QQuickItem *group : findQmlComponents(quickWidget->rootObject(), kind)) {
+                auto *content = group->property("contentItem").value<QQuickItem *>();
+                if (!content)
+                    continue;
+                ++groups;
+                if (!QString::fromLatin1(content->metaObject()->className()).endsWith("Layout")) {
+                    unfilled << QString("%1: a %2 holds its content in a %3")
+                                    .arg(page->displayName(), kind,
+                                         QString::fromLatin1(
+                                             content->metaObject()->className()));
+                }
+            }
+        }
     }
 
     QVERIFY2(groups > 0, "no page drew a group at all, so this proves nothing");
     QVERIFY2(bare.isEmpty(),
              qPrintable("pages with a plain GroupBox rather than an AspectGroupBox: "
                         + bare.join(", ")));
+    QVERIFY2(unfilled.isEmpty(), qPrintable("\n" + unfilled.join("\n")));
 }
 
 // A note written in markdown has to say so. Neither renderer guesses it -

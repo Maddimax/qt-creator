@@ -27,7 +27,11 @@ GroupBox {
     enabled: aspect?.enabled ?? false
     Layout.fillWidth: true
 
-    ColumnLayout {
+    // The content item itself rather than something inside it: a layout put
+    // into a GroupBox's own content item keeps its implicit width, and
+    // everything in it is then drawn as narrow as its text - the MCU page's
+    // SDK path field was a third of the group it sits in.
+    contentItem: ColumnLayout {
         // Loaded by URL rather than named as a type: AspectItems instantiates
         // this delegate, and QML cannot resolve two files that refer to each
         // other. setSource() also lets the required model be set at creation.

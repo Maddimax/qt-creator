@@ -15384,3 +15384,18 @@ showing twenty of them cost twenty seconds and made
 within its five seconds once that many pages have asked it something. Narrowing
 the filter did not help, so the test names one page, the way the ClangFormat
 group test already does. The suite is back to thirty seconds.
+
+### The same group defect, in the delegate every page uses
+
+The MCU page drew its SDK path field a third of the width of the group holding
+it. `GroupDelegate` - which is what draws any container aspect that a page
+does not lay out itself - had exactly the shape the three pages did: a
+`GroupBox` with a `ColumnLayout` *inside* its content item rather than as it.
+A layout put there keeps its implicit width, and everything in it is drawn as
+narrow as its own text.
+
+So the group test grew a second, structural rule: a group's content item has
+to *be* a layout. It needs no page on screen - the content item's type says it
+- and it catches all three shapes at once. Its control names the System, Kits
+and Devices pages, among others, each holding its content in a
+`QQuickContentItem`.
