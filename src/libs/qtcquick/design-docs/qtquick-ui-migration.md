@@ -14908,3 +14908,16 @@ watching validity would light up its options for however long a bad path takes
 to answer. Asking about a new path and checking that validity did *not* change
 is the deterministic version of that - the flicker itself is a race, and a test
 of it would be one too.
+
+One more thing came out of that, and it is *not* a migration regression: the
+three beautifier pages re-ran their "is the command usable" check only when the
+command's applied value changed, never when the answer about it came back. So
+the options stayed as they were at startup - disabled, because nothing had been
+validated yet - until the page was applied. That is true of the widget form as
+well, and it is why the greyed-out options could look like they had always been
+that way. They follow `validChanged` now.
+
+There is no test for that last wiring: it needs the beautifier settings
+singletons, and standing a second one up writes over the user's own settings
+files. What is tested is the mechanism underneath - that a rendered path field
+makes its aspect valid - which is the part this session changed.

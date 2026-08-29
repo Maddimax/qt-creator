@@ -108,6 +108,12 @@ public:
         // predefined style "File", and the configurations only when the style
         // is not a predefined one at all.
         command.addOnChanged(this, [this] { updateOptionsEnabled(); });
+        // And when the answer about it comes back: whether the command is
+        // usable is decided by validating it, which happens after the page
+        // asks and not when the value is set. Without this the options stay
+        // as they were at startup, when nothing had been validated yet.
+        connect(&command, &Utils::FilePathAspect::validChanged,
+                this, [this] { updateOptionsEnabled(); });
         usePredefinedStyle.addOnVolatileValueChanged(this, [this] { updateOptionsEnabled(); });
         predefinedStyle.addOnVolatileValueChanged(this, [this] { updateOptionsEnabled(); });
         updateOptionsEnabled();
