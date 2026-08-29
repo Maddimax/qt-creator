@@ -42,6 +42,19 @@ RowLayout {
         return root.rows.mapToSource(root.rows.index(row, 0)).row
     }
 
+    // Put the keyboard on a row, the way a page that opens on its first entry
+    // does. The row is one of the aspect's, not of whatever the filter is
+    // showing.
+    function selectRow(row: int): void {
+        const source = root.sourceModel
+        if (!source || row < 0 || row >= source.rowCount())
+            return
+        const mapped = root.rows.mapFromSource(source.index(row, 0))
+        if (!mapped.valid)
+            return
+        view.selectionModel.setCurrentIndex(mapped, ItemSelectionModel.ClearAndSelect)
+    }
+
     // Every selected row, in the aspect's own model, ascending. A page that
     // acts on a selection - export these, remove those - wants all of them and
     // not just the one the keyboard is on.

@@ -64,6 +64,10 @@ AspectPage {
                 // The properties below are those of whichever format is
                 // current, so the aspect has to be told which that is.
                 onCurrentRowChanged: root.aspects.Formats.setCurrentRow(currentRow)
+                // On the first format, as the widget list opened: with nothing
+                // current there are no properties to show and the page is a
+                // list beside an empty half.
+                Component.onCompleted: selectRow(0)
             }
 
             // What the selected format looks like. Each control is shown only

@@ -174,6 +174,7 @@ class QuickUiTest final : public QObject
 private slots:
     void testARowOfButtonsIsDrawnAsARowOfButtons();
     void testACompactColourKeepsItsNumbersBehindItsSwatch();
+    void testTheFormatListOpensOnAFormat();
     void testEveryComponentInTheModuleCanBeLoaded();
     void testAspectDrivenPagesRenderWithQuick();
     void testNestedContainerIsAModelGroup();
@@ -6574,6 +6575,33 @@ void QuickUiTest::testColourWithNoResetHasNoButton()
     const QList<QQuickItem *> buttons = findQmlNamed(delegate, "colorResetButton");
     QCOMPARE(buttons.size(), 1);
     QVERIFY(!buttons.first()->isVisible());
+}
+
+// The widget list put the keyboard on the first format when it opened, so the
+// properties beside it had something to show. Without that the page is a list
+// beside an empty half until something is clicked.
+void QuickUiTest::testTheFormatListOpensOnAFormat()
+{
+    std::unique_ptr<QWidget> host;
+    QQuickItem *root = showPage("Font && Colors", host);
+    if (!root)
+        QSKIP("The Font && Colors page is not available here");
+
+    QQuickItem *foreground = nullptr;
+    QTRY_VERIFY([&] {
+        for (QQuickItem *item : findAspectDelegates(root)) {
+            if (auto *aspect = item->property("aspect").value<Utils::BaseAspect *>()) {
+                if (aspect->qmlName() == "Foreground") {
+                    foreground = item;
+                    return true;
+                }
+            }
+        }
+        return false;
+    }());
+
+    QVERIFY2(foreground->isVisible(),
+             "the page opened with no format chosen, so it showed no format properties");
 }
 
 void QuickUiTest::testTheFormatListIsReadOnTheSchemesOwnBackground()
