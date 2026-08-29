@@ -178,6 +178,7 @@ private slots:
     void testNoButtonOffersAMnemonicItCannotHave();
     void testAFieldSaysWhatBelongsInIt();
     void testAFieldShowsTheStartOfWhatItHolds();
+    void testAGroupsContentStartsAtItsTop();
     void testALabelInAContinuationRowStaysWithItsControl();
     void testACompactColourKeepsItsNumbersBehindItsSwatch();
     void testTheFormatListOpensOnAFormat();
@@ -433,6 +434,61 @@ void QuickUiTest::testALabelInAContinuationRowStaysWithItsControl()
     QVERIFY2(labels > 0,
              "no page put a labelled control beside a check box, so this proves nothing");
     QVERIFY2(adrift.isEmpty(), qPrintable("\n" + adrift.join("\n")));
+}
+
+// What a group holds begins at the top of it. A column that does not fill the
+// group is centred in it instead, which put the Python language server's list
+// of plugins 115 pixels down an otherwise empty box.
+//
+// One page rather than a sweep: every page whose group holds a column of its
+// own would have to be put on screen to be measured, and showing twenty pages
+// costs twenty seconds and makes the keychain too slow for the secret test
+// that runs after it.
+void QuickUiTest::testAGroupsContentStartsAtItsTop()
+{
+    Core::setAspectFormFactory([](Utils::AspectContainer *container) {
+        return QtcQuick::createAspectForm(container);
+    });
+    const QScopeGuard clearFactory([] { Core::setAspectFormFactory({}); });
+
+    Core::IOptionsPage *page = nullptr;
+    for (Core::IOptionsPage *candidate : Core::IOptionsPage::allOptionsPages()) {
+        if (candidate->displayName() == "Language Server Configuration")
+            page = candidate;
+    }
+    if (!page)
+        QSKIP("no Language Server Configuration page - is the Python plugin loaded?");
+
+    const std::unique_ptr<QWidget> widget(page->createWidget());
+    QVERIFY(widget);
+    widget->resize(1100, 620);
+    widget->show();
+    QVERIFY(QTest::qWaitForWindowExposed(widget.get()));
+    auto * const quickWidget = widget->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QTRY_VERIFY(quickWidget->rootObject()
+                && quickWidget->rootObject()->width() >= quickWidget->width() - 1);
+
+    QQuickItem * const group
+        = findQmlComponents(quickWidget->rootObject(), "AspectGroupBox").value(0, nullptr);
+    QVERIFY(group);
+    auto * const content = group->property("contentItem").value<QQuickItem *>();
+    QVERIFY(content);
+    QVERIFY2(content->height() > 100,
+             "the group is not tall enough for its content to float in, so this "
+             "proves nothing");
+
+    QQuickItem *first = nullptr;
+    for (QQuickItem *child : content->childItems()) {
+        if (child->isVisible() && child->height() > 0) {
+            first = child;
+            break;
+        }
+    }
+    QVERIFY(first);
+    QVERIFY2(first->y() <= 8,
+             qPrintable(QString("what the group holds starts %1px down it")
+                            .arg(first->y())));
 }
 
 // A field shows the text around its cursor, and text set from an aspect

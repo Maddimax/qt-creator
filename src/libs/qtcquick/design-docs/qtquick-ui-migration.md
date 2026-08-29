@@ -15365,3 +15365,22 @@ flagged eight that were perfectly fine: a spin box has a field of its own and
 puts the cursor where it types, and a table cell is only a field while it is
 being edited. It asks the delegates that hold a value to read - String and
 StringList - which is also exactly the scope of the fix.
+
+### Content floating in the middle of its group
+
+The Python language server page drew its list of plugins 115 pixels down an
+otherwise empty group. The page puts a column of its own inside the group, and
+that column only grows when the JSON configuration editor in it is shown -
+which it is not while the plugins are. A layout that does not fill its parent
+is *centred* in it, so the whole list floated.
+
+The column now fills, and a spacer at its end takes the height when the editor
+is not there to take it.
+
+The sweep this began as had to be given up: measuring it means putting a page
+on screen, every page whose group holds a column of its own qualifies, and
+showing twenty of them cost twenty seconds and made
+`testSecretIsFetchedBeforeItCanBeEdited` fail - the keychain does not answer
+within its five seconds once that many pages have asked it something. Narrowing
+the filter did not help, so the test names one page, the way the ClangFormat
+group test already does. The suite is back to thirty seconds.

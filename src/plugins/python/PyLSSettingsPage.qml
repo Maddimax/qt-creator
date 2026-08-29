@@ -21,6 +21,7 @@ AspectPage {
 
         ColumnLayout {
             spacing: Spacing.GapVS
+            Layout.fillHeight: true
 
             // The plugins are a reading of the configuration below; either one
             // is shown, never both.
@@ -40,6 +41,12 @@ AspectPage {
             }
 
             BoolDelegate { aspect: root.aspects.Advanced }
+
+            // The editor takes the height of the group when it is shown.
+            // When the plugins are shown instead there is nothing that grows,
+            // and without this the whole column is centred in the group -
+            // which put the first plugin 115 pixels down an empty box.
+            Item { Layout.fillHeight: !root.aspects.Configuration.visible }
         }
     }
 }
