@@ -47,6 +47,7 @@ namespace TextEditor {
 class AutoCompleter;
 class HoverHandlerRunner;
 class IAssistProcessor;
+class AssistProposalItemInterface;
 class IAssistProposal;
 
 class CodeSource;
@@ -623,6 +624,9 @@ public:
     Utils::PlainTextDocumentLayout *movementLayout() const;
     // Asks the hint what it says now, and takes it away when the call the
     // caret was in has ended.
+    // The item behind a word the form is showing, or nullptr when the words
+    // did not come from a proposal this still has.
+    AssistProposalItemInterface *completionItemFor(const QString &text) const;
     void updateFunctionHint();
     bool canEdit() const;
     Utils::CommentDefinition commentDefinition() const;
@@ -931,6 +935,9 @@ private:
     // language-specific subclass, handed out per editor factory.
     std::unique_ptr<AutoCompleter> m_autoCompleter;
     std::unique_ptr<IAssistProcessor> m_completionProcessor;
+    // Kept, not just its words: a completion is applied by asking the item to
+    // do it, and an item can do more than put its own text in.
+    std::unique_ptr<IAssistProposal> m_completionProposal;
     // The fixes on offer are kept, not just their words: applying one asks
     // the item to do it, and the item belongs to the proposal.
     std::unique_ptr<IAssistProcessor> m_quickFixProcessor;

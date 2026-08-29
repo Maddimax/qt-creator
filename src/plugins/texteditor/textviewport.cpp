@@ -445,10 +445,10 @@ void TextViewport::updateFunctionHint()
 
 void TextViewport::deliverCompletions(IAssistProposal *proposal)
 {
-    const std::unique_ptr<IAssistProposal> owned(proposal);
+    m_completionProposal.reset(proposal);
     QStringList candidates;
-    if (owned) {
-        if (const ProposalModelPtr model = owned->model()) {
+    if (m_completionProposal) {
+        if (const ProposalModelPtr model = m_completionProposal->model()) {
             candidates.reserve(model->size());
             for (int i = 0; i < model->size(); ++i)
                 candidates.append(model->text(i));
@@ -477,12 +477,40 @@ void TextViewport::applyCompletion(const QString &completion)
     if (!provider || cursor.isNull() || completion.isEmpty() || m_readOnly)
         return;
 
-    // What was typed is replaced rather than added to, or choosing "beta" for
-    // a half-typed "be" would leave "bebeta".
+    // The item first, where the offer it came from is still to hand: an item
+    // may insert a snippet or rewrite what is around it, and only it knows.
+    // Its own text is what the form shows, so that is what identifies it.
+    if (AssistProposalItemInterface * const item = completionItemFor(completion)) {
+        DocumentAssistTarget target(cursor.document());
+        target.setCursorPosition(cursor.position());
+        item->apply(target, m_completionProposal->basePosition());
+        m_completionProposal.reset();
+        setCursorPosition(target.position());
+        return;
+    }
+
+    // Nothing to ask - the words came from somewhere with no proposal behind
+    // them. What was typed is replaced rather than added to, or choosing
+    // "beta" for a half-typed "be" would leave "bebeta".
     cursor.setPosition(startOfWordBefore(cursor, provider));
     cursor.setPosition(textCursor().position(), QTextCursor::KeepAnchor);
     cursor.insertText(completion);
     setTextCursor(cursor);
+}
+
+AssistProposalItemInterface *TextViewport::completionItemFor(const QString &text) const
+{
+    if (!m_completionProposal)
+        return nullptr;
+    const auto model = m_completionProposal->model();
+    auto * const generic = dynamic_cast<GenericProposalModel *>(model.data());
+    if (!generic)
+        return nullptr;
+    for (int i = 0; i < generic->size(); ++i) {
+        if (generic->text(i) == text)
+            return generic->proposalItem(i);
+    }
+    return nullptr;
 }
 
 void TextViewport::setAutoCompleter(AutoCompleter *completer)

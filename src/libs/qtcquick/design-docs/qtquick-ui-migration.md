@@ -13933,3 +13933,34 @@ out the prefix - each fail it.
 That is the last of the ninety-six. Seventy-three are registered; the rest are
 the ones the widget answers with machinery this view does not need or share -
 its snippet overlay, its refactor markers, printing.
+
+## Taking a completion, which was being done by hand
+
+The commands are finished, so this is one of the two behavioural gaps noted
+while doing them. Taking a completion inserted the word the list was showing,
+replacing whatever had been typed of it. That is right for most items, because
+most items do put their own text in - which is why it looked correct for as
+long as it did. It is wrong for any item that does something else: one that
+expands a snippet, or adds the brackets of a call, or rewrites what is around
+it. Only the item knows.
+
+Quick fixes were built the right way round last batch, and this is the same
+change on the older path: keep the proposal rather than harvesting its words
+and dropping it, find the item whose text is the one the form showed, and ask
+it to apply itself to a `DocumentAssistTarget`. When there is no proposal to
+ask - the words came from somewhere else - the old insertion stays as the
+fallback rather than doing nothing.
+
+Every one of the 373 tests already there still passed after the change, which
+is the point about most items: with a plain `AssistProposalItem` the two paths
+do the same thing, so nothing that existed could tell them apart. The new test
+uses an item labelled "expand me" that puts in `expanded()`, and the three
+controls - not asking the item, dropping the proposal as before, and applying
+at the caret instead of where the word began - all fail it. The last of those
+also fails two of the older completion tests, which is worth noting: the base
+position was already load-bearing, and nothing had ever moved it.
+
+The other gap is still open and is a question rather than a defect: Delete Line
+takes the main caret's line when there are several, because that is what the
+widget does. Making the Quick editor right on its own would make the two
+disagree, so it stays written down until someone decides which matters more.

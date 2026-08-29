@@ -367,6 +367,43 @@ public:
     }
 };
 
+
+// A completion whose label is not what it puts in. Real ones do this whenever
+// they expand a snippet or add the brackets of a call; the point here is only
+// that the item decides, not the view.
+class ExpandingItem final : public TextEditor::AssistProposalItem
+{
+public:
+    void apply(TextEditor::AssistTarget &target, int basePosition) const override
+    {
+        target.replace(basePosition, target.position() - basePosition, "expanded()");
+    }
+};
+
+class ExpandingProcessor final : public TextEditor::IAssistProcessor
+{
+public:
+    TextEditor::IAssistProposal *perform() override
+    {
+        auto * const item = new ExpandingItem;
+        item->setText("expand me");
+        QSharedPointer<TextEditor::GenericProposalModel> model(
+            new TextEditor::GenericProposalModel);
+        model->loadContent({item});
+        return new TextEditor::GenericProposal(interface()->position() - 2, model);
+    }
+};
+
+class ExpandingProvider final : public TextEditor::CompletionAssistProvider
+{
+public:
+    TextEditor::IAssistProcessor *createProcessor(
+        const TextEditor::AssistInterface *) const override
+    {
+        return new ExpandingProcessor;
+    }
+};
+
 class TextViewportTest final : public QObject
 {
     Q_OBJECT
@@ -5026,6 +5063,40 @@ private slots:
 
         QTRY_VERIFY(hinted.last().at(0).toStringList().isEmpty());
         QCOMPARE(hinted.last().at(1).toInt(), -1);
+    }
+
+    // Taking a completion asks the item to put itself in, rather than the
+    // view inserting the word it was showing. Most items do put their own
+    // text in, which is why inserting it looked right for so long - but one
+    // that expands a snippet or adds brackets does not, and only the item
+    // knows the difference.
+    void testTakingACompletionAsksTheItemToApplyItself()
+    {
+        TemporaryDirectory dir("qtc-viewport-applyitem");
+        const FilePath file = dir.filePath("code.txt");
+        QVERIFY(file.writeFileContents("ex\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        viewport->setReadOnly(false);
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        ExpandingProvider provider;
+        viewport->textDocument()->setCompletionAssistProvider(&provider);
+
+        QSignalSpy offered(viewport, &TextViewport::completionsAvailable);
+        viewport->setCursorPosition(2);
+        viewport->requestCompletions();
+        QTRY_COMPARE(offered.size(), 1);
+        QCOMPARE(offered.at(0).at(0).toStringList(), QStringList({"expand me"}));
+
+        viewport->applyCompletion("expand me");
+
+        // What the item does, not what the list said.
+        QCOMPARE(viewport->textDocument()->document()->findBlockByNumber(0).text(),
+                 QString("expanded()"));
     }
 
     // None of the line commands edits a buffer that is read only, the same
