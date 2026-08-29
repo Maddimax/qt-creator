@@ -14668,3 +14668,19 @@ that is no longer the one being looked at are not an answer to anything.
 
 Each hit is named by where it is rather than what it is called, so two files of
 the same name in different directories are distinguishable in one flat list.
+
+### One kind of file at a time
+
+An aspect's dialog filter names several kinds - "Sources (*.cpp *.h);;All files
+(*)" - and the reader picks one. The first version of the path field flattened
+every group's patterns into one list, which quietly made the filter useless:
+one group of "*" and everything shows whatever the others say. The dialog is
+given the filter as written and offers the groups; the browser gets the
+patterns of the one that is picked, and a filter naming a single kind still
+filters without offering a choice of one.
+
+The control for the group parsing needed a better fixture before it bit. Every
+group in the first one named a single pattern, so counting patterns and
+counting groups gave the same answer - the mistake the control introduces was
+invisible. A group naming two patterns is both the usual shape of a real filter
+and the only shape that tells the two apart.

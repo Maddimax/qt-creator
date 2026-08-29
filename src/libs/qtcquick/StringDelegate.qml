@@ -41,7 +41,7 @@ RowLayout {
                     : (delegate.pathKind === "SaveFile" ? QtcFileDialog.SaveFile
                                                         : QtcFileDialog.OpenFile),
             "currentFolder": start,
-            "nameFilters": delegate.deviceNameFilters
+            "nameFilter": delegate.pres.promptDialogFilter ?? ""
         })
         if (!dialog)
             return
@@ -52,27 +52,6 @@ RowLayout {
         })
         dialog.rejected.connect(() => dialog.destroy())
         dialog.show()
-    }
-
-    // The dialog takes glob patterns; an aspect's filter is Qt's usual
-    // "Sources (*.cpp *.h);;All files (*)".
-    readonly property var deviceNameFilters: {
-        const filter = delegate.pres.promptDialogFilter ?? ""
-        const patterns = []
-        const groups = filter === "" ? [] : filter.split(";;")
-        for (let i = 0; i < groups.length; ++i) {
-            const open = groups[i].indexOf("(")
-            const close = groups[i].lastIndexOf(")")
-            if (open < 0 || close < open)
-                continue
-            const inside = groups[i].substring(open + 1, close).trim()
-            const each = inside.split(" ")
-            for (let j = 0; j < each.length; ++j) {
-                if (each[j] !== "")
-                    patterns.push(each[j])
-            }
-        }
-        return patterns
     }
 
     Component {

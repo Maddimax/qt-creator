@@ -24,7 +24,30 @@ Window {
     property int mode: QtcFileDialog.OpenFile
     // Where it opens, and what it is called.
     property alias currentFolder: browser.directory
-    property alias nameFilters: browser.nameFilters
+    // The kinds of file on offer, as Qt writes them:
+    // "Sources (*.cpp *.h);;All files (*)". The reader picks one; the browser
+    // is given that one's patterns. Assigning the patterns directly instead
+    // would merge every group, and a group of "*" makes every other group
+    // pointless.
+    property string nameFilter: ""
+    readonly property var filterGroups: {
+        const groups = []
+        const parts = root.nameFilter === "" ? [] : root.nameFilter.split(";;")
+        for (let i = 0; i < parts.length; ++i) {
+            const open = parts[i].indexOf("(")
+            const close = parts[i].lastIndexOf(")")
+            if (open < 0 || close < open)
+                continue
+            const patterns = []
+            const each = parts[i].substring(open + 1, close).trim().split(" ")
+            for (let j = 0; j < each.length; ++j) {
+                if (each[j] !== "")
+                    patterns.push(each[j])
+            }
+            groups.push({"label": parts[i].trim(), "patterns": patterns})
+        }
+        return groups
+    }
     // What the reader settled on. Empty until they do.
     property string selectedFile: ""
 
@@ -75,6 +98,13 @@ Window {
     modality: Qt.ApplicationModal
     title: root.choosingDirectory ? qsTr("Choose Directory") : qsTr("Choose File")
     color: Tokens.backgroundDefault
+
+    // One group and no choice to make: it still says which files are meant.
+    onFilterGroupsChanged: {
+        browser.nameFilters = root.filterGroups.length > 0
+                ? root.filterGroups[0].patterns : []
+        filterBox.currentIndex = root.filterGroups.length > 0 ? 0 : -1
+    }
 
     FileBrowser {
         id: browser
@@ -332,6 +362,21 @@ Window {
             Label {
                 text: root.naming ? qsTr("Save as:") : qsTr("File name:")
                 visible: !root.choosingDirectory
+            }
+
+            ComboBox {
+                id: filterBox
+
+                objectName: "filterBox"
+                model: root.filterGroups
+                textRole: "label"
+                visible: root.filterGroups.length > 1
+                Layout.preferredWidth: Metrics.formControlWidth
+
+                onCurrentIndexChanged: {
+                    if (currentIndex >= 0 && currentIndex < root.filterGroups.length)
+                        browser.nameFilters = root.filterGroups[currentIndex].patterns
+                }
             }
 
             QtcLineEdit {

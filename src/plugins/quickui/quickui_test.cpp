@@ -259,6 +259,7 @@ private slots:
     void testAPathOnADeviceIsBrowsedWithOurOwnDialog();
     void testTheFileBrowserRemembersWhereItHasBeen();
     void testTheFileBrowserFindsFilesBelowTheDirectory();
+    void testTheFileDialogOffersEachKindOfFileSeparately();
     void testSeveralLinesCompleteTheWordTheCursorIsIn();
     void testColourOffersToGoBackToItsDefault();
     void testColourWithNoResetHasNoButton();
@@ -5045,6 +5046,60 @@ void QuickUiTest::testTheFileBrowserFindsFilesBelowTheDirectory()
     browser.setDirectory(deeper.toUserOutput());
     QCOMPARE(browser.searchText(), QString());
     QTRY_COMPARE(found(), QStringList({"another-needle.txt", "haystack.txt"}));
+}
+
+// An aspect's dialog filter names several kinds of file - "Sources (*.cpp
+// *.h);;All files (*)" - and the reader picks one. Handing the browser every
+// group's patterns at once instead would merge them, and a group of "*" makes
+// every other group pointless.
+void QuickUiTest::testTheFileDialogOffersEachKindOfFileSeparately()
+{
+    Utils::TemporaryDirectory dir("quickui-dialog-filters");
+    QVERIFY(dir.isValid());
+    const Utils::FilePath root = dir.path();
+    QVERIFY((root / "code.cpp").writeFileContents("x"));
+    QVERIFY((root / "code.h").writeFileContents("x"));
+    QVERIFY((root / "notes.txt").writeFileContents("x"));
+
+    QQmlComponent component(QtcQuick::engine(),
+                            QUrl("qrc:/qt/qml/QtCreator/Ui/QtcFileDialog.qml"));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    const std::unique_ptr<QObject> dialog(component.create());
+    QVERIFY(dialog);
+
+    // A group naming several patterns, which is the usual shape of one and
+    // the only shape that tells a group from a pattern.
+    dialog->setProperty("nameFilter", "Sources (*.cpp *.h);;All files (*)");
+    dialog->setProperty("currentFolder", root.toUserOutput());
+    auto * const browser = dialog->findChild<QtcQuick::FileBrowser *>("fileBrowser");
+    QVERIFY(browser);
+
+    // Both groups are on offer, and the first one is what is being shown.
+    QCOMPARE(dialog->property("filterGroups").toList().size(), 2);
+    QCOMPARE(browser->nameFilters(), QStringList({"*.cpp", "*.h"}));
+    QtcQuick::FileEntries * const entries = browser->entries();
+    const auto names = [entries] {
+        QStringList found;
+        for (int row = 0; row < entries->rowCount(); ++row)
+            found << entries->data(entries->index(row, 0), QtcQuick::FileEntries::NameRole)
+                         .toString();
+        found.sort();
+        return found;
+    };
+    QTRY_COMPARE(names(), QStringList({"code.cpp", "code.h"}));
+
+    // Picking the other one shows what it names.
+    QObject * const filterBox = dialog->findChild<QObject *>("filterBox");
+    QVERIFY(filterBox);
+    filterBox->setProperty("currentIndex", 1);
+    QCOMPARE(browser->nameFilters(), QStringList({"*"}));
+    QTRY_COMPARE(names(), QStringList({"code.cpp", "code.h", "notes.txt"}));
+
+    // With nothing to choose between, the box is not in the way.
+    dialog->setProperty("nameFilter", "Sources (*.cpp *.h)");
+    QCOMPARE(browser->nameFilters(), QStringList({"*.cpp", "*.h"}));
+    QVERIFY2(!filterBox->property("visible").toBool(),
+             "a choice of one is offered as a choice");
 }
 
 void QuickUiTest::testSeveralLinesCompleteTheWordTheCursorIsIn()
