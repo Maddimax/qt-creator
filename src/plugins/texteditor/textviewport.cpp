@@ -3460,17 +3460,22 @@ public:
     }
     void insertSuggestion(std::unique_ptr<TextSuggestion> &&suggestion) override
     {
-        const QTextCursor cursor = m_view->textCursor();
-        if (cursor.isNull())
-            return;
-        const QTextBlock block = cursor.block();
-        TextBlockUserData::insertSuggestion(block, std::move(suggestion));
-        m_view->prepareSuggestion(block);
+        m_view->insertSuggestion(std::move(suggestion));
     }
 
 private:
     TextViewport *m_view = nullptr;
 };
+
+void TextViewport::insertSuggestion(std::unique_ptr<TextSuggestion> &&suggestion)
+{
+    const QTextCursor cursor = textCursor();
+    if (cursor.isNull())
+        return;
+    const QTextBlock block = cursor.block();
+    TextBlockUserData::insertSuggestion(block, std::move(suggestion));
+    prepareSuggestion(block);
+}
 
 TextSuggestion *TextViewport::currentSuggestion() const
 {

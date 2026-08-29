@@ -23,7 +23,9 @@
 #include "typingsettings.h"
 #include "highlighterhelper.h"
 #include "textdocumentlayout.h"
+#include "suggestionhost.h"
 #include "symbolrequests.h"
+#include "textsuggestion.h"
 #include "typehierarchy.h"
 #include "linenumberfilter.h"
 #include "textviewport.h"
@@ -1169,6 +1171,92 @@ private slots:
                  "Select Encoding is not registered in the editor's context");
         QVERIFY2(inContext(Constants::SWITCH_UTF8BOM),
                  "Switch UTF-8 BOM is not registered in the editor's context");
+    }
+
+    // Something offering an inline suggestion - Copilot is the only one -
+    // reaches this editor through a handle rather than through a widget, and
+    // the suggestion it puts there is drawn. Driven in the order the client
+    // drives it: look at the view, decide, then offer.
+    void testASuggestionCanBeOfferedToThisEditor()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-suggestion");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("plain.txt");
+        QVERIFY(file.writeFileContents("ret\nsecond\n"));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        // Reached the way the client reaches it: an editor in, a handle out,
+        // and no Qt Quick in between.
+        TextEditor::SuggestionHost * const host = TextEditor::suggestionHostForEditor(editor);
+        QVERIFY2(host, "this editor cannot be offered a suggestion");
+        QCOMPARE(host, TextEditor::suggestionHostForEditor(editor));
+
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+        auto * const view = quick->rootObject()->findChild<TextViewport *>();
+        QVERIFY(view);
+        QTRY_VERIFY(view->visibleLineCount() > 1);
+
+        // What the client asks before it asks the server anything.
+        QCOMPARE(host->textDocument(), view->textDocument());
+        QCOMPARE(host->document(), view->textDocument()->document());
+        QVERIFY(!host->isReadOnly());
+        QVERIFY(!host->multiTextCursor().hasMultipleCursors());
+        QVERIFY2(!host->suggestionVisible(), "a suggestion is showing before one was offered");
+
+        // The caret moving is how the client learns its answer is stale, so
+        // the handle has to say so - the widget's own signal is not reachable
+        // from here.
+        QSignalSpy moved(host, &TextEditor::SuggestionHost::cursorPositionChanged);
+        view->setCursorPosition(3);
+        QTRY_VERIFY(moved.size() > 0);
+
+        // And the answer, offered exactly as the client offers it.
+        const Utils::Text::Range range{{1, 0}, {1, 3}};
+        auto suggestion = std::make_unique<CyclicSuggestion>(
+            QList<TextSuggestion::Data>{{range, {1, 3}, "return value;"}},
+            host->document());
+        host->insertSuggestion(std::move(suggestion));
+
+        QTRY_COMPARE(view->visibleLine(0).value("text").toString(), QString("return value;"));
+        QVERIFY2(host->suggestionVisible(), "the suggestion it just put there is not showing");
+        // A picture of what taking it would do, not the doing of it.
+        QCOMPARE(host->document()->findBlockByNumber(0).text(), QString("ret"));
+    }
+
+    // And the widget editor still is, which is what the handle replaced: it
+    // is the editor Copilot has always offered to, and the port must not have
+    // moved suggestions from one editor to the other.
+    void testTheWidgetEditorIsStillOfferedTo()
+    {
+        Utils::TemporaryDirectory dir("widget-editor-suggestion");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("plain.txt");
+        QVERIFY(file.writeFileContents("ret\nsecond\n"));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, Core::Constants::K_DEFAULT_TEXT_EDITOR_ID);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        auto * const base = qobject_cast<BaseTextEditor *>(editor);
+        QVERIFY2(base, "the plain text editor is not a widget text editor");
+
+        TextEditor::SuggestionHost * const host = TextEditor::suggestionHostForEditor(editor);
+        QVERIFY2(host, "the widget editor cannot be offered a suggestion");
+        QCOMPARE(host->textDocument(), base->textDocument());
+        QVERIFY(!host->suggestionVisible());
+
+        const Utils::Text::Range range{{1, 0}, {1, 3}};
+        base->editorWidget()->setCursorPosition(3);
+        host->insertSuggestion(std::make_unique<CyclicSuggestion>(
+            QList<TextSuggestion::Data>{{range, {1, 3}, "return value;"}}, host->document()));
+        QVERIFY2(host->suggestionVisible(), "the suggestion it just put there is not showing");
     }
 
     // Ctrl+Space has always reached this editor as a key, and the form has
@@ -3236,14 +3324,19 @@ QObject *createQuickTextEditorTest()
 
 #endif // WITH_TESTS
 
+TextViewport *viewportForEditor(Core::IEditor *editor)
+{
+    auto * const quick = qobject_cast<QuickTextEditor *>(editor);
+    return quick ? quick->viewport() : nullptr;
+}
+
 } // namespace TextEditor::Internal
 
 namespace TextEditor {
 
 SymbolRequests *symbolRequestsForEditor(Core::IEditor *editor)
 {
-    auto * const quick = qobject_cast<Internal::QuickTextEditor *>(editor);
-    TextViewport * const view = quick ? quick->viewport() : nullptr;
+    TextViewport * const view = Internal::viewportForEditor(editor);
     return view ? view->symbolRequests() : nullptr;
 }
 

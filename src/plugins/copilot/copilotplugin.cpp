@@ -16,8 +16,9 @@
 
 #include <projectexplorer/projectmanager.h>
 
+#include <texteditor/suggestionhost.h>
 #include <texteditor/textdocumentlayout.h>
-#include <texteditor/texteditor.h>
+#include <texteditor/textsuggestion.h>
 
 #include <QAction>
 #include <QToolButton>
@@ -36,7 +37,7 @@ static bool copilotEnabled()
     return settings().enableCopilot() || isCopilotEnabledByProject();
 }
 
-static void cycleSuggestion(TextEditor::TextEditorWidget *editor, Direction direction)
+static void cycleSuggestion(TextEditor::SuggestionHost *editor, Direction direction)
 {
     QTextBlock block = editor->textCursor().block();
     if (auto suggestion = dynamic_cast<TextEditor::CyclicSuggestion *>(
@@ -68,7 +69,7 @@ public:
         requestAction.setToolTip(Tr::tr(
             "Request Copilot suggestion at the current editor's cursor position."));
         requestAction.addOnTriggered(this, [this] {
-            if (auto editor = TextEditor::TextEditorWidget::currentTextEditorWidget()) {
+            if (auto editor = TextEditor::currentSuggestionHost()) {
                 if (m_client && m_client->reachable())
                     m_client->requestCompletions(editor);
             }
@@ -79,7 +80,7 @@ public:
         nextSuggestionAction.setToolTip(Tr::tr(
             "Cycles through the received Copilot Suggestions showing the next available Suggestion."));
         nextSuggestionAction.addOnTriggered(this, [] {
-            if (auto editor = TextEditor::TextEditorWidget::currentTextEditorWidget())
+            if (auto editor = TextEditor::currentSuggestionHost())
                 cycleSuggestion(editor, Next);
         });
 
@@ -88,7 +89,7 @@ public:
         previousSuggestionAction.setToolTip(Tr::tr("Cycles through the received Copilot Suggestions "
                                                    "showing the previous available Suggestion."));
         previousSuggestionAction.addOnTriggered(this, [] {
-            if (auto editor = TextEditor::TextEditorWidget::currentTextEditorWidget())
+            if (auto editor = TextEditor::currentSuggestionHost())
                 cycleSuggestion(editor, Previous);
         });
 

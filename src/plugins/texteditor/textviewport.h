@@ -571,6 +571,9 @@ public:
     // suggestion needs of a view is here, so taking one works when something
     // puts it there.
     TextSuggestion *currentSuggestion() const;
+    // Puts \a suggestion on the line the caret is on and shows it. What
+    // something offering one - Copilot today - calls.
+    void insertSuggestion(std::unique_ptr<TextSuggestion> &&suggestion);
     // Gives a suggestion just put on \a block the look and the tab stops of
     // this view, and asks for a layout so that it appears.
     void prepareSuggestion(const QTextBlock &block);

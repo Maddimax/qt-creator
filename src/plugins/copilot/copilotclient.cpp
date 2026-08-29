@@ -121,20 +121,19 @@ void CopilotClient::openDocument(TextDocument *document)
                 if (!isCopilotEnabled(project))
                     return;
 
-                auto textEditor = BaseTextEditor::currentTextEditor();
-                if (!textEditor || textEditor->document() != document)
+                SuggestionHost * const editor = currentSuggestionHost();
+                if (!editor || editor->textDocument() != document)
                     return;
-                TextEditorWidget *widget = textEditor->editorWidget();
-                if (widget->isReadOnly() || widget->multiTextCursor().hasMultipleCursors())
+                if (editor->isReadOnly() || editor->multiTextCursor().hasMultipleCursors())
                     return;
-                const int cursorPosition = widget->textCursor().position();
+                const int cursorPosition = editor->textCursor().position();
                 if (cursorPosition < position || cursorPosition > position + charsAdded)
                     return;
-                scheduleRequest(widget);
+                scheduleRequest(editor);
             });
 }
 
-void CopilotClient::scheduleRequest(TextEditorWidget *editor)
+void CopilotClient::scheduleRequest(SuggestionHost *editor)
 {
     cancelRunningRequest(editor);
 
@@ -146,11 +145,11 @@ void CopilotClient::scheduleRequest(TextEditorWidget *editor)
             if (m_scheduledRequests[editor].cursorPosition == editor->textCursor().position())
                 requestCompletions(editor);
         });
-        connect(editor, &TextEditorWidget::destroyed, this, [this, editor]() {
+        connect(editor, &QObject::destroyed, this, [this, editor]() {
             delete m_scheduledRequests.take(editor).timer;
             cancelRunningRequest(editor);
         });
-        connect(editor, &TextEditorWidget::cursorPositionChanged, this, [this, editor] {
+        connect(editor, &SuggestionHost::cursorPositionChanged, this, [this, editor] {
             cancelRunningRequest(editor);
         });
         it = m_scheduledRequests.insert(editor, {editor->textCursor().position(), timer});
@@ -160,7 +159,7 @@ void CopilotClient::scheduleRequest(TextEditorWidget *editor)
     it->timer->start(500);
 }
 
-void CopilotClient::requestCompletions(TextEditorWidget *editor)
+void CopilotClient::requestCompletions(SuggestionHost *editor)
 {
     auto project = ProjectManager::projectForFile(editor->textDocument()->filePath());
 
@@ -176,7 +175,7 @@ void CopilotClient::requestCompletions(TextEditorWidget *editor)
         {TextDocumentIdentifier(hostPathToServerUri(filePath)),
          documentVersion(filePath),
          Position(cursor.mainCursor())}};
-    request.setResponseCallback([this, editor = QPointer<TextEditorWidget>(editor)](
+    request.setResponseCallback([this, editor = QPointer<SuggestionHost>(editor)](
                                     const GetCompletionRequest::Response &response) {
         QTC_ASSERT(editor, return);
         handleCompletions(response, editor);
@@ -186,7 +185,7 @@ void CopilotClient::requestCompletions(TextEditorWidget *editor)
 }
 
 void CopilotClient::handleCompletions(const GetCompletionRequest::Response &response,
-                                      TextEditorWidget *editor)
+                                      SuggestionHost *editor)
 {
     if (response.error())
         log(*response.error());
@@ -240,7 +239,7 @@ void CopilotClient::handleCompletions(const GetCompletionRequest::Response &resp
     }
 }
 
-void CopilotClient::cancelRunningRequest(TextEditor::TextEditorWidget *editor)
+void CopilotClient::cancelRunningRequest(TextEditor::SuggestionHost *editor)
 {
     const auto it = m_runningRequests.constFind(editor);
     if (it == m_runningRequests.constEnd())

@@ -11,6 +11,8 @@
 
 #include <languageclient/client.h>
 
+#include <texteditor/suggestionhost.h>
+
 #include <utils/filepath.h>
 
 #include <QHash>
@@ -26,11 +28,11 @@ public:
 
     void openDocument(TextEditor::TextDocument *document) override;
 
-    void scheduleRequest(TextEditor::TextEditorWidget *editor);
-    void requestCompletions(TextEditor::TextEditorWidget *editor);
+    void scheduleRequest(TextEditor::SuggestionHost *editor);
+    void requestCompletions(TextEditor::SuggestionHost *editor);
     void handleCompletions(const GetCompletionRequest::Response &response,
-                           TextEditor::TextEditorWidget *editor);
-    void cancelRunningRequest(TextEditor::TextEditorWidget *editor);
+                           TextEditor::SuggestionHost *editor);
+    void cancelRunningRequest(TextEditor::SuggestionHost *editor);
 
     void requestCheckStatus(
         bool localChecksOnly,
@@ -48,13 +50,13 @@ public:
     bool canOpenProject(ProjectExplorer::Project *project) override;
 
 private:
-    QHash<TextEditor::TextEditorWidget *, GetCompletionRequest> m_runningRequests;
+    QHash<TextEditor::SuggestionHost *, GetCompletionRequest> m_runningRequests;
     struct ScheduleData
     {
         int cursorPosition = -1;
         QTimer *timer = nullptr;
     };
-    QHash<TextEditor::TextEditorWidget *, ScheduleData> m_scheduledRequests;
+    QHash<TextEditor::SuggestionHost *, ScheduleData> m_scheduledRequests;
 };
 
 } // namespace Copilot::Internal

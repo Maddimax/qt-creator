@@ -5,7 +5,17 @@
 
 #include <QObject>
 
-namespace TextEditor::Internal {
+namespace Core { class IEditor; }
+
+namespace TextEditor {
+
+class TextViewport;
+
+namespace Internal {
+
+// The view inside \a editor, when \a editor is the Quick editor at all.
+// What the free functions handing out a view's relay objects dispatch on.
+TextViewport *viewportForEditor(Core::IEditor *editor);
 
 // The Qt Quick code editor, offered beside the widget one rather than instead
 // of it: it is not finished, so it must not become what a text file opens in.
@@ -15,4 +25,5 @@ void setupQuickTextEditor();
 QObject *createQuickTextEditorTest();
 #endif
 
-} // namespace TextEditor::Internal
+} // namespace Internal
+} // namespace TextEditor

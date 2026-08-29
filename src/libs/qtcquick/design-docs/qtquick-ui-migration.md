@@ -14317,3 +14317,34 @@ line of a multi-line suggestion would be a lie about where the rest lands.
 Suggestions still have no producer in the Quick editor — Copilot, the only one,
 is still widget-coupled — so the three apply commands remain unregistered. A
 live menu entry that can do nothing is worse than a grey one.
+
+### Inline suggestions: the offer
+
+Drawing a suggestion is no use while nothing can offer one to this editor.
+Copilot, the only thing that offers, took a `TextEditorWidget` everywhere: in
+its two request hashes, in the callbacks it keeps, and in the three commands it
+registers. None of what it asks of that widget is a widget's to answer - where
+the caret is, whether the buffer is read only, whether a suggestion is already
+showing, and somewhere to put the answer.
+
+`SuggestionHost` names those, the way `SymbolRequests` names the questions that
+need a language. It is the counterpart of `SuggestionTarget`: that one is what
+*taking* a suggestion needs, this one is what *making* one needs. It is a
+QObject because whoever offers has to know when the caret moved away from what
+it asked about and when the view is gone; the handle is parented to the view,
+so it dies with it. `suggestionHostForEditor()` hands out the same handle for
+either editor, and Copilot no longer mentions a widget at all.
+
+The widget half of that came out red, and not because of the port: with the
+FakeVim plugin loaded and *switched off*, a freshly opened widget editor is
+already blocked from showing suggestions. FakeVim makes a handler for every
+text editor regardless, and the mode change reported as one opens takes the
+hold that keeps suggestions out of the way outside insert mode. Switched off,
+no further mode change arrives, so the hold is never released. The guard meant
+to prevent this asks `inFakeVimMode()`, which means "a key is being processed"
+and is true while switched off too. Fixed separately, with a test in FakeVim's
+own suite.
+
+Still missing before this is a feature: the three apply commands remain
+unregistered, because reaching them needs the popup work the Quick editor does
+not have yet.
