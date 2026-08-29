@@ -204,6 +204,7 @@ private slots:
     void testASearchCanBeUndoneWithoutTheKeyboard();
     void testTheOptionsMenuKeepsSayingWhatIsOn();
     void testChoosingADirectoryStillShowsWhatIsInIt();
+    void testSavingAndPickingSeveralFollowTheSameRulesAsTheWidget();
     void testANumberOnItsOwnSaysWhatItCounts();
     void testMakeDefaultSaysWhatItWouldDefault();
     void testALabelTooLongForItsColumnSaysItInFull();
@@ -6401,6 +6402,98 @@ void QuickUiTest::testASearchCanBeUndoneWithoutTheKeyboard()
 }
 
 
+
+
+// The two modes that were never compared with the widget dialog: saving, and
+// picking several at once.
+//
+// updateAcceptButtonState() trims before deciding whether Save can be
+// pressed, and the views are set to ExtendedSelection when several files may
+// be picked - so Shift takes a run of them, which the Quick listing only knew
+// how to do one Ctrl-click at a time.
+void QuickUiTest::testSavingAndPickingSeveralFollowTheSameRulesAsTheWidget()
+{
+    Utils::TemporaryDirectory dir("quickui-modes");
+    QVERIFY(dir.isValid());
+    const Utils::FilePath root = dir.path();
+    for (const QString &name : QStringList{"a.txt", "b.txt", "c.txt", "d.txt"})
+        QVERIFY((root / name).writeFileContents("x"));
+
+    const auto dialogFor = [](int mode) -> QQuickWindow * {
+        QQmlComponent component(QtcQuick::engine(),
+                                QUrl("qrc:/qt/qml/QtCreator/Ui/QtcFileDialog.qml"));
+        QTC_ASSERT(!component.isError(), qDebug() << component.errorString(); return nullptr);
+        return qobject_cast<QQuickWindow *>(component.createWithInitialProperties(
+            {{"classic", true}, {"mode", mode}}));
+    };
+
+    // Saving. A name of nothing but spaces is not a name: the widget trims
+    // before offering Save, and saves what was typed rather than the trim.
+    {
+        // SaveFile, as QtcFileDialog numbers its modes.
+        const std::unique_ptr<QObject> owner(dialogFor(2));
+        auto * const dialog = qobject_cast<QQuickWindow *>(owner.get());
+        QVERIFY(dialog);
+        dialog->setProperty("currentFolder", root.toUserOutput());
+        QQuickItem * const field = dialog->findChild<QQuickItem *>("nameField");
+        QVERIFY(field);
+
+        QCOMPARE(dialog->property("wouldChooseAll").toStringList().size(), 0);
+        field->setProperty("text", "   ");
+        QCOMPARE(dialog->property("typedName").toString(), QString("   "));
+        QVERIFY2(dialog->property("wouldChooseAll").toStringList().isEmpty(),
+                 "a name of nothing but spaces would be saved");
+
+        field->setProperty("text", " notes.txt ");
+        const QStringList chosen = dialog->property("wouldChooseAll").toStringList();
+        QCOMPARE(chosen.size(), 1);
+        // What was typed, not what it was tested as: trimming is the test, and
+        // the widget saves the text the reader gave it.
+        QVERIFY2(chosen.first().endsWith(" notes.txt "),
+                 qPrintable("it would save " + chosen.first()));
+    }
+
+    // Picking several. Shift takes the run between where the reader is and
+    // where they clicked.
+    {
+        // OpenFiles.
+        const std::unique_ptr<QObject> owner(dialogFor(3));
+        auto * const dialog = qobject_cast<QQuickWindow *>(owner.get());
+        QVERIFY(dialog);
+        dialog->setProperty("currentFolder", root.toUserOutput());
+        dialog->resize(900, 600);
+        dialog->show();
+        QVERIFY(QTest::qWaitForWindowExposed(dialog));
+
+        QQuickItem * const listing = dialog->findChild<QQuickItem *>("entryList");
+        QVERIFY(listing);
+        QList<QQuickItem *> rows;
+        QTRY_VERIFY((rows = findQmlComponents(listing, "ItemDelegate")).size() >= 4);
+        std::sort(rows.begin(), rows.end(), [](QQuickItem *a, QQuickItem *b) {
+            return a->property("index").toInt() < b->property("index").toInt();
+        });
+        const auto clickRow = [dialog](QQuickItem *row, Qt::KeyboardModifiers mods) {
+            const QPointF centre = row->mapToScene(
+                QPointF(row->width() / 2, row->height() / 2));
+            QTest::mouseClick(dialog, Qt::LeftButton, mods, centre.toPoint());
+        };
+
+        clickRow(rows.at(0), Qt::NoModifier);
+        QTRY_COMPARE(dialog->property("wouldChooseAll").toStringList().size(), 1);
+
+        // Shift to the fourth: all four, not just the two ends.
+        clickRow(rows.at(3), Qt::ShiftModifier);
+        QStringList several;
+        QTRY_COMPARE((several = dialog->property("wouldChooseAll").toStringList()).size(), 4);
+        QVERIFY2(several.first() != several.last(), "the run is one file four times");
+
+        // Ctrl still adds one at a time, and does not extend a run.
+        clickRow(rows.at(0), Qt::NoModifier);
+        QTRY_COMPARE(dialog->property("wouldChooseAll").toStringList().size(), 1);
+        clickRow(rows.at(2), Qt::ControlModifier);
+        QTRY_COMPARE(dialog->property("wouldChooseAll").toStringList().size(), 1);
+    }
+}
 
 // Being asked for a directory. The widget dialog keeps listing the files -
 // they are what tells one directory from another - and stops them being an

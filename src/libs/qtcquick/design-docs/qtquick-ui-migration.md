@@ -16025,3 +16025,52 @@ itself "Open File" or "Open Directory", where this says "Choose File" and
 are "Choose ..." - so the Quick wording is what a reader actually sees in the
 widget dialog too.
 
+### Clicking a file did nothing, and a warning had been saying so
+
+Auditing the last two modes - saving, and picking several - turned up a bug
+that had nothing to do with either.
+
+The listing's entry delegate handled its click as
+
+    onClicked: (mouse) => { ... mouse.modifiers ... }
+
+`ItemDelegate` is an `AbstractButton`, and **`clicked()` carries no
+parameters**. So `mouse` was `undefined`, the first line threw, and the whole
+handler was abandoned - the row was never made current and its name was never
+typed. Clicking a file in the Quick file dialog selected nothing at all, in
+every mode, for as long as the delegate has existed.
+
+Two things kept it hidden. `testTheFileDialogCanChooseSeveralFilesAtOnce`
+picks its files by assigning `alsoPicked` from C++, so it never went near the
+handler - the shape [[qml-binding-invisible-to-cpp-tests]] warns about, in the
+one place it mattered. And qmllint had been reporting it the whole time:
+
+    Signal handler for "onClicked" has more formal parameters than
+    the signal it handles. [signal-handler-parameters]
+
+which had been carried along in the "pre-existing warnings" count for this
+whole effort without anyone reading it. It was one of seventeen. It is worth
+saying plainly: the count was being watched for *changes*, and a warning that
+is already there is invisible to that.
+
+The fix is a `MouseArea` over the delegate, whose `clicked(mouse)` really does
+carry one. `TapHandler` cannot do it - `PointerDeviceHandler.acceptedModifiers`
+*filters* by modifier rather than reporting which were held, so it would take
+one handler per combination. Double-clicking moved into the same MouseArea;
+right-clicking stays a `TapHandler`, which never wanted modifiers. qmllint is
+down to sixteen.
+
+Two smaller differences came out of the audit itself:
+
+- **Shift takes a run.** The widget's views are `ExtendedSelection` when
+  several files may be picked, so Shift selects everything between where the
+  reader is and where they clicked. The Quick listing only knew Ctrl, one file
+  at a time.
+- **A blank name is not a name.** `updateAcceptButtonState()` trims before
+  deciding whether Save can be pressed. This offered Save for a name of
+  nothing but spaces. The trim decides; what is saved is still the text the
+  reader typed, as the widget saves it.
+
+Four controls, all biting - and the first of them, "clicking a row picks it at
+all", is one this dialog should have had from the beginning.
+

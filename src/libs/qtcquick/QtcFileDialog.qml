@@ -108,8 +108,12 @@ Window {
     // What accepting now would choose: what is typed if anything is, then the
     // row that is selected, and for a directory dialog the directory itself.
     readonly property string wouldChoose: {
-        if (root.naming || root.typedName !== "")
-            return root.typedName === "" ? "" : browser.resolve(root.typedName)
+        // Blank is not a name. The widget dialog trims before deciding whether
+        // to offer Save, and then saves what was actually typed - so the test
+        // is on the trimmed text and the answer is built from the raw.
+        const named = root.typedName.trim() !== ""
+        if (root.naming || named)
+            return named ? browser.resolve(root.typedName) : ""
         if (list.currentIndex >= 0 && list.currentIndex < browser.entries.rowCount())
             return browser.filePathAt(list.currentIndex)
         return root.choosingDirectory ? browser.directory : ""
@@ -1020,24 +1024,59 @@ Window {
                             }
                         }
 
-                        onClicked: (mouse) => {
-                            const adding = root.choosingSeveral
-                                && (mouse.modifiers & (Qt.ControlModifier | Qt.MetaModifier)) !== 0
-                            if (adding) {
-                                const picked = root.alsoPicked.slice()
-                                const at = picked.indexOf(entry.index)
-                                if (at >= 0)
-                                    picked.splice(at, 1)
-                                else
-                                    picked.push(entry.index)
-                                root.alsoPicked = picked
-                            } else {
-                                root.alsoPicked = []
+                        // Left-clicking is a MouseArea rather than the
+                        // delegate's own clicked(), because which modifiers
+                        // are held decides what a click means here and
+                        // AbstractButton::clicked() carries none: a handler
+                        // written to take one gets undefined, throws on the
+                        // first line, and the click does nothing at all.
+                        MouseArea {
+                            anchors.fill: parent
+                            acceptedButtons: Qt.LeftButton
+
+                            onClicked: (mouse) => {
+                                const adding = root.choosingSeveral
+                                    && (mouse.modifiers
+                                        & (Qt.ControlModifier | Qt.MetaModifier)) !== 0
+                                // Shift picks everything between the row the
+                                // reader is on and this one, which is what an
+                                // extended selection does and what the widget
+                                // dialog's views are set to in this mode.
+                                const extending = root.choosingSeveral && !adding
+                                    && (mouse.modifiers & Qt.ShiftModifier) !== 0
+                                if (extending && list.currentIndex >= 0) {
+                                    const from = Math.min(list.currentIndex, entry.index)
+                                    const to = Math.max(list.currentIndex, entry.index)
+                                    const run = []
+                                    for (let row = from; row <= to; ++row)
+                                        run.push(row)
+                                    root.alsoPicked = run
+                                    return
+                                }
+                                if (adding) {
+                                    const picked = root.alsoPicked.slice()
+                                    const at = picked.indexOf(entry.index)
+                                    if (at >= 0)
+                                        picked.splice(at, 1)
+                                    else
+                                        picked.push(entry.index)
+                                    root.alsoPicked = picked
+                                } else {
+                                    root.alsoPicked = []
+                                }
+                                list.currentIndex = entry.index
+                                if (!entry.isDir && !adding)
+                                    root.setTypedName(entry.name)
                             }
-                            list.currentIndex = entry.index
-                            if (!entry.isDir && !adding)
-                                root.setTypedName(entry.name)
+
+                            onDoubleClicked: {
+                                if (entry.isDir)
+                                    browser.enter(entry.index)
+                                else
+                                    root.accept()
+                            }
                         }
+
                         // Right-clicking acts on the entry under the pointer
                         // without changing what is selected, the way the
                         // widget dialog's menu does.
@@ -1048,13 +1087,6 @@ Window {
                                 entryMenu.entryName = entry.name
                                 entryMenu.popup()
                             }
-                        }
-
-                        onDoubleClicked: {
-                            if (entry.isDir)
-                                browser.enter(entry.index)
-                            else
-                                root.accept()
                         }
                     }
 
