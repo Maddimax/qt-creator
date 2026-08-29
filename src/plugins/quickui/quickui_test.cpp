@@ -174,6 +174,7 @@ class QuickUiTest final : public QObject
 private slots:
     void testARowOfButtonsIsDrawnAsARowOfButtons();
     void testANoteWrittenInMarkdownSaysSo();
+    void testAPagesGroupsFillTheWidthTheyAreGiven();
     void testACompactColourKeepsItsNumbersBehindItsSwatch();
     void testTheFormatListOpensOnAFormat();
     void testEveryComponentInTheModuleCanBeLoaded();
@@ -322,6 +323,44 @@ static const QSet<QString> &knownUndrawnSettings()
         "Catch Test: WarnEmpty/WarnEmpty",
     };
     return settings;
+}
+
+// A group on a page has to be an AspectGroupBox. Qt Quick's own GroupBox puts
+// what a page writes inside its contentItem, where a ColumnLayout keeps its
+// implicit width - so the Docker page drew its path field as wide as the path
+// in it rather than as wide as the form. AspectGroupBox *is* that layout, so
+// what a page puts in it fills.
+void QuickUiTest::testAPagesGroupsFillTheWidthTheyAreGiven()
+{
+    Core::setAspectFormFactory([](Utils::AspectContainer *container) {
+        return QtcQuick::createAspectForm(container);
+    });
+    const QScopeGuard clearFactory([] { Core::setAspectFormFactory({}); });
+
+    int groups = 0;
+    QStringList bare;
+    for (Core::IOptionsPage *page : Core::IOptionsPage::allOptionsPages()) {
+        const std::optional<Utils::AspectContainer *> aspects = page->aspects();
+        if (!aspects || !*aspects)
+            continue;
+        std::unique_ptr<Core::IOptionsPageWidget> widget(page->createWidget());
+        if (!widget)
+            continue;
+        auto quickWidget = widget->findChild<QQuickWidget *>();
+        if (!quickWidget || !quickWidget->rootObject())
+            continue;
+
+        groups += findQmlComponents(quickWidget->rootObject(), "AspectGroupBox").size();
+        // findQmlComponents matches by prefix, and an AspectGroupBox answers
+        // its own name - so this finds the plain ones only.
+        if (!findQmlComponents(quickWidget->rootObject(), "GroupBox").isEmpty())
+            bare << page->displayName();
+    }
+
+    QVERIFY2(groups > 0, "no page drew a group at all, so this proves nothing");
+    QVERIFY2(bare.isEmpty(),
+             qPrintable("pages with a plain GroupBox rather than an AspectGroupBox: "
+                        + bare.join(", ")));
 }
 
 // A note written in markdown has to say so. Neither renderer guesses it -

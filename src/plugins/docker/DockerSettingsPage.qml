@@ -12,12 +12,9 @@ import QtCreator.Ui
 AspectPage {
     id: root
 
-    GroupBox {
+    AspectGroupBox {
         title: qsTr("Configuration")
-        Layout.fillWidth: true
 
-        ColumnLayout {
-            StringDelegate { aspect: root.aspects.cli }
-        }
+        StringDelegate { aspect: root.aspects.cli }
     }
 }

@@ -15264,3 +15264,24 @@ control that pins `fits` to false puts 518 pixels of name in 280.
 `ProjectExplorer` has two failures - `RunWorkerConflictTest::testConflict` and
 `ProjectTest::testSourceToBinaryMapping(qbs)` - and both fail the same way at
 HEAD with none of this applied.
+
+### A group that did not pass its width on
+
+The Docker page drew "Command:" with a field as wide as the path in it, in a
+group that spanned the form. Three pages - Docker (which Podman shows too),
+Nim and Qt Test - wrote a plain `GroupBox` with a `ColumnLayout` inside it
+rather than an `AspectGroupBox`.
+
+Qt Quick's `GroupBox` puts what a page writes into its `contentItem`'s
+children, and a `ColumnLayout` sitting there keeps its implicit width: it is
+never told to fill. `AspectGroupBox` *is* the column - `contentItem:
+ColumnLayout { id: contents }` with the default property aliased to it - so a
+delegate put in one fills by construction. The three pages now use it, and the
+inner `ColumnLayout` around a single delegate went with the change.
+
+The test walks every page and reports the ones holding a plain `GroupBox`.
+`findQmlComponents` matches by prefix and an `AspectGroupBox` answers its own
+name, so asking for "GroupBox" finds exactly the plain ones. It counts the
+`AspectGroupBox`es as well and refuses to pass when there are none, because
+after the fix there is nothing left for the first assertion to find and a
+search that quietly stopped working would look the same.

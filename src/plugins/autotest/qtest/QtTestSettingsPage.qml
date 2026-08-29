@@ -22,13 +22,10 @@ AspectPage {
         IntegerDelegate { aspect: root.aspects.MaxWarnings }
     }
 
-    GroupBox {
+    AspectGroupBox {
         title: qsTr("Benchmark Metrics")
-        Layout.fillWidth: true
 
-        ColumnLayout {
-            RadioGroupDelegate { aspect: root.aspects.Metrics }
-        }
+        RadioGroupDelegate { aspect: root.aspects.Metrics }
     }
 
     BoolDelegate { aspect: root.aspects.QuickCheckForDerivedTests }

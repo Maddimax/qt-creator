@@ -12,12 +12,9 @@ import QtCreator.Ui
 AspectPage {
     id: root
 
-    GroupBox {
+    AspectGroupBox {
         title: qsTr("Nimsuggest")
-        Layout.fillWidth: true
 
-        ColumnLayout {
-            StringDelegate { aspect: root.aspects.Command }
-        }
+        StringDelegate { aspect: root.aspects.Command }
     }
 }
