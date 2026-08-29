@@ -14177,3 +14177,38 @@ exists to avoid, `COPY_WITH_HTML`, which needs the highlighted text turned
 into HTML - the widget builds that in `createMimeDataFromSelection()` - and
 the three `SUGGESTION_APPLY*`, which need inline suggestions, a feature this
 view does not have at all rather than a command it has not been told about.
+
+## Copy with HTML, and the end of the command list
+
+The last portable one. Copying with the highlighting means building a second
+document, filling it with the selected fragment, and then painting the
+highlighter's formats over it - fifty-odd lines that were inside the widget's
+`createMimeDataFromSelection()`. The formats come from the layout that drew
+the text, which is why the extracted `htmlForSelection()` takes one rather
+than reading the document alone; whether a line is shown at all becomes a
+predicate, because the side-by-side diff editor overrides that question and
+must keep its answer.
+
+Moving it turned up three things that were only visible because the compiler
+or a test said so, and each would have been a quiet behaviour change:
+
+- The parameter, renamed to `cursor`, collided with the loop variable of the
+  same name, so `for (const QTextCursor &cursor : cursor)` compiled.
+- With that renaming, `if (!cursor.hasSelection()) continue;` - a check on
+  *each* caret - silently became a check on the whole multi cursor.
+- `const QTextLayout *layout = layout->blockLayout(current);` shadowed the
+  parameter with itself.
+
+The test failed too, and it was the test: it looked for `int value = 1` in the
+HTML, and the whole point of the exercise is that those words are *not*
+contiguous - each sits in a span of its own carrying its colour. Comparing the
+tag-stripped text asks the right question, and the control that stops the
+formats being applied fails it.
+
+A hundred of a hundred and four. `PRINT` is out by design on this branch. The
+three `SUGGESTION_APPLY*` are the only ones left that are simply absent: they
+want inline suggestions - grey text the reader can accept a word at a time -
+which this view does not draw, and `TextSuggestion::applyWord()` takes a
+`TextEditorWidget *`, so the feature and the abstraction would both have to be
+built. That is a piece of work, not a registration, and it is the honest end
+of this list.

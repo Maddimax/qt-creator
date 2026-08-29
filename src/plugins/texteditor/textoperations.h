@@ -12,6 +12,7 @@ class QString;
 QT_END_NAMESPACE
 
 namespace Utils {
+class PlainTextDocumentLayout;
 class CommentDefinition;
 class MultiTextCursor;
 }
@@ -87,6 +88,15 @@ TEXTEDITOR_EXPORT QTextCursor selectLinesToMove(const QTextCursor &cursor);
 // Gives each caret that has selected nothing the word it is standing in, and
 // leaves the ones that already have a selection alone.
 TEXTEDITOR_EXPORT void selectWordUnderCursor(Utils::MultiTextCursor &cursor);
+
+// The selection as HTML, carrying the highlighting it is shown with - which
+// comes from the layout that drew it, and is why this takes one rather than
+// reading the document alone. \a visible answers whether a line is on screen
+// at all, because a view that hides some of them must not copy those.
+TEXTEDITOR_EXPORT QString htmlForSelection(const Utils::MultiTextCursor &cursors,
+                                           QTextDocument *document,
+                                           Utils::PlainTextDocumentLayout *layout,
+                                           const std::function<bool(int)> &visible);
 
 // Re-indents, or reformats, whatever each caret covers. In document order and
 // not caret order: an indenter works out what a line should be indented to

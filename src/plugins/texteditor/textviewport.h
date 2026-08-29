@@ -561,6 +561,9 @@ public:
     // Whether the file is written with a byte order mark, which is the
     // document's to keep and this only turns over.
     Q_INVOKABLE void switchUtf8Bom();
+    // Copies the selection with its highlighting, so that pasting into
+    // something that understands HTML keeps the colours.
+    Q_INVOKABLE void copyWithHtml();
     void applyEncodingChoice(const Core::CodecSelectorResult &choice);
 
     // Puts the caret on \a line, counting from one, and shows it. Column zero

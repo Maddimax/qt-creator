@@ -557,6 +557,7 @@ public:
             });
         command(Constants::CIRCULAR_PASTE, &TextViewport::circularPaste);
         command(Constants::SWITCH_UTF8BOM, &TextViewport::switchUtf8Bom);
+        command(Constants::COPY_WITH_HTML, &TextViewport::copyWithHtml);
         command(Constants::SELECT_ENCODING, &TextViewport::selectEncoding);
 
         // Asks the locator rather than this editor - the line to go to is

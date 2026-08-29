@@ -68,6 +68,7 @@
 
 #include <QClipboard>
 #include <QGuiApplication>
+#include <QMimeData>
 #include <QInputMethod>
 #include <QInputMethodEvent>
 #include <QKeyEvent>
@@ -3405,6 +3406,23 @@ void TextViewport::setFileLineEndingIsWindows(bool windows)
     doc->setLineTerminationMode(wanted);
     doc->document()->setModified(true);
     emit fileFormatChanged();
+}
+
+void TextViewport::copyWithHtml()
+{
+    const Utils::MultiTextCursor cursors = multiTextCursor();
+    if (cursors.isNull() || !cursors.hasSelection())
+        return;
+
+    const QTextCursor main = textCursor();
+    auto * const mime = new QMimeData;
+    mime->setText(selectedPlainText(main));
+    // Every row this view lays out is one it shows, so there is nothing to
+    // leave out - the widget editor's question of whether a line is visible
+    // is for views that hide some.
+    mime->setHtml(TextEditor::htmlForSelection(cursors, main.document(), movementLayout(),
+                                               [](int) { return true; }));
+    QGuiApplication::clipboard()->setMimeData(mime);
 }
 
 void TextViewport::switchUtf8Bom()

@@ -8,6 +8,7 @@
 #include "textdocument.h"
 
 #include <utils/algorithm.h>
+#include <utils/plaintextedit/plaintextedit.h>
 #include <utils/multitextcursor.h>
 #include <utils/textutils.h>
 #include <utils/qtcassert.h>
@@ -15,6 +16,7 @@
 
 #include <QRegularExpression>
 #include <QTextBlock>
+#include <QTextDocumentFragment>
 
 namespace TextEditor {
 
@@ -600,6 +602,75 @@ void autoIndent(Utils::MultiTextCursor &cursor, TextDocument *document)
         document->autoFormatOrIndent(c);
     cursor.mergeCursors();
     cursor.endEditBlock();
+}
+
+QString htmlForSelection(const Utils::MultiTextCursor &cursors, QTextDocument *document,
+                         Utils::PlainTextDocumentLayout *layout,
+                         const std::function<bool(int)> &visible)
+{
+    if (!document || !layout || !cursors.hasSelection())
+        return {};
+
+    // Create a new document from the selected text document fragment
+    auto tempDocument = new QTextDocument;
+    QTextCursor tempCursor(tempDocument);
+    for (const QTextCursor &cursor : cursors) {
+        if (!cursor.hasSelection())
+            continue;
+        tempCursor.insertFragment(cursor.selection());
+
+        // Apply the additional formats set by the syntax highlighter
+        QTextBlock start = document->findBlock(cursor.selectionStart());
+        QTextBlock last = document->findBlock(cursor.selectionEnd());
+        QTextBlock end = last.next();
+
+        const int selectionStart = cursor.selectionStart();
+        const int endOfDocument = tempDocument->characterCount() - 1;
+        int removedCount = 0;
+        for (QTextBlock current = start; current.isValid() && current != end;
+             current = current.next()) {
+            if (visible(current.blockNumber())) {
+                const QTextLayout * const blockLayout = layout->blockLayout(current);
+                const QList<QTextLayout::FormatRange> ranges = blockLayout->formats();
+                for (const QTextLayout::FormatRange &range : ranges) {
+                    const int startPosition = current.position() + range.start
+                                              - selectionStart - removedCount;
+                    const int endPosition = startPosition + range.length;
+                    if (endPosition <= 0 || startPosition >= endOfDocument - removedCount)
+                        continue;
+                    tempCursor.setPosition(qMax(startPosition, 0));
+                    tempCursor.setPosition(qMin(endPosition, endOfDocument - removedCount),
+                                           QTextCursor::KeepAnchor);
+                    tempCursor.setCharFormat(range.format);
+                }
+            } else {
+                const int startPosition = current.position() - selectionStart
+                                          - removedCount;
+                int endPosition = startPosition + current.text().size();
+                if (current != last)
+                    endPosition++;
+                removedCount += endPosition - startPosition;
+                tempCursor.setPosition(startPosition);
+                tempCursor.setPosition(endPosition, QTextCursor::KeepAnchor);
+                tempCursor.deleteChar();
+            }
+        }
+    }
+
+    // Reset the user states since they are not interesting
+    for (QTextBlock block = tempDocument->begin(); block.isValid(); block = block.next())
+        block.setUserState(-1);
+
+    // Make sure the text appears pre-formatted
+    tempCursor.setPosition(0);
+    tempCursor.movePosition(QTextCursor::End, QTextCursor::KeepAnchor);
+    QTextBlockFormat blockFormat = tempCursor.blockFormat();
+    blockFormat.setNonBreakableLines(true);
+    tempCursor.setBlockFormat(blockFormat);
+
+    const QString html = tempCursor.selection().toHtml();
+    delete tempDocument;
+    return html;
 }
 
 } // namespace TextEditor

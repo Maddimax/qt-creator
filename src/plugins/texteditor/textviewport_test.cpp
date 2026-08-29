@@ -57,6 +57,7 @@
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QMimeData>
+#include <QRegularExpression>
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QQmlError>
@@ -5441,6 +5442,53 @@ private slots:
         // And back, so the command is a toggle rather than a one way trip.
         viewport->switchUtf8Bom();
         QCOMPARE(doc->format().hasUtf8Bom, before);
+    }
+
+    // Copy with HTML puts both on the clipboard: the plain text, and the same
+    // text as HTML carrying the colours it is shown in. The colours come from
+    // the layout that drew it, which is why a view has to be asked rather
+    // than the document alone.
+    void testCopyingWithHtmlCarriesTheHighlighting()
+    {
+        TemporaryDirectory dir("qtc-viewport-copyhtml");
+        const FilePath file = dir.filePath("code.cpp");
+        QVERIFY(file.writeFileContents("int value = 1;\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        // A language, so that there is highlighting to carry in the first
+        // place - without one the HTML would be right and prove nothing.
+        TextDocument * const doc = viewport->textDocument();
+        HighlighterHelper::setDefinitionOn(doc, HighlighterHelper::definitionForName("C++"));
+        QTRY_VERIFY(HighlighterHelper::definitionForDocument(doc).isValid());
+        QTRY_VERIFY(doc->syntaxHighlighter()
+                    && doc->syntaxHighlighter()->syntaxHighlighterUpToDate());
+
+        QGuiApplication::clipboard()->clear();
+        viewport->setSelectionStart(0);
+        viewport->setSelectionEnd(13);
+        QTRY_VERIFY(viewport->textCursor().hasSelection());
+
+        viewport->copyWithHtml();
+
+        const QMimeData * const mime = QGuiApplication::clipboard()->mimeData();
+        QVERIFY(mime);
+        QCOMPARE(mime->text(), QString("int value = 1"));
+        QVERIFY2(mime->hasHtml(), "nothing was copied as HTML");
+        const QString html = mime->html();
+        // With the tags taken out, because the point of the exercise is that
+        // the words are *not* contiguous: each is wrapped in a span of its
+        // own carrying the colour it is drawn in.
+        static const QRegularExpression tag("<[^>]*>");
+        const QString shown = QString(html).remove(tag).simplified();
+        QVERIFY2(shown.contains("int value = 1"), qPrintable("the HTML read: " + shown));
+        // And a colour of some sort, which is the whole difference between
+        // this and an ordinary copy.
+        QVERIFY2(html.contains("color:"), qPrintable("no colours in: " + html));
     }
 
     // None of the line commands edits a buffer that is read only, the same

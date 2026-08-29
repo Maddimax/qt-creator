@@ -9020,65 +9020,9 @@ QMimeData *TextEditorWidget::createMimeDataFromSelection(bool withHtml) const
 
         // Copy the selected text as HTML
         if (withHtml) {
-            // Create a new document from the selected text document fragment
-            auto tempDocument = new QTextDocument;
-            QTextCursor tempCursor(tempDocument);
-            for (const QTextCursor &cursor : multiTextCursor()) {
-                if (!cursor.hasSelection())
-                    continue;
-                tempCursor.insertFragment(cursor.selection());
-
-                // Apply the additional formats set by the syntax highlighter
-                QTextBlock start = document()->findBlock(cursor.selectionStart());
-                QTextBlock last = document()->findBlock(cursor.selectionEnd());
-                QTextBlock end = last.next();
-
-                const int selectionStart = cursor.selectionStart();
-                const int endOfDocument = tempDocument->characterCount() - 1;
-                int removedCount = 0;
-                for (QTextBlock current = start; current.isValid() && current != end;
-                     current = current.next()) {
-                    if (selectionVisible(current.blockNumber())) {
-                        const QTextLayout *layout = editorLayout()->blockLayout(current);
-                        const QList<QTextLayout::FormatRange> ranges = layout->formats();
-                        for (const QTextLayout::FormatRange &range : ranges) {
-                            const int startPosition = current.position() + range.start
-                                                      - selectionStart - removedCount;
-                            const int endPosition = startPosition + range.length;
-                            if (endPosition <= 0 || startPosition >= endOfDocument - removedCount)
-                                continue;
-                            tempCursor.setPosition(qMax(startPosition, 0));
-                            tempCursor.setPosition(qMin(endPosition, endOfDocument - removedCount),
-                                                   QTextCursor::KeepAnchor);
-                            tempCursor.setCharFormat(range.format);
-                        }
-                    } else {
-                        const int startPosition = current.position() - selectionStart
-                                                  - removedCount;
-                        int endPosition = startPosition + current.text().size();
-                        if (current != last)
-                            endPosition++;
-                        removedCount += endPosition - startPosition;
-                        tempCursor.setPosition(startPosition);
-                        tempCursor.setPosition(endPosition, QTextCursor::KeepAnchor);
-                        tempCursor.deleteChar();
-                    }
-                }
-            }
-
-            // Reset the user states since they are not interesting
-            for (QTextBlock block = tempDocument->begin(); block.isValid(); block = block.next())
-                block.setUserState(-1);
-
-            // Make sure the text appears pre-formatted
-            tempCursor.setPosition(0);
-            tempCursor.movePosition(QTextCursor::End, QTextCursor::KeepAnchor);
-            QTextBlockFormat blockFormat = tempCursor.blockFormat();
-            blockFormat.setNonBreakableLines(true);
-            tempCursor.setBlockFormat(blockFormat);
-
-            mimeData->setHtml(tempCursor.selection().toHtml());
-            delete tempDocument;
+            mimeData->setHtml(TextEditor::htmlForSelection(
+                multiTextCursor(), document(), editorLayout(),
+                [this](int blockNumber) { return selectionVisible(blockNumber); }));
         }
 
         if (!multiTextCursor().hasMultipleCursors()) {
