@@ -15399,3 +15399,22 @@ to *be* a layout. It needs no page on screen - the content item's type says it
 - and it catches all three shapes at once. Its control names the System, Kits
 and Devices pages, among others, each holding its content in a
 `QQuickContentItem`.
+
+### A label that lived in the layout
+
+The Coco page drew a path field with nothing in front of it. Its name was in
+the `Form` the port replaced -
+
+    Form { Tr::tr("Coco Directory"), cocoPath, br, Span(2, messageLabel) }
+
+- and a label written in a layout goes away with the layout. The aspect
+carries it now, which is where the rest of the page's labels already were.
+
+The sweep this suggested did not survive. "A field with neither a label nor a
+hint" names thirteen fields, and most of them are named by something the
+aspect cannot see: the Generic Highlighter's user-files path is preceded by a
+label of its own, the beautifier config files follow the check box that
+switches them on, and Vcpkg's installation path is the only field in a group
+called "Vcpkg installation". A rule with four escape hatches is not a rule, so
+this one is a fix without a test - the evidence for it is the diff of the
+commit that dropped the Form.
