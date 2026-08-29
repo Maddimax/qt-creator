@@ -2026,10 +2026,13 @@ Span::Span(int cols, int rows, const Layout::I &item)
 void addToLayout(Layout *layout, const Span &inner)
 {
     layout->addItem(inner.item);
-    if (layout->pendingItems.empty()) {
-        QTC_CHECK(inner.spanCols == 1 && inner.spanRows == 1);
+    // Only a grid keeps items pending long enough to be told how far they
+    // reach: a Row, a Column or a Flow places them as they arrive, and an
+    // empty item that was skipped never arrived at all. A span means nothing
+    // in any of those, and an aspect that asks for one cannot know which kind
+    // of layout the page put it in - so this is silence, not a mistake.
+    if (layout->pendingItems.empty())
         return;
-    }
     layout->pendingItems.back().spanCols = inner.spanCols;
     layout->pendingItems.back().spanRows = inner.spanRows;
 }

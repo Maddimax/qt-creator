@@ -31,6 +31,7 @@
 #include <QListWidget>
 #include <QPushButton>
 #include <QRadioButton>
+#include <QGridLayout>
 #include <QSpinBox>
 #include <QSignalSpy>
 #include <QStandardItem>
@@ -108,6 +109,7 @@ class tst_AspectRenderer : public QObject
 private slots:
     void initTestCase();
 
+    void spanReachesAcrossColumnsAndIsQuietWhereThereAreNone();
     void checkBox_data() { addRendererRows(); }
     void checkBox();
     void radioButton_data() { addRendererRows(); }
@@ -217,6 +219,58 @@ void tst_AspectRenderer::initTestCase()
     // The official entry point; individual tests switch the renderer through
     // setAspectRenderer() to also cover the fallback.
     Utils::installAspectWidgetRenderer();
+}
+
+// An aspect can ask to reach across more than one column, and the renderer
+// wraps its control in a Layouting::Span to say so. Only a grid can honour
+// that: a Row, a Column or a Flow places items as they arrive and has no
+// columns to reach across, and an aspect cannot know which of those the page
+// put it in.
+//
+// So the span is dropped there, and dropping it is correct. Saying so was
+// not: the drop was reported with QTC_CHECK, which printed a soft assert
+// seventy-two times in one run of ProjectExplorer's tests - and is fatal
+// under QTC_FATAL_ASSERTS.
+void tst_AspectRenderer::spanReachesAcrossColumnsAndIsQuietWhereThereAreNone()
+{
+    setRendererInstalled(true);
+
+    IntegerAspect aspect;
+    aspect.setLabelText("Width");
+    aspect.setSpan(3);
+    QCOMPARE(aspect.presentation().spanX, 3);
+
+    // In a grid it reaches: the label takes the first column and the control
+    // the two the aspect asked for beyond it.
+    const std::unique_ptr<QWidget> grid(Layouting::Grid { aspect }.emerge());
+    auto * const gridLayout = qobject_cast<QGridLayout *>(grid->layout());
+    QVERIFY(gridLayout);
+    auto * const spin = grid->findChild<QSpinBox *>();
+    QVERIFY(spin);
+    const int index = gridLayout->indexOf(spin);
+    QVERIFY(index >= 0);
+    int gridRow = 0, gridColumn = 0, rowSpan = 0, columnSpan = 0;
+    gridLayout->getItemPosition(index, &gridRow, &gridColumn, &rowSpan, &columnSpan);
+    QCOMPARE(columnSpan, 2);
+
+    // In a column there is nothing to reach across, and nothing to say about
+    // it. Asserted on the diagnostic rather than the drawing: the drop itself
+    // is invisible, and what went wrong before was the complaint.
+    QStringList complaints;
+    QtMessageHandler previous = qInstallMessageHandler(nullptr);
+    qInstallMessageHandler(previous);
+    static QStringList *sink = nullptr;
+    sink = &complaints;
+    previous = qInstallMessageHandler([](QtMsgType, const QMessageLogContext &, const QString &m) {
+        if (sink && m.contains("SOFT ASSERT"))
+            *sink << m;
+    });
+    const std::unique_ptr<QWidget> inColumn = render(aspect);
+    qInstallMessageHandler(previous);
+    sink = nullptr;
+
+    QVERIFY(inColumn->findChild<QSpinBox *>());
+    QVERIFY2(complaints.isEmpty(), qPrintable("\n" + complaints.join("\n")));
 }
 
 void tst_AspectRenderer::checkBox()

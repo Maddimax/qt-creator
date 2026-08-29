@@ -16553,3 +16553,43 @@ had happened when it had not:
   second, recording a run of "nRecorder". Redirect the child's stdin from
   `/dev/null`, or drive it from something that does not share the stream.
 
+### Seventy-two soft asserts nobody was reading
+
+Running every plugin's tests printed more than failures. One line appeared
+**72 times** in a single ProjectExplorer run:
+
+    SOFT ASSERT: "inner.spanCols == 1 && inner.spanRows == 1"
+                 in src/libs/utils/layoutbuilder.cpp:2030
+
+That is this migration's own code. `addLabeledItem()` wraps an aspect's
+control in a `Layouting::Span` to say how many columns it reaches across -
+added by this work, as the comment beside it admits: "before this it meant
+nothing at all here". `addToLayout(Layout *, const Span &)` then attaches the
+span to the item it just queued, and complained when there was nothing queued
+to attach it to.
+
+Reading `addLayoutItem()` says when that happens: a **grid** keeps items
+pending long enough to be told how far they reach, while a `Row`, a `Column`
+or a `Flow` places them as they arrive - and an empty item that was skipped
+never arrives at all. A column span means nothing in any of those, and an
+aspect cannot know which kind of layout the page put it in. So the span is
+dropped, dropping it is right, and the complaint was the only thing wrong.
+Under `QTC_FATAL_ASSERTS` it would not have been a complaint at all.
+
+The check is gone. What replaces it is a test of both halves, because
+deleting an assertion and leaving nothing is how the next one gets added
+back: in a `Grid` an aspect that asks for three columns gets a control
+spanning two of them beside its label, and in a `Column` the same aspect
+renders with **nothing said about it** - asserted through a message handler,
+since the drop itself is invisible and the complaint was the defect. Both
+controls bite: not wrapping in a `Span` at all, and putting the `QTC_CHECK`
+back.
+
+`tst_utils_aspectrenderer` was the right home: every test in it renders
+through `Layouting::Column { aspect }`, which is precisely the case that had
+been tripping the check.
+
+Six soft asserts of another kind survive - `renderAspect(*this, parent)` in
+`aspects.cpp`, which is an aspect asked to draw where no widget renderer was
+installed. That is the next thread.
+
