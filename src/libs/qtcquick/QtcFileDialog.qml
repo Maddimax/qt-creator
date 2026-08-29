@@ -87,6 +87,12 @@ Window {
             if (!root.naming)
                 nameField.text = ""
         }
+        // The browser ends a search when the directory changes; the box that
+        // started it has to stop saying it is on.
+        onSearchTextChanged: {
+            if (browser.searchText === "")
+                searchBox.text = ""
+        }
     }
 
     // Naming a new directory. A dialog of its own rather than an inline row:
@@ -180,10 +186,18 @@ Window {
                 onClicked: newFolderPrompt.open()
             }
 
+            QtcSearchBox {
+                objectName: "searchBox"
+                placeholderText: qsTr("Search")
+                Layout.preferredWidth: Metrics.lineEditWidth
+
+                onTextChanged: browser.searchText = text
+            }
+
             BusyIndicator {
                 objectName: "busyIndicator"
-                running: browser.busy
-                visible: browser.busy
+                running: browser.busy || browser.searching
+                visible: browser.busy || browser.searching
             }
         }
 

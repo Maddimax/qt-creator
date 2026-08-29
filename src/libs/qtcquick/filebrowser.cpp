@@ -7,7 +7,12 @@
 #include <utils/fsengine/fsengine.h>
 #include <utils/qtcassert.h>
 
+#include <utils/async.h>
+
 #include <QDir>
+#include <QDirIterator>
+#include <QElapsedTimer>
+#include <QFutureWatcher>
 #include <QSettings>
 #include <QRegularExpression>
 #include <QStandardPaths>
@@ -79,6 +84,12 @@ public:
     bool m_walkingHistory = false;
     FilePath m_directory;
     QStringList m_nameFilters;
+    QString m_searchText;
+    // A recursive walk of a directory, which on a device is slow enough that
+    // it has to be cancellable and has to report what it finds as it goes.
+    QFuture<FileEntries::Entry> m_search;
+    QFutureWatcher<FileEntries::Entry> *m_searchWatcher = nullptr;
+    QList<FileEntries::Entry> m_hits;
     QString m_error;
     bool m_busy = false;
 };
@@ -138,6 +149,11 @@ void FileBrowser::setDirectory(const QString &directory)
         d->m_error.clear();
         emit errorChanged();
     }
+    cancelSearch();
+    if (!d->m_searchText.isEmpty()) {
+        d->m_searchText.clear();
+        emit searchTextChanged();
+    }
     d->m_model.setRootPath(path);
     // A view asks the model for a directory's contents when it first shows
     // it. There is no view here, so the browser asks.
@@ -168,6 +184,108 @@ FileEntries *FileBrowser::favorites() const
 bool FileBrowser::currentIsFavorite() const
 {
     return d->m_favoritePaths.contains(d->m_directory);
+}
+
+QString FileBrowser::searchText() const
+{
+    return d->m_searchText;
+}
+
+void FileBrowser::setSearchText(const QString &text)
+{
+    if (d->m_searchText == text)
+        return;
+    d->m_searchText = text;
+    if (text.isEmpty()) {
+        cancelSearch();
+        rebuildEntries();
+    } else {
+        startSearch();
+    }
+    emit searchTextChanged();
+}
+
+bool FileBrowser::isSearching() const
+{
+    return d->m_searchWatcher && d->m_searchWatcher->isRunning();
+}
+
+void FileBrowser::cancelSearch()
+{
+    if (!d->m_searchWatcher)
+        return;
+    const bool was = isSearching();
+    d->m_searchWatcher->cancel();
+    d->m_searchWatcher->waitForFinished();
+    d->m_hits.clear();
+    if (was)
+        emit searchingChanged();
+}
+
+// Everything below the directory being looked at whose name contains what was
+// typed. Reported as it is found rather than at the end: a walk of a directory
+// on a device can take a while, and a dialog that shows nothing until it
+// finishes looks broken.
+void FileBrowser::startSearch()
+{
+    cancelSearch();
+    if (d->m_directory.isEmpty() || d->m_searchText.isEmpty())
+        return;
+
+    const FilePath root = d->m_directory;
+    const QString text = d->m_searchText;
+    d->m_search = Utils::asyncRun(
+        QThread::LowPriority, [root, text](QPromise<FileEntries::Entry> &promise) {
+            // Batched, because reporting every hit on its own floods the GUI
+            // thread with deliveries and stalls the very view they are for.
+            QList<FileEntries::Entry> batch;
+            QElapsedTimer sinceFlush;
+            sinceFlush.start();
+            const auto flush = [&] {
+                if (!batch.isEmpty()) {
+                    promise.addResults(batch);
+                    batch.clear();
+                }
+                sinceFlush.restart();
+            };
+
+            root.iterateDirectory(
+                [&](const FilePath &item, const FilePathInfo &info) {
+                    if (promise.isCanceled())
+                        return IterationPolicy::Stop;
+                    if (item.fileName().contains(text, Qt::CaseInsensitive)) {
+                        FileEntries::Entry entry;
+                        // Where it is, not just what it is called: two files
+                        // of the same name in different directories are one
+                        // list here.
+                        entry.name = item.relativePathFromDir(root);
+                        entry.path = item;
+                        entry.isDir = info.fileFlags & FilePathInfo::DirectoryType;
+                        batch.append(entry);
+                        if (batch.size() >= 256 || sinceFlush.elapsed() >= 100)
+                            flush();
+                    }
+                    return IterationPolicy::Continue;
+                },
+                FileFilter({},
+                           DirFilterFlag::NoDotAndDotDot | DirFilterFlag::AllEntries,
+                           DirIteratorFlag::Subdirectories));
+            flush();
+        });
+
+    if (!d->m_searchWatcher) {
+        d->m_searchWatcher = new QFutureWatcher<FileEntries::Entry>(this);
+        connect(d->m_searchWatcher, &QFutureWatcherBase::resultsReadyAt, this,
+                [this](int begin, int end) {
+                    for (int i = begin; i < end; ++i)
+                        d->m_hits.append(d->m_searchWatcher->future().resultAt(i));
+                    d->m_entries.setEntries(d->m_hits);
+                });
+        connect(d->m_searchWatcher, &QFutureWatcherBase::finished, this,
+                [this] { emit searchingChanged(); });
+    }
+    d->m_searchWatcher->setFuture(d->m_search);
+    emit searchingChanged();
 }
 
 QStringList FileBrowser::nameFilters() const

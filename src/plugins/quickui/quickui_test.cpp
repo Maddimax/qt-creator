@@ -258,6 +258,7 @@ private slots:
     void testTheFileDialogChoosesAFileWithoutAskingThePlatform();
     void testAPathOnADeviceIsBrowsedWithOurOwnDialog();
     void testTheFileBrowserRemembersWhereItHasBeen();
+    void testTheFileBrowserFindsFilesBelowTheDirectory();
     void testSeveralLinesCompleteTheWordTheCursorIsIn();
     void testColourOffersToGoBackToItsDefault();
     void testColourWithNoResetHasNoButton();
@@ -4997,6 +4998,53 @@ void QuickUiTest::testTheFileBrowserRemembersWhereItHasBeen()
     const QString made = browser.createDirectory("brand-new");
     QCOMPARE(Utils::FilePath::fromUserInput(made), second / "brand-new");
     QVERIFY((second / "brand-new").isDir());
+}
+
+// Looking for a file rather than walking to it. The widget dialog swaps its
+// listing for the hits while a search is on; so does this, so a view needs to
+// know nothing about it.
+void QuickUiTest::testTheFileBrowserFindsFilesBelowTheDirectory()
+{
+    Utils::TemporaryDirectory dir("quickui-browser-search");
+    QVERIFY(dir.isValid());
+    const Utils::FilePath root = dir.path();
+    const Utils::FilePath deeper = root / "deeper";
+    QVERIFY(deeper.createDir());
+    QVERIFY((root / "needle.txt").writeFileContents("x"));
+    QVERIFY((deeper / "another-needle.txt").writeFileContents("x"));
+    QVERIFY((deeper / "haystack.txt").writeFileContents("x"));
+
+    QtcQuick::FileBrowser browser;
+    browser.setDirectory(root.toUserOutput());
+    QtcQuick::FileEntries * const entries = browser.entries();
+    QTRY_COMPARE(entries->rowCount(), 2);
+
+    const auto found = [entries] {
+        QStringList names;
+        for (int row = 0; row < entries->rowCount(); ++row)
+            names << entries->data(entries->index(row, 0), QtcQuick::FileEntries::NameRole)
+                         .toString();
+        names.sort();
+        return names;
+    };
+
+    browser.setSearchText("needle");
+    // Found below as well as here, and named by where it is: two files called
+    // the same thing in different directories are one list.
+    QTRY_COMPARE(found(), QStringList({"deeper/another-needle.txt", "needle.txt"}));
+    QTRY_VERIFY(!browser.isSearching());
+
+    // Clearing it goes back to what is in the directory.
+    browser.setSearchText("");
+    QTRY_COMPARE(found(), QStringList({"deeper", "needle.txt"}));
+
+    // And going somewhere else ends the search rather than showing hits from
+    // a directory that is no longer the one being looked at.
+    browser.setSearchText("needle");
+    QTRY_VERIFY(entries->rowCount() > 0);
+    browser.setDirectory(deeper.toUserOutput());
+    QCOMPARE(browser.searchText(), QString());
+    QTRY_COMPARE(found(), QStringList({"another-needle.txt", "haystack.txt"}));
 }
 
 void QuickUiTest::testSeveralLinesCompleteTheWordTheCursorIsIn()

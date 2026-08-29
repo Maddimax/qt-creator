@@ -14651,3 +14651,20 @@ And fixing that history test moved the browser to a different directory, which
 broke the favourites half further down - it had been asserting about whatever
 directory the earlier part happened to leave behind. It says which directory it
 means now.
+
+### Looking for a file instead of walking to it
+
+The third piece: a recursive search below the directory being looked at. The
+walk is the widget dialog's, which was already free of widgets - an async
+iteration reporting matches in batches, because reporting each hit on its own
+floods the GUI thread with deliveries and stalls the very view they are for,
+and because a walk of a directory on a device is slow enough that the reader
+has to see it filling in.
+
+While a search is on, `entries` is what was found rather than what is in the
+directory - the same swap the widget dialog makes, so the view needs to know
+nothing about searching. Going somewhere else ends it: hits from a directory
+that is no longer the one being looked at are not an answer to anything.
+
+Each hit is named by where it is rather than what it is called, so two files of
+the same name in different directories are distinguishable in one flat list.

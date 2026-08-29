@@ -92,6 +92,11 @@ class QTCQUICK_EXPORT FileBrowser : public QObject
                    NOTIFY nameFiltersChanged)
     Q_PROPERTY(bool showHiddenFiles READ showHiddenFiles WRITE setShowHiddenFiles
                    NOTIFY showHiddenFilesChanged)
+    // What to look for below the directory being looked at. While it is set,
+    // entries() is what was found rather than what is in the directory - the
+    // same swap the widget dialog makes. Clearing it goes back to the listing.
+    Q_PROPERTY(QString searchText READ searchText WRITE setSearchText NOTIFY searchTextChanged)
+    Q_PROPERTY(bool searching READ isSearching NOTIFY searchingChanged)
     // Whether a listing is still being fetched. A directory on a device can
     // take a moment, and a dialog that says nothing looks broken.
     Q_PROPERTY(bool busy READ isBusy NOTIFY busyChanged)
@@ -123,6 +128,10 @@ public:
     bool showHiddenFiles() const;
     void setShowHiddenFiles(bool show);
 
+    QString searchText() const;
+    void setSearchText(const QString &text);
+    bool isSearching() const;
+
     bool isBusy() const;
     QString error() const;
     bool canGoUp() const;
@@ -152,6 +161,8 @@ signals:
     void directoryChanged();
     void nameFiltersChanged();
     void showHiddenFilesChanged();
+    void searchTextChanged();
+    void searchingChanged();
     void busyChanged();
     void errorChanged();
     void favoritesChanged();
@@ -159,6 +170,8 @@ signals:
 
 private:
     void rebuildEntries();
+    void startSearch();
+    void cancelSearch();
     void rebuildPlaces();
     void rebuildFavorites();
     void saveFavorites();
