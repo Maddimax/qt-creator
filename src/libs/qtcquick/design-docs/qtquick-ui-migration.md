@@ -16463,12 +16463,37 @@ Two remain, and they are **left alone deliberately**:
   project update; its qmake sibling skips on the kit-with-toolchain guard the
   same test already has, so the qbs row gets past that guard and then times
   out. `Debugger::testStateMachine` fails at `projectManager.open(proFile)`.
-  Both are "a project would not open here", which is *probably* the missing
-  environment - but unlike the Qt version above that cannot be demonstrated
-  from here, and a project failing to open is also what a real regression
-  would look like. Turning them into skips on a guess would hide exactly the
-  thing they are for. A kit with a toolchain and a working qbs would settle
-  it in one run.
+
+**These were left as "probably the environment, but that cannot be shown from
+here" - and then it was shown from here.** Qt is installed on this machine, it
+is simply not on `PATH`, which is why Qt Creator auto-detects no Qt version
+into the scratch settings. Putting `~/Qt/6.11.1/macos/bin` on `PATH` for the
+run answers all of it:
+
+- `Debugger` goes to **exit 0, no failures**. `testStateMachine` wanted a kit
+  with a Qt to open its `.pro` with. Environmental, proven rather than
+  assumed.
+- `QtSupport` stops skipping - the guard added above correctly lifts when its
+  precondition is met, which is the control that could not be run without a
+  Qt. Eleven of its rows then pass and ten fail, and every one of the ten is a
+  "new Qt" row: `setupQmake()` **copies the real qmake into a temporary
+  directory**, and its own comment says "This is a hack and only works with
+  local, 'standard' installations of Qt". A copied qmake outside its framework
+  layout cannot answer `qmake -query` on macOS, so
+  `createQtVersionFromQMakePath()` returns null and no new Qt is made. A
+  second environmental limit, and one the test already knew about.
+- `ProjectExplorer` still fails the same two. `testConflict` is the `-load
+  all` artefact described above. `testSourceToBinaryMapping(qbs)` still times
+  out **with a Qt available**, so the missing-Qt explanation is now
+  eliminated; `qbs` is not on `PATH` either, and unlike its toolchain guard
+  the test has nothing that asks whether qbs can be used. That is the one
+  failure in all 62 plugins with no established cause, and it is the one worth
+  someone's time.
+
+The lesson is worth more than the result: "probably environmental" was said
+three times in this document before anyone put a Qt on `PATH` and looked. Two
+of the three were right, one was a test hack that had been failing quietly for
+anyone who had a Qt, and one remains open.
 
 The remaining two were FakeVim's, and they turned out to be environmental as
 well - but only after two wrong answers, which is the interesting part.
