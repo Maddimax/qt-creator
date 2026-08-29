@@ -16301,3 +16301,44 @@ check that their invocations landed. Three appearances is enough to say the
 rule plainly: **a checkable control flips before it reports, and a test that
 skips the flip tests the opposite of what it means to.**
 
+### Running ProjectExplorer's suite, and why it is never clean
+
+Two failures turned up in `-test ProjectExplorer -load all` and were reported
+as unrelated. They are, but the reason is worth writing down, because the
+obvious response - drop `-load all` - produces four *different* failures that
+read exactly like this migration having broken something.
+
+**With `-load all`:**
+
+    RunWorkerConflictTest::testConflict            FAIL
+    ProjectTest::testSourceToBinaryMapping(qbs)    FAIL
+
+`testConflict` fails a combination when two `RunWorkerFactory`s both claim it,
+and every conflict it printed involves a run configuration from a plugin that
+only coexists with the others because every plugin was loaded -
+`RemoteLinuxDebugWorkerFactory` against `SimpleDebugRunnerFactory` for a QML
+run configuration, and so on. No real configuration loads all of them.
+`testSourceToBinaryMapping` waits five seconds for a project update and its
+qmake sibling skips with "requires at least one kit with a toolchain", which a
+scratch `-settingspath` has none of.
+
+**Without `-load all`:**
+
+    DesktopDeviceTest::testTheGroupsBelowADeviceAreContainersNotAClosure  FAIL
+    WindowsAppSdkSettingsTest::testThePageDrawsItself                     FAIL
+    ProjectPanelFactoryTest::testPanelsThatSayWhatTheyShowRenderWithQuick FAIL
+    KitAspectTest::testAValueEditedInADialogIsASummaryAndAButton          FAIL
+
+    RunWorkerConflictTest::testConflict                                   PASS
+
+Those four are the flag's absence, not a defect: **`-load all` is what loads
+the plugin that installs the Quick renderer**, so without it every page falls
+back to its widget layout and "Building and Running has no Quick form" is the
+correct answer to the wrong question. The other two need sibling plugins to
+have registered a device aspect and a dialog-edited kit setting.
+
+So the two configurations are complementary and neither is clean. Run it with
+`-load all`, which is what the pages need, and read `testConflict`'s failure
+as the artefact it is. Every test that is about this migration passes in that
+configuration; the four above pass there too.
+
