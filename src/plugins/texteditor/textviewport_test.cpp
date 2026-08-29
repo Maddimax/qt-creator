@@ -5260,6 +5260,71 @@ private slots:
         QCOMPARE(text->findBlockByNumber(0).text(), QString("    first"));
     }
 
+    // Showing whitespace is the view's own answer, not the setting's: turning
+    // it on for the file being read must not turn it on everywhere. Until the
+    // view is told, the setting is what answers.
+    void testShowingWhitespaceIsPerViewAndFallsBackToTheSetting()
+    {
+        TemporaryDirectory dir("qtc-viewport-whitespace");
+        const FilePath file = dir.filePath("spaces.txt");
+        QVERIFY(file.writeFileContents("a b\n"));
+
+        const bool was = displaySettings().visualizeWhitespace();
+        const QScopeGuard restore(
+            [was] { displaySettings().visualizeWhitespace.setValue(was); });
+        displaySettings().visualizeWhitespace.setValue(false);
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        // Nothing said yet, so the setting answers.
+        QVERIFY2(!viewport->visualizesWhitespace(), "the view disagreed with the setting");
+        QTRY_VERIFY(viewport->visibleLine(0).value("whitespace").toList().isEmpty());
+
+        // Told, and now it draws them without the setting having moved.
+        viewport->setVisualizeWhitespace(true);
+        QVERIFY(viewport->visualizesWhitespace());
+        QTRY_VERIFY2(!viewport->visibleLine(0).value("whitespace").toList().isEmpty(),
+                     "the space between the words was not marked");
+        QVERIFY2(!displaySettings().visualizeWhitespace(),
+                 "turning it on for this view turned it on for every view");
+    }
+
+    // Zooming changes the font every editor shows, which is what the widget
+    // editor's zoom does; the scroll wheel setting gates the wheel and not a
+    // command asked for by name.
+    void testZoomingChangesTheFontAndIsNotGatedByTheWheelSetting()
+    {
+        TemporaryDirectory dir("qtc-viewport-zoom");
+        const FilePath file = dir.filePath("plain.txt");
+        QVERIFY(file.writeFileContents("text\n"));
+
+        const int wasZoom = globalFontSettings().fontZoom();
+        const bool wasWheel = globalBehaviorSettings().scrollWheelZooming();
+        const QScopeGuard restore([wasZoom, wasWheel] {
+            globalFontSettings().setFontZoom(wasZoom);
+            globalBehaviorSettings().scrollWheelZooming.setValue(wasWheel);
+        });
+        globalBehaviorSettings().scrollWheelZooming.setValue(false);
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        const int before = globalFontSettings().fontZoom();
+        viewport->increaseFontZoom();
+        QVERIFY2(globalFontSettings().fontZoom() > before,
+                 "the command was refused because the wheel is turned off");
+
+        viewport->resetFontZoom();
+        QCOMPARE(globalFontSettings().fontZoom(), 100);
+    }
+
     // None of the line commands edits a buffer that is read only, the same
     // as a key press does not. One test for all of them: each has its own
     // guard, and a guard that is missing on one of them is exactly the kind

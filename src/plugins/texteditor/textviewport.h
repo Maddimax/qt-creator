@@ -231,6 +231,12 @@ class TEXTEDITOR_EXPORT TextViewport : public QQuickItem, public HoverTarget
     // promise for O(file). The widget editor makes the same trade for the same
     // reason; see the migration doc.
     Q_PROPERTY(bool wrapping READ isWrapping WRITE setWrapping NOTIFY wrappingChanged)
+    // Whether spaces and tabs are drawn. Per view, the way wrapping is: the
+    // widget editor's menu entry turns it on for the editor it was used in
+    // and not for the settings, and this has to be able to do the same.
+    // Follows the setting until the view is told otherwise.
+    Q_PROPERTY(bool visualizeWhitespace READ visualizesWhitespace WRITE setVisualizeWhitespace
+                   NOTIFY visualizeWhitespaceChanged)
 
 public:
     // How a line differs from what was read from disk, as the gutter marks it.
@@ -723,6 +729,16 @@ public:
     bool isReadOnly() const;
     bool isWrapping() const;
     void setWrapping(bool wrapping);
+    bool visualizesWhitespace() const;
+    void setVisualizeWhitespace(bool on);
+
+    // The font every editor shows, so these change it for all of them - which
+    // is what the widget editor's zoom does too. Separate from zoomBy(), which
+    // is the wheel and is turned off by a setting of its own; a command asked
+    // for by name is not.
+    Q_INVOKABLE void increaseFontZoom();
+    Q_INVOKABLE void decreaseFontZoom();
+    Q_INVOKABLE void resetFontZoom();
     void setReadOnly(bool readOnly);
 
 signals:
@@ -759,6 +775,7 @@ signals:
     void animateCharacter(const QRectF &at, const QString &text, const QColor &foreground,
                           const QColor &background);
     void wrappingChanged();
+    void visualizeWhitespaceChanged();
 
 protected:
     void updatePolish() override;
@@ -968,6 +985,8 @@ private:
     std::unique_ptr<IAssistProposal> m_functionHintProposal;
     QPointer<Utils::TextEditorLayout> m_editorLayout;
     bool m_wrapping = false;
+    // Unset until the view is told: the setting answers until then.
+    std::optional<bool> m_visualizeWhitespace;
 
     QPointer<CodeSource> m_document;
     // The QTextDocument currently connected to, which is not the same one

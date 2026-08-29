@@ -300,6 +300,19 @@ public:
         // command in its own context and toggles that editor rather than the
         // preference, so this does the same: without it the menu entry is
         // simply dead whenever a Quick editor is the current one.
+        // Per editor rather than per setting, which is what the widget
+        // editor's entry does: showing whitespace in the file being read
+        // should not turn it on everywhere.
+        m_whitespaceAction = Core::ActionBuilder(this, Constants::VISUALIZE_WHITESPACE)
+                                 .setContext(Core::Context(m_editorContext))
+                                 .setCheckable(true)
+                                 .addOnToggled(this, [this](bool checked) {
+                                     if (TextViewport * const view = viewport())
+                                         view->setVisualizeWhitespace(checked);
+                                 })
+                                 .contextAction();
+        m_whitespaceAction->setChecked(displaySettings().visualizeWhitespace());
+
         m_wrapAction = Core::ActionBuilder(this, Constants::TEXT_WRAPPING)
                            .setContext(Core::Context(m_editorContext))
                            .setCheckable(true)
@@ -376,6 +389,10 @@ public:
         command(Constants::UNINDENT, &TextViewport::unindent);
         command(Constants::AUTO_INDENT_SELECTION, &TextViewport::autoIndent);
         command(Constants::AUTO_FORMAT_SELECTION, &TextViewport::autoFormat);
+
+        command(Core::Constants::ZOOM_IN, &TextViewport::increaseFontZoom);
+        command(Core::Constants::ZOOM_OUT, &TextViewport::decreaseFontZoom);
+        command(Core::Constants::ZOOM_RESET, &TextViewport::resetFontZoom);
 
         // Folding. The recursive pair take the same method with its argument
         // set, which is why they are built here rather than through command().
@@ -812,6 +829,7 @@ public:
     // Owned by the toolbar the editor manager puts it in, so a QPointer.
     QPointer<QWidget> m_toolBar;
     QPointer<QAction> m_wrapAction;
+    QPointer<QAction> m_whitespaceAction;
     // This editor alone, so that a per-editor action does not collide with
     // the same action on the next one.
     const Utils::Id m_editorContext = Utils::Id::generate();

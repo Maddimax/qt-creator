@@ -14018,3 +14018,27 @@ Both new tests failed first time, and both were the test rather than the code:
 Eighty-three of a hundred and four. What is left is zoom, the paste variants,
 whitespace, printing, encoding, the context menu, suggestions and the last
 symbol commands - no group of them alike enough to do together.
+
+## Zoom, and showing whitespace in one view without showing it in all of them
+
+Four commands, and the two halves needed opposite things.
+
+Zoom was already there for the wheel - `zoomBy()`, turned off by the
+"zoom with the scroll wheel" setting. What the commands must not do is inherit
+that guard: the setting is about the wheel, and Ctrl+= is not the wheel. So
+they call the font settings directly and the control that says so puts the
+guard back and fails the test.
+
+Showing whitespace needed the opposite. The widget editor's entry changes the
+display settings *of that editor* - reading a file with the spaces marked does
+not mark them everywhere - and this view had no settings of its own, only the
+global ones. So it gained a per-view answer the way wrapping already has one,
+except that it falls back rather than defaulting: unset means the setting
+answers, which is what keeps every view that was never told behaving as
+before. Both halves have a control, and the fallback one fails the whitespace
+test that was already there.
+
+Eighty-seven of a hundred and four. What is left needs machinery of its own -
+printing, encoding, the context menu, suggestions, the last symbol commands
+and the paste variants - and is one or two at a time from here rather than
+another sweep.

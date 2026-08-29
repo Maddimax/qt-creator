@@ -948,6 +948,35 @@ bool TextViewport::isWrapping() const
     return m_wrapping;
 }
 
+bool TextViewport::visualizesWhitespace() const
+{
+    return m_visualizeWhitespace.value_or(displaySettings().visualizeWhitespace());
+}
+
+void TextViewport::setVisualizeWhitespace(bool on)
+{
+    if (m_visualizeWhitespace == on)
+        return;
+    m_visualizeWhitespace = on;
+    polish();
+    emit visualizeWhitespaceChanged();
+}
+
+void TextViewport::increaseFontZoom()
+{
+    globalFontSettings().increaseFontZoom();
+}
+
+void TextViewport::decreaseFontZoom()
+{
+    globalFontSettings().decreaseFontZoom();
+}
+
+void TextViewport::resetFontZoom()
+{
+    globalFontSettings().resetFontZoom();
+}
+
 void TextViewport::setWrapping(bool wrapping)
 {
     if (m_wrapping == wrapping)
@@ -3962,7 +3991,7 @@ void TextViewport::updatePolish()
     m_indentGuide = whitespaceBrush.style() == Qt::NoBrush ? QColor(Qt::transparent)
                                                           : whitespaceBrush.color();
 
-    const bool showWhitespace = displaySettings().visualizeWhitespace();
+    const bool showWhitespace = visualizesWhitespace();
 
     QTextOption option;
     option.setTabStopDistance(doc->tabSettings().m_tabSize * metrics.horizontalAdvance(' '));
