@@ -59,6 +59,8 @@
 #include <utils/treemodel.h>
 
 #ifdef WITH_TESTS
+#include <utils/temporarydirectory.h>
+
 #include <QTest>
 #endif
 #include <utils/environment.h>
@@ -1172,6 +1174,44 @@ QObject *createFakeVimUserCommandsTest()
     return new FakeVimUserCommandsTest;
 }
 
+// A handler is made for every text editor whether or not FakeVim is switched
+// on, so what it does while switched off has to be nothing.
+class FakeVimSuggestionsTest : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    // Inline suggestions are held back outside insert mode. That hold was
+    // being taken as the editor opened, with FakeVim switched off and nothing
+    // that would ever release it, so Copilot could not show one at all.
+    void testSuggestionsAreNotHeldBackWhileFakeVimIsOff()
+    {
+        QVERIFY(!settings().useFakeVim());
+
+        Utils::TemporaryDirectory dir("fakevim-suggestions");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("plain.txt");
+        QVERIFY(file.writeFileContents("one\ntwo\n"));
+
+        IEditor * const editor
+            = EditorManager::openEditor(file, Core::Constants::K_DEFAULT_TEXT_EDITOR_ID);
+        QVERIFY(editor);
+        const QScopeGuard closeIt([editor] { EditorManager::closeEditors({editor}, false); });
+        TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor);
+        QVERIFY(widget);
+        QVERIFY2(dd->m_editorToHandler.contains(editor),
+                 "no handler was made, so this proves nothing");
+
+        QVERIFY2(!widget->suggestionsBlocked(),
+                 "suggestions are held back in an editor FakeVim is not driving");
+    }
+};
+
+QObject *createFakeVimSuggestionsTest()
+{
+    return new FakeVimSuggestionsTest;
+}
+
 #endif // WITH_TESTS
 
 class FakeVimUserCommandsPage : public IOptionsPage
@@ -1432,6 +1472,7 @@ FakeVimPlugin::FakeVimPlugin()
     addTestCreator([] { return createFakeVimTester(&setupTest); });
     addTestCreator(createFakeVimUserCommandsTest);
     addTestCreator(createFakeVimExCommandsTest);
+    addTestCreator(createFakeVimSuggestionsTest);
 #endif
 
     m_defaultExCommandMap[CppEditor::Constants::SWITCH_HEADER_SOURCE] = "^A$";
@@ -2062,6 +2103,13 @@ void FakeVimPlugin::editorOpened(IEditor *editor)
     handler->modeChanged.set([tew, this, editor](bool insertMode) {
         HandlerAndData &handlerAndData = m_editorToHandler[editor];
         if (!handlerAndData.handler || !handlerAndData.handler->inFakeVimMode())
+            return;
+
+        // inFakeVimMode() says a key is being processed, which happens while
+        // FakeVim is switched off too. Without this the block below is taken
+        // once as the editor opens and never released, because a mode change
+        // is the only thing that releases it and none is coming.
+        if (!settings().useFakeVim())
             return;
 
         // We don't want to show suggestions unless we are in insert mode.
