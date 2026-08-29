@@ -14855,3 +14855,14 @@ reported file, so a copy that runs to the end is one that ignored it.
 
 And "it said something while copying" was satisfied by the status being
 *cleared* at the end. It checks what was said, not how often.
+
+### The order of the kept directories
+
+The last of the widget dialog's sidebar: the order of the favourites is the
+reader's own - most used at the top - so there has to be a way to change it,
+and it is kept where the list is kept.
+
+The widget dialog changes it by dragging. This one offers Move Up and Move
+Down on the right-click menu, which is the same ability by a different gesture
+and is reachable without a pointer. Dragging is not ported; if it is wanted it
+goes on top of `moveFavorite()` rather than instead of it.

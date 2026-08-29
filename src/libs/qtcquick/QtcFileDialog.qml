@@ -239,6 +239,36 @@ Window {
         onActivated: root.reject()
     }
 
+    // What can be done to a kept directory.
+    Menu {
+        id: favoriteMenu
+
+        objectName: "favoriteMenu"
+        property int row: -1
+        property string path: ""
+
+        MenuItem {
+            objectName: "favoriteUpItem"
+            text: qsTr("Move Up")
+            enabled: favoriteMenu.row > 0
+            onTriggered: browser.moveFavorite(favoriteMenu.row, favoriteMenu.row - 1)
+        }
+
+        MenuItem {
+            objectName: "favoriteDownItem"
+            text: qsTr("Move Down")
+            enabled: favoriteMenu.row >= 0
+                     && favoriteMenu.row < browser.favorites.rowCount() - 1
+            onTriggered: browser.moveFavorite(favoriteMenu.row, favoriteMenu.row + 1)
+        }
+
+        MenuItem {
+            objectName: "favoriteForgetItem"
+            text: qsTr("Stop Keeping")
+            onTriggered: browser.removeFavorite(favoriteMenu.path)
+        }
+    }
+
     // What can be done to the entry under the pointer.
     Menu {
         id: entryMenu
@@ -458,12 +488,26 @@ Window {
                     Layout.preferredHeight: Math.min(contentHeight, parent.height / 3)
 
                     delegate: ItemDelegate {
+                        id: favorite
+
+                        required property int index
                         required property string name
                         required property string filePath
 
                         width: favorites.width
-                        text: name
-                        onClicked: browser.directory = filePath
+                        text: favorite.name
+                        onClicked: browser.directory = favorite.filePath
+
+                        // The order is the reader's own, so there has to be a
+                        // way to change it. The widget dialog drags them.
+                        TapHandler {
+                            acceptedButtons: Qt.RightButton
+                            onTapped: {
+                                favoriteMenu.row = favorite.index
+                                favoriteMenu.path = favorite.filePath
+                                favoriteMenu.popup()
+                            }
+                        }
                     }
                 }
 

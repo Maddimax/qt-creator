@@ -443,6 +443,17 @@ void FileBrowser::removeFavorite(const QString &path)
     emit favoritesChanged();
 }
 
+void FileBrowser::moveFavorite(int from, int to)
+{
+    const int count = int(d->m_favoritePaths.size());
+    if (from < 0 || from >= count || to < 0 || to >= count || from == to)
+        return;
+    d->m_favoritePaths.move(from, to);
+    saveFavorites();
+    rebuildFavorites();
+    emit favoritesChanged();
+}
+
 QString FileBrowser::createDirectory(const QString &name)
 {
     if (name.isEmpty() || d->m_directory.isEmpty())

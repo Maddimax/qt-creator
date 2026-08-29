@@ -161,6 +161,9 @@ public:
     // Keeps the directory being looked at, or stops keeping it.
     Q_INVOKABLE void addFavorite(const QString &path);
     Q_INVOKABLE void removeFavorite(const QString &path);
+    // Puts the favourite at \a from at \a to. The order is the reader's own
+    // - most used at the top - so it is kept where the list is kept.
+    Q_INVOKABLE void moveFavorite(int from, int to);
     // A new directory here, named \a name. Answers with its path, or empty
     // when it could not be made.
     Q_INVOKABLE QString createDirectory(const QString &name);

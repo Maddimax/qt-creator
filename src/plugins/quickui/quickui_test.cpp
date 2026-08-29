@@ -4994,6 +4994,36 @@ void QuickUiTest::testTheFileBrowserRemembersWhereItHasBeen()
                      .toString()),
              second);
 
+    // The order is the reader's own and is kept: a second favourite can be
+    // moved above the first, and it is still above it next time.
+    const Utils::FilePath alsoKept = root / "first";
+    browser.addFavorite(alsoKept.toUserOutput());
+    const auto keptOrder = [&browser] {
+        QStringList paths;
+        for (int row = 0; row < browser.favorites()->rowCount(); ++row) {
+            paths << browser.favorites()
+                         ->data(browser.favorites()->index(row, 0),
+                                QtcQuick::FileEntries::FilePathRole)
+                         .toString();
+        }
+        return paths;
+    };
+    QCOMPARE(keptOrder(), QStringList({second.toUserOutput(), alsoKept.toUserOutput()}));
+    browser.moveFavorite(1, 0);
+    QCOMPARE(keptOrder(), QStringList({alsoKept.toUserOutput(), second.toUserOutput()}));
+    // Moving nowhere, or off the end, changes nothing rather than losing one.
+    browser.moveFavorite(0, 0);
+    browser.moveFavorite(1, 5);
+    browser.moveFavorite(-1, 0);
+    QCOMPARE(keptOrder(), QStringList({alsoKept.toUserOutput(), second.toUserOutput()}));
+    {
+        QSettings settings;
+        settings.beginGroup("FileDialog");
+        QCOMPARE(settings.value("Favorites").toStringList().first(),
+                 alsoKept.toFSPathString());
+    }
+    browser.removeFavorite(alsoKept.toUserOutput());
+
     // Written where the widget dialog reads them.
     {
         QSettings settings;
