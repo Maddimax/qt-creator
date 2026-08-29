@@ -2326,9 +2326,9 @@ What "has a name" means is whether `headerData()` answers a *valid* variant:
 that overrides it - every model in this tree - says nothing.
 
 The warning was found by showing each page in a window and resizing it, which
-is the same measurement the `AspectGroupBox` note describes. Worth repeating
-after a batch: it is the only thing that sees a warning the page census cannot,
-and it also confirmed that no page has a binding loop left.
+is the same measurement the `AspectGroupBox` note describes. That was true when
+it was written; it is not any more - see "The resize measurement is retired"
+below.
 
 ### The Toolchains page, and the nine kinds behind it
 
@@ -14976,3 +14976,27 @@ The count of pages with no aspects is reported, not asserted. A test that
 failed when someone added a feature page under Preferences would be imposing a
 rule nobody agreed to; what it is for is that the number is *visible* when it
 changes.
+
+
+### The resize measurement is retired
+
+The note above said that showing each page in a window and resizing it was the
+only thing that could see certain warnings, and that it was worth repeating by
+hand after a batch. I automated it - 108 pages shown, resized to three widths
+each - and then tried to show that it earned its twelve seconds. It does not.
+
+Two controls, both planted in `StringDelegate` so they would appear on most
+pages. A width that feeds itself, `implicitWidth: width + 1`, which is the
+binding-loop class the `AspectGroupBox` note is about. And a `Loader` that
+activates only below 500 pixels and loads a component with a binding to
+something that does not exist - a warning that ought to need a narrow resize to
+appear at all.
+
+The page census caught both, and so did the tree census. The reason is that the
+census has since grown its own collection of `QQmlEngine::warnings`, and
+building a page settles a width, which is enough for a loop to be reported.
+
+So the resize pass is gone again, and with it the standing instruction to
+repeat it by hand. What remains true is the narrower claim it started from: a
+warning is only seen where something evaluates the binding, which is why the
+census builds every page rather than trusting qmllint.
