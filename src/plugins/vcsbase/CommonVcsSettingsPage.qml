@@ -14,12 +14,12 @@ AspectPage {
 
     RowLayout {
         BoolDelegate { aspect: root.aspects.ShowVcsStatus }
-        IntegerDelegate { aspect: root.aspects.ShowVcsStatusInterval }
+        IntegerDelegate { aspect: root.aspects.ShowVcsStatusInterval; compact: true }
     }
 
     RowLayout {
         BoolDelegate { aspect: root.aspects.LineWrap }
-        IntegerDelegate { aspect: root.aspects.LineWrapWidth }
+        IntegerDelegate { aspect: root.aspects.LineWrapWidth; compact: true }
     }
 
     RowLayout {

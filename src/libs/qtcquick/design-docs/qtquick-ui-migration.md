@@ -15318,3 +15318,31 @@ Sixty-three aspects call `setPlaceHolderText`, and the sweep that checks each
 drawn field against what its aspect asks for named six of them across four
 pages when the binding is taken away again: FakeVim's vimrc path, Squish's
 install path, three Zephyr paths and this one.
+
+### A label that belongs to the check box beside it
+
+"Auto-save modified files   Interval:                    [5] min" - the System
+page put 163 pixels between "Interval:" and the number it names, and the
+Display page 375 between "Minimum text width:" and its own. A delegate's label
+takes `Metrics.formLabelWidth` so that the labels down a page line up, and
+that is right for a row of the form. A row that *begins with a check box* is a
+continuation of it rather than a row of its own, and there the reservation
+puts a column's width of air inside one sentence.
+
+The delegates that carry a label take a `compact` for it, and the 32 places
+where a labelled delegate follows a check box now ask for one. It is per page
+on purpose: the same reservation is what lines up the second column of a
+two-column form - Font && Colors reads "Family: [...]   Size: [...]" over
+"Zoom: [...] %   Line spacing: [...] %" - and a blanket rule would have pulled
+those apart.
+
+The test finds the rows that begin with a check box and measures from each
+label's right edge to the control it names. Two earlier versions of it passed
+on broken code: the style provides `Label.qml`, so a label answers "Label" and
+not "QQuickLabel", and the child after the label is not the control - a spin
+box has a prefix label in front of it and a field sits in a column with its
+error underneath. Both controls bite now: taking `compact` off the System page
+names two labels, and making `compact` do nothing names four pages.
+
+`CppEditor` fails four tests here and eight at HEAD with none of this applied -
+the suite is flaky in the way its rehighlight waits have always been.

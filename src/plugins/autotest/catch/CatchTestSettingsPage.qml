@@ -19,27 +19,27 @@ AspectPage {
 
     RowLayout {
         BoolDelegate { aspect: root.aspects.AbortChecked }
-        IntegerDelegate { aspect: root.aspects.AbortAfter }
+        IntegerDelegate { aspect: root.aspects.AbortAfter; compact: true }
     }
 
     RowLayout {
         BoolDelegate { aspect: root.aspects.SamplesChecked }
-        IntegerDelegate { aspect: root.aspects.BenchSamples }
+        IntegerDelegate { aspect: root.aspects.BenchSamples; compact: true }
     }
 
     RowLayout {
         BoolDelegate { aspect: root.aspects.ResamplesChecked }
-        IntegerDelegate { aspect: root.aspects.BenchResamples }
+        IntegerDelegate { aspect: root.aspects.BenchResamples; compact: true }
     }
 
     RowLayout {
         BoolDelegate { aspect: root.aspects.ConfIntChecked }
-        DoubleDelegate { aspect: root.aspects.BenchConfInt }
+        DoubleDelegate { aspect: root.aspects.BenchConfInt; compact: true }
     }
 
     RowLayout {
         BoolDelegate { aspect: root.aspects.WarmupChecked }
-        IntegerDelegate { aspect: root.aspects.BenchWarmup }
+        IntegerDelegate { aspect: root.aspects.BenchWarmup; compact: true }
     }
 
     BoolDelegate { aspect: root.aspects.NoAnalysis }

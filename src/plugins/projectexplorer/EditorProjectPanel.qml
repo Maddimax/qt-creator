@@ -25,7 +25,7 @@ AspectPage {
 
         RowLayout {
             BoolDelegate { aspect: root.margins.ShowMargin }
-            IntegerDelegate { aspect: root.margins.MarginColumn }
+            IntegerDelegate { aspect: root.margins.MarginColumn; compact: true }
             BoolDelegate { aspect: root.margins.tintMarginArea }
             BoolDelegate { aspect: root.margins.UseIndenter }
             Item { Layout.fillWidth: true }

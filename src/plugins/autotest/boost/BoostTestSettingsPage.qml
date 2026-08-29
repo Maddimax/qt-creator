@@ -17,7 +17,7 @@ AspectPage {
 
     RowLayout {
         BoolDelegate { aspect: root.aspects.Randomize }
-        IntegerDelegate { aspect: root.aspects.Seed }
+        IntegerDelegate { aspect: root.aspects.Seed; compact: true }
     }
 
     BoolDelegate { aspect: root.aspects.SystemErrors }

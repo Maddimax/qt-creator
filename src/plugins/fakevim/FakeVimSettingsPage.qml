@@ -70,7 +70,7 @@ AspectPage {
 
             RowLayout {
                 BoolDelegate { aspect: root.aspects.ReadVimRc }
-                StringDelegate { aspect: root.aspects.VimRcPath }
+                StringDelegate { aspect: root.aspects.VimRcPath; compact: true }
             }
         }
     }

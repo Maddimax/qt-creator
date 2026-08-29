@@ -27,7 +27,7 @@ AspectGroupBox {
 
         RowLayout {
             BoolDelegate { aspect: root.aspects.SkipIndexingBigFiles }
-            IntegerDelegate { aspect: root.aspects.IndexerFileSizeLimit }
+            IntegerDelegate { aspect: root.aspects.IndexerFileSizeLimit; compact: true }
         }
 
         RowLayout {

@@ -36,7 +36,7 @@ AspectGroupBox {
             Layout.leftMargin: Spacing.PaddingHL
 
             BoolDelegate { aspect: root.aspects.skipTrailingWhitespace }
-            StringDelegate { aspect: root.aspects.ignoreFileTypes }
+            StringDelegate { aspect: root.aspects.ignoreFileTypes; compact: true }
         }
 
         BoolDelegate { aspect: root.aspects.addFinalNewLine }

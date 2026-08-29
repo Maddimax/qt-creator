@@ -19,7 +19,7 @@ AspectPage {
 
     RowLayout {
         BoolDelegate { aspect: root.aspects.LimitWarnings }
-        IntegerDelegate { aspect: root.aspects.MaxWarnings }
+        IntegerDelegate { aspect: root.aspects.MaxWarnings; compact: true }
     }
 
     AspectGroupBox {

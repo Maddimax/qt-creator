@@ -23,7 +23,7 @@ AspectPage {
         ColumnLayout {
             RowLayout {
                 BoolDelegate { aspect: root.margin.ShowMargin }
-                IntegerDelegate { aspect: root.margin.MarginColumn }
+                IntegerDelegate { aspect: root.margin.MarginColumn; compact: true }
                 BoolDelegate { aspect: root.margin.tintMarginArea }
             }
 
@@ -41,8 +41,8 @@ AspectPage {
 
             RowLayout {
                 BoolDelegate { aspect: root.display.BreakIndent }
-                IntegerDelegate { aspect: root.display.BreakIndentMin }
-                IntegerDelegate { aspect: root.display.BreakIndentShift }
+                IntegerDelegate { aspect: root.display.BreakIndentMin; compact: true }
+                IntegerDelegate { aspect: root.display.BreakIndentShift; compact: true }
             }
 
             StringDelegate { aspect: root.display.ShowBreak }

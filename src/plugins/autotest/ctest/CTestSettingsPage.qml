@@ -36,7 +36,7 @@ AspectPage {
 
             RowLayout {
                 BoolDelegate { aspect: root.aspects.TestLoad }
-                IntegerDelegate { aspect: root.aspects.Threshold }
+                IntegerDelegate { aspect: root.aspects.Threshold; compact: true }
             }
         }
     }

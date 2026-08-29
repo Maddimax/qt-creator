@@ -78,13 +78,23 @@ RowLayout {
         }
     }
 
+    // Whether this is a row of the form, whose label takes the form's label
+    // column, or a continuation of a check box beside it.
+    property bool compact: false
+
     visible: aspectVisible
     spacing: Spacing.GapHM
     Layout.fillWidth: true
 
     Label {
         text: delegate.labelText
-        Layout.preferredWidth: Metrics.formLabelWidth
+        // The form's label column, so that the labels down a page line up.
+        // A row that begins with a check box is a continuation of it rather
+        // than a row of the form, and there the label belongs beside its own
+        // control - a column's width of air between them reads as two
+        // unrelated things.
+        Layout.preferredWidth: delegate.compact ? implicitWidth
+                                                : Metrics.formLabelWidth
         // An aspect with no label of its own reserves no room for one.
         visible: text !== ""
         elide: Text.ElideRight

@@ -62,6 +62,7 @@ ColumnLayout {
 
             IntegerDelegate {
                 aspect: root.settings.SizeThresholdInKb
+                compact: true
                 enabled: root.settings.SizeThresholdEnabled.value
             }
         }

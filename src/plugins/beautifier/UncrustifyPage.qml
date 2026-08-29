@@ -46,6 +46,7 @@ AspectPage {
 
                 StringDelegate {
                     aspect: root.aspects.SpecificConfigFile
+                    compact: true
                     enabled: root.aspects.UseSpecificConfigFile.value
                 }
             }

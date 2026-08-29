@@ -17,8 +17,8 @@ AspectPage {
 
     RowLayout {
         BoolDelegate { aspect: root.aspects.Local }
-        StringDelegate { aspect: root.aspects.ServerHost }
-        IntegerDelegate { aspect: root.aspects.ServerPort }
+        StringDelegate { aspect: root.aspects.ServerHost; compact: true }
+        IntegerDelegate { aspect: root.aspects.ServerPort; compact: true }
     }
 
     BoolDelegate { aspect: root.aspects.Verbose }

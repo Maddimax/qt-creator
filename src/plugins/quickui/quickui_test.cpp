@@ -177,6 +177,7 @@ private slots:
     void testAPagesGroupsFillTheWidthTheyAreGiven();
     void testNoButtonOffersAMnemonicItCannotHave();
     void testAFieldSaysWhatBelongsInIt();
+    void testALabelInAContinuationRowStaysWithItsControl();
     void testACompactColourKeepsItsNumbersBehindItsSwatch();
     void testTheFormatListOpensOnAFormat();
     void testEveryComponentInTheModuleCanBeLoaded();
@@ -325,6 +326,112 @@ static const QSet<QString> &knownUndrawnSettings()
         "Catch Test: WarnEmpty/WarnEmpty",
     };
     return settings;
+}
+
+// A delegate's label takes the form's label column so that the labels down a
+// page line up. A row that begins with a check box is a continuation of it,
+// not a row of the form: "Auto-save modified files  Interval: [5] min" is one
+// sentence, and reserving a column inside it put "Interval:" 375 pixels from
+// the number it names. The delegates take a compact for it; this is what says
+// which rows need one.
+void QuickUiTest::testALabelInAContinuationRowStaysWithItsControl()
+{
+    Core::setAspectFormFactory([](Utils::AspectContainer *container) {
+        return QtcQuick::createAspectForm(container);
+    });
+    const QScopeGuard clearFactory([] { Core::setAspectFormFactory({}); });
+
+    const auto kindOf = [](QQuickItem *item) {
+        const QString name = QString::fromLatin1(item->metaObject()->className());
+        return name.left(name.indexOf('_'));
+    };
+
+    QStringList adrift;
+    int labels = 0;
+    for (Core::IOptionsPage *page : Core::IOptionsPage::allOptionsPages()) {
+        const std::optional<Utils::AspectContainer *> aspects = page->aspects();
+        if (!aspects || !*aspects)
+            continue;
+        std::unique_ptr<Core::IOptionsPageWidget> widget(page->createWidget());
+        if (!widget)
+            continue;
+        auto quickWidget = widget->findChild<QQuickWidget *>();
+        if (!quickWidget || !quickWidget->rootObject())
+            continue;
+
+        // The rows that begin with a check box, found before the page is
+        // shown so that only a page with one pays for being laid out.
+        QList<QQuickItem *> rows;
+        for (QQuickItem *box : findQmlComponents(quickWidget->rootObject(), "BoolDelegate")) {
+            QQuickItem * const row = box->parentItem();
+            if (!row || rows.contains(row))
+                continue;
+            if (kindOf(row) != "QQuickRowLayout" || row->childItems().value(0) != box)
+                continue;
+            rows << row;
+        }
+        if (rows.isEmpty())
+            continue;
+
+        widget->resize(1100, 620);
+        widget->show();
+        if (!QTest::qWaitForWindowExposed(widget.get()))
+            continue;
+        QTRY_VERIFY2(quickWidget->rootObject()->width() >= quickWidget->width() - 1,
+                     qPrintable(page->displayName() + " never took the width it was given"));
+
+        for (QQuickItem *row : std::as_const(rows)) {
+            for (QQuickItem *item : row->childItems()) {
+                if (!item->isVisible() || item->width() <= 0)
+                    continue;
+                // The label is the delegate's first child. A delegate with
+                // no label of its own has nothing to measure.
+                const QList<QQuickItem *> parts = item->childItems();
+                if (parts.isEmpty())
+                    continue;
+                QQuickItem * const label = parts.at(0);
+                // The style provides Label.qml, so an instance answers
+                // "Label", not "QQuickLabel".
+                if (!kindOf(label).endsWith("Label") || !label->isVisible()
+                    || label->property("text").toString().isEmpty()) {
+                    continue;
+                }
+
+                // The control it names, which is not simply the next child:
+                // a spin box has a prefix label in front of it, and a field
+                // sits in a column with the reason it is wrong under it.
+                QQuickItem *control = nullptr;
+                for (const QString &kind : {QString("SpinBox"),
+                                            QString("TextField"),
+                                            QString("ComboBox")}) {
+                    for (QQuickItem *part : findQmlComponents(item, kind)) {
+                        if (part->isVisible()) {
+                            control = part;
+                            break;
+                        }
+                    }
+                    if (control)
+                        break;
+                }
+                if (!control)
+                    continue;
+                ++labels;
+                const qreal gap = control->mapToItem(item, QPointF(0, 0)).x()
+                                  - (label->x() + label->implicitWidth());
+                if (gap > 40) {
+                    adrift << QString("%1: %2px between \"%3\" and what it names")
+                                  .arg(page->displayName())
+                                  .arg(gap)
+                                  .arg(label->property("text").toString());
+                }
+            }
+        }
+        widget->hide();
+    }
+
+    QVERIFY2(labels > 0,
+             "no page put a labelled control beside a check box, so this proves nothing");
+    QVERIFY2(adrift.isEmpty(), qPrintable("\n" + adrift.join("\n")));
 }
 
 // An aspect that says what its field is for says it through the presentation,

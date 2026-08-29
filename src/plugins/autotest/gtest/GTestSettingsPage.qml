@@ -18,12 +18,12 @@ AspectPage {
 
     RowLayout {
         BoolDelegate { aspect: root.aspects.Repeat }
-        IntegerDelegate { aspect: root.aspects.Iterations }
+        IntegerDelegate { aspect: root.aspects.Iterations; compact: true }
     }
 
     RowLayout {
         BoolDelegate { aspect: root.aspects.Shuffle }
-        IntegerDelegate { aspect: root.aspects.Seed }
+        IntegerDelegate { aspect: root.aspects.Seed; compact: true }
     }
 
     SelectionDelegate { aspect: root.aspects.GroupMode }

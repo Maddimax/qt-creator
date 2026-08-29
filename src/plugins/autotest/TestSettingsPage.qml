@@ -26,7 +26,7 @@ AspectPage {
             // side by side.
             RowLayout {
                 BoolDelegate { aspect: root.aspects.LimitResultDescription }
-                IntegerDelegate { aspect: root.aspects.ResultDescriptionMaxSize }
+                IntegerDelegate { aspect: root.aspects.ResultDescriptionMaxSize; compact: true }
             }
 
             BoolDelegate { aspect: root.aspects.PopupOnStart }
@@ -39,7 +39,7 @@ AspectPage {
 
             RowLayout {
                 BoolDelegate { aspect: root.aspects.UseTimeout }
-                IntegerDelegate { aspect: root.aspects.Timeout }
+                IntegerDelegate { aspect: root.aspects.Timeout; compact: true }
             }
 
             ButtonDelegate { aspect: root.aspects.ResetChoiceCache }

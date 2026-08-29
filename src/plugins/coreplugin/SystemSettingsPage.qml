@@ -28,7 +28,7 @@ AspectPage {
 
     RowLayout {
         BoolDelegate { aspect: root.aspects.AutoSaveEnabled }
-        IntegerDelegate { aspect: root.aspects.AutoSaveInterval }
+        IntegerDelegate { aspect: root.aspects.AutoSaveInterval; compact: true }
     }
 
     BoolDelegate { aspect: root.aspects.AutoSaveAfterRefactoring }
@@ -37,12 +37,12 @@ AspectPage {
 
     RowLayout {
         BoolDelegate { aspect: root.aspects.AutoSuspendEnabled }
-        IntegerDelegate { aspect: root.aspects.AutoSuspendMinDocuments }
+        IntegerDelegate { aspect: root.aspects.AutoSuspendMinDocuments; compact: true }
     }
 
     RowLayout {
         BoolDelegate { aspect: root.aspects.WarnBeforeOpeningBigTextFiles }
-        IntegerDelegate { aspect: root.aspects.BigTextFileSizeLimitInMB }
+        IntegerDelegate { aspect: root.aspects.BigTextFileSizeLimitInMB; compact: true }
     }
 
     BoolDelegate { aspect: root.aspects.AskBeforeExit }

@@ -40,7 +40,7 @@ ColumnLayout {
             Layout.fillWidth: false
         }
 
-        IntegerDelegate { aspect: rule.parts.Lines }
+        IntegerDelegate { aspect: rule.parts.Lines; compact: true }
     }
 
     AspectGroupBox {

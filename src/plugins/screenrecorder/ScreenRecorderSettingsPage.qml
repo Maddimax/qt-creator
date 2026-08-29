@@ -32,12 +32,12 @@ AspectPage {
 
             RowLayout {
                 BoolDelegate { aspect: root.aspects.EnableFileSizeLimit }
-                IntegerDelegate { aspect: root.aspects.FileSizeLimit }
+                IntegerDelegate { aspect: root.aspects.FileSizeLimit; compact: true }
             }
 
             RowLayout {
                 BoolDelegate { aspect: root.aspects.EnableRealTimeBuffer }
-                IntegerDelegate { aspect: root.aspects.RealTimeBufferSize }
+                IntegerDelegate { aspect: root.aspects.RealTimeBufferSize; compact: true }
             }
         }
     }
