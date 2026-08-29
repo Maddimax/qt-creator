@@ -178,6 +178,7 @@ private slots:
     void testNoButtonOffersAMnemonicItCannotHave();
     void testAFieldSaysWhatBelongsInIt();
     void testANumberOnItsOwnSaysWhatItCounts();
+    void testMakeDefaultSaysWhatItWouldDefault();
     void testALabelTooLongForItsColumnSaysItInFull();
     void testAFieldShowsTheStartOfWhatItHolds();
     void testAGroupsContentStartsAtItsTop();
@@ -571,6 +572,40 @@ void QuickUiTest::testALabelTooLongForItsColumnSaysItInFull()
              "the label fits in its column, so it is not being cut off");
     QCOMPARE(QQmlProperty(label, "ToolTip.text", qmlContext(label)).read().toString(),
              wordy.labelText());
+}
+
+// "Make Default" is the same button on the Kits, Compilers, Debuggers and
+// Devices pages, so only the page knows what it would be defaulting. The Kits
+// page said so in a tooltip its widget set on the button, and a tooltip set
+// on a widget goes away with the widget.
+void QuickUiTest::testMakeDefaultSaysWhatItWouldDefault()
+{
+    Core::setAspectFormFactory([](Utils::AspectContainer *container) {
+        return QtcQuick::createAspectForm(container);
+    });
+    const QScopeGuard clearFactory([] { Core::setAspectFormFactory({}); });
+
+    Core::IOptionsPage *page = nullptr;
+    for (Core::IOptionsPage *candidate : Core::IOptionsPage::allOptionsPages()) {
+        if (candidate->displayName() == "Kits" && candidate->aspects() && *candidate->aspects())
+            page = candidate;
+    }
+    if (!page)
+        QSKIP("no Kits page - is ProjectExplorer loaded?");
+
+    const std::unique_ptr<Core::IOptionsPageWidget> widget(page->createWidget());
+    QVERIFY(widget);
+    auto quickWidget = widget->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget && quickWidget->rootObject());
+
+    QQuickItem *button = nullptr;
+    QTRY_VERIFY(button = findQmlNamed(quickWidget->rootObject(),
+                                      "groupedListMakeDefaultButton")
+                             .value(0, nullptr));
+    const QString tip
+        = QQmlProperty(button, "ToolTip.text", qmlContext(button)).read().toString();
+    QVERIFY2(tip.contains("kit"),
+             qPrintable("the button says \"" + tip + "\" rather than what it defaults"));
 }
 
 // A number that begins its row has to say what it counts. The Compile Output

@@ -15469,3 +15469,40 @@ tooltip anywhere in the delegate" to check that an elided *value* says itself,
 and the label's new tooltip came first. Neither is a change in what the user
 sees - the label is still drawn, the value still says itself - so both
 searches were made specific rather than the behaviour reverted.
+
+### Reading the ported-away layouts back
+
+Two of the last findings - Coco's "Coco Directory" and Compile Output's "Limit
+output to %1 characters" - were the same shape: a string that lived in the
+`Layouting` closure and went away with it. That shape renders perfectly, so no
+sweep over the drawn pages can see it. What can see it is the diffs.
+
+The scan takes the 149 commits on this branch that added a page `.qml`, pulls
+every `Tr::tr(...)` literal off their *removed* lines, drops the ones that are
+arguments to a call - a literal inside parentheses belongs to whatever it is
+being passed to; what a layout holds sits in braces - and reports the rest that
+no longer appear anywhere in the tree, as `Tr::tr` in C++ or `qsTr` in QML.
+
+It took two passes to be worth reading. The first said 207, the second 99, the
+third 36:
+
+- Group titles moved into the `.qml` as `qsTr`, so the "still there" set has to
+  include QML.
+- A label with a quote in it - `"case" or "default"` - is written with
+  backslashes, and a pattern that stops at the first quote never matches it
+  again. Eleven C++ Code Style labels looked lost and were not.
+- `setupBool(m_x, "Key", Tr::tr("..."))` is a call, but its name does not match
+  `set[A-Z]`. Skipping anything inside parentheses covers it and every other
+  helper without naming them.
+
+Of the 36 that survived, 35 are renames the scan cannot recognise: a dropped
+mnemonic (`&Command:` to "Command:"), a reflowed line continuation, a reworded
+label ("Listen on:" is "Listen address:" now), a message that belongs to a
+dialog which was rewritten, a tree's header labels replaced by a list whose
+items carry their own.
+
+The one real find is the Kits page's Make Default button, which had
+"Set as the default kit to use when creating a new project." set on the widget
+rather than on an aspect. The button is shared - Kits, Compilers, Debuggers,
+Devices - and only the page knows what it would be defaulting, so the delegate
+takes the text and the page gives it.

@@ -22,6 +22,7 @@ AspectPage {
 
         GroupedListDelegate {
             aspect: root.aspects.Kits
+            makeDefaultToolTip: qsTr("Set as the default kit to use when creating a new project.")
             Layout.fillWidth: true
             Layout.fillHeight: true
             // What the current item is made of is long, and a layout that

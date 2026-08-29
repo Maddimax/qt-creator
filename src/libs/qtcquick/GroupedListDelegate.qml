@@ -18,6 +18,11 @@ RowLayout {
     id: root
 
     required property GroupedListAspect aspect
+    // What making the current item the default one means. The button is the
+    // same for kits, compilers and debuggers, and only the page knows what it
+    // is defaulting - the Kits page said "the default kit to use when
+    // creating a new project".
+    property string makeDefaultToolTip: ""
     property var pres: aspect ? AspectModels.presentation(aspect) : ({})
     readonly property string labelText: aspect?.plainLabelText ?? ""
     readonly property string toolTip: aspect?.toolTip ?? ""
@@ -215,8 +220,9 @@ RowLayout {
             text: qsTr("Make Default")
             visible: root.pres.showsDefault ?? false
             enabled: root.editable && (root.aspect?.canMakeDefault ?? false)
-            ToolTip.text: root.toolTip
-            ToolTip.visible: hovered && root.toolTip !== ""
+            ToolTip.text: root.makeDefaultToolTip !== "" ? root.makeDefaultToolTip
+                                                          : root.toolTip
+            ToolTip.visible: hovered && ToolTip.text !== ""
             onClicked: root.aspect.makeCurrentDefault()
         }
 
