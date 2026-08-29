@@ -129,6 +129,11 @@ class QTCQUICK_EXPORT FileBrowser : public QObject
     // dialog does when it is asked for a directory.
     Q_PROPERTY(bool directoriesOnly READ directoriesOnly WRITE setDirectoriesOnly
                    NOTIFY directoriesOnlyChanged)
+    // Which way round the listing is read. The widget dialog's header sorts
+    // on one key whichever column is clicked - directories first, then name -
+    // so what a click really changes is the direction.
+    Q_PROPERTY(bool sortDescending READ sortDescending WRITE setSortDescending
+                   NOTIFY sortDescendingChanged)
     Q_PROPERTY(bool showHiddenFiles READ showHiddenFiles WRITE setShowHiddenFiles
                    NOTIFY showHiddenFilesChanged)
     // Which of the two arrangements the dialog draws: the file's name below
@@ -181,6 +186,8 @@ public:
     void setHideFilteredFiles(bool hide);
     bool directoriesOnly() const;
     void setDirectoriesOnly(bool on);
+    bool sortDescending() const;
+    void setSortDescending(bool descending);
     bool showHiddenFiles() const;
     void setShowHiddenFiles(bool show);
 
@@ -258,6 +265,7 @@ signals:
     void errorChanged();
     void hideFilteredFilesChanged();
     void directoriesOnlyChanged();
+    void sortDescendingChanged();
     void favoritesChanged();
     void historyChanged();
     void canPasteChanged();

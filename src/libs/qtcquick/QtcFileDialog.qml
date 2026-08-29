@@ -591,6 +591,15 @@ Window {
                 }
             }
 
+            QtcButton {
+                objectName: "optionsButton"
+                role: QtcButton.Role.MediumGhost
+                iconSource: "image://qtcreator/utils/images/settings.png?color=PanelTextColorMid"
+                ToolTip.text: qsTr("View options")
+                ToolTip.visible: hovered
+                onClicked: optionsMenu.popup(0, height)
+            }
+
             QtcLineEdit {
                 id: pathField
 
@@ -622,17 +631,11 @@ Window {
                 onClicked: ancestorsMenu.popup(ancestorsButton, 0, ancestorsButton.height)
             }
 
-            QtcButton {
-                objectName: "optionsButton"
-                role: QtcButton.Role.MediumGhost
-                iconSource: "image://qtcreator/utils/images/settings.png?color=PanelTextColorMid"
-                ToolTip.text: qsTr("View options")
-                ToolTip.visible: hovered
-                onClicked: optionsMenu.popup(0, height)
-            }
 
             QtcSearchBox {
                 objectName: "searchBox"
+                // On the left, where the field this replaces draws it.
+                iconLeading: true
                 placeholderText: qsTr("Search")
                 Layout.preferredWidth: Metrics.lineEditWidth
 
@@ -674,8 +677,13 @@ Window {
             Item { Layout.fillWidth: true }
         }
 
-        RowLayout {
-            spacing: Spacing.GapHM
+        // Draggable, as the widget dialog's splitter is: how much room the
+        // places deserve is the reader's to decide, and a long device name
+        // could not be read at all at a width they could not change. Neither
+        // side collapses, which is what childrenCollapsible(false) says there.
+        SplitView {
+            objectName: "sidebarSplit"
+            orientation: Qt.Horizontal
             Layout.fillWidth: true
             Layout.fillHeight: true
 
@@ -685,9 +693,8 @@ Window {
                 spacing: Spacing.GapVS
                 // Wide enough for a place's name and no wider: the listing is
                 // what the reader came for.
-                Layout.preferredWidth: Metrics.lineEditWidth
-                Layout.maximumWidth: Metrics.formLabelWidth
-                Layout.fillHeight: true
+                SplitView.preferredWidth: Metrics.lineEditWidth
+                SplitView.minimumWidth: Metrics.listRowIconSize * 4
 
                 Label {
                     text: qsTr("Favorites")
@@ -820,8 +827,7 @@ Window {
 
             ColumnLayout {
                 spacing: Spacing.GapVS
-                Layout.fillWidth: true
-                Layout.fillHeight: true
+                SplitView.fillWidth: true
 
                 // What each column is. A file dialog that shows only names
                 // makes the reader open a file to find out which one it is.
@@ -830,19 +836,44 @@ Window {
                     visible: !root.showingIcons
                     Layout.fillWidth: true
 
-                    Label {
-                        text: qsTr("Name")
-                        font: Fonts.captionStrong
-                        color: Tokens.textMuted
+                    // Clicking turns the listing round, and the arrow says
+                    // which way it is read. Only this heading acts: the
+                    // widget's header sorts on one key whichever column is
+                    // clicked, so a Size or Date heading that took a click
+                    // would promise an order it does not give.
+                    RowLayout {
+                        objectName: "nameHeading"
+                        spacing: Spacing.GapHXs
                         Layout.fillWidth: true
+
+                        Label {
+                            text: qsTr("Name")
+                            font: Fonts.captionStrong
+                            color: Tokens.textMuted
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        Image {
+                            objectName: "sortIndicator"
+                            source: browser.sortDescending
+                                    ? "image://qtcreator/utils/images/arrowdown.png?color=Token_Text_Muted"
+                                    : "image://qtcreator/utils/images/arrowup.png?color=Token_Text_Muted"
+                            sourceSize.width: Metrics.listRowIconSize
+                            sourceSize.height: Metrics.listRowIconSize
+                            fillMode: Image.PreserveAspectFit
+                        }
+
+                        TapHandler {
+                            onTapped: browser.sortDescending = !browser.sortDescending
+                        }
                     }
 
                     Label {
                         text: qsTr("Size")
                         font: Fonts.captionStrong
                         color: Tokens.textMuted
-                        horizontalAlignment: Text.AlignRight
-                        Layout.preferredWidth: Metrics.lineEditWidth / 2
+                        Layout.preferredWidth: Metrics.lineEditWidth * 0.75
                     }
 
                     Label {
@@ -1003,7 +1034,7 @@ Window {
                                 text: entry.size
                                 color: Tokens.textMuted
                                 horizontalAlignment: Text.AlignRight
-                                Layout.preferredWidth: Metrics.lineEditWidth / 2
+                                Layout.preferredWidth: Metrics.lineEditWidth * 0.75
                             }
 
                             // What it is, in a column of its own. It was only

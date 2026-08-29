@@ -24,7 +24,17 @@ import QtCreator.Ui
 QtcLineEdit {
     id: root
 
-    rightContentPadding: Spacing.PaddingHM + Metrics.listRowIconSize + Spacing.GapHXs
+    // Which side the glyphs take. Trailing is what Utils::QtcSearchBox draws
+    // and so the default; the file dialog asks for leading, because the field
+    // it replaces is a hand-built FancyLineEdit with the magnifier on the left.
+    property bool iconLeading: false
+
+    leftContentPadding: root.iconLeading
+                        ? Spacing.PaddingHM + Metrics.listRowIconSize + Spacing.GapHXs
+                        : Spacing.PaddingHM
+    rightContentPadding: root.iconLeading
+                         ? Spacing.PaddingHM
+                         : Spacing.PaddingHM + Metrics.listRowIconSize + Spacing.GapHXs
 
     Accessible.searchEdit: true
 
@@ -40,7 +50,9 @@ QtcLineEdit {
         sourceSize.height: Metrics.listRowIconSize
         fillMode: Image.PreserveAspectFit
         opacity: root.enabled ? 1.0 : Metrics.disabledIconOpacity
-        anchors.right: parent.right
+        anchors.left: root.iconLeading ? parent.left : undefined
+        anchors.leftMargin: Spacing.PaddingHM
+        anchors.right: root.iconLeading ? undefined : parent.right
         anchors.rightMargin: Spacing.PaddingHM
         anchors.verticalCenter: parent.verticalCenter
     }
@@ -54,7 +66,9 @@ QtcLineEdit {
         sourceSize.width: Metrics.listRowIconSize
         sourceSize.height: Metrics.listRowIconSize
         fillMode: Image.PreserveAspectFit
-        anchors.right: parent.right
+        anchors.left: root.iconLeading ? parent.left : undefined
+        anchors.leftMargin: Spacing.PaddingHM
+        anchors.right: root.iconLeading ? undefined : parent.right
         anchors.rightMargin: Spacing.PaddingHM
         anchors.verticalCenter: parent.verticalCenter
 

@@ -225,6 +225,7 @@ private slots:
     void testEachArrangementNamesTheFileWhereItBelongs();
     void testTheArrangementFollowsTheHostUnlessItIsToldOtherwise();
     void testTheDialogLooksLikeTheOneItReplaces();
+    void testTheListingCanBeReadBothWaysRound();
     void testAFileTheFilterRejectsIsShownAndNotOffered();
     void testEveryEnclosingFolderIsSomewhereToGo();
     void testASearchCanBeUndoneWithoutTheKeyboard();
@@ -7183,6 +7184,80 @@ static void drawsAnIcon(QQuickItem *item, const QString &what)
     QVERIFY2(drawn, qPrintable(what + " draws no icon"));
 }
 
+
+// Turning the listing round. The widget dialog's header sorts on one key
+// whichever column is clicked - FileSortRole is directories first, then name
+// without regard to case - so what a click really changes is the direction,
+// and the caret is what says which way it is being read.
+void QuickUiTest::testTheListingCanBeReadBothWaysRound()
+{
+    Utils::TemporaryDirectory dir("quickui-sorting");
+    QVERIFY(dir.isValid());
+    const Utils::FilePath root = dir.path();
+    for (const QString &name : QStringList{"alpha.txt", "beta.txt", "gamma.txt"})
+        QVERIFY((root / name).writeFileContents("x"));
+    QVERIFY((root / "adir").createDir());
+
+    QtcQuick::FileBrowser browser;
+    browser.setDirectory(root.toUserOutput());
+    QtcQuick::FileEntries * const entries = browser.entries();
+    const auto listing = [entries] {
+        QStringList names;
+        for (int row = 0; row < entries->rowCount(); ++row) {
+            names << entries->data(entries->index(row, 0),
+                                   QtcQuick::FileEntries::NameRole).toString();
+        }
+        return names;
+    };
+
+    // Directories first, then by name: the order the widget dialog lists in.
+    QTRY_COMPARE(listing(), QStringList({"adir", "alpha.txt", "beta.txt", "gamma.txt"}));
+    QVERIFY(!browser.sortDescending());
+
+    // The other way round is the same key read backwards, so the directory
+    // goes last rather than staying pinned at the top.
+    browser.setSortDescending(true);
+    QTRY_COMPARE(listing(), QStringList({"gamma.txt", "beta.txt", "alpha.txt", "adir"}));
+    browser.setSortDescending(false);
+    QTRY_COMPARE(listing(), QStringList({"adir", "alpha.txt", "beta.txt", "gamma.txt"}));
+
+    // The dialog's heading is what turns it, and the arrow says which way.
+    QQmlComponent component(QtcQuick::engine(),
+                            QUrl("qrc:/qt/qml/QtCreator/Ui/QtcFileDialog.qml"));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    const std::unique_ptr<QObject> object(
+        component.createWithInitialProperties({{"classic", true}}));
+    QVERIFY(object);
+    auto * const dialog = qobject_cast<QQuickWindow *>(object.get());
+    QVERIFY(dialog);
+    dialog->setProperty("currentFolder", root.toUserOutput());
+    dialog->resize(900, 600);
+    dialog->show();
+    QVERIFY(QTest::qWaitForWindowExposed(dialog));
+
+    QObject * const shown = dialog->findChild<QObject *>("fileBrowser");
+    QVERIFY(shown);
+    QQuickItem * const heading = dialog->findChild<QQuickItem *>("nameHeading");
+    QVERIFY2(heading, "the listing has no heading to sort by");
+    QQuickItem * const caret = dialog->findChild<QQuickItem *>("sortIndicator");
+    QVERIFY2(caret, "nothing says which way the listing is read");
+
+    const QUrl ascending = caret->property("source").toUrl();
+    QVERIFY(!ascending.isEmpty());
+    const QPointF middle = heading->mapToScene(
+        QPointF(heading->width() / 2, heading->height() / 2));
+    QTest::mouseClick(dialog, Qt::LeftButton, Qt::NoModifier, middle.toPoint());
+    QTRY_VERIFY2(shown->property("sortDescending").toBool(),
+                 "clicking the heading did not turn the listing round");
+    QTRY_VERIFY2(caret->property("source").toUrl() != ascending,
+                 "the arrow points the same way whichever way the listing reads");
+
+    // And back, because it is the same heading.
+    QTest::mouseClick(dialog, Qt::LeftButton, Qt::NoModifier, middle.toPoint());
+    QTRY_VERIFY(!shown->property("sortDescending").toBool());
+    QCOMPARE(caret->property("source").toUrl(), ascending);
+}
+
 // What the widget file dialog looks like, in the places where the Quick one
 // had drifted: a row of glyphs rather than a row of words, a sidebar that
 // says what each place is, and the name and the kind of file on a row each.
@@ -7246,6 +7321,26 @@ void QuickUiTest::testTheDialogLooksLikeTheOneItReplaces()
     // in, which is the arrangement this dialog is not in.
     QVERIFY2(!dialog->findChild<QQuickItem *>("gotoButton")->isVisible(),
              "the classic arrangement offers a button for what its field does");
+
+    // The toolbar reads in the widget's order: the view options sit with the
+    // other glyphs, before the path, not after it.
+    QQuickItem * const gear = dialog->findChild<QQuickItem *>("optionsButton");
+    QQuickItem * const path = dialog->findChild<QQuickItem *>("pathField");
+    QVERIFY(gear && path);
+    QVERIFY2(gear->mapToScene(QPointF(0, 0)).x() < path->mapToScene(QPointF(0, 0)).x(),
+             "the view options are drawn after the path rather than before it");
+
+    // The search glyph takes the leading side, as the field it replaces does.
+    QQuickItem * const search = dialog->findChild<QQuickItem *>("searchBox");
+    QQuickItem * const glyph = dialog->findChild<QQuickItem *>("searchIcon");
+    QVERIFY(search && glyph);
+    QVERIFY2(glyph->mapToItem(search, QPointF(0, 0)).x() < search->width() / 2,
+             "the search glyph is drawn on the trailing side");
+
+    // How much room the places get is the reader's, as the widget's splitter
+    // makes it.
+    QVERIFY2(dialog->findChild<QQuickItem *>("sidebarSplit"),
+             "the sidebar cannot be resized");
 
     // Making a folder is a button of its own, not only a menu entry.
     QQuickItem * const newFolder = dialog->findChild<QQuickItem *>("newFolderButton");

@@ -142,6 +142,7 @@ public:
     QStringList m_nameFilters;
     bool m_hideFilteredFiles = !Utils::HostOsInfo::isMacHost();
     bool m_directoriesOnly = false;
+    bool m_sortDescending = false;
     QString m_searchText;
     // A recursive walk of a directory, which on a device is slow enough that
     // it has to be cancellable and has to report what it finds as it goes.
@@ -401,6 +402,21 @@ void FileBrowser::setHideFilteredFiles(bool hide)
         return;
     d->m_hideFilteredFiles = hide;
     emit hideFilteredFilesChanged();
+    rebuildEntries();
+}
+
+bool FileBrowser::sortDescending() const
+{
+    return d->m_sortDescending;
+}
+
+void FileBrowser::setSortDescending(bool descending)
+{
+    if (d->m_sortDescending == descending)
+        return;
+    d->m_sortDescending = descending;
+    d->m_proxy.sort(0, descending ? Qt::DescendingOrder : Qt::AscendingOrder);
+    emit sortDescendingChanged();
     rebuildEntries();
 }
 

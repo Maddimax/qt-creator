@@ -16342,3 +16342,51 @@ So the two configurations are complementary and neither is clean. Run it with
 as the artefact it is. Every test that is about this migration passes in that
 configuration; the four above pass there too.
 
+### Looking again, in save mode as well as open
+
+Grabbing all eight - two arrangements, open and saving, both dialogs, one
+process - turned up five differences that a screenshot shows and code reading
+had not. Four are fixed.
+
+**The view options were on the wrong side of the path.** The widget's row is
+back, forward, up, goto, **options**, path, search; this had the gear after
+the path field. Moved.
+
+**The search glyph was on the trailing side.** That was recorded as a design
+decision - `Utils::QtcSearchBox` draws trailing - but the field this actually
+replaces is the dialog's hand-built `FancyLineEdit`, whose magnifier is
+leading. `QtcSearchBox` takes an `iconLeading` now, false by default so the
+design system is unchanged, and the dialog asks for it.
+
+**The sidebar could not be resized.** The widget puts sidebar and listing in a
+`QSplitter` with `childrenCollapsible(false)` - the handle is visible in its
+screenshot. This was a fixed `Layout.preferredWidth`. It is a `SplitView` now,
+with a minimum width in place of the collapse guard.
+
+**The listing could not be turned round, and did not say how it was read.**
+`setSortingEnabled(true)` and a sort indicator on Name. Worth knowing before
+copying it: the widget's `lessThan()` uses `FileSortRole` *whatever column is
+clicked*, so clicking Size sorts by name too - all a click really changes is
+the direction. So only the Name heading acts here, and it carries the caret; a
+Size or Date heading that took a click would promise an order it cannot give.
+`FileBrowser::sortDescending` is the direction, and the caret follows it.
+
+Two smaller things went with it: the caret sits at the **right edge** of the
+Name column, where a header view draws it, and the Size *heading* is
+left-aligned while the sizes under it stay right-aligned - which is what the
+widget does, and what stopped "Size" and "Type" running together.
+
+**What is deliberately still different.** The widget's path is a combo showing
+the folder's name; this is an editable field showing the whole path, because
+it is what Ctrl+L and ⌘⇧G put the reader into and what they type a path into.
+The listing has no frame or column dividers and its columns cannot be dragged
+wider; that is header chrome a `ListView` does not have, and giving it some
+would be inventing styling the design system does not define.
+
+Save mode needed no changes: classic names the file at the bottom next to
+"Save As:", compact above the listing, and both match.
+
+Six controls, all biting - the heading not turning the listing, the caret not
+following, the direction not reaching the proxy, the glyph on the wrong side,
+the splitter gone, and the gear back after the path.
+
