@@ -27,6 +27,37 @@ RowLayout {
     readonly property bool wantsDirectory:
         pathKind === "" || pathKind === "Any"
         || pathKind === "ExistingDirectory" || pathKind === "Directory"
+    // Whether an entry may name somewhere that is not this machine.
+    readonly property bool allowsDevicePaths: pres.allowPathFromDevice ?? false
+
+    // Qt Creator's own dialog, which reaches a device. Made when it is needed
+    // and destroyed with it, because it is a window.
+    function browseOnADevice(): void {
+        const dialog = deviceDialog.createObject(null, {
+            "mode": root.wantsDirectory ? QtcFileDialog.OpenDirectory
+                                        : QtcFileDialog.OpenFiles,
+            "currentFolder": root.startFolder,
+            "nameFilter": root.pres.promptDialogFilter ?? ""
+        })
+        if (!dialog)
+            return
+        dialog.accepted.connect((paths) => {
+            root.append(paths)
+            dialog.destroy()
+        })
+        dialog.rejected.connect(() => dialog.destroy())
+        dialog.show()
+    }
+
+    // Where browsing starts: beside the last entry in the list, which is the
+    // one the reader most likely wants another beside. A list has no single
+    // value for the aspect to answer about, so this asks about that entry.
+    readonly property string startFolder: {
+        const values = root.aspect?.value ?? []
+        if (values.length === 0)
+            return ""
+        return root.aspect.browseStartDirectory(String(values[values.length - 1]))
+    }
 
     function append(paths: list<string>): void {
         if (!root.aspect || paths.length === 0)
@@ -76,7 +107,37 @@ RowLayout {
         text: qsTr("Add...")
         visible: root.pres.allowAdding ?? true
         enabled: root.editable
-        onClicked: root.wantsDirectory ? folderDialog.open() : fileDialog.open()
+        onClicked: (mouse) => {
+            // The same rule the path field follows: our own dialog for a path
+            // on a device, or when Shift asks for one; the platform's
+            // otherwise, so that its usual picker is not taken away.
+            const values = root.aspect?.value ?? []
+            const last = values.length > 0 ? String(values[values.length - 1]) : ""
+            const onADevice = last !== "" && !AspectModels.isLocalPath(last)
+            const asked = (mouse.modifiers & Qt.ShiftModifier) !== 0
+            if (root.allowsDevicePaths && (onADevice || asked)) {
+                root.browseOnADevice()
+                return
+            }
+
+            const url = root.startFolder !== ""
+                      ? Qt.resolvedUrl("file://" + root.startFolder) : ""
+            if (root.wantsDirectory) {
+                if (url !== "")
+                    folderDialog.currentFolder = url
+                folderDialog.open()
+            } else {
+                if (url !== "")
+                    fileDialog.currentFolder = url
+                fileDialog.open()
+            }
+        }
+    }
+
+    Component {
+        id: deviceDialog
+
+        QtcFileDialog {}
     }
 
     FileDialog {

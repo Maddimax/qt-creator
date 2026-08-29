@@ -14684,3 +14684,22 @@ group in the first one named a single pattern, so counting patterns and
 counting groups gave the same answer - the mistake the control introduces was
 invisible. A group naming two patterns is both the usual shape of a real filter
 and the only shape that tells the two apart.
+
+### Several at once, and the other delegate that browses
+
+A list of paths - include paths, suppression files - is added to several at a
+time, so the dialog had to learn to choose several or it would be a worse
+answer on a device than the platform dialog it stands in for. `accepted` now
+always carries a list, in every mode: a caller that wants one takes the first,
+and there is one shape to remember instead of two.
+
+`FilePathListDelegate` was the other place in the Quick UI that browses, and it
+had both of the problems the path field had: no way to reach a device, and no
+start folder, so its dialog opened wherever the platform was last. It follows
+the same rule now, starting beside the last entry in the list - the one a
+reader adding another is most likely thinking of.
+
+The control worth keeping: what was picked is picked *by row*, so going to
+another directory has to forget it. Nothing was testing that, and rows 0 and 2
+of another directory are other files entirely - accepting would have handed
+those back without a word.

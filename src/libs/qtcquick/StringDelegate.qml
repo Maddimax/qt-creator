@@ -45,9 +45,9 @@ RowLayout {
         })
         if (!dialog)
             return
-        dialog.accepted.connect((path) => {
-            if (delegate.aspect)
-                delegate.aspect.value = path
+        dialog.accepted.connect((paths) => {
+            if (delegate.aspect && paths.length > 0)
+                delegate.aspect.value = paths[0]
             dialog.destroy()
         })
         dialog.rejected.connect(() => dialog.destroy())

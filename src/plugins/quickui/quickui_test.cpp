@@ -260,6 +260,7 @@ private slots:
     void testTheFileBrowserRemembersWhereItHasBeen();
     void testTheFileBrowserFindsFilesBelowTheDirectory();
     void testTheFileDialogOffersEachKindOfFileSeparately();
+    void testTheFileDialogCanChooseSeveralFilesAtOnce();
     void testSeveralLinesCompleteTheWordTheCursorIsIn();
     void testColourOffersToGoBackToItsDefault();
     void testColourWithNoResetHasNoButton();
@@ -4827,19 +4828,21 @@ void QuickUiTest::testTheFileDialogChoosesAFileWithoutAskingThePlatform()
 
     // Nothing picked yet, so there is nothing to accept: a dialog whose Open
     // button is live with no answer would hand back an empty path.
-    QVERIFY(dialog->property("wouldChoose").toString().isEmpty());
+    QVERIFY(dialog->property("wouldChooseAll").toStringList().isEmpty());
 
     // Picking the file by name is what typing into the field does.
     QObject * const nameField = dialog->findChild<QObject *>("nameField");
     QVERIFY(nameField);
     nameField->setProperty("text", "chosen.txt");
-    QCOMPARE(Utils::FilePath::fromUserInput(dialog->property("wouldChoose").toString()),
-             root / "chosen.txt");
+    QCOMPARE(dialog->property("wouldChooseAll").toStringList(),
+             QStringList({(root / "chosen.txt").toUserOutput()}));
 
-    QSignalSpy accepted(dialog.get(), SIGNAL(accepted(QString)));
+    QSignalSpy accepted(dialog.get(), SIGNAL(accepted(QStringList)));
     QMetaObject::invokeMethod(dialog.get(), "accept");
     QCOMPARE(accepted.size(), 1);
-    QCOMPARE(Utils::FilePath::fromUserInput(accepted.at(0).at(0).toString()),
+    // Always a list, even here where only one can be chosen.
+    QCOMPARE(accepted.at(0).at(0).toStringList().size(), 1);
+    QCOMPARE(Utils::FilePath::fromUserInput(accepted.at(0).at(0).toStringList().first()),
              root / "chosen.txt");
     QCOMPARE(Utils::FilePath::fromUserInput(dialog->property("selectedFile").toString()),
              root / "chosen.txt");
@@ -4850,8 +4853,8 @@ void QuickUiTest::testTheFileDialogChoosesAFileWithoutAskingThePlatform()
     QVERIFY(forDirectory);
     forDirectory->setProperty("mode", 1); // QtcFileDialog.OpenDirectory
     forDirectory->setProperty("currentFolder", inner.toUserOutput());
-    QCOMPARE(Utils::FilePath::fromUserInput(forDirectory->property("wouldChoose").toString()),
-             inner);
+    QCOMPARE(forDirectory->property("wouldChooseAll").toStringList(),
+             QStringList({inner.toUserOutput()}));
 
     // And cancelling says so and chooses nothing.
     QSignalSpy rejected(forDirectory.get(), SIGNAL(rejected()));
@@ -5100,6 +5103,83 @@ void QuickUiTest::testTheFileDialogOffersEachKindOfFileSeparately()
     QCOMPARE(browser->nameFilters(), QStringList({"*.cpp", "*.h"}));
     QVERIFY2(!filterBox->property("visible").toBool(),
              "a choice of one is offered as a choice");
+}
+
+// A list of paths - include paths, suppression files - is added to several at
+// a time. The platform dialog does that and ours has to as well, or the Quick
+// dialog is a worse answer than the one it replaces on a device.
+void QuickUiTest::testTheFileDialogCanChooseSeveralFilesAtOnce()
+{
+    Utils::TemporaryDirectory dir("quickui-dialog-several");
+    QVERIFY(dir.isValid());
+    const Utils::FilePath root = dir.path();
+    QVERIFY((root / "one.txt").writeFileContents("x"));
+    QVERIFY((root / "two.txt").writeFileContents("x"));
+    QVERIFY((root / "three.txt").writeFileContents("x"));
+    const Utils::FilePath elsewhere = root / "elsewhere";
+    QVERIFY(elsewhere.createDir());
+    QVERIFY((elsewhere / "unrelated.txt").writeFileContents("x"));
+
+    QQmlComponent component(QtcQuick::engine(),
+                            QUrl("qrc:/qt/qml/QtCreator/Ui/QtcFileDialog.qml"));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    const std::unique_ptr<QObject> dialog(component.create());
+    QVERIFY(dialog);
+
+    dialog->setProperty("mode", 3); // QtcFileDialog.OpenFiles
+    dialog->setProperty("currentFolder", root.toUserOutput());
+    auto * const browser = dialog->findChild<QtcQuick::FileBrowser *>("fileBrowser");
+    QVERIFY(browser);
+    QTRY_COMPARE(browser->entries()->rowCount(), 4);
+
+    // Two of the three, picked the way holding Ctrl or Command picks them.
+    const auto rowOf = [browser](const QString &name) {
+        for (int row = 0; row < browser->entries()->rowCount(); ++row) {
+            if (browser->filePathAt(row).endsWith(name))
+                return row;
+        }
+        return -1;
+    };
+    const int first = rowOf("one.txt");
+    const int third = rowOf("three.txt");
+    QVERIFY(first >= 0 && third >= 0);
+    dialog->setProperty("alsoPicked", QVariantList({first, third}));
+
+    const QStringList would = dialog->property("wouldChooseAll").toStringList();
+    QCOMPARE(would.size(), 2);
+    QVERIFY(would.contains((root / "one.txt").toUserOutput()));
+    QVERIFY(would.contains((root / "three.txt").toUserOutput()));
+
+    // What was picked is picked by row, so going somewhere else has to forget
+    // it: rows 0 and 2 of another directory are other files entirely, and
+    // accepting would quietly hand those back instead.
+    dialog->setProperty("currentFolder", elsewhere.toUserOutput());
+    QTRY_COMPARE(browser->entries()->rowCount(), 1);
+    QCOMPARE(dialog->property("alsoPicked").toList().size(), 0);
+    QVERIFY2(!dialog->property("wouldChooseAll").toStringList().contains(
+                 (root / "one.txt").toUserOutput()),
+             "a file picked in another directory is still being offered");
+    dialog->setProperty("currentFolder", root.toUserOutput());
+    QTRY_COMPARE(browser->entries()->rowCount(), 4);
+    dialog->setProperty("alsoPicked",
+                        QVariantList({rowOf("one.txt"), rowOf("three.txt")}));
+
+    QSignalSpy accepted(dialog.get(), SIGNAL(accepted(QStringList)));
+    QMetaObject::invokeMethod(dialog.get(), "accept");
+    QCOMPARE(accepted.size(), 1);
+    QCOMPARE(accepted.at(0).at(0).toStringList().size(), 2);
+    QCOMPARE(dialog->property("selectedFiles").toStringList().size(), 2);
+
+    // And a dialog choosing one still answers with a list of one, so a caller
+    // has one shape to deal with.
+    const std::unique_ptr<QObject> single(component.create());
+    QVERIFY(single);
+    single->setProperty("currentFolder", root.toUserOutput());
+    QObject * const nameField = single->findChild<QObject *>("nameField");
+    QVERIFY(nameField);
+    nameField->setProperty("text", "two.txt");
+    QCOMPARE(single->property("wouldChooseAll").toStringList(),
+             QStringList({(root / "two.txt").toUserOutput()}));
 }
 
 void QuickUiTest::testSeveralLinesCompleteTheWordTheCursorIsIn()

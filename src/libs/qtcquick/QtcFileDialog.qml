@@ -19,7 +19,7 @@ import QtCreator.Ui
 Window {
     id: root
 
-    enum Mode { OpenFile, OpenDirectory, SaveFile }
+    enum Mode { OpenFile, OpenDirectory, SaveFile, OpenFiles }
 
     property int mode: QtcFileDialog.OpenFile
     // Where it opens, and what it is called.
@@ -50,8 +50,12 @@ Window {
     }
     // What the reader settled on. Empty until they do.
     property string selectedFile: ""
+    property var selectedFiles: []
 
-    signal accepted(string path)
+    // Always a list, even where only one can be chosen: a caller that wants
+    // one takes the first, and there is one shape to remember rather than
+    // two.
+    signal accepted(list<string> paths)
     signal rejected()
 
     // What the buttons say, which is what the dialog is for.
@@ -59,6 +63,11 @@ Window {
                                          ? qsTr("Save") : qsTr("Open")
     readonly property bool choosingDirectory: root.mode === QtcFileDialog.OpenDirectory
     readonly property bool naming: root.mode === QtcFileDialog.SaveFile
+    // Several at once - what a list of paths is added to from.
+    readonly property bool choosingSeveral: root.mode === QtcFileDialog.OpenFiles
+    // The rows picked with Ctrl or Command held, when several may be. Plain
+    // clicking picks one and forgets the rest.
+    property var alsoPicked: []
 
     // What accepting now would choose: what is typed if anything is, then the
     // row that is selected, and for a directory dialog the directory itself.
@@ -70,18 +79,31 @@ Window {
         return root.choosingDirectory ? browser.directory : ""
     }
 
+    // Everything accepting now would choose. One entry for every mode but
+    // OpenFiles, where it is what was picked with Ctrl or Command held.
+    readonly property var wouldChooseAll: {
+        if (!root.choosingSeveral || root.alsoPicked.length === 0)
+            return root.wouldChoose === "" ? [] : [root.wouldChoose]
+        const all = []
+        for (let i = 0; i < root.alsoPicked.length; ++i)
+            all.push(browser.filePathAt(root.alsoPicked[i]))
+        return all
+    }
+
     function accept(): void {
-        const chosen = root.wouldChoose
-        if (chosen === "")
+        const chosen = root.wouldChooseAll
+        if (chosen.length === 0)
             return
         // A directory chosen in a file dialog is somewhere to go, not an
         // answer: the reader clicked Open on a folder.
         if (!root.choosingDirectory && list.currentIndex >= 0
+                && root.alsoPicked.length === 0
                 && nameField.text === "" && browser.isDirectoryAt(list.currentIndex)) {
             browser.enter(list.currentIndex)
             return
         }
-        root.selectedFile = chosen
+        root.selectedFile = chosen[0]
+        root.selectedFiles = chosen
         root.accepted(chosen)
         root.close()
     }
@@ -114,6 +136,7 @@ Window {
         // the directory that was being looked at.
         onDirectoryChanged: {
             list.currentIndex = -1
+            root.alsoPicked = []
             if (!root.naming)
                 nameField.text = ""
         }
@@ -326,10 +349,24 @@ Window {
                         width: list.width
                         text: entry.isDir ? entry.name + "/" : entry.name
                         highlighted: list.currentIndex === entry.index
+                                     || root.alsoPicked.indexOf(entry.index) >= 0
 
-                        onClicked: {
+                        onClicked: (mouse) => {
+                            const adding = root.choosingSeveral
+                                && (mouse.modifiers & (Qt.ControlModifier | Qt.MetaModifier)) !== 0
+                            if (adding) {
+                                const picked = root.alsoPicked.slice()
+                                const at = picked.indexOf(entry.index)
+                                if (at >= 0)
+                                    picked.splice(at, 1)
+                                else
+                                    picked.push(entry.index)
+                                root.alsoPicked = picked
+                            } else {
+                                root.alsoPicked = []
+                            }
                             list.currentIndex = entry.index
-                            if (!entry.isDir)
+                            if (!entry.isDir && !adding)
                                 nameField.text = entry.name
                         }
                         onDoubleClicked: {
@@ -400,7 +437,7 @@ Window {
             QtcButton {
                 objectName: "acceptButton"
                 text: root.acceptText
-                enabled: root.wouldChoose !== ""
+                enabled: root.wouldChooseAll.length > 0
                 onClicked: root.accept()
             }
         }
