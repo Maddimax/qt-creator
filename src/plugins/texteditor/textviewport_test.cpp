@@ -5642,6 +5642,43 @@ private slots:
                  "the suggestion survived text it cannot be reached from");
     }
 
+    // Escape is the way to be rid of a suggestion without taking it: the one
+    // thing on screen the reader never asked for, so the key that dismisses
+    // things dismisses it first.
+    //
+    // It cannot be shown beside several carets - moving to a second one
+    // leaves the line the suggestion is about, which ends it - so there is no
+    // arrangement in which the two orders differ, and this says only that
+    // Escape reaches the suggestion at all.
+    void testEscapeTakesTheSuggestionAway()
+    {
+        TemporaryDirectory dir("qtc-viewport-suggestionescape");
+        const FilePath file = dir.filePath("plain.txt");
+        QVERIFY(file.writeFileContents("ret\nsecond\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        viewport->setReadOnly(false);
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+
+        QTextDocument * const text = viewport->textDocument()->document();
+        viewport->setCursorPosition(3);
+        auto suggestion = std::make_unique<CyclicSuggestion>(
+            QList<TextSuggestion::Data>{{{{1, 0}, {1, 3}}, {1, 3}, "return value;"}}, text, 0);
+        suggestion->setCurrentPosition(3);
+        viewport->insertSuggestion(std::move(suggestion));
+        QTRY_COMPARE(viewport->visibleLine(0).value("text").toString(), QString("return value;"));
+
+        QTest::keyClick(&fixture.view, Qt::Key_Escape);
+        QVERIFY2(!viewport->currentSuggestion(), "Escape left the suggestion up");
+        // Dismissed, not taken: the line says what it said, and stops being
+        // drawn as anything else.
+        QCOMPARE(text->findBlockByNumber(0).text(), QString("ret"));
+        QTRY_COMPARE(viewport->visibleLine(0).value("text").toString(), QString("ret"));
+    }
+
     // The text can also change without this view's caret moving - another
     // view editing the same document, or an undo. The suggestion is about
     // that text, so it is looked at again then too.

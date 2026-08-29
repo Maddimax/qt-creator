@@ -14377,3 +14377,16 @@ Taking a suggestion in full does *not* end it: the line then reads what was
 offered, so it still describes the text and stays. The widget editor does the
 same, and the test says so rather than asserting a tidier rule that neither
 editor follows.
+
+### Escape
+
+Escape dismisses a suggestion without taking it, before it means anything else
+- the widget editor's order, and the reason for it is that a suggestion is the
+one thing on screen the reader never asked for.
+
+The test for it claims less than the first draft did. "Before the carets" needs
+a state with both a suggestion and several carets, and there is none: moving to
+a second caret leaves the line the suggestion is about, which ends it. The
+control for the ordering half accordingly did not bite, and the assertion that
+the caret had not moved could not fail either, so both are gone. What is left
+says Escape reaches the suggestion, which is what was actually built.

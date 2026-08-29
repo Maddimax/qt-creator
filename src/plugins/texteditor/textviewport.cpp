@@ -1861,6 +1861,15 @@ void TextViewport::keyPressEvent(QKeyEvent *event)
     // there is more than one: Escape means other things elsewhere, and taking
     // it always would be taking it from them.
     if (event->key() == Qt::Key_Escape) {
+        // A suggestion first, which is what the widget editor takes Escape
+        // for before anything else: it is the thing on screen that the reader
+        // most likely means to be rid of, and it is the only one that is
+        // there without having been asked for.
+        if (currentSuggestion()) {
+            clearSuggestion();
+            event->accept();
+            return;
+        }
         if (m_extraCursors.isEmpty()) {
             QQuickItem::keyPressEvent(event);
             return;
