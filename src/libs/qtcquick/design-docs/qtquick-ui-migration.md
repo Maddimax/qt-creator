@@ -15625,3 +15625,36 @@ nothing else. So the three are now instantiated with properties and asked
 whether they draw - an implicit size at all, and the badge's text among what
 it shows. Its controls: blanking the badge's text, and pinning the progress
 bar's implicit width to zero.
+
+### The build-system rule, actually checked
+
+CLAUDE.md says the CMake and qbs descriptions must be kept in step, and this
+branch has added 249 `.qml` files across 149 commits. Textual mirroring is not
+what that rule asks for - five hand-written Quick products once shipped a
+`.qbs` that could not resolve at all, and it survived a whole phase because
+nobody resolved. So both halves are now checked.
+
+**Does it resolve?** With an isolated settings directory and a `qt6` profile
+based on `clang`, `qbs resolve -f qtcreator.qbs` reports 19 errors and every
+one of them is inside the vendored `src/shared/qbs` - "product 'qbscore' is
+disabled" and the products that depend on it. Nothing about `src/libs` or
+`src/plugins`. That silence only means something if a break would speak, so
+the control adds `"doesnotexist.cpp"` to `QtcQuick`'s files and the resolve
+answers
+
+    src/libs/qtcquick/qtcquick.qbs:1:1 Error while handling product 'QtcQuick':
+    File '.../src/libs/qtcquick/doesnotexist.cpp' does not exist.
+
+**Is every file listed?** Resolve cannot catch a `.qml` that no `.qbs`
+mentions - qbs does not complain about files it was never told about. Of the
+249 added, 241 are listed. The eight that are not are a QmlDesigner resource
+under `share/`, a vendored qtkeychain example, and six pieces of test data
+(debugger inferiors and manual test apps): resources and fixtures, not members
+of a QML module.
+
+Two false alarms on the way, both worth knowing for anyone re-running this. A
+directory can hold more than one `.qbs` - `texteditor.qbs` carries the `qml`
+group and `texteditorsupport.qbs` does not, so checking only the first one
+found reports 24 pages as unlisted. And a product can list its files with a
+bare `"*"`: `qmldesigner.qbs` is four lines long and covers everything, so its
+settings page is listed without the word `qml` appearing in the file.
