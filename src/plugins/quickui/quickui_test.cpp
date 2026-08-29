@@ -201,6 +201,7 @@ private slots:
     void testTheDialogLooksLikeTheOneItReplaces();
     void testAFileTheFilterRejectsIsShownAndNotOffered();
     void testEveryEnclosingFolderIsSomewhereToGo();
+    void testASearchCanBeUndoneWithoutTheKeyboard();
     void testANumberOnItsOwnSaysWhatItCounts();
     void testMakeDefaultSaysWhatItWouldDefault();
     void testALabelTooLongForItsColumnSaysItInFull();
@@ -6333,6 +6334,68 @@ void QuickUiTest::testEveryEnclosingFolderIsSomewhereToGo()
     QObject * const item = dialog->findChild<QObject *>("fullPathsItem");
     QVERIFY(item);
     QVERIFY(item->property("checked").toBool());
+}
+
+
+// The search field. Its magnifier was drawn at twice its size - an Image with
+// no size of its own draws whatever the provider hands back - and there was
+// no way at all to clear a search with the pointer. The field it replaces has
+// a magnifier on one side and a clear button on the other; here they share
+// the corner, since one is for an empty field and the other never is.
+void QuickUiTest::testASearchCanBeUndoneWithoutTheKeyboard()
+{
+    QQmlComponent component(QtcQuick::engine(),
+                            QUrl("qrc:/qt/qml/QtCreator/Ui/QtcFileDialog.qml"));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    const std::unique_ptr<QObject> object(
+        component.createWithInitialProperties({{"classic", true}}));
+    QVERIFY(object);
+    auto * const dialog = qobject_cast<QQuickWindow *>(object.get());
+    QVERIFY(dialog);
+    dialog->setProperty("currentFolder", QDir::tempPath());
+    dialog->resize(900, 600);
+    dialog->show();
+    QVERIFY(QTest::qWaitForWindowExposed(dialog));
+
+    QQuickItem * const search = dialog->findChild<QQuickItem *>("searchBox");
+    QVERIFY(search);
+    QQuickItem * const magnifier = dialog->findChild<QQuickItem *>("searchIcon");
+    QQuickItem * const clear = dialog->findChild<QQuickItem *>("clearButton");
+    QVERIFY(magnifier && clear);
+
+    // Drawn at the size the rest of the dialog draws icons at, not at the
+    // size the provider happens to hand back.
+    QTRY_COMPARE(magnifier->property("status").toInt(), 1);
+    QCOMPARE(magnifier->property("paintedWidth").toReal(), qreal(16));
+
+    // Empty: the magnifier says what the field is for, and there is nothing
+    // to clear.
+    QCOMPARE(search->property("text").toString(), QString());
+    QVERIFY(magnifier->isVisible());
+    QVERIFY2(!clear->isVisible(), "an empty search offers to be cleared");
+
+    // Typed in: the field says what it holds, and offers to undo it. They
+    // share a corner, so both being visible would draw one over the other.
+    search->setProperty("text", "needle");
+    QTRY_VERIFY(clear->isVisible());
+    QVERIFY2(!magnifier->isVisible(), "the magnifier is drawn over the clear button");
+    QCOMPARE(clear->property("paintedWidth").toReal(), qreal(16));
+
+    // And it reaches the browser, which is what a search is for.
+    QObject * const browser = dialog->findChild<QObject *>("fileBrowser");
+    QVERIFY(browser);
+    QTRY_COMPARE(browser->property("searchText").toString(), QString("needle"));
+
+    // Clicking it puts the field back and stops the search. Clicked rather
+    // than cleared from here: the point of the button is that the pointer can
+    // undo a search, and setting the text would pass without it.
+    const QPointF centre = clear->mapToScene(
+        QPointF(clear->width() / 2, clear->height() / 2));
+    QTest::mouseClick(dialog, Qt::LeftButton, Qt::NoModifier, centre.toPoint());
+    QTRY_COMPARE(search->property("text").toString(), QString());
+    QTRY_VERIFY(magnifier->isVisible());
+    QVERIFY(!clear->isVisible());
+    QTRY_COMPARE(browser->property("searchText").toString(), QString());
 }
 
 // Fails unless \a item really draws an icon: an Image under it that has

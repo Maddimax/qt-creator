@@ -15902,3 +15902,41 @@ One thing worth knowing for the next test that reads a menu: entries a
 model, so `findChild` and a walk over `children()` both come back empty. Ask
 the menu with `count` and `itemAt(i)`.
 
+### The search field, and a bug hiding in a comment
+
+Cropping the two search fields out of the grabs and putting them one above the
+other settled two questions that reading the code had not.
+
+The magnifier was drawn at **twice its size**. `QtcSearchBox`'s `Image` had no
+size of its own, so it drew whatever the provider handed back, which for these
+icons is the 2x pixmap - the same defect `QtcButton` had, found the same way.
+Beside a 16-pixel glyph in the widget it was unmistakable; in the code it is
+invisible.
+
+And there was **no way to clear a search with the pointer**. The widget file
+dialog does not use `Utils::QtcSearchBox` at all: it builds its own from a
+`FancyLineEdit` with `MAGNIFIER` on the left and `EDIT_CLEAR` on the right,
+auto-hiding, tooltipped "Clear". So the Quick field had a magnifier and
+nothing else, and a search could only be undone by selecting the text and
+deleting it. There is a clear button now. It takes the same corner as the
+magnifier rather than the other one, which costs nothing: one is drawn only
+for an empty field and the other never is.
+
+**What is still different, deliberately.** The widget dialog's magnifier is on
+the left because that field is a hand-built `FancyLineEdit`; `QtcSearchBox` -
+the design system's search field, which the Quick dialog uses - draws its icon
+on the right, and `Utils::QtcSearchBox::paintEvent()` does the same. Matching
+the dialog would mean making the shared component disagree with its own widget
+counterpart for one page's sake. The size was a bug; the side is a choice, and
+the choice is to follow the design system.
+
+The comment on the QML file had said it mirrors "a QtcLineEdit with a leading
+(here: trailing) search icon", which is what sent this looking in the first
+place: the widget's is trailing too, so there was nothing to explain. Reading
+`paintEvent()` rather than the comment is what settled it.
+
+Four controls: the missing `sourceSize`, the clear button never appearing, its
+tap not clearing, and both glyphs visible at once. The clear button is
+*clicked* in the test rather than the text being set - setting the text passes
+whether the button works or not, which is the whole point of having one.
+
