@@ -59,12 +59,8 @@ RowLayout {
     spacing: Spacing.GapHM
     Layout.fillWidth: true
 
-    Label {
+    FormLabel {
         text: root.labelText
-        Layout.preferredWidth: Metrics.formLabelWidth
-        // An aspect with no label of its own reserves no room for one.
-        visible: text !== ""
-        elide: Text.ElideRight
     }
 
     TextField {

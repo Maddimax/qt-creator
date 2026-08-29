@@ -178,6 +178,7 @@ private slots:
     void testNoButtonOffersAMnemonicItCannotHave();
     void testAFieldSaysWhatBelongsInIt();
     void testANumberOnItsOwnSaysWhatItCounts();
+    void testALabelTooLongForItsColumnSaysItInFull();
     void testAFieldShowsTheStartOfWhatItHolds();
     void testAGroupsContentStartsAtItsTop();
     void testALabelInAContinuationRowStaysWithItsControl();
@@ -541,6 +542,35 @@ void QuickUiTest::testAFieldShowsTheStartOfWhatItHolds()
 
     QVERIFY2(fields > 0, "no page drew a field holding anything, so this proves nothing");
     QVERIFY2(fromTheTail.isEmpty(), qPrintable("\n" + fromTheTail.join("\n")));
+}
+
+// The form's label column is a fixed width so that the labels down a page
+// line up, so a label longer than it is cut off - the widget form grew its
+// column to the widest label instead. The QML Profiler page offers "Report
+// items built in a handler ab...". What was cut off is what the tooltip says.
+void QuickUiTest::testALabelTooLongForItsColumnSaysItInFull()
+{
+    Utils::AspectContainer page;
+    Utils::IntegerAspect wordy(&page);
+    wordy.setLabelText("Report items built in a handler above this many milliseconds:");
+    wordy.setRange(0, 1000);
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+
+    QQuickItem *label = nullptr;
+    QTRY_VERIFY(label = findQmlComponents(quickWidget->rootObject(), "FormLabel")
+                            .value(0, nullptr));
+    QCOMPARE(label->property("text").toString(), wordy.labelText());
+
+    // Otherwise there is nothing for the tooltip to say and this proves
+    // nothing: the column has to be too narrow for the label.
+    QVERIFY2(label->property("truncated").toBool(),
+             "the label fits in its column, so it is not being cut off");
+    QCOMPARE(QQmlProperty(label, "ToolTip.text", qmlContext(label)).read().toString(),
+             wordy.labelText());
 }
 
 // A number that begins its row has to say what it counts. The Compile Output
@@ -2856,9 +2886,14 @@ void QuickUiTest::testSpinBoxDrawsItsPrefixAndSuffix()
     QQuickItem *delegate = nullptr;
     QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "IntegerDelegate"));
     QStringList drawn;
-    for (QQuickItem *label : findQmlComponents(delegate, "Label")) {
-        if (label->property("visible").toBool())
-            drawn << label->property("text").toString();
+    // Both kinds: the name in front is a FormLabel, which is a Label by
+    // another name, and findQmlComponents matches the type rather than what
+    // it derives from.
+    for (const QString &kind : {QString("FormLabel"), QString("Label")}) {
+        for (QQuickItem *label : findQmlComponents(delegate, kind)) {
+            if (label->property("visible").toBool())
+                drawn << label->property("text").toString();
+        }
     }
     QCOMPARE(drawn, QStringList({"Timeout:", "s"}));
 }
@@ -5378,6 +5413,11 @@ void QuickUiTest::testALabelSaysTheValueItCannotShowInFull()
                 continue;
             const QList<QQuickItem *> parts = findQmlComponents(label, "");
             for (QQuickItem *part : parts) {
+                // Not the name in front of it: a FormLabel says its own text
+                // when the column is too narrow for it, and what is asked
+                // here is what the *value* says.
+                if (QString::fromLatin1(part->metaObject()->className()).startsWith("FormLabel"))
+                    continue;
                 const QString text
                     = QQmlProperty(part, "ToolTip.text", qmlContext(part)).read().toString();
                 if (!text.isEmpty())

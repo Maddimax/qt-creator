@@ -46,13 +46,8 @@ RowLayout {
     spacing: Spacing.GapHM
     Layout.fillWidth: true
 
-    Label {
+    FormLabel {
         text: root.labelText
-        Layout.preferredWidth: Metrics.formLabelWidth
-        // A palette is a row of swatches with no labels at all; an aspect with
-        // no label of its own reserves no room for one.
-        visible: text !== ""
-        elide: Text.ElideRight
     }
 
     Rectangle {

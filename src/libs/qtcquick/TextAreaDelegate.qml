@@ -40,12 +40,9 @@ RowLayout {
     spacing: Spacing.GapHM
     Layout.fillWidth: true
 
-    Label {
+    FormLabel {
         text: delegate.labelText
-        visible: text !== ""
-        Layout.preferredWidth: Metrics.formLabelWidth
         Layout.alignment: Qt.AlignTop
-        elide: Text.ElideRight
     }
 
     // Framed: the style dresses a TextField but not a TextArea, so without one

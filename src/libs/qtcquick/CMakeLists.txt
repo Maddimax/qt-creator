@@ -54,6 +54,7 @@ if(TARGET QtcQuick)
       DoubleDelegate.qml
       FilePathListDelegate.qml
       FontFamilyDelegate.qml
+      FormLabel.qml
       GroupDelegate.qml
       InlineGroupDelegate.qml
       FlattenedGroupDelegate.qml

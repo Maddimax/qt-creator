@@ -15442,3 +15442,30 @@ the delegate was its parent's first child, which is true of the first row of a
 column and of nothing else in it - so the check quietly skipped every number
 in a column, including this one, and the control did not bite. In a column
 every child opens a row; in a row only the first does.
+
+### One form label instead of seventeen
+
+The QML Profiler page offers "Report items built in a handler ab..." and
+"Interval counts as regular within (...". The form's label column is a fixed
+`Metrics.formLabelWidth` so that the labels down a page line up whatever they
+belong to; the widget `Form` grew its column to the widest label instead, so
+nothing was ever cut off there.
+
+Growing the column is not available - each delegate is on its own and there is
+no shared measurement, so a label sized to its own text would put every row's
+control at a different x. So the label says in full, on hover, what it had to
+cut off.
+
+Seventeen delegates each had their own copy of the same eight lines, which is
+seventeen places to add that to. They now share `FormLabel`, which also owns
+the `compact` rule that four of them had grown separately. The `.qbs` group
+for these files is a `*.qml` wildcard, so a new one needs no qbs edit - only
+the `qt_add_qml_module` list in CMake.
+
+Two existing tests failed on the rename, and both were worth reading rather
+than fixing blind: one enumerated the delegate's `Label` components, which a
+`FormLabel` is not by class name; the other asked for "the first non-empty
+tooltip anywhere in the delegate" to check that an elided *value* says itself,
+and the label's new tooltip came first. Neither is a change in what the user
+sees - the label is still drawn, the value still says itself - so both
+searches were made specific rather than the behaviour reverted.

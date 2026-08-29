@@ -27,12 +27,8 @@ RowLayout {
     spacing: Spacing.GapHM
     Layout.fillWidth: true
 
-    Label {
+    FormLabel {
         text: root.labelText
-        Layout.preferredWidth: Metrics.formLabelWidth
-        // An aspect with no label of its own reserves no room for one.
-        visible: text !== ""
-        elide: Text.ElideRight
     }
 
     // Filling, so that a row of form-width controls is shrunk to fit rather
