@@ -499,6 +499,12 @@ public:
                     view->addCaretAtNextMatch();
             });
 
+        // Ctrl+Space already reaches the viewport as a key and the form
+        // already draws what comes back; what was missing was the menu entry
+        // and any shortcut the reader has bound instead. Same method the key
+        // handler calls, so the two cannot come to mean different things.
+        command(Constants::COMPLETE_THIS, &TextViewport::requestCompletions);
+
         command(Constants::FIND_USAGES, &TextViewport::findUsages);
         command(Constants::RENAME_SYMBOL, &TextViewport::renameSymbolUnderCursor);
         command(Constants::OPEN_CALL_HIERARCHY, &TextViewport::openCallHierarchy);
@@ -1045,6 +1051,47 @@ private slots:
         QVERIFY2(findUsages, "Find Usages is not registered in the editor's context");
         findUsages->trigger();
         QCOMPARE(usages.size(), 2);
+    }
+
+    // Ctrl+Space has always reached this editor as a key, and the form has
+    // always drawn what came back; the menu entry reached nothing. It answers
+    // by the same method the key handler calls.
+    void testAskingForCompletionsIsReachableAsACommand()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-complete");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("code.cpp");
+        QVERIFY(file.writeFileContents("int value = 1;\n"));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+        auto * const view = quick->rootObject()->findChild<TextViewport *>();
+        QVERIFY(view);
+        QTRY_VERIFY(view->visibleLineCount() > 0);
+
+        const Core::Context context = editor->context();
+        QAction *action = nullptr;
+        if (Core::Command * const cmd = Core::ActionManager::command(Constants::COMPLETE_THIS)) {
+            for (const Utils::Id &id : context) {
+                if ((action = cmd->actionForContext(id)))
+                    break;
+            }
+        }
+        QVERIFY2(action, "Complete This is not registered in the Quick editor's context");
+
+        // The answer arrives as a signal whether or not a language had
+        // anything to say - an empty list is still an answer, and is what
+        // this gets with no server running.
+        QSignalSpy answered(view, &TextViewport::completionsAvailable);
+        view->setCursorPosition(3);
+        action->trigger();
+        QTRY_VERIFY2(!answered.isEmpty(), "asking produced no answer at all");
     }
 
     void testAFileWithNoEditorOfItsOwnOpensHereToo()

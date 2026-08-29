@@ -13837,3 +13837,34 @@ which is what lets `symbolRequestsForEditor()` recognise it at all.
 
 Seventy commands. What is left is the assist group - completion, quick fixes,
 the function hint - and that one really does need somewhere to show a list.
+
+## The assist group, which was mostly not missing
+
+Six batches have ended by saying the assist commands need somewhere to show a
+completion list. That was wrong, and finding out how wrong took most of this
+batch.
+
+`CodeCompletion` already existed as a QML element, and `CodeEditor.qml` already
+drew a popup with it. Widening it from `CodeDocument` to `CodeSource` - the
+Quick editor shows a document somebody else opened, which is the latter and
+not the former - made it usable here, and a popup went into
+`CodeViewport.qml`. Then that file turned out to have completion in it
+already: a `completions` component at the caret, fed by
+`onCompletionsAvailable`, applying through `viewport.applyCompletion()`. Ten
+lines above the place the new popup was being added.
+
+So all of it came back out - the widened property too, because a public QML
+API should not change to serve a need that turned out not to exist. What was
+actually missing was one line: Ctrl+Space reached the viewport as a key and
+the form drew the answer, but `COMPLETE_THIS` was not registered, so the menu
+entry and any rebound shortcut reached nothing. It now calls
+`requestCompletions()`, which is the method the key handler calls.
+
+The other two are genuinely absent rather than unregistered: there is no
+`FunctionHint` or `QuickFix` anywhere in the viewport, by any name. They are
+deliberately **not** registered - an enabled menu entry that does nothing is
+worse than a grey one, and registering them would produce exactly that.
+
+Seventy-one commands. The remaining two are the first real feature work rather
+than plumbing, and the lesson from this batch applies to them: read what the
+form already does before deciding what it needs.
