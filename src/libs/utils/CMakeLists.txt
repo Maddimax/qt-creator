@@ -88,6 +88,7 @@ add_qtc_library(Utils
     guardedcallback.h
     guitest.cpp guitest.h
     guiutils.cpp guiutils.h
+    completionhistory.cpp completionhistory.h
     historycompleter.cpp historycompleter.h
     hostosinfo.cpp hostosinfo.h
     htmldocextractor.cpp htmldocextractor.h

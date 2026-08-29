@@ -176,6 +176,12 @@ public:
 
     QString labelText() const;
     QString plainLabelText() const;
+
+    // Puts what the field now holds into the list of what has been entered
+    // there before, when the aspect keeps one. What a form calls once the
+    // reader has finished with a field, so that it is offered next time.
+    // Nothing for an aspect with no history, which is most of them.
+    Q_INVOKABLE virtual void rememberValue();
     void setLabelText(const QString &labelText);
     void setLabelPixmap(const QPixmap &labelPixmap);
     void setControlObjectName(const QString &objectName);
@@ -890,6 +896,7 @@ public:
     void setDisplayFilter(const std::function<QString (const QString &)> &displayFilter);
     void setPlaceHolderText(const QString &placeHolderText);
     void setHistoryCompleter(const Key &historyCompleterKey);
+    void rememberValue() override;
     void setAcceptRichText(bool acceptRichText);
     void setUseResetButton();
     void setValidationFunction(const ValidationFunction &validator);
@@ -1017,6 +1024,7 @@ public:
     void setValidationFunction(const ValidationFunction &validator);
     void setDisplayFilter(const std::function<QString (const QString &)> &displayFilter);
     void setHistoryCompleter(const Key &historyCompleterKey);
+    void rememberValue() override;
     void setShowToolTipOnLabel(bool show);
     void setAutoApplyOnEditingFinished(bool applyOnEditingFinished);
     // Offers a way back to the default value beside the field.

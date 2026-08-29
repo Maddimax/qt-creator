@@ -14435,3 +14435,35 @@ Worth knowing which half is being checked where.
 A sweep for other API left callerless by the migration - exported functions
 taking a `TextEditorWidget *` whose only mentions are their own declaration and
 definition - turned up nothing else.
+
+### What the field used to remember
+
+Sweeping the porting commits for dropped setup calls turned up `setIndenter`
+and `resetSyntaxHighlighter` once - the snippet and preprocessor losses above -
+and `setHistoryCompleter` twelve times. The twelve are a different shape: the
+calls were not dropped, they *moved onto the aspect*, which looks right in a
+diff. Only `aspectwidgetrenderer.cpp` ever read `historyCompleterKey()`, so on
+a Quick page they said nothing at all. Make path, qmake path, debugger path,
+CMake tool path, Gerrit host, run arguments and the rest each stopped offering
+what had been typed there before, and nothing complained because nothing was
+broken - the field simply had no memory.
+
+The popup was already there: `CompletionPopup.qml` exists for
+`StringAspect::completions()`. What was missing was the history behind it. So
+`CompletionHistory` is the store without the QCompleter - `HistoryCompleter`
+now reads and writes through it, which is what keeps a field remembering the
+same things however it is drawn - and the two aspects that keep a history put
+it at the front of what they offer.
+
+Two details worth keeping:
+
+`rememberValue()` is on `BaseAspect` as a no-op rather than only on the two
+aspects that do it. `StringDelegate.qml` draws both strings and paths, and its
+`aspect` is typed as `Aspect`; a method that exists only on the subclasses
+would be a name QML resolves at runtime and qmllint cannot check, which is
+exactly the class of mistake the enforced signatures are there to catch.
+
+It records the *volatile* value, not the value. A settings page waits for
+Apply, so the aspect still holds the old text when the field is finished with -
+and recording that would remember the value the reader had just replaced. A
+field remembers what was typed into it, whether or not the page is applied.

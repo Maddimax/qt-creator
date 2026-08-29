@@ -3,6 +3,7 @@
 
 #include "historycompleter.h"
 
+#include "completionhistory.h"
 #include "qtcassert.h"
 #include "qtcsettings.h"
 #include "utilsicons.h"
@@ -31,6 +32,8 @@ public:
 
     QStringList list;
     Key historyKey;
+    // Without the shared prefix, which is CompletionHistory's to add.
+    Key shortHistoryKey;
     Key historyKeyIsLastItemEmpty;
     int maxLines;
     bool isLastItemEmpty = isLastItemEmptyDefault;
@@ -160,14 +163,10 @@ void HistoryCompleterPrivate::addEntry(const QString &str)
                                          isLastItemEmptyDefault);
         return;
     }
-    int removeIndex = list.indexOf(entry);
     beginResetModel();
-    if (removeIndex != -1)
-        list.removeAt(removeIndex);
-    list.prepend(entry);
-    list = list.mid(0, maxLines - 1);
+    CompletionHistory::addEntry(shortHistoryKey, entry, maxLines);
+    list = CompletionHistory::entries(shortHistoryKey, maxLines);
     endResetModel();
-    theSettings->setValueWithDefault(historyKey, list);
     isLastItemEmpty = false;
     theSettings->setValueWithDefault(historyKeyIsLastItemEmpty,
                                      isLastItemEmpty,
@@ -182,8 +181,9 @@ HistoryCompleter::HistoryCompleter(const Key &historyKey, int maxLines, QObject 
     QTC_ASSERT(theSettings, return);
 
     d->maxLines = maxLines;
+    d->shortHistoryKey = historyKey;
     d->historyKey = "CompleterHistory/" + historyKey;
-    d->list = theSettings->value(d->historyKey).toStringList().mid(0, maxLines);
+    d->list = CompletionHistory::entries(historyKey, maxLines);
     d->historyKeyIsLastItemEmpty = "CompleterHistory/" + historyKey + ".IsLastItemEmpty";
     d->isLastItemEmpty = theSettings->value(d->historyKeyIsLastItemEmpty, isLastItemEmptyDefault)
                              .toBool();
@@ -210,9 +210,7 @@ QString HistoryCompleter::historyItem() const
 
 bool HistoryCompleter::historyExistsFor(const Key &historyKey)
 {
-    QTC_ASSERT(theSettings, return false);
-    const Key fullKey = "CompleterHistory/" + historyKey;
-    return theSettings->value(fullKey).isValid();
+    return CompletionHistory::existsFor(historyKey);
 }
 
 HistoryCompleter::~HistoryCompleter()
@@ -237,6 +235,7 @@ void HistoryCompleter::addEntry(const QString &str)
 
 void HistoryCompleter::setSettings(QtcSettings *settings)
 {
+    CompletionHistory::setSettings(settings);
     Internal::theSettings = settings;
 }
 

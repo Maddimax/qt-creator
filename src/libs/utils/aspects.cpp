@@ -11,6 +11,7 @@
 #include "guard.h"
 #include "macroexpander.h"
 #include "pathvalidation.h"
+#include "completionhistory.h"
 #include "qtcassert.h"
 #include "qtcsettings.h"
 #include "store.h"
@@ -327,6 +328,8 @@ QString BaseAspect::labelText() const
 {
     return d->m_labelText;
 }
+
+void BaseAspect::rememberValue() {}
 
 QString BaseAspect::plainLabelText() const
 {
@@ -1314,8 +1317,24 @@ AspectPresentation StringAspect::presentation() const
     p.placeholderText = d->m_placeHolderText;
     p.withResetButton = d->m_useResetButton;
     p.defaultValue = defaultValue();
-    p.completions = d->m_completions;
+    // What was typed here before, offered the way the widget line edit offers
+    // it - through a completer. Ahead of anything the aspect was given: the
+    // last thing that worked is the likeliest next one.
+    p.completions = CompletionHistory::entries(d->m_historyCompleterKey) + d->m_completions;
     return p;
+}
+
+void StringAspect::rememberValue()
+{
+    if (d->m_historyCompleterKey.isEmpty())
+        return;
+    // What is in the field, which on a page that waits for Apply is not yet
+    // what the aspect holds. A field remembers what was typed into it, and
+    // that is worth offering again whether or not the page is applied.
+    CompletionHistory::addEntry(d->m_historyCompleterKey, volatileValue());
+    // What is on offer has changed, which is what makes the next form - and
+    // this one, which re-reads it - show what was just entered.
+    emit controlConfigurationChanged();
 }
 
 QString StringAspect::expandedValue() const
@@ -1769,7 +1788,16 @@ AspectPresentation FilePathAspect::presentation() const
     p.pathKind = static_cast<AspectControls::PathKind>(expectedKind());
     p.promptDialogTitle = promptDialogTitle();
     p.promptDialogFilter = promptDialogFilter();
+    p.completions = CompletionHistory::entries(d->m_historyCompleterKey);
     return p;
+}
+
+void FilePathAspect::rememberValue()
+{
+    if (d->m_historyCompleterKey.isEmpty())
+        return;
+    CompletionHistory::addEntry(d->m_historyCompleterKey, volatileValue());
+    emit controlConfigurationChanged();
 }
 
 /*!

@@ -191,6 +191,8 @@ QtcLibrary {
         "guitest.h",
         "guiutils.cpp",
         "guiutils.h",
+        "completionhistory.cpp",
+        "completionhistory.h",
         "historycompleter.cpp",
         "historycompleter.h",
         "hostosinfo.h",

@@ -5,6 +5,8 @@
 
 #include <coreplugin/dialogs/ioptionspage.h>
 
+#include <utils/completionhistory.h>
+#include <utils/historycompleter.h>
 #include <utils/aspectwidgets.h>
 #include <coreplugin/secretaspect.h>
 
@@ -240,6 +242,7 @@ private slots:
     void testFieldSaysWhatIsWrongAndKeepsItOut();
     void testFieldWaitsForAnAnswerItHasToFetch();
     void testAFieldCompletesAgainstWhatTheAspectOffers();
+    void testAFieldOffersWhatWasTypedIntoItBefore();
     void testSeveralLinesCompleteTheWordTheCursorIsIn();
     void testColourOffersToGoBackToItsDefault();
     void testColourWithNoResetHasNoButton();
@@ -4353,6 +4356,63 @@ void QuickUiTest::testAFieldCompletesAgainstWhatTheAspectOffers()
     QMetaObject::invokeMethod(popup, "acceptCurrent");
     QCOMPARE(field->property("text").toString(), QString("pad-oper"));
     QTRY_VERIFY(!popup->property("visible").toBool());
+}
+
+// A field with a history remembers what was entered into it and offers it
+// next time. The widget line edit does this through a QCompleter, which is why
+// a dozen pages set a history key and then, once drawn with Qt Quick, offered
+// nothing at all: only the widget renderer read that key.
+void QuickUiTest::testAFieldOffersWhatWasTypedIntoItBefore()
+{
+    const Utils::Key key = "QuickUiTest.MakePath";
+    Utils::CompletionHistory::clear(key);
+    const QScopeGuard forget([key] { Utils::CompletionHistory::clear(key); });
+
+    Utils::AspectContainer page;
+    page.setAutoApply(false);
+    Utils::StringAspect makePath(&page);
+    makePath.setLabelText("Make path");
+    makePath.setDisplayStyle(Utils::StringAspect::LineEditDisplay);
+    makePath.setHistoryCompleter(key);
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+
+    QQuickItem *field = nullptr;
+    QTRY_VERIFY(field = findQmlComponent(quickWidget->rootObject(), "TextField"));
+    QObject *popup = field->findChild<QObject *>("completionPopup");
+    QVERIFY(popup);
+    // Nothing has been entered here before, so there is nothing to offer.
+    QVERIFY(popup->property("completions").toStringList().isEmpty());
+
+    // Entered and finished with, which is when a field remembers.
+    field->setProperty("text", "/usr/bin/make");
+    QMetaObject::invokeMethod(field, "editingFinished");
+    // The page waits for Apply, so this is in the field rather than in the
+    // setting - and a field remembers what was typed into it either way.
+    QCOMPARE(makePath.volatileValue(), QString("/usr/bin/make"));
+    QVERIFY(makePath.value().isEmpty());
+
+    // On offer now, in this form - the delegate re-reads what the aspect
+    // offers when the aspect says it has changed - and in the next one.
+    QTRY_COMPARE(popup->property("completions").toStringList(),
+                 QStringList({"/usr/bin/make"}));
+    QCOMPARE(makePath.presentation().completions, QStringList({"/usr/bin/make"}));
+
+    // The most recent first, and each entry once however often it is used.
+    field->setProperty("text", "/opt/bin/make");
+    QMetaObject::invokeMethod(field, "editingFinished");
+    field->setProperty("text", "/usr/bin/make");
+    QMetaObject::invokeMethod(field, "editingFinished");
+    QCOMPARE(makePath.presentation().completions,
+             QStringList({"/usr/bin/make", "/opt/bin/make"}));
+
+    // And the widget form reads the same history, so a field remembers the
+    // same things however it happens to be drawn.
+    QVERIFY2(Utils::HistoryCompleter::historyExistsFor(key),
+             "the two kinds of form keep separate histories");
 }
 
 void QuickUiTest::testSeveralLinesCompleteTheWordTheCursorIsIn()

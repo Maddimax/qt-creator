@@ -102,8 +102,14 @@ RowLayout {
             // text stays in the field with the reason under it, so nothing is
             // lost and nothing invalid is stored.
             onEditingFinished: {
-                if (delegate.aspect && field.error === "")
+                if (delegate.aspect && field.error === "") {
                     delegate.aspect.value = text
+                    // What a field remembers is what was entered into it, so
+                    // this is the moment: a value the aspect refused above is
+                    // not worth offering again. Aspects with no history to
+                    // keep do nothing here.
+                    delegate.aspect.rememberValue()
+                }
             }
 
             // A one-line field completes against the whole of what it holds.
