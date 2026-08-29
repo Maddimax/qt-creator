@@ -14562,3 +14562,27 @@ Both needed the same second step, and the colour test caught it: a field added
 to `AspectPresentation` is not visible to QML until it is also copied into the
 map the bridge hands over. That is two places, and the compiler checks neither.
 The label tooltip earlier in this session had the same miss.
+
+### Suggestions of more than one line
+
+A suggestion of several lines was drawn not at all, on the grounds that showing
+the first line would be a lie about where the rest lands. The mechanism for
+showing the rest already existed and was built for something else: the inline
+diff's *ghost rows* - rows drawn between the file's own, in no document, that
+nothing can be typed into and no click maps onto.
+
+So a multi-line suggestion puts its first line on the line it would change and
+the rest on ghost rows below, and the file's next line moves down rather than
+being drawn over. The widget editor reserves pixels for this instead
+(`replacementBlockBoundingRect()` feeding `blockHeight()`), which suits a view
+that measures in pixels; this one measures in rows.
+
+Ghost rows had to learn what they are. They were hard-coded to the diff's
+removed-line colour, on a band of its own, and a suggestion drawn that way
+reads as a deletion. The control for that did not bite at first because the
+test only checked the ghost rows' *text* - so the view now reports what colour
+they are written in, and the test says the rest of a suggestion is the colour
+the offered part of the line above is in.
+
+A wrapping view still shows none of it: it works out its own rows from its
+width, so it has none to give.

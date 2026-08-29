@@ -1005,6 +1005,9 @@ void TextViewport::setWrapping(bool wrapping)
     m_wrapping = wrapping;
     // What there is to scroll through sideways is a different question now.
     m_contentWidth = 0;
+    // And a wrapping view works out its own rows, so it has none to give a
+    // suggestion: whatever it was showing of one goes.
+    rebuildSuggestionGhosts();
     polish();
     update();
     emit wrappingChanged();
@@ -1496,7 +1499,8 @@ void TextViewport::setGhostRows(const QList<GhostRows> &ghosts)
 bool TextViewport::rebuildGaps()
 {
     QList<Gap> gaps = m_spacers;
-    for (const GhostRows &ghost : std::as_const(m_ghosts)) {
+    const QList<GhostRows> ghosts = m_ghosts + m_suggestionGhosts;
+    for (const GhostRows &ghost : ghosts) {
         if (!ghost.lines.isEmpty())
             gaps.append({ghost.row, ghost.lines.size() * m_lineHeight});
     }
@@ -1549,8 +1553,8 @@ bool TextViewport::rebuildGaps()
 void TextViewport::layOutGhostRows()
 {
     m_ghostLines.clear();
-    m_ghostBackground = QColor();
-    if (m_ghosts.isEmpty() || m_lineHeight <= 0)
+    const QList<GhostRows> ghosts = m_ghosts + m_suggestionGhosts;
+    if (ghosts.isEmpty() || m_lineHeight <= 0)
         return;
 
     TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
@@ -1559,16 +1563,16 @@ void TextViewport::layOutGhostRows()
 
     // The same scheme entry the decorated widget uses for the lines a diff
     // has removed, so the two views of one diff are coloured alike and follow
-    // the theme together.
+    // the theme together. A suggestion's own rows are the colour the row
+    // above them is in, which is what says they are all one offer.
     const QTextCharFormat removed = doc->fontSettings().toTextCharFormat(C_DIFF_SOURCE_LINE);
-    m_ghostBackground = removed.background().style() == Qt::NoBrush
-                            ? QColor()
-                            : removed.background().color();
+    const QTextCharFormat suggested
+        = doc->fontSettings().toTextCharFormat(TextStyles{C_TEXT, {C_DISABLED_CODE}});
 
     QTextOption option;
     option.setWrapMode(QTextOption::NoWrap);
 
-    for (const GhostRows &ghost : std::as_const(m_ghosts)) {
+    for (const GhostRows &ghost : ghosts) {
         if (ghost.lines.isEmpty())
             continue;
 
@@ -1584,14 +1588,24 @@ void TextViewport::layOutGhostRows()
             if (y + m_lineHeight < m_scrollY || y > m_scrollY + height())
                 continue;
 
+            const bool isSuggestion = ghost.kind == GhostRows::Kind::Suggestion;
+            const QTextCharFormat &format = isSuggestion ? suggested : removed;
+
             Line line;
             line.layout = std::make_unique<QTextLayout>(ghost.lines.at(i), m_font);
             line.layout->setTextOption(option);
             QTextLayout::FormatRange range;
             range.start = 0;
             range.length = int(ghost.lines.at(i).size());
-            range.format = removed;
+            range.format = format;
             line.layout->setFormats({range});
+            // The page the row is drawn on. A diff's removed line takes one;
+            // a suggestion is drawn on the file's own background, because it
+            // is a picture of what that line could say and not a line of its
+            // own.
+            line.diffFill = format.background().style() == Qt::NoBrush
+                                ? QColor()
+                                : format.background().color();
             line.layout->beginLayout();
             QTextLine textLine = line.layout->createLine();
             if (textLine.isValid()) {
@@ -1606,6 +1620,19 @@ void TextViewport::layOutGhostRows()
             m_ghostLines.push_back(std::move(line));
         }
     }
+}
+
+QList<QColor> TextViewport::ghostForegroundsOnScreen() const
+{
+    QList<QColor> colours;
+    for (const Line &line : m_ghostLines) {
+        if (!line.layout)
+            continue;
+        const QList<QTextLayout::FormatRange> formats = line.layout->formats();
+        colours.append(formats.isEmpty() ? QColor()
+                                         : formats.first().format.foreground().color());
+    }
+    return colours;
 }
 
 QStringList TextViewport::ghostTextOnScreen() const
@@ -3081,9 +3108,11 @@ void TextViewport::prepareSuggestion(const QTextBlock &block)
     polish();
 }
 
-// The one line a suggestion on \a block would put there, or an invalid
-// block when there is nothing to show: no suggestion, more than one line
-// of it, or a view that wraps and would have to find rows for it.
+// The line a suggestion on \a block would put on the block's own row, or an
+// invalid block when there is nothing to show: no suggestion, or a view that
+// wraps and would have to find rows of its own for one. A suggestion of
+// several lines puts its first line here and the rest below - see
+// suggestionGhostsFor().
 QTextBlock TextViewport::suggestionRowFor(const QTextBlock &block) const
 {
     if (m_wrapping)
@@ -3092,9 +3121,39 @@ QTextBlock TextViewport::suggestionRowFor(const QTextBlock &block) const
     if (!suggestion)
         return {};
     QTextDocument * const replacement = suggestion->replacementDocument();
-    if (!replacement || replacement->blockCount() != 1)
+    if (!replacement || replacement->blockCount() < 1)
         return {};
     return replacement->firstBlock();
+}
+
+// The lines of a suggestion that do not fit on the block's own row. They are
+// in no document, so they are drawn as ghost rows: rows between the file's
+// own, which is what the inline diff shows a removed line with.
+void TextViewport::rebuildSuggestionGhosts()
+{
+    QList<GhostRows> ghosts;
+    if (m_suggestionBlock.isValid() && !m_wrapping) {
+        if (TextSuggestion * const suggestion
+            = TextBlockUserData::suggestion(m_suggestionBlock)) {
+            QStringList rest;
+            for (QTextBlock line = suggestion->replacementDocument()->firstBlock().next();
+                 line.isValid(); line = line.next()) {
+                rest.append(line.text());
+            }
+            if (!rest.isEmpty()) {
+                // Below the line the suggestion is about, which is above the
+                // row after it.
+                ghosts.append({rowOfBlock(m_suggestionBlock) + 1, rest,
+                               GhostRows::Kind::Suggestion});
+            }
+        }
+    }
+
+    if (ghosts == m_suggestionGhosts)
+        return;
+    m_suggestionGhosts = ghosts;
+    rebuildGaps();
+    polish();
 }
 
 void TextViewport::updateDocumentSelections()
@@ -3502,6 +3561,7 @@ void TextViewport::insertSuggestion(std::unique_ptr<TextSuggestion> &&suggestion
     m_suggestionBlock = cursor.block();
     TextBlockUserData::insertSuggestion(m_suggestionBlock, std::move(suggestion));
     prepareSuggestion(m_suggestionBlock);
+    rebuildSuggestionGhosts();
     emit suggestionChanged();
 }
 
@@ -3511,6 +3571,7 @@ void TextViewport::clearSuggestion()
         return;
     TextBlockUserData::clearSuggestion(m_suggestionBlock);
     m_suggestionBlock = QTextBlock();
+    rebuildSuggestionGhosts();
     polish();
     emit suggestionChanged();
 }
@@ -3535,6 +3596,7 @@ void TextViewport::updateSuggestion()
                         TextBlockUserData::updateSuggestionFormats(
                             m_suggestionBlock, doc->fontSettings());
                     }
+                    rebuildSuggestionGhosts();
                     polish();
                     return;
                 }
@@ -4861,10 +4923,10 @@ QSGNode *TextViewport::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
         const Line &line = m_ghostLines.at(i);
         if (!line.layout)
             continue;
-        if (m_ghostBackground.isValid() && m_ghostBackground.alpha() > 0) {
+        if (line.diffFill.isValid() && line.diffFill.alpha() > 0) {
             QSGRectangleNode * const fill = win->createRectangleNode();
             fill->setRect(QRectF(0, line.at.y(), width(), m_lineHeight));
-            fill->setColor(m_ghostBackground);
+            fill->setColor(line.diffFill);
             root->appendChildNode(fill);
         }
         QSGTextNode * const node = win->createTextNode();

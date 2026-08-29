@@ -336,8 +336,15 @@ public:
     // open their gap when the rows are laid out rather than when they are set.
     struct GhostRows
     {
+        // What the rows are, which decides how they are drawn: a line the
+        // file no longer has is coloured like a diff's removed line, while
+        // the rest of an inline suggestion is coloured like the suggestion
+        // on the row above it.
+        enum class Kind { RemovedLine, Suggestion };
+
         int row = 0;
         QStringList lines;
+        Kind kind = Kind::RemovedLine;
         bool operator==(const GhostRows &other) const = default;
     };
     // Lines a diff has added or changed. The whole line takes a background,
@@ -368,6 +375,10 @@ public:
     Q_INVOKABLE int rowCount();
     // Where those rows are drawn, in the same order (for tests).
     QList<QRectF> ghostRectanglesOnScreen() const;
+    // What colour each of them is written in, in the same order (for tests).
+    // A row of a suggestion and a row a diff has removed are both ghosts and
+    // are drawn quite differently; text alone cannot tell them apart.
+    QList<QColor> ghostForegroundsOnScreen() const;
 
     qreal contentHeight() const;
     qreal contentWidth() const;
@@ -662,6 +673,7 @@ public:
     // the reader was looking at is still there after the page turns.
     int rowsPerPage() const;
     QTextBlock suggestionRowFor(const QTextBlock &block) const;
+    void rebuildSuggestionGhosts();
     void updateSuggestion();
     Utils::PlainTextDocumentLayout *movementLayout() const;
     // Asks the hint what it says now, and takes it away when the call the
@@ -1095,10 +1107,14 @@ private:
     std::vector<qreal> m_gapSums;
     QList<Gap> m_spacers;
     QList<GhostRows> m_ghosts;
+    // The rest of a multi-line suggestion, which is the view's own doing
+    // rather than something set from outside: kept apart so that whoever sets
+    // ghost rows for a diff does not wipe them and is not wiped by them.
+    QList<GhostRows> m_suggestionGhosts;
     // The ghost rows that are on screen, laid out in updatePolish() and drawn
     // in updatePaintNode() like any other row.
     std::vector<Line> m_ghostLines;
-    QColor m_ghostBackground;
+
     QList<ChangedLine> m_changedLines;
     QHash<int, QList<QPair<int, int>>> m_changedByLine;
     QColor m_changedBackground;

@@ -5717,17 +5717,12 @@ private slots:
                  "the suggestion survived text it can no longer be reached from");
     }
 
-    // A suggestion of several lines is not shown at all, because showing it
-    // would need rows this view has not laid out - and showing the first line
-    // of one would be a lie about where the rest lands. The same for a view
-    // that wraps, where the rows are its own to work out.
-    //
-    // Both are "nothing happens", which is not something to wait for. So a
-    // one line suggestion is shown first and waited for, and the one being
-    // asked about replaces it: going back to the original text is an event,
-    // and it cannot arrive before the layout that would have shown the new
-    // suggestion had it been going to.
-    void testASuggestionThisViewCannotDrawIsNotDrawn()
+    // A suggestion of several lines is shown on several: its first line on
+    // the line it would change, and the rest on rows between the file's own -
+    // the same ghost rows an inline diff shows a removed line with. They are
+    // in no document, so nothing can be typed into them and nothing maps a
+    // click onto them.
+    void testASuggestionOfSeveralLinesIsShownOnSeveral()
     {
         TemporaryDirectory dir("qtc-viewport-multiline");
         const FilePath file = dir.filePath("plain.txt");
@@ -5742,7 +5737,6 @@ private slots:
 
         QTextDocument * const text = viewport->textDocument()->document();
         const Utils::Text::Range range{{1, 0}, {1, 3}};
-
         const auto offer = [&](const QString &suggested) {
             auto suggestion = std::make_unique<CyclicSuggestion>(
                 QList<TextSuggestion::Data>{{range, {1, 3}, suggested}}, text, 0);
@@ -5750,18 +5744,84 @@ private slots:
             viewport->insertSuggestion(std::move(suggestion));
         };
 
+        // Where the line below sits with nothing offered, to compare against.
+        const qreal secondLineY = viewport->visibleLine(1).value("y").toReal();
+
+        offer("return one;\nreturn two;\nreturn three;");
+        // The first line goes where the line it would change is.
+        QTRY_COMPARE(viewport->visibleLine(0).value("text").toString(), QString("return one;"));
+        // The other two are drawn under it, in order.
+        QTRY_COMPARE(viewport->ghostTextOnScreen(),
+                     QStringList({"return two;", "return three;"}));
+        // And they take up room: the file's next line is two rows further
+        // down than it was, rather than being drawn over.
+        QTRY_VERIFY2(viewport->visibleLine(1).value("y").toReal() > secondLineY,
+                     "the line below did not move, so the extra rows are drawn over it");
+        QCOMPARE(viewport->ghostRectanglesOnScreen().size(), 2);
+
+        // Drawn as the rest of the same offer: the colour the offered part of
+        // the line above is in. A ghost row is also what a diff shows a
+        // removed line with, and that is a quite different colour on a band
+        // of its own - a suggestion drawn that way reads as a deletion.
+        const auto colourAt = [&](int index) {
+            QColor colour;
+            for (const QVariant &range : viewport->visibleLine(0).value("formats").toList()) {
+                const QVariantMap format = range.toMap();
+                const int start = format.value("start").toInt();
+                if (index >= start && index < start + format.value("length").toInt())
+                    colour = format.value("foreground").value<QColor>();
+            }
+            return colour;
+        };
+        const QColor offered = colourAt(6);
+        QVERIFY(offered.isValid());
+        QCOMPARE(viewport->ghostForegroundsOnScreen(), QList<QColor>({offered, offered}));
+        // The document still says what it said: this is a picture of what
+        // taking the suggestion would do.
+        QCOMPARE(text->findBlockByNumber(0).text(), QString("ret"));
+        QCOMPARE(text->blockCount(), 3);
+
+        // One line again, and the extra rows go with it.
         offer("one line;");
         QTRY_COMPARE(viewport->visibleLine(0).value("text").toString(), QString("one line;"));
+        QVERIFY(viewport->ghostTextOnScreen().isEmpty());
+        QTRY_COMPARE(viewport->visibleLine(1).value("y").toReal(), secondLineY);
+    }
 
-        // Several lines: back to the file's own text.
-        offer("return one;\nreturn two;");
-        QTRY_COMPARE(viewport->visibleLine(0).value("text").toString(), QString("ret"));
+    // A view that wraps works out its own rows from the width it has, so a
+    // suggestion cannot be given rows in it: showing part of one would be a
+    // lie about where the rest lands.
+    //
+    // "Nothing happens" is not something to wait for. So a suggestion is
+    // shown first and waited for, and wrapping is turned on after: going back
+    // to the file's own text is an event, and it cannot arrive before the
+    // layout that would have shown the suggestion had it been going to.
+    void testASuggestionIsNotDrawnInAViewThatWraps()
+    {
+        TemporaryDirectory dir("qtc-viewport-wrapping-suggestion");
+        const FilePath file = dir.filePath("plain.txt");
+        QVERIFY(file.writeFileContents("ret\nsecond\n"));
 
-        // And one line again, but in a view that wraps.
-        offer("one line;");
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        viewport->setReadOnly(false);
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+
+        QTextDocument * const text = viewport->textDocument()->document();
+        auto suggestion = std::make_unique<CyclicSuggestion>(
+            QList<TextSuggestion::Data>{{{{1, 0}, {1, 3}}, {1, 3}, "one line;\nand another;"}},
+            text, 0);
+        suggestion->setCurrentPosition(3);
+        viewport->insertSuggestion(std::move(suggestion));
         QTRY_COMPARE(viewport->visibleLine(0).value("text").toString(), QString("one line;"));
+        QCOMPARE(viewport->ghostTextOnScreen(), QStringList({"and another;"}));
+
         viewport->setWrapping(true);
         QTRY_COMPARE(viewport->visibleLine(0).value("text").toString(), QString("ret"));
+        QVERIFY2(viewport->ghostTextOnScreen().isEmpty(),
+                 "the rest of the suggestion is still drawn in a wrapping view");
     }
 
     // None of the line commands edits a buffer that is read only, the same
