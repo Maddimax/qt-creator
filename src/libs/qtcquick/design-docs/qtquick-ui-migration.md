@@ -14755,3 +14755,12 @@ The test guards against the one thing that would make it lie: a pointer resting
 on the bar makes it active by itself, so it skips with that as the reason
 rather than passing for it. These are the only two standalone `ScrollBar`s in
 the tree - everything else attaches one to a Flickable and gets this for free.
+
+The first version of the test was flaky, and the reason is worth keeping. It
+asserted the handle's opacity, which the *style* sets from a state whose
+condition reads `active`. Nothing in a test draws frames, so that binding is
+not evaluated until something asks for it - and adding a `qWarning` that
+printed `active` made the test pass, which is how the race showed itself at
+all. It asks about `active` first now, which is both the property this change
+controls and what makes the style follow. In the running editor frames do that
+for themselves.

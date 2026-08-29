@@ -1257,6 +1257,14 @@ private slots:
 
         // What the wheel handler does when a trackpad is used.
         view->setScrollY(view->contentHeight() / 4);
+
+        // The bar says it is showing itself, which is what this change is
+        // about: nothing set active before, and the style draws an inactive
+        // bar at zero opacity. Asked first on purpose - it is a binding, and
+        // nothing here draws frames, so reading it is what makes the style's
+        // state follow. In the running editor the frames do that.
+        QTRY_VERIFY2(bar->property("active").toBool(),
+                     "scrolling did not wake the scrollbar");
         QTRY_VERIFY2(handle->opacity() > 0.0, "the scrollbar stayed invisible while scrolling");
     }
 
