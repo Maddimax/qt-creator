@@ -17,7 +17,9 @@ RowLayout {
     readonly property string toolTip: aspect?.toolTip ?? ""
     readonly property bool aspectVisible: aspect?.visible ?? true
 
-    readonly property var fontFamilies: Qt.fontFamilies()
+    // Not Qt.fontFamilies(): an aspect can ask for monospaced families only,
+    // and only the font database can say which those are.
+    readonly property var fontFamilies: AspectModels.fontFamilies(root.aspect)
 
     visible: aspectVisible
     spacing: Spacing.GapHM

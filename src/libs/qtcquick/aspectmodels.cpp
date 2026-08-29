@@ -8,8 +8,11 @@
 #include "namedaspects.h"
 #include "qtciconprovider.h"
 
+#include <QFontDatabase>
+
 #include <utils/algorithm.h>
 #include <utils/aspectlist.h>
+#include <utils/algorithm.h>
 #include <utils/aspects.h>
 
 #include <utils/qtcassert.h>
@@ -118,6 +121,35 @@ bool AspectModels::namesItsColumns(QAbstractItemModel *model)
     return false;
 }
 
+QStringList AspectModels::fontFamilies(BaseAspect *aspect)
+{
+    QTC_ASSERT(aspect, return {});
+    const AspectControls::FontFilters filters = aspect->presentation().fontFilters;
+    const QStringList families = QFontDatabase::families();
+    if (filters == AspectControls::AllFonts)
+        return families;
+
+    return Utils::filtered(families, [filters](const QString &family) {
+        if (filters.testFlag(AspectControls::MonospacedFonts)
+            && !QFontDatabase::isFixedPitch(family)) {
+            return false;
+        }
+        if (filters.testFlag(AspectControls::ProportionalFonts)
+            && QFontDatabase::isFixedPitch(family)) {
+            return false;
+        }
+        if (filters.testFlag(AspectControls::ScalableFonts)
+            && !QFontDatabase::isScalable(family)) {
+            return false;
+        }
+        if (filters.testFlag(AspectControls::NonScalableFonts)
+            && QFontDatabase::isScalable(family)) {
+            return false;
+        }
+        return true;
+    });
+}
+
 QString AspectModels::localPath(const QUrl &url)
 {
     return url.toLocalFile();
@@ -187,6 +219,9 @@ QVariantMap AspectModels::presentation(BaseAspect *aspect)
         // A label showing a path says the path when the pointer rests on it:
         // the row is too narrow for it and the tooltip is the rest.
         {"toolTipShowsValue", p.toolTipShowsValue},
+        // Whether the colour may be see-through, which decides whether there
+        // is an alpha to edit at all.
+        {"alphaAllowed", p.alphaAllowed},
         {"completions", p.completions},
         // SpinBox. Qt Quick's has no prefix or suffix of its own, so the
         // delegates put them beside it.

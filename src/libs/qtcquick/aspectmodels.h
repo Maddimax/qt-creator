@@ -75,6 +75,12 @@ public:
     // no conversion of its own that is not string surgery on "file://".
     Q_INVOKABLE QString localPath(const QUrl &url);
 
+    // The families \a aspect will accept, which is not always all of them:
+    // a terminal's font picker offers monospaced ones only. Qt.fontFamilies()
+    // knows no such distinction, and whether a family is fixed pitch is a
+    // question for the font database.
+    Q_INVOKABLE QStringList fontFamilies(Utils::BaseAspect *aspect);
+
     // What a model put in Qt::DecorationRole, as something an Image can load.
     // A QIcon is what a widget view wants and what QML cannot carry, so the
     // conversion happens here rather than in every model that has one. Empty

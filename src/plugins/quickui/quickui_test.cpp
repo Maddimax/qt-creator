@@ -7,6 +7,8 @@
 
 #include <utils/completionhistory.h>
 #include <utils/datafromprocess.h>
+
+#include <QFontDatabase>
 #include <utils/temporarydirectory.h>
 #include <utils/historycompleter.h>
 #include <utils/aspectwidgets.h>
@@ -248,6 +250,8 @@ private slots:
     void testBrowsingStartsWhereThePathAlreadyPointsTo();
     void testALabelSaysTheValueItCannotShowInFull();
     void testAPathToACommandSaysWhatVersionItIs();
+    void testAColourOffersAnAlphaOnlyWhenItIsAllowed();
+    void testAFontPickerOffersOnlyTheFamiliesTheAspectAccepts();
     void testSeveralLinesCompleteTheWordTheCursorIsIn();
     void testColourOffersToGoBackToItsDefault();
     void testColourWithNoResetHasNoButton();
@@ -4581,6 +4585,110 @@ void QuickUiTest::testAPathToACommandSaysWhatVersionItIs()
              qPrintable("a field that asks for no version reported one: "
                         + plain.extendedToolTip()));
     QCOMPARE(plainAnswers.size(), 0);
+}
+
+// A colour aspect says whether its colour may be see-through. The widget
+// picker asks before offering an alpha channel; the Quick delegate had red,
+// green and blue and no alpha at all, so no colour's alpha could be edited and
+// the two aspects that forbid one were right by accident.
+void QuickUiTest::testAColourOffersAnAlphaOnlyWhenItIsAllowed()
+{
+    Utils::AspectContainer page;
+    page.setAutoApply(false);
+    Utils::ColorAspect translucent(&page);
+    translucent.setLabelText("Overlay");
+    translucent.setValue(QColor(10, 20, 30, 40));
+
+    Utils::ColorAspect opaque(&page);
+    opaque.setLabelText("Text");
+    opaque.setValue(QColor(50, 60, 70));
+    opaque.setAlphaAllowed(false);
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+
+    QList<QQuickItem *> delegates;
+    QTRY_COMPARE((delegates = findQmlComponents(quickWidget->rootObject(), "ColorDelegate"))
+                     .size(), 2);
+    const auto delegateFor = [&delegates](Utils::BaseAspect *aspect) -> QQuickItem * {
+        for (QQuickItem *item : delegates) {
+            if (item->property("aspect").value<Utils::BaseAspect *>() == aspect)
+                return item;
+        }
+        return nullptr;
+    };
+    QQuickItem * const withAlpha = delegateFor(&translucent);
+    QQuickItem * const withoutAlpha = delegateFor(&opaque);
+    QVERIFY(withAlpha && withoutAlpha);
+    QVERIFY(withAlpha->property("alphaAllowed").toBool());
+    QVERIFY(!withoutAlpha->property("alphaAllowed").toBool());
+
+    // Four spin boxes where alpha is allowed and three where it is not - and
+    // the fourth is the one that can be seen.
+    const auto visibleSpinBoxes = [](QQuickItem *delegate) {
+        int count = 0;
+        for (QQuickItem *part : findQmlComponents(delegate, "SpinBox")) {
+            if (part->isVisible())
+                ++count;
+        }
+        return count;
+    };
+    QCOMPARE(visibleSpinBoxes(withAlpha), 4);
+    QCOMPARE(visibleSpinBoxes(withoutAlpha), 3);
+
+    // And the alpha that is there is the colour's, not a default.
+    QCOMPARE(qRound(withAlpha->property("alpha").toReal() * 255), 40);
+}
+
+// A font picker offers the families its aspect will accept. A terminal asks
+// for monospaced ones; Qt.fontFamilies(), which the delegate used, offers
+// every family there is.
+void QuickUiTest::testAFontPickerOffersOnlyTheFamiliesTheAspectAccepts()
+{
+    Utils::AspectContainer page;
+    page.setAutoApply(false);
+    Utils::FontFamilyAspect anyFont(&page);
+    anyFont.setLabelText("Any");
+
+    Utils::FontFamilyAspect fixedFont(&page);
+    fixedFont.setLabelText("Terminal");
+    fixedFont.setFontFilters(Utils::FontFamilyAspect::MonospacedFonts);
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+
+    QList<QQuickItem *> delegates;
+    QTRY_COMPARE((delegates = findQmlComponents(quickWidget->rootObject(), "FontFamilyDelegate"))
+                     .size(), 2);
+    const auto familiesOf = [&delegates](Utils::BaseAspect *aspect) {
+        for (QQuickItem *item : delegates) {
+            if (item->property("aspect").value<Utils::BaseAspect *>() == aspect)
+                return item->property("fontFamilies").toStringList();
+        }
+        return QStringList();
+    };
+
+    const QStringList all = familiesOf(&anyFont);
+    const QStringList fixed = familiesOf(&fixedFont);
+    QVERIFY2(!all.isEmpty(), "no font families at all");
+    QVERIFY2(!fixed.isEmpty(), "no monospaced families - is there no fixed pitch font here?");
+    QVERIFY2(fixed.size() < all.size(),
+             "the monospaced picker offers every family, so it is not filtering");
+    // Everything it offers really is fixed pitch, and something it leaves out
+    // really is not: a filter that dropped an arbitrary half would pass the
+    // count above.
+    for (const QString &family : fixed)
+        QVERIFY2(QFontDatabase::isFixedPitch(family), qPrintable(family + " is not monospaced"));
+    const QStringList dropped = Utils::filtered(all, [&fixed](const QString &family) {
+        return !fixed.contains(family);
+    });
+    QVERIFY(!dropped.isEmpty());
+    for (const QString &family : dropped)
+        QVERIFY2(!QFontDatabase::isFixedPitch(family), qPrintable(family + " was dropped anyway"));
 }
 
 void QuickUiTest::testSeveralLinesCompleteTheWordTheCursorIsIn()

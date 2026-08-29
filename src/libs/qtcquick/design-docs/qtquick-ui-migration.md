@@ -14541,3 +14541,24 @@ only checkable against something that must happen later: the test now runs the
 very command the aspect would have run, waits for *that*, and only then asks
 whether the aspect said anything. Both earlier versions passed with the guard
 deleted.
+
+### Two things the descriptor said and no delegate read
+
+The other half of the comparison: fields of `AspectPresentation` that no `.qml`
+file and no part of the bridge mentions. Eight, of which six are sizing hints
+and grid spans that a hand-written form has no use for. Two were real.
+
+`fontFilters`: the terminal's font picker asks for monospaced families.
+`Qt.fontFamilies()`, which the delegate used, has no such notion - only the
+font database knows which family is fixed pitch - so the terminal offered every
+font on the machine. The list now comes from the bridge, filtered.
+
+`alphaAllowed`: this one was the other way round from how it looked. The
+delegate has red, green and blue spin boxes and no alpha at all, so *no*
+colour's alpha could be edited, and the two aspects that forbid one were right
+by accident. There is an alpha now, shown when the aspect allows it.
+
+Both needed the same second step, and the colour test caught it: a field added
+to `AspectPresentation` is not visible to QML until it is also copied into the
+map the bridge hands over. That is two places, and the compiler checks neither.
+The label tooltip earlier in this session had the same miss.

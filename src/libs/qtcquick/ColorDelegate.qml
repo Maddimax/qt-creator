@@ -30,6 +30,11 @@ RowLayout {
     readonly property color currentColor: root.aspect?.value ?? Tokens.backgroundMuted
     readonly property bool controlsEnabled:
         (root.aspect?.enabled ?? false) && !(root.aspect?.readOnly ?? false)
+    // How see-through the colour is. Editable unless the aspect says the
+    // colour is opaque or nothing - which two of them do, and which is why
+    // the widget picker asks before offering an alpha channel.
+    readonly property bool alphaAllowed: root.pres.alphaAllowed ?? true
+    readonly property real alpha: root.currentColor.a
 
     visible: aspectVisible
     spacing: Spacing.GapHM
@@ -72,7 +77,7 @@ RowLayout {
 
         onValueModified: if (root.aspect)
             root.aspect.value = Qt.rgba(value / 255, greenBox.value / 255,
-                                        blueBox.value / 255, root.currentColor.a)
+                                        blueBox.value / 255, root.alpha)
     }
 
     Label {
@@ -89,7 +94,7 @@ RowLayout {
 
         onValueModified: if (root.aspect)
             root.aspect.value = Qt.rgba(redBox.value / 255, value / 255,
-                                        blueBox.value / 255, root.currentColor.a)
+                                        blueBox.value / 255, root.alpha)
     }
 
     Label {
@@ -106,7 +111,26 @@ RowLayout {
 
         onValueModified: if (root.aspect)
             root.aspect.value = Qt.rgba(redBox.value / 255, greenBox.value / 255,
-                                        value / 255, root.currentColor.a)
+                                        value / 255, root.alpha)
+    }
+
+    Label {
+        text: qsTr("A")
+        visible: root.alphaAllowed
+    }
+
+    SpinBox {
+        id: alphaBox
+        from: 0
+        to: 255
+        editable: true
+        visible: root.alphaAllowed
+        enabled: root.controlsEnabled
+        value: Math.round(root.currentColor.a * 255)
+
+        onValueModified: if (root.aspect)
+            root.aspect.value = Qt.rgba(redBox.value / 255, greenBox.value / 255,
+                                        blueBox.value / 255, value / 255)
     }
 
     // A colour that can be put back to its default offers a button for it, the
