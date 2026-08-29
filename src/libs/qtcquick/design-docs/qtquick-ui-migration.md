@@ -14921,3 +14921,24 @@ There is no test for that last wiring: it needs the beautifier settings
 singletons, and standing a second one up writes over the user's own settings
 files. What is tested is the mechanism underneath - that a rendered path field
 makes its aspect valid - which is the part this session changed.
+
+### What a big directory costs
+
+Worth measuring rather than assuming, since the browser rebuilds its whole row
+list whenever the model underneath says anything: a directory of eight thousand
+files takes about half a second to list, and the rebuild happens nineteen times
+for it, not eight thousand - the model delivers a listing in a few large
+batches, so the shape is linear.
+
+What *was* wasteful was asking the model for each row's size, kind and date
+while building the list. That is three model lookups per file, each formatting
+a string, for values only the dozen rows on screen will ever show: it was three
+quarters of the time - 1640 ms against 444 ms without them. Each row now keeps
+a persistent index and asks when it is drawn, the way the icon already did. A
+search hit has no such index, so it still carries its own three, which is why
+they are still on the entry.
+
+The timing test guards the shape, not the laziness: a rebuild per inserted row,
+or a filesystem question per row up front, turns seconds into minutes and it
+would catch that. Whether each row still says the right thing is the column
+test's business, and both of its controls bite.

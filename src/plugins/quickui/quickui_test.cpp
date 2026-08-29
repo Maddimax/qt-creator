@@ -11,6 +11,7 @@
 #include <QFontDatabase>
 #include <QSettings>
 #include <QLocale>
+#include <QElapsedTimer>
 #include <QClipboard>
 #include <utils/temporarydirectory.h>
 #include <utils/historycompleter.h>
@@ -258,6 +259,7 @@ private slots:
     void testAColourOffersAnAlphaOnlyWhenItIsAllowed();
     void testAFontPickerOffersOnlyTheFamiliesTheAspectAccepts();
     void testTheFileBrowserListsWhatIsInADirectory();
+    void testABigDirectoryIsListedWithoutTheDialogHanging();
     void testTheFileDialogChoosesAFileWithoutAskingThePlatform();
     void testAPathOnADeviceIsBrowsedWithOurOwnDialog();
     void testAPathFieldSaysWhetherWhatItHoldsIsThere();
@@ -5682,6 +5684,36 @@ void QuickUiTest::testAPathFieldSaysWhetherWhatItHoldsIsThere()
     blank.setLabelText("Blank");
     QVERIFY(blank.validationMessage(QVariant::fromValue(QString())).isEmpty());
     QVERIFY2(!blank.isValid(), "an empty path is taken for a usable one");
+}
+
+// A directory big enough to notice. The browser rebuilds its whole row list
+// whenever the model underneath says anything, and the model fills a listing
+// in as it arrives - so a directory of thousands could be rebuilt thousands of
+// times, each one longer than the last.
+void QuickUiTest::testABigDirectoryIsListedWithoutTheDialogHanging()
+{
+    Utils::TemporaryDirectory dir("quickui-browser-big");
+    QVERIFY(dir.isValid());
+    const Utils::FilePath root = dir.path();
+    const int many = 8000;
+    for (int i = 0; i < many; ++i)
+        QVERIFY((root / QString("file%1.txt").arg(i)).writeFileContents({}));
+
+    QtcQuick::FileBrowser browser;
+    QElapsedTimer listing;
+    listing.start();
+    browser.setDirectory(root.toUserOutput());
+    QTRY_COMPARE_WITH_TIMEOUT(browser.entries()->rowCount(), many, 60000);
+    const qint64 took = listing.elapsed();
+    qInfo() << "listed" << many << "files in" << took << "ms";
+
+    // Not a benchmark, and not a guard on the laziness either - that what
+    // each row says is still right is the column test's business. This
+    // catches the shape going wrong: a rebuild per inserted row, or a
+    // filesystem question per row up front, turns seconds into minutes. It
+    // takes about half a second here.
+    QVERIFY2(took < 5000,
+             qPrintable(QString("listing %1 files took %2 ms").arg(many).arg(took)));
 }
 
 void QuickUiTest::testSeveralLinesCompleteTheWordTheCursorIsIn()

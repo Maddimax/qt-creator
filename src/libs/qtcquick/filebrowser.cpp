@@ -33,6 +33,15 @@ using namespace Utils;
 
 namespace QtcQuick {
 
+// What the model says about \a entry in \a column, or \a fallback when the
+// row is not one of the model's - a search hit carries its own.
+static QString columnOf(const FileEntries::Entry &entry, int column, const QString &fallback)
+{
+    if (!entry.source.isValid())
+        return fallback;
+    return entry.source.sibling(entry.source.row(), column).data().toString();
+}
+
 int FileEntries::rowCount(const QModelIndex &parent) const
 {
     return parent.isValid() ? 0 : int(m_entries.size());
@@ -52,11 +61,11 @@ QVariant FileEntries::data(const QModelIndex &index, int role) const
     case IsDirRole:
         return entry.isDir;
     case SizeRole:
-        return entry.size;
+        return columnOf(entry, FileSystemModel::SizeColumn, entry.size);
     case TypeRole:
-        return entry.type;
+        return columnOf(entry, FileSystemModel::TypeColumn, entry.type);
     case ModifiedRole:
-        return entry.modified;
+        return columnOf(entry, FileSystemModel::DateModifiedColumn, entry.modified);
     case IconRole:
         // Asked for when a row is drawn rather than kept on the entry: a
         // directory of ten thousand files would otherwise make ten thousand
@@ -535,10 +544,7 @@ void FileBrowser::rebuildEntries()
         entry.isDir = d->m_model.isDir(source);
         if (!entry.isDir && !matchesFilters(entry.name, d->m_nameFilters))
             continue;
-        entry.size = d->m_proxy.index(row, FileSystemModel::SizeColumn, root).data().toString();
-        entry.type = d->m_proxy.index(row, FileSystemModel::TypeColumn, root).data().toString();
-        entry.modified
-            = d->m_proxy.index(row, FileSystemModel::DateModifiedColumn, root).data().toString();
+        entry.source = index;
         rows.append(entry);
     }
     d->m_entries.setEntries(rows);

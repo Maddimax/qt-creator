@@ -56,9 +56,17 @@ public:
         QString name;
         Utils::FilePath path;
         bool isDir = false;
-        // As the model writes them for a reader - "1.2 MB", "C++ source",
-        // a date in this locale - rather than as numbers a view would have to
-        // format again, and differently from the widget dialog.
+        // Where the row is in the model. What a view shows in its columns is
+        // asked for through this when the row is drawn, rather than for every
+        // file in the directory: on a directory of eight thousand, asking for
+        // all three up front is three quarters of the time it takes to list
+        // it, and a dozen rows are on screen.
+        QPersistentModelIndex source;
+        // The same three for a row that has no index to ask - what a search
+        // found, which is not in the directory being looked at. As the model
+        // writes them for a reader, "1.2 MB" and a date in this locale,
+        // rather than as numbers a view would format again and differently
+        // from the widget dialog.
         QString size;
         QString type;
         QString modified;
