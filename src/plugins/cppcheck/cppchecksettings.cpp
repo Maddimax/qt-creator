@@ -103,33 +103,6 @@ CppcheckSettings::CppcheckSettings()
     readSettings();
 }
 
-std::function<Layouting::Layout()> CppcheckSettings::layouter()
-{
-    return [this] {
-        using namespace Layouting;
-        return Form {
-            binary, br,
-            Tr::tr("Checks:"), Flow {
-                warning,
-                style,
-                performance,
-                portability,
-                information,
-                unusedFunction,
-                missingInclude
-            }, br,
-            customArguments, br,
-            ignoredPatterns, br,
-            Flow {
-                inconclusive,
-                forceDefines,
-                showOutput,
-                addIncludePaths,
-                guessArguments
-            }
-        };
-    };
-}
 
 class CppCheckSettingsPage final : public Core::IOptionsPage
 {

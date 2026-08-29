@@ -3,6 +3,8 @@
 
 #include "cppcheckmanualrundialog.h"
 
+#include <coreplugin/dialogs/ioptionspage.h>
+
 #include "cppchecksettings.h"
 #include "cppchecktr.h"
 
@@ -83,7 +85,10 @@ ManualRunDialog::ManualRunDialog(const ProjectExplorer::Project *project,
         analyzeButton->setEnabled(m_model->hasCheckedFiles() || hasExternalFiles);
     });
 
-    auto optionsWidget = Utils::AspectWidgets::layouter(settings)().emerge();
+    // The same form Preferences shows: these settings name their own QML, and
+    // building them here with widgets drew the one dialog differently from the
+    // one page.
+    auto optionsWidget = Core::createAspectForm(settings);
 
     auto layout = new QVBoxLayout(this);
     layout->addWidget(optionsWidget);

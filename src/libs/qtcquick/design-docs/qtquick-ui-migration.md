@@ -16653,5 +16653,24 @@ asked to.
 The control does both halves at once: put the layouter back and the new test
 fails *and* the six warnings return.
 
-That is the whole of it - every place that draws an aspect container now goes
-through the same door.
+**That claim was made once too early.** "Every place now goes through the same
+door" is checkable, so it was checked: `AspectWidgets::layouter()` has exactly
+four callers outside its own file.
+
+- The **Cppcheck manual-run dialog** was a second instance of the same bug.
+  `CppcheckSettings` names its QML *and* kept a `layouter()`, and
+  `cppcheckmanualrundialog.cpp` built its options with the second one - so
+  Preferences drew those settings one way and Analyze drew them another. It
+  calls `Core::createAspectForm()` now, and the closure is gone, which is what
+  porting a page was supposed to do to it in the first place.
+- The **standalone profiler tool** already tries `QtcQuick::createAspectForm()`
+  and falls back only when a backend names no form. Correct as it stands.
+- The **two inside the widget renderer** are the widget path by definition: a
+  container being drawn with widgets draws its children with widgets. Worth
+  knowing that a sub-container naming QML inside a widget-laid-out page would
+  still be ignored there - no page in the tree does that today.
+
+So the door is one door now, and the count that says so is four. The dialog
+has no test home - cppcheck has no test infrastructure at all and the dialog
+needs a Project - so what stands behind it is that exhaustive count rather
+than an assertion.

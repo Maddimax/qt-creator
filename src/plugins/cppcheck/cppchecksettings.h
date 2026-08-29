@@ -14,7 +14,6 @@ class CppcheckSettings final : public Utils::AspectContainer
 public:
     CppcheckSettings();
 
-    std::function<Layouting::Layout()> layouter();
 
     Utils::FilePathAspect binary{this};
     Utils::BoolAspect warning{this};
