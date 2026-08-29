@@ -15989,3 +15989,39 @@ and column separators, and its columns can be dragged wider. Its sort key is
 column-independent - `FileSortRole` is directories-first-then-name whatever
 column is clicked - so the indicator is the only thing a click really changes.
 
+### Being asked for a directory
+
+Everything above compared the two dialogs opening a file. Opening a
+*directory* turned out to be where the largest behavioural difference was
+left, and reading `FileDialog::setMode()` is what found it:
+`m_proxy->setDirectoriesOnly(mode == QFileDialog::Directory)`.
+
+The widget's proxy splits two questions that sound like one. `filterAcceptsRow()`
+decides what is **listed** - hidden files, and filtered ones when
+`hideFiltered` is on. `acceptsContent()` decides what is an **answer** - it
+greys the row through `data()` and drops `ItemIsSelectable` through `flags()`.
+Only the second knows about directory mode. So a dialog asking for a directory
+still lists the files: they are what tells one directory from another. They
+just cannot be chosen.
+
+The Quick dialog listed them as ordinary, choosable entries. `FileBrowser`
+takes `directoriesOnly` now, and the dialog sets it from its own mode. It
+folds into the `selectable` role added for filtered files, so the two views
+already knew how to draw it:
+
+    passesFilter = isDir || matchesFilters(name, nameFilters)
+    hidden       = !passesFilter && hideFilteredFiles
+    selectable   = passesFilter && (!directoriesOnly || isDir)
+
+The middle line is the one worth stating: **what hides a row is the filter
+alone**. Folding directory mode into it as well is the obvious-looking
+mistake, and it empties the listing of everything that makes a directory
+recognisable. It is one of the four controls, and it bites.
+
+One difference left alone: with no caption from its caller the widget titles
+itself "Open File" or "Open Directory", where this says "Choose File" and
+"Choose Directory". Every caller that goes through `FileUtils` or
+`PathChooser` passes a caption and overrides both, and the captions they pass
+are "Choose ..." - so the Quick wording is what a reader actually sees in the
+widget dialog too.
+

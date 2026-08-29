@@ -177,6 +177,9 @@ Window {
         id: browser
 
         objectName: "fileBrowser"
+        // Asked for a directory: the files in it stay listed and stop being
+        // answers.
+        directoriesOnly: root.choosingDirectory
 
         // A copy that failed says so where the other troubles are said.
         onPasteFinished: (failed) => {

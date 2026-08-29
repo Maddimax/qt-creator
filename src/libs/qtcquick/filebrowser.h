@@ -124,6 +124,11 @@ class QTCQUICK_EXPORT FileBrowser : public QObject
     // everywhere but macOS, where its listing shows them greyed.
     Q_PROPERTY(bool hideFilteredFiles READ hideFilteredFiles WRITE setHideFilteredFiles
                    NOTIFY hideFilteredFilesChanged)
+    // Whether only a directory can be chosen. A file is still listed - it says
+    // what is in here - but it is not an answer, which is what the widget
+    // dialog does when it is asked for a directory.
+    Q_PROPERTY(bool directoriesOnly READ directoriesOnly WRITE setDirectoriesOnly
+                   NOTIFY directoriesOnlyChanged)
     Q_PROPERTY(bool showHiddenFiles READ showHiddenFiles WRITE setShowHiddenFiles
                    NOTIFY showHiddenFilesChanged)
     // Which of the two arrangements the dialog draws: the file's name below
@@ -174,6 +179,8 @@ public:
 
     bool hideFilteredFiles() const;
     void setHideFilteredFiles(bool hide);
+    bool directoriesOnly() const;
+    void setDirectoriesOnly(bool on);
     bool showHiddenFiles() const;
     void setShowHiddenFiles(bool show);
 
@@ -250,6 +257,7 @@ signals:
     void busyChanged();
     void errorChanged();
     void hideFilteredFilesChanged();
+    void directoriesOnlyChanged();
     void favoritesChanged();
     void historyChanged();
     void canPasteChanged();

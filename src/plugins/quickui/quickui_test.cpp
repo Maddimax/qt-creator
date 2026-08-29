@@ -203,6 +203,7 @@ private slots:
     void testEveryEnclosingFolderIsSomewhereToGo();
     void testASearchCanBeUndoneWithoutTheKeyboard();
     void testTheOptionsMenuKeepsSayingWhatIsOn();
+    void testChoosingADirectoryStillShowsWhatIsInIt();
     void testANumberOnItsOwnSaysWhatItCounts();
     void testMakeDefaultSaysWhatItWouldDefault();
     void testALabelTooLongForItsColumnSaysItInFull();
@@ -6399,6 +6400,94 @@ void QuickUiTest::testASearchCanBeUndoneWithoutTheKeyboard()
     QTRY_COMPARE(browser->property("searchText").toString(), QString());
 }
 
+
+
+// Being asked for a directory. The widget dialog keeps listing the files -
+// they are what tells one directory from another - and stops them being an
+// answer: its proxy hides rows in filterAcceptsRow() and greys them in
+// acceptsContent(), and only the second one knows about directory mode. The
+// Quick dialog listed them as ordinary, choosable entries.
+void QuickUiTest::testChoosingADirectoryStillShowsWhatIsInIt()
+{
+    Utils::TemporaryDirectory dir("quickui-directories");
+    QVERIFY(dir.isValid());
+    const Utils::FilePath root = dir.path();
+    QVERIFY((root / "notes.txt").writeFileContents("x"));
+    QVERIFY((root / "sub").createDir());
+
+    QtcQuick::FileBrowser browser;
+    browser.setDirectory(root.toUserOutput());
+    QtcQuick::FileEntries * const entries = browser.entries();
+    QVERIFY(entries);
+    const auto rowsNamed = [entries] {
+        QStringList names;
+        for (int row = 0; row < entries->rowCount(); ++row) {
+            names << entries->data(entries->index(row, 0),
+                                   QtcQuick::FileEntries::NameRole).toString();
+        }
+        names.sort();
+        return names;
+    };
+    const auto selectable = [entries](const QString &name) {
+        for (int row = 0; row < entries->rowCount(); ++row) {
+            const QModelIndex index = entries->index(row, 0);
+            if (index.data(QtcQuick::FileEntries::NameRole).toString() == name)
+                return index.data(QtcQuick::FileEntries::SelectableRole).toBool();
+        }
+        return false;
+    };
+
+    QTRY_COMPARE(rowsNamed(), QStringList({"notes.txt", "sub"}));
+    QVERIFY(selectable("notes.txt"));
+
+    // Asked for a directory: the file is still listed, and is no longer an
+    // answer. Both halves matter - hiding it would take away what tells this
+    // directory apart from the next one.
+    browser.setDirectoriesOnly(true);
+    QTRY_COMPARE(rowsNamed(), QStringList({"notes.txt", "sub"}));
+    QVERIFY2(!selectable("notes.txt"), "a file can be chosen when a directory was asked for");
+    QVERIFY2(selectable("sub"), "a directory cannot be chosen when one was asked for");
+
+    // Hiding filtered files is about the filter, not about the mode: being
+    // asked for a directory must not empty the listing.
+    browser.setHideFilteredFiles(true);
+    QTRY_COMPARE(rowsNamed(), QStringList({"notes.txt", "sub"}));
+
+    // And the dialog asks for it when that is what it is for.
+    QQmlComponent component(QtcQuick::engine(),
+                            QUrl("qrc:/qt/qml/QtCreator/Ui/QtcFileDialog.qml"));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    // OpenDirectory, as QtcFileDialog numbers its modes.
+    const std::unique_ptr<QObject> object(component.createWithInitialProperties(
+        {{"classic", true}, {"mode", 1}}));
+    QVERIFY(object);
+    auto * const dialog = qobject_cast<QQuickWindow *>(object.get());
+    QVERIFY(dialog);
+    dialog->setProperty("currentFolder", root.toUserOutput());
+    dialog->resize(900, 600);
+    dialog->show();
+    QVERIFY(QTest::qWaitForWindowExposed(dialog));
+
+    QObject * const shown = dialog->findChild<QObject *>("fileBrowser");
+    QVERIFY(shown);
+    QVERIFY2(shown->property("directoriesOnly").toBool(),
+             "a dialog asking for a directory did not say so to its browser");
+
+    QQuickItem * const listing = dialog->findChild<QQuickItem *>("entryList");
+    QVERIFY(listing);
+    const auto rowFor = [listing](const QString &name) -> QQuickItem * {
+        const QList<QQuickItem *> rows = findQmlComponents(listing, "ItemDelegate");
+        return Utils::findOr(rows, nullptr, [&name](QQuickItem *row) {
+            return row->property("name").toString() == name;
+        });
+    };
+    QQuickItem *file = nullptr;
+    QTRY_VERIFY((file = rowFor("notes.txt")));
+    QVERIFY2(!file->isEnabled(), "a file is offered when a directory was asked for");
+    QQuickItem * const folder = rowFor("sub");
+    QVERIFY(folder);
+    QVERIFY(folder->isEnabled());
+}
 
 // Clicking a menu entry. A checkable one flips before it reports, which is
 // the order a real click produces and the order its handler reads. The

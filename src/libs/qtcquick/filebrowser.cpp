@@ -141,6 +141,7 @@ public:
     FilePath m_directory;
     QStringList m_nameFilters;
     bool m_hideFilteredFiles = !Utils::HostOsInfo::isMacHost();
+    bool m_directoriesOnly = false;
     QString m_searchText;
     // A recursive walk of a directory, which on a device is slow enough that
     // it has to be cancellable and has to report what it finds as it goes.
@@ -403,6 +404,20 @@ void FileBrowser::setHideFilteredFiles(bool hide)
     rebuildEntries();
 }
 
+bool FileBrowser::directoriesOnly() const
+{
+    return d->m_directoriesOnly;
+}
+
+void FileBrowser::setDirectoriesOnly(bool on)
+{
+    if (d->m_directoriesOnly == on)
+        return;
+    d->m_directoriesOnly = on;
+    emit directoriesOnlyChanged();
+    rebuildEntries();
+}
+
 bool FileBrowser::showHiddenFiles() const
 {
     return d->m_proxy.showHiddenFiles();
@@ -616,10 +631,15 @@ void FileBrowser::rebuildEntries()
         // A directory is how you reach a file, so the filters never apply to
         // one. A file they do not match is either left out or shown and not
         // offered - the reader can see it is there and why it is not.
-        const bool matches = entry.isDir || matchesFilters(entry.name, d->m_nameFilters);
-        if (!matches && d->m_hideFilteredFiles)
+        const bool passesFilter = entry.isDir
+                                  || matchesFilters(entry.name, d->m_nameFilters);
+        // What hides a row is the filter alone. Being asked for a directory
+        // does not hide the files in it: they say what is in here, they are
+        // just not an answer. FileDialogPrivate's proxy splits the two the
+        // same way - filterAcceptsRow() hides, acceptsContent() greys.
+        if (!passesFilter && d->m_hideFilteredFiles)
             continue;
-        entry.selectable = matches;
+        entry.selectable = passesFilter && (!d->m_directoriesOnly || entry.isDir);
         entry.source = index;
         rows.append(entry);
     }
