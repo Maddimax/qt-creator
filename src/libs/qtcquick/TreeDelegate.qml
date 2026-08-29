@@ -163,8 +163,19 @@ RowLayout {
                 // follows, and for the same reason - a column wider than the
                 // view scrolls its header label out of sight.
                 columnWidthProvider: function (column) {
+                    // What every column but the last wants. They get it when
+                    // the table can hold it - the widget header sized each
+                    // column to its contents and stretched the last - and are
+                    // capped only when it cannot, which is the case the cap
+                    // was written for.
+                    let asked = 0
+                    for (let i = 0; i < view.columns - 1; ++i)
+                        asked += view.implicitColumnWidth(i)
+                    const fits = asked + Metrics.lineEditWidth <= view.width
                     const capped = function (i) {
-                        return Math.min(view.implicitColumnWidth(i), Metrics.tableColumnMaxWidth)
+                        return fits ? view.implicitColumnWidth(i)
+                                    : Math.min(view.implicitColumnWidth(i),
+                                               Metrics.tableColumnMaxWidth)
                     }
                     if (column < view.columns - 1)
                         return capped(column)

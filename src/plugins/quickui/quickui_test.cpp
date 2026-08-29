@@ -4331,6 +4331,13 @@ class LongNamedTreeAspect : public Utils::BaseAspect
 public:
     static QString unbreakable() { return "aRatherLongPropertyName"; }
     static QString wrappable() { return "a rather long property name"; }
+    // Longer than the width a column is capped at when the table cannot hold
+    // what its columns want.
+    static QString longerThanTheCap()
+    {
+        return "a property name longer than any column is allowed to be "
+               "when the table has to make them fit";
+    }
 
     LongNamedTreeAspect()
     {
@@ -4339,6 +4346,8 @@ public:
             new Utils::StaticTreeItem(QStringList{unbreakable(), "1"}));
         m_model.rootItem()->appendChild(
             new Utils::StaticTreeItem(QStringList{wrappable(), "2"}));
+        m_model.rootItem()->appendChild(
+            new Utils::StaticTreeItem(QStringList{longerThanTheCap(), "3"}));
     }
 
     Utils::AspectPresentation presentation() const override
@@ -4377,7 +4386,7 @@ void QuickUiTest::testAColumnMakesRoomForTheNamesInIt()
     QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "TreeDelegate"));
     QQuickItem *view = findQmlNamed(delegate, "aspectTree").value(0);
     QVERIFY(view);
-    QTRY_COMPARE(findQmlNamed(view, "tableCellLabel").size(), 4);
+    QTRY_COMPARE(findQmlNamed(view, "tableCellLabel").size(), 6);
 
     // Metrics.lineEditWidth, which is the width a column falls back to when
     // its cells ask for nothing.
@@ -4402,7 +4411,9 @@ void QuickUiTest::testAColumnMakesRoomForTheNamesInIt()
                                "floor already holds")
                     .arg(text)
                     .arg(needed);
-            if (room < needed)
+            // A pixel of slack: a column's width is rounded, and a quarter
+            // of a pixel is not a name being cut off.
+            if (room + 1 < needed)
                 return QString("\"%1\" takes %2px and has %3px to draw in")
                     .arg(text)
                     .arg(needed)
@@ -4417,11 +4428,18 @@ void QuickUiTest::testAColumnMakesRoomForTheNamesInIt()
     QVERIFY2(shortfall(LongNamedTreeAspect::wrappable()).isEmpty(),
              qPrintable(shortfall(LongNamedTreeAspect::wrappable())));
 
+    // A column is capped so that one long description cannot make the table
+    // wider than the view and scroll its own header out of sight. When the
+    // table can hold what its columns want, the cap has nothing to do: the
+    // widget header sized every column to its contents.
+    QVERIFY2(shortfall(LongNamedTreeAspect::longerThanTheCap()).isEmpty(),
+             qPrintable(shortfall(LongNamedTreeAspect::longerThanTheCap())));
+
     // And still after the view lays out again, which is what a page does the
     // moment it is resized: a width that only holds until something asks for
     // it a second time is not a width the user ever sees.
     QMetaObject::invokeMethod(view, "forceLayout");
-    QTRY_COMPARE(findQmlNamed(view, "tableCellLabel").size(), 4);
+    QTRY_COMPARE(findQmlNamed(view, "tableCellLabel").size(), 6);
     QVERIFY2(shortfall(LongNamedTreeAspect::unbreakable()).isEmpty(),
              qPrintable("after laying out again: "
                         + shortfall(LongNamedTreeAspect::unbreakable())));

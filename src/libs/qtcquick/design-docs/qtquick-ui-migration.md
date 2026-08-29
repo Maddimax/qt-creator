@@ -15243,3 +15243,24 @@ within five seconds. Baselining twice at HEAD is what identified it as the
 sweep's doing rather than a flake. Restricting the sweep to parents that
 actually put things side by side brought the suite back from 43 to 22 seconds
 and the failure went with it.
+
+### A cap that always applied
+
+The Compilers page drew "GCC 15 (x86 64bit at "/opt/homebrew/bin/aa…" while
+the Language column, holding "C/C++", took 640 pixels. Every column but the
+last is capped at 320 pixels, and the last one takes what is left.
+
+The cap was put there for a real reason - a long description made its column
+wider than the table, which scrolled the centred header label out of the
+clipped header, and the column looked unnamed - but it applied whether or not
+the table had the room. `GroupedView`, which is what these pages used as
+widgets, sets every column but the last to `ResizeToContents` and stretches
+the last: no cap at all. So a name that fitted was cut off anyway.
+
+The cap now applies only when the columns ask for more than the table has.
+The test grew a name longer than the cap and asserts it is drawn in full; the
+control that pins `fits` to false puts 518 pixels of name in 280.
+
+`ProjectExplorer` has two failures - `RunWorkerConflictTest::testConflict` and
+`ProjectTest::testSourceToBinaryMapping(qbs)` - and both fail the same way at
+HEAD with none of this applied.
