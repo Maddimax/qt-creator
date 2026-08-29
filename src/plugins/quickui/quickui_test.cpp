@@ -245,6 +245,7 @@ private slots:
     void testAFieldCompletesAgainstWhatTheAspectOffers();
     void testAFieldOffersWhatWasTypedIntoItBefore();
     void testBrowsingStartsWhereThePathAlreadyPointsTo();
+    void testALabelSaysTheValueItCannotShowInFull();
     void testSeveralLinesCompleteTheWordTheCursorIsIn();
     void testColourOffersToGoBackToItsDefault();
     void testColourWithNoResetHasNoButton();
@@ -4460,6 +4461,62 @@ void QuickUiTest::testBrowsingStartsWhereThePathAlreadyPointsTo()
     QVERIFY(startFor("/no/such/place/at/all/file.txt").isEmpty()
             || Utils::FilePath::fromUserInput(startFor("/no/such/place/at/all/file.txt"))
                    == dir.path());
+}
+
+// A value shown as a label is elided when the row is too narrow for it, and
+// then the tooltip is the only way to read the rest. Aspects showing a path
+// ask for the value to be that tooltip; the widget renderer has always done
+// it, and the Quick label carried the aspect's tooltip text and then never
+// showed anything at all - ToolTip.visible was hard-coded false.
+void QuickUiTest::testALabelSaysTheValueItCannotShowInFull()
+{
+    Utils::AspectContainer page;
+    page.setAutoApply(false);
+
+    Utils::StringAspect executable(&page);
+    executable.setDisplayStyle(Utils::StringAspect::LabelDisplay);
+    executable.setLabelText("Executable:");
+    executable.setValue("/a/very/long/path/to/the/executable");
+    executable.setToolTip("The program that runs");
+    executable.setShowToolTipOnLabel(true);
+
+    Utils::StringAspect version(&page);
+    version.setDisplayStyle(Utils::StringAspect::LabelDisplay);
+    version.setLabelText("Version:");
+    version.setValue("2.6.1");
+    version.setToolTip("What is installed");
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+
+    QList<QQuickItem *> labels;
+    QTRY_COMPARE((labels = findQmlComponents(quickWidget->rootObject(), "TextDisplayDelegate"))
+                     .size(), 2);
+
+    // Which delegate is which, by what it shows.
+    const auto tooltipOfTheOneShowing = [&labels](const QString &displayed) {
+        for (QQuickItem *label : labels) {
+            if (label->property("displayText").toString() != displayed)
+                continue;
+            const QList<QQuickItem *> parts = findQmlComponents(label, "");
+            for (QQuickItem *part : parts) {
+                const QString text
+                    = QQmlProperty(part, "ToolTip.text", qmlContext(part)).read().toString();
+                if (!text.isEmpty())
+                    return text;
+            }
+        }
+        return QString("no tooltip anywhere in the delegate");
+    };
+
+    // The one that asked says what it is showing, which is the half that was
+    // elided away.
+    QCOMPARE(tooltipOfTheOneShowing("/a/very/long/path/to/the/executable"),
+             QString("/a/very/long/path/to/the/executable"));
+    // The one that did not says what it is for, as every other delegate does.
+    QCOMPARE(tooltipOfTheOneShowing("2.6.1"), QString("What is installed"));
 }
 
 void QuickUiTest::testSeveralLinesCompleteTheWordTheCursorIsIn()

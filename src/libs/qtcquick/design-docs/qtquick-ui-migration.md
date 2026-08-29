@@ -14490,3 +14490,30 @@ The stack pointed at `Layouting`, which had nothing to do with it. Worth
 remembering that the first crash was read as evidence that evaluating the
 `Lazy` was the problem - it was not, and the design above is right for its own
 reasons rather than for the one it was first justified by.
+
+### A tooltip that was carried and never shown
+
+The same list had `showToolTipOnLabel`: four aspects - the run configuration's
+executable and three Axivion paths - ask for a label's tooltip to be *the value
+it is showing*, because the row elides a long path and the tooltip is the rest
+of it. The Quick label carried the aspect's tooltip text and set
+`ToolTip.visible: false`, so it showed nothing at all, for any aspect.
+
+It passed the existing sweep, which asks whether every delegate *carries* the
+tooltip its aspect has. Carrying is not showing - the same shape as several
+earlier findings here, where presence was checked and placement or behaviour
+was not.
+
+Two halves are fixed and one is asserted. The text - the value, when the aspect
+asked, and otherwise what the aspect says about itself - is tested, and both
+controls bite, including the one where the flag stops being copied into the map
+the bridge hands QML. The visibility is now bound to a `HoverHandler`, which is
+*not* asserted: a hover test on this machine answers to the physical pointer as
+well as the synthetic one, and a test that fails when someone's mouse happens
+to rest over the window is worse than a missing assertion. Said out loud
+because "tested" should not be read as covering both.
+
+Also closed with no work: `elideMode`. Thirty-eight calls, all but one on
+`ElidingLabel` widgets in welcome pages rather than on aspects, and the one
+that is an aspect asks for the elide the Quick label already does. A count of
+call sites is not a measure of a gap.

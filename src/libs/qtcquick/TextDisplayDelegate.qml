@@ -75,9 +75,16 @@ RowLayout {
                 return Tokens.textMuted
             }
         }
-        ToolTip.text: root.toolTip
-        ToolTip.visible: false
+        // What a value too long for the row says when the pointer rests on
+        // it. An aspect showing a path asks for the value itself here: it is
+        // the elided half that the reader wants and the tooltip is the only
+        // way to see it.
+        ToolTip.text: (root.pres.toolTipShowsValue ?? false) ? root.displayText : root.toolTip
+        ToolTip.visible: hover.hovered && ToolTip.text !== ""
         Layout.fillWidth: true
+
+        // A Label is not a Control and has no hovered of its own.
+        HoverHandler { id: hover }
 
         onLinkActivated: (link) => root.aspect?.activateLink(link)
     }

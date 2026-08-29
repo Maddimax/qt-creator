@@ -1326,6 +1326,7 @@ AspectPresentation StringAspect::presentation() const
     // What was typed here before, offered the way the widget line edit offers
     // it - through a completer. Ahead of anything the aspect was given: the
     // last thing that worked is the likeliest next one.
+    p.toolTipShowsValue = d->m_showToolTipOnLabel;
     p.completions = CompletionHistory::entries(d->m_historyCompleterKey) + d->m_completions;
     return p;
 }
@@ -1794,6 +1795,7 @@ AspectPresentation FilePathAspect::presentation() const
     p.pathKind = static_cast<AspectControls::PathKind>(expectedKind());
     p.promptDialogTitle = promptDialogTitle();
     p.promptDialogFilter = promptDialogFilter();
+    p.toolTipShowsValue = d->m_showToolTipOnLabel;
     p.completions = CompletionHistory::entries(d->m_historyCompleterKey);
     return p;
 }

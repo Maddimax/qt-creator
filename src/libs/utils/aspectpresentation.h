@@ -234,6 +234,10 @@ public:
     int spanY = 1;
 
     QString toolTip;
+    // A value shown as a label is elided when it does not fit, and then the
+    // only way to read it is a tooltip of it. Aspects showing a path ask for
+    // this; what they have to say about themselves is the path.
+    bool toolTipShowsValue = false;
     QString placeholderText;
 
     // LineEdit and TextEdit. What typing in the control completes against.
