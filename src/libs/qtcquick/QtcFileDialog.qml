@@ -297,17 +297,47 @@ Window {
 
         objectName: "optionsMenu"
 
+        // One entry per view rather than one that changes its wording, and
+        // each says whether it is the one in use - as the widget dialog's
+        // action group does. Its two icons are a download arrow and a
+        // magnifier, which say nothing about either view, so they are left
+        // out rather than copied.
         MenuItem {
-            objectName: "viewModeItem"
-            text: root.showingIcons ? qsTr("Show as List") : qsTr("Show as Icons")
-            onTriggered: root.showingIcons = !root.showingIcons
+            objectName: "iconsViewItem"
+            text: qsTr("Icons view")
+            checkable: true
+            checked: root.showingIcons
+            onTriggered: {
+                root.showingIcons = true
+                // Choosing the view already in use flips this entry off and
+                // then sets a value that does not change, so nothing
+                // re-evaluates the binding above and the entry is left saying
+                // the opposite of what is true. The plain toggles below need
+                // no such thing: what they write always changes.
+                checked = Qt.binding(() => root.showingIcons)
+            }
         }
 
         MenuItem {
+            objectName: "listViewItem"
+            text: qsTr("List view")
+            checkable: true
+            checked: !root.showingIcons
+            onTriggered: {
+                root.showingIcons = false
+                checked = Qt.binding(() => !root.showingIcons)
+            }
+        }
+
+        MenuSeparator {}
+
+        MenuItem {
             objectName: "hiddenItem"
-            text: browser.showHiddenFiles ? qsTr("Hide Hidden Files")
-                                          : qsTr("Show Hidden Files")
-            onTriggered: browser.showHiddenFiles = !browser.showHiddenFiles
+            text: qsTr("Show hidden files")
+            icon.source: "image://qtcreator/utils/images/eye_open.png?color=IconsBaseColor"
+            checkable: true
+            checked: browser.showHiddenFiles
+            onTriggered: browser.showHiddenFiles = checked
         }
 
         MenuItem {
@@ -321,6 +351,7 @@ Window {
         MenuItem {
             objectName: "hideFilteredItem"
             text: qsTr("Hide filtered files")
+            icon.source: "image://qtcreator/utils/images/filtericon.png?color=IconsBaseColor"
             checkable: true
             checked: browser.hideFilteredFiles
             // Only where there is a filter to hide anything: with none, every
@@ -331,7 +362,7 @@ Window {
 
         MenuItem {
             objectName: "classicLayoutItem"
-            text: qsTr("Classic Layout")
+            text: qsTr("Use classic layout")
             checkable: true
             checked: root.classic
             // Kept, so the next dialog opens the way this one was left - and
@@ -926,6 +957,18 @@ Window {
                         // opening it. The columns say the rest.
                         ToolTip.text: entry.type
                         ToolTip.visible: hovered && entry.type !== ""
+
+                        // Every other row is shaded, as the widget dialog's
+                        // view is: on a listing this wide the eye needs
+                        // something to carry it from the name to the date.
+                        // A shade of its own, not the one hovering uses, or
+                        // the pointer would leave half the rows unchanged.
+                        background: Rectangle {
+                            color: entry.highlighted ? Tokens.accentDefault
+                                 : entry.hovered ? Tokens.foregroundSubtle
+                                 : entry.index % 2 ? Tokens.backgroundMuted
+                                                   : "transparent"
+                        }
 
                         contentItem: RowLayout {
                             spacing: Spacing.GapHM

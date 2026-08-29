@@ -202,6 +202,7 @@ private slots:
     void testAFileTheFilterRejectsIsShownAndNotOffered();
     void testEveryEnclosingFolderIsSomewhereToGo();
     void testASearchCanBeUndoneWithoutTheKeyboard();
+    void testTheOptionsMenuKeepsSayingWhatIsOn();
     void testANumberOnItsOwnSaysWhatItCounts();
     void testMakeDefaultSaysWhatItWouldDefault();
     void testALabelTooLongForItsColumnSaysItInFull();
@@ -6396,6 +6397,118 @@ void QuickUiTest::testASearchCanBeUndoneWithoutTheKeyboard()
     QTRY_VERIFY(magnifier->isVisible());
     QVERIFY(!clear->isVisible());
     QTRY_COMPARE(browser->property("searchText").toString(), QString());
+}
+
+
+// Clicking a menu entry. A checkable one flips before it reports, which is
+// the order a real click produces and the order its handler reads. The
+// invocations are checked: MenuItem has no trigger() - that is Action - and
+// invokeMethod fails silently, so a test that guessed wrong would sit there
+// asserting that nothing had changed.
+static void triggerMenuItem(QObject *item)
+{
+    QVERIFY(item);
+    if (item->property("checkable").toBool())
+        QVERIFY(QMetaObject::invokeMethod(item, "toggle"));
+    QVERIFY(QMetaObject::invokeMethod(item, "triggered"));
+}
+
+// The options menu, which the widget dialog builds from checkable actions:
+// one entry per view rather than one that rewords itself, and each says
+// whether it is the one in use.
+//
+// The trap is that triggering a checkable MenuItem writes its own checked,
+// which throws away the binding that made it follow anything. Nothing
+// complains; the entry simply stops tracking, and only after it has been used
+// once - which no test that opens a fresh dialog would ever see.
+void QuickUiTest::testTheOptionsMenuKeepsSayingWhatIsOn()
+{
+    Utils::TemporaryDirectory dir("quickui-options");
+    QVERIFY(dir.isValid());
+    for (const QString &name : QStringList{"a.txt", "b.txt", "c.txt", "d.txt"})
+        QVERIFY((dir.path() / name).writeFileContents("x"));
+
+    QQmlComponent component(QtcQuick::engine(),
+                            QUrl("qrc:/qt/qml/QtCreator/Ui/QtcFileDialog.qml"));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    const std::unique_ptr<QObject> object(
+        component.createWithInitialProperties({{"classic", true}}));
+    QVERIFY(object);
+    auto * const dialog = qobject_cast<QQuickWindow *>(object.get());
+    QVERIFY(dialog);
+    dialog->setProperty("currentFolder", dir.path().toUserOutput());
+    dialog->resize(900, 600);
+    dialog->show();
+    QVERIFY(QTest::qWaitForWindowExposed(dialog));
+
+    const auto item = [dialog](const QString &name) {
+        return dialog->findChild<QObject *>(name);
+    };
+    QObject * const icons = item("iconsViewItem");
+    QObject * const list = item("listViewItem");
+    QVERIFY(icons && list);
+    QVERIFY(icons->property("checkable").toBool());
+    QVERIFY(list->property("checkable").toBool());
+
+    // Exactly one of them is on, and it is the view being shown.
+    QVERIFY(!icons->property("checked").toBool());
+    QVERIFY(list->property("checked").toBool());
+    dialog->setProperty("showingIcons", true);
+    QTRY_VERIFY(icons->property("checked").toBool());
+    QVERIFY(!list->property("checked").toBool());
+
+    // Choosing the other one switches, which is the ordinary case.
+    triggerMenuItem(list);
+    QTRY_VERIFY(!dialog->property("showingIcons").toBool());
+    QVERIFY(list->property("checked").toBool());
+    QVERIFY2(!icons->property("checked").toBool(),
+             "both views are marked as the one in use");
+
+    // And choosing the one already in use leaves it marked. A checkable entry
+    // flips itself on every click and the handler then writes a value that
+    // has not changed, so nothing re-evaluates what marks it: the entry ends
+    // up saying the opposite of what is true, while the view is unmoved.
+    triggerMenuItem(list);
+    QVERIFY2(!dialog->property("showingIcons").toBool(),
+             "choosing the view already in use switched away from it");
+    QVERIFY2(list->property("checked").toBool(),
+             "choosing the view already in use unmarked it");
+
+    // Hidden files: the widget's wording, checkable rather than reworded, and
+    // its eye.
+    QObject * const hidden = item("hiddenItem");
+    QVERIFY(hidden);
+    QCOMPARE(hidden->property("text").toString(), QString("Show hidden files"));
+    QVERIFY(hidden->property("checkable").toBool());
+    QVERIFY2(!QQmlProperty::read(hidden, "icon.source").toUrl().isEmpty(),
+             "the entry the widget dialog draws an eye beside has no icon");
+    triggerMenuItem(hidden);
+    QObject * const browser = dialog->findChild<QObject *>("fileBrowser");
+    QVERIFY(browser);
+    QTRY_VERIFY(browser->property("showHiddenFiles").toBool());
+    // And follows the setting when something else changes it - what a plain
+    // toggle writes always changes, so it needs no help to stay in step.
+    browser->setProperty("showHiddenFiles", false);
+    QTRY_VERIFY2(!hidden->property("checked").toBool(),
+                 "the entry stopped following the setting it stands for");
+
+    // The listing shades every other row, as the widget's view does. Read off
+    // the rows rather than from the rule: a stripe the same colour as the
+    // background is not a stripe.
+    dialog->setProperty("showingIcons", false);
+    QQuickItem * const listing = dialog->findChild<QQuickItem *>("entryList");
+    QVERIFY(listing);
+    QList<QQuickItem *> rows;
+    QTRY_VERIFY((rows = findQmlComponents(listing, "ItemDelegate")).size() >= 2);
+    std::sort(rows.begin(), rows.end(), [](QQuickItem *a, QQuickItem *b) {
+        return a->property("index").toInt() < b->property("index").toInt();
+    });
+    const auto shade = [](QQuickItem *row) {
+        const QList<QQuickItem *> parts = findQmlComponents(row, "QQuickRectangle");
+        return parts.isEmpty() ? QColor() : parts.first()->property("color").value<QColor>();
+    };
+    QVERIFY2(shade(rows.at(0)) != shade(rows.at(1)),
+             "the listing draws every row the same shade");
 }
 
 // Fails unless \a item really draws an icon: an Image under it that has

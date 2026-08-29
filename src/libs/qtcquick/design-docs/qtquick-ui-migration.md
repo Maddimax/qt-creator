@@ -15940,3 +15940,52 @@ tap not clearing, and both glyphs visible at once. The clear button is
 *clicked* in the test rather than the text being set - setting the text passes
 whether the button works or not, which is the whole point of having one.
 
+### The options menu, and a control that corrected me
+
+The widget dialog's menu is built from checkable actions: one entry per view
+rather than one that rewords itself, fixed wording, and an icon on the entries
+that have one. The Quick menu had toggles that changed their own text - "Show
+Hidden Files" becoming "Hide Hidden Files" - which says what will happen
+rather than what is true, and is the harder of the two to read at a glance.
+
+So there are two view entries now, each marked when it is the one in use, and
+the wording follows the widget: "Show hidden files", "Use classic layout". The
+eye goes on the hidden-files entry as it does in the widget; the filter icon
+goes on "Hide filtered files", which has none there. The widget's two
+view-mode icons are a **download arrow** and a **magnifier** - neither says
+anything about a view, and they look like placeholders that were never
+revisited - so they are left out rather than copied.
+
+The listing shades every other row, which the widget's view does with
+`setAlternatingRowColors(true)`. A shade of its own, not the one hovering
+uses: sharing it would leave the pointer with no effect on half the rows.
+
+**The part worth writing down is the control that did not bite.** Both view
+entries restore their binding with `checked = Qt.binding(...)`, and the
+comment justifying it said that triggering a checkable `MenuItem` writes its
+own `checked` and throws the binding away. Blanking that line changed nothing:
+140 tests, all green. The premise was wrong. A click flips `checked` from
+**C++**, and a C++ write does not remove a QML binding - only an assignment
+from JavaScript does. So four of the five entries had been given a
+restoration that restores nothing, and it came back out.
+
+There is a real defect underneath, and it is a different one: choosing the
+view **already in use** flips that entry off, and its handler then writes a
+value that has not changed. Nothing re-evaluates the binding, so the entry
+sits there marked as off while its view is on. That is why the two view
+entries keep the restoration and the plain toggles do not - what a toggle
+writes always changes, so its binding always re-runs. Rewritten to trigger the
+current view rather than the other one, the control bites and says so:
+"choosing the view already in use unmarked it".
+
+One more thing the run caught: `MenuItem` has no `trigger()` - that is
+`Action`. `QMetaObject::invokeMethod` returned false and the test sat
+asserting that nothing had happened. `triggerMenuItem()` checks both
+invocations now, and flips a checkable entry before reporting, which is the
+order a real click produces and the order its handler reads.
+
+Still different, and left alone: the widget's header draws a sort indicator
+and column separators, and its columns can be dragged wider. Its sort key is
+column-independent - `FileSortRole` is directories-first-then-name whatever
+column is clicked - so the indicator is the only thing a click really changes.
+
