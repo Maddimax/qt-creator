@@ -15506,3 +15506,32 @@ The one real find is the Kits page's Make Default button, which had
 rather than on an aspect. The button is shared - Kits, Compilers, Debuggers,
 Devices - and only the page knows what it would be defaulting, so the delegate
 takes the text and the page gives it.
+
+### The models nobody primes: nothing left
+
+The MIME Types page opened on an empty list because the widget loaded its
+model in the constructor that built the tree, and the port kept the layout's
+list and dropped its one statement. Font && Colors was the same thing with a
+selection instead of a model. That is the string problem one level up -
+behaviour that lived in the closure - and it renders perfectly.
+
+Reading it out of the diffs does not work. Every removed
+`m_formatOnSave->setChecked(...)` is a call that legitimately went away with
+the widget it was called on, so the removed-statement scan reports 526 lines
+and narrowing it by "the receiver still exists" only gets to 317: names like
+`view`, `layout` and `menu` survive in some other function. There is no
+textual rule that separates a widget being torn down from a model nobody
+fills.
+
+Asking the pages instead is one line: every aspect that hands out a
+`tableModel()`, and how many rows it has when the page opens. There are 24
+such models and eight are empty - Bare Metal's providers, Clangd's sessions,
+Custom Output Parsers, the Help filters, the debugger's source path map,
+MIME Types' magic rules, Macros, and the Qbs profile properties. Every one of
+them is empty because there is nothing configured on this machine: the magic
+rules belong to whichever MIME type is selected and none is, and Qbs names a
+profile whose `qbs config` output is empty. `properties.reload()` is called;
+it has nothing to read.
+
+So the class the MIME Types bug belongs to is closed, and it was closed by
+asking the running pages a question rather than by reading their history.
