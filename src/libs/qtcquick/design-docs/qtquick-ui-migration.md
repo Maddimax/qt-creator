@@ -16139,3 +16139,44 @@ read-only" can be told from "it never answered", and only the second one
 skips. That is a change to a test nobody has complained about, so it is
 recorded here rather than made.
 
+### What lays out every table, finally checked
+
+`columnWidthProvider` is what sizes the columns of every table, tree and
+grouped list in the settings, and nothing had ever exercised it. It is the
+rule the six "expected function got double" warnings sit on.
+
+Measured on the four-column fixture in a 1168-wide view, the widths are
+
+    120  120  120  808        asked for: 120  120  120  1262
+
+so the provider does run: an even division would be 292 each. The last column
+takes what is left, and the three before it come out at exactly one
+`lineEditWidth`.
+
+**That last number corrected an assumption.** The test first asserted that the
+check box column is narrower than the word column - which is false, and
+failed. Columns are sized to the *cell*, not to the text in it, and an
+unfilled check box, choice and field are all one `lineEditWidth` wide. The
+rule worth asserting is the even division and the stretch, not a guess about
+which control looks wider.
+
+The cap is checked too, and checked for **reachability first**. Fill the word
+column with four hundred characters and it asks for 2462; it is given 320,
+`Metrics.tableColumnMaxWidth`, and the table still comes to exactly the width
+of its view. Without asking what the column *wanted*, "no wider than 320"
+would have passed on a column that was 120 all along - the assertion that
+cannot fail, one line away from being written.
+
+Three controls: dividing the width evenly, letting the last column keep its
+implicit width instead of stretching, and dropping the cap. All bite.
+
+**`recording` is still uncovered, deliberately.** `KeySequenceAspect` lives
+inside `shortcutsettings.cpp`, so a QuickUi test cannot build one - it would
+have to render the Keyboard page, which is the heaviest in Creator, into a
+suite that is already slow enough to make the keychain test fail. The
+delegate *is* built against a real one on every run by
+`testAspectDrivenPagesRenderWithQuick`, which asserts every delegate found its
+aspect; what is uncovered is the click. Its natural home is coreplugin's own
+`ShortcutSettingsTest`, which already has a `page()` helper that reaches the
+real aspects.
+

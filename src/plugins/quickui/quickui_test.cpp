@@ -206,6 +206,7 @@ private slots:
     void testChoosingADirectoryStillShowsWhatIsInIt();
     void testSavingAndPickingSeveralFollowTheSameRulesAsTheWidget();
     void testAListShowsTheItemYouSelectedAndRefusesToRemoveTwice();
+    void testATableGivesEachColumnTheWidthItsContentsNeed();
     void testANumberOnItsOwnSaysWhatItCounts();
     void testMakeDefaultSaysWhatItWouldDefault();
     void testALabelTooLongForItsColumnSaysItInFull();
@@ -4242,6 +4243,13 @@ public:
         QString word;
     };
     QList<Row> rows{{true, "red", "one"}, {false, "blue", "two"}};
+
+    void setRows(const QList<Row> &newRows)
+    {
+        beginResetModel();
+        rows = newRows;
+        endResetModel();
+    }
     // Writing the same value back is invisible in rows, so count the writes.
     int writes = 0;
 
@@ -6405,6 +6413,97 @@ void QuickUiTest::testASearchCanBeUndoneWithoutTheKeyboard()
 
 
 
+
+
+// What every table on every settings page is laid out by, and what nothing
+// checked: columnWidthProvider. qmllint reports it as "expected function got
+// double" - it is reading the function's return paths - and behind that
+// warning the rule had never been exercised at all. A provider that returned
+// nothing useful would divide the width evenly, which is the very thing it
+// was written to stop: a check box column as wide as a description.
+void QuickUiTest::testATableGivesEachColumnTheWidthItsContentsNeed()
+{
+    Utils::AspectContainer page;
+    TestTableAspect table(&page);
+    table.setLabelText("Rows");
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QQuickItem *view = nullptr;
+    QTRY_VERIFY(view = tableViewOf(quickWidget->rootObject()));
+    QTRY_COMPARE(view->property("rows").toInt(), 2);
+    const int columns = view->property("columns").toInt();
+    QCOMPARE(columns, int(TestTableModel::ColumnCount));
+
+    // columnWidth() is a method of TableView rather than a property, and
+    // invokeMethod fails silently when a name is wrong - every width would
+    // then read as the same -1 and "not evenly divided" would pass for the
+    // wrong reason.
+    const auto widthOf = [view](int column) {
+        qreal width = -1;
+        const bool asked = QMetaObject::invokeMethod(
+            view, "columnWidth", Q_RETURN_ARG(qreal, width), Q_ARG(int, column));
+        return asked ? width : qreal(-1);
+    };
+
+    QList<qreal> widths;
+    for (int column = 0; column < columns; ++column)
+        widths << widthOf(column);
+    for (qreal width : std::as_const(widths))
+        QVERIFY2(width > 0, "a column has no width, so nothing below means anything");
+
+    // Not an even division. That is what a table without a provider does, and
+    // it gave a check box as much room as a word.
+    const qreal even = view->width() / columns;
+    QVERIFY2(!Utils::allOf(widths, [even](qreal width) { return qFuzzyCompare(width, even); }),
+             "every column is the same width, so the provider never ran");
+    // The last one is the stretcher; the rest are the width of a control.
+    // Sized to the *cell*, not to the text: an unfilled check box, choice and
+    // field are all one lineEditWidth, which is why "the check box column is
+    // narrower" is not the rule here - the even division is.
+    QVERIFY2(widths.last() > 2 * widths.first(),
+             "the last column did not take what was left");
+
+    // The last column takes what is left, the way the widget table stretched
+    // its last header section: together they are the width of the view.
+    qreal total = 0;
+    for (qreal width : std::as_const(widths))
+        total += width;
+    QVERIFY2(qAbs(total - view->width()) < 2,
+             qPrintable(QString("the columns come to %1 in a table %2 wide")
+                            .arg(total).arg(view->width())));
+
+    // And a column whose contents are far too wide is capped instead of
+    // pushing the table wider than itself - which scrolled the centred
+    // heading out of the clipped header and left the column looking unnamed.
+    table.m_model.setRows({{true, "red", QString(400, 'x')}});
+    QTRY_COMPARE(view->property("rows").toInt(), 1);
+    QQuickItem * const delegate = findQmlComponent(quickWidget->rootObject(), "TableDelegate");
+    QVERIFY(delegate);
+    QMetaObject::invokeMethod(view, "forceLayout");
+
+    qreal wide = 0;
+    QTRY_VERIFY((wide = widthOf(TestTableModel::ColumnWord)) > 0);
+    // The cap is reached rather than assumed: the column asks for far more
+    // than it is given, so "no wider than the cap" is a claim about the cap
+    // and not about a column that was small anyway.
+    qreal asked = -1;
+    QVERIFY(QMetaObject::invokeMethod(view, "implicitColumnWidth", Q_RETURN_ARG(qreal, asked),
+                                      Q_ARG(int, int(TestTableModel::ColumnWord))));
+    QVERIFY2(asked > 320, qPrintable(QString("the column only asked for %1, so the cap "
+                                             "was never tested").arg(asked)));
+    QVERIFY2(wide <= 320,
+             qPrintable(QString("a column of 400 characters was given %1").arg(wide)));
+    // Still exactly as wide as the view: the cap is what keeps it there.
+    qreal cappedTotal = 0;
+    for (int column = 0; column < columns; ++column)
+        cappedTotal += widthOf(column);
+    QVERIFY2(qAbs(cappedTotal - view->width()) < 2,
+             qPrintable(QString("a capped table comes to %1 in a view %2 wide")
+                            .arg(cappedTotal).arg(view->width())));
+}
 
 // The two things a list-with-details does that qmllint cannot check, and that
 // nothing else here checked either: it draws the selected item's own aspects
