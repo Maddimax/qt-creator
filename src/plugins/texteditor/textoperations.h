@@ -88,6 +88,16 @@ TEXTEDITOR_EXPORT QTextCursor selectLinesToMove(const QTextCursor &cursor);
 // leaves the ones that already have a selection alone.
 TEXTEDITOR_EXPORT void selectWordUnderCursor(Utils::MultiTextCursor &cursor);
 
+// Grows the selection to the innermost brackets around it. \a anchor
+// remembers where the growing started, so that shrinking back can find its
+// way; it is set here when there was nothing selected yet.
+TEXTEDITOR_EXPORT bool selectBlockUp(QTextCursor &cursor, QTextCursor &anchor);
+
+// Shrinks it again, one pair of brackets at a time, back towards \a anchor.
+// False when there is nothing to shrink - no selection, or no anchor because
+// the selection was not made by growing.
+TEXTEDITOR_EXPORT bool selectBlockDown(QTextCursor &cursor, const QTextCursor &anchor);
+
 TEXTEDITOR_EXPORT QTextBlock blockToFold(const QTextBlock &block);
 
 // Which block unfolding \a block would open: itself when it is showing, and

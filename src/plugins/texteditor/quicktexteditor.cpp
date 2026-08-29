@@ -380,6 +380,33 @@ public:
 
         command(Constants::SELECT_WORD_UNDER_CURSOR, &TextViewport::selectWordUnderCursor);
         command(Constants::CLEAR_SELECTION, &TextViewport::clearSelection);
+
+        // The bracket commands. Growing and shrinking return whether they
+        // could, which the menu entry does not care about.
+        const auto block = [this](Utils::Id id, void (TextViewport::*run)(bool), bool select) {
+            Core::ActionBuilder(this, id)
+                .setContext(Core::Context(m_editorContext))
+                .addOnTriggered(this, [this, run, select] {
+                    if (TextViewport * const view = viewport())
+                        (view->*run)(select);
+                });
+        };
+        block(Constants::GOTO_BLOCK_START, &TextViewport::gotoBlockStart, false);
+        block(Constants::GOTO_BLOCK_START_WITH_SELECTION, &TextViewport::gotoBlockStart, true);
+        block(Constants::GOTO_BLOCK_END, &TextViewport::gotoBlockEnd, false);
+        block(Constants::GOTO_BLOCK_END_WITH_SELECTION, &TextViewport::gotoBlockEnd, true);
+        Core::ActionBuilder(this, Constants::SELECT_BLOCK_UP)
+            .setContext(Core::Context(m_editorContext))
+            .addOnTriggered(this, [this] {
+                if (TextViewport * const view = viewport())
+                    view->selectBlockUp();
+            });
+        Core::ActionBuilder(this, Constants::SELECT_BLOCK_DOWN)
+            .setContext(Core::Context(m_editorContext))
+            .addOnTriggered(this, [this] {
+                if (TextViewport * const view = viewport())
+                    view->selectBlockDown();
+            });
         command(Constants::VIEW_PAGE_UP, &TextViewport::viewPageUp);
         command(Constants::VIEW_PAGE_DOWN, &TextViewport::viewPageDown);
         command(Constants::VIEW_LINE_UP, &TextViewport::viewLineUp);

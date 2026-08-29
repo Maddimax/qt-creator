@@ -2387,17 +2387,10 @@ bool TextEditorWidget::selectBlockUp()
         return false;
 
     QTextCursor cursor = textCursor();
-    if (!cursor.hasSelection())
-        d->m_selectBlockAnchor = cursor;
-    else
-        cursor.setPosition(cursor.selectionStart());
-
-    if (!TextBlockUserData::findPreviousOpenParenthesis(&cursor, false))
-        return false;
-    if (!TextBlockUserData::findNextClosingParenthesis(&cursor, true))
+    if (!TextEditor::selectBlockUp(cursor, d->m_selectBlockAnchor))
         return false;
 
-    setTextCursor(Text::flippedCursor(cursor));
+    setTextCursor(cursor);
     d->_q_matchParentheses();
     return true;
 }
@@ -2407,25 +2400,11 @@ bool TextEditorWidget::selectBlockDown()
     if (multiTextCursor().hasMultipleCursors())
         return false;
 
-    QTextCursor tc = textCursor();
-    QTextCursor cursor = d->m_selectBlockAnchor;
-
-    if (!tc.hasSelection() || cursor.isNull())
+    QTextCursor cursor = textCursor();
+    if (!TextEditor::selectBlockDown(cursor, d->m_selectBlockAnchor))
         return false;
-    tc.setPosition(tc.selectionStart());
 
-    forever {
-        QTextCursor ahead = cursor;
-        if (!TextBlockUserData::findPreviousOpenParenthesis(&ahead, false))
-            break;
-        if (ahead.position() <= tc.position())
-            break;
-        cursor = ahead;
-    }
-    if ( cursor != d->m_selectBlockAnchor)
-        TextBlockUserData::findNextClosingParenthesis(&cursor, true);
-
-    setTextCursor(Text::flippedCursor(cursor));
+    setTextCursor(cursor);
     d->_q_matchParentheses();
     return true;
 }

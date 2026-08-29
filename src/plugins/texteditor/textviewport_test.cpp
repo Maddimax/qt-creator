@@ -4752,6 +4752,82 @@ private slots:
         QCOMPARE(viewport->multiTextCursor().cursorCount(), 2);
     }
 
+    // Select Block Up grows the selection to the brackets around it, and
+    // again to the ones around those. Select Block Down shrinks it back,
+    // which needs it to have remembered where the growing started.
+    void testSelectingABlockGrowsAndShrinksAgain()
+    {
+        TemporaryDirectory dir("qtc-viewport-block");
+        const FilePath file = dir.filePath("code.cpp");
+        QVERIFY(file.writeFileContents("int f()\n{\n    if (a) {\n        b();\n    }\n}\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 4);
+
+        TextDocument * const doc = viewport->textDocument();
+        HighlighterHelper::setDefinitionOn(doc, HighlighterHelper::definitionForName("C++"));
+        QTRY_VERIFY(HighlighterHelper::definitionForDocument(doc).isValid());
+        QTRY_VERIFY(doc->syntaxHighlighter()
+                    && doc->syntaxHighlighter()->syntaxHighlighterUpToDate());
+
+        // Inside the inner braces, on "b();".
+        QTextDocument * const text = doc->document();
+        viewport->setCursorPosition(text->findBlockByNumber(3).position() + 9);
+
+        QVERIFY2(viewport->selectBlockUp(), "the inner block was not found");
+        const QString inner = viewport->textCursor().selectedText();
+        QVERIFY2(inner.contains("b();"), qPrintable("inner selection was: " + inner));
+        QVERIFY2(!inner.contains("if"), qPrintable("it reached too far: " + inner));
+
+        QVERIFY2(viewport->selectBlockUp(), "the outer block was not found");
+        const QString outer = viewport->textCursor().selectedText();
+        QVERIFY2(outer.length() > inner.length(), "growing did not take more");
+        QVERIFY2(outer.contains("if"), qPrintable("outer selection was: " + outer));
+
+        // And back in again to what it had before.
+        QVERIFY2(viewport->selectBlockDown(), "shrinking found no way back");
+        QCOMPARE(viewport->textCursor().selectedText(), inner);
+    }
+
+    // Go to Block End moves to the bracket that closes the one the caret is
+    // in, and the selecting variant takes the text on the way there.
+    void testGoingToTheBlockEndFindsTheClosingBracket()
+    {
+        TemporaryDirectory dir("qtc-viewport-blockend");
+        const FilePath file = dir.filePath("code.cpp");
+        QVERIFY(file.writeFileContents("int f()\n{\n    b();\n}\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+
+        TextDocument * const doc = viewport->textDocument();
+        HighlighterHelper::setDefinitionOn(doc, HighlighterHelper::definitionForName("C++"));
+        QTRY_VERIFY(HighlighterHelper::definitionForDocument(doc).isValid());
+        QTRY_VERIFY(doc->syntaxHighlighter()
+                    && doc->syntaxHighlighter()->syntaxHighlighterUpToDate());
+
+        QTextDocument * const text = doc->document();
+        const int inside = text->findBlockByNumber(2).position() + 4;
+        viewport->setCursorPosition(inside);
+
+        viewport->gotoBlockEnd();
+        // The closing brace is on the last line, so the caret left the line it
+        // was on rather than moving within it.
+        QCOMPARE(viewport->textCursor().blockNumber(), 3);
+        QVERIFY(!viewport->textCursor().hasSelection());
+
+        viewport->setCursorPosition(inside);
+        viewport->gotoBlockEnd(true);
+        QVERIFY2(viewport->textCursor().hasSelection(), "the selecting variant selected nothing");
+        QVERIFY(viewport->textCursor().selectedText().contains("b();"));
+    }
+
     // None of the line commands edits a buffer that is read only, the same
     // as a key press does not. One test for all of them: each has its own
     // guard, and a guard that is missing on one of them is exactly the kind

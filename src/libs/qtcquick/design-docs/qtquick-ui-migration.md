@@ -13772,3 +13772,32 @@ Sixty-one commands. What is left wants machinery rather than wiring - the
 assist commands need somewhere to show a completion list, the symbol commands
 need the language client, and the block ones need the parenthesis matching the
 widget keeps in its overlay.
+
+## The bracket commands, and where an anchor may be dropped
+
+Six: to the brackets around the caret, with and without taking the text on the
+way, and growing and shrinking a selection a pair at a time. The finding of
+brackets was already shared - `TextBlockUserData` has been static all along -
+so what moved was the growing and shrinking, which have real logic: growing
+remembers where it started so that shrinking can walk back in from the outside
+towards it.
+
+That anchor is the interesting part. It has to be dropped when the selection
+goes, or shrinking a selection made some other way would walk back towards
+somewhere the reader never was. The widget drops it in `slotSelectionChanged`,
+and doing the same here would have been wrong: this view sets the position and
+the selection one after the other, so anything listening to `selectionChanged`
+sees a moment with no selection in the middle of *every* update - including
+the one that grew the selection and set the anchor a line earlier. It is
+dropped in `setTextCursor()` instead, where the whole new state arrives at
+once.
+
+That was reasoned rather than observed, so it was worth a control: putting the
+drop on the selection change instead fails
+`testSelectingABlockGrowsAndShrinksAgain`, which is the reasoning confirmed
+rather than assumed.
+
+Sixty-seven commands. The two groups left both want something this view does
+not have rather than something it has not been told: the assist commands need
+somewhere to show a completion list, and the symbol commands need the language
+client. Neither is wiring, and neither should be started as if it were.

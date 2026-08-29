@@ -450,6 +450,13 @@ public:
     Q_INVOKABLE void gotoLineStart(QTextCursor::MoveMode mode = QTextCursor::MoveAnchor);
     Q_INVOKABLE void selectWordUnderCursor();
     Q_INVOKABLE void clearSelection();
+
+    // To the brackets around the caret, and to the text between them. The
+    // last two grow and shrink the selection a pair at a time.
+    Q_INVOKABLE void gotoBlockStart(bool select = false);
+    Q_INVOKABLE void gotoBlockEnd(bool select = false);
+    Q_INVOKABLE bool selectBlockUp();
+    Q_INVOKABLE bool selectBlockDown();
     // Moving what is shown without moving the caret, which is what the View
     // commands are for.
     Q_INVOKABLE void scrollByRows(int rows);
@@ -904,6 +911,11 @@ private:
     // Where a block selection was started, kept because the carets it makes
     // replace the main one it would otherwise be read back from.
     QTextCursor m_blockSelectionAnchor;
+    // Where growing a selection out to its brackets started, so that
+    // shrinking it can find its way back. Dropped as soon as the selection
+    // goes, because the way back is only meaningful for the selection it
+    // was taken for.
+    QTextCursor m_selectBlockAnchor;
     // Set after a line has been moved and cleared by the next key. Moving a
     // line twice is one thing the reader did, so the second move joins the
     // first one's undo step rather than making its own.

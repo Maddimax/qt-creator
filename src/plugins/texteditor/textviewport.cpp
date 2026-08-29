@@ -1158,6 +1158,12 @@ QTextCursor TextViewport::textCursor() const
 
 void TextViewport::setTextCursor(const QTextCursor &cursor)
 {
+    // Here rather than on selectionChanged(): the position and the selection
+    // are set one after the other below, so a listener on that signal sees a
+    // moment with no selection in the middle of every call - including the
+    // one that grew the selection and set the anchor.
+    if (!cursor.hasSelection())
+        m_selectBlockAnchor = QTextCursor();
     setCursorPosition(cursor.position());
     if (cursor.hasSelection()) {
         setSelectionStart(cursor.anchor());
@@ -2429,6 +2435,52 @@ void TextViewport::viewLineUp()
 void TextViewport::viewLineDown()
 {
     scrollByRows(1);
+}
+
+void TextViewport::gotoBlockStart(bool select)
+{
+    if (multiTextCursor().hasMultipleCursors())
+        return;
+    QTextCursor cursor = textCursor();
+    if (cursor.isNull() || !TextBlockUserData::findPreviousOpenParenthesis(&cursor, select))
+        return;
+    setTextCursor(cursor);
+    updateParenthesesMatch();
+}
+
+void TextViewport::gotoBlockEnd(bool select)
+{
+    if (multiTextCursor().hasMultipleCursors())
+        return;
+    QTextCursor cursor = textCursor();
+    if (cursor.isNull() || !TextBlockUserData::findNextClosingParenthesis(&cursor, select))
+        return;
+    setTextCursor(cursor);
+    updateParenthesesMatch();
+}
+
+bool TextViewport::selectBlockUp()
+{
+    if (multiTextCursor().hasMultipleCursors())
+        return false;
+    QTextCursor cursor = textCursor();
+    if (cursor.isNull() || !TextEditor::selectBlockUp(cursor, m_selectBlockAnchor))
+        return false;
+    setTextCursor(cursor);
+    updateParenthesesMatch();
+    return true;
+}
+
+bool TextViewport::selectBlockDown()
+{
+    if (multiTextCursor().hasMultipleCursors())
+        return false;
+    QTextCursor cursor = textCursor();
+    if (cursor.isNull() || !TextEditor::selectBlockDown(cursor, m_selectBlockAnchor))
+        return false;
+    setTextCursor(cursor);
+    updateParenthesesMatch();
+    return true;
 }
 
 bool TextViewport::canEdit() const

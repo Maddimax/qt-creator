@@ -8,6 +8,7 @@
 #include "textdocument.h"
 
 #include <utils/multitextcursor.h>
+#include <utils/textutils.h>
 #include <utils/qtcassert.h>
 #include <utils/uncommentselection.h>
 
@@ -541,6 +542,48 @@ void selectWordUnderCursor(Utils::MultiTextCursor &cursor)
         if (!c.hasSelection())
             c.select(QTextCursor::WordUnderCursor);
     }
+}
+
+bool selectBlockUp(QTextCursor &cursor, QTextCursor &anchor)
+{
+    if (!cursor.hasSelection())
+        anchor = cursor;
+    else
+        cursor.setPosition(cursor.selectionStart());
+
+    if (!TextBlockUserData::findPreviousOpenParenthesis(&cursor, false))
+        return false;
+    if (!TextBlockUserData::findNextClosingParenthesis(&cursor, true))
+        return false;
+
+    cursor = Utils::Text::flippedCursor(cursor);
+    return true;
+}
+
+bool selectBlockDown(QTextCursor &cursor, const QTextCursor &anchor)
+{
+    QTextCursor inner = cursor;
+    QTextCursor grown = anchor;
+
+    if (!inner.hasSelection() || grown.isNull())
+        return false;
+    inner.setPosition(inner.selectionStart());
+
+    // From where the growing started, step in as far as the current selection
+    // allows: the last pair that still contains it is the one to shrink to.
+    forever {
+        QTextCursor ahead = grown;
+        if (!TextBlockUserData::findPreviousOpenParenthesis(&ahead, false))
+            break;
+        if (ahead.position() <= inner.position())
+            break;
+        grown = ahead;
+    }
+    if (grown != anchor)
+        TextBlockUserData::findNextClosingParenthesis(&grown, true);
+
+    cursor = Utils::Text::flippedCursor(grown);
+    return true;
 }
 
 } // namespace TextEditor
