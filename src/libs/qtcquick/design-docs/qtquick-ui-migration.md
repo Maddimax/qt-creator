@@ -14620,3 +14620,34 @@ What is not ported: the icon view, search, inline rename, favourites and
 navigation history. The widget dialog keeps all of those and is untouched;
 this one is the browsing half. Said plainly because "the file dialog is ported"
 would not be true yet.
+
+### Getting about in it
+
+The second piece of the dialog: back and forward over where the reader has
+been, the directories they keep, and making a new one.
+
+Favourites are written where the widget dialog writes them - a plain `QSettings`
+group, not Creator's own settings - so a directory kept in one dialog is there
+in the other. The same reasoning as the completion history earlier: two forms of
+one thing must not remember different things. Back and forward are per browser
+rather than shared between every dialog ever opened, which is what the widget
+does; within one dialog they behave the same.
+
+The control for "going somewhere new drops what was ahead" did not bite at
+first. Asking whether *forward* is possible is not enough: an entry that is
+never dropped ends up behind the new directory rather than ahead of it, so
+forward is impossible either way. What tells them apart is where *back* leads -
+to the place the reader came from, or to the road they turned away from.
+
+Two more things this batch is worth remembering for:
+
+A binding to a name that does not exist - `Metrics.formControlHeight`, which I
+invented - is a runtime warning and nothing else: the control keeps its default
+size and the dialog looks very nearly right. qmllint does not see through a
+singleton's property names, and the suite was green with eight of these in the
+log. The dialog's test now fails on any QML warning from its own file.
+
+And fixing that history test moved the browser to a different directory, which
+broke the favourites half further down - it had been asserting about whatever
+directory the earlier part happened to leave behind. It says which directory it
+means now.

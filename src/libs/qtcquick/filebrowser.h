@@ -81,6 +81,10 @@ class QTCQUICK_EXPORT FileBrowser : public QObject
     // Where to start from: this machine's usual places and every device that
     // can be browsed. The sidebar of the widget dialog, without the widget.
     Q_PROPERTY(QtcQuick::FileEntries *places READ places CONSTANT)
+    // The directories the reader put there, kept where the widget dialog
+    // keeps them so that both show the same ones.
+    Q_PROPERTY(QtcQuick::FileEntries *favorites READ favorites CONSTANT)
+    Q_PROPERTY(bool currentIsFavorite READ currentIsFavorite NOTIFY favoritesChanged)
     // Which names to show, as glob patterns - ["*.cpp", "*.h"]. Empty shows
     // everything. Directories are always shown: they are how you get to a file
     // that does match.
@@ -95,6 +99,11 @@ class QTCQUICK_EXPORT FileBrowser : public QObject
     Q_PROPERTY(QString error READ error NOTIFY errorChanged)
     // Whether there is anywhere above here to go.
     Q_PROPERTY(bool canGoUp READ canGoUp NOTIFY directoryChanged)
+    // Where the reader has been in this dialog, which is what back and
+    // forward walk. The widget dialog shares one list between every dialog it
+    // opens; this is one browser's own.
+    Q_PROPERTY(bool canGoBack READ canGoBack NOTIFY historyChanged)
+    Q_PROPERTY(bool canGoForward READ canGoForward NOTIFY historyChanged)
 
 public:
     explicit FileBrowser(QObject *parent = nullptr);
@@ -105,6 +114,8 @@ public:
 
     FileEntries *entries() const;
     FileEntries *places() const;
+    FileEntries *favorites() const;
+    bool currentIsFavorite() const;
 
     QStringList nameFilters() const;
     void setNameFilters(const QStringList &filters);
@@ -115,9 +126,19 @@ public:
     bool isBusy() const;
     QString error() const;
     bool canGoUp() const;
+    bool canGoBack() const;
+    bool canGoForward() const;
 
     // To the directory above, if there is one.
     Q_INVOKABLE void goUp();
+    Q_INVOKABLE void goBack();
+    Q_INVOKABLE void goForward();
+    // Keeps the directory being looked at, or stops keeping it.
+    Q_INVOKABLE void addFavorite(const QString &path);
+    Q_INVOKABLE void removeFavorite(const QString &path);
+    // A new directory here, named \a name. Answers with its path, or empty
+    // when it could not be made.
+    Q_INVOKABLE QString createDirectory(const QString &name);
     // Into \a row of entries() when it is a directory. Says whether it went.
     Q_INVOKABLE bool enter(int row);
     // The full path of \a row, for a view that has to hand one back.
@@ -133,10 +154,15 @@ signals:
     void showHiddenFilesChanged();
     void busyChanged();
     void errorChanged();
+    void favoritesChanged();
+    void historyChanged();
 
 private:
     void rebuildEntries();
     void rebuildPlaces();
+    void rebuildFavorites();
+    void saveFavorites();
+    void recordVisit(const Utils::FilePath &path);
 
     std::unique_ptr<FileBrowserPrivate> d;
 };

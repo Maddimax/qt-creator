@@ -8,6 +8,7 @@
 #include <utils/qtcassert.h>
 
 #include <QDir>
+#include <QSettings>
 #include <QRegularExpression>
 #include <QStandardPaths>
 
@@ -69,6 +70,13 @@ public:
     FileSystemProxyModel m_proxy;
     FileEntries m_entries;
     FileEntries m_places;
+    FileEntries m_favorites;
+    FilePaths m_favoritePaths;
+    // Where the reader has been, and where in that they are. Back and forward
+    // walk it; going somewhere new drops whatever was ahead.
+    FilePaths m_history;
+    int m_historyIndex = -1;
+    bool m_walkingHistory = false;
     FilePath m_directory;
     QStringList m_nameFilters;
     QString m_error;
@@ -109,6 +117,7 @@ FileBrowser::FileBrowser(QObject *parent)
             });
 
     rebuildPlaces();
+    rebuildFavorites();
 }
 
 FileBrowser::~FileBrowser() = default;
@@ -136,7 +145,9 @@ void FileBrowser::setDirectory(const QString &directory)
     if (root.isValid() && d->m_model.canFetchMore(root))
         d->m_model.fetchMore(root);
     rebuildEntries();
+    recordVisit(path);
     emit directoryChanged();
+    emit favoritesChanged();
 }
 
 FileEntries *FileBrowser::entries() const
@@ -147,6 +158,16 @@ FileEntries *FileBrowser::entries() const
 FileEntries *FileBrowser::places() const
 {
     return &d->m_places;
+}
+
+FileEntries *FileBrowser::favorites() const
+{
+    return &d->m_favorites;
+}
+
+bool FileBrowser::currentIsFavorite() const
+{
+    return d->m_favoritePaths.contains(d->m_directory);
 }
 
 QStringList FileBrowser::nameFilters() const
@@ -193,10 +214,91 @@ bool FileBrowser::canGoUp() const
            && !d->m_directory.parentDir().isEmpty();
 }
 
+bool FileBrowser::canGoBack() const
+{
+    return d->m_historyIndex > 0;
+}
+
+bool FileBrowser::canGoForward() const
+{
+    return d->m_historyIndex >= 0 && d->m_historyIndex < int(d->m_history.size()) - 1;
+}
+
 void FileBrowser::goUp()
 {
     if (canGoUp())
         setDirectory(d->m_directory.parentDir().toUserOutput());
+}
+
+void FileBrowser::goBack()
+{
+    if (!canGoBack())
+        return;
+    --d->m_historyIndex;
+    d->m_walkingHistory = true;
+    setDirectory(d->m_history.at(d->m_historyIndex).toUserOutput());
+    d->m_walkingHistory = false;
+    emit historyChanged();
+}
+
+void FileBrowser::goForward()
+{
+    if (!canGoForward())
+        return;
+    ++d->m_historyIndex;
+    d->m_walkingHistory = true;
+    setDirectory(d->m_history.at(d->m_historyIndex).toUserOutput());
+    d->m_walkingHistory = false;
+    emit historyChanged();
+}
+
+// Going somewhere new is the end of whatever was ahead: forward means "back
+// to where I came from", and there is no coming back from here yet.
+void FileBrowser::recordVisit(const FilePath &path)
+{
+    if (d->m_walkingHistory || path.isEmpty())
+        return;
+    if (d->m_historyIndex >= 0 && d->m_history.at(d->m_historyIndex) == path)
+        return;
+    d->m_history.resize(d->m_historyIndex + 1);
+    d->m_history.append(path);
+    d->m_historyIndex = int(d->m_history.size()) - 1;
+    emit historyChanged();
+}
+
+void FileBrowser::addFavorite(const QString &path)
+{
+    const FilePath favorite = FilePath::fromUserInput(path);
+    if (favorite.isEmpty() || d->m_favoritePaths.contains(favorite))
+        return;
+    d->m_favoritePaths.append(favorite);
+    saveFavorites();
+    rebuildFavorites();
+    emit favoritesChanged();
+}
+
+void FileBrowser::removeFavorite(const QString &path)
+{
+    const FilePath favorite = FilePath::fromUserInput(path);
+    if (!d->m_favoritePaths.removeOne(favorite))
+        return;
+    saveFavorites();
+    rebuildFavorites();
+    emit favoritesChanged();
+}
+
+QString FileBrowser::createDirectory(const QString &name)
+{
+    if (name.isEmpty() || d->m_directory.isEmpty())
+        return {};
+    const QModelIndex root = d->m_model.index(0, 0);
+    if (!root.isValid())
+        return {};
+    const QModelIndex made = d->m_model.mkdir(root, name);
+    if (!made.isValid())
+        return {};
+    rebuildEntries();
+    return d->m_model.filePath(made).toUserOutput();
 }
 
 bool FileBrowser::enter(int row)
@@ -267,6 +369,41 @@ void FileBrowser::rebuildEntries()
         rows.append(entry);
     }
     d->m_entries.setEntries(rows);
+}
+
+// The same settings the widget dialog keeps them in, so a directory kept in
+// one is there in the other.
+static const char kFavoritesGroup[] = "FileDialog";
+static const char kFavoritesKey[] = "Favorites";
+
+void FileBrowser::rebuildFavorites()
+{
+    if (d->m_favoritePaths.isEmpty()) {
+        QSettings settings;
+        settings.beginGroup(QLatin1String(kFavoritesGroup));
+        const QStringList paths = settings.value(QLatin1String(kFavoritesKey)).toStringList();
+        settings.endGroup();
+        for (const QString &path : paths)
+            d->m_favoritePaths.append(FilePath::fromString(path));
+    }
+
+    QList<FileEntries::Entry> rows;
+    for (const FilePath &favorite : std::as_const(d->m_favoritePaths)) {
+        if (favorite.isDir())
+            rows.append({favorite.fileName(), favorite, true, 0, {}});
+    }
+    d->m_favorites.setEntries(rows);
+}
+
+void FileBrowser::saveFavorites()
+{
+    QStringList paths;
+    for (const FilePath &favorite : std::as_const(d->m_favoritePaths))
+        paths << favorite.toFSPathString();
+    QSettings settings;
+    settings.beginGroup(QLatin1String(kFavoritesGroup));
+    settings.setValue(QLatin1String(kFavoritesKey), paths);
+    settings.endGroup();
 }
 
 void FileBrowser::rebuildPlaces()

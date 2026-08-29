@@ -89,6 +89,36 @@ Window {
         }
     }
 
+    // Naming a new directory. A dialog of its own rather than an inline row:
+    // it is asked for rarely and answered at once.
+    Dialog {
+        id: newFolderPrompt
+
+        objectName: "newFolderPrompt"
+        title: qsTr("New Folder")
+        anchors.centerIn: Overlay.overlay
+        modal: true
+        standardButtons: Dialog.Ok | Dialog.Cancel
+
+        onOpened: {
+            newFolderName.text = ""
+            newFolderName.forceActiveFocus()
+        }
+        onAccepted: {
+            const made = browser.createDirectory(newFolderName.text)
+            if (made !== "")
+                browser.directory = made
+        }
+
+        QtcLineEdit {
+            id: newFolderName
+
+            objectName: "newFolderName"
+            width: Metrics.lineEditWidth
+            onAccepted: newFolderPrompt.accept()
+        }
+    }
+
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: Spacing.PaddingVL
@@ -97,6 +127,20 @@ Window {
         RowLayout {
             spacing: Spacing.GapHM
             Layout.fillWidth: true
+
+            QtcButton {
+                objectName: "backButton"
+                text: qsTr("Back")
+                enabled: browser.canGoBack
+                onClicked: browser.goBack()
+            }
+
+            QtcButton {
+                objectName: "forwardButton"
+                text: qsTr("Forward")
+                enabled: browser.canGoForward
+                onClicked: browser.goForward()
+            }
 
             QtcButton {
                 objectName: "upButton"
@@ -115,12 +159,31 @@ Window {
                 onEditingFinished: browser.directory = text
             }
 
+            // Keeping a directory to hand. The same list the widget dialog
+            // shows, so one kept here is kept there.
+            QtcButton {
+                objectName: "favoriteButton"
+                text: browser.currentIsFavorite ? qsTr("Unkeep") : qsTr("Keep")
+                enabled: browser.directory !== ""
+                onClicked: {
+                    if (browser.currentIsFavorite)
+                        browser.removeFavorite(browser.directory)
+                    else
+                        browser.addFavorite(browser.directory)
+                }
+            }
+
+            QtcButton {
+                objectName: "newFolderButton"
+                text: qsTr("New Folder")
+                enabled: browser.directory !== ""
+                onClicked: newFolderPrompt.open()
+            }
+
             BusyIndicator {
                 objectName: "busyIndicator"
                 running: browser.busy
                 visible: browser.busy
-                implicitWidth: Metrics.formControlHeight
-                implicitHeight: Metrics.formControlHeight
             }
         }
 
@@ -131,25 +194,63 @@ Window {
 
             // Somewhere to start: this machine's usual places, and every
             // device that can be browsed.
-            ListView {
-                id: places
-
-                objectName: "placesList"
-                model: browser.places
-                clip: true
+            ColumnLayout {
+                spacing: Spacing.GapVS
                 Layout.preferredWidth: Metrics.formLabelWidth
                 Layout.fillHeight: true
 
-                ScrollBar.vertical: ScrollBar {}
+                Label {
+                    text: qsTr("Kept")
+                    font: Fonts.captionStrong
+                    color: Tokens.textMuted
+                    visible: favorites.count > 0
+                }
 
-                delegate: ItemDelegate {
-                    required property int index
-                    required property string name
-                    required property string filePath
+                ListView {
+                    id: favorites
 
-                    width: places.width
-                    text: name
-                    onClicked: browser.directory = filePath
+                    objectName: "favoritesList"
+                    model: browser.favorites
+                    clip: true
+                    visible: count > 0
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Math.min(contentHeight, parent.height / 3)
+
+                    delegate: ItemDelegate {
+                        required property string name
+                        required property string filePath
+
+                        width: favorites.width
+                        text: name
+                        onClicked: browser.directory = filePath
+                    }
+                }
+
+                Label {
+                    text: qsTr("Places")
+                    font: Fonts.captionStrong
+                    color: Tokens.textMuted
+                }
+
+                ListView {
+                    id: places
+
+                    objectName: "placesList"
+                    model: browser.places
+                    clip: true
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+
+                    ScrollBar.vertical: ScrollBar {}
+
+                    delegate: ItemDelegate {
+                        required property string name
+                        required property string filePath
+
+                        width: places.width
+                        text: name
+                        onClicked: browser.directory = filePath
+                    }
                 }
             }
 

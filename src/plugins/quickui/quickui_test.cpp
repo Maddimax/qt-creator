@@ -9,6 +9,7 @@
 #include <utils/datafromprocess.h>
 
 #include <QFontDatabase>
+#include <QSettings>
 #include <utils/temporarydirectory.h>
 #include <utils/historycompleter.h>
 #include <utils/aspectwidgets.h>
@@ -256,6 +257,7 @@ private slots:
     void testTheFileBrowserListsWhatIsInADirectory();
     void testTheFileDialogChoosesAFileWithoutAskingThePlatform();
     void testAPathOnADeviceIsBrowsedWithOurOwnDialog();
+    void testTheFileBrowserRemembersWhereItHasBeen();
     void testSeveralLinesCompleteTheWordTheCursorIsIn();
     void testColourOffersToGoBackToItsDefault();
     void testColourWithNoResetHasNoButton();
@@ -4795,6 +4797,21 @@ void QuickUiTest::testTheFileDialogChoosesAFileWithoutAskingThePlatform()
     QVERIFY(inner.createDir());
     QVERIFY((root / "chosen.txt").writeFileContents("x"));
 
+    // A binding to something that is not there is a warning and nothing else:
+    // the control keeps whatever it had and the dialog looks nearly right.
+    // qmllint does not see through a singleton's property names, so this is
+    // where a mistyped Metrics or Tokens entry is caught.
+    QStringList complaints;
+    const QMetaObject::Connection listening = connect(
+        QtcQuick::engine(), &QQmlEngine::warnings, QtcQuick::engine(),
+        [&complaints](const QList<QQmlError> &warnings) {
+            for (const QQmlError &warning : warnings) {
+                if (warning.url().toString().contains("QtcFileDialog.qml"))
+                    complaints << warning.toString();
+            }
+        });
+    const QScopeGuard stopListening([listening] { disconnect(listening); });
+
     QQmlComponent component(QtcQuick::engine(),
                             QUrl("qrc:/qt/qml/QtCreator/Ui/QtcFileDialog.qml"));
     QVERIFY2(!component.isError(), qPrintable(component.errorString()));
@@ -4839,6 +4856,8 @@ void QuickUiTest::testTheFileDialogChoosesAFileWithoutAskingThePlatform()
     QMetaObject::invokeMethod(forDirectory.get(), "reject");
     QCOMPARE(rejected.size(), 1);
     QVERIFY(forDirectory->property("selectedFile").toString().isEmpty());
+
+    QVERIFY2(complaints.isEmpty(), qPrintable("\n" + complaints.join("\n")));
 }
 
 // Which dialog a path field opens. The platform's cannot see a device, so a
@@ -4890,6 +4909,94 @@ void QuickUiTest::testAPathOnADeviceIsBrowsedWithOurOwnDialog()
     QVERIFY2(!models.isLocalPath("docker://nosuchimage/tmp"),
              "a path on a device is taken for one on this machine, so the "
              "platform dialog would be opened for it");
+}
+
+// Getting about: back and forward over where the reader has been, and the
+// directories they kept. Kept where the widget dialog keeps them, so that a
+// favourite added in one is there in the other.
+void QuickUiTest::testTheFileBrowserRemembersWhereItHasBeen()
+{
+    Utils::TemporaryDirectory dir("quickui-browser-history");
+    QVERIFY(dir.isValid());
+    const Utils::FilePath root = dir.path();
+    const Utils::FilePath first = root / "first";
+    const Utils::FilePath second = root / "second";
+    QVERIFY(first.createDir());
+    QVERIFY(second.createDir());
+
+    QtcQuick::FileBrowser browser;
+    // Nowhere to go back to before anywhere has been visited.
+    QVERIFY(!browser.canGoBack());
+    QVERIFY(!browser.canGoForward());
+
+    browser.setDirectory(root.toUserOutput());
+    QVERIFY(!browser.canGoBack());
+    browser.setDirectory(first.toUserOutput());
+    QVERIFY(browser.canGoBack());
+    QVERIFY(!browser.canGoForward());
+
+    browser.goBack();
+    QCOMPARE(browser.directory(), root.toUserOutput());
+    QVERIFY(browser.canGoForward());
+    browser.goForward();
+    QCOMPARE(browser.directory(), first.toUserOutput());
+
+    // Going somewhere new from part way back drops what was ahead: there is
+    // no coming forward to a place the reader turned away from.
+    browser.goBack();
+    browser.setDirectory(second.toUserOutput());
+    QCOMPARE(browser.directory(), second.toUserOutput());
+    QVERIFY2(!browser.canGoForward(), "forward still leads to the road not taken");
+    // And back leads to where the reader came from, which is the directory
+    // they turned away from "first" at - not "first" itself. Asking only
+    // whether forward is possible does not say that: an entry left behind
+    // ends up behind the new one rather than ahead of it.
+    browser.goBack();
+    QCOMPARE(browser.directory(), root.toUserOutput());
+
+    // Favourites, about the directory being looked at - so stand in one.
+    // Cleaned up afterwards, because they are the user's own settings and
+    // this is a test.
+    browser.setDirectory(second.toUserOutput());
+    QCOMPARE(browser.directory(), second.toUserOutput());
+    const QStringList before = [] {
+        QSettings settings;
+        settings.beginGroup("FileDialog");
+        return settings.value("Favorites").toStringList();
+    }();
+    const QScopeGuard putBack([before] {
+        QSettings settings;
+        settings.beginGroup("FileDialog");
+        settings.setValue("Favorites", before);
+    });
+
+    QVERIFY2(!browser.currentIsFavorite(), "a fresh directory is already a favourite");
+    browser.addFavorite(second.toUserOutput());
+    QVERIFY(browser.currentIsFavorite());
+    QCOMPARE(browser.favorites()->rowCount(), 1);
+    QCOMPARE(Utils::FilePath::fromUserInput(
+                 browser.favorites()
+                     ->data(browser.favorites()->index(0, 0), QtcQuick::FileEntries::FilePathRole)
+                     .toString()),
+             second);
+
+    // Written where the widget dialog reads them.
+    {
+        QSettings settings;
+        settings.beginGroup("FileDialog");
+        QVERIFY2(settings.value("Favorites").toStringList().contains(second.toFSPathString()),
+                 "the widget dialog would not see this favourite");
+    }
+
+    browser.removeFavorite(second.toUserOutput());
+    QVERIFY(!browser.currentIsFavorite());
+    QCOMPARE(browser.favorites()->rowCount(), 0);
+
+    // And making a directory here, which is the other thing a dialog has to
+    // be able to do before a file can be saved into it.
+    const QString made = browser.createDirectory("brand-new");
+    QCOMPARE(Utils::FilePath::fromUserInput(made), second / "brand-new");
+    QVERIFY((second / "brand-new").isDir());
 }
 
 void QuickUiTest::testSeveralLinesCompleteTheWordTheCursorIsIn()
