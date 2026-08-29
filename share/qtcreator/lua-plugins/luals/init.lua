@@ -4,7 +4,6 @@ local LSP = require('LSP')
 local mm = require('MessageManager')
 local Utils = require('Utils')
 local S = require('Settings')
-local Gui = require('Gui')
 local a = require('async')
 local fetch = require('Fetch').fetch
 local Install = require('Install')
@@ -127,31 +126,6 @@ local function setupClient()
   end)
 end
 
-local function using(tbl)
-  local result = _G
-  for k, v in pairs(tbl) do result[k] = v end
-  return result
-end
-local function layoutSettings()
-  --- "using namespace Gui"
-  local _ENV = using(Gui)
-
-  local layout = Form {
-    Settings.binary, br,
-    Settings.developMode, br,
-    Settings.showSource, br,
-    Settings.showNode, br,
-      Row {
-        PushButton {
-        text = "Update Lua Language Server",
-          onClicked = function() a.sync(installOrUpdateServer)() end,
-        },
-        st
-    }
-  }
-  return layout
-end
-
 local function binaryFromPkg()
   local lspPkgInfo = Install.packageInfo("lua-language-server")
   if lspPkgInfo then
@@ -187,7 +161,7 @@ local function setupAspect()
   ---@class Settings: AspectContainer
   Settings = S.AspectContainer.create({
     autoApply = false,
-    layouter = layoutSettings,
+    qmlSource = PluginSpec.pluginDirectory:resolvePath("Settings.qml"),
   });
 
   Settings.binary = S.FilePathAspect.create({
@@ -225,6 +199,12 @@ local function setupAspect()
     defaultValue = false,
     labelPlacement = S.LabelPlacement.InExtraLabel,
   })
+
+  Settings.update = S.ActionAspect.create({
+    actionText = "Update Lua Language Server",
+    onTriggered = function() a.sync(installOrUpdateServer)() end,
+  })
+
   return Settings
 end
 local function setup(parameters)

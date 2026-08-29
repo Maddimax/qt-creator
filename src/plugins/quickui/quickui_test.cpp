@@ -4,6 +4,7 @@
 #include "quickui_test.h"
 
 #include <coreplugin/dialogs/ioptionspage.h>
+#include <coreplugin/icore.h>
 
 #include <utils/completionhistory.h>
 #include <utils/datafromprocess.h>
@@ -131,6 +132,23 @@ static QWidget *showForm(Utils::AspectContainer *page)
     return form;
 }
 
+// The same, for a page that draws itself: createAspectForm reads the
+// container's own QML rather than listing its aspects generically, which is
+// the path a page with setQmlSource() takes in the settings dialog.
+static QWidget *showOwnPage(Utils::AspectContainer *page)
+{
+    QWidget *form = QtcQuick::createAspectForm(page);
+    if (!form)
+        return nullptr;
+    form->resize(1400, 400);
+    form->show();
+    if (!QTest::qWaitForWindowExposed(form)) {
+        delete form;
+        return nullptr;
+    }
+    return form;
+}
+
 // Every item in the visual tree with this objectName. Cell controls are found
 // this way rather than by type: a non-editable ComboBox's content item is
 // itself a TextField, so counting types counts a style's internals too.
@@ -213,6 +231,8 @@ private slots:
     void testAnAspectIsToldWhenItIsDrawn();
     void testAspectListLabelArrivingLate();
     void testPageWithoutItsOwnQmlIsDeclined();
+    void testAPageCanBeDrawnByQmlThatIsNotBuiltIn();
+    void testTheShippedExtensionPagesNameAspectsTheirScriptsCreate();
     void testBuildingAPageIsNotShowingIt();
     void testAFormInAWidgetLayoutAsksForItsContentHeight();
     void testAGroupCanExplainItselfTheWayAQGroupBoxCould();
@@ -6005,6 +6025,126 @@ void QuickUiTest::testTheFileDialogChoosesAFileWithoutAskingThePlatform()
     QVERIFY(forDirectory->property("selectedFile").toString().isEmpty());
 
     QVERIFY2(complaints.isEmpty(), qPrintable("\n" + complaints.join("\n")));
+}
+
+// A settings page whose QML is a file rather than a resource. This is what a
+// Lua extension gets: it ships its page beside its init.lua and names it with
+// PluginSpec.pluginDirectory, so the URL is file:// and the QML is read from
+// disk. Nothing else in the tree does that, and the engine is shared with the
+// built-in pages, so it is worth knowing the import still resolves.
+void QuickUiTest::testAPageCanBeDrawnByQmlThatIsNotBuiltIn()
+{
+    Utils::TemporaryDirectory dir("quickui-extension-page");
+    QVERIFY(dir.isValid());
+    const Utils::FilePath qml = dir.path() / "Settings.qml";
+    QVERIFY(qml.writeFileContents(R"(
+import QtQuick
+import QtCreator.Ui
+
+AspectPage {
+    id: root
+
+    StringDelegate { aspect: root.aspects.binary }
+    ButtonDelegate { aspect: root.aspects.install }
+}
+)"));
+
+    Utils::AspectContainer page;
+    page.setAutoApply(false);
+    page.setQmlSource(QUrl::fromLocalFile(qml.toFSPathString()));
+
+    Utils::FilePathAspect binary(&page);
+    binary.setSettingsKey("Extension.Binary");
+    binary.setLabelText("Binary:");
+    binary.setExpectedKind(Utils::PathChooserKind::ExistingCommand);
+    // The name the page reaches it by, which for a Lua aspect is the name the
+    // script assigned it to rather than the tail of its settings key.
+    binary.setQmlName("binary");
+
+    int triggered = 0;
+    Utils::ActionAspect install(&page);
+    install.setQmlName("install");
+    install.setActionText("Install it");
+    install.setAction([&triggered] { ++triggered; });
+
+    const std::unique_ptr<QWidget> form(showOwnPage(&page));
+    QVERIFY2(form, "a page whose QML is a file on disk was not rendered");
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QQuickItem * const root = quickWidget->rootObject();
+    QVERIFY2(root, qPrintable(Utils::transform(quickWidget->errors(),
+                                               &QQmlError::toString).join("; ")));
+
+    // Drawn by the file, not by the generic form falling back.
+    QVERIFY2(QString::fromLatin1(root->metaObject()->className()).startsWith("Settings"),
+             "the page did not render the QML it named");
+
+    // Both delegates found their aspect: a name that does not exist is
+    // undefined in QML rather than an error, so an unbound delegate is the
+    // failure this has to catch.
+    const QList<QQuickItem *> delegates = findAspectDelegates(root);
+    QCOMPARE(delegates.size(), 2);
+    for (QQuickItem *delegate : delegates) {
+        QVERIFY2(delegate->property("aspect").value<Utils::BaseAspect *>(),
+                 "a delegate on the page was given no aspect");
+    }
+
+    // And the action reaches the script's function. An ActionAspect is how a
+    // page acts without a layout to hang a button off.
+    QQuickItem * const button = findButton(root, "Install it");
+    QVERIFY2(button, "the action aspect drew no button");
+    QMetaObject::invokeMethod(button, "clicked");
+    QCOMPARE(triggered, 1);
+}
+
+// The two extensions Qt Creator ships draw their settings with Qt Quick, and
+// nothing else looks at them: the Lua plugin does not load its extensions in a
+// test run, so they are not in the page census. What can go wrong without
+// anyone noticing is a name - the QML asks for aspects.binary, the script
+// assigns Settings.binary, and a mismatch is undefined in QML rather than an
+// error, leaving a delegate that draws nothing.
+void QuickUiTest::testTheShippedExtensionPagesNameAspectsTheirScriptsCreate()
+{
+    const Utils::FilePath extensions = Core::ICore::resourcePath("lua-plugins");
+    QVERIFY(extensions.isDir());
+    // One directory per extension, so the pages are one level down.
+    const Utils::FilePaths pages = extensions.dirEntries(
+        Utils::FileFilter({"Settings.qml"},
+                          Utils::DirFilterFlag::Files,
+                          Utils::DirIteratorFlag::Subdirectories));
+    // Found by walking, so an empty walk must not pass for agreement.
+    QVERIFY2(!pages.isEmpty(), "no extension ships a Qt Quick settings page");
+
+    for (const Utils::FilePath &page : pages) {
+        // It parses, and every type it names exists. A page that does not is
+        // an extension whose settings are blank.
+        QQmlComponent component(QtcQuick::engine(), page.toUrl());
+        QVERIFY2(!component.isError(), qPrintable(page.toUserOutput() + ": "
+                                                  + component.errorString()));
+
+        const Utils::FilePath script = page.parentDir() / "init.lua";
+        const Utils::Result<QByteArray> lua = script.fileContents();
+        QVERIFY2(lua, qPrintable(page.toUserOutput() + " has no init.lua beside it"));
+        const QString source = QString::fromUtf8(*lua);
+
+        const Utils::Result<QByteArray> qml = page.fileContents();
+        QVERIFY(qml);
+        static const QRegularExpression named("aspects\\.([A-Za-z_][A-Za-z0-9_]*)");
+        QRegularExpressionMatchIterator it = named.globalMatch(QString::fromUtf8(*qml));
+        int checked = 0;
+        while (it.hasNext()) {
+            const QString name = it.next().captured(1);
+            // The script assigns it into the container under that name, which
+            // is what the binding turns into the aspect's QML name.
+            const QRegularExpression assigned(
+                "Settings\\." + QRegularExpression::escape(name) + "\\s*=");
+            QVERIFY2(source.contains(assigned),
+                     qPrintable(page.toUserOutput() + " draws aspects." + name
+                                + ", which init.lua never creates"));
+            ++checked;
+        }
+        QVERIFY2(checked > 0, qPrintable(page.toUserOutput() + " names no aspect at all"));
+    }
 }
 
 // The window our own file dialog is, if one is open. It is a window with no

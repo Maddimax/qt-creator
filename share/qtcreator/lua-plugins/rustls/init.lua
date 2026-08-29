@@ -5,7 +5,6 @@ local mm = require('MessageManager')
 local Utils = require('Utils')
 local Process = require('Process')
 local S = require('Settings')
-local Gui = require('Gui')
 local a = require('async')
 local fetch = require('Fetch').fetch
 local Install = require('Install')
@@ -113,30 +112,6 @@ local function setupClient()
   })
 end
 
-local function using(tbl)
-  local result = _G
-  for k, v in pairs(tbl) do result[k] = v end
-  return result
-end
-local function layoutSettings()
-  --- "using namespace Gui"
-  local _ENV = using(Gui)
-
-  local layout = Form {
-    Settings.binary, br,
-    Row {
-      PushButton {
-        text = "Try to install Rust language server",
-        onClicked = function() a.sync(installOrUpdateServer)() end,
-        br,
-      },
-      st
-    }
-  }
-
-  return layout
-end
-
 local function binaryFromPkg()
   local lspPkgInfo = Install.packageInfo("rust-analyzer")
   if lspPkgInfo then
@@ -171,7 +146,7 @@ local function setupAspect()
   ---@class Settings: AspectContainer
   Settings = S.AspectContainer.create({
     autoApply = false,
-    layouter = layoutSettings,
+    qmlSource = PluginSpec.pluginDirectory:resolvePath("Settings.qml"),
   });
 
   Settings.binary = S.FilePathAspect.create({
@@ -181,6 +156,11 @@ local function setupAspect()
     toolTip = "The path to the rust analyzer binary.",
     expectedKind = S.Kind.ExistingCommand,
     defaultPath = findBinary(),
+  })
+
+  Settings.install = S.ActionAspect.create({
+    actionText = "Try to install Rust language server",
+    onTriggered = function() a.sync(installOrUpdateServer)() end,
   })
 
   return Settings

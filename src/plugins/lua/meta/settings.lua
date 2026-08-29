@@ -7,6 +7,7 @@ local settings = {}
 
 ---The base class of all aspects
 ---@class BaseAspect
+---@field qmlName string The name a Qt Quick page reaches this aspect by, as aspects.<qmlName>. Defaults to the name it was assigned to in its container.
 settings.BaseAspect = {}
 
 ---Applies the changes from its volatileValue to its value.
@@ -44,7 +45,8 @@ settings.AspectContainer = {}
 ---@class AspectContainerCreate
 ---@field autoApply? boolean Whether the aspects should be applied automatically or not.
 ---@field onApplied? function Called when the aspects are applied.
----@field layouter? function The layouter of the aspect container.
+---@field layouter? function The layouter of the aspect container. Draws the page with widgets; prefer qmlSource.
+---@field qmlSource? FilePath|string A QML file drawing the page, reaching the aspects as aspects.<name>. Resolve it against PluginSpec.pluginDirectory.
 ---@field settingsGroup? string The settings group of the aspect container.
 AspectContainerCreate = {}
 
@@ -52,6 +54,24 @@ AspectContainerCreate = {}
 ---@param options AspectContainerCreate
 ---@return AspectContainer
 function settings.AspectContainer.create(options) end
+
+---An aspect that acts instead of holding a value: one button on the page.
+---@class ActionAspect : BaseAspect
+settings.ActionAspect = {}
+
+---Runs the action, as clicking its button would.
+function ActionAspect:trigger() end
+
+---Options for creating an ActionAspect.
+---@class ActionAspectCreate : AspectCreate
+---@field actionText? string The text on the button.
+---@field onTriggered? function Called when the button is clicked.
+ActionAspectCreate = {}
+
+---Create a new ActionAspect.
+---@param options ActionAspectCreate
+---@return ActionAspect
+function settings.ActionAspect.create(options) end
 
 ---A aspect containing a boolean value.
 ---@class BoolAspect : TypedAspect<boolean>

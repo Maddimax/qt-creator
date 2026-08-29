@@ -15746,3 +15746,66 @@ opens our dialog, checked by looking for the `QtcFileDialog` window it makes.
 Only that half can be tried. The other opens the platform's own dialog, which
 on this host is native and modal, and a test that opens one does not come
 back.
+
+### The last widget layout: the extensions
+
+`setLayouter` had three call sites left after the 165 pages were ported. Two
+are the API itself and a test fixture. The third was real: `Settings` in the
+Lua binding took a `layouter` function, so every Lua extension's settings page
+was drawn with widgets, and the two Qt Creator ships - the Rust and Lua
+language servers - were.
+
+Both were a form of aspects and one push button, and the button is why they
+needed a layout at all. `ActionAspect` already exists for exactly that - a
+page action with no value, drawn by `ButtonDelegate` - so it is now bound to
+Lua, and neither page needs a layout to hold a button any more.
+
+What they need instead is somewhere to put their QML. `AspectContainer.create`
+takes a `qmlSource` now, resolved by the script against
+`PluginSpec.pluginDirectory`, which was already exposed; the file is read from
+disk rather than a resource, and the shared engine finds `QtCreator.Ui` from
+there just as it does for a built-in page. `share/qtcreator/lua-plugins/**` is
+installed wholesale by both build systems, so a page ships beside its
+`init.lua` with no build-system entry.
+
+The third piece is the name. A page says `aspects.binary`; the aspect derives
+its QML name from the tail of its settings key, which for `Rustls.Binary`
+is `Binary` - a name written for a settings file. The Lua container knows
+better: `dynamic_set` has the name the script assigned, so `Settings.binary`
+is `aspects.binary`. `qmlName` is readable and settable from Lua for a page
+that wants to spell it differently.
+
+**How this was checked, given that none of it runs in the test suite.** The
+Lua plugin does not load its extensions under `-test`, so the page census -
+which is what proves every other page in this document renders - never sees
+them. Three things stand in for it:
+
+- `testAPageCanBeDrawnByQmlThatIsNotBuiltIn` builds the same shape in C++: a
+  container with a `file://` QML source, a path aspect and an action aspect,
+  rendered through `createAspectForm`. It asserts the file drew the page, that
+  both delegates found their aspect, and that clicking the button runs the
+  action.
+- `testTheShippedExtensionPagesNameAspectsTheirScriptsCreate` reads the two
+  shipped pages out of the resource path, requires each to load as a component
+  - every type it names exists - and requires every `aspects.X` it draws to be
+  an `X` the sibling `init.lua` assigns. That mismatch is the failure with no
+  symptom: an unknown name is `undefined` in QML, not an error, so the
+  delegate is built and shows nothing.
+- The Lua binding itself was run. A scratch extension in a throwaway
+  `-settingspath` exercises `qmlSource` as a `FilePath` and as a string, an
+  `ActionAspect` whose function must run when triggered, and `qmlName` coming
+  out as the name the script used. Creator was started offscreen and killed
+  once it had printed; all five pass, and the two shipped extensions load
+  without a word.
+
+That silence is the point, so it was controlled: pointing rustls at a
+`S.NoSuchAspect` makes the run print a Lua traceback naming the line. Six more
+controls bite - the button not calling `triggerAction`, `createAspectForm`
+ignoring `qmlSource`, an aspect renamed in `luals/init.lua`, and a delegate
+type that does not exist in a shipped `.qml`.
+
+One trap for anyone re-running those last two: the test reads the pages from
+the *build* copy, and `copy_share_to_builddir` did not always notice a file
+restored underneath it. `touch` the source and re-run the copy target, or the
+control stays applied and the next run fails for the previous reason.
+

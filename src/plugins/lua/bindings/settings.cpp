@@ -16,6 +16,8 @@
 #include <coreplugin/icore.h>
 #include <coreplugin/secretaspect.h>
 
+#include <QUrl>
+
 using namespace Utils;
 using namespace Core;
 using namespace std::string_view_literals;
@@ -41,7 +43,13 @@ public:
         if (!value.is<BaseAspect>())
             throw std::runtime_error("AspectContainer can only contain BaseAspect instances");
 
-        registerAspect(value.as<BaseAspect *>(), false);
+        BaseAspect * const aspect = value.as<BaseAspect *>();
+        registerAspect(aspect, false);
+        // The name a page's QML reaches it by is the name the script gave it,
+        // so that Settings.binary is aspects.binary. Deriving one from the
+        // settings key instead would spell it Binary, and a key like
+        // "Rustls.Binary" is written for a settings file, not for a page.
+        aspect->setQmlName(QString::fromStdString(key));
 
         auto it = m_entries.find(key);
         if (it == m_entries.cend()) {
@@ -82,6 +90,14 @@ static std::unique_ptr<LuaAspectContainer> aspectContainerCreate(const sol::main
                     &AspectContainer::applied,
                     container.get(),
                     [func = v.as<sol::main_function>()] { void_safe_call(func); });
+            } else if (key == "qmlSource") {
+                // A page of its own, drawn with Qt Quick. The extension names
+                // a file rather than a resource, so PluginSpec.pluginDirectory
+                // is what it resolves against - the QML ships beside the
+                // init.lua that asks for it.
+                const FilePath file = v.is<FilePath>() ? v.as<FilePath>()
+                                                       : FilePath::fromUserInput(v.as<QString>());
+                container->setQmlSource(QUrl::fromLocalFile(file.toFSPathString()));
             } else if (key == "settingsGroup") {
                 container->setSettingsGroup(v.as<QString>());
             } else {
@@ -331,6 +347,11 @@ void setupSettingsModule()
 
         settings.new_usertype<BaseAspect>(
             "Aspect",
+            // The name a page's QML reaches this aspect by. Set from the name
+            // the script assigned it to; settable for a page that wants to
+            // spell it differently.
+            "qmlName",
+            sol::property(&BaseAspect::qmlName, &BaseAspect::setQmlName),
             "apply",
             &BaseAspect::apply,
             "writeSettings",
@@ -592,6 +613,28 @@ void setupSettingsModule()
                         }
                     });
             },
+            sol::base_classes,
+            sol::bases<BaseAspect>());
+
+        settings.new_usertype<ActionAspect>(
+            "ActionAspect",
+            "create",
+            [](const sol::main_table &options) {
+                return createAspectFromTable<ActionAspect>(
+                    options,
+                    [](ActionAspect *aspect, const std::string &key, const sol::object &value) {
+                        if (key == "actionText") {
+                            aspect->setActionText(value.as<QString>());
+                        } else if (key == "onTriggered") {
+                            aspect->setAction(
+                                [func = value.as<sol::main_function>()] { void_safe_call(func); });
+                        } else {
+                            baseAspectCreate(aspect, key, value);
+                        }
+                    });
+            },
+            "trigger",
+            &ActionAspect::triggerAction,
             sol::base_classes,
             sol::bases<BaseAspect>());
 
