@@ -175,6 +175,7 @@ private slots:
     void testARowOfButtonsIsDrawnAsARowOfButtons();
     void testANoteWrittenInMarkdownSaysSo();
     void testAPagesGroupsFillTheWidthTheyAreGiven();
+    void testNoButtonOffersAMnemonicItCannotHave();
     void testACompactColourKeepsItsNumbersBehindItsSwatch();
     void testTheFormatListOpensOnAFormat();
     void testEveryComponentInTheModuleCanBeLoaded();
@@ -323,6 +324,48 @@ static const QSet<QString> &knownUndrawnSettings()
         "Catch Test: WarnEmpty/WarnEmpty",
     };
     return settings;
+}
+
+// Button texts are written for widgets, where "&Add" underlines the A and
+// Alt+A presses it. Qt Quick has no mnemonics, so an unstripped marker is
+// simply drawn: the Interpreters page offered "&Add" and "&Make Default".
+void QuickUiTest::testNoButtonOffersAMnemonicItCannotHave()
+{
+    Core::setAspectFormFactory([](Utils::AspectContainer *container) {
+        return QtcQuick::createAspectForm(container);
+    });
+    const QScopeGuard clearFactory([] { Core::setAspectFormFactory({}); });
+
+    // An ampersand in front of a letter. A literal one - written "&&" for a
+    // widget - comes through as a single ampersand, and those stand beside a
+    // space: "Font && Colors" is read as "Font & Colors".
+    static const QRegularExpression marker("&[A-Za-z]");
+
+    QStringList marked;
+    int buttons = 0;
+    for (Core::IOptionsPage *page : Core::IOptionsPage::allOptionsPages()) {
+        const std::optional<Utils::AspectContainer *> aspects = page->aspects();
+        if (!aspects || !*aspects)
+            continue;
+        std::unique_ptr<Core::IOptionsPageWidget> widget(page->createWidget());
+        if (!widget)
+            continue;
+        auto quickWidget = widget->findChild<QQuickWidget *>();
+        if (!quickWidget || !quickWidget->rootObject())
+            continue;
+
+        for (QQuickItem *button : findQmlComponents(quickWidget->rootObject(), "Button")) {
+            const QString text = button->property("text").toString();
+            if (text.isEmpty())
+                continue;
+            ++buttons;
+            if (marker.match(text).hasMatch())
+                marked << page->displayName() + ": \"" + text + "\"";
+        }
+    }
+
+    QVERIFY2(buttons > 0, "no page drew a button with a text, so this proves nothing");
+    QVERIFY2(marked.isEmpty(), qPrintable("\n" + marked.join("\n")));
 }
 
 // A group on a page has to be an AspectGroupBox. Qt Quick's own GroupBox puts

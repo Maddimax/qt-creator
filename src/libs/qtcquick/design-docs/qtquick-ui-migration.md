@@ -15285,3 +15285,23 @@ name, so asking for "GroupBox" finds exactly the plain ones. It counts the
 `AspectGroupBox`es as well and refuses to pass when there are none, because
 after the fix there is nothing left for the first assertion to find and a
 search that quietly stopped working would look the same.
+
+### Mnemonics a Qt Quick button cannot have
+
+The Python Interpreters page offered "&Add", "&Delete", "&Make Default",
+"&Generate Kit" and "&Clean Up". The ampersand is a widget mnemonic: a
+QPushButton underlines the next letter and Alt with it presses the button. Qt
+Quick has none of that, so the marker is simply drawn.
+
+Labels have been stripped all along - `BaseAspect::plainLabelText()` is what
+the delegates read - but an action text reaches QML through the presentation
+map, which passed it on as it was. `AspectModels::presentation()` now strips
+`actionText` and `contextActionText`, which is the right seam: the widget
+renderer reads the presentation directly and keeps its mnemonics.
+
+The test walks every page and reads the text off the buttons themselves rather
+than the presentation behind them, so it also caught two the bridge cannot
+reach - the Qbs Profiles page had copied "E&xpand All" and "&Collapse All"
+into its QML by hand. It looks for an ampersand in front of a *letter*: a
+literal one, written "&&" for a widget, comes through as a single ampersand
+and stands beside a space, the way "Font && Colors" reads as "Font & Colors".

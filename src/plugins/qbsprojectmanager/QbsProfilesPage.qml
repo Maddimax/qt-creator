@@ -37,12 +37,12 @@ AspectPage {
             Layout.alignment: Qt.AlignTop
 
             Button {
-                text: qsTr("E&xpand All")
+                text: qsTr("Expand All")
                 onClicked: properties.expandAll()
             }
 
             Button {
-                text: qsTr("&Collapse All")
+                text: qsTr("Collapse All")
                 onClicked: properties.collapseAll()
             }
         }

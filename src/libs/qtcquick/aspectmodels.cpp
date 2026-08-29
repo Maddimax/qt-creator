@@ -16,6 +16,7 @@
 #include <utils/aspects.h>
 
 #include <utils/qtcassert.h>
+#include <utils/stringutils.h>
 
 #include <QMimeData>
 
@@ -190,7 +191,7 @@ QVariantMap AspectModels::presentation(BaseAspect *aspect)
                                p.choices, &AspectPresentation::Choice::toolTip)},
         // A control's context menu, for a state that is about the setting
         // rather than about its value.
-        {"contextActionText", p.contextActionText},
+        {"contextActionText", Utils::stripAccelerator(p.contextActionText)},
         {"contextActionChecked", p.contextActionChecked},
         {"contextActionEnabled", p.contextActionEnabled},
         {"valueIsChoiceId", p.valueIsChoiceId},
@@ -214,7 +215,12 @@ QVariantMap AspectModels::presentation(BaseAspect *aspect)
         // default offers a button for it.
         {"withResetButton", p.withResetButton},
         {"defaultValue", p.defaultValue},
-        {"actionText", p.actionText},
+        // Without the mnemonic: these texts are written for widgets, where
+        // "&Add" underlines the A and Alt+A presses the button. Qt Quick has
+        // no mnemonics, so the marker is simply drawn - the Interpreters page
+        // offered "&Add", "&Delete" and "&Make Default". stripAccelerator
+        // turns a literal "&&" back into one ampersand.
+        {"actionText", Utils::stripAccelerator(p.actionText)},
         {"actionIcon", p.actionIcon.isNull() ? QString() : iconUrl(p.actionIcon)},
         {"actionIsDefault", p.actionIsDefault},
         // A password shares the String kind, and so the delegate, with an
