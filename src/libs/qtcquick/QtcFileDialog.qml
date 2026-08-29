@@ -458,28 +458,55 @@ Window {
             spacing: Spacing.GapHM
             Layout.fillWidth: true
 
+            // Icons, and the same ones the widget dialog uses: a row of four
+            // words where it has four glyphs is the first thing that tells
+            // the two dialogs apart. Ghost, because its buttons have no
+            // border until the pointer is over them.
             QtcButton {
                 objectName: "backButton"
-                role: QtcButton.Role.MediumSecondary
-                text: qsTr("Back")
+                role: QtcButton.Role.MediumGhost
+                iconSource: "image://qtcreator/utils/images/prev.png?color=IconsBaseColor"
+                ToolTip.text: qsTr("Back")
+                ToolTip.visible: hovered
                 enabled: browser.canGoBack
                 onClicked: browser.goBack()
             }
 
             QtcButton {
                 objectName: "forwardButton"
-                role: QtcButton.Role.MediumSecondary
-                text: qsTr("Forward")
+                role: QtcButton.Role.MediumGhost
+                iconSource: "image://qtcreator/utils/images/next.png?color=IconsBaseColor"
+                ToolTip.text: qsTr("Forward")
+                ToolTip.visible: hovered
                 enabled: browser.canGoForward
                 onClicked: browser.goForward()
             }
 
             QtcButton {
                 objectName: "upButton"
-                role: QtcButton.Role.MediumSecondary
-                text: qsTr("Up")
+                role: QtcButton.Role.MediumGhost
+                iconSource: "image://qtcreator/utils/images/arrowup.png?color=IconsBaseColor"
+                ToolTip.text: qsTr("Go to parent directory")
+                ToolTip.visible: hovered
                 enabled: browser.canGoUp
                 onClicked: browser.goUp()
+            }
+
+            // Typing a path rather than walking to it. The widget dialog drops
+            // a panel over itself for this and offers it in the arrangement
+            // whose path is a bare field; here the field is always there, so
+            // the button puts the reader in it.
+            QtcButton {
+                objectName: "gotoButton"
+                role: QtcButton.Role.MediumGhost
+                iconSource: "image://qtcreator/utils/images/slash.png?color=PanelTextColorMid"
+                ToolTip.text: qsTr("Go to folder")
+                ToolTip.visible: hovered
+                visible: !root.classic
+                onClicked: {
+                    pathField.forceActiveFocus()
+                    pathField.selectAll()
+                }
             }
 
             QtcLineEdit {
@@ -495,16 +522,12 @@ Window {
                 onEditingFinished: browser.directory = text
             }
 
-            // Keeping a directory to hand. The same list the widget dialog
-            // shows, so one kept here is kept there.
-            
-            
-            
-            
             QtcButton {
                 objectName: "optionsButton"
-                role: QtcButton.Role.MediumSecondary
-                text: qsTr("Options")
+                role: QtcButton.Role.MediumGhost
+                iconSource: "image://qtcreator/utils/images/settings.png?color=PanelTextColorMid"
+                ToolTip.text: qsTr("View options")
+                ToolTip.visible: hovered
                 onClicked: optionsMenu.popup(0, height)
             }
 
@@ -567,10 +590,9 @@ Window {
                 Layout.fillHeight: true
 
                 Label {
-                    text: qsTr("Kept")
+                    text: qsTr("Favorites")
                     font: Fonts.captionStrong
                     color: Tokens.textMuted
-                    visible: favorites.count > 0
                 }
 
                 ListView {
@@ -589,10 +611,20 @@ Window {
                         required property int index
                         required property string name
                         required property string filePath
+                        required property string iconSource
 
                         width: favorites.width
                         text: favorite.name
                         onClicked: browser.directory = favorite.filePath
+
+                        // The model hands out the same icon the widget
+                        // dialog's sidebar draws - what the path is, not a
+                        // decoration. The delegate's own content item is a
+                        // bare Text, so the row is built here.
+                        contentItem: SidebarRow {
+                            iconSource: favorite.iconSource
+                            text: favorite.name
+                        }
 
                         // The order is the reader's own, so there has to be a
                         // way to change it. The widget dialog drags them.
@@ -608,7 +640,7 @@ Window {
                 }
 
                 Label {
-                    text: qsTr("Places")
+                    text: qsTr("Locations")
                     font: Fonts.captionStrong
                     color: Tokens.textMuted
                 }
@@ -620,19 +652,70 @@ Window {
                     model: browser.places
                     clip: true
                     Layout.fillWidth: true
+                    Layout.preferredHeight: contentHeight
+
+                    delegate: ItemDelegate {
+                        id: place
+
+                        required property string name
+                        required property string filePath
+                        required property string iconSource
+
+                        width: places.width
+                        text: place.name
+                        onClicked: browser.directory = place.filePath
+
+                        contentItem: SidebarRow {
+                            iconSource: place.iconSource
+                            text: place.name
+                        }
+                    }
+                }
+
+                // Kept apart from this machine's own places, as the widget
+                // dialog keeps them: a device is somewhere else, and saying
+                // so is half of what this browser is for.
+                Label {
+                    text: qsTr("Devices")
+                    font: Fonts.captionStrong
+                    color: Tokens.textMuted
+                    visible: devices.count > 0
+                }
+
+                ListView {
+                    id: devices
+
+                    objectName: "devicesList"
+                    model: browser.devices
+                    clip: true
+                    visible: count > 0
+                    Layout.fillWidth: true
                     Layout.fillHeight: true
 
                     ScrollBar.vertical: ScrollBar {}
 
                     delegate: ItemDelegate {
+                        id: device
+
                         required property string name
                         required property string filePath
+                        required property string iconSource
 
-                        width: places.width
-                        text: name
-                        onClicked: browser.directory = filePath
+                        width: devices.width
+                        text: device.name
+                        onClicked: browser.directory = device.filePath
+
+                        contentItem: SidebarRow {
+                            iconSource: device.iconSource
+                            text: device.name
+                        }
                     }
                 }
+
+                // Holds the headings at the top when there is more room than
+                // places to put in it, which is where the widget dialog's
+                // sidebar keeps them.
+                Item { Layout.fillHeight: true }
             }
 
             ColumnLayout {
@@ -660,6 +743,13 @@ Window {
                         color: Tokens.textMuted
                         horizontalAlignment: Text.AlignRight
                         Layout.preferredWidth: Metrics.lineEditWidth / 2
+                    }
+
+                    Label {
+                        text: qsTr("Type")
+                        font: Fonts.captionStrong
+                        color: Tokens.textMuted
+                        Layout.preferredWidth: Metrics.formControlWidth / 2
                     }
 
                     Label {
@@ -779,7 +869,7 @@ Window {
                             }
 
                             Label {
-                                text: entry.isDir ? entry.name + "/" : entry.name
+                                text: entry.name
                                 elide: Text.ElideMiddle
                                 Layout.fillWidth: true
                             }
@@ -789,6 +879,16 @@ Window {
                                 color: Tokens.textMuted
                                 horizontalAlignment: Text.AlignRight
                                 Layout.preferredWidth: Metrics.lineEditWidth / 2
+                            }
+
+                            // What it is, in a column of its own. It was only
+                            // a tooltip, which is a thing you have to go
+                            // looking for.
+                            Label {
+                                text: entry.type
+                                color: Tokens.textMuted
+                                elide: Text.ElideRight
+                                Layout.preferredWidth: Metrics.formControlWidth / 2
                             }
 
                             Label {
@@ -882,8 +982,14 @@ Window {
             }
         }
 
-        RowLayout {
-            spacing: Spacing.GapHM
+        // Label beside field, one row each, as the widget dialog's grid has
+        // them: on one line the kind's label read as the name field's unit.
+        // An invisible item takes no cell, so the arrangement that shows only
+        // the kind draws it on the first row rather than under a gap.
+        GridLayout {
+            columns: 2
+            columnSpacing: Spacing.GapHM
+            rowSpacing: Spacing.GapVS
             Layout.fillWidth: true
 
             Label {
@@ -892,8 +998,6 @@ Window {
                 visible: nameField.visible
             }
 
-            // Beside the label that names it. It sat after the filter before,
-            // so "File name:" read as the label of the kind of file.
             QtcLineEdit {
                 id: nameField
 
@@ -908,7 +1012,7 @@ Window {
 
             Label {
                 objectName: "kindLabel"
-                text: qsTr("Kind:")
+                text: qsTr("Files of type:")
                 visible: filterBox.visible
             }
 
@@ -923,15 +1027,31 @@ Window {
                 // anyway. The other only offers a choice worth making.
                 visible: root.classic ? root.filterGroups.length > 0
                                       : root.filterGroups.length > 1
-                Layout.preferredWidth: Metrics.formControlWidth
+                Layout.fillWidth: true
 
                 onCurrentIndexChanged: {
                     if (currentIndex >= 0 && currentIndex < root.filterGroups.length)
                         browser.nameFilters = root.filterGroups[currentIndex].patterns
                 }
             }
+        }
 
-            Item { Layout.fillWidth: root.choosingDirectory }
+        RowLayout {
+            spacing: Spacing.GapHM
+            Layout.fillWidth: true
+
+            // Making one is a thing you do while choosing where to save, so
+            // the widget dialog gives it a button of its own rather than only
+            // an entry in a menu. It has both; so has this.
+            QtcButton {
+                objectName: "newFolderButton"
+                role: QtcButton.Role.MediumSecondary
+                text: qsTr("New Folder")
+                enabled: browser.directory !== ""
+                onClicked: newFolderPrompt.open()
+            }
+
+            Item { Layout.fillWidth: true }
 
             QtcButton {
                 objectName: "cancelButton"

@@ -198,6 +198,7 @@ private slots:
     void testAFieldDrawsTheIconItsAspectAsksFor();
     void testEachArrangementNamesTheFileWhereItBelongs();
     void testTheArrangementFollowsTheHostUnlessItIsToldOtherwise();
+    void testTheDialogLooksLikeTheOneItReplaces();
     void testANumberOnItsOwnSaysWhatItCounts();
     void testMakeDefaultSaysWhatItWouldDefault();
     void testALabelTooLongForItsColumnSaysItInFull();
@@ -6145,6 +6146,105 @@ void QuickUiTest::testTheShippedExtensionPagesNameAspectsTheirScriptsCreate()
         }
         QVERIFY2(checked > 0, qPrintable(page.toUserOutput() + " names no aspect at all"));
     }
+}
+
+
+// Fails unless \a item really draws an icon: an Image under it that has
+// loaded something with a size. Reading the iconSource property instead
+// passes for an item that was handed an icon and drops it, which is the
+// mistake this guards.
+static void drawsAnIcon(QQuickItem *item, const QString &what)
+{
+    const QList<QQuickItem *> images = findQmlComponents(item, "QQuickImage");
+    QVERIFY2(!images.isEmpty(), qPrintable(what + " has no image to draw an icon in"));
+    const bool drawn = Utils::anyOf(images, [](QQuickItem *image) {
+        return !image->property("source").toUrl().isEmpty()
+               // Image.Ready, which is not a public C++ enum.
+               && image->property("status").toInt() == 1
+               && image->property("paintedWidth").toReal() > 0;
+    });
+    QVERIFY2(drawn, qPrintable(what + " draws no icon"));
+}
+
+// What the widget file dialog looks like, in the places where the Quick one
+// had drifted: a row of glyphs rather than a row of words, a sidebar that
+// says what each place is, and the name and the kind of file on a row each.
+//
+// Appearance is not usually worth a test. This is, because every one of these
+// failed *silently*: setting ItemDelegate.icon.source draws nothing at all -
+// the style's delegate is a bare Text - and a page whose icons have quietly
+// become labels still passes every behavioural test in this file.
+void QuickUiTest::testTheDialogLooksLikeTheOneItReplaces()
+{
+    QQmlComponent component(QtcQuick::engine(),
+                            QUrl("qrc:/qt/qml/QtCreator/Ui/QtcFileDialog.qml"));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    const std::unique_ptr<QObject> object(
+        component.createWithInitialProperties({{"classic", true}}));
+    QVERIFY(object);
+    auto * const dialog = qobject_cast<QQuickWindow *>(object.get());
+    QVERIFY(dialog);
+    dialog->setProperty("currentFolder", QDir::homePath());
+    dialog->resize(900, 600);
+    dialog->show();
+    QVERIFY(QTest::qWaitForWindowExposed(dialog));
+    QQuickItem * const root = dialog->contentItem();
+
+    // The sidebar's three headings, which is how the widget dialog groups
+    // them: what the reader kept, where this machine keeps things, and what
+    // is not this machine.
+    const auto shows = [root](const QString &text) {
+        const QList<QQuickItem *> labels = findQmlComponents(root, "Label");
+        return Utils::anyOf(labels, [&text](QQuickItem *label) {
+            return label->property("text").toString() == text && label->isVisible();
+        });
+    };
+    QVERIFY2(shows("Favorites"), "the sidebar does not head what the reader kept");
+    QVERIFY2(shows("Locations"), "the sidebar does not head this machine's places");
+    QVERIFY2(shows("Devices"), "the sidebar lists no devices under their own heading");
+
+    // And every entry says what it is. The model has handed out an icon all
+    // along; nothing drew it.
+    QList<QQuickItem *> rows;
+    QTRY_VERIFY((rows = findQmlComponents(root, "SidebarRow")).size() >= 4);
+    for (QQuickItem *row : std::as_const(rows)) {
+        // What is drawn, not what the row was told: an icon assigned to
+        // something that does not draw it leaves the property set and the
+        // sidebar bare, which is exactly how this went wrong.
+        drawsAnIcon(row, "a sidebar entry: " + row->property("text").toString());
+    }
+
+    // The toolbar is glyphs. A row of four words where the widget dialog has
+    // four icons is the first thing that tells the two apart.
+    const QStringList glyphs{"backButton", "forwardButton", "upButton",
+                             "gotoButton", "optionsButton"};
+    for (const QString &name : glyphs) {
+        QQuickItem * const button = dialog->findChild<QQuickItem *>(name);
+        QVERIFY2(button, qPrintable(name + " is not on the toolbar"));
+        drawsAnIcon(button, name);
+        QVERIFY2(button->property("text").toString().isEmpty(),
+                 qPrintable(name + " is drawn as a word"));
+    }
+    // Typing a path is offered where the path is not already a field to type
+    // in, which is the arrangement this dialog is not in.
+    QVERIFY2(!dialog->findChild<QQuickItem *>("gotoButton")->isVisible(),
+             "the classic arrangement offers a button for what its field does");
+
+    // Making a folder is a button of its own, not only a menu entry.
+    QQuickItem * const newFolder = dialog->findChild<QQuickItem *>("newFolderButton");
+    QVERIFY(newFolder);
+    QVERIFY2(newFolder->isVisible(), "making a folder is hidden in a menu");
+
+    // The name and the kind are on a row each. Side by side, "Files of type:"
+    // reads as the unit of the field in front of it.
+    QQuickItem * const nameField = dialog->findChild<QQuickItem *>("nameField");
+    QQuickItem * const filterBox = dialog->findChild<QQuickItem *>("filterBox");
+    QVERIFY(nameField && filterBox);
+    QVERIFY(nameField->isVisible() && filterBox->isVisible());
+    const QPointF named = nameField->mapToItem(root, {0, 0});
+    const QPointF kind = filterBox->mapToItem(root, {0, 0});
+    QVERIFY2(kind.y() > named.y() + nameField->height() / 2,
+             "the name of the file and the kind of it are drawn on one row");
 }
 
 // The window our own file dialog is, if one is open. It is a window with no

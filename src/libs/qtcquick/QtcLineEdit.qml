@@ -23,6 +23,13 @@ FocusScope {
     property alias readOnly: input.readOnly
     property alias validator: input.validator
     property alias maximumLength: input.maximumLength
+
+    // Selecting what is there, for a caller that puts the reader in the field
+    // to replace its contents. The field itself is not exposed, so this has
+    // to be forwarded.
+    function selectAll(): void {
+        input.selectAll()
+    }
     property string accessibleName: root.placeholderText
 
     // Overridable by a subclass (QtcSearchBox) that draws its own icon

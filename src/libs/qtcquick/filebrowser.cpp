@@ -114,6 +114,7 @@ public:
     FileSystemProxyModel m_proxy;
     FileEntries m_entries;
     FileEntries m_places;
+    FileEntries m_devices;
     FileEntries m_favorites;
     FilePaths m_favoritePaths;
     // Where the reader has been, and where in that they are. Back and forward
@@ -240,6 +241,11 @@ FileEntries *FileBrowser::entries() const
 FileEntries *FileBrowser::places() const
 {
     return &d->m_places;
+}
+
+FileEntries *FileBrowser::devices() const
+{
+    return &d->m_devices;
 }
 
 FileEntries *FileBrowser::favorites() const
@@ -796,11 +802,14 @@ void FileBrowser::rebuildPlaces()
     };
 
     using SP = QStandardPaths;
+    // The same six the widget dialog's sidebar lists, in its order.
     const SP::StandardLocation locations[] = {
         SP::HomeLocation,
         SP::DesktopLocation,
         SP::DocumentsLocation,
         SP::DownloadLocation,
+        SP::MusicLocation,
+        SP::PicturesLocation,
     };
     for (SP::StandardLocation location : locations) {
         const QString path = SP::writableLocation(location);
@@ -808,16 +817,31 @@ void FileBrowser::rebuildPlaces()
             addPlace(SP::displayName(location), FilePath::fromString(path));
     }
 
-    // The point of this browser: a device is a place to start from, listed
-    // beside the ones on this machine. Only those that can actually be
-    // browsed - a device with no file access is a dead entry.
+    d->m_places.setEntries(rows);
+
+    // The point of this browser: a device is a place to start from. Under its
+    // own heading, as in the widget dialog, and only those that can actually
+    // be browsed - a device with no file access is a dead entry.
+    QList<FileEntries::Entry> deviceRows;
+    // What this machine is mounted as comes first, as the widget dialog has
+    // it: on a Unix that is one entry, "/", and on Windows one per drive.
+    for (const QFileInfo &drive : QDir::drives()) {
+        FileEntries::Entry entry;
+        entry.name = drive.filePath();
+        entry.path = FilePath::fromUserInput(drive.filePath());
+        entry.isDir = true;
+        deviceRows.append(entry);
+    }
     for (const FilePath &root : FSEngine::registeredDeviceRoots()) {
         if (root.isLocal() || !root.hasFileAccess())
             continue;
-        addPlace(root.host().toString(), root);
+        FileEntries::Entry entry;
+        entry.name = root.host().toString();
+        entry.path = root;
+        entry.isDir = true;
+        deviceRows.append(entry);
     }
-
-    d->m_places.setEntries(rows);
+    d->m_devices.setEntries(deviceRows);
 }
 
 } // namespace QtcQuick

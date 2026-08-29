@@ -15809,3 +15809,51 @@ the *build* copy, and `copy_share_to_builddir` did not always notice a file
 restored underneath it. `touch` the source and re-run the copy target, or the
 control stays applied and the next run fails for the previous reason.
 
+### Making it look like the dialog it replaces
+
+The Quick file dialog worked and did not look like the widget one. Read side
+by side - both instantiated in one process and grabbed to PNG - the
+differences were not subtle:
+
+- **A row of words where the widget has a row of glyphs.** Back, Forward, Up
+  and Options were text buttons. They are now the widget's own icons -
+  `prev`, `next`, `arrowup`, `settings` - through the image provider, in the
+  `Theme::Color` the widget tints them with. The `slash` button for typing a
+  path is there too, in the arrangement that has no path field of its own,
+  which is where `updateLayoutVisibility()` shows it.
+- **A sidebar with no icons and the wrong headings.** It said "Kept" and
+  "Places" and mixed devices into the second; the widget heads three sections,
+  Favorites, Locations and Devices, and draws `FileIconProvider::icon()`
+  beside every entry. `FileBrowser` now hands out `devices` separately - local
+  drives first, as `populateDevices()` has them, then the device roots that
+  can be browsed - and lists Music and Pictures, which it had dropped. The
+  headings sat vertically centred, because the only item that filled the
+  height was the list that was empty.
+- **The name and the kind of file on one row**, where the widget has a
+  two-column grid with a row each. Side by side, "Files of type:" reads as the
+  unit of the field in front of it. The label was also spelled "Kind:".
+- **No New Folder button** - it was only a menu entry - and no Type column,
+  which the widget shows and this had as a tooltip.
+
+**The icons went in twice.** The first attempt set `icon.source` on the
+`ItemDelegate`, which draws nothing at all: the style's delegate is a bare
+`Text` with no icon in it. Nothing failed - the property was set, the sidebar
+was blank, and all 135 tests passed. So the rows are a `SidebarRow` of their
+own now, and `testTheDialogLooksLikeTheOneItReplaces` guards it.
+
+That test is worth more than it looks, and its first version was worth
+nothing. It asked each row for its `iconSource` and got the URL it had been
+handed - which is still there when the thing meant to draw it does not. The
+control that blanked `SidebarRow`'s alias passed a full green suite. It asks
+the `Image` now: loaded, and with a painted width. Both icon controls bite,
+and so do four more - words back on the toolbar, Devices folded into
+Locations, the grid widened until the two fields share a row, and the New
+Folder button hidden.
+
+`QtcButton` sizes its icon now (`iconSize`, 16). It had none, so an `Image`
+with no size of its own drew the provider's pixmap at whatever size it came
+back at, which was twice the height of the field beside it. Nothing else in
+the tree passes `iconSource` to a `QtcButton`, so this changes only this
+dialog. `QtcLineEdit` forwards `selectAll()` as well - two places called it
+through the alias and qmllint had been warning about both.
+

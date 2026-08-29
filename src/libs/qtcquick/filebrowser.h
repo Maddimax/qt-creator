@@ -94,9 +94,13 @@ class QTCQUICK_EXPORT FileBrowser : public QObject
     Q_PROPERTY(QString directory READ directory WRITE setDirectory NOTIFY directoryChanged)
     // What is in it.
     Q_PROPERTY(QtcQuick::FileEntries *entries READ entries CONSTANT)
-    // Where to start from: this machine's usual places and every device that
-    // can be browsed. The sidebar of the widget dialog, without the widget.
+    // Where to start from: this machine's usual places. The sidebar of the
+    // widget dialog, without the widget.
     Q_PROPERTY(QtcQuick::FileEntries *places READ places CONSTANT)
+    // Every device that can be browsed, kept apart from the places on this
+    // machine because the widget dialog's sidebar lists them under their own
+    // heading.
+    Q_PROPERTY(QtcQuick::FileEntries *devices READ devices CONSTANT)
     // The directories the reader put there, kept where the widget dialog
     // keeps them so that both show the same ones.
     Q_PROPERTY(QtcQuick::FileEntries *favorites READ favorites CONSTANT)
@@ -146,6 +150,7 @@ public:
 
     FileEntries *entries() const;
     FileEntries *places() const;
+    FileEntries *devices() const;
     FileEntries *favorites() const;
     bool currentIsFavorite() const;
 

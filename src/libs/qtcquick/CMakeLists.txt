@@ -77,6 +77,7 @@ if(TARGET QtcQuick)
       QtcSwitch.qml
       SelectionDelegate.qml
       SecretDelegate.qml
+      SidebarRow.qml
       StringDelegate.qml
       StringListDelegate.qml
       StringListEditorDelegate.qml

@@ -35,6 +35,10 @@ Item {
     property string text: ""
     property int role: QtcButton.Role.MediumPrimary
     property string iconSource: ""
+    // What the glyph is drawn at. The images are provided at twice this and
+    // an Image with no size of its own draws them at that, which is what made
+    // a row of toolbar buttons twice the height of the field beside them.
+    property int iconSize: 16
     property bool checked: false
 
     readonly property bool checkable: root.role === QtcButton.Role.SmallList
@@ -195,6 +199,9 @@ Item {
         id: icon
         visible: root.hasIcon
         source: root.iconSource
+        sourceSize.width: root.iconSize
+        sourceSize.height: root.iconSize
+        fillMode: Image.PreserveAspectFit
         anchors.left: parent.left
         anchors.leftMargin: root.hPadding
         anchors.verticalCenter: parent.verticalCenter
