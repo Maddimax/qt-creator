@@ -16483,17 +16483,31 @@ run answers all of it:
   `createQtVersionFromQMakePath()` returns null and no new Qt is made. A
   second environmental limit, and one the test already knew about.
 - `ProjectExplorer` still fails the same two. `testConflict` is the `-load
-  all` artefact described above. `testSourceToBinaryMapping(qbs)` still times
-  out **with a Qt available**, so the missing-Qt explanation is now
-  eliminated; `qbs` is not on `PATH` either, and unlike its toolchain guard
-  the test has nothing that asks whether qbs can be used. That is the one
-  failure in all 62 plugins with no established cause, and it is the one worth
-  someone's time.
+  all` artefact described above. `testSourceToBinaryMapping(qbs)` still timed
+  out **with a Qt available**, and its cmake and qmake siblings both *passed*
+  in the same run - so the kit, the toolchain and the Qt were all fine and
+  only qbs was not.
+
+  Instrumenting it gave the answer in one run: `buildQueueFinished` arrives
+  with its success flag **false**. The qbs build starts and fails, so nothing
+  is generated, so no `fileListChanged` ever comes - and the test waits five
+  seconds for that change and reports the timeout. A machine without a usable
+  qbs profile therefore looks exactly like a broken source-to-binary mapping.
+
+  The build result is asserted now, before the wait, with a message that says
+  what happened. It still fails here - the qbs build really does fail on this
+  machine - but it says "the qbs build failed, so there is nothing to map"
+  instead of naming a `QSignalSpy`. The control puts it beyond doubt: ignore
+  the build result and the failure moves straight back to
+  `projectUpdateSpy.wait(5000)`, which is the five-second mystery that cost
+  three passes over this test to explain.
 
 The lesson is worth more than the result: "probably environmental" was said
-three times in this document before anyone put a Qt on `PATH` and looked. Two
-of the three were right, one was a test hack that had been failing quietly for
-anyone who had a Qt, and one remains open.
+three times in this document before anyone put a Qt on `PATH` and looked. All
+three turned out to be environmental in the end - but two of them were only
+*shown* to be by running with a Qt, one was a test hack that had been failing
+quietly for anyone who had one, and the last needed the failing build's own
+success flag before it would say so. None of that was reachable by reading.
 
 The remaining two were FakeVim's, and they turned out to be environmental as
 well - but only after two wrong answers, which is the interesting part.

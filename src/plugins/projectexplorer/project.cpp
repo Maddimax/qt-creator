@@ -2234,12 +2234,22 @@ private slots:
         QVERIFY(!bs->isWaitingForParse() && !bs->isParsing());
 
         if (QLatin1String(QTest::currentDataTag()) == QLatin1String("qbs")) {
+            QSignalSpy buildQueueFinishedSpy(BuildManager::instance(),
+                                             &BuildManager::buildQueueFinished);
             BuildManager::buildProjectWithoutDependencies(theProject.project());
-            if (BuildManager::isBuilding()) {
-                QSignalSpy buildingFinishedSpy(BuildManager::instance(), &BuildManager::buildQueueFinished);
-                QVERIFY(buildingFinishedSpy.wait(10000));
-            }
+            if (BuildManager::isBuilding())
+                QVERIFY(buildQueueFinishedSpy.wait(10000));
             QVERIFY(!BuildManager::isBuilding());
+
+            // What comes next is the file list changing because the build
+            // produced something. A build that failed produces nothing, so
+            // waiting for that change reports a timeout five seconds later
+            // instead of the build - which is a machine without a usable qbs
+            // profile looking exactly like a broken mapping.
+            QVERIFY2(!buildQueueFinishedSpy.isEmpty(), "the qbs build never finished");
+            QVERIFY2(buildQueueFinishedSpy.first().first().toBool(),
+                     "the qbs build failed, so there is nothing to map");
+
             QSignalSpy projectUpdateSpy(theProject.project(), &Project::fileListChanged);
             QVERIFY(projectUpdateSpy.wait(5000));
         }
