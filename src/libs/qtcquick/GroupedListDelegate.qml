@@ -136,7 +136,12 @@ RowLayout {
                         readonly property bool isItem:
                             root.aspect.rowForIndex(view.index(cell.row, cell.column)) >= 0
 
-                        implicitWidth: Math.max(Metrics.lineEditWidth, implicitContentWidth)
+                        // The indent and the branch handle are the delegate's
+                        // left padding, so a column sized from the content alone
+                        // leaves the first column's text short by exactly them.
+                        implicitWidth: Math.max(Metrics.lineEditWidth,
+                                                implicitContentWidth + leftPadding
+                                                    + rightPadding)
                         implicitHeight: Metrics.tableRowMinimumHeight
                         // Only the first column carries the indent and the
                         // branch handle; the rest line up with the header.

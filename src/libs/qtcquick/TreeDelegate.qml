@@ -186,7 +186,12 @@ RowLayout {
                     // delegate fails to incubate and no row is drawn at all.
                     required property int column
 
-                    implicitWidth: Math.max(Metrics.lineEditWidth, implicitContentWidth)
+                    // The indent and the branch handle are the delegate's
+                    // left padding, so a column sized from the content alone
+                    // leaves the first column's text short by exactly them.
+                    implicitWidth: Math.max(Metrics.lineEditWidth,
+                                            implicitContentWidth + leftPadding
+                                                + rightPadding)
                     implicitHeight: Math.max(Metrics.tableRowMinimumHeight,
                                              implicitContentHeight)
                     // Only the first column carries the indent and the branch

@@ -52,6 +52,7 @@
 #include <QQmlError>
 #include <QStandardItem>
 #include <QFont>
+#include <QFontMetrics>
 #include <QIcon>
 #include <QPixmap>
 #include <QPromise>
@@ -247,6 +248,7 @@ private slots:
     void testListRowShowsWhatTheListSaysAboutTheItem();
     void testGroupedListShowsItsGroupsAndActsOnTheCurrentItem();
     void testTreeShowsWhatTheAspectHandsOut();
+    void testAColumnMakesRoomForTheNamesInIt();
     void testATreeCellIsWrittenToWhereItsModelSaysSo();
     void testAReorderableTreeMovesARowThroughItsModel();
     void testFieldSaysWhatIsWrongAndKeepsItOut();
@@ -4035,6 +4037,115 @@ private:
 };
 
 } // namespace
+
+namespace {
+
+// A tree whose names are too long for a column's floor width - what a column
+// has to grow for. One of them is a single word, which cannot wrap and so is
+// clipped; the other is several, which wrap and so make the row taller.
+class LongNamedTreeAspect : public Utils::BaseAspect
+{
+public:
+    static QString unbreakable() { return "aRatherLongPropertyName"; }
+    static QString wrappable() { return "a rather long property name"; }
+
+    LongNamedTreeAspect()
+    {
+        m_model.setHeader({"Name", "Value"});
+        m_model.rootItem()->appendChild(
+            new Utils::StaticTreeItem(QStringList{unbreakable(), "1"}));
+        m_model.rootItem()->appendChild(
+            new Utils::StaticTreeItem(QStringList{wrappable(), "2"}));
+    }
+
+    Utils::AspectPresentation presentation() const override
+    {
+        Utils::AspectPresentation p = BaseAspect::presentation();
+        p.control = Utils::AspectControls::Tree;
+        return p;
+    }
+
+    QAbstractItemModel *tableModel() override { return &m_model; }
+
+private:
+    Utils::TreeModel<Utils::TreeItem, Utils::StaticTreeItem> m_model{this};
+};
+
+} // namespace
+
+// A column is sized from what its cells say they want, and in a tree the
+// indent and the branch handle stand in front of the cell. A column sized
+// from the cell alone is short by exactly them, so the first column - the one
+// holding the names - is the one that clips.
+void QuickUiTest::testAColumnMakesRoomForTheNamesInIt()
+{
+    Utils::AspectContainer page;
+    page.setAutoApply(false);
+    LongNamedTreeAspect properties;
+    properties.setLabelText("Profile properties");
+    page.registerAspect(&properties);
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "TreeDelegate"));
+    QQuickItem *view = findQmlNamed(delegate, "aspectTree").value(0);
+    QVERIFY(view);
+    QTRY_COMPARE(findQmlNamed(view, "tableCellLabel").size(), 4);
+
+    // Metrics.lineEditWidth, which is the width a column falls back to when
+    // its cells ask for nothing.
+    const qreal columnFloor = 120;
+
+    // How much of the label is left for the text, against what the text takes
+    // on one line. Measured off the label's own font rather than a number
+    // written here, which would measure the machine's fonts instead.
+    const auto shortfall = [view, columnFloor](const QString &text) -> QString {
+        for (QQuickItem *label : findQmlNamed(view, "tableCellLabel")) {
+            if (label->property("text").toString() != text)
+                continue;
+            const QFontMetricsF metrics(label->property("font").value<QFont>());
+            const qreal needed = metrics.horizontalAdvance(text);
+            const qreal room = label->width()
+                               - label->property("leftPadding").toReal()
+                               - label->property("rightPadding").toReal();
+            // Otherwise the answer cannot be a failure: a name that fits in
+            // the floor width says nothing about whether the column grew.
+            if (needed <= columnFloor)
+                return QString("\"%1\" takes only %2px, which the column's "
+                               "floor already holds")
+                    .arg(text)
+                    .arg(needed);
+            if (room < needed)
+                return QString("\"%1\" takes %2px and has %3px to draw in")
+                    .arg(text)
+                    .arg(needed)
+                    .arg(room);
+            return {};
+        }
+        return QString("\"%1\" is not drawn at all").arg(text);
+    };
+
+    QVERIFY2(shortfall(LongNamedTreeAspect::unbreakable()).isEmpty(),
+             qPrintable(shortfall(LongNamedTreeAspect::unbreakable())));
+    QVERIFY2(shortfall(LongNamedTreeAspect::wrappable()).isEmpty(),
+             qPrintable(shortfall(LongNamedTreeAspect::wrappable())));
+
+    // And still after the view lays out again, which is what a page does the
+    // moment it is resized: a width that only holds until something asks for
+    // it a second time is not a width the user ever sees.
+    QMetaObject::invokeMethod(view, "forceLayout");
+    QTRY_COMPARE(findQmlNamed(view, "tableCellLabel").size(), 4);
+    QVERIFY2(shortfall(LongNamedTreeAspect::unbreakable()).isEmpty(),
+             qPrintable("after laying out again: "
+                        + shortfall(LongNamedTreeAspect::unbreakable())));
+    QVERIFY2(shortfall(LongNamedTreeAspect::wrappable()).isEmpty(),
+             qPrintable("after laying out again: "
+                        + shortfall(LongNamedTreeAspect::wrappable())));
+}
 
 void QuickUiTest::testTreeShowsWhatTheAspectHandsOut()
 {

@@ -15099,3 +15099,40 @@ row. Matching it is the point.
 So: after the group fix, the sampled pages are in good order. The method is
 worth repeating on the rest, and it is cheap to be wrong in the safe direction -
 check what the widget did before changing what the Quick page does.
+
+### A tree column that never paid for its indent
+
+The next batch of twelve renders turned up one defect, on Keyboard: the Command
+column held "QmlProjectPlugi", "MemcheckWith(" and "ScreenRecorder" with their
+names cut off, while Shortcut - which was empty - took more than half the
+table.
+
+`TreeDelegate` sized its cells with
+
+    implicitWidth: Math.max(Metrics.lineEditWidth, implicitContentWidth)
+
+and `implicitContentWidth` is the *content item's* width. In a tree the indent
+and the branch handle stand in front of the content item, and
+`TreeViewDelegate` puts them in `leftPadding` - so the column asked for exactly
+the text's width and then spent about 30 pixels of it on the handle. Every
+name in the first column lost that much, and the column that gets the leftover
+width absorbed it. Adding `leftPadding + rightPadding` back is all it takes;
+`GroupedListDelegate` had the same line and the same fix.
+
+`testAColumnMakesRoomForTheNamesInIt` measures the drawn label against
+`QFontMetricsF::horizontalAdvance` of its own text and font - a number written
+into the test would measure this machine's fonts instead - and refuses to pass
+when the name is short enough to fit in the column's floor width, so it cannot
+quietly stop meaning anything. Reverting the fix puts 151.7 pixels of name in
+128 pixels of label.
+
+The first attempt fixed the wrong thing. The reasoning was that a wrapping
+`Label` reports the width it has been *given*, so a column sized from it
+collapses; the fix added a `TextMetrics` to `AspectTableCell` reporting the
+unwrapped width. It made the render look right, and its negative control never
+bit - with the `TextMetrics` removed the test still passed, with a single-word
+name *and* with a wrapping multi-word one. `QQuickText` computes `implicitWidth`
+from an unwrapped layout whatever `wrapMode` says, so there was nothing to
+report. The change was reverted. A render looking better is not evidence: two
+grabs of a tree are only comparable if it is opened to the same rows, and these
+were not.
