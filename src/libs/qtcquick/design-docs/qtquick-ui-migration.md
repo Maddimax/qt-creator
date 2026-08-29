@@ -16074,3 +16074,68 @@ Two smaller differences came out of the audit itself:
 Four controls, all biting - and the first of them, "clicking a row picks it at
 all", is one this dialog should have had from the beginning.
 
+### Reading the warnings that were being counted
+
+A dead click hid inside one of the sixteen qmllint warnings this branch had
+been carrying, so the other sixteen were read one at a time. **None of them is
+a defect.** They fall into three groups:
+
+- **Six `columnWidthProvider` "expected function got QVariant / got double"**
+  (TableDelegate, TreeDelegate, GroupedListDelegate). All three assign a real
+  `function (column) {...}`; qmllint is reporting the function's two return
+  paths, not the assignment.
+- **Six `missing-property`.** Four are members that exist only on a derived
+  aspect - `recording` and `setRecording` on the `KeySequenceAspect` that lives
+  inside `shortcutsettings.cpp`, `clickRightSideIcon` on `StringAspect` - read
+  through a property typed `Aspect`. Two are members of a list row read through
+  `view.currentItem`, which is a `QQuickItem` to qmllint. Every one of them is
+  really there; qmllint cannot follow a template base or a delegate's type.
+- **Four cosmetic**: two `==` that could be `===`, one unqualified access, and
+  the `signal-handler-parameters` one, which was the bug.
+
+So the warnings are noise - but *what they point at* is not. Three of those
+paths had **no test at all**: `recording`, `itemModel`/`removed`, and column
+widths. Each is read with `?.` or through an untyped property, so each fails
+silently: an empty sub-field, an always-enabled Remove, a table of equal
+columns. That is the same shape as the dead click, which is what a warning
+being ignored had been hiding.
+
+`testAListShowsTheItemYouSelectedAndRefusesToRemoveTwice` covers the second
+of the three: the sub-form is the *selected* item's aspects, and an item
+already on its way out cannot be removed twice. Its first control also bit
+`testAspectListAddsRemovesAndShowsDetails`, so the sub-form's existence was
+guarded already - what is new is *which* item it shows, and the Remove guard,
+which only the second control reaches. **Still uncovered: `recording`, and
+column widths.**
+
+### The keychain test, characterised
+
+`testSecretIsFetchedBeforeItCanBeEdited` fails intermittently on this machine
+and it is worth writing down what it is, because it looks like a regression
+every time.
+
+It waits five seconds for the keychain to answer. When the answer is late the
+run takes ~56s instead of ~40s and that one test fails; when it is not, the
+run is green. Adding a test to the suite looks exactly like causing it, so it
+was measured both ways:
+
+| | green | red |
+|---|---|---|
+| without the new test, early in the session | 1 | 1 |
+| with the new test | 0 | 5 |
+| without the new test, later in the session | 1 | 2 |
+
+The rate rises through a session in **both** configurations, which is the
+keychain getting slower the more it is asked, not the suite getting heavier.
+The new test's own phases were timed at 1-5ms each, so it is not paying for
+those sixteen seconds either.
+
+It has been left alone. Raising the wait would be
+[[read-test-run-warnings]]'s mistake in another form, and turning it into a
+`QSKIP` on timeout would make a real regression - a field that never stops
+being read-only - indistinguishable from a slow keychain. The honest fix is to
+ask the keychain directly, so that "it answered and the field is still
+read-only" can be told from "it never answered", and only the second one
+skips. That is a change to a test nobody has complained about, so it is
+recorded here rather than made.
+

@@ -205,6 +205,7 @@ private slots:
     void testTheOptionsMenuKeepsSayingWhatIsOn();
     void testChoosingADirectoryStillShowsWhatIsInIt();
     void testSavingAndPickingSeveralFollowTheSameRulesAsTheWidget();
+    void testAListShowsTheItemYouSelectedAndRefusesToRemoveTwice();
     void testANumberOnItsOwnSaysWhatItCounts();
     void testMakeDefaultSaysWhatItWouldDefault();
     void testALabelTooLongForItsColumnSaysItInFull();
@@ -6403,6 +6404,71 @@ void QuickUiTest::testASearchCanBeUndoneWithoutTheKeyboard()
 
 
 
+
+
+// The two things a list-with-details does that qmllint cannot check, and that
+// nothing else here checked either: it draws the selected item's own aspects
+// underneath, and it refuses to remove an item that is already on its way
+// out.
+//
+// Both reach through view.currentItem, which is a QQuickItem to qmllint - so
+// "Member itemModel not found" and "Member removed not found" are limitations
+// rather than defects. But both are read with ?., so a name that stopped
+// resolving would show an empty sub-form and an always-enabled Remove, and
+// say nothing. That is the shape the file dialog's dead click had.
+void QuickUiTest::testAListShowsTheItemYouSelectedAndRefusesToRemoveTwice()
+{
+    Utils::AspectContainer page;
+    page.setAutoApply(false);
+    Utils::AspectList *list = orderedList(&page);
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "AspectListDelegate"));
+    QTRY_COMPARE(rowLabels(delegate), QStringList({"first", "second", "third"}));
+
+    const QList<QQuickItem *> views = findQmlComponents(delegate, "QQuickListView");
+    QVERIFY2(!views.isEmpty(), "the list draws no rows at all");
+    QQuickItem * const view = views.first();
+
+    // The sub-form is the selected item's own aspects. Read off what it draws
+    // rather than from the model: an item model that never arrives leaves the
+    // loader empty and nothing complains.
+    const auto shownName = [delegate, view]() -> QString {
+        const QList<QQuickItem *> fields = findQmlComponents(delegate, "StringDelegate");
+        for (QQuickItem *field : fields) {
+            // The rows themselves hold no field; only the sub-form does.
+            if (field->property("aspect").value<Utils::BaseAspect *>())
+                return field->property("aspect").value<Utils::BaseAspect *>()->variantValue()
+                           .toString();
+        }
+        Q_UNUSED(view)
+        return {};
+    };
+
+    view->setProperty("currentIndex", 0);
+    QTRY_COMPARE(shownName(), QString("first"));
+    view->setProperty("currentIndex", 2);
+    QTRY_COMPARE(shownName(), QString("third"));
+
+    // Removing keeps the row - struck through until it is applied - so it can
+    // be selected again, and then Remove has nothing left to do.
+    QQuickItem *remove = nullptr;
+    QTRY_VERIFY(remove = findButton(delegate, "Remove"));
+    QVERIFY(remove->isEnabled());
+    QMetaObject::invokeMethod(remove, "clicked");
+
+    QTRY_COMPARE(rowLabels(delegate), QStringList({"first", "second", "third"}));
+    view->setProperty("currentIndex", 2);
+    QTRY_VERIFY2(!remove->isEnabled(),
+                 "an item already removed can be removed a second time");
+    // And an item that is not on its way out can still go.
+    view->setProperty("currentIndex", 0);
+    QTRY_VERIFY2(remove->isEnabled(), "an item that is still there cannot be removed");
+}
 
 // The two modes that were never compared with the widget dialog: saving, and
 // picking several at once.
