@@ -323,10 +323,11 @@ static const QSet<QString> &knownUndrawnSettings()
     return settings;
 }
 
-// Buttons a page puts beside each other, on the pages themselves. A button
-// delegate that fills the row it is in and pushes itself left with a spacer of
-// its own draws a lone button correctly and puts two of them at opposite ends
-// of the row they share.
+// Controls a page puts beside each other, on the pages themselves. A delegate
+// that fills the row it is in draws its control at its own left edge and
+// leaves the rest of its share empty, so what follows it starts halfway across
+// the row: Terminal's Load Theme and Reset Theme were 438 pixels apart, and
+// the Code Model page's "Do not index files greater than" and its number 800.
 void QuickUiTest::testARowOfButtonsIsDrawnAsARowOfButtons()
 {
     Core::setAspectFormFactory([](Utils::AspectContainer *container) {
@@ -338,36 +339,14 @@ void QuickUiTest::testARowOfButtonsIsDrawnAsARowOfButtons()
     // a generous gap is not called a defect.
     const int gapAllowed = 40;
 
-    // The button, not the delegate around it: a delegate that fills the row
-    // stretches and keeps its button at its own left edge, so the delegates
-    // stay a few pixels apart while the buttons drift to opposite ends.
-    const auto buttonIn = [](QQuickItem *delegate) -> QQuickItem * {
-        for (QQuickItem *part : findQmlComponents(delegate, "Button")) {
-            // findQmlComponents matches by prefix, so "Button" names the
-            // delegate itself as well as the button inside it.
-            if (part != delegate && part->isVisible())
-                return part;
-        }
-        return nullptr;
-    };
+    // Delegates that are one control and nothing else: what they draw is their
+    // implicit width, whatever width the row hands them.
+    const QStringList controls{"ButtonDelegate", "BoolDelegate"};
 
-    // A page that means to separate two buttons puts something between them -
-    // External Tools keeps Revert away from Add and Remove that way. A page
-    // that simply let them drift apart has nothing there.
-    const auto somethingBetween =
-        [](QQuickItem *parent, const QRectF &left, const QRectF &right) {
-            for (QQuickItem *sibling : parent->childItems()) {
-                if (!sibling->isVisible() || sibling->width() <= 0)
-                    continue;
-                // Wholly inside the gap: a delegate stretched across it is the
-                // thing being measured, not an explanation for it.
-                if (sibling->x() >= left.right() - 1
-                    && sibling->x() + sibling->width() <= right.left() + 1) {
-                    return true;
-                }
-            }
-            return false;
-        };
+    const auto kindOf = [](QQuickItem *item) {
+        const QString name = QString::fromLatin1(item->metaObject()->className());
+        return name.left(name.indexOf('_'));
+    };
 
     QStringList spread;
     int rowsChecked = 0;
@@ -382,20 +361,28 @@ void QuickUiTest::testARowOfButtonsIsDrawnAsARowOfButtons()
         if (!quickWidget || !quickWidget->rootObject())
             continue;
 
-        // Buttons that share a parent are the row - or the column - the page
-        // wrote. Grouped before the page is shown, so that only a page with
-        // something to check pays for being laid out.
-        QHash<QQuickItem *, QList<QQuickItem *>> grouped;
-        for (QQuickItem *button :
-             findQmlComponents(quickWidget->rootObject(), "ButtonDelegate")) {
-            grouped[button->parentItem()] << button;
+        // The rows worth looking at, found before the page is shown so that
+        // only a page with something to check pays for being laid out - and
+        // showing a page is not free: it is what makes the aspects on it go
+        // and ask the world about themselves.
+        // Their C++ names: a layout is not a QML-defined type, so kindOf()
+        // answers what Qt calls it rather than what a page writes.
+        static const QStringList sideBySide{"QQuickRowLayout",
+                                            "QQuickRow",
+                                            "QQuickFlow",
+                                            "QQuickGridLayout"};
+        QList<QQuickItem *> rows;
+        for (const QString &control : controls) {
+            for (QQuickItem *item :
+                 findQmlComponents(quickWidget->rootObject(), control)) {
+                QQuickItem * const row = item->parentItem();
+                if (row && !rows.contains(row) && row->childItems().size() > 1
+                    && sideBySide.contains(kindOf(row))) {
+                    rows << row;
+                }
+            }
         }
-        const bool worthShowing = std::any_of(grouped.cbegin(),
-                                              grouped.cend(),
-                                              [](const QList<QQuickItem *> &row) {
-                                                  return row.size() > 1;
-                                              });
-        if (!worthShowing)
+        if (rows.isEmpty())
             continue;
 
         widget->resize(1100, 620);
@@ -408,34 +395,33 @@ void QuickUiTest::testARowOfButtonsIsDrawnAsARowOfButtons()
         QTRY_VERIFY2(quickWidget->rootObject()->width() >= quickWidget->width() - 1,
                      qPrintable(page->displayName() + " never took the width it was given"));
 
-        for (auto it = grouped.cbegin(); it != grouped.cend(); ++it) {
-            // Where each button is drawn, in the row's own coordinates.
-            QList<QRectF> row;
-            for (QQuickItem *delegate : it.value()) {
-                QQuickItem * const button = delegate->isVisible() ? buttonIn(delegate)
-                                                                  : nullptr;
-                if (!button || button->width() <= 0)
-                    continue;
-                const QPointF at = button->mapToItem(it.key(), QPointF(0, 0));
-                row << QRectF(at, QSizeF(button->width(), button->height()));
+        for (QQuickItem *row : std::as_const(rows)) {
+            QList<QQuickItem *> drawn;
+            for (QQuickItem *item : row->childItems()) {
+                if (item->isVisible() && item->width() > 0)
+                    drawn << item;
             }
-            if (row.size() < 2)
-                continue;
-            std::sort(row.begin(), row.end(), [](const QRectF &a, const QRectF &b) {
-                return a.left() < b.left();
+            std::sort(drawn.begin(), drawn.end(), [](QQuickItem *a, QQuickItem *b) {
+                return a->x() < b->x();
             });
-            for (int i = 1; i < row.size(); ++i) {
-                // Beside each other, not under: a column of buttons is a
-                // perfectly good way to draw them and says nothing about this.
-                if (!qFuzzyCompare(row.at(i).y() + 1, row.at(i - 1).y() + 1))
+            for (int i = 1; i < drawn.size(); ++i) {
+                QQuickItem * const control = drawn.at(i - 1);
+                QQuickItem * const next = drawn.at(i);
+                if (!controls.contains(kindOf(control)))
+                    continue;
+                // Beside it, not under: a column of controls is a perfectly
+                // good way to draw them and says nothing about this.
+                if (!qFuzzyCompare(next->y() + 1, control->y() + 1))
                     continue;
                 ++rowsChecked;
-                const qreal gap = row.at(i).left() - row.at(i - 1).right();
-                if (gap > gapAllowed
-                    && !somethingBetween(it.key(), row.at(i - 1), row.at(i))) {
-                    spread << QString("%1: %2px between two buttons")
+                // What the control draws is its implicit width; the rest of
+                // what it was given is empty.
+                const qreal gap = next->x() - (control->x() + control->implicitWidth());
+                if (gap > gapAllowed) {
+                    spread << QString("%1: %2px after a %3")
                                   .arg(page->displayName())
-                                  .arg(gap);
+                                  .arg(gap)
+                                  .arg(kindOf(control));
                 }
             }
         }
@@ -443,7 +429,7 @@ void QuickUiTest::testARowOfButtonsIsDrawnAsARowOfButtons()
     }
 
     QVERIFY2(rowsChecked > 0,
-             "no page drew two buttons beside each other, so this proves nothing");
+             "no page drew two controls beside each other, so this proves nothing");
     QVERIFY2(spread.isEmpty(), qPrintable("\n" + spread.join("\n")));
 }
 

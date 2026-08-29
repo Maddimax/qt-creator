@@ -15212,3 +15212,34 @@ a `TreeViewDelegate`, which draws its own.
 The test reads the mark rather than the property behind it. A binding that is
 correct while nothing draws it is exactly the bug being fixed here, so
 asserting `highlighted` would have passed on the broken code.
+
+### The same defect, with check boxes
+
+The Code Model page draws "Do not index files greater than" and the number it
+switches on 800 pixels apart. It is the button defect exactly: `BoolDelegate`
+filled the row it was in, a check box draws at its own left edge, and what
+follows it starts halfway across. Fifteen pages had it - every Catch, Boost,
+Google and Qt Test page is a column of "[x] setting [number]" rows.
+
+So the button sweep became a control sweep: it takes the delegates that are
+one control and nothing else, and asks that whatever comes next in the row
+starts where the control ends. What a control *draws* is its implicit width,
+whatever width the row hands it - which is the measurement the earlier version
+of this test got wrong in three different ways.
+
+Two things it taught about sweeping pages:
+
+`findQmlComponents` matches the metaObject's class name by prefix, and a
+layout is a C++ type: a `RowLayout` is `QQuickRowLayout`, not
+`RowLayout_QMLTYPE_n`. Asking for the QML name found nothing and the test
+passed by checking nothing at all - which is what the `rowsChecked > 0`
+assertion is there to catch.
+
+Showing a page is not free, and not only in time. The first version of the
+sweep showed every page that had two controls under one parent - which is
+nearly all of them - and `testSecretIsFetchedBeforeItCanBeEdited` started
+failing: the keychain had been asked by too many pages to answer that one
+within five seconds. Baselining twice at HEAD is what identified it as the
+sweep's doing rather than a flake. Restricting the sweep to parents that
+actually put things side by side brought the suite back from 43 to 22 seconds
+and the failure went with it.

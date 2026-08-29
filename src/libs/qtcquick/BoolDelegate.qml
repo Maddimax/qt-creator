@@ -21,7 +21,10 @@ CheckBox {
     checked: (aspect?.value ?? false) === true
     ToolTip.text: toolTip
     ToolTip.visible: hovered && toolTip !== ""
-    Layout.fillWidth: true
+    // A check box takes the width it needs and sits at the left. Filling the
+    // row does the same thing for one alone in a column, and puts whatever
+    // follows it in a row - the number it switches on - halfway across.
+    Layout.alignment: Qt.AlignLeft | Qt.AlignVCenter
 
     onToggled: if (aspect) aspect.value = checked
 }
