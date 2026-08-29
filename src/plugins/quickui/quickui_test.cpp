@@ -176,6 +176,7 @@ private slots:
     void testANoteWrittenInMarkdownSaysSo();
     void testAPagesGroupsFillTheWidthTheyAreGiven();
     void testNoButtonOffersAMnemonicItCannotHave();
+    void testAFieldSaysWhatBelongsInIt();
     void testACompactColourKeepsItsNumbersBehindItsSwatch();
     void testTheFormatListOpensOnAFormat();
     void testEveryComponentInTheModuleCanBeLoaded();
@@ -324,6 +325,51 @@ static const QSet<QString> &knownUndrawnSettings()
         "Catch Test: WarnEmpty/WarnEmpty",
     };
     return settings;
+}
+
+// An aspect that says what its field is for says it through the presentation,
+// and the widget line edit has shown it all along. A Qt Quick field that does
+// not bind it is an empty box: the Display page drew one where the wrapped
+// line marker goes, with nothing to say what it was.
+void QuickUiTest::testAFieldSaysWhatBelongsInIt()
+{
+    Core::setAspectFormFactory([](Utils::AspectContainer *container) {
+        return QtcQuick::createAspectForm(container);
+    });
+    const QScopeGuard clearFactory([] { Core::setAspectFormFactory({}); });
+
+    QStringList silent;
+    int fields = 0;
+    for (Core::IOptionsPage *page : Core::IOptionsPage::allOptionsPages()) {
+        const std::optional<Utils::AspectContainer *> aspects = page->aspects();
+        if (!aspects || !*aspects)
+            continue;
+        std::unique_ptr<Core::IOptionsPageWidget> widget(page->createWidget());
+        if (!widget)
+            continue;
+        auto quickWidget = widget->findChild<QQuickWidget *>();
+        if (!quickWidget || !quickWidget->rootObject())
+            continue;
+
+        for (QQuickItem *delegate : findAspectDelegates(quickWidget->rootObject())) {
+            auto *aspect = delegate->property("aspect").value<Utils::BaseAspect *>();
+            if (!aspect || aspect->placeholderText().isEmpty())
+                continue;
+            // The delegates that draw one: a check box has no room for a hint.
+            QQuickItem * const field = findQmlComponents(delegate, "TextField").value(0, nullptr);
+            if (!field)
+                continue;
+            ++fields;
+            if (field->property("placeholderText").toString() != aspect->placeholderText()) {
+                silent << QString("%1/%2 wants \"%3\"")
+                              .arg(page->displayName(), aspect->qmlName(),
+                                   aspect->placeholderText());
+            }
+        }
+    }
+
+    QVERIFY2(fields > 0, "no page drew a field with something to say, so this proves nothing");
+    QVERIFY2(silent.isEmpty(), qPrintable("\n" + silent.join("\n")));
 }
 
 // Button texts are written for widgets, where "&Add" underlines the A and

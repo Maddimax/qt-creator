@@ -15305,3 +15305,16 @@ reach - the Qbs Profiles page had copied "E&xpand All" and "&Collapse All"
 into its QML by hand. It looks for an ampersand in front of a *letter*: a
 literal one, written "&&" for a widget, comes through as a single ampersand
 and stands beside a space, the way "Font && Colors" reads as "Font & Colors".
+
+### A field with nothing to say
+
+The Display page drew an empty box between "Indent wrapped lines" and "Show
+marker before the indent" with no label and no hint. It is the wrapped line
+marker, and the aspect says so - `showBreak.setPlaceHolderText("Wrapped line
+marker")`. The presentation carries it and the widget line edit has drawn it
+all along; `StringDelegate` simply never bound it.
+
+Sixty-three aspects call `setPlaceHolderText`, and the sweep that checks each
+drawn field against what its aspect asks for named six of them across four
+pages when the binding is taken away again: FakeVim's vimrc path, Squish's
+install path, three Zephyr paths and this one.

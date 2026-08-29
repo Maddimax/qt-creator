@@ -106,6 +106,10 @@ RowLayout {
             }
 
             text: delegate.aspect?.value ?? ""
+            // What the field says when it holds nothing. The widget line edit
+            // has shown it all along; a field that dropped it is an empty box
+            // with no clue what belongs in it.
+            placeholderText: delegate.pres.placeholderText ?? ""
             echoMode: delegate.pres.password ? TextInput.Password : TextInput.Normal
             enabled: delegate.aspect?.enabled ?? false
             readOnly: delegate.aspect?.readOnly ?? true
