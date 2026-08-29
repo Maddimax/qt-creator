@@ -288,6 +288,14 @@ CompileOutputSettings::CompileOutputSettings()
             "it can be handled."));
 
     maxCharCount.setSettingsKey("ProjectExplorer/Settings/MaxBuildOutputLines");
+    // The words around the number, which the layout used to hold: it split
+    // "Limit output to %1 characters" and put the spin box between the halves.
+    {
+        const QStringList parts = Tr::tr("Limit output to %1 characters").split("%1")
+                                  << QString() << QString();
+        maxCharCount.setPrefix(parts.at(0).trimmed());
+        maxCharCount.setSuffix(parts.at(1).trimmed());
+    }
     maxCharCount.setRange(1, INT_MAX);
     maxCharCount.setDefaultValue(Core::Constants::DEFAULT_MAX_CHAR_COUNT);
 

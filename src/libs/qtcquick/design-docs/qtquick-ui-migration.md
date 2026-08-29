@@ -15418,3 +15418,27 @@ switches them on, and Vcpkg's installation path is the only field in a group
 called "Vcpkg installation". A rule with four escape hatches is not a rule, so
 this one is a fix without a test - the evidence for it is the diff of the
 commit that dropped the Form.
+
+### A number with nothing to say what it counts
+
+The Compile Output page drew a bare spin box holding 10000000. The words that
+name it were in the layout the port replaced, which split a translated string
+and put the box between the halves:
+
+    const QString msg = Tr::tr("Limit output to %1 characters");
+    const QStringList parts = msg.split("%1") << QString() << QString();
+    Row { parts.at(0), maxCharCount, parts.at(1), st },
+
+The aspect carries them now, as its prefix and suffix - which is what a spin
+box's prefix and suffix are for, and what the delegate already draws.
+
+Unlike the field-label sweep, this one is clean: a number that *opens its row*
+and has neither a label, a prefix nor a suffix is unreadable, and every other
+number on every page either follows a check box that names it or carries one
+of the three. It found exactly this page and nothing else.
+
+Getting "opens its row" right took two tries. The first version asked whether
+the delegate was its parent's first child, which is true of the first row of a
+column and of nothing else in it - so the check quietly skipped every number
+in a column, including this one, and the control did not bite. In a column
+every child opens a row; in a row only the first does.

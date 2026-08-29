@@ -177,6 +177,7 @@ private slots:
     void testAPagesGroupsFillTheWidthTheyAreGiven();
     void testNoButtonOffersAMnemonicItCannotHave();
     void testAFieldSaysWhatBelongsInIt();
+    void testANumberOnItsOwnSaysWhatItCounts();
     void testAFieldShowsTheStartOfWhatItHolds();
     void testAGroupsContentStartsAtItsTop();
     void testALabelInAContinuationRowStaysWithItsControl();
@@ -540,6 +541,63 @@ void QuickUiTest::testAFieldShowsTheStartOfWhatItHolds()
 
     QVERIFY2(fields > 0, "no page drew a field holding anything, so this proves nothing");
     QVERIFY2(fromTheTail.isEmpty(), qPrintable("\n" + fromTheTail.join("\n")));
+}
+
+// A number that begins its row has to say what it counts. The Compile Output
+// page drew a bare spin box holding 10000000: the words around it were in the
+// layout, which split "Limit output to %1 characters" and put the box between
+// the halves. A number that follows something - a check box, a label of its
+// own - is named by that instead.
+void QuickUiTest::testANumberOnItsOwnSaysWhatItCounts()
+{
+    Core::setAspectFormFactory([](Utils::AspectContainer *container) {
+        return QtcQuick::createAspectForm(container);
+    });
+    const QScopeGuard clearFactory([] { Core::setAspectFormFactory({}); });
+
+    QStringList bare;
+    int numbers = 0;
+    for (Core::IOptionsPage *page : Core::IOptionsPage::allOptionsPages()) {
+        const std::optional<Utils::AspectContainer *> aspects = page->aspects();
+        if (!aspects || !*aspects)
+            continue;
+        std::unique_ptr<Core::IOptionsPageWidget> widget(page->createWidget());
+        if (!widget)
+            continue;
+        auto quickWidget = widget->findChild<QQuickWidget *>();
+        if (!quickWidget || !quickWidget->rootObject())
+            continue;
+
+        for (QQuickItem *delegate : findAspectDelegates(quickWidget->rootObject())) {
+            const QString kind = QString::fromLatin1(delegate->metaObject()->className());
+            if (!kind.startsWith("IntegerDelegate") && !kind.startsWith("DoubleDelegate"))
+                continue;
+            // Only where it opens its row: anything in front of it names it.
+            // In a column every child opens one; in a row only the first.
+            QQuickItem * const row = delegate->parentItem();
+            if (!row)
+                continue;
+            static const QStringList sideBySide{"QQuickRowLayout",
+                                                "QQuickRow",
+                                                "QQuickFlow",
+                                                "QQuickGridLayout"};
+            if (sideBySide.contains(QString::fromLatin1(row->metaObject()->className()))
+                && row->childItems().value(0) != delegate) {
+                continue;
+            }
+            auto *aspect = delegate->property("aspect").value<Utils::BaseAspect *>();
+            if (!aspect)
+                continue;
+            ++numbers;
+            const Utils::AspectPresentation p = aspect->presentation();
+            if (aspect->plainLabelText().isEmpty() && p.prefix.isEmpty() && p.suffix.isEmpty())
+                bare << page->displayName() + "/" + aspect->qmlName();
+        }
+    }
+
+    QVERIFY2(numbers > 0, "no page opened a row with a number, so this proves nothing");
+    QVERIFY2(bare.isEmpty(),
+             qPrintable("numbers with nothing to say what they count: " + bare.join(", ")));
 }
 
 // An aspect that says what its field is for says it through the presentation,
