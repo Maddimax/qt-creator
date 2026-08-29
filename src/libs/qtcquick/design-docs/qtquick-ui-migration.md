@@ -13801,3 +13801,39 @@ Sixty-seven commands. The two groups left both want something this view does
 not have rather than something it has not been told: the assist commands need
 somewhere to show a completion list, and the symbol commands need the language
 client. Neither is wiring, and neither should be started as if it were.
+
+## The symbol commands, and the machinery they were waiting for
+
+Find Usages, Rename Symbol and Open Call Hierarchy are three lines each in the
+widget editor - `emit requestUsages(textCursor())` and so on - and the whole
+difficulty is that they are *signals on a widget*. `LanguageClientManager`
+connects to them in `editorOpened()`, keyed on
+`TextEditorWidget::fromEditor()`, which is null for a Quick editor, so none of
+it happens.
+
+The obvious fix does not work. Connecting to signals on the viewport means
+including `textviewport.h` in LanguageClient, and that header pulls in
+`QQuickItem`: a plugin with no Qt Quick of its own would have to grow one to
+be able to ask a question about a symbol. That is the wrong direction, and the
+build says so before any of it can be argued about.
+
+`setLinkFinder()` had already met this and its comment says what the answer
+looks like - "registered here rather than overridden on an editor widget, so
+that a view which is not one can follow symbols too". Follow Symbol works in
+the Quick editor for exactly that reason. What was missing was the same idea
+for the questions that go the other way, from the view outwards, so
+`SymbolRequests` is a small relay in a header with no Quick in it: the view
+owns one and asks through it, and the language client connects to that without
+knowing how the view is built.
+
+The test asks the three questions and watches the relay, reached the way
+another plugin reaches it. What the language client then does needs a server
+and is not tested here - the half that belongs to this plugin is the asking.
+Three controls: not handing out the relay, not registering Find Usages, and
+passing an empty cursor instead of the caret all fail it.
+
+`QuickTextEditor` gained a `Q_OBJECT` and a public `viewport()` on the way,
+which is what lets `symbolRequestsForEditor()` recognise it at all.
+
+Seventy commands. What is left is the assist group - completion, quick fixes,
+the function hint - and that one really does need somewhere to show a list.

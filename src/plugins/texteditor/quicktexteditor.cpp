@@ -23,6 +23,7 @@
 #include "typingsettings.h"
 #include "highlighterhelper.h"
 #include "textdocumentlayout.h"
+#include "symbolrequests.h"
 #include "textviewport.h"
 #include "texteditorconstants.h"
 #include "texteditortr.h"
@@ -189,6 +190,8 @@ private:
 
 class QuickTextEditor final : public Core::IEditor
 {
+    Q_OBJECT
+
 public:
     QuickTextEditor()
         : QuickTextEditor(TextDocumentPtr(new TextDocument(QUICK_TEXT_EDITOR_ID)))
@@ -496,6 +499,10 @@ public:
                     view->addCaretAtNextMatch();
             });
 
+        command(Constants::FIND_USAGES, &TextViewport::findUsages);
+        command(Constants::RENAME_SYMBOL, &TextViewport::renameSymbolUnderCursor);
+        command(Constants::OPEN_CALL_HIERARCHY, &TextViewport::openCallHierarchy);
+
         followSymbol(Constants::FOLLOW_SYMBOL_UNDER_CURSOR, false);
         followSymbol(Constants::FOLLOW_SYMBOL_UNDER_CURSOR_IN_NEXT_SPLIT, true);
 
@@ -759,8 +766,11 @@ private:
         });
     }
 
+public:
     // The form's viewport. Found rather than held: the QML owns it, and it
-    // does not exist until the component has been created.
+    // does not exist until the component has been created. Public because
+    // viewportForEditor() hands it to plugins that have to answer both this
+    // view and the widget one.
     TextViewport *viewport() const
     {
         auto * const quick = static_cast<QtcQuick::QuickWidget *>(widget());
@@ -972,6 +982,69 @@ private slots:
         selectWord->trigger();
         QVERIFY2(view->textCursor().hasSelection(), "the selecting move selected nothing");
         QCOMPARE(view->textCursor().anchor(), afterWord);
+    }
+
+    // The symbol commands ask rather than answer: the view emits through the
+    // relay and whoever knows the language does the work. This checks the
+    // asking, which is this plugin's half - what the language client makes of
+    // it needs a server and is not tested here.
+    void testTheSymbolCommandsAskThroughTheRelay()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-symbols");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("code.cpp");
+        QVERIFY(file.writeFileContents("int value = 1;\n"));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        // Reached the way another plugin reaches it, which is the point of
+        // the relay: no Qt Quick anywhere in the question.
+        TextEditor::SymbolRequests * const requests
+            = TextEditor::symbolRequestsForEditor(editor);
+        QVERIFY2(requests, "the editor offers no relay to ask through");
+
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+        auto * const view = quick->rootObject()->findChild<TextViewport *>();
+        QVERIFY(view);
+        QTRY_VERIFY(view->visibleLineCount() > 0);
+
+        QSignalSpy usages(requests, &TextEditor::SymbolRequests::requestUsages);
+        QSignalSpy rename(requests, &TextEditor::SymbolRequests::requestRename);
+        QSignalSpy hierarchy(requests, &TextEditor::SymbolRequests::requestCallHierarchy);
+
+        view->setCursorPosition(6);
+        view->findUsages();
+        view->renameSymbolUnderCursor();
+        view->openCallHierarchy();
+
+        QCOMPARE(usages.size(), 1);
+        QCOMPARE(rename.size(), 1);
+        QCOMPARE(hierarchy.size(), 1);
+        // With the caret where it was put, so that the answer is about the
+        // symbol the reader is standing on.
+        QCOMPARE(qvariant_cast<QTextCursor>(usages.at(0).at(0)).position(), 6);
+
+        // And reachable as commands, not only as methods.
+        const Core::Context context = editor->context();
+        const auto inContext = [&context](const Utils::Id &id) -> QAction * {
+            Core::Command * const cmd = Core::ActionManager::command(id);
+            if (!cmd)
+                return nullptr;
+            for (const Utils::Id &each : context) {
+                if (QAction * const a = cmd->actionForContext(each))
+                    return a;
+            }
+            return nullptr;
+        };
+        QAction * const findUsages = inContext(Constants::FIND_USAGES);
+        QVERIFY2(findUsages, "Find Usages is not registered in the editor's context");
+        findUsages->trigger();
+        QCOMPARE(usages.size(), 2);
     }
 
     void testAFileWithNoEditorOfItsOwnOpensHereToo()
@@ -2999,6 +3072,17 @@ QObject *createQuickTextEditorTest()
 #endif // WITH_TESTS
 
 } // namespace TextEditor::Internal
+
+namespace TextEditor {
+
+SymbolRequests *symbolRequestsForEditor(Core::IEditor *editor)
+{
+    auto * const quick = qobject_cast<Internal::QuickTextEditor *>(editor);
+    TextViewport * const view = quick ? quick->viewport() : nullptr;
+    return view ? view->symbolRequests() : nullptr;
+}
+
+} // namespace TextEditor
 
 #ifdef WITH_TESTS
 #include "quicktexteditor.moc"

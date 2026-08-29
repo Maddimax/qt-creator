@@ -21,6 +21,7 @@
 
 #include <texteditor/ioutlinewidget.h>
 #include <texteditor/textdocument.h>
+#include <texteditor/symbolrequests.h>
 #include <texteditor/texteditor.h>
 #include <texteditor/textmark.h>
 
@@ -598,6 +599,37 @@ void LanguageClientManager::editorOpened(Core::IEditor *editor)
                     client->cursorPositionChanged(widget);
         });
         if (TextEditor::TextDocument *document = widget->textDocument()) {
+            if (Client *client = m_clientForDocument[document])
+                client->activateEditor(editor);
+            else
+                autoSetupLanguageServer(document);
+        }
+    } else if (TextEditor::SymbolRequests * const requests
+               = TextEditor::symbolRequestsForEditor(editor)) {
+        // A view that is not a widget asks the same three questions through
+        // a relay, so that this plugin needs to know nothing about how that
+        // view is built.
+        auto * const document = qobject_cast<TextEditor::TextDocument *>(editor->document());
+        connect(requests, &TextEditor::SymbolRequests::requestUsages, this,
+                [document](const QTextCursor &cursor) {
+                    if (auto client = clientForDocument(document))
+                        client->symbolSupport().findUsages(document, cursor);
+                });
+        connect(requests, &TextEditor::SymbolRequests::requestRename, this,
+                [document](const QTextCursor &cursor) {
+                    if (auto client = clientForDocument(document))
+                        client->symbolSupport().renameSymbol(document, cursor);
+                });
+        connect(requests, &TextEditor::SymbolRequests::requestCallHierarchy, this,
+                [this, document] {
+                    if (clientForDocument(document)) {
+                        emit openCallHierarchy();
+                        NavigationWidget::activateSubWidget(
+                            Constants::CALL_HIERARCHY_FACTORY_ID, Side::Left);
+                    }
+                });
+
+        if (document) {
             if (Client *client = m_clientForDocument[document])
                 client->activateEditor(editor);
             else

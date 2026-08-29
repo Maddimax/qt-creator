@@ -5,6 +5,7 @@
 
 #include "blockselection.h"
 #include "highlighterhelper.h"
+#include "symbolrequests.h"
 #include "textoperations.h"
 
 #include <utils/uncommentselection.h>
@@ -2481,6 +2482,33 @@ bool TextViewport::selectBlockDown()
     setTextCursor(cursor);
     updateParenthesesMatch();
     return true;
+}
+
+SymbolRequests *TextViewport::symbolRequests() const
+{
+    if (!m_symbolRequests)
+        const_cast<TextViewport *>(this)->m_symbolRequests = new SymbolRequests(
+            const_cast<TextViewport *>(this));
+    return m_symbolRequests;
+}
+
+void TextViewport::findUsages()
+{
+    const QTextCursor cursor = textCursor();
+    if (!cursor.isNull())
+        symbolRequests()->askForUsages(cursor);
+}
+
+void TextViewport::renameSymbolUnderCursor()
+{
+    const QTextCursor cursor = textCursor();
+    if (!cursor.isNull())
+        symbolRequests()->askForRename(cursor);
+}
+
+void TextViewport::openCallHierarchy()
+{
+    symbolRequests()->askForCallHierarchy();
 }
 
 bool TextViewport::canEdit() const

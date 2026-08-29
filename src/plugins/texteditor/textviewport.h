@@ -40,6 +40,8 @@ namespace Core { struct CodecSelectorResult; }
 
 namespace Utils { class TextEditorLayout; }
 
+namespace Core { class IEditor; }
+
 namespace TextEditor {
 
 class AutoCompleter;
@@ -49,6 +51,7 @@ class IAssistProposal;
 
 class CodeSource;
 class SyntaxHighlighter;
+class SymbolRequests;
 class TextDocument;
 
 // A Qt Quick view of a TextEditor::TextDocument drawn with the scene graph: one
@@ -457,6 +460,15 @@ public:
     Q_INVOKABLE void gotoBlockEnd(bool select = false);
     Q_INVOKABLE bool selectBlockUp();
     Q_INVOKABLE bool selectBlockDown();
+
+    // The commands that only a language can answer. The view asks and someone
+    // listening - the language client, today - does the work; nothing here
+    // knows what a symbol is. Asked through SymbolRequests so that the
+    // listener need not know about Qt Quick.
+    Q_INVOKABLE void findUsages();
+    Q_INVOKABLE void renameSymbolUnderCursor();
+    Q_INVOKABLE void openCallHierarchy();
+    SymbolRequests *symbolRequests() const;
     // Moving what is shown without moving the caret, which is what the View
     // commands are for.
     Q_INVOKABLE void scrollByRows(int rows);
@@ -916,6 +928,7 @@ private:
     // goes, because the way back is only meaningful for the selection it
     // was taken for.
     QTextCursor m_selectBlockAnchor;
+    SymbolRequests *m_symbolRequests = nullptr;
     // Set after a line has been moved and cleared by the next key. Moving a
     // line twice is one thing the reader did, so the second move joins the
     // first one's undo step rather than making its own.

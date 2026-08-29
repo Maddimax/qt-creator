@@ -134,6 +134,7 @@ Project {
             "semantichighlighter.h",
             "storagesettings.cpp",
             "storagesettings.h",
+            "symbolrequests.h",
             "syntaxhighlighter.cpp",
             "syntaxhighlighter.h",
             "tabsettings.cpp",
