@@ -15136,3 +15136,21 @@ from an unwrapped layout whatever `wrapMode` says, so there was nothing to
 report. The change was reverted. A render looking better is not evidence: two
 grabs of a tree are only comparable if it is opened to the same rows, and these
 were not.
+
+### A page that listed nothing
+
+The same batch caught the MIME Types page showing an empty table. The widget
+page called `d->m_model.load()` at the end of the constructor that built the
+tree; the port moved the layout out and left the load behind, so the only
+remaining call was in `apply()` - which nothing reaches from an empty page. It
+now loads in the aspect container's constructor, which is where the rest of
+that page's behaviour already lives.
+
+`MimeTypeSettingsTest::init()` calls `load()` itself so the tests that read the
+model directly have something to read, and that is exactly what hid this for a
+whole phase of tests. The new test builds its own page and asserts the list is
+full *before* anyone loads it.
+
+This is the second kind of thing a render finds that a test does not: the first
+was placement, this is a page whose every aspect is correct and whose data
+never arrives. Both are invisible to assertions about the aspects themselves.

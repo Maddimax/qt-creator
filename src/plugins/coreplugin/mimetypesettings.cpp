@@ -572,6 +572,10 @@ public:
         setAutoApply(false);
         setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Core/MimeTypesPage.qml"));
 
+        // Filling the list is the page's job, not the view's: the widget page
+        // did it in the constructor that built the tree.
+        m_page->m_model.load();
+
         types.setQmlName("Types");
 
         resetMimeTypes.setQmlName("ResetMimeTypes");
@@ -879,6 +883,7 @@ private slots:
     void init();
     void cleanup();
 
+    void testThePageListsTheTypesItHasWhenItOpens();
     void testTheHandlerColumnOffersTheHandlersItHas();
     void testAMimeTypeIsFoundByWhatItMatches();
     void testNoDetailsAreShownUntilATypeIsPicked();
@@ -920,6 +925,18 @@ void MimeTypeSettingsTest::cleanup()
 {
     delete m_page;
     m_page = nullptr;
+}
+
+// On a page nobody has loaded, which is how the user meets it. init() loads
+// the model for the tests that read it directly, and that would hide this.
+void MimeTypeSettingsTest::testThePageListsTheTypesItHasWhenItOpens()
+{
+    MimeTypeSettingsPage unopened;
+    QCOMPARE(unopened.m_model.rowCount({}), 0);
+
+    MimeTypesAspects page(&unopened);
+    QVERIFY2(page.types.tableModel()->rowCount({}) > 0,
+             "the page opened on an empty list of MIME types");
 }
 
 void MimeTypeSettingsTest::testTheHandlerColumnOffersTheHandlersItHas()
