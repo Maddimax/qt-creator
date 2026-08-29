@@ -5416,6 +5416,33 @@ private slots:
                  qPrintable("the document says: " + text->toPlainText()));
     }
 
+    // Whether the file carries a byte order mark is the document's to keep;
+    // the command turns it over and the document remembers, which is what
+    // makes the file save differently afterwards.
+    void testSwitchingTheByteOrderMarkTurnsItOver()
+    {
+        TemporaryDirectory dir("qtc-viewport-bom");
+        const FilePath file = dir.filePath("plain.txt");
+        QVERIFY(file.writeFileContents("text\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        viewport->setReadOnly(false);
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        TextDocument * const doc = viewport->textDocument();
+        const bool before = doc->format().hasUtf8Bom;
+
+        viewport->switchUtf8Bom();
+        QCOMPARE(doc->format().hasUtf8Bom, !before);
+
+        // And back, so the command is a toggle rather than a one way trip.
+        viewport->switchUtf8Bom();
+        QCOMPARE(doc->format().hasUtf8Bom, before);
+    }
+
     // None of the line commands edits a buffer that is read only, the same
     // as a key press does not. One test for all of them: each has its own
     // guard, and a guard that is missing on one of them is exactly the kind
@@ -5446,6 +5473,10 @@ private slots:
 
         QTextDocument * const text = doc->document();
         const QString before = text->toPlainText();
+        // Not everything these commands could change is text: switching
+        // the byte order mark changes how the file is written and nothing
+        // else, so comparing the text alone would not see it happen.
+        const bool bomBefore = doc->format().hasUtf8Bom;
 
         viewport->setCursorPosition(2);
         viewport->joinLines();
@@ -5472,12 +5503,14 @@ private slots:
         viewport->autoFormat();
         viewport->cleanWhitespace();
         viewport->pasteWithoutFormat();
+        viewport->switchUtf8Bom();
         // Last, and after the lower case one: both go through the same guard,
         // so with the guard gone they would run one after the other and put
         // the text back exactly as it was between them.
         viewport->uppercaseSelection();
 
         QCOMPARE(text->toPlainText(), before);
+        QCOMPARE(doc->format().hasUtf8Bom, bomBefore);
     }
 
     // Insert Line Above and Below open a line and leave the caret on it,

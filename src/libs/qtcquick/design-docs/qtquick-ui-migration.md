@@ -14153,3 +14153,27 @@ six. The sixth failed on
 flake this tree is already known for and has nothing to do with assist. So
 there is no evidence of a regression, and it is worth being plain that this is
 the strongest statement available rather than a clean bill.
+
+## Go to Line, the encoding, and the byte order mark
+
+Three, and only one of them needed anything written.
+
+`Go to Line` asks the locator, not the editor - it shows a filter and the line
+is typed there. `Select Encoding` was already implemented on the viewport,
+complete with the reload and save the dialog's answer asks for; it had simply
+never been registered, so the entry was dead over working code. Both were one
+registration each.
+
+Only the byte order mark needed a method, and it is one line over the document
+plus the edit guard. Its control did not bite at first, and for a reason worth
+recording: the read-only test compares the text before and after, and
+switching the byte order mark changes **how the file is written and nothing
+else**. Comparing the text could not see it happen either way. The test now
+keeps `format().hasUtf8Bom` alongside the text, and removing the guard fails
+it.
+
+Ninety-nine of a hundred and four. What is left is `PRINT`, which this branch
+exists to avoid, `COPY_WITH_HTML`, which needs the highlighted text turned
+into HTML - the widget builds that in `createMimeDataFromSelection()` - and
+the three `SUGGESTION_APPLY*`, which need inline suggestions, a feature this
+view does not have at all rather than a command it has not been told about.

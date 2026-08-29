@@ -558,6 +558,9 @@ public:
     // applyEncodingChoice(), which is separate so that it can be tested
     // without one.
     Q_INVOKABLE void selectEncoding();
+    // Whether the file is written with a byte order mark, which is the
+    // document's to keep and this only turns over.
+    Q_INVOKABLE void switchUtf8Bom();
     void applyEncodingChoice(const Core::CodecSelectorResult &choice);
 
     // Puts the caret on \a line, counting from one, and shows it. Column zero

@@ -25,12 +25,14 @@
 #include "textdocumentlayout.h"
 #include "symbolrequests.h"
 #include "typehierarchy.h"
+#include "linenumberfilter.h"
 #include "textviewport.h"
 #include "texteditorconstants.h"
 #include "texteditortr.h"
 
 #include <coreplugin/actionmanager/actioncontainer.h>
 #include <coreplugin/actionmanager/actionmanager.h>
+#include <coreplugin/locator/locatormanager.h>
 #include <coreplugin/navigationwidget.h>
 #include <coreplugin/actionmanager/command.h>
 #include <coreplugin/coreconstants.h>
@@ -554,6 +556,17 @@ public:
                     view->requestQuickFixes();
             });
         command(Constants::CIRCULAR_PASTE, &TextViewport::circularPaste);
+        command(Constants::SWITCH_UTF8BOM, &TextViewport::switchUtf8Bom);
+        command(Constants::SELECT_ENCODING, &TextViewport::selectEncoding);
+
+        // Asks the locator rather than this editor - the line to go to is
+        // typed there. Registered per editor, so it was dead here only for
+        // want of registering.
+        Core::ActionBuilder(this, Core::Constants::GOTO)
+            .setContext(Core::Context(m_editorContext))
+            .addOnTriggered(this, [] {
+                Core::LocatorManager::showFilter(lineNumberFilter());
+            });
         command(Constants::FUNCTION_HINT, &TextViewport::requestFunctionHint);
 
         command(Constants::FIND_USAGES, &TextViewport::findUsages);
@@ -1147,6 +1160,14 @@ private slots:
                  "Jump to File is not registered in the editor's context");
         QVERIFY2(inContext(Constants::OPEN_TYPE_HIERARCHY),
                  "Open Type Hierarchy is not registered in the editor's context");
+        // The three that ask something other than the view: the locator, the
+        // codec dialog, and the document's own byte order mark.
+        QVERIFY2(inContext(Core::Constants::GOTO),
+                 "Go to Line is not registered in the editor's context");
+        QVERIFY2(inContext(Constants::SELECT_ENCODING),
+                 "Select Encoding is not registered in the editor's context");
+        QVERIFY2(inContext(Constants::SWITCH_UTF8BOM),
+                 "Switch UTF-8 BOM is not registered in the editor's context");
     }
 
     // Ctrl+Space has always reached this editor as a key, and the form has

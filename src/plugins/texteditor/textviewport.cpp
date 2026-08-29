@@ -3407,6 +3407,14 @@ void TextViewport::setFileLineEndingIsWindows(bool windows)
     emit fileFormatChanged();
 }
 
+void TextViewport::switchUtf8Bom()
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    if (!canEdit() || !doc)
+        return;
+    doc->switchUtf8Bom();
+}
+
 void TextViewport::selectEncoding()
 {
     TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
