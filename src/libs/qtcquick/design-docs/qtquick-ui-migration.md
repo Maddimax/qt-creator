@@ -16755,3 +16755,35 @@ That is the last widget-drawn settings form in the tree that this migration
 has not touched, and it is a large one - a build configuration per build
 system - rather than a batch. The panels around it are done: the census
 reports 17 panels saying what they show and 0 still building a widget.
+
+### Was Perf the only one?
+
+The events table went missing because an aspect asked for a control the widget
+renderer cannot draw and something drew it with widgets anyway. Fixing the two
+callers that did the drawing is not the same as knowing no setting is missing,
+so that was asked properly, twice over.
+
+**Empirically.** The guard says which setting and which control now, so every
+plugin that ships page QML was run again and the output searched for it -
+all 62. **Nothing.** No aspect loses its control in anything the tests draw.
+
+**Statically**, because a page no test renders would not show up above. 34
+files declare `Table`, `Tree` or `KeySequence`; 30 name their QML in the same
+file, and the other four are each fine for a different reason worth writing
+down:
+
+- `aspectcontainermodel.cpp` is the renderer's own mapping from control to
+  delegate, not an aspect at all.
+- `sourcepathmap.cpp` is drawn by Debugger General, whose QML lives in
+  `commonoptionspage.cpp`.
+- `cdboptionspage.cpp` matters most, because **no test here can render it** -
+  CDB is Windows only. Read by hand: `cdbBreakEvents` is registered on `page5`,
+  `page5` names `CdbOptionsPage.qml`, and that file draws
+  `aspects.BreakEvents`. Wired correctly.
+- `uvscserverprovider.cpp`'s `UvTableAspect` reaches the screen through
+  `AspectItems` inside `DebugServerProvidersPage.qml` - the generic Quick
+  renderer, which knows `Table`.
+
+So Perf was the only one, and now it is known rather than hoped. The check
+that would catch the next is already in the tree: the guard names the setting,
+and running any plugin's tests surfaces it.
