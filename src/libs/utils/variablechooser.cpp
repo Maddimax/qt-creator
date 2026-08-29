@@ -30,11 +30,7 @@
 namespace Utils {
 namespace Internal {
 
-enum {
-    UnexpandedTextRole = Qt::UserRole,
-    ExpandedTextRole,
-    CurrentValueDisplayRole
-};
+using enum VariableModel::Role;
 
 class VariableTreeView : public QTreeView
 {
@@ -86,7 +82,7 @@ public:
 
 public:
     VariableChooser *q;
-    TreeModel<> m_model;
+    VariableModel m_model;
 
     QPointer<QLineEdit> m_lineEdit;
     QPointer<QTextEdit> m_textEdit;
@@ -99,14 +95,13 @@ public:
     QLabel *m_variableDescription;
     QSortFilterProxyModel m_sortModel;
     QString m_defaultDescription;
-    QByteArray m_currentVariableName; // Prevent recursive insertion of currently expanded item
 };
 
 class VariableGroupItem : public TreeItem
 {
 public:
-    VariableGroupItem(VariableChooserPrivate *chooser, const MacroExpanderProvider &provider)
-        : m_chooser(chooser), m_provider(provider)
+    VariableGroupItem(VariableModel *model, const MacroExpanderProvider &provider)
+        : m_model(model), m_provider(provider)
     {}
 
     QVariant data(int column, int role) const override
@@ -137,11 +132,11 @@ public:
 
     QByteArray currentVariableName() const
     {
-        return m_chooser->m_currentVariableName;
+        return m_model->currentVariableName();
     }
 
 private:
-    VariableChooserPrivate *m_chooser = nullptr; // Not owned.
+    VariableModel *m_model = nullptr; // Not owned.
     bool m_populated = false;
     MacroExpanderProvider m_provider;
 };
@@ -302,11 +297,41 @@ void VariableGroupItem::populateGroup(MacroExpander *expander)
         if (expander->isAccumulating())
             populateGroup(subProvider());
         else
-            appendChild(new VariableGroupItem(m_chooser, subProvider));
+            appendChild(new VariableGroupItem(m_model, subProvider));
     }
 }
 
 } // namespace Internal
+
+VariableModel::VariableModel(QObject *parent)
+    : TreeModel<>(parent)
+{}
+
+void VariableModel::addMacroExpanderProvider(const MacroExpanderProvider &provider)
+{
+    rootItem()->prependChild(new Internal::VariableGroupItem(this, provider));
+}
+
+void VariableModel::setCurrentVariableName(const QByteArray &name)
+{
+    m_currentVariableName = name;
+}
+
+QByteArray VariableModel::currentVariableName() const
+{
+    return m_currentVariableName;
+}
+
+QHash<int, QByteArray> VariableModel::roleNames() const
+{
+    QHash<int, QByteArray> names = TreeModel<>::roleNames();
+    names.insert(Qt::DisplayRole, "name");
+    names.insert(UnexpandedTextRole, "unexpandedText");
+    names.insert(ExpandedTextRole, "expandedText");
+    names.insert(CurrentValueDisplayRole, "currentValue");
+    return names;
+}
+
 
 using namespace Internal;
 
@@ -385,7 +410,7 @@ VariableChooser::~VariableChooser()
 */
 void VariableChooser::addMacroExpanderProvider(const MacroExpanderProvider &provider)
 {
-    d->m_model.rootItem()->prependChild(new VariableGroupItem(d, provider));
+    d->m_model.addMacroExpanderProvider(provider);
 }
 
 static bool isSupportedWidget(const QWidget *w)
@@ -479,7 +504,7 @@ void VariableChooserPrivate::updateCurrentEditor()
     m_qplainTextEdit = nullptr;
     m_plainTextEdit = nullptr;
     auto chooser = widget->property(kVariableSupportProperty).value<QWidget *>();
-    m_currentVariableName = widget->property(kVariableNameProperty).toByteArray();
+    m_model.setCurrentVariableName(widget->property(kVariableNameProperty).toByteArray());
     bool supportsVariables = chooser == q;
     if (auto lineEdit = qobject_cast<QLineEdit *>(widget))
         m_lineEdit = (supportsVariables && !lineEdit->isReadOnly() ? lineEdit : nullptr);

@@ -6136,9 +6136,27 @@ take the macro expander away from every run-configuration field.
 
 So the remaining widget forms are exactly the ones that need it:
 `RunConfiguration`, `BuildStep` and `DeployConfiguration`. **A Qt Quick
-variable chooser is the prerequisite**, and it is a feature rather than a
-batch: a popup that lists what a `MacroExpander` offers and inserts into the
-field that asked for it.
+variable chooser is the prerequisite** - and calling it "a feature with no
+widget original to match", as this section first did, was wrong.
+`Utils::VariableChooser` is 633 lines with a definite shape: a popup holding a
+filter, a tree of variable groups and a description. That is a port, not an
+invention, and a smaller one than the file dialog.
+
+**Its first half is done.** What a macro expander offers is now
+`Utils::VariableModel`, out on its own rather than inside the chooser: the
+group items no longer point back at `VariableChooserPrivate`, the roles are
+its own enum, and `roleNames()` gives them the names a Qt Quick view reads a
+model by. The chooser holds one instead of being one, and behaves as it did.
+
+`tst_QuickUi` covers it, since a model nothing can read is exactly what this
+was: a group per provider, its variables once asked for, the three roles a
+chooser needs of a row - what to insert, what it stands for, what to say about
+it - the four role *names*, and the rule that the variable being edited is
+listed but cannot be chosen, so a field cannot be made to expand itself. All
+three controls bite.
+
+What is left of the chooser is the popup: a filter, a tree and a description,
+against a model that is now readable from QML.
 
 **Nothing has been lost so far**, which was checked rather than hoped: every
 other caller of `VariableChooser` is a dialog that is still a widget -

@@ -35,6 +35,8 @@
 #include <utils/algorithm.h>
 #include <utils/aspectlist.h>
 #include <utils/aspects.h>
+#include <utils/macroexpander.h>
+#include <utils/variablechooser.h>
 #include <utils/groupedlistaspect.h>
 #include <utils/groupedmodel.h>
 #include <utils/pathvalidation.h>
@@ -228,6 +230,7 @@ private slots:
     void testTheListingCanBeReadBothWaysRound();
     void testASearchBoxSaysWhatItIsWhenItIsEmpty();
     void testAFormKeepsAnAspectThatIsHiddenForNow();
+    void testTheVariablesAMacroExpanderOffersAreAModel();
     void testAFileTheFilterRejectsIsShownAndNotOffered();
     void testEveryEnclosingFolderIsSomewhereToGo();
     void testASearchCanBeUndoneWithoutTheKeyboard();
@@ -7188,6 +7191,61 @@ static void drawsAnIcon(QQuickItem *item, const QString &what)
 
 
 
+
+
+// What a macro expander offers, as rows. It used to live inside
+// VariableChooser, reachable only by the QTreeView that widget builds - which
+// is why the forms that offer "Insert variable" are the ones still drawn with
+// widgets. Out on its own it can be read by anything, and a Qt Quick view
+// reads a model by its role names, so those are what this checks.
+void QuickUiTest::testTheVariablesAMacroExpanderOffersAreAModel()
+{
+    Utils::MacroExpander expander;
+    expander.setDisplayName("Test");
+    expander.registerVariable("Test:Answer", "The answer", [] { return QString("42"); });
+
+    Utils::VariableModel model;
+    model.addMacroExpanderProvider(Utils::MacroExpanderProvider(&expander));
+
+    // One group per provider, and the variables under it once it is asked.
+    QCOMPARE(model.rowCount(), 1);
+    const QModelIndex group = model.index(0, 0);
+    QCOMPARE(group.data(Qt::DisplayRole).toString(), QString("Test"));
+    if (model.canFetchMore(group))
+        model.fetchMore(group);
+    QVERIFY2(model.rowCount(group) > 0, "a group that offers variables listed none");
+
+    QModelIndex answer;
+    for (int row = 0; row < model.rowCount(group); ++row) {
+        const QModelIndex candidate = model.index(row, 0, group);
+        if (candidate.data(Qt::DisplayRole).toString() == "Test:Answer")
+            answer = candidate;
+    }
+    QVERIFY2(answer.isValid(), "the variable that was registered is not in the model");
+
+    // The three things a chooser needs of a row: what to insert, what it
+    // stands for, and what to say about it.
+    QCOMPARE(answer.data(Utils::VariableModel::UnexpandedTextRole).toString(),
+             QString("%{Test:Answer}"));
+    QCOMPARE(answer.data(Utils::VariableModel::ExpandedTextRole).toString(), QString("42"));
+    QVERIFY(answer.data(Utils::VariableModel::CurrentValueDisplayRole)
+                .toString().contains("The answer"));
+
+    // Named, so a Qt Quick view can ask for them. A model without these is
+    // one a QML delegate cannot read at all.
+    const QHash<int, QByteArray> names = model.roleNames();
+    for (const char *name : {"name", "unexpandedText", "expandedText", "currentValue"}) {
+        QVERIFY2(names.values().contains(QByteArray(name)),
+                 qPrintable(QString("no role is called %1").arg(name)));
+    }
+
+    // The variable being edited is listed and cannot be chosen, so that a
+    // field cannot be made to expand itself.
+    QVERIFY(answer.flags() & Qt::ItemIsEnabled);
+    model.setCurrentVariableName("Test:Answer");
+    QVERIFY2(!(answer.flags() & Qt::ItemIsEnabled),
+             "a variable can be inserted into the field that defines it");
+}
 
 // A form that lists a container's aspects keeps the hidden ones. Build
 // settings depend on it: the build directory's warnings appear as you type
