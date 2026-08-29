@@ -11,10 +11,29 @@
 #include <QTextCursor>
 #include <QTextDocument>
 
+#include <memory>
+
 namespace TextEditor {
 
-class TextEditorWidget;
 class BaseHoverHandler;
+
+// What taking part of a suggestion needs of the view showing it: where the
+// caret is, and somewhere to put the rest when only some of it was taken.
+//
+// It used to be TextEditorWidget, which is what kept inline suggestions a
+// widget feature - none of the three operations is a widget's, and naming
+// them is what lets another view offer suggestions once it can draw them.
+class TextSuggestion;
+
+class TEXTEDITOR_EXPORT SuggestionTarget
+{
+public:
+    virtual ~SuggestionTarget();
+
+    virtual QTextCursor textCursor() const = 0;
+    virtual QTextDocument *document() const = 0;
+    virtual void insertSuggestion(std::unique_ptr<TextSuggestion> &&suggestion) = 0;
+};
 
 class TEXTEDITOR_EXPORT TextSuggestion
 {
@@ -32,9 +51,9 @@ public:
     // Returns true if the suggestion was applied completely, false if it was only partially applied.
     virtual bool apply();
     // Returns true if the suggestion was applied completely, false if it was only partially applied.
-    virtual bool applyWord(TextEditorWidget *widget);
-    virtual bool applyLine(TextEditorWidget *widget);
-    virtual bool filterSuggestions(TextEditorWidget *widget);
+    virtual bool applyWord(SuggestionTarget &target);
+    virtual bool applyLine(SuggestionTarget &target);
+    virtual bool filterSuggestions(SuggestionTarget &target);
 
     int currentPosition() const { return m_currentPosition; }
     void setCurrentPosition(int position) { m_currentPosition = position; }
@@ -44,7 +63,7 @@ public:
 
 private:
     enum Part {Word, Line};
-    bool applyPart(Part part, TextEditor::TextEditorWidget *widget);
+    bool applyPart(Part part, SuggestionTarget &target);
 
     Data m_suggestion;
     QTextDocument m_replacementDocument;
@@ -62,7 +81,7 @@ public:
     int currentSuggestion() const { return m_currentSuggestion; }
 
 private:
-    bool filterSuggestions(TextEditorWidget *widget) override;
+    bool filterSuggestions(SuggestionTarget &target) override;
 
     QList<Data> m_suggestions;
     int m_currentSuggestion = 0;

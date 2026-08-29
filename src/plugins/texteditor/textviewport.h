@@ -53,6 +53,7 @@ class IAssistProposal;
 class CodeSource;
 class SyntaxHighlighter;
 class SymbolRequests;
+class TextSuggestion;
 class TextDocument;
 
 // A Qt Quick view of a TextEditor::TextDocument drawn with the scene graph: one
@@ -564,6 +565,15 @@ public:
     // Copies the selection with its highlighting, so that pasting into
     // something that understands HTML keeps the colours.
     Q_INVOKABLE void copyWithHtml();
+
+    // The suggestion offered where the caret is, if any. This view cannot
+    // draw one yet - that is the last thing missing - but everything else a
+    // suggestion needs of a view is here, so taking one works when something
+    // puts it there.
+    TextSuggestion *currentSuggestion() const;
+    Q_INVOKABLE void applySuggestion();
+    Q_INVOKABLE void applySuggestionWord();
+    Q_INVOKABLE void applySuggestionLine();
     void applyEncodingChoice(const Core::CodecSelectorResult &choice);
 
     // Puts the caret on \a line, counting from one, and shows it. Column zero

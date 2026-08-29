@@ -1970,6 +1970,26 @@ void TextEditorWidgetPrivate::insertSuggestion(std::unique_ptr<TextSuggestion> &
     updateSuggestionActions();
 }
 
+// The widget as something a suggestion can be applied to. The three
+// operations are the ones it was being asked for directly.
+class WidgetSuggestionTarget final : public SuggestionTarget
+{
+public:
+    explicit WidgetSuggestionTarget(TextEditorWidget *widget)
+        : m_widget(widget)
+    {}
+
+    QTextCursor textCursor() const override { return m_widget->textCursor(); }
+    QTextDocument *document() const override { return m_widget->document(); }
+    void insertSuggestion(std::unique_ptr<TextSuggestion> &&suggestion) override
+    {
+        m_widget->insertSuggestion(std::move(suggestion));
+    }
+
+private:
+    TextEditorWidget *m_widget = nullptr;
+};
+
 void TextEditorWidgetPrivate::updateSuggestion()
 {
     if (!m_suggestionBlock.isValid())
@@ -1981,7 +2001,7 @@ void TextEditorWidgetPrivate::updateSuggestion()
             const int pos = cursor.position();
             if (pos >= suggestion->currentPosition()) {
                 suggestion->setCurrentPosition(pos);
-                if (suggestion->filterSuggestions(q)) {
+                if (WidgetSuggestionTarget target(q); suggestion->filterSuggestions(target)) {
                     TextBlockUserData::updateSuggestionFormats(
                         m_suggestionBlock, m_document->fontSettings());
                     return;
@@ -4387,8 +4407,10 @@ void TextEditorWidgetPrivate::registerActions()
             .setText(Tr::tr("Apply one Word"))
             .setToolTip(Tr::tr("Apply one word of the current suggestion."))
             .addOnTriggered([this] {
-                if (TextSuggestion *s = q->currentSuggestion())
-                    s->applyWord(q);
+                if (TextSuggestion *s = q->currentSuggestion()) {
+                    WidgetSuggestionTarget target(q);
+                    s->applyWord(target);
+                }
             })
             .setScriptable(true)
             .setDefaultKeySequence(QKeySequence(QKeySequence::MoveToNextWord))
@@ -4401,8 +4423,10 @@ void TextEditorWidgetPrivate::registerActions()
             .setText(Tr::tr("Apply Line"))
             .setToolTip(Tr::tr("Apply one line of the current suggestion."))
             .addOnTriggered([this] {
-                if (TextSuggestion *s = q->currentSuggestion())
-                    s->applyLine(q);
+                if (TextSuggestion *s = q->currentSuggestion()) {
+                    WidgetSuggestionTarget target(q);
+                    s->applyLine(target);
+                }
             })
             .setScriptable(true)
             .setDefaultKeySequence(

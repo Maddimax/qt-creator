@@ -14212,3 +14212,38 @@ which this view does not draw, and `TextSuggestion::applyWord()` takes a
 `TextEditorWidget *`, so the feature and the abstraction would both have to be
 built. That is a piece of work, not a registration, and it is the honest end
 of this list.
+
+## Inline suggestions: the half that was an abstraction
+
+The last three commands. Two batches ended by calling them "a feature, not a
+registration", which was true and not the whole truth - the feature divides in
+two, and only one half is a feature.
+
+Taking a suggestion needed a widget for three things:
+`widget->textCursor()`, `widget->document()` and `widget->insertSuggestion()`
+when only part of it was taken. None of the three is a widget's, and naming
+them is the same move that freed the clipboard history and the quick fixes.
+`SuggestionTarget` says them; `TextSuggestion::applyWord()`, `applyLine()` and
+`filterSuggestions()` take one; the widget and this view each have a small
+adapter. `apply()` - the whole suggestion at once - never needed a view at all
+and still does not.
+
+So a suggestion can now be taken by a view that is not a widget, and there is
+a test that does it: a suggestion is put on a block by hand, the caret is put
+in it, and one word of `return value;` is taken. Three controls - taking the
+whole thing instead of a word, not finding the suggestion at the caret, and a
+target that will not say where the caret is - each fail it.
+
+**The commands are still not registered, and should not be.** What is missing
+is the other half: a suggestion is *drawn* by laying the block out from the
+suggestion's replacement document rather than from its own text, and a
+multi-line suggestion adds rows - which is the row-to-line mapping this view
+spent several batches getting right. Until it draws them there is never a
+suggestion to take, and an enabled menu entry that can do nothing is worse
+than a grey one. The widget's own entries are `setEnabled(false)` until a
+suggestion arrives, for the same reason.
+
+A hundred of a hundred and four, unchanged - this batch moved a wall rather
+than a number. What is left is `PRINT`, which this branch exists to avoid, and
+drawing a suggestion, which is now the only thing standing between the other
+three and their menu entries.

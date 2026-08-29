@@ -37,6 +37,7 @@
 #include "highlighterhelper.h"
 #include "textindenter.h"
 #include "textoperations.h"
+#include "textsuggestion.h"
 #include "textviewport.h"
 #include "textmark.h"
 
@@ -5489,6 +5490,47 @@ private slots:
         // And a colour of some sort, which is the whole difference between
         // this and an ordinary copy.
         QVERIFY2(html.contains("color:"), qPrintable("no colours in: " + html));
+    }
+
+    // A suggestion is grey text the reader can take a word at a time. This
+    // view cannot draw one yet, but everything else a suggestion needs of a
+    // view is here - so putting one on a block by hand and taking it proves
+    // the half that is done, and says exactly what the other half is.
+    void testASuggestionCanBeTakenWithoutAWidget()
+    {
+        TemporaryDirectory dir("qtc-viewport-suggestion");
+        const FilePath file = dir.filePath("plain.txt");
+        QVERIFY(file.writeFileContents("ret\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        viewport->setReadOnly(false);
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        QTextDocument * const text = viewport->textDocument()->document();
+        QVERIFY2(!viewport->currentSuggestion(), "there is nothing to take yet");
+
+        // "ret" with "return value;" offered from the start of the line.
+        const Utils::Text::Range range{{1, 0}, {1, 3}};
+        TextSuggestion::Data offered{range, {1, 3}, "return value;"};
+        auto suggestion = std::make_unique<CyclicSuggestion>(
+            QList<TextSuggestion::Data>{offered}, text, 0);
+        suggestion->setCurrentPosition(3);
+        TextBlockUserData::insertSuggestion(text->findBlockByNumber(0), std::move(suggestion));
+
+        viewport->setCursorPosition(3);
+        QVERIFY2(viewport->currentSuggestion(), "the suggestion was not found at the caret");
+
+        // One word of it, which is the case that needed a widget: it asks
+        // where the caret is and puts back what is left over.
+        viewport->applySuggestionWord();
+        const QString afterWord = text->findBlockByNumber(0).text();
+        QVERIFY2(afterWord.startsWith("return"),
+                 qPrintable("one word gave: " + afterWord));
+        QVERIFY2(!afterWord.contains("value"),
+                 qPrintable("it took more than a word: " + afterWord));
     }
 
     // None of the line commands edits a buffer that is read only, the same

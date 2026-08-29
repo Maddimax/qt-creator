@@ -21,6 +21,8 @@ using namespace Utils;
 
 namespace TextEditor {
 
+SuggestionTarget::~SuggestionTarget() = default;
+
 TextSuggestion::TextSuggestion(const Data &suggestion, QTextDocument *sourceDocument)
     : m_suggestion(suggestion)
     , m_sourceDocument(sourceDocument)
@@ -43,30 +45,30 @@ bool TextSuggestion::apply()
     return true;
 }
 
-bool TextSuggestion::applyWord(TextEditorWidget *widget)
+bool TextSuggestion::applyWord(SuggestionTarget &target)
 {
-    return applyPart(Word, widget);
+    return applyPart(Word, target);
 }
 
-bool TextSuggestion::applyLine(TextEditorWidget *widget)
+bool TextSuggestion::applyLine(SuggestionTarget &target)
 {
-    return applyPart(Line, widget);
+    return applyPart(Line, target);
 }
 
-bool TextSuggestion::filterSuggestions(TextEditorWidget *widget)
+bool TextSuggestion::filterSuggestions(SuggestionTarget &target)
 {
-    Q_UNUSED(widget)
+    Q_UNUSED(target)
 
     QTextCursor c = m_suggestion.range.begin.toTextCursor(sourceDocument());
     c.setPosition(currentPosition(), QTextCursor::KeepAnchor);
     return m_suggestion.text.startsWith(c.selectedText(), Qt::CaseInsensitive);
 }
 
-bool TextSuggestion::applyPart(Part part, TextEditorWidget *widget)
+bool TextSuggestion::applyPart(Part part, SuggestionTarget &target)
 {
     const Text::Range range = m_suggestion.range;
     const QTextCursor cursor = range.toTextCursor(sourceDocument());
-    QTextCursor currentCursor = widget->textCursor();
+    QTextCursor currentCursor = target.textCursor();
     const QString text = m_suggestion.text;
     const int startPos = currentCursor.positionInBlock() - cursor.positionInBlock()
                          + (cursor.selectionEnd() - cursor.selectionStart());
@@ -89,8 +91,8 @@ bool TextSuggestion::applyPart(Part part, TextEditorWidget *widget)
             const Text::Position newEnd{newStart.line, int(subText.size() - seperatorPos - 1)};
             const Text::Range newRange{newStart, newEnd};
             const QList<Data> newSuggestion{{newRange, newEnd, newCompletionText}};
-            widget->insertSuggestion(
-                std::make_unique<CyclicSuggestion>(newSuggestion, widget->document(), 0));
+            target.insertSuggestion(
+                std::make_unique<CyclicSuggestion>(newSuggestion, target.document(), 0));
         }
     }
     return false;
@@ -111,7 +113,7 @@ CyclicSuggestion::CyclicSuggestion(
     return lhs.text == rhs.text && lhs.range == rhs.range && lhs.position == rhs.position;
 }
 
-bool CyclicSuggestion::filterSuggestions(TextEditorWidget *widget)
+bool CyclicSuggestion::filterSuggestions(SuggestionTarget &target)
 {
     QList<Data> newSuggestions;
     int newIndex = -1;
@@ -132,7 +134,7 @@ bool CyclicSuggestion::filterSuggestions(TextEditorWidget *widget)
         return false;
 
     if (newSuggestions != m_suggestions) {
-        widget->insertSuggestion(
+        target.insertSuggestion(
             std::make_unique<CyclicSuggestion>(newSuggestions, sourceDocument(), newIndex));
     }
     return true;

@@ -7,6 +7,7 @@
 #include "highlighterhelper.h"
 #include "symbolrequests.h"
 #include "textoperations.h"
+#include "textsuggestion.h"
 
 #include <utils/uncommentselection.h>
 
@@ -3406,6 +3407,66 @@ void TextViewport::setFileLineEndingIsWindows(bool windows)
     doc->setLineTerminationMode(wanted);
     doc->document()->setModified(true);
     emit fileFormatChanged();
+}
+
+// This view as something a suggestion can be applied to. Nothing a widget
+// does: where the caret is, and where to put what is left over.
+class ViewportSuggestionTarget final : public SuggestionTarget
+{
+public:
+    explicit ViewportSuggestionTarget(TextViewport *view)
+        : m_view(view)
+    {}
+
+    QTextCursor textCursor() const override { return m_view->textCursor(); }
+    QTextDocument *document() const override
+    {
+        const QTextCursor cursor = m_view->textCursor();
+        return cursor.isNull() ? nullptr : cursor.document();
+    }
+    void insertSuggestion(std::unique_ptr<TextSuggestion> &&suggestion) override
+    {
+        const QTextCursor cursor = m_view->textCursor();
+        if (!cursor.isNull())
+            TextBlockUserData::insertSuggestion(cursor.block(), std::move(suggestion));
+    }
+
+private:
+    TextViewport *m_view = nullptr;
+};
+
+TextSuggestion *TextViewport::currentSuggestion() const
+{
+    const QTextCursor cursor = textCursor();
+    return cursor.isNull() ? nullptr : TextBlockUserData::suggestion(cursor.block());
+}
+
+void TextViewport::applySuggestion()
+{
+    if (!canEdit())
+        return;
+    if (TextSuggestion * const suggestion = currentSuggestion())
+        suggestion->apply();
+}
+
+void TextViewport::applySuggestionWord()
+{
+    if (!canEdit())
+        return;
+    if (TextSuggestion * const suggestion = currentSuggestion()) {
+        ViewportSuggestionTarget target(this);
+        suggestion->applyWord(target);
+    }
+}
+
+void TextViewport::applySuggestionLine()
+{
+    if (!canEdit())
+        return;
+    if (TextSuggestion * const suggestion = currentSuggestion()) {
+        ViewportSuggestionTarget target(this);
+        suggestion->applyLine(target);
+    }
 }
 
 void TextViewport::copyWithHtml()
