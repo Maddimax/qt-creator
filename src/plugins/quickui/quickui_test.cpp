@@ -6,6 +6,7 @@
 #include <coreplugin/dialogs/ioptionspage.h>
 
 #include <utils/completionhistory.h>
+#include <utils/temporarydirectory.h>
 #include <utils/historycompleter.h>
 #include <utils/aspectwidgets.h>
 #include <coreplugin/secretaspect.h>
@@ -243,6 +244,7 @@ private slots:
     void testFieldWaitsForAnAnswerItHasToFetch();
     void testAFieldCompletesAgainstWhatTheAspectOffers();
     void testAFieldOffersWhatWasTypedIntoItBefore();
+    void testBrowsingStartsWhereThePathAlreadyPointsTo();
     void testSeveralLinesCompleteTheWordTheCursorIsIn();
     void testColourOffersToGoBackToItsDefault();
     void testColourWithNoResetHasNoButton();
@@ -4413,6 +4415,51 @@ void QuickUiTest::testAFieldOffersWhatWasTypedIntoItBefore()
     // same things however it happens to be drawn.
     QVERIFY2(Utils::HistoryCompleter::historyExistsFor(key),
              "the two kinds of form keep separate histories");
+}
+
+// Browse opens beside the path that is already in the field, the way the
+// widget path chooser does: a dialog that opens wherever the platform was last
+// makes the reader navigate back to what they can already see.
+void QuickUiTest::testBrowsingStartsWhereThePathAlreadyPointsTo()
+{
+    Utils::TemporaryDirectory dir("quickui-browse-start");
+    QVERIFY(dir.isValid());
+    const Utils::FilePath sub = dir.path() / "inner";
+    QVERIFY(sub.createDir());
+    const Utils::FilePath file = sub / "thing.txt";
+    QVERIFY(file.writeFileContents("x"));
+
+    Utils::AspectContainer page;
+    page.setAutoApply(false);
+    Utils::FilePathAspect path(&page);
+    path.setLabelText("Path");
+    path.setExpectedKind(Utils::PathChooserKind::ExistingCommand);
+    path.setBaseDirectory(dir.path());
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "StringDelegate"));
+
+    const auto startFor = [&path](const QString &inTheField) {
+        return path.browseStartDirectory(inTheField);
+    };
+
+    // A file in the field: beside the file, not at the file.
+    QCOMPARE(Utils::FilePath::fromUserInput(startFor(file.toFSPathString())),
+             sub);
+    // A directory in the field: in it.
+    QCOMPARE(Utils::FilePath::fromUserInput(startFor(sub.toFSPathString())), sub);
+    // Nothing in the field: what paths here are relative to, which is what the
+    // aspect was told and what only the presentation can say.
+    QCOMPARE(Utils::FilePath::fromUserInput(startFor({})), dir.path());
+    // Something that is not there at all: no answer rather than a made-up one,
+    // and the dialog opens wherever it would have.
+    QVERIFY(startFor("/no/such/place/at/all/file.txt").isEmpty()
+            || Utils::FilePath::fromUserInput(startFor("/no/such/place/at/all/file.txt"))
+                   == dir.path());
 }
 
 void QuickUiTest::testSeveralLinesCompleteTheWordTheCursorIsIn()

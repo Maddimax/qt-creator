@@ -14467,3 +14467,26 @@ It records the *volatile* value, not the value. A settings page waits for
 Apply, so the aspect still holds the old text when the field is finished with -
 and recording that would remember the value the reader had just replaced. A
 field remembers what was typed into it, whether or not the page is applied.
+
+### Where Browse opens
+
+The same comparison that found the history - what the widget renderer reads off
+an aspect and QML never mentions - also turns up the path chooser's browse
+start. On a Quick page the file dialog opened wherever the platform had last
+been, rather than beside the path already in the field.
+
+The rule is the widget path chooser's: the field's own contents, the file's
+directory when it names a file, then whatever the aspect was told to start
+from, then what its relative paths are relative to. It lives on the aspect as a
+virtual asked with what the field holds, not in the presentation, because the
+base directory is a `Lazy` that may be a project's: a form is described far
+more often than it is browsed from, and describing one should not force that
+value or ask the filesystem what is a directory.
+
+Two crashes along the way were both the vtable trap: adding a virtual to
+`BaseAspect`, or a field to `AspectPresentation`, and then building only the
+three targets that were edited leaves every other plugin with the old layout.
+The stack pointed at `Layouting`, which had nothing to do with it. Worth
+remembering that the first crash was read as evidence that evaluating the
+`Lazy` was the problem - it was not, and the design above is right for its own
+reasons rather than for the one it was first justified by.

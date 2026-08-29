@@ -173,7 +173,22 @@ RowLayout {
         text: qsTr("Browse...")
         visible: delegate.isPath
         enabled: (delegate.aspect?.enabled ?? false) && !(delegate.aspect?.readOnly ?? true)
-        onClicked: delegate.wantsDirectory ? folderDialog.open() : fileDialog.open()
+        onClicked: {
+            // Where to open is worked out now rather than bound: it depends on
+            // what is in the field, and on what the filesystem says about it.
+            const start = delegate.aspect
+                        ? delegate.aspect.browseStartDirectory(field.text) : ""
+            const url = start !== "" ? Qt.resolvedUrl("file://" + start) : ""
+            if (delegate.wantsDirectory) {
+                if (url !== "")
+                    folderDialog.currentFolder = url
+                folderDialog.open()
+            } else {
+                if (url !== "")
+                    fileDialog.currentFolder = url
+                fileDialog.open()
+            }
+        }
     }
 
     FileDialog {

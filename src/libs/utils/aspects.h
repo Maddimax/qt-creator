@@ -182,6 +182,14 @@ public:
     // reader has finished with a field, so that it is offered next time.
     // Nothing for an aspect with no history, which is most of them.
     Q_INVOKABLE virtual void rememberValue();
+
+    // Where a dialog for browsing to this aspect's value should open, given
+    // \a current - what the field holds, which the form knows and the aspect
+    // does not until editing finishes. Empty when there is nowhere better
+    // than wherever the dialog would have opened anyway. Only a path aspect
+    // has an answer; asking any of them is how a form avoids having to know
+    // which is which.
+    Q_INVOKABLE virtual QString browseStartDirectory(const QString &current) const;
     void setLabelText(const QString &labelText);
     void setLabelPixmap(const QPixmap &labelPixmap);
     void setControlObjectName(const QString &objectName);
@@ -1025,6 +1033,7 @@ public:
     void setDisplayFilter(const std::function<QString (const QString &)> &displayFilter);
     void setHistoryCompleter(const Key &historyCompleterKey);
     void rememberValue() override;
+    QString browseStartDirectory(const QString &current) const override;
     void setShowToolTipOnLabel(bool show);
     void setAutoApplyOnEditingFinished(bool applyOnEditingFinished);
     // Offers a way back to the default value beside the field.

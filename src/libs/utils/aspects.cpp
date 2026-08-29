@@ -331,6 +331,12 @@ QString BaseAspect::labelText() const
 
 void BaseAspect::rememberValue() {}
 
+QString BaseAspect::browseStartDirectory(const QString &current) const
+{
+    Q_UNUSED(current)
+    return {};
+}
+
 QString BaseAspect::plainLabelText() const
 {
     return stripAccelerator(d->m_labelText);
@@ -1790,6 +1796,26 @@ AspectPresentation FilePathAspect::presentation() const
     p.promptDialogFilter = promptDialogFilter();
     p.completions = CompletionHistory::entries(d->m_historyCompleterKey);
     return p;
+}
+
+// Deliberately not part of the presentation: the base directory is a Lazy
+// whose value may be a project's, worked out when someone actually browses.
+// Answering it for every form that is merely described evaluates it far too
+// early, and asks the filesystem what is a directory while doing so.
+QString FilePathAspect::browseStartDirectory(const QString &current) const
+{
+    // PathChooser::slotBrowse()'s order: what is in the field - the file's own
+    // directory when it names a file - then where the aspect said to start,
+    // then what relative paths here are relative to.
+    FilePath predefined = FilePath::fromUserInput(current);
+    if (!predefined.isEmpty() && !predefined.isDir())
+        predefined = predefined.parentDir();
+    if (!predefined.isDir())
+        predefined = d->m_initialBrowsePathBackup;
+    if (!predefined.isDir())
+        predefined = d->m_baseDirectory.value();
+
+    return predefined.isDir() ? predefined.toFSPathString() : QString();
 }
 
 void FilePathAspect::rememberValue()
