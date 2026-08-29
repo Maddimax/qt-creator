@@ -14786,3 +14786,26 @@ One control had to be sharpened. "Going up is bound to the wrong keys" did not
 bite while the test asked whether the native text *contained* Cmd+Up: the
 native text of Cmd+Shift+Up contains it. Containment accepts any shortcut that
 happens to include the right one.
+
+### Copying files
+
+Through the clipboard, as the widget dialog does it, so a file copied in one
+can be pasted in the other and in a file manager: the clipboard carries the
+files as URLs rather than their names as text.
+
+Pasting into the directory a file came from duplicates it. That naming rule -
+"name copy", then "name copy 2" - now lives in `FileUtils::uniqueCopyTarget()`
+and both dialogs use it. It was a lambda inside the widget dialog; writing a
+second one in the Quick browser is how two dialogs come to name the same
+duplicate differently.
+
+The control for that rule needs care. Deleting the numbering does not just
+change a name: the search for a free one never finds it, and the run hangs
+rather than failing. A control that makes the *first* duplicate "name copy 1"
+changes what the test can see without looping forever. Worth remembering that a
+control can be worse than useless - it can cost a ten minute timeout and tell
+you nothing.
+
+Not ported: the progress dialog the widget shows while copying, and cancelling
+a copy. A dialog's copies are usually small, but a big one will sit there
+silently.

@@ -8,6 +8,11 @@
 #include <utils/qtcassert.h>
 
 #include <utils/async.h>
+#include <utils/fileutils.h>
+
+#include <QClipboard>
+#include <QGuiApplication>
+#include <QMimeData>
 
 #include <utils/utilstr.h>
 
@@ -136,6 +141,12 @@ FileBrowser::FileBrowser(QObject *parent)
 
     rebuildPlaces();
     rebuildFavorites();
+
+    // What is on the clipboard decides whether pasting is offered, and it
+    // changes while the dialog is open - the reader copies something in
+    // another window.
+    connect(QGuiApplication::clipboard(), &QClipboard::dataChanged, this,
+            &FileBrowser::canPasteChanged);
 }
 
 FileBrowser::~FileBrowser() = default;
@@ -521,6 +532,53 @@ bool FileBrowser::rename(int row, const QString &name)
         return false;
     rebuildEntries();
     return true;
+}
+
+bool FileBrowser::canPaste() const
+{
+    const QMimeData * const clipboard = QGuiApplication::clipboard()->mimeData();
+    return clipboard && clipboard->hasUrls() && !d->m_directory.isEmpty();
+}
+
+void FileBrowser::copyToClipboard(const QList<int> &rows)
+{
+    QList<QUrl> urls;
+    for (const int row : rows) {
+        const QString path = filePathAt(row);
+        if (!path.isEmpty())
+            urls << FilePath::fromUserInput(path).toUrl();
+    }
+    if (urls.isEmpty())
+        return;
+    auto * const mime = new QMimeData;
+    mime->setUrls(urls);
+    QGuiApplication::clipboard()->setMimeData(mime);
+}
+
+QString FileBrowser::paste()
+{
+    const QMimeData * const clipboard = QGuiApplication::clipboard()->mimeData();
+    if (!clipboard || !clipboard->hasUrls() || d->m_directory.isEmpty())
+        return {};
+
+    QStringList failed;
+    const QList<QUrl> urls = clipboard->urls();
+    for (const QUrl &url : urls) {
+        const FilePath source = FilePath::fromUrl(url);
+        if (source.isEmpty())
+            continue;
+        const FilePath target = FileUtils::uniqueCopyTarget(source, d->m_directory);
+        FileUtils::CopyAskingForOverwrite copy;
+        const Result<FileUtils::CopyResult> done
+            = FileUtils::copyRecursively(source, target, copy());
+        if (!done)
+            failed << source.toUserOutput();
+    }
+
+    rebuildEntries();
+    if (failed.isEmpty())
+        return {};
+    return Tr::tr("Could not paste the following:\n%1").arg(failed.join(QLatin1Char('\n')));
 }
 
 QString FileBrowser::whyNotBinned(const QString &path) const

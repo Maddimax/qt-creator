@@ -2015,21 +2015,10 @@ FileDialog::FileDialog(QWidget *parent)
             return;
 
         // A target path in the current directory that does not collide with an
-        // existing entry, falling back to "<name> copy", "<name> copy 2", ...
+        // existing entry: see FileUtils::uniqueCopyTarget(), which the Quick
+        // dialog names its duplicates with too.
         const auto uniqueTarget = [this](const FilePath &src) {
-            FilePath target = d->m_currentDir.pathAppended(src.fileName());
-            if (!target.exists())
-                return target;
-            const QString base = src.completeBaseName();
-            const QString suffix = src.suffix();
-            const QString dotSuffix = suffix.isEmpty() ? QString() : u'.' + suffix;
-            for (int i = 1;; ++i) {
-                const QString copy = (i == 1) ? Tr::tr("%1 copy").arg(base)
-                                              : Tr::tr("%1 copy %2").arg(base).arg(i);
-                target = d->m_currentDir.pathAppended(copy + dotSuffix);
-                if (!target.exists())
-                    return target;
-            }
+            return FileUtils::uniqueCopyTarget(src, d->m_currentDir);
         };
 
         QProgressDialog progress(Tr::tr("Copying Files"), Tr::tr("Cancel"), 0, 0, this);

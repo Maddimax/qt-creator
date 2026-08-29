@@ -384,6 +384,24 @@ FilePathInfo filePathInfoFromTriple(const QString &infos, int modeBase)
     return {size, flags, dt};
 }
 
+FilePath uniqueCopyTarget(const FilePath &source, const FilePath &intoDir)
+{
+    FilePath target = intoDir.pathAppended(source.fileName());
+    if (!target.exists())
+        return target;
+
+    const QString base = source.completeBaseName();
+    const QString suffix = source.suffix();
+    const QString dotSuffix = suffix.isEmpty() ? QString() : QLatin1Char('.') + suffix;
+    for (int i = 1;; ++i) {
+        const QString copy = (i == 1) ? Tr::tr("%1 copy").arg(base)
+                                      : Tr::tr("%1 copy %2").arg(base).arg(i);
+        target = intoDir.pathAppended(copy + dotSuffix);
+        if (!target.exists())
+            return target;
+    }
+}
+
 Result<CopyResult> copyRecursively(const FilePath &srcFilePath,
                                    const FilePath &tgtFilePath,
                                    const CopyHelper &copyHelper)

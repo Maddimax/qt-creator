@@ -95,6 +95,15 @@ Window {
         return all
     }
 
+    // The rows an action acts on: everything picked when \a row is one of
+    // them, and \a row alone otherwise - right-clicking an entry outside the
+    // selection acts on that entry, as it does in a file manager.
+    function pickedRows(row: int): list<int> {
+        if (root.alsoPicked.indexOf(row) >= 0)
+            return root.alsoPicked
+        return row >= 0 ? [row] : []
+    }
+
     function accept(): void {
         const chosen = root.wouldChooseAll
         if (chosen.length === 0)
@@ -201,6 +210,24 @@ Window {
     }
 
     Shortcut {
+        objectName: "copyShortcut"
+        sequences: [StandardKey.Copy]
+        enabled: list.currentIndex >= 0
+        onActivated: browser.copyToClipboard(root.pickedRows(list.currentIndex))
+    }
+
+    Shortcut {
+        objectName: "pasteShortcut"
+        sequences: [StandardKey.Paste]
+        enabled: browser.canPaste
+        onActivated: {
+            const failed = browser.paste()
+            if (failed !== "")
+                root.trouble = failed
+        }
+    }
+
+    Shortcut {
         objectName: "closeShortcut"
         sequences: [StandardKey.Cancel]
         onActivated: root.reject()
@@ -221,6 +248,23 @@ Window {
                 renamePrompt.row = entryMenu.row
                 renameName.text = entryMenu.entryName
                 renamePrompt.open()
+            }
+        }
+
+        MenuItem {
+            objectName: "copyItem"
+            text: qsTr("Copy")
+            onTriggered: browser.copyToClipboard(root.pickedRows(entryMenu.row))
+        }
+
+        MenuItem {
+            objectName: "pasteItem"
+            text: qsTr("Paste")
+            enabled: browser.canPaste
+            onTriggered: {
+                const failed = browser.paste()
+                if (failed !== "")
+                    root.trouble = failed
             }
         }
 

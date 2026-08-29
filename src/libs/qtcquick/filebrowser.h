@@ -114,6 +114,8 @@ class QTCQUICK_EXPORT FileBrowser : public QObject
     // opens; this is one browser's own.
     Q_PROPERTY(bool canGoBack READ canGoBack NOTIFY historyChanged)
     Q_PROPERTY(bool canGoForward READ canGoForward NOTIFY historyChanged)
+    // Whether the clipboard holds anything that could be pasted here.
+    Q_PROPERTY(bool canPaste READ canPaste NOTIFY canPasteChanged)
 
 public:
     explicit FileBrowser(QObject *parent = nullptr);
@@ -142,6 +144,7 @@ public:
     bool canGoUp() const;
     bool canGoBack() const;
     bool canGoForward() const;
+    bool canPaste() const;
 
     // To the directory above, if there is one.
     Q_INVOKABLE void goUp();
@@ -163,6 +166,14 @@ public:
     // offering to bin something as well as when binning it: an entry that
     // cannot be binned should say so rather than fail when picked.
     Q_INVOKABLE QString whyNotBinned(const QString &path) const;
+    // Puts \a rows on the clipboard, as the files they are - which is what
+    // pastes them into a file manager as well as back into this dialog.
+    Q_INVOKABLE void copyToClipboard(const QList<int> &rows);
+    // Copies whatever is on the clipboard into the directory being looked at.
+    // Answers with what could not be copied, or empty when all of it was. A
+    // name already taken here gets "<name> copy", so pasting into the
+    // directory something came from duplicates rather than overwrites.
+    Q_INVOKABLE QString paste();
     // Into \a row of entries() when it is a directory. Says whether it went.
     Q_INVOKABLE bool enter(int row);
     // The full path of \a row, for a view that has to hand one back.
@@ -185,6 +196,7 @@ signals:
     void errorChanged();
     void favoritesChanged();
     void historyChanged();
+    void canPasteChanged();
 
 private:
     void rebuildEntries();

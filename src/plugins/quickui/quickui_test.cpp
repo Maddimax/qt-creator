@@ -11,6 +11,7 @@
 #include <QFontDatabase>
 #include <QSettings>
 #include <QLocale>
+#include <QClipboard>
 #include <utils/temporarydirectory.h>
 #include <utils/historycompleter.h>
 #include <utils/aspectwidgets.h>
@@ -266,6 +267,7 @@ private slots:
     void testEachEntrySaysHowBigItIsAndWhatItIs();
     void testAnEntryCanBeRenamedOrBinned();
     void testTheFileDialogGetsAboutByKeyboard();
+    void testFilesCanBeCopiedAndPasted();
     void testSeveralLinesCompleteTheWordTheCursorIsIn();
     void testColourOffersToGoBackToItsDefault();
     void testColourWithNoResetHasNoButton();
@@ -5367,6 +5369,61 @@ void QuickUiTest::testTheFileDialogGetsAboutByKeyboard()
     QVERIFY(rename);
     QVERIFY2(!rename->property("enabled").toBool(),
              "renaming is offered with nothing selected to rename");
+}
+
+// Copying files in the dialog and pasting them somewhere else, which the
+// widget dialog does through the clipboard - so a file copied in one can be
+// pasted in the other, and in a file manager.
+void QuickUiTest::testFilesCanBeCopiedAndPasted()
+{
+    Utils::TemporaryDirectory dir("quickui-browser-clipboard");
+    QVERIFY(dir.isValid());
+    const Utils::FilePath root = dir.path();
+    const Utils::FilePath other = root / "other";
+    QVERIFY(other.createDir());
+    QVERIFY((root / "copied.txt").writeFileContents("contents"));
+
+    // The clipboard is the machine's, so put back whatever was on it.
+    QClipboard * const clipboard = QGuiApplication::clipboard();
+    const QScopeGuard restore([clipboard] { clipboard->clear(); });
+
+    QtcQuick::FileBrowser browser;
+    browser.setDirectory(root.toUserOutput());
+    QTRY_COMPARE(browser.entries()->rowCount(), 2);
+    const auto rowOf = [&browser](const QString &name) {
+        for (int row = 0; row < browser.entries()->rowCount(); ++row) {
+            if (browser.filePathAt(row).endsWith(name))
+                return row;
+        }
+        return -1;
+    };
+
+    clipboard->clear();
+    QVERIFY2(!browser.canPaste(), "there is something to paste with an empty clipboard");
+
+    browser.copyToClipboard({rowOf("copied.txt")});
+    QVERIFY2(browser.canPaste(), "copying a file left nothing to paste");
+    // On the clipboard as a file, which is what a file manager pastes.
+    QVERIFY(clipboard->mimeData()->hasUrls());
+    QCOMPARE(Utils::FilePath::fromUrl(clipboard->mimeData()->urls().first()),
+             root / "copied.txt");
+
+    // Pasted somewhere else: the file is there, with what was in it.
+    QtcQuick::FileBrowser into;
+    into.setDirectory(other.toUserOutput());
+    QCOMPARE(into.paste(), QString());
+    QVERIFY((other / "copied.txt").exists());
+    QCOMPARE((other / "copied.txt").fileContents().value_or(QByteArray()), QByteArray("contents"));
+
+    // And pasted back where it came from: a duplicate rather than nothing,
+    // and named the way the widget dialog names one.
+    QCOMPARE(browser.paste(), QString());
+    QVERIFY2((root / "copied copy.txt").exists(),
+             "pasting into the directory a file came from did not duplicate it");
+    QVERIFY((root / "copied.txt").exists());
+    // Twice over, so the second duplicate does not overwrite the first.
+    QCOMPARE(browser.paste(), QString());
+    QVERIFY((root / "copied copy 2.txt").exists());
 }
 
 void QuickUiTest::testSeveralLinesCompleteTheWordTheCursorIsIn()

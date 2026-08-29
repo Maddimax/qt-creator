@@ -45,6 +45,13 @@ private:
 };
 #endif // QT_GUI_LIB
 
+// Where \a source should be copied to inside \a intoDir when something of
+// that name is already there: "name copy", then "name copy 2". Pasting into
+// the directory a file came from duplicates it rather than overwriting it,
+// and both file dialogs have to name the duplicate the same way.
+QTCREATOR_UTILS_EXPORT FilePath uniqueCopyTarget(const FilePath &source,
+                                                 const FilePath &intoDir);
+
 QTCREATOR_UTILS_EXPORT Result<CopyResult> copyRecursively(const FilePath &srcFilePath,
                                                           const FilePath &tgtFilePath,
                                                           const CopyHelper &helper);
