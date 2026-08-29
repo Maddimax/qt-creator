@@ -7,6 +7,7 @@
 #include "textdocumentlayout.h"
 #include "textdocument.h"
 
+#include <utils/algorithm.h>
 #include <utils/multitextcursor.h>
 #include <utils/textutils.h>
 #include <utils/qtcassert.h>
@@ -584,6 +585,21 @@ bool selectBlockDown(QTextCursor &cursor, const QTextCursor &anchor)
 
     cursor = Utils::Text::flippedCursor(grown);
     return true;
+}
+
+void autoIndent(Utils::MultiTextCursor &cursor, TextDocument *document)
+{
+    if (!document)
+        return;
+    cursor.beginEditBlock();
+    const QList<QTextCursor> inOrder
+        = Utils::sorted(cursor.cursors(), [](const QTextCursor &lhs, const QTextCursor &rhs) {
+              return lhs.selectionStart() < rhs.selectionStart();
+          });
+    for (const QTextCursor &c : inOrder)
+        document->autoFormatOrIndent(c);
+    cursor.mergeCursors();
+    cursor.endEditBlock();
 }
 
 } // namespace TextEditor

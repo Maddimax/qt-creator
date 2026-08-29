@@ -13989,3 +13989,32 @@ deletes `oneTwoThree` where it should take `one`, and fails.
 
 Seventy-nine of a hundred and four now. The twenty-five left are in the table
 above, and none of them is a line of wiring away.
+
+## Indentation, and two tests that assumed rather than asked
+
+Four commands, all of them a question for the document's indenter with the
+view only saying which text to ask about. `autoIndent()` was worth sharing
+because the order matters and the reason is not obvious: an indenter works out
+where a line goes from the lines above it, so the carets are sorted into
+document order before any of them is touched.
+
+Tab and Shift+Tab already did exactly what Indent and Unindent do, in the key
+handler, written out. They call the methods now, so there is one
+implementation - the same rule as the clipboard commands, and the control
+proves it: making `unindent()` indent fails both the new test and
+`testTabIndentsByTheCodeStyleAndNotByATabCharacter`, which was there already.
+
+Both new tests failed first time, and both were the test rather than the code:
+
+- Indenting with nothing selected puts a step in *at the caret* - `te  xt` -
+  because that is what Tab does, and `TextDocument::indent()` is what Tab
+  calls. Indenting a line means selecting it first.
+- Auto-indent did nothing at all, because a file with no language of its own
+  gets an indenter that leaves lines where they are. The assumption that it
+  copies the line above was invented. The test brings an indenter that puts
+  every line four spaces in, which turns the question into the only one the
+  view can answer: does the command reach the indenter.
+
+Eighty-three of a hundred and four. What is left is zoom, the paste variants,
+whitespace, printing, encoding, the context menu, suggestions and the last
+symbol commands - no group of them alike enough to do together.

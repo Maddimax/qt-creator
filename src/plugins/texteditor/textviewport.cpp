@@ -1918,11 +1918,11 @@ void TextViewport::keyPressEvent(QKeyEvent *event)
         // The indenter already takes several cursors and knows how to apply
         // one indent to all of them, so this hands over the carets rather
         // than unwrapping a single one and putting it back.
-        setMultiTextCursor(doc->indent(multiTextCursor()));
+        indent();
         event->accept();
         return;
     case Qt::Key_Backtab:
-        setMultiTextCursor(doc->unindent(multiTextCursor()));
+        unindent();
         event->accept();
         return;
     default:
@@ -2735,6 +2735,47 @@ void TextViewport::deleteEndOfWordCamelCase()
 void TextViewport::deleteStartOfWordCamelCase()
 {
     deleteToCamelCase(false);
+}
+
+void TextViewport::indent()
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    if (!canEdit() || !doc)
+        return;
+    setMultiTextCursor(doc->indent(multiTextCursor()));
+}
+
+void TextViewport::unindent()
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    if (!canEdit() || !doc)
+        return;
+    setMultiTextCursor(doc->unindent(multiTextCursor()));
+}
+
+void TextViewport::autoIndent()
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    if (!canEdit() || !doc)
+        return;
+    Utils::MultiTextCursor cursors = multiTextCursor();
+    if (cursors.isNull())
+        return;
+    TextEditor::autoIndent(cursors, doc);
+    setMultiTextCursor(cursors);
+}
+
+void TextViewport::autoFormat()
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    if (!canEdit() || !doc)
+        return;
+    QTextCursor cursor = textCursor();
+    if (cursor.isNull())
+        return;
+    cursor.beginEditBlock();
+    doc->autoFormat(cursor);
+    cursor.endEditBlock();
 }
 
 bool TextViewport::canEdit() const

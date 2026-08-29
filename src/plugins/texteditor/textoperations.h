@@ -88,6 +88,12 @@ TEXTEDITOR_EXPORT QTextCursor selectLinesToMove(const QTextCursor &cursor);
 // leaves the ones that already have a selection alone.
 TEXTEDITOR_EXPORT void selectWordUnderCursor(Utils::MultiTextCursor &cursor);
 
+// Re-indents, or reformats, whatever each caret covers. In document order and
+// not caret order: an indenter works out what a line should be indented to
+// from the lines above it, so indenting a later one first would have it
+// reading indentation that is about to change.
+TEXTEDITOR_EXPORT void autoIndent(Utils::MultiTextCursor &cursor, TextDocument *document);
+
 // Grows the selection to the innermost brackets around it. \a anchor
 // remembers where the growing started, so that shrinking back can find its
 // way; it is set here when there was nothing selected yet.

@@ -372,6 +372,11 @@ public:
         command(Constants::DELETE_START_OF_WORD_CAMEL_CASE,
                 &TextViewport::deleteStartOfWordCamelCase);
 
+        command(Constants::INDENT, &TextViewport::indent);
+        command(Constants::UNINDENT, &TextViewport::unindent);
+        command(Constants::AUTO_INDENT_SELECTION, &TextViewport::autoIndent);
+        command(Constants::AUTO_FORMAT_SELECTION, &TextViewport::autoFormat);
+
         // Folding. The recursive pair take the same method with its argument
         // set, which is why they are built here rather than through command().
         const auto folding = [this](Utils::Id id, bool unfold, bool recursive) {

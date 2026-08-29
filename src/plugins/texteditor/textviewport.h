@@ -703,6 +703,13 @@ public:
     Q_INVOKABLE void deleteStartOfWord();
     Q_INVOKABLE void deleteEndOfWordCamelCase();
     Q_INVOKABLE void deleteStartOfWordCamelCase();
+
+    // Indentation, which the document's indenter decides: this only says
+    // which text to ask about.
+    Q_INVOKABLE void indent();
+    Q_INVOKABLE void unindent();
+    Q_INVOKABLE void autoIndent();
+    Q_INVOKABLE void autoFormat();
     // A rectangle of text, from where the caret is anchored to \a x, \a y.
     // One caret per line it covers, which is what makes it a selection that
     // can be typed over. The anchor is taken once, when the drag starts, so

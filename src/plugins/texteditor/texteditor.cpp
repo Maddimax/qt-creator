@@ -8615,16 +8615,7 @@ QList<QTextEdit::ExtraSelection> TextEditorWidget::extraSelections(Id kind) cons
 void TextEditorWidget::autoIndent()
 {
     MultiTextCursor cursor = multiTextCursor();
-    cursor.beginEditBlock();
-    // The order is important, since some indenter refer to previous indent positions.
-    const QList<QTextCursor> cursors = Utils::sorted(cursor.cursors(),
-            [](const QTextCursor &lhs, const QTextCursor &rhs) {
-        return lhs.selectionStart() < rhs.selectionStart();
-    });
-    for (const QTextCursor &c : cursors)
-        d->m_document->autoFormatOrIndent(c);
-    cursor.mergeCursors();
-    cursor.endEditBlock();
+    TextEditor::autoIndent(cursor, d->m_document.data());
     setMultiTextCursor(cursor);
 }
 

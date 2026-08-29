@@ -35,6 +35,7 @@
 #include "codeassist/functionhintproposal.h"
 #include "codeassist/assisttarget.h"
 #include "highlighterhelper.h"
+#include "textindenter.h"
 #include "textoperations.h"
 #include "textviewport.h"
 #include "textmark.h"
@@ -401,6 +402,26 @@ public:
         const TextEditor::AssistInterface *) const override
     {
         return new ExpandingProcessor;
+    }
+};
+
+
+// An indenter that puts every line it is given four spaces in. Real ones ask
+// the language; this is here so that a test can tell whether the command
+// reached the indenter at all, which is the only thing the view decides.
+class FourSpaceIndenter final : public TextEditor::TextIndenter
+{
+public:
+    using TextEditor::TextIndenter::TextIndenter;
+
+    void indentBlock(const QTextBlock &block,
+                     const QChar &,
+                     const TextEditor::TabSettingsData &,
+                     int = -1) override
+    {
+        QTextCursor cursor(block);
+        cursor.movePosition(QTextCursor::StartOfBlock);
+        cursor.insertText("    ");
     }
 };
 
@@ -5175,6 +5196,70 @@ private slots:
         QCOMPARE(text->findBlockByNumber(0).text(), QString("TwoThree"));
     }
 
+    // Indent and Unindent ask the document's indenter, which is what knows
+    // how wide a step is here. Asserted as a round trip and as a change: two
+    // commands that both did nothing would pass a round trip on their own.
+    void testIndentingAndUnindentingGoBackAndForth()
+    {
+        TemporaryDirectory dir("qtc-viewport-indent");
+        const FilePath file = dir.filePath("plain.txt");
+        QVERIFY(file.writeFileContents("text\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        viewport->setReadOnly(false);
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        QTextDocument * const text = viewport->textDocument()->document();
+        const QString before = text->findBlockByNumber(0).text();
+        // The whole line selected: with nothing selected these commands put a
+        // step in at the caret, which is what Tab does and is not what is
+        // being asked about here.
+        viewport->setSelectionStart(0);
+        viewport->setSelectionEnd(before.length());
+
+        viewport->indent();
+        const QString indented = text->findBlockByNumber(0).text();
+        QVERIFY2(indented != before, "indenting changed nothing");
+        QVERIFY2(indented.endsWith(before),
+                 qPrintable("the text itself changed: " + indented));
+
+        viewport->unindent();
+        QCOMPARE(text->findBlockByNumber(0).text(), before);
+    }
+
+    // Auto-indent puts a line where the indenter says it belongs, which for a
+    // file with no language of its own is where the line above sits.
+    void testAutoIndentFollowsTheLineAbove()
+    {
+        TemporaryDirectory dir("qtc-viewport-autoindent");
+        const FilePath file = dir.filePath("plain.txt");
+        QVERIFY(file.writeFileContents("    first\nsecond\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        viewport->setReadOnly(false);
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+
+        // A file with no language of its own gets an indenter that leaves a
+        // line where it is, so one that does something is brought along -
+        // what is being asked is whether the command reaches the indenter.
+        viewport->textDocument()->setIndenter(
+            new FourSpaceIndenter(viewport->textDocument()->document()));
+
+        QTextDocument * const text = viewport->textDocument()->document();
+        viewport->setCursorPosition(text->findBlockByNumber(1).position() + 1);
+        viewport->autoIndent();
+
+        QCOMPARE(text->findBlockByNumber(1).text(), QString("    second"));
+        // Only the line the caret was on: the one above kept its own.
+        QCOMPARE(text->findBlockByNumber(0).text(), QString("    first"));
+    }
+
     // None of the line commands edits a buffer that is read only, the same
     // as a key press does not. One test for all of them: each has its own
     // guard, and a guard that is missing on one of them is exactly the kind
@@ -5224,6 +5309,10 @@ private slots:
         viewport->deleteEndOfLine();
         viewport->deleteStartOfWord();
         viewport->deleteEndOfWordCamelCase();
+        viewport->indent();
+        viewport->unindent();
+        viewport->autoIndent();
+        viewport->autoFormat();
         // Last, and after the lower case one: both go through the same guard,
         // so with the guard gone they would run one after the other and put
         // the text back exactly as it was between them.
