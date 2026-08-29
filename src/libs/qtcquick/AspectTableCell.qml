@@ -28,6 +28,8 @@ Item {
     // user's to edit; a tree reports unless its model says otherwise, which is
     // what the EditableRole is for.
     property bool editableByDefault: true
+    // Whether the view says this cell is in the row the user is on.
+    property bool highlighted: false
 
     readonly property var choices: model.choices ?? []
     readonly property string cellText: model.display ?? ""
@@ -51,6 +53,17 @@ Item {
         anchors.fill: parent
         visible: cell.cellBackground !== undefined
         color: cell.cellBackground ?? "transparent"
+    }
+
+    // Over the row's own colours: a page that shows the details of the
+    // current row, or a Remove that acts on it, is talking about a row the
+    // user has to be able to pick out. A tree's cell is drawn inside a
+    // TreeViewDelegate, which draws its own.
+    Rectangle {
+        objectName: "tableCellHighlight"
+        anchors.fill: parent
+        visible: cell.highlighted
+        color: Tokens.accentSubtle
     }
 
     RowLayout {

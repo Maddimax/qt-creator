@@ -216,7 +216,13 @@ RowLayout {
                         ScrollBar.vertical: ScrollBar {}
 
                         delegate: AspectTableCell {
+                            // Filled by the view because they are required
+                            // here; the cell itself has no view to ask.
+                            required property bool selected
+                            required property bool current
+
                             editable: root.editable
+                            highlighted: selected || current
                         }
                     }
                 }

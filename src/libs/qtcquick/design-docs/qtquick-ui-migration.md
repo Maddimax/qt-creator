@@ -15195,3 +15195,20 @@ The version that stands walks every page, measures the buttons in the row's
 own coordinates, and allows a gap that has something in it - External Tools
 deliberately keeps Revert away from Add and Remove with a spacer. Its control
 puts five pages in the failure message.
+
+### The row the user is on
+
+Reviewing the Debuggers page raised a question the survey had not asked: which
+row is selected? A `TableDelegate` drew nothing at all for it - its cell
+delegate is an `AspectTableCell`, a plain Item, and the view's `selected` and
+`current` reached nobody. Font && Colors, once it opened on a format, showed
+the properties of a row that looked like every other row.
+
+The cell now takes a `highlighted` and paints it over the row's own colours;
+the table's delegate declares `selected` and `current` as required properties
+so that the view fills them. A tree needs none of this - its cells sit inside
+a `TreeViewDelegate`, which draws its own.
+
+The test reads the mark rather than the property behind it. A binding that is
+correct while nothing draws it is exactly the bug being fixed here, so
+asserting `highlighted` would have passed on the broken code.

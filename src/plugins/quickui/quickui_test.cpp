@@ -237,6 +237,7 @@ private slots:
     void testATableWithNoColumnNamesHasNoHeader();
     void testTableAspectAddsAndRemovesRows();
     void testTableAspectRemovesEverySelectedRow();
+    void testTheRowTheUserIsOnIsDrawnAsSelected();
     void testTableAspectFiltersItsRows();
     void testSelectingARowTellsThePageWhichOneItIs();
     void testEveryTableOnEveryPageReportsItsCurrentRow();
@@ -3912,6 +3913,65 @@ void QuickUiTest::testTableAspectAddsAndRemovesRows()
 // The widget tables these replace used ExtendedSelection, and the pages that
 // act on a selection - export these parsers, remove those kits - were written
 // for more than one row at a time.
+// A page that shows the details of the current row, or a Remove that acts on
+// it, is talking about a row the user has to be able to pick out. The widget
+// view drew the selection; the Quick table drew nothing at all, so Font &&
+// Colors showed the properties of a format that looked like any other.
+void QuickUiTest::testTheRowTheUserIsOnIsDrawnAsSelected()
+{
+    Utils::AspectContainer page;
+    TestTableAspect table(&page);
+    table.setLabelText("Rows");
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+
+    QQuickItem *view = nullptr;
+    QTRY_VERIFY(view = tableViewOf(quickWidget->rootObject()));
+    auto shown = view->property("model").value<QAbstractItemModel *>();
+    QVERIFY(shown);
+    QCOMPARE(shown->rowCount({}), 2);
+    auto selection = view->property("selectionModel").value<QItemSelectionModel *>();
+    QVERIFY(selection);
+
+    // Read off what is drawn rather than off the property behind it: the row
+    // is marked by a rectangle over the row's own colours, and a binding that
+    // is right while nothing draws it is the bug this is here for.
+    const auto marked = [view] {
+        QStringList texts;
+        for (QQuickItem *cell : findQmlComponents(view, "AspectTableCell")) {
+            const QList<QQuickItem *> mark = findQmlNamed(cell, "tableCellHighlight");
+            if (!mark.isEmpty() && mark.first()->isVisible())
+                texts << cell->property("cellText").toString();
+        }
+        texts.sort();
+        return texts;
+    };
+
+    QCOMPARE(marked(), QStringList());
+
+    const auto textsOfRow = [shown](int row) {
+        QStringList texts;
+        for (int column = 0; column < shown->columnCount({}); ++column)
+            texts << shown->index(row, column).data().toString();
+        texts.sort();
+        return texts;
+    };
+
+    selection->setCurrentIndex(shown->index(0, 0),
+                               QItemSelectionModel::ClearAndSelect
+                                   | QItemSelectionModel::Rows);
+    QTRY_COMPARE(marked(), textsOfRow(0));
+
+    // And it follows: a mark that is painted once and stays is worse than none.
+    selection->setCurrentIndex(shown->index(1, 0),
+                               QItemSelectionModel::ClearAndSelect
+                                   | QItemSelectionModel::Rows);
+    QTRY_COMPARE(marked(), textsOfRow(1));
+}
+
 void QuickUiTest::testTableAspectRemovesEverySelectedRow()
 {
     Utils::AspectContainer page;
