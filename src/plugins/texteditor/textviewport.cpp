@@ -2707,6 +2707,20 @@ void TextViewport::renameSymbolUnderCursor()
         symbolRequests()->askForRename(cursor);
 }
 
+void TextViewport::followTypeUnderCursor(bool inNextSplit)
+{
+    const QTextCursor cursor = textCursor();
+    if (cursor.isNull())
+        return;
+    symbolRequests()->askForTypeAt(
+        cursor,
+        [self = QPointer<TextViewport>(this), inNextSplit](const Utils::Link &link) {
+            if (self)
+                self->openLink(link, inNextSplit);
+        },
+        true, inNextSplit);
+}
+
 void TextViewport::openCallHierarchy()
 {
     symbolRequests()->askForCallHierarchy();

@@ -14080,3 +14080,31 @@ counted now:
 - **Language questions this view does not ask yet.** `FOLLOW_SYMBOL_TO_TYPE`
   and its split variant, `JUMP_TO_FILE_UNDER_CURSOR` and its split variant,
   `OPEN_TYPE_HIERARCHY`.
+
+## The last of the language questions
+
+Five commands, and the reading was worth more than the writing.
+
+**Jump to File Under Cursor is Follow Symbol.** The widget editor gives them
+separate menu entries and separate shortcuts and then sends both to
+`openLinkUnderCursor()`. So the two entries are registered to the method this
+view already had, and no code was written for either.
+
+**Follow Symbol to Type is a different question**, and the first one this view
+asks that answers *back*: where a symbol is used is told to somebody, where its
+type is defined has to come back. So `SymbolRequests` gained a signal carrying
+a `Utils::LinkHandler`, which is what the widget's own `requestTypeAt` carries,
+and the language client answers it with `LinkTarget::SymbolTypeDef` exactly as
+it answers the widget's. The control for it hands over an empty callback: the
+request still goes, and the test still fails, because a question with nowhere
+to send the answer is not the question.
+
+**Open Type Hierarchy is not a question for the view at all.** It opens a pane
+and tells it to look at whatever is current. It was dead here only because it
+is registered per editor, so registering it per this editor too is the whole
+change.
+
+Ninety-five of a hundred and four. The nine left are `PRINT`, which this branch
+exists to avoid; `CIRCULAR_PASTE`, waiting on a mime helper that should move to
+Utils first; and `GOTO`, `SELECT_ENCODING`, `SWITCH_UTF8BOM`, `COPY_WITH_HTML`
+and the three `SUGGESTION_APPLY*`, each of which wants something built.

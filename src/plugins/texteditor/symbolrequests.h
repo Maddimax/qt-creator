@@ -6,6 +6,8 @@
 #include "texteditor_global.h"
 
 #include <QObject>
+#include <utils/link.h>
+
 #include <QTextCursor>
 
 namespace Core { class IEditor; }
@@ -31,11 +33,21 @@ public:
     void askForUsages(const QTextCursor &cursor) { emit requestUsages(cursor); }
     void askForRename(const QTextCursor &cursor) { emit requestRename(cursor); }
     void askForCallHierarchy() { emit requestCallHierarchy(); }
+    void askForTypeAt(const QTextCursor &cursor, const Utils::LinkHandler &callback,
+                      bool resolveTarget, bool inNextSplit)
+    {
+        emit requestTypeAt(cursor, callback, resolveTarget, inNextSplit);
+    }
 
 signals:
     void requestUsages(const QTextCursor &cursor);
     void requestRename(const QTextCursor &cursor);
     void requestCallHierarchy();
+    // Where the *type* of the symbol under \a cursor is defined. Unlike the
+    // three above this one answers back, so it carries the callback the way
+    // the widget editor's signal of the same name does.
+    void requestTypeAt(const QTextCursor &cursor, const Utils::LinkHandler &callback,
+                       bool resolveTarget, bool inNextSplit);
 };
 
 // The relay for \a editor, or nullptr when that editor asks its questions some

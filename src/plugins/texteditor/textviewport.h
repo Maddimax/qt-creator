@@ -489,6 +489,10 @@ public:
     Q_INVOKABLE void findUsages();
     Q_INVOKABLE void renameSymbolUnderCursor();
     Q_INVOKABLE void openCallHierarchy();
+    // Where the type of the symbol under the caret is defined, which is a
+    // different question from where the symbol is and is answered by whoever
+    // knows the language.
+    Q_INVOKABLE void followTypeUnderCursor(bool inNextSplit = false);
     SymbolRequests *symbolRequests() const;
     // Moving what is shown without moving the caret, which is what the View
     // commands are for.

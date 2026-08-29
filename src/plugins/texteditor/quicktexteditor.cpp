@@ -24,12 +24,14 @@
 #include "highlighterhelper.h"
 #include "textdocumentlayout.h"
 #include "symbolrequests.h"
+#include "typehierarchy.h"
 #include "textviewport.h"
 #include "texteditorconstants.h"
 #include "texteditortr.h"
 
 #include <coreplugin/actionmanager/actioncontainer.h>
 #include <coreplugin/actionmanager/actionmanager.h>
+#include <coreplugin/navigationwidget.h>
 #include <coreplugin/actionmanager/command.h>
 #include <coreplugin/coreconstants.h>
 #include <coreplugin/dialogs/codecselector.h>
@@ -551,6 +553,33 @@ public:
 
         followSymbol(Constants::FOLLOW_SYMBOL_UNDER_CURSOR, false);
         followSymbol(Constants::FOLLOW_SYMBOL_UNDER_CURSOR_IN_NEXT_SPLIT, true);
+        // The same operation the widget editor gives two entries: following a
+        // symbol and jumping to the file under the cursor are one question
+        // asked by two shortcuts.
+        followSymbol(Constants::JUMP_TO_FILE_UNDER_CURSOR, false);
+        followSymbol(Constants::JUMP_TO_FILE_UNDER_CURSOR_IN_NEXT_SPLIT, true);
+
+        // Where the type of the symbol is, which is a different question.
+        const auto followType = [this](Utils::Id id, bool inNextSplit) {
+            Core::ActionBuilder(this, id)
+                .setContext(Core::Context(m_editorContext))
+                .addOnTriggered(this, [this, inNextSplit] {
+                    if (TextViewport * const view = viewport())
+                        view->followTypeUnderCursor(view->opensInNextSplit(inNextSplit));
+                });
+        };
+        followType(Constants::FOLLOW_SYMBOL_TO_TYPE, false);
+        followType(Constants::FOLLOW_SYMBOL_TO_TYPE_IN_NEXT_SPLIT, true);
+
+        // Not a question for the view at all - it opens a pane and tells it
+        // to look at whatever is current - but it is registered per editor,
+        // so it is dead here until this editor registers it too.
+        Core::ActionBuilder(this, Constants::OPEN_TYPE_HIERARCHY)
+            .setContext(Core::Context(m_editorContext))
+            .addOnTriggered(this, [] {
+                updateTypeHierarchy(Core::NavigationWidget::activateSubWidget(
+                    Constants::TYPE_HIERARCHY_FACTORY_ID, Core::Side::Left));
+            });
 
         // Ctrl+F reaches an editor by asking its widget for an IFindSupport,
         // so this has to hang off the widget rather than off the editor.
@@ -1092,6 +1121,23 @@ private slots:
         QVERIFY2(findUsages, "Find Usages is not registered in the editor's context");
         findUsages->trigger();
         QCOMPARE(usages.size(), 2);
+
+        // Where the type is, which unlike the three above answers back - so
+        // the request has to carry somewhere to answer to.
+        QSignalSpy typeAsked(requests, &TextEditor::SymbolRequests::requestTypeAt);
+        QAction * const toType = inContext(Constants::FOLLOW_SYMBOL_TO_TYPE);
+        QVERIFY2(toType, "Follow Symbol to Type is not registered in the editor's context");
+        toType->trigger();
+        QCOMPARE(typeAsked.size(), 1);
+        QVERIFY2(qvariant_cast<Utils::LinkHandler>(typeAsked.at(0).at(1)) != nullptr,
+                 "the request carried nowhere to answer to");
+
+        // Jump to File is the same question as Follow Symbol, given a second
+        // entry and a second shortcut; both have to reach this editor.
+        QVERIFY2(inContext(Constants::JUMP_TO_FILE_UNDER_CURSOR),
+                 "Jump to File is not registered in the editor's context");
+        QVERIFY2(inContext(Constants::OPEN_TYPE_HIERARCHY),
+                 "Open Type Hierarchy is not registered in the editor's context");
     }
 
     // Ctrl+Space has always reached this editor as a key, and the form has
