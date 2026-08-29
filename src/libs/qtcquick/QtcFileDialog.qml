@@ -153,6 +153,59 @@ Window {
         }
     }
 
+    // Getting about by keyboard, with the sequences the widget dialog binds
+    // and the platform's own where there is one.
+    Shortcut {
+        objectName: "backShortcut"
+        sequences: [StandardKey.Back]
+        onActivated: browser.goBack()
+    }
+
+    Shortcut {
+        objectName: "forwardShortcut"
+        sequences: [StandardKey.Forward]
+        onActivated: browser.goForward()
+    }
+
+    Shortcut {
+        objectName: "parentShortcut"
+        // Cmd+Up on macOS, Alt+Up on Windows, Ctrl+Up elsewhere - which is
+        // what these two sequences come to.
+        sequences: ["Ctrl+Up", "Alt+Up"]
+        onActivated: browser.goUp()
+    }
+
+    Shortcut {
+        objectName: "gotoShortcut"
+        // The widget dialog drops a panel over itself to type a path into.
+        // The path is always in a field here, so this puts the reader in it
+        // with what is there selected, which is the same thing with less of
+        // it.
+        sequences: [Qt.platform.os === "osx" ? "Ctrl+Shift+G" : "Ctrl+L"]
+        onActivated: {
+            pathField.forceActiveFocus()
+            pathField.selectAll()
+        }
+    }
+
+    Shortcut {
+        objectName: "renameShortcut"
+        sequences: ["F2"]
+        enabled: list.currentIndex >= 0
+        onActivated: {
+            renamePrompt.row = list.currentIndex
+            renameName.text = browser.nameAt(list.currentIndex)
+            entryMenu.entryName = renameName.text
+            renamePrompt.open()
+        }
+    }
+
+    Shortcut {
+        objectName: "closeShortcut"
+        sequences: [StandardKey.Cancel]
+        onActivated: root.reject()
+    }
+
     // What can be done to the entry under the pointer.
     Menu {
         id: entryMenu

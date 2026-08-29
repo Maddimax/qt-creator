@@ -443,6 +443,11 @@ QString FileBrowser::filePathAt(int row) const
     return d->m_entries.data(d->m_entries.index(row, 0), FileEntries::FilePathRole).toString();
 }
 
+QString FileBrowser::nameAt(int row) const
+{
+    return d->m_entries.data(d->m_entries.index(row, 0), FileEntries::NameRole).toString();
+}
+
 bool FileBrowser::isDirectoryAt(int row) const
 {
     return d->m_entries.data(d->m_entries.index(row, 0), FileEntries::IsDirRole).toBool();

@@ -168,6 +168,9 @@ public:
     // The full path of \a row, for a view that has to hand one back.
     Q_INVOKABLE QString filePathAt(int row) const;
     Q_INVOKABLE bool isDirectoryAt(int row) const;
+    // What \a row is called, which is not the last part of its path while a
+    // search is on: a hit is named by where it is.
+    Q_INVOKABLE QString nameAt(int row) const;
     // What a name typed into the dialog means here, which is a path relative
     // to the directory being looked at unless it is an absolute one.
     Q_INVOKABLE QString resolve(const QString &name) const;

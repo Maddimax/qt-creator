@@ -14764,3 +14764,25 @@ printed `active` made the test pass, which is how the race showed itself at
 all. It asks about `active` first now, which is both the property this change
 controls and what makes the style follow. In the running editor frames do that
 for themselves.
+
+### Getting about without the pointer
+
+The platform's own sequences, the ones the widget dialog binds: Back and
+Forward, Cmd+Up (Alt+Up on Windows) for the parent, F2 to rename, Escape to
+close - which a `Window` does not do by itself. "Go to folder" is Cmd+Shift+G
+as it is there, but where the widget dialog drops a panel over itself to type a
+path into, this one puts the reader in the path field with what is in it
+selected. The path is always on screen here, so the panel would be a second
+place to type the same thing.
+
+The test asks each shortcut for its sequence and for what activating it does.
+It does *not* check that the keys arrive: a shortcut is delivered to the window
+that has the keyboard, and this process cannot take it here - showing the
+dialog and typing at it skipped every time, which is no guard at all. That
+leaves one thing uncovered and two covered, and the two are the ones that go
+wrong: which keys, and what they do.
+
+One control had to be sharpened. "Going up is bound to the wrong keys" did not
+bite while the test asked whether the native text *contained* Cmd+Up: the
+native text of Cmd+Shift+Up contains it. Containment accepts any shortcut that
+happens to include the right one.

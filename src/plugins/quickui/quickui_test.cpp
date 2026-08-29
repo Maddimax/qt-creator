@@ -61,6 +61,7 @@
 #include <QQmlEngine>
 #include <QQmlError>
 #include <QQuickItem>
+#include <QQuickWindow>
 #include <QMimeData>
 #include <QScopeGuard>
 #include <QQuickWidget>
@@ -264,6 +265,7 @@ private slots:
     void testTheFileDialogCanChooseSeveralFilesAtOnce();
     void testEachEntrySaysHowBigItIsAndWhatItIs();
     void testAnEntryCanBeRenamedOrBinned();
+    void testTheFileDialogGetsAboutByKeyboard();
     void testSeveralLinesCompleteTheWordTheCursorIsIn();
     void testColourOffersToGoBackToItsDefault();
     void testColourWithNoResetHasNoButton();
@@ -5294,6 +5296,77 @@ void QuickUiTest::testAnEntryCanBeRenamedOrBinned()
     // reader can do something about one of those and not the other.
     QVERIFY2(refused.contains("device"), qPrintable("it said: " + refused));
     QVERIFY(!browser.whyNotBinned("").isEmpty());
+}
+
+// A file dialog is used by keyboard as much as by pointer, and the widget one
+// binds the platform's own sequences for going about.
+//
+// What is checked is each shortcut's sequence and what activating it does.
+// Delivery is not: a shortcut reaches a window that has the keyboard, and this
+// process cannot take it here - showing the dialog and typing at it skipped
+// every time, which is no guard at all. So this can be wrong about one thing,
+// that the sequences arrive, and right about the two that go wrong far more
+// often: which keys, and what they do.
+void QuickUiTest::testTheFileDialogGetsAboutByKeyboard()
+{
+    Utils::TemporaryDirectory dir("quickui-dialog-keys");
+    QVERIFY(dir.isValid());
+    const Utils::FilePath root = dir.path();
+    const Utils::FilePath inner = root / "inner";
+    QVERIFY(inner.createDir());
+
+    QQmlComponent component(QtcQuick::engine(),
+                            QUrl("qrc:/qt/qml/QtCreator/Ui/QtcFileDialog.qml"));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    const std::unique_ptr<QObject> dialog(component.create());
+    QVERIFY(dialog);
+
+    auto * const browser = dialog->findChild<QtcQuick::FileBrowser *>("fileBrowser");
+    QVERIFY(browser);
+    browser->setDirectory(root.toUserOutput());
+    browser->setDirectory(inner.toUserOutput());
+
+    const auto shortcut = [&dialog](const QString &name) {
+        return dialog->findChild<QObject *>(name);
+    };
+    const auto press = [](QObject *shortcut) {
+        QVERIFY2(shortcut, "no such shortcut");
+        QMetaObject::invokeMethod(shortcut, "activated");
+    };
+
+    // The keys themselves, as the platform writes them. The widget dialog
+    // binds the same, and a dialog whose Back is not the system's Back is
+    // worse than one with no shortcut at all.
+    QObject * const back = shortcut("backShortcut");
+    QVERIFY(back);
+    QCOMPARE(back->property("nativeText").toString(),
+             QKeySequence(QKeySequence::Back).toString(QKeySequence::NativeText));
+    QObject * const parent = shortcut("parentShortcut");
+    QVERIFY(parent);
+    // Equal, not "contains": the native text of Ctrl+Shift+Up contains the
+    // native text of Ctrl+Up, so asking whether one is inside the other
+    // accepts a different shortcut that happens to include this one.
+    QCOMPARE(parent->property("nativeText").toString(),
+             QKeySequence("Ctrl+Up").toString(QKeySequence::NativeText));
+
+    // And what each of them does.
+    press(parent);
+    QCOMPARE(browser->directory(), root.toUserOutput());
+
+    press(back);
+    QCOMPARE(browser->directory(), inner.toUserOutput());
+    press(shortcut("forwardShortcut"));
+    QCOMPARE(browser->directory(), root.toUserOutput());
+
+    QSignalSpy rejected(dialog.get(), SIGNAL(rejected()));
+    press(shortcut("closeShortcut"));
+    QCOMPARE(rejected.size(), 1);
+
+    // Renaming needs a row to rename, and says so by being off without one.
+    QObject * const rename = shortcut("renameShortcut");
+    QVERIFY(rename);
+    QVERIFY2(!rename->property("enabled").toBool(),
+             "renaming is offered with nothing selected to rename");
 }
 
 void QuickUiTest::testSeveralLinesCompleteTheWordTheCursorIsIn()
