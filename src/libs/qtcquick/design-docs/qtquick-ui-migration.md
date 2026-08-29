@@ -251,7 +251,8 @@ after being surprised.**
 
 ## Status
 
-Branch `utils-drop-printsupport`, 227 commits, not pushed.
+Branch `utils-drop-printsupport`, 787 commits since the plan was written, not
+pushed.
 
 **The settings-page migration is finished.** Every `IOptionsPage` that can be
 aspect driven is: the census reports **0 pages still on widgets**, with no
@@ -268,15 +269,21 @@ Verified one suite at a time, re-run in full after the shared headers changed
 
 | suite | result |
 | --- | --- |
-| Core, TextEditor, QuickUi | 81/81, 312/312, 89/89 |
+| Core, TextEditor, QuickUi | 87/87, 399/399, 131/131 |
 | QmlJSEditor, QmlJSTools, LanguageClient | 15/15, 12/12, 20/20 |
 | CMake, Qmake, Qbs, Nim project managers | 69/69, 26/26, 8/8 (1 skipped), 6/6 |
-| AutoTest, BareMetal | 5/5 (1 skipped, wants a kit), 61/61 |
+| AutoTest, BareMetal | 0/0 (1 skipped, wants a kit), 61/61 |
 | DiffEditor, Python | 48/48, 30/30 |
 | all 35 `tests/auto/utils` binaries | every one exit 0, 2003 assertions between them |
-| CppEditor | 155/155 for `FollowSymbolTest` alone; the whole suite poisons itself and its number means nothing |
-| ProjectExplorer, Debugger | 2 and 1 pre-existing failures |
-| FakeVim | 253/2, both pre-existing - see below |
+| CppEditor | flaky by the run: 8 failures at HEAD against 4 with a change in the tree, the same rehighlight waits either way |
+| ProjectExplorer | 433 passed, 2 pre-existing failures and one flake - see below |
+| Debugger | 49 passed, 1 pre-existing failure (`testStateMachine` cannot open its project) |
+| FakeVim | 256 passed, 2 pre-existing - see below |
+
+The three `ProjectExplorer` failures are not three: `testSourceToBinaryMapping(qbs)`
+and `RunWorkerConflictTest::testConflict` fail identically with the tree
+untouched, and `testMultipleBuildConfigs` comes and goes - it failed once here
+and passed in two runs of the same binary immediately after.
 
 Re-measured after the editor batches, because those changed an **exported
 header** (`textdocumentlayout.h`) that twelve other plugins include: building
@@ -6047,9 +6054,32 @@ under step 0 for why that compiles and does not link.
 
 ## Next steps
 
-**Where this actually stands.** Everything numbered below is done. What is
-open is not more porting but three decisions, none of which should be taken
-without the user:
+**Where this actually stands.** Everything numbered below is done, and so is
+the survey that followed it: all 108 aspect-driven pages have been rendered
+and read, the four renderer-parity axes swept, every page's `tableModel()`
+asked whether it opens with rows, the porting commits re-read for strings that
+went away with the layouts they lived in, and the qbs description resolved
+with a control proving a break would be reported.
+
+What is open is not porting but four questions, and none of them is mine to
+answer:
+
+- **The file dialog's second layout.** The Quick file dialog draws one. The
+  widget dialog offers a compact and a classic arrangement, and nobody has
+  said the second one is wanted. The recommendation is to skip it.
+- **Whether the Quick dialog becomes the default** for every
+  `FileUtils::getOpenFilePath` caller, rather than the pages that ask for it.
+  That is a change in what every plugin in the tree opens.
+- **The trackpad scrollbar.** The Quick editor shows one while a wheel or
+  trackpad scroll is under way; whether it feels right needs the hardware,
+  and a test that asserts `active` cannot answer it.
+- **Three Quick primitives with no consumer.** `QtcBadge`,
+  `QtcPageIndicator` and `QtcProgressBar` are the Qt Quick counterparts of
+  widgets `Utils` already has and that the profiler, the learning page and the
+  ACP chat panel use. No QML instantiates them. Whether a design system keeps
+  a primitive ahead of its first page is a design call, not a cleanup.
+
+Three more things are settled, and worth knowing when picking this up:
 
 - **The file watcher is fixed.** It was two bugs. `QTC_CHECK_RESULT` named its
   argument twice, so `~DesktopFilePathWatcher` retried a failed removal and the
