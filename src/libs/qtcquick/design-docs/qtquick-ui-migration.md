@@ -14247,3 +14247,45 @@ A hundred of a hundred and four, unchanged - this batch moved a wall rather
 than a number. What is left is `PRINT`, which this branch exists to avoid, and
 drawing a suggestion, which is now the only thing standing between the other
 three and their menu entries.
+
+## Why the last three commands stop here
+
+Last batch left drawing a suggestion as "the only thing standing between the
+other three and their menu entries". That was wrong, and the reason is worth
+recording before anyone picks this up expecting a display problem.
+
+Nothing would ever give this view a suggestion to draw. Suggestions come from
+one place - the Copilot plugin - and it is written against the widget
+throughout: `BaseTextEditor::currentTextEditor()->editorWidget()`,
+`scheduleRequest(TextEditorWidget *)`,
+`connect(editor, &TextEditorWidget::cursorPositionChanged, ...)`, and both of
+its state maps are keyed by `TextEditorWidget *`. Eighteen references across
+three files.
+
+So the drawing is the second thing needed, not the first. Making inline
+suggestions work in this view is a port of Copilot's request scheduling to a
+view it does not know about, and only then the row work - a block with a
+suggestion is laid out from the suggestion's replacement document, and a
+multi-line one adds rows, which is the row-to-line mapping this view keeps.
+Two pieces of work in two plugins, neither of them a registration.
+
+That is the honest end of the command list: a hundred of a hundred and four,
+`PRINT` excluded by what this branch is for, and three behind a port nobody
+has asked for.
+
+## Where the whole effort stands
+
+Every plugin these batches touched, run together:
+
+    TextEditor       387 passed, 0 failed
+    QuickUi           89 passed, 0 failed
+    LanguageClient    20 passed, 0 failed
+    DiffEditor        48 passed, 0 failed
+    Git               62 passed, 0 failed
+    Macros             6 passed, 0 failed
+    FakeVim          253 passed, 2 failed
+
+The two FakeVim failures are `test_vim_script_throwpoint` and
+`test_vim_visual_selection_focus_out`, which are the same two this tree failed
+before any of this work - baselined against HEAD when the Utils layout
+counter went in, and unchanged since.
