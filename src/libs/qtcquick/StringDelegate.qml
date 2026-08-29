@@ -120,6 +120,11 @@ RowLayout {
             // has shown it all along; a field that dropped it is an empty box
             // with no clue what belongs in it.
             placeholderText: delegate.pres.placeholderText ?? ""
+            // A field shows the text around its cursor, and text set from the
+            // aspect leaves it at the end - so a value too long for the field
+            // was drawn from its tail with its beginning scrolled out of
+            // sight. The widget line edit shows the start of what it holds.
+            onTextChanged: if (!activeFocus) cursorPosition = 0
             echoMode: delegate.pres.password ? TextInput.Password : TextInput.Normal
             enabled: delegate.aspect?.enabled ?? false
             readOnly: delegate.aspect?.readOnly ?? true

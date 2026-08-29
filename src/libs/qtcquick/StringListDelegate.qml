@@ -31,6 +31,10 @@ RowLayout {
 
     TextField {
         text: (root.aspect?.value ?? []).join(", ")
+        // A field shows the text around its cursor, and text set from the
+        // aspect leaves it at the end - so a list too long for the field was
+        // drawn from its tail, with the first patterns out of sight.
+        onTextChanged: if (!activeFocus) cursorPosition = 0
         enabled: (root.aspect?.enabled ?? false) && !(root.aspect?.readOnly ?? false)
         readOnly: root.aspect?.readOnly ?? true
         ToolTip.text: root.toolTip

@@ -177,6 +177,7 @@ private slots:
     void testAPagesGroupsFillTheWidthTheyAreGiven();
     void testNoButtonOffersAMnemonicItCannotHave();
     void testAFieldSaysWhatBelongsInIt();
+    void testAFieldShowsTheStartOfWhatItHolds();
     void testALabelInAContinuationRowStaysWithItsControl();
     void testACompactColourKeepsItsNumbersBehindItsSwatch();
     void testTheFormatListOpensOnAFormat();
@@ -432,6 +433,57 @@ void QuickUiTest::testALabelInAContinuationRowStaysWithItsControl()
     QVERIFY2(labels > 0,
              "no page put a labelled control beside a check box, so this proves nothing");
     QVERIFY2(adrift.isEmpty(), qPrintable("\n" + adrift.join("\n")));
+}
+
+// A field shows the text around its cursor, and text set from an aspect
+// leaves the cursor at the end - so a value too long for its field was drawn
+// from the tail: the Quick Fixes page offered "ame === name ? ..." where the
+// getter name template begins "memberName === name ? ...". The widget line
+// edit shows the start of what it holds.
+void QuickUiTest::testAFieldShowsTheStartOfWhatItHolds()
+{
+    Core::setAspectFormFactory([](Utils::AspectContainer *container) {
+        return QtcQuick::createAspectForm(container);
+    });
+    const QScopeGuard clearFactory([] { Core::setAspectFormFactory({}); });
+
+    QStringList fromTheTail;
+    int fields = 0;
+    for (Core::IOptionsPage *page : Core::IOptionsPage::allOptionsPages()) {
+        const std::optional<Utils::AspectContainer *> aspects = page->aspects();
+        if (!aspects || !*aspects)
+            continue;
+        std::unique_ptr<Core::IOptionsPageWidget> widget(page->createWidget());
+        if (!widget)
+            continue;
+        auto quickWidget = widget->findChild<QQuickWidget *>();
+        if (!quickWidget || !quickWidget->rootObject())
+            continue;
+
+        for (QQuickItem *delegate : findAspectDelegates(quickWidget->rootObject())) {
+            // The delegates whose field holds a value to read. A spin box has
+            // a field of its own and puts the cursor where it types; a table
+            // cell is only a field while it is being edited.
+            const QString kind = QString::fromLatin1(delegate->metaObject()->className());
+            if (!kind.startsWith("StringDelegate") && !kind.startsWith("StringListDelegate"))
+                continue;
+            QQuickItem * const field = findQmlComponents(delegate, "TextField").value(0, nullptr);
+            if (!field)
+                continue;
+            const QString text = field->property("text").toString();
+            if (text.isEmpty() || field->hasActiveFocus())
+                continue;
+            ++fields;
+            if (field->property("cursorPosition").toInt() != 0) {
+                fromTheTail << QString("%1: \"%2\" is shown from character %3")
+                                   .arg(page->displayName(), text.left(30))
+                                   .arg(field->property("cursorPosition").toInt());
+            }
+        }
+    }
+
+    QVERIFY2(fields > 0, "no page drew a field holding anything, so this proves nothing");
+    QVERIFY2(fromTheTail.isEmpty(), qPrintable("\n" + fromTheTail.join("\n")));
 }
 
 // An aspect that says what its field is for says it through the presentation,

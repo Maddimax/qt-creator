@@ -15346,3 +15346,22 @@ names two labels, and making `compact` do nothing names four pages.
 
 `CppEditor` fails four tests here and eight at HEAD with none of this applied -
 the suite is flaky in the way its rehighlight waits have always been.
+
+### A field drawn from its tail
+
+The Quick Fixes page offered a getter name template reading
+`ame === name ? "get" + ...`. The template begins `memberName === name`; the
+field was showing the *end* of it. A `TextField` draws the text around its
+cursor, and text set from an aspect leaves the cursor where the assignment put
+it - at the end - so anything too long for its field lost its beginning. The
+widget line edit shows the start of what it holds.
+
+`StringDelegate` and `StringListDelegate` now put the cursor back to the start
+whenever the text changes and the field is not being typed in. The controls
+name four fields on two pages and the Generic Highlighter's pattern list.
+
+The sweep behind it started out over every `TextField` on every page and
+flagged eight that were perfectly fine: a spin box has a field of its own and
+puts the cursor where it types, and a table cell is only a field while it is
+being edited. It asks the delegates that hold a value to read - String and
+StringList - which is also exactly the scope of the fix.
