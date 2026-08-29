@@ -15857,3 +15857,48 @@ the tree passes `iconSource` to a `QtcButton`, so this changes only this
 dialog. `QtcLineEdit` forwards `selectAll()` as well - two places called it
 through the alias and qmllint had been warning about both.
 
+### Two things the toolbar row was still missing
+
+Looking at the two dialogs again after the icons went in, what was left was
+not decoration - both remaining differences were things the widget dialog can
+do and the Quick one could not.
+
+**A file the filter rejects.** The widget's proxy has `setHideFiltered()`, and
+its default is `!HostOsInfo::isMacHost()`: off a Mac such a file is left out
+of the listing, on a Mac it is listed greyed and unselectable so the reader
+can see it is there and why it cannot be chosen. The Quick browser dropped it
+always, so on this host the two dialogs listed different files. `FileBrowser`
+takes `hideFilteredFiles` now, defaulting the same way, and `FileEntries`
+carries `selectable` per row; the two views disable the row and grey its name.
+Directories are never filtered - a directory is how a matching file is
+reached - which is a rule worth stating because dropping it silently empties
+the listing of everything you could navigate into.
+
+Two existing tests had assumed hiding. They are about which files a filter
+picks, not about what becomes of the rest, so both now ask for the mode they
+mean rather than inheriting the host's.
+
+**Getting out of somewhere deep.** The widget's path is a combo box, and its
+entries are the directory and every directory above it - `rebuildPathCombo()`
+walks `parentDir()` up to the root. Any ancestor is one click away. The Quick
+dialog had Up, which goes one level, and a field to type a path into.
+`FileBrowser::ancestors` is that chain, nearest first, rebuilt as the reader
+moves; the dialog hangs it off a chevron beside the path field rather than
+replacing the field, because the field is what the goto shortcut puts the
+reader in. A root has no `fileName()`, so it is listed as the path it is.
+
+The option that goes with it came too: the widget's "Show full paths in
+ComboBox" switches those entries between the folder's name and its whole
+path, which is what tells two directories both called `src` apart.
+
+Ten controls, all biting: the host deciding the default, a rejected file being
+listed, being unselectable, the listing drawing that, directories being
+exempt, the chain reaching past the directory itself, following the reader,
+rooting properly, the menu offering it at all, and full paths changing what it
+offers.
+
+One thing worth knowing for the next test that reads a menu: entries a
+`Repeater` builds are **not** children of the `Menu`. They go into its content
+model, so `findChild` and a walk over `children()` both come back empty. Ask
+the menu with `count` and `itemAt(i)`.
+

@@ -43,6 +43,10 @@ public:
         // What to draw beside the name, as something an Image can load. The
         // provider hands out a QIcon, which QML cannot show.
         IconRole,
+        // Whether it can be chosen. A file the name filters do not match is
+        // listed but not offered, which is what the widget dialog does when
+        // it is not hiding them outright.
+        SelectableRole,
     };
 
     using QAbstractListModel::QAbstractListModel;
@@ -56,6 +60,7 @@ public:
         QString name;
         Utils::FilePath path;
         bool isDir = false;
+        bool selectable = true;
         // Where the row is in the model. What a view shows in its columns is
         // asked for through this when the row is drawn, rather than for every
         // file in the directory: on a directory of eight thousand, asking for
@@ -101,6 +106,10 @@ class QTCQUICK_EXPORT FileBrowser : public QObject
     // machine because the widget dialog's sidebar lists them under their own
     // heading.
     Q_PROPERTY(QtcQuick::FileEntries *devices READ devices CONSTANT)
+    // The directory being looked at and every directory above it, nearest
+    // first. The widget dialog's path combo is this: somewhere to jump to
+    // that is more than one level up.
+    Q_PROPERTY(QtcQuick::FileEntries *ancestors READ ancestors CONSTANT)
     // The directories the reader put there, kept where the widget dialog
     // keeps them so that both show the same ones.
     Q_PROPERTY(QtcQuick::FileEntries *favorites READ favorites CONSTANT)
@@ -110,6 +119,11 @@ class QTCQUICK_EXPORT FileBrowser : public QObject
     // that does match.
     Q_PROPERTY(QStringList nameFilters READ nameFilters WRITE setNameFilters
                    NOTIFY nameFiltersChanged)
+    // Whether a file the filters do not match is left out of the listing or
+    // shown in it and not offered. The widget dialog leaves them out
+    // everywhere but macOS, where its listing shows them greyed.
+    Q_PROPERTY(bool hideFilteredFiles READ hideFilteredFiles WRITE setHideFilteredFiles
+                   NOTIFY hideFilteredFilesChanged)
     Q_PROPERTY(bool showHiddenFiles READ showHiddenFiles WRITE setShowHiddenFiles
                    NOTIFY showHiddenFilesChanged)
     // Which of the two arrangements the dialog draws: the file's name below
@@ -151,12 +165,15 @@ public:
     FileEntries *entries() const;
     FileEntries *places() const;
     FileEntries *devices() const;
+    FileEntries *ancestors() const;
     FileEntries *favorites() const;
     bool currentIsFavorite() const;
 
     QStringList nameFilters() const;
     void setNameFilters(const QStringList &filters);
 
+    bool hideFilteredFiles() const;
+    void setHideFilteredFiles(bool hide);
     bool showHiddenFiles() const;
     void setShowHiddenFiles(bool show);
 
@@ -232,6 +249,7 @@ signals:
     void searchingChanged();
     void busyChanged();
     void errorChanged();
+    void hideFilteredFilesChanged();
     void favoritesChanged();
     void historyChanged();
     void canPasteChanged();
@@ -245,6 +263,7 @@ private:
     void rebuildEntries();
     void startSearch();
     void cancelSearch();
+    void rebuildAncestors();
     void rebuildPlaces();
     void rebuildFavorites();
     void saveFavorites();

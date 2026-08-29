@@ -72,6 +72,8 @@ QVariant FileEntries::data(const QModelIndex &index, int role) const
         return columnOf(entry, FileSystemModel::TypeColumn, entry.type);
     case ModifiedRole:
         return columnOf(entry, FileSystemModel::DateModifiedColumn, entry.modified);
+    case SelectableRole:
+        return entry.selectable;
     case IconRole:
         // Asked for when a row is drawn rather than kept on the entry: a
         // directory of ten thousand files would otherwise make ten thousand
@@ -95,6 +97,7 @@ QHash<int, QByteArray> FileEntries::roleNames() const
         // that is one cannot take a role of that name at all - every page
         // using the delegate stops loading.
         {IconRole, "iconSource"},
+        {SelectableRole, "selectable"},
     };
 }
 
@@ -115,6 +118,7 @@ public:
     FileEntries m_entries;
     FileEntries m_places;
     FileEntries m_devices;
+    FileEntries m_ancestors;
     FileEntries m_favorites;
     FilePaths m_favoritePaths;
     // Where the reader has been, and where in that they are. Back and forward
@@ -136,6 +140,7 @@ public:
     }();
     FilePath m_directory;
     QStringList m_nameFilters;
+    bool m_hideFilteredFiles = !Utils::HostOsInfo::isMacHost();
     QString m_searchText;
     // A recursive walk of a directory, which on a device is slow enough that
     // it has to be cancellable and has to report what it finds as it goes.
@@ -228,6 +233,7 @@ void FileBrowser::setDirectory(const QString &directory)
     if (root.isValid() && d->m_model.canFetchMore(root))
         d->m_model.fetchMore(root);
     rebuildEntries();
+    rebuildAncestors();
     recordVisit(path);
     emit directoryChanged();
     emit favoritesChanged();
@@ -246,6 +252,11 @@ FileEntries *FileBrowser::places() const
 FileEntries *FileBrowser::devices() const
 {
     return &d->m_devices;
+}
+
+FileEntries *FileBrowser::ancestors() const
+{
+    return &d->m_ancestors;
 }
 
 FileEntries *FileBrowser::favorites() const
@@ -376,6 +387,20 @@ void FileBrowser::setNameFilters(const QStringList &filters)
     d->m_nameFilters = filters;
     rebuildEntries();
     emit nameFiltersChanged();
+}
+
+bool FileBrowser::hideFilteredFiles() const
+{
+    return d->m_hideFilteredFiles;
+}
+
+void FileBrowser::setHideFilteredFiles(bool hide)
+{
+    if (d->m_hideFilteredFiles == hide)
+        return;
+    d->m_hideFilteredFiles = hide;
+    emit hideFilteredFilesChanged();
+    rebuildEntries();
 }
 
 bool FileBrowser::showHiddenFiles() const
@@ -588,8 +613,13 @@ void FileBrowser::rebuildEntries()
         entry.name = source.data(FileSystemModel::FileNameRole).toString();
         entry.path = d->m_model.filePath(source);
         entry.isDir = d->m_model.isDir(source);
-        if (!entry.isDir && !matchesFilters(entry.name, d->m_nameFilters))
+        // A directory is how you reach a file, so the filters never apply to
+        // one. A file they do not match is either left out or shown and not
+        // offered - the reader can see it is there and why it is not.
+        const bool matches = entry.isDir || matchesFilters(entry.name, d->m_nameFilters);
+        if (!matches && d->m_hideFilteredFiles)
             continue;
+        entry.selectable = matches;
         entry.source = index;
         rows.append(entry);
     }
@@ -783,6 +813,27 @@ void FileBrowser::saveFavorites()
     settings.beginGroup(QLatin1String(kSettingsGroup));
     settings.setValue(QLatin1String(kFavoritesKey), paths);
     settings.endGroup();
+}
+
+// The directory and every directory above it, nearest first, as
+// FileDialogPrivate::rebuildPathCombo() builds it. A root has no name of its
+// own, so it is shown as the path it is.
+void FileBrowser::rebuildAncestors()
+{
+    QList<FileEntries::Entry> rows;
+    FilePath path = d->m_directory;
+    while (!path.isEmpty()) {
+        FileEntries::Entry entry;
+        entry.name = path.fileName().isEmpty() ? path.toUserOutput() : path.fileName();
+        entry.path = path;
+        entry.isDir = true;
+        rows.append(entry);
+        const FilePath parent = path.parentDir();
+        if (parent.isEmpty() || parent == path)
+            break;
+        path = parent;
+    }
+    d->m_ancestors.setEntries(rows);
 }
 
 void FileBrowser::rebuildPlaces()

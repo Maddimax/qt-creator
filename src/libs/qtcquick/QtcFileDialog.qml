@@ -102,6 +102,8 @@ Window {
     // The rows picked with Ctrl or Command held, when several may be. Plain
     // clicking picks one and forgets the rest.
     property var alsoPicked: []
+    // Whether the enclosing folders are listed by name or by path.
+    property bool showingFullPaths: false
 
     // What accepting now would choose: what is typed if anything is, then the
     // row that is selected, and for a directory dialog the directory itself.
@@ -268,6 +270,29 @@ Window {
     // keeps its view options behind a menu too, and a row of eight buttons
     // was wider than the dialog.
     Menu {
+        id: ancestorsMenu
+
+        objectName: "ancestorsMenu"
+
+        Repeater {
+            model: browser.ancestors
+
+            delegate: MenuItem {
+                required property string name
+                required property string filePath
+                required property string iconSource
+
+                // What the reader asked to see: the folder's own name, or the
+                // whole path of it. "Show full paths in ComboBox", as the
+                // widget dialog words the same choice.
+                text: root.showingFullPaths ? filePath : name
+                icon.source: iconSource
+                onTriggered: browser.directory = filePath
+            }
+        }
+    }
+
+    Menu {
         id: optionsMenu
 
         objectName: "optionsMenu"
@@ -283,6 +308,25 @@ Window {
             text: browser.showHiddenFiles ? qsTr("Hide Hidden Files")
                                           : qsTr("Show Hidden Files")
             onTriggered: browser.showHiddenFiles = !browser.showHiddenFiles
+        }
+
+        MenuItem {
+            objectName: "fullPathsItem"
+            text: qsTr("Show full paths in enclosing folders")
+            checkable: true
+            checked: root.showingFullPaths
+            onTriggered: root.showingFullPaths = checked
+        }
+
+        MenuItem {
+            objectName: "hideFilteredItem"
+            text: qsTr("Hide filtered files")
+            checkable: true
+            checked: browser.hideFilteredFiles
+            // Only where there is a filter to hide anything: with none, every
+            // file matches and the entry would do nothing.
+            enabled: browser.nameFilters.length > 0
+            onTriggered: browser.hideFilteredFiles = checked
         }
 
         MenuItem {
@@ -520,6 +564,24 @@ Window {
                 Layout.minimumWidth: Metrics.formControlWidth
 
                 onEditingFinished: browser.directory = text
+            }
+
+            // Where you are, and everywhere above it. The widget dialog's
+            // path is a combo box whose entries are the ancestors; the path
+            // here is a field to type in, so the ancestors hang off a button
+            // beside it rather than replacing it.
+            QtcButton {
+                id: ancestorsButton
+
+                objectName: "ancestorsButton"
+                role: QtcButton.Role.MediumGhost
+                iconSource: "image://qtcreator/utils/images/arrowdown.png?color=Token_Text_Muted"
+                ToolTip.text: qsTr("Go to an enclosing folder")
+                ToolTip.visible: hovered
+                // Somewhere to be is somewhere to come up from: the chain
+                // always holds at least the directory itself.
+                enabled: browser.directory !== ""
+                onClicked: ancestorsMenu.popup(ancestorsButton, 0, ancestorsButton.height)
             }
 
             QtcButton {
@@ -782,7 +844,9 @@ Window {
                         required property string name
                         required property bool isDir
                         required property string iconSource
+                        required property bool selectable
 
+                        enabled: tile.selectable
                         width: grid.cellWidth
                         height: grid.cellHeight
                         highlighted: grid.currentIndex === tile.index
@@ -802,6 +866,8 @@ Window {
 
                             Label {
                                 text: tile.name
+                                color: tile.selectable ? Tokens.textDefault
+                                                       : Tokens.textSubtle
                                 elide: Text.ElideMiddle
                                 horizontalAlignment: Text.AlignHCenter
                                 Layout.fillWidth: true
@@ -847,8 +913,13 @@ Window {
                         required property string modified
                         required property string type
                         required property string iconSource
+                        required property bool selectable
 
                         width: list.width
+                        // Listed but not offered: the reader can see the file
+                        // is there and that the filter is why it cannot be
+                        // chosen. The widget dialog greys it the same way.
+                        enabled: entry.selectable
                         highlighted: list.currentIndex === entry.index
                                      || root.alsoPicked.indexOf(entry.index) >= 0
                         // What it is, for a reader who wants to know without
@@ -870,6 +941,10 @@ Window {
 
                             Label {
                                 text: entry.name
+                                // A custom content item draws what it is told
+                                // rather than what the delegate's state says.
+                                color: entry.selectable ? Tokens.textDefault
+                                                        : Tokens.textSubtle
                                 elide: Text.ElideMiddle
                                 Layout.fillWidth: true
                             }

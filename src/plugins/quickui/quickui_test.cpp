@@ -199,6 +199,8 @@ private slots:
     void testEachArrangementNamesTheFileWhereItBelongs();
     void testTheArrangementFollowsTheHostUnlessItIsToldOtherwise();
     void testTheDialogLooksLikeTheOneItReplaces();
+    void testAFileTheFilterRejectsIsShownAndNotOffered();
+    void testEveryEnclosingFolderIsSomewhereToGo();
     void testANumberOnItsOwnSaysWhatItCounts();
     void testMakeDefaultSaysWhatItWouldDefault();
     void testALabelTooLongForItsColumnSaysItInFull();
@@ -5905,8 +5907,12 @@ void QuickUiTest::testTheFileBrowserListsWhatIsInADirectory()
     browser.setShowHiddenFiles(false);
     QTRY_COMPARE(names(), QStringList({"inner", "one.cpp", "two.txt"}));
 
-    // A name filter hides the files it does not name and leaves directories
-    // alone: a directory is how the reader reaches a file that does match.
+    // A name filter picks the files it names and leaves directories alone: a
+    // directory is how the reader reaches a file that does match. Whether the
+    // rest are hidden or listed and not offered is the reader's choice and
+    // the host's default, so it is asked for here rather than assumed - see
+    // testAFileTheFilterRejectsIsShownAndNotOffered.
+    browser.setHideFilteredFiles(true);
     browser.setNameFilters({"*.cpp"});
     QTRY_COMPARE(names(), QStringList({"inner", "one.cpp"}));
     browser.setNameFilters({});
@@ -6148,6 +6154,186 @@ void QuickUiTest::testTheShippedExtensionPagesNameAspectsTheirScriptsCreate()
     }
 }
 
+
+
+// What happens to a file the name filters do not match. The widget dialog
+// hides it or lists it greyed and unselectable, and which of the two is the
+// default depends on the host - off macOS it hides them. The Quick browser
+// hid them always, so on a Mac the two dialogs listed different files.
+void QuickUiTest::testAFileTheFilterRejectsIsShownAndNotOffered()
+{
+    Utils::TemporaryDirectory dir("quickui-filtered");
+    QVERIFY(dir.isValid());
+    const Utils::FilePath root = dir.path();
+    QVERIFY((root / "kept.txt").writeFileContents("x"));
+    QVERIFY((root / "other.md").writeFileContents("x"));
+    QVERIFY((root / "sub").createDir());
+
+    QtcQuick::FileBrowser browser;
+    // The default is the widget's, which is the host's.
+    QCOMPARE(browser.hideFilteredFiles(), !Utils::HostOsInfo::isMacHost());
+
+    browser.setNameFilters({"*.txt"});
+    browser.setDirectory(root.toUserOutput());
+    QtcQuick::FileEntries * const entries = browser.entries();
+    QVERIFY(entries);
+
+    const auto rowsNamed = [entries] {
+        QStringList names;
+        for (int row = 0; row < entries->rowCount(); ++row) {
+            names << entries->data(entries->index(row, 0),
+                                   QtcQuick::FileEntries::NameRole).toString();
+        }
+        names.sort();
+        return names;
+    };
+    const auto selectable = [entries](const QString &name) {
+        for (int row = 0; row < entries->rowCount(); ++row) {
+            const QModelIndex index = entries->index(row, 0);
+            if (index.data(QtcQuick::FileEntries::NameRole).toString() == name)
+                return index.data(QtcQuick::FileEntries::SelectableRole).toBool();
+        }
+        return false;
+    };
+
+    // Hiding them: the listing is what matches, plus the directories that are
+    // how you reach anything at all.
+    browser.setHideFilteredFiles(true);
+    QTRY_COMPARE(rowsNamed(), QStringList({"kept.txt", "sub"}));
+
+    // Showing them: the file is there, and it cannot be chosen. Both halves
+    // matter - listing it and offering it would let the reader pick a file
+    // the caller said it does not take.
+    browser.setHideFilteredFiles(false);
+    QTRY_COMPARE(rowsNamed(), QStringList({"kept.txt", "other.md", "sub"}));
+    QVERIFY2(!selectable("other.md"), "a file the filter rejects can be chosen");
+    QVERIFY2(selectable("kept.txt"), "a file the filter accepts cannot be chosen");
+    // A directory is how you reach a file, so no filter ever applies to one.
+    QVERIFY2(selectable("sub"), "a directory was filtered out by a file filter");
+
+    // And the listing draws the difference rather than only knowing it.
+    QQmlComponent component(QtcQuick::engine(),
+                            QUrl("qrc:/qt/qml/QtCreator/Ui/QtcFileDialog.qml"));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    const std::unique_ptr<QObject> object(component.createWithInitialProperties(
+        {{"classic", true}, {"nameFilter", "Text (*.txt)"}}));
+    QVERIFY(object);
+    auto * const dialog = qobject_cast<QQuickWindow *>(object.get());
+    QVERIFY(dialog);
+    QObject * const shown = dialog->findChild<QObject *>("fileBrowser");
+    QVERIFY(shown);
+    shown->setProperty("hideFilteredFiles", false);
+    dialog->setProperty("currentFolder", root.toUserOutput());
+    dialog->resize(900, 600);
+    dialog->show();
+    QVERIFY(QTest::qWaitForWindowExposed(dialog));
+
+    QQuickItem * const listing = dialog->findChild<QQuickItem *>("entryList");
+    QVERIFY(listing);
+    const auto rowFor = [listing](const QString &name) -> QQuickItem * {
+        const QList<QQuickItem *> rows = findQmlComponents(listing, "ItemDelegate");
+        return Utils::findOr(rows, nullptr, [&name](QQuickItem *row) {
+            return row->property("name").toString() == name;
+        });
+    };
+    QQuickItem *rejected = nullptr;
+    QTRY_VERIFY((rejected = rowFor("other.md")));
+    QVERIFY2(!rejected->isEnabled(), "a file the filter rejects is offered anyway");
+    QQuickItem * const accepted = rowFor("kept.txt");
+    QVERIFY(accepted);
+    QVERIFY2(accepted->isEnabled(), "a file the filter accepts is not offered");
+
+    // The menu says which it is doing, and only where there is a filter.
+    QObject * const item = dialog->findChild<QObject *>("hideFilteredItem");
+    QVERIFY(item);
+    QVERIFY(item->property("enabled").toBool());
+    QCOMPARE(item->property("checked").toBool(), false);
+}
+
+
+// Getting out of a directory that is several deep. Up goes one level at a
+// time; the widget dialog's path is a combo box whose entries are the
+// directory and everything above it, so any of them is one click away. The
+// Quick dialog had a field to type a path into and nothing else.
+void QuickUiTest::testEveryEnclosingFolderIsSomewhereToGo()
+{
+    Utils::TemporaryDirectory dir("quickui-ancestors");
+    QVERIFY(dir.isValid());
+    const Utils::FilePath deep = dir.path() / "one" / "two" / "three";
+    QVERIFY(deep.ensureWritableDir());
+
+    QtcQuick::FileBrowser browser;
+    browser.setDirectory(deep.toUserOutput());
+    QtcQuick::FileEntries * const chain = browser.ancestors();
+    QVERIFY(chain);
+
+    // Nearest first, starting with where the reader is, and every one of them
+    // is a real directory above it.
+    QVERIFY2(chain->rowCount() >= 4, "the chain does not reach past the directory itself");
+    const auto at = [chain](int row, QtcQuick::FileEntries::Role role) {
+        return chain->data(chain->index(row, 0), role).toString();
+    };
+    QCOMPARE(at(0, QtcQuick::FileEntries::NameRole), QString("three"));
+    QCOMPARE(at(1, QtcQuick::FileEntries::NameRole), QString("two"));
+    QCOMPARE(at(2, QtcQuick::FileEntries::NameRole), QString("one"));
+    QCOMPARE(at(0, QtcQuick::FileEntries::FilePathRole), deep.toUserOutput());
+    // The last one is a root, which has no name of its own and is shown as
+    // the path it is rather than as nothing.
+    const QString top = at(chain->rowCount() - 1, QtcQuick::FileEntries::NameRole);
+    QVERIFY2(!top.isEmpty(), "the topmost enclosing folder is drawn as an empty entry");
+
+    // It follows the reader about rather than being built once.
+    browser.setDirectory((dir.path() / "one").toUserOutput());
+    QTRY_COMPARE(at(0, QtcQuick::FileEntries::NameRole), QString("one"));
+
+    // And the dialog offers them, by name or by path as the reader asked.
+    QQmlComponent component(QtcQuick::engine(),
+                            QUrl("qrc:/qt/qml/QtCreator/Ui/QtcFileDialog.qml"));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    const std::unique_ptr<QObject> object(
+        component.createWithInitialProperties({{"classic", true}}));
+    QVERIFY(object);
+    auto * const dialog = qobject_cast<QQuickWindow *>(object.get());
+    QVERIFY(dialog);
+    dialog->setProperty("currentFolder", deep.toUserOutput());
+    dialog->resize(900, 600);
+    dialog->show();
+    QVERIFY(QTest::qWaitForWindowExposed(dialog));
+
+    QQuickItem * const button = dialog->findChild<QQuickItem *>("ancestorsButton");
+    QVERIFY2(button, "nothing offers the enclosing folders");
+    QVERIFY(button->isEnabled());
+    QObject * const menu = dialog->findChild<QObject *>("ancestorsMenu");
+    QVERIFY(menu);
+    // A popup is not in the item tree, and entries a Repeater made are not
+    // children of the menu either - they go into its content model. So the
+    // menu is asked for them by index.
+    const auto entryTexts = [menu] {
+        QStringList texts;
+        const int count = menu->property("count").toInt();
+        for (int i = 0; i < count; ++i) {
+            QQuickItem *item = nullptr;
+            QMetaObject::invokeMethod(menu, "itemAt", Q_RETURN_ARG(QQuickItem *, item),
+                                      Q_ARG(int, i));
+            if (item)
+                texts << item->property("text").toString();
+        }
+        return texts;
+    };
+    QStringList texts;
+    QTRY_VERIFY((texts = entryTexts()).size() >= 4);
+    QVERIFY2(texts.contains("three"), qPrintable("it offered: " + texts.join(", ")));
+    QVERIFY2(texts.contains("one"), qPrintable("it offered: " + texts.join(", ")));
+
+    // The same choice the widget dialog words as "Show full paths in
+    // ComboBox": the folders are then listed as what they are, not what they
+    // are called - two directories called "src" are otherwise one entry twice.
+    dialog->setProperty("showingFullPaths", true);
+    QTRY_VERIFY(entryTexts().contains(deep.toUserOutput()));
+    QObject * const item = dialog->findChild<QObject *>("fullPathsItem");
+    QVERIFY(item);
+    QVERIFY(item->property("checked").toBool());
+}
 
 // Fails unless \a item really draws an icon: an Image under it that has
 // loaded something with a size. Reading the iconSource property instead
@@ -6524,6 +6710,9 @@ void QuickUiTest::testTheFileDialogOffersEachKindOfFileSeparately()
     dialog->setProperty("currentFolder", root.toUserOutput());
     auto * const browser = dialog->findChild<QtcQuick::FileBrowser *>("fileBrowser");
     QVERIFY(browser);
+    // What each group names, not what becomes of the files it does not: on
+    // this host the listing keeps them by default.
+    browser->setHideFilteredFiles(true);
 
     // Both groups are on offer, and the first one is what is being shown.
     QCOMPARE(dialog->property("filterGroups").toList().size(), 2);
