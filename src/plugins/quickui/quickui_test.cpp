@@ -173,6 +173,7 @@ class QuickUiTest final : public QObject
 
 private slots:
     void testARowOfButtonsIsDrawnAsARowOfButtons();
+    void testANoteWrittenInMarkdownSaysSo();
     void testACompactColourKeepsItsNumbersBehindItsSwatch();
     void testTheFormatListOpensOnAFormat();
     void testEveryComponentInTheModuleCanBeLoaded();
@@ -321,6 +322,38 @@ static const QSet<QString> &knownUndrawnSettings()
         "Catch Test: WarnEmpty/WarnEmpty",
     };
     return settings;
+}
+
+// A note written in markdown has to say so. Neither renderer guesses it -
+// Qt::AutoText looks for HTML - so a note that does not is printed with its
+// brackets and its links are dead. Copilot's told the user to read
+// "[README.md](https://github.com/github/copilot.vim)".
+void QuickUiTest::testANoteWrittenInMarkdownSaysSo()
+{
+    // A link with a scheme in it, which is the part that gives the intent
+    // away: square brackets alone are ordinary prose.
+    static const QRegularExpression markdownLink(R"(\[[^\]\n]+\]\(\w+:)");
+
+    QStringList raw;
+    int notes = 0;
+    for (Core::IOptionsPage *page : Core::IOptionsPage::allOptionsPages()) {
+        const std::optional<Utils::AspectContainer *> aspects = page->aspects();
+        if (!aspects || !*aspects)
+            continue;
+        (*aspects)->forEachAspect([&](Utils::BaseAspect *aspect) {
+            auto note = qobject_cast<Utils::TextDisplay *>(aspect);
+            if (!note)
+                return;
+            ++notes;
+            if (!markdownLink.match(note->text()).hasMatch())
+                return;
+            if (note->presentation().textFormat != Utils::AspectControls::TextFormat::MarkdownText)
+                raw << page->displayName() + "/" + aspect->qmlName();
+        });
+    }
+
+    QVERIFY2(notes > 0, "no page showed a note at all, so this proves nothing");
+    QVERIFY2(raw.isEmpty(), qPrintable("markdown drawn as plain text: " + raw.join(", ")));
 }
 
 // Controls a page puts beside each other, on the pages themselves. A delegate

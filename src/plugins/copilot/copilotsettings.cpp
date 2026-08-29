@@ -285,6 +285,7 @@ CopilotSettings::CopilotSettings()
             .arg("[language-server.js](https://github.com/github/copilot.vim/tree/release/"
                  "copilot-language-server/dist)")
             .arg(entryPointFileName));
+    help.setTextFormat(Utils::AspectControls::TextFormat::MarkdownText);
     help.setWordWrap(true);
     help.setQmlName("Help");
     connect(&help, &Utils::TextDisplay::linkActivated, this, [](const QString &link) {
