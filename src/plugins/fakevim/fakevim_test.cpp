@@ -9453,6 +9453,16 @@ void FakeVimTester::test_vim_visual_selection_focus_out()
     data.setText("test");
     data.doKeys("ve"); // visual-select the whole word
 
+    // The block cursor is what says the selection is still exclusive, and
+    // FakeVim only puts it up for an editor that has the keyboard. A test run
+    // whose window never becomes active would otherwise leave a thin cursor,
+    // skip the extension by design, and read as a regression - so the state
+    // focus would have reached is set here, exactly as setThinCursor(false)
+    // does. Everything after this is the behaviour under test.
+    if (!data.editor()->hasFocus())
+        data.editor()->setOverwriteMode(true);
+    QVERIFY(data.editor()->overwriteMode());
+
     QFocusEvent focusOut(QEvent::FocusOut);
     QApplication::sendEvent(data.editor(), &focusOut);
     const QString selected = data.editor()->textCursor().selectedText();
@@ -29712,7 +29722,12 @@ void FakeVimTester::test_vim_script_throwpoint()
             "endtry\n");
     f.close();
     data.doCommand("source " + path);
-    const QString script = "command line..script " + path;
+    // What ":source" reports is the path it resolved, which on macOS is
+    // /private/var/... where QTemporaryDir handed out /var/... - the same
+    // directory under two names.
+    const QString sourced = QFileInfo(path).canonicalFilePath();
+    QVERIFY(!sourced.isEmpty());
+    const QString script = "command line..script " + sourced;
 
     // The frame that threw carries the line, the ones that called it the
     // statement they stopped at.

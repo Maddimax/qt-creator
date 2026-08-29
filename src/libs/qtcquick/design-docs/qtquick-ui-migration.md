@@ -16455,16 +16455,30 @@ of that kind:
   `Debugger::testStateMachine` both open a project, and both need a kit with a
   toolchain. The first is characterised above.
 
-The remaining two are not environmental:
+The remaining two were FakeVim's, and they turned out to be environmental as
+well - but only after two wrong answers, which is the interesting part.
 
-- `FakeVim::test_vim_visual_selection_focus_out` and
-  `test_vim_script_throwpoint` fail deterministically - twice out of twice. The
-  first is a regression test for QTCREATORBUG-22207: a visual selection must be
-  extended when focus leaves, and it comes back one character short ("tes" for
-  "test"). It was added on 2026-07-14 and the handler it exercises was last
-  touched by upstream commits in August; nothing in this migration goes near
-  `fakevimhandler.cpp`. **Not this work, but really failing** - worth someone
-  who owns FakeVim looking at.
+- `test_vim_visual_selection_focus_out` is the regression test for
+  QTCREATORBUG-22207: a visual-char selection must be extended when focus
+  leaves, and it came back one character short. First reading: "the handler it
+  exercises was last touched upstream, so not this work". Second reading: the
+  test commit is on **this branch only**, so it is this work after all. Both
+  were guesses. The answer came from asking the running test: the editor's
+  window never becomes active here, `hasFocus()` is false, and so
+  `overwriteMode()` is false - FakeVim raises the block cursor only for an
+  editor that has the keyboard, and `fixExternalCursor()` extends the
+  selection only when that cursor is up. The test needed a key window it
+  cannot get, exactly as [[quickui-focus-test-needs-a-key-window]] describes.
+  It now reaches that state the way focus would - `setOverwriteMode(true)`,
+  which is what `setThinCursor(false)` does - and asserts the extension, so
+  the behaviour is covered without the window.
+- `test_vim_script_throwpoint` compared a throwpoint against the path
+  `QTemporaryDir` handed out, where `:source` reports the one it resolved:
+  `/private/var/...` against `/var/...`, the same directory under two names.
+  It canonicalises before comparing now.
+
+Both controls bite - the selection not extending, and the throwpoint not
+naming its script.
 
 Two plugins exit non-zero without failing a test: `CppEditor` aborts on
 shutdown *after* 709 pass (the flakiness recorded elsewhere here) and
