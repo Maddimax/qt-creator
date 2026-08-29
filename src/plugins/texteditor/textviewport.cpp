@@ -20,6 +20,7 @@
 #include "codeassist/iassistprocessor.h"
 #include "codeassist/iassistproposal.h"
 #include "codeassist/iassistproposalmodel.h"
+#include "codeassist/ifunctionhintproposalmodel.h"
 #include "codesource.h"
 #include "completionsettings.h"
 #include "displaysettings.h"
@@ -371,6 +372,75 @@ void TextViewport::applyQuickFix(int index)
     m_quickFixProposal.reset();
     emit quickFixesAvailable({});
     setCursorPosition(target.position());
+}
+
+void TextViewport::requestFunctionHint()
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    CompletionAssistProvider * const provider = doc ? doc->functionHintAssistProvider() : nullptr;
+    const QTextCursor cursor = textCursor();
+    m_functionHintProposal.reset();
+    if (!provider || cursor.isNull()) {
+        emit functionHintAvailable({}, -1);
+        return;
+    }
+
+    if (m_functionHintProcessor)
+        m_functionHintProcessor->cancel();
+
+    auto interface = std::make_unique<AssistInterface>(cursor, doc->filePath(),
+                                                       ExplicitlyInvoked);
+    m_functionHintProcessor.reset(provider->createProcessor(interface.get()));
+    if (!m_functionHintProcessor) {
+        emit functionHintAvailable({}, -1);
+        return;
+    }
+
+    const auto deliver = [this](IAssistProposal *proposal) {
+        m_functionHintProposal.reset(proposal);
+        updateFunctionHint();
+    };
+    m_functionHintProcessor->setAsyncCompletionAvailableHandler(deliver);
+
+    if (IAssistProposal * const immediate = m_functionHintProcessor->start(std::move(interface)))
+        deliver(immediate);
+}
+
+void TextViewport::updateFunctionHint()
+{
+    if (!m_functionHintProposal) {
+        emit functionHintAvailable({}, -1);
+        return;
+    }
+
+    const auto model = m_functionHintProposal->model()
+                           .dynamicCast<IFunctionHintProposalModel>();
+    const QTextCursor cursor = textCursor();
+    if (!model || cursor.isNull()) {
+        m_functionHintProposal.reset();
+        emit functionHintAvailable({}, -1);
+        return;
+    }
+
+    // What has been typed since the call started is what says which argument
+    // the caret is in - and -1 means the call is over and the hint with it.
+    const int base = m_functionHintProposal->basePosition();
+    const int position = cursor.position();
+    const QString prefix = position > base
+                               ? cursor.document()->toPlainText().mid(base, position - base)
+                               : QString();
+    const int active = model->activeArgument(prefix);
+    if (active < 0) {
+        m_functionHintProposal.reset();
+        emit functionHintAvailable({}, -1);
+        return;
+    }
+
+    QStringList signatures;
+    signatures.reserve(model->size());
+    for (int i = 0; i < model->size(); ++i)
+        signatures.append(model->text(i));
+    emit functionHintAvailable(signatures, active);
 }
 
 void TextViewport::deliverCompletions(IAssistProposal *proposal)
@@ -2004,6 +2074,10 @@ void TextViewport::setCursorPosition(int position)
     if (displaySettings().highlightBlocks())
         setScopeBlock(cursorBlock().blockNumber());
     polish();
+    // A hint that is up describes the call the caret is in, so moving the
+    // caret is what changes what it says - or ends it.
+    if (m_functionHintProposal)
+        updateFunctionHint();
     emit cursorPositionChanged();
     emit cursorRectangleChanged();
 }

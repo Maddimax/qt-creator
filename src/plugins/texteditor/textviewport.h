@@ -388,6 +388,12 @@ public:
     Q_INVOKABLE void requestQuickFixes();
     Q_INVOKABLE void applyQuickFix(int index);
 
+    // The signature of the call the caret is inside. Unlike the other two
+    // this is not a list to choose from: it is shown while the arguments are
+    // being typed and taken away when the call is finished, so it follows the
+    // caret rather than waiting to be applied.
+    Q_INVOKABLE void requestFunctionHint();
+
     // Replaces the base one with the file's language's, which is what knows to
     // close a bracket or a quote as the user types one. Takes ownership; the
     // completion settings are re-applied to whatever is handed in, so a caller
@@ -615,6 +621,9 @@ public:
     // the reader was looking at is still there after the page turns.
     int rowsPerPage() const;
     Utils::PlainTextDocumentLayout *movementLayout() const;
+    // Asks the hint what it says now, and takes it away when the call the
+    // caret was in has ended.
+    void updateFunctionHint();
     bool canEdit() const;
     Utils::CommentDefinition commentDefinition() const;
     // Grows the carets to whole lines where they have selected nothing, which
@@ -708,6 +717,10 @@ signals:
     // when it offered nothing, which the form shows as no list rather than an
     // empty one.
     void quickFixesAvailable(const QStringList &fixes);
+    // The signatures the call could have, and which argument the caret is
+    // in. Empty when there is no call to describe any more, which is how the
+    // form knows to take the hint away.
+    void functionHintAvailable(const QStringList &signatures, int activeArgument);
     void selectionChanged();
     void cursorPositionChanged();
     void cursorRectangleChanged();
@@ -922,6 +935,10 @@ private:
     // the item to do it, and the item belongs to the proposal.
     std::unique_ptr<IAssistProcessor> m_quickFixProcessor;
     std::unique_ptr<IAssistProposal> m_quickFixProposal;
+    // Kept while the hint is up: what argument the caret is in has to be
+    // asked of the model again every time the caret moves.
+    std::unique_ptr<IAssistProcessor> m_functionHintProcessor;
+    std::unique_ptr<IAssistProposal> m_functionHintProposal;
     QPointer<Utils::TextEditorLayout> m_editorLayout;
     bool m_wrapping = false;
 

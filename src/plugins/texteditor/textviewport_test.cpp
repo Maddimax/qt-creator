@@ -30,6 +30,9 @@
 #include "codeassist/iassistprocessor.h"
 #include "codeassist/iassistprovider.h"
 #include "codeassist/assistinterface.h"
+#include "codeassist/completionassistprovider.h"
+#include "codeassist/ifunctionhintproposalmodel.h"
+#include "codeassist/functionhintproposal.h"
 #include "codeassist/assisttarget.h"
 #include "highlighterhelper.h"
 #include "textoperations.h"
@@ -321,6 +324,46 @@ public:
         const TextEditor::AssistInterface *) const override
     {
         return new OneFixProcessor;
+    }
+};
+
+
+// A hint for a call that takes two arguments. Which argument the caret is in
+// is worked out from the text typed since the call started, the way a real
+// model does it - and once the closing bracket is there the call is over,
+// which is what -1 means.
+class TwoArgumentHintModel final : public TextEditor::IFunctionHintProposalModel
+{
+public:
+    void reset() override {}
+    int size() const override { return 1; }
+    QString text(int) const override { return QString("f(int a, int b)"); }
+
+    int activeArgument(const QString &prefix) const override
+    {
+        if (prefix.contains(QLatin1Char(')')))
+            return -1;
+        return prefix.count(QLatin1Char(','));
+    }
+};
+
+class TwoArgumentHintProcessor final : public TextEditor::IAssistProcessor
+{
+public:
+    TextEditor::IAssistProposal *perform() override
+    {
+        TextEditor::FunctionHintProposalModelPtr model(new TwoArgumentHintModel);
+        return new TextEditor::FunctionHintProposal(interface()->position(), model);
+    }
+};
+
+class TwoArgumentHintProvider final : public TextEditor::CompletionAssistProvider
+{
+public:
+    TextEditor::IAssistProcessor *createProcessor(
+        const TextEditor::AssistInterface *) const override
+    {
+        return new TwoArgumentHintProcessor;
     }
 };
 
@@ -4936,6 +4979,53 @@ private slots:
         QTRY_COMPARE(offered.size(), 1);
         QVERIFY2(offered.at(0).at(0).toStringList().isEmpty(),
                  "a read only buffer was offered a fix");
+    }
+
+    // A function hint is not a list to choose from: it says what the call
+    // takes while the arguments are being typed, so it has to follow the
+    // caret and go away when the call is finished.
+    void testTheFunctionHintFollowsTheCaretAndEndsWithTheCall()
+    {
+        TemporaryDirectory dir("qtc-viewport-hint");
+        const FilePath file = dir.filePath("code.txt");
+        QVERIFY(file.writeFileContents("f(\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        viewport->setReadOnly(false);
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        TwoArgumentHintProvider provider;
+        viewport->textDocument()->setFunctionHintAssistProvider(&provider);
+
+        QSignalSpy hinted(viewport, &TextViewport::functionHintAvailable);
+        // Just after the opening bracket, which is where the call starts.
+        viewport->setCursorPosition(2);
+        viewport->requestFunctionHint();
+
+        QTRY_COMPARE(hinted.size(), 1);
+        QCOMPARE(hinted.at(0).at(0).toStringList(), QStringList({"f(int a, int b)"}));
+        QCOMPARE(hinted.at(0).at(1).toInt(), 0);
+
+        // Typing the first argument and a comma puts the caret in the second,
+        // which the hint has to notice without being asked again.
+        QTextCursor edit(viewport->textDocument()->document());
+        edit.setPosition(2);
+        edit.insertText("1,");
+        viewport->setCursorPosition(4);
+
+        QTRY_VERIFY(hinted.size() >= 2);
+        QCOMPARE(hinted.last().at(1).toInt(), 1);
+
+        // And closing the call ends the hint rather than leaving it up.
+        edit.setPosition(4);
+        edit.insertText("2)");
+        viewport->setCursorPosition(6);
+
+        QTRY_VERIFY(hinted.last().at(0).toStringList().isEmpty());
+        QCOMPARE(hinted.last().at(1).toInt(), -1);
     }
 
     // None of the line commands edits a buffer that is read only, the same

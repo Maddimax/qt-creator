@@ -407,6 +407,47 @@ Item {
                 onAccepted: (completion) => viewport.applyCompletion(completion)
             }
 
+            // The signature of the call being typed. Not a list to choose
+            // from and nothing to accept: it says what the call takes while
+            // the arguments are being written, and goes when they are done.
+            // Every overload at once rather than one with a way to cycle -
+            // the whole point is to read them, and a list that can be read
+            // needs no cycling.
+            Popup {
+                id: functionHint
+
+                objectName: "functionHintPopup"
+
+                property var signatures: []
+                // Which argument the caret is in. Not drawn yet; it is what
+                // the widget editor emboldens, and it is carried here so that
+                // doing the same needs no new plumbing.
+                property int activeArgument: -1
+
+                visible: signatures.length > 0
+                x: viewport.cursorRectangle.x
+                y: viewport.cursorRectangle.y + viewport.lineHeight
+                padding: Spacing.PaddingHS
+                closePolicy: Popup.NoAutoClose
+
+                contentItem: Column {
+                    objectName: "functionHintText"
+
+                    Repeater {
+                        model: functionHint.signatures
+
+                        delegate: Text {
+                            required property string modelData
+
+                            text: modelData
+                            textFormat: Text.RichText
+                            font: viewport.font
+                            color: Tokens.textDefault
+                        }
+                    }
+                }
+            }
+
             // What the language would fix here. Not a CompletionPopup: that
             // one narrows a list by what has been typed and shows nothing
             // when nothing has been, which is right for finishing a word and
@@ -459,6 +500,12 @@ Item {
 
                 function onQuickFixesAvailable(fixes: list<string>): void {
                     quickFixes.fixes = fixes
+                }
+
+                function onFunctionHintAvailable(signatures: list<string>,
+                                                 activeArgument: int): void {
+                    functionHint.signatures = signatures
+                    functionHint.activeArgument = activeArgument
                 }
 
                 // The answer, whenever it comes: the provider every text file

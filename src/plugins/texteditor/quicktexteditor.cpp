@@ -505,6 +505,7 @@ public:
         // handler calls, so the two cannot come to mean different things.
         command(Constants::COMPLETE_THIS, &TextViewport::requestCompletions);
         command(Constants::QUICKFIX_THIS, &TextViewport::requestQuickFixes);
+        command(Constants::FUNCTION_HINT, &TextViewport::requestFunctionHint);
 
         command(Constants::FIND_USAGES, &TextViewport::findUsages);
         command(Constants::RENAME_SYMBOL, &TextViewport::renameSymbolUnderCursor);

@@ -13901,3 +13901,35 @@ quick fix path.
 Seventy-two commands. `FUNCTION_HINT` is the last, and is still genuinely
 absent - no hint anywhere, and unlike this one it has no half-built machinery
 waiting for a caller.
+
+## The function hint, and the end of the command list
+
+Last batch said this one was genuinely absent with no half-built machinery
+waiting. That was half wrong: `TextDocument` has offered
+`functionHintAssistProvider()` all along and `IFunctionHintProposalModel` was
+already there. What was missing was the view half - the widget shows it in
+`FunctionHintProposalWidget`, and nothing else knew how to ask.
+
+It is the one assist command that is not a list to choose from. Completion and
+quick fixes are asked for, offered, and taken or dropped; a hint says what the
+call being typed takes, and has to keep saying it while the arguments are
+written. So the proposal is kept, `updateFunctionHint()` asks the model which
+argument the caret is in every time the caret moves, and the whole thing ends
+when the model answers -1, which is what it says when the call is closed.
+
+The form shows every overload at once rather than one with a way to cycle
+between them, which is what the widget does. Cycling exists because a label
+can only hold one line; a column can hold them all, and a list that can be
+read needs no cycling. The active argument is carried to the form and not yet
+drawn - the widget emboldens it - so that doing the same later needs no new
+plumbing.
+
+The test gives the view a model that counts commas and gives up at the closing
+bracket, then types through a two argument call: the hint starts at argument
+zero, moves to one without being asked again, and goes when the call is
+closed. Three controls - not following the caret, never ending, never working
+out the prefix - each fail it.
+
+That is the last of the ninety-six. Seventy-three are registered; the rest are
+the ones the widget answers with machinery this view does not need or share -
+its snippet overlay, its refactor markers, printing.
