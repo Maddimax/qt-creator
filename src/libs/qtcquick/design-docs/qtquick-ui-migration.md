@@ -18765,3 +18765,42 @@ What remains of the pane migration is the three custom-painted views - the Test
 Results tree, Squish, the debugger console. Nothing about them is blocked; they
 need someone looking at the result, which is where this stops being work that
 can be done from here.
+
+### What is actually left, measured rather than inherited
+
+The plan has said for several batches that three panes remain, all needing
+custom painting and someone to look at the result. That was inherited from an
+early survey and it is wrong in three ways. Reading them found one more text
+surface, and it is ported here.
+
+- **Squish's "Runner/Server Log"** is a raw `QPlainTextEdit` in the second tab
+  of its pane, beside the custom-painted results tree. Nothing about it needs
+  eyes. It is a `Core::OutputPaneView` now.
+- **Test Results** was never one pane: its text tab went two batches ago, and
+  what is left is the tree with `TestResultDelegate`'s 287-line `paint()`.
+- **The debugger's log is not an output pane at all.** It is a `QWidget` in a
+  debugger perspective holding three `QPlainTextEdit` subclasses: a combined
+  transcript, an *editable* input pane the user types commands into, and a
+  command line. The Qt Quick output view is read-only by design, so this is
+  not a port of the same kind. Worth noticing while reading it:
+  `m_combinedText->setReadOnly(true); m_combinedText->setReadOnly(false);` -
+  two consecutive lines, the second undoing the first.
+
+**The one judgement in the Squish port is now a test.** The widget asked for a
+limit in *blocks*: `setMaximumBlockCount(10000)`. `OutputPaneView` takes one in
+characters, so the port says `10000 * 100`, and that is only right because
+`setMaxCharCount()` sets the block cap to a hundredth of what it is given. A
+comment asserting that would be a comment; a test asserting
+`sourceDocument()->maximumBlockCount() == 10000` is checkable, and both controls
+on it bite.
+
+So what remains of the pane migration is **two custom-painted item views** -
+the Test Results tree and the Squish results tree - and **one editable
+console**. None of the three is text output with a different skin, and none is
+blocked on anything this work has been building.
+
+The branch's own goal is met, separately: `Qt::PrintSupport` is gone from
+`Utils`, which is what it was named for. `Qt::Widgets` remains, and dropping it
+is a different project: 75 of Utils' 339 sources use widgets and 26 headers
+expose them - dialogs, wizards, item views, the completing line edit. That is
+not what this migration was for and should not be smuggled into it.

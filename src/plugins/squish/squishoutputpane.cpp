@@ -10,12 +10,12 @@
 #include <QHeaderView>
 #include <QLabel>
 #include <QMenu>
-#include <QPlainTextEdit>
 #include <QTabWidget>
 #include <QToolButton>
 #include <QVBoxLayout>
 
 #include <coreplugin/editormanager/editormanager.h>
+#include <coreplugin/outputpaneview.h>
 
 #include <utils/itemviews.h>
 #include <utils/stylehelper.h>
@@ -81,9 +81,10 @@ SquishOutputPane::SquishOutputPane()
 
     createToolButtons();
 
-    m_runnerServerLog = new QPlainTextEdit;
-    m_runnerServerLog->setMaximumBlockCount(10000);
-    m_runnerServerLog->setReadOnly(true);
+    // A hundred characters a line at the block count the widget kept, which
+    // is what this asked for before there was a character limit to ask for.
+    m_runnerServerLog = new Core::OutputPaneView(Core::Context("Squish.RunnerServerLog"));
+    m_runnerServerLog->setMaxCharCount(10000 * 100);
 
     m_outputPane->addTab(m_outputWidget, Tr::tr("Test Results"));
     m_outputPane->addTab(m_runnerServerLog, Tr::tr("Runner/Server Log"));
@@ -142,7 +143,11 @@ void SquishOutputPane::setFocus()
 
 bool SquishOutputPane::hasFocus() const
 {
-    return m_treeView->hasFocus() || m_runnerServerLog->hasFocus();
+    // The focus is on the widget the Quick scene is in, which is inside the
+    // log view rather than the view itself.
+    const QWidget * const focused = m_runnerServerLog->window()->focusWidget();
+    return m_treeView->hasFocus()
+           || (focused && m_runnerServerLog->isAncestorOf(focused));
 }
 
 bool SquishOutputPane::canFocus() const
@@ -256,7 +261,7 @@ void SquishOutputPane::addResultItem(SquishResultItem *item)
 
 void SquishOutputPane::addLogOutput(const QString &output)
 {
-    m_runnerServerLog->appendPlainText(output);
+    m_runnerServerLog->appendMessage(output + '\n', Utils::GeneralMessageFormat);
 }
 
 void SquishOutputPane::onTestRunFinished()

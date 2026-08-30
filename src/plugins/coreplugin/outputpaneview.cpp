@@ -856,6 +856,23 @@ private slots:
         QVERIFY2(!kept.contains("line 0 of"), "the oldest output was kept");
     }
 
+    void testTheCharacterLimitIsAlsoABlockLimit()
+    {
+        // A pane that used to say how many *lines* it wanted - Squish asked a
+        // QPlainTextEdit for ten thousand blocks - has to say it in characters
+        // now. A hundred characters a line is the conversion, and it is only
+        // right because setMaxCharCount() sets the block cap to a hundredth of
+        // what it is given.
+        OutputPaneView view;
+        view.setMaxCharCount(10000 * 100);
+        QCOMPARE(view.sourceDocument()->maximumBlockCount(), 10000);
+
+        // And the two limits are both real: the block cap alone would let a
+        // few very long lines outgrow the allowance, which is what the
+        // per-append accounting is for.
+        QCOMPARE(view.maxCharCount(), qsizetype(10000 * 100));
+    }
+
     void testAChunkTooBigToKeepLosesItsMiddle()
     {
         OutputPaneView view;

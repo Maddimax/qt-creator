@@ -11,11 +11,11 @@ class QFrame;
 class QLabel;
 class QMenu;
 class QModelIndex;
-class QPlainTextEdit;
 class QTabWidget;
 class QToolButton;
 QT_END_NAMESPACE
 
+namespace Core { class OutputPaneView; }
 namespace Utils { class TreeView; }
 
 namespace Squish::Internal {
@@ -67,7 +67,7 @@ private:
     Utils::TreeView *m_treeView;
     SquishResultModel *m_model;
     SquishResultFilterModel *m_filterModel;
-    QPlainTextEdit *m_runnerServerLog;
+    Core::OutputPaneView *m_runnerServerLog;
     QToolButton *m_expandAll;
     QToolButton *m_collapseAll;
     QToolButton *m_filterButton;
