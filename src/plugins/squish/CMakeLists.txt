@@ -52,6 +52,7 @@ if(TARGET Squish)
     QML_FILES
       SquishResults.qml
       MappedAutDialog.qml
+      OpenSquishSuitesDialog.qml
       SquishSettingsPage.qml
   )
 endif()

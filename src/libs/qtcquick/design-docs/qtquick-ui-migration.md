@@ -20500,3 +20500,44 @@ plugins with three variants worked out - editable text cells, an editable table
 with Add/Remove, and a checkable column. `NickNameDialog` (VcsBase) and
 `OpenSquishSuitesDialog` are the next small ones. The 21 text-editor dialogs
 are still the open question.
+
+## 2026-08-30 — A list of whatever is in a directory
+
+`OpenSquishSuitesDialog` is the fourth of the table family and the first whose
+rows come from the file system rather than from settings or a registry. That
+makes its decisions different from the previous three, which is the reason it
+was worth doing rather than a fourth identical port.
+
+**What counts as a suite** is a subdirectory named `suite_...` that holds a
+readable `suite.conf`. Both halves matter - the name is a convention, the file
+is what makes it one - and neither could be asked without opening the dialog
+and pointing it somewhere. It is `suiteDirectoriesIn()` now, and the test
+builds a directory holding one real suite, one that only looks like one, and
+one that only contains the file. Controls A and B drop one half each.
+
+**Everything found starts chosen**, because asking for the directory is what
+asked for its suites, and **pointing somewhere else forgets the last lot** -
+the list is of the directory, not of everything ever looked at. The second is
+one line (`m_model.clear()`) and control C removes it.
+
+**Something the port fixed by moving behaviour out of the loop that lists.**
+The widget code connected `QListWidget::itemChanged` *inside* the loop that
+added items, so scanning a directory with twelve suites connected the same slot
+twelve times and every tick ran it twelve times. Nothing depended on it, which
+is why nobody noticed; it simply stops existing when what a closure *does* is
+separated from what it *lists*.
+
+Negative controls: a suite recognised by its name alone; one recognised by its
+file alone; the list adding to itself instead of replacing; and the page naming
+an aspect that is not there. All four bit.
+
+QuickUi 182 passed / 0 failed / 1 skipped, exit 0. Squish exit 0,
+`OpenSquishSuitesTest` 6 passed. `Squish_qmllint` clean. No `.qbs` edit.
+
+**Next:** thirty of the table shape remain and the shape is now worked out four
+ways - editable text cells, an editable table with Add/Remove, a checkable
+column, and a list built from the file system. Continuing through them is
+routine. **The question actually worth answering next is the other one:** 21
+dialogs hold a text editor, and whether a Qt Quick `TextArea` is enough for one
+showing a *document* - as against the debugger log's transcript - has never
+been established. `PromptOverwriteDialog` and `CleanDialog` are among them.

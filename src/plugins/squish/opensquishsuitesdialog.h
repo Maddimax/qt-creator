@@ -7,15 +7,18 @@
 
 #include <QDialog>
 
+#include <memory>
+
 QT_BEGIN_NAMESPACE
-class QListWidgetItem;
-class QListWidget;
 class QDialogButtonBox;
 QT_END_NAMESPACE
 
-namespace Utils { class PathChooser; }
-
 namespace Squish::Internal {
+
+class OpenSuitesSettings;
+
+// What counts as a test suite under \a baseDir. See the definition.
+Utils::FilePaths suiteDirectoriesIn(const Utils::FilePath &baseDir);
 
 class OpenSquishSuitesDialog : public QDialog
 {
@@ -23,20 +26,16 @@ class OpenSquishSuitesDialog : public QDialog
 public:
     explicit OpenSquishSuitesDialog(QWidget *parent = nullptr);
     ~OpenSquishSuitesDialog() override;
-    Utils::FilePaths chosenSuites() const { return m_chosenSuites; }
+
+    Utils::FilePaths chosenSuites() const;
 
 private:
-    void onDirectoryChanged();
-    void onListItemChanged(QListWidgetItem *);
-    void selectAll();
-    void deselectAll();
-    void setChosenSuites();
-
-    Utils::FilePaths m_chosenSuites;
-
-    Utils::PathChooser *m_directoryLineEdit;
-    QListWidget *m_suitesListWidget;
-    QDialogButtonBox *m_buttonBox;
+    const std::unique_ptr<OpenSuitesSettings> m_settings;
+    QDialogButtonBox * const m_buttonBox;
 };
+
+#ifdef WITH_TESTS
+QObject *createOpenSquishSuitesTest();
+#endif
 
 } // namespace Squish::Internal
