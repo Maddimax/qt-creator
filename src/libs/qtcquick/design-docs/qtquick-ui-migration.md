@@ -19170,3 +19170,58 @@ drawn over them rather than beside them.
 What the row does *not* do is the one thing left: `ConsoleEdit` is a `QTextEdit`
 opened over a row to type JavaScript into. It stays on the widget path, with
 the debugger log, until there is a finished Qt Quick editor to put it on.
+
+## 2026-08-30 — The debugger console's input row is not blocked
+
+The previous entry left the console pane as "next: rewire the view", and put
+`ConsoleEdit` on the blocked list beside the debugger log, waiting for a
+finished Qt Quick text editor. **The second half of that was wrong**, and
+reading the class is what settled it.
+
+The console's typing feature is reached through the item view's editor
+mechanism — `ConsoleItemDelegate::createEditor()` opens a `ConsoleEdit` over
+the row — which a Quick `TreeView` has no equivalent for, so the swap does
+look like it costs the ability to type. But `ConsoleEdit` is a `QTextEdit`
+only in the way a search box is: no frame, no undo, no scrollbar, and its
+whole behaviour is four keys.
+
+- Enter → `debuggerConsole()->evaluate()` and finish.
+- Up / Down → walk the history.
+- focus out → finish.
+
+That is a `TextArea` with a `Keys` handler, not a code editor. **The console
+is not waiting on the Quick editor.** The debugger log still is — it shows a
+document with syntax colouring and selection, which is a different thing.
+
+Extracted this batch, because it is the one decision in there that is not the
+text field's job: `ConsoleItem::previousInputRow()` /
+`nextInputRow()`. A console alternates between what was typed and what came
+back, and Up must reach the last thing that was *run*, not the error it
+printed — so the walk skips every row whose `TypeRole` is not `InputType`, and
+answers -1 at the ends, which is what leaves a half-typed line alone. Inside a
+`QTextEdit` subclass the only way to ask that question was to press Up.
+
+Two things the walk has to keep that are easy to drop on a port:
+
+- **Down to the bottom restores what was being typed**, not the newest history
+  entry. The editor caches it on the first Up. A port that binds the prompt
+  straight to the model eats whatever the reader had half-written.
+- **Asking from a row that is not itself an entry** happens — the caller's
+  cached index can be a result row — so the walk takes a row number and
+  searches, rather than assuming it starts on an entry.
+
+Negative controls, both bit: stopping the backward walk at `row > 0` (the
+oldest entry becomes unreachable — the off-by-one an inclusive/exclusive
+bound invites), and dropping the `InputType` test from `isInput` (Up lands on
+the console's own output, the bug the extraction exists to prevent).
+
+QuickUi 177 passed / 0 failed / 1 skipped, exit 0. `ConsoleItemModelTest` 7
+passed. `Debugger` as a whole exits 1 on `DebuggerUnitTests::testStateMachine`
+(`projectManager.open(proFile)` returns false) — **baselined at HEAD, same
+failure**, unrelated to this.
+
+**Next:** the console pane rewiring proper, now that its input row has a
+Quick answer — `ConsoleView.qml` in place of `Utils::TreeView` +
+`ConsoleItemDelegate`, the prompt row as a `TextArea` bound to these two
+functions, the selection model, and the context menu. Same shape as Test
+Results.

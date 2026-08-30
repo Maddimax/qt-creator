@@ -7,6 +7,10 @@
 
 #include <QIcon>
 
+QT_BEGIN_NAMESPACE
+class QAbstractItemModel;
+QT_END_NAMESPACE
+
 #include <QColor>
 
 namespace Debugger::Internal {
@@ -48,6 +52,15 @@ public:
     // as a path, and only the last component is shown - the rest of a path is
     // width the message needs more.
     static QString shownFileName(const QString &file);
+
+    // Walking the console's history: the row of the previous or next thing
+    // that was *typed*, skipping everything the console said back. -1 where
+    // there is no such row, which is what leaves the entry as it is.
+    //
+    // Kept out of the editor because it is a question about the model, and
+    // inside a QTextEdit the only way to ask it was to press Up.
+    static int previousInputRow(const QAbstractItemModel *model, int fromRow);
+    static int nextInputRow(const QAbstractItemModel *model, int fromRow);
 
     static QColor colorForType(ItemType type);
     static QIcon iconForType(ItemType type);

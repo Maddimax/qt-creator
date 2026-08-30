@@ -3,6 +3,7 @@
 
 #include "consoleedit.h"
 #include "console.h"
+#include "consoleitem.h"
 
 #include <utils/qtcassert.h>
 
@@ -68,19 +69,12 @@ void ConsoleEdit::handleUpKey()
     if (currentRow == model->rowCount() - 1)
         m_cachedScript = getCurrentScript();
 
-    while (currentRow) {
-        currentRow--;
-        if (model->hasIndex(currentRow, 0)) {
-            QModelIndex index = model->index(currentRow, 0);
-            if (ConsoleItem::InputType == (ConsoleItem::ItemType)model->data(
-                        index, ConsoleItem::TypeRole).toInt()) {
-                m_historyIndex = index;
-                replaceCurrentScript(
-                            model->data(index, ConsoleItem::ExpressionRole).toString());
-                break;
-            }
-        }
-    }
+    const int previous = ConsoleItem::previousInputRow(model, currentRow);
+    if (previous == -1)
+        return;
+
+    m_historyIndex = model->index(previous, 0);
+    replaceCurrentScript(model->data(m_historyIndex, ConsoleItem::ExpressionRole).toString());
 }
 
 void ConsoleEdit::handleDownKey()
@@ -88,23 +82,17 @@ void ConsoleEdit::handleDownKey()
     QTC_ASSERT(m_historyIndex.isValid(), return);
     int currentRow = m_historyIndex.row();
     const QAbstractItemModel *model = m_historyIndex.model();
-    while (currentRow < model->rowCount() - 1) {
-        currentRow++;
-        if (model->hasIndex(currentRow, 0)) {
-            QModelIndex index = model->index(currentRow, 0);
-            if (ConsoleItem::InputType == (ConsoleItem::ItemType)model->data(
-                        index, ConsoleItem::TypeRole).toInt()) {
-                m_historyIndex = index;
-                if (currentRow == model->rowCount() - 1) {
-                    replaceCurrentScript(m_cachedScript);
-                } else {
-                    replaceCurrentScript(
-                                model->data(index, ConsoleItem::ExpressionRole).toString());
-                }
-                break;
-            }
-        }
-    }
+    const int next = ConsoleItem::nextInputRow(model, currentRow);
+    if (next == -1)
+        return;
+
+    m_historyIndex = model->index(next, 0);
+    // Back at the bottom is back to what was being typed before the history
+    // was walked into, not to the last thing that was run.
+    if (next == model->rowCount() - 1)
+        replaceCurrentScript(m_cachedScript);
+    else
+        replaceCurrentScript(model->data(m_historyIndex, ConsoleItem::ExpressionRole).toString());
 }
 
 QString ConsoleEdit::getCurrentScript() const

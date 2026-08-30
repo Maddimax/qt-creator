@@ -4,6 +4,7 @@
 #include "consoleitem.h"
 #include <utils/utilsicons.h>
 
+#include <QAbstractItemModel>
 #include <QUrl>
 #include <utils/theme/theme.h>
 
@@ -55,6 +56,35 @@ Qt::ItemFlags ConsoleItem::flags(int) const
     if (m_itemType == InputType && parent()->lastChild() == this)
           f |= Qt::ItemIsEditable;
     return f;
+}
+
+static bool isInput(const QAbstractItemModel *model, int row)
+{
+    return model->hasIndex(row, 0)
+           && model->data(model->index(row, 0), ConsoleItem::TypeRole).toInt()
+                  == ConsoleItem::InputType;
+}
+
+int ConsoleItem::previousInputRow(const QAbstractItemModel *model, int fromRow)
+{
+    if (!model)
+        return -1;
+    for (int row = fromRow - 1; row >= 0; --row) {
+        if (isInput(model, row))
+            return row;
+    }
+    return -1;
+}
+
+int ConsoleItem::nextInputRow(const QAbstractItemModel *model, int fromRow)
+{
+    if (!model)
+        return -1;
+    for (int row = fromRow + 1; row < model->rowCount(); ++row) {
+        if (isInput(model, row))
+            return row;
+    }
+    return -1;
 }
 
 QString ConsoleItem::shownFileName(const QString &file)

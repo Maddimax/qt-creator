@@ -172,6 +172,50 @@ private slots:
         QCOMPARE(item.data(0, ConsoleItem::TextColorRole).value<QColor>(), error);
         QVERIFY(!item.data(0, Qt::DecorationRole).value<QIcon>().isNull());
     }
+
+    void testWalkingThroughWhatWasTypedBefore()
+    {
+        // A console alternates between what was typed and what came back, and
+        // the last row is the prompt. Up and Down move between the typed rows
+        // only, which is the whole of what Up and Down did inside the editor.
+        ConsoleItemModel model;
+        model.clear();
+        model.appendItem(new ConsoleItem(ConsoleItem::InputType, "1 + 1"), 0);
+        model.appendItem(new ConsoleItem(ConsoleItem::DefaultType, "2"), 1);
+        model.appendItem(new ConsoleItem(ConsoleItem::InputType, "foo()"), 2);
+        model.appendItem(new ConsoleItem(ConsoleItem::ErrorType, "not a function"), 3);
+
+        // State the fixture rather than trusting it: the walk is only
+        // interesting if there is something in between to walk over.
+        QCOMPARE(model.rowCount(), 5);
+        const auto typeOf = [&model](int row) {
+            return model.data(model.index(row, 0), ConsoleItem::TypeRole).toInt();
+        };
+        QCOMPARE(typeOf(0), int(ConsoleItem::InputType));
+        QCOMPARE(typeOf(1), int(ConsoleItem::DefaultType));
+        QCOMPARE(typeOf(2), int(ConsoleItem::InputType));
+        QCOMPARE(typeOf(3), int(ConsoleItem::ErrorType));
+        QCOMPARE(typeOf(4), int(ConsoleItem::InputType));
+
+        // Up from the prompt reaches the last thing that was run, not the
+        // error it printed.
+        QCOMPARE(ConsoleItem::previousInputRow(&model, 4), 2);
+        QCOMPARE(ConsoleItem::previousInputRow(&model, 2), 0);
+        QCOMPARE(ConsoleItem::nextInputRow(&model, 0), 2);
+        QCOMPARE(ConsoleItem::nextInputRow(&model, 2), 4);
+
+        // The ends: pressing Up at the oldest entry, or Down at the prompt,
+        // leaves what is being typed alone.
+        QCOMPARE(ConsoleItem::previousInputRow(&model, 0), -1);
+        QCOMPARE(ConsoleItem::nextInputRow(&model, 4), -1);
+
+        // Asking from a row that is not itself an entry still works, and a
+        // model that is not there answers rather than walking off it.
+        QCOMPARE(ConsoleItem::previousInputRow(&model, 3), 2);
+        QCOMPARE(ConsoleItem::nextInputRow(&model, 1), 2);
+        QCOMPARE(ConsoleItem::previousInputRow(nullptr, 4), -1);
+        QCOMPARE(ConsoleItem::nextInputRow(nullptr, 0), -1);
+    }
 };
 
 QObject *createConsoleItemModelTest()
