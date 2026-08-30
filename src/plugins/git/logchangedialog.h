@@ -9,7 +9,6 @@
 
 #include <QDialog>
 #include <QIcon>
-#include <QStyledItemDelegate>
 
 QT_BEGIN_NAMESPACE
 class QDialogButtonBox;
@@ -22,6 +21,30 @@ QT_END_NAMESPACE
 namespace Git::Internal {
 
 class LogChangeModel;
+
+// How the rows are marked relative to the one the reader is on. Every dialog
+// that shows a log marks them, and each marks them differently - which used to
+// be three item delegates painting over the view. The model answers it now, so
+// a Qt Quick table shows the same marks without a delegate of its own.
+enum class LogRowMarks
+{
+    None,
+    // Reset: the commits above the chosen one are the ones being discarded.
+    StrikeOutBeforeCurrent,
+    // Interactive rebase: the chosen commit and everything after it is replayed.
+    IconUpToCurrent,
+    // Format-patch: whatever is picked is what gets exported.
+    IconOnSelected
+};
+
+// Whether \a row is struck through, given the row the reader is on.
+bool logRowIsStruckOut(LogRowMarks marks, int row, int currentRow);
+// Whether \a row carries the mark icon.
+bool logRowHasIcon(LogRowMarks marks, int row, int currentRow, bool selected);
+
+#ifdef WITH_TESTS
+QObject *createLogChangeMarksTest();
+#endif
 
 // A widget that lists hash and subject of the changes
 // Used for reset and interactive rebase
@@ -49,7 +72,7 @@ public:
     QStringList patchRange() const;
     bool isRowSelected(int row) const;
     QString earliestCommit() const;
-    void setItemDelegate(QAbstractItemDelegate *delegate);
+    void setMarks(LogRowMarks marks);
     void setExcludedRemote(const QString &remote) { m_excludedRemote = remote; }
 
 signals:
@@ -64,7 +87,7 @@ private:
     const QStandardItem *currentItem(int column = 0) const;
 
     LogChangeModel *m_model;
-    bool m_hasCustomDelegate;
+    LogRowMarks m_marks = LogRowMarks::None;
     QString m_excludedRemote;
 };
 
@@ -96,30 +119,6 @@ private:
     QComboBox *m_resetTypeComboBox = nullptr;
 };
 
-class LogItemDelegate : public QStyledItemDelegate
-{
-protected:
-    LogItemDelegate(LogChangeWidget *widget);
 
-    int currentRow() const;
-    int isRowSelected(int row) const;
-
-private:
-    LogChangeWidget *m_widget;
-};
-
-class IconItemDelegate : public LogItemDelegate
-{
-public:
-    IconItemDelegate(LogChangeWidget *widget, const Utils::Icon &icon);
-
-    virtual bool hasIcon(int row) const = 0;
-
-    void paint(QPainter *painter, const QStyleOptionViewItem &option,
-               const QModelIndex &index) const override;
-
-private:
-    QIcon m_icon;
-};
 
 } // Git::Internal

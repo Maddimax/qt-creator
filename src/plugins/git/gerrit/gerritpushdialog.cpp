@@ -30,20 +30,6 @@ namespace Gerrit::Internal {
 
 static const int ReasonableDistance = 100;
 
-class PushItemDelegate : public IconItemDelegate
-{
-public:
-    PushItemDelegate(LogChangeWidget *widget)
-        : IconItemDelegate(widget, Utils::Icon(":/git/images/arrowup.png"))
-    {
-    }
-
-protected:
-    bool hasIcon(int row) const override
-    {
-        return row >= currentRow();
-    }
-};
 
 QString GerritPushDialog::determineRemoteBranch(const QString &localBranch)
 {
@@ -160,8 +146,8 @@ GerritPushDialog::GerritPushDialog(const Utils::FilePath &workingDir,
     m_remoteComboBox->setRepository(workingDir);
     m_remoteComboBox->setAllowDups(true);
 
-    auto delegate = new PushItemDelegate(m_commitView);
-    delegate->setParent(this);
+    // Whatever is picked is what gets pushed, so the picked rows are marked.
+    m_commitView->setMarks(LogRowMarks::IconOnSelected);
 
     initRemoteBranches();
 

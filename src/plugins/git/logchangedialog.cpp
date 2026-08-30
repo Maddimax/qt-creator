@@ -8,7 +8,12 @@
 
 #include <vcsbase/vcsoutputwindow.h>
 
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
 #include <utils/algorithm.h>
+#include <utils/utilsicons.h>
 #include <utils/qtcassert.h>
 
 #include <QComboBox>
@@ -35,6 +40,26 @@ enum Columns
     ColumnCount
 };
 
+bool logRowIsStruckOut(LogRowMarks marks, int row, int currentRow)
+{
+    // Only where there is a chosen row to be before.
+    return marks == LogRowMarks::StrikeOutBeforeCurrent && currentRow >= 0 && row < currentRow;
+}
+
+bool logRowHasIcon(LogRowMarks marks, int row, int currentRow, bool selected)
+{
+    switch (marks) {
+    case LogRowMarks::IconUpToCurrent:
+        return currentRow >= 0 && row <= currentRow;
+    case LogRowMarks::IconOnSelected:
+        return selected;
+    case LogRowMarks::None:
+    case LogRowMarks::StrikeOutBeforeCurrent:
+        break;
+    }
+    return false;
+}
+
 class LogChangeModel : public QStandardItemModel
 {
 public:
@@ -52,19 +77,60 @@ public:
             m_descriptions[revision] = desc;
             return desc;
         }
+        if (role == Qt::FontRole && logRowIsStruckOut(m_marks, index.row(), m_currentRow)) {
+            QFont font = QStandardItemModel::data(index, role).value<QFont>();
+            font.setStrikeOut(true);
+            return font;
+        }
+        if (role == Qt::DecorationRole && index.column() == HashColumn) {
+            const bool selected = m_selectedRows.contains(index.row());
+            if (logRowHasIcon(m_marks, index.row(), m_currentRow, selected))
+                return m_icon;
+            return {};
+        }
+        if (role == AspectTable::EditableRole)
+            return AspectTable::isWritable(flags(index));
         return QStandardItemModel::data(index, role);
     }
 
     void setWorkingDirectory(const FilePath &workingDir) { m_workingDirectory = workingDir; }
+
+    // Which rows are marked, and against what. The view used to paint this
+    // itself; saying it here means every view of these rows agrees, and a Qt
+    // Quick table needs no delegate at all.
+    void setMarks(LogRowMarks marks) { m_marks = marks; refreshMarks(); }
+    void setChosen(int currentRow, const QList<int> &selectedRows)
+    {
+        m_currentRow = currentRow;
+        m_selectedRows = selectedRows;
+        refreshMarks();
+    }
+    void setMarkIcon(const QIcon &icon) { m_icon = icon; }
+
+    QHash<int, QByteArray> roleNames() const override
+    {
+        return AspectTable::withRoleNames(QStandardItemModel::roleNames());
+    }
+
 private:
+    void refreshMarks()
+    {
+        if (const int rows = rowCount())
+            emit dataChanged(index(0, 0), index(rows - 1, columnCount() - 1),
+                             {Qt::FontRole, Qt::DecorationRole});
+    }
+
     FilePath m_workingDirectory;
     mutable QHash<QString, QString> m_descriptions;
+    LogRowMarks m_marks = LogRowMarks::None;
+    int m_currentRow = -1;
+    QList<int> m_selectedRows;
+    QIcon m_icon;
 };
 
 LogChangeWidget::LogChangeWidget(QWidget *parent)
     : Utils::TreeView(parent)
     , m_model(new LogChangeModel(this))
-    , m_hasCustomDelegate(false)
 {
     const QStringList headers = {Tr::tr("Hash"), Tr::tr("Subject")};
     m_model->setHorizontalHeaderLabels(headers);
@@ -157,10 +223,15 @@ QString LogChangeWidget::earliestCommit() const
     return {};
 }
 
-void LogChangeWidget::setItemDelegate(QAbstractItemDelegate *delegate)
+void LogChangeWidget::setMarks(LogRowMarks marks)
 {
-    Utils::TreeView::setItemDelegate(delegate);
-    m_hasCustomDelegate = true;
+    m_marks = marks;
+    m_model->setMarks(marks);
+    m_model->setMarkIcon(marks == LogRowMarks::IconUpToCurrent ? Utils::Icons::UNDO.icon()
+                         : marks == LogRowMarks::IconOnSelected ? Utils::Icons::PLUS.icon()
+                                                                : QIcon());
+    m_model->setChosen(commitIndex(), Utils::transform(
+        selectionModel()->selectedRows(), [](const QModelIndex &index) { return index.row(); }));
 }
 
 void LogChangeWidget::emitCommitActivated(const QModelIndex &index)
@@ -178,19 +249,13 @@ void LogChangeWidget::selectionChanged(const QItemSelection &selected,
     Utils::TreeView::selectionChanged(selected, deselected);
     emit hasSelectionChanged(!selectionModel()->selectedIndexes().isEmpty());
 
-    if (!m_hasCustomDelegate)
-        return;
-    const QModelIndexList previousIndexes = deselected.indexes();
-    if (previousIndexes.isEmpty())
-        return;
-    const QModelIndex current = currentIndex();
-    int row = current.row();
-    int previousRow = previousIndexes.first().row();
-    if (row < previousRow)
-        qSwap(row, previousRow);
-    for (int r = previousRow; r <= row; ++r) {
-        update(current.sibling(r, 0));
-        update(current.sibling(r, 1));
+    // What is marked follows what is chosen. The model says which rows those
+    // are and repaints them itself, so the view no longer has to work out
+    // which ones changed.
+    if (m_marks != LogRowMarks::None) {
+        m_model->setChosen(commitIndex(), Utils::transform(
+            selectionModel()->selectedRows(),
+            [](const QModelIndex &index) { return index.row(); }));
     }
 }
 
@@ -351,37 +416,116 @@ LogChangeWidget *LogChangeDialog::widget() const
     return m_widget;
 }
 
-LogItemDelegate::LogItemDelegate(LogChangeWidget *widget) : m_widget(widget)
-{
-    m_widget->setItemDelegate(this);
-}
+#ifdef WITH_TESTS
 
-int LogItemDelegate::currentRow() const
+class LogChangeMarksTest final : public QObject
 {
-    return m_widget->commitIndex();
-}
+    Q_OBJECT
 
-int LogItemDelegate::isRowSelected(int row) const
-{
-    return m_widget->isRowSelected(row);
-}
-
-IconItemDelegate::IconItemDelegate(LogChangeWidget *widget, const Utils::Icon &icon)
-    : LogItemDelegate(widget)
-    , m_icon(icon.icon())
-{
-}
-
-void IconItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option,
-                             const QModelIndex &index) const
-{
-    QStyleOptionViewItem o = option;
-    if (index.column() == 0 && hasIcon(index.row())) {
-        const QSize size = option.decorationSize;
-        painter->drawPixmap(o.rect.x(), o.rect.y(), m_icon.pixmap(size.width(), size.height()));
-        o.rect.setLeft(size.width());
+private slots:
+    void testNothingIsMarkedWhenNothingAsksFor()
+    {
+        for (int row = 0; row < 3; ++row) {
+            QVERIFY(!logRowIsStruckOut(LogRowMarks::None, row, 1));
+            QVERIFY(!logRowHasIcon(LogRowMarks::None, row, 1, true));
+        }
     }
-    QStyledItemDelegate::paint(painter, o, index);
+
+    void testResetStrikesOutWhatItWouldDiscard()
+    {
+        // The log is newest first, so the rows *above* the chosen commit are
+        // the ones a reset throws away.
+        QVERIFY2(logRowIsStruckOut(LogRowMarks::StrikeOutBeforeCurrent, 0, 2),
+                 "a commit that would be discarded was not marked");
+        QVERIFY(logRowIsStruckOut(LogRowMarks::StrikeOutBeforeCurrent, 1, 2));
+
+        // The chosen one stays, and so does everything below it.
+        QVERIFY2(!logRowIsStruckOut(LogRowMarks::StrikeOutBeforeCurrent, 2, 2),
+                 "the commit being reset to was marked as discarded");
+        QVERIFY(!logRowIsStruckOut(LogRowMarks::StrikeOutBeforeCurrent, 3, 2));
+
+        // With nothing chosen there is nothing to be before.
+        QVERIFY2(!logRowIsStruckOut(LogRowMarks::StrikeOutBeforeCurrent, 0, -1),
+                 "commits were struck out before anything was chosen");
+    }
+
+    void testRebaseMarksWhatItWouldReplay()
+    {
+        // The chosen commit and everything newer than it are replayed, so the
+        // mark reaches down to it inclusive.
+        QVERIFY(logRowHasIcon(LogRowMarks::IconUpToCurrent, 0, 2, false));
+        QVERIFY2(logRowHasIcon(LogRowMarks::IconUpToCurrent, 2, 2, false),
+                 "the commit being rebased onto was not marked");
+        QVERIFY2(!logRowHasIcon(LogRowMarks::IconUpToCurrent, 3, 2, false),
+                 "a commit below the chosen one was marked for replay");
+        QVERIFY(!logRowHasIcon(LogRowMarks::IconUpToCurrent, 0, -1, false));
+    }
+
+    void testPatchMarksWhatWasPicked()
+    {
+        // Exporting follows the selection, not the row the keyboard is on.
+        QVERIFY(logRowHasIcon(LogRowMarks::IconOnSelected, 5, -1, true));
+        QVERIFY2(!logRowHasIcon(LogRowMarks::IconOnSelected, 2, 2, false),
+                 "the current row was marked although it was not picked");
+    }
+
+    void testTheModelSaysWhichRowsAreMarked()
+    {
+        // The rules used to be three item delegates painting over the view.
+        // Answering them here is what lets a Qt Quick table show the same
+        // marks with no delegate at all.
+        LogChangeModel model(nullptr);
+        model.setColumnCount(ColumnCount);
+        for (int row = 0; row < 3; ++row) {
+            model.appendRow({new QStandardItem(QString("hash%1").arg(row)),
+                             new QStandardItem(QString("subject%1").arg(row))});
+        }
+
+        model.setMarks(LogRowMarks::StrikeOutBeforeCurrent);
+        model.setChosen(2, {});
+        QVERIFY2(model.data(model.index(0, SubjectColumn), Qt::FontRole)
+                     .value<QFont>().strikeOut(),
+                 "a discarded commit was not struck out");
+        QVERIFY(!model.data(model.index(2, SubjectColumn), Qt::FontRole)
+                     .value<QFont>().strikeOut());
+
+        // And an icon only where one was asked for, in the hash column.
+        model.setMarks(LogRowMarks::IconUpToCurrent);
+        model.setMarkIcon(Utils::Icons::UNDO.icon());
+        model.setChosen(1, {});
+        QVERIFY2(!model.data(model.index(0, HashColumn), Qt::DecorationRole).isNull(),
+                 "a replayed commit carried no mark");
+        QVERIFY2(model.data(model.index(2, HashColumn), Qt::DecorationRole).isNull(),
+                 "a commit below the chosen one carried a mark");
+        QVERIFY2(model.data(model.index(0, SubjectColumn), Qt::DecorationRole).isNull(),
+                 "the mark was drawn in every column");
+    }
+
+    void testALogRowIsNotEditedInTheCell()
+    {
+        LogChangeModel model(nullptr);
+        model.setColumnCount(ColumnCount);
+        auto *const hash = new QStandardItem("abc1234");
+        hash->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+        model.appendRow({hash, new QStandardItem("subject")});
+
+        const QVariant editable = model.data(model.index(0, 0), AspectTable::EditableRole);
+        QVERIFY2(editable.isValid(), "the table was never told whether a cell may be written to");
+        QVERIFY2(!editable.toBool(), "a commit could be edited by typing in the list");
+        QVERIFY2(model.roleNames().values().contains("display"),
+                 "a table cannot read what a cell says");
+    }
+};
+
+QObject *createLogChangeMarksTest()
+{
+    return new LogChangeMarksTest;
 }
+
+#endif // WITH_TESTS
 
 } // Git::Internal
+
+#ifdef WITH_TESTS
+#include "logchangedialog.moc"
+#endif

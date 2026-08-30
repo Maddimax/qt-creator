@@ -21512,3 +21512,55 @@ edit: no files were added.
 
 **Next:** `GerritPushDialog` - the smaller consumer, so the aspect gets a real
 user - and then `GerritDialog` itself.
+
+## 2026-08-30 — The log marks, and the plan's next step being wrong
+
+`GerritPushDialog` was next, and it is blocked by the same thing
+`LogChangeDialog` is: it embeds `LogChangeWidget` with a `PushItemDelegate`.
+The ordering proposed last time - "the smaller consumer first, so the chooser
+aspect gets a user" - was wrong, because both consumers need `LogChangeWidget`
+before either can be drawn in Qt Quick. So this batch is that blocker instead.
+
+**Three item delegates turned out to be three rules about a row**, and each is
+one line:
+
+- `ResetItemDelegate` struck out rows *before* the current one: the commits a
+  reset discards.
+- `RebaseItemDelegate` put an icon on rows *up to and including* the current
+  one: the commits a rebase replays.
+- `PushItemDelegate` put an icon on the *selected* rows: the commits that get
+  pushed or exported.
+
+None of that is painting. `Qt::FontRole` and `Qt::DecorationRole` say all
+three, and both a `QTreeView` and a Qt Quick table honour those - so the rules
+moved into `LogChangeModel`, and **all three delegate classes are deleted**,
+along with `LogItemDelegate` and `IconItemDelegate` that they shared. The five
+call sites now say `setMarks(LogRowMarks::…)` instead of constructing a
+delegate over the dialog's widget, which is also a better API: the caller says
+what it means rather than reaching in to paint.
+
+The view got simpler on the way. `selectionChanged()` used to work out which
+rows to repaint after a selection change - swapping row indices to get a range
+- because only it knew what the delegate would draw. The model repaints its own
+rows now, so that is gone.
+
+**This is the pattern that keeps recurring**, and it is worth naming: a widget
+view answers questions for its model that a Quick table asks the model
+directly. Every port so far has found the model silent about something -
+`EditableRole` three times, `roleNames()` twice, and now decoration and font.
+Moving the answer into the model is not Quick-specific work; the widget path
+gets the same answer and usually loses code.
+
+Negative controls: reset striking out the commit it resets to; rebase stopping
+one short of the commit it rebases onto; the mark drawn in every column;
+nothing struck out at all; and a commit editable by typing in the list. All
+five bit.
+
+QuickUi 186 passed / 0 failed / 1 skipped, exit 0. `Git` exit 0 with no
+failures, `LogChangeMarksTest` 8 passed. No `.qbs` edit: no files added or
+removed.
+
+**Next:** `LogChangeDialog` itself, which is now a table aspect over a model
+that already says everything a Quick table needs - then `GerritPushDialog` and
+`GerritDialog`, in that order, since the push dialog needs both this and the
+remote chooser aspect.

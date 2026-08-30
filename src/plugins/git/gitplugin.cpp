@@ -1284,48 +1284,6 @@ void GitPluginPrivate::undoFileChanges(bool revertStaging)
     gitClient().revertFiles({state.currentFile().toUrlishString()}, revertStaging);
 }
 
-class ResetItemDelegate : public LogItemDelegate
-{
-public:
-    ResetItemDelegate(LogChangeWidget *widget) : LogItemDelegate(widget) {}
-    void initStyleOption(QStyleOptionViewItem *option, const QModelIndex &index) const override
-    {
-        if (index.row() < currentRow())
-            option->font.setStrikeOut(true);
-        LogItemDelegate::initStyleOption(option, index);
-    }
-};
-
-class RebaseItemDelegate : public IconItemDelegate
-{
-public:
-    RebaseItemDelegate(LogChangeWidget *widget)
-        : IconItemDelegate(widget, Icons::UNDO)
-    {
-    }
-
-protected:
-    bool hasIcon(int row) const override
-    {
-        return row <= currentRow();
-    }
-};
-
-class PatchItemDelegate : public IconItemDelegate
-{
-public:
-    PatchItemDelegate(LogChangeWidget *widget)
-        : IconItemDelegate(widget, Icons::PLUS)
-    {
-    }
-
-protected:
-    bool hasIcon(int row) const override
-    {
-        return isRowSelected(row);
-    }
-};
-
 void GitPluginPrivate::resetRepository()
 {
     if (!DocumentManager::saveAllModifiedDocuments())
@@ -1335,7 +1293,7 @@ void GitPluginPrivate::resetRepository()
     FilePath topLevel = state.topLevel();
 
     LogChangeDialog dialog(LogChangeDialog::Reset, ICore::dialogParent());
-    ResetItemDelegate delegate(dialog.widget());
+    dialog.widget()->setMarks(LogRowMarks::StrikeOutBeforeCurrent);
     dialog.setWindowTitle(Tr::tr("Undo Changes to %1").arg(topLevel.toUserOutput()));
     if (dialog.runDialog(topLevel, {}, LogChangeWidget::IncludeRemotes))
         gitClient().reset(topLevel, dialog.resetFlag(), dialog.commit());
@@ -1376,7 +1334,7 @@ void GitPluginPrivate::startRebaseFromCommit(const FilePath &workingDirectory,
 
     if (commit.isEmpty()) {
         LogChangeDialog dialog(LogChangeDialog::Select, ICore::dialogParent());
-        RebaseItemDelegate delegate(dialog.widget());
+        dialog.widget()->setMarks(LogRowMarks::IconUpToCurrent);
         dialog.setWindowTitle(Tr::tr("Interactive Rebase"));
         if (!dialog.runDialog(workingDirectory))
             return;
@@ -1713,7 +1671,7 @@ void GitPluginPrivate::createPatchesFromCommits()
     QTC_ASSERT(state.hasTopLevel(), return);
 
     LogChangeDialog dialog(LogChangeDialog::Select, Core::ICore::dialogParent());
-    PatchItemDelegate delegate(dialog.widget());
+    dialog.widget()->setMarks(LogRowMarks::IconOnSelected);
     dialog.setSelectionMode(QAbstractItemView::ContiguousSelection);
     dialog.setWindowTitle(Tr::tr("Select Commits for Patch Creation"));
 
@@ -1728,7 +1686,7 @@ void GitPluginPrivate::cherryPickCommits(const QString &branch)
     QTC_ASSERT(state.hasTopLevel(), return);
 
     LogChangeDialog dialog(LogChangeDialog::Select, Core::ICore::dialogParent());
-    PatchItemDelegate delegate(dialog.widget());
+    dialog.widget()->setMarks(LogRowMarks::IconOnSelected);
     dialog.setSelectionMode(QAbstractItemView::MultiSelection);
     dialog.setWindowTitle(Tr::tr("Select Commits to Cherry-Pick"));
 
@@ -3204,6 +3162,7 @@ class GITSHARED_EXPORT GitPlugin final : public ExtensionSystem::IPlugin
         addTestCreator(createBranchAddDialogTest);
         addTestCreator(createStashDialogTest);
         addTestCreator(Gerrit::Internal::createGerritRemoteChooserTest);
+        addTestCreator(createLogChangeMarksTest);
 #endif
 
         dd = new GitPluginPrivate;
