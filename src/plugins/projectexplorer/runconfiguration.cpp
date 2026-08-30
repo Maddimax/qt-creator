@@ -68,16 +68,23 @@ GlobalOrProjectAspect::GlobalOrProjectAspect()
 {
     addDataExtractor(this, &GlobalOrProjectAspect::currentSettings, &Data::currentSettings);
 
-    // No group box of its own: what the widget form puts round this is a
-    // details widget, whose summary is the label below.
-    setFlattened(true);
+    // A group with a title rather than a flat list: what the widget form puts
+    // round this is a details widget, and its summary - which the label below
+    // carries - is drawn as the group's title. Flattened, that summary would
+    // have nowhere to go.
 
+    // Hidden until there are global settings to choose. Not every subclass
+    // uses the mechanism - the debugger's run settings are a
+    // GlobalOrProjectAspect that never calls either setter - and offering a
+    // choice between one thing and nothing is worse than offering none.
     m_useGlobal.setQmlName("UseGlobalSettings");
+    m_useGlobal.setVisible(false);
     registerAspect(&m_useGlobal);
 
     m_restoreGlobal.setQmlName("RestoreGlobal");
     m_restoreGlobal.setActionText(Tr::tr("Restore Global"));
     m_restoreGlobal.setAction([this] { resetProjectToGlobalSettings(); });
+    m_restoreGlobal.setVisible(false);
     registerAspect(&m_restoreGlobal);
 
     m_useGlobal.addOnChanged(this, [this] { setUsingGlobalSettings(m_useGlobal()); });
@@ -91,8 +98,12 @@ void GlobalOrProjectAspect::refreshSurfaces()
     const bool global = m_useGlobalSettings;
     m_useGlobal.setValue(global);
     // What the details widget the widget form wraps this in shows as its
-    // summary.
-    setLabelText(global ? Tr::tr("Use Global Settings") : Tr::tr("Use Customized Settings"));
+    // summary. Only where the choice exists: a subclass that does not use the
+    // mechanism has a summary of its own to say.
+    if (m_globalSettings) {
+        setLabelText(global ? Tr::tr("Use Global Settings")
+                            : Tr::tr("Use Customized Settings"));
+    }
     m_restoreGlobal.setEnabled(!global);
     if (m_projectSettings)
         m_projectSettings->setEnabled(!global);
@@ -123,6 +134,8 @@ void GlobalOrProjectAspect::setGlobalSettings(AspectContainer *settings, Id sett
     // The words "global settings" in the check box's label are a link to the
     // page they come from, which is this one.
     m_useGlobal.setSettingsPageId(settingsPage);
+    m_useGlobal.setVisible(true);
+    m_restoreGlobal.setVisible(true);
 }
 
 void GlobalOrProjectAspect::setUsingGlobalSettings(bool value)
@@ -1259,6 +1272,25 @@ private slots:
         QCOMPARE(aspect.labelText(), QString("Use Customized Settings"));
         QVERIFY(project->isEnabled());
         QVERIFY(restore->isEnabled());
+
+        // A subclass that does not use the mechanism at all - the debugger's
+        // run settings are one - must not be given a choice between one thing
+        // and nothing.
+        {
+            GlobalOrProjectAspect bare;
+            const auto bareByName = [&bare](const QString &name) -> BaseAspect * {
+                for (BaseAspect * const sub : bare.aspects()) {
+                    if (sub->qmlName() == name)
+                        return sub;
+                }
+                return nullptr;
+            };
+            BaseAspect * const offered = bareByName("UseGlobalSettings");
+            QVERIFY(offered);
+            QVERIFY2(!offered->isVisible(),
+                     "a setting with no global values offers to use them anyway");
+            QVERIFY(!bareByName("RestoreGlobal")->isVisible());
+        }
 
         // And the check box is the same choice, not a second one beside it.
         useGlobal->setVariantValue(true);
