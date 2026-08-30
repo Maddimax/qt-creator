@@ -19106,3 +19106,35 @@ pointer ordering, so it can change between builds.
 editable part) and the debugger's log (editable throughout). Both want the Qt
 Quick text editor that already exists and is unfinished. That is the next piece
 of work and it is not this plan's.
+
+### What a console row is, said out loud
+
+The debugger console, first part, on the recipe the Test Results tree
+established: before anything is drawn, the model has to be able to say what a
+row *is*.
+
+`ConsoleItem` already had `TypeRole`, `FileRole`, `LineRole` and
+`ExpressionRole` - it was closer to ready than any other pane in this work. What
+it did not have was a name for any of them, or an answer for what a row **looks
+like**: `ConsoleItemDelegate::paint()` read the type and switched on it for a
+colour and an icon, every time it drew. Both are `ConsoleItem::colorForType()`
+and `iconForType()` now, answered through `TextColorRole` and
+`Qt::DecorationRole`, and named along with the rest.
+
+**The decision worth having written down** is the one the switch's `default`
+made silently: three kinds of message get a colour *and* an icon, and a plain
+result gets neither - it is an answer, not a message about one. A control that
+gives it the info icon fails, and that is a distinction nobody would have
+noticed losing.
+
+**Asking a second column is answered with nothing**, deliberately: this tree has
+one column, and `data(1, ...)` returning an empty string rather than an invalid
+variant is how a delegate quietly draws a blank.
+
+Four controls, all biting: the roles unnamed; a row answering no colour; a
+warning written like an error; a plain result marked as a message.
+
+Next for this pane, in order: the QML row, then the pane - a `Utils::TreeView`
+with a 295-line delegate, which is the shape already done twice. `ConsoleEdit`,
+the `QTextEdit` for typing JavaScript into a row, stays on the widget path: it
+is the same blocker as the debugger log.

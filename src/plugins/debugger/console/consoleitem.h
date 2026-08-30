@@ -5,6 +5,10 @@
 
 #include <utils/treemodel.h>
 
+#include <QIcon>
+
+#include <QColor>
+
 namespace Debugger::Internal {
 
 class ConsoleItem : public Utils::TreeItem
@@ -14,7 +18,11 @@ public:
         TypeRole = Qt::UserRole,
         FileRole,
         LineRole,
-        ExpressionRole
+        ExpressionRole,
+        // What the row is written in. The delegate worked this out from the
+        // type while painting, which is why it had no name and nothing else
+        // could ask for it.
+        TextColorRole
     };
 
     enum ItemType
@@ -32,6 +40,9 @@ public:
                 const QString &file = QString(), int line = -1);
     ConsoleItem(ItemType itemType, const QString &expression,
                 std::function<void(ConsoleItem *)> doFetch);
+
+    static QColor colorForType(ItemType type);
+    static QIcon iconForType(ItemType type);
 
     ItemType itemType() const;
     QString expression() const;

@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "consoleitem.h"
+#include <utils/utilsicons.h>
+#include <utils/theme/theme.h>
 
 namespace Debugger::Internal {
 
@@ -53,6 +55,40 @@ Qt::ItemFlags ConsoleItem::flags(int) const
     return f;
 }
 
+// A row says which kind of message it is; these say what that looks like.
+// Both were inside the delegate's paint(), read off the type each time it drew.
+QColor ConsoleItem::colorForType(ItemType type)
+{
+    switch (type) {
+    case ConsoleItem::DebugType:
+        return Utils::creatorColor(Utils::Theme::OutputPanes_NormalMessageTextColor);
+    case ConsoleItem::WarningType:
+        return Utils::creatorColor(Utils::Theme::OutputPanes_WarningMessageTextColor);
+    case ConsoleItem::ErrorType:
+        return Utils::creatorColor(Utils::Theme::OutputPanes_ErrorMessageTextColor);
+    default:
+        return Utils::creatorColor(Utils::Theme::TextColorNormal);
+    }
+}
+
+QIcon ConsoleItem::iconForType(ItemType type)
+{
+    switch (type) {
+    case ConsoleItem::DebugType:
+        return Utils::Icons::INFO.icon();
+    case ConsoleItem::WarningType:
+        return Utils::Icons::WARNING.icon();
+    case ConsoleItem::ErrorType:
+        return Utils::Icons::CRITICAL.icon();
+    case ConsoleItem::InputType:
+        return Utils::Icon({{":/utils/images/next.png",
+                             Utils::Theme::TextColorNormal}}, Utils::Icon::Tint).icon();
+    default:
+        // A plain result is not a kind of message, so it is not marked as one.
+        return {};
+    }
+}
+
 QVariant ConsoleItem::data(int column, int role) const
 {
     if (column != 0)
@@ -68,6 +104,10 @@ QVariant ConsoleItem::data(int column, int role) const
         return m_line;
     case ExpressionRole:
         return expression();
+    case TextColorRole:
+        return colorForType(m_itemType);
+    case Qt::DecorationRole:
+        return iconForType(m_itemType);
     case Qt::DisplayRole:
         return m_text;
     default:

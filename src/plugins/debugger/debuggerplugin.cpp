@@ -20,6 +20,7 @@
 #include "debuggertr.h"
 #include "enginemanager.h"
 #include "loadcoredialog.h"
+#include "console/consoleitemmodel.h"
 #include "logwindow.h"
 #include "mcpsupport.h"
 #include "remotedebuggerconfiguration.h"
@@ -2155,6 +2156,7 @@ Result<> DebuggerPlugin::initialize(const QStringList &arguments)
     addTestCreator(createDebuggerRunSettingsTest);
     addTestCreator(createDebuggerTest);
     addTestCreator(createLogWindowTest);
+    addTestCreator(createConsoleItemModelTest);
     addTestCreator(createSourcePathMapTest);
     addTestCreator(createCdbPathsTest);
     addTestCreator(Debugger::createDebuggersSettingsTest);
