@@ -14,11 +14,6 @@
 
 #include <QDebug>
 
-QT_BEGIN_NAMESPACE
-class QLabel;
-class QListWidget;
-QT_END_NAMESPACE
-
 namespace ProjectExplorer { class Abi; }
 
 namespace QtSupport { class QtVersion; }
@@ -117,6 +112,10 @@ public:
     Utils::SelectionAspect buildType{this};
     ProjectExplorer::ArgumentsAspect userArguments{this};
     Utils::StringAspect effectiveCall{this};
+    // Which of the Qt version's ABIs to build for. Owns what is selected: it
+    // used to live in the check states of a QListWidget the config widget
+    // built, so nothing knew it until someone opened the step.
+    Utils::MultiSelectionAspect abis{this};
 
 protected:
     void fromMap(const Utils::Store &map) override;
@@ -138,7 +137,7 @@ private:
 
     void recompileMessageBoxFinished(int button);
 
-    void updateAbiWidgets();
+    void updateAbis();
     void updateEffectiveQMakeCall();
 
     Utils::CommandLine m_qmakeCommand;
@@ -155,13 +154,9 @@ private:
 
     bool m_runMakeQmake = false;
     bool m_scriptTemplate = false;
-    QStringList m_selectedAbis;
     Utils::OutputFormatter *m_outputFormatter = nullptr;
 
     Utils::Guard m_ignoreChanges;
-
-    QLabel *abisLabel = nullptr;
-    QListWidget *abisListWidget = nullptr;
 };
 
 } // namespace QmakeProjectManager
