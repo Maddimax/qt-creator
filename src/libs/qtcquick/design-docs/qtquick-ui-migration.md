@@ -17712,3 +17712,30 @@ built on the assumption.
 What this leaves for the output window is ordinary work rather than an open
 question: a Quick view showing the document, the zoom and base font on it, and
 the links, which are the formatter's and already carried in the document.
+
+### But the filter cannot come across as it is
+
+Handing the formatter's document to a Qt Quick view works. **Filtering it does
+not.** An output pane hides lines by walking the document and calling
+`QTextBlock::setVisible(false)` - which is honoured by `QPlainTextEdit`, whose
+layout is a `QPlainTextDocumentLayout` and knows to skip them. A Quick
+`TextArea` uses the ordinary `QTextDocumentLayout`, and ignores it: hiding the
+middle of three lines leaves the content height at 56 pixels, exactly what it
+was.
+
+So the two extractions of the filter arithmetic are still worth having - the
+decision of *which* lines to show is unchanged - but the *mechanism* has to be
+something else. What a Quick view can be given is a document; so filtering
+means giving it a different document, built from the lines that pass, rather
+than one document with parts of it switched off.
+
+That is the thing to design before writing the view, and it is not free: the
+formatter appends to the source document continuously, so the filtered one has
+to be maintained alongside it rather than rebuilt on every chunk.
+
+**How the test avoids being vacuous**, which matters because it asserts that
+something did *not* happen: it first proves the measurement moves. A fourth
+line is appended and the height must grow before the "hiding changed nothing"
+assertion is allowed to mean anything. Without that, the assertion would pass
+just as happily if the view never relaid out at all - and the control confirms
+it: removing the line for real, rather than hiding it, fails the test.

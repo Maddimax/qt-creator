@@ -347,6 +347,7 @@ private slots:
     void testAnEnvironmentEditorDrawsItsTableAndItsButtons();
     void testANestedContainerIsDrawnWithTheQmlItNames();
     void testFormattedOutputCanBeDrawnByQtQuick();
+    void testHidingALineIsNotHowAQuickViewFilters();
     void testAFieldOffersWhatWasTypedIntoItBefore();
     void testBrowsingStartsWhereThePathAlreadyPointsTo();
     void testALabelSaysTheValueItCannotShowInFull();
@@ -10035,6 +10036,64 @@ void QuickUiTest::testFormattedOutputCanBeDrawnByQtQuick()
     formatter.flush();
     QVERIFY2(object->property("text").toString().contains("and one more"),
              "the view stopped following the document it was given");
+}
+
+void QuickUiTest::testHidingALineIsNotHowAQuickViewFilters()
+{
+    // An output pane filters by hiding text blocks: filterNewContent() walks
+    // the document calling QTextBlock::setVisible(). That is honoured by
+    // QPlainTextEdit, whose layout is a QPlainTextDocumentLayout and knows to
+    // skip them. Whether a Qt Quick view does is what decides how the six
+    // text-stream panes can filter at all, so it is asked here rather than
+    // assumed.
+    QTextDocument document;
+    document.setPlainText("first line\nsecond line\nthird line");
+    QCOMPARE(document.blockCount(), 3);
+
+    QQmlComponent component(QtcQuick::engine());
+    component.setData(R"(
+        import QtQuick.Controls
+        TextArea { readOnly: true; width: 400 }
+    )", QUrl());
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    const std::unique_ptr<QObject> object(component.create());
+    QVERIFY(object);
+    auto * const area = qobject_cast<QQuickItem *>(object.get());
+    QVERIFY(area);
+
+    auto * const quickDocument = object->property("textDocument").value<QQuickTextDocument *>();
+    QVERIFY(quickDocument);
+    quickDocument->setTextDocument(&document);
+
+    const std::unique_ptr<QQuickWidget> host(new QQuickWidget);
+    area->setParentItem(host->quickWindow()->contentItem());
+    host->resize(400, 300);
+    host->show();
+
+    QTRY_VERIFY(object->property("contentHeight").toReal() > 0);
+    const qreal allThree = object->property("contentHeight").toReal();
+
+    // Hide the middle one, the way the filter does.
+    document.findBlockByNumber(1).setVisible(false);
+    document.markContentsDirty(0, document.characterCount());
+    QCoreApplication::processEvents();
+
+    const qreal withOneHidden = object->property("contentHeight").toReal();
+
+    // Before concluding anything from a height that did not move: show that it
+    // moves at all. A measurement that never changes proves nothing by
+    // staying put, and this one is read one line after the change that is
+    // supposed to shrink it.
+    document.setPlainText("first line\nsecond line\nthird line\nfourth line");
+    QTRY_VERIFY2(object->property("contentHeight").toReal() > allThree,
+                 "the height does not follow the document at all, so what it says about "
+                 "a hidden line means nothing");
+
+    qInfo() << "content height with three lines:" << allThree
+            << "with the middle one hidden:" << withOneHidden;
+    QVERIFY2(qFuzzyCompare(allThree, withOneHidden),
+             "a Qt Quick view honours QTextBlock::setVisible after all - if this fails, "
+             "the output panes can keep filtering the way they do now");
 }
 
 void QuickUiTest::testAVariableBeingDefinedIsNotOfferedForItself()
