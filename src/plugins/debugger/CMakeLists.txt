@@ -171,6 +171,7 @@ if(TARGET Debugger)
     NO_PLUGIN
     QML_FILES
       ConsoleView.qml
+      DebuggerInput.qml
       DebuggerRunSettings.qml
       CdbOptionsPage.qml
       CdbPathsPage.qml

@@ -47,7 +47,6 @@ int commandTokenForLine(const QString &line);
 QTextBlock blockForResult(const QTextDocument *document, int token);
 
 class DebuggerEngine;
-class DebuggerPane;
 class InputPane;
 
 class LogWindow final : public QWidget

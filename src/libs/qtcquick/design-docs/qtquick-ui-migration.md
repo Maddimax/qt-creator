@@ -19428,3 +19428,58 @@ QuickUi 178 passed / 0 failed / 1 skipped, exit 0. Core exit 0. `LogWindowTest`
 the double-click asking `commandTokenForLine()` (extracted last batch), the
 `InputHighlighter` on `textDocument.textDocument`, and the `FancyLineEdit`
 command box beside it. Then `logwindow.cpp` holds no widget text editor.
+
+## 2026-08-30 — The log window's input side, and the end of DebuggerPane
+
+`InputPane` is a `QtcQuick::QuickWidget` over `DebuggerInput.qml` - a
+`TextArea` in a `ScrollView` - and with it `DebuggerPane`, the `QPlainTextEdit`
+both halves of this window were built on, is instantiated nowhere and is
+deleted. `logwindow.cpp` is 1154 lines from 779 + the two ports, and holds no
+widget text editor.
+
+**`Core::BaseTextFind` is a template over four methods, not over
+`QPlainTextEdit`.** `textCursor()`, `setTextCursor()`, `document()` and
+`isReadOnly()`, plus the widget to hang the bar on. A Qt Quick editor can
+answer all four:
+
+- `document()` is `TextArea.textDocument.textDocument` - a `QQuickTextDocument`
+  handle read back through a QML property, then its `QTextDocument`. That is
+  also what the `InputHighlighter` attaches to, so the colouring moves across
+  unchanged, exactly as it did for the transcript.
+- `textCursor()` is built on that document from the area's `cursorPosition` /
+  `selectionStart` / `selectionEnd`, and `setTextCursor()` goes back the other
+  way through `select(anchor, position)` - anchor first, so a match found
+  backwards is not turned around.
+
+`testTheInputPaneIsATextEditorAsFarAsFindIsConcerned` is the test worth having:
+it runs a real `findStep` and reads the selection back through the pane, which
+only passes if all four agree with each other. Any one of them wrong and it
+fails - which is what control B showed.
+
+**Appending is a cursor on the document, not a method on the view.** The text
+belongs to the document; the pane writes into it and the area follows. That is
+why `append()`, `clear()`, `toPlainText()`, `currentLine()` and the
+skip-the-echo cursor move all work with no view on screen, and why every test
+here but one needs no window.
+
+**What is still a widget in this window:** the command box beside the input -
+a `Utils::FancyLineEdit` with `setHistoryCompleter("DebuggerInput")`, a
+"Command:" label and the repeat button. Deliberately left: the Quick side of a
+history-completing field is `Utils::CompletionHistory` plus `CompletionPopup`
+(what `StringDelegate.qml` uses), so it is a small new component rather than a
+line of wiring, and it is a second unit of work.
+
+Negative controls, all four bit, each on its own test: Ctrl+Return no longer
+special in the QML; `setTextCursor()` not reaching the editor; the
+`InputHighlighter` not attached; and the double-click reading the first line
+instead of the one clicked. The Ctrl+Return test also asserts that plain Return
+does *not* run the line, so a handler that fired on any key would fail it.
+
+No `.qbs` edit: `debugger.qbs` lists `*.qml` by wildcard, so a new QML file is
+already covered. `Debugger_qmllint` clean.
+
+QuickUi 178 passed / 0 failed / 1 skipped, exit 0. `LogWindowTest` 16 passed.
+`Debugger` exits 1 on the pre-existing `DebuggerUnitTests::testStateMachine`.
+
+**Next:** the command box, and then this window is done. After that the plan
+has no named pane left - see the note below when that happens.

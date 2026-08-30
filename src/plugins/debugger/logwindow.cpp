@@ -14,6 +14,9 @@
 #ifdef WITH_TESTS
 #include <QTest>
 #endif
+#include <QQuickItem>
+#include <QQuickWidget>
+#include <QSignalSpy>
 #include <QTextLayout>
 #include <QTime>
 
@@ -22,8 +25,8 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMenu>
-#include <QPlainTextEdit>
 #include <QPushButton>
+#include <QQuickTextDocument>
 #include <QSyntaxHighlighter>
 #include <QToolButton>
 
@@ -32,12 +35,16 @@
 #include <coreplugin/minisplitter.h>
 #include <coreplugin/outputpaneview.h>
 #include <coreplugin/outputview.h>
+
+#include <qtcquick/qtcquickwidget.h>
 #include <coreplugin/find/basetextfind.h>
+#include <coreplugin/find/ifindsupport.h>
 
 #include <utils/filedialogs.h>
 #include <utils/aggregate.h>
 #include <utils/fancylineedit.h>
 #include <utils/fileutils.h>
+#include <utils/qtcassert.h>
 #include <utils/theme/theme.h>
 
 using namespace Utils;
@@ -154,21 +161,6 @@ int commandTokenForLine(const QString &line)
     return n;
 }
 
-static bool writeLogContents(const QPlainTextEdit *editor)
-{
-    bool success = false;
-    while (!success) {
-        const FilePath filePath = FileUtils::getSaveFilePath(Tr::tr("Log File"));
-        if (filePath.isEmpty())
-            break;
-        FileSaver saver(filePath, QIODevice::Text);
-        saver.write(editor->toPlainText().toUtf8());
-        if (saver.finalize())
-            success = true;
-    }
-    return success;
-}
-
 /////////////////////////////////////////////////////////////////////
 //
 // OutputHighlighter
@@ -237,91 +229,120 @@ private:
 //
 /////////////////////////////////////////////////////////////////////
 
-class DebuggerPane : public QPlainTextEdit
+class InputPane : public QtcQuick::QuickWidget
 {
+    Q_OBJECT
+
 public:
-    explicit DebuggerPane()
+    InputPane()
     {
-        setFrameStyle(QFrame::NoFrame);
-        setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::MinimumExpanding);
+        setSource(QUrl("qrc:/qt/qml/QtCreator/Debugger/DebuggerInput.qml"));
 
-        m_clearContentsAction = new QAction(this);
-        m_clearContentsAction->setText(Tr::tr("Clear Contents"));
-        m_clearContentsAction->setEnabled(true);
+        QObject * const root = rootObject();
+        QTC_ASSERT(root, return);
+        connect(root, SIGNAL(executeLineRequested()), this, SIGNAL(executeLineRequested()));
+        connect(root, SIGNAL(clearRequested()), this, SIGNAL(clearContentsRequested()));
+        connect(root, SIGNAL(doubleClickedAt(int)), this, SLOT(onDoubleClickedAt(int)));
+        connect(root, SIGNAL(focusMoved(bool)), this, SLOT(onFocusMoved(bool)));
 
-        m_saveContentsAction = new QAction(this);
-        m_saveContentsAction->setText(Tr::tr("Save Contents"));
-        m_saveContentsAction->setEnabled(true);
-        connect(m_saveContentsAction, &QAction::triggered,
-                this, &DebuggerPane::saveContents);
+        (void) new InputHighlighter(document());
     }
 
-    void contextMenuEvent(QContextMenuEvent *ev) override
+    // The four things Core::BaseTextFind asks of an editor. None of them needs
+    // the editor to be a QPlainTextEdit, which is why find comes across.
+    QTextDocument *document() const
     {
-        QMenu *menu = createStandardContextMenu();
-        menu->setAttribute(Qt::WA_DeleteOnClose);
-        menu->addAction(m_clearContentsAction);
-        menu->addAction(m_saveContentsAction); // X11 clipboard is unreliable for long texts
-        menu->addAction(settings().logTimeStamps.action());
-        menu->addAction(Core::ActionManager::command(Constants::RELOAD_DEBUGGING_HELPERS)->action());
-        menu->addSeparator();
-        menu->addAction(settings().settingsDialog.action());
-        menu->exec(ev->globalPos());
+        QObject * const root = rootObject();
+        QTC_ASSERT(root, return nullptr);
+        auto * const handle = root->property("editorDocument").value<QQuickTextDocument *>();
+        QTC_ASSERT(handle, return nullptr);
+        return handle->textDocument();
     }
+
+    QTextCursor textCursor() const
+    {
+        QTextDocument * const doc = document();
+        QTC_ASSERT(doc, return {});
+
+        QObject * const root = rootObject();
+        QTextCursor cursor(doc);
+        const int start = root->property("selectionStart").toInt();
+        const int end = root->property("selectionEnd").toInt();
+        if (start != end) {
+            cursor.setPosition(start);
+            cursor.setPosition(end, QTextCursor::KeepAnchor);
+        } else {
+            cursor.setPosition(root->property("cursorPosition").toInt());
+        }
+        return cursor;
+    }
+
+    void setTextCursor(const QTextCursor &cursor)
+    {
+        QObject * const root = rootObject();
+        QTC_ASSERT(root, return);
+        if (cursor.hasSelection()) {
+            // Told as anchor-then-position, so a match found backwards leaves
+            // the cursor at its start rather than being turned around.
+            QMetaObject::invokeMethod(root, "select", Q_ARG(int, cursor.anchor()),
+                                      Q_ARG(int, cursor.position()));
+        } else {
+            QMetaObject::invokeMethod(root, "moveCursorTo",
+                                      Q_ARG(int, cursor.position()));
+        }
+    }
+
+    bool isReadOnly() const { return false; }
 
     void append(const QString &text)
     {
-        const int N = 100000;
-        const int bc = blockCount();
-        if (bc > N) {
-            QTextDocument *doc = document();
-            QTextBlock block = doc->findBlockByLineNumber(bc * 9 / 10);
-            QTextCursor tc(block);
-            tc.movePosition(QTextCursor::Start, QTextCursor::KeepAnchor);
-            tc.removeSelectedText();
-            // Seems to be the only way to force shrinking of the
-            // allocated data.
-            QString contents = doc->toHtml();
+        QTextDocument * const doc = document();
+        QTC_ASSERT(doc, return);
+        QTextCursor cursor(doc);
+        cursor.movePosition(QTextCursor::End);
+        if (!doc->isEmpty())
+            cursor.insertBlock();
+        cursor.insertText(text);
+    }
+
+    void clear()
+    {
+        if (QTextDocument * const doc = document())
             doc->clear();
-            doc->setHtml(contents);
-        }
-        appendPlainText(text);
+    }
+
+    QString toPlainText() const
+    {
+        QTextDocument * const doc = document();
+        return doc ? doc->toPlainText() : QString();
+    }
+
+    // The line the cursor is on, which is what Ctrl+Return runs.
+    QString currentLine() const { return textCursor().block().text(); }
+
+    void moveToEnd()
+    {
+        QTextDocument * const doc = document();
+        QTC_ASSERT(doc, return);
+        QTextCursor cursor(doc);
+        cursor.movePosition(QTextCursor::End);
+        setTextCursor(cursor);
+    }
+
+    // Where the cursor goes when the debugger echoes back the command that was
+    // just run: past it, ready for the next one.
+    void moveToEndOfNextLine()
+    {
+        QTextCursor cursor = textCursor();
+        cursor.movePosition(QTextCursor::Down);
+        cursor.movePosition(QTextCursor::EndOfLine);
+        setTextCursor(cursor);
     }
 
     void clearUndoRedoStacks()
     {
-        if (!isUndoRedoEnabled())
-            return;
-        setUndoRedoEnabled(false);
-        setUndoRedoEnabled(true);
-    }
-
-    QAction *clearContentsAction() const { return m_clearContentsAction; }
-
-private:
-    void saveContents() { writeLogContents(this); }
-
-    QAction *m_clearContentsAction;
-    QAction *m_saveContentsAction;
-};
-
-
-
-/////////////////////////////////////////////////////////////////////
-//
-// InputPane
-//
-/////////////////////////////////////////////////////////////////////
-
-class InputPane : public DebuggerPane
-{
-    Q_OBJECT
-public:
-    InputPane(LogWindow *logWindow)
-    {
-        connect(clearContentsAction(), &QAction::triggered,
-                logWindow, &LogWindow::clearContents);
-        (void) new InputHighlighter(document());
+        if (QTextDocument * const doc = document())
+            doc->clearUndoRedoStacks();
     }
 
 signals:
@@ -330,66 +351,24 @@ signals:
     void statusMessageRequested(const QString &, int);
     void commandSelected(int);
 
-private:
-    void keyPressEvent(QKeyEvent *ev) override
+private slots:
+    void onDoubleClickedAt(int position)
     {
-        if (ev->modifiers() == Qt::ControlModifier && ev->key() == Qt::Key_Return)
-            emit executeLineRequested();
-        else if (ev->modifiers() == Qt::ControlModifier && ev->key() == Qt::Key_R)
-            emit clearContentsRequested();
-        else
-            QPlainTextEdit::keyPressEvent(ev);
+        QTextDocument * const doc = document();
+        QTC_ASSERT(doc, return);
+        emit commandSelected(commandTokenForLine(doc->findBlock(position).text()));
     }
 
-    void mouseDoubleClickEvent(QMouseEvent *ev) override
-    {
-        emit commandSelected(
-            commandTokenForLine(cursorForPosition(ev->pos()).block().text()));
-    }
-
-    void focusInEvent(QFocusEvent *ev) override
+    void onFocusMoved(bool focused)
     {
         emit statusMessageRequested(
-            Tr::tr("Press %1 to execute a line.")
-                .arg(QKeySequence("Ctrl+Return").toString(QKeySequence::NativeText)),
+            focused ? Tr::tr("Press %1 to execute a line.")
+                          .arg(QKeySequence("Ctrl+Return").toString(QKeySequence::NativeText))
+                    : QString(),
             -1);
-        QPlainTextEdit::focusInEvent(ev);
-    }
-
-    void focusOutEvent(QFocusEvent *ev) override
-    {
-        emit statusMessageRequested(QString(), -1);
-        QPlainTextEdit::focusOutEvent(ev);
     }
 };
 
-
-/////////////////////////////////////////////////////////////////////
-//
-// CombinedPane
-//
-/////////////////////////////////////////////////////////////////////
-
-// The debugger writes an answer three ways - "42^done", ">42^done" when it is
-// echoing, and dtoken("42")@ - and the line has to *start* with one of them:
-// those digits turn up in the middle of other lines constantly, and a search
-// that took the first one it saw would land on an unrelated line.
-QTextBlock blockForResult(const QTextDocument *document, int token)
-{
-    if (!document)
-        return {};
-
-    const QString needle = QString::number(token) + '^';
-    const QString echoed = '>' + needle;
-    const QString dtoken = QString("dtoken(\"%1\")@").arg(token);
-
-    for (QTextBlock block = document->firstBlock(); block.isValid(); block = block.next()) {
-        const QString line = block.text();
-        if (line.startsWith(needle) || line.startsWith(echoed) || line.startsWith(dtoken))
-            return block;
-    }
-    return {};
-}
 
 // Asked for when the menu is about to open rather than built once: the view a
 // pane draws on does not exist until a Qt Quick front end has loaded, and both
@@ -418,6 +397,27 @@ static void offerLogContextMenu(Core::OutputPaneView *pane,
                                      Constants::RELOAD_DEBUGGING_HELPERS)->action(),
                                  nullptr,
                                  settings().settingsDialog.action()});
+}
+
+// The debugger writes an answer three ways - "42^done", ">42^done" when it is
+// echoing, and dtoken("42")@ - and the line has to *start* with one of them:
+// those digits turn up in the middle of other lines constantly, and a search
+// that took the first one it saw would land on an unrelated line.
+QTextBlock blockForResult(const QTextDocument *document, int token)
+{
+    if (!document)
+        return {};
+
+    const QString needle = QString::number(token) + '^';
+    const QString echoed = '>' + needle;
+    const QString dtoken = QString("dtoken(\"%1\")@").arg(token);
+
+    for (QTextBlock block = document->firstBlock(); block.isValid(); block = block.next()) {
+        const QString line = block.text();
+        if (line.startsWith(needle) || line.startsWith(echoed) || line.startsWith(dtoken))
+            return block;
+    }
+    return {};
 }
 
 // The answer to command \a token, selected from its start down to the start of
@@ -463,8 +463,9 @@ LogWindow::LogWindow(DebuggerEngine *engine)
             this, [this] { offerLogContextMenu(m_combinedText, [this] { clearContents(); }); });
 
     // Input only.
-    m_inputText = new InputPane(this);
-    m_inputText->setReadOnly(false);
+    m_inputText = new InputPane;
+    connect(m_inputText, &InputPane::clearContentsRequested,
+            this, &LogWindow::clearContents);
 
     m_commandEdit = new Utils::FancyLineEdit(this);
     m_commandEdit->setFrame(false);
@@ -546,7 +547,7 @@ LogWindow::~LogWindow()
 void LogWindow::executeLine()
 {
     m_ignoreNextInputEcho = true;
-    m_engine->executeDebuggerCommand(m_inputText->textCursor().block().text());
+    m_engine->executeDebuggerCommand(m_inputText->currentLine());
 }
 
 void LogWindow::repeatLastCommand()
@@ -611,19 +612,13 @@ void LogWindow::showInput(int channel, const QString &input)
     Q_UNUSED(channel)
     if (m_ignoreNextInputEcho) {
         m_ignoreNextInputEcho = false;
-        QTextCursor cursor = m_inputText->textCursor();
-        cursor.movePosition(QTextCursor::Down);
-        cursor.movePosition(QTextCursor::EndOfLine);
-        m_inputText->setTextCursor(cursor);
+        m_inputText->moveToEndOfNextLine();
         return;
     }
     if (settings().logTimeStamps())
         m_inputText->append(logTimeStamp());
     m_inputText->append(input);
-    QTextCursor cursor = m_inputText->textCursor();
-    cursor.movePosition(QTextCursor::End);
-    m_inputText->setTextCursor(cursor);
-    m_inputText->ensureCursorVisible();
+    m_inputText->moveToEnd();
 
     theGlobalLog->doInput(input);
 }
@@ -637,7 +632,6 @@ void LogWindow::clearContents()
 
 void LogWindow::setCursor(const QCursor &cursor)
 {
-    m_inputText->viewport()->setCursor(cursor);
     QWidget::setCursor(cursor);
 }
 
@@ -1026,6 +1020,125 @@ private slots:
                      "the transcript jumped to the wrong command");
         }
         theGlobalLog = running;
+    }
+
+    void testTheInputPaneIsATextEditorAsFarAsFindIsConcerned()
+    {
+        // Core::BaseTextFind asks an editor for a cursor, a document, whether
+        // it is read-only, and a widget. Answering those four is the whole of
+        // what makes Ctrl+F work here, and none of them needs a QPlainTextEdit
+        // - so this test is what says the four agree with each other.
+        InputPane pane;
+        QVERIFY2(pane.document(), "the Qt Quick editor handed out no document");
+
+        pane.append("first line");
+        pane.append("a needle in here");
+        pane.append("third line");
+        QCOMPARE(pane.toPlainText(), QString("first line\na needle in here\nthird line"));
+
+        Core::BaseTextFind find(&pane);
+        QCOMPARE(find.findStep("needle", {}), Core::IFindSupport::Found);
+
+        // Found means selected, and the selection is what the pane reports
+        // back - which is the round trip through the QML that the four
+        // methods make.
+        QCOMPARE(pane.textCursor().selectedText(), QString("needle"));
+        QCOMPARE(pane.currentLine(), QString("a needle in here"));
+
+        QCOMPARE(find.findStep("nothing here", {}), Core::IFindSupport::NotFound);
+    }
+
+    void testWhatCtrlReturnRunsAndWhatCtrlRClears()
+    {
+        InputPane pane;
+        pane.resize(400, 200);
+        pane.show();
+
+        pane.append("first command");
+        pane.append("second command");
+
+        auto * const root = qobject_cast<QQuickItem *>(pane.rootObject());
+        QVERIFY(root);
+        QQuickItem * const area = root->findChild<QQuickItem *>("input");
+        QVERIFY(area);
+        QVERIFY(QMetaObject::invokeMethod(area, "forceActiveFocus"));
+        QTRY_VERIFY(area->hasActiveFocus());
+
+        // The line the cursor is on, not the last one and not all of it.
+        QTextCursor onFirst(pane.document());
+        onFirst.movePosition(QTextCursor::Start);
+        pane.setTextCursor(onFirst);
+        QCOMPARE(pane.currentLine(), QString("first command"));
+
+        QSignalSpy executed(&pane, &InputPane::executeLineRequested);
+        QTest::keyClick(pane.quickWidget(), Qt::Key_Return, Qt::ControlModifier);
+        QTRY_COMPARE(executed.count(), 1);
+
+        // Plain Return is typing, not running.
+        QTest::keyClick(pane.quickWidget(), Qt::Key_Return);
+        QCOMPARE(executed.count(), 1);
+
+        QSignalSpy cleared(&pane, &InputPane::clearContentsRequested);
+        QTest::keyClick(pane.quickWidget(), Qt::Key_R, Qt::ControlModifier);
+        QTRY_COMPARE(cleared.count(), 1);
+    }
+
+    void testDoubleClickingALineAsksWhichCommandItIs()
+    {
+        // The view says where in the text the click was; which command that
+        // is, is the transcript's question and is answered in C++.
+        InputPane pane;
+        pane.append("41^first");
+        pane.append("42^second");
+
+        QSignalSpy picked(&pane, &InputPane::commandSelected);
+
+        const QTextBlock second = pane.document()->findBlockByNumber(1);
+        QVERIFY(second.isValid());
+        QMetaObject::invokeMethod(pane.rootObject(), "doubleClickedAt",
+                                  Q_ARG(int, second.position() + 3));
+        QTRY_COMPARE(picked.count(), 1);
+        QCOMPARE(picked.first().first().toInt(), 42);
+
+        // A line that names no command still answers, rather than the click
+        // being ignored on a line that happens to be prose.
+        pane.append("not a command");
+        QMetaObject::invokeMethod(pane.rootObject(), "doubleClickedAt",
+                                  Q_ARG(int, pane.document()->findBlockByNumber(2).position()));
+        QTRY_COMPARE(picked.count(), 2);
+        QCOMPARE(picked.at(1).first().toInt(), 0);
+    }
+
+    void testTheCursorMovesPastACommandTheDebuggerEchoesBack()
+    {
+        // Running a line makes the debugger echo it, and the pane skips over
+        // the echo so the next command is typed under it rather than into it.
+        InputPane pane;
+        pane.append("first");
+        pane.append("second");
+
+        QTextCursor onFirst(pane.document());
+        onFirst.movePosition(QTextCursor::Start);
+        pane.setTextCursor(onFirst);
+
+        pane.moveToEndOfNextLine();
+        QCOMPARE(pane.currentLine(), QString("second"));
+        QCOMPARE(pane.textCursor().positionInBlock(), int(QString("second").size()));
+    }
+
+    void testTheTimeStampOnAnInputLineIsColoured()
+    {
+        // The input side has a highlighter too, and it has moved from a
+        // QPlainTextEdit's document to a Qt Quick text area's.
+        InputPane pane;
+        pane.append("12:00:00.000 [5ms]");
+
+        QTextDocument * const document = pane.document();
+        QTRY_VERIFY(!document->firstBlock().layout()->formats().isEmpty());
+
+        const QList<QTextLayout::FormatRange> formats
+            = document->firstBlock().layout()->formats();
+        QCOMPARE(formats.first().format.foreground().color(), colorForChannel(LogTime));
     }
 };
 
