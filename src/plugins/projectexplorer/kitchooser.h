@@ -16,6 +16,31 @@ QT_END_NAMESPACE
 
 namespace ProjectExplorer {
 
+// One entry a kit chooser offers.
+struct KitChoice
+{
+    Utils::Id kitId;
+    QString displayName;
+    QString toolTip;
+    // The active project's kit, which is offered first and named as such so it
+    // can be told from the same kit appearing again in the sorted list.
+    bool isActiveProjectKit = false;
+};
+
+// What a chooser offers, out of \a sortedKits and the active project's kit,
+// keeping only what \a predicate accepts.
+//
+// Kept out of the chooser because it is a question about a set of kits, and
+// there the only way to ask it was to build a combo box and read it back.
+PROJECTEXPLORER_EXPORT QList<KitChoice> kitChoices(const QList<Kit *> &sortedKits,
+                                                   Kit *activeProjectKit,
+                                                   const Kit::Predicate &predicate);
+
+// Which entry to open on: the one chosen last, and failing that the active
+// project's kit. -1 when there is nothing to open on at all.
+PROJECTEXPLORER_EXPORT int initialKitChoice(const QList<KitChoice> &choices,
+                                            Utils::Id lastChosen);
+
 // Let the user pick a kit.
 class PROJECTEXPLORER_EXPORT KitChooser : public QWidget
 {
@@ -57,5 +82,9 @@ private:
     bool m_hasStartupKit = false;
     bool m_showIcons = false;
 };
+
+#ifdef WITH_TESTS
+QObject *createKitChooserTest();
+#endif
 
 } // namespace ProjectExplorer

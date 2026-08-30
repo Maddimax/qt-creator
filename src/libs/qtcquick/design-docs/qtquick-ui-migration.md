@@ -20628,3 +20628,50 @@ left is roughly thirty table-shaped, fifteen read-only reports, fourteen text
 fields - all routine - and twenty-five that each want a component of their own,
 which is the only part still needing thought and should be scoped one dialog at
 a time rather than as a group.
+
+## 2026-08-30 — KitChooser is nine of the twenty-seven
+
+Scoping the group that "each want a component of their own", one dialog at a
+time, turns up something better than a dialog: **`KitChooser` accounts for nine
+of the twenty-seven**, across Debugger (5), ProjectExplorer (2), Profiler and
+Valgrind. Nothing else in the group appears more than three times. So the
+component worth building is not any of those dialogs - it is the chooser, and
+this batch takes the decisions out of it so that building it is mechanical.
+
+`KitChooser::populate()` held five, none of them askable without a combo box
+and a set of kits:
+
+- **Which kits are offered** - those the dialog's predicate accepts.
+- **The active project's kit comes first**, named "Kit of Active Project: X" so
+  it can be told from the same kit appearing again in the sorted list below.
+- **It is not exempt from the predicate**: a dialog that cannot use that kit
+  must not be offered it.
+- **What it opens on** - the kit chosen last, and failing that the first entry.
+- **The active project's entry is never what "last chosen" names.** It is
+  remembered as an *invalid* id on purpose, so that it follows the project
+  rather than a kit; matching it by kit id would make "last chosen" stick to
+  whichever kit the project happened to have.
+
+Those are `kitChoices()` and `initialKitChoice()` now, and `populate()` is
+twenty lines that fill a combo box from them.
+
+**One bug fixed on the way.** `m_hasStartupKit` was only ever set to true and
+never back to false, so a chooser that repopulated after the active project
+changed to one whose kit the predicate refuses would keep treating its first
+entry as the startup kit - and `onActivated()` would store an invalid id for an
+ordinary kit. `populate()` resets it now.
+
+Negative controls: the active project's kit offered although the predicate
+refuses it; its entry matched by kit id; a kit that is gone leaving nothing
+chosen; and the active project's kit offered without saying which kit it is.
+All four bit.
+
+QuickUi 182 passed / 0 failed / 1 skipped, exit 0. `KitChooserTest` 5 passed;
+`ProjectExplorer` exits 2 on two of its three standing failures. No `.qbs`
+edit.
+
+**Next:** the Quick chooser itself - a `SelectionAspect` filled from
+`kitChoices()`, with the kit id as item data and `initialKitChoice()` picking
+the row. Its behaviour is now pinned by tests, so the aspect can be written
+against them rather than against a widget. After that the nine dialogs are
+routine.
