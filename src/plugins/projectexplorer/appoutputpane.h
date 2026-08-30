@@ -16,7 +16,6 @@ class QAction;
 class QPoint;
 QT_END_NAMESPACE
 
-namespace Core { class OutputWindow; }
 
 namespace ProjectExplorer {
 

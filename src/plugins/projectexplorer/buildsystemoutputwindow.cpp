@@ -165,8 +165,8 @@ void BuildSystemOutputWindow::updateFilter()
     if (!m_filterOutputLineEdit)
         return;
 
-    using Flag = OutputWindow::FilterModeFlag;
-    OutputWindow::FilterModeFlags mode;
+    using Flag = Core::OutputText::FilterModeFlag;
+    Core::OutputText::FilterModeFlags mode;
     if (m_filterActionRegexp.isChecked())
         mode |= Flag::RegExp;
     if (m_filterActionCaseSensitive.isChecked())

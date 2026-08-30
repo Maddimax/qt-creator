@@ -21,7 +21,6 @@
 #include <coreplugin/icore.h>
 #include <coreplugin/locator/ilocatorfilter.h>
 #include <coreplugin/messagemanager.h>
-#include <coreplugin/outputwindow.h>
 #include <coreplugin/progressmanager/processprogress.h>
 
 #include <projectexplorer/buildmanager.h>

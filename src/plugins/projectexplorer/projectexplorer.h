@@ -18,7 +18,6 @@ class QThreadPool;
 QT_END_NAMESPACE
 
 namespace Core {
-class OutputWindow;
 } // Core
 
 namespace ProjectExplorer {

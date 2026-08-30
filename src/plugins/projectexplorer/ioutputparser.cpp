@@ -11,7 +11,6 @@
 #include <QTest>
 #include <QTextCursor>
 #include <coreplugin/outputtasksink.h>
-#include <coreplugin/outputwindow.h>
 #include <texteditor/fontsettings.h>
 #include <utils/algorithm.h>
 #include <utils/ansiescapecodehandler.h>

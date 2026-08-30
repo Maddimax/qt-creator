@@ -12,7 +12,6 @@
 
 #include <coreplugin/outputpaneview.h>
 #include <coreplugin/outputtasksink.h>
-#include <coreplugin/outputwindow.h>
 #include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/icore.h>
 #include <coreplugin/coreconstants.h>

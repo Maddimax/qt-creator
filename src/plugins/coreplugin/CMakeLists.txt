@@ -242,10 +242,10 @@ add_qtc_plugin(Core
     outputpaneview.h
     outputtasksink.cpp
     outputtasksink.h
+    outputtext.cpp
+    outputtext.h
     outputview.cpp
     outputview.h
-    outputwindow.cpp
-    outputwindow.h
     patchtool.cpp
     patchtool.h
     plugindialog.cpp

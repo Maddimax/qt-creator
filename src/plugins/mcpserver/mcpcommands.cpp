@@ -13,7 +13,6 @@
 #include <coreplugin/idocument.h>
 #include <coreplugin/ioutputpane.h>
 #include <coreplugin/modemanager.h>
-#include <coreplugin/outputwindow.h>
 #include <coreplugin/patchtool.h>
 #include <coreplugin/session.h>
 

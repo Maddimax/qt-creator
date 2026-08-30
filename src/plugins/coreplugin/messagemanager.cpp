@@ -8,7 +8,6 @@
 #include "icontext.h"
 #include "ioutputpane.h"
 #include "outputpaneview.h"
-#include "outputwindow.h"
 
 #include <utils/qtcassert.h>
 #include <utils/shutdownguard.h>
@@ -26,8 +25,6 @@
     \brief The MessageManager namespace is used to post messages in the
     \uicontrol{General Messages} pane.
 */
-
-using namespace Core::Internal;
 
 namespace Core::MessageManager {
 

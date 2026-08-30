@@ -18726,3 +18726,42 @@ Test Results *tree*, Squish, the debugger console. `Core::OutputWindow` itself
 is now 1400 lines of widget with no callers, holding a dozen static functions
 that `OutputPaneView` uses. Taking the widget out and leaving the decisions
 behind is the obvious next batch, and it is a deletion rather than a port.
+
+### The widget is gone
+
+`Core::OutputWindow` is deleted: 1834 lines, and the first time this migration
+has removed something rather than adding beside it.
+
+Its decisions did not go with it. They are `Core::OutputText` now - a namespace
+of free functions in `outputtext.h` holding exactly what was extracted from the
+widget over the last several batches: what a filter hides and reveals, how much
+output is kept and what an over-long chunk loses, how a filtered copy is built
+and kept up to date, what dimming does, where a chunk is cut, when a backlog is
+thrown away, and how the pace adjusts. Thirteen tests moved with them and pass
+unchanged.
+
+**The class was the wrong home for them all along**, and the shape of what is
+left says so: none of the thirteen needed a widget, and the reason they could
+not be asked anything before was that they were methods of one.
+
+**A test that could no longer fail was removed.** Last batch asserted that
+nothing in the running product `inherits("Core::OutputWindow")`. With the class
+deleted that can never be true again, so the assertion is vacuous - and an
+assertion that cannot fail is worse than none, because it reads like cover. The
+compiler enforces it far better now: there is no header to include.
+
+**Six stale includes of a header nobody used.** `buildsystem.cpp`,
+`showoutputtaskhandler.cpp`, `projectwindow.cpp`, `mcpcommands.cpp`,
+`fileapireader.cpp` and `cmakelocatorfilter.cpp` all pulled in
+`coreplugin/outputwindow.h` and none of them referred to anything in it. They
+were only found by deleting the file - which is the argument for deleting
+things rather than leaving them unreferenced.
+
+Controls, three, all biting on the moved code: the line arithmetic dropping its
+queued-lines term, the chunk cut ignoring line ends, and the dimming not
+dimming. The move kept their teeth.
+
+What remains of the pane migration is the three custom-painted views - the Test
+Results tree, Squish, the debugger console. Nothing about them is blocked; they
+need someone looking at the result, which is where this stops being work that
+can be done from here.

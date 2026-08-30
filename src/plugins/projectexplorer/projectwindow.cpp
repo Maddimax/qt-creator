@@ -35,7 +35,6 @@
 #include <coreplugin/icore.h>
 #include <coreplugin/minisplitter.h>
 #include <coreplugin/modemanager.h>
-#include <coreplugin/outputwindow.h>
 
 #include <texteditor/fontsettings.h>
 

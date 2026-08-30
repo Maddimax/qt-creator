@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "outputpaneview.h"
-#include "outputwindow.h"
+#include "outputtext.h"
 #include "coreplugin.h"
 
 #include "actionmanager/actionmanager.h"
@@ -523,6 +523,7 @@ Result<> CorePlugin::initialize(const QStringList &arguments)
 #ifdef WITH_TESTS
     addTestCreator(createActionManagerTest);
     addTestCreator(createOutputFilterTest);
+    addTestCreator(OutputText::createOutputTextTest);
     addTestCreator(createOutputPaneViewTest);
     addTestCreator(createDocumentManagerTest);
     addTestCreator(createExternalToolTest);

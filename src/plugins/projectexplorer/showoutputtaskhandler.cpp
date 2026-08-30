@@ -6,7 +6,6 @@
 #include "task.h"
 
 #include <coreplugin/ioutputpane.h>
-#include <coreplugin/outputwindow.h>
 #include <utils/algorithm.h>
 #include <utils/qtcassert.h>
 

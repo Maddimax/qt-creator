@@ -193,7 +193,7 @@ void OutputPaneView::writeNextChunk()
     QTC_ASSERT(!m_queuedOutput.isEmpty(), return);
 
     if (m_discardExcessiveOutput) {
-        const bool discard = OutputWindow::shouldDiscardPendingOutput(
+        const bool discard = OutputText::shouldDiscardPendingOutput(
             m_pendingState, totalQueued([](const QString &s) { return s.size(); }), m_chunkSize,
             m_formatterCalls, m_queueTimer.intervalAsDuration());
         if (discard) {
@@ -205,7 +205,7 @@ void OutputPaneView::writeNextChunk()
     }
 
     auto &chunk = m_queuedOutput.first();
-    const qsizetype end = OutputWindow::chunkEndPosition(chunk.first, m_chunkSize);
+    const qsizetype end = OutputText::chunkEndPosition(chunk.first, m_chunkSize);
     if (end == chunk.first.size()) {
         writeChunk(chunk.first, chunk.second, false);
         m_queuedOutput.removeFirst();
@@ -269,13 +269,13 @@ void OutputPaneView::writeChunk(const QString &text, OutputFormat format, bool c
             // This one chunk is more than the whole allowance, so nothing that
             // is already there can be kept and the chunk itself has to lose
             // its middle.
-            out = OutputWindow::elideChunk(out, m_maxCharCount);
+            out = OutputText::elideChunk(out, m_maxCharCount);
             m_source.setMaximumBlockCount(int(out.count('\n')) + 1);
         } else {
             QList<int> blockLengths;
             for (QTextBlock block = m_source.firstBlock(); block.isValid(); block = block.next())
                 blockLengths << block.length();
-            m_source.setMaximumBlockCount(OutputWindow::blocksToKeep(
+            m_source.setMaximumBlockCount(OutputText::blocksToKeep(
                 blockLengths, m_source.characterCount(), out.size(), m_maxCharCount));
         }
     }
@@ -287,8 +287,8 @@ void OutputPaneView::writeChunk(const QString &text, OutputFormat format, bool c
     m_formatter.appendMessage(out, format);
     ++m_formatterCalls;
 
-    const OutputWindow::OutputPacing paced
-        = OutputWindow::pacedBy({m_queueTimer.intervalAsDuration(), m_chunkSize},
+    const OutputText::OutputPacing paced
+        = OutputText::pacedBy({m_queueTimer.intervalAsDuration(), m_chunkSize},
                                 std::chrono::milliseconds(formatterTimer.elapsed()),
                                 chunkWasSplit);
     m_queueTimer.setInterval(paced.interval);
@@ -303,7 +303,7 @@ void OutputPaneView::writeChunk(const QString &text, OutputFormat format, bool c
         } else {
             // Otherwise only what arrived is filtered, not the whole document
             // again: a build appends thousands of times.
-            OutputWindow::appendFiltered(&m_source, &m_filtered, currentPredicate(),
+            OutputText::appendFiltered(&m_source, &m_filtered, currentPredicate(),
                                          m_beforeContext, m_afterContext, m_appendState);
         }
     }
@@ -323,7 +323,7 @@ qsizetype OutputPaneView::maxCharCount() const
 
 void OutputPaneView::grayOutOldContent()
 {
-    OutputWindow::grayOutContentBefore(m_startOfNewContent, palette());
+    OutputText::grayOutContentBefore(m_startOfNewContent, palette());
 
     // Dimming changes the colours of text the filtered copy already took, so
     // that copy has to be made again. Only while a filter is set.
@@ -400,7 +400,7 @@ QTextDocument *OutputPaneView::sourceDocument()
 
 void OutputPaneView::clearLinesPrefixedWith(const QString &prefix, bool deleteTrailingLineBreak)
 {
-    OutputWindow::removeLinesPrefixedWith(&m_source, prefix, deleteTrailingLineBreak);
+    OutputText::removeLinesPrefixedWith(&m_source, prefix, deleteTrailingLineBreak);
 
     // Lines went out of the middle, so what the filtered copy holds no longer
     // lines up with where it had got to.
@@ -413,10 +413,10 @@ bool OutputPaneView::isFiltering() const
     return !m_filterText.isEmpty() || bool(m_extraFilter);
 }
 
-OutputWindow::TextMatchingFunction OutputPaneView::currentPredicate() const
+OutputText::TextMatchingFunction OutputPaneView::currentPredicate() const
 {
-    const OutputWindow::TextMatchingFunction text
-        = OutputWindow::filterPredicate(m_filterText, m_filterMode);
+    const OutputText::TextMatchingFunction text
+        = OutputText::filterPredicate(m_filterText, m_filterMode);
     if (!m_extraFilter)
         return text;
 
@@ -425,13 +425,13 @@ OutputWindow::TextMatchingFunction OutputPaneView::currentPredicate() const
     };
 }
 
-void OutputPaneView::setExtraFilter(const OutputWindow::TextMatchingFunction &extra)
+void OutputPaneView::setExtraFilter(const OutputText::TextMatchingFunction &extra)
 {
     m_extraFilter = extra;
     refilter();
 }
 
-void OutputPaneView::setFilter(const QString &text, OutputWindow::FilterModeFlags mode,
+void OutputPaneView::setFilter(const QString &text, OutputText::FilterModeFlags mode,
                                int before, int after)
 {
     if (m_filterText == text && m_filterMode == mode && m_beforeContext == before
@@ -448,8 +448,8 @@ void OutputPaneView::setFilter(const QString &text, OutputWindow::FilterModeFlag
 void OutputPaneView::setFilter(const QString &text, Qt::CaseSensitivity caseSensitivity,
                                bool regexp, bool inverted, int before, int after)
 {
-    using Flag = OutputWindow::FilterModeFlag;
-    OutputWindow::FilterModeFlags mode;
+    using Flag = OutputText::FilterModeFlag;
+    OutputText::FilterModeFlags mode;
     if (regexp)
         mode |= Flag::RegExp;
     if (caseSensitivity == Qt::CaseSensitive)
@@ -467,7 +467,7 @@ void OutputPaneView::refilter()
     if (isFiltering()) {
         // Filtering everything at once and filtering it a line at a time are
         // the same operation from an empty state, so there is one code path.
-        OutputWindow::appendFiltered(&m_source, &m_filtered, currentPredicate(),
+        OutputText::appendFiltered(&m_source, &m_filtered, currentPredicate(),
                                      m_beforeContext, m_afterContext, m_appendState);
     }
     if (OutputView * const output = view())
@@ -677,7 +677,7 @@ private slots:
         QVERIFY(!shownText(view).contains("almost there"));
 
         // Inverted, the other lines are the ones left.
-        view.setFilter("error", OutputWindow::FilterModeFlag::Inverted);
+        view.setFilter("error", OutputText::FilterModeFlag::Inverted);
         QVERIFY(shownText(view).contains("configuring"));
         QVERIFY(!shownText(view).contains("nothing works"));
 
@@ -1095,28 +1095,6 @@ private slots:
         QVERIFY(view.shownDocument()->toPlainText().contains("qt.core: later"));
         QVERIFY2(!view.shownDocument()->toPlainText().contains("qt.gui: later"),
                  "a line the second filter rejects was shown when it arrived later");
-    }
-
-    void testNothingDrawsOutputWithTheWidgetAnyMore()
-    {
-        // The point of all of this. Every output surface in the product is
-        // drawn with Qt Quick now, and the way that stops being true is
-        // somebody adding one more Core::OutputWindow - which builds, runs,
-        // and looks like every other pane until someone notices it does not
-        // match.
-        //
-        // Asked of the widgets that exist rather than of the source, so it
-        // covers whatever this build actually put on screen.
-        QStringList offenders;
-        for (QWidget * const widget : QApplication::allWidgets()) {
-            if (widget->inherits("Core::OutputWindow")) {
-                offenders << QString("%1 (%2)").arg(widget->metaObject()->className(),
-                                                    widget->objectName());
-            }
-        }
-
-        QVERIFY2(offenders.isEmpty(),
-                 qPrintable("still drawn with the widget: " + offenders.join(", ")));
     }
 
     void testViewsInATabWidgetAreIndependent()

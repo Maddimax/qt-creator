@@ -15,7 +15,6 @@
 
 #include <coreplugin/icore.h>
 #include <coreplugin/messagemanager.h>
-#include <coreplugin/outputwindow.h>
 #include <coreplugin/progressmanager/processprogress.h>
 
 #include <projectexplorer/buildsystem.h>

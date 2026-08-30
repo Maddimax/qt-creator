@@ -6,7 +6,7 @@
 #include "core_global.h"
 #include "icontext.h"
 #include "outputtasksink.h"
-#include "outputwindow.h"
+#include "outputtext.h"
 
 #include <utils/filepath.h>
 #include <utils/outputformat.h>
@@ -88,7 +88,7 @@ public:
     // overwrites as it goes.
     void clearLinesPrefixedWith(const QString &prefix, bool deleteTrailingLineBreak);
 
-    void setFilter(const QString &text, OutputWindow::FilterModeFlags mode,
+    void setFilter(const QString &text, OutputText::FilterModeFlags mode,
                    int before = 0, int after = 0);
 
     // A further condition a line must also satisfy to be shown, on top of
@@ -96,7 +96,7 @@ public:
     // categories the user switched off; a null function means no such
     // condition, which is not the same as one that accepts everything - it is
     // what lets the view show the source document rather than a copy of it.
-    void setExtraFilter(const OutputWindow::TextMatchingFunction &extra);
+    void setExtraFilter(const OutputText::TextMatchingFunction &extra);
 
     // The same, as an output pane describes it: every pane has these six
     // values from IOutputPane and would otherwise each convert them itself.
@@ -205,7 +205,7 @@ signals:
     void outputDiscarded();
 
 private:
-    OutputWindow::TextMatchingFunction currentPredicate() const;
+    OutputText::TextMatchingFunction currentPredicate() const;
     void refilter();
     bool isFiltering() const;
     void showEvent(QShowEvent *event) override;
@@ -226,10 +226,10 @@ private:
     QTextDocument m_filtered;
     Utils::OutputFormatter m_formatter;
     QTextCursor m_startOfNewContent;
-    OutputWindow::FilteredAppendState m_appendState;
+    OutputText::FilteredAppendState m_appendState;
     QString m_filterText;
-    OutputWindow::TextMatchingFunction m_extraFilter;
-    OutputWindow::FilterModeFlags m_filterMode;
+    OutputText::TextMatchingFunction m_extraFilter;
+    OutputText::FilterModeFlags m_filterMode;
     int m_beforeContext = 0;
     int m_afterContext = 0;
     QHash<unsigned, QPair<int, int>> m_taskPositions;
@@ -250,7 +250,7 @@ private:
     bool m_wordWrapEnabled = false;
     QColor m_backgroundColor;
     QString m_outputFileNameHint;
-    OutputWindow::PendingOutputState m_pendingState;
+    OutputText::PendingOutputState m_pendingState;
 
     const Utils::Key m_zoomSettingsKey;
 };

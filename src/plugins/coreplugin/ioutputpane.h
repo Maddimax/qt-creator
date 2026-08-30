@@ -11,7 +11,6 @@
 namespace Core {
 
 class Context;
-class OutputWindow;
 
 class CORE_EXPORT IOutputPane : public QObject
 {
