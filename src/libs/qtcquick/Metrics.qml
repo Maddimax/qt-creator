@@ -40,6 +40,10 @@ QtObject {
     readonly property int listRowIconSize: 16
     // Side length of the color preview swatch in ColorDelegate.
     readonly property int colorSwatchSize: 24
+    // Shortest a scroll bar handle may be drawn. The true proportion of a long
+    // document is a couple of pixels, which cannot be grabbed or seen;
+    // QScrollBar floors it the same way with PM_ScrollBarSliderMin.
+    readonly property int scrollBarHandleMinimum: 24
 
     // Opacity applied to a disabled icon that keeps its enabled tint
     // (QtcSearchBox's leading icon, mirroring disabledIconOpacity).

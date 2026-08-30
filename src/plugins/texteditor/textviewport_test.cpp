@@ -838,8 +838,15 @@ private slots:
         QTRY_VERIFY(viewport->visibleLineCount() > 3);
 
         const auto barPosition = [bar] { return bar->property("position").toReal(); };
-        const auto expectedPosition = [viewport] {
-            return viewport->scrollY() / viewport->contentHeight();
+        // The handle travels over the track that is left beside it, so where
+        // it sits is a fraction of how far the document can be scrolled - not
+        // of the document. The two only agree while the handle is its true
+        // proportion, which a long file's is not.
+        const auto expectedPosition = [viewport, bar] {
+            const qreal scrollable = viewport->contentHeight() - viewport->height();
+            if (scrollable <= 0)
+                return 0.0;
+            return (viewport->scrollY() / scrollable) * (1 - bar->property("size").toReal());
         };
 
         QCOMPARE(barPosition(), 0.0);
@@ -858,6 +865,16 @@ private slots:
         QCoreApplication::sendEvent(&view, &wheel);
         QTRY_COMPARE(viewport->firstVisibleLine(), 3);
         QVERIFY(barPosition() > 0);
+
+        // However long the document, the handle stays big enough to grab. The
+        // true proportion here is a couple of pixels; QScrollBar floors the
+        // slider the same way.
+        const qreal handleHeight = bar->property("size").toReal() * bar->height();
+        QVERIFY2(handleHeight >= 24 - 0.5,
+                 qPrintable(QString("handle is %1 pixels for a %2 line file")
+                                .arg(handleHeight).arg(viewport->lineCount())));
+        QVERIFY2(bar->property("size").toReal() > bar->property("shown").toReal(),
+                 "this file is not long enough for the floor to apply");
 
         // The viewport moves programmatically, the handle follows that too.
         viewport->setScrollY(viewport->lineHeight() * 1000);

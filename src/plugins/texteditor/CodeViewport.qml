@@ -928,21 +928,34 @@ Item {
             anchors.top: parent.top
             anchors.bottom: parent.bottom
             orientation: Qt.Vertical
-            policy: size < 1 ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
-            size: viewport.contentHeight > 0
-                  ? viewport.height / viewport.contentHeight
-                  : 1
+            policy: shown < 1 ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+
+            // How much of the document is on screen, and how far it can be
+            // scrolled. Kept apart from size because size is floored below.
+            readonly property real shown: viewport.contentHeight > 0
+                                          ? viewport.height / viewport.contentHeight
+                                          : 1
+            readonly property real scrollable:
+                Math.max(0, viewport.contentHeight - viewport.height)
+
+            size: Math.max(shown, height > 0
+                                  ? Math.min(1, Metrics.scrollBarHandleMinimum / height)
+                                  : 1)
+            // The handle occupies size of the track, so it travels over the
+            // 1 - size that is left. Measuring against the whole document
+            // instead only agrees while size is the true proportion, and it is
+            // not once the floor above applies - the handle would then stop
+            // short of the bottom.
+            //
             // The viewport says where the handle goes, and while the handle
             // is held it says where to scroll to. Both directions at once is
             // safe here: the drag writes position from C++, which updates the
             // value without destroying the binding the way a JS assignment
             // would, so the two settle rather than fight.
-            position: viewport.contentHeight > 0
-                      ? viewport.scrollY / viewport.contentHeight
-                      : 0
+            position: scrollable > 0 ? (viewport.scrollY / scrollable) * (1 - size) : 0
             onPositionChanged: {
-                if (pressed)
-                    viewport.scrollY = position * viewport.contentHeight
+                if (pressed && scrollable > 0 && size < 1)
+                    viewport.scrollY = position / (1 - size) * scrollable
             }
         }
 
@@ -982,16 +995,21 @@ Item {
             orientation: Qt.Horizontal
             // Only where a line runs past the edge, which with wrapping on is
             // never - the same rule the vertical one follows for a short file.
-            policy: size < 1 ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
-            size: viewport.contentWidth > 0
-                  ? viewport.width / viewport.contentWidth
-                  : 1
-            position: viewport.contentWidth > 0
-                      ? viewport.scrollX / viewport.contentWidth
-                      : 0
+            policy: shown < 1 ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+
+            readonly property real shown: viewport.contentWidth > 0
+                                          ? viewport.width / viewport.contentWidth
+                                          : 1
+            readonly property real scrollable:
+                Math.max(0, viewport.contentWidth - viewport.width)
+
+            size: Math.max(shown, width > 0
+                                  ? Math.min(1, Metrics.scrollBarHandleMinimum / width)
+                                  : 1)
+            position: scrollable > 0 ? (viewport.scrollX / scrollable) * (1 - size) : 0
             onPositionChanged: {
-                if (pressed)
-                    viewport.scrollX = position * viewport.contentWidth
+                if (pressed && scrollable > 0 && size < 1)
+                    viewport.scrollX = position / (1 - size) * scrollable
             }
         }
     }
