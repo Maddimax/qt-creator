@@ -72,5 +72,6 @@ if(TARGET Android)
     NO_PLUGIN
     QML_FILES
       AndroidSettingsPage.qml
+      KeystoreCertificateDialog.qml
   )
 endif()

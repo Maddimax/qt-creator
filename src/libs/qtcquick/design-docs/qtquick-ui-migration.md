@@ -20045,3 +20045,46 @@ distinguished name are already extracted and tested, so what is left is the
 twenty fields, the two spin boxes and the "same password" box that disables the
 certificate's own - which is behaviour for the container's constructor, not the
 form.
+
+## 2026-08-30 — The keystore form, drawn from its aspects
+
+`AndroidCreateKeystoreCertificate` is now three nested `AspectContainer`s -
+Keystore, Certificate, Certificate Distinguished Names - drawn from
+`KeystoreCertificateDialog.qml`, which is four lines: three `GroupDelegate`s
+and the line that says what is wrong. The `QDialog`, its Close/Save box and
+what it does with keytool stay where they were.
+
+Everything that made this dialog worth porting was already done: the checks and
+the distinguished name came out two batches ago, and the reveal that unblocked
+it came out last batch. What was left really was mechanical - which is the
+point of doing those first.
+
+**Three things went away rather than moved:**
+
+- Two "Show password" check boxes. A masked field offers to show itself now,
+  so the boxes have nothing to do; and the certificate one used to be disabled
+  along with its fields, which is a third thing that no longer needs saying.
+- `samePasswordStateChanged()`, whose disabling is now
+  `refreshCertificatePassword()` on the container, run when the box changes and
+  once at construction so the form is right before it is first drawn.
+- `typedIn()` moved from the dialog to the container, so the struct the checks
+  run against is read off the aspects. The form and the checks cannot drift
+  apart: control B changes one field of it and the round-trip test fails.
+
+**One small behaviour change, deliberate:** the two spin boxes now have default
+values (2048 and 10000, the bottom of their ranges). The widget spin boxes
+started at whatever `QSpinBox` chose and were clamped up by `setRange()`; an
+`IntegerAspect` with no default starts at 0 and would be shown out of range.
+
+Negative controls: ticking "use keystore password" no longer taking the
+certificate fields away; the struct handed to the checks no longer reading the
+country field; and the page naming a group that is not there. All three bit.
+
+QuickUi 181 passed / 0 failed / 1 skipped, exit 0. Android exit 0,
+`KeystoreCertificateTest` 9 passed. `Android_qmllint` clean. No `.qbs` edit:
+`android.qbs` lists `**/*.qml` by wildcard.
+
+**Next:** back to the 16 candidates, by eye. `RecordOptionsDialog`
+(screenrecorder) and `SaveDialog` (macros) are the two that looked like real
+forms; `PluginDialog` and `VersionDialog` are not, for reasons already written
+down.

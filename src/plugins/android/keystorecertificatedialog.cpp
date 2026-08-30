@@ -7,6 +7,9 @@
 #include "androidtr.h"
 
 #include <coreplugin/icore.h>
+#include <coreplugin/dialogs/ioptionspage.h>
+
+#include <utils/aspects.h>
 
 #include <utils/filedialogs.h>
 #include <utils/fileutils.h>
@@ -24,55 +27,130 @@
 #include <QMessageBox>
 #include <QRegularExpression>
 #include <QSpinBox>
+#include <QVBoxLayout>
 
 using namespace Utils;
 
 namespace Android::Internal {
 
+// The three groups the dialog shows, as aspects. The "same password" box is
+// the only thing here that does anything: it takes the certificate's own
+// password away, because there is then nothing to type into.
+class KeystoreCertificateSettings final : public AspectContainer
+{
+public:
+    KeystoreCertificateSettings()
+    {
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Android/KeystoreCertificateDialog.qml"));
+
+        const auto password = [](StringAspect &aspect, const QString &qmlName,
+                                 const QString &label) {
+            aspect.setQmlName(qmlName);
+            aspect.setLabelText(label);
+            aspect.setDisplayStyle(StringAspect::PasswordLineEditDisplay);
+        };
+        const auto text = [](StringAspect &aspect, const QString &qmlName,
+                             const QString &label) {
+            aspect.setQmlName(qmlName);
+            aspect.setLabelText(label);
+            aspect.setDisplayStyle(StringAspect::LineEditDisplay);
+        };
+
+        keystore.setQmlName("Keystore");
+        keystore.setLabelText(Tr::tr("Keystore"));
+        password(keystorePassword, "KeystorePassword", Tr::tr("Password:"));
+        password(keystoreRetype, "KeystoreRetype", Tr::tr("Retype password:"));
+
+        certificate.setQmlName("Certificate");
+        certificate.setLabelText(Tr::tr("Certificate"));
+        text(certificateAlias, "CertificateAlias", Tr::tr("Alias name:"));
+        keySize.setQmlName("KeySize");
+        keySize.setLabelText(Tr::tr("Keysize:"));
+        keySize.setRange(2048, 2097152);
+        keySize.setDefaultValue(2048);
+        validity.setQmlName("Validity");
+        validity.setLabelText(Tr::tr("Validity (days):"));
+        validity.setRange(10000, 100000);
+        validity.setDefaultValue(10000);
+        password(certificatePassword, "CertificatePassword", Tr::tr("Password:"));
+        password(certificateRetype, "CertificateRetype", Tr::tr("Retype password:"));
+        samePassword.setQmlName("SamePassword");
+        samePassword.setLabelText(Tr::tr("Use Keystore password"));
+
+        names.setQmlName("Names");
+        names.setLabelText(Tr::tr("Certificate Distinguished Names"));
+        text(commonName, "CommonName", Tr::tr("First and last name:"));
+        text(organizationUnit, "OrganizationUnit",
+             Tr::tr("Organizational unit (e.g. Necessitas):"));
+        text(organizationName, "OrganizationName", Tr::tr("Organization (e.g. KDE):"));
+        text(localityName, "LocalityName", Tr::tr("City or locality:"));
+        text(stateName, "StateName", Tr::tr("State or province:"));
+        text(country, "Country", Tr::tr("Two-letter country code for this unit (e.g. RO):"));
+
+        issue.setQmlName("Issue");
+        issue.setIconType(AspectControls::InfoType::Error);
+        issue.setVisible(false);
+
+        // A certificate that borrows the keystore's password has none of its
+        // own to type, so the two fields go away rather than sit there
+        // ignored. The widget dialog did this in a slot; it is the same thing
+        // and it still is not the form's business.
+        samePassword.addOnChanged(this, [this] { refreshCertificatePassword(); });
+        refreshCertificatePassword();
+    }
+
+    void refreshCertificatePassword()
+    {
+        certificatePassword.setEnabled(!samePassword());
+        certificateRetype.setEnabled(!samePassword());
+    }
+
+    KeystoreCertificateInput typedIn() const
+    {
+        return {keystorePassword(), keystoreRetype(), samePassword(),
+                certificatePassword(), certificateRetype(),
+                certificateAlias(), country()};
+    }
+
+    AspectContainer keystore{this};
+    StringAspect keystorePassword{&keystore};
+    StringAspect keystoreRetype{&keystore};
+
+    AspectContainer certificate{this};
+    StringAspect certificateAlias{&certificate};
+    IntegerAspect keySize{&certificate};
+    IntegerAspect validity{&certificate};
+    StringAspect certificatePassword{&certificate};
+    StringAspect certificateRetype{&certificate};
+    BoolAspect samePassword{&certificate};
+
+    AspectContainer names{this};
+    StringAspect commonName{&names};
+    StringAspect organizationUnit{&names};
+    StringAspect organizationName{&names};
+    StringAspect localityName{&names};
+    StringAspect stateName{&names};
+    StringAspect country{&names};
+
+    TextDisplay issue{this};
+};
+
 class AndroidCreateKeystoreCertificate : public QDialog
 {
-    enum PasswordStatus
-    {
-        Invalid,
-        NoMatch,
-        Match
-    };
-
 public:
     explicit AndroidCreateKeystoreCertificate();
 
     KeystoreData keystoreData() const;
 
 private:
-    KeystoreCertificateInput typedIn() const;
     // Shows the first problem, or hides the label when there is none.
     KeystoreCertificateIssue showIssue();
-
-    void keystoreShowPassStateChanged(int state);
-    void certificateShowPassStateChanged(int state);
     void buttonBoxAccepted();
-    void samePasswordStateChanged(int state);
-
     bool validateUserInput();
 
     Utils::FilePath m_keystoreFilePath;
-
-    QLineEdit *m_commonNameLineEdit;
-    QLineEdit *m_organizationUnitLineEdit;
-    QLineEdit *m_organizationNameLineEdit;
-    QLineEdit *m_localityNameLineEdit;
-    QLineEdit *m_stateNameLineEdit;
-    QLineEdit *m_countryLineEdit;
-    QLineEdit *m_certificateRetypePassLineEdit;
-    QCheckBox *m_certificateShowPassCheckBox;
-    QSpinBox *m_validitySpinBox;
-    QLineEdit *m_certificateAliasLineEdit;
-    QLineEdit *m_certificatePassLineEdit;
-    QSpinBox *m_keySizeSpinBox;
-    QCheckBox *m_samePasswordCheckBox;
-    QLineEdit *m_keystorePassLineEdit;
-    QLineEdit *m_keystoreRetypePassLineEdit;
-    Utils::InfoLabel *m_infoLabel;
+    KeystoreCertificateSettings m_settings;
 };
 
 AndroidCreateKeystoreCertificate::AndroidCreateKeystoreCertificate()
@@ -81,124 +159,37 @@ AndroidCreateKeystoreCertificate::AndroidCreateKeystoreCertificate()
     resize(638, 473);
     setWindowTitle(Tr::tr("Create a keystore and a certificate"));
 
-    m_commonNameLineEdit = new QLineEdit;
-
-    m_organizationUnitLineEdit = new QLineEdit;
-
-    m_organizationNameLineEdit = new QLineEdit;
-
-    m_localityNameLineEdit = new QLineEdit;
-
-    m_stateNameLineEdit = new QLineEdit;
-
-    m_countryLineEdit = new QLineEdit;
-    m_countryLineEdit->setMaxLength(2);
-    m_countryLineEdit->setInputMask(QString());
-
-    m_certificateRetypePassLineEdit = new QLineEdit;
-    m_certificateRetypePassLineEdit->setEchoMode(QLineEdit::Password);
-
-    m_certificateShowPassCheckBox = new QCheckBox(Tr::tr("Show password"));
-
-    m_validitySpinBox = new QSpinBox;
-    m_validitySpinBox->setRange(10000, 100000);
-
-    m_certificateAliasLineEdit = new QLineEdit;
-    m_certificateAliasLineEdit->setInputMask({});
-    m_certificateAliasLineEdit->setMaxLength(32);
-
-    m_certificatePassLineEdit = new QLineEdit;
-    m_certificatePassLineEdit->setEchoMode(QLineEdit::Password);
-
-    m_keySizeSpinBox = new QSpinBox;
-    m_keySizeSpinBox->setRange(2048, 2097152);
-
-    m_samePasswordCheckBox = new QCheckBox(Tr::tr("Use Keystore password"));
-
-    m_keystorePassLineEdit = new QLineEdit;
-    m_keystorePassLineEdit->setEchoMode(QLineEdit::Password);
-
-    m_keystoreRetypePassLineEdit = new QLineEdit;
-    m_keystoreRetypePassLineEdit->setEchoMode(QLineEdit::Password);
-
-    m_infoLabel = new InfoLabel;
-    m_infoLabel->setType(InfoLabelType::Error);
-    m_infoLabel->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Preferred);
-    m_infoLabel->hide();
-
-    auto keystoreShowPassCheckBox = new QCheckBox(Tr::tr("Show password"));
-
-    auto buttonBox = new QDialogButtonBox(QDialogButtonBox::Close|QDialogButtonBox::Save);
-
-    using namespace Layouting;
-
-    Column {
-        Group {
-            title(Tr::tr("Keystore")),
-            Form {
-                Tr::tr("Password:"), m_keystorePassLineEdit, br,
-                Tr::tr("Retype password:"), m_keystoreRetypePassLineEdit, br,
-                Span(2, keystoreShowPassCheckBox), br,
-            }
-        },
-
-        Group {
-            title(Tr::tr("Certificate")),
-            Form {
-                Tr::tr("Alias name:"), m_certificateAliasLineEdit, br,
-                Tr::tr("Keysize:"), m_keySizeSpinBox, br,
-                Tr::tr("Validity (days):"), m_validitySpinBox, br,
-                Tr::tr("Password:"), m_certificatePassLineEdit, br,
-                Tr::tr("Retype password:"), m_certificateRetypePassLineEdit, br,
-                Span(2, m_samePasswordCheckBox), br,
-                Span(2, m_certificateShowPassCheckBox), br,
-            }
-        },
-
-        Group {
-            title(Tr::tr("Certificate Distinguished Names")),
-            Form {
-                Tr::tr("First and last name:"), m_commonNameLineEdit, br,
-                Tr::tr("Organizational unit (e.g. Necessitas):"),  m_organizationUnitLineEdit, br,
-                Tr::tr("Organization (e.g. KDE):"), m_organizationNameLineEdit, br,
-                Tr::tr("City or locality:"), m_localityNameLineEdit, br,
-                Tr::tr("State or province:"), m_stateNameLineEdit, br,
-                Tr::tr("Two-letter country code for this unit (e.g. RO):"), m_countryLineEdit,
-            }
-        },
-
-        Row { m_infoLabel, buttonBox }
-    }.attachTo(this);
-
-    // Every field says the same thing now: what is the first problem with all
-    // of this. Before, each field reported only its own, so typing into one
-    // could hide a complaint about another.
-    for (QLineEdit * const field : {m_keystorePassLineEdit, m_keystoreRetypePassLineEdit,
-                                    m_certificatePassLineEdit, m_certificateRetypePassLineEdit,
-                                    m_certificateAliasLineEdit, m_countryLineEdit}) {
-        connect(field, &QLineEdit::textChanged,
-                this, &AndroidCreateKeystoreCertificate::showIssue);
-    }
-    connect(keystoreShowPassCheckBox, &QCheckBox::stateChanged,
-            this, &AndroidCreateKeystoreCertificate::keystoreShowPassStateChanged);
-    connect(m_certificateShowPassCheckBox, &QCheckBox::stateChanged,
-            this, &AndroidCreateKeystoreCertificate::certificateShowPassStateChanged);
-    connect(m_samePasswordCheckBox, &QCheckBox::stateChanged,
-            this, &AndroidCreateKeystoreCertificate::samePasswordStateChanged);
+    const auto buttonBox
+        = new QDialogButtonBox(QDialogButtonBox::Close | QDialogButtonBox::Save, this);
     connect(buttonBox, &QDialogButtonBox::accepted,
             this, &AndroidCreateKeystoreCertificate::buttonBoxAccepted);
-    connect(buttonBox, &QDialogButtonBox::rejected,
-            this, &QDialog::reject);
-    connect(m_keystorePassLineEdit, &QLineEdit::editingFinished,
-            m_keystoreRetypePassLineEdit, QOverload<>::of(&QWidget::setFocus));
+    connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
+
+    const auto layout = new QVBoxLayout(this);
+    layout->addWidget(Core::createAspectForm(&m_settings));
+    layout->addWidget(buttonBox);
+
+    // Every field says the same thing: what is the first problem with all of
+    // this. Before, each field reported only its own, so typing into one could
+    // hide a complaint about another.
+    const QList<BaseAspect *> watched{&m_settings.keystorePassword,
+                                      &m_settings.keystoreRetype,
+                                      &m_settings.certificatePassword,
+                                      &m_settings.certificateRetype,
+                                      &m_settings.certificateAlias,
+                                      &m_settings.country,
+                                      &m_settings.samePassword};
+    for (BaseAspect * const field : watched) {
+        field->addOnChanged(this, [this] { showIssue(); });
+    }
 }
 
 KeystoreData AndroidCreateKeystoreCertificate::keystoreData() const
 {
-    const QString certPassword = m_samePasswordCheckBox->checkState() == Qt::Checked
-                               ? m_keystorePassLineEdit->text() : m_certificatePassLineEdit->text();
-    return {m_keystoreFilePath, m_keystorePassLineEdit->text(), m_certificateAliasLineEdit->text(),
-            certPassword};
+    const QString certPassword = m_settings.samePassword() ? m_settings.keystorePassword()
+                                                           : m_settings.certificatePassword();
+    return {m_keystoreFilePath, m_settings.keystorePassword(),
+            m_settings.certificateAlias(), certPassword};
 }
 
 KeystoreCertificateIssue keystoreCertificateIssue(const KeystoreCertificateInput &input)
@@ -251,17 +242,7 @@ QString distinguishedName(const QString &commonName, const QString &organization
     return name;
 }
 
-void AndroidCreateKeystoreCertificate::keystoreShowPassStateChanged(int state)
-{
-    m_keystorePassLineEdit->setEchoMode(state == Qt::Checked ? QLineEdit::Normal : QLineEdit::Password);
-    m_keystoreRetypePassLineEdit->setEchoMode(m_keystorePassLineEdit->echoMode());
-}
 
-void AndroidCreateKeystoreCertificate::certificateShowPassStateChanged(int state)
-{
-    m_certificatePassLineEdit->setEchoMode(state == Qt::Checked ? QLineEdit::Normal : QLineEdit::Password);
-    m_certificateRetypePassLineEdit->setEchoMode(m_certificatePassLineEdit->echoMode());
-}
 
 void AndroidCreateKeystoreCertificate::buttonBoxAccepted()
 {
@@ -273,12 +254,12 @@ void AndroidCreateKeystoreCertificate::buttonBoxAccepted()
                                                     Tr::tr("Keystore files (*.keystore *.jks)"));
     if (m_keystoreFilePath.isEmpty())
         return;
-    const QString distinguishedNames = distinguishedName(m_commonNameLineEdit->text(),
-                                                         m_organizationNameLineEdit->text(),
-                                                         m_localityNameLineEdit->text(),
-                                                         m_countryLineEdit->text(),
-                                                         m_organizationUnitLineEdit->text(),
-                                                         m_stateNameLineEdit->text());
+    const QString distinguishedNames = distinguishedName(m_settings.commonName(),
+                                                         m_settings.organizationName(),
+                                                         m_settings.localityName(),
+                                                         m_settings.country(),
+                                                         m_settings.organizationUnit(),
+                                                         m_settings.stateName());
 
     const KeystoreData data = keystoreData();
     // clang-format off
@@ -287,8 +268,8 @@ void AndroidCreateKeystoreCertificate::buttonBoxAccepted()
                               "-keystore",  m_keystoreFilePath.path(),
                               "-storepass", data.keystorePassword,
                               "-alias", data.certificateAlias,
-                              "-keysize", m_keySizeSpinBox->text(),
-                              "-validity", m_validitySpinBox->text(),
+                              "-keysize", QString::number(m_settings.keySize()),
+                              "-validity", QString::number(m_settings.validity()),
                               "-keypass", data.certificatePassword,
                               "-dname", distinguishedNames});
     // clang-format off
@@ -305,61 +286,18 @@ void AndroidCreateKeystoreCertificate::buttonBoxAccepted()
     accept();
 }
 
-void AndroidCreateKeystoreCertificate::samePasswordStateChanged(int state)
-{
-    if (state == Qt::Checked) {
-        m_certificatePassLineEdit->setDisabled(true);
-        m_certificateRetypePassLineEdit->setDisabled(true);
-        m_certificateShowPassCheckBox->setDisabled(true);
-    }
-
-    if (state == Qt::Unchecked) {
-        m_certificatePassLineEdit->setEnabled(true);
-        m_certificateRetypePassLineEdit->setEnabled(true);
-        m_certificateShowPassCheckBox->setEnabled(true);
-    }
-
-    validateUserInput();
-}
-
-KeystoreCertificateInput AndroidCreateKeystoreCertificate::typedIn() const
-{
-    return {m_keystorePassLineEdit->text(),
-            m_keystoreRetypePassLineEdit->text(),
-            m_samePasswordCheckBox->checkState() == Qt::Checked,
-            m_certificatePassLineEdit->text(),
-            m_certificateRetypePassLineEdit->text(),
-            m_certificateAliasLineEdit->text(),
-            m_countryLineEdit->text()};
-}
 
 KeystoreCertificateIssue AndroidCreateKeystoreCertificate::showIssue()
 {
-    const KeystoreCertificateIssue issue = keystoreCertificateIssue(typedIn());
-    m_infoLabel->setVisible(!issue.message.isEmpty());
-    m_infoLabel->setText(issue.message);
+    const KeystoreCertificateIssue issue = keystoreCertificateIssue(m_settings.typedIn());
+    m_settings.issue.setVisible(!issue.message.isEmpty());
+    m_settings.issue.setText(issue.message);
     return issue;
 }
 
 bool AndroidCreateKeystoreCertificate::validateUserInput()
 {
-    const KeystoreCertificateIssue issue = showIssue();
-    if (issue.message.isEmpty())
-        return true;
-
-    // Which field the problem is about, so the cursor lands on it.
-    static const QHash<QString, QLineEdit *AndroidCreateKeystoreCertificate::*> fields{
-        {"KeystorePassword", &AndroidCreateKeystoreCertificate::m_keystorePassLineEdit},
-        {"KeystoreRetype", &AndroidCreateKeystoreCertificate::m_keystoreRetypePassLineEdit},
-        {"CertificateAlias", &AndroidCreateKeystoreCertificate::m_certificateAliasLineEdit},
-        {"CertificatePassword", &AndroidCreateKeystoreCertificate::m_certificatePassLineEdit},
-        {"CertificateRetype", &AndroidCreateKeystoreCertificate::m_certificateRetypePassLineEdit},
-        {"Country", &AndroidCreateKeystoreCertificate::m_countryLineEdit},
-    };
-    if (QLineEdit *AndroidCreateKeystoreCertificate::*const member = fields.value(issue.field))
-        (this->*member)->setFocus();
-
-    return false;
+    return showIssue().message.isEmpty();
 }
 
 std::optional<KeystoreData> executeKeystoreCertificateDialog()
@@ -382,6 +320,51 @@ class KeystoreCertificateTest final : public QObject
     }
 
 private slots:
+    void testTheDialogDrawsWithTheQmlItNames()
+    {
+        KeystoreCertificateSettings settings;
+        const Utils::Result<> rendered
+            = Core::aspectFormRenders(&settings, "KeystoreCertificateDialog.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+    }
+
+    void testBorrowingTheKeystorePasswordTakesTheCertificateFieldsAway()
+    {
+        // Nothing to type into a field whose value comes from somewhere else.
+        // The widget dialog disabled three widgets in a slot; the third was
+        // its "Show password" box, which no longer exists.
+        KeystoreCertificateSettings settings;
+        QVERIFY(settings.certificatePassword.isEnabled());
+        QVERIFY(settings.certificateRetype.isEnabled());
+
+        settings.samePassword.setValue(true);
+        QVERIFY2(!settings.certificatePassword.isEnabled(),
+                 "the certificate password stayed editable while it is borrowed");
+        QVERIFY(!settings.certificateRetype.isEnabled());
+
+        settings.samePassword.setValue(false);
+        QVERIFY(settings.certificatePassword.isEnabled());
+        QVERIFY(settings.certificateRetype.isEnabled());
+    }
+
+    void testWhatTheFormHandsBack()
+    {
+        // The struct the checks are run against comes off the aspects, so the
+        // form and the checks cannot drift apart.
+        KeystoreCertificateSettings settings;
+        settings.keystorePassword.setValue("secret1");
+        settings.keystoreRetype.setValue("secret1");
+        settings.certificateAlias.setValue("myalias");
+        settings.certificatePassword.setValue("secret2");
+        settings.certificateRetype.setValue("secret2");
+        settings.country.setValue("DE");
+
+        QCOMPARE(keystoreCertificateIssue(settings.typedIn()).message, QString());
+
+        settings.country.setValue("Germany");
+        QCOMPARE(keystoreCertificateIssue(settings.typedIn()).field, QString("Country"));
+    }
+
     void testWhatIsWrongWithWhatWasTyped()
     {
         QCOMPARE(keystoreCertificateIssue(filledIn()).message, QString());
