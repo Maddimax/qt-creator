@@ -228,11 +228,45 @@ void EnvironmentEditorAspect::updateActions()
 const char PRINT_ON_RUN_KEY[] = "PE.EnvironmentAspect.PrintOnRun";
 
 EnvironmentAspect::EnvironmentAspect(AspectContainer *container)
-    : BaseAspect(container)
+    : Utils::AspectContainer(container)
 {
     setDisplayName(Tr::tr("Environment"));
     setId("EnvironmentAspect");
     setConfigWidgetCreator([this] { return new EnvironmentAspectWidget(this); });
+
+    // No group box around it: the widget form draws these one under the other
+    // and so should the Qt Quick one.
+    setFlattened(true);
+
+    m_baseSelection.setQmlName("BaseEnvironment");
+    m_baseSelection.setDisplayStyle(Utils::SelectionAspect::DisplayStyle::ComboBox);
+    m_baseSelection.setLabelText(Tr::tr("Base environment for this run configuration:"));
+    registerAspect(&m_baseSelection);
+
+    m_editor.setQmlName("Editor");
+    registerAspect(&m_editor);
+
+    m_printOnRunAspect.setQmlName("PrintOnRun");
+    m_printOnRunAspect.setLabel(Tr::tr("Show in Application Output when running"),
+                                Utils::BoolAspect::LabelPlacement::AtCheckBox);
+    registerAspect(&m_printOnRunAspect);
+
+    connect(&m_baseSelection, &BaseAspect::changed, this, [this] {
+        if (!m_updating.isLocked())
+            setBaseEnvironmentBase(m_baseSelection.value());
+    });
+    connect(&m_editor, &EnvironmentEditorAspect::changesEdited,
+            this, [this](const EnvironmentChanges &changes) {
+                if (!m_updating.isLocked())
+                    setUserEnvironmentChanges(changes);
+            });
+    connect(&m_printOnRunAspect, &BaseAspect::changed, this, [this] {
+        if (!m_updating.isLocked())
+            setPrintOnRun(m_printOnRunAspect());
+    });
+    connect(this, &EnvironmentAspect::environmentChanged, this, [this] { refreshSurfaces(); });
+    connect(this, &EnvironmentAspect::baseEnvironmentChanged, this, [this] { refreshSurfaces(); });
+    refreshBaseOptions();
     addDataExtractor(this, &EnvironmentAspect::environment, &Data::environment);
     if (const auto runConfig = qobject_cast<RunConfiguration *>(container)) {
         addModifier([runConfig](Environment &env) {
@@ -345,6 +379,7 @@ int EnvironmentAspect::addSupportedBaseEnvironment(const QString &displayName,
     baseEnv.displayName = displayName;
     baseEnv.getter = getter;
     m_baseEnvironments.append(baseEnv);
+    refreshBaseOptions();
     const int index = m_baseEnvironments.size() - 1;
     if (m_base == -1)
         setBaseEnvironmentBase(index);
@@ -359,6 +394,7 @@ int EnvironmentAspect::addPreferredBaseEnvironment(const QString &displayName,
     baseEnv.displayName = displayName;
     baseEnv.getter = getter;
     m_baseEnvironments.append(baseEnv);
+    refreshBaseOptions();
     const int index = m_baseEnvironments.size() - 1;
     setBaseEnvironmentBase(index);
 
@@ -384,6 +420,7 @@ void EnvironmentAspect::fromMap(const Store &map)
     m_base = map.value(BASE_KEY, -1).toInt();
     m_userChanges = EnvironmentChanges::createFromVariant(map.value(CHANGES_KEY));
     m_printOnRun = map.value(PRINT_ON_RUN_KEY).toBool();
+    refreshSurfaces();
 }
 
 void EnvironmentAspect::toMap(Store &data) const
@@ -402,6 +439,35 @@ QString EnvironmentAspect::currentDisplayName() const
 Environment EnvironmentAspect::BaseEnvironment::unmodifiedBaseEnvironment() const
 {
     return getter ? getter() : Environment();
+}
+
+void EnvironmentAspect::setAllowPrintOnRun(bool allow)
+{
+    m_allowPrintOnRun = allow;
+    m_printOnRunAspect.setVisible(allow);
+}
+
+void EnvironmentAspect::refreshSurfaces()
+{
+    if (m_updating.isLocked())
+        return;
+    const Utils::GuardLocker lock(m_updating);
+    m_baseSelection.setValue(std::max(0, m_base));
+    m_editor.setBaseEnvironment(modifiedBaseEnvironment());
+    m_editor.setChanges(m_userChanges);
+    m_printOnRunAspect.setValue(m_printOnRun);
+}
+
+void EnvironmentAspect::refreshBaseOptions()
+{
+    const Utils::GuardLocker lock(m_updating);
+    m_baseSelection.clearOptions();
+    for (const QString &displayName : displayNames())
+        m_baseSelection.addOption(displayName);
+    // One base to choose from is not a choice, which is what the combo box in
+    // the widget form says by being disabled.
+    m_baseSelection.setEnabled(m_baseSelection.optionCount() > 1);
+    m_baseSelection.setValue(std::max(0, m_base));
 }
 
 EnvironmentChanges EnvironmentAspect::userEnvironmentChanges() const

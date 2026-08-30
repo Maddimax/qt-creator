@@ -3,6 +3,8 @@
 
 #include "projectpanelfactory.h"
 
+#include "environmentaspect.h"
+
 #include "project.h"
 #include "projectexplorertr.h"
 
@@ -176,6 +178,65 @@ private slots:
     // environment as a table, and the changes as text - and the widget form it
     // replaced kept them in step. Typing into one has to reach the other and
     // the project, and must not come back round as a change to itself.
+    // A run or build configuration's environment is drawn by the same editor
+    // the project panel uses, so a Qt Quick page can show one at all: it used
+    // to draw itself with a widget, which a Quick page has no way to host and
+    // reported as "(no Qt Quick editor yet)".
+    void testAnEnvironmentAspectOffersTheSameEditor()
+    {
+        EnvironmentAspect aspect;
+        aspect.addSupportedBaseEnvironment("Clean Environment", [] { return Environment(); });
+        aspect.addSupportedBaseEnvironment("System Environment", [] {
+            Environment env;
+            env.set("QTC_ASPECT_TEST", "one");
+            return env;
+        });
+        aspect.setBaseEnvironmentBase(1);
+
+        const auto byName = [&aspect](const QString &name) -> BaseAspect * {
+            for (BaseAspect * const sub : aspect.aspects()) {
+                if (sub->qmlName() == name)
+                    return sub;
+            }
+            return nullptr;
+        };
+
+        // What a page draws: which base, the editor, and whether to print it.
+        BaseAspect * const base = byName("BaseEnvironment");
+        BaseAspect * const editor = byName("Editor");
+        BaseAspect * const printOnRun = byName("PrintOnRun");
+        QVERIFY(base);
+        QVERIFY(editor);
+        QVERIFY(printOnRun);
+        QCOMPARE(int(editor->presentation().control),
+                 int(Utils::AspectControls::EnvironmentEditor));
+
+        // The editor shows the environment the chosen base gives.
+        QAbstractItemModel *model = nullptr;
+        for (BaseAspect * const sub : qobject_cast<AspectContainer *>(editor)->aspects()) {
+            if (sub->qmlName() == "Variables")
+                model = sub->tableModel();
+        }
+        QVERIFY2(model, "the editor hands out no table");
+        const auto rowFor = [model](const QString &name) {
+            for (int row = 0; row < model->rowCount({}); ++row) {
+                if (model->index(row, 0).data().toString() == name)
+                    return row;
+            }
+            return -1;
+        };
+        QVERIFY2(rowFor("QTC_ASPECT_TEST") >= 0, "the editor was given no base environment");
+
+        // And what is edited *there* is what the aspect then reports, which is
+        // what the run configuration builds its environment from. Through the
+        // model, which is what the table writes to: setChanges() is the other
+        // direction and deliberately does not report back.
+        const int row = rowFor("QTC_ASPECT_TEST");
+        QVERIFY(model->setData(model->index(row, 1), "two"));
+        QCOMPARE(aspect.environment().expandedValueForKey("QTC_ASPECT_TEST"), QString("two"));
+        QCOMPARE(aspect.userEnvironmentChanges().itemsFromUser().size(), 1);
+    }
+
     void testTheEnvironmentPanelKeepsItsTwoSurfacesInStep()
     {
         PanelCensusProject project;

@@ -94,7 +94,11 @@ private:
     Utils::Guard m_updating;
 };
 
-class PROJECTEXPLORER_EXPORT EnvironmentAspect : public Utils::BaseAspect
+// A configuration's environment: which base to start from, what the user
+// changes about it, and whether to print it when running. A container, so that
+// a Qt Quick page draws those three things; the widget form it also still has
+// is EnvironmentAspectWidget.
+class PROJECTEXPLORER_EXPORT EnvironmentAspect : public Utils::AspectContainer
 {
     Q_OBJECT
 
@@ -156,7 +160,7 @@ protected:
     void toMap(Utils::Store &map) const override;
 
     void setIsLocal(bool local) { m_isLocal = local; }
-    void setAllowPrintOnRun(bool allow) { m_allowPrintOnRun = allow; }
+    void setAllowPrintOnRun(bool allow);
 
     static constexpr char BASE_KEY[] = "PE.EnvironmentAspect.Base";
     static constexpr char CHANGES_KEY[] = "PE.EnvironmentAspect.Changes";
@@ -178,6 +182,17 @@ private:
     int m_base = -1;
     bool m_isLocal = false;
     bool m_allowPrintOnRun = true;
+
+    // The same three things as aspects, for the pages that draw themselves.
+    // What they hold is a second surface of the state above, not a copy of it.
+    void refreshSurfaces();
+    void refreshBaseOptions();
+
+    Utils::SelectionAspect m_baseSelection;
+    EnvironmentEditorAspect m_editor;
+    Utils::BoolAspect m_printOnRunAspect;
+    // Writing one surface must not come back as a change to the other.
+    Utils::Guard m_updating;
     bool m_printOnRun = false;
     Kit *m_kit = nullptr;
     DeviceSelector m_selector = RunDevice;

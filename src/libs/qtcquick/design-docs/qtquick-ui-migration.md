@@ -17169,3 +17169,34 @@ Two things that assertion had to survive:
 - "A `TableDelegate` is there" passes with a name that resolves to nothing. The
   delegate is built either way; what is not is a row. The test waits for
   `rows > 0`, and renaming the aspect in the QML then turns it red.
+
+### EnvironmentAspect stops being a hole
+
+The aspect every run and build configuration holds is now an
+`AspectContainer` registering the three things the widget form draws:
+`BaseEnvironment` (which base to start from), `Editor` (the shared editor) and
+`PrintOnRun`. It is `setFlattened(true)`, so a page lists those three rather
+than putting a group box round them, and `setConfigWidgetCreator()` stays -
+the widget path is unchanged and still draws `EnvironmentAspectWidget`.
+
+The state does not move. `m_base`, `m_userChanges` and `m_printOnRun` remain
+the truth and keep their `fromMap`/`toMap` format; the three aspects are a
+second surface, pushed by `refreshSurfaces()` and pulled back by the signals,
+with one guard so writing either does not come round as a change to the other.
+That is what the widget form has always done between itself and the aspect.
+
+So a Qt Quick page holding an environment now draws an editor instead of
+"(no Qt Quick editor yet)", which unblocks:
+
+- **CMakeBuildStep's page** - the last thing in its closure that had no Quick
+  counterpart. Its targets tree needs only the `tableModel()` treatment.
+- Run configurations and build configurations, wherever their pages get ported.
+
+**What the test drives, and what it cannot.** An `EnvironmentAspect` is
+constructible on its own, so the test builds one, gives it two base
+environments, and checks both directions: the editor shows what the chosen
+base provides, and a write through the model - which is what the table does -
+comes back out of `aspect.environment()`. Note that `setChanges()` is
+deliberately the other direction and reports nothing, so a test that writes
+through *it* passes without proving anything; the first version of this one
+did exactly that and had to be corrected.
