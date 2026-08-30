@@ -61,7 +61,14 @@ public:
 #endif
     };
 
+#ifdef WITH_TESTS
+    friend class DebuggerRunSettingsTest;
+#endif
+
 private:
+    // The link beside the QML debugger row, which the closure built as a bare
+    // QLabel.
+    Utils::TextDisplay m_prerequisites;
     Utils::TriStateAspect m_cppAspect;
     Utils::TriStateAspect m_qmlAspect;
     Utils::TriStateAspect m_pythonAspect;
@@ -69,5 +76,9 @@ private:
     Utils::StringAspect m_overrideStartupAspect;
     ProjectExplorer::BuildConfiguration * const m_buildConfiguration;
 };
+
+#ifdef WITH_TESTS
+QObject *createDebuggerRunSettingsTest();
+#endif
 
 } // namespace Debugger

@@ -26,7 +26,10 @@
 #include <utils/layoutbuilder.h>
 
 #include <QDebug>
-#include <QLabel>
+
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
 
 using namespace ProjectExplorer;
 using namespace Utils;
@@ -49,69 +52,70 @@ DebuggerRunConfigurationAspect::DebuggerRunConfigurationAspect(BuildConfiguratio
     setId("DebuggerAspect");
     setDisplayName(Tr::tr("Debugger Settings"));
 
-    setConfigWidgetCreator([this] {
-        Layouting::Grid builder;
-        builder.addRow({m_cppAspect});
-        auto info = new QLabel(
-            Tr::tr("<a href=\""
-                   "qthelp://org.qt-project.qtcreator/doc/creator-debugging-qml.html"
-                   "\">What are the prerequisites?</a>"));
-        builder.addRow({m_qmlAspect, info});
-        builder.addRow({m_pythonAspect});
-        connect(info, &QLabel::linkActivated, [](const QString &link) {
-            Core::HelpManager::showHelpUrl(link);
-        });
-        builder.addRow({m_overrideStartupAspect});
-
-        static const QString env = qtcEnvironmentVariable("QTC_DEBUGGER_MULTIPROCESS");
-        if (env.toInt())
-            builder.addRow({m_multiProcessAspect});
-
-        auto details = new DetailsWidget;
-        details->setState(DetailsWidget::Expanded);
-        auto innerPane = new QWidget;
-        details->setWidget(innerPane);
-        builder.setNoMargins();
-        builder.attachTo(innerPane);
-
-        const auto setSummaryText = [this, details] {
-            const auto describe = [](const TriStateAspect &aspect, const QString &name) {
-                if (aspect() == TriState::Enabled) {
-                    //: %1 is C++, QML, or Python
-                    return Tr::tr("Enable %1 debugger.").arg(name);
-                }
-                if (aspect() == TriState::Disabled) {
-                    //: %1 is C++, QML, or Python
-                    return Tr::tr("Disable %1 debugger.").arg(name);
-                }
-                //: %1 is C++, QML, or Python
-                return Tr::tr("Try to determine need for %1 debugger.").arg(name);
-            };
-
-            details->setSummaryText(QStringList{
-                describe(m_cppAspect, "C++"),
-                describe(m_qmlAspect, "QML"),
-                describe(m_pythonAspect, "Python"),
-                m_overrideStartupAspect().isEmpty()
-                                 ? Tr::tr("No additional startup commands.")
-                                 : Tr::tr("Use additional startup commands.")
-            }.join(" "));
-        };
-        setSummaryText();
-
-        connect(&m_cppAspect, &BaseAspect::changed, details, setSummaryText);
-        connect(&m_qmlAspect, &BaseAspect::changed, details, setSummaryText);
-        connect(&m_pythonAspect, &BaseAspect::changed, details, setSummaryText);
-        connect(&m_overrideStartupAspect, &BaseAspect::changed, details, setSummaryText);
-
-        return details;
-    });
-
     addDataExtractor(this, &DebuggerRunConfigurationAspect::useCppDebugger, &Data::useCppDebugger);
     addDataExtractor(this, &DebuggerRunConfigurationAspect::useQmlDebugger, &Data::useQmlDebugger);
     addDataExtractor(this, &DebuggerRunConfigurationAspect::usePythonDebugger, &Data::usePythonDebugger);
     addDataExtractor(this, &DebuggerRunConfigurationAspect::useMultiProcess, &Data::useMultiProcess);
     addDataExtractor(this, &DebuggerRunConfigurationAspect::overrideStartup, &Data::overrideStartup);
+
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Debugger/DebuggerRunSettings.qml"));
+
+    m_cppAspect.setQmlName("CppDebugger");
+    m_qmlAspect.setQmlName("QmlDebugger");
+    m_pythonAspect.setQmlName("PythonDebugger");
+    m_overrideStartupAspect.setQmlName("OverrideStartup");
+    m_multiProcessAspect.setQmlName("MultiProcess");
+    m_prerequisites.setQmlName("QmlPrerequisites");
+
+    registerAspect(&m_cppAspect);
+    registerAspect(&m_qmlAspect);
+    registerAspect(&m_pythonAspect);
+    registerAspect(&m_prerequisites);
+    registerAspect(&m_overrideStartupAspect);
+    registerAspect(&m_multiProcessAspect);
+
+    m_prerequisites.setText(
+        Tr::tr("<a href=\""
+               "qthelp://org.qt-project.qtcreator/doc/creator-debugging-qml.html"
+               "\">What are the prerequisites?</a>"));
+    connect(&m_prerequisites, &Utils::TextDisplay::linkActivated,
+            this, [](const QString &link) { Core::HelpManager::showHelpUrl(link); });
+
+    // An option that only exists where the environment asks for it. The layout
+    // used to decide that while it was being built.
+    static const QString multiProcess = qtcEnvironmentVariable("QTC_DEBUGGER_MULTIPROCESS");
+    m_multiProcessAspect.setVisible(multiProcess.toInt() != 0);
+
+    // What the details widget showed as its summary, which is this group's
+    // title.
+    const auto updateSummary = [this] {
+        const auto describe = [](const TriStateAspect &aspect, const QString &name) {
+            if (aspect() == TriState::Enabled) {
+                //: %1 is C++, QML, or Python
+                return Tr::tr("Enable %1 debugger.").arg(name);
+            }
+            if (aspect() == TriState::Disabled) {
+                //: %1 is C++, QML, or Python
+                return Tr::tr("Disable %1 debugger.").arg(name);
+            }
+            //: %1 is C++, QML, or Python
+            return Tr::tr("Try to determine need for %1 debugger.").arg(name);
+        };
+
+        setLabelText(QStringList{
+            describe(m_cppAspect, "C++"),
+            describe(m_qmlAspect, "QML"),
+            describe(m_pythonAspect, "Python"),
+            m_overrideStartupAspect().isEmpty()
+                ? Tr::tr("No additional startup commands.")
+                : Tr::tr("Use additional startup commands.")
+        }.join(" "));
+    };
+    updateSummary();
+    const QList<Utils::BaseAspect *> saySomething{&m_cppAspect, &m_qmlAspect, &m_pythonAspect,
+                                                  &m_overrideStartupAspect};
+    for (Utils::BaseAspect * const aspect : saySomething)
+        connect(aspect, &Utils::BaseAspect::changed, this, updateSummary);
 
     m_cppAspect.setSettingsKey("RunConfiguration.UseCppDebugger");
     m_cppAspect.setLabelText(Tr::tr("C++ debugger:"));
@@ -254,4 +258,59 @@ void DebuggerRunConfigurationAspect::fromMap(const Store &map)
     m_overrideStartupAspect.fromMap(map);
 }
 
+#ifdef WITH_TESTS
+
+class DebuggerRunSettingsTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    // The aspect drew itself with a widget, so a Qt Quick page showed nothing
+    // where a run configuration's debugger settings belong. It names a page
+    // now; this checks the page finds every aspect it asks for, and that the
+    // summary the details widget used to show is the group's title.
+    void testTheRunSettingsPageDrawsWhatItNames()
+    {
+        DebuggerRunConfigurationAspect aspect(nullptr);
+
+        const auto byName = [&aspect](const QString &name) -> Utils::BaseAspect * {
+            for (Utils::BaseAspect * const sub : aspect.aspects()) {
+                if (sub->qmlName() == name)
+                    return sub;
+            }
+            return nullptr;
+        };
+        for (const QString &name : QStringList{"CppDebugger", "QmlDebugger", "PythonDebugger",
+                                               "OverrideStartup", "MultiProcess",
+                                               "QmlPrerequisites"}) {
+            QVERIFY2(byName(name), qPrintable("the page asks for " + name + ", which is not there"));
+        }
+
+        // The link beside the QML row is a label with somewhere to go.
+        QCOMPARE(int(byName("QmlPrerequisites")->presentation().control),
+                 int(Utils::AspectControls::Label));
+        QVERIFY(byName("QmlPrerequisites")->displayText().contains("qthelp://"));
+
+        // What the collapsed settings said about themselves, which the closure
+        // computed and which nothing outside it could.
+        QVERIFY2(aspect.labelText().contains(Tr::tr("Try to determine need for %1 debugger.")
+                                                 .arg("C++")),
+                 qPrintable("the summary says: " + aspect.labelText()));
+        aspect.m_cppAspect.setValue(TriState::Enabled);
+        QVERIFY2(aspect.labelText().contains(Tr::tr("Enable %1 debugger.").arg("C++")),
+                 qPrintable("the summary did not follow the setting: " + aspect.labelText()));
+    }
+};
+
+QObject *createDebuggerRunSettingsTest()
+{
+    return new DebuggerRunSettingsTest;
+}
+
+#endif // WITH_TESTS
+
 } // namespace Debugger
+
+#ifdef WITH_TESTS
+#include "debuggerrunconfigurationaspect.moc"
+#endif

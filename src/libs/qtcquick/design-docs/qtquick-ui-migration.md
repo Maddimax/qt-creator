@@ -17355,3 +17355,29 @@ container instead of a placeholder.
 
 **Two of the eight are left**: `CustomParsersAspect` and
 `DebuggerRunConfigurationAspect`.
+
+### The debugger's run settings, and what the last change got wrong
+
+`DebuggerRunConfigurationAspect` is a `GlobalOrProjectAspect` that **never
+calls `setGlobalSettings()` or `setProjectSettings()`** - it inherits the class
+without using the mechanism. Making that base a container therefore gave it a
+"Use global settings" box and a "Restore Global" button that mean nothing here,
+and a Qt Quick page would have drawn them. Both are hidden until there are
+global settings to choose.
+
+The same change flattened the container, which threw away the summary: what
+the widget form wraps these in is a `DetailsWidget`, and its summary line is
+the natural group title. It is a titled group again.
+
+The aspect itself now names `DebuggerRunSettings.qml`. Its closure listed five
+settings and a bare `QLabel` carrying a documentation link, and computed the
+summary. The label is a `Utils::TextDisplay` - which already has
+`linkActivated` and an `activateLink()` both backends call - and the summary is
+the container's `labelText()`, recomputed when any of the four settings that
+appear in it changes. The multi-process option, which the closure added only
+when `QTC_DEBUGGER_MULTIPROCESS` is set, is an aspect that hides itself.
+
+**One of the eight is left**: `CustomParsersAspect`.
+
+`DebuggerUnitTests::testStateMachine` fails here, and at HEAD with these files
+reverted: it opens a `.pro` project, which needs a working qmake kit.

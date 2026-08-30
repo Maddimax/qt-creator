@@ -2152,6 +2152,7 @@ Result<> DebuggerPlugin::initialize(const QStringList &arguments)
     setupRemoteDebuggerDebugSupport();
 
 #ifdef WITH_TESTS
+    addTestCreator(createDebuggerRunSettingsTest);
     addTestCreator(createDebuggerTest);
     addTestCreator(createSourcePathMapTest);
     addTestCreator(createCdbPathsTest);
