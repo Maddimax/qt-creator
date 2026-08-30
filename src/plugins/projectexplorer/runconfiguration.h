@@ -5,6 +5,7 @@
 
 #include "projectconfiguration.h"
 #include "task.h"
+#include "useglobalaspect.h"
 
 #include <utils/aspects.h>
 #include <utils/commandline.h>
@@ -78,7 +79,11 @@ public:
  *
  */
 
-class PROJECTEXPLORER_EXPORT GlobalOrProjectAspect : public Utils::BaseAspect
+// A setting that a run configuration either takes from the global page or
+// keeps its own copy of. A container, so that a Qt Quick page draws the
+// choice, the way back to the global values, and the project's own settings -
+// which are a container of their own and are drawn with the QML they name.
+class PROJECTEXPLORER_EXPORT GlobalOrProjectAspect : public Utils::AspectContainer
 {
     Q_OBJECT
 
@@ -101,6 +106,14 @@ public:
     {
         Utils::AspectContainer *currentSettings = nullptr;
     };
+
+private:
+    // What the widget form draws around the settings: the choice itself, and
+    // one button back to the global values.
+    void refreshSurfaces();
+
+    UseGlobalAspect m_useGlobal;
+    Utils::ActionAspect m_restoreGlobal;
 
 signals:
     void currentSettingsChanged();

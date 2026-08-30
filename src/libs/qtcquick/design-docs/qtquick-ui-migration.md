@@ -17324,3 +17324,34 @@ different tests failing each run - `DebugMessagesModelTest::testColor`,
 `FlameGraphViewTest::testSelection`. Baselined twice with these delegate
 changes backed out and HEAD's versions in place: 1 and 3 failures, still
 exit 134. Pre-existing.
+
+### GlobalOrProjectAspect: three plugins in one change
+
+`PerfRunConfigurationAspect`, `QmlProfilerRunConfigurationAspect` and
+Valgrind's are all `GlobalOrProjectAspect` subclasses that said
+`createRunConfigAspectWidget(this)`. Making the base describe itself covers
+all three.
+
+It is a container now, registering what its widget drew around the settings:
+
+- `UseGlobalSettings` - and not a new aspect for it. `UseGlobalAspect` already
+  exists, is a `BoolAspect`, and renders "global settings" in its label as a
+  link to the page they come from, which both backends report. That is exactly
+  what the widget built by hand out of a `QCheckBox` and a `QLabel`.
+- `RestoreGlobal`, an `ActionAspect` calling `resetProjectToGlobalSettings()`.
+- `Settings` - the project's own settings container, **registered without
+  ownership**: `registerAspect()` does not take it by default and
+  `~GlobalOrProjectAspect` already deletes it. That container is where the
+  previous batch pays off: it names QML of its own in all three plugins, and a
+  nested container is now drawn with it.
+
+The rest is behaviour the widget held: the choice enables or disables the
+settings and the restore button, and the label carries what the details widget
+showed as its summary - "Use Global Settings" or "Use Customized Settings".
+
+The `setConfigWidgetCreator()` calls stay. They are the widget path, and the
+aspect is no longer `AspectControls::Custom`, so the Qt Quick path draws the
+container instead of a placeholder.
+
+**Two of the eight are left**: `CustomParsersAspect` and
+`DebuggerRunConfigurationAspect`.

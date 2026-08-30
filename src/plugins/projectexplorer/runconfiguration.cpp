@@ -67,6 +67,35 @@ const char UNIQUE_ID_KEY[] = "ProjectExplorer.RunConfiguration.UniqueId";
 GlobalOrProjectAspect::GlobalOrProjectAspect()
 {
     addDataExtractor(this, &GlobalOrProjectAspect::currentSettings, &Data::currentSettings);
+
+    // No group box of its own: what the widget form puts round this is a
+    // details widget, whose summary is the label below.
+    setFlattened(true);
+
+    m_useGlobal.setQmlName("UseGlobalSettings");
+    registerAspect(&m_useGlobal);
+
+    m_restoreGlobal.setQmlName("RestoreGlobal");
+    m_restoreGlobal.setActionText(Tr::tr("Restore Global"));
+    m_restoreGlobal.setAction([this] { resetProjectToGlobalSettings(); });
+    registerAspect(&m_restoreGlobal);
+
+    m_useGlobal.addOnChanged(this, [this] { setUsingGlobalSettings(m_useGlobal()); });
+    connect(this, &GlobalOrProjectAspect::currentSettingsChanged,
+            this, [this] { refreshSurfaces(); });
+    refreshSurfaces();
+}
+
+void GlobalOrProjectAspect::refreshSurfaces()
+{
+    const bool global = m_useGlobalSettings;
+    m_useGlobal.setValue(global);
+    // What the details widget the widget form wraps this in shows as its
+    // summary.
+    setLabelText(global ? Tr::tr("Use Global Settings") : Tr::tr("Use Customized Settings"));
+    m_restoreGlobal.setEnabled(!global);
+    if (m_projectSettings)
+        m_projectSettings->setEnabled(!global);
 }
 
 GlobalOrProjectAspect::~GlobalOrProjectAspect()
@@ -78,6 +107,12 @@ void GlobalOrProjectAspect::setProjectSettings(AspectContainer *settings)
 {
     m_projectSettings = settings;
     m_projectSettings->setAutoApply(true);
+    // Listed rather than owned here: the destructor deletes it. What it draws
+    // is its own business - it may name QML of its own, and a nested container
+    // that does is drawn with it.
+    m_projectSettings->setQmlName("Settings");
+    registerAspect(m_projectSettings);
+    refreshSurfaces();
 }
 
 void GlobalOrProjectAspect::setGlobalSettings(AspectContainer *settings, Id settingsPage)
@@ -85,6 +120,9 @@ void GlobalOrProjectAspect::setGlobalSettings(AspectContainer *settings, Id sett
     m_globalSettings = settings;
     m_globalSettings->setAutoApply(false);
     m_settingsPage = settingsPage;
+    // The words "global settings" in the check box's label are a link to the
+    // page they come from, which is this one.
+    m_useGlobal.setSettingsPageId(settingsPage);
 }
 
 void GlobalOrProjectAspect::setUsingGlobalSettings(bool value)
@@ -1179,6 +1217,55 @@ private slots:
         for (const auto &[aspect, control] : wanted) {
             QCOMPARE(int(aspect->presentation().control), int(control));
         }
+    }
+
+    // A setting a run configuration either takes from the global page or keeps
+    // its own copy of. It drew itself with a widget, so a Qt Quick page had
+    // nothing to show; the Perf profiler, the QML profiler and Valgrind all
+    // hold one.
+    void testAGlobalOrProjectSettingOffersTheChoiceItDrew()
+    {
+        GlobalOrProjectAspect aspect;
+        auto * const global = new AspectContainer;
+        auto * const project = new AspectContainer;
+        BoolAspect option(project);
+        option.setLabelText("Option");
+        aspect.setGlobalSettings(global, Utils::Id("Some.Settings.Page"));
+        // Handed over: the aspect deletes what it is given.
+        aspect.setProjectSettings(project);
+
+        const auto byName = [&aspect](const QString &name) -> BaseAspect * {
+            for (BaseAspect * const sub : aspect.aspects()) {
+                if (sub->qmlName() == name)
+                    return sub;
+            }
+            return nullptr;
+        };
+
+        BaseAspect * const useGlobal = byName("UseGlobalSettings");
+        BaseAspect * const restore = byName("RestoreGlobal");
+        QVERIFY2(useGlobal, "nothing offers the choice between global and project settings");
+        QVERIFY2(restore, "nothing offers the way back to the global settings");
+        QVERIFY2(byName("Settings") == project, "the project's own settings are not listed");
+
+        // What the details widget shows as its summary, and what the choice
+        // does to everything below it.
+        aspect.setUsingGlobalSettings(true);
+        QCOMPARE(aspect.labelText(), QString("Use Global Settings"));
+        QVERIFY2(!project->isEnabled(), "the project settings can be edited while global is on");
+        QVERIFY(!restore->isEnabled());
+
+        aspect.setUsingGlobalSettings(false);
+        QCOMPARE(aspect.labelText(), QString("Use Customized Settings"));
+        QVERIFY(project->isEnabled());
+        QVERIFY(restore->isEnabled());
+
+        // And the check box is the same choice, not a second one beside it.
+        useGlobal->setVariantValue(true);
+        QVERIFY2(aspect.isUsingGlobalSettings(),
+                 "ticking the box did not switch to the global settings");
+
+        delete global;
     }
 
     void testNoRemoteExecutableIssues_data()
