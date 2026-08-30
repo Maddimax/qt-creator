@@ -952,6 +952,7 @@ Result<> ProjectExplorerPlugin::initialize(const QStringList &arguments)
     addTestCreator(createToolchainConfigAspectsTest);
     addTestCreator(createProjectPanelFactoryTest);
     addTestCreator(Internal::createDropFileDialogTest);
+    addTestCreator(Internal::createParseIssuesDialogTest);
     addTestCreator(Internal::createFilterKitAspectsTest);
     addTestCreator(Internal::createDeviceTestDialogTest);
     addTestCreator(createKitChooserTest);

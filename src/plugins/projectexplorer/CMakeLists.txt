@@ -247,6 +247,7 @@ if(TARGET ProjectExplorer)
       EditorProjectPanel.qml
       KitsPage.qml
       MakeStep.qml
+      ParseIssuesDialog.qml
       ProjectCommentsPanel.qml
       ProjectEnvironmentPanel.qml
       ToolchainsPage.qml

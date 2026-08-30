@@ -20822,3 +20822,55 @@ passed, exit 0; `Valgrind_qmllint` clean. No `.qbs` edit: `valgrind.qbs` takes
 **Next:** the seven remaining kit-chooser dialogs - five in Debugger
 (`StartApplicationDialog` and friends), plus `DeviceProcessesDialog` and
 `ParseIssuesDialog`. `ParseIssuesDialog` is the smallest.
+
+## 2026-08-30 — Parse Build Output, and two wrong guesses about a formatter
+
+`ParseIssuesDialog` is the third kit-chooser dialog and the first whose Ok
+button does real work: it runs a kit's output parsers over a build log. The
+container is a `StringAspect` in `TextEditDisplay`, an `ActionAspect`, two
+`BoolAspect`s and a `KitChooserAspect`, and the page is two `AspectGroupBox`es
+- the group with a literal title and explicit children, which is what a group
+with a custom arrangement needs. The widget put the buttons in a column beside
+the text edit rather than under it, so the group holds a `RowLayout` and the
+delegates go where they went before.
+
+**The interesting part was not the layout, it was `accept()`.** Three pieces
+came out of it as free functions - `firstDesktopKitId()`, `readBuildOutput()`
+and `parseOutput()` - and each is now a test that would have been impossible
+against the dialog: what kit it opens on, what a file that cannot be read does,
+and how the log reaches the parsers. That is the shape worth repeating: a
+dialog's `accept()` is usually the only place its real behaviour lives, and it
+is all reachable once it is not reading widgets.
+
+**Two guesses about `OutputFormatter` were wrong, and one of them aborted the
+process:**
+
+- `setLineParsers()` **takes ownership**. A test that keeps a pointer to the
+  parser it passed and reads it afterwards is reading freed memory: exit 134,
+  and the totals line before it said only that four tests had passed. The
+  recorder writes into a struct the test owns instead. This is
+  [[check-process-exit-code]] again - the abort was invisible in the output.
+- The parser is handed the line **without** its newline. `appendMessage(line +
+  '\n')` is what ends the line, not what the parser sees, so an expectation of
+  `"first\n"` fails against `"first"`. The `+ '\n'` still matters and the
+  control proves it: without it the three lines arrive as one.
+
+One behaviour improved rather than copied: the widget set the Ok button once,
+from whether a kit was chosen at construction, so a reader who changed the kit
+kept whatever the button was at the start. It follows the aspect now.
+
+Negative controls: the `.qml` naming an aspect that does not exist; the lines
+not ended, so the log arrives as one; a one-line field for the output; the
+boxes starting unchecked; a label beside the check boxes instead of their own
+text; a file that cannot be read returning empty text; and the last desktop kit
+instead of the first. All seven bit.
+
+QuickUi 182 passed / 0 failed / 1 skipped, exit 0. `ParseIssuesDialogTest` 9
+passed, exit 0; `ProjectExplorer_qmllint` clean; the whole `ProjectExplorer`
+suite exits 2 on its two standing failures (`ProjectTest::testSourceToBinary
+Mapping(qbs)` and `RunWorkerConflictTest::testConflict`) and nothing else. No
+`.qbs` edit: `projectexplorer.qbs` takes `**/*.qml` by wildcard.
+
+**Next:** `DeviceProcessesDialog`, then the five Debugger kit-chooser dialogs.
+`DeviceProcessesDialog` is a table plus a kit chooser, so it also exercises the
+table shape the census counted thirty of.
