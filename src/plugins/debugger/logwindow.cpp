@@ -20,15 +20,10 @@
 #include <QTextLayout>
 #include <QTime>
 
-#include <QFileDialog>
 #include <QGuiApplication>
-#include <QHBoxLayout>
-#include <QLabel>
-#include <QMenu>
-#include <QPushButton>
 #include <QQuickTextDocument>
 #include <QSyntaxHighlighter>
-#include <QToolButton>
+#include <QVBoxLayout>
 
 #include <coreplugin/actionmanager/actionmanager.h>
 #include <coreplugin/findplaceholder.h>
@@ -42,7 +37,7 @@
 
 #include <utils/filedialogs.h>
 #include <utils/aggregate.h>
-#include <utils/fancylineedit.h>
+#include <utils/completionhistory.h>
 #include <utils/fileutils.h>
 #include <utils/qtcassert.h>
 #include <utils/theme/theme.h>
@@ -56,6 +51,10 @@ GlobalLogWindow *theGlobalLog = nullptr;
 // About what the widget pane kept: it trimmed at 100000 blocks, back to 90% of
 // them, and a log line is short.
 const qsizetype maxLogCharCount = 10 * 1000 * 1000;
+
+// The key the widget command box wrote its history under, kept so that a log
+// which already has one keeps it.
+const char commandHistoryKey[] = "DebuggerInput";
 
 LogChannel channelForChar(QChar c)
 {
@@ -233,9 +232,13 @@ class InputPane : public QtcQuick::QuickWidget
 {
     Q_OBJECT
 
+    Q_PROPERTY(QStringList commandHistory READ commandHistory NOTIFY commandHistoryChanged)
+    Q_PROPERTY(QVariant repeatIcon READ repeatIcon CONSTANT)
+
 public:
     InputPane()
     {
+        quickWidget()->setInitialProperties({{"pane", QVariant::fromValue(this)}});
         setSource(QUrl("qrc:/qt/qml/QtCreator/Debugger/DebuggerInput.qml"));
 
         QObject * const root = rootObject();
@@ -294,6 +297,33 @@ public:
 
     bool isReadOnly() const { return false; }
 
+    // What the command box offers back, which is the store the widget field
+    // wrote to - so a log that already has a history keeps it.
+    QStringList commandHistory() const
+    {
+        return Utils::CompletionHistory::entries(commandHistoryKey);
+    }
+
+    QVariant repeatIcon() const { return QVariant::fromValue(Icons::STEP_OVER.icon()); }
+
+    Q_INVOKABLE void rememberCommand(const QString &command)
+    {
+        if (command.isEmpty())
+            return;
+        Utils::CompletionHistory::addEntry(commandHistoryKey, command);
+        emit commandHistoryChanged();
+    }
+
+    Q_INVOKABLE void sendCommand(const QString &command) { emit commandEntered(command); }
+    Q_INVOKABLE void repeatLastCommand() { emit repeatRequested(); }
+
+    QString commandText() const
+    {
+        QObject * const root = rootObject();
+        QTC_ASSERT(root, return {});
+        return root->property("commandText").toString();
+    }
+
     void append(const QString &text)
     {
         QTextDocument * const doc = document();
@@ -350,6 +380,9 @@ signals:
     void clearContentsRequested();
     void statusMessageRequested(const QString &, int);
     void commandSelected(int);
+    void commandEntered(const QString &command);
+    void repeatRequested();
+    void commandHistoryChanged();
 
 private slots:
     void onDoubleClickedAt(int position)
@@ -467,32 +500,7 @@ LogWindow::LogWindow(DebuggerEngine *engine)
     connect(m_inputText, &InputPane::clearContentsRequested,
             this, &LogWindow::clearContents);
 
-    m_commandEdit = new Utils::FancyLineEdit(this);
-    m_commandEdit->setFrame(false);
-    m_commandEdit->setHistoryCompleter("DebuggerInput");
-
-    auto repeatButton = new QToolButton(this);
-    repeatButton->setIcon(Icons::STEP_OVER.icon());
-    repeatButton->setFixedSize(QSize(18, 18));
-    repeatButton->setToolTip(Tr::tr("Repeat last command for debug reasons."));
-
-    auto commandBox = new QHBoxLayout;
-    commandBox->addWidget(repeatButton);
-    commandBox->addWidget(new QLabel(Tr::tr("Command:"), this));
-    commandBox->addWidget(m_commandEdit);
-    commandBox->setContentsMargins(2, 2, 2, 2);
-    commandBox->setSpacing(6);
-
-    auto leftBox = new QVBoxLayout;
-    leftBox->addWidget(m_inputText);
-    leftBox->addItem(commandBox);
-    leftBox->setContentsMargins(0, 0, 0, 0);
-    leftBox->setSpacing(0);
-
-    auto leftDummy = new QWidget;
-    leftDummy->setLayout(leftBox);
-
-    m_splitter->addWidget(leftDummy);
+    m_splitter->addWidget(m_inputText);
     m_splitter->addWidget(m_combinedText);
     m_splitter->setStretchFactor(0, 1);
     m_splitter->setStretchFactor(1, 3);
@@ -510,11 +518,11 @@ LogWindow::LogWindow(DebuggerEngine *engine)
             this, &LogWindow::statusMessageRequested);
     connect(m_inputText, &InputPane::commandSelected,
             this, &LogWindow::gotoResult);
-    connect(m_commandEdit, &QLineEdit::returnPressed,
+    connect(m_inputText, &InputPane::commandEntered,
             this, &LogWindow::sendCommand);
     connect(m_inputText, &InputPane::executeLineRequested,
             this, &LogWindow::executeLine);
-    connect(repeatButton, &QAbstractButton::clicked,
+    connect(m_inputText, &InputPane::repeatRequested,
             this, &LogWindow::repeatLastCommand);
 
     connect(&m_outputTimer, &QTimer::timeout,
@@ -560,9 +568,9 @@ DebuggerEngine *LogWindow::engine() const
     return m_engine;
 }
 
-void LogWindow::sendCommand()
+void LogWindow::sendCommand(const QString &command)
 {
-    m_engine->executeDebuggerCommand(m_commandEdit->text());
+    m_engine->executeDebuggerCommand(command);
 }
 
 void LogWindow::showOutput(int channel, const QString &output)
@@ -1139,6 +1147,74 @@ private slots:
         const QList<QTextLayout::FormatRange> formats
             = document->firstBlock().layout()->formats();
         QCOMPARE(formats.first().format.foreground().color(), colorForChannel(LogTime));
+    }
+
+    void testTheCommandBoxOffersWhatWasTypedIntoItBefore()
+    {
+        // The history is the store the widget field wrote to, so a log that
+        // already has one keeps it. Put back afterwards, since this is the
+        // running instance's own history.
+        const QStringList had = Utils::CompletionHistory::entries(commandHistoryKey);
+        Utils::CompletionHistory::clear(commandHistoryKey);
+        Utils::CompletionHistory::addEntry(commandHistoryKey, "print x");
+
+        {
+            InputPane pane;
+            QCOMPARE(pane.commandHistory(), QStringList{"print x"});
+
+            auto * const root = qobject_cast<QQuickItem *>(pane.rootObject());
+            QVERIFY(root);
+
+            // Under that name, which is the part nothing else would catch: an
+            // unanswered property reads as undefined and the box would simply
+            // never offer anything, with a clean build and a clean lint.
+            QObject * const popup = root->findChild<QObject *>("commandHistory");
+            QVERIFY(popup);
+            QCOMPARE(popup->property("completions").toStringList(), QStringList{"print x"});
+
+            // Entering one sends it and remembers it, newest first.
+            QSignalSpy sent(&pane, &InputPane::commandEntered);
+            QQuickItem * const field = root->findChild<QQuickItem *>("commandField");
+            QVERIFY(field);
+            field->setProperty("text", "continue");
+            QVERIFY(QMetaObject::invokeMethod(field, "accepted"));
+
+            QTRY_COMPARE(sent.count(), 1);
+            QCOMPARE(sent.first().first().toString(), QString("continue"));
+            QCOMPARE(pane.commandHistory(), QStringList({"continue", "print x"}));
+            QCOMPARE(popup->property("completions").toStringList(),
+                     QStringList({"continue", "print x"}));
+        }
+
+        Utils::CompletionHistory::clear(commandHistoryKey);
+        for (auto it = had.crbegin(); it != had.crend(); ++it)
+            Utils::CompletionHistory::addEntry(commandHistoryKey, *it);
+    }
+
+    void testTheRepeatButtonAsksForTheLastCommandAgain()
+    {
+        InputPane pane;
+        pane.resize(400, 200);
+        pane.show();
+
+        auto * const root = qobject_cast<QQuickItem *>(pane.rootObject());
+        QVERIFY(root);
+        QQuickItem * const button = root->findChild<QQuickItem *>("repeatButton");
+        QVERIFY(button);
+
+        // A button drawn with no icon is an invisible one, and nothing else
+        // here would notice: the icon is a Debugger icon, which the by-name
+        // form of the image provider cannot reach.
+        QVERIFY2(!button->property("iconSource").toString().isEmpty(),
+                 "the repeat button was drawn with no icon");
+
+        QTRY_VERIFY(button->width() > 0 && button->isVisible());
+        const QPointF centre = button->mapToScene(
+            QPointF(button->width() / 2, button->height() / 2));
+
+        QSignalSpy repeated(&pane, &InputPane::repeatRequested);
+        QTest::mouseClick(pane.quickWidget(), Qt::LeftButton, {}, centre.toPoint());
+        QTRY_COMPARE(repeated.count(), 1);
     }
 };
 

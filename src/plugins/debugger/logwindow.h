@@ -17,8 +17,6 @@ QT_END_NAMESPACE
 
 namespace Core { class OutputPaneView; }
 
-namespace Utils { class FancyLineEdit; }
-
 namespace Debugger::Internal {
 
 // Which channel a line of the log belongs to is written as its first
@@ -69,7 +67,7 @@ public:
     static QString logTimeStamp();
 
     void clearContents();
-    void sendCommand();
+    void sendCommand(const QString &command);
     void executeLine();
     void showOutput(int channel, const QString &output);
     void showInput(int channel, const QString &input);
@@ -86,7 +84,6 @@ private:
     InputPane *m_inputText;               // scriptable input alone
     QTimer m_outputTimer;
     QString m_queuedOutput;
-    Utils::FancyLineEdit *m_commandEdit;
     bool m_ignoreNextInputEcho;
     DebuggerEngine *m_engine;
 };

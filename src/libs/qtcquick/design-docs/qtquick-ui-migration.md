@@ -19483,3 +19483,47 @@ QuickUi 178 passed / 0 failed / 1 skipped, exit 0. `LogWindowTest` 16 passed.
 
 **Next:** the command box, and then this window is done. After that the plan
 has no named pane left - see the note below when that happens.
+
+## 2026-08-30 — The command box, and the log window is done
+
+The `FancyLineEdit`, its "Command:" label and the repeat button are now part of
+`DebuggerInput.qml`, so the whole left half of the splitter is one Quick item
+and the three widget containers that held them - a `QHBoxLayout`, a
+`QVBoxLayout` and the `QWidget` that existed only to own them - are gone.
+`LogWindow` now adds the input pane to the splitter directly.
+
+**The history carries over, because the store is already shared.**
+`HistoryCompleter` reads and writes through `Utils::CompletionHistory`, so the
+Quick box reading `CompletionHistory::entries("DebuggerInput")` offers exactly
+what the widget field remembered. It records at the same two moments the widget
+did - on Return and on losing focus - which is what `FancyLineEdit` gets from
+`editingFinished`.
+
+**A Debugger icon cannot go through the by-name image provider.** `@name/`
+resolves against `Utils::Icons::fromString`, and `STEP_OVER` is declared in
+`debuggericons.h`. So the button's icon comes out of C++ as a `QIcon` through
+`AspectModels.decorationUrl()`, the same route a console row's icon takes. A
+button with no icon is invisible rather than broken, so the test asserts
+`iconSource` is not empty.
+
+Negative controls, all four bit: the popup asking for a property name the pane
+does not answer (`commandHistoryEntries`); entering a command no longer sending
+it; the repeat button reduced to decoration; and what was entered not being
+remembered. The first is the one worth having - a wrong property name in QML is
+undefined rather than an error, and the box would simply never offer anything,
+with a clean build and a clean qmllint.
+
+**A trap that cost a wrong result here:** trimming includes broke the build
+(`QVBoxLayout` had been arriving through `QHBoxLayout`), and the suites were
+run anyway - against the binary the *last negative control* had left in place.
+One "failure" was control D still being linked in. Check that the build
+succeeded before believing a run; a failed `ninja` leaves the previous plugin
+where the test runner will find it.
+
+QuickUi 178 passed / 0 failed / 1 skipped, exit 0. `LogWindowTest` 18 passed.
+`Debugger` exits 1 on the pre-existing `DebuggerUnitTests::testStateMachine`.
+`Debugger_qmllint` clean. No `.qbs` edit.
+
+**The plan has no named pane left.** Every output pane, the debugger console
+and both log windows are drawn with Qt Quick. What remains is not a pane but a
+class of thing - see the next batch's entry for what was picked and why.
