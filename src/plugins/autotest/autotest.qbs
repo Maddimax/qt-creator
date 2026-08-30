@@ -9,6 +9,7 @@ QtcPlugin {
     Depends { name: "QmlJS" }
     Depends { name: "QmlJSTools" }
     Depends { name: "Utils" }
+    Depends { name: "QtcQuick" }
     Depends { name: "Debugger" }
     Depends { name: "TextEditor" }
 
@@ -42,8 +43,6 @@ QtcPlugin {
         "testnavigationwidget.h",
         "testresult.cpp",
         "testresult.h",
-        "testresultdelegate.cpp",
-        "testresultdelegate.h",
         "testresultmodel.cpp",
         "testresultmodel.h",
         "testresultsmanager.cpp",

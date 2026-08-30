@@ -8,7 +8,6 @@
 #include "autotesttr.h"
 #include "itestframework.h"
 #include "testeditormark.h"
-#include "testresultdelegate.h"
 #include "testresultmodel.h"
 #include "testresultmodel.h"
 #include "testrunner.h"
@@ -46,6 +45,10 @@
 #include <QScrollBar>
 #include <QStackedWidget>
 #include <QToolButton>
+#include <QCursor>
+#include <QQuickItem>
+#include <QQuickWidget>
+#include <QItemSelectionModel>
 #include <QVBoxLayout>
 
 #ifdef WITH_TESTS
@@ -58,21 +61,150 @@ using namespace Utils;
 
 namespace Autotest::Internal {
 
-ResultsTreeView::ResultsTreeView(QWidget *parent)
-    : TreeView(parent)
+// What Core::ItemViewFind asks of a view. Owned by the finder, which is why it
+// is separate from the view rather than the view answering for itself.
+class TestResultsFindTarget : public Core::ItemViewTarget
 {
-    setUniformRowHeights(false);
-    setAttribute(Qt::WA_MacShowFocusRect, false);
-    setFrameStyle(NoFrame);
+public:
+    explicit TestResultsFindTarget(TestResultsView *view)
+        : m_view(view)
+    {}
+
+    QAbstractItemModel *model() const override { return m_view->resultModel(); }
+    QModelIndex currentIndex() const override { return m_view->currentIndex(); }
+    void setCurrentIndex(const QModelIndex &index) override { m_view->setCurrentIndex(index); }
+    void reveal(const QModelIndex &index) override { m_view->reveal(index); }
+    QWidget *widget() const override { return m_view; }
+
+private:
+    const QPointer<TestResultsView> m_view;
+};
+
+TestResultsView::TestResultsView(QAbstractItemModel *model, QWidget *parent)
+    : QtcQuick::QuickWidget(parent)
+    , m_model(model)
+    , m_selection(new QItemSelectionModel(model, this))
+{
+    quickWidget()->setInitialProperties(
+        {{"resultRows", QVariant::fromValue(model)},
+         {"selection", QVariant::fromValue(m_selection)}});
+    setSource(QUrl("qrc:/qt/qml/QtCreator/AutoTest/TestResultsView.qml"));
+
+    if (QObject * const root = rootObject()) {
+        connect(root, SIGNAL(rowActivated(QVariant)), this, SLOT(onRowActivated(QVariant)));
+        connect(root, SIGNAL(contextMenuRequested(QVariant)),
+                this, SLOT(onContextMenuRequested(QVariant)));
+        connect(root, SIGNAL(copyRequested()), this, SIGNAL(copyShortcutTriggered()));
+    }
 }
 
-void ResultsTreeView::keyPressEvent(QKeyEvent *event)
+void TestResultsView::onRowActivated(const QVariant &index)
 {
-    if (event->matches(QKeySequence::Copy)) {
-        emit copyShortcutTriggered();
-        event->accept();
-    }
-    TreeView::keyPressEvent(event);
+    emit activated(index.toModelIndex());
+}
+
+void TestResultsView::onContextMenuRequested(const QVariant &index)
+{
+    emit contextMenuRequested(index.toModelIndex());
+}
+
+QQuickItem *TestResultsView::treeItem() const
+{
+    auto * const root = qobject_cast<QQuickItem *>(rootObject());
+    QTC_ASSERT(root, return nullptr);
+    return root->findChild<QQuickItem *>("testResults");
+}
+
+int TestResultsView::rowOf(const QModelIndex &index) const
+{
+    QQuickItem * const tree = treeItem();
+    if (!tree || !index.isValid())
+        return -1;
+    int row = -1;
+    // A tree's rows are the view's own arithmetic: which row an index is on
+    // depends on what is open above it, so only the view can say.
+    QMetaObject::invokeMethod(tree, "rowAtIndex", Q_RETURN_ARG(int, row),
+                              Q_ARG(QModelIndex, index));
+    return row;
+}
+
+QModelIndex TestResultsView::currentIndex() const
+{
+    return m_selection->currentIndex();
+}
+
+void TestResultsView::setCurrentIndex(const QModelIndex &index)
+{
+    m_selection->setCurrentIndex(index, QItemSelectionModel::ClearAndSelect
+                                            | QItemSelectionModel::Rows);
+}
+
+void TestResultsView::reveal(const QModelIndex &index)
+{
+    if (QQuickItem * const tree = treeItem())
+        QMetaObject::invokeMethod(tree, "expandToIndex", Q_ARG(QModelIndex, index));
+}
+
+bool TestResultsView::isExpanded(const QModelIndex &index) const
+{
+    QQuickItem * const tree = treeItem();
+    const int row = rowOf(index);
+    if (!tree || row < 0)
+        return false;
+    bool expanded = false;
+    QMetaObject::invokeMethod(tree, "isExpanded", Q_RETURN_ARG(bool, expanded),
+                              Q_ARG(int, row));
+    return expanded;
+}
+
+void TestResultsView::expand(const QModelIndex &index)
+{
+    QQuickItem * const tree = treeItem();
+    const int row = rowOf(index);
+    if (tree && row >= 0)
+        QMetaObject::invokeMethod(tree, "expand", Q_ARG(int, row));
+}
+
+void TestResultsView::expandRecursively(const QModelIndex &index)
+{
+    QQuickItem * const tree = treeItem();
+    const int row = rowOf(index);
+    if (tree && row >= 0)
+        QMetaObject::invokeMethod(tree, "expandRecursively", Q_ARG(int, row), Q_ARG(int, -1));
+}
+
+void TestResultsView::expandAll()
+{
+    if (QQuickItem * const tree = treeItem())
+        QMetaObject::invokeMethod(tree, "expandRecursively", Q_ARG(int, -1), Q_ARG(int, -1));
+}
+
+void TestResultsView::collapseAll()
+{
+    if (QQuickItem * const tree = treeItem())
+        QMetaObject::invokeMethod(tree, "collapseRecursively");
+}
+
+void TestResultsView::setShowDuration(bool show)
+{
+    if (QObject * const root = rootObject())
+        root->setProperty("showDuration", show);
+}
+
+bool TestResultsView::isAtEnd() const
+{
+    QQuickItem * const tree = treeItem();
+    return tree ? tree->property("atYEnd").toBool() : true;
+}
+
+void TestResultsView::scrollToEnd()
+{
+    QQuickItem * const tree = treeItem();
+    if (!tree)
+        return;
+    const qreal bottom = tree->property("contentHeight").toReal()
+                         - tree->property("height").toReal();
+    tree->setProperty("contentY", std::max(qreal(0), bottom));
 }
 
 TestResultsPane::TestResultsPane(QObject *parent) :
@@ -106,23 +238,19 @@ TestResultsPane::TestResultsPane(QObject *parent) :
 
     outputLayout->addWidget(m_summaryWidget);
 
-    m_treeView = new ResultsTreeView(visualOutputWidget);
-    m_treeView->setHeaderHidden(true);
-    m_treeView->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
-    m_treeView->setContextMenuPolicy(Qt::CustomContextMenu);
-    pal = m_treeView->palette();
-    pal.setColor(QPalette::Base, pal.window().color());
-    m_treeView->setPalette(pal);
     m_model = new TestResultModel(this);
     m_filterModel = new TestResultFilterModel(this);
     m_filterModel->setSourceModel(m_model);
     m_filterModel->setDynamicSortFilter(true);
     m_filterModel->setRecursiveFilteringEnabled(true);
-    m_treeView->setModel(m_filterModel);
-    TestResultDelegate *trd = new TestResultDelegate(this);
-    m_treeView->setItemDelegate(trd);
 
-    outputLayout->addWidget(ItemViewFind::createSearchableWrapper(m_treeView));
+    m_treeView = new TestResultsView(m_filterModel, visualOutputWidget);
+
+    // Ctrl+F over the results, through the same wrapper a widget view got: it
+    // needs somewhere to put a find bar and something that can answer for a
+    // view, and neither has to be a QAbstractItemView any more.
+    outputLayout->addWidget(ItemViewFind::createSearchableWrapper(
+        new ItemViewFind(new TestResultsFindTarget(m_treeView), Qt::DisplayRole)));
 
     m_textOutput = new Core::OutputPaneView(Core::Context("AutoTest.TextOutput"),
                                             "AutoTest.TextOutput.Filter");
@@ -142,12 +270,10 @@ TestResultsPane::TestResultsPane(QObject *parent) :
 
     createToolButtons();
 
-    connect(m_treeView, &TreeView::activated, this, &TestResultsPane::onItemActivated);
-    connect(m_treeView->selectionModel(), &QItemSelectionModel::currentChanged,
-            trd, &TestResultDelegate::currentChanged);
-    connect(m_treeView, &TreeView::customContextMenuRequested,
+    connect(m_treeView, &TestResultsView::activated, this, &TestResultsPane::onItemActivated);
+    connect(m_treeView, &TestResultsView::contextMenuRequested,
             this, &TestResultsPane::onCustomContextMenuRequested);
-    connect(m_treeView, &ResultsTreeView::copyShortcutTriggered, this, [this] {
+    connect(m_treeView, &TestResultsView::copyShortcutTriggered, this, [this] {
         onCopyItemTriggered(getTestResult(m_treeView->currentIndex()));
     });
     connect(m_model, &TestResultModel::requestExpansion, this, [this](const QModelIndex &idx) {
@@ -231,17 +357,8 @@ void TestResultsPane::createToolButtons()
     m_showDurationButton->setToolTip(Tr::tr("Show Durations"));
     m_showDurationButton->setCheckable(true);
     m_showDurationButton->setChecked(true);
-    connect(m_showDurationButton, &QToolButton::toggled, this, [this](bool checked) {
-        if (auto trd = qobject_cast<TestResultDelegate *>(m_treeView->itemDelegate())) {
-            trd->setShowDuration(checked);
-            if (m_model->rowCount()) {
-                m_model->rootItem()->forAllChildren([this](TestResultItem *it) {
-                    const QModelIndex idx = m_model->indexForItem(it);
-                    emit m_model->dataChanged(idx, idx, {Qt::DisplayRole});
-                });
-            }
-        }
-    });
+    connect(m_showDurationButton, &QToolButton::toggled,
+            this, [this](bool checked) { m_treeView->setShowDuration(checked); });
 }
 
 static TestResultsPane *s_instance = nullptr;
@@ -297,8 +414,7 @@ void TestResultsPane::handleNextBuffered()
 
 void TestResultsPane::addTestResult(const TestResult &result)
 {
-    const QScrollBar *scrollBar = m_treeView->verticalScrollBar();
-    m_atEnd = scrollBar ? scrollBar->value() == scrollBar->maximum() : true;
+    m_atEnd = m_treeView->isAtEnd();
 
     m_model->addTestResult(result, m_expandCollapse->isChecked());
     setIconBadgeNumber(m_model->resultTypeCount(ResultType::Fail)
@@ -355,14 +471,12 @@ void TestResultsPane::clearContents()
     m_lastCurrentMessage.reset();
 
     m_filterModel->clearTestResults();
-    if (auto delegate = qobject_cast<TestResultDelegate *>(m_treeView->itemDelegate()))
-        delegate->clearCache();
     setIconBadgeNumber(0);
     navigateStateChanged();
     m_summaryWidget->setVisible(false);
     m_autoScroll = testSettings().autoScroll();
-    connect(m_treeView->verticalScrollBar(), &QScrollBar::rangeChanged,
-            this, &TestResultsPane::onScrollBarRangeChanged, Qt::UniqueConnection);
+    connect(m_model, &QAbstractItemModel::rowsInserted,
+            this, &TestResultsPane::onResultsGrew, Qt::UniqueConnection);
     m_textOutput->reset();
     m_textOutput->clear();
     clearMarks();
@@ -590,7 +704,6 @@ bool TestResultsPane::eventFilter(QObject *object, QEvent *event)
 {
     QTC_ASSERT(m_outputWidget, return false);
     if (event->type() == QEvent::Resize && object->parent() == m_outputWidget)
-        static_cast<TestResultDelegate *>(m_treeView->itemDelegate())->clearCache();
     return false;
 }
 
@@ -618,8 +731,8 @@ void TestResultsPane::onTestRunFinished()
     updateSummaryLabel();
     m_summaryWidget->setVisible(true);
     m_model->removeCurrentTestMessage();
-    disconnect(m_treeView->verticalScrollBar(), &QScrollBar::rangeChanged,
-               this, &TestResultsPane::onScrollBarRangeChanged);
+    disconnect(m_model, &QAbstractItemModel::rowsInserted,
+               this, &TestResultsPane::onResultsGrew);
     if (!TestRunner::instance()->suppressPopups() && testSettings().popupOnFinish()
             && (!testSettings().popupOnFail() || hasFailedTests(m_model))) {
         popup(IOutputPane::NoModeSwitch);
@@ -627,17 +740,19 @@ void TestResultsPane::onTestRunFinished()
     updateMenuItemsEnabledState();
 }
 
-void TestResultsPane::onScrollBarRangeChanged(int, int max)
+void TestResultsPane::onResultsGrew()
 {
+    // Only while the reader has not moved away from the end: being dragged to
+    // the bottom while reading a failure is worse than not following at all.
     if (m_autoScroll && m_atEnd)
-        m_treeView->verticalScrollBar()->setValue(max);
+        m_treeView->scrollToEnd();
 }
 
-void TestResultsPane::onCustomContextMenuRequested(const QPoint &pos)
+void TestResultsPane::onCustomContextMenuRequested(const QModelIndex &index)
 {
     const bool resultsAvailable = m_filterModel->hasResults();
     const bool enabled = !m_testRunning && resultsAvailable;
-    const TestResult clicked = getTestResult(m_treeView->indexAt(pos));
+    const TestResult clicked = getTestResult(index);
     QMenu menu;
 
     QAction *action = new QAction(Tr::tr("Copy"), &menu);
@@ -694,7 +809,9 @@ void TestResultsPane::onCustomContextMenuRequested(const QPoint &pos)
     });
     menu.addAction(action);
 
-    menu.exec(m_treeView->mapToGlobal(pos));
+    // Where the pointer is: the view reports which row was clicked, not where
+    // on screen, and a menu has to open somewhere.
+    menu.exec(QCursor::pos());
 }
 
 TestResult TestResultsPane::getTestResult(const QModelIndex &idx)
@@ -955,12 +1072,8 @@ void TestResultsPane::handlePendingResultsSilently()
         };
         const QList<ExpandedRows> origExpanded = collectExpanded(m_filterModel, isExpanded, {});
         QList<int> selectedRows;
-        const QModelIndexList itemSelection = m_treeView->selectionModel()->selectedIndexes();
-        if (itemSelection.size() == 1)
-            selectedRows = rowPath(itemSelection.first());
-        int value = -1;
-        if (auto sb = m_treeView->verticalScrollBar())
-            value = sb->value();
+        selectedRows = rowPath(m_treeView->currentIndex());
+        const bool wasAtEnd = m_treeView->isAtEnd();
 
         // exchange root items
         m_model->setRootItem(newRoot->release());
@@ -971,10 +1084,10 @@ void TestResultsPane::handlePendingResultsSilently()
         if (!selectedRows.isEmpty()) {
             const QModelIndex idx = indexAtPath(m_filterModel, selectedRows);
             if (idx.isValid())
-                m_treeView->selectionModel()->select(idx, QItemSelectionModel::Select);
+                m_treeView->setCurrentIndex(idx);
         }
-        if (value != -1)
-            m_treeView->verticalScrollBar()->setValue(value);
+        if (wasAtEnd)
+            m_treeView->scrollToEnd();
         createMarks();
         updateMenuItemsEnabledState();
     };
@@ -1001,6 +1114,39 @@ private:
     }
 
 private slots:
+    void testTheViewAnswersForItsRowsWithoutBeingOne()
+    {
+        // Everything the pane used to ask a QTreeView. Which row an index is
+        // on depends on what is open above it, so only the view can say - and
+        // the pane needs the answer to put a reader back where they were.
+        QStandardItemModel model;
+        fill(model);
+
+        TestResultsView view(&model);
+        view.resize(400, 300);
+        view.show();
+
+        const QModelIndex first = model.index(0, 0);
+        const QModelIndex third = model.index(2, 0);
+        QTRY_VERIFY2(!view.isExpanded(first), "a row was open before anything opened it");
+
+        view.expand(first);
+        QTRY_VERIFY2(view.isExpanded(first), "opening a row did not open it");
+        QVERIFY2(!view.isExpanded(third), "opening one row opened another");
+
+        // The current row is the pane's, and comes back as the index that was
+        // put in rather than as a row number.
+        QVERIFY(!view.currentIndex().isValid());
+        view.setCurrentIndex(third);
+        QCOMPARE(view.currentIndex(), third);
+
+        // All of them, and none of them.
+        view.expandAll();
+        QTRY_VERIFY(view.isExpanded(third));
+        view.collapseAll();
+        QTRY_VERIFY2(!view.isExpanded(first), "collapsing all left a row open");
+    }
+
     void testRememberingWhichRowsWereOpen()
     {
         QStandardItemModel model;

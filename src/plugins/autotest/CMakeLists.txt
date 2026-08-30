@@ -1,7 +1,7 @@
 add_qtc_plugin(AutoTest
   PLUGIN_CLASS AutotestPlugin
   PLUGIN_DEPENDS Core CppEditor Debugger ProjectExplorer QmlJSTools TextEditor
-  DEPENDS McpServerLib
+  DEPENDS McpServerLib Qt::Qml QtcQuick
   PLUGIN_TEST_DEPENDS QmakeProjectManager QtSupport QbsProjectManager
   SOURCES
     autotest_global.h
@@ -66,7 +66,6 @@ add_qtc_plugin(AutoTest
     testoutputreader.cpp testoutputreader.h
     testprojectsettings.cpp testprojectsettings.h
     testresult.cpp testresult.h
-    testresultdelegate.cpp testresultdelegate.h
     testresultmodel.cpp testresultmodel.h
     testresultspane.cpp testresultspane.h
     testresultsmanager.cpp testresultsmanager.h

@@ -6,7 +6,10 @@
 #include "autotestconstants.h"
 #include "testresult.h"
 
+#include <coreplugin/find/itemviewfind.h>
 #include <coreplugin/ioutputpane.h>
+
+#include <qtcquick/qtcquickwidget.h>
 
 #include <utils/filepath.h>
 #include <utils/itemviews.h>
@@ -22,12 +25,17 @@ class QAction;
 class QFrame;
 class QKeyEvent;
 class QLabel;
+class QAbstractItemModel;
+class QItemSelectionModel;
 class QModelIndex;
+class QQuickItem;
 class QMenu;
 class QPlainTextEdit;
 class QStackedWidget;
 class QToolButton;
 QT_END_NAMESPACE
+
+namespace QtcQuick { class QuickWidget; }
 
 namespace Core {
 class IContext;
@@ -45,17 +53,56 @@ class TestResultModel;
 class TestResultFilterModel;
 class TestEditorMark;
 
-class ResultsTreeView : public Utils::TreeView
+// The results tree, drawn with Qt Quick. Everything a widget view answered
+// for itself - which row is current, which rows are open, where the view is
+// scrolled - it answers here, because the pane needs those and there is no
+// widget holding them any more.
+class TestResultsView : public QtcQuick::QuickWidget
 {
     Q_OBJECT
+
 public:
-    explicit ResultsTreeView(QWidget *parent = nullptr);
+    explicit TestResultsView(QAbstractItemModel *model, QWidget *parent = nullptr);
+
+    QAbstractItemModel *resultModel() const { return m_model; }
+    QItemSelectionModel *selection() const { return m_selection; }
+
+    QModelIndex currentIndex() const;
+    void setCurrentIndex(const QModelIndex &index);
+
+    // Scrolls to it, opening whatever it is inside on the way.
+    void reveal(const QModelIndex &index);
+
+    bool isExpanded(const QModelIndex &index) const;
+    void expand(const QModelIndex &index);
+    void expandRecursively(const QModelIndex &index);
+    void expandAll();
+    void collapseAll();
+
+    void setShowDuration(bool show);
+
+    // Whether the reader is at the end, and putting them back there. A run
+    // scrolls with the output only while they have not moved away from it.
+    bool isAtEnd() const;
+    void scrollToEnd();
 
 signals:
+    void activated(const QModelIndex &index);
+    void contextMenuRequested(const QModelIndex &index);
     void copyShortcutTriggered();
 
-protected:
-    void keyPressEvent(QKeyEvent *event) final;
+private slots:
+    // The QML hands over a var holding a QModelIndex; these give it a type
+    // again before anyone else sees it.
+    void onRowActivated(const QVariant &index);
+    void onContextMenuRequested(const QVariant &index);
+
+private:
+    QQuickItem *treeItem() const;
+    int rowOf(const QModelIndex &index) const;
+
+    QAbstractItemModel * const m_model;
+    QItemSelectionModel * const m_selection;
 };
 
 class TestResultsPane : public Core::IOutputPane
@@ -103,8 +150,8 @@ private:
     void createToolButtons();
     void onTestRunStarted();
     void onTestRunFinished();
-    void onScrollBarRangeChanged(int, int max);
-    void onCustomContextMenuRequested(const QPoint &pos);
+    void onResultsGrew();
+    void onCustomContextMenuRequested(const QModelIndex &index);
     TestResult getTestResult(const QModelIndex &idx);
     void onCopyItemTriggered(const TestResult &result);
     void onCopyWholeTriggered();
@@ -124,7 +171,7 @@ private:
     QStackedWidget *m_outputWidget = nullptr;
     QFrame *m_summaryWidget = nullptr;
     QLabel *m_summaryLabel = nullptr;
-    ResultsTreeView *m_treeView = nullptr;
+    TestResultsView *m_treeView = nullptr;
     TestResultModel *m_model = nullptr;
     TestResultFilterModel *m_filterModel = nullptr;
     Core::IContext *m_context = nullptr;

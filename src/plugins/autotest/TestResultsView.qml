@@ -23,6 +23,7 @@ Item {
 
     signal rowActivated(index: var)
     signal contextMenuRequested(index: var)
+    signal copyRequested()
 
     TreeView {
         id: view
@@ -31,6 +32,15 @@ Item {
         anchors.fill: parent
         clip: true
         selectionModel: root.selection
+
+        // Ctrl+C over the results copies the row, as the widget view did by
+        // catching the key itself.
+        Keys.onPressed: (event) => {
+            if (event.matches(StandardKey.Copy)) {
+                root.copyRequested()
+                event.accepted = true
+            }
+        }
 
         delegate: TreeViewDelegate {
             id: row
@@ -118,6 +128,11 @@ Item {
             }
 
             onDoubleClicked: root.rowActivated(view.index(row.row, 0))
+
+            TapHandler {
+                acceptedButtons: Qt.RightButton
+                onTapped: root.contextMenuRequested(view.index(row.row, 0))
+            }
         }
     }
 }

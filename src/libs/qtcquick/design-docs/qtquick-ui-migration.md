@@ -18994,3 +18994,42 @@ row is drawn in QML, `ItemViewFind` searches without a widget, and the tree
 state is kept without one. What is left is the rewiring itself - the selection
 model, the context menu, the toolbar buttons, auto-scroll - and it is
 mechanical.
+
+### The Test Results pane, and the last custom-painted view
+
+`TestResultDelegate` is deleted. The pane draws its results with
+`TestResultsView.qml`, and everything a `QTreeView` used to answer for it is
+answered by `TestResultsView` instead.
+
+The four batches before this one are why it was mechanical: the model names its
+rows, the row is drawn, `ItemViewFind` searches through an interface, and the
+expansion and selection state is kept through functions rather than a widget.
+Each of those was the piece that would have been improvised badly in the middle
+of a rewrite.
+
+**Which row an index is on is the view's own arithmetic** - it depends on what
+is open above it - so `isExpanded()` and `expand()` go through
+`rowAtIndex()` and then the row-based calls a Qt Quick `TreeView` offers. That
+is the whole of the plumbing, and a control replacing `rowAtIndex()` with
+`index.row()` fails: it happens to be right for top-level rows and wrong for
+everything else, which is exactly the sort of thing that looks fine until a
+tree has depth.
+
+**Three things could not come across as they were:**
+
+- **Auto-scroll** followed the scroll bar's `rangeChanged`. There is no scroll
+  bar to listen to, so it follows the model gaining rows instead - which is
+  what it was really about.
+- **The context menu** was placed at the point clicked in the view. The view
+  reports *which row* was clicked, not where on screen, so the menu opens at
+  the pointer.
+- **The show-durations button** used to ask the delegate to redraw by emitting
+  `dataChanged` for every row. It sets a property now, and the binding does the
+  rest.
+
+`ResultsTreeView` existed only to catch Ctrl+C; the QML does that with a `Keys`
+handler and the pane hears the same signal.
+
+That is the last custom-painted item view. What remains of the whole pane
+migration is the debugger's log - a `QWidget` holding an editable transcript
+and a command input, which is not an output pane and not a port of this kind.
