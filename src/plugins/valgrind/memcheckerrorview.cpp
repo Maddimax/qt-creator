@@ -25,8 +25,15 @@
 #include <utils/theme/theme.h>
 
 #include <QAction>
+#include <coreplugin/dialogs/ioptionspage.h>
+
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QVBoxLayout>
 #include <QFormLayout>
 #include <QLabel>
 #include <QPlainTextEdit>
@@ -37,10 +44,17 @@ using namespace Valgrind::XmlProtocol;
 
 namespace Valgrind::Internal {
 
+class SuppressionSettings;
+
+// Whether the suppression may be saved: somewhere to write it, and something
+// to write. A suppression of only whitespace would suppress nothing.
+bool canSaveSuppression(bool fileIsValid, const QString &suppression);
+
 class SuppressionDialog : public QDialog
 {
 public:
     SuppressionDialog(MemcheckErrorView *view, const QList<XmlProtocol::Error> &errors);
+    ~SuppressionDialog() override;
 
 private:
     void validate();
@@ -51,8 +65,7 @@ private:
     bool m_cleanupIfCanceled;
     QList<XmlProtocol::Error> m_errors;
 
-    Utils::PathChooser *m_fileChooser;
-    QPlainTextEdit *m_suppressionEdit;
+    const std::unique_ptr<SuppressionSettings> m_settings;
     QDialogButtonBox *m_buttonBox;
 };
 
@@ -188,69 +201,86 @@ static bool equalSuppression(const Error &error, const Error &suppressed)
     return true;
 }
 
+bool canSaveSuppression(bool fileIsValid, const QString &suppression)
+{
+    return fileIsValid && !suppression.trimmed().isEmpty();
+}
+
+class SuppressionSettings final : public AspectContainer
+{
+public:
+    SuppressionSettings()
+    {
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Valgrind/SuppressionDialog.qml"));
+
+        file.setQmlName("File");
+        file.setLabelText(Tr::tr("Suppression File:"));
+        file.setExpectedKind(PathChooserKind::File);
+        file.setHistoryCompleter("Valgrind.Suppression.History");
+        file.setPromptDialogFilter("*.supp");
+        file.setPromptDialogTitle(Tr::tr("Select Suppression File"));
+
+        suppression.setQmlName("Suppression");
+        suppression.setLabelText(Tr::tr("Suppression:"));
+        suppression.setDisplayStyle(StringAspect::TextEditDisplay);
+        // A suppression rule is read line by line against a stack trace.
+        suppression.setMonospace(true);
+    }
+
+    FilePathAspect file{this};
+    StringAspect suppression{this};
+};
+
 SuppressionDialog::SuppressionDialog(MemcheckErrorView *view, const QList<Error> &errors)
-  : m_view(view),
-    m_cleanupIfCanceled(false),
-    m_errors(errors),
-    m_fileChooser(new PathChooser(this)),
-    m_suppressionEdit(new QPlainTextEdit(this))
+    : m_view(view)
+    , m_cleanupIfCanceled(false)
+    , m_errors(errors)
+    , m_settings(new SuppressionSettings)
+    , m_buttonBox(new QDialogButtonBox(QDialogButtonBox::Cancel | QDialogButtonBox::Save, this))
 {
     setWindowTitle(Tr::tr("Save Suppression"));
 
-    auto fileLabel = new QLabel(Tr::tr("Suppression File:"), this);
-
-    auto suppressionsLabel = new QLabel(Tr::tr("Suppression:"), this);
-    suppressionsLabel->setBuddy(m_suppressionEdit);
-
-    QFont font;
-    font.setFamily("Monospace");
-    m_suppressionEdit->setFont(font);
-
-    m_buttonBox = new QDialogButtonBox(this);
-    m_buttonBox->setStandardButtons(QDialogButtonBox::Cancel|QDialogButtonBox::Save);
-
-    auto formLayout = new QFormLayout(this);
-    formLayout->addRow(fileLabel, m_fileChooser);
-    formLayout->addRow(suppressionsLabel);
-    formLayout->addRow(m_suppressionEdit);
-    formLayout->addRow(m_buttonBox);
+    auto layout = new QVBoxLayout(this);
+    layout->addWidget(Core::createAspectForm(m_settings.get()));
+    layout->addWidget(m_buttonBox);
 
     const FilePath defaultSuppFile = view->defaultSuppressionFile();
     if (!defaultSuppFile.exists() && defaultSuppFile.ensureExistingFile())
         m_cleanupIfCanceled = true;
-
-    m_fileChooser->setExpectedKind(PathChooserKind::File);
-    m_fileChooser->setHistoryCompleter("Valgrind.Suppression.History");
-    m_fileChooser->setPath(defaultSuppFile.fileName());
-    m_fileChooser->setPromptDialogFilter("*.supp");
-    m_fileChooser->setPromptDialogTitle(Tr::tr("Select Suppression File"));
+    m_settings->file.setValue(defaultSuppFile.fileName());
 
     QString suppressions;
     for (const Error &error : std::as_const(m_errors))
         suppressions += suppressionText(error);
+    m_settings->suppression.setValue(suppressions);
 
-    m_suppressionEdit->setPlainText(suppressions);
-
-    connect(m_fileChooser, &PathChooser::validChanged,
+    // isValid() is written when the drawn field asks, so it is false here and
+    // only the signal says when that changes.
+    connect(&m_settings->file, &FilePathAspect::validChanged,
             this, &SuppressionDialog::validate);
-    connect(m_suppressionEdit->document(), &QTextDocument::contentsChanged,
+    connect(&m_settings->suppression, &BaseAspect::changed,
             this, &SuppressionDialog::validate);
     connect(m_buttonBox, &QDialogButtonBox::accepted,
             this, &SuppressionDialog::accept);
     connect(m_buttonBox, &QDialogButtonBox::rejected,
             this, &SuppressionDialog::reject);
+
+    validate();
 }
+
+SuppressionDialog::~SuppressionDialog() = default;
 
 void SuppressionDialog::accept()
 {
-    const FilePath path = m_fileChooser->filePath();
+    const FilePath path = m_settings->file();
     QTC_ASSERT(!path.isEmpty(), return);
-    QTC_ASSERT(!m_suppressionEdit->toPlainText().trimmed().isEmpty(), return);
+    QTC_ASSERT(!m_settings->suppression().trimmed().isEmpty(), return);
 
     FileSaver saver(path, QIODevice::Append);
     if (!saver.hasError()) {
         QTextStream stream(saver.file());
-        stream << m_suppressionEdit->toPlainText();
+        stream << m_settings->suppression();
         saver.setResult(&stream);
     }
     if (const Result<> res = saver.finalize(); !res) {
@@ -313,10 +343,64 @@ void SuppressionDialog::reject()
 
 void SuppressionDialog::validate()
 {
-    bool valid = m_fileChooser->isValid()
-            && !m_suppressionEdit->toPlainText().trimmed().isEmpty();
-
-    m_buttonBox->button(QDialogButtonBox::Save)->setEnabled(valid);
+    m_buttonBox->button(QDialogButtonBox::Save)
+        ->setEnabled(canSaveSuppression(m_settings->file.isValid(), m_settings->suppression()));
 }
 
+#ifdef WITH_TESTS
+
+class SuppressionDialogTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheDialogDrawsWithTheQmlItNames()
+    {
+        SuppressionSettings settings;
+        const Result<> rendered = Core::aspectFormRenders(&settings, "SuppressionDialog.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+    }
+
+    void testWhenASuppressionCanBeSaved()
+    {
+        // Somewhere to write it, and something to write.
+        QVERIFY2(!canSaveSuppression(false, "{ ... }"),
+                 "a suppression was saved with nowhere to put it");
+        QVERIFY2(!canSaveSuppression(true, {}),
+                 "an empty suppression was saved");
+        QVERIFY(canSaveSuppression(true, "{ ... }"));
+
+        // A rule of only whitespace would suppress nothing, so it is not one.
+        QVERIFY2(!canSaveSuppression(true, "  \n\t "),
+                 "a suppression of only whitespace was saved");
+    }
+
+    void testWhatTheFieldsAccept()
+    {
+        SuppressionSettings settings;
+
+        // The file is appended to, so it is one that exists.
+        QCOMPARE(settings.file.presentation().pathKind, AspectControls::PathKind::File);
+        QVERIFY2(settings.file.presentation().promptDialogFilter.contains("supp"),
+                 qPrintable(settings.file.presentation().promptDialogFilter));
+
+        // A suppression is read line by line against a stack trace, so its
+        // columns have to line up.
+        QVERIFY2(settings.suppression.presentation().monospace,
+                 "the suppression was not shown in a fixed-pitch font");
+        QCOMPARE(settings.suppression.presentation().control, AspectControls::TextEdit);
+    }
+};
+
+QObject *createSuppressionDialogTest()
+{
+    return new SuppressionDialogTest;
+}
+
+#endif // WITH_TESTS
+
 } // namespace Valgrind::Internal
+
+#ifdef WITH_TESTS
+#include "memcheckerrorview.moc"
+#endif

@@ -11,6 +11,10 @@
 
 namespace Valgrind::Internal {
 
+#ifdef WITH_TESTS
+QObject *createSuppressionDialogTest();
+#endif
+
 class ValgrindSettings;
 
 class MemcheckErrorView : public ProjectExplorer::DetailedErrorView

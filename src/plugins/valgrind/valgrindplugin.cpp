@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "callgrindtool.h"
+#include "memcheckerrorview.h"
 #include "memchecktool.h"
 #include "startremotedialog.h"
 #include "valgrindsettings.h"
@@ -54,6 +55,7 @@ public:
         addTestCreator(createValgrindTestRunnerTest);
         addTestCreator(createCallgrindToolTest);
         addTestCreator(createStartRemoteDialogTest);
+        addTestCreator(createSuppressionDialogTest);
 #endif
     }
 };

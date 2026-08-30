@@ -21893,3 +21893,36 @@ QuickUi 190 passed / 0 failed / 1 skipped, exit 0. `Vcpkg` exit 0, 11 passed.
 **Next:** `SuppressionDialog` in Valgrind, which is the other kind of text
 dialog - a field that is typed into, with a rule about when it may be saved and
 a file it appends to. It wants the same fixed-pitch field, which now exists.
+
+## 2026-08-31 — The suppression dialog, and a routine port worth saying so
+
+`SuppressionDialog` is the other kind of text dialog - a field that is typed
+into rather than read - and it went in without discovering anything, which is
+worth recording as much as the ones that did.
+
+Everything it needed already existed: a `FilePathAspect` for the file it
+appends to, a `StringAspect` in `TextEditDisplay` with `setMonospace(true)`
+from the previous batch, and the `validChanged` connection that four earlier
+dialogs established, because `FilePathAspect::isValid()` is written only when
+the drawn field asks. The port is the constructor and three getters.
+
+The one rule extracted is `canSaveSuppression(fileIsValid, suppression)`, and
+the case worth having is the third: **a rule of only whitespace suppresses
+nothing**, so `trimmed()` is doing real work there. Control 2 removes it.
+
+`accept()` is untouched - appending to the file, adding it to the project that
+contains it, and removing the rows the suppression now hides. None of that is
+UI, and none of it moved.
+
+Negative controls: the `.qml` naming an aspect that does not exist; a
+suppression of only whitespace saved; the suppression drawn in the form's own
+font; and a file that need not exist. All four bit.
+
+QuickUi 190 passed / 0 failed / 1 skipped, exit 0. `Valgrind` exit 0 with no
+failures, `SuppressionDialogTest` 5 passed. `Valgrind_qmllint` clean. No `.qbs`
+edit: `valgrind.qbs` takes `*.qml` by wildcard.
+
+**Next:** the read-only reports continue. `MemcheckErrorView` itself is a
+`DetailedErrorView`, not a dialog, so it belongs with the panes; the remaining
+dialogs of this kind are in `androidsdkmanager`, `cpaster/pasteview` and
+`qnxdeployqtlibrariesdialog`, and the last of those is the largest.

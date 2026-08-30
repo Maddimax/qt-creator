@@ -74,6 +74,7 @@ if(TARGET Valgrind)
     NO_PLUGIN
     QML_FILES
       StartRemoteDialog.qml
+      SuppressionDialog.qml
       ValgrindSettingsPage.qml
   )
 endif()
