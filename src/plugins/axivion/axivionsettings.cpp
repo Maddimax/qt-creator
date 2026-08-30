@@ -301,10 +301,47 @@ AxivionSettings::AxivionSettings()
     javaHome.setToolTip(Tr::tr("Set it to overwrite global environment or if Axivion fails to "
                                "find java in PATH."));
 
+    // Drawn by the local build dialog, not by this page. No settings group,
+    // so LastLocalBuildCmd stays where it was saved.
+    localBuild.setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Axivion/LocalBuildDialog.qml"));
+
+    localBuildModifyWarning.setQmlName("ModifyWarning");
+    localBuildModifyWarning.setIconType(AspectControls::InfoType::Warning);
+    localBuildModifyWarning.setText(
+        Tr::tr("Modifying source files during the local build may produce unexpected "
+               "warnings, errors, or wrong results."));
+
+    localBuildConfigWarning.setQmlName("ConfigWarning");
+    localBuildConfigWarning.setIconType(AspectControls::InfoType::Warning);
+    localBuildConfigWarning.setText(
+        Tr::tr("If your build is not configured for local build, you may overwrite output "
+               "files of your native compiler when starting a local build."));
+
+    localBuildVersionHint.setQmlName("VersionHint");
+    localBuildVersionHint.setText(
+        Tr::tr("Choose the same Axivion Suite version as your CI build uses "
+               "or the results may differ."));
+
+    localBuildSuite.setQmlName("Suite");
+    localBuildSuite.setLabelText(Tr::tr("Axivion Suite installation directory:"));
+    localBuildSuite.setExpectedKind(PathChooserKind::ExistingDirectory);
+    localBuildSuite.setAllowPathFromDevice(false);
+
+    lastLocalBuildCommand.setQmlName("Command");
     lastLocalBuildCommand.setSettingsKey("LastLocalBuildCmd"); // used outside settings
     lastLocalBuildCommand.setExpectedKind(PathChooserKind::Any);
     lastLocalBuildCommand.setAllowPathFromDevice(false);
     lastLocalBuildCommand.setHistoryCompleter("LocalBuildHistory");
+
+    localBuildType.setQmlName("BuildType");
+    localBuildType.setLabelText(Tr::tr("Build type:"));
+    localBuildType.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
+    localBuildType.setToolTip(
+        Tr::tr("Clean Build: Set environment variable AXIVION_CLEAN_BUILD=1\n"
+               "Incremental Build: Set environment variable AXIVION_INCREMENTAL_BUILD=1"));
+    localBuildType.addOption("");
+    localBuildType.addOption(Tr::tr("Clean Build"));
+    localBuildType.addOption(Tr::tr("Incremental Build"));
 
     // Drawn by the single file analysis dialog, not by this page.
     singleFileAnalysis.setQmlSource(

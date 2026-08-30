@@ -12,6 +12,8 @@
 
 #include <QtTaskTree/QMappedTaskTreeRunner>
 
+#include <coreplugin/dialogs/ioptionspage.h>
+
 #include <utils/algorithm.h>
 #include <utils/aspects.h>
 #include <utils/commandline.h>
@@ -360,85 +362,61 @@ void startLocalDashboard(const QString &projectName,
     s_localBuildInstance.startDashboard(projectName, localDashboard, onSuccess, onFail);
 }
 
+// Which Axivion Suite directory the dialog opens on: the one last built with,
+// and failing that the configured one - but only when a version is known for
+// it, because a path that has never answered is not a suggestion.
+//
+// Kept out of the dialog because it is a question about two paths, and there
+// the only way to ask it was to open the dialog and look at the field.
+FilePath suiteDirectoryToStartFrom(const FilePath &lastUsed, const FilePath &configured,
+                                   bool versionKnown)
+{
+    if (!lastUsed.isEmpty())
+        return lastUsed;
+    return versionKnown ? configured : FilePath();
+}
+
 class LocalBuildDialog : public QDialog
 {
 public:
     LocalBuildDialog(const QString &projectName)
+        : m_buttons(new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this))
     {
-        bauhausSuite.setExpectedKind(PathChooserKind::ExistingDirectory);
-        bauhausSuite.setAllowPathFromDevice(false);
-        if (!s_localBuildInstance.lastBauhausBase().isEmpty())
-            bauhausSuite.setValue(s_localBuildInstance.lastBauhausBase());
-        else if (settings().versionInfo())
-            bauhausSuite.setValue(settings().axivionSuitePath());
-        buildType.setLabelText(Tr::tr("Build type:"));
-        buildType.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
-        buildType.setToolTip(Tr::tr("Clean Build: Set environment variable AXIVION_CLEAN_BUILD=1\n"
-                                    "Incremental Build: Set environment variable AXIVION_INCREMENTAL_BUILD=1"));
-        buildType.addOption("");
-        buildType.addOption(Tr::tr("Clean Build"));
-        buildType.addOption(Tr::tr("Incremental Build"));
-
-        QWidget *widget = new QWidget(this);
-
-        auto warn1 = new QLabel(widget);
-        warn1->setPixmap(Icons::WARNING.pixmap());
-        warn1->setAlignment(Qt::AlignTop);
-        auto warnText1 = new QLabel(Tr::tr("Warning: Modifying source files during the local build may "
-                                           "produce unexpected warnings, errors, or wrong results."),
-                                    widget);
-        warnText1->setAlignment(Qt::AlignLeft);
-        warnText1->setWordWrap(true);
-        auto warn2 = new QLabel(widget);
-        warn2->setAlignment(Qt::AlignTop);
-        warn2->setPixmap(Icons::WARNING.pixmap());
-        auto warnText2 = new QLabel(Tr::tr("Warning: If your build is not configured for local build, you "
-                                           "may overwrite output files of your native compiler when starting "
-                                           "a local build."), widget);
-        warnText2->setAlignment(Qt::AlignLeft);
-        warnText2->setWordWrap(true);
-        auto buttons = new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel, this);
-        auto okButton = buttons->button(QDialogButtonBox::Ok);
-        okButton->setText(Tr::tr("Start Local Build"));
-        okButton->setEnabled(false);
-
-        using namespace Layouting;
-        Column {
-            Row {
-                Column {
-                    Form {
-                       warn1, warnText1, br,
-                       warn2, warnText2, br,
-                   },
-                   Space(20),
-                   Tr::tr("Choose the same Axivion Suite version as your CI build uses "
-                          "or the results may differ.")
-                }, st
-            }, st,
-            Row { Tr::tr("Axivion Suite installation directory:") },
-            Row { bauhausSuite },
-            Row { Tr::tr("Enter the command for building %1:").arg(projectName) },
-            Row { settings().lastLocalBuildCommand },
-            Row { buildType, st },
-            st
-        }.attachTo(widget);
-
-        QVBoxLayout *layout = new QVBoxLayout(this);
-        layout->addWidget(widget);
-        layout->addWidget(buttons);
-
-        connect(&settings().lastLocalBuildCommand, &FilePathAspect::volatileValueChanged,
-                this, [okButton] { okButton->setEnabled(!settings().lastLocalBuildCommand().isEmpty()); });
-        connect(okButton, &QPushButton::clicked,
-                this, &QDialog::accept);
-        connect(buttons->button(QDialogButtonBox::Cancel), &QPushButton::clicked,
-                this, &QDialog::reject);
         setWindowTitle(Tr::tr("Local Build Command: %1").arg(projectName));
-        okButton->setEnabled(!settings().lastLocalBuildCommand().isEmpty());
+        m_buttons->button(QDialogButtonBox::Ok)->setText(Tr::tr("Start Local Build"));
+
+        settings().localBuildSuite.setValue(
+            suiteDirectoryToStartFrom(s_localBuildInstance.lastBauhausBase(),
+                                      settings().axivionSuitePath(),
+                                      settings().versionInfo().has_value()));
+        // Which project is being built is not a setting, so the label saying
+        // so is set per dialog.
+        settings().lastLocalBuildCommand.setLabelText(
+            Tr::tr("Enter the command for building %1:").arg(projectName));
+        // Opens on no build type, as a freshly built combo box did.
+        settings().localBuildType.setValue(0);
+
+        const auto layout = new QVBoxLayout(this);
+        layout->addWidget(Core::createAspectForm(&settings().localBuild));
+        layout->addWidget(m_buttons);
+
+        connect(m_buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
+        connect(m_buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+
+        const auto refreshStart = [this] {
+            m_buttons->button(QDialogButtonBox::Ok)
+                ->setEnabled(!settings().lastLocalBuildCommand().isEmpty());
+        };
+        connect(&settings().lastLocalBuildCommand, &FilePathAspect::volatileValueChanged,
+                this, refreshStart);
+        refreshStart();
     }
 
-    FilePathAspect bauhausSuite;
-    SelectionAspect buildType;
+    FilePath suiteDirectory() const { return settings().localBuildSuite(); }
+    int buildType() const { return settings().localBuildType.value(); }
+
+private:
+    QDialogButtonBox * const m_buttons;
 };
 
 void LocalBuild::handleLocalBuildOutputFor(const QString &projectName, const QString &line)
@@ -544,7 +522,7 @@ bool LocalBuild::startLocalBuildFor(const QString &projectName)
     CommandLine cmdLine;
     setupEnvAndCommandLineFromUserInput(&env, &cmdLine, settings().lastLocalBuildCommand(), dia.buildType());
 
-    const FilePath bauhaus = dia.bauhausSuite();
+    const FilePath bauhaus = dia.suiteDirectory();
     if (!bauhaus.isEmpty()) {
         env.set("AXIVION_BASE_DIR", bauhaus.toUserOutput());
         env.prependOrSetPath(bauhaus.pathAppended("bin"));

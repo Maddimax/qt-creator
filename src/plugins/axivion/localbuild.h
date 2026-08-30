@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <utils/filepath.h>
+
 #include <QString>
 
 namespace Axivion::Internal {
@@ -30,5 +32,11 @@ enum class LocalBuildState { None, Started, Building, Analyzing, UpdatingDashboa
 
 LocalBuildState localBuildStateFor(const QString &projectName);
 void removeFinishedLocalBuilds();
+
+// Which Axivion Suite directory the local build dialog opens on. See the
+// definition; it is here so it can be asked without opening the dialog.
+Utils::FilePath suiteDirectoryToStartFrom(const Utils::FilePath &lastUsed,
+                                          const Utils::FilePath &configured,
+                                          bool versionKnown);
 
 } // namespace Axivion::Internal

@@ -79,7 +79,17 @@ public:
     Utils::FilePathAspect axivionSuitePath{this};
     Utils::FilePathAspect bauhausPython{this};
     Utils::FilePathAspect javaHome{this};
-    Utils::FilePathAspect lastLocalBuildCommand{this};
+
+    // What the local build dialog draws, for the same reason as below: an
+    // aspect can only belong to one container, so the dialog is given one to
+    // draw rather than listing these for itself.
+    Utils::AspectContainer localBuild{this};
+    Utils::TextDisplay localBuildModifyWarning{&localBuild};
+    Utils::TextDisplay localBuildConfigWarning{&localBuild};
+    Utils::TextDisplay localBuildVersionHint{&localBuild};
+    Utils::FilePathAspect localBuildSuite{&localBuild};
+    Utils::FilePathAspect lastLocalBuildCommand{&localBuild};
+    Utils::SelectionAspect localBuildType{&localBuild};
 
     // What the single file analysis dialog draws. A container of its own
     // rather than two aspects the dialog lists for itself: listing an aspect

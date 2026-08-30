@@ -502,6 +502,44 @@ private slots:
         QVERIFY(settings().singleFileAnalysis.container() == &settings());
     }
 
+    void testTheLocalBuildDialogDrawsWithTheQmlItNames()
+    {
+        const Utils::Result<> rendered = Core::aspectFormRenders(
+            &settings().localBuild, "LocalBuildDialog.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+    }
+
+    void testTheLocalBuildSettingsAreStillWhereTheyWereSaved()
+    {
+        QVERIFY2(settings().localBuild.settingsGroups().isEmpty(),
+                 "the container the local build dialog draws would move its settings");
+        QCOMPARE(settings().lastLocalBuildCommand.settingsKey(),
+                 Utils::Key("LastLocalBuildCmd"));
+
+        // The two the dialog used to own itself keep no settings of their own,
+        // as they did not before: they are seeded each time the dialog opens.
+        QVERIFY(settings().localBuildSuite.settingsKey().isEmpty());
+        QVERIFY(settings().localBuildType.settingsKey().isEmpty());
+    }
+
+    void testWhereTheSuiteDirectoryStartsFrom()
+    {
+        const Utils::FilePath lastUsed = Utils::FilePath::fromString("/last/used");
+        const Utils::FilePath configured = Utils::FilePath::fromString("/configured");
+
+        // What was built with last wins, whatever is configured.
+        QCOMPARE(suiteDirectoryToStartFrom(lastUsed, configured, true), lastUsed);
+        QCOMPARE(suiteDirectoryToStartFrom(lastUsed, configured, false), lastUsed);
+
+        // Failing that the configured one, but only once a version is known
+        // for it: a path that has never answered is not a suggestion.
+        QCOMPARE(suiteDirectoryToStartFrom({}, configured, true), configured);
+        QVERIFY2(suiteDirectoryToStartFrom({}, configured, false).isEmpty(),
+                 "an unverified suite path was offered as a starting point");
+
+        QVERIFY(suiteDirectoryToStartFrom({}, {}, true).isEmpty());
+    }
+
     void testWhenAnAnalysisCanBeStarted()
     {
         // Nothing can start without a usable configuration directory.

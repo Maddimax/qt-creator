@@ -20279,3 +20279,41 @@ edit.
 same route - it draws `lastLocalBuildCommand`, which is still a direct member
 of the settings. After that the remaining candidates are the ones that need a
 new control rather than a new container.
+
+## 2026-08-30 — Local Build, and a dialog that owned half its aspects
+
+`LocalBuildDialog` was the mixed case: `lastLocalBuildCommand` belongs to the
+settings, while `bauhausSuite` and `buildType` were the dialog's own members.
+Two owners, one form. Both moved into the `localBuild` container that
+`AxivionSettings` owns, which is the shape the last entry settled on, and the
+dialog draws that.
+
+**Moving the dialog's own two into the settings changes when they are
+forgotten**, and that had to be handled rather than accepted: they used to be
+constructed fresh each time the dialog opened. The suite directory is seeded
+every time anyway, so nothing changes there; the build type is now explicitly
+set back to none in the constructor, because otherwise it would quietly
+remember the last choice for the rest of the session. Neither aspect has a
+settings key, so nothing new is written to disk - asserted, because "it has no
+key" is exactly the sort of thing that stops being true when somebody adds one.
+
+**The decision that came out** is which directory the dialog opens on:
+what was last built with, and failing that the configured suite path *only when
+a version is known for it* - a path that has never answered is not a
+suggestion. That was three lines in the constructor and is
+`suiteDirectoryToStartFrom()` now.
+
+Negative controls: the container given a settings group, which would move the
+saved build command; an unverified suite path offered as a starting point; what
+was last built with forgotten in favour of what is configured; and the page
+naming an aspect that is not there. All four bit.
+
+QuickUi 182 passed / 0 failed / 1 skipped, exit 0. Axivion exit 0,
+`SingleFileAnalysisDialogTest` 8 passed. `Axivion_qmllint` clean. No `.qbs`
+edit.
+
+**Next:** the 16-candidate list is down to the ones each needing their own
+look. `CloneIntoRunConfigDialog` (ProjectExplorer) and
+`RunConfigurationSelectionDialog` (AutoTest) are the two unread ones; both draw
+a chooser and some labels, so both are plausible, and both should be read
+before being called cheap - the classifier has been wrong five times now.
