@@ -13,6 +13,8 @@
 #include <QtTaskTree/QTaskTree>
 #include <QtTaskTree/QSingleTaskTreeRunner>
 
+#include <coreplugin/dialogs/ioptionspage.h>
+
 #include <utils/algorithm.h>
 #include <utils/async.h>
 #include <utils/fancylineedit.h>
@@ -23,6 +25,7 @@
 
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QVBoxLayout>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -48,145 +51,202 @@ static void vcpkgManifests(QPromise<VcpkgManifest> &promise, const FilePath &vcp
     }
 }
 
+QStringList packageNamesMatching(const QList<VcpkgManifest> &packages, const QString &filter)
+{
+    const QList<VcpkgManifest> matching
+        = filtered(packages, [&filter](const VcpkgManifest &package) {
+              return filter.isEmpty()
+                     || package.name.contains(filter, Qt::CaseInsensitive)
+                     || package.shortDescription.contains(filter, Qt::CaseInsensitive)
+                     || package.description.contains(filter, Qt::CaseInsensitive);
+          });
+    QStringList names = transform(matching, [](const VcpkgManifest &package) {
+        return package.name;
+    });
+    names.sort();
+    return names;
+}
+
+QString packageDescriptionHtml(const VcpkgManifest &manifest)
+{
+    QString description = manifest.shortDescription;
+    if (!manifest.description.isEmpty())
+        description.append("<p>" + manifest.description.join("</p><p>") + "</p>");
+    return description;
+}
+
+bool canAddPackage(const QString &package, bool isProjectDependency)
+{
+    return !package.isEmpty() && !isProjectDependency;
+}
+
+// The package names, in order. A package is found by what it says about itself
+// as well as by its name, so the row answers FilterTextRole with all of it -
+// which is what the table's own filter field then searches.
+class PackageModel : public QAbstractListModel
+{
+public:
+    void setPackages(const QList<VcpkgManifest> &packages)
+    {
+        beginResetModel();
+        m_packages = packages;
+        Utils::sort(m_packages, [](const VcpkgManifest &a, const VcpkgManifest &b) {
+            return a.name < b.name;
+        });
+        endResetModel();
+    }
+
+    VcpkgManifest at(int row) const
+    {
+        return row >= 0 && row < m_packages.size() ? m_packages.at(row) : VcpkgManifest();
+    }
+
+    int rowCount(const QModelIndex &parent) const override
+    {
+        return parent.isValid() ? 0 : m_packages.size();
+    }
+
+    QVariant data(const QModelIndex &index, int role) const override
+    {
+        if (!index.isValid() || index.row() >= m_packages.size())
+            return {};
+        const VcpkgManifest &package = m_packages.at(index.row());
+        switch (role) {
+        case Qt::DisplayRole:
+            return package.name;
+        case AspectTable::FilterTextRole:
+            return QString(QStringList{package.name, package.shortDescription}.join(' ')
+                           + ' ' + package.description.join(' '));
+        case AspectTable::EditableRole:
+            return false;
+        default:
+            return {};
+        }
+    }
+
+    // One unnamed column: a table draws a header saying "1" for a model that
+    // answers the column number.
+    QVariant headerData(int, Qt::Orientation, int) const override { return {}; }
+
+    QHash<int, QByteArray> roleNames() const override
+    {
+        return AspectTable::withRoleNames(QAbstractListModel::roleNames());
+    }
+
+private:
+    QList<VcpkgManifest> m_packages;
+};
+
+class VcpkgSearchSettings final : public AspectContainer
+{
+public:
+    VcpkgSearchSettings()
+    {
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Vcpkg/VcpkgPackageSearchDialog.qml"));
+
+        packages.setQmlName("Packages");
+        packages.setLabelText(Tr::tr("Packages:"));
+        packages.setModel(&model);
+        packages.setFilterPlaceholderText(Tr::tr("Filter"));
+
+        name.setQmlName("Name");
+        name.setLabelText(Tr::tr("Name:"));
+        version.setQmlName("Version");
+        version.setLabelText(Tr::tr("Version:"));
+        license.setQmlName("License");
+        license.setLabelText(Tr::tr("License:"));
+
+        description.setQmlName("Description");
+        description.setLabelText(Tr::tr("Description:"));
+        description.setTextFormat(AspectControls::TextFormat::RichText);
+
+        homepage.setQmlName("Homepage");
+        homepage.setLabelText(Tr::tr("Homepage:"));
+        homepage.setTextFormat(AspectControls::TextFormat::RichText);
+
+        alreadyADependency.setQmlName("AlreadyADependency");
+        alreadyADependency.setText(Tr::tr("This package is already a project dependency."));
+        alreadyADependency.setIconType(Utils::InfoType::Information);
+        alreadyADependency.setVisible(false);
+
+        // The manifests are read off the disk, which takes a while.
+        loading.setQmlName("Loading");
+        loading.setValue(false);
+    }
+
+    PackageModel model;
+    TableAspect packages{this};
+    TextDisplay name{this};
+    TextDisplay version{this};
+    TextDisplay license{this};
+    TextDisplay description{this};
+    TextDisplay homepage{this};
+    TextDisplay alreadyADependency{this};
+    BoolAspect loading{this};
+};
+
 class VcpkgPackageSearchDialog : public QDialog
 {
 public:
     explicit VcpkgPackageSearchDialog(const VcpkgManifest &preexistingPackages, QWidget *parent);
+    ~VcpkgPackageSearchDialog() override;
 
-    VcpkgManifest selectedPackage() const;
+    VcpkgManifest selectedPackage() const { return m_selectedPackage; }
 
 private:
-    void listPackages(const QString &filter);
-    void showPackageDetails(const QString &packageName);
+    void showPackageDetails();
     void updateStatus();
     void updatePackages();
 
     QList<VcpkgManifest> m_allPackages;
     VcpkgManifest m_selectedPackage;
-
     const VcpkgManifest m_projectManifest;
 
-    FancyLineEdit *m_packagesFilter;
-    QListWidget *m_packagesList;
-    QLineEdit *m_vcpkgName;
-    QLabel *m_vcpkgVersion;
-    QLabel *m_vcpkgLicense;
-    QTextBrowser *m_vcpkgDescription;
-    QLabel *m_vcpkgHomepage;
-    InfoLabel *m_infoLabel;
+    const std::unique_ptr<VcpkgSearchSettings> m_settings;
     QDialogButtonBox *m_buttonBox;
-    SpinnerSolution::Spinner *m_spinner;
     QSingleTaskTreeRunner m_taskTreeRunner;
+
+#ifdef WITH_TESTS
+    friend class VcpkgSearchDialogTest;
+#endif
 };
 
 VcpkgPackageSearchDialog::VcpkgPackageSearchDialog(const VcpkgManifest &preexistingPackages,
                                                    QWidget *parent)
     : QDialog(parent)
     , m_projectManifest(preexistingPackages)
+    , m_settings(new VcpkgSearchSettings)
+    , m_buttonBox(new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this))
 {
     resize(920, 400);
     setWindowTitle(Tr::tr("Add vcpkg Package"));
 
-    m_packagesFilter = new FancyLineEdit;
-    m_packagesFilter->setFiltering(true);
-    m_packagesFilter->setFocus();
-    m_packagesFilter->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Preferred);
+    auto layout = new QVBoxLayout(this);
+    layout->addWidget(Core::createAspectForm(m_settings.get()));
+    layout->addWidget(m_buttonBox);
 
-    m_packagesList = new QListWidget;
-    m_packagesList->setMaximumWidth(300);
-
-    m_vcpkgName = new QLineEdit;
-    m_vcpkgName->setReadOnly(true);
-
-    m_vcpkgVersion = new QLabel;
-    m_vcpkgLicense = new QLabel;
-    m_vcpkgDescription = new QTextBrowser;
-
-    m_vcpkgHomepage = new QLabel;
-    m_vcpkgHomepage->setOpenExternalLinks(true);
-    m_vcpkgHomepage->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-    m_vcpkgHomepage->setTextInteractionFlags(Qt::TextBrowserInteraction);
-
-    m_infoLabel = new InfoLabel(Tr::tr("This package is already a project dependency."),
-                                InfoLabelType::Information);
-    m_infoLabel->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Preferred);
-
-    m_buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
-
-    // clang-format off
-    using namespace Layouting;
-    Column {
-        Row {
-            Column {
-                m_packagesFilter,
-                Tr::tr("Packages:"),
-                m_packagesList,
-            },
-            Layouting::Group {
-                title(Tr::tr("Package Details")),
-                Form {
-                    Tr::tr("Name:"), m_vcpkgName, br,
-                    Tr::tr("Version:"), m_vcpkgVersion, br,
-                    Tr::tr("License:"), m_vcpkgLicense, br,
-                    Tr::tr("Description:"), m_vcpkgDescription, br,
-                    Tr::tr("Homepage:"), m_vcpkgHomepage, br,
-                },
-            }
-        },
-        Row { m_infoLabel, m_buttonBox },
-    }.attachTo(this);
-    // clang-format on
-
-    m_spinner = new SpinnerSolution::Spinner(SpinnerSolution::SpinnerSize::Large, this);
+    connect(m_buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
+    connect(m_buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
+    connect(&m_settings->packages, &TableAspect::chosenChanged,
+            this, &VcpkgPackageSearchDialog::showPackageDetails);
 
     updateStatus();
     updatePackages();
-
-    connect(m_packagesFilter, &FancyLineEdit::filterChanged,
-            this, &VcpkgPackageSearchDialog::listPackages);
-    connect(m_packagesList, &QListWidget::currentTextChanged,
-            this, &VcpkgPackageSearchDialog::showPackageDetails);
-    connect(m_buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
-    connect(m_buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
 }
 
-VcpkgManifest VcpkgPackageSearchDialog::selectedPackage() const
-{
-    return m_selectedPackage;
-}
+VcpkgPackageSearchDialog::~VcpkgPackageSearchDialog() = default;
 
-void VcpkgPackageSearchDialog::listPackages(const QString &filter)
+void VcpkgPackageSearchDialog::showPackageDetails()
 {
-    const auto filteredPackages = filtered(m_allPackages, [&filter](const VcpkgManifest &package) {
-        return filter.isEmpty()
-               || package.name.contains(filter, Qt::CaseInsensitive)
-               || package.shortDescription.contains(filter, Qt::CaseInsensitive)
-               || package.description.contains(filter, Qt::CaseInsensitive);
-    });
-    QStringList names = transform(filteredPackages, [] (const VcpkgManifest &package) {
-        return package.name;
-    });
-    names.sort();
-    m_packagesList->clear();
-    m_packagesList->addItems(names);
-}
+    const VcpkgManifest manifest = m_settings->model.at(m_settings->packages.currentRow());
 
-void VcpkgPackageSearchDialog::showPackageDetails(const QString &packageName)
-{
-    const VcpkgManifest manifest = findOrDefault(m_allPackages,
-                                                 [&packageName] (const VcpkgManifest &m) {
-        return m.name == packageName;
-    });
-
-    m_vcpkgName->setText(manifest.name);
-    m_vcpkgVersion->setText(manifest.version);
-    m_vcpkgLicense->setText(manifest.license);
-    QString description = manifest.shortDescription;
-    if (!manifest.description.isEmpty())
-        description.append("<p>" + manifest.description.join("</p><p>") + "</p>");
-    m_vcpkgDescription->setText(description);
-    m_vcpkgHomepage->setText(QString::fromLatin1("<a href=\"%1\">%1</a>")
-                                 .arg(manifest.homepage.toDisplayString()));
+    m_settings->name.setText(manifest.name);
+    m_settings->version.setText(manifest.version);
+    m_settings->license.setText(manifest.license);
+    m_settings->description.setText(packageDescriptionHtml(manifest));
+    m_settings->homepage.setText(QString::fromLatin1("<a href=\"%1\">%1</a>")
+                                     .arg(manifest.homepage.toDisplayString()));
 
     m_selectedPackage = manifest;
     updateStatus();
@@ -196,9 +256,9 @@ void VcpkgPackageSearchDialog::updateStatus()
 {
     const QString package = selectedPackage().name;
     const bool isProjectDependency = m_projectManifest.dependencies.contains(package);
-    m_infoLabel->setVisible(isProjectDependency);
-    m_buttonBox->button(QDialogButtonBox::Ok)->setEnabled(!(package.isEmpty()
-                                                            || isProjectDependency));
+    m_settings->alreadyADependency.setVisible(isProjectDependency);
+    m_buttonBox->button(QDialogButtonBox::Ok)
+        ->setEnabled(canAddPackage(package, isProjectDependency));
 }
 
 void VcpkgPackageSearchDialog::updatePackages()
@@ -206,7 +266,7 @@ void VcpkgPackageSearchDialog::updatePackages()
     using namespace QtTaskTree;
 
     const Group recipe {
-        onGroupSetup([this] { m_spinner->show(); }),
+        onGroupSetup([this] { m_settings->loading.setValue(true); }),
         AsyncTask<VcpkgManifest>{
             [](Async<VcpkgManifest> &task) {
                 FilePath vcpkgRoot =
@@ -216,8 +276,8 @@ void VcpkgPackageSearchDialog::updatePackages()
             [this](const Async<VcpkgManifest> &task) { m_allPackages = task.results(); }
         },
         onGroupDone([this] {
-            m_spinner->hide();
-            listPackages({});
+            m_settings->loading.setValue(false);
+            m_settings->model.setPackages(m_allPackages);
             updateStatus();
         }),
     };

@@ -26,6 +26,7 @@ if(TARGET Vcpkg)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      VcpkgPackageSearchDialog.qml
       VcpkgProjectPanel.qml
       VcpkgSettingsPage.qml
   )

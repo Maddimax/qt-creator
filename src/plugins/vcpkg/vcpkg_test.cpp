@@ -19,7 +19,74 @@ private slots:
     void testVcpkgJsonParser();
     void testAddDependency_data();
     void testAddDependency();
+
+    void testWhichPackagesAFilterFinds();
+    void testWhatTheDetailsPaneShows();
+    void testWhenAPackageCanBeAdded();
 };
+
+using namespace Search;
+
+static VcpkgManifest packageNamed(const QString &name, const QString &shortDescription = {},
+                                  const QStringList &description = {})
+{
+    VcpkgManifest manifest;
+    manifest.name = name;
+    manifest.shortDescription = shortDescription;
+    manifest.description = description;
+    return manifest;
+}
+
+void VcpkgSearchTest::testWhichPackagesAFilterFinds()
+{
+    const QList<VcpkgManifest> packages = {
+        packageNamed("zlib", "A compression library"),
+        packageNamed("boost", "Peer-reviewed portable C++ libraries"),
+        packageNamed("fmt", "Formatting", {"A modern formatting library"}),
+    };
+
+    // Nothing typed lists everything, in order - the widget list sorted the
+    // names and the reader reads them that way.
+    QCOMPARE(packageNamesMatching(packages, {}), (QStringList{"boost", "fmt", "zlib"}));
+
+    // A package is found by its name...
+    QCOMPARE(packageNamesMatching(packages, "zl"), (QStringList{"zlib"}));
+    // ...case insensitively...
+    QCOMPARE(packageNamesMatching(packages, "ZLIB"), (QStringList{"zlib"}));
+    // ...by what it says it is...
+    QCOMPARE(packageNamesMatching(packages, "compression"), (QStringList{"zlib"}));
+    // The longer description matches only a whole paragraph, because
+    // QStringList::contains() compares elements rather than searching inside
+    // them - unlike the two lines above it.
+    QVERIFY(packageNamesMatching(packages, "modern").isEmpty());
+    QCOMPARE(packageNamesMatching(packages, "A modern formatting library"),
+             (QStringList{"fmt"}));
+
+    QVERIFY(packageNamesMatching(packages, "nosuchpackage").isEmpty());
+}
+
+void VcpkgSearchTest::testWhatTheDetailsPaneShows()
+{
+    // The short description on its own when that is all there is.
+    QCOMPARE(packageDescriptionHtml(packageNamed("zlib", "A compression library")),
+             QString("A compression library"));
+
+    // And each paragraph of the long one after it.
+    QCOMPARE(packageDescriptionHtml(packageNamed("fmt", "Formatting", {"one", "two"})),
+             QString("Formatting<p>one</p><p>two</p>"));
+
+    QCOMPARE(packageDescriptionHtml({}), QString());
+}
+
+void VcpkgSearchTest::testWhenAPackageCanBeAdded()
+{
+    // Something has to be chosen.
+    QVERIFY2(!canAddPackage({}, false), "a package could be added without choosing one");
+    QVERIFY(canAddPackage("zlib", false));
+
+    // And a package the project already depends on is not worth adding twice.
+    QVERIFY2(!canAddPackage("zlib", true), "a package already depended on could be added again");
+}
 
 void VcpkgSearchTest::testVcpkgJsonParser_data()
 {
