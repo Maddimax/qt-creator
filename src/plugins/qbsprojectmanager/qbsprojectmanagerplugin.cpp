@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "qbsprojectmanagerplugin.h"
+#include "customqbspropertiesdialog.h"
 
 #include "qbsbuildconfiguration.h"
 #include "qbsbuildstep.h"
@@ -113,6 +114,7 @@ void QbsProjectManagerPlugin::initialize()
 
 #ifdef WITH_TESTS
     addTestCreator(createQbsProfilesSettingsTest);
+    addTestCreator(createCustomQbsPropertiesTest);
     addTestCreator(createQbsArchitecturesTest);
 #endif
 

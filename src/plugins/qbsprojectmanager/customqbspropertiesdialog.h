@@ -6,11 +6,11 @@
 #include <QVariantMap>
 #include <QDialog>
 
-QT_BEGIN_NAMESPACE
-class QTableWidget;
-QT_END_NAMESPACE
+#include <memory>
 
 namespace QbsProjectManager::Internal {
+
+class CustomPropertiesSettings;
 
 class CustomQbsPropertiesDialog : public QDialog
 {
@@ -18,17 +18,16 @@ class CustomQbsPropertiesDialog : public QDialog
 
 public:
     explicit CustomQbsPropertiesDialog(const QVariantMap &properties, QWidget *parent = nullptr);
+    ~CustomQbsPropertiesDialog() override;
 
     QVariantMap properties() const;
 
 private:
-    void addProperty();
-    void removeSelectedProperty();
-    void handleCurrentItemChanged();
-
-private:
-    QTableWidget *m_propertiesTable;
-    QPushButton *m_removeButton;
+    const std::unique_ptr<CustomPropertiesSettings> m_settings;
 };
+
+#ifdef WITH_TESTS
+QObject *createCustomQbsPropertiesTest();
+#endif
 
 } // namespace QbsProjectManager::Internal

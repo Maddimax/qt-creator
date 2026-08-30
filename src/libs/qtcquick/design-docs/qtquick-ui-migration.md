@@ -20410,3 +20410,52 @@ hold a view are the larger question and still unscoped: some are the
 table-with-buttons shape that is already solved (`EnvVarSeparatorsDialog` was
 one), and telling those apart from the ones needing a new component is the next
 piece of scoping worth doing.
+
+## 2026-08-30 — The dialogs that hold a view, scoped; and one of them ported
+
+The last unscoped part of the census. Of the unported dialogs that hold
+something other than form controls:
+
+| shape | count | what it needs |
+|---|---|---|
+| a table or list with buttons beside it | 34 | nothing new - this shape is done |
+| holds a text editor | 21 | an editable text surface on a form |
+| something else | 25 | a component per dialog: `QGraphicsView`, `QStackedWidget`, `CropScene`, `PluginView`, `KitChooser`, `paintEvent` |
+
+**The largest group needs nothing new.** `EnvVarSeparatorsDialog` proved the
+table-with-buttons shape three weeks of batches ago: a `BaseAspect` answering
+`AspectControls::Table` with `tableModel()` and a `Q_INVOKABLE setSelectedRows`,
+two `ActionAspect`s beside it, and a `TableDelegate` in the page QML. Thirty-four
+dialogs are that shape, spread over fifteen plugins.
+
+`CustomQbsPropertiesDialog` is the second one done, and it took the shape
+unchanged - the only thing about it that is not `EnvVarSeparatorsDialog` is
+what the rows mean. Which is itself the decision worth having:
+
+**A row with no key is not a property.** The widget `properties()` skipped it,
+and it is the kind of thing a port drops silently - the reader adds a row, does
+not fill it in, presses OK, and qbs is handed an empty property name. Control A
+removes the skip and the test catches it.
+
+**The form-root seam earned its keep.** Control D deletes
+`onSelectedRowsChanged` from the page's QML - the line that tells the aspect
+which rows are picked - and it bites, because
+`testPickingARowInTheDrawnTableReachesTheAspect` drives the real table through
+`Core::aspectFormRoot()`. Before that seam existed, this exact control passed
+on `EnvVarSeparatorsDialog` and the hole went unnoticed.
+
+Negative controls: an empty key handed to qbs as a property; rows removed front
+to back, taking the wrong ones; Remove offered with nothing picked; and the QML
+no longer reporting the selection. All four bit.
+
+QuickUi 182 passed / 0 failed / 1 skipped, exit 0. QbsProjectManager exit 0,
+`CustomQbsPropertiesTest` 6 passed. `QbsProjectManager_qmllint` clean. No
+`.qbs` edit.
+
+**Next:** thirty-two more of the table shape, which is now a routine port with
+a worked example in two plugins - `NickNameDialog` (VcsBase),
+`FilterKitAspectsDialog` (ProjectExplorer) and `OpenSquishSuitesDialog` are
+small ones. The 21 text-editor dialogs want the Qt Quick editable text surface
+question answered first, which is the same one the debugger log asked and got
+`TextArea` for; whether that is enough for a dialog showing a document is not
+known.

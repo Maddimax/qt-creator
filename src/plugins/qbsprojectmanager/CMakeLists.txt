@@ -48,6 +48,7 @@ if(TARGET QbsProjectManager)
     NO_PLUGIN
     QML_FILES
       QbsProfilesPage.qml
+      CustomQbsPropertiesDialog.qml
       QbsSettingsPage.qml
   )
 endif()
