@@ -73,5 +73,6 @@ if(TARGET Android)
     QML_FILES
       AndroidSettingsPage.qml
       KeystoreCertificateDialog.qml
+      SdkManagerOptionsDialog.qml
   )
 endif()

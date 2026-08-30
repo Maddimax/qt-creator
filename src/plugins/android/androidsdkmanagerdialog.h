@@ -6,4 +6,8 @@ namespace Android::Internal {
 
 void executeAndroidSdkManagerDialog();
 
+#ifdef WITH_TESTS
+QObject *createSdkManagerOptionsTest();
+#endif
+
 } // Android::Internal

@@ -20588,3 +20588,43 @@ text fields, and twenty-five that each want their own component
 (`QGraphicsView`, `QStackedWidget`, `PluginView`, `KitChooser`, `paintEvent`).
 The first three groups are routine with worked examples; only the last needs
 thinking, and it should be scoped per dialog rather than as a group.
+
+## 2026-08-30 — The read-only report, proved rather than asserted
+
+The last entry said a read-only report is a `StringAspect` with
+`TextEditDisplay` and `setReadOnly(true)`, and said it on the strength of
+reading the control mapping. Three of the four remaining groups had a worked
+example; that one did not. This is it.
+
+`SdkManagerOptions` (Android) is the shape exactly: a field for the arguments
+to pass to `sdkmanager`, and under it what `sdkmanager --help` says about the
+arguments it takes. It renders, and the drawn text area is read-only.
+
+**The assertion that matters is on the drawn area, not on the aspect.**
+`QVERIFY(settings.help.isReadOnly())` reads back the setter two lines above it
+and would pass with the delegate ignoring it entirely. The test finds the
+`TextArea` through `Core::aspectFormRoot()` and asks *it* - which needed an
+`objectName` on `TextAreaDelegate`, the same one `StringDelegate` already had.
+Control A removes `setReadOnly(true)` and it bites; against the aspect-side
+assertion it would also have bitten, but for the wrong reason and while proving
+nothing about the delegate.
+
+**Two decisions came out of a process callback.** Which part of
+`sdkmanager --help` is worth showing - everything after the "Common Arguments:"
+heading, and not the heading itself, because the lines above it are about the
+command that was run - and what typed text becomes as arguments, where nothing
+typed must be *no* arguments rather than one empty one. Neither could be asked
+without an Android SDK installed and the dialog open.
+
+Negative controls: the report typed into; the heading shown as though it were
+an argument; whitespace passed as an argument; and the page naming an aspect
+that is not there. All four bit.
+
+QuickUi 182 passed / 0 failed / 1 skipped, exit 0. Android exit 0,
+`SdkManagerOptionsTest` 5 passed. `Android_qmllint` clean. No `.qbs` edit.
+
+**Next: every group now has a worked example, and nothing is unknown.** What is
+left is roughly thirty table-shaped, fifteen read-only reports, fourteen text
+fields - all routine - and twenty-five that each want a component of their own,
+which is the only part still needing thought and should be scoped one dialog at
+a time rather than as a group.

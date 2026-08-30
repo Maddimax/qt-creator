@@ -60,6 +60,8 @@ RowLayout {
             TextArea {
                 id: area
 
+                objectName: "textArea"
+
                 text: delegate.aspect?.value ?? ""
                 placeholderText: delegate.pres.placeholderText ?? ""
                 enabled: delegate.aspect?.enabled ?? false

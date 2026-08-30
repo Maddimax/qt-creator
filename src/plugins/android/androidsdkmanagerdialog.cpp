@@ -8,6 +8,7 @@
 #include "androidutils.h"
 
 #include <coreplugin/icore.h>
+#include <coreplugin/dialogs/ioptionspage.h>
 
 #include <utils/algorithm.h>
 #include <utils/environment.h>
@@ -18,7 +19,12 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialog>
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
 #include <QDialogButtonBox>
+#include <QVBoxLayout>
 #include <QHeaderView>
 #include <QLineEdit>
 #include <QPlainTextEdit>
@@ -332,6 +338,61 @@ void AndroidSdkModel::refreshData()
     endResetModel();
 }
 
+// The part of "sdkmanager --help" worth showing: everything after the
+// "Common Arguments:" heading. The rest of the output is about the command
+// that was run, not about what may be passed to it.
+//
+// Kept out of the dialog because it is a question about that output, and there
+// the only way to ask it was to have an Android SDK installed and open the
+// dialog.
+QString sdkManagerArgumentHelp(const QString &helpOutput)
+{
+    const int tagIndex = helpOutput.indexOf("Common Arguments:");
+    if (tagIndex < 0)
+        return {};
+
+    const int detailsIndex = helpOutput.indexOf('\n', tagIndex);
+    if (detailsIndex < 0)
+        return {};
+
+    return helpOutput.mid(detailsIndex + 1);
+}
+
+// What was typed, as arguments. Nothing typed is no arguments rather than one
+// empty one, which sdkmanager would refuse.
+QStringList sdkManagerArgumentsFrom(const QString &text)
+{
+    const QString simplified = text.simplified();
+    return simplified.isEmpty() ? QStringList() : simplified.split(' ');
+}
+
+class SdkManagerOptions final : public AspectContainer
+{
+public:
+    SdkManagerOptions()
+    {
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Android/SdkManagerOptionsDialog.qml"));
+
+        arguments.setQmlName("Arguments");
+        arguments.setLabelText(Tr::tr("SDK manager arguments:"));
+        arguments.setDisplayStyle(StringAspect::LineEditDisplay);
+        arguments.setValue(AndroidConfig::sdkManagerToolArgs().join(" "));
+
+        // Read from, never typed into: it is what sdkmanager says about
+        // itself.
+        help.setQmlName("Help");
+        help.setLabelText(Tr::tr("Available arguments:"));
+        help.setDisplayStyle(StringAspect::TextEditDisplay);
+        help.setReadOnly(true);
+    }
+
+    QStringList sdkManagerArguments() const { return sdkManagerArgumentsFrom(arguments()); }
+
+    StringAspect arguments{this};
+    StringAspect help{this};
+};
+
 class OptionsDialog : public QDialog
 {
 public:
@@ -341,55 +402,33 @@ public:
         resize(800, 480);
         setWindowTitle(Tr::tr("SDK Manager Arguments"));
 
-        m_argumentDetailsEdit = new QPlainTextEdit;
-        m_argumentDetailsEdit->setReadOnly(true);
+        const auto dialogButtons
+            = new QDialogButtonBox(QDialogButtonBox::Cancel | QDialogButtonBox::Ok, this);
+        connect(dialogButtons, &QDialogButtonBox::accepted, this, &OptionsDialog::accept);
+        connect(dialogButtons, &QDialogButtonBox::rejected, this, &OptionsDialog::reject);
+
+        const auto layout = new QVBoxLayout(this);
+        layout->addWidget(Core::createAspectForm(&m_settings));
+        layout->addWidget(dialogButtons);
 
         m_process.setEnvironment(AndroidConfig::toolsEnvironment());
         m_process.setCommand(
             {AndroidConfig::sdkManagerToolPath(),
              {"--help", "--sdk_root=" + AndroidConfig::sdkLocation().path()}});
         connect(&m_process, &Process::done, this, [this] {
-            const QString output = m_process.allOutput();
-            QString argumentDetails;
-            const int tagIndex = output.indexOf("Common Arguments:");
-            if (tagIndex >= 0) {
-                const int detailsIndex = output.indexOf('\n', tagIndex);
-                if (detailsIndex >= 0)
-                    argumentDetails = output.mid(detailsIndex + 1);
-            }
-            if (argumentDetails.isEmpty())
-                argumentDetails = Tr::tr("Cannot load available arguments for \"sdkmanager\" command.");
-            m_argumentDetailsEdit->setPlainText(argumentDetails);
+            const QString shown = sdkManagerArgumentHelp(m_process.allOutput());
+            m_settings.help.setValue(
+                shown.isEmpty()
+                    ? Tr::tr("Cannot load available arguments for \"sdkmanager\" command.")
+                    : shown);
         });
         m_process.start();
-
-        auto dialogButtons = new QDialogButtonBox;
-        dialogButtons->setStandardButtons(QDialogButtonBox::Cancel | QDialogButtonBox::Ok);
-        connect(dialogButtons, &QDialogButtonBox::accepted, this, &OptionsDialog::accept);
-        connect(dialogButtons, &QDialogButtonBox::rejected, this, &OptionsDialog::reject);
-
-        m_argumentsEdit = new QLineEdit;
-        m_argumentsEdit->setText(AndroidConfig::sdkManagerToolArgs().join(" "));
-
-        using namespace Layouting;
-
-        Column {
-            Form { Tr::tr("SDK manager arguments:"), m_argumentsEdit, br },
-            Tr::tr("Available arguments:"),
-            m_argumentDetailsEdit,
-            dialogButtons,
-        }.attachTo(this);
     }
 
-    QStringList sdkManagerArguments() const
-    {
-        const QString userInput = m_argumentsEdit->text().simplified();
-        return userInput.isEmpty() ? QStringList() : userInput.split(' ');
-    }
+    QStringList sdkManagerArguments() const { return m_settings.sdkManagerArguments(); }
 
 private:
-    QPlainTextEdit *m_argumentDetailsEdit = nullptr;
-    QLineEdit *m_argumentsEdit = nullptr;
+    SdkManagerOptions m_settings;
     Process m_process;
 };
 
@@ -633,4 +672,90 @@ void executeAndroidSdkManagerDialog()
     AndroidSdkManagerDialog().exec();
 }
 
+#ifdef WITH_TESTS
+
+class SdkManagerOptionsTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheDialogDrawsWithTheQmlItNames()
+    {
+        // This is the first read-only multi-line report drawn as an aspect
+        // rather than as a QPlainTextEdit, so that it renders at all is the
+        // thing being checked.
+        SdkManagerOptions settings;
+        const Utils::Result<> rendered
+            = Core::aspectFormRenders(&settings, "SdkManagerOptionsDialog.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+
+        const Utils::AspectPresentation presentation = settings.help.presentation();
+        QCOMPARE(presentation.control, Utils::AspectControls::TextEdit);
+
+        // And that the *drawn* area cannot be typed into. Asserting
+        // help.isReadOnly() would only be reading back the setter two lines
+        // above; what matters is whether it reached the text area.
+        const std::unique_ptr<QWidget> form(Core::createAspectForm(&settings));
+        QVERIFY(form);
+        QObject * const root = Core::aspectFormRoot(form.get());
+        QVERIFY2(root, "no front end said what the form was drawn from");
+
+        QObject *area = nullptr;
+        QTRY_VERIFY(area = root->findChild<QObject *>("textArea"));
+        QVERIFY2(area->property("readOnly").toBool(), "the report could be typed into");
+    }
+
+    void testWhichPartOfTheHelpIsWorthShowing()
+    {
+        const QString output = "Usage: sdkmanager [options]\n"
+                               "Blah about the command itself\n"
+                               "Common Arguments:\n"
+                               "  --sdk_root=PATH\n"
+                               "  --channel=N\n";
+
+        // Everything after the heading, and not the heading itself - the lines
+        // above it are about the command that was run.
+        const QString shown = sdkManagerArgumentHelp(output);
+        QVERIFY(shown.startsWith("  --sdk_root=PATH"));
+        QVERIFY(shown.contains("--channel=N"));
+        QVERIFY2(!shown.contains("Usage:"), "the part about the command itself was shown");
+        QVERIFY2(!shown.contains("Common Arguments:"), "the heading was shown as an argument");
+
+        // Output that does not have the heading answers nothing, which is what
+        // lets the dialog say it could not load them.
+        QVERIFY(sdkManagerArgumentHelp("something else entirely").isEmpty());
+        QVERIFY(sdkManagerArgumentHelp({}).isEmpty());
+
+        // The heading with nothing under it is also nothing.
+        QVERIFY(sdkManagerArgumentHelp("Common Arguments:").isEmpty());
+    }
+
+    void testWhatIsTypedBecomesArguments()
+    {
+        QCOMPARE(sdkManagerArgumentsFrom("--verbose --channel=1"),
+                 QStringList({"--verbose", "--channel=1"}));
+
+        // Spacing is the reader's, not sdkmanager's.
+        QCOMPARE(sdkManagerArgumentsFrom("  --verbose   --channel=1  "),
+                 QStringList({"--verbose", "--channel=1"}));
+
+        // Nothing typed is no arguments, not one empty one - sdkmanager
+        // refuses an empty argument.
+        QVERIFY(sdkManagerArgumentsFrom({}).isEmpty());
+        QVERIFY2(sdkManagerArgumentsFrom("   ").isEmpty(),
+                 "whitespace was passed as an argument");
+    }
+};
+
+QObject *createSdkManagerOptionsTest()
+{
+    return new SdkManagerOptionsTest;
+}
+
+#endif // WITH_TESTS
+
 } // Android::Internal
+
+#ifdef WITH_TESTS
+#include "androidsdkmanagerdialog.moc"
+#endif
