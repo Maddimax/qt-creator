@@ -80,6 +80,13 @@ public:
     void setFilter(const QString &text, OutputWindow::FilterModeFlags mode,
                    int before = 0, int after = 0);
 
+    // A further condition a line must also satisfy to be shown, on top of
+    // whatever the filter says. Application Output uses it to hide the logging
+    // categories the user switched off; a null function means no such
+    // condition, which is not the same as one that accepts everything - it is
+    // what lets the view show the source document rather than a copy of it.
+    void setExtraFilter(const OutputWindow::TextMatchingFunction &extra);
+
     // The same, as an output pane describes it: every pane has these six
     // values from IOutputPane and would otherwise each convert them itself.
     void setFilter(const QString &text, Qt::CaseSensitivity caseSensitivity, bool regexp,
@@ -113,8 +120,8 @@ public:
 
     void setBaseFont(const QFont &font);
     void setWheelZoomEnabled(bool enabled);
-    void zoomIn();
-    void zoomOut();
+    void zoomIn(int range = 1);
+    void zoomOut(int range = 1);
     void resetZoom();
     void setFontZoom(float zoom);
     float fontZoom() const;
@@ -162,11 +169,16 @@ public:
 #endif
 
 signals:
+    // The zoom changed because the reader used Ctrl and the wheel here. A pane
+    // holding several views listens for it to zoom the others to match.
+    void wheelZoom();
+
     // Output was thrown away because it was arriving faster than it could be
     // drawn. A pane reports this, so that what is missing is not a mystery.
     void outputDiscarded();
 
 private:
+    OutputWindow::TextMatchingFunction currentPredicate() const;
     void refilter();
     bool isFiltering() const;
     void showEvent(QShowEvent *event) override;
@@ -189,6 +201,7 @@ private:
     QTextCursor m_startOfNewContent;
     OutputWindow::FilteredAppendState m_appendState;
     QString m_filterText;
+    OutputWindow::TextMatchingFunction m_extraFilter;
     OutputWindow::FilterModeFlags m_filterMode;
     int m_beforeContext = 0;
     int m_afterContext = 0;

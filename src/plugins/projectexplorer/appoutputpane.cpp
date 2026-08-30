@@ -22,7 +22,8 @@
 #include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/find/ifindsupport.h>
 #include <coreplugin/icore.h>
-#include <coreplugin/outputwindow.h>
+#include <coreplugin/outputpaneview.h>
+#include <coreplugin/outputview.h>
 #include <coreplugin/session.h>
 #include <texteditor/behaviorsettings.h>
 #include <texteditor/fontsettings.h>
@@ -141,20 +142,22 @@ private:
     QMap<QString, QLoggingCategory *> m_categories;
 };
 
-class AppOutputWindow : public OutputWindow
+class AppOutputView : public Core::OutputPaneView
 {
     Q_OBJECT
 
 public:
-    AppOutputWindow(Context context, const Key &settingsKey, QWidget *parent = nullptr)
-        : OutputWindow(context, settingsKey, /*aggregateFindSupport=*/false, parent)
+    AppOutputView(const Context &context, const Key &settingsKey, QWidget *parent = nullptr)
+        : Core::OutputPaneView(context, settingsKey, parent)
     {
     }
 
     void updateCategoriesProperties(const QMap<QString, QLoggingCategory *> &categories)
     {
-        resetLastFilteredBlockNumber();
+        if (categories == m_categories)
+            return;
         m_categories = categories;
+        applyCategoryFilter();
     }
 
     void setFilterEnabled(bool enabled) { m_filterEnabled = enabled; }
@@ -162,15 +165,24 @@ public:
 
     LoggingCategoryRegistry *registry() { return &m_registry; }
 
+signals:
+    // A new run is about to write here, so whatever was learned from the last
+    // one - the categories it logged under - is no longer about this output.
+    void cleanOldOutput();
+
 private:
-    TextMatchingFunction makeMatchingFilterFunction() const override
+    // Hides the levels the user switched off, on top of whatever the pane's
+    // filter says. Installed only when there are categories at all: with none,
+    // this accepts every line, and a filter that accepts everything still
+    // costs the view a filtered copy of the output.
+    void applyCategoryFilter()
     {
-        auto parentFilter = OutputWindow::makeMatchingFilterFunction();
+        if (m_categories.isEmpty()) {
+            setExtraFilter({});
+            return;
+        }
 
-        auto filter = [categories = m_categories](const QString &text) {
-            if (categories.isEmpty())
-                return true;
-
+        setExtraFilter([categories = m_categories](const QString &text) {
             for (auto i = categories.cbegin(), end = categories.cend(); i != end; ++i) {
                 if (!text.contains(i.key()))
                     continue;
@@ -188,16 +200,7 @@ private:
                 return true;
             }
             return true;
-        };
-
-        return [filter, parentFilter](const QString &text) {
-            return filter(text) && parentFilter(text);
-        };
-    }
-
-    bool shouldFilterNewContentOnBlockCountChanged() const override
-    {
-        return m_filterEnabled || OutputWindow::shouldFilterNewContentOnBlockCountChanged();
+        });
     }
 
     LoggingCategoryRegistry m_registry{this};
@@ -379,13 +382,13 @@ private:
     QList<QPair<QString, QLoggingCategory *>> m_categories;
 };
 
-AppOutputPane::RunControlTab::RunControlTab(RunControl *runControl, AppOutputWindow *w)
+AppOutputPane::RunControlTab::RunControlTab(RunControl *runControl, AppOutputView *w)
     : runControl(runControl)
     , window(w)
 {
     if (runControl && w) {
         w->reset();
-        runControl->setupFormatter(w->outputFormatter());
+        runControl->setupFormatter(w->formatter());
     }
 }
 
@@ -489,7 +492,7 @@ AppOutputPane::AppOutputPane() :
         const RunControlTab *tab = currentTab();
         if (!tab)
             return nullptr;
-        return tab->window ? tab->window->findSupport() : nullptr;
+        return tab->window && tab->window->view() ? tab->window->view()->findSupport() : nullptr;
     });
     Aggregation::aggregate({m_tabWidget, findSupport});
     connect(m_tabWidget, &QTabWidget::currentChanged, findSupport, [findSupport] {
@@ -583,7 +586,7 @@ QList<QWidget *> AppOutputPane::toolBarWidgets() const
 
 void AppOutputPane::clearContents()
 {
-    auto *currentWindow = qobject_cast<Core::OutputWindow *>(m_tabWidget->currentWidget());
+    auto *currentWindow = qobject_cast<AppOutputView *>(m_tabWidget->currentWidget());
     if (currentWindow)
         currentWindow->clear();
 }
@@ -612,15 +615,8 @@ void AppOutputPane::updateFilter()
     if (RunControlTab * const tab = currentTab()) {
         QTC_ASSERT(tab->window, return);
         tab->window->updateCategoriesProperties(tab->window->registry()->categories());
-        if (!tab->window->updateFilterProperties(
-                filterText(),
-                filterCaseSensitivity(),
-                filterUsesRegexp(),
-                filterIsInverted(),
-                beforeContext(),
-                afterContext())) {
-            tab->window->filterNewContent();
-        }
+        tab->window->setFilter(filterText(), filterCaseSensitivity(), filterUsesRegexp(),
+                               filterIsInverted(), beforeContext(), afterContext());
     }
 }
 
@@ -695,7 +691,7 @@ void AppOutputPane::createNewOutputWindow(RunControl *rc)
                    && thisEnvironment == tab.runControl->environment();
         });
     const auto updateOutputFileName = [this](int index, RunControl *rc) {
-        qobject_cast<OutputWindow *>(m_tabWidget->widget(index))
+        qobject_cast<AppOutputView *>(m_tabWidget->widget(index))
         //: file name suggested for saving application output, %1 = run configuration display name
         ->setOutputFileNameHint(Tr::tr("application-output-%1.txt").arg(rc->displayName()));
     };
@@ -703,7 +699,7 @@ void AppOutputPane::createNewOutputWindow(RunControl *rc)
         const auto aspect = rc->aspectData<EnableCategoriesFilterAspect>();
         const bool filterEnabled = aspect && aspect->value;
         m_tabWidget->filtersWidget(index)->setVisible(filterEnabled);
-        qobject_cast<AppOutputWindow *>(m_tabWidget->widget(index))->setFilterEnabled(filterEnabled);
+        qobject_cast<AppOutputView *>(m_tabWidget->widget(index))->setFilterEnabled(filterEnabled);
     };
     if (tab != m_runControlTabs.end()) {
         // Reuse this tab
@@ -711,7 +707,7 @@ void AppOutputPane::createNewOutputWindow(RunControl *rc)
 
         tab->runControl = rc;
         tab->window->reset();
-        rc->setupFormatter(tab->window->outputFormatter());
+        rc->setupFormatter(tab->window->formatter());
 
         handleOldOutput(tab->window);
 
@@ -731,16 +727,14 @@ void AppOutputPane::createNewOutputWindow(RunControl *rc)
     static int counter = 0;
     Id contextId = Id(C_APP_OUTPUT).withSuffix(counter++);
     Core::Context context(contextId);
-    AppOutputWindow *ow = new AppOutputWindow(context, SETTINGS_KEY, m_tabWidget);
+    AppOutputView *ow = new AppOutputView(context, SETTINGS_KEY, m_tabWidget);
     ow->setWindowTitle(Tr::tr("Application Output Window"));
     ow->setWindowIcon(Icons::WINDOW.icon());
     ow->setWordWrapEnabled(settings().wrapOutput());
     ow->setMaxCharCount(settings().maxCharCount());
     ow->setDiscardExcessiveOutput(settings().discardExcessiveOutput());
 
-    const QColor bgColor = settings().effectiveBackgroundColor();
-    ow->outputFormatter()->setExplicitBackgroundColor(bgColor);
-    StyleHelper::modifyPaletteBase(ow, bgColor);
+    ow->setBackgroundColor(settings().effectiveBackgroundColor());
 
     auto updateFontSettings = [ow] {
         ow->setBaseFont(TextEditor::globalFontSettings().data().font());
@@ -754,7 +748,7 @@ void AppOutputPane::createNewOutputWindow(RunControl *rc)
     updateFontSettings();
     updateBehaviorSettings();
 
-    connect(ow, &Core::OutputWindow::wheelZoom, this, [this, ow]() {
+    connect(ow, &Core::OutputPaneView::wheelZoom, this, [this, ow]() {
         float fontZoom = ow->fontZoom();
         for (const RunControlTab &tab : std::as_const(m_runControlTabs))
             tab.window->setFontZoom(fontZoom);
@@ -876,7 +870,7 @@ void AppOutputPane::createNewOutputWindow(RunControl *rc)
         filterEdit->setText("^(qt\\.).+");
     });
 
-    connect(ow, &OutputWindow::cleanOldOutput, ow, [ow, categoryModel]() {
+    connect(ow, &AppOutputView::cleanOldOutput, ow, [ow, categoryModel]() {
         categoryModel->reset();
         ow->updateCategoriesProperties({});
         ow->registry()->reset();
@@ -905,7 +899,7 @@ void AppOutputPane::createNewOutputWindow(RunControl *rc)
     setFilteringEnabled(m_tabWidget->count() > 0);
 }
 
-void AppOutputPane::handleOldOutput(Core::OutputWindow *window) const
+void AppOutputPane::handleOldOutput(AppOutputView *window) const
 {
     if (settings().cleanOldOutput())
         window->clear();
@@ -922,8 +916,7 @@ void AppOutputPane::updateFromSettings()
         tab.window->setWordWrapEnabled(settings().wrapOutput());
         tab.window->setMaxCharCount(settings().maxCharCount());
         tab.window->setDiscardExcessiveOutput(settings().discardExcessiveOutput());
-        tab.window->outputFormatter()->setExplicitBackgroundColor(bgColor);
-        StyleHelper::modifyPaletteBase(tab.window, bgColor);
+        tab.window->setBackgroundColor(bgColor);
     }
 }
 
@@ -1071,7 +1064,7 @@ void AppOutputPane::closeTab(int tabIndex, CloseTabMode closeTabMode)
     QTC_ASSERT(tab, return);
 
     RunControl *runControl = tab->runControl;
-    Core::OutputWindow *window = tab->window;
+    AppOutputView * const window = tab->window;
     qCDebug(appOutputLog) << "AppOutputPane::closeTab tab" << tabIndex << runControl << window;
     // Prompt user to stop
     if (closeTabMode == CloseTabWithPrompt) {
@@ -1188,10 +1181,9 @@ void AppOutputPane::tabChanged(int i)
     RunControlTab * const controlTab = tabFor(m_tabWidget->widget(i));
     if (i != -1 && controlTab && QTC_GUARD(controlTab->window)) {
         controlTab->window->updateCategoriesProperties(controlTab->window->registry()->categories());
-        if (!controlTab->window->updateFilterProperties(filterText(), filterCaseSensitivity(),
-                                                    filterUsesRegexp(), filterIsInverted(),
-                                                    beforeContext(), afterContext()))
-            controlTab->window->filterNewContent();
+        controlTab->window->setFilter(filterText(), filterCaseSensitivity(),
+                                      filterUsesRegexp(), filterIsInverted(),
+                                      beforeContext(), afterContext());
         enableButtons(controlTab->runControl);
     } else {
         enableDefaultButtons();

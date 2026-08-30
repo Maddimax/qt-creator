@@ -18566,3 +18566,43 @@ Controls, four, all biting: nothing registered; registered even without a
 context, which is what would clash; Select All registered but doing nothing;
 and Copy registered but doing nothing. The last two matter because registering
 a command that does nothing is exactly the failure being fixed, one level in.
+
+### Application Output, the last of the big ones
+
+The fifth pane, and the one that needed a capability none of the others did:
+a **second filter**. `AppOutputWindow` overrode `makeMatchingFilterFunction()`
+to compose a logging-category filter with the pane's text filter, so a line had
+to satisfy both. `OutputPaneView` now takes one:
+
+    void setExtraFilter(const OutputWindow::TextMatchingFunction &extra);
+
+A **null** function is not the same as one that accepts everything, and the
+difference is worth stating: with none, the view shows the source document
+itself rather than a filtered copy of it that happens to hold every line. The
+test asserts that - `view()->document() == shownDocument()` after the second
+filter is dropped - and the control that keeps the view filtering fails on it.
+
+**Two other things had to be forwarded**, both found by the compiler rather
+than by reading: `zoomIn`/`zoomOut` take a range, because a pane's Ctrl+= is
+`zoomIn(range)`, and `wheelZoom` had to reach the pane at all. That one has an
+ordering to it worth a test of its own: Application Output catches `wheelZoom`
+from whichever tab the wheel was over and reads `fontZoom()` to set every other
+tab, so the value has to be the new one *by the time the signal is emitted*. A
+control that emits first and updates after leaves every other tab where it was,
+and reports 0 where 1 was expected.
+
+**What moved off the view and onto the pane's own class.** `AppOutputView` is
+now an `OutputPaneView` subclass holding the logging-category registry, the
+categories and the enabled flag - the parts that were only on the window
+because the window was where the filter hook lived. `cleanOldOutput` is its
+signal now rather than `Core::OutputWindow`'s; it was always pane plumbing
+that happened to be emitted on the window.
+
+`shouldFilterNewContentOnBlockCountChanged()` and `filterNewContent()` are
+gone with nothing replacing them: they existed because a `QPlainTextEdit`
+filters by hiding blocks and has to be told when to look again.
+`OutputPaneView` refilters as output arrives, so the question does not come up.
+
+Five of the six text panes are drawn with Qt Quick now. Only VCS is left, and
+its `adaptContextMenu()` override is the last thing the Quick view has no
+answer for.

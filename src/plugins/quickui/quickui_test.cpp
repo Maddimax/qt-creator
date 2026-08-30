@@ -370,6 +370,7 @@ private slots:
     void testTheOutputContextMenuOffersWhatTheWidgetDid();
     void testClearInTheOutputMenuReachesThePane();
     void testTheOutputViewFollowsTheEndUntilTheReaderScrollsAway();
+    void testAPaneLearnsItsNewZoomWhenTheWheelChangesIt();
     void testFindingTextInTheOutputView();
     void testTheOutputViewScrollsAMatchIntoView();
     void testABackwardsSelectionComesBackTheRightWayRound();
@@ -10904,6 +10905,36 @@ void QuickUiTest::testTheOutputViewFollowsTheEndUntilTheReaderScrollsAway()
     write("third ");
     QTRY_VERIFY2(atBottom(), "the view stopped following after being sent back to the end");
     QVERIFY(view.toPlainText().contains("third 39"));
+}
+
+void QuickUiTest::testAPaneLearnsItsNewZoomWhenTheWheelChangesIt()
+{
+    // Application Output zooms all its tabs together: it catches wheelZoom
+    // from whichever view the wheel was over and reads fontZoom() to set the
+    // others. So the value has to be the new one by the time the signal
+    // arrives - a pane that read the old one would zoom its other tabs back to
+    // where they were.
+    Core::OutputPaneView view;
+    view.resize(300, 200);
+    view.show();
+    QVERIFY(view.view());
+
+    auto * const quickWidget = view.findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+
+    float reported = -1;
+    QSignalSpy zooms(&view, &Core::OutputPaneView::wheelZoom);
+    connect(&view, &Core::OutputPaneView::wheelZoom, [&] { reported = view.fontZoom(); });
+
+    QCOMPARE(view.fontZoom(), 0.0f);
+    QWheelEvent wheel(QPointF(50, 50), quickWidget->mapToGlobal(QPoint(50, 50)), {},
+                      QPoint(0, 120), Qt::NoButton, Qt::ControlModifier, Qt::NoScrollPhase,
+                      false);
+    QCoreApplication::sendEvent(quickWidget, &wheel);
+
+    QTRY_COMPARE(zooms.count(), 1);
+    QCOMPARE(view.fontZoom(), 1.0f);
+    QCOMPARE(reported, 1.0f);
 }
 
 void QuickUiTest::testAVariableBeingDefinedIsNotOfferedForItself()

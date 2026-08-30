@@ -24,7 +24,7 @@ class RunControl;
 
 namespace Internal {
 
-class AppOutputWindow;
+class AppOutputView;
 class ShowOutputTaskHandler;
 class TabWidget;
 
@@ -117,9 +117,9 @@ private:
 
     class RunControlTab {
     public:
-        explicit RunControlTab(RunControl *runControl = nullptr, AppOutputWindow *window = nullptr);
+        explicit RunControlTab(RunControl *runControl = nullptr, AppOutputView *window = nullptr);
         QPointer<RunControl> runControl;
-        QPointer<AppOutputWindow> window;
+        QPointer<AppOutputView> window;
         AppOutputPaneMode behaviorOnOutput = AppOutputPaneMode::FlashOnOutput;
     };
 
@@ -133,7 +133,7 @@ private:
     RunControlTab *currentTab();
     const RunControlTab *currentTab() const;
     RunControl *currentRunControl() const;
-    void handleOldOutput(Core::OutputWindow *window) const;
+    void handleOldOutput(AppOutputView *window) const;
     void updateCloseActions();
 
     QWidget *outputWidget(QWidget *) final;

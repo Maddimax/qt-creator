@@ -120,6 +120,12 @@ OutputView *OutputPaneView::view()
     connect(m_view, &OutputView::copyContentsToScratchBufferRequested,
             this, &OutputPaneView::copyContentsToScratchBuffer);
     connect(m_view, &OutputView::clearRequested, this, &OutputPaneView::clear);
+    connect(m_view, &OutputView::wheelZoom, this, [this] {
+        // The view moved the zoom itself, so this has to catch up before
+        // telling anyone: a pane reads fontZoom() to match its other views.
+        m_zoom = m_view->fontZoom();
+        emit wheelZoom();
+    });
     if (m_baseFontSet)
         m_view->setBaseFont(m_baseFont);
     m_view->setWordWrapEnabled(m_wordWrapEnabled);
@@ -294,8 +300,7 @@ void OutputPaneView::writeChunk(const QString &text, OutputFormat format, bool c
         } else {
             // Otherwise only what arrived is filtered, not the whole document
             // again: a build appends thousands of times.
-            OutputWindow::appendFiltered(&m_source, &m_filtered,
-                                         OutputWindow::filterPredicate(m_filterText, m_filterMode),
+            OutputWindow::appendFiltered(&m_source, &m_filtered, currentPredicate(),
                                          m_beforeContext, m_afterContext, m_appendState);
         }
     }
@@ -391,7 +396,25 @@ void OutputPaneView::clearLinesPrefixedWith(const QString &prefix, bool deleteTr
 
 bool OutputPaneView::isFiltering() const
 {
-    return !m_filterText.isEmpty();
+    return !m_filterText.isEmpty() || bool(m_extraFilter);
+}
+
+OutputWindow::TextMatchingFunction OutputPaneView::currentPredicate() const
+{
+    const OutputWindow::TextMatchingFunction text
+        = OutputWindow::filterPredicate(m_filterText, m_filterMode);
+    if (!m_extraFilter)
+        return text;
+
+    return [text, extra = m_extraFilter](const QString &line) {
+        return extra(line) && text(line);
+    };
+}
+
+void OutputPaneView::setExtraFilter(const OutputWindow::TextMatchingFunction &extra)
+{
+    m_extraFilter = extra;
+    refilter();
 }
 
 void OutputPaneView::setFilter(const QString &text, OutputWindow::FilterModeFlags mode,
@@ -430,8 +453,7 @@ void OutputPaneView::refilter()
     if (isFiltering()) {
         // Filtering everything at once and filtering it a line at a time are
         // the same operation from an empty state, so there is one code path.
-        OutputWindow::appendFiltered(&m_source, &m_filtered,
-                                     OutputWindow::filterPredicate(m_filterText, m_filterMode),
+        OutputWindow::appendFiltered(&m_source, &m_filtered, currentPredicate(),
                                      m_beforeContext, m_afterContext, m_appendState);
     }
     if (OutputView * const output = view())
@@ -537,14 +559,14 @@ void OutputPaneView::setWheelZoomEnabled(bool enabled)
         output->setWheelZoomEnabled(enabled);
 }
 
-void OutputPaneView::zoomIn()
+void OutputPaneView::zoomIn(int range)
 {
-    setFontZoom(m_zoom + 1);
+    setFontZoom(m_zoom + range);
 }
 
-void OutputPaneView::zoomOut()
+void OutputPaneView::zoomOut(int range)
 {
-    setFontZoom(m_zoom - 1);
+    setFontZoom(m_zoom - range);
 }
 
 void OutputPaneView::resetZoom()
@@ -1002,6 +1024,50 @@ private slots:
         // context gets no shortcuts rather than a clash.
         OutputPaneView anonymous;
         QCOMPARE(anonymous.findChildren<QAction *>().size(), 0);
+    }
+
+    void testASecondFilterOnTopOfTheTextOne()
+    {
+        // Application Output hides the logging categories the user switched
+        // off, and it does that as well as filtering by text rather than
+        // instead of it.
+        OutputPaneView view;
+        for (const QString &line : QStringList{"qt.core: a note", "qt.gui: a note",
+                                               "qt.core: a warning", "plain output"}) {
+            view.appendMessage(line + '\n', Utils::GeneralMessageFormat);
+        }
+        view.flush();
+        QCOMPARE(view.shownDocument()->toPlainText().count('\n'), 4);
+
+        // On its own, it decides what is shown.
+        view.setExtraFilter([](const QString &line) { return line.startsWith("qt.core"); });
+        QCOMPARE(view.shownDocument()->toPlainText(),
+                 QString("qt.core: a note\nqt.core: a warning"));
+
+        // With a text filter as well, a line has to satisfy both.
+        view.setFilter("warning", {});
+        QCOMPARE(view.shownDocument()->toPlainText(), QString("qt.core: a warning"));
+
+        // Dropping the text filter leaves the other one in place.
+        view.setFilter({}, {});
+        QCOMPARE(view.shownDocument()->toPlainText(),
+                 QString("qt.core: a note\nqt.core: a warning"));
+
+        // And dropping it puts everything back - and puts the *source*
+        // document back on screen, rather than a copy of it that happens to
+        // hold everything.
+        view.setExtraFilter({});
+        QCOMPARE(view.shownDocument()->toPlainText().count('\n'), 4);
+        QCOMPARE(view.view()->document(), view.shownDocument());
+
+        // What arrives afterwards is filtered too, not just what was there.
+        view.setExtraFilter([](const QString &line) { return line.startsWith("qt.core"); });
+        view.appendMessage("qt.gui: later\n", Utils::GeneralMessageFormat);
+        view.appendMessage("qt.core: later\n", Utils::GeneralMessageFormat);
+        view.flush();
+        QVERIFY(view.shownDocument()->toPlainText().contains("qt.core: later"));
+        QVERIFY2(!view.shownDocument()->toPlainText().contains("qt.gui: later"),
+                 "a line the second filter rejects was shown when it arrived later");
     }
 
     void testViewsInATabWidgetAreIndependent()
