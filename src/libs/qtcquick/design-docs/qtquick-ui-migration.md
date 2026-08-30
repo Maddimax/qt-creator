@@ -19300,3 +19300,74 @@ passed. `Debugger` exits 1 on the pre-existing
 still blocked on a finished Qt Quick text editor - it shows a document with
 colouring and selection, which is the thing `ConsoleEdit` turned out not to be.
 Everything else the console had is ported.
+
+## 2026-08-30 — The global debugger log, and what the log window actually needs
+
+The previous entry called the debugger log blocked on a finished Qt Quick text
+editor. Reading it says otherwise, and this is the second time in three batches
+that a "blocked" verdict came from a base class rather than from behaviour:
+
+- **`GlobalLogWindow` is two read-only panes in a splitter.** No editor is
+  involved at all. Ported this batch to two `Core::OutputPaneView`s.
+- **`LogWindow`'s `CombinedPane` is a transcript** with `gotoResult()`. Also an
+  `OutputPaneView`, once the input side is dealt with.
+- **`InputPane` is the only editable thing**, and it is a `QPlainTextEdit` with
+  Ctrl+Return, Ctrl+R, a double-click, and a highlighter that colours a
+  timestamp - the same shape as `ConsoleEdit`. A `TextArea` with a
+  `QSyntaxHighlighter` on `textDocument.textDocument` does it.
+
+So nothing here waits on the code editor. What was true is that the log needs
+*a* text surface, and there now is one.
+
+**The colouring survives the move, and that was the risk.** The log is plain
+text in which every line begins with a character naming its channel, drawn in
+the background colour at a point size of one so it takes no width and cannot be
+seen; a `QSyntaxHighlighter` reads the marker back and colours the rest of the
+line. That works on any `QTextDocument`, so it works on
+`OutputPaneView::sourceDocument()` — asserted directly rather than assumed
+(`testTheChannelMarkerColoursTheLineAndIsNotSeen` reads
+`block.layout()->formats()` back), because "the text is there" would have
+passed with the colour gone.
+
+**Extracted from the window, all of it previously reachable only by running a
+debugger:** `logText()` (channel marking, dropping the debugger's own
+`(gdb) ` prompt, cutting a line at 30000 characters, the trailing newline, and
+suppressing the time stamp for a console stream, which starts with `~`),
+`commandTokenForLine()`, `colorForChannel()`, and `channelForChar()` /
+`charForChannel()` — which the round-trip test now pins against each other,
+since the writing and the colouring are the two ends of one convention.
+
+**`commandTokenForLine` drops a fixed width, not a prefix.** It cuts eighteen
+characters when the line starts with `[`. A stamp of any other length either
+leaves part of itself behind or eats digits, and the double-click then goes to
+the wrong answer or to token 0. Asserted as it is, both ways, and worth fixing
+some other time - but not silently while porting.
+
+**Context menu actions are set when the menu is about to open**, not in the
+constructor: `OutputPaneView::setContextMenuActions()` forwards to `view()`,
+which is null until a Qt Quick front end has loaded, and this window is built
+during plugin initialization. Setting them up front would have been silently
+lost - the same trap as General Messages.
+
+**Behaviour changes, both small and deliberate:** the trim is now
+`setMaxCharCount()` rather than "at 100000 blocks, drop the oldest tenth and
+round-trip the document through HTML to make it give the memory back"; and
+`clearUndoRedoStacks()` on this window is now nothing, because a view that
+cannot be typed into has nothing to undo. `LogWindow`'s still does something.
+
+Negative controls, all four bit: the `(gdb) ` prompt no longer dropped; an
+over-long line written whole; the channel marker drawn like any other
+character; and what was typed echoed into the pane that exists to keep it out.
+The window test guards `theGlobalLog` around itself - constructing a
+`GlobalLogWindow` installs it as *the* one, and its destructor clears the
+pointer rather than restoring it, so a test that did not put the running
+instance back would leave `LogWindow::showInput()` dereferencing null.
+
+No `.qbs` edit this batch - nothing was added or removed from the build.
+
+QuickUi 178 passed / 0 failed / 1 skipped, exit 0. `LogWindowTest` 9 passed.
+`Debugger` exits 1 on the pre-existing `DebuggerUnitTests::testStateMachine`.
+
+**Next:** `LogWindow` itself - `CombinedPane` to an `OutputPaneView` (with
+`gotoResult` over `blockForResult`, which is already extracted and tested), and
+`InputPane` to a Quick `TextArea` carrying the four keys and the highlighter.

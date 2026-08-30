@@ -14,6 +14,7 @@
 #ifdef WITH_TESTS
 #include <QTest>
 #endif
+#include <QTextLayout>
 #include <QTime>
 
 #include <QFileDialog>
@@ -29,6 +30,7 @@
 #include <coreplugin/actionmanager/actionmanager.h>
 #include <coreplugin/findplaceholder.h>
 #include <coreplugin/minisplitter.h>
+#include <coreplugin/outputpaneview.h>
 #include <coreplugin/find/basetextfind.h>
 
 #include <utils/filedialogs.h>
@@ -43,7 +45,11 @@ namespace Debugger::Internal {
 
 GlobalLogWindow *theGlobalLog = nullptr;
 
-static LogChannel channelForChar(QChar c)
+// About what the widget pane kept: it trimmed at 100000 blocks, back to 90% of
+// them, and a log line is short.
+const qsizetype maxLogCharCount = 10 * 1000 * 1000;
+
+LogChannel channelForChar(QChar c)
 {
     switch (c.unicode()) {
         case 'd': return LogDebug;
@@ -57,7 +63,7 @@ static LogChannel channelForChar(QChar c)
     }
 }
 
-QChar static charForChannel(int channel)
+QChar charForChannel(int channel)
 {
     switch (channel) {
         case LogDebug: return QLatin1Char('d');
@@ -70,6 +76,81 @@ QChar static charForChannel(int channel)
         case LogMisc:
         default: return QLatin1Char(' ');
     }
+}
+
+// A channel with nothing particular to say about itself answers an invalid
+// colour, which is what leaves the line in the ordinary text colour.
+QColor colorForChannel(int channel)
+{
+    using Utils::Theme;
+    switch (channel) {
+    case LogInput:   return creatorColor(Theme::Debugger_LogWindow_LogInput);
+    case LogStatus:  return creatorColor(Theme::Debugger_LogWindow_LogStatus);
+    case LogWarning: return creatorColor(Theme::OutputPanes_WarningMessageTextColor);
+    case LogError:   return creatorColor(Theme::OutputPanes_ErrorMessageTextColor);
+    case LogTime:    return creatorColor(Theme::Debugger_LogWindow_LogTime);
+    default:         return {};
+    }
+}
+
+QString logText(int channel, const QString &output, const QString &timeStamp)
+{
+    if (output.isEmpty())
+        return {};
+
+    const QChar cchar = charForChannel(channel);
+    const QChar nchar = '\n';
+
+    QString out;
+    out.reserve(output.size() + 1000);
+
+    // A console stream carries no time of its own to be stamped: it is the
+    // program talking, not the debugger.
+    if (output.at(0) != '~' && !timeStamp.isEmpty()) {
+        out.append(charForChannel(LogTime));
+        out.append(timeStamp);
+        out.append(nchar);
+    }
+
+    for (int pos = 0, n = output.size(); pos < n; ) {
+        const int npos = output.indexOf(nchar, pos);
+        const int nnpos = npos == -1 ? n : npos;
+        const int l = nnpos - pos;
+        // The debugger's own prompt is not worth a line of the transcript.
+        if (l != 6 || QStringView(output).mid(pos, 6) != QLatin1String("(gdb) ")) {
+            out.append(cchar);
+            if (l > 30000) {
+                // A single line this long is a dump of something, and a text
+                // document asserts on really long ones.
+                out.append(output.mid(pos, 30000));
+                out.append(" [...] <cut off>\n");
+            } else {
+                out.append(output.mid(pos, l + 1));
+            }
+        }
+        pos = nnpos + 1;
+    }
+    if (!out.endsWith(nchar))
+        out.append(nchar);
+
+    return out;
+}
+
+int commandTokenForLine(const QString &line)
+{
+    QStringView rest(line);
+    // Cut the time stamp, which is written in front of the command.
+    if (rest.size() > 18 && rest.at(0) == '[')
+        rest = rest.mid(18);
+
+    int n = 0;
+    for (int i = 0; i != rest.size(); ++i) {
+        const QChar c = rest.at(i);
+        if (!c.isDigit())
+            break;
+        n = 10 * n + c.unicode() - '0';
+    }
+    return n;
 }
 
 static bool writeLogContents(const QPlainTextEdit *editor)
@@ -96,46 +177,31 @@ static bool writeLogContents(const QPlainTextEdit *editor)
 class OutputHighlighter : public QSyntaxHighlighter
 {
 public:
-    OutputHighlighter(QPlainTextEdit *parent)
-        : QSyntaxHighlighter(parent->document()), m_parent(parent)
+    OutputHighlighter(QTextDocument *document, QWidget *drawnOn)
+        : QSyntaxHighlighter(document), m_drawnOn(drawnOn)
     {}
 
 private:
     void highlightBlock(const QString &text) override
     {
-        using Utils::Theme;
-        QTextCharFormat format;
-        switch (channelForChar(text.isEmpty() ? QChar() : text.at(0))) {
-            case LogInput:
-                format.setForeground(creatorColor(Theme::Debugger_LogWindow_LogInput));
-                setFormat(1, text.size(), format);
-                break;
-            case LogStatus:
-                format.setForeground(creatorColor(Theme::Debugger_LogWindow_LogStatus));
-                setFormat(1, text.size(), format);
-                break;
-            case LogWarning:
-                format.setForeground(creatorColor(Theme::OutputPanes_WarningMessageTextColor));
-                setFormat(1, text.size(), format);
-                break;
-            case LogError:
-                format.setForeground(creatorColor(Theme::OutputPanes_ErrorMessageTextColor));
-                setFormat(1, text.size(), format);
-                break;
-            case LogTime:
-                format.setForeground(creatorColor(Theme::Debugger_LogWindow_LogTime));
-                setFormat(1, text.size(), format);
-                break;
-            default:
-                break;
+        const QColor color
+            = colorForChannel(channelForChar(text.isEmpty() ? QChar() : text.at(0)));
+        if (color.isValid()) {
+            QTextCharFormat format;
+            format.setForeground(color);
+            setFormat(1, text.size(), format);
         }
-        QColor base = m_parent->palette().color(QPalette::Base);
-        format.setForeground(base);
-        format.setFontPointSize(1);
-        setFormat(0, 1, format);
+
+        // The channel marker is the first character of every line and is not
+        // for reading: drawn in the background colour at a point size of one,
+        // it takes no width and cannot be seen.
+        QTextCharFormat hidden;
+        hidden.setForeground(m_drawnOn->palette().color(QPalette::Base));
+        hidden.setFontPointSize(1);
+        setFormat(0, 1, hidden);
     }
 
-    QPlainTextEdit *m_parent;
+    QWidget *m_drawnOn;
 };
 
 
@@ -148,8 +214,8 @@ private:
 class InputHighlighter : public QSyntaxHighlighter
 {
 public:
-    InputHighlighter(QPlainTextEdit *parent)
-        : QSyntaxHighlighter(parent->document())
+    InputHighlighter(QTextDocument *document)
+        : QSyntaxHighlighter(document)
     {}
 
 private:
@@ -254,7 +320,7 @@ public:
     {
         connect(clearContentsAction(), &QAction::triggered,
                 logWindow, &LogWindow::clearContents);
-        (void) new InputHighlighter(this);
+        (void) new InputHighlighter(document());
     }
 
 signals:
@@ -276,21 +342,8 @@ private:
 
     void mouseDoubleClickEvent(QMouseEvent *ev) override
     {
-        QString line = cursorForPosition(ev->pos()).block().text();
-        int n = 0;
-
-        // cut time string
-        if (line.size() > 18 && line.at(0) == '[')
-            line = line.mid(18);
-        //qDebug() << line;
-
-        for (int i = 0; i != line.size(); ++i) {
-            QChar c = line.at(i);
-            if (!c.isDigit())
-                break;
-            n = 10 * n + c.unicode() - '0';
-        }
-        emit commandSelected(n);
+        emit commandSelected(
+            commandTokenForLine(cursorForPosition(ev->pos()).block().text()));
     }
 
     void focusInEvent(QFocusEvent *ev) override
@@ -316,14 +369,10 @@ private:
 //
 /////////////////////////////////////////////////////////////////////
 
-// Where the answer to command \a token is. The debugger writes it three ways -
-// "42^done", ">42^done" when it is echoing, and dtoken("42")@ - and the line
-// has to *start* with one of them: those digits turn up in the middle of other
-// lines constantly, and a search that took the first one it saw would land on
-// an unrelated line.
-//
-// Kept out of the pane because it is a question about a transcript, not about
-// a text edit: inside one the only way to ask it was to run a debugger.
+// The debugger writes an answer three ways - "42^done", ">42^done" when it is
+// echoing, and dtoken("42")@ - and the line has to *start* with one of them:
+// those digits turn up in the middle of other lines constantly, and a search
+// that took the first one it saw would land on an unrelated line.
 QTextBlock blockForResult(const QTextDocument *document, int token)
 {
     if (!document)
@@ -346,7 +395,7 @@ class CombinedPane : public DebuggerPane
 public:
     CombinedPane(LogWindow *logWindow)
     {
-        (void) new OutputHighlighter(this);
+        (void) new OutputHighlighter(document(), this);
         connect(clearContentsAction(), &QAction::triggered,
                 logWindow, &LogWindow::clearContents);
     }
@@ -498,38 +547,8 @@ void LogWindow::showOutput(int channel, const QString &output)
     if (output.isEmpty())
         return;
 
-    const QChar cchar = charForChannel(channel);
-    const QChar nchar = '\n';
-
-    QString out;
-    out.reserve(output.size() + 1000);
-
-    if (output.at(0) != '~' && settings().logTimeStamps()) {
-        out.append(charForChannel(LogTime));
-        out.append(logTimeStamp());
-        out.append(nchar);
-    }
-
-    for (int pos = 0, n = output.size(); pos < n; ) {
-        const int npos = output.indexOf(nchar, pos);
-        const int nnpos = npos == -1 ? n : npos;
-        const int l = nnpos - pos;
-        if (l != 6 || QStringView(output).mid(pos, 6) != QLatin1String("(gdb) ")) {
-            out.append(cchar);
-            if (l > 30000) {
-                // FIXME: QTextEdit asserts on really long lines...
-                out.append(output.mid(pos, 30000));
-                out.append(" [...] <cut off>\n");
-            } else {
-                out.append(output.mid(pos, l + 1));
-            }
-        }
-        pos = nnpos + 1;
-    }
-    if (!out.endsWith(nchar))
-        out.append(nchar);
-
-    m_queuedOutput.append(out);
+    m_queuedOutput.append(
+        logText(channel, output, settings().logTimeStamps() ? logTimeStamp() : QString()));
     // flush the output if it exceeds 16k to prevent out of memory exceptions on regular output
     if (m_queuedOutput.size() > 16 * 1024) {
         m_outputTimer.stop();
@@ -649,34 +668,63 @@ GlobalLogWindow::GlobalLogWindow()
     setWindowTitle(Tr::tr("Global Debugger &Log"));
     setObjectName("GlobalLog");
 
-    auto m_splitter = new Core::MiniSplitter(Qt::Horizontal);
-    m_splitter->setParent(this);
+    auto splitter = new Core::MiniSplitter(Qt::Horizontal);
+    splitter->setParent(this);
 
-    m_rightPane = new DebuggerPane;
-    m_rightPane->setReadOnly(true);
+    m_leftPane = new Core::OutputPaneView;
+    m_rightPane = new Core::OutputPaneView;
 
-    m_leftPane = new DebuggerPane;
-    m_leftPane->setReadOnly(true);
+    for (Core::OutputPaneView * const pane : {m_leftPane, m_rightPane}) {
+        pane->setMaxCharCount(maxLogCharCount);
+        // The line colours are the channel markers the log writes in front of
+        // every line, which no output format describes.
+        (void) new OutputHighlighter(pane->sourceDocument(), pane);
+        connect(pane, &Core::OutputPaneView::contextMenuAboutToShow,
+                this, [this, pane] { showContextMenuFor(pane); });
+    }
 
-    m_splitter->addWidget(m_leftPane);
-    m_splitter->addWidget(m_rightPane);
-    m_splitter->setStretchFactor(0, 1);
-    m_splitter->setStretchFactor(1, 3);
+    splitter->addWidget(m_leftPane);
+    splitter->addWidget(m_rightPane);
+    splitter->setStretchFactor(0, 1);
+    splitter->setStretchFactor(1, 3);
 
     auto layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
-    layout->addWidget(m_splitter);
+    layout->addWidget(splitter);
     layout->addWidget(new Core::FindToolBarPlaceHolder(this));
     setLayout(layout);
+}
 
-    Aggregation::aggregate({m_rightPane, new Core::BaseTextFind(m_rightPane)});
-    Aggregation::aggregate({m_leftPane, new Core::BaseTextFind(m_leftPane)});
+// Built when the menu is about to open rather than once: the view a pane draws
+// on does not exist until a Qt Quick front end has loaded, and this window is
+// made while plugins are still initializing.
+void GlobalLogWindow::showContextMenuFor(Core::OutputPaneView *pane)
+{
+    auto clear = new QAction(Tr::tr("Clear Contents"), pane);
+    connect(clear, &QAction::triggered, this, &GlobalLogWindow::clearContents);
 
-    connect(m_leftPane->clearContentsAction(), &QAction::triggered,
-            this, &GlobalLogWindow::clearContents);
-    connect(m_rightPane->clearContentsAction(), &QAction::triggered,
-            this, &GlobalLogWindow::clearContents);
+    auto save = new QAction(Tr::tr("Save Contents"), pane);
+    connect(save, &QAction::triggered, this, [this, pane] { saveContents(pane); });
+
+    pane->setContextMenuActions({clear,
+                                 save, // X11 clipboard is unreliable for long texts
+                                 settings().logTimeStamps.action(),
+                                 Core::ActionManager::command(
+                                     Constants::RELOAD_DEBUGGING_HELPERS)->action(),
+                                 nullptr,
+                                 settings().settingsDialog.action()});
+}
+
+void GlobalLogWindow::saveContents(Core::OutputPaneView *pane)
+{
+    while (true) {
+        const FilePath filePath = FileUtils::getSaveFilePath(Tr::tr("Log File"));
+        if (filePath.isEmpty())
+            return;
+        if (pane->saveContentsTo(filePath))
+            return;
+    }
 }
 
 GlobalLogWindow::~GlobalLogWindow()
@@ -686,27 +734,18 @@ GlobalLogWindow::~GlobalLogWindow()
 
 void GlobalLogWindow::doOutput(const QString &output)
 {
-    QTextCursor cursor = m_rightPane->textCursor();
-    const bool atEnd = cursor.atEnd();
-
-    m_rightPane->append(output);
-
-    if (atEnd) {
-        cursor.movePosition(QTextCursor::End);
-        m_rightPane->setTextCursor(cursor);
-        m_rightPane->ensureCursorVisible();
-    }
+    // Following the end is the view's own business now: it keeps its place
+    // when the reader has scrolled away and goes back to the end when they
+    // have not, which is what the cursor dance here was for.
+    m_rightPane->appendMessage(output, Utils::NormalMessageFormat);
 }
 
 void GlobalLogWindow::doInput(const QString &input)
 {
     if (settings().logTimeStamps())
-        m_leftPane->append(LogWindow::logTimeStamp());
-    m_leftPane->append(input);
-    QTextCursor cursor = m_leftPane->textCursor();
-    cursor.movePosition(QTextCursor::End);
-    m_leftPane->setTextCursor(cursor);
-    m_leftPane->ensureCursorVisible();
+        m_leftPane->appendMessage(LogWindow::logTimeStamp() + '\n',
+                                  Utils::NormalMessageFormat);
+    m_leftPane->appendMessage(input + '\n', Utils::NormalMessageFormat);
 }
 
 void GlobalLogWindow::clearContents()
@@ -717,15 +756,12 @@ void GlobalLogWindow::clearContents()
 
 void GlobalLogWindow::setCursor(const QCursor &cursor)
 {
-    m_rightPane->viewport()->setCursor(cursor);
-    m_leftPane->viewport()->setCursor(cursor);
     QWidget::setCursor(cursor);
 }
 
 void GlobalLogWindow::clearUndoRedoStacks()
 {
-    m_leftPane->clearUndoRedoStacks();
-    m_rightPane->clearUndoRedoStacks();
+    // Nothing to undo in a view that cannot be typed into.
 }
 
 #ifdef WITH_TESTS
@@ -764,6 +800,159 @@ private slots:
         // What is not there is not found, rather than the nearest thing.
         QVERIFY(!blockForResult(&log, 99).isValid());
         QVERIFY(!blockForResult(nullptr, 1).isValid());
+    }
+
+    void testWhatOnePieceOfDebuggerOutputBecomes()
+    {
+        // Every line is marked with its channel, and the marker is what the
+        // colouring reads back.
+        QCOMPARE(logText(LogError, "boom", {}), QString("eboom\n"));
+        QCOMPARE(logText(LogInput, "next", {}), QString("<next\n"));
+
+        // The time stamp is a line of its own, on the time channel.
+        QCOMPARE(logText(LogError, "boom", "12:00:00.000"),
+                 QString("t12:00:00.000\neboom\n"));
+
+        // Except for a console stream, which is the program talking and
+        // carries no time of the debugger's to stamp.
+        QCOMPARE(logText(LogOutput, "~said something", "12:00:00.000"),
+                 QString(">~said something\n"));
+
+        // The debugger's own prompt is dropped, and only when the line is
+        // exactly that - a line that merely begins with it stays.
+        QCOMPARE(logText(LogOutput, "a\n(gdb) \nb", {}), QString(">a\n>b\n"));
+        QCOMPARE(logText(LogOutput, "(gdb) x", {}), QString(">(gdb) x\n"));
+
+        // Nothing in, nothing out - not a bare marker.
+        QCOMPARE(logText(LogError, {}, "12:00:00.000"), QString());
+    }
+
+    void testALineTooLongToDrawIsCutShort()
+    {
+        // A text document asserts on really long lines, so one line of 40000
+        // characters becomes 30000 and a note saying so - and the rest of the
+        // output still arrives.
+        const QString huge(40000, 'x');
+        const QString out = logText(LogOutput, huge + "\nafter", {});
+
+        QVERIFY2(out.contains(" [...] <cut off>"), "an over-long line was written whole");
+        QCOMPARE(out.count('\n'), 2);
+        QCOMPARE(out.size(), 1 + 30000 + QString(" [...] <cut off>\n").size()
+                                 + 1 + QString("after\n").size());
+        QVERIFY2(out.endsWith(">after\n"), "what followed an over-long line was lost");
+
+        // A line just under the limit is not touched.
+        const QString big(29999, 'x');
+        QCOMPARE(logText(LogOutput, big, {}), '>' + big + '\n');
+    }
+
+    void testWhichCommandALineOfTheInputPaneRefersTo()
+    {
+        QCOMPARE(commandTokenForLine("42^done"), 42);
+
+        // With a time stamp in front of it. What is dropped is a fixed
+        // *width* - eighteen characters - and not "up to the bracket", so this
+        // works only for a stamp of exactly that length.
+        QCOMPARE(QString("[12:00:00.000 5ms]").size(), 18);
+        QCOMPARE(commandTokenForLine("[12:00:00.000 5ms]42^done"), 42);
+
+        // A wider one leaves part of itself behind and the digits are never
+        // reached. Asserted because it is what happens, not because it is
+        // wanted: anything that changes the stamp breaks the double-click.
+        QCOMPARE(commandTokenForLine("[12:00:00.000 [0ms]]42^done"), 0);
+
+        // A line that names no command answers 0, as the double-click that
+        // asks this has always done - there is no "no command" answer.
+        QCOMPARE(commandTokenForLine("some prose"), 0);
+        QCOMPARE(commandTokenForLine({}), 0);
+    }
+
+    void testEachChannelIsWrittenAsItsOwnCharacter()
+    {
+        // The marker is how a line says which channel it is on, so the two
+        // have to agree - the colouring reads back what the writing put there.
+        for (int channel : {LogDebug, LogWarning, LogError, LogInput, LogOutput,
+                            LogStatus, LogTime, LogMisc}) {
+            QCOMPARE(int(channelForChar(charForChannel(channel))), channel);
+        }
+
+        // Three of the colours were spelled out in the highlighter's paint;
+        // a channel with nothing to say about itself has no colour of its own.
+        QVERIFY(colorForChannel(LogError).isValid());
+        QVERIFY(colorForChannel(LogWarning).isValid());
+        QVERIFY(colorForChannel(LogError) != colorForChannel(LogWarning));
+        QVERIFY2(!colorForChannel(LogOutput).isValid(),
+                 "plain output was given a colour of its own");
+    }
+
+    void testTheChannelMarkerColoursTheLineAndIsNotSeen()
+    {
+        // The colouring is a highlighter over the document, so it has to still
+        // work now that the document belongs to a Qt Quick view rather than to
+        // a QPlainTextEdit.
+        Core::OutputPaneView pane;
+        (void) new OutputHighlighter(pane.sourceDocument(), &pane);
+
+        pane.appendMessage(logText(LogError, "boom", {}), Utils::NormalMessageFormat);
+        pane.flush();
+
+        QTextDocument * const document = pane.sourceDocument();
+        QTRY_COMPARE(document->firstBlock().text(), QString("eboom"));
+
+        const QList<QTextLayout::FormatRange> formats = document->firstBlock().layout()->formats();
+        QVERIFY2(!formats.isEmpty(), "nothing coloured the line at all");
+
+        const auto colouredAs = [&formats](int start) -> QColor {
+            for (const QTextLayout::FormatRange &range : formats) {
+                if (range.start <= start && start < range.start + range.length)
+                    return range.format.foreground().color();
+            }
+            return {};
+        };
+
+        // The message in its channel's colour...
+        QCOMPARE(colouredAs(1), colorForChannel(LogError));
+        // ...and the marker in front of it drawn to be unreadable.
+        QCOMPARE(colouredAs(0), pane.palette().color(QPalette::Base));
+    }
+
+    void testTheGlobalLogKeepsWhatWasTypedApartFromEverything()
+    {
+        // Two panes side by side: everything on the right, and only what was
+        // typed on the left. Building one installs it as *the* global log, so
+        // the running instance's is put back afterwards.
+        GlobalLogWindow * const running = theGlobalLog;
+        {
+            GlobalLogWindow window;
+            const QList<Core::OutputPaneView *> panes
+                = window.findChildren<Core::OutputPaneView *>();
+            QCOMPARE(panes.size(), 2);
+
+            window.doOutput(logText(LogError, "boom", {}));
+            for (Core::OutputPaneView * const pane : panes)
+                pane->flush();
+
+            // Which is which is asked of them rather than assumed from the
+            // order they were built in.
+            Core::OutputPaneView *everything = nullptr;
+            Core::OutputPaneView *typedOnly = nullptr;
+            for (Core::OutputPaneView * const pane : panes)
+                (pane->toPlainText().contains("boom") ? everything : typedOnly) = pane;
+            QVERIFY2(everything && typedOnly, "both panes showed the same thing");
+
+            window.doInput("next");
+            for (Core::OutputPaneView * const pane : panes)
+                pane->flush();
+
+            QTRY_VERIFY(typedOnly->toPlainText().contains("next"));
+            QVERIFY2(!everything->toPlainText().contains("next"),
+                     "what was typed was echoed into the pane it is kept out of");
+
+            window.clearContents();
+            QCOMPARE(everything->toPlainText(), QString());
+            QCOMPARE(typedOnly->toPlainText(), QString());
+        }
+        theGlobalLog = running;
     }
 };
 
