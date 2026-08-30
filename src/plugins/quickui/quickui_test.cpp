@@ -369,6 +369,7 @@ private slots:
     void testWordWrapAndBackgroundReachTheDrawnOutput();
     void testTheOutputContextMenuOffersWhatTheWidgetDid();
     void testClearInTheOutputMenuReachesThePane();
+    void testTheOutputViewFollowsTheEndUntilTheReaderScrollsAway();
     void testFindingTextInTheOutputView();
     void testTheOutputViewScrollsAMatchIntoView();
     void testABackwardsSelectionComesBackTheRightWayRound();
@@ -10839,6 +10840,70 @@ void QuickUiTest::testClearInTheOutputMenuReachesThePane()
 
     QVERIFY(QMetaObject::invokeMethod(clear, "triggered"));
     QTRY_VERIFY2(view.toPlainText().isEmpty(), "Clear did not clear the pane's output");
+}
+
+void QuickUiTest::testTheOutputViewFollowsTheEndUntilTheReaderScrollsAway()
+{
+    // An output pane shows the end of what it has. Nothing in the Qt Quick
+    // view did that, and three panes were already drawn without it - a build's
+    // output would arrive off the bottom of the view and stay there.
+    Core::OutputPaneView view;
+    view.resize(300, 120);
+    view.show();
+    QVERIFY(view.view());
+
+    auto * const quickWidget = view.findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QQuickItem * const area = quickWidget->rootObject()->findChild<QQuickItem *>("outputText");
+    QVERIFY(area);
+
+    QQuickItem *flickable = area->parentItem();
+    while (flickable && !flickable->property("contentY").isValid())
+        flickable = flickable->parentItem();
+    QVERIFY(flickable);
+
+    const auto atBottom = [flickable] {
+        const qreal bottom = flickable->property("contentHeight").toReal()
+                             - flickable->property("height").toReal();
+        return flickable->property("contentY").toReal() >= bottom - 1;
+    };
+    const auto write = [&view](const QString &marker) {
+        for (int i = 0; i < 40; ++i)
+            view.appendMessage(marker + QString::number(i) + '\n', Utils::GeneralMessageFormat);
+        view.flush();
+    };
+
+    write("first ");
+    QTRY_VERIFY2(flickable->property("contentHeight").toReal()
+                     > flickable->property("height").toReal(),
+                 "the fixture never filled more than the view");
+    QTRY_VERIFY2(atBottom(), "the view did not follow the output to the end");
+
+    // The reader scrolls back to read something. Done with a real wheel, not
+    // by assigning contentY: the view deliberately ignores positions it was
+    // not moved to, because a flickable adjusts its own as content arrives.
+    for (int i = 0; i < 12; ++i) {
+        QWheelEvent wheel(QPointF(50, 50), quickWidget->mapToGlobal(QPoint(50, 50)),
+                          {}, QPoint(0, 120), Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase,
+                          false);
+        QCoreApplication::sendEvent(quickWidget, &wheel);
+    }
+    QTRY_VERIFY2(!atBottom(), "the wheel did not move the view off the end");
+    // Wheel movement ends on a timer, and the view only reconsiders following
+    // once it has: waited for rather than assumed.
+    QTRY_VERIFY(!flickable->property("moving").toBool());
+
+    const qreal whereTheReaderIs = flickable->property("contentY").toReal();
+    write("second ");
+    QVERIFY2(qFuzzyCompare(flickable->property("contentY").toReal() + 1, whereTheReaderIs + 1),
+             "the view scrolled away from where the reader had gone");
+
+    // And going back to the end starts it following again.
+    view.scrollToBottom();
+    QVERIFY2(atBottom(), "being sent to the end did not arrive there");
+    write("third ");
+    QTRY_VERIFY2(atBottom(), "the view stopped following after being sent back to the end");
+    QVERIFY(view.toPlainText().contains("third 39"));
 }
 
 void QuickUiTest::testAVariableBeingDefinedIsNotOfferedForItself()

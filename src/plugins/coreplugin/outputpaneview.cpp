@@ -465,6 +465,12 @@ void OutputPaneView::copyContentsToScratchBuffer() const
     editor->document()->setContents(toPlainText().toUtf8());
 }
 
+void OutputPaneView::scrollToBottom()
+{
+    if (OutputView * const output = view())
+        output->scrollToBottom();
+}
+
 void OutputPaneView::setWordWrapEnabled(bool enabled)
 {
     m_wordWrapEnabled = enabled;

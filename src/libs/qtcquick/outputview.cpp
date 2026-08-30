@@ -149,6 +149,12 @@ void OutputView::setBackgroundColor(const QColor &color)
         root->setProperty("backgroundColor", color);
 }
 
+void OutputView::scrollToBottom()
+{
+    if (QObject * const root = rootObject())
+        QMetaObject::invokeMethod(root, "scrollToBottom");
+}
+
 QObject *OutputView::contextMenu() const
 {
     QObject * const root = rootObject();

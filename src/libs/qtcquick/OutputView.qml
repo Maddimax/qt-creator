@@ -81,11 +81,91 @@ Item {
         }
     }
 
+    // Whether the view is following the end of the output. It follows while
+    // the reader is at the bottom and stops the moment they scroll up, or
+    // reading back through a build would be impossible while it is running.
+    readonly property Flickable flickable: scrollView.contentItem as Flickable
+
+    QtObject {
+        id: scrolling
+        property bool following: true
+
+        // Where the reader left the view. Kept because appending text moves
+        // the text item's cursor to the end, and a text item inside a
+        // flickable scrolls to its own cursor - so output arriving drags the
+        // view to the bottom whatever this file decides.
+        property real readerPosition: 0
+    }
+
+    // Readable so a test can say why the view did or did not follow.
+    readonly property bool followingEnd: scrolling.following
+
+    function scrollToBottom(): void {
+        scrolling.following = true
+        root.moveToEnd()
+    }
+
+    function stayWhereTheReaderIs(): void {
+        if (root.flickable && !scrolling.following)
+            root.flickable.contentY = scrolling.readerPosition
+    }
+
+    function moveToEnd(): void {
+        if (!root.flickable || !scrolling.following)
+            return
+        root.flickable.contentY = Math.max(0, root.flickable.contentHeight
+                                              - root.flickable.height)
+    }
+
+    // Only the reader moving the view stops it following. Watching every
+    // change to the position instead does not work: a flickable adjusts its
+    // own position as content arrives, and reading that as the reader
+    // scrolling away stops the view following after the first line.
+    Connections {
+        target: root.flickable
+        function onMovementEnded(): void {
+            scrolling.following = root.flickable.atYEnd
+            scrolling.readerPosition = root.flickable.contentY
+        }
+    }
+
+    Connections {
+        target: verticalScrollBar
+        function onPressedChanged(): void {
+            // A scroll bar drag moves the flickable directly and reports no
+            // movement of its own, so it has to be asked about separately.
+            if (!verticalScrollBar.pressed && root.flickable) {
+                scrolling.following = root.flickable.atYEnd
+                scrolling.readerPosition = root.flickable.contentY
+            }
+        }
+    }
+
+    Connections {
+        target: area
+        function onContentHeightChanged(): void {
+            if (scrolling.following) {
+                root.scrollToBottom()
+            } else {
+                // Now and again a turn later: the text item scrolls to its
+                // cursor as part of the change, and putting the view back only
+                // afterwards would show the reader a jump each time output
+                // arrives.
+                root.stayWhereTheReaderIs()
+                Qt.callLater(root.stayWhereTheReaderIs)
+            }
+        }
+    }
+
     ScrollView {
         id: scrollView
 
         anchors.fill: parent
         clip: true
+
+        // Declared rather than left to the style, so that the view can be
+        // told when the reader has finished dragging it.
+        ScrollBar.vertical: ScrollBar { id: verticalScrollBar }
 
         TextArea {
             id: area

@@ -92,6 +92,8 @@ public:
     void setMaxCharCount(qsizetype count);
     qsizetype maxCharCount() const;
 
+    void scrollToBottom();
+
     void setWordWrapEnabled(bool enabled);
 
     // Also given to the formatter, which needs to know what it is drawing on

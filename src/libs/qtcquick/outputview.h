@@ -74,6 +74,10 @@ public:
 
     // The context menu, by name. A Menu is a popup, so its items are not
     // reachable from the view's item tree.
+    // Shows the end of the output. The view does this by itself while the
+    // reader is there already; a pane calls it to go back to it.
+    void scrollToBottom();
+
     QObject *contextMenu() const;
 
 signals:

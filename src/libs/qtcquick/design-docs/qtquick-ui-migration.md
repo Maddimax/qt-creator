@@ -18449,3 +18449,46 @@ The remaining panes are Application Output, VCS, Serial Terminal and the
 debugger log. `VcsOutputWindow` is the one with a wrinkle: it overrides
 `adaptContextMenu()` to add entries of its own, and nothing on the Qt Quick
 side offers that yet.
+
+### Following the end of the output, which three panes were not doing
+
+`SerialOutputPane` calls `scrollToBottom()`, and looking for it found that
+nothing in the Qt Quick view followed the end at all. Three panes were already
+drawn that way: a build's output would arrive below the bottom of the view and
+stay there.
+
+It took four wrong versions, and each one was wrong for a reason worth keeping.
+
+**A text item scrolls to its own cursor.** That is why an early version
+appeared to work: appending moves the cursor to the end and the item drags the
+flickable after it. It also means the reader cannot be left alone by doing
+nothing - the view has to actively put itself back where the reader was, both
+at once and a turn later, or output arriving pulls them to the bottom.
+
+**Watching the position is not the same as watching the reader.** Deciding
+"still following" from every change to `contentY` does not work: a flickable
+adjusts its own position as content arrives, and reading that as the reader
+scrolling away stops the view following after the first line. A guard around
+the view's own scrolling does not fix it either, because the flickable settles
+*after* being moved. What works is asking only when the reader has actually
+moved something - `Flickable.onMovementEnded`, and the scroll bar's release,
+which is separate because a scroll bar drag moves the flickable directly and
+reports no movement of its own.
+
+**`atYEnd` rather than arithmetic.** Comparing `contentY` against
+`contentHeight - height` is one document margin out, and being one pixel short
+of the end is the difference between following and never following again.
+
+**And the test had to move the view the way a reader does.** Assigning
+`contentY` is exactly what the view is built to ignore, so simulating the
+reader that way asserted the opposite of the truth. A real wheel event does it,
+and the wheel's movement ends on a timer that has to be waited for.
+
+**One control did not bite and the code went with it.** Scrolling to the end
+was deferred by a turn to let the flickable's height catch up. Undeferring it
+broke nothing, so it is gone - and the test's assertion could be tightened from
+"eventually at the end" to "at the end", which is the stronger claim anyway.
+
+Controls, four, three biting: never following; the reader's movement not
+noticed; and the reader's position not held against the cursor. The fourth is
+the one described above.

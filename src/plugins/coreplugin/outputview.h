@@ -59,6 +59,9 @@ public:
     // What the output is drawn on, for a pane offering a colour of its own.
     virtual void setBackgroundColor(const QColor &color) = 0;
 
+    // Shows the end of the output.
+    virtual void scrollToBottom() = 0;
+
     // Where the selection is, as a cursor on the document. Find support is
     // written against these two rather than against a text widget - see
     // Core::BaseTextFindBase, which asks an editor for a cursor, a document
