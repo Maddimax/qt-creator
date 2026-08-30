@@ -372,6 +372,7 @@ private slots:
     void testTheOutputViewFollowsTheEndUntilTheReaderScrollsAway();
     void testAPaneLearnsItsNewZoomWhenTheWheelChangesIt();
     void testAPaneCanAddToTheOutputContextMenu();
+    void testATestResultRowSaysMoreWhenItIsTheCurrentOne();
     void testFindingTextInTheOutputView();
     void testTheOutputViewScrollsAMatchIntoView();
     void testABackwardsSelectionComesBackTheRightWayRound();
@@ -11023,6 +11024,119 @@ void QuickUiTest::testAPaneCanAddToTheOutputContextMenu()
 
     QMetaObject::invokeMethod(menu, "close");
     QTRY_VERIFY(!menu->property("opened").toBool());
+}
+
+void QuickUiTest::testATestResultRowSaysMoreWhenItIsTheCurrentOne()
+{
+    // What TestResultDelegate::paint() decided, asked of what is drawn. A row
+    // shows one line of what a test said until it is the row being read, and
+    // then it grows to show all of it - which is most of why that paint() was
+    // 287 lines.
+    //
+    // Fed a stand-in model with the same role names the real one answers: what
+    // is under test is the drawing, and a model is the only thing needed to
+    // provoke it.
+    QStandardItemModel model;
+    model.setItemRoleNames({{Qt::DisplayRole, "display"},
+                            {Qt::DecorationRole, "decoration"},
+                            {Qt::UserRole + 1, "resultString"},
+                            {Qt::UserRole + 2, "resultColor"},
+                            {Qt::UserRole + 3, "summary"},
+                            {Qt::UserRole + 4, "fullOutput"},
+                            {Qt::UserRole + 5, "duration"},
+                            {Qt::UserRole + 6, "fileName"},
+                            {Qt::UserRole + 7, "line"}});
+
+    auto * const item = new QStandardItem;
+    item->setData("FAIL", Qt::UserRole + 1);
+    item->setData(QColor(200, 0, 0), Qt::UserRole + 2);
+    item->setData("first line", Qt::UserRole + 3);
+    // One long line, deliberately without a newline in it: a Text item breaks
+    // at newlines whatever its wrap mode, so a fixture containing one cannot
+    // tell wrapping from not wrapping.
+    const QString longLine = QString("first line ") + QString("and more detail ").repeated(20);
+    item->setData(longLine, Qt::UserRole + 4);
+    item->setData("42", Qt::UserRole + 5);
+    item->setData("tst_thing.cpp", Qt::UserRole + 6);
+    item->setData(17, Qt::UserRole + 7);
+    model.appendRow(item);
+
+    QItemSelectionModel selection(&model);
+
+    const std::unique_ptr<QtcQuick::QuickWidget> view(new QtcQuick::QuickWidget);
+    view->quickWidget()->setInitialProperties(
+        {{"resultRows", QVariant::fromValue(static_cast<QAbstractItemModel *>(&model))},
+         {"selection", QVariant::fromValue(&selection)},
+         {"showDuration", true}});
+    view->setSource(QUrl("qrc:/qt/qml/QtCreator/AutoTest/TestResultsView.qml"));
+    view->resize(700, 200);
+    view->show();
+
+    QQuickItem * const root = qobject_cast<QQuickItem *>(view->rootObject());
+    QVERIFY(root);
+
+    // Walked rather than found by findChild: a delegate's items are in the
+    // item tree but not in the QObject tree, so findChild does not reach them.
+    const std::function<QQuickItem *(QQuickItem *, const QString &)> itemNamed
+        = [&](QQuickItem *parent, const QString &name) -> QQuickItem * {
+        for (QQuickItem * const child : parent->childItems()) {
+            if (child->objectName() == name)
+                return child;
+            if (QQuickItem * const found = itemNamed(child, name))
+                return found;
+        }
+        return nullptr;
+    };
+    const auto textOf = [&](const char *name) {
+        QQuickItem * const item = itemNamed(root, QLatin1String(name));
+        return item ? item->property("text").toString() : QString("<missing>");
+    };
+
+    QTRY_VERIFY2(itemNamed(root, "resultString"), "no row was drawn at all");
+
+    // At rest: the outcome, in the colour the model asked for, and one line.
+    QCOMPARE(textOf("resultString"), QString("FAIL"));
+    QCOMPARE(itemNamed(root, "resultString")->property("color").value<QColor>(),
+             QColor(200, 0, 0));
+    QCOMPARE(textOf("output"), QString("first line"));
+
+    // Side by side, in that order. Asserting only the text would pass with
+    // every part of the row drawn on top of every other.
+    QQuickItem * const outcome = itemNamed(root, "resultString");
+    QQuickItem * const said = itemNamed(root, "output");
+    QQuickItem * const where = itemNamed(root, "where");
+    QVERIFY(outcome && said && where);
+    QVERIFY2(said->x() >= outcome->x() + outcome->width(),
+             "what the test said is drawn over its outcome");
+    QVERIFY2(where->x() >= said->x() + said->width(),
+             "where it happened is drawn over what it said");
+
+    // Where it happened, which the widget drew in its own columns.
+    QCOMPARE(textOf("fileName"), QString("tst_thing.cpp"));
+    QCOMPARE(textOf("line"), QString("17"));
+    QCOMPARE(textOf("duration"), QString("42 ms"));
+
+    // Turned off, the duration goes: it is a toolbar toggle, and a row that
+    // showed it either way would make the button do nothing.
+    root->setProperty("showDuration", false);
+    QQuickItem * const duration = itemNamed(root, "duration");
+    QVERIFY(duration);
+    QTRY_VERIFY2(!duration->isVisible(), "the duration stayed when it was switched off");
+    root->setProperty("showDuration", true);
+    QTRY_VERIFY(duration->isVisible());
+
+    // Made current, it says all of it.
+    QVERIFY(itemNamed(root, "output"));
+    const qreal restingHeight = itemNamed(root, "output")->height();
+
+    selection.setCurrentIndex(model.index(0, 0), QItemSelectionModel::ClearAndSelect);
+    QTRY_VERIFY(textOf("output").contains("and more detail"));
+
+    // And it wraps to do it, rather than running off the side: showing more is
+    // only showing more if there is room for it. Looked up again rather than
+    // held onto - a view is free to rebuild the row it is drawing.
+    QTRY_VERIFY2(itemNamed(root, "output")->height() > restingHeight,
+                 "the row grew no taller for the text it had to show");
 }
 
 void QuickUiTest::testAVariableBeingDefinedIsNotOfferedForItself()

@@ -18924,3 +18924,40 @@ have been the wrong conclusion.
 
 The Test Results pane is now unblocked. What is left for it is the QML delegate
 for a row and the pane rewiring - known work, no unknowns.
+
+### A test result row, drawn rather than painted
+
+`TestResultDelegate::paint()` is 287 lines. `TestResultsView.qml` is the same
+row: an icon, the outcome in the colour of its severity, what the test said,
+how long it took, and where it happened. The pane rewiring is still to come;
+this is the drawing, and it is tested against a stand-in model with the same
+role names, because a model is all that is needed to provoke it.
+
+**Three QML mistakes, each caught by an assertion and none by the eye:**
+
+- **A `Row` positions its children by their widths**, so giving a child a width
+  worked out from its own `x` never settles and the text simply never wraps.
+  The row is anchored now, left to right, which is also what says what it
+  means.
+- **A delegate's items are in the item tree but not the QObject tree.**
+  `findChild()` returns nothing for them; the test walks `childItems()`. That
+  is a note from the To-Do pane, met again.
+- **A view is free to rebuild the row it is drawing**, so an item pointer held
+  across a change to that row is not the item any more. Looked up again each
+  time.
+
+**And one that was not a mistake in the code at all.** A control appeared to
+fail against correct sources: the QML had been restored but only `QuickUi` was
+rebuilt, so the binary still held the control. A `.qml` file is compiled into
+the plugin that owns it - restoring the file is not restoring the build.
+
+**Two controls did not bite until the fixture could tell the difference.** The
+output fixture contained a newline, and a `Text` breaks at newlines whatever
+its wrap mode - so the row grew whether or not wrapping was on. And the
+duration was only ever asked for with `showDuration` true, so a delegate
+ignoring the setting looked the same. One long line without newlines, and an
+assertion with the setting off, and both bite.
+
+**The fifth control is the placement one**, and it is worth naming: asserting
+the text of each part of a row passes with every part drawn on top of every
+other. Asserting that each starts where the last one ended is what catches it.
