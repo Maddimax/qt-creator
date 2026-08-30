@@ -17617,3 +17617,30 @@ returns before `normal` is reached, so that clause could never be false where
 it was read. It is gone, the comment that claimed it was what protected an
 empty inverted filter is corrected, and the early return that really does
 protect it now has a control of its own.
+
+### And what a filter reveals around a match
+
+The other half of the output filter: `beforeContext` lines above each match and
+`afterContext` below. The widget expressed it as
+
+    document()->findBlockByNumber(blockNumber - i).setVisible(true);
+
+for every match and every context line, and relied on `findBlockByNumber()`
+returning an invalid block for numbers outside the document. So both ends of
+the clamp were **implicit in a return value nobody looked at**, and neither end
+could be exercised without a document.
+
+`OutputWindow::contextLines(matched, lineCount, before, after)` says it: which
+lines are revealed, sorted, clamped at both ends, deduplicated where two
+matches sit close enough for their context to overlap, and *without the matches
+themselves* - those are visible already, and listing them would hide the
+difference between "shown because it matched" and "shown because it is near
+something that did".
+
+That last one is the distinction a Qt Quick view will need: a context line is
+drawn differently from a match in every tool that shows one. The widget never
+had to make it, because both ended up as `setVisible(true)`.
+
+Two pieces of the output window are out now, both pure and both tested for the
+first time. What is left in it is not: the formatting, the links, the zoom and
+the base font all touch a `QPlainTextEdit` directly.

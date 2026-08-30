@@ -43,6 +43,15 @@ public:
     static TextMatchingFunction filterPredicate(const QString &filterText,
                                                 FilterModeFlags mode);
 
+    // The lines a filter reveals around what it matched: \a before above each
+    // match and \a after below, within a document of \a lineCount lines. The
+    // matches themselves are not in it - they are visible already. Also a
+    // decision about text: the widget expressed it by asking a document for
+    // block numbers that may not exist and letting the invalid ones do
+    // nothing, which is a clamp nobody could see.
+    static QList<int> contextLines(const QList<int> &matchedLines, int lineCount,
+                                   int before, int after);
+
     OutputWindow(Context context, const Utils::Key &settingsKey, QWidget *parent = nullptr);
     ~OutputWindow() override;
 

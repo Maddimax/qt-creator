@@ -511,6 +511,28 @@ OutputWindow::TextMatchingFunction OutputWindow::filterPredicate(const QString &
     };
 }
 
+QList<int> OutputWindow::contextLines(const QList<int> &matchedLines, int lineCount,
+                                      int before, int after)
+{
+    QSet<int> matches(matchedLines.begin(), matchedLines.end());
+    QSet<int> revealed;
+    for (const int line : matchedLines) {
+        for (int i = 1; i <= before; ++i) {
+            const int above = line - i;
+            if (above >= 0 && !matches.contains(above))
+                revealed.insert(above);
+        }
+        for (int i = 1; i <= after; ++i) {
+            const int below = line + i;
+            if (below < lineCount && !matches.contains(below))
+                revealed.insert(below);
+        }
+    }
+    QList<int> lines(revealed.begin(), revealed.end());
+    std::sort(lines.begin(), lines.end());
+    return lines;
+}
+
 OutputWindow::TextMatchingFunction OutputWindow::makeMatchingFilterFunction() const
 {
     return filterPredicate(d->filterText, d->filterMode);
@@ -545,12 +567,11 @@ void OutputWindow::filterNewContent()
 
     // Reveal the context lines before and after the match.
     if (!d->filterText.isEmpty()) {
-        for (int blockNumber : matchedBlocks) {
-            for (auto i = 1; i <= d->beforeContext; ++i)
-                document()->findBlockByNumber(blockNumber - i).setVisible(true);
-            for (auto i = 1; i <= d->afterContext; ++i)
-                document()->findBlockByNumber(blockNumber + i).setVisible(true);
-        }
+        const QList<int> matched(matchedBlocks.begin(), matchedBlocks.end());
+        const QList<int> context = contextLines(matched, document()->blockCount(),
+                                                d->beforeContext, d->afterContext);
+        for (const int blockNumber : context)
+            document()->findBlockByNumber(blockNumber).setVisible(true);
     }
 
     d->lastFilteredBlock = document()->lastBlock();
@@ -947,6 +968,34 @@ private slots:
     // What an output pane hides while a filter is typed into it. This lived
     // inside a QPlainTextEdit, where the only way to ask it anything was to
     // type into a pane and look.
+    // The lines a filter shows around what it matched. The widget expressed
+    // this by asking the document for block numbers that may not exist and
+    // letting the invalid ones do nothing, so neither end of the clamp was
+    // visible to anything.
+    void testWhatAFilterRevealsAroundAMatch()
+    {
+        // Nothing asked for, nothing revealed.
+        QCOMPARE(OutputWindow::contextLines({5}, 10, 0, 0), QList<int>());
+        QCOMPARE(OutputWindow::contextLines({}, 10, 2, 2), QList<int>());
+
+        // One line either side, in order.
+        QCOMPARE(OutputWindow::contextLines({5}, 10, 1, 1), QList<int>({4, 6}));
+
+        // Clamped at the top of the document and at the bottom: a match on the
+        // first line reveals nothing above it, and one on the last nothing
+        // below.
+        QCOMPARE(OutputWindow::contextLines({0}, 10, 2, 0), QList<int>());
+        QCOMPARE(OutputWindow::contextLines({9}, 10, 0, 2), QList<int>());
+        QCOMPARE(OutputWindow::contextLines({1}, 10, 2, 0), QList<int>({0}));
+
+        // Overlapping context around neighbouring matches is one line, not two.
+        QCOMPARE(OutputWindow::contextLines({2, 4}, 10, 1, 1), QList<int>({1, 3, 5}));
+
+        // And a match is never listed as its own context: it is already shown,
+        // and saying so twice would hide the difference between the two.
+        QCOMPARE(OutputWindow::contextLines({2, 3}, 10, 1, 1), QList<int>({1, 4}));
+    }
+
     void testWhatAFilterLetsThrough()
     {
         using Flags = OutputWindow::FilterModeFlags;
