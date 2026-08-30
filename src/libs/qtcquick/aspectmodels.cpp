@@ -177,6 +177,41 @@ bool AspectModels::namesItsColumns(QAbstractItemModel *model)
     return false;
 }
 
+static FontAspect *asFontAspect(BaseAspect *aspect)
+{
+    return qobject_cast<FontAspect *>(aspect);
+}
+
+BaseAspect *AspectModels::fontFamilyAspect(BaseAspect *aspect)
+{
+    FontAspect * const font = asFontAspect(aspect);
+    QTC_ASSERT(font, return nullptr);
+    return &font->fontFamily;
+}
+
+BaseAspect *AspectModels::fontPointSizeAspect(BaseAspect *aspect)
+{
+    FontAspect * const font = asFontAspect(aspect);
+    QTC_ASSERT(font, return nullptr);
+    return &font->fontPointSize;
+}
+
+QList<int> AspectModels::fontPointSizes(BaseAspect *aspect)
+{
+    FontAspect * const font = asFontAspect(aspect);
+    QTC_ASSERT(font, return {});
+    return FontAspect::pointSizesFor(font->fontFamily.volatileValue(),
+                                     QFontDatabase::styleString(font->volatileValue()));
+}
+
+int AspectModels::closestFontPointSize(BaseAspect *aspect)
+{
+    FontAspect * const font = asFontAspect(aspect);
+    QTC_ASSERT(font, return -1);
+    return FontAspect::closestPointSize(fontPointSizes(aspect),
+                                        font->fontPointSize.volatileValue());
+}
+
 QStringList AspectModels::fontFamilies(BaseAspect *aspect)
 {
     QTC_ASSERT(aspect, return {});

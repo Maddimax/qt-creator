@@ -153,6 +153,10 @@ GridLayout {
                 FontFamilyDelegate {}
             }
             DelegateChoice {
+                roleValue: AspectContainerModel.FontPicker
+                FontPickerDelegate {}
+            }
+            DelegateChoice {
                 roleValue: AspectContainerModel.TextDisplay
                 TextDisplayDelegate {}
             }

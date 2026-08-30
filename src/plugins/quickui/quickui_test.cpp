@@ -411,6 +411,8 @@ private slots:
     void testEditingThePreviewReachesTheAspectThatOwnsIt();
     void testAGroupPutsItsContentAtItsTop();
     void testAPageSaysAHeadingOnlyOnce();
+    void testWhichSizesAFontIsOfferedIn();
+    void testAFontIsChosenAsOneControl();
 };
 
 // Settings a page carries but does not draw. Each was checked against the
@@ -1743,6 +1745,93 @@ void QuickUiTest::testNestedContainerRendersAsGroup()
     // is what makes the nesting - and so the grouping - real.
     QVERIFY(findQmlComponent(groupItem, "BoolDelegate"));
     QVERIFY(!findQmlComponent(groupItem, "UnsupportedDelegate"));
+}
+
+void QuickUiTest::testWhichSizesAFontIsOfferedIn()
+{
+    // Which sizes exist is a question about the family: one with fixed sizes
+    // has only those, and one that scales has the standard set. The widget
+    // picker worked this out inside the lambda that filled its combo box, so
+    // the only way to ask was to build one.
+    // Never nothing, whatever it is asked about - a size box with no sizes in
+    // it cannot be used at all.
+    //
+    // The standardSizes() fallback behind that is *not* covered here and
+    // cannot be: this platform's font database answers the standard fifteen
+    // for an unknown family and for an unknown style alike, so removing the
+    // fallback changes nothing that any input can show. It is kept because
+    // the widget picker had it and a font database that answers nothing is a
+    // real thing elsewhere - measured, not assumed.
+    QVERIFY(!Utils::FontAspect::pointSizesFor("No Such Family At All", {}).isEmpty());
+    QVERIFY(!Utils::FontAspect::pointSizesFor(QFont().family(), "No Such Style").isEmpty());
+
+    // And which of them to show for a size the family may not have.
+    const QList<int> sizes{8, 10, 12, 14};
+    QCOMPARE(Utils::FontAspect::closestPointSize(sizes, 12), 12);
+    QCOMPARE(Utils::FontAspect::closestPointSize(sizes, 13), 12);
+    QCOMPARE(Utils::FontAspect::closestPointSize(sizes, 11), 10);
+
+    // Off either end, the nearest there is - not nothing, and not the first.
+    QCOMPARE(Utils::FontAspect::closestPointSize(sizes, 1), 8);
+    QCOMPARE(Utils::FontAspect::closestPointSize(sizes, 100), 14);
+
+    // A family offering no sizes at all answers with no size, rather than
+    // with a plausible-looking one.
+    QCOMPARE(Utils::FontAspect::closestPointSize({}, 12), -1);
+}
+
+void QuickUiTest::testAFontIsChosenAsOneControl()
+{
+    // A FontAspect is a container holding a family and a size. Drawn as a
+    // container it came out as two form rows that knew nothing about each
+    // other; drawn as itself it is one control, and the sizes on offer are
+    // the ones the chosen family has.
+    Utils::AspectContainer page;
+    Utils::FontAspect font(&page);
+    font.fontFamily.setLabelText("Family:");
+    font.fontFamily.setDefaultValue(QFont().family());
+    font.fontPointSize.setLabelText("Size:");
+    // An unset font has a point size of 0, which QFont refuses: a real one is
+    // given its defaults by whoever owns it.
+    font.fontPointSize.setDefaultValue(12);
+
+    QCOMPARE(QtcQuick::AspectContainerModel::kindOf(&font),
+             QtcQuick::AspectContainerModel::FontPicker);
+    QVERIFY2(QtcQuick::AspectContainerModel::isFullyRenderable(&page),
+             "a page holding a font has no editor for it");
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QQuickItem *rootItem = quickWidget->rootObject();
+    QVERIFY(rootItem);
+
+    QQuickItem *picker = nullptr;
+    QTRY_VERIFY(picker = findQmlComponent(rootItem, "FontPickerDelegate"));
+    QVERIFY2(!findQmlComponent(rootItem, "UnsupportedDelegate"),
+             "the font was drawn as a placeholder");
+
+    // One control, both halves of it.
+    QQuickItem * const familyBox = picker->findChild<QQuickItem *>("fontFamily");
+    QQuickItem * const sizeBox = picker->findChild<QQuickItem *>("fontPointSize");
+    QVERIFY(familyBox);
+    QVERIFY(sizeBox);
+
+    // The sizes offered are the family's, not a fixed list.
+    const QVariantList offered = sizeBox->property("model").toList();
+    QVERIFY(!offered.isEmpty());
+    const QList<int> expected = Utils::FontAspect::pointSizesFor(
+        font.fontFamily.volatileValue(), QFontDatabase::styleString(font.volatileValue()));
+    QCOMPARE(offered.size(), expected.size());
+
+    // A size the family does not have shows as the nearest one it does, so
+    // the box is never left blank.
+    font.fontPointSize.setVolatileValue(expected.last() + 1000);
+    QTRY_COMPARE(sizeBox->property("currentIndex").toInt(), expected.size() - 1);
+
+    font.fontPointSize.setVolatileValue(expected.first());
+    QTRY_COMPARE(sizeBox->property("currentIndex").toInt(), 0);
 }
 
 void QuickUiTest::testPageWithoutItsOwnQmlIsDeclined()

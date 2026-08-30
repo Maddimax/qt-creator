@@ -58,6 +58,7 @@ if(TARGET QtcQuick)
       EnvironmentEditorDelegate.qml
       FilePathListDelegate.qml
       FontFamilyDelegate.qml
+      FontPickerDelegate.qml
       FormLabel.qml
       GroupDelegate.qml
       InlineGroupDelegate.qml

@@ -1545,12 +1545,9 @@ private:
         parent.addItem(sizeComboBox);
 
         auto updateFontSizeSelector = [aspect, sizeComboBox] {
-            const QString family = aspect->fontFamily.volatileValue();
-            const QString fontStyle = QFontDatabase::styleString(aspect->volatileValue());
-
-            QList<int> pointSizes = QFontDatabase::pointSizes(family, fontStyle);
-            if (pointSizes.empty())
-                pointSizes = QFontDatabase::standardSizes();
+            const QList<int> pointSizes = FontAspect::pointSizesFor(
+                aspect->fontFamily.volatileValue(),
+                QFontDatabase::styleString(aspect->volatileValue()));
 
             const QSignalBlocker blocker(sizeComboBox);
             sizeComboBox->clear();
@@ -1564,29 +1561,10 @@ private:
             for (const int pointSize : std::as_const(pointSizes))
                 sizeComboBox->addItem(n.setNum(pointSize), QVariant(pointSize));
 
-            const int desiredPointSize = aspect->fontPointSize.volatileValue();
-
-            // Keep the selection, or take the closest available size.
-            int closestIndex = -1;
-            int closestAbsError = 0xFFFF;
-
-            const int pointSizeCount = sizeComboBox->count();
-            for (int i = 0; i < pointSizeCount; i++) {
-                const int itemPointSize = sizeComboBox->itemData(i).toInt();
-                const int absError = qAbs(desiredPointSize - itemPointSize);
-                if (absError < closestAbsError) {
-                    closestIndex = i;
-                    closestAbsError = absError;
-                    if (closestAbsError == 0)
-                        break;
-                } else { // Past the optimum.
-                    if (absError > closestAbsError)
-                        break;
-                }
-            }
-
-            if (closestIndex != -1)
-                sizeComboBox->setCurrentIndex(closestIndex);
+            const int shown = FontAspect::closestPointSize(
+                pointSizes, aspect->fontPointSize.volatileValue());
+            if (shown != -1)
+                sizeComboBox->setCurrentIndex(sizeComboBox->findData(shown));
         };
 
         updateFontSizeSelector();

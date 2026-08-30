@@ -1739,6 +1739,19 @@ public:
     void setVolatileValue(const QFont &font);
 
 
+    // The sizes a family can be shown at. A family with fixed sizes offers
+    // those; one that scales offers the standard set. \a style is what
+    // QFontDatabase::styleString() says of the font.
+    //
+    // Kept out of the picker because it is a question about the font database,
+    // and inside a combo box the only way to ask it was to build one.
+    static QList<int> pointSizesFor(const QString &family, const QString &style);
+
+    // Which of \a sizes to show for a font that wants \a wanted: that size if
+    // the family has it, and otherwise the nearest it does have. -1 for a
+    // family that offers no sizes at all.
+    static int closestPointSize(const QList<int> &sizes, int wanted);
+
     FontFamilyAspect fontFamily{this};
     Utils::IntegerAspect fontPointSize{this};
 };

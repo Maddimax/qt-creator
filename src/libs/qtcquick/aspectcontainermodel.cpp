@@ -152,8 +152,9 @@ AspectContainerModel::Kind AspectContainerModel::kindOf(AspectControls::Control 
     case AspectControls::IntegerList:            return Invisible;
     // FontAspect is an AspectContainer, not a TypedAspect: it has no
     // volatileVariantValue() override, so its "value" property is always
-    // invalid and writing to it hits BaseAspect's QTC_CHECK(false).
-    case AspectControls::FontPicker:
+    // invalid. Its delegate binds to the two aspects it holds instead, which
+    // is also what lets the size follow the family.
+    case AspectControls::FontPicker:             return FontPicker;
     case AspectControls::Custom:                 return Unsupported;
     }
     return Unsupported;

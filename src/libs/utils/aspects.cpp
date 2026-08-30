@@ -19,6 +19,7 @@
 #include "stringutils.h"
 #include "utilstr.h"
 
+#include <QFontDatabase>
 #include <QAction>
 #include <QDebug>
 #include <QFontInfo>
@@ -4365,6 +4366,31 @@ void FontAspect::setVolatileValue(const QFont &font)
 {
     fontFamily.setVolatileValue(font.family());
     fontPointSize.setVolatileValue(font.pointSize());
+}
+
+QList<int> FontAspect::pointSizesFor(const QString &family, const QString &style)
+{
+    const QList<int> sizes = QFontDatabase::pointSizes(family, style);
+    return sizes.isEmpty() ? QFontDatabase::standardSizes() : sizes;
+}
+
+int FontAspect::closestPointSize(const QList<int> &sizes, int wanted)
+{
+    int closest = -1;
+    int closestError = std::numeric_limits<int>::max();
+    for (const int size : sizes) {
+        const int error = qAbs(wanted - size);
+        if (error < closestError) {
+            closest = size;
+            closestError = error;
+            if (closestError == 0)
+                break;
+        } else {
+            // The sizes are in order, so past the best one nothing improves.
+            break;
+        }
+    }
+    return closest;
 }
 
 AspectPresentation FontAspect::presentation() const

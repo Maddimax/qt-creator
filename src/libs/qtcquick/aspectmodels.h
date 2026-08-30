@@ -93,6 +93,18 @@ public:
     // question for the font database.
     Q_INVOKABLE QStringList fontFamilies(Utils::BaseAspect *aspect);
 
+    // The two halves of a font picker, so that one delegate can draw both
+    // rather than a page showing a family and a size that know nothing about
+    // each other. Null for an aspect that is not a FontAspect.
+    Q_INVOKABLE Utils::BaseAspect *fontFamilyAspect(Utils::BaseAspect *aspect);
+    Q_INVOKABLE Utils::BaseAspect *fontPointSizeAspect(Utils::BaseAspect *aspect);
+
+    // The sizes \a aspect's *current* family can be shown at, and which of
+    // them to show for the size it holds. A family with fixed sizes offers
+    // only those, so changing the family can leave the chosen size unavailable.
+    Q_INVOKABLE QList<int> fontPointSizes(Utils::BaseAspect *aspect);
+    Q_INVOKABLE int closestFontPointSize(Utils::BaseAspect *aspect);
+
     // Whether \a path is on this machine. A path on a device has to be
     // browsed with our own dialog: the platform's knows only the machine it
     // runs on. QML has no way to tell one from the other.

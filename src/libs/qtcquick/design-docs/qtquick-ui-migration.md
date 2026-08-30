@@ -19676,3 +19676,56 @@ exits 1 on the pre-existing `DebuggerUnitTests::testStateMachine`.
 `FontAspect` drawn as one control rather than two fields, and a scoped look at
 dialogs and wizards, which is where the remaining widget UI is. Neither is this
 plan's work; both are new ones.
+
+## 2026-08-30 — A font, chosen as one control
+
+The second item from the census. `Utils::FontAspect` answered
+`AspectControls::FontPicker`, which the Quick model mapped to `Unsupported` -
+harmlessly, because a `FontAspect` is itself an `AspectContainer`, so a page
+drew its `fontFamily` and `fontPointSize` children as two ordinary form rows.
+Two rows that knew nothing about each other, where the widget renderer draws
+one control whose size list depends on the family.
+
+**What the widget closure was doing rather than listing.** `renderFontPicker()`
+built a size combo and filled it from a lambda that also decided *which sizes
+exist* (`QFontDatabase::pointSizes(family, style)`, or the standard set if that
+comes back empty) and *which one to show* (the wanted size if the family has
+it, otherwise the nearest - the loop breaking early because the sizes are
+sorted). Neither could be asked without building a combo box. They are now
+`FontAspect::pointSizesFor()` and `FontAspect::closestPointSize()`, and the
+widget renderer calls them too, so both paths give the same answer.
+
+`FontPickerDelegate.qml` draws the two aspects side by side, reached through
+new `AspectModels` invokables, and `AspectControls::FontPicker` now maps to its
+own kind rather than to `Unsupported`.
+
+**A binding to a Q_INVOKABLE is computed once and never again.** The size box
+was bound to `AspectModels.closestFontPointSize(aspect)`, and setting a
+different size on the aspect changed nothing: a function call creates no
+dependency, so nothing told the binding to re-run. The fix is to name what it
+depends on in the binding (`void root.sizeAspect?.value`), which is easy to
+forget precisely because the first render looks right. Caught by the test, not
+by review, and control B puts it back.
+
+**A control that did not bite, and what it found.** Removing the
+`standardSizes()` fallback from `pointSizesFor()` failed nothing. Measuring
+with a standalone binary says why: on this platform `QFontDatabase::pointSizes()`
+never returns empty - it answers the standard fifteen for an unknown family and
+an unknown style alike - so the fallback is unreachable here and *no* input can
+show its absence. It is kept, because a font database that answers nothing is a
+real thing on other platforms and the widget picker had the same guard; but the
+test no longer pretends to cover it, and says so where it would otherwise read
+as covered.
+
+Negative controls: `FontPicker` mapped back to `Unsupported` (the font draws as
+a placeholder again); the size box's binding losing its dependency on the
+aspect's value; and `closestPointSize()` answering the first size rather than
+the nearest. All three bit. The fourth - the empty-list fallback - did not, and
+is written up above rather than left as a passing assertion.
+
+QuickUi 180 passed / 0 failed / 1 skipped, exit 0. Core and Help exit 0.
+`.qbs` untouched: `qtcquick.qbs` lists `*.qml` by wildcard.
+
+**Next:** only the third census item is left - a scoped look at dialogs and
+wizards, which is where the remaining widget UI is. That is a new plan rather
+than the next batch of this one, and it should be scoped before it is started.
