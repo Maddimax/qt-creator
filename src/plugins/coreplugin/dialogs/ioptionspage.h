@@ -84,6 +84,22 @@ CORE_EXPORT QWidget *createGenericAspectForm(Utils::AspectContainer *container);
 CORE_EXPORT Utils::Result<> aspectFormRenders(Utils::AspectContainer *container,
                                               const QString &qmlFileName);
 
+// The root of the object tree a Qt Quick form was drawn from, so a plugin can
+// drive its own form without linking Qt Quick: from here,
+// findChild<QObject *>("someObjectName") reaches the QML items, and
+// QMetaObject::invokeMethod() and property() do the rest.
+//
+// A provider rather than a search, because there is nothing to search: the QML
+// objects are not QObject children of the widget - measured, a rendered form
+// has exactly one child object and it is not the root item - so only the front
+// end that drew it can say what its root is.
+//
+// Null for a widget form, and before a front end has installed a provider.
+CORE_EXPORT QObject *aspectFormRoot(QWidget *form);
+
+using AspectFormRootProvider = std::function<QObject *(QWidget *)>;
+CORE_EXPORT void setAspectFormRootProvider(const AspectFormRootProvider &provider);
+
 QObject *createAspectFormRendersTest();
 #endif
 

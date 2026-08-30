@@ -96,6 +96,20 @@ QWidget *createAspectForm(AspectContainer *container)
 
 #ifdef WITH_TESTS
 
+static AspectFormRootProvider s_aspectFormRootProvider;
+
+void setAspectFormRootProvider(const AspectFormRootProvider &provider)
+{
+    s_aspectFormRootProvider = provider;
+}
+
+QObject *aspectFormRoot(QWidget *form)
+{
+    if (!form || !s_aspectFormRootProvider)
+        return nullptr;
+    return s_aspectFormRootProvider(form);
+}
+
 Utils::Result<> aspectFormRenders(AspectContainer *container, const QString &qmlFileName)
 {
     if (!container)

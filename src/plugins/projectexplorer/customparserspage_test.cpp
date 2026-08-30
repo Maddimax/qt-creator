@@ -115,6 +115,48 @@ private slots:
         CustomParsers::set(original);
     }
 
+    // The test above sets the selection from C++, which says nothing about
+    // whether the drawn table ever reports one: if the page's QML stopped
+    // handing it over, Edit and Export would never light up and nothing here
+    // would fail. Driving the real table is what closes that.
+    void testPickingARowInTheDrawnTableReachesThePage()
+    {
+        Core::IOptionsPage * const page = findOr(
+            Core::IOptionsPage::allOptionsPages(), nullptr, [](Core::IOptionsPage *candidate) {
+                return candidate->id() == Constants::CUSTOM_PARSERS_SETTINGS_PAGE_ID;
+            });
+        QVERIFY(page);
+        AspectContainer * const aspects = pageAspects();
+        QVERIFY(aspects);
+        BaseAspect * const parsers = aspectNamed(aspects, "Parsers");
+        BaseAspect * const edit = aspectNamed(aspects, "EditParser");
+        QVERIFY(parsers);
+        QVERIFY(edit);
+
+        const QList<CustomParserSettings> original
+            = CustomParsers::parsersAvailableInProject(nullptr);
+        CustomParsers::set({parser("First"), parser("Second")});
+        QTRY_COMPARE(parsers->tableModel()->rowCount(), 2);
+
+        const std::unique_ptr<QWidget> form(Core::createAspectForm(aspects));
+        QVERIFY(form);
+        QObject * const root = Core::aspectFormRoot(form.get());
+        QVERIFY2(root, "no front end said what the page was drawn from");
+
+        QObject *table = nullptr;
+        QTRY_VERIFY(table = root->findChild<QObject *>("parsersTable"));
+
+        QVERIFY(QMetaObject::invokeMethod(parsers, "setSelectedRows",
+                                          Q_ARG(QVariantList, QVariantList())));
+        QVERIFY(!edit->isEnabled());
+
+        QVERIFY(QMetaObject::invokeMethod(table, "selectRow", Q_ARG(int, 1)));
+        QTRY_VERIFY2(edit->isEnabled(),
+                     "picking a row in the drawn table did not reach the page");
+
+        CustomParsers::set(original);
+    }
+
     // Removing is deferred, and an auto-imported parser is not the user's to
     // take away.
     void testRemovingIsDeferredAndRefusesReadOnlyRows()

@@ -6,6 +6,9 @@
 
 #include <coreplugin/dialogs/ioptionspage.h>
 
+#include <QQuickItem>
+#include <QQuickWidget>
+
 #include <extensionsystem/iplugin.h>
 
 #include <qtcquick/aspectform.h>
@@ -40,6 +43,15 @@ private:
         Core::setGenericAspectFormFactory([](Utils::AspectContainer *container) {
             return QtcQuick::createGenericAspectForm(container);
         });
+#ifdef WITH_TESTS
+        // What a plugin's own test drives its form through. The QML objects
+        // hang off the root item, not off the widget, so nothing outside here
+        // can find them.
+        Core::setAspectFormRootProvider([](QWidget *form) -> QObject * {
+            const auto quickWidget = form->findChild<QQuickWidget *>();
+            return quickWidget ? quickWidget->rootObject() : nullptr;
+        });
+#endif
     }
 };
 

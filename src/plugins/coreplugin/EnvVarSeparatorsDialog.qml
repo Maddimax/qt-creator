@@ -25,6 +25,8 @@ AspectPage {
         Layout.fillHeight: true
 
         TableDelegate {
+            objectName: "separatorsTable"
+
             aspect: root.aspects.Separators
             Layout.fillHeight: true
 

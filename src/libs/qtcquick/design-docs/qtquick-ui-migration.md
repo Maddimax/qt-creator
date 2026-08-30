@@ -19795,3 +19795,58 @@ QuickUi 180 passed / 0 failed / 1 skipped, exit 0. Core exit 0,
 
 **Next:** the QML-form testing seam above, then the 29 form-shaped dialogs,
 which are the cheap ones. That is a new plan; this one is done.
+
+## 2026-08-30 — Driving a rendered form from the plugin that owns it
+
+The gap the last batch found, closed. A plugin could render its aspect form and
+check that it *loaded* (`aspectFormRenders()`), but could not touch what was
+drawn - so the QML→aspect direction was untested everywhere, and deleting the
+one line that reports a table's selection broke the dialog and failed nothing.
+
+**Why there was nothing to search.** Measured before building anything: a
+rendered form has **one** QObject child under its `QQuickWidget`, and it is not
+the root item. The QML objects hang off the root item, which is not in the
+widget's QObject tree at all, so `findChild()` from the form reaches none of
+them. No amount of searching from Core would have worked.
+
+**The seam** is therefore a provider, like the other three Core↔QuickUi ones:
+
+    CORE_EXPORT QObject *aspectFormRoot(QWidget *form);
+    CORE_EXPORT void setAspectFormRootProvider(const AspectFormRootProvider &);
+
+QuickUi installs it (`quickWidget->rootObject()`), under `#ifdef WITH_TESTS` on
+both sides so a release build never references it. From the root, a plugin uses
+plain QtCore: `findChild<QObject *>("someObjectName")`, then
+`QMetaObject::invokeMethod()` and `property()`. **Nothing needs to link Qt
+Quick** - which was the whole constraint, since Core deliberately does not.
+
+**Used from two plugins, deliberately.** Core's `EnvVarSeparatorsDialog` is the
+one that motivated it; ProjectExplorer's Custom Parsers page had the identical
+hole and now drives its own table too. One user would not have shown whether
+the seam was Core-specific.
+
+Both tests go through `TableDelegate.selectRow()`, which moves the real
+selection model, which recomputes `selectedRows`, which fires the handler that
+tells the aspect. That is the whole chain the C++-side `setSelectedRows()`
+calls skip.
+
+**The controls say it worked, precisely.** Control A is the same edit that did
+*not* bite last batch - removing `onSelectedRowsChanged` from the dialog's QML.
+It bites now. So does the same edit on the Custom Parsers page, and so does the
+provider answering null, which is what a widget form looks like and what a test
+must not mistake for a passing check.
+
+**What to do when porting the next dialog:** give the `TableDelegate` (or
+whatever the page hands a selection to) an `objectName`, and write one test that
+drives it. The C++-side setter tests are still worth having - they are where
+the behaviour lives - but on their own they leave the page's QML unexamined.
+
+QuickUi 180 passed / 0 failed / 1 skipped, exit 0. Core exit 0,
+`EnvVarSeparatorsTest` 6 passed. `CustomParsersPageTest` 5 passed;
+`ProjectExplorer` as a whole exits 3 on its three standing failures
+(`RunWorkerConflictTest::testConflict`, `ProjectTest::testMultipleBuildConfigs`,
+`ProjectTest::testSourceToBinaryMapping(qbs)`). No new files, so no `.qbs`
+edit.
+
+**Next:** the 29 form-shaped dialogs, which are now the cheap ones with nothing
+in the way.

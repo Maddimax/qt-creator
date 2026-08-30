@@ -20,6 +20,8 @@ AspectPage {
         Layout.fillHeight: true
 
         TableDelegate {
+            objectName: "parsersTable"
+
             aspect: root.aspects.Parsers
             Layout.fillHeight: true
 

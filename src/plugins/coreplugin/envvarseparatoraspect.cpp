@@ -301,10 +301,33 @@ private slots:
         QVERIFY(afterAdd.hasKey(newVariableName));
     }
 
-    // Note: the selection is set from C++ here. Whether the *drawn* table ever
-    // reports one cannot be checked from this plugin - Core draws Qt Quick
-    // through a factory QuickUi installs and does not link it, so there is no
-    // way in to the QML object tree. See the plan document.
+    void testPickingARowInTheTableReachesTheAspect()
+    {
+        // The tests below set the selection from C++, which says nothing about
+        // whether the *drawn* table ever reports one - and if it stopped,
+        // Remove would simply never light up and nothing would fail.
+        NameValueDictionary given;
+        given.set("FOO", ";");
+        given.set("BAR", ",");
+
+        EnvVarSeparatorsSettings settings(given);
+        const std::unique_ptr<QWidget> form(createAspectForm(&settings));
+        QVERIFY(form);
+
+        QObject * const root = aspectFormRoot(form.get());
+        QVERIFY2(root, "no front end said what the form was drawn from");
+
+        QObject *table = nullptr;
+        QTRY_VERIFY(table = root->findChild<QObject *>("separatorsTable"));
+
+        QVERIFY(!settings.remove.isEnabled());
+        QVERIFY(QMetaObject::invokeMethod(table, "selectRow", Q_ARG(int, 1)));
+
+        QTRY_COMPARE(settings.table.selectedRows(), QList<int>{1});
+        QVERIFY2(settings.remove.isEnabled(),
+                 "picking a row in the drawn table did not reach the aspect behind it");
+    }
+
     void testRemovingWhatIsPicked()
     {
         NameValueDictionary given;
