@@ -276,7 +276,10 @@ private slots:
         // line parsers over.
         view.appendMessage("configuring\n", Utils::StdErrFormat);
         view.appendMessage("main.cpp:1: error: no\n", Utils::StdErrFormat);
-        view.formatter()->flush();
+
+        // The view queues what it is told, and the parser only sees a line
+        // once it has actually been written.
+        view.flush();
 
         QVERIFY2(view.knowsPositionOf(task.id()),
                  "the parser never told the view where its task was");

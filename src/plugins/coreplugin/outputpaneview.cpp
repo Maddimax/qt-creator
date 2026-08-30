@@ -4,6 +4,9 @@
 #include "outputpaneview.h"
 
 #include "coreconstants.h"
+#include <QElapsedTimer>
+#include <utils/algorithm.h>
+#include "coreplugintr.h"
 #include "icore.h"
 #include "outputview.h"
 #include "messagemanager.h"
@@ -15,6 +18,7 @@
 
 #include "find/ifindsupport.h"
 #include <utils/aggregate.h>
+#include <QSignalSpy>
 #include <QTest>
 #include <QApplication>
 #include <QTextBlock>
@@ -22,6 +26,7 @@
 #include <QVBoxLayout>
 
 using namespace Utils;
+using namespace std::chrono_literals;
 
 namespace Core {
 
@@ -36,6 +41,9 @@ OutputPaneView::OutputPaneView(const Key &zoomSettingsKey, QWidget *parent)
     m_formatter.setSink(&m_source, this);
 
     setMaxCharCount(Constants::DEFAULT_MAX_CHAR_COUNT);
+    m_queueTimer.setSingleShot(true);
+    m_queueTimer.setInterval(10ms);
+    connect(&m_queueTimer, &QTimer::timeout, this, &OutputPaneView::writeNextChunk);
     connect(&m_source, &QTextDocument::contentsChange, this,
             [this](int position, int charsRemoved, int) {
                 // Only the limit takes anything off the front; everything else
@@ -88,6 +96,117 @@ OutputPaneView::~OutputPaneView() = default;
 
 void OutputPaneView::appendMessage(const QString &text, OutputFormat format)
 {
+    // Runs of the same format are joined, so that a chunk can be cut anywhere
+    // in them rather than at whatever boundary the caller happened to write.
+    if (m_queuedOutput.isEmpty() || m_queuedOutput.last().second != format)
+        m_queuedOutput.append({text, format});
+    else
+        m_queuedOutput.last().first.append(text);
+
+    if (!m_queueTimer.isActive())
+        m_queueTimer.start();
+}
+
+qsizetype OutputPaneView::totalQueued(const std::function<qsizetype(const QString &)> &measure) const
+{
+    qsizetype total = 0;
+    for (const auto &chunk : m_queuedOutput)
+        total += measure(chunk.first);
+    return total;
+}
+
+void OutputPaneView::setDiscardExcessiveOutput(bool discard)
+{
+    m_discardExcessiveOutput = discard;
+}
+
+void OutputPaneView::discardPendingOutput()
+{
+    // What a tool wrote goes; what Qt Creator itself said about the run stays,
+    // or the reason the output stops would go with it.
+    Utils::erase(m_queuedOutput, [](const QPair<QString, OutputFormat> &chunk) {
+        return chunk.second != NormalMessageFormat && chunk.second != ErrorMessageFormat;
+    });
+    writeChunk(Tr::tr("[Discarding excessive amount of pending output.]\n"),
+               ErrorMessageFormat, false);
+    emit outputDiscarded();
+}
+
+void OutputPaneView::writeNextChunk()
+{
+    QTC_ASSERT(!m_queuedOutput.isEmpty(), return);
+
+    if (m_discardExcessiveOutput) {
+        const bool discard = OutputWindow::shouldDiscardPendingOutput(
+            m_pendingState, totalQueued([](const QString &s) { return s.size(); }), m_chunkSize,
+            m_formatterCalls, m_queueTimer.intervalAsDuration());
+        if (discard) {
+            discardPendingOutput();
+            m_pendingState.queuedSizeHistory.clear();
+        }
+        if (m_queuedOutput.isEmpty())
+            return;
+    }
+
+    auto &chunk = m_queuedOutput.first();
+    const qsizetype end = OutputWindow::chunkEndPosition(chunk.first, m_chunkSize);
+    if (end == chunk.first.size()) {
+        writeChunk(chunk.first, chunk.second, false);
+        m_queuedOutput.removeFirst();
+    } else {
+        writeChunk(chunk.first.left(end), chunk.second, true);
+        chunk.first.remove(0, end);
+    }
+
+    if (!m_queuedOutput.isEmpty()) {
+        m_queueTimer.start();
+    } else if (m_flushRequested) {
+        m_formatter.flush();
+        m_flushRequested = false;
+    }
+}
+
+#ifdef WITH_TESTS
+void OutputPaneView::writeNextChunkForTest()
+{
+    if (!m_queuedOutput.isEmpty())
+        writeNextChunk();
+}
+#endif
+
+void OutputPaneView::flush()
+{
+    // A flush that had to write a large backlog would block for as long as the
+    // backlog is long, which is what the queue exists to avoid. Ask for it to
+    // happen when the queue drains instead.
+    if (totalQueued([](const QString &s) { return s.size(); }) > 5 * m_chunkSize) {
+        m_flushRequested = true;
+        return;
+    }
+    m_queueTimer.stop();
+    const auto queued = m_queuedOutput;
+    m_queuedOutput.clear();
+    for (const auto &chunk : queued)
+        writeChunk(chunk.first, chunk.second, false);
+    m_formatter.flush();
+}
+
+void OutputPaneView::reset()
+{
+    flush();
+    if (!m_queuedOutput.isEmpty()) {
+        discardPendingOutput();
+        m_queuedOutput.clear();
+    }
+    m_queueTimer.stop();
+    m_pendingState.queuedSizeHistory.clear();
+    m_formatter.reset();
+    m_formatterCalls = 0;
+    m_flushRequested = false;
+}
+
+void OutputPaneView::writeChunk(const QString &text, OutputFormat format, bool chunkWasSplit)
+{
     QString out = text;
     if (m_maxCharCount > 0) {
         if (out.size() > m_maxCharCount) {
@@ -106,8 +225,18 @@ void OutputPaneView::appendMessage(const QString &text, OutputFormat format)
     }
 
     m_sourceTrimmed = false;
+
+    QElapsedTimer formatterTimer;
+    formatterTimer.start();
     m_formatter.appendMessage(out, format);
-    m_formatter.flush();
+    ++m_formatterCalls;
+
+    const OutputWindow::OutputPacing paced
+        = OutputWindow::pacedBy({m_queueTimer.intervalAsDuration(), m_chunkSize},
+                                std::chrono::milliseconds(formatterTimer.elapsed()),
+                                chunkWasSplit);
+    m_queueTimer.setInterval(paced.interval);
+    m_chunkSize = paced.chunkSize;
 
     if (isFiltering()) {
         // What the filtered copy has already taken is addressed by block
@@ -153,12 +282,16 @@ void OutputPaneView::registerPositionOf(unsigned taskId, int linkedOutputLines, 
     if (linkedOutputLines <= 0)
         return;
 
-    // Nothing is queued here - what is appended is written straight away - so
-    // a task reported directly names output that is already in the document,
-    // the same as one a parser found.
-    Q_UNUSED(source)
+    // A task reported directly names output that is still queued, so its lines
+    // are where they will be once that has been written.
+    const int extraLines = source == TaskSource::Parsed
+                               ? 0
+                               : int(totalQueued([](const QString &s) {
+                                     return qsizetype(s.count('\n'));
+                                 }));
+
     m_taskPositions.insert(taskId, taskLineRange(m_source.blockCount(), linkedOutputLines,
-                                                 skipLines, offset, 0));
+                                                 skipLines, offset, extraLines));
 }
 
 bool OutputPaneView::knowsPositionOf(unsigned taskId) const
@@ -187,6 +320,10 @@ void OutputPaneView::showPositionOf(unsigned taskId)
 
 void OutputPaneView::clear()
 {
+    m_queuedOutput.clear();
+    m_queueTimer.stop();
+    m_flushRequested = false;
+    m_pendingState.queuedSizeHistory.clear();
     m_formatter.clear();
     m_source.clear();
     m_filtered.clear();
@@ -319,6 +456,7 @@ private slots:
 
         view.appendMessage("running cmake\n", Utils::GeneralMessageFormat);
         view.appendMessage("it went wrong\n", Utils::ErrorMessageFormat);
+        view.flush();
         QVERIFY(shownText(view).contains("it went wrong"));
 
         // And the view was given that document rather than a copy of it.
@@ -336,6 +474,7 @@ private slots:
         view.appendMessage("configuring\n", Utils::GeneralMessageFormat);
         view.appendMessage("error: nothing works\n", Utils::GeneralMessageFormat);
         view.appendMessage("done\n", Utils::GeneralMessageFormat);
+        view.flush();
 
         // A Qt Quick view cannot be filtered by hiding blocks, so what it is
         // shown is a second document holding the lines that pass.
@@ -347,8 +486,10 @@ private slots:
         // What arrives while a filter is set is filtered too, without the
         // whole document being done again.
         view.appendMessage("error: still nothing\n", Utils::GeneralMessageFormat);
+        view.flush();
         QVERIFY(shownText(view).contains("still nothing"));
         view.appendMessage("almost there\n", Utils::GeneralMessageFormat);
+        view.flush();
         QVERIFY(!shownText(view).contains("almost there"));
 
         // Inverted, the other lines are the ones left.
@@ -373,6 +514,7 @@ private slots:
         // then lands on the end of the line before - which the widget did too,
         // and is not this port's to change.
         view.appendMessage("and kept\n", Utils::GeneralMessageFormat);
+        view.flush();
 
         view.clearLinesPrefixedWith("[cmake]", true);
         QVERIFY(!view.shownDocument()->toPlainText().contains("step one"));
@@ -383,6 +525,7 @@ private slots:
         view.appendMessage("[cmake] step three\n", Utils::GeneralMessageFormat);
         view.appendMessage("error: here\n", Utils::GeneralMessageFormat);
         view.appendMessage("last line\n", Utils::GeneralMessageFormat);
+        view.flush();
         view.setFilter("e", {});
         QVERIFY(view.shownDocument()->toPlainText().contains("step three"));
         view.clearLinesPrefixedWith("[cmake]", true);
@@ -397,6 +540,7 @@ private slots:
         QVERIFY(view.view());
 
         view.appendMessage("the last run\n", Utils::GeneralMessageFormat);
+        view.flush();
         QTextCursor cursor(view.shownDocument());
         cursor.setPosition(1);
         const QColor before = cursor.charFormat().foreground().color();
@@ -422,6 +566,7 @@ private slots:
         OutputPaneView view;
         for (const QString &line : QStringList{"one", "two", "the match", "four", "five"})
             view.appendMessage(line + '\n', Utils::GeneralMessageFormat);
+        view.flush();
 
         view.setFilter("match", {}, 0, 0);
         QCOMPARE(shownText(view), QString("the match"));
@@ -448,6 +593,9 @@ private slots:
         const QString written = "a line only this test writes";
         MessageManager::writeSilently(written);
 
+        // The pane queues what it is told, so this waits for it to have been
+        // written rather than assuming it already has.
+        QTRY_VERIFY(general->outputTexts().first().contains(written));
         const QStringList texts = general->outputTexts();
         QCOMPARE(texts.size(), 1);
         QVERIFY2(texts.first().contains(written),
@@ -464,6 +612,7 @@ private slots:
         QVERIFY2(filterEdit, "the pane offers no way to filter it");
 
         MessageManager::writeSilently("a second line, matching nothing");
+        QTRY_VERIFY(general->outputTexts().first().contains("matching nothing"));
         filterEdit->setText(written);
         const QScopeGuard clearFilter([filterEdit] { filterEdit->setText({}); });
 
@@ -505,9 +654,13 @@ private slots:
         // without the per-append accounting running at all.
         view.setMaxCharCount(1000);
         const QString padding(180, 'x');
+        // Written a line at a time, as a build writes it. Handed over all at
+        // once it is a single chunk larger than the whole allowance, which is
+        // elided in the middle instead - a different case, tested below.
         for (int i = 0; i < 30; ++i) {
             view.appendMessage(QString("line %1 of output %2\n").arg(i).arg(padding),
                                Utils::GeneralMessageFormat);
+            view.flush();
         }
 
         const QString kept = view.toPlainText();
@@ -526,6 +679,7 @@ private slots:
 
         const QString huge = QString("start ") + QString(500, 'x') + " end\n";
         view.appendMessage(huge, Utils::GeneralMessageFormat);
+        view.flush();
 
         const QString kept = view.toPlainText();
         QVERIFY2(kept.contains("start"), "the beginning of the chunk went");
@@ -542,12 +696,14 @@ private slots:
         OutputPaneView view;
         view.setMaxCharCount(300);
         view.appendMessage("keep: the first one\n", Utils::GeneralMessageFormat);
+        view.flush();
         view.setFilter("keep", {});
         QVERIFY(view.shownDocument()->toPlainText().contains("the first one"));
 
         for (int i = 0; i < 100; ++i) {
             view.appendMessage(QString("keep: number %1\n").arg(i), Utils::GeneralMessageFormat);
             view.appendMessage(QString("drop: number %1\n").arg(i), Utils::GeneralMessageFormat);
+            view.flush();
         }
 
         const QString filtered = view.shownDocument()->toPlainText();
@@ -562,6 +718,59 @@ private slots:
         }
     }
 
+    void testOutputIsQueuedRatherThanWrittenAsItArrives()
+    {
+        OutputPaneView view;
+
+        // Nothing is drawn on the way in. A pane that wrote every chunk the
+        // moment it arrived would stop responding while a build runs.
+        view.appendMessage("first\n", Utils::StdOutFormat);
+        view.appendMessage("second\n", Utils::StdOutFormat);
+        QVERIFY2(view.toPlainText().isEmpty(), "output was written before the queue ran");
+
+        // It arrives on its own, without anything asking for it.
+        QTRY_VERIFY(view.toPlainText().contains("second"));
+        QVERIFY(view.toPlainText().contains("first"));
+
+        // And asking for it explicitly writes what is left immediately.
+        view.appendMessage("third\n", Utils::StdOutFormat);
+        view.flush();
+        QVERIFY(view.toPlainText().contains("third"));
+    }
+
+    void testThrowingAwayOutputThatCannotBeKeptUpWith()
+    {
+        OutputPaneView view;
+
+        // The same flood put to both, so that "off" means the setting and not
+        // the fixture. Written faster than chunks are taken off the queue, so
+        // the backlog grows however hard the pane works at it.
+        const auto flood = [](OutputPaneView &target) {
+            for (int i = 0; i < 40; ++i) {
+                target.appendMessage(QString(50000, 'x') + '\n', Utils::StdOutFormat);
+                target.writeNextChunkForTest();
+            }
+        };
+
+        // Off unless asked: the pane does not decide on its own to lose a
+        // user's build output.
+        QSignalSpy quiet(&view, &OutputPaneView::outputDiscarded);
+        flood(view);
+        QCOMPARE(quiet.count(), 0);
+
+        OutputPaneView discarding;
+        discarding.setDiscardExcessiveOutput(true);
+        QSignalSpy discarded(&discarding, &OutputPaneView::outputDiscarded);
+        flood(discarding);
+
+        QVERIFY2(discarded.count() > 0, "a flood was never discarded");
+
+        // And it says so, rather than the output simply stopping.
+        discarding.flush();
+        QVERIFY2(discarding.toPlainText().contains("Discarding excessive amount"),
+                 "output was thrown away without saying so");
+    }
+
     void testShowingWhereATaskWasReportedFrom()
     {
         OutputPaneView view;
@@ -570,6 +779,7 @@ private slots:
         view.appendMessage("configuring\n", Utils::GeneralMessageFormat);
         view.appendMessage("main.cpp:1: error: no\n", Utils::GeneralMessageFormat);
         view.appendMessage("   here it is\n", Utils::GeneralMessageFormat);
+        view.flush();
 
         QVERIFY(!view.knowsPositionOf(42));
         view.registerPositionOf(42, 2, 0, 0, OutputPaneView::TaskSource::Parsed);
@@ -603,6 +813,7 @@ private slots:
         // Ctrl+F simply does nothing.
         OutputPaneView view;
         view.appendMessage("a needle in here\n", Utils::GeneralMessageFormat);
+        view.flush();
 
         IFindSupport *find = Utils::Aggregation::query<IFindSupport>(view.view());
         QVERIFY2(find, "nothing under the output area answers as find support");

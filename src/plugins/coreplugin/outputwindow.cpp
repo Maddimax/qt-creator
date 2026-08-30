@@ -758,18 +758,11 @@ void OutputWindow::handleOutputChunk(
     d->formatter.appendMessage(out, format);
     ++d->formatterCalls;
     qCDebug(chunkLog) << "formatter took" << formatterTimer.elapsed() << "ms";
-    if (formatterTimer.elapsed() > d->queueTimer.interval()) {
-        d->queueTimer.setInterval(std::min(maxInterval, d->queueTimer.intervalAsDuration() * 2));
-        d->chunkSize = std::max(minChunkSize, d->chunkSize / 2);
-        qCDebug(chunkLog) << "increasing interval to" << d->queueTimer.interval()
-                          << "ms and lowering chunk size to" << d->chunkSize << "bytes";
-    } else if (completeness == ChunkCompleteness::Split
-               && formatterTimer.elapsed() < d->queueTimer.interval() / 2) {
-        d->queueTimer.setInterval(std::max(1ms, d->queueTimer.intervalAsDuration() * 2 / 3));
-        d->chunkSize = d->chunkSize * 1.5;
-        qCDebug(chunkLog) << "lowering interval to" << d->queueTimer.interval()
-                          << "ms and increasing chunk size to" << d->chunkSize << "bytes";
-    }
+    const OutputPacing paced = pacedBy({d->queueTimer.intervalAsDuration(), d->chunkSize},
+                                       std::chrono::milliseconds(formatterTimer.elapsed()),
+                                       completeness == ChunkCompleteness::Split);
+    d->queueTimer.setInterval(paced.interval);
+    d->chunkSize = paced.chunkSize;
 
     // We already filter on block count changes, but there are other cases where re-filtering
     // becomes necessary:
@@ -810,6 +803,21 @@ void OutputWindow::discardExcessiveOutput()
         discardPendingToolOutput();
         d->queuedSizeHistory.clear();
     }
+}
+
+OutputWindow::OutputPacing OutputWindow::pacedBy(OutputPacing current,
+                                                std::chrono::milliseconds formatterTook,
+                                                bool chunkWasSplit)
+{
+    if (formatterTook > current.interval) {
+        return {std::min(maxInterval, current.interval * 2),
+                std::max(minChunkSize, current.chunkSize / 2)};
+    }
+    if (chunkWasSplit && formatterTook < current.interval / 2) {
+        return {std::max(1ms, current.interval * 2 / 3),
+                qsizetype(current.chunkSize * 1.5)};
+    }
+    return current;
 }
 
 qsizetype OutputWindow::chunkEndPosition(const QString &text, qsizetype chunkSize)
@@ -1406,6 +1414,40 @@ private slots:
 
         // And with no line end at all it is a plain cut.
         QCOMPARE(OutputWindow::chunkEndPosition(QString(50, 'z'), 20), 20);
+    }
+
+    // How fast output is written out, adjusted by how long the last chunk took
+    // to format. Inside the widget this could only be reached by producing
+    // output at a rate that made the formatter slow.
+    void testTheOutputPaceFollowsWhatTheFormatterCanDo()
+    {
+        using namespace std::chrono_literals;
+        using Pacing = OutputWindow::OutputPacing;
+
+        // Slower than the interval: back off. Half the chunk, twice the wait.
+        const Pacing slow = OutputWindow::pacedBy({10ms, 10000}, 50ms, false);
+        QCOMPARE(slow.interval, 20ms);
+        QCOMPARE(slow.chunkSize, 5000);
+
+        // Comfortably faster, and only while there is more of the same chunk
+        // to write: speed up.
+        const Pacing fast = OutputWindow::pacedBy({30ms, 10000}, 5ms, true);
+        QCOMPARE(fast.interval, 20ms);
+        QCOMPARE(fast.chunkSize, 15000);
+
+        // Fast but the chunk is finished: nothing to hurry for.
+        QCOMPARE(OutputWindow::pacedBy({30ms, 10000}, 5ms, false).interval, 30ms);
+
+        // In between - faster than the interval but not by half - is left
+        // alone, so ordinary output does not make the pane oscillate.
+        QCOMPARE(OutputWindow::pacedBy({30ms, 10000}, 20ms, true).chunkSize, 10000);
+
+        // Neither end runs away: the wait stops at a second and the chunk does
+        // not shrink below a thousand characters, or a pane that fell behind
+        // once would never catch up.
+        QCOMPARE(OutputWindow::pacedBy({1000ms, 10000}, 5000ms, false).interval, 1000ms);
+        QCOMPARE(OutputWindow::pacedBy({10ms, 1000}, 50ms, false).chunkSize, 1000);
+        QCOMPARE(OutputWindow::pacedBy({1ms, 10000}, 0ms, true).interval, 1ms);
     }
 
     // When output arriving faster than it can be drawn is thrown away. Inside

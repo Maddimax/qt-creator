@@ -124,6 +124,23 @@ public:
     // of it: cutting through an ANSI escape code draws the code as text.
     static qsizetype chunkEndPosition(const QString &text, qsizetype chunkSize);
 
+    // How fast output is being written out: how much goes at a time, and how
+    // long to wait between chunks.
+    struct OutputPacing
+    {
+        std::chrono::milliseconds interval;
+        qsizetype chunkSize;
+    };
+
+    // The pacing to use next, given how long the last chunk took to format.
+    // Slower than the interval and it backs off - half the chunk, twice the
+    // wait - so a pane that cannot keep up stops trying. Comfortably faster,
+    // and only while there is still more of the same chunk to write, it speeds
+    // up again. Nothing changes in between, so ordinary output does not make
+    // the pane oscillate.
+    static OutputPacing pacedBy(OutputPacing current, std::chrono::milliseconds formatterTook,
+                                bool chunkWasSplit);
+
     // How the backlog has been moving, so a flood can be told from a burst.
     struct PendingOutputState
     {

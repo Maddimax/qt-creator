@@ -13,6 +13,7 @@
 
 #include <QTextCursor>
 #include <QTextDocument>
+#include <QTimer>
 #include <QWidget>
 
 namespace Core {
@@ -38,7 +39,24 @@ public:
     explicit OutputPaneView(const Utils::Key &zoomSettingsKey = {}, QWidget *parent = nullptr);
     ~OutputPaneView() override;
 
+    // Queued rather than written straight away, as the widget does: output can
+    // arrive faster than it can be drawn, and a pane that writes every chunk
+    // the moment it arrives stops responding while a build runs.
     void appendMessage(const QString &text, Utils::OutputFormat format);
+
+    // Writes what is waiting. Declines while the backlog is large and does it
+    // when that has drained instead, so asking to flush cannot itself be the
+    // thing that blocks.
+    void flush();
+
+    // Forgets what is waiting and starts the formatter again, for a pane about
+    // to show a different run.
+    void reset();
+
+    // Whether output that cannot be kept up with is thrown away rather than
+    // queued for a minute. Off by default: the widget does not touch a pane's
+    // output unless it is asked to.
+    void setDiscardExcessiveOutput(bool discard);
 
     // Dims what the last run left, so the next one stands out from it.
     void grayOutOldContent();
@@ -92,10 +110,26 @@ public:
     // be while plugins are still initializing.
     OutputView *view();
 
+#ifdef WITH_TESTS
+    // Writes one chunk now, the way the queue timer does. A test drives the
+    // queue by hand rather than waiting for it, so that what it asserts is the
+    // pacing and not the clock.
+    void writeNextChunkForTest();
+#endif
+
+signals:
+    // Output was thrown away because it was arriving faster than it could be
+    // drawn. A pane reports this, so that what is missing is not a mystery.
+    void outputDiscarded();
+
 private:
     void refilter();
     bool isFiltering() const;
     void showEvent(QShowEvent *event) override;
+    void writeNextChunk();
+    void writeChunk(const QString &text, Utils::OutputFormat format, bool chunkWasSplit);
+    void discardPendingOutput();
+    qsizetype totalQueued(const std::function<qsizetype(const QString &)> &measure) const;
 
     OutputView *m_view = nullptr;
 
@@ -121,6 +155,15 @@ private:
     // follows the source by block number, and those all shift when the front
     // of it goes.
     bool m_sourceTrimmed = false;
+
+    // What has arrived but not yet been drawn.
+    QList<QPair<QString, Utils::OutputFormat>> m_queuedOutput;
+    QTimer m_queueTimer;
+    qsizetype m_chunkSize = 10000;
+    int m_formatterCalls = 0;
+    bool m_flushRequested = false;
+    bool m_discardExcessiveOutput = false;
+    OutputWindow::PendingOutputState m_pendingState;
 
     const Utils::Key m_zoomSettingsKey;
 };

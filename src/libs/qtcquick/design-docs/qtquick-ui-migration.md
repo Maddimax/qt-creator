@@ -18328,3 +18328,45 @@ because the history of the backlog is exactly what tells a flood from a burst
 and hiding it inside the widget is what made it unreachable.
 
 Controls, six, all biting on the assertion that names their decision.
+
+### The queue, and a third decision that was never askable
+
+`Core::OutputPaneView` now queues what it is told and writes it a chunk at a
+time on a timer, as the widget does. That is not a detail of the widget's
+implementation that could be skipped: without it a pane writes every chunk the
+moment it arrives, and the pane that receives the most output in the product
+stops responding while a build runs.
+
+The three decisions inside the queue are all out of the widget now.
+`pacedBy(current, formatterTook, chunkWasSplit)` is the third: back off when
+formatting took longer than the interval - half the chunk, twice the wait -
+speed up when it was comfortably faster *and* there is more of the same chunk
+to write, and change nothing in between so that ordinary output does not make
+the pane oscillate. Both ends are capped, or a pane that fell behind once would
+never catch up.
+
+**`appendMessage()` is asynchronous now**, which is what the widget always did
+and what the first two ports had quietly changed. Twelve tests had to grow a
+`flush()`, and one of them found something: written all at once, thirty lines
+are a *single* chunk larger than the whole character allowance, so they are
+elided in the middle rather than trimmed from the front. Both are correct and
+they are different cases; the fixture now writes a line at a time, as a build
+does, and the elision has its own test.
+
+**Two controls did not bite, for two different reasons, and both were mine:**
+
+- "Discarding happens without being asked" was applied to the *setter*, which
+  the view that never asks does not call. The default in the header is what
+  that claim rests on, and changing it there fails with three discards where
+  none were wanted.
+- "The pacing never backs off" did not bite because I had extracted `pacedBy()`
+  and written no test for it at all. Extracting something and leaving it
+  uncovered is the same mistake as not extracting it, one step later: the code
+  is reachable and still nothing asks it anything.
+
+The "off unless asked" assertion was also vacuous to begin with - it used a
+fixture that would not have discarded either way. Both cases now put the *same*
+flood to both views, so that "off" means the setting rather than the input.
+
+Compile Output needs two small things now: word wrap, and the background colour
+override it takes from its settings page.

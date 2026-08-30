@@ -10668,6 +10668,8 @@ void QuickUiTest::testAPaneBuiltBeforeTheFrontEndStillGetsAView()
 
     // What it is told meanwhile is kept, not dropped.
     view.appendMessage("written before anything could draw it\n", Utils::GeneralMessageFormat);
+    // The pane queues what it is told; nothing has to be drawing for that.
+    view.flush();
     QFont base;
     base.setPointSizeF(12);
     view.setBaseFont(base);
