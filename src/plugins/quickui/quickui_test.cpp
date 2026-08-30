@@ -37,6 +37,8 @@
 #include <utils/aspects.h>
 #include <qtcquick/outputview.h>
 #include <utils/outputformatter.h>
+#include <QAbstractTextDocumentLayout>
+#include <utils/stylehelper.h>
 #include <QQuickTextDocument>
 #include <QTextBlock>
 #include <QTextDocument>
@@ -350,6 +352,10 @@ private slots:
     void testFormattedOutputCanBeDrawnByQtQuick();
     void testHidingALineIsNotHowAQuickViewFilters();
     void testTheOutputViewShowsWhatAFormatterWrites();
+    void testZoomIsPointsAddedWithAFloor();
+    void testTheOutputViewZoomsTheTextItDraws();
+    void testCtrlWheelZoomsTheOutputViewAndPlainWheelDoesNot();
+    void testTheOutputViewSeesTheLinksAFormatterWrote();
     void testAFieldOffersWhatWasTypedIntoItBefore();
     void testBrowsingStartsWhereThePathAlreadyPointsTo();
     void testALabelSaysTheValueItCannotShowInFull();
@@ -10136,6 +10142,195 @@ void QuickUiTest::testTheOutputViewShowsWhatAFormatterWrites()
     // copying an error out of the pane is half of what a pane is for.
     QVERIFY(area->property("readOnly").toBool());
     QVERIFY(area->property("selectByMouse").toBool());
+}
+
+namespace {
+
+// A parser that turns one word into a link, the way a compiler parser turns a
+// file name into one. Used so the test exercises the formatter's own link
+// path - OutputFormatter::linkFormat() setting the anchor - rather than an
+// anchor written by hand, which would prove nothing about real output.
+class WordLinkingParser : public Utils::OutputLineParser
+{
+public:
+    WordLinkingParser(const QString &word, const QString &target)
+        : m_word(word), m_target(target) {}
+
+    Result handleLine(const QString &line, Utils::OutputFormat) override
+    {
+        const int pos = line.indexOf(m_word);
+        if (pos < 0)
+            return Status::NotHandled;
+        return {Status::Done, {{pos, int(m_word.size()), m_target}}};
+    }
+
+private:
+    const QString m_word;
+    const QString m_target;
+};
+
+} // namespace
+
+void QuickUiTest::testZoomIsPointsAddedWithAFloor()
+{
+    // What a zoom value means, shared by the widget output window and the Qt
+    // Quick one because a pane hands one view's zoom to its others.
+    QFont base;
+    base.setPointSizeF(12);
+
+    QCOMPARE(Utils::StyleHelper::zoomedFont(base, 0).pointSizeF(), 12.0);
+    QCOMPARE(Utils::StyleHelper::zoomedFont(base, 3).pointSizeF(), 15.0);
+    QCOMPARE(Utils::StyleHelper::zoomedFont(base, -4).pointSizeF(), 8.0);
+
+    // Points added, not a percentage of the size - which is what the text
+    // editor's zoom is, and the difference is invisible at 100%.
+    QFont larger;
+    larger.setPointSizeF(24);
+    QCOMPARE(Utils::StyleHelper::zoomedFont(larger, 3).pointSizeF(), 27.0);
+
+    // Zooming out stops rather than reaching zero and vanishing.
+    QCOMPARE(Utils::StyleHelper::zoomedFont(base, -100).pointSizeF(),
+             double(Utils::StyleHelper::minimumZoomedFontSize));
+
+    // And it is the size alone that the zoom touches.
+    base.setFamily("Courier");
+    base.setBold(true);
+    const QFont zoomed = Utils::StyleHelper::zoomedFont(base, 2);
+    QCOMPARE(zoomed.family(), QString("Courier"));
+    QVERIFY(zoomed.bold());
+}
+
+void QuickUiTest::testTheOutputViewZoomsTheTextItDraws()
+{
+    QTextDocument document;
+    document.setPlainText("a line of output\nand another one\n");
+
+    const std::unique_ptr<QtcQuick::OutputView> view(new QtcQuick::OutputView);
+    QFont base;
+    base.setPointSizeF(12);
+    view->setBaseFont(base);
+    view->setDocument(&document);
+    view->resize(600, 300);
+    view->show();
+
+    QQuickItem * const root = qobject_cast<QQuickItem *>(view->rootObject());
+    QVERIFY(root);
+    QQuickItem * const area = root->findChild<QQuickItem *>("outputText");
+    QVERIFY(area);
+
+    // The zoom has to reach the glyphs, not just be remembered. A pane's
+    // "Reset Zoom" and its fan-out to sibling views both go through here.
+    QTRY_COMPARE(area->property("font").value<QFont>().pointSizeF(), 12.0);
+    const qreal unzoomedHeight = area->property("contentHeight").toReal();
+    QVERIFY(unzoomedHeight > 0);
+
+    view->setFontZoom(8);
+    QCOMPARE(view->fontZoom(), 8.0f);
+    QTRY_COMPARE(area->property("font").value<QFont>().pointSizeF(), 20.0);
+    QTRY_VERIFY2(area->property("contentHeight").toReal() > unzoomedHeight,
+                 "the text is drawn at the same height after zooming in");
+
+    view->resetZoom();
+    QTRY_COMPARE(area->property("font").value<QFont>().pointSizeF(), 12.0);
+}
+
+void QuickUiTest::testCtrlWheelZoomsTheOutputViewAndPlainWheelDoesNot()
+{
+    QTextDocument document;
+    document.setPlainText("a line of output\n");
+
+    const std::unique_ptr<QtcQuick::OutputView> view(new QtcQuick::OutputView);
+    QFont base;
+    base.setPointSizeF(12);
+    view->setBaseFont(base);
+    view->setDocument(&document);
+    view->resize(600, 300);
+    view->show();
+
+    QQuickItem * const area
+        = qobject_cast<QQuickItem *>(view->rootObject())->findChild<QQuickItem *>("outputText");
+    QVERIFY(area);
+    QTRY_VERIFY(area->property("contentHeight").toReal() > 0);
+
+    QSignalSpy wheelZooms(view.get(), &QtcQuick::OutputView::wheelZoom);
+    const QPointF pos(50, 10);
+
+    const auto sendWheel = [&](int degrees, Qt::KeyboardModifiers modifiers) {
+        QWheelEvent event(pos, view->mapToGlobal(pos.toPoint()), {}, QPoint(0, degrees),
+                          Qt::NoButton, modifiers, Qt::NoScrollPhase, false);
+        // Sent to the QQuickWidget, which is what forwards to the Quick scene.
+        // The OutputView itself is the wrapper around it and forwards nothing,
+        // so an event addressed there is quietly dropped.
+        QCoreApplication::sendEvent(view->quickWidget(), &event);
+    };
+
+    // A plain wheel scrolls. It must not resize the output, or reading a long
+    // build log would change its size all the way down.
+    sendWheel(120, Qt::NoModifier);
+    QCOMPARE(view->fontZoom(), 0.0f);
+    QCOMPARE(wheelZooms.count(), 0);
+
+    // Ctrl+wheel zooms, one notch to one point, as in the widget window.
+    sendWheel(120, Qt::ControlModifier);
+    QTRY_COMPARE(view->fontZoom(), 1.0f);
+    QTRY_COMPARE(wheelZooms.count(), 1);
+
+    // The pane can switch it off - the widget window has setWheelZoomEnabled
+    // and the app output pane turns it off when the setting says so.
+    view->setWheelZoomEnabled(false);
+    sendWheel(120, Qt::ControlModifier);
+    QCOMPARE(view->fontZoom(), 1.0f);
+}
+
+void QuickUiTest::testTheOutputViewSeesTheLinksAFormatterWrote()
+{
+    // The risk this checks: the formatter marks links as QTextCharFormat
+    // anchors, and nothing said a Quick text item would find them in a
+    // document it was handed rather than one it parsed itself.
+    const QString target = "file:///tmp/broken.cpp::17::0";
+
+    QTextDocument document;
+    Utils::OutputFormatter formatter;
+    formatter.setSink(&document);
+    // The formatter takes ownership of its parsers.
+    formatter.setLineParsers({new WordLinkingParser("broken.cpp", target)});
+    formatter.appendMessage("broken.cpp: it went wrong\n", Utils::StdErrFormat);
+    formatter.flush();
+
+    const std::unique_ptr<QtcQuick::OutputView> view(new QtcQuick::OutputView);
+    view->setDocument(&document);
+    view->resize(600, 300);
+    view->show();
+
+    QQuickItem * const area
+        = qobject_cast<QQuickItem *>(view->rootObject())->findChild<QQuickItem *>("outputText");
+    QVERIFY(area);
+    QTRY_VERIFY(area->property("contentHeight").toReal() > 0);
+
+    // Asked at the middle of the first line, which the document's own layout
+    // says where is. Halfway down the view is not it: a one-line document is
+    // two blocks tall, so that lands under the text and finds nothing.
+    const QRectF firstLine
+        = document.documentLayout()->blockBoundingRect(document.firstBlock());
+    const qreal lineMiddle = firstLine.center().y();
+
+    QString found;
+    for (qreal x = 1; x < 60 && found.isEmpty(); x += 2)
+        found = view->linkAt(x, lineMiddle);
+    QCOMPARE(found, target);
+
+    // And the rest of the same line is not a link. On the same line on
+    // purpose: anywhere else it would come back empty for the duller reason
+    // that there is no text there.
+    QVERIFY2(view->linkAt(120, lineMiddle).isEmpty(), "text with no link reported one");
+
+    // Clicking one tells the pane, which is where handleLink() is called.
+    QSignalSpy activations(view.get(), &QtcQuick::OutputView::linkActivated);
+    const QPoint onTheLink(10, qRound(lineMiddle));
+    QTest::mousePress(view->quickWidget(), Qt::LeftButton, {}, onTheLink);
+    QTest::mouseRelease(view->quickWidget(), Qt::LeftButton, {}, onTheLink);
+    QTRY_COMPARE(activations.count(), 1);
+    QCOMPARE(activations.first().first().toString(), target);
 }
 
 void QuickUiTest::testAVariableBeingDefinedIsNotOfferedForItself()

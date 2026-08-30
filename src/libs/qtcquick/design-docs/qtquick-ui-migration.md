@@ -17832,3 +17832,63 @@ a `doesnotexist.cpp` in the product's `files` makes it name `QtcQuick`, so its
 silence otherwise means something.
 
 Still missing before a pane can switch: zoom, and clicking a link.
+
+### Zoom and links, and where a test has to address the view
+
+The two things the view was still missing. Both are done, and both turned up
+something worth writing down.
+
+**Zoom belongs to neither view.** `Utils::StyleHelper::zoomedFont()` now holds
+what a zoom value means - points added to the base size, with a floor at
+`minimumZoomedFontSize` so zooming out stops rather than reaching zero - and
+`Core::OutputWindow` was changed to use it too. That is not tidiness. A pane
+hands *one* view's zoom to its others: `AppOutputPane` catches `wheelZoom` from
+the window the wheel was over and calls `setFontZoom(ow->fontZoom())` on every
+other tab, and `IOutputPane::resetZoomRequested` resets all of them. During the
+transition a pane will have tabs of both kinds, so if the two views disagreed
+about what 3 means, one fan-out would resize them differently. One definition
+makes that impossible rather than unlikely.
+
+Worth knowing while doing this: **the text editor's zoom is a percentage**
+(`fontSize() * fontZoom() / 100`) and the output window's is an addition. The
+two are indistinguishable at 100% / 0, which is where everything starts.
+
+**A Quick text item can see the formatter's links.** This was the open risk -
+the formatter marks links by `setAnchor(true)`/`setAnchorHref()` on a
+`QTextCharFormat`, and nothing promised a Quick item would find them in a
+document it was handed rather than one it parsed itself. It does:
+`TextArea.linkAt()` answers over exactly the linked run and nowhere else, and
+`onLinkActivated` fires on click. So the whole link chain - line parser to
+`LinkSpec` to anchor to click to `OutputFormatter::handleLink()` - crosses
+unchanged, with the view emitting `linkActivated` and the pane deciding what a
+link means.
+
+**Where a test has to send input, and it is not where it looks.** Wheel and
+mouse events addressed to the `OutputView` did nothing at all - silently, with
+`sendEvent` returning true. `QtcQuick::QuickWidget` is a *wrapper* holding a
+`QQuickWidget` in a layout, and it forwards no input; `QQuickWidget` is what
+maps events into the Quick scene. So `view->quickWidget()` is the address, and
+sending to the wrapper is a test that passes nothing through and reports
+nothing wrong. Anything driving a Quick pane with real input hits this.
+
+**Two probe mistakes, both of which looked like the feature being broken:**
+
+- `contentHeight / 2` is not the middle of the first line. A one-line document
+  is two blocks tall, so that lands *below* the text and finds no link. The
+  document's own layout says where the line is -
+  `documentLayout()->blockBoundingRect(firstBlock())`.
+- The "no link here" assertion has to be **on the same line** as the link.
+  Anywhere else it passes for the duller reason that there is no text there,
+  which is the fixture answering rather than the code.
+
+Controls, all four biting on their own test: removing the floor from
+`zoomedFont`; pushing the base font instead of the zoomed one, so the zoom is
+remembered but never drawn; dropping `acceptedModifiers` from the
+`WheelHandler`, so a plain scroll resizes the log; and a parser that writes no
+link, which is what proves the link assertion is about the anchor and not about
+the probe.
+
+The view is now complete enough for a pane to use. What is left is the seam:
+`Core` does not link `QtcQuick`, so it cannot construct an `OutputView` - the
+next batch is a factory in `Core` that a higher plugin installs, the same shape
+as `Core::setAspectFormFactory`.

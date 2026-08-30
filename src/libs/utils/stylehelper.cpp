@@ -811,6 +811,13 @@ int StyleHelper::uiFontLineHeight(UiElement element)
     return qCeil(fontInfo.pixelSize() * lineHeightToPixelSizeRatio);
 }
 
+QFont StyleHelper::zoomedFont(const QFont &font, float zoom)
+{
+    QFont zoomed = font;
+    zoomed.setPointSizeF(qMax(float(font.pointSizeF()) + zoom, minimumZoomedFontSize));
+    return zoomed;
+}
+
 QString StyleHelper::fontToCssProperties(const QFont &font)
 {
     const QString fontSize = font.pixelSize() != -1 ? QString::number(font.pixelSize()) + "px"

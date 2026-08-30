@@ -176,6 +176,18 @@ QTCREATOR_UTILS_EXPORT QFont uiFont(UiElement element);
 QTCREATOR_UTILS_EXPORT int uiFontLineHeight(UiElement element);
 QTCREATOR_UTILS_EXPORT QString fontToCssProperties(const QFont &font);
 
+// The smallest an output view may be zoomed down to.
+constexpr float minimumZoomedFontSize = 4.0f;
+
+// \a font read at \a zoom, which is a number of points added to its size
+// rather than a percentage of it. Zooming out stops at
+// minimumZoomedFontSize instead of reaching zero and vanishing.
+//
+// Shared because a pane hands one view's zoom to its other views - see
+// AppOutputPane - so they have to mean the same thing by it, and one of them
+// is now a Qt Quick view that cannot reach the widget's copy of this.
+QTCREATOR_UTILS_EXPORT QFont zoomedFont(const QFont &font, float zoom);
+
 // Derives and stores the base color; returns whether it changed.
 // setBaseColor() in stylehelperpainting.h also repaints all widgets.
 QTCREATOR_UTILS_EXPORT bool storeBaseColor(const QColor &color);

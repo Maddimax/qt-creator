@@ -8,28 +8,54 @@ import QtQuick
 import QtQuick.Controls
 
 // What a pane's output looks like. The text itself is a document handed over
-// from C++ - see QtcQuick::OutputView - so nothing here holds or formats it.
+// from C++ - see QtcQuick::OutputView - so nothing here holds or formats it,
+// and neither the zoom arithmetic nor what a link means lives here either.
 Item {
     id: root
 
-    // The font the output is read in. A pane sets it, and its zoom is applied
-    // to it before it arrives.
+    // The font before the zoom. QtcQuick::OutputView reads this to learn the
+    // size a zoom of 0 means, and writes effectiveFont.
     property font baseFont: Fonts.body1
+
+    // The font to read the output in, base plus zoom. Written from C++.
+    property font effectiveFont: root.baseFont
+
+    property bool wheelZoomEnabled: true
+
+    signal linkActivated(string href)
+    // One notch of Ctrl+wheel, in points. What that comes to is C++'s
+    // decision, because the widget output window has to agree with it.
+    signal zoomRequested(real delta)
 
     ScrollView {
         anchors.fill: parent
         clip: true
 
         TextArea {
+            id: area
             objectName: "outputText"
 
             readOnly: true
             // Selectable, because copying a compiler error out of the pane is
             // half of what the pane is for.
             selectByMouse: true
-            font: root.baseFont
+            font: root.effectiveFont
             wrapMode: TextArea.NoWrap
             background: null
+            padding: 0
+
+            onLinkActivated: (link) => root.linkActivated(link)
+
+            HoverHandler {
+                cursorShape: area.hoveredLink.length > 0 ? Qt.PointingHandCursor
+                                                         : Qt.IBeamCursor
+            }
+
+            WheelHandler {
+                enabled: root.wheelZoomEnabled
+                acceptedModifiers: Qt.ControlModifier
+                onWheel: (event) => root.zoomRequested(event.angleDelta.y / 120)
+            }
         }
     }
 }

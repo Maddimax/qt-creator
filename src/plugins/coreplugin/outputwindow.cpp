@@ -16,6 +16,7 @@
 #include <utils/algorithm.h>
 #include <utils/fileutils.h>
 #include <utils/outputformatter.h>
+#include <utils/stylehelper.h>
 #include <utils/qtcassert.h>
 #include <utils/theme/theme.h>
 
@@ -327,7 +328,7 @@ void OutputWindow::wheelEvent(QWheelEvent *e)
 
             // Workaround for QTCREATORBUG-22721, remove when properly fixed in Qt
             const float newSize = float(font().pointSizeF()) + delta;
-            if (delta < 0.f && newSize < 4.f)
+            if (delta < 0.f && newSize < Utils::StyleHelper::minimumZoomedFontSize)
                 return;
 
             zoomInF(delta);
@@ -393,12 +394,9 @@ void OutputWindow::contextMenuEvent(QContextMenuEvent *event)
 
 void OutputWindow::setBaseFont(const QFont &newFont)
 {
-    float zoom = fontZoom();
+    const float zoom = fontZoom();
     d->originalFontSize = newFont.pointSizeF();
-    QFont tmp = newFont;
-    float newZoom = qMax(d->originalFontSize + zoom, 4.0f);
-    tmp.setPointSizeF(newZoom);
-    setFont(tmp);
+    setFont(Utils::StyleHelper::zoomedFont(newFont, zoom));
 }
 
 float OutputWindow::fontZoom() const
@@ -411,9 +409,8 @@ void OutputWindow::setFontZoom(float zoom)
     QFont f = font();
     if (f.pointSizeF() == d->originalFontSize + zoom)
         return;
-    float newZoom = qMax(d->originalFontSize + zoom, 4.0f);
-    f.setPointSizeF(newZoom);
-    setFont(f);
+    f.setPointSizeF(d->originalFontSize);
+    setFont(Utils::StyleHelper::zoomedFont(f, zoom));
 }
 
 void OutputWindow::setWheelZoomEnabled(bool enabled)
