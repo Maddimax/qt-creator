@@ -40,6 +40,17 @@ public:
 
     // IOutputPane
     QWidget *outputWidget(QWidget *) override;
+
+    // Which task the pane is on, and the one it moves to. The walk used to
+    // read and write the view's current index, so nothing could say where the
+    // list was, or move it, without one.
+    int currentRow() const;
+    void setCurrentRow(int row);
+
+signals:
+    void currentRowChanged();
+
+public:
     QList<QWidget *> toolBarWidgets() const override;
 
     void clearContents() override;

@@ -8,6 +8,8 @@
 #include <QIcon>
 #include <QRegularExpression>
 
+#include "projectexplorer_export.h"
+
 #include "task.h"
 #include "taskhub.h"
 
@@ -48,6 +50,11 @@ public:
     void setFileNotFound(const QModelIndex &index, bool b);
 
     enum Roles { Description = Qt::UserRole, Type};
+
+    // A Qt Quick view reads its roles by name, and the ones a task is drawn
+    // from - its icon, its summary, the description under it and what kind of
+    // task it is - have no names by default.
+    QHash<int, QByteArray> roleNames() const override;
 
     int taskCount(Utils::Id categoryId);
     int errorTaskCount(Utils::Id categoryId);
@@ -103,6 +110,14 @@ private:
     int m_lastMaxSizeIndex = 0;
     int m_sizeOfLineNumber = 0;
 };
+
+// Where a walk of \a filter lands from \a startRow, stepping by \a offset:
+// tasks with no file to open are skipped, unless none of them has one, and it
+// wraps at both ends. A free function because it is arithmetic over a model -
+// it used to read and write a tree view's current index, so nothing could ask
+// it anything without drawing one.
+PROJECTEXPLORER_EXPORT int taskRowAfter(const class TaskFilterModel *filter,
+                                        int startRow, int offset);
 
 class TaskFilterModel : public QSortFilterProxyModel
 {

@@ -4,6 +4,9 @@
 #include "projectpanelfactory.h"
 
 #include "customparser.h"
+#include "taskmodel.h"
+#include "taskwindow.h"
+#include "taskhub.h"
 #include "environmentaspect.h"
 
 #include "project.h"
@@ -20,6 +23,7 @@
 #ifdef WITH_TESTS
 #include <QQmlError>
 #include <QScopeGuard>
+#include <QSignalSpy>
 #include <QTest>
 #endif
 
@@ -306,6 +310,60 @@ private slots:
         // And the summary the collapsed list shows follows.
         QVERIFY2(aspect.labelText().contains("2"),
                  qPrintable("the summary says: " + aspect.labelText()));
+    }
+
+    // Walking the Issues pane read and wrote a tree view's current index, so
+    // nothing could ask where the next task was without drawing one - and a
+    // second TaskWindow cannot be built to ask, because its actions belong to
+    // the plugin that made the first. The walk is arithmetic over the model
+    // now, which needs neither.
+    void testTheIssuesWalkSkipsTasksWithNoFile()
+    {
+        const Utils::Id category("Test.Issues.Category");
+        Internal::TaskModel model(nullptr);
+        // The model refuses a task whose category it has not been told about.
+        model.addCategory({category, "Test", "Issues walk test", true});
+        Internal::TaskFilterModel filter(&model);
+
+        // Two with a file to open and one without, in that order.
+        model.addTask(Task(Task::Error, "first",
+                           Utils::FilePath::fromString("/nonexistent/a.cpp"), 1, category));
+        model.addTask(Task(Task::Warning, "no file", {}, -1, category));
+        model.addTask(Task(Task::Error, "third",
+                           Utils::FilePath::fromString("/nonexistent/b.cpp"), 3, category));
+        QCOMPARE(filter.rowCount(), 3);
+
+        // From nowhere, the walk starts at the top.
+        QCOMPARE(Internal::taskRowAfter(&filter, -1, 1), 0);
+
+        // Forwards from the first, the one with no file is stepped over, and
+        // it wraps at both ends.
+        QCOMPARE(Internal::taskRowAfter(&filter, 0, 1), 2);
+        QCOMPARE(Internal::taskRowAfter(&filter, 2, 1), 0);
+        QCOMPARE(Internal::taskRowAfter(&filter, 2, -1), 0);
+        QCOMPARE(Internal::taskRowAfter(&filter, 0, -1), 2);
+
+        // An empty list has nowhere to go.
+        Internal::TaskModel empty(nullptr);
+        empty.addCategory({category, "Test", "Issues walk test", true});
+        Internal::TaskFilterModel emptyFilter(&empty);
+        QCOMPARE(Internal::taskRowAfter(&emptyFilter, -1, 1), -1);
+
+        // Where nothing has a file, nothing is skipped.
+        Internal::TaskModel noFiles(nullptr);
+        noFiles.addCategory({category, "Test", "Issues walk test", true});
+        Internal::TaskFilterModel noFilesFilter(&noFiles);
+        noFiles.addTask(Task(Task::Warning, "one", {}, -1, category));
+        noFiles.addTask(Task(Task::Warning, "two", {}, -1, category));
+        QCOMPARE(Internal::taskRowAfter(&noFilesFilter, 0, 1), 1);
+
+        // And the model can be read by name, or a Qt Quick list draws nothing.
+        const QList<QByteArray> names = model.roleNames().values();
+        for (const QByteArray &role : {QByteArray("display"), QByteArray("decoration"),
+                                       QByteArray("description"), QByteArray("taskType")}) {
+            QVERIFY2(names.contains(role),
+                     qPrintable("the task model does not answer " + QString::fromLatin1(role)));
+        }
     }
 
     void testTheEnvironmentPanelKeepsItsTwoSurfacesInStep()

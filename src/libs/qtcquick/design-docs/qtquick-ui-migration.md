@@ -17506,3 +17506,36 @@ means something.
 returns false on the pane's `QuickWidget` even though it is visible, sized and
 has a window handle, and the `TableView` populates regardless. Waiting on the
 row count instead is both the honest signal and 5 seconds faster.
+
+### Issues is two batches, and this is the first
+
+The Issues pane (`TaskWindow`, 712 lines) is the most-used of the thirteen and
+the next after To-Do, but it does not fit in one batch, for reasons worth
+recording before starting the second:
+
+- Its model is a **tree**, not a flat table: a task row carries an icon, a
+  summary and a `file:line` column, and may have a child row holding the
+  description as HTML with links. The widget draws that with a `TaskDelegate`
+  that renders a `QTextDocument` for rows needing "special handling".
+- It supports **extended selection**, because the task handlers in its context
+  menu act on every selected task, not on the current one.
+- Its context menu is `Qt::ActionsContextMenu` over actions registered in a
+  Core context.
+
+So this batch is the state, and the QML follows in the next.
+
+**A second `TaskWindow` cannot be built to test against.** It crashes in
+`addTask()` on a null `QAction`: the actions belong to the plugin that made the
+first one. That is what pushed the walk out of the class entirely - it is
+`Internal::taskRowAfter(filter, startRow, offset)` now, arithmetic over the
+model, testable with a `TaskModel` and a `TaskFilterModel` and nothing else.
+The pane asks it where to go and keeps `currentRow` itself.
+
+That is the same lesson as the aspects: **extract the computation, leave the
+policy**. Here the view was not even the obstacle - the *pane* was, because it
+cannot exist twice.
+
+Two smaller things the tests needed: `TaskModel::addTask()` asserts the task's
+category has been registered on that model with `addCategory()`, and a pane
+fills from what `TaskHub` reports *while it exists*, so tasks added before one
+is built never reach it.

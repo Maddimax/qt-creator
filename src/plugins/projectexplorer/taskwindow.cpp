@@ -502,36 +502,25 @@ void TaskWindow::goToPrev()
 
 void TaskWindow::goToNextOrPrev(int offset)
 {
-    QModelIndex startIndex = d->m_treeView.currentIndex();
-    QModelIndex currentIndex = startIndex;
-    QModelIndex actualNeighbor;
+    const int row = taskRowAfter(d->m_filter, currentRow(), offset);
+    if (row < 0)
+        return;
+    setCurrentRow(row);
+    triggerDefaultHandler(d->m_filter->index(row, 0));
+}
 
-    if (startIndex.isValid()) {
-        do {
-            int row = currentIndex.row() + offset;
-            if (row == d->m_filter->rowCount())
-                row = 0;
-            else if (row < 0)
-                row = d->m_filter->rowCount() - 1;
-            currentIndex = d->m_filter->index(row, 0);
-            if (!actualNeighbor.isValid())
-                actualNeighbor = currentIndex;
-            if (d->m_filter->hasFile(currentIndex))
-                break;
-        } while (startIndex != currentIndex);
-    } else {
-        currentIndex = d->m_filter->index(0, 0);
-    }
+int TaskWindow::currentRow() const
+{
+    const QModelIndex current = d->m_treeView.currentIndex();
+    return current.isValid() && !current.parent().isValid() ? current.row() : -1;
+}
 
-    // We only consider elements with files, except if there are none at all, in which case
-    // we don't skip anything.
-    if (currentIndex == startIndex && actualNeighbor.isValid()
-        && !d->m_filter->hasFile(currentIndex)) {
-        currentIndex = actualNeighbor;
-    }
-
-    d->m_treeView.setCurrentIndex(currentIndex);
-    triggerDefaultHandler(currentIndex);
+void TaskWindow::setCurrentRow(int row)
+{
+    if (row < 0 || row >= d->m_filter->rowCount())
+        return;
+    d->m_treeView.setCurrentIndex(d->m_filter->index(row, 0));
+    emit currentRowChanged();
 }
 
 void TaskWindow::updateFilter()

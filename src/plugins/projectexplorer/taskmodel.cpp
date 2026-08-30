@@ -12,6 +12,7 @@
 #include <QFontMetrics>
 
 #include <algorithm>
+#include <utils/aspectpresentation.h>
 
 using namespace Utils;
 
@@ -230,6 +231,15 @@ int TaskModel::columnCount(const QModelIndex &parent) const
     return parent.isValid() ? 1 : 2;
 }
 
+QHash<int, QByteArray> TaskModel::roleNames() const
+{
+    QHash<int, QByteArray> names = Utils::AspectTable::withRoleNames(
+        QAbstractItemModel::roleNames());
+    names.insert(Description, "description");
+    names.insert(Type, "taskType");
+    return names;
+}
+
 QVariant TaskModel::data(const QModelIndex &index, int role) const
 {
     if (!index.isValid() || index.row() < 0 || index.row() >= rowCount(index.parent())
@@ -436,6 +446,35 @@ bool TaskFilterModel::filterAcceptsTask(const Task &task) const
     }
 
     return accept;
+}
+
+int taskRowAfter(const TaskFilterModel *filter, int startRow, int offset)
+{
+    const int count = filter->rowCount();
+    if (count == 0)
+        return -1;
+    if (startRow < 0)
+        return 0;
+
+    int row = startRow;
+    int neighbour = -1;
+    do {
+        row += offset;
+        if (row == count)
+            row = 0;
+        else if (row < 0)
+            row = count - 1;
+        if (neighbour < 0)
+            neighbour = row;
+        if (filter->hasFile(filter->index(row, 0)))
+            break;
+    } while (row != startRow);
+
+    // Only tasks with files are considered, except where none has one, in
+    // which case nothing is skipped.
+    if (row == startRow && neighbour >= 0 && !filter->hasFile(filter->index(row, 0)))
+        row = neighbour;
+    return row;
 }
 
 } // namespace ProjectExplorer::Internal
