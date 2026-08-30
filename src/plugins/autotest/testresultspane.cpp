@@ -48,6 +48,11 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 
+#ifdef WITH_TESTS
+#include <QStandardItemModel>
+#include <QTest>
+#endif
+
 using namespace Core;
 using namespace Utils;
 
@@ -849,27 +854,61 @@ struct ExpandedRows
     QList<ExpandedRows> childRows;
 };
 
-static QList<ExpandedRows> collectExpanded(TestResultFilterModel *model, ResultsTreeView *view,
-                                           const QModelIndex &parent)
+// Which rows are open, and putting them back. Asked of whatever can answer for
+// a view rather than of a view: the model under this one is replaced wholesale
+// when buffered results are merged in, and a reader who had opened a failure to
+// read it should still be looking at it afterwards.
+//
+// A widget tree view answers these directly; a Qt Quick one answers through the
+// pane holding it, which is the only thing that knows how a tree is laid out in
+// rows.
+QList<ExpandedRows> collectExpanded(const QAbstractItemModel *model,
+                                    const std::function<bool(const QModelIndex &)> &isExpanded,
+                                    const QModelIndex &parent)
 {
     QList<ExpandedRows> result;
     const int rowsEnd = model->rowCount(parent);
     for (int row = 0; row < rowsEnd; ++row) {
         const QModelIndex child = model->index(row, 0, parent);
-        if (view->isExpanded(child))
-            result.append({row, collectExpanded(model, view, child)});
+        if (isExpanded(child))
+            result.append({row, collectExpanded(model, isExpanded, child)});
     }
     return result;
 }
 
-static void reexpand(TestResultFilterModel *model, ResultsTreeView *view,
-                     const QList<ExpandedRows> &expanded, const QModelIndex &parent)
+void reexpand(const QAbstractItemModel *model,
+              const std::function<void(const QModelIndex &)> &expand,
+              const QList<ExpandedRows> &expanded, const QModelIndex &parent)
 {
     for (const ExpandedRows &exp : expanded) {
-        const QModelIndex &child = model->index(exp.row, 0, parent);
-        view->expand(child);
-        reexpand(model, view, exp.childRows, child);
+        const QModelIndex child = model->index(exp.row, 0, parent);
+        expand(child);
+        reexpand(model, expand, exp.childRows, child);
     }
+}
+
+// Where an index is, as the rows to walk from the root - which survives the
+// model being replaced, as an index does not.
+QList<int> rowPath(const QModelIndex &index)
+{
+    QList<int> path;
+    for (QModelIndex idx = index; idx.isValid(); idx = idx.parent())
+        path.prepend(idx.row());
+    return path;
+}
+
+// And back again, in whatever model is there now. Invalid where the tree no
+// longer goes that deep: what the reader had selected may simply not be there
+// any more.
+QModelIndex indexAtPath(const QAbstractItemModel *model, const QList<int> &path)
+{
+    QModelIndex index;
+    for (const int row : path) {
+        if (row < 0 || row >= model->rowCount(index))
+            return {};
+        index = model->index(row, 0, index);
+    }
+    return index;
 }
 
 using CopyAndAddResult = Result<std::unique_ptr<TestResultItem>>;
@@ -911,16 +950,14 @@ void TestResultsPane::handlePendingResultsSilently()
             return;
 
         // collect current model's expansion, selection and position
-        const QList<ExpandedRows> origExpanded = collectExpanded(m_filterModel, m_treeView, {});
+        const auto isExpanded = [this](const QModelIndex &index) {
+            return m_treeView->isExpanded(index);
+        };
+        const QList<ExpandedRows> origExpanded = collectExpanded(m_filterModel, isExpanded, {});
         QList<int> selectedRows;
         const QModelIndexList itemSelection = m_treeView->selectionModel()->selectedIndexes();
-        if (itemSelection.size() == 1) {
-            QModelIndex idx = itemSelection.first();
-            do {
-                selectedRows.prepend(idx.row());
-                idx = idx.parent();
-            } while (idx.isValid());
-        }
+        if (itemSelection.size() == 1)
+            selectedRows = rowPath(itemSelection.first());
         int value = -1;
         if (auto sb = m_treeView->verticalScrollBar())
             value = sb->value();
@@ -929,12 +966,12 @@ void TestResultsPane::handlePendingResultsSilently()
         m_model->setRootItem(newRoot->release());
 
         // restore expansion, selection and position, ignore expansion of items added silently
-        reexpand(m_filterModel, m_treeView, origExpanded, {});
+        const auto expand = [this](const QModelIndex &index) { m_treeView->expand(index); };
+        reexpand(m_filterModel, expand, origExpanded, {});
         if (!selectedRows.isEmpty()) {
-            QModelIndex idx;
-            for (int row : std::as_const(selectedRows))
-                idx = m_filterModel->index(row, 0, idx);
-            m_treeView->selectionModel()->select(idx, QItemSelectionModel::Select);
+            const QModelIndex idx = indexAtPath(m_filterModel, selectedRows);
+            if (idx.isValid())
+                m_treeView->selectionModel()->select(idx, QItemSelectionModel::Select);
         }
         if (value != -1)
             m_treeView->verticalScrollBar()->setValue(value);
@@ -945,4 +982,101 @@ void TestResultsPane::handlePendingResultsSilently()
     m_pendingRunner.start({AsyncTask<CopyAndAddResult>{onSetup, onDone}});
 }
 
+#ifdef WITH_TESTS
+
+class TestResultsTreeStateTest final : public QObject
+{
+    Q_OBJECT
+
+private:
+    // Three parents, each with two children.
+    static void fill(QStandardItemModel &model)
+    {
+        for (int i = 0; i < 3; ++i) {
+            auto * const parent = new QStandardItem(QString("parent %1").arg(i));
+            for (int j = 0; j < 2; ++j)
+                parent->appendRow(new QStandardItem(QString("child %1.%2").arg(i).arg(j)));
+            model.appendRow(parent);
+        }
+    }
+
+private slots:
+    void testRememberingWhichRowsWereOpen()
+    {
+        QStandardItemModel model;
+        fill(model);
+
+        // Nothing open: nothing to put back.
+        const auto nothingOpen = [](const QModelIndex &) { return false; };
+        QVERIFY(collectExpanded(&model, nothingOpen, {}).isEmpty());
+
+        // The first parent open, and the second child of the third.
+        const QModelIndex first = model.index(0, 0);
+        const QModelIndex thirdChild = model.index(1, 0, model.index(2, 0));
+        const auto someOpen = [&](const QModelIndex &index) {
+            return index == first || index == model.index(2, 0) || index == thirdChild;
+        };
+
+        const QList<ExpandedRows> open = collectExpanded(&model, someOpen, {});
+        QCOMPARE(open.size(), 2);
+        QCOMPARE(open.first().row, 0);
+        QVERIFY2(open.first().childRows.isEmpty(),
+                 "a closed child was remembered as open");
+        QCOMPARE(open.last().row, 2);
+        QCOMPARE(open.last().childRows.size(), 1);
+        QCOMPARE(open.last().childRows.first().row, 1);
+
+        // And putting it back opens exactly those again - in a *different*
+        // model, which is the point: the one it was read from is replaced.
+        QStandardItemModel replacement;
+        fill(replacement);
+
+        QList<QModelIndex> opened;
+        reexpand(&replacement, [&](const QModelIndex &index) { opened << index; }, open, {});
+        QCOMPARE(opened.size(), 3);
+        QCOMPARE(opened.at(0), replacement.index(0, 0));
+        QCOMPARE(opened.at(1), replacement.index(2, 0));
+        QCOMPARE(opened.at(2), replacement.index(1, 0, replacement.index(2, 0)));
+    }
+
+    void testFindingARowAgainAfterTheModelIsReplaced()
+    {
+        QStandardItemModel model;
+        fill(model);
+
+        const QModelIndex child = model.index(1, 0, model.index(2, 0));
+        QCOMPARE(rowPath(child), QList<int>({2, 1}));
+        QCOMPARE(rowPath({}), QList<int>());
+
+        QStandardItemModel replacement;
+        fill(replacement);
+        QCOMPARE(indexAtPath(&replacement, {2, 1}), replacement.index(1, 0, replacement.index(2, 0)));
+
+        // A path the new tree does not go down is not a row: what the reader
+        // had selected may simply not be there any more, and answering with
+        // some other row would put them somewhere they never chose.
+        QVERIFY(!indexAtPath(&replacement, {2, 9}).isValid());
+        QVERIFY(!indexAtPath(&replacement, {7}).isValid());
+        QVERIFY(!indexAtPath(&replacement, {2, 1, 0}).isValid());
+
+        // And it stops at the first step it cannot take. Walking on from an
+        // invalid index starts again at the top of the tree, so a path that
+        // runs off the end would come back as some unrelated row - and the
+        // reader would be moved somewhere they never chose.
+        QVERIFY2(!indexAtPath(&replacement, {2, 9, 0}).isValid(),
+                 "a path that ran off the tree came back as a row near the top");
+    }
+};
+
+QObject *createTestResultsTreeStateTest()
+{
+    return new TestResultsTreeStateTest;
+}
+
+#endif // WITH_TESTS
+
 } // namespace Autotest::Internal
+
+#ifdef WITH_TESTS
+#include "testresultspane.moc"
+#endif

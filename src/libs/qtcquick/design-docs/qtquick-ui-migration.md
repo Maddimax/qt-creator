@@ -18961,3 +18961,36 @@ assertion with the setting off, and both bite.
 **The fifth control is the placement one**, and it is worth naming: asserting
 the text of each part of a row passes with every part drawn on top of every
 other. Asserting that each starts where the last one ended is what catches it.
+
+### What the reader had, kept across a model being replaced
+
+The last view-dependent decision in the Test Results pane, and the one that
+would have been hardest to port by eye. When buffered results are merged in,
+the model's whole root item is swapped, and the pane puts back what the reader
+had: which rows were open, which one was selected, where the scroll bar was.
+
+`collectExpanded()` and `reexpand()` needed a view for two things -
+`isExpanded()` and `expand()` - so they take those as functions now. A widget
+tree view answers them directly; a Qt Quick one will answer through the pane,
+which is the only thing that knows how a tree is laid out in rows. The
+selection came out with them as `rowPath()` and `indexAtPath()`: a path of rows
+from the root survives the model being replaced, and a `QModelIndex` does not.
+
+**A control that did not bite, and what it found.** Removing the bounds check
+from `indexAtPath()` changed nothing, because `QAbstractItemModel::index()`
+already answers an invalid index for a row that is not there. Two guards. But
+working out *why* found a real hazard the test had not covered: walking on from
+an invalid index starts again at the top of the tree, so a path of three that
+fails at the second step comes back as a row near the top - and the reader
+would be moved somewhere they never chose. With that case asserted, the control
+bites.
+
+That is the third time in this work that a control failing to bite has been
+worth more than one that bit. It is not evidence the code is fine; it is a
+question about why, and the answer has twice now been an untested case.
+
+The Test Results pane has everything it needs: the model names its rows, the
+row is drawn in QML, `ItemViewFind` searches without a widget, and the tree
+state is kept without one. What is left is the rewiring itself - the selection
+model, the context menu, the toolbar buttons, auto-scroll - and it is
+mechanical.

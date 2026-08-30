@@ -571,6 +571,7 @@ public:
         addTestCreator(createAutotestUnitTests);
         addTestCreator(createTestSettingsTest);
         addTestCreator(createTestResultModelTest);
+        addTestCreator(createTestResultsTreeStateTest);
 #endif
     }
 

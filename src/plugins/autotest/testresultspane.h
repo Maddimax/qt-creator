@@ -149,5 +149,9 @@ private:
     QtTaskTree::QSingleTaskTreeRunner m_pendingRunner;
 };
 
+#ifdef WITH_TESTS
+QObject *createTestResultsTreeStateTest();
+#endif
+
 } // namespace Internal
 } // namespace Autotest
