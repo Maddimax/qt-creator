@@ -20360,3 +20360,53 @@ edit.
 work - each needs a model and a delegate rather than a form - and the ones the
 classifier never saw because they are declared in headers. Either is a new
 piece of scoping rather than a port.
+
+## 2026-08-30 — The other 87 dialogs, and a validator that also rewrote
+
+**The census had a hole and this closes it.** The shape classification only
+ever looked at dialogs declared *inline in a .cpp* - 67 of the 154. The other
+87 are declared in headers and had never been looked at. Outside QmlDesigner
+there are 63 of them:
+
+| | count |
+|---|---|
+| already drawn with QML | 13 |
+| holds an item view or a text editor | 37 |
+| form-shaped, not yet ported | **13** |
+
+Two of the thirteen are in ImageViewer, which has no QML module. So eleven are
+reachable with what exists, and the honest total across both halves of the
+census is about two dozen form-shaped dialogs left.
+
+**`BranchAddDialog` is the one done here, and its `QValidator` did two jobs.**
+`BranchNameValidator::validate()` *rewrote* the input - every character git
+refuses became `_`, which the reader watches happen as they type - and *judged*
+it, keeping the reason in a `mutable` member that `updateButtonStatus()` then
+fished out through a `static_cast` on `QLineEdit::validator()`. Three
+separable things in one widget hook.
+
+Now `sanitisedReferenceName()`, `referenceNameIssue()` and
+`isAcceptableReferenceName()`. The validator stays, thinner, because the branch
+*tree* edits names through an item delegate and an item view's editor takes a
+`QValidator`; it calls the same three functions, so the dialog and the tree
+cannot disagree.
+
+**The distinction the third function exists for:** an empty name draws no
+complaint - nothing has been typed yet - but is not usable. Collapsing "no
+issue" and "acceptable" into one answer is the obvious simplification and it
+enables OK on an empty field. Control A makes exactly that mistake and the test
+catches it.
+
+Negative controls: an empty name accepted because it draws no complaint; a name
+that is already taken accepted; what git refuses left in the name rather than
+replaced; and a branch offered a tag's annotation. All four bit.
+
+QuickUi 182 passed / 0 failed / 1 skipped, exit 0. Git exit 0,
+`BranchAddDialogTest` 6 passed. `Git_qmllint` clean. No `.qbs` edit.
+
+**Next:** eleven form-shaped dialogs remain reachable, `SymbolPathsDialog`
+(Debugger) and `SessionNameInputDialog` (Core) among the smallest. The 37 that
+hold a view are the larger question and still unscoped: some are the
+table-with-buttons shape that is already solved (`EnvVarSeparatorsDialog` was
+one), and telling those apart from the ones needing a new component is the next
+piece of scoping worth doing.

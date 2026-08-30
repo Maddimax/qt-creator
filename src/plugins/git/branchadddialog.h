@@ -4,6 +4,8 @@
 #pragma once
 
 #include <QDialog>
+
+#include <memory>
 #include <QItemDelegate>
 
 QT_BEGIN_NAMESPACE
@@ -14,6 +16,22 @@ QT_END_NAMESPACE
 
 namespace Git::Internal {
 
+// A reference name with everything git refuses replaced by an underscore. The
+// widget validator did this to the text as it was typed, so the reader saw a
+// space turn into "_" - that is kept, and is why this is separate from the
+// judgement below.
+QString sanitisedReferenceName(const QString &name);
+
+// What is wrong with \a name as a new reference, given the \a existing ones,
+// or nothing when there is nothing to say. Empty gets no complaint: nothing
+// has been typed yet.
+QString referenceNameIssue(const QString &name, const QStringList &existing);
+
+// Whether it can be used. Not the same as having no complaint - an empty name
+// has none and is still not a name.
+bool isAcceptableReferenceName(const QString &name, const QStringList &existing);
+
+class BranchAddSettings;
 class BranchModel;
 
 class BranchValidationDelegate : public QItemDelegate
@@ -53,13 +71,12 @@ public:
     bool checkout() const;
 
 private:
-    void updateButtonStatus();
-
-    QLineEdit *m_branchNameEdit = nullptr;
-    QCheckBox *m_checkoutCheckBox = nullptr;
-    QCheckBox *m_trackingCheckBox = nullptr;
-    QLineEdit *m_annotateEdit = nullptr;
-    QDialogButtonBox *m_buttonBox = nullptr;
+    const std::unique_ptr<BranchAddSettings> m_settings;
+    QDialogButtonBox * const m_buttonBox;
 };
+
+#ifdef WITH_TESTS
+QObject *createBranchAddDialogTest();
+#endif
 
 } // Git::Internal

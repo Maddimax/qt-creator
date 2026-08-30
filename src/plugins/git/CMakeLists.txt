@@ -55,6 +55,7 @@ if(TARGET Git)
     NO_PLUGIN
     QML_FILES
       BranchCheckoutDialog.qml
+      BranchAddDialog.qml
       GitSettingsPage.qml
       gerrit/GerritSettingsPage.qml
   )
