@@ -12,7 +12,10 @@
 
 #include <coreplugin/icore.h>
 
+#include <qtcquick/aspectcontainermodel.h>
+
 #ifdef WITH_TESTS
+#include <QScopeGuard>
 #include <QTest>
 #endif
 
@@ -124,6 +127,84 @@ int initialKitChoice(const QList<KitChoice> &choices, Utils::Id lastChosen)
     // Nothing chosen before: the active project's kit if it is offered, and
     // otherwise the first thing there is.
     return 0;
+}
+
+KitChooserAspect::KitChooserAspect(AspectContainer *container)
+    : AspectContainer(container)
+{
+    // One row: the choice, then the way to the kit settings.
+    setInlineRow(true);
+
+    kit.setQmlName("Kit");
+    kit.setLabelText(Tr::tr("Kit:"));
+    kit.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
+
+    manage.setQmlName("ManageKits");
+    manage.setActionText(KitAspect::msgManage());
+    manage.setAction([] { Core::ICore::showSettings(Constants::KITS_SETTINGS_PAGE_ID); });
+
+    connect(KitManager::instance(), &KitManager::kitsChanged, this, [this] { populate(); });
+    populate();
+}
+
+void KitChooserAspect::setKitPredicate(const Kit::Predicate &predicate)
+{
+    m_kitPredicate = predicate;
+    populate();
+}
+
+void KitChooserAspect::populate()
+{
+    m_choices = kitChoices(KitManager::sortedKits(), activeKitForActiveProject(), m_kitPredicate);
+    m_hasStartupKit = !m_choices.isEmpty() && m_choices.first().isActiveProjectKit;
+
+    kit.clearOptions();
+    for (const KitChoice &choice : std::as_const(m_choices))
+        kit.addOption({choice.displayName, choice.toolTip, choice.kitId.toSetting()});
+
+    const Id lastKit = Id::fromSetting(Core::ICore::settings()->value(lastKitKey));
+    kit.setValue(qMax(0, initialKitChoice(m_choices, lastKit)));
+
+    // Nothing to choose between is nothing to choose.
+    kit.setEnabled(m_choices.size() > 1);
+}
+
+Id KitChooserAspect::currentKitId() const
+{
+    const int index = kit.value();
+    return index >= 0 && index < m_choices.size() ? m_choices.at(index).kitId : Id();
+}
+
+Kit *KitChooserAspect::currentKit() const
+{
+    return KitManager::kit(currentKitId());
+}
+
+void KitChooserAspect::setCurrentKitId(Id id)
+{
+    for (int i = 0; i < m_choices.size(); ++i) {
+        // Never the active project's entry: it stands for the project, not for
+        // the kit it currently has.
+        if (!m_choices.at(i).isActiveProjectKit && m_choices.at(i).kitId == id) {
+            kit.setValue(i);
+            return;
+        }
+    }
+}
+
+void KitChooserAspect::rememberChoice()
+{
+    const Id id = rememberedKitId(m_choices, kit.value());
+    Core::ICore::settings()->setValueWithDefault(lastKitKey, id.toSetting(), Id().toSetting());
+}
+
+Id rememberedKitId(const QList<KitChoice> &choices, int index)
+{
+    if (index < 0 || index >= choices.size())
+        return {};
+    // The active project's entry stands for the project, not for the kit it
+    // currently has, so there is no kit id to remember for it.
+    return choices.at(index).isActiveProjectKit ? Id() : choices.at(index).kitId;
 }
 
 void KitChooser::populate()
@@ -255,6 +336,122 @@ private slots:
         QCOMPARE(withActive.size(), 1);
         QVERIFY2(!withActive.first().isActiveProjectKit,
                  "the active project's kit was offered although it was refused");
+    }
+
+    void testTheChooserIsOneRowOnAForm()
+    {
+        // The widget put the combo box and the Manage button in a QHBoxLayout.
+        // On a form that is an inline row, which is the only reason this is a
+        // container rather than a bare SelectionAspect.
+        KitChooserAspect chooser;
+
+        // Asked of the model the renderer reads, not of the presentation:
+        // inlineRow is what the container says, and InlineGroup is what that
+        // is turned into - a delegate is chosen from the second.
+        QCOMPARE(QtcQuick::AspectContainerModel::kindOf(&chooser),
+                 QtcQuick::AspectContainerModel::InlineGroup);
+
+        QCOMPARE(chooser.kit.presentation().control, Utils::AspectControls::ComboBox);
+        QCOMPARE(chooser.manage.presentation().control, Utils::AspectControls::Button);
+    }
+
+    void testWhatTheChooserAnswers()
+    {
+        KitChooserAspect chooser;
+
+        // Whatever kits this instance of Qt Creator has; the chooser is asked
+        // rather than told, so the test works with none as well as with some.
+        const int offered = chooser.kit.optionCount();
+        // Said rather than passed quietly: with no kits the assertions below
+        // hold for the wrong reason, and a green run would claim to have
+        // checked something it did not.
+        if (offered == 0)
+            QSKIP("this Qt Creator has no kits, so the chooser has nothing to answer about");
+
+        // What it answers is the kit behind the row it is on, not the row.
+        QVERIFY(chooser.currentKitId().isValid() || chooser.hasStartupKit());
+
+        // Nothing to choose between is nothing to choose. Made to happen
+        // rather than hoped for: on a machine with several kits the rule and
+        // "always enabled" give the same answer, and the check says nothing.
+        const Id only = chooser.currentKitId();
+        if (only.isValid()) {
+            chooser.setKitPredicate([only](const Kit *k) { return k->id() == only; });
+            QCOMPARE(chooser.kit.optionCount(), 1);
+            QVERIFY2(!chooser.kit.isEnabled(), "a chooser with one entry offered a choice");
+        }
+    }
+
+    void testWhatIsRememberedForWhichEntry()
+    {
+        // Asked of the rule rather than of a running chooser: whether there is
+        // an active project is not something a test can arrange, and the
+        // interesting entry only exists when there is one.
+        const auto kit = makeKit("kit.a", "Desktop");
+        const QList<KitChoice> withActive = kitChoices({kit.get()}, kit.get(), {});
+        QCOMPARE(withActive.size(), 2);
+        QVERIFY(withActive.at(0).isActiveProjectKit);
+
+        QVERIFY2(!rememberedKitId(withActive, 0).isValid(),
+                 "the active project's entry was remembered as the kit it currently has");
+        QCOMPARE(rememberedKitId(withActive, 1), kit->id());
+
+        // Nothing chosen is nothing remembered.
+        QVERIFY(!rememberedKitId(withActive, -1).isValid());
+        QVERIFY(!rememberedKitId({}, 0).isValid());
+    }
+
+    void testWhatIsRememberedAboutTheChoice()
+    {
+        // Written to the running instance's own settings, so what was there is
+        // put back.
+        const QVariant had = Core::ICore::settings()->value(lastKitKey);
+        const QScopeGuard restore([had] {
+            Core::ICore::settings()->setValue(lastKitKey, had);
+        });
+
+        KitChooserAspect chooser;
+        if (chooser.kit.optionCount() == 0)
+            QSKIP("this Qt Creator has no kits, so there is no choice to remember");
+
+        if (chooser.hasStartupKit()) {
+            // The active project's entry is remembered as an invalid id, so
+            // that restoring it follows the project rather than whichever kit
+            // the project had at the time.
+            chooser.kit.setValue(0);
+            chooser.rememberChoice();
+            const Id remembered
+                = Id::fromSetting(Core::ICore::settings()->value(lastKitKey));
+            QVERIFY2(!remembered.isValid(),
+                     "the active project's entry was remembered as the kit it currently has");
+        }
+
+        // An ordinary entry is remembered as itself.
+        const int ordinary = chooser.hasStartupKit() ? 1 : 0;
+        if (ordinary < chooser.kit.optionCount()) {
+            chooser.kit.setValue(ordinary);
+            chooser.rememberChoice();
+            QCOMPARE(Id::fromSetting(Core::ICore::settings()->value(lastKitKey)),
+                     chooser.currentKitId());
+        }
+    }
+
+    void testAskingForAKitThatIsNotOffered()
+    {
+        KitChooserAspect chooser;
+        if (chooser.kit.optionCount() < 2)
+            QSKIP("this Qt Creator has fewer than two kits, so nothing can be moved off");
+
+        // Moved off the entry populate() picked first: asking for a missing
+        // kit while sitting on row 0 cannot tell "left alone" from "reset".
+        chooser.kit.setValue(1);
+        QCOMPARE(chooser.kit.value(), 1);
+
+        // A kit the chooser does not offer leaves the choice alone rather than
+        // clearing it: the caller is restoring a remembered id, and a kit that
+        // has gone should not blank the box.
+        chooser.setCurrentKitId(Id::fromString(QString("kit.that.is.not.there")));
+        QCOMPARE(chooser.kit.value(), 1);
     }
 
     void testWhichEntryItOpensOn()

@@ -20675,3 +20675,46 @@ edit.
 the row. Its behaviour is now pinned by tests, so the aspect can be written
 against them rather than against a widget. After that the nine dialogs are
 routine.
+
+## 2026-08-30 — The Quick kit chooser, and three controls that did not bite
+
+`KitChooserAspect` is the component the nine dialogs need: an
+`AspectContainer` holding a `SelectionAspect` and the way to the kit settings,
+with `setInlineRow(true)` so the two are drawn on one line - which is what the
+widget's `QHBoxLayout` was. It fills itself from `kitChoices()` and opens on
+`initialKitChoice()`, so it and the widget give the same answers by
+construction.
+
+**Three of the four controls did not bite the first time, each for a different
+fixture reason.** That is the batch's real content:
+
+- **"A chooser with one entry offers no choice"** compared against
+  `offered > 1`, so on a machine with several kits the rule and "always
+  enabled" agree and the check says nothing. The test now *makes* the one-kit
+  case with a predicate accepting a single kit.
+- **"Asking for a kit that is gone leaves the choice alone"** sat on row 0,
+  which is the row `populate()` had already picked - so a control that resets
+  to 0 changes nothing. The test moves the selection off row 0 first.
+- **"The active project's entry is remembered as an invalid id"** was inside
+  `if (hasStartupKit())`, and there is no active project in a plugin test, so
+  the whole assertion was skipped in silence. The rule is now
+  `rememberedKitId(choices, index)` and is asked directly - a test cannot
+  conjure an active project, but it can build the choice list that one
+  produces.
+
+The pattern in all three: **an assertion that happens to agree with the code on
+this machine's data.** A control is the only thing that finds them, and the
+fix is always to construct the case rather than to hope for it.
+
+Negative controls, after the fixes: the chooser drawn as a group rather than
+one row; a one-entry chooser still offering a choice; a missing kit resetting
+the box; and the active project's entry remembered as its current kit. All four
+bit.
+
+QuickUi 182 passed / 0 failed / 1 skipped, exit 0. `KitChooserTest` 10 passed;
+`ProjectExplorer` exits 2 on two of its three standing failures. No `.qbs`
+edit.
+
+**Next:** the nine dialogs, which are now routine - `QmlProfilerAttachDialog`
+and `StartRemoteDialog` (Valgrind) are the two smallest. Each is a
+`KitChooserAspect` plus a handful of fields.
