@@ -21172,3 +21172,19 @@ needing a component of their own. Two known gaps carried forward: a Qt Quick
 table cannot be activated by double click ([[qtest-cannot-double-click-quick]]
 is why that is hard to test), and `QnxAttachDebugDialog` still adds its two
 path choosers as widgets.
+
+### Follow-up: extended-remote was remembered but never noticed
+
+`StartApplicationParameters::equals()` compared every field the dialog saves
+except `useTargetExtendedRemote`. Since `run()` appends to the history only
+when the new parameters differ from the last, toggling that box and changing
+nothing else meant the run was never recorded - and the next dialog opened with
+the box back as it was, having written it to the settings and read it back
+unchanged from the older entry.
+
+The tell was reading `equals()` and `toSettings()` next to each other: every
+other line of one has a line in the other. Worth doing wherever a class has
+both, which for these preset-carrying dialogs is all of them.
+
+Negative control: reverting the added clause makes
+`testTwoRunsDifferByEveryFieldThatIsRemembered` fail on exactly that field.

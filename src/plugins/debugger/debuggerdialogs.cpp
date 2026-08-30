@@ -83,6 +83,7 @@ bool StartApplicationParameters::equals(const StartApplicationParameters &rhs) c
         && runnable.workingDirectory == rhs.runnable.workingDirectory
         && breakAtMain == rhs.breakAtMain
         && runInTerminal == rhs.runInTerminal
+        && useTargetExtendedRemote == rhs.useTargetExtendedRemote
         && sysRoot == rhs.sysRoot
         && serverInitCommands == rhs.serverInitCommands
         && serverResetCommands == rhs.serverResetCommands
@@ -909,6 +910,29 @@ private slots:
         QCOMPARE(read.serverInitCommands, written.serverInitCommands);
         QVERIFY2(read.useTargetExtendedRemote,
                  "extended-remote was written but did not come back");
+    }
+
+    void testTwoRunsDifferByEveryFieldThatIsRemembered()
+    {
+        // What this comparison decides is whether a run is added to the
+        // history, so a field it leaves out is a field whose change is never
+        // remembered - even though it is written to the settings.
+        StartApplicationParameters a;
+        a.runnable.command.setExecutable(FilePath::fromString("/usr/bin/tool"));
+
+        StartApplicationParameters b = a;
+        QCOMPARE(a, b);
+
+        b.useTargetExtendedRemote = !a.useTargetExtendedRemote;
+        QVERIFY2(!(a == b), "changing extended-remote alone was not a change");
+
+        b = a;
+        b.runInTerminal = !a.runInTerminal;
+        QVERIFY(!(a == b));
+
+        b = a;
+        b.serverPort = a.serverPort + 1;
+        QVERIFY(!(a == b));
     }
 
     void testAChannelOfItsOwnReplacesThePort()
