@@ -51,5 +51,6 @@ if(TARGET VcsBase)
     NO_PLUGIN
     QML_FILES
       CommonVcsSettingsPage.qml
+      NickNameDialog.qml
   )
 endif()

@@ -7,20 +7,24 @@
 
 #include <QDialog>
 
+#include <memory>
+
 QT_BEGIN_NAMESPACE
 class QDialogButtonBox;
-class QModelIndex;
+class QObject;
 class QPushButton;
-class QSortFilterProxyModel;
 class QStandardItemModel;
 QT_END_NAMESPACE
 
-namespace Utils {
-class FilePath;
-class TreeView;
-}
+namespace Utils { class FilePath; }
 
 namespace VcsBase::Internal {
+
+class NickNameSettings;
+#ifdef WITH_TESTS
+class NickNameDialogTest;
+QObject *createNickNameDialogTest();
+#endif
 
 class NickNameDialog : public QDialog
 {
@@ -39,16 +43,15 @@ public:
     static QStringList nickNameList(const QStandardItemModel *model);
 
 private:
-    void slotCurrentItemChanged(const QModelIndex &);
-    void slotActivated(const QModelIndex &);
-
     QPushButton *okButton() const;
 
     QStandardItemModel *m_model;
-    QSortFilterProxyModel *m_filterModel;
-
-    Utils::TreeView *m_filterTreeView;
+    const std::unique_ptr<NickNameSettings> m_settings;
     QDialogButtonBox *m_buttonBox;
+
+#ifdef WITH_TESTS
+    friend class NickNameDialogTest;
+#endif
 };
 
 } // VcsBase::Internal

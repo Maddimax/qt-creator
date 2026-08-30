@@ -21279,3 +21279,42 @@ table reads `EditableRole` from those flags and would draw that one column as a
 field. It belongs in the `NickNameDialog` port, where it can be tested.
 
 **Next:** `NickNameDialog` itself, now that a row can be activated.
+
+## 2026-08-30 — NickNameDialog, the first port that needed row activation
+
+The dialog is a table and nothing else: pick a name from the mail map, press
+Ok. With `rowActivated` in place from the previous batch it is a short port -
+the `QSortFilterProxyModel` goes away entirely, because `TableDelegate` already
+filters, and the filter line edit with it.
+
+**The bug recorded last batch is fixed here, where it could be tested.**
+`NickNameEntry::toModelRow()` set `i1`'s flags twice and `i2`'s never, so the
+Email column alone kept `Qt::ItemIsEditable`. In the widget tree that was
+nearly invisible; a Quick table reads `EditableRole` from those flags and would
+have drawn that one column as a text field. The control puts the typo back and
+the test names it exactly: *row 0 column 1 could be edited*.
+
+That is the argument for porting rather than leaving widgets alone: **the Quick
+table asks the model questions the widget view answered for it**, so a model
+that was quietly wrong becomes visibly wrong. Two of these now - the process
+list needed the same `EditableRole` answer.
+
+**The QML round trip is what the tests are for.** Two lines carry everything:
+`onCurrentRowChanged` and `onRowActivated`. A C++ test calling `setCurrentRow()`
+and `activateRow()` itself passes with both lines deleted, so both are driven
+through `Core::aspectFormRoot()` instead - `findChild("nickNameTable")` and
+then `invokeMethod("rowActivated", 1)`, which runs the QML handler and ends
+with the dialog accepted.
+
+Negative controls: the `.qml` naming an aspect that does not exist; the `.qml`
+not handing the activation back; the Email column left editable; Ok offered
+with no name chosen; and the dialog answering with the first name whatever was
+chosen. All five bit.
+
+QuickUi 186 passed / 0 failed / 1 skipped, exit 0. `VcsBase` exit 0 with no
+failures, `NickNameDialogTest` 7 passed. `VcsBase_qmllint` clean. No `.qbs`
+edit: `vcsbase.qbs` takes `*.qml` by wildcard.
+
+**Next:** the other eight dialogs that used `DoubleClickActivation` - the codec
+selector, the session dialog, Gerrit, log-change, stash, and bookmarks - are
+now unblocked and are the same shape as this one.

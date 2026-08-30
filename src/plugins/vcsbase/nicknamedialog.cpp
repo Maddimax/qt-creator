@@ -5,17 +5,23 @@
 
 #include "vcsbasetr.h"
 
-#include <utils/fancylineedit.h>
+#include <coreplugin/dialogs/ioptionspage.h>
+
+#include <utils/aspects.h>
 #include <utils/filepath.h>
-#include <utils/itemviews.h>
-#include <utils/layoutbuilder.h>
 #include <utils/stringutils.h>
+
+#ifdef WITH_TESTS
+#include <QSignalSpy>
+#include <QTemporaryDir>
+#include <QTest>
+#endif
 
 #include <QDebug>
 #include <QDialogButtonBox>
 #include <QPushButton>
 #include <QStandardItemModel>
-#include <QSortFilterProxyModel>
+#include <QVBoxLayout>
 
 using namespace Utils;
 
@@ -120,7 +126,7 @@ QList<QStandardItem *> NickNameEntry::toModelRow() const
     i1->setFlags(flags);
     i1->setData(nickNameData, NickNameRole);
     auto i2 = new QStandardItem(email);
-    i1->setFlags(flags);
+    i2->setFlags(flags);
     i2->setData(nickNameData, NickNameRole);
     auto i3 = new QStandardItem(aliasName);
     i3->setFlags(flags);
@@ -145,49 +151,112 @@ QString NickNameEntry::nickNameOf(const QStandardItem *item)
     return  d;
 }
 
-NickNameDialog::NickNameDialog(QStandardItemModel *model, QWidget *parent) :
-        QDialog(parent),
-        m_model(model),
-        m_filterModel(new QSortFilterProxyModel(this))
+// A Quick table addresses roles by name, and asks the model whether a cell may
+// be written to - a table whose cells say nothing is taken to be the reader's
+// to edit, and a list of names read from a file is not.
+class NickNameModel : public QStandardItemModel
 {
-    auto filterLineEdit = new FancyLineEdit;
+public:
+    using QStandardItemModel::QStandardItemModel;
 
-    m_filterTreeView = new TreeView;
+    QVariant data(const QModelIndex &index, int role) const override
+    {
+        if (role == AspectTable::EditableRole)
+            return AspectTable::isWritable(flags(index));
+        return QStandardItemModel::data(index, role);
+    }
 
-    m_buttonBox = new QDialogButtonBox(QDialogButtonBox::Cancel|QDialogButtonBox::Ok);
+    QHash<int, QByteArray> roleNames() const override
+    {
+        return AspectTable::withRoleNames(QStandardItemModel::roleNames());
+    }
+};
 
+class NickNameTableAspect final : public BaseAspect
+{
+    Q_OBJECT
+
+public:
+    NickNameTableAspect(AspectContainer *container, QStandardItemModel *model)
+        : BaseAspect(container), m_model(model)
+    {}
+
+    AspectPresentation presentation() const override
+    {
+        AspectPresentation p = BaseAspect::presentation();
+        p.control = AspectControls::Table;
+        p.filterPlaceholderText = Tr::tr("Filter");
+        // The names read best in the order they are written in.
+        p.sortColumn = 0;
+        return p;
+    }
+
+    QAbstractItemModel *tableModel() override { return m_model; }
+
+    Q_INVOKABLE void setCurrentRow(int row)
+    {
+        if (m_currentRow == row)
+            return;
+        m_currentRow = row;
+        emit currentRowChanged();
+    }
+
+    // The reader picked a row and meant it - a double click, or Return.
+    Q_INVOKABLE void activateRow(int row)
+    {
+        setCurrentRow(row);
+        emit rowActivated();
+    }
+
+    int currentRow() const { return m_currentRow; }
+
+signals:
+    void currentRowChanged();
+    void rowActivated();
+
+private:
+    QStandardItemModel *const m_model;
+    int m_currentRow = -1;
+};
+
+class NickNameSettings final : public AspectContainer
+{
+public:
+    explicit NickNameSettings(QStandardItemModel *model)
+        : names(this, model)
+    {
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/VcsBase/NickNameDialog.qml"));
+        names.setQmlName("Names");
+    }
+
+    NickNameTableAspect names;
+};
+
+NickNameDialog::NickNameDialog(QStandardItemModel *model, QWidget *parent)
+    : QDialog(parent)
+    , m_model(model)
+    , m_settings(new NickNameSettings(model))
+{
+    m_buttonBox = new QDialogButtonBox(QDialogButtonBox::Cancel | QDialogButtonBox::Ok);
     okButton()->setEnabled(false);
 
-    // Populate model and grow tree to accommodate it
-    m_filterModel->setSourceModel(model);
-    m_filterModel->setFilterCaseSensitivity(Qt::CaseInsensitive);
-    m_filterTreeView->setModel(m_filterModel);
-    m_filterTreeView->setActivationMode(DoubleClickActivation);
-    const int columnCount = m_filterModel->columnCount();
-    int treeWidth = 0;
-    for (int c = 0; c < columnCount; c++) {
-        m_filterTreeView->resizeColumnToContents(c);
-        treeWidth += m_filterTreeView->columnWidth(c);
-    }
-    m_filterTreeView->setMinimumWidth(treeWidth + 20);
-    filterLineEdit->setFiltering(true);
-
-    using namespace Layouting;
-    Column {
-        filterLineEdit,
-        m_filterTreeView,
-        m_buttonBox
-    }.attachTo(this);
+    const auto layout = new QVBoxLayout(this);
+    layout->addWidget(Core::createAspectForm(m_settings.get()));
+    layout->addWidget(m_buttonBox);
 
     connect(m_buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(m_buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
 
-    connect(m_filterTreeView, &QAbstractItemView::activated, this,
-            &NickNameDialog::slotActivated);
-    connect(m_filterTreeView->selectionModel(), &QItemSelectionModel::currentRowChanged,
-            this, &NickNameDialog::slotCurrentItemChanged);
-    connect(filterLineEdit, &FancyLineEdit::filterChanged,
-            m_filterModel, &QSortFilterProxyModel::setFilterFixedString);
+    connect(&m_settings->names, &NickNameTableAspect::currentRowChanged, this, [this] {
+        okButton()->setEnabled(m_settings->names.currentRow() >= 0);
+    });
+    // A row the reader picked and meant is the same as choosing it and
+    // pressing Ok, which is what the widget view's activation did.
+    connect(&m_settings->names, &NickNameTableAspect::rowActivated, this, [this] {
+        if (okButton()->isEnabled())
+            okButton()->click();
+    });
 }
 
 NickNameDialog::~NickNameDialog() = default;
@@ -197,31 +266,19 @@ QPushButton *NickNameDialog::okButton() const
     return m_buttonBox->button(QDialogButtonBox::Ok);
 }
 
-void NickNameDialog::slotCurrentItemChanged(const QModelIndex &index)
-{
-    okButton()->setEnabled(index.isValid());
-}
-
-void NickNameDialog::slotActivated(const QModelIndex &)
-{
-    if (okButton()->isEnabled())
-        okButton()->click();
-}
-
 QString NickNameDialog::nickName() const
 {
-    const QModelIndex index = m_filterTreeView->selectionModel()->currentIndex();
-    if (index.isValid()) {
-        const QModelIndex sourceIndex = m_filterModel->mapToSource(index);
-        if (const QStandardItem *item = m_model->itemFromIndex(sourceIndex))
-            return NickNameEntry::nickNameOf(item);
-    }
+    const int row = m_settings->names.currentRow();
+    if (row < 0)
+        return {};
+    if (const QStandardItem *item = m_model->item(row, 0))
+        return NickNameEntry::nickNameOf(item);
     return {};
 }
 
 QStandardItemModel *NickNameDialog::createModel(QObject *parent)
 {
-    auto model = new QStandardItemModel(parent);
+    auto model = new NickNameModel(parent);
     QStringList headers = {Tr::tr("Name"), Tr::tr("Email"), Tr::tr("Alias"), Tr::tr("Alias email")};
     model->setHorizontalHeaderLabels(headers);
     return model;
@@ -264,4 +321,118 @@ QStringList NickNameDialog::nickNameList(const QStandardItemModel *model)
     return rc;
 }
 
+#ifdef WITH_TESTS
+
+// Two entries, one with an alias and one without, which is the difference the
+// nick name is built from.
+static const char mailMap[] =
+    "Some Body <some.body@example.com>\n"
+    "Other Person <other@example.com> Alias Name <alias@example.com>\n";
+
+class NickNameDialogTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheDialogDrawsWithTheQmlItNames()
+    {
+        const std::unique_ptr<QStandardItemModel> model(NickNameDialog::createModel(nullptr));
+        NickNameSettings settings(model.get());
+        const Result<> rendered = Core::aspectFormRenders(&settings, "NickNameDialog.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+    }
+
+    void testNoColumnIsTheReadersToEdit()
+    {
+        // The list is read from a file; a Quick table takes cells that say
+        // nothing about themselves to be editable, and would draw a field.
+        const std::unique_ptr<QStandardItemModel> model(populated());
+        QCOMPARE(model->rowCount(), 2);
+
+        for (int row = 0; row < model->rowCount(); ++row) {
+            for (int column = 0; column < model->columnCount(); ++column) {
+                const QModelIndex index = model->index(row, column);
+                QVERIFY2(!model->data(index, AspectTable::EditableRole).toBool(),
+                         qPrintable(QString("row %1 column %2 could be edited")
+                                        .arg(row).arg(column)));
+            }
+        }
+    }
+
+    void testWhatANameIsCalled()
+    {
+        // An alias is preferred where there is one, which is the point of the
+        // extra two columns.
+        const std::unique_ptr<QStandardItemModel> model(populated());
+        const QStringList names = NickNameDialog::nickNameList(model.get());
+        QCOMPARE(names.size(), 2);
+        QVERIFY2(names.contains("Some Body <some.body@example.com>"),
+                 qPrintable(names.join(", ")));
+        QVERIFY2(names.contains("Alias Name <alias@example.com>"),
+                 qPrintable(names.join(", ")));
+    }
+
+    void testPickingARowIsWhatTheDialogAnswers()
+    {
+        const std::unique_ptr<QStandardItemModel> model(populated());
+        NickNameDialog dlg(model.get());
+
+        // Nothing chosen is nothing to answer with, and nothing to accept.
+        QVERIFY2(!dlg.okButton()->isEnabled(), "a name could be chosen without choosing one");
+        QCOMPARE(dlg.nickName(), QString());
+
+        dlg.m_settings->names.setCurrentRow(0);
+        QVERIFY(dlg.okButton()->isEnabled());
+        QCOMPARE(dlg.nickName(), NickNameEntry::nickNameOf(model->item(0, 0)));
+
+        dlg.m_settings->names.setCurrentRow(1);
+        QCOMPARE(dlg.nickName(), NickNameEntry::nickNameOf(model->item(1, 0)));
+    }
+
+    void testActivatingARowInTheDrawnTableAcceptsTheDialog()
+    {
+        // The .qml has to hand the activation back; a C++ test calling
+        // activateRow() itself would not notice if that line went.
+        const std::unique_ptr<QStandardItemModel> model(populated());
+        NickNameDialog dlg(model.get());
+
+        const std::unique_ptr<QWidget> form(Core::createAspectForm(dlg.m_settings.get()));
+        QVERIFY(form);
+        QObject *const root = Core::aspectFormRoot(form.get());
+        QVERIFY2(root, "no front end said what the dialog was drawn from");
+
+        QObject *table = nullptr;
+        QTRY_VERIFY(table = root->findChild<QObject *>("nickNameTable"));
+
+        QSignalSpy accepted(&dlg, &QDialog::accepted);
+        QVERIFY(QMetaObject::invokeMethod(table, "rowActivated", Q_ARG(int, 1)));
+        QTRY_COMPARE(accepted.count(), 1);
+        QCOMPARE(dlg.nickName(), NickNameEntry::nickNameOf(model->item(1, 0)));
+    }
+
+private:
+    // A model filled from a real mail map file, as the dialog is given one.
+    static QStandardItemModel *populated()
+    {
+        auto *const model = NickNameDialog::createModel(nullptr);
+        QTemporaryDir dir;
+        if (!dir.isValid())
+            return model;
+        const FilePath file = FilePath::fromString(dir.filePath("mailmap"));
+        if (!file.writeFileContents(QByteArray(mailMap)))
+            return model;
+        NickNameDialog::populateModelFromMailCapFile(file, model);
+        return model;
+    }
+};
+
+QObject *createNickNameDialogTest()
+{
+    return new NickNameDialogTest;
+}
+
+#endif // WITH_TESTS
+
 } // VcsBase::Internal
+
+#include "nicknamedialog.moc"

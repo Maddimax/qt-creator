@@ -97,6 +97,7 @@ void VcsPlugin::initialize()
 {
 #ifdef WITH_TESTS
     addTestCreator(createVcsOutputViewTest);
+    addTestCreator(createNickNameDialogTest);
 #endif
     d = new VcsPluginPrivate(this);
 
