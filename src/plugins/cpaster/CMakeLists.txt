@@ -39,6 +39,7 @@ if(TARGET CodePaster)
     NO_PLUGIN
     QML_FILES
       CodePasterSettingsPage.qml
+      PasteView.qml
       FileShareSettingsPage.qml
   )
 endif()

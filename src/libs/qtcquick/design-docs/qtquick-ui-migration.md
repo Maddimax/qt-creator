@@ -22021,3 +22021,44 @@ the wildcard group the CMake module mirrors, and both files were checked to
 agree.
 
 **Next:** `cpaster/pasteview` is the last of the read-only reports on the list.
+
+## 2026-08-31 — PasteView, and a stacked widget that was two aspects
+
+The last of the read-only reports on the list, and the first dialog with a
+`QStackedWidget`: a diff is chosen from a checkable list with a preview of the
+lot, and plain text is one editable block. **A stack of two pages is two
+aspects and a `setMode()`** - each says whether it is the one in use, and the
+page draws whichever is visible. Nothing in the `.qml` chooses, which is the
+point: the dialog knows which mode it is in and the form does not have to.
+
+The checkable list is the first model in this series to answer
+`AspectTable::CheckableRole` *and* `Qt::CheckStateRole` and to implement
+`setData()`. `PartsModel` holds the parts and a parallel list of what is still
+checked, so `content()` - the thing actually sent - is a method on the model
+rather than a walk over list-widget items.
+
+`ColumnIndicatorTextEdit` goes: the preview is a read-only `StringAspect` with
+`setMonospace(true)`, which is what the widget's hand-set "Courier New" was
+for. The one thing lost with it is the default dialog width, which came from
+`columnIndicator() + 50`; the saved width is used instead, and the fallback is
+the dialog's own.
+
+Two small things the port fixed by asking: `setProtocol()` set the same index
+twice with a comment about forcing the enable, because setting an unchanged
+value emits nothing - it now calls `protocolChanged()` directly and says why.
+And `pasteUser()` is a function, so *"an empty name is posted as Anonymous"* is
+an assertion rather than a line in the middle of a getter.
+
+Negative controls: the `.qml` naming an aspect that does not exist; an
+unchecked part sent anyway; an empty user name sent as empty; both ways of
+choosing shown at once; and a server that takes no name being asked for one.
+All five bit.
+
+QuickUi 191 passed / 0 failed / 1 skipped, exit 0. `CodePaster` exit 0 with no
+failures, `PasteViewTest` 9 passed. `CodePaster_qmllint` clean. No `.qbs` edit:
+`cpaster.qbs` takes `*.qml` by wildcard.
+
+**Next:** the read-only reports named in the census are done. What remains is
+the text-field dialogs and the ones needing a component of their own -
+`SessionNameInputDialog` is the obvious next one, and its `SessionValidator`
+(invalid characters, duplicate names, the " (2)" fixup) is the rule to extract.

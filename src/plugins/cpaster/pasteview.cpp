@@ -9,10 +9,16 @@
 #include "settings.h"
 #include "splitter.h"
 
+#include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/icore.h>
 
 #include <utils/layoutbuilder.h>
 #include <utils/mimeconstants.h>
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
+#include <utils/aspects.h>
 #include <utils/qtcassert.h>
 #include <utils/qtcsettings.h>
 
@@ -25,6 +31,7 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QPlainTextEdit>
+#include <QVBoxLayout>
 #include <QPushButton>
 #include <QSettings>
 #include <QSpinBox>
@@ -72,6 +79,86 @@ static ContentType contentType(const QString &mt)
     return Text;
 }
 
+// The parts of a diff and whether each is being sent. The list is checkable,
+// which a Qt Quick table asks the model about rather than reading flags.
+class PartsModel : public QAbstractListModel
+{
+public:
+    void setParts(const FileDataList &parts)
+    {
+        beginResetModel();
+        m_parts = parts;
+        m_checked = QList<bool>(parts.size(), true);
+        endResetModel();
+    }
+
+    // What would be sent: the content of every part still checked.
+    QString content() const
+    {
+        QString result;
+        for (int i = 0; i < m_parts.size(); ++i) {
+            if (m_checked.value(i))
+                result += m_parts.at(i).content;
+        }
+        return result;
+    }
+
+    int rowCount(const QModelIndex &parent) const override
+    {
+        return parent.isValid() ? 0 : m_parts.size();
+    }
+
+    QVariant data(const QModelIndex &index, int role) const override
+    {
+        if (!index.isValid() || index.row() >= m_parts.size())
+            return {};
+        switch (role) {
+        case Qt::DisplayRole:
+            return m_parts.at(index.row()).filename;
+        case Qt::CheckStateRole:
+            return m_checked.value(index.row()) ? Qt::Checked : Qt::Unchecked;
+        case AspectTable::CheckableRole:
+            return true;
+        case AspectTable::EditableRole:
+            return false;
+        default:
+            return {};
+        }
+    }
+
+    bool setData(const QModelIndex &index, const QVariant &value, int role) override
+    {
+        if (role != Qt::CheckStateRole || !index.isValid() || index.row() >= m_checked.size())
+            return false;
+        m_checked[index.row()] = value.toInt() != Qt::Unchecked;
+        emit dataChanged(index, index, {Qt::CheckStateRole});
+        return true;
+    }
+
+    Qt::ItemFlags flags(const QModelIndex &index) const override
+    {
+        return QAbstractListModel::flags(index) | Qt::ItemIsUserCheckable;
+    }
+
+    // One unnamed column: a table draws a header saying "1" otherwise.
+    QVariant headerData(int, Qt::Orientation, int) const override { return {}; }
+
+    QHash<int, QByteArray> roleNames() const override
+    {
+        return AspectTable::withRoleNames(QAbstractListModel::roleNames());
+    }
+
+private:
+    FileDataList m_parts;
+    QList<bool> m_checked;
+};
+
+// What a paste is sent as. An empty user name is posted anonymously, which is
+// what the server sees when nobody says who they are.
+QString pasteUser(const QString &typed);
+
+class PasteViewSettings;
+
 class PasteView : public QDialog
 {
 public:
@@ -110,98 +197,114 @@ private:
 
     const QList<Protocol *> m_protocols;
 
-    QComboBox *m_protocolBox;
-    QSpinBox *m_expirySpinBox;
-    QLineEdit *m_uiUsername;
-    QLineEdit *m_uiDescription;
-    QStackedWidget *m_stackedWidget;
-    QListWidget *m_uiPatchList;
-    ColumnIndicatorTextEdit *m_uiPatchView;
-    QPlainTextEdit *m_plainTextEdit;
+    const std::unique_ptr<PasteViewSettings> m_settings;
     FileDataList m_parts;
     Mode m_mode = DiffChunkMode;
+
+#ifdef WITH_TESTS
+    friend class PasteViewTest;
+#endif
+};
+
+QString pasteUser(const QString &typed)
+{
+    return typed.isEmpty() ? QLatin1String("Anonymous") : typed;
+}
+
+class PasteViewSettings final : public AspectContainer
+{
+public:
+    PasteViewSettings()
+    {
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/CodePaster/PasteView.qml"));
+
+        protocol.setQmlName("Protocol");
+        protocol.setLabelText(Tr::tr("Protocol:"));
+        protocol.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
+
+        expiry.setQmlName("Expiry");
+        expiry.setLabelText(Tr::tr("&Expires after:"));
+        expiry.setRange(1, 365);
+        expiry.setSuffix(Tr::tr(" Days"));
+
+        username.setQmlName("Username");
+        username.setLabelText(Tr::tr("&Username:"));
+        username.setDisplayStyle(StringAspect::LineEditDisplay);
+        username.setPlaceHolderText(Tr::tr("<Username>"));
+
+        description.setQmlName("Description");
+        description.setLabelText(Tr::tr("&Description:"));
+        description.setDisplayStyle(StringAspect::LineEditDisplay);
+        description.setPlaceHolderText(Tr::tr("<Description>"));
+
+        parts.setQmlName("Parts");
+        parts.setLabelText(Tr::tr("Parts to Send to Server"));
+        parts.setModel(&partsModel);
+
+        preview.setQmlName("Preview");
+        preview.setDisplayStyle(StringAspect::TextEditDisplay);
+        preview.setReadOnly(true);
+        // A diff's columns line up.
+        preview.setMonospace(true);
+
+        plainText.setQmlName("PlainText");
+        plainText.setDisplayStyle(StringAspect::TextEditDisplay);
+        plainText.setMonospace(true);
+    }
+
+    // The two ways of choosing what to send: a list of diff chunks with a
+    // preview of the lot, or one editable block of text. The widget dialog
+    // stacked them; here each says whether it is the one in use.
+    void setMode(bool plainTextMode)
+    {
+        parts.setVisible(!plainTextMode);
+        preview.setVisible(!plainTextMode);
+        plainText.setVisible(plainTextMode);
+    }
+
+    // What the chosen protocol will accept.
+    void setCapabilities(Capabilities caps)
+    {
+        description.setEnabled(caps & Capability::PostDescription);
+        username.setEnabled(caps & Capability::PostUserName);
+    }
+
+    PartsModel partsModel;
+    SelectionAspect protocol{this};
+    IntegerAspect expiry{this};
+    StringAspect username{this};
+    StringAspect description{this};
+    TableAspect parts{this};
+    StringAspect preview{this};
+    StringAspect plainText{this};
 };
 
 PasteView::PasteView(const QList<Protocol *> &protocols)
     : QDialog(Core::ICore::dialogParent())
     , m_protocols(protocols)
+    , m_settings(new PasteViewSettings)
 {
     setObjectName("CodePaster.ViewDialog");
     resize(670, 678);
     setWindowTitle(Tr::tr("Send to Codepaster"));
 
-    m_protocolBox = new QComboBox;
-    m_protocolBox->setObjectName("protocolBox");
     for (const Protocol *p : protocols)
-        m_protocolBox->addItem(p->name());
+        m_settings->protocol.addOption(p->name());
 
-    m_expirySpinBox = new QSpinBox;
-    m_expirySpinBox->setSuffix(Tr::tr(" Days"));
-    m_expirySpinBox->setRange(1, 365);
-
-    m_uiUsername = new QLineEdit(this);
-    m_uiUsername->setPlaceholderText(Tr::tr("<Username>"));
-
-    m_uiDescription = new QLineEdit(this);
-    m_uiDescription->setObjectName("uiDescription");
-    m_uiDescription->setPlaceholderText(Tr::tr("<Description>"));
-
-    QSizePolicy sizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-
-    m_uiPatchList = new QListWidget;
-    sizePolicy.setVerticalStretch(1);
-    m_uiPatchList->setSizePolicy(sizePolicy);
-    m_uiPatchList->setUniformItemSizes(true);
-
-    m_uiPatchView = new CodePaster::ColumnIndicatorTextEdit;
-    sizePolicy.setVerticalStretch(3);
-    m_uiPatchView->setSizePolicy(sizePolicy);
-
-    QFont font;
-    font.setFamilies({"Courier New"});
-    m_uiPatchView->setFont(font);
-    m_uiPatchView->setReadOnly(true);
-
-    auto groupBox = new QGroupBox(Tr::tr("Parts to Send to Server"));
-    groupBox->setFlat(true);
-
-    m_plainTextEdit = new QPlainTextEdit;
-    m_plainTextEdit->setObjectName("plainTextEdit");
-
-    m_stackedWidget = new QStackedWidget(this);
-    m_stackedWidget->addWidget(groupBox);
-    m_stackedWidget->addWidget(m_plainTextEdit);
-    m_stackedWidget->setCurrentIndex(0);
-
-    auto buttonBox = new QDialogButtonBox(QDialogButtonBox::Cancel|QDialogButtonBox::Ok);
+    auto buttonBox = new QDialogButtonBox(QDialogButtonBox::Cancel | QDialogButtonBox::Ok);
     buttonBox->button(QDialogButtonBox::Ok)->setText(Tr::tr("Paste"));
 
-    const bool __sortingEnabled = m_uiPatchList->isSortingEnabled();
-    m_uiPatchList->setSortingEnabled(false);
-    m_uiPatchList->setSortingEnabled(__sortingEnabled);
+    auto layout = new QVBoxLayout(this);
+    layout->addWidget(Core::createAspectForm(m_settings.get()));
+    layout->addWidget(buttonBox);
 
-    using namespace Layouting;
-
-    Column {
-        m_uiPatchList,
-        m_uiPatchView
-    }.attachTo(groupBox);
-
-    Column {
-        spacing(2),
-        Form {
-            Tr::tr("Protocol:"), m_protocolBox, br,
-            Tr::tr("&Expires after:"), m_expirySpinBox, br,
-            Tr::tr("&Username:"), m_uiUsername, br,
-            Tr::tr("&Description:"), m_uiDescription,
-        },
-        m_stackedWidget,
-        buttonBox
-    }.attachTo(this);
-
-    connect(m_uiPatchList, &QListWidget::itemChanged, this, &PasteView::contentChanged);
-
-    connect(m_protocolBox, &QComboBox::currentIndexChanged, this, &PasteView::protocolChanged);
+    // What is sent follows what is still checked.
+    connect(&m_settings->partsModel, &QAbstractItemModel::dataChanged,
+            this, &PasteView::contentChanged);
+    connect(&m_settings->protocol, &BaseAspect::changed, this, [this] {
+        protocolChanged(m_settings->protocol.value());
+    });
 
     connect(buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
@@ -211,60 +314,46 @@ PasteView::~PasteView() = default;
 
 QString PasteView::user() const
 {
-    const QString username = m_uiUsername->text();
-    if (username.isEmpty())
-        return QLatin1String("Anonymous");
-    return username;
+    return pasteUser(m_settings->username());
 }
 
 QString PasteView::description() const
 {
-    return m_uiDescription->text();
+    return m_settings->description();
 }
 
 QString PasteView::content() const
 {
     if (m_mode == PlainTextMode)
-        return m_plainTextEdit->toPlainText();
-
-    QString newContent;
-    for (int i = 0; i < m_uiPatchList->count(); ++i) {
-        QListWidgetItem *item = m_uiPatchList->item(i);
-        if (item->checkState() != Qt::Unchecked)
-            newContent += m_parts.at(i).content;
-    }
-    return newContent;
+        return m_settings->plainText();
+    return m_settings->partsModel.content();
 }
 
 int PasteView::protocol() const
 {
-    return m_protocolBox->currentIndex();
+    return m_settings->protocol.value();
 }
 
 void PasteView::contentChanged()
 {
-    m_uiPatchView->setPlainText(content());
+    m_settings->preview.setValue(content());
 }
 
 void PasteView::protocolChanged(int p)
 {
     QTC_ASSERT(p >= 0 && p < m_protocols.size(), return);
-    const Capabilities caps = m_protocols.at(p)->capabilities();
-    m_uiDescription->setEnabled(caps & Capability::PostDescription);
-    m_uiUsername->setEnabled(caps & Capability::PostUserName);
+    m_settings->setCapabilities(m_protocols.at(p)->capabilities());
 }
 
 int PasteView::showDialog()
 {
-    m_uiDescription->setFocus();
-    m_uiDescription->selectAll();
+    m_settings->description.setFocusToInputField();
 
     // (Re)store dialog size
     const QtcSettings *settings = Core::ICore::settings();
     const Key rootKey = Key(groupC) + '/';
     const int h = settings->value(rootKey + heightKeyC, height()).toInt();
-    const int defaultWidth = m_uiPatchView->columnIndicator() + 50;
-    const int w = settings->value(rootKey + widthKeyC, defaultWidth).toInt();
+    const int w = settings->value(rootKey + widthKeyC, width()).toInt();
 
     resize(w, h);
 
@@ -274,19 +363,12 @@ int PasteView::showDialog()
 // Show up with checkable list of diff chunks.
 int PasteView::show(const QString &user, int expiryDays, const FileDataList &parts)
 {
-    m_uiUsername->setText(user);
-    m_uiPatchList->clear();
+    m_settings->username.setValue(user);
     m_parts = parts;
     m_mode = DiffChunkMode;
-    QString content;
-    for (const FileData &part : parts) {
-        auto itm = new QListWidgetItem(part.filename, m_uiPatchList);
-        itm->setCheckState(Qt::Checked);
-        itm->setFlags(Qt::ItemIsSelectable | Qt::ItemIsUserCheckable | Qt::ItemIsEnabled);
-        content += part.content;
-    }
-    m_stackedWidget->setCurrentIndex(0);
-    m_uiPatchView->setPlainText(content);
+    m_settings->partsModel.setParts(parts);
+    m_settings->setMode(false);
+    contentChanged();
     setExpiryDays(expiryDays);
     return showDialog();
 }
@@ -294,27 +376,27 @@ int PasteView::show(const QString &user, int expiryDays, const FileDataList &par
 // Show up with editable plain text.
 int PasteView::show(const QString &user, int expiryDays, const QString &content)
 {
-    m_uiUsername->setText(user);
+    m_settings->username.setValue(user);
     m_mode = PlainTextMode;
-    m_stackedWidget->setCurrentIndex(1);
-    m_plainTextEdit->setPlainText(content);
+    m_settings->setMode(true);
+    m_settings->plainText.setValue(content);
     setExpiryDays(expiryDays);
     return showDialog();
 }
 
 void PasteView::setExpiryDays(int d)
 {
-    m_expirySpinBox->setValue(d);
+    m_settings->expiry.setValue(d);
 }
 
 int PasteView::expiryDays() const
 {
-    return m_expirySpinBox->value();
+    return m_settings->expiry();
 }
 
 void PasteView::accept()
 {
-    const int index = m_protocolBox->currentIndex();
+    const int index = m_settings->protocol.value();
     if (index == -1)
         return;
 
@@ -338,14 +420,13 @@ void PasteView::accept()
 
 void PasteView::setProtocol(const QString &protocol)
 {
-     const int index = m_protocolBox->findText(protocol);
-     if (index < 0)
-         return;
-     m_protocolBox->setCurrentIndex(index);
-     if (index == m_protocolBox->currentIndex())
-         protocolChanged(index); // Force enabling
-     else
-         m_protocolBox->setCurrentIndex(index);
+    const int index = m_settings->protocol.indexForDisplay(protocol);
+    if (index < 0)
+        return;
+    m_settings->protocol.setValue(index);
+    // Setting the same value again says nothing, so the fields are enabled
+    // from here rather than from the change.
+    protocolChanged(index);
 }
 
 static inline void fixSpecialCharacters(QString &data)
@@ -398,4 +479,123 @@ std::optional<PasteInputData> executePasteDialog(const QList<Protocol *> &protoc
                           view.user(), view.description()};
 }
 
+#ifdef WITH_TESTS
+
+class PasteViewTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheDialogDrawsWithTheQmlItNames()
+    {
+        PasteViewSettings settings;
+        const Result<> rendered = Core::aspectFormRenders(&settings, "PasteView.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+    }
+
+    void testWhoAPasteIsFrom()
+    {
+        // Nobody typed a name, so the server is told nobody.
+        QCOMPARE(pasteUser({}), QString("Anonymous"));
+        QCOMPARE(pasteUser("someone"), QString("someone"));
+    }
+
+    void testWhatIsSentIsWhatIsStillChecked()
+    {
+        PartsModel model;
+        FileDataList parts;
+        parts.append(FileData("a.cpp", "AAA"));
+        parts.append(FileData("b.cpp", "BBB"));
+        parts.append(FileData("c.cpp", "CCC"));
+        model.setParts(parts);
+
+        // Everything is sent unless it is taken out.
+        QCOMPARE(model.rowCount({}), 3);
+        QCOMPARE(model.content(), QString("AAABBBCCC"));
+
+        // Unchecking a part leaves it out, and the rest keep their order.
+        QVERIFY(model.setData(model.index(1, 0), Qt::Unchecked, Qt::CheckStateRole));
+        QCOMPARE(model.content(), QString("AAACCC"));
+        QCOMPARE(model.data(model.index(1, 0), Qt::CheckStateRole).toInt(), int(Qt::Unchecked));
+
+        // And putting it back puts its content back where it was.
+        QVERIFY(model.setData(model.index(1, 0), Qt::Checked, Qt::CheckStateRole));
+        QCOMPARE(model.content(), QString("AAABBBCCC"));
+    }
+
+    void testThePartsAreCheckableAndNotEditable()
+    {
+        // A Quick table asks the model both of these; the file names are
+        // chosen from, not typed over.
+        PartsModel model;
+        FileDataList parts;
+        parts.append(FileData("a.cpp", "AAA"));
+        model.setParts(parts);
+
+        const QModelIndex index = model.index(0, 0);
+        QVERIFY2(model.data(index, AspectTable::CheckableRole).toBool(),
+                 "a part could not be taken out of the paste");
+        const QVariant editable = model.data(index, AspectTable::EditableRole);
+        QVERIFY2(editable.isValid(), "the table was never told whether a cell may be written to");
+        QVERIFY2(!editable.toBool(), "a file name could be typed over");
+        QVERIFY2(!model.headerData(0, Qt::Horizontal, Qt::DisplayRole).isValid(),
+                 "the list of parts named its column");
+    }
+
+    void testOnlyOneWayOfChoosingIsShown()
+    {
+        // A diff is chosen from a list with a preview; plain text is one block
+        // to edit. The widget dialog stacked them, so exactly one shows.
+        PasteViewSettings settings;
+
+        settings.setMode(false);
+        QVERIFY(settings.parts.isVisible());
+        QVERIFY(settings.preview.isVisible());
+        QVERIFY2(!settings.plainText.isVisible(), "both ways of choosing were shown");
+
+        settings.setMode(true);
+        QVERIFY(settings.plainText.isVisible());
+        QVERIFY2(!settings.parts.isVisible(), "the chunk list showed for a plain paste");
+        QVERIFY2(!settings.preview.isVisible(), "the preview showed for a plain paste");
+    }
+
+    void testWhatTheProtocolWillAccept()
+    {
+        // A server that takes neither a description nor a name is not asked
+        // for them.
+        PasteViewSettings settings;
+        settings.setCapabilities({});
+        QVERIFY2(!settings.description.isEnabled(), "a description was asked for regardless");
+        QVERIFY2(!settings.username.isEnabled(), "a user name was asked for regardless");
+
+        settings.setCapabilities(Capability::PostDescription);
+        QVERIFY(settings.description.isEnabled());
+        QVERIFY2(!settings.username.isEnabled(), "a user name was asked for regardless");
+
+        settings.setCapabilities(Capability::PostDescription | Capability::PostUserName);
+        QVERIFY(settings.description.isEnabled());
+        QVERIFY(settings.username.isEnabled());
+    }
+
+    void testHowLongAPasteLives()
+    {
+        PasteViewSettings settings;
+        QCOMPARE(settings.expiry.presentation().minimum.toInt(), 1);
+        QCOMPARE(settings.expiry.presentation().maximum.toInt(), 365);
+        QVERIFY2(!settings.expiry.presentation().suffix.isEmpty(),
+                 "the number of days did not say it was days");
+    }
+};
+
+QObject *createPasteViewTest()
+{
+    return new PasteViewTest;
+}
+
+#endif // WITH_TESTS
+
 } // CodePaster
+
+#ifdef WITH_TESTS
+#include "pasteview.moc"
+#endif

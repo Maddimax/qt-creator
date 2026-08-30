@@ -357,6 +357,10 @@ private:
             ":/cpaster/images/settingscategory_cpaster.png");
 
         d = new CodePasterPluginPrivate;
+    
+#ifdef WITH_TESTS
+        addTestCreator(createPasteViewTest);
+#endif
     }
 
     ShutdownFlag aboutToShutdown() final
