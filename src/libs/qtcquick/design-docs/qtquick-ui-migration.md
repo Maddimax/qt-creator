@@ -19371,3 +19371,60 @@ QuickUi 178 passed / 0 failed / 1 skipped, exit 0. `LogWindowTest` 9 passed.
 **Next:** `LogWindow` itself - `CombinedPane` to an `OutputPaneView` (with
 `gotoResult` over `blockForResult`, which is already extracted and tested), and
 `InputPane` to a Quick `TextArea` carrying the four keys and the highlighter.
+
+## 2026-08-30 — The log window's transcript, and a comment that was wrong
+
+`LogWindow`'s `CombinedPane` is now a `Core::OutputPaneView` too, with the same
+`OutputHighlighter` over its document. `CombinedPane` is gone; `DebuggerPane`
+survives for `InputPane` alone, which is the only editable thing left in this
+window.
+
+**One new call on the shared surface**, and it is the general form of something
+that was already there: `OutputPaneView::showCursor()`. `showPositionOf()` does
+exactly this for a task - builds a cursor over the source document and hands it
+to `view()->setTextCursor()`, which selects and scrolls - and a pane that can
+work out a position for itself had no way in. The debugger log is the first
+such pane; it will not be the last.
+
+**The comment on `gotoResult` described something the code does not do.** It
+said "the answer and the line under it: a result's payload follows it", and the
+code is
+
+    QTextCursor cursor(answer);                                   // column 0
+    cursor.movePosition(QTextCursor::Down, QTextCursor::KeepAnchor);
+
+Down from column 0 lands on column 0 of the next line, so the selection is the
+answer line plus its break - the payload is *scrolled into view*, never
+selected. I wrote the test from the comment and it failed, which is the only
+reason this was noticed. The test now states the span exactly (`selectionStart`
+at the answer block's position, `selectionEnd` at position + length), and the
+comment says what happens.
+
+**Two ways to get `QTextCursor::block()` wrong**, both hit here: on a cursor
+with a selection it answers the block at the *position*, not at the anchor - so
+after moving down it is the payload's block, and arithmetic meant for the
+answer's block silently measures the wrong line. `blockForResult()` is what to
+ask instead.
+
+**Covered end to end**, not just in halves: `testDoubleClickingACommandReaches
+TheTranscript` builds a `LogWindow`, finds its `InputPane` and its
+`OutputPaneView` with `findChildren`, emits `commandSelected(43)` and reads the
+selection back off the view. `LogWindow(nullptr)` is safe to build - the engine
+is only touched by `executeLine()` and `sendCommand()` - and the test puts
+`theGlobalLog` back, as the other window test does.
+
+Negative controls, all three bit: the selection stopping at the end of the
+answer line; `gotoResult` no longer handing the cursor over; and `showCursor()`
+ignoring the cursor it is given.
+
+No `.qbs` edit this batch - nothing added or removed from the build.
+
+QuickUi 178 passed / 0 failed / 1 skipped, exit 0. Core exit 0. `LogWindowTest`
+11 passed, `OutputPaneViewTest` 23. `Debugger` exits 1 on the pre-existing
+`DebuggerUnitTests::testStateMachine`.
+
+**Next, and it is the last of this pane:** `InputPane` to a Qt Quick
+`TextArea` - Ctrl+Return running the line under the cursor, Ctrl+R clearing,
+the double-click asking `commandTokenForLine()` (extracted last batch), the
+`InputHighlighter` on `textDocument.textDocument`, and the `FancyLineEdit`
+command box beside it. Then `logwindow.cpp` holds no widget text editor.

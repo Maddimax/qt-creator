@@ -111,6 +111,14 @@ public:
     bool knowsPositionOf(unsigned taskId) const;
     void showPositionOf(unsigned taskId);
 
+    // Selects what \a cursor covers and shows it, the way a found match is
+    // shown. For a pane that can work out where in its own document something
+    // is: the debugger log finds the answer to a command that way, and
+    // showPositionOf() above is the same thing for a task.
+    //
+    // The cursor must be on shownDocument().
+    void showCursor(const QTextCursor &cursor);
+
     // How much output is kept. Beyond it the oldest lines go, and a single
     // chunk larger than the whole allowance is elided in the middle. The
     // widget applied this by default, so a pane that never asks for one still

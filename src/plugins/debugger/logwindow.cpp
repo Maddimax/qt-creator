@@ -31,6 +31,7 @@
 #include <coreplugin/findplaceholder.h>
 #include <coreplugin/minisplitter.h>
 #include <coreplugin/outputpaneview.h>
+#include <coreplugin/outputview.h>
 #include <coreplugin/find/basetextfind.h>
 
 #include <utils/filedialogs.h>
@@ -390,31 +391,49 @@ QTextBlock blockForResult(const QTextDocument *document, int token)
     return {};
 }
 
-class CombinedPane : public DebuggerPane
+// Asked for when the menu is about to open rather than built once: the view a
+// pane draws on does not exist until a Qt Quick front end has loaded, and both
+// log windows are made while plugins are still initializing.
+static void offerLogContextMenu(Core::OutputPaneView *pane,
+                                const std::function<void()> &clearAll)
 {
-public:
-    CombinedPane(LogWindow *logWindow)
-    {
-        (void) new OutputHighlighter(document(), this);
-        connect(clearContentsAction(), &QAction::triggered,
-                logWindow, &LogWindow::clearContents);
-    }
+    auto clear = new QAction(Tr::tr("Clear Contents"), pane);
+    QObject::connect(clear, &QAction::triggered, pane, clearAll);
 
-    void gotoResult(int i)
-    {
-        const QTextBlock answer = blockForResult(document(), i);
-        if (!answer.isValid())
-            return;
+    auto save = new QAction(Tr::tr("Save Contents"), pane);
+    QObject::connect(save, &QAction::triggered, pane, [pane] {
+        while (true) {
+            const FilePath filePath = FileUtils::getSaveFilePath(Tr::tr("Log File"));
+            if (filePath.isEmpty())
+                return;
+            if (pane->saveContentsTo(filePath))
+                return;
+        }
+    });
 
-        setFocus();
-        QTextCursor cursor(answer);
-        setTextCursor(cursor);
-        ensureCursorVisible();
-        // The answer and the line under it: a result's payload follows it.
-        cursor.movePosition(QTextCursor::Down, QTextCursor::KeepAnchor);
-        setTextCursor(cursor);
-    }
-};
+    pane->setContextMenuActions({clear,
+                                 save, // X11 clipboard is unreliable for long texts
+                                 settings().logTimeStamps.action(),
+                                 Core::ActionManager::command(
+                                     Constants::RELOAD_DEBUGGING_HELPERS)->action(),
+                                 nullptr,
+                                 settings().settingsDialog.action()});
+}
+
+// The answer to command \a token, selected from its start down to the start of
+// the line under it - so the answer is highlighted whole and what follows it,
+// which is where a result's payload is written, is brought into view with it.
+// A null cursor where there is no such answer.
+QTextCursor cursorForResult(QTextDocument *document, int token)
+{
+    const QTextBlock answer = blockForResult(document, token);
+    if (!answer.isValid())
+        return {};
+
+    QTextCursor cursor(answer);
+    cursor.movePosition(QTextCursor::Down, QTextCursor::KeepAnchor);
+    return cursor;
+}
 
 
 /////////////////////////////////////////////////////////////////////
@@ -435,9 +454,13 @@ LogWindow::LogWindow(DebuggerEngine *engine)
     m_splitter->setParent(this);
 
     // Mixed input/output.
-    m_combinedText = new CombinedPane(this);
-    m_combinedText->setReadOnly(true);
-    m_combinedText->setReadOnly(false);
+    m_combinedText = new Core::OutputPaneView;
+    m_combinedText->setMaxCharCount(maxLogCharCount);
+    // The line colours are the channel markers the log writes in front of
+    // every line, which no output format describes.
+    (void) new OutputHighlighter(m_combinedText->sourceDocument(), m_combinedText);
+    connect(m_combinedText, &Core::OutputPaneView::contextMenuAboutToShow,
+            this, [this] { offerLogContextMenu(m_combinedText, [this] { clearContents(); }); });
 
     // Input only.
     m_inputText = new InputPane(this);
@@ -480,13 +503,12 @@ LogWindow::LogWindow(DebuggerEngine *engine)
     layout->addWidget(new Core::FindToolBarPlaceHolder(this));
     setLayout(layout);
 
-    Aggregation::aggregate({m_combinedText, new Core::BaseTextFind(m_combinedText)});
     Aggregation::aggregate({m_inputText, new Core::BaseTextFind(m_inputText)});
 
     connect(m_inputText, &InputPane::statusMessageRequested,
             this, &LogWindow::statusMessageRequested);
     connect(m_inputText, &InputPane::commandSelected,
-            m_combinedText, &CombinedPane::gotoResult);
+            this, &LogWindow::gotoResult);
     connect(m_commandEdit, &QLineEdit::returnPressed,
             this, &LogWindow::sendCommand);
     connect(m_inputText, &InputPane::executeLineRequested,
@@ -567,17 +589,21 @@ void LogWindow::doOutput()
     if (theGlobalLog)
         theGlobalLog->doOutput(m_queuedOutput);
 
-    QTextCursor cursor = m_combinedText->textCursor();
-    const bool atEnd = cursor.atEnd();
-
-    m_combinedText->append(m_queuedOutput);
+    // Following the end is the view's own business: it keeps its place when
+    // the reader has scrolled away and goes back to the end when they have
+    // not, which is what the cursor dance here was for.
+    m_combinedText->appendMessage(m_queuedOutput, Utils::NormalMessageFormat);
     m_queuedOutput.clear();
+}
 
-    if (atEnd) {
-        cursor.movePosition(QTextCursor::End);
-        m_combinedText->setTextCursor(cursor);
-        m_combinedText->ensureCursorVisible();
-    }
+void LogWindow::gotoResult(int token)
+{
+    const QTextCursor answer = cursorForResult(m_combinedText->sourceDocument(), token);
+    if (answer.isNull())
+        return;
+
+    m_combinedText->setFocus();
+    m_combinedText->showCursor(answer);
 }
 
 void LogWindow::showInput(int channel, const QString &input)
@@ -611,7 +637,6 @@ void LogWindow::clearContents()
 
 void LogWindow::setCursor(const QCursor &cursor)
 {
-    m_combinedText->viewport()->setCursor(cursor);
     m_inputText->viewport()->setCursor(cursor);
     QWidget::setCursor(cursor);
 }
@@ -628,8 +653,8 @@ QString LogWindow::inputContents() const
 
 void LogWindow::clearUndoRedoStacks()
 {
+    // Only what can be typed into has anything to undo.
     m_inputText->clearUndoRedoStacks();
-    m_combinedText->clearUndoRedoStacks();
 }
 
 QString LogWindow::logTimeStamp()
@@ -696,36 +721,11 @@ GlobalLogWindow::GlobalLogWindow()
     setLayout(layout);
 }
 
-// Built when the menu is about to open rather than once: the view a pane draws
-// on does not exist until a Qt Quick front end has loaded, and this window is
-// made while plugins are still initializing.
 void GlobalLogWindow::showContextMenuFor(Core::OutputPaneView *pane)
 {
-    auto clear = new QAction(Tr::tr("Clear Contents"), pane);
-    connect(clear, &QAction::triggered, this, &GlobalLogWindow::clearContents);
-
-    auto save = new QAction(Tr::tr("Save Contents"), pane);
-    connect(save, &QAction::triggered, this, [this, pane] { saveContents(pane); });
-
-    pane->setContextMenuActions({clear,
-                                 save, // X11 clipboard is unreliable for long texts
-                                 settings().logTimeStamps.action(),
-                                 Core::ActionManager::command(
-                                     Constants::RELOAD_DEBUGGING_HELPERS)->action(),
-                                 nullptr,
-                                 settings().settingsDialog.action()});
+    offerLogContextMenu(pane, [this] { clearContents(); });
 }
 
-void GlobalLogWindow::saveContents(Core::OutputPaneView *pane)
-{
-    while (true) {
-        const FilePath filePath = FileUtils::getSaveFilePath(Tr::tr("Log File"));
-        if (filePath.isEmpty())
-            return;
-        if (pane->saveContentsTo(filePath))
-            return;
-    }
-}
 
 GlobalLogWindow::~GlobalLogWindow()
 {
@@ -951,6 +951,79 @@ private slots:
             window.clearContents();
             QCOMPARE(everything->toPlainText(), QString());
             QCOMPARE(typedOnly->toPlainText(), QString());
+        }
+        theGlobalLog = running;
+    }
+
+    void testTheAnswerToACommandIsShownWithWhatItReturned()
+    {
+        // Double-clicking a command in the input pane jumps the transcript to
+        // its answer, and selects the line under it as well: a result's
+        // payload is written there, and an answer without it says nothing.
+        QTextDocument log;
+        log.setPlainText(
+            ">42^done,value=\"1\"\n"
+            "payload of 42\n"
+            "43^done,value=\"2\"\n"
+            "payload of 43\n");
+
+        const QTextCursor answer = cursorForResult(&log, 43);
+        QVERIFY(!answer.isNull());
+
+        // The answer line and the break after it: moving down from the start
+        // of a line lands at the start of the next, so what is selected is the
+        // answer, and the payload under it is what that scrolls into view.
+        QCOMPARE(answer.selectedText().split(QChar(0x2029)),
+                 QStringList({"43^done,value=\"2\"", ""}));
+        // Exactly: from the start of the answer to the start of the line under
+        // it. Stopping at the end of the answer would leave the payload off
+        // the bottom of the view on a log scrolled to that point.
+        const QTextBlock answerBlock = blockForResult(&log, 43);
+        QCOMPARE(answer.selectionStart(), answerBlock.position());
+        QCOMPARE(answer.selectionEnd(), answerBlock.position() + answerBlock.length());
+
+        // Nothing there means no cursor, rather than one at the top of the
+        // log - which would look like an answer.
+        QVERIFY(cursorForResult(&log, 99).isNull());
+        QVERIFY(cursorForResult(nullptr, 42).isNull());
+    }
+
+    void testDoubleClickingACommandReachesTheTranscript()
+    {
+        // The whole way through: the input pane says which command was picked,
+        // and the transcript ends up showing that command's answer.
+        GlobalLogWindow * const running = theGlobalLog;
+        {
+            LogWindow window(nullptr);
+            const QList<Core::OutputPaneView *> panes
+                = window.findChildren<Core::OutputPaneView *>();
+            QCOMPARE(panes.size(), 1);
+            Core::OutputPaneView * const combined = panes.first();
+
+            const QList<InputPane *> inputs = window.findChildren<InputPane *>();
+            QCOMPARE(inputs.size(), 1);
+
+            combined->clear();
+            combined->appendMessage(logText(LogOutput, "42^done\npayload of 42\n"
+                                                       "43^done\npayload of 43", {}),
+                                    Utils::NormalMessageFormat);
+            combined->flush();
+            QTRY_VERIFY(combined->toPlainText().contains("43^done"));
+
+            Core::OutputView * const view = combined->view();
+            QVERIFY2(view, "no front end drew the transcript");
+
+            emit inputs.first()->commandSelected(43);
+
+            const QTextCursor shown = view->textCursor();
+            QVERIFY2(shown.hasSelection(), "the answer was not shown at all");
+            // The marker character in front of every line is part of the text.
+            QCOMPARE(shown.selectedText().split(QChar(0x2029)),
+                     QStringList({">43^done", ""}));
+
+            // And it is that answer, not the first one that mentions 43.
+            QVERIFY2(!shown.selectedText().startsWith(">42"),
+                     "the transcript jumped to the wrong command");
         }
         theGlobalLog = running;
     }

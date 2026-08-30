@@ -48,7 +48,6 @@ QTextBlock blockForResult(const QTextDocument *document, int token);
 
 class DebuggerEngine;
 class DebuggerPane;
-class CombinedPane;
 class InputPane;
 
 class LogWindow final : public QWidget
@@ -82,8 +81,10 @@ signals:
     void statusMessageRequested(const QString &msg, int);
 
 private:
-    CombinedPane *m_combinedText;  // combined input/output
-    InputPane *m_inputText;     // scriptable input alone
+    void gotoResult(int token);
+
+    Core::OutputPaneView *m_combinedText; // combined input/output
+    InputPane *m_inputText;               // scriptable input alone
     QTimer m_outputTimer;
     QString m_queuedOutput;
     Utils::FancyLineEdit *m_commandEdit;
@@ -105,7 +106,6 @@ public:
     void doOutput(const QString &output);
 
 private:
-    void saveContents(Core::OutputPaneView *pane);
     void showContextMenuFor(Core::OutputPaneView *pane);
 
     Core::OutputPaneView *m_rightPane; // everything

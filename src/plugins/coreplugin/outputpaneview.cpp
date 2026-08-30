@@ -373,6 +373,16 @@ void OutputPaneView::showPositionOf(unsigned taskId)
     output->setTextCursor(cursor);
 }
 
+void OutputPaneView::showCursor(const QTextCursor &cursor)
+{
+    OutputView * const output = view();
+    QTC_ASSERT(output, return);
+    if (cursor.isNull())
+        return;
+
+    output->setTextCursor(cursor);
+}
+
 void OutputPaneView::clear()
 {
     m_queuedOutput.clear();
@@ -1203,6 +1213,31 @@ private slots:
         IFindSupport *find = Utils::Aggregation::query<IFindSupport>(view.view());
         QVERIFY2(find, "nothing under the output area answers as find support");
         QCOMPARE(find->findStep("needle", {}), IFindSupport::Found);
+    }
+
+    void testShowingSomewhereAPaneWorkedOutForItself()
+    {
+        // A pane that can say where in its own document something is - the
+        // debugger log finding the answer to a command - hands over a cursor
+        // and the view selects and shows it.
+        OutputPaneView view;
+        view.appendMessage("first\nsecond\nthird\n", Utils::GeneralMessageFormat);
+        view.flush();
+
+        QTextDocument * const document = view.sourceDocument();
+        QTRY_COMPARE(document->blockCount(), 4); // three lines and the unfinished one
+
+        QTextCursor wanted(document->findBlockByNumber(1));
+        wanted.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+        view.showCursor(wanted);
+
+        QVERIFY(view.view());
+        QCOMPARE(view.view()->textCursor().selectedText(), QString("second"));
+
+        // A null cursor leaves the selection where it was, rather than
+        // collapsing it to the top of the document.
+        view.showCursor({});
+        QCOMPARE(view.view()->textCursor().selectedText(), QString("second"));
     }
 };
 
