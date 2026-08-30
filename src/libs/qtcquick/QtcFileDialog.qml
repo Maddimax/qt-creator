@@ -633,6 +633,8 @@ Window {
 
 
             QtcSearchBox {
+                id: searchBox
+
                 objectName: "searchBox"
                 // On the left, where the field this replaces draws it.
                 iconLeading: true

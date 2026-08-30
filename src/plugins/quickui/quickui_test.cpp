@@ -6738,6 +6738,14 @@ void QuickUiTest::testASearchCanBeUndoneWithoutTheKeyboard()
     QTRY_VERIFY(magnifier->isVisible());
     QVERIFY(!clear->isVisible());
     QTRY_COMPARE(browser->property("searchText").toString(), QString());
+
+    // The browser also ends a search on its own when the directory changes,
+    // and the box has to stop saying one is on.
+    search->setProperty("text", "needle");
+    QTRY_COMPARE(browser->property("searchText").toString(), QString("needle"));
+    dialog->setProperty("currentFolder", QDir::homePath());
+    QTRY_COMPARE(search->property("text").toString(), QString());
+    QTRY_VERIFY(magnifier->isVisible());
 }
 
 
