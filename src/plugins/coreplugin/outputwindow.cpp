@@ -710,16 +710,7 @@ void OutputWindow::handleNextOutputChunk()
 
     auto &chunk = d->queuedOutput.first();
 
-    // We want to break off the chunks along line breaks, if possible.
-    // Otherwise we can get ugly temporary artifacts e.g. for ANSI escape codes.
-    qsizetype actualChunkSize = std::min(d->chunkSize, chunk.first.size());
-    const qsizetype minEndPos = std::max(qsizetype(0), actualChunkSize - 1000);
-    for (int i = actualChunkSize - 1; i >= minEndPos; --i) {
-        if (chunk.first.at(i) == '\n') {
-            actualChunkSize = i + 1;
-            break;
-        }
-    }
+    const qsizetype actualChunkSize = chunkEndPosition(chunk.first, d->chunkSize);
 
     qCDebug(chunkLog) << "next queued chunk has" << chunk.first.size() << "bytes";
     if (actualChunkSize == chunk.first.size()) {
@@ -809,32 +800,42 @@ void OutputWindow::discardExcessiveOutput()
     if (!d->discardExcessiveOutput)
         return;
 
-    // Criterion 1: Are we being flooded?
-    // If the pending output has been growing for the last ten times the output formatter
-    // was invoked and it is considerably larger than the chunk size, we discard it.
-    const qsizetype queuedSize = totalQueuedSize();
-    if (!d->queuedSizeHistory.isEmpty() && d->queuedSizeHistory.last() > queuedSize)
-        d->queuedSizeHistory.clear();
-    d->queuedSizeHistory << queuedSize;
-    bool discard = d->queuedSizeHistory.size() > int(10) && queuedSize > 5 * d->chunkSize;
-    if (discard)
-        qCDebug(chunkLog) << "discarding output due to size";
-
-    // Criterion 2: Are we too slow?
-    // If it would take longer than a minute to print the pending output and we have
-    // already presented a reasonable amount of output to the user, we discard it.
-    if (!discard) {
-        discard = d->formatterCalls >= 10
-                  && (queuedSize / d->chunkSize) * d->queueTimer.intervalAsDuration() > 60s;
-        if (discard)
-            qCDebug(chunkLog) << "discarding output due to time";
-    }
-
+    PendingOutputState state{d->queuedSizeHistory};
+    const bool discard = shouldDiscardPendingOutput(state, totalQueuedSize(), d->chunkSize,
+                                                    d->formatterCalls,
+                                                    d->queueTimer.intervalAsDuration());
+    d->queuedSizeHistory = state.queuedSizeHistory;
     if (discard) {
+        qCDebug(chunkLog) << "discarding output";
         discardPendingToolOutput();
         d->queuedSizeHistory.clear();
-        return;
     }
+}
+
+qsizetype OutputWindow::chunkEndPosition(const QString &text, qsizetype chunkSize)
+{
+    qsizetype end = std::min(chunkSize, text.size());
+    const qsizetype earliest = std::max(qsizetype(0), end - 1000);
+    for (qsizetype i = end - 1; i >= earliest; --i) {
+        if (text.at(i) == '\n')
+            return i + 1;
+    }
+    return end;
+}
+
+bool OutputWindow::shouldDiscardPendingOutput(PendingOutputState &state, qsizetype queuedSize,
+                                              qsizetype chunkSize, int formatterCalls,
+                                              std::chrono::milliseconds interval)
+{
+    // A backlog that shrank is being kept up with, whatever it did before.
+    if (!state.queuedSizeHistory.isEmpty() && state.queuedSizeHistory.last() > queuedSize)
+        state.queuedSizeHistory.clear();
+    state.queuedSizeHistory << queuedSize;
+
+    if (state.queuedSizeHistory.size() > 10 && queuedSize > 5 * chunkSize)
+        return true;
+
+    return formatterCalls >= 10 && (queuedSize / chunkSize) * interval > 60s;
 }
 
 void OutputWindow::discardPendingToolOutput()
@@ -1384,6 +1385,74 @@ private slots:
         QVERIFY2(document.toPlainText().contains("first run")
                      && document.toPlainText().contains("second run"),
                  "dimming a run removed it");
+    }
+
+    // Where a chunk of output is cut so it can be written a piece at a time.
+    void testABigChunkIsCutAtALineEnd()
+    {
+        // Short enough to go in one piece.
+        QCOMPARE(OutputWindow::chunkEndPosition("one line\n", 100), 9);
+
+        // Cut back to just after the last line end, so a whole line goes.
+        QCOMPARE(OutputWindow::chunkEndPosition("aaa\nbbb\nccc", 8), 8);
+        QCOMPARE(OutputWindow::chunkEndPosition("aaa\nbbbbbbbb", 8), 4);
+
+        // A line end further back than a thousand characters is not worth
+        // waiting for: the cut is where it was asked for. Cutting through an
+        // escape code shows it as text, but holding a thousand characters back
+        // to avoid it would stall the output.
+        const QString noLineEndNearby = "x\n" + QString(3000, 'y');
+        QCOMPARE(OutputWindow::chunkEndPosition(noLineEndNearby, 2500), 2500);
+
+        // And with no line end at all it is a plain cut.
+        QCOMPARE(OutputWindow::chunkEndPosition(QString(50, 'z'), 20), 20);
+    }
+
+    // When output arriving faster than it can be drawn is thrown away. Inside
+    // the widget the only way to reach this was to flood a real build.
+    void testWhenPendingOutputIsThrownAway()
+    {
+        using namespace std::chrono_literals;
+        const qsizetype chunk = 1000;
+
+        // A backlog that keeps growing, and is large, is a flood. Ten samples
+        // are watched before deciding, so a burst is not mistaken for one.
+        OutputWindow::PendingOutputState growing;
+        for (int i = 1; i <= 10; ++i) {
+            QVERIFY2(!OutputWindow::shouldDiscardPendingOutput(growing, i * chunk, chunk, 0, 10ms),
+                     qPrintable(QString("gave up after only %1 samples").arg(i)));
+        }
+        QVERIFY(OutputWindow::shouldDiscardPendingOutput(growing, 11 * chunk, chunk, 0, 10ms));
+
+        // Growing but small is not: a pane with a little behind it is being
+        // kept up with.
+        OutputWindow::PendingOutputState small;
+        for (int i = 1; i <= 20; ++i)
+            QVERIFY(!OutputWindow::shouldDiscardPendingOutput(small, chunk, chunk, 0, 10ms));
+
+        // And a backlog that shrinks even once starts the count again, because
+        // it is being kept up with after all.
+        OutputWindow::PendingOutputState recovering;
+        for (int i = 1; i <= 10; ++i)
+            OutputWindow::shouldDiscardPendingOutput(recovering, i * chunk, chunk, 0, 10ms);
+        QVERIFY(!OutputWindow::shouldDiscardPendingOutput(recovering, chunk, chunk, 0, 10ms));
+        QVERIFY2(!OutputWindow::shouldDiscardPendingOutput(recovering, 11 * chunk, chunk, 0, 10ms),
+                 "a backlog that had recovered was discarded on the next sample");
+
+        // The other reason: writing what is waiting would take over a minute.
+        // 7000 chunks at 10ms each is about seventy seconds.
+        OutputWindow::PendingOutputState slow;
+        QVERIFY(OutputWindow::shouldDiscardPendingOutput(slow, 7000 * chunk, chunk, 10, 10ms));
+
+        // But not before anything has been shown: a pane that has drawn almost
+        // nothing yet must not start by announcing that it gave up.
+        OutputWindow::PendingOutputState slowButNew;
+        QVERIFY2(!OutputWindow::shouldDiscardPendingOutput(slowButNew, 7000 * chunk, chunk, 9, 10ms),
+                 "output was discarded before the pane had shown anything");
+
+        // Just under a minute is not over it.
+        OutputWindow::PendingOutputState almost;
+        QVERIFY(!OutputWindow::shouldDiscardPendingOutput(almost, 5000 * chunk, chunk, 10, 10ms));
     }
 
     // Which lines of the document a task's output occupies. The widget worked

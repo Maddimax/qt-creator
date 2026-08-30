@@ -12,6 +12,8 @@
 
 #include <QPlainTextEdit>
 
+#include <chrono>
+
 QT_BEGIN_NAMESPACE
 class QPalette;
 QT_END_NAMESPACE
@@ -116,6 +118,31 @@ public:
     // what it said - the progress lines a build system overwrites.
     static void removeLinesPrefixedWith(QTextDocument *document, const QString &prefix,
                                         bool deleteTrailingLineBreak);
+
+    // How much of \a text to write now. Up to \a chunkSize characters, but
+    // backed off to just after the last line end within a thousand characters
+    // of it: cutting through an ANSI escape code draws the code as text.
+    static qsizetype chunkEndPosition(const QString &text, qsizetype chunkSize);
+
+    // How the backlog has been moving, so a flood can be told from a burst.
+    struct PendingOutputState
+    {
+        QList<qsizetype> queuedSizeHistory;
+    };
+
+    // Whether the output still waiting should be thrown away rather than
+    // shown. Two reasons, and either is enough:
+    //
+    //   - the backlog has grown ten times in a row and is more than five
+    //     chunks' worth, so more is arriving than can be drawn;
+    //   - writing what is waiting would take over a minute, and enough has
+    //     been shown already that the user is not staring at an empty pane.
+    //
+    // Kept out of the widget because it is a judgement about numbers, and
+    // inside one the only way to reach it was to flood a real build.
+    static bool shouldDiscardPendingOutput(PendingOutputState &state, qsizetype queuedSize,
+                                           qsizetype chunkSize, int formatterCalls,
+                                           std::chrono::milliseconds interval);
 
     OutputWindow(Context context, const Utils::Key &settingsKey, QWidget *parent = nullptr);
     ~OutputWindow() override;

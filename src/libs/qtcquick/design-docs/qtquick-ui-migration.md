@@ -18290,3 +18290,41 @@ that happened to be chosen.
 Controls, four, all biting: no limit applied at all; an oversized chunk written
 whole rather than elided; the filtered copy not rebuilt when the source is
 trimmed; and the default limit not being the widget's.
+
+### Compile Output is blocked on the queue, and two of its decisions are out
+
+Compile Output looked like a straight port and is not. `OutputPaneView` has
+everything the pane's *surface* needs, but `setDiscardExcessiveOutput()` - one
+of its settings - is not about drawing at all. It belongs to the widget's chunk
+queue: output goes into a list, a timer writes a chunk at a time, the interval
+and chunk size adapt to how long the formatter takes, and when more arrives
+than can be drawn the backlog is thrown away with a line saying so.
+
+`OutputPaneView` has no queue. It writes straight through, which is fine for
+General Messages and Build System Output and is not fine for the pane that
+receives the most output in the product: no back-pressure, and a setting that
+would silently do nothing.
+
+So the queue is the batch after this one, and this batch takes out the two
+decisions inside it that have never been answerable:
+
+- **`chunkEndPosition(text, chunkSize)`** - where a chunk is cut. Up to
+  `chunkSize`, backed off to just after the last line end within a thousand
+  characters, because cutting through an ANSI escape code draws the code as
+  text. A line end further back than that is not worth waiting for: the
+  thousand-character window is the trade between an ugly artefact and a stalled
+  pane, and it is now written down as a case rather than as a literal.
+- **`shouldDiscardPendingOutput(state, ...)`** - when to give up on the
+  backlog. Ten growing samples *and* more than five chunks waiting; or over a
+  minute of writing ahead *and* at least ten chunks already drawn. Each half of
+  each pair matters, and all four are separately controlled: without the ten
+  samples a burst is mistaken for a flood, without the size a pane that is
+  keeping up discards, without the recovery reset a backlog that already
+  recovered is discarded on its next sample, and without the ten calls a pane
+  announces that it gave up before it has drawn anything.
+
+Both follow `appendFiltered`'s shape: a small state struct the caller owns,
+because the history of the backlog is exactly what tells a flood from a burst
+and hiding it inside the widget is what made it unreachable.
+
+Controls, six, all biting on the assertion that names their decision.
