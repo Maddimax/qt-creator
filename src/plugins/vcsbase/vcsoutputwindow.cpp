@@ -7,7 +7,8 @@
 #include "vcsoutputformatter.h"
 
 #include <coreplugin/editormanager/editormanager.h>
-#include <coreplugin/outputwindow.h>
+#include <coreplugin/outputpaneview.h>
+#include <coreplugin/outputview.h>
 
 #include <texteditor/behaviorsettings.h>
 #include <texteditor/fontsettings.h>
@@ -18,6 +19,10 @@
 
 #include <QAction>
 #include <QContextMenuEvent>
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
 #include <QMenu>
 #include <QPlainTextEdit>
 #include <QPoint>
@@ -68,33 +73,39 @@ private:
 
 // A plain text edit with a special context menu containing "Clear"
 // and functions to append specially formatted entries.
-class OutputWindowPlainTextEdit : public OutputWindow
+class VcsOutputView : public Core::OutputPaneView
 {
 public:
-    explicit OutputWindowPlainTextEdit(QWidget *parent = nullptr);
+    explicit VcsOutputView(QWidget *parent = nullptr);
 
     void appendLines(const QString &text, VcsOutputWindow::MessageStyle style,
                      const FilePath &repository);
 
-protected:
-    void adaptContextMenu(QMenu *menu, const QPoint &pos) override;
-    void handleLink(const QPoint &pos) override;
-
 private:
-    QString identifierUnderCursor(const QPoint &pos, FilePath *repository = nullptr) const;
+    QString anchorAt(int position);
+    void adaptContextMenu(int position);
+    void handleLink(const QString &href, int position);
+
 
     VcsOutputLineParser *m_parser = nullptr;
+    QAction m_openAction;
+    QList<QAction *> m_linkActions;
 };
 
-OutputWindowPlainTextEdit::OutputWindowPlainTextEdit(QWidget *parent)
-    : OutputWindow(Context(C_VCS_OUTPUT_PANE), zoomSettingsKey, parent)
+VcsOutputView::VcsOutputView(QWidget *parent)
+    : Core::OutputPaneView(Context(C_VCS_OUTPUT_PANE), zoomSettingsKey, parent)
     , m_parser(new VcsOutputLineParser)
 {
-    setReadOnly(true);
-    setUndoRedoEnabled(false);
-    setFrameStyle(QFrame::NoFrame);
-    outputFormatter()->setBoldFontEnabled(false);
-    setLineParsers({m_parser});
+    formatter()->setBoldFontEnabled(false);
+    formatter()->setLineParsers({m_parser});
+
+    connect(this, &Core::OutputPaneView::contextMenuAboutToShow, this, [this](qreal x, qreal y) {
+        adaptContextMenu(documentPositionAt(x, y));
+    });
+    connect(this, &Core::OutputPaneView::linkActivated, this,
+            [this](const QString &href, qreal x, qreal y) {
+                handleLink(href, documentPositionAt(x, y));
+            });
 }
 
 // Search back for beginning of word
@@ -107,73 +118,102 @@ static inline int firstWordCharacter(const QString &s, int startPos)
     return 0;
 }
 
-QString OutputWindowPlainTextEdit::identifierUnderCursor(const QPoint &widgetPos, FilePath *repository) const
+QString identifierAt(const QTextDocument *document, int position, FilePath *repository)
 {
     if (repository)
         repository->clear();
-    // Get the blank-delimited word under cursor. Note that
-    // using "SelectWordUnderCursor" does not work since it breaks
-    // at delimiters like '/'. Get the whole line
-    QTextCursor cursor = cursorForPosition(widgetPos);
-    const int cursorDocumentPos = cursor.position();
-    cursor.select(QTextCursor::BlockUnderCursor);
-    if (!cursor.hasSelection())
+    if (!document || position < 0)
         return {};
-    const QString block = cursor.selectedText();
-    // Determine cursor position within line and find blank-delimited word
-    const int cursorPos = cursorDocumentPos - cursor.block().position();
-    const int blockSize = block.size();
-    if (cursorPos < 0 || cursorPos >= blockSize || block.at(cursorPos).isSpace())
+
+    const QTextBlock block = document->findBlock(position);
+    if (!block.isValid())
         return {};
-    // Retrieve repository if desired
-    if (repository)
-        if (QTextBlockUserData *data = cursor.block().userData())
+
+    // The blank-delimited word, not what QTextCursor::WordUnderCursor would
+    // give: that breaks at delimiters like '/', and these are file names.
+    const QString line = block.text();
+    const int positionInLine = position - block.position();
+    if (positionInLine < 0 || positionInLine >= line.size() || line.at(positionInLine).isSpace())
+        return {};
+
+    // Which repository the line came from, remembered on the block when it was
+    // written. It is what a relative file name is resolved against.
+    if (repository) {
+        if (QTextBlockUserData * const data = block.userData())
             *repository = static_cast<const RepositoryUserData *>(data)->repository();
-    // Find first non-space character of word and find first non-space character past
-    const int startPos = firstWordCharacter(block, cursorPos);
-    int endPos = cursorPos;
-    for ( ; endPos < blockSize && !block.at(endPos).isSpace(); endPos++) ;
-    return endPos > startPos ? block.mid(startPos, endPos - startPos) : QString();
+    }
+
+    const int startPos = firstWordCharacter(line, positionInLine);
+    int endPos = positionInLine;
+    for ( ; endPos < line.size() && !line.at(endPos).isSpace(); endPos++) ;
+    return endPos > startPos ? line.mid(startPos, endPos - startPos) : QString();
 }
 
-void OutputWindowPlainTextEdit::adaptContextMenu(QMenu *menu, const QPoint &pos)
+QString VcsOutputView::anchorAt(int position)
 {
-    const QString href = anchorAt(pos);
-    if (!href.isEmpty())
-        menu->clear();
+    if (position < 0)
+        return {};
+    QTextCursor cursor(sourceDocument());
+    // One past the position: a character's format is the format of the text
+    // that follows it, so asking exactly at a link's first character finds
+    // whatever came before it instead.
+    cursor.setPosition(std::min(position + 1, sourceDocument()->characterCount() - 1));
+    return cursor.charFormat().anchorHref();
+}
 
-    // Add 'open file'
+void VcsOutputView::adaptContextMenu(int position)
+{
+    qDeleteAll(m_linkActions);
+    m_linkActions.clear();
+
+    const QString href = anchorAt(position);
     FilePath repo;
-    const QString token = identifierUnderCursor(pos, &repo);
-    if (!repo.isEmpty() && !href.isEmpty())
-        m_parser->fillLinkContextMenu(menu, repo, href);
-    QAction *openAction = nullptr;
+    const QString token = identifierAt(sourceDocument(), position, &repo);
+
+    QList<QAction *> actions;
+    if (!repo.isEmpty() && !href.isEmpty()) {
+        // The parser knows what a link of its own means; it fills a menu, so
+        // it is given one and the entries are taken out of it.
+        const std::unique_ptr<QMenu> scratch(new QMenu);
+        m_parser->fillLinkContextMenu(scratch.get(), repo, href);
+        for (QAction * const action : scratch->actions()) {
+            action->setParent(this);
+            m_linkActions << action;
+        }
+        actions += m_linkActions;
+    }
+
     if (!token.isEmpty()) {
-        // Check for a file, expand via repository if relative
+        // A file, expanded through the repository if the name is relative.
         if (!repo.isEmpty() && !repo.isFile() && repo.isRelativePath())
             repo = repo.pathAppended(token);
-        if (repo.isFile())  {
-            menu->addSeparator();
-            openAction = menu->addAction(Tr::tr("Open \"%1\"").arg(repo.nativePath()));
-            connect(openAction, &QAction::triggered, this, [fp = repo.absoluteFilePath()] {
+        if (repo.isFile()) {
+            m_openAction.setText(Tr::tr("Open \"%1\"").arg(repo.nativePath()));
+            m_openAction.disconnect();
+            connect(&m_openAction, &QAction::triggered, this, [fp = repo.absoluteFilePath()] {
                 EditorManager::openEditor(fp);
             });
+            actions << &m_openAction;
         }
     }
+
+    // Over one of its own links these are the whole menu: the standard entries
+    // are about the output as text, and this is about what the link points to.
+    setContextMenuActions(actions, !href.isEmpty());
 }
 
-void OutputWindowPlainTextEdit::handleLink(const QPoint &pos)
+void VcsOutputView::handleLink(const QString &href, int position)
 {
-    const QString href = anchorAt(pos);
     if (href.isEmpty())
         return;
+
     FilePath repository;
-    identifierUnderCursor(pos, &repository);
+    identifierAt(sourceDocument(), position, &repository);
     if (repository.isEmpty()) {
-        OutputWindow::handleLink(pos);
+        formatter()->handleLink(href);
         return;
     }
-    if (outputFormatter()->handleFileLink(href))
+    if (formatter()->handleFileLink(href))
         return;
     m_parser->handleVcsLink(repository, href);
 }
@@ -195,30 +235,84 @@ static OutputFormat styleToFormat(VcsOutputWindow::MessageStyle style)
     return OutputFormat::StdOutFormat;
 }
 
-void OutputWindowPlainTextEdit::appendLines(const QString &text,
-                                            VcsOutputWindow::MessageStyle style,
-                                            const FilePath &repository)
+void VcsOutputView::appendLines(const QString &text, VcsOutputWindow::MessageStyle style,
+                                const FilePath &repository)
 {
     if (text.isEmpty())
         return;
 
     const QString textToAdd = style == VcsOutputWindow::Command
                             ? QTime::currentTime().toString("\nHH:mm:ss ") + text : text;
-    const int previousLineCount = document()->lineCount();
+    const int previousLineCount = sourceDocument()->lineCount();
 
-    outputFormatter()->setBoldFontEnabled(style == VcsOutputWindow::Command);
-    outputFormatter()->appendMessage(textToAdd, styleToFormat(style));
+    formatter()->setBoldFontEnabled(style == VcsOutputWindow::Command);
+    appendMessage(textToAdd, styleToFormat(style));
 
-    // Scroll down
-    moveCursor(QTextCursor::End);
-    ensureCursorVisible();
+    // Written now rather than when the queue gets to it, because what follows
+    // marks up the lines this call added and has to be able to find them.
+    flush();
+    scrollToBottom();
+
     if (!repository.isEmpty()) {
-        // Associate repository with new data.
-        QTextBlock block = document()->findBlockByLineNumber(previousLineCount);
+        // Which repository these lines came from, remembered on the lines
+        // themselves: it is what a click on one of them is resolved against.
+        QTextBlock block = sourceDocument()->findBlockByLineNumber(previousLineCount);
         for ( ; block.isValid(); block = block.next())
             block.setUserData(new RepositoryUserData(repository));
     }
 }
+
+#ifdef WITH_TESTS
+
+class VcsOutputViewTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheWordAndRepositoryUnderAPoint()
+    {
+        // What a right-click or a link click in the VCS output resolves to.
+        // Inside the widget this took a point in a QPlainTextEdit, so the only
+        // way to ask it anything was to click in a running Qt Creator.
+        QTextDocument document;
+        document.setPlainText("modified: src/main.cpp\nnothing here\n");
+
+        const FilePath repository = FilePath::fromString("/tmp/some/repo");
+        document.findBlockByNumber(0).setUserData(new RepositoryUserData(repository));
+
+        FilePath found;
+        // Anywhere in the word gives the whole word, delimiters and all: these
+        // are file names, and stopping at '/' would give half a path.
+        for (int i = 10; i < 22; ++i) {
+            QCOMPARE(identifierAt(&document, i, &found), QString("src/main.cpp"));
+            QCOMPARE(found, repository);
+        }
+
+        // The first word of the line, and its start.
+        QCOMPARE(identifierAt(&document, 0, nullptr), QString("modified:"));
+        QCOMPARE(identifierAt(&document, 8, nullptr), QString("modified:"));
+
+        // On a space there is no word, so a click between two of them offers
+        // nothing rather than the one on either side.
+        QVERIFY(identifierAt(&document, 9, nullptr).isEmpty());
+
+        // A line nobody attached a repository to has none, and says so rather
+        // than inheriting the previous line's.
+        QVERIFY(!identifierAt(&document, 25, &found).isEmpty());
+        QVERIFY2(found.isEmpty(), "a line with no repository was given another line's");
+
+        // And nothing at all outside the document.
+        QVERIFY(identifierAt(&document, -1, nullptr).isEmpty());
+        QVERIFY(identifierAt(nullptr, 0, nullptr).isEmpty());
+    }
+};
+
+QObject *createVcsOutputViewTest()
+{
+    return new VcsOutputViewTest;
+}
+
+#endif // WITH_TESTS
 
 } // namespace Internal
 
@@ -226,7 +320,7 @@ void OutputWindowPlainTextEdit::appendLines(const QString &text,
 class VcsOutputWindowPrivate
 {
 public:
-    Internal::OutputWindowPlainTextEdit widget;
+    Internal::VcsOutputView widget;
     const QRegularExpression passwordRegExp = QRegularExpression("://([^@:]+):([^@]+)@");
 };
 
@@ -255,9 +349,9 @@ VcsOutputWindow::VcsOutputWindow()
     updateFontSettings();
     setupContext(Internal::C_VCS_OUTPUT_PANE, &d->widget);
 
-    connect(this, &IOutputPane::zoomInRequested, &d->widget, &OutputWindow::zoomIn);
-    connect(this, &IOutputPane::zoomOutRequested, &d->widget, &OutputWindow::zoomOut);
-    connect(this, &IOutputPane::resetZoomRequested, &d->widget, &OutputWindow::resetZoom);
+    connect(this, &IOutputPane::zoomInRequested, &d->widget, &Core::OutputPaneView::zoomIn);
+    connect(this, &IOutputPane::zoomOutRequested, &d->widget, &Core::OutputPaneView::zoomOut);
+    connect(this, &IOutputPane::resetZoomRequested, &d->widget, &Core::OutputPaneView::resetZoom);
     connect(&TextEditor::globalBehaviorSettings(), &Utils::AspectContainer::changed,
             this, updateBehaviorSettings);
     connect(&TextEditor::globalFontSettings(), &TextEditor::FontSettings::changed,
@@ -433,3 +527,7 @@ VcsOutputWindow *VcsOutputWindow::instance()
 }
 
 } // namespace VcsBase
+
+#ifdef WITH_TESTS
+#include "vcsoutputwindow.moc"
+#endif

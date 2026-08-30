@@ -44,7 +44,12 @@ Item {
     signal copyContentsToScratchBufferRequested()
     signal clearRequested()
 
-    signal linkActivated(string href)
+    // Where the pointer last was, so that a link click can say where it
+    // happened. See the hover handler below.
+    property real lastPointerX: 0
+    property real lastPointerY: 0
+
+    signal linkActivated(string href, real x, real y)
     // One notch of Ctrl+wheel, in points. What that comes to is C++'s
     // decision, because the widget output window has to agree with it.
     signal zoomRequested(real delta)
@@ -218,9 +223,17 @@ Item {
             background: null
             padding: 0
 
-            onLinkActivated: (link) => root.linkActivated(link)
+            onLinkActivated: (link) => root.linkActivated(link, root.lastPointerX,
+                                                          root.lastPointerY)
 
             HoverHandler {
+                // Where the pointer last was. A link click reports no
+                // position of its own, and a pane needs one to say which line
+                // the link was on - the pointer is necessarily there.
+                onPointChanged: {
+                    root.lastPointerX = point.position.x
+                    root.lastPointerY = point.position.y
+                }
                 cursorShape: area.hoveredLink.length > 0 ? Qt.PointingHandCursor
                                                          : Qt.IBeamCursor
             }

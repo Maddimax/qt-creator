@@ -8,6 +8,8 @@ QtcPlugin {
     Depends { name: "Spinner" }
     Depends { name: "Utils" }
 
+    Depends { name: "Qt.testlib"; condition: qtc.withAutotests }
+
     Depends { name: "Core" }
     Depends { name: "TextEditor" }
     Depends { name: "ProjectExplorer" }

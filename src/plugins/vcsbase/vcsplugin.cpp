@@ -95,6 +95,9 @@ VcsPlugin::~VcsPlugin()
 
 void VcsPlugin::initialize()
 {
+#ifdef WITH_TESTS
+    addTestCreator(createVcsOutputViewTest);
+#endif
     d = new VcsPluginPrivate(this);
 
     IOptionsPage::registerCategory(

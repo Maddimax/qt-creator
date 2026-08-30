@@ -106,7 +106,7 @@ signals:
 
     // Where the pane calls Utils::OutputFormatter::handleLink(). The view does
     // not know what a link means, only that one was clicked.
-    void linkActivated(const QString &href);
+    void linkActivated(const QString &href, qreal x, qreal y);
 
     // The zoom changed by the wheel rather than by a caller, which is what a
     // pane listens for to zoom its other views to match.

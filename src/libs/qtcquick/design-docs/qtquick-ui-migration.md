@@ -18647,3 +18647,46 @@ The VCS pane itself is the next batch and deliberately not this one: it is not
 a substitution like the last two. Its `handleLink()` override needs the same
 point-to-position mapping, it attaches per-block user data to remember which
 repository a line came from, and it formats its own entries by message style.
+
+### VCS, and the last of the six
+
+All six text output panes are drawn with Qt Quick now.
+
+VCS was the one that resolves what a click means against *where* it happened.
+Both of its overrides needed a point turned into a place in the document, so
+both are now written that way: `contextMenuAboutToShow(x, y)` and a
+`linkActivated(href, x, y)` that carries the point as well as the target.
+
+**A link click reports no position of its own.** `TextArea.onLinkActivated`
+gives the href and nothing else, and this pane needs the line to find the
+repository it came from. The pointer is necessarily over the link when it is
+clicked, so the hover handler that already sets the cursor shape records where
+it is, and the click reports that. On a touch device there is no hover and this
+would not hold - worth knowing, and not worth solving for a pane driven by a
+mouse.
+
+**`appendLines()` has to flush.** It marks up the lines it just added -
+attaching the repository to each block - so it has to be able to find them,
+and with a queued view they are not there yet when the call returns.
+
+**A pane test suite where there was none.** `-test VcsBase` was running nothing
+at all, which is why it had always been green. `identifierAt()` is now a
+function of a document rather than a method reading a widget's cursor, so what
+a click resolves to can be asked directly; before this the only way to ask was
+to click in a running Qt Creator.
+
+**One control did not bite, and the honest answer is not to remove anything.**
+Deleting the "not on a space" check still passes, because the `endPos >
+startPos` test at the end already answers empty for a point on a space - the
+two guards agree, and no input separates them. It is an early return for the
+same answer rather than dead code, and it is behaviour carried over rather than
+written here, so it stays with this note against it.
+
+Controls, four, three biting: the word stopping at a path separator, which
+would give half a path; the word read only forwards from the point, which would
+give half a word; and the repository read from anywhere but the line's own
+block, which would give a line another line's repository.
+
+That is the whole of the output work. What is left of the pane migration is the
+three with custom-painted views - Test Results, Squish, the debugger console -
+which the plan has said from the start need someone looking at the result.

@@ -22,7 +22,8 @@ OutputView::OutputView(QWidget *parent)
     QObject * const root = rootObject();
     QTC_ASSERT(root, return);
     m_baseFont = root->property("baseFont").value<QFont>();
-    connect(root, SIGNAL(linkActivated(QString)), this, SIGNAL(linkActivated(QString)));
+    connect(root, SIGNAL(linkActivated(QString, double, double)),
+            this, SIGNAL(linkActivated(QString, qreal, qreal)));
     connect(root, SIGNAL(saveContentsRequested()), this, SIGNAL(saveContentsRequested()));
     connect(root, SIGNAL(copyContentsToScratchBufferRequested()),
             this, SIGNAL(copyContentsToScratchBufferRequested()));

@@ -110,7 +110,7 @@ signals:
 
     // A link was clicked. What it means is the pane's business - it is the one
     // holding the formatter whose handleLink() answers.
-    void linkActivated(const QString &href);
+    void linkActivated(const QString &href, qreal x, qreal y);
 
     // The zoom changed by the wheel rather than by a caller, which is what a
     // pane listens for to zoom its other views to match.

@@ -122,6 +122,7 @@ OutputView *OutputPaneView::view()
     connect(m_view, &OutputView::clearRequested, this, &OutputPaneView::clear);
     connect(m_view, &OutputView::contextMenuAboutToShow,
             this, &OutputPaneView::contextMenuAboutToShow);
+    connect(m_view, &OutputView::linkActivated, this, &OutputPaneView::linkActivated);
     connect(m_view, &OutputView::wheelZoom, this, [this] {
         // The view moved the zoom itself, so this has to catch up before
         // telling anyone: a pane reads fontZoom() to match its other views.
@@ -384,6 +385,17 @@ void OutputPaneView::clear()
     m_appendState = {};
     m_startOfNewContent.setPosition(0);
     m_taskPositions.clear();
+}
+
+void OutputPaneView::setPlainText(const QString &text)
+{
+    clear();
+    m_source.setPlainText(text);
+}
+
+QTextDocument *OutputPaneView::sourceDocument()
+{
+    return &m_source;
 }
 
 void OutputPaneView::clearLinesPrefixedWith(const QString &prefix, bool deleteTrailingLineBreak)

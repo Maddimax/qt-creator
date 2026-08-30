@@ -96,4 +96,10 @@ private:
     ~VcsOutputWindow() override;
 };
 
+namespace Internal {
+#ifdef WITH_TESTS
+QObject *createVcsOutputViewTest();
+#endif
+} // namespace Internal
+
 } // namespace VcsBase

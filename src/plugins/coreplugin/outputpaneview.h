@@ -73,6 +73,17 @@ public:
 
     void clear();
 
+    // Replaces everything with \a text. What a pane does when it is showing
+    // something it can regenerate rather than a stream it is appending to.
+    void setPlainText(const QString &text);
+
+    // Everything written, as a document. A pane needs it to mark up what it
+    // wrote - the VCS pane remembers on each block which repository the line
+    // came from - and it is the source rather than what is shown, because a
+    // filter must not lose those marks.
+    QTextDocument *sourceDocument();
+
+
     // Retracts lines already printed - the progress lines a build system
     // overwrites as it goes.
     void clearLinesPrefixedWith(const QString &prefix, bool deleteTrailingLineBreak);
@@ -177,6 +188,11 @@ public:
 #endif
 
 signals:
+    // A link in the output was clicked, and where. The point matters as much
+    // as the target for a pane that resolves links against the line they are
+    // on - the VCS pane against the repository that line came from.
+    void linkActivated(const QString &href, qreal x, qreal y);
+
     // The context menu is about to open at this point in the view.
     void contextMenuAboutToShow(qreal x, qreal y);
 
