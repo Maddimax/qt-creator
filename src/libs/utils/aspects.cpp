@@ -3583,6 +3583,86 @@ AspectPresentation TextDisplay::presentation() const
     renderer.
 */
 
+TableAspect::TableAspect(AspectContainer *container)
+    : BaseAspect(container)
+{}
+
+TableAspect::~TableAspect() = default;
+
+AspectPresentation TableAspect::presentation() const
+{
+    AspectPresentation p = BaseAspect::presentation();
+    p.control = AspectControls::Table;
+    p.filterPlaceholderText = m_filterPlaceholderText;
+    p.sortColumn = m_sortColumn;
+    p.sortOrder = m_sortOrder;
+    return p;
+}
+
+QAbstractItemModel *TableAspect::tableModel()
+{
+    return m_model;
+}
+
+void TableAspect::setModel(QAbstractItemModel *model)
+{
+    m_model = model;
+    // Whatever was chosen was chosen among other rows.
+    setCurrentRow(-1);
+    setSelectedRows({});
+}
+
+void TableAspect::setFilterPlaceholderText(const QString &text)
+{
+    m_filterPlaceholderText = text;
+    emit controlConfigurationChanged();
+}
+
+void TableAspect::setSortColumn(int column, Qt::SortOrder order)
+{
+    m_sortColumn = column;
+    m_sortOrder = order;
+    emit controlConfigurationChanged();
+}
+
+void TableAspect::setCurrentRow(int row)
+{
+    if (m_currentRow == row)
+        return;
+    m_currentRow = row;
+    emit chosenChanged();
+}
+
+void TableAspect::setSelectedRows(const QVariantList &rows)
+{
+    QList<int> selected;
+    for (const QVariant &row : rows)
+        selected << row.toInt();
+    std::sort(selected.begin(), selected.end());
+    if (m_selectedRows == selected)
+        return;
+    m_selectedRows = selected;
+    emit chosenChanged();
+}
+
+void TableAspect::activateRow(int row)
+{
+    setCurrentRow(row);
+    emit rowActivated();
+}
+
+void TableAspect::showRow(int row)
+{
+    setCurrentRow(row);
+    setSelectedRows(row >= 0 ? QVariantList{row} : QVariantList{});
+    emit selectRowRequested(row);
+}
+
+QList<int> TableAspect::selectedRows() const
+{
+    return m_selectedRows;
+}
+
 ActionAspect::ActionAspect(AspectContainer *container)
     : BaseAspect(container), d(new Internal::ActionAspectPrivate)
 {}

@@ -359,75 +359,10 @@ const QStandardItem *LogChangeWidget::currentItem(int column) const
     return nullptr;
 }
 
-class LogTableAspect final : public BaseAspect
-{
-    Q_OBJECT
-
-public:
-    LogTableAspect(AspectContainer *container, QAbstractItemModel *model)
-        : BaseAspect(container), m_model(model)
-    {}
-
-    AspectPresentation presentation() const override
-    {
-        AspectPresentation p = BaseAspect::presentation();
-        p.control = AspectControls::Table;
-        return p;
-    }
-
-    QAbstractItemModel *tableModel() override { return m_model; }
-
-    Q_INVOKABLE void setCurrentRow(int row)
-    {
-        if (m_currentRow == row)
-            return;
-        m_currentRow = row;
-        emit chosenChanged();
-    }
-
-    Q_INVOKABLE void setSelectedRows(const QVariantList &rows)
-    {
-        QList<int> selected;
-        for (const QVariant &row : rows)
-            selected << row.toInt();
-        if (m_selectedRows == selected)
-            return;
-        m_selectedRows = selected;
-        emit chosenChanged();
-    }
-
-    Q_INVOKABLE void activateRow(int row)
-    {
-        setCurrentRow(row);
-        emit rowActivated();
-    }
-
-    void showRow(int row)
-    {
-        setCurrentRow(row);
-        setSelectedRows(row >= 0 ? QVariantList{row} : QVariantList{});
-        emit selectRowRequested(row);
-    }
-
-    int currentRow() const { return m_currentRow; }
-    QList<int> selectedRows() const { return Utils::sorted(m_selectedRows); }
-
-signals:
-    void chosenChanged();
-    void rowActivated();
-    void selectRowRequested(int row);
-
-private:
-    QAbstractItemModel *const m_model;
-    int m_currentRow = -1;
-    QList<int> m_selectedRows;
-};
-
 class LogChangeSettings final : public AspectContainer
 {
 public:
     explicit LogChangeSettings(QAbstractItemModel *model)
-        : commits(this, model)
     {
         setAutoApply(true);
         setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Git/LogChangeDialog.qml"));
@@ -440,6 +375,7 @@ public:
         hint.setVisible(false);
 
         commits.setQmlName("Commits");
+        commits.setModel(model);
 
         resetType.setQmlName("ResetType");
         resetType.setLabelText(Tr::tr("Reset type:"));
@@ -453,7 +389,7 @@ public:
 
     TextDisplay prompt{this};
     TextDisplay hint{this};
-    LogTableAspect commits;
+    TableAspect commits{this};
     SelectionAspect resetType{this};
 };
 
@@ -480,9 +416,9 @@ LogChangeDialog::LogChangeDialog(DialogType type, QWidget *parent)
     connect(m_dialogButtonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
 
     QPushButton *const okButton = m_dialogButtonBox->button(QDialogButtonBox::Ok);
-    connect(&m_settings->commits, &LogTableAspect::rowActivated,
+    connect(&m_settings->commits, &TableAspect::rowActivated,
             okButton, [okButton] { okButton->animateClick(); });
-    connect(&m_settings->commits, &LogTableAspect::chosenChanged, this, [this, okButton] {
+    connect(&m_settings->commits, &TableAspect::chosenChanged, this, [this, okButton] {
         okButton->setEnabled(!m_settings->commits.selectedRows().isEmpty());
         m_model->setChosen(m_settings->commits.currentRow(), m_settings->commits.selectedRows());
     });
@@ -792,7 +728,7 @@ private slots:
         QObject *table = nullptr;
         QTRY_VERIFY(table = root->findChild<QObject *>("commitTable"));
 
-        QSignalSpy activated(&settings.commits, &LogTableAspect::rowActivated);
+        QSignalSpy activated(&settings.commits, &TableAspect::rowActivated);
         QVERIFY(QMetaObject::invokeMethod(table, "rowActivated", Q_ARG(int, 2)));
         QTRY_COMPARE(activated.count(), 1);
         QCOMPARE(settings.commits.currentRow(), 2);

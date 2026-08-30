@@ -172,65 +172,21 @@ public:
     }
 };
 
-class NickNameTableAspect final : public BaseAspect
-{
-    Q_OBJECT
-
-public:
-    NickNameTableAspect(AspectContainer *container, QStandardItemModel *model)
-        : BaseAspect(container), m_model(model)
-    {}
-
-    AspectPresentation presentation() const override
-    {
-        AspectPresentation p = BaseAspect::presentation();
-        p.control = AspectControls::Table;
-        p.filterPlaceholderText = Tr::tr("Filter");
-        // The names read best in the order they are written in.
-        p.sortColumn = 0;
-        return p;
-    }
-
-    QAbstractItemModel *tableModel() override { return m_model; }
-
-    Q_INVOKABLE void setCurrentRow(int row)
-    {
-        if (m_currentRow == row)
-            return;
-        m_currentRow = row;
-        emit currentRowChanged();
-    }
-
-    // The reader picked a row and meant it - a double click, or Return.
-    Q_INVOKABLE void activateRow(int row)
-    {
-        setCurrentRow(row);
-        emit rowActivated();
-    }
-
-    int currentRow() const { return m_currentRow; }
-
-signals:
-    void currentRowChanged();
-    void rowActivated();
-
-private:
-    QStandardItemModel *const m_model;
-    int m_currentRow = -1;
-};
-
 class NickNameSettings final : public AspectContainer
 {
 public:
     explicit NickNameSettings(QStandardItemModel *model)
-        : names(this, model)
     {
         setAutoApply(true);
         setQmlSource(QUrl("qrc:/qt/qml/QtCreator/VcsBase/NickNameDialog.qml"));
         names.setQmlName("Names");
+        names.setModel(model);
+        names.setFilterPlaceholderText(Tr::tr("Filter"));
+        // The names read best in the order they are written in.
+        names.setSortColumn(0);
     }
 
-    NickNameTableAspect names;
+    TableAspect names{this};
 };
 
 NickNameDialog::NickNameDialog(QStandardItemModel *model, QWidget *parent)
@@ -248,12 +204,12 @@ NickNameDialog::NickNameDialog(QStandardItemModel *model, QWidget *parent)
     connect(m_buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(m_buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
 
-    connect(&m_settings->names, &NickNameTableAspect::currentRowChanged, this, [this] {
+    connect(&m_settings->names, &TableAspect::chosenChanged, this, [this] {
         okButton()->setEnabled(m_settings->names.currentRow() >= 0);
     });
     // A row the reader picked and meant is the same as choosing it and
     // pressing Ok, which is what the widget view's activation did.
-    connect(&m_settings->names, &NickNameTableAspect::rowActivated, this, [this] {
+    connect(&m_settings->names, &TableAspect::rowActivated, this, [this] {
         if (okButton()->isEnabled())
             okButton()->click();
     });

@@ -21667,3 +21667,49 @@ behind it - or the table aspect goes to `QtcQuick`, since the same
 times (device processes, nick names, encodings, sessions, stashes, log
 changes). **The second is the better answer** and would shrink every remaining
 table dialog; it should come before `GerritPushDialog` and `GerritDialog`.
+
+## 2026-08-30 — One table aspect instead of seven
+
+The decision the last batch left open, taken: `Utils::TableAspect` exists and
+the seven copies are gone - device processes, nick names, encodings, sessions,
+stashes, log changes, and the kit-aspect filter. Each was between twenty and
+sixty lines of the same thing: a model, the row the reader is on, the rows they
+picked, the row they meant, and a `presentation()` saying `Table`.
+
+**What the shared one settles that the copies disagreed on:**
+
+- **One `chosenChanged` instead of `currentRowChanged` and
+  `selectedRowsChanged`.** Three copies had both and every caller connected
+  both to the same slot, because what a dialog does about it - work out what
+  may be done to what is chosen - is the same either way.
+- **`selectedRows()` is sorted.** Two copies sorted, two did not, and the ones
+  that did not had callers that walked the list backwards to delete rows -
+  which only works if it is sorted.
+- **The model is not owned, and swapping it forgets what was chosen.** The two
+  dialogs whose rows come and go (device processes, sessions) keep their own
+  proxy and swap what is behind it, because a form reads its model once.
+
+**All 63 tests across the seven dialogs pass unchanged**, which is the evidence
+that the extraction did not change behaviour. That is what those tests were
+for; without them this would have been a refactor nobody could check.
+
+**A control that did not bite told me the shared class had no tests of its
+own.** Removing the reset in `setModel()` changed nothing, because every
+dialog calls it once at construction when nothing is chosen yet - the
+behaviour was unreachable from the dialogs' tests. Relying on seven callers'
+tests to cover a shared component is exactly the gap that produces one. The
+aspect has its own tests now, and the same control fails on them.
+
+Negative controls: a new model keeping what was chosen in the old one; the
+picked rows coming back unsorted; the sort column dropped from the
+presentation; and activating a row not choosing it. All four bit - and all four
+were silent against the dialogs' tests before the aspect had its own.
+
+QuickUi 188 passed / 0 failed / 1 skipped, exit 0 - two more than before.
+`Core`, `VcsBase` and `Git` exit 0 with no failures; `ProjectExplorer` exits 2
+on its two standing failures. No `.qbs` edit: no files added or removed.
+
+**Next:** `GerritPushDialog` and `GerritDialog` are what remain of the
+activation family, and the push dialog still needs `LogChangeModel` out of
+`logchangedialog.cpp`. That is now the only thing in its way - the table aspect
+it also needed is `Utils::TableAspect`.

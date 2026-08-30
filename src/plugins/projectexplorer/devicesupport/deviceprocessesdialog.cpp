@@ -40,54 +40,6 @@ namespace Internal {
 // its model once - the binding calls AspectModels.tableModel() and a call
 // records no dependency - so an aspect that answered a different model after
 // the form was built would be showing the first one forever.
-class ProcessTableAspect final : public BaseAspect
-{
-    Q_OBJECT
-
-public:
-    explicit ProcessTableAspect(AspectContainer *container)
-        : BaseAspect(container)
-    {}
-
-    AspectPresentation presentation() const override
-    {
-        AspectPresentation p = BaseAspect::presentation();
-        p.control = AspectControls::Table;
-        p.filterPlaceholderText = Tr::tr("Filter");
-        // Sorted by the command line, as the widget view opened.
-        p.sortColumn = 1;
-        return p;
-    }
-
-    QAbstractItemModel *tableModel() override { return &m_rows; }
-
-    void showRowsOf(QAbstractItemModel *model)
-    {
-        m_rows.setSourceModel(model);
-        setCurrentRow(-1);
-    }
-
-    // Called by the table as the reader moves through it. The row is one of
-    // this model's, whatever the form is sorting or filtering by.
-    Q_INVOKABLE void setCurrentRow(int row)
-    {
-        if (m_currentRow == row)
-            return;
-        m_currentRow = row;
-        emit currentRowChanged();
-    }
-
-    int currentRow() const { return m_currentRow; }
-    bool hasSelection() const { return m_currentRow >= 0; }
-
-signals:
-    void currentRowChanged();
-
-private:
-    QIdentityProxyModel m_rows;
-    int m_currentRow = -1;
-};
-
 class DeviceProcessesSettings final : public AspectContainer
 {
 public:
@@ -101,13 +53,32 @@ public:
         kitChooser.kit.setLabelText(Tr::tr("Kit:"));
 
         processes.setQmlName("Processes");
+        // The proxy is the point: the aspect hands out the same model for as
+        // long as it lives, while what is *behind* it changes with the device.
+        // A Quick table reads its model once, so an aspect that answered a
+        // different model after the form was built would show the first one
+        // forever.
+        processes.setModel(&rows);
+        processes.setFilterPlaceholderText(Tr::tr("Filter"));
+        // Sorted by the command line, as the widget view opened.
+        processes.setSortColumn(1);
 
         error.setQmlName("Error");
         error.setVisible(false);
     }
 
+    // Swapping what the proxy shows, and forgetting what was chosen with it:
+    // the row the reader was on is a row of the list that has gone.
+    void showRowsOf(QAbstractItemModel *model)
+    {
+        rows.setSourceModel(model);
+        processes.setCurrentRow(-1);
+        processes.setSelectedRows({});
+    }
+
     KitChooserAspect kitChooser{this};
-    ProcessTableAspect processes{this};
+    QIdentityProxyModel rows;
+    TableAspect processes{this};
     TextDisplay error{this};
 };
 
@@ -166,7 +137,7 @@ DeviceProcessesDialog::DeviceProcessesDialog()
             this, &DeviceProcessesDialog::killProcess);
     connect(&d->settings.kitChooser.kit, &BaseAspect::changed,
             this, &DeviceProcessesDialog::updateDevice);
-    connect(&d->settings.processes, &ProcessTableAspect::currentRowChanged,
+    connect(&d->settings.processes, &TableAspect::chosenChanged,
             this, &DeviceProcessesDialog::updateButtons);
     connect(d->buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(d->buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
@@ -203,13 +174,13 @@ void DeviceProcessesDialog::setDevice(const IDevice::ConstPtr &device)
 void DeviceProcessesDialog::setDeviceToList(const IDevice::ConstPtr &device)
 {
     d->processList.reset();
-    d->settings.processes.showRowsOf(nullptr);
+    d->settings.showRowsOf(nullptr);
     if (!device)
         return;
 
     d->processList.reset(new ProcessList(device->shared_from_this(), this));
     QTC_ASSERT(d->processList, return);
-    d->settings.processes.showRowsOf(d->processList->model());
+    d->settings.showRowsOf(d->processList->model());
 
     connect(d->processList.get(), &ProcessList::error,
             this, &DeviceProcessesDialog::handleRemoteError);
@@ -331,10 +302,10 @@ private slots:
         QCOMPARE(first->rowCount(), 0);
 
         ProcessList list(nullptr, nullptr);
-        settings.processes.showRowsOf(list.model());
+        settings.showRowsOf(list.model());
         QCOMPARE(settings.processes.tableModel(), first);
 
-        settings.processes.showRowsOf(nullptr);
+        settings.showRowsOf(nullptr);
         QCOMPARE(settings.processes.tableModel(), first);
         QCOMPARE(first->rowCount(), 0);
     }
@@ -345,7 +316,7 @@ private slots:
         QVERIFY2(!settings.processes.hasSelection(), "a fresh list had something selected");
         QCOMPARE(settings.processes.currentRow(), -1);
 
-        QSignalSpy spy(&settings.processes, &ProcessTableAspect::currentRowChanged);
+        QSignalSpy spy(&settings.processes, &TableAspect::chosenChanged);
         settings.processes.setCurrentRow(3);
         QCOMPARE(settings.processes.currentRow(), 3);
         QVERIFY(settings.processes.hasSelection());
@@ -358,7 +329,7 @@ private slots:
         // And a new device starts with nothing chosen: the row the reader was
         // on is a row of the list that has gone.
         settings.processes.setCurrentRow(2);
-        settings.processes.showRowsOf(nullptr);
+        settings.showRowsOf(nullptr);
         QVERIFY2(!settings.processes.hasSelection(),
                  "the row from the previous device was still selected");
     }
@@ -375,7 +346,7 @@ private slots:
             rows.setItem(i, 0, new QStandardItem(QString::number(1000 + i)));
             rows.setItem(i, 1, new QStandardItem(QString("process%1").arg(i)));
         }
-        settings.processes.showRowsOf(&rows);
+        settings.showRowsOf(&rows);
 
         const std::unique_ptr<QWidget> form(Core::createAspectForm(&settings));
         QVERIFY(form);

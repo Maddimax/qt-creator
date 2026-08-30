@@ -331,6 +331,8 @@ private slots:
     void testATableSortsNumbersAsNumbers();
     void testClickingAHeadingSortsByIt();
     void testARowIsActivatedByReturn();
+    void testWhatATableAspectRemembers();
+    void testATableAspectDescribesItsTable();
     void testATableCellShowsTheIconItsModelGives();
     void testATableWithNoColumnNamesHasNoHeader();
     void testTableAspectAddsAndRemovesRows();
@@ -5187,6 +5189,81 @@ void QuickUiTest::testClickingAHeadingSortsByIt()
             ++indicators;
     }
     QCOMPARE(indicators, 1);
+}
+
+void QuickUiTest::testWhatATableAspectRemembers()
+{
+    // The aspect seven dialogs share. Their own tests cover what each does
+    // with it; this covers what it does.
+    Utils::AspectContainer page;
+    Utils::TableAspect table(&page);
+
+    TestTableModel model;
+    model.setRows({{true, "red", "one"}, {true, "green", "two"}, {true, "blue", "three"}});
+    table.setModel(&model);
+    QCOMPARE(table.tableModel(), &model);
+
+    // Nothing is chosen until something is.
+    QCOMPARE(table.currentRow(), -1);
+    QVERIFY(!table.hasSelection());
+    QVERIFY(table.selectedRows().isEmpty());
+
+    QSignalSpy chosen(&table, &Utils::TableAspect::chosenChanged);
+    table.setCurrentRow(1);
+    QCOMPARE(table.currentRow(), 1);
+    QVERIFY(table.hasSelection());
+    QCOMPARE(chosen.count(), 1);
+
+    // Saying the same thing again is not a change - a dialog that recomputes
+    // its buttons on every one of these would do it for nothing.
+    table.setCurrentRow(1);
+    QCOMPARE(chosen.count(), 1);
+
+    // The picked rows come back in order, whatever order the table said them
+    // in: a dialog deleting or exporting them walks the list.
+    table.setSelectedRows(QVariantList{2, 0});
+    QCOMPARE(table.selectedRows(), (QList<int>{0, 2}));
+    QCOMPARE(chosen.count(), 2);
+    table.setSelectedRows(QVariantList{0, 2});
+    QCOMPARE(chosen.count(), 2);
+
+    // Activating a row is choosing it and meaning it.
+    QSignalSpy activated(&table, &Utils::TableAspect::rowActivated);
+    table.activateRow(2);
+    QCOMPARE(table.currentRow(), 2);
+    QCOMPARE(activated.count(), 1);
+
+    // Asking the form to move the reader says which row, and chooses it.
+    QSignalSpy asked(&table, &Utils::TableAspect::selectRowRequested);
+    table.showRow(0);
+    QCOMPARE(asked.count(), 1);
+    QCOMPARE(asked.takeFirst().at(0).toInt(), 0);
+    QCOMPARE(table.currentRow(), 0);
+    QCOMPARE(table.selectedRows(), (QList<int>{0}));
+
+    // Different rows behind it are different rows: what was chosen was chosen
+    // among the old ones.
+    TestTableModel other;
+    table.setModel(&other);
+    QCOMPARE(table.currentRow(), -1);
+    QVERIFY2(table.selectedRows().isEmpty(), "rows of the previous model stayed selected");
+}
+
+void QuickUiTest::testATableAspectDescribesItsTable()
+{
+    Utils::AspectContainer page;
+    Utils::TableAspect table(&page);
+
+    // A table says nothing about sorting or filtering unless asked.
+    QCOMPARE(table.presentation().control, Utils::AspectControls::Table);
+    QCOMPARE(table.presentation().sortColumn, -1);
+    QVERIFY(table.presentation().filterPlaceholderText.isEmpty());
+
+    table.setFilterPlaceholderText("Filter");
+    table.setSortColumn(1, Qt::DescendingOrder);
+    QCOMPARE(table.presentation().filterPlaceholderText, QString("Filter"));
+    QCOMPARE(table.presentation().sortColumn, 1);
+    QCOMPARE(table.presentation().sortOrder, Qt::DescendingOrder);
 }
 
 void QuickUiTest::testARowIsActivatedByReturn()

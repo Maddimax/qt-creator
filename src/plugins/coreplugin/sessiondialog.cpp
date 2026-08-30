@@ -195,74 +195,6 @@ public:
     }
 };
 
-class SessionTableAspect final : public BaseAspect
-{
-    Q_OBJECT
-
-public:
-    explicit SessionTableAspect(AspectContainer *container) : BaseAspect(container) {}
-
-    AspectPresentation presentation() const override
-    {
-        AspectPresentation p = BaseAspect::presentation();
-        p.control = AspectControls::Table;
-        p.sortColumn = 0;
-        return p;
-    }
-
-    void setSourceModel(QAbstractItemModel *model) { m_rows.setSourceModel(model); }
-    QAbstractItemModel *tableModel() override { return &m_rows; }
-
-    Q_INVOKABLE void setSelectedRows(const QVariantList &rows)
-    {
-        QList<int> selected;
-        for (const QVariant &row : rows)
-            selected << row.toInt();
-        if (m_selectedRows == selected)
-            return;
-        m_selectedRows = selected;
-        emit selectedRowsChanged();
-    }
-
-    Q_INVOKABLE void setCurrentRow(int row)
-    {
-        if (m_currentRow == row)
-            return;
-        m_currentRow = row;
-        emit currentRowChanged();
-    }
-
-    Q_INVOKABLE void activateRow(int row)
-    {
-        setCurrentRow(row);
-        emit rowActivated();
-    }
-
-    // Put the reader on a row - the session that was just created, or the one
-    // that is active when the dialog opens. The view is what actually moves,
-    // so it is asked rather than told.
-    void showRow(int row)
-    {
-        setCurrentRow(row);
-        setSelectedRows(row >= 0 ? QVariantList{row} : QVariantList{});
-        emit selectRowRequested(row);
-    }
-
-    QList<int> selectedRows() const { return m_selectedRows; }
-    int currentRow() const { return m_currentRow; }
-
-signals:
-    void selectedRowsChanged();
-    void currentRowChanged();
-    void rowActivated();
-    void selectRowRequested(int row);
-
-private:
-    SessionTableModel m_rows;
-    QList<int> m_selectedRows;
-    int m_currentRow = -1;
-};
-
 class SessionSettings final : public AspectContainer
 {
 public:
@@ -272,7 +204,9 @@ public:
         setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Core/SessionDialog.qml"));
 
         sessions.setQmlName("Sessions");
-        sessions.setSourceModel(&model);
+        rows.setSourceModel(&model);
+        sessions.setModel(&rows);
+        sessions.setSortColumn(0);
 
         createNew.setQmlName("CreateNew");
         createNew.setActionText(PE::Tr::tr("&New..."));
@@ -298,7 +232,8 @@ public:
     }
 
     SessionModel model;
-    SessionTableAspect sessions{this};
+    SessionTableModel rows;
+    TableAspect sessions{this};
     ActionAspect createNew{this};
     ActionAspect open{this};
     ActionAspect rename{this};
@@ -340,9 +275,9 @@ SessionDialog::SessionDialog()
     layout->addWidget(Core::createAspectForm(m_settings.get()));
     layout->addWidget(buttonBox);
 
-    connect(&m_settings->sessions, &SessionTableAspect::selectedRowsChanged,
+    connect(&m_settings->sessions, &TableAspect::chosenChanged,
             this, &SessionDialog::updateActions);
-    connect(&m_settings->sessions, &SessionTableAspect::rowActivated,
+    connect(&m_settings->sessions, &TableAspect::rowActivated,
             this, &SessionDialog::switchToCurrentSession);
     connect(&m_settings->model, &SessionModel::sessionSwitched, this, &QDialog::reject);
     connect(&m_settings->model, &SessionModel::sessionCreated,
@@ -486,15 +421,15 @@ private slots:
     void testWhatTheReaderHasChosen()
     {
         SessionSettings settings;
-        QSignalSpy rows(&settings.sessions, &SessionTableAspect::selectedRowsChanged);
+        QSignalSpy chosen(&settings.sessions, &TableAspect::chosenChanged);
 
         settings.sessions.setSelectedRows({0, 2});
         QCOMPARE(settings.sessions.selectedRows(), (QList<int>{0, 2}));
-        QCOMPARE(rows.count(), 1);
+        QCOMPARE(chosen.count(), 1);
 
         // Saying the same thing again is not a change.
         settings.sessions.setSelectedRows({0, 2});
-        QCOMPARE(rows.count(), 1);
+        QCOMPARE(chosen.count(), 1);
     }
 
     void testTheDrawnTableHandsBackWhatWasChosen()
@@ -512,7 +447,7 @@ private slots:
         QObject *table = nullptr;
         QTRY_VERIFY(table = root->findChild<QObject *>("sessionTable"));
 
-        QSignalSpy activated(&settings.sessions, &SessionTableAspect::rowActivated);
+        QSignalSpy activated(&settings.sessions, &TableAspect::rowActivated);
         QVERIFY(QMetaObject::invokeMethod(table, "rowActivated", Q_ARG(int, 0)));
         QTRY_COMPARE(activated.count(), 1);
         QCOMPARE(settings.sessions.currentRow(), 0);

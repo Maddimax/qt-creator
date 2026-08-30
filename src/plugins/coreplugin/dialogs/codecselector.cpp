@@ -138,53 +138,6 @@ private:
     QStringList m_names;
 };
 
-class EncodingTableAspect final : public BaseAspect
-{
-    Q_OBJECT
-
-public:
-    explicit EncodingTableAspect(AspectContainer *container) : BaseAspect(container) {}
-
-    AspectPresentation presentation() const override
-    {
-        AspectPresentation p = BaseAspect::presentation();
-        p.control = AspectControls::Table;
-        // Not something the list widget offered, but there are two hundred
-        // encodings and the table asks for one line to narrow them.
-        p.filterPlaceholderText = Tr::tr("Filter");
-        return p;
-    }
-
-    QAbstractItemModel *tableModel() override { return &m_model; }
-    EncodingModel &model() { return m_model; }
-
-    Q_INVOKABLE void setCurrentRow(int row)
-    {
-        if (m_currentRow == row)
-            return;
-        m_currentRow = row;
-        emit currentRowChanged();
-    }
-
-    // The reader picked a row and meant it, which is the same as choosing it
-    // and asking to reload.
-    Q_INVOKABLE void activateRow(int row)
-    {
-        setCurrentRow(row);
-        emit rowActivated();
-    }
-
-    int currentRow() const { return m_currentRow; }
-
-signals:
-    void currentRowChanged();
-    void rowActivated();
-
-private:
-    EncodingModel m_model;
-    int m_currentRow = -1;
-};
-
 class CodecSelectorSettings final : public AspectContainer
 {
 public:
@@ -194,10 +147,15 @@ public:
         setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Core/CodecSelector.qml"));
         message.setQmlName("Message");
         encodings.setQmlName("Encodings");
+        encodings.setModel(&model);
+        // Not something the list widget offered, but there are two hundred
+        // encodings and the table asks for one line to narrow them.
+        encodings.setFilterPlaceholderText(Tr::tr("Filter"));
     }
 
     TextDisplay message{this};
-    EncodingTableAspect encodings{this};
+    EncodingModel model;
+    TableAspect encodings{this};
 };
 
 class CodecSelector : public QDialog
@@ -243,7 +201,7 @@ CodecSelector::CodecSelector(BaseTextDocument *doc)
                                     .arg(decodingErrorHint));
 
     const QStringList names = encodingsFor(doc, sample);
-    m_settings->encodings.model().setNames(names);
+    m_settings->model.setNames(names);
     m_settings->encodings.setCurrentRow(
         names.indexOf(doc->encoding().fullDisplayName()));
 
@@ -255,9 +213,9 @@ CodecSelector::CodecSelector(BaseTextDocument *doc)
     m_dialogButtonBox->addButton(QDialogButtonBox::Cancel);
     connect(m_dialogButtonBox, &QDialogButtonBox::clicked, this, &CodecSelector::buttonClicked);
 
-    connect(&m_settings->encodings, &EncodingTableAspect::currentRowChanged,
+    connect(&m_settings->encodings, &TableAspect::chosenChanged,
             this, &CodecSelector::updateButtons);
-    connect(&m_settings->encodings, &EncodingTableAspect::rowActivated,
+    connect(&m_settings->encodings, &TableAspect::rowActivated,
             this, [this] {
                 if (m_reloadButton->isEnabled())
                     m_reloadButton->click();
@@ -282,7 +240,7 @@ void CodecSelector::updateButtons()
 
 TextEncoding CodecSelector::selectedEncoding() const
 {
-    return encodingNamed(m_settings->encodings.model().nameAt(
+    return encodingNamed(m_settings->model.nameAt(
         m_settings->encodings.currentRow()));
 }
 
@@ -366,7 +324,7 @@ private slots:
         // model that answers the column number, which a list of encodings has
         // no use for.
         CodecSelectorSettings settings;
-        settings.encodings.model().setNames({"UTF-8", "ISO-8859-1"});
+        settings.model.setNames({"UTF-8", "ISO-8859-1"});
 
         QAbstractItemModel *const model = settings.encodings.tableModel();
         QCOMPARE(model->rowCount(), 2);
@@ -381,14 +339,14 @@ private slots:
     void testPickingARowIsWhatTheDialogAnswers()
     {
         CodecSelectorSettings settings;
-        settings.encodings.model().setNames({"UTF-8", "ISO-8859-1"});
+        settings.model.setNames({"UTF-8", "ISO-8859-1"});
 
         QVERIFY2(settings.encodings.currentRow() < 0, "a row was chosen before anything was");
 
-        QSignalSpy rows(&settings.encodings, &EncodingTableAspect::currentRowChanged);
+        QSignalSpy rows(&settings.encodings, &TableAspect::chosenChanged);
         settings.encodings.setCurrentRow(1);
         QCOMPARE(rows.count(), 1);
-        QCOMPARE(settings.encodings.model().nameAt(1), QString("ISO-8859-1"));
+        QCOMPARE(settings.model.nameAt(1), QString("ISO-8859-1"));
 
         // Saying the same thing again is not a change.
         settings.encodings.setCurrentRow(1);
@@ -400,7 +358,7 @@ private slots:
         // The .qml has to hand both the row and the activation back; a C++
         // test calling them itself would not notice if either line went.
         CodecSelectorSettings settings;
-        settings.encodings.model().setNames({"UTF-8", "ISO-8859-1"});
+        settings.model.setNames({"UTF-8", "ISO-8859-1"});
 
         const std::unique_ptr<QWidget> form(Core::createAspectForm(&settings));
         QVERIFY(form);
@@ -410,7 +368,7 @@ private slots:
         QObject *table = nullptr;
         QTRY_VERIFY(table = root->findChild<QObject *>("encodingTable"));
 
-        QSignalSpy activated(&settings.encodings, &EncodingTableAspect::rowActivated);
+        QSignalSpy activated(&settings.encodings, &TableAspect::rowActivated);
         QVERIFY(QMetaObject::invokeMethod(table, "rowActivated", Q_ARG(int, 1)));
         QTRY_COMPARE(activated.count(), 1);
         QCOMPARE(settings.encodings.currentRow(), 1);

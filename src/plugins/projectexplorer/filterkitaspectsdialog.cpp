@@ -138,36 +138,16 @@ public:
     }
 };
 
-class KitAspectsTableAspect final : public BaseAspect
-{
-public:
-    KitAspectsTableAspect(AspectContainer *container, FilterKitAspectsModel *model)
-        : BaseAspect(container), m_model(model)
-    {}
-
-    AspectPresentation presentation() const override
-    {
-        AspectPresentation p = BaseAspect::presentation();
-        p.control = AspectControls::Table;
-        return p;
-    }
-
-    QAbstractItemModel *tableModel() override { return m_model; }
-
-private:
-    FilterKitAspectsModel * const m_model;
-};
-
 class FilterKitAspectsSettings final : public AspectContainer
 {
 public:
     explicit FilterKitAspectsSettings(const Kit *kit)
         : m_model(new FilterKitAspectsModel(kit, nullptr))
-        , table(this, m_model.get())
     {
         setAutoApply(true);
         setQmlSource(QUrl("qrc:/qt/qml/QtCreator/ProjectExplorer/FilterKitAspectsDialog.qml"));
         table.setQmlName("Aspects");
+        table.setModel(m_model.get());
     }
 
     QSet<Utils::Id> disabledItems() const { return m_model->disabledItems(); }
@@ -176,7 +156,7 @@ private:
     const std::unique_ptr<FilterKitAspectsModel> m_model;
 
 public:
-    KitAspectsTableAspect table;
+    TableAspect table{this};
 };
 
 FilterKitAspectsDialog::FilterKitAspectsDialog(const Kit *kit, QWidget *parent)

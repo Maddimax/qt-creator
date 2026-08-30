@@ -119,74 +119,18 @@ static StashActions actionsFor(bool hasRepository, int stashCount, int currentRo
     return {hasStashes, selectedCount > 0, hasCurrent, hasCurrent, hasCurrent, hasRepository};
 }
 
-class StashTableAspect final : public BaseAspect
-{
-    Q_OBJECT
-
-public:
-    StashTableAspect(AspectContainer *container, QAbstractItemModel *model)
-        : BaseAspect(container), m_model(model)
-    {}
-
-    AspectPresentation presentation() const override
-    {
-        AspectPresentation p = BaseAspect::presentation();
-        p.control = AspectControls::Table;
-        p.filterPlaceholderText = Tr::tr("Filter");
-        return p;
-    }
-
-    QAbstractItemModel *tableModel() override { return m_model; }
-
-    Q_INVOKABLE void setCurrentRow(int row)
-    {
-        if (m_currentRow == row)
-            return;
-        m_currentRow = row;
-        emit chosenChanged();
-    }
-
-    Q_INVOKABLE void setSelectedRows(const QVariantList &rows)
-    {
-        QList<int> selected;
-        for (const QVariant &row : rows)
-            selected << row.toInt();
-        if (m_selectedRows == selected)
-            return;
-        m_selectedRows = selected;
-        emit chosenChanged();
-    }
-
-    Q_INVOKABLE void activateRow(int row)
-    {
-        setCurrentRow(row);
-        emit rowActivated();
-    }
-
-    int currentRow() const { return m_currentRow; }
-    QList<int> selectedRows() const { return Utils::sorted(m_selectedRows); }
-
-signals:
-    void chosenChanged();
-    void rowActivated();
-
-private:
-    QAbstractItemModel *const m_model;
-    int m_currentRow = -1;
-    QList<int> m_selectedRows;
-};
-
 class StashSettings final : public AspectContainer
 {
 public:
     explicit StashSettings(QAbstractItemModel *model)
-        : stashes(this, model)
     {
         setAutoApply(true);
         setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Git/StashDialog.qml"));
 
         repository.setQmlName("Repository");
         stashes.setQmlName("Stashes");
+        stashes.setModel(model);
+        stashes.setFilterPlaceholderText(Tr::tr("Filter"));
 
         show.setQmlName("Show");
         show.setActionText(Tr::tr("&Show"));
@@ -204,7 +148,7 @@ public:
     }
 
     TextDisplay repository{this};
-    StashTableAspect stashes;
+    TableAspect stashes{this};
     ActionAspect show{this};
     ActionAspect refresh{this};
     ActionAspect restore{this};
@@ -237,9 +181,9 @@ StashDialog::StashDialog(QWidget *parent)
     layout->addWidget(Core::createAspectForm(m_settings.get()));
     layout->addWidget(buttonBox);
 
-    connect(&m_settings->stashes, &StashTableAspect::chosenChanged,
+    connect(&m_settings->stashes, &TableAspect::chosenChanged,
             this, &StashDialog::enableButtons);
-    connect(&m_settings->stashes, &StashTableAspect::rowActivated,
+    connect(&m_settings->stashes, &TableAspect::rowActivated,
             this, &StashDialog::showCurrent);
 
     connect(buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
@@ -574,7 +518,7 @@ private slots:
         QObject *table = nullptr;
         QTRY_VERIFY(table = root->findChild<QObject *>("stashTable"));
 
-        QSignalSpy activated(&settings.stashes, &StashTableAspect::rowActivated);
+        QSignalSpy activated(&settings.stashes, &TableAspect::rowActivated);
         QVERIFY(QMetaObject::invokeMethod(table, "rowActivated", Q_ARG(int, 1)));
         QTRY_COMPARE(activated.count(), 1);
         QCOMPARE(settings.stashes.currentRow(), 1);

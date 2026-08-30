@@ -1413,6 +1413,63 @@ private:
 // that a page action is an aspect like everything else on the page, reachable
 // by name from the page's QML and drawable by either renderer, rather than
 // something only a layout could build.
+// A table of rows shown in a form: the model behind it, which row the reader
+// is on, which rows they picked, and which row they meant. Every dialog that
+// shows a list needs the same four, and each one wrote them again before this
+// existed.
+class QTCREATOR_UTILS_EXPORT TableAspect : public BaseAspect
+{
+    Q_OBJECT
+
+public:
+    explicit TableAspect(AspectContainer *container = nullptr);
+    ~TableAspect() override;
+
+    AspectPresentation presentation() const override;
+    QAbstractItemModel *tableModel() override;
+
+    // Not owned. A form reads its model once, so an aspect whose rows come and
+    // go should hand out one proxy for its whole life and swap what is behind
+    // it - not answer a different model here.
+    void setModel(QAbstractItemModel *model);
+
+    // The text in the empty filter field. No filter where it is empty.
+    void setFilterPlaceholderText(const QString &text);
+    // Which column the rows are sorted by to begin with. -1 leaves them in the
+    // order the model gives them.
+    void setSortColumn(int column, Qt::SortOrder order = Qt::AscendingOrder);
+
+    // Said by the drawn table as the reader moves through it. The rows are the
+    // model's own, whatever the table is sorting or filtering by.
+    Q_INVOKABLE void setCurrentRow(int row);
+    Q_INVOKABLE void setSelectedRows(const QVariantList &rows);
+    // A row was chosen and meant - a double click, or Return.
+    Q_INVOKABLE void activateRow(int row);
+
+    // Said to the drawn table: put the reader on this row.
+    void showRow(int row);
+
+    int currentRow() const { return m_currentRow; }
+    QList<int> selectedRows() const;
+    bool hasSelection() const { return m_currentRow >= 0; }
+
+signals:
+    // The current row or the selection changed. One signal, because what a
+    // dialog does about it is the same either way: work out what may be done
+    // to what is chosen.
+    void chosenChanged();
+    void rowActivated();
+    void selectRowRequested(int row);
+
+private:
+    QAbstractItemModel *m_model = nullptr;
+    QString m_filterPlaceholderText;
+    int m_sortColumn = -1;
+    Qt::SortOrder m_sortOrder = Qt::AscendingOrder;
+    int m_currentRow = -1;
+    QList<int> m_selectedRows;
+};
+
 class QTCREATOR_UTILS_EXPORT ActionAspect : public BaseAspect
 {
     Q_OBJECT
