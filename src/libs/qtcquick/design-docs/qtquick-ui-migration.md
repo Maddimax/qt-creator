@@ -18532,3 +18532,37 @@ those actions, and that context is now attached and unused.
 Controls: two, both biting - one shared document behind every view, and task
 positions kept in one place for all of them, which fails precisely on the tab
 test.
+
+### The shortcuts the ported panes had lost
+
+`Core::OutputWindow`'s constructor registered Undo, Redo, Cut, Copy, Paste and
+Select All against the pane's context. Nothing did that for a Qt Quick pane, so
+four ported panes offered Copy and Select All in the context menu added two
+batches ago while Ctrl+C and Ctrl+A did nothing at all. Nothing reported it:
+an unregistered command is not an error, it is simply a shortcut that goes
+somewhere else.
+
+Copy and Select All are now registered by `OutputPaneView`, which takes the
+context as its first constructor argument - the same shape `OutputWindow` has,
+and non-optional so that a pane cannot quietly leave it out. The other four
+commands are not registered: output is read-only, so they did nothing in the
+widget either.
+
+**An empty context registers nothing, and that is a feature rather than a
+guard.** Two views cannot claim the same command in the same context, and
+Serial Terminal makes one view per connection - which is why it was already
+minting a fresh context id per tab for exactly these actions. A caller with no
+context gets no shortcuts rather than a clash, and the tests, which build many
+views, pass none.
+
+**The test tells the two actions apart by what they do, not by their order.**
+`findChildren<QAction *>()` gives no promise about which comes first, and Copy
+does nothing until something is selected - so triggering the pair once had Copy
+run first and copy nothing. Both are triggered twice: once to select, once to
+copy. That reads oddly and is the honest version; naming the actions so a test
+could pick them out would have been naming them for the test.
+
+Controls, four, all biting: nothing registered; registered even without a
+context, which is what would clash; Select All registered but doing nothing;
+and Copy registered but doing nothing. The last two matter because registering
+a command that does nothing is exactly the failure being fixed, one level in.

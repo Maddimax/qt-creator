@@ -43,7 +43,8 @@ public:
         setDisplayName(Tr::tr("General Messages"));
         setPriorityInStatusBar(-100);
 
-        m_widget = new OutputPaneView(zoomSettingsKey);
+        m_widget = new OutputPaneView(Context(Constants::C_GENERAL_OUTPUT_PANE),
+                                      zoomSettingsKey);
 
         connect(this, &IOutputPane::zoomInRequested, m_widget, &OutputPaneView::zoomIn);
         connect(this, &IOutputPane::zoomOutRequested, m_widget, &OutputPaneView::zoomOut);

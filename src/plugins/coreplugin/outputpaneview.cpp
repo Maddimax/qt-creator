@@ -8,6 +8,12 @@
 #include <utils/algorithm.h>
 #include "coreplugintr.h"
 #include "icore.h"
+#include <QAction>
+#include "icontext.h"
+#include "actionmanager/actionmanager.h"
+#include <QGuiApplication>
+#include <QClipboard>
+#include "actionmanager/command.h"
 #include <utils/temporarydirectory.h>
 #include <utils/textfileformat.h>
 #include <utils/filedialogs.h>
@@ -38,7 +44,8 @@ using namespace std::chrono_literals;
 
 namespace Core {
 
-OutputPaneView::OutputPaneView(const Key &zoomSettingsKey, QWidget *parent)
+OutputPaneView::OutputPaneView(const Context &context, const Key &zoomSettingsKey,
+                               QWidget *parent)
     : QWidget(parent)
     , m_startOfNewContent(&m_source)
     , m_zoomSettingsKey(zoomSettingsKey)
@@ -50,6 +57,22 @@ OutputPaneView::OutputPaneView(const Key &zoomSettingsKey, QWidget *parent)
     m_formatter.setSink(&m_source, this);
 
     setMaxCharCount(Constants::DEFAULT_MAX_CHAR_COUNT);
+    if (!context.isEmpty()) {
+        IContext::attach(this, context);
+
+        // Registered here rather than left to the view, because a command
+        // belongs to a context and only a pane knows which one it is in.
+        // Without this the context menu offers Copy and Select All and their
+        // shortcuts do nothing, which is what four ported panes were doing.
+        auto * const copyAction = new QAction(this);
+        ActionManager::registerAction(copyAction, Constants::COPY, context);
+        connect(copyAction, &QAction::triggered, this, &OutputPaneView::copy);
+
+        auto * const selectAllAction = new QAction(this);
+        ActionManager::registerAction(selectAllAction, Constants::SELECTALL, context);
+        connect(selectAllAction, &QAction::triggered, this, &OutputPaneView::selectAll);
+    }
+
     m_queueTimer.setSingleShot(true);
     m_queueTimer.setInterval(10ms);
     connect(&m_queueTimer, &QTimer::timeout, this, &OutputPaneView::writeNextChunk);
@@ -464,6 +487,18 @@ void OutputPaneView::copyContentsToScratchBuffer() const
     }
     editor->document()->setTemporary(true);
     editor->document()->setContents(toPlainText().toUtf8());
+}
+
+void OutputPaneView::copy()
+{
+    if (OutputView * const output = view())
+        output->copy();
+}
+
+void OutputPaneView::selectAll()
+{
+    if (OutputView * const output = view())
+        output->selectAll();
 }
 
 void OutputPaneView::scrollToBottom()
@@ -923,11 +958,57 @@ private slots:
     // built that way are really independent is not obvious - they share a
     // formatter type, a queue, a factory and a settings key - and the failure
     // if they were not would be output appearing in the wrong tab.
+    void testCopyAndSelectAllHaveShortcutsAgain()
+    {
+        // Core::OutputWindow registered these against the pane's context in
+        // its constructor. Nothing did it for a Qt Quick pane, so the context
+        // menu offered Copy and Select All while Ctrl+C did nothing - and four
+        // panes had already been ported that way.
+        OutputPaneView view(Context("Test.OutputPaneView.Shortcuts"));
+        view.resize(300, 200);
+        view.show();
+        QVERIFY(view.view());
+
+        const QList<QAction *> actions = view.findChildren<QAction *>();
+        QCOMPARE(actions.size(), 2);
+
+        view.appendMessage("some output to select\n", Utils::GeneralMessageFormat);
+        view.flush();
+        QTRY_VERIFY(!view.view()->document()->isEmpty());
+
+        // Both are triggered, twice: they are told apart by what they do rather
+        // than by the order they were found in, and Copy does nothing until
+        // something has been selected.
+        QVERIFY(!view.view()->textCursor().hasSelection());
+        QGuiApplication::clipboard()->clear();
+
+        for (QAction * const action : actions)
+            action->trigger();
+        QVERIFY2(view.view()->textCursor().hasSelection(),
+                 "neither shortcut selected the output");
+        QCOMPARE(view.view()->textCursor().selectedText().trimmed(),
+                 QString("some output to select"));
+
+        for (QAction * const action : actions)
+            action->trigger();
+        QVERIFY2(QGuiApplication::clipboard()->text().contains("some output to select"),
+                 "the output was selected but never copied");
+    }
+
+    void testAViewWithNoContextClaimsNoCommands()
+    {
+        // Two views cannot register the same command in the same context, so a
+        // pane with one view per run gives each its own and a caller with no
+        // context gets no shortcuts rather than a clash.
+        OutputPaneView anonymous;
+        QCOMPARE(anonymous.findChildren<QAction *>().size(), 0);
+    }
+
     void testViewsInATabWidgetAreIndependent()
     {
         QTabWidget tabs;
-        auto * const first = new OutputPaneView({}, &tabs);
-        auto * const second = new OutputPaneView({}, &tabs);
+        auto * const first = new OutputPaneView({}, {}, &tabs);
+        auto * const second = new OutputPaneView({}, {}, &tabs);
         tabs.addTab(first, "first");
         tabs.addTab(second, "second");
         tabs.resize(400, 200);

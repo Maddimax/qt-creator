@@ -4,6 +4,7 @@
 #pragma once
 
 #include "core_global.h"
+#include "icontext.h"
 #include "outputtasksink.h"
 #include "outputwindow.h"
 
@@ -36,9 +37,16 @@ class CORE_EXPORT OutputPaneView : public QWidget, public OutputTaskSink
     Q_OBJECT
 
 public:
+    // \a context is what Copy and Select All are registered against, so that
+    // their keyboard shortcuts reach this view when it has the focus. An empty
+    // one registers nothing: two views cannot claim the same command in the
+    // same context, so a pane that makes several - one per run - gives each
+    // its own, and a test that makes many gives none.
+    //
     // \a zoomSettingsKey, when given, is where the zoom is remembered across
     // runs of Qt Creator.
-    explicit OutputPaneView(const Utils::Key &zoomSettingsKey = {}, QWidget *parent = nullptr);
+    explicit OutputPaneView(const Context &context = {}, const Utils::Key &zoomSettingsKey = {},
+                            QWidget *parent = nullptr);
     ~OutputPaneView() override;
 
     // Queued rather than written straight away, as the widget does: output can
@@ -91,6 +99,9 @@ public:
     // gets it.
     void setMaxCharCount(qsizetype count);
     qsizetype maxCharCount() const;
+
+    void copy();
+    void selectAll();
 
     void scrollToBottom();
 

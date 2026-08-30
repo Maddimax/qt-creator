@@ -249,8 +249,7 @@ void SerialOutputPane::createNewOutputWindow(SerialControl *rc)
     static int counter = 0;
     Utils::Id contextId = Utils::Id(Constants::C_SERIAL_OUTPUT).withSuffix(counter++);
     Core::Context context(contextId);
-    auto ow = new Core::OutputPaneView({}, m_tabWidget);
-    Core::IContext::attach(ow, context);
+    auto ow = new Core::OutputPaneView(context, {}, m_tabWidget);
     auto fontSettingsChanged = [ow] {
         ow->setBaseFont(TextEditor::globalFontSettings().data().font());
     };

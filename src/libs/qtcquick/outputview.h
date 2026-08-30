@@ -76,6 +76,11 @@ public:
     // reachable from the view's item tree.
     // Shows the end of the output. The view does this by itself while the
     // reader is there already; a pane calls it to go back to it.
+    // What the context menu's first two entries do, so that the same
+    // operations can be reached from a keyboard shortcut as well.
+    void copy();
+    void selectAll();
+
     void scrollToBottom();
 
     QObject *contextMenu() const;

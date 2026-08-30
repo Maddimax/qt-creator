@@ -59,6 +59,10 @@ public:
     // What the output is drawn on, for a pane offering a colour of its own.
     virtual void setBackgroundColor(const QColor &color) = 0;
 
+    // What a pane's Copy and Select All act on.
+    virtual void copy() = 0;
+    virtual void selectAll() = 0;
+
     // Shows the end of the output.
     virtual void scrollToBottom() = 0;
 

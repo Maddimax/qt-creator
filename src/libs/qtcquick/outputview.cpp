@@ -149,6 +149,18 @@ void OutputView::setBackgroundColor(const QColor &color)
         root->setProperty("backgroundColor", color);
 }
 
+void OutputView::copy()
+{
+    if (QQuickItem * const area = textArea())
+        QMetaObject::invokeMethod(area, "copy");
+}
+
+void OutputView::selectAll()
+{
+    if (QQuickItem * const area = textArea())
+        QMetaObject::invokeMethod(area, "selectAll");
+}
+
 void OutputView::scrollToBottom()
 {
     if (QObject * const root = rootObject())

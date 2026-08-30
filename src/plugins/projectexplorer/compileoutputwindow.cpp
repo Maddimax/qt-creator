@@ -58,7 +58,7 @@ CompileOutputWindow::CompileOutputWindow(QAction *cancelBuildAction) :
     setPriorityInStatusBar(40);
 
     Core::Context context(C_COMPILE_OUTPUT);
-    m_outputWindow = new Core::OutputPaneView(SETTINGS_KEY);
+    m_outputWindow = new Core::OutputPaneView(context, SETTINGS_KEY);
     m_outputWindow->setWindowTitle(displayName());
     m_outputWindow->setWindowIcon(Icons::WINDOW.icon());
     //: file name suggested for saving compile output

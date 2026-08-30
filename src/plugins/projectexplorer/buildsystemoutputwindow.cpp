@@ -40,7 +40,8 @@ const char kCaseSensitiveActionId[] = "OutputFilter.CaseSensitive.BuildSystemOut
 const char kInvertActionId[] = "OutputFilter.Invert.BuildSystemOutput";
 
 BuildSystemOutputWindow::BuildSystemOutputWindow()
-    : m_view(new OutputPaneView("ProjectsMode.BuildSystemOutput.Zoom"))
+    : m_view(new OutputPaneView(Context(kBuildSystemOutputContext),
+                               "ProjectsMode.BuildSystemOutput.Zoom"))
 {
     auto * const layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);

@@ -43,6 +43,8 @@ public:
     void setWheelZoomEnabled(bool enabled) override { m_view->setWheelZoomEnabled(enabled); }
     void setWordWrapEnabled(bool enabled) override { m_view->setWordWrapEnabled(enabled); }
     void setBackgroundColor(const QColor &color) override { m_view->setBackgroundColor(color); }
+    void copy() override { m_view->copy(); }
+    void selectAll() override { m_view->selectAll(); }
     void scrollToBottom() override { m_view->scrollToBottom(); }
     QTextCursor textCursor() const override { return m_view->textCursor(); }
     void setTextCursor(const QTextCursor &cursor) override { m_view->setTextCursor(cursor); }
