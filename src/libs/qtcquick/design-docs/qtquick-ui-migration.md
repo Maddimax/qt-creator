@@ -20459,3 +20459,44 @@ small ones. The 21 text-editor dialogs want the Qt Quick editable text surface
 question answered first, which is the same one the debugger log asked and got
 `TextArea` for; whether that is enough for a dialog showing a document is not
 known.
+
+## 2026-08-30 — A checkable table, which is the same shape from the other side
+
+`FilterKitAspectsDialog` - which kit settings are shown - is the third of the
+table-with-buttons family, and the first with **no buttons**: the table is the
+whole dialog, and what is edited is a column of check boxes rather than text.
+Same aspect, same delegate, one less thing.
+
+**Which boxes exist is not the same as which can be ticked.** A kit cannot do
+without an essential aspect, so its box is fixed; the name column has no box at
+all. Both live in `flags()`, which QML cannot read, so the item answers
+`AspectTable::CheckableRole` from them - `flags(column).testFlag(
+Qt::ItemIsUserCheckable)`, the same line `qmljseditorsettings.cpp` already uses.
+There is no `AspectTable::isCheckable()` helper to match `isWritable()`; two
+models now write the test out.
+
+**The test says what it is resting on.** It counts both kinds of row and fails
+if either is zero, because "the essential ones cannot be unticked" says nothing
+in a build where no aspect happens to be essential - and that is a fixture the
+test does not control, since the rows come from whatever factories are
+registered. Control A makes every box tickable and it is the `fixed > 0` line
+that catches it.
+
+**And one decision that was only reachable through a factory:** a kit aspect
+may name itself in HTML - CMake's generator aspect is a link - so the name is
+run through `plainKitAspectName()` before it is shown. That was four lines
+inside `displayName()`.
+
+Negative controls: an essential aspect's box made tickable; the name column
+claiming to be tickable; an HTML name shown as its markup; and the page naming
+an aspect that is not there. All four bit.
+
+QuickUi 182 passed / 0 failed / 1 skipped, exit 0. `FilterKitAspectsTest` 6
+passed; `ProjectExplorer` as a whole exits 3 on its three standing failures.
+`ProjectExplorer_qmllint` clean. No `.qbs` edit.
+
+**Next:** thirty-one of the table shape remain, and it is now routine in three
+plugins with three variants worked out - editable text cells, an editable table
+with Add/Remove, and a checkable column. `NickNameDialog` (VcsBase) and
+`OpenSquishSuitesDialog` are the next small ones. The 21 text-editor dialogs
+are still the open question.

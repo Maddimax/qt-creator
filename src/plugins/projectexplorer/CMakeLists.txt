@@ -241,6 +241,7 @@ if(TARGET ProjectExplorer)
       CompileOutputSettingsPage.qml
       CustomParsersSettingsPage.qml
       DropFileDialog.qml
+      FilterKitAspectsDialog.qml
       DependenciesPanel.qml
       IssuesPane.qml
       EditorProjectPanel.qml

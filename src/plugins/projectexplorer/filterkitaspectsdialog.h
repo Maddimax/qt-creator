@@ -7,21 +7,29 @@
 
 #include <QDialog>
 
-namespace Utils { class BaseTreeModel; }
+#include <memory>
 
 namespace ProjectExplorer {
 class Kit;
 namespace Internal {
 
+class FilterKitAspectsSettings;
+
 class FilterKitAspectsDialog : public QDialog
 {
 public:
     FilterKitAspectsDialog(const Kit *kit, QWidget *parent);
+    ~FilterKitAspectsDialog() override;
+
     QSet<Utils::Id> irrelevantAspects() const;
 
 private:
-    Utils::BaseTreeModel * const m_model;
+    const std::unique_ptr<FilterKitAspectsSettings> m_settings;
 };
+
+#ifdef WITH_TESTS
+QObject *createFilterKitAspectsTest();
+#endif
 
 } // namespace Internal
 } // namespace ProjectExplorer
