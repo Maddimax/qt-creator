@@ -413,6 +413,7 @@ private slots:
     void testAPageSaysAHeadingOnlyOnce();
     void testWhichSizesAFontIsOfferedIn();
     void testAFontIsChosenAsOneControl();
+    void testAMaskedFieldCanBeShown();
 };
 
 // Settings a page carries but does not draw. Each was checked against the
@@ -1745,6 +1746,94 @@ void QuickUiTest::testNestedContainerRendersAsGroup()
     // is what makes the nesting - and so the grouping - real.
     QVERIFY(findQmlComponent(groupItem, "BoolDelegate"));
     QVERIFY(!findQmlComponent(groupItem, "UnsupportedDelegate"));
+}
+
+namespace {
+
+// Every row carries a prompt and hides all but one, so finding the first is
+// not the same as finding the one that is offered.
+QList<QQuickItem *> drawnItemsNamed(QQuickItem *parent, const QString &name)
+{
+    QList<QQuickItem *> found;
+    for (QQuickItem * const child : parent->childItems()) {
+        if (child->objectName() == name)
+            found << child;
+        found << drawnItemsNamed(child, name);
+    }
+    return found;
+}
+
+QQuickItem *theVisibleOne(const QList<QQuickItem *> &items)
+{
+    QQuickItem *shown = nullptr;
+    for (QQuickItem * const item : items) {
+        if (!item->isVisible())
+            continue;
+        if (shown)
+            return nullptr;
+        shown = item;
+    }
+    return shown;
+}
+
+} // namespace
+
+void QuickUiTest::testAMaskedFieldCanBeShown()
+{
+    // A password is masked, and the reader has to be able to check they typed
+    // it correctly. The widget line edit had a "Show password" box beside it;
+    // without one here a mistyped password can only be found out by using it.
+    Utils::AspectContainer page;
+    Utils::StringAspect secret(&page);
+    secret.setLabelText("Password:");
+    secret.setDisplayStyle(Utils::StringAspect::PasswordLineEditDisplay);
+    secret.setValue("hunter2");
+
+    Utils::StringAspect plain(&page);
+    plain.setLabelText("Name:");
+    // Spelled out: a StringAspect draws a *label* unless it is told otherwise,
+    // and a label has no field to offer to show.
+    plain.setDisplayStyle(Utils::StringAspect::LineEditDisplay);
+    plain.setValue("nemo");
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QQuickItem *rootItem = quickWidget->rootObject();
+    QVERIFY(rootItem);
+
+    form->resize(600, 200);
+    form->show();
+
+    QTRY_VERIFY(findQmlComponent(rootItem, "StringDelegate"));
+    // Both fields, so the offer can be compared between them.
+    QTRY_COMPARE(drawnItemsNamed(rootItem, "revealSwitch").size(), 2);
+    const QList<QQuickItem *> switches = drawnItemsNamed(rootItem, "revealSwitch");
+
+    // Offered on the masked one only: on an ordinary field there is nothing to
+    // show, and a stray switch beside every string would be worse than none.
+    QQuickItem * const offered = theVisibleOne(switches);
+    QVERIFY2(offered, "not exactly one of the two fields offers to show its value");
+
+    // And it does what it says. The field it belongs to is the one in the same
+    // delegate, which is the switch's parent.
+    QQuickItem * const masked = drawnItemsNamed(offered->parentItem(), "stringField").value(0);
+    QVERIFY(masked);
+    const int passwordEcho = 2; // TextInput::Password
+    QCOMPARE(masked->property("echoMode").toInt(), passwordEcho);
+
+    offered->setProperty("checked", true);
+    QTRY_COMPARE(masked->property("echoMode").toInt(), int(0)); // TextInput::Normal
+
+    // The plain field was never masked and does not become so.
+    QQuickItem *plainField = nullptr;
+    for (QQuickItem * const candidate : drawnItemsNamed(rootItem, "stringField")) {
+        if (candidate != masked)
+            plainField = candidate;
+    }
+    QVERIFY(plainField);
+    QCOMPARE(plainField->property("echoMode").toInt(), int(0));
 }
 
 void QuickUiTest::testWhichSizesAFontIsOfferedIn()
@@ -11274,31 +11363,7 @@ QQuickItem *drawnItemNamed(QQuickItem *parent, const QString &name)
     return nullptr;
 }
 
-// Every row carries a prompt and hides all but one, so finding the first is
-// not the same as finding the one that is offered.
-QList<QQuickItem *> drawnItemsNamed(QQuickItem *parent, const QString &name)
-{
-    QList<QQuickItem *> found;
-    for (QQuickItem * const child : parent->childItems()) {
-        if (child->objectName() == name)
-            found << child;
-        found << drawnItemsNamed(child, name);
-    }
-    return found;
-}
 
-QQuickItem *theVisibleOne(const QList<QQuickItem *> &items)
-{
-    QQuickItem *shown = nullptr;
-    for (QQuickItem * const item : items) {
-        if (!item->isVisible())
-            continue;
-        if (shown)
-            return nullptr;
-        shown = item;
-    }
-    return shown;
-}
 
 } // namespace
 

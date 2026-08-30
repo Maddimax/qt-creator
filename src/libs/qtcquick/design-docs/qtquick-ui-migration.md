@@ -20006,3 +20006,42 @@ QuickUi 180 passed / 0 failed / 1 skipped, exit 0. Android exit 0,
 `KeystoreCertificateTest` 6 passed. No `.qbs` edit.
 
 **Next:** the reveal on `StringDelegate` for password fields, then this form.
+
+## 2026-08-30 — A masked field that can be shown
+
+`StringDelegate.qml` masks a password but offered no way to reveal it, so the
+widget dialogs' "Show password" check boxes had nowhere to go - the blocker the
+last entry named. It has one now: a `QtcSwitch` beside the field, drawn only
+where the value is masked at all, because a stray switch beside every string
+would be worse than none. `SecretDelegate` keeps its own; that is the
+keychain-backed `SecretAspect`, a different aspect for a different job.
+
+**Two things I got wrong on the way, both worth writing down because they cost
+a build each and both looked like bugs in the code.**
+
+- I concluded `AspectPresentation` has no `password` field and that every
+  password aspect therefore renders unmasked. It does not have one - the key is
+  *derived* in `aspectmodels.cpp`, `{"password", p.control == PasswordLineEdit}`
+  - and masking has worked all along. `testPasswordAspectDoesNotEchoItsValue`
+  already asserts it, and it has been passing. Grepping the struct was looking
+  in the wrong place; the map the QML actually sees is built somewhere else.
+- My test then found only one reveal switch where it wanted two, and the
+  fixture was the reason: **a `StringAspect` draws a `Label` unless it is told
+  otherwise** (`m_displayStyle` defaults to `LabelDisplay`), so the "plain"
+  field in the comparison was not a field at all. The existing password test
+  sets `LineEditDisplay` explicitly, which is why it never met this.
+
+Negative controls: the switch shown beside every string field, masked or not
+(the test asserts *exactly one* of the two offers it); and the switch drawn but
+not unmasking anything. Both bit.
+
+QuickUi 181 passed / 0 failed / 1 skipped, exit 0. Core and Mercurial exit 0 -
+Mercurial because its authentication dialog is a real password field and the
+change is to a delegate every string in Qt Creator uses. `QtcQuick_qmllint`
+clean (the two warnings it prints are older than this change). No `.qbs` edit.
+
+**Next:** the keystore form itself, now unblocked. Its checks and its
+distinguished name are already extracted and tested, so what is left is the
+twenty fields, the two spin boxes and the "same password" box that disables the
+certificate's own - which is behaviour for the container's constructor, not the
+form.

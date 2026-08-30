@@ -98,6 +98,8 @@ RowLayout {
         TextField {
             id: field
 
+            objectName: "stringField"
+
             // What is wrong with what is in the field, from the aspect: QML
             // cannot reach a validation function, so it asks. Empty when the
             // aspect has none, which is most of them.
@@ -188,7 +190,8 @@ RowLayout {
                     onTapped: delegate.aspect?.clickRightSideIcon()
                 }
             }
-            echoMode: delegate.pres.password ? TextInput.Password : TextInput.Normal
+            echoMode: delegate.pres.password && !reveal.checked
+                      ? TextInput.Password : TextInput.Normal
             enabled: delegate.aspect?.enabled ?? false
             readOnly: delegate.aspect?.readOnly ?? true
             // A path to a command says what version it is, which costs a
@@ -261,6 +264,19 @@ RowLayout {
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
         }
+    }
+
+    // A masked value the reader can check they typed correctly. Only where the
+    // value is masked at all: on an ordinary field there would be nothing to
+    // show. SecretDelegate offers the same thing for the keychain-backed
+    // aspects, which is a different aspect and a different delegate.
+    QtcSwitch {
+        id: reveal
+
+        objectName: "revealSwitch"
+        text: qsTr("Show")
+        visible: delegate.pres.password ?? false
+        enabled: (delegate.aspect?.enabled ?? false) && !(delegate.aspect?.readOnly ?? true)
     }
 
     // A way back to what the setting is when nobody has touched it. Only for
