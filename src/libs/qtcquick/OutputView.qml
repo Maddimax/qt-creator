@@ -22,10 +22,18 @@ Item {
 
     property bool wheelZoomEnabled: true
 
+    property bool wordWrapEnabled: false
+    property color backgroundColor: Tokens.backgroundDefault
+
     signal linkActivated(string href)
     // One notch of Ctrl+wheel, in points. What that comes to is C++'s
     // decision, because the widget output window has to agree with it.
     signal zoomRequested(real delta)
+
+    Rectangle {
+        anchors.fill: parent
+        color: root.backgroundColor
+    }
 
     ScrollView {
         id: scrollView
@@ -37,12 +45,18 @@ Item {
             id: area
             objectName: "outputText"
 
+            // Wrapping needs something to wrap against: inside a ScrollView the
+            // text area is as wide as its longest line, and a wrap mode with
+            // no width to obey does nothing at all.
+            width: root.wordWrapEnabled ? scrollView.availableWidth : implicitWidth
+
             readOnly: true
             // Selectable, because copying a compiler error out of the pane is
             // half of what the pane is for.
             selectByMouse: true
             font: root.effectiveFont
-            wrapMode: TextArea.NoWrap
+            wrapMode: root.wordWrapEnabled ? TextArea.WrapAtWordBoundaryOrAnywhere
+                                            : TextArea.NoWrap
             background: null
             padding: 0
 

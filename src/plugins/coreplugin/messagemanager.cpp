@@ -97,16 +97,8 @@ private:
 
     void updateFilter() final
     {
-        using Flag = OutputWindow::FilterModeFlag;
-        OutputWindow::FilterModeFlags mode;
-        if (filterUsesRegexp())
-            mode |= Flag::RegExp;
-        if (filterCaseSensitivity() == Qt::CaseSensitive)
-            mode |= Flag::CaseSensitive;
-        if (filterIsInverted())
-            mode |= Flag::Inverted;
-
-        m_widget->setFilter(filterText(), mode, beforeContext(), afterContext());
+        m_widget->setFilter(filterText(), filterCaseSensitivity(), filterUsesRegexp(),
+                            filterIsInverted(), beforeContext(), afterContext());
     }
 
     OutputPaneView *m_widget = nullptr;

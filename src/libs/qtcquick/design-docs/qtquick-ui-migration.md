@@ -18370,3 +18370,36 @@ flood to both views, so that "off" means the setting rather than the input.
 
 Compile Output needs two small things now: word wrap, and the background colour
 override it takes from its settings page.
+
+### Compile Output, switched
+
+Word wrap and the background colour were the last two, and Compile Output is
+now drawn with Qt Quick. It is the third pane and the first one that really
+exercises the machinery: the character limit, the queue, the discarding, the
+task positions and the settings page behind them all belong to it.
+
+**Wrapping needs something to wrap against.** Setting `wrapMode` did nothing:
+inside a `ScrollView` the text item is as wide as its longest line, so a wrap
+mode with no width to obey has no effect at all. The item's width is bound to
+the scroll view's available width while wrapping is on, and left at its
+implicit width otherwise, so horizontal scrolling still works when it is off.
+Two separate controls fail on this - fixing the wrap mode, and removing the
+width - which is right, because either alone leaves it broken.
+
+**A control that did not bite, and the code went.** The background was being
+set both on the Quick item and as the widget's clear colour. Removing the clear
+colour changed nothing any test could see, and it should not: the item fills
+the view, so nothing behind it is ever visible. The comment justifying the
+second line was simply wrong. It is gone.
+
+**The filter conversion moved.** Every pane has the same six values from
+`IOutputPane` - text, case sensitivity, regexp, inverted, before, after - and
+each was converting them into flags itself. That is now an overload on
+`OutputPaneView`, so the four panes still to come do not each repeat it.
+
+**What Compile Output loses, and it should be recorded rather than discovered:**
+`setOutputFileNameHint()` is gone, because the Quick output view has no context
+menu at all. The widget's right-click offers Copy, Select All, Save As and
+Clear, and none of the three ported panes has any of it. That is the largest
+remaining gap in the output work and it applies to all of them, not just this
+pane.

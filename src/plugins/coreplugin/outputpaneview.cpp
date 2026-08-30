@@ -78,6 +78,9 @@ OutputView *OutputPaneView::view()
     m_view->setDocument(shownDocument());
     if (m_baseFontSet)
         m_view->setBaseFont(m_baseFont);
+    m_view->setWordWrapEnabled(m_wordWrapEnabled);
+    if (m_backgroundColor.isValid())
+        m_view->setBackgroundColor(m_backgroundColor);
     m_view->setFontZoom(m_zoom);
     m_view->setWheelZoomEnabled(m_wheelZoomEnabled);
     return m_view;
@@ -361,6 +364,21 @@ void OutputPaneView::setFilter(const QString &text, OutputWindow::FilterModeFlag
     refilter();
 }
 
+void OutputPaneView::setFilter(const QString &text, Qt::CaseSensitivity caseSensitivity,
+                               bool regexp, bool inverted, int before, int after)
+{
+    using Flag = OutputWindow::FilterModeFlag;
+    OutputWindow::FilterModeFlags mode;
+    if (regexp)
+        mode |= Flag::RegExp;
+    if (caseSensitivity == Qt::CaseSensitive)
+        mode |= Flag::CaseSensitive;
+    if (inverted)
+        mode |= Flag::Inverted;
+
+    setFilter(text, mode, before, after);
+}
+
 void OutputPaneView::refilter()
 {
     m_filtered.clear();
@@ -385,6 +403,21 @@ QTextDocument *OutputPaneView::shownDocument() const
 QString OutputPaneView::toPlainText() const
 {
     return m_source.toPlainText();
+}
+
+void OutputPaneView::setWordWrapEnabled(bool enabled)
+{
+    m_wordWrapEnabled = enabled;
+    if (OutputView * const output = view())
+        output->setWordWrapEnabled(enabled);
+}
+
+void OutputPaneView::setBackgroundColor(const QColor &color)
+{
+    m_backgroundColor = color;
+    m_formatter.setExplicitBackgroundColor(color);
+    if (OutputView * const output = view())
+        output->setBackgroundColor(color);
 }
 
 void OutputPaneView::setBaseFont(const QFont &font)

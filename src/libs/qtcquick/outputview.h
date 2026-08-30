@@ -47,6 +47,15 @@ public:
     void resetZoom() { setFontZoom(0); }
     void setWheelZoomEnabled(bool enabled);
 
+    // Long lines wrapped rather than reaching off to the right. A pane setting,
+    // and the widget's word wrap mode.
+    void setWordWrapEnabled(bool enabled);
+
+    // What the output is drawn on. A pane can be told to use a colour of its
+    // own - Compile Output offers one - and the widget did that by changing
+    // its palette's base.
+    void setBackgroundColor(const QColor &color);
+
     // Where the selection is, as a cursor on the document. A Quick text item
     // keeps its selection as three integers rather than as a cursor, so this
     // is a conversion in both directions.

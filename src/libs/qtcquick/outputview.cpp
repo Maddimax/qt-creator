@@ -131,6 +131,20 @@ void OutputView::setTextCursor(const QTextCursor &cursor)
     }
 }
 
+void OutputView::setWordWrapEnabled(bool enabled)
+{
+    if (QObject * const root = rootObject())
+        root->setProperty("wordWrapEnabled", enabled);
+}
+
+void OutputView::setBackgroundColor(const QColor &color)
+{
+    // Only the item: it fills the view, so nothing of what is behind it shows
+    // and setting the widget's clear colour too changes nothing anyone sees.
+    if (QObject * const root = rootObject())
+        root->setProperty("backgroundColor", color);
+}
+
 QString OutputView::linkAt(qreal x, qreal y) const
 {
     QQuickItem * const area = textArea();

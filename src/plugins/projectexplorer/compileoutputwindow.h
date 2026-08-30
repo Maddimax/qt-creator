@@ -15,7 +15,7 @@ QT_BEGIN_NAMESPACE
 class QToolButton;
 QT_END_NAMESPACE
 
-namespace Core { class OutputWindow; }
+namespace Core { class OutputPaneView; }
 namespace Utils { class OutputFormatter; }
 
 namespace ProjectExplorer {
@@ -78,7 +78,7 @@ private:
     void showPositionOf(unsigned taskId) override;
 
     void updateFromSettings();
-    Core::OutputWindow *m_outputWindow;
+    Core::OutputPaneView *m_outputWindow;
     ShowOutputTaskHandler *m_handler;
     QToolButton *m_cancelBuildButton;
     QToolButton * const m_settingsButton;

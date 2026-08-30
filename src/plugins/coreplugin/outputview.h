@@ -53,6 +53,12 @@ public:
 
     virtual void setWheelZoomEnabled(bool enabled) = 0;
 
+    // Long lines wrapped rather than reaching off to the right.
+    virtual void setWordWrapEnabled(bool enabled) = 0;
+
+    // What the output is drawn on, for a pane offering a colour of its own.
+    virtual void setBackgroundColor(const QColor &color) = 0;
+
     // Where the selection is, as a cursor on the document. Find support is
     // written against these two rather than against a text widget - see
     // Core::BaseTextFindBase, which asks an editor for a cursor, a document

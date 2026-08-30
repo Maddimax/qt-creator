@@ -11,6 +11,7 @@
 #include <utils/outputformatter.h>
 #include <utils/storekey.h>
 
+#include <QColor>
 #include <QTextCursor>
 #include <QTextDocument>
 #include <QTimer>
@@ -70,6 +71,11 @@ public:
     void setFilter(const QString &text, OutputWindow::FilterModeFlags mode,
                    int before = 0, int after = 0);
 
+    // The same, as an output pane describes it: every pane has these six
+    // values from IOutputPane and would otherwise each convert them itself.
+    void setFilter(const QString &text, Qt::CaseSensitivity caseSensitivity, bool regexp,
+                   bool inverted, int before, int after);
+
     // Which of its lines a task was reported from, and showing them when the
     // task is clicked in the Issues pane.
     void registerPositionOf(unsigned taskId, int linkedOutputLines, int skipLines,
@@ -84,6 +90,12 @@ public:
     // gets it.
     void setMaxCharCount(qsizetype count);
     qsizetype maxCharCount() const;
+
+    void setWordWrapEnabled(bool enabled);
+
+    // Also given to the formatter, which needs to know what it is drawing on
+    // to decide whether the colours it was told to use are readable there.
+    void setBackgroundColor(const QColor &color);
 
     void setBaseFont(const QFont &font);
     void setWheelZoomEnabled(bool enabled);
@@ -163,6 +175,8 @@ private:
     int m_formatterCalls = 0;
     bool m_flushRequested = false;
     bool m_discardExcessiveOutput = false;
+    bool m_wordWrapEnabled = false;
+    QColor m_backgroundColor;
     OutputWindow::PendingOutputState m_pendingState;
 
     const Utils::Key m_zoomSettingsKey;

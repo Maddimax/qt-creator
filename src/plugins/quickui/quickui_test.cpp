@@ -366,6 +366,7 @@ private slots:
     void testCoreHandsOutAnOutputViewItCannotDrawItself();
     void testCoreHasNoOutputViewWithoutAFrontEnd();
     void testAPaneBuiltBeforeTheFrontEndStillGetsAView();
+    void testWordWrapAndBackgroundReachTheDrawnOutput();
     void testFindingTextInTheOutputView();
     void testTheOutputViewScrollsAMatchIntoView();
     void testABackwardsSelectionComesBackTheRightWayRound();
@@ -10696,6 +10697,57 @@ void QuickUiTest::testAPaneBuiltBeforeTheFrontEndStillGetsAView()
     // And so is the font it was given before there was anything to apply it to.
     QCOMPARE(view.fontZoom(), 4.0f);
     QTRY_COMPARE(area->property("font").value<QFont>().pointSizeF(), 16.0);
+}
+
+void QuickUiTest::testWordWrapAndBackgroundReachTheDrawnOutput()
+{
+    // The last two things Compile Output needed. Both are settings a user can
+    // change and see, so both are asked of what is drawn.
+    Core::OutputPaneView view;
+    view.resize(300, 200);
+    view.show();
+    QVERIFY(view.view());
+
+    auto * const quickWidget = view.findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QQuickItem * const area = quickWidget->rootObject()->findChild<QQuickItem *>("outputText");
+    QVERIFY(area);
+
+    view.appendMessage(QString("a very long line ").repeated(30) + '\n',
+                       Utils::GeneralMessageFormat);
+    view.flush();
+    QTRY_VERIFY(area->property("contentHeight").toReal() > 0);
+
+    // Unwrapped, a long line runs off to the right and stays one line high.
+    const qreal unwrappedHeight = area->property("contentHeight").toReal();
+    QVERIFY2(area->property("contentWidth").toReal() > view.width(),
+             "the line was already being wrapped");
+
+    view.setWordWrapEnabled(true);
+    QTRY_VERIFY2(area->property("contentHeight").toReal() > unwrappedHeight,
+                 "wrapping was switched on and the text stayed one line high");
+    QVERIFY2(area->property("contentWidth").toReal() <= view.width() + 1,
+             "the wrapped text still runs off the side");
+
+    // The background is a colour a pane can choose - Compile Output offers one
+    // on its settings page - so it has to be what is actually painted.
+    const QColor chosen(200, 0, 0);
+    view.setBackgroundColor(chosen);
+
+    QTRY_VERIFY2([&] {
+        const QImage frame = quickWidget->grabFramebuffer();
+        if (frame.isNull())
+            return false;
+        int found = 0;
+        for (int y = 0; y < frame.height(); ++y) {
+            for (int x = 0; x < frame.width(); ++x) {
+                if (frame.pixelColor(x, y) == chosen)
+                    ++found;
+            }
+        }
+        // Most of the pane, not a stray pixel: the text is drawn over it.
+        return found > frame.width() * frame.height() / 2;
+    }(), "the chosen background colour was not what the pane was drawn on");
 }
 
 void QuickUiTest::testAVariableBeingDefinedIsNotOfferedForItself()

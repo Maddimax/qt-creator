@@ -10,6 +10,8 @@
 #include "showoutputtaskhandler.h"
 #include "taskhub.h"
 
+#include <coreplugin/outputpaneview.h>
+#include <coreplugin/outputtasksink.h>
 #include <coreplugin/outputwindow.h>
 #include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/icore.h>
@@ -56,14 +58,9 @@ CompileOutputWindow::CompileOutputWindow(QAction *cancelBuildAction) :
     setPriorityInStatusBar(40);
 
     Core::Context context(C_COMPILE_OUTPUT);
-    m_outputWindow = new Core::OutputWindow(context, SETTINGS_KEY);
+    m_outputWindow = new Core::OutputPaneView(SETTINGS_KEY);
     m_outputWindow->setWindowTitle(displayName());
     m_outputWindow->setWindowIcon(Icons::WINDOW.icon());
-    m_outputWindow->setReadOnly(true);
-    m_outputWindow->setUndoRedoEnabled(false);
-    m_outputWindow->setMaxCharCount(Core::Constants::DEFAULT_MAX_CHAR_COUNT);
-    //: file name suggested for saving compile output
-    m_outputWindow->setOutputFileNameHint(Tr::tr("compile-output.txt"));
 
     Utils::ProxyAction *cancelBuildProxyButton =
             Utils::ProxyAction::proxyActionWithIcon(cancelBuildAction,
@@ -86,9 +83,10 @@ CompileOutputWindow::CompileOutputWindow(QAction *cancelBuildAction) :
     setupFilterUi("CompileOutputPane.Filter", "ProjectExplorer::Internal::CompileOutputPane");
     setFilteringEnabled(true);
 
-    connect(this, &IOutputPane::zoomInRequested, m_outputWindow, &Core::OutputWindow::zoomIn);
-    connect(this, &IOutputPane::zoomOutRequested, m_outputWindow, &Core::OutputWindow::zoomOut);
-    connect(this, &IOutputPane::resetZoomRequested, m_outputWindow, &Core::OutputWindow::resetZoom);
+    connect(this, &IOutputPane::zoomInRequested, m_outputWindow, &Core::OutputPaneView::zoomIn);
+    connect(this, &IOutputPane::zoomOutRequested, m_outputWindow, &Core::OutputPaneView::zoomOut);
+    connect(this, &IOutputPane::resetZoomRequested,
+            m_outputWindow, &Core::OutputPaneView::resetZoom);
     connect(&TextEditor::globalFontSettings(), &TextEditor::FontSettings::changed,
             this, updateFontSettings);
     connect(&TextEditor::globalBehaviorSettings(), &Utils::AspectContainer::changed,
@@ -122,7 +120,7 @@ CompileOutputWindow::CompileOutputWindow(QAction *cancelBuildAction) :
     connect(&s.maxCharCount, &Utils::BaseAspect::changed, m_outputWindow, [this] {
         m_outputWindow->setMaxCharCount(compileOutputSettings().maxCharCount());
     });
-    connect(m_outputWindow, &Core::OutputWindow::outputDiscarded, this, [] {
+    connect(m_outputWindow, &Core::OutputPaneView::outputDiscarded, this, [] {
         TaskHub::addTask(
             Task::Warning,
             Tr::tr("Discarded excessive compile output."),
@@ -150,13 +148,13 @@ void CompileOutputWindow::updateFromSettings()
     if (!background.isValid())
             background = Utils::creatorColor(Utils::Theme::PaletteBase);
 
-    m_outputWindow->outputFormatter()->setExplicitBackgroundColor(background);
-    Utils::StyleHelper::modifyPaletteBase(m_outputWindow, background);
+    m_outputWindow->setBackgroundColor(background);
 }
 
 bool CompileOutputWindow::hasFocus() const
 {
-    return m_outputWindow->window()->focusWidget() == m_outputWindow;
+    return m_outputWindow->window()->focusWidget()
+           && m_outputWindow->isAncestorOf(m_outputWindow->window()->focusWidget());
 }
 
 bool CompileOutputWindow::canFocus() const
@@ -251,7 +249,7 @@ void CompileOutputWindow::registerPositionOf(const Task &task, int linkedOutputL
                                              int offset)
 {
     m_outputWindow->registerPositionOf(
-        task.id(), linkedOutputLines, skipLines, offset, Core::OutputWindow::TaskSource::Direct);
+        task.id(), linkedOutputLines, skipLines, offset, Core::OutputTaskSink::TaskSource::Direct);
 }
 
 void CompileOutputWindow::flush()
@@ -266,14 +264,13 @@ void CompileOutputWindow::reset()
 
 Utils::OutputFormatter *CompileOutputWindow::outputFormatter() const
 {
-    return m_outputWindow->outputFormatter();
+    return m_outputWindow->formatter();
 }
 
 void CompileOutputWindow::updateFilter()
 {
-    m_outputWindow->updateFilterProperties(filterText(), filterCaseSensitivity(),
-                                           filterUsesRegexp(), filterIsInverted(),
-                                           beforeContext(), afterContext());
+    m_outputWindow->setFilter(filterText(), filterCaseSensitivity(), filterUsesRegexp(),
+                              filterIsInverted(), beforeContext(), afterContext());
 }
 
 // CompileOutputSettings

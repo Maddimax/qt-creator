@@ -35,6 +35,8 @@ public:
     void setFontZoom(float zoom) override { m_view->setFontZoom(zoom); }
     float fontZoom() const override { return m_view->fontZoom(); }
     void setWheelZoomEnabled(bool enabled) override { m_view->setWheelZoomEnabled(enabled); }
+    void setWordWrapEnabled(bool enabled) override { m_view->setWordWrapEnabled(enabled); }
+    void setBackgroundColor(const QColor &color) override { m_view->setBackgroundColor(color); }
     QTextCursor textCursor() const override { return m_view->textCursor(); }
     void setTextCursor(const QTextCursor &cursor) override { m_view->setTextCursor(cursor); }
 
