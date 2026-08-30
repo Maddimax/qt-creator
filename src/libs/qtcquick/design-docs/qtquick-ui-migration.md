@@ -21459,3 +21459,56 @@ failures, `StashDialogTest` 8 passed. `Git_qmllint` clean. No `.qbs` edit:
 delegates. The bookmarks one turned out not to be a dialog - the
 `DoubleClickActivation` in `bookmarkmanager.cpp` is on the bookmarks *pane*,
 which belongs with the panes rather than here.
+
+## 2026-08-30 — The Gerrit remote chooser, before the dialog that needs it
+
+`GerritDialog` is the largest of the remaining activation dialogs - a splitter,
+a details browser, a query field with a completer over saved queries, a
+progress overlay on the tree, and `GerritRemoteChooser`, which is a **widget
+shared with `GerritPushDialog`**. Porting the dialog while leaving that widget
+in it would leave a widget in the middle of a Quick form; porting the widget
+inside the dialog batch would make one commit that changes two dialogs and a
+shared component.
+
+So the chooser went first, exactly as `KitChooserAspect` did before the nine
+kit dialogs: an `AspectContainer` with a `SelectionAspect` and an
+`ActionAspect`, `setInlineRow(true)` because the widget was a `QHBoxLayout` of
+a combo box and a reset button. The widget stays for now, so nothing is broken
+while the two dialogs are ported in turn.
+
+`SplitView` and `BusyIndicator` are **not** missing: `QtcFileDialog.qml`
+already uses both, so the dialog needs no new shared component - it is simply
+large.
+
+**A fixture that made the case under test impossible.** The dedup test built
+its servers with `GerritServer` objects that had only a `host`, and nothing was
+deduplicated. The cause is not the listing: `GerritServer::operator==` asks
+`GerritUser::isSameAs()`, which returns **false when both users are empty** -
+it answers "same" only when there is something to compare. So two user-less
+servers are never equal, and a fixture without users cannot exercise the rule
+at all. The production path fills the user in `fillFromRemote()`. The fixture
+now does too, and the surprise has an assertion of its own, because a reader of
+`remoteChoices()` would otherwise assume host equality is what is being asked.
+See [[negative-control-masked-by-fixture]] and
+[[test-with-inputs-you-wrote-yourself]].
+
+The two rules are `remoteChoices()` - the `host (name)` label and the dedup -
+and `defaultRemoteIndex()` - the remote actually called "gerrit" wins, wherever
+it is, and the *last* such one, because each `addItem` in the widget set the
+current index as it went.
+
+**This aspect has no user until the next batch.** That is the same shape the
+`KitChooserAspect` batch had, and it paid for itself there; saying so plainly
+is better than folding it into a dialog port that would then be twice the size.
+
+Negative controls: the same server listed once per remote pointing at it; the
+chooser not opening on the gerrit remote; an entry saying only the host; a
+one-entry chooser still offering a choice; and the chooser drawn as a group
+rather than one row. All five bit.
+
+QuickUi 186 passed / 0 failed / 1 skipped, exit 0. `Git` exit 0 with no
+failures, `GerritRemoteChooserTest` 10 passed. `Git_qmllint` clean. No `.qbs`
+edit: no files were added.
+
+**Next:** `GerritPushDialog` - the smaller consumer, so the aspect gets a real
+user - and then `GerritDialog` itself.
