@@ -40,6 +40,10 @@
 
 #include <numeric>
 
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
 using namespace Utils;
 using namespace std::chrono_literals;
 
@@ -471,31 +475,45 @@ void OutputWindow::setOutputFileNameHint(const QString &fileName)
     d->outputFileNameHint = fileName;
 }
 
-OutputWindow::TextMatchingFunction OutputWindow::makeMatchingFilterFunction() const
+OutputWindow::TextMatchingFunction OutputWindow::filterPredicate(const QString &filterText,
+                                                                 FilterModeFlags mode)
 {
-    const bool normal = !d->filterMode.testFlag(FilterModeFlag::Inverted)
-                        && !d->filterText.isEmpty();
-
-    if (d->filterText.isEmpty()) {
+    // With no filter every line stays, whether or not the filter is inverted:
+    // inverting "show everything" is still everything, not nothing.
+    if (filterText.isEmpty())
         return [](const QString &) { return true; };
-    } else if (d->filterMode.testFlag(OutputWindow::FilterModeFlag::RegExp)) {
-        QRegularExpression regExp(d->filterText);
-        if (!d->filterMode.testFlag(OutputWindow::FilterModeFlag::CaseSensitive))
+
+    // Past that, a line stays when it matches - or, inverted, when it does
+    // not, which is what comparing the match against this says in one place
+    // for both. The original also tested for an empty filter here; it cannot
+    // be empty this far down, and a control that would not bite is what said
+    // so.
+    const bool normal = !mode.testFlag(FilterModeFlag::Inverted);
+
+    if (mode.testFlag(FilterModeFlag::RegExp)) {
+        QRegularExpression regExp(filterText);
+        if (!mode.testFlag(FilterModeFlag::CaseSensitive))
             regExp.setPatternOptions(QRegularExpression::CaseInsensitiveOption);
+        // A half-typed expression matches nothing rather than everything: the
+        // pane empties as it is being typed and fills again when it is valid.
         if (!regExp.isValid())
             return [](const QString &) { return false; };
 
-        return [regExp, normal](const QString &text) { return regExp.match(text).hasMatch() == normal; };
-    } else {
-        const auto cs = d->filterMode.testFlag(OutputWindow::FilterModeFlag::CaseSensitive)
-                            ? Qt::CaseSensitive : Qt::CaseInsensitive;
-
-        return [cs, filterText = d->filterText, normal](const QString &text) {
-            return text.contains(filterText, cs) == normal;
+        return [regExp, normal](const QString &text) {
+            return regExp.match(text).hasMatch() == normal;
         };
     }
 
-    return {};
+    const auto cs = mode.testFlag(FilterModeFlag::CaseSensitive) ? Qt::CaseSensitive
+                                                                 : Qt::CaseInsensitive;
+    return [cs, filterText, normal](const QString &text) {
+        return text.contains(filterText, cs) == normal;
+    };
+}
+
+OutputWindow::TextMatchingFunction OutputWindow::makeMatchingFilterFunction() const
+{
+    return filterPredicate(d->filterText, d->filterMode);
 }
 
 void OutputWindow::filterNewContent()
@@ -919,4 +937,68 @@ void OutputWindow::setDiscardExcessiveOutput(bool discard)
     d->discardExcessiveOutput = discard;
 }
 
+#ifdef WITH_TESTS
+
+class OutputFilterTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    // What an output pane hides while a filter is typed into it. This lived
+    // inside a QPlainTextEdit, where the only way to ask it anything was to
+    // type into a pane and look.
+    void testWhatAFilterLetsThrough()
+    {
+        using Flags = OutputWindow::FilterModeFlags;
+        using Flag = OutputWindow::FilterModeFlag;
+
+        // No filter: everything stays, which is not the same as "matches
+        // nothing" and is what an empty field has to mean.
+        const auto none = OutputWindow::filterPredicate({}, {});
+        QVERIFY(none("anything at all"));
+        QVERIFY(none({}));
+
+        // Plain text, and case-blind unless asked.
+        const auto plain = OutputWindow::filterPredicate("error", {});
+        QVERIFY(plain("an ERROR happened"));
+        QVERIFY(!plain("all good"));
+        const auto cased = OutputWindow::filterPredicate("error", Flags(Flag::CaseSensitive));
+        QVERIFY(!cased("an ERROR happened"));
+        QVERIFY(cased("an error happened"));
+
+        // Inverted keeps what does not match - and an empty filter is not
+        // inverted into hiding everything, which the early return is what
+        // guarantees.
+        const auto inverted = OutputWindow::filterPredicate("error", Flags(Flag::Inverted));
+        QVERIFY(!inverted("an error happened"));
+        QVERIFY(inverted("all good"));
+        const auto invertedEmpty = OutputWindow::filterPredicate({}, Flags(Flag::Inverted));
+        QVERIFY2(invertedEmpty("anything at all"),
+                 "an empty inverted filter hid every line");
+
+        // A regular expression, case-blind unless asked.
+        const auto regexp = OutputWindow::filterPredicate("e[rd]{2}or", Flags(Flag::RegExp));
+        QVERIFY(regexp("an errorish line"));
+        QVERIFY(regexp("an ERROR line"));
+        QVERIFY(!regexp("all good"));
+
+        // And a half-typed one matches nothing rather than everything: the
+        // pane empties as it is typed and fills again when it is valid.
+        const auto halfTyped = OutputWindow::filterPredicate("error(", Flags(Flag::RegExp));
+        QVERIFY2(!halfTyped("an error happened"),
+                 "an unfinished regular expression let every line through");
+    }
+};
+
+QObject *createOutputFilterTest()
+{
+    return new OutputFilterTest;
+}
+
+#endif // WITH_TESTS
+
 } // namespace Core
+
+#ifdef WITH_TESTS
+#include "outputwindow.moc"
+#endif

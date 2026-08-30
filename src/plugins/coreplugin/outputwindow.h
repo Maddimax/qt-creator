@@ -34,6 +34,15 @@ public:
     };
     Q_DECLARE_FLAGS(FilterModeFlags, FilterModeFlag)
 
+    // What a line has to satisfy to stay visible under \a filterText. Kept out
+    // of the class because it is a decision about text, not about a widget:
+    // inside one it could only be exercised by typing into a pane.
+    // What a line has to satisfy to stay visible under a filter.
+    using TextMatchingFunction = std::function<bool(const QString &text)>;
+
+    static TextMatchingFunction filterPredicate(const QString &filterText,
+                                                FilterModeFlags mode);
+
     OutputWindow(Context context, const Utils::Key &settingsKey, QWidget *parent = nullptr);
     ~OutputWindow() override;
 
@@ -95,7 +104,6 @@ protected:
     virtual void handleLink(const QPoint &pos);
     virtual void adaptContextMenu(QMenu *menu, const QPoint &pos);
 
-    using TextMatchingFunction = std::function<bool(const QString &text)>;
     virtual TextMatchingFunction makeMatchingFilterFunction() const;
     void resetLastFilteredBlockNumber();
 
@@ -128,5 +136,9 @@ private:
 
     Internal::OutputWindowPrivate *d = nullptr;
 };
+
+#ifdef WITH_TESTS
+QObject *createOutputFilterTest();
+#endif
 
 } // namespace Core

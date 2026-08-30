@@ -1,6 +1,7 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
+#include "outputwindow.h"
 #include "coreplugin.h"
 
 #include "actionmanager/actionmanager.h"
@@ -520,6 +521,7 @@ Result<> CorePlugin::initialize(const QStringList &arguments)
 
 #ifdef WITH_TESTS
     addTestCreator(createActionManagerTest);
+    addTestCreator(createOutputFilterTest);
     addTestCreator(createDocumentManagerTest);
     addTestCreator(createExternalToolTest);
     addTestCreator(createMinimapImageTest);

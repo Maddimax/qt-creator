@@ -17575,3 +17575,45 @@ Three things that cost time and will cost it again:
   the new Quick test running before it. All four page tests now collect only
   messages mentioning `qrc:/qt/qml/QtCreator`, and the rename control was
   re-run to prove they still bite.
+
+### Where the panes go from here, measured
+
+Two of thirteen are drawn with Qt Quick. The other eleven are not eleven jobs -
+they are two, and neither is a batch:
+
+- **Six are text streams** on `Core::OutputWindow`: General Messages, Compile
+  Output, Application Output, VCS, Serial Terminal, the debugger's log. That is
+  a 922-line `QPlainTextEdit` with zoom, a base font, wheel zoom, output
+  formatting, links and block filtering. Porting it is a project, and every one
+  of the six follows from it.
+- **Three have heavy custom-painted views**: Test Results
+  (`TestResultDelegate`, 287 lines of `paint()` laying out icon, type,
+  description, file and duration, wrapping when selected), Squish (a tab
+  widget over a tree *and* a log) and the debugger console. Reproducing those
+  faithfully needs **eyes on the result**, and the newest ones cannot be
+  reached here: a second pane instance crashes, and there is no project running
+  tests to fill one. A stand-in renders the QML but not what a user sees.
+- The terminal is not a candidate at all.
+
+So the pane work forks into a project and a set of ports that want someone
+looking at them.
+
+### The first piece of the output window, extracted
+
+What an output pane hides while a filter is typed into it is a decision about
+text, and it was inside a `QPlainTextEdit`: the only way to ask it anything was
+to type into a pane and look. `OutputWindow::filterPredicate(filterText, mode)`
+is that decision on its own, and the tests are the first exercise it has ever
+had - plain and regular expression, case sensitivity, inversion, and a
+half-typed expression, which matches *nothing* so the pane empties as it is
+typed rather than filling.
+
+**A control that did not bite found dead code.** The predicate computed
+
+    const bool normal = !mode.testFlag(Inverted) && !filterText.isEmpty();
+
+and removing `&& !filterText.isEmpty()` failed nothing - because the empty case
+returns before `normal` is reached, so that clause could never be false where
+it was read. It is gone, the comment that claimed it was what protected an
+empty inverted filter is corrected, and the early return that really does
+protect it now has a control of its own.
