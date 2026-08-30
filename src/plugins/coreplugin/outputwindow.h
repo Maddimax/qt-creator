@@ -62,6 +62,15 @@ public:
     static int blocksToKeep(const QList<int> &blockLengths, qsizetype existingChars,
                             qsizetype incomingChars, qsizetype maxCharCount);
 
+    // Fills \a target with the lines of \a source that \a matches accepts, plus
+    // \a before and \a after lines of context, keeping how each was drawn.
+    //
+    // A Qt Quick view cannot be filtered the way a QPlainTextEdit is: it
+    // ignores QTextBlock::setVisible(), so a filtered view means a filtered
+    // document rather than one with parts switched off.
+    static void copyFiltered(const QTextDocument *source, QTextDocument *target,
+                             const TextMatchingFunction &matches, int before, int after);
+
     OutputWindow(Context context, const Utils::Key &settingsKey, QWidget *parent = nullptr);
     ~OutputWindow() override;
 

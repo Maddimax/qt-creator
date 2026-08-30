@@ -17739,3 +17739,32 @@ line is appended and the height must grow before the "hiding changed nothing"
 assertion is allowed to mean anything. Without that, the assertion would pass
 just as happily if the view never relaid out at all - and the control confirms
 it: removing the line for real, rather than hiding it, fails the test.
+
+### The filtered document, and what it costs
+
+Both ways of filtering a Qt Quick output view need the same thing first: a
+document holding the lines that pass. `OutputWindow::copyFiltered()` is that -
+the matching lines, the context around them, and **how each was drawn**, copied
+fragment by fragment rather than as text, because a parser that turned a file
+name into a link leaves several fragments in a line and copying the text alone
+would drop what it did.
+
+**It costs 55 ms for 10,000 lines**, measured in this build - Debug with
+AddressSanitizer, so a release build is several times quicker. That number is
+what the open question needed, and it decides the shape:
+
+- Rebuilding on a **filter change** is fine. A person types into the filter
+  field a few times a second at most, over output that is usually far shorter
+  than ten thousand lines.
+- Rebuilding on **every appended chunk** is not. A build appends thousands of
+  times, and 55 ms each would be minutes of nothing else.
+
+So a Quick output view keeps two documents: the formatter's, which it does not
+touch, and a filtered one it rebuilds when the filter changes and *appends to*
+as chunks arrive - passing each new line through the same predicate. The
+predicate, the context arithmetic and now the copy are all out of the widget
+and tested, so what is left to write is the appending and the view.
+
+That is four pieces of `OutputWindow` extracted, and the last of them answers
+the question the previous three raised. What remains genuinely needs a view:
+the zoom, the base font, and clicking a link.

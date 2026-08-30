@@ -511,6 +511,42 @@ OutputWindow::TextMatchingFunction OutputWindow::filterPredicate(const QString &
     };
 }
 
+void OutputWindow::copyFiltered(const QTextDocument *source, QTextDocument *target,
+                                const TextMatchingFunction &matches, int before, int after)
+{
+    QTC_ASSERT(source && target && matches, return);
+
+    QList<int> matched;
+    for (QTextBlock block = source->begin(); block != source->end(); block = block.next()) {
+        if (matches(block.text()))
+            matched << block.blockNumber();
+    }
+
+    QSet<int> keep(matched.begin(), matched.end());
+    const QList<int> context = contextLines(matched, source->blockCount(), before, after);
+    for (const int line : context)
+        keep.insert(line);
+
+    target->clear();
+    QTextCursor cursor(target);
+    bool first = true;
+    for (QTextBlock block = source->begin(); block != source->end(); block = block.next()) {
+        if (!keep.contains(block.blockNumber()))
+            continue;
+        if (!first)
+            cursor.insertBlock();
+        first = false;
+        // Fragment by fragment: a line of output is usually one, but a parser
+        // that marked part of it - a file name made into a link - leaves
+        // several, and copying the text alone would drop what it did.
+        for (QTextBlock::iterator it = block.begin(); it != block.end(); ++it) {
+            const QTextFragment fragment = it.fragment();
+            if (fragment.isValid())
+                cursor.insertText(fragment.text(), fragment.charFormat());
+        }
+    }
+}
+
 QString OutputWindow::elideChunk(const QString &chunk, qsizetype maxCharCount)
 {
     if (chunk.size() <= maxCharCount)
@@ -1054,6 +1090,73 @@ private slots:
 
         // Never the last one: it is where the new text lands.
         QCOMPARE(OutputWindow::blocksToKeep({10, 10, 10}, 30, 100, 5), 1);
+    }
+
+    // A Qt Quick view ignores QTextBlock::setVisible(), so a filtered view has
+    // to be a filtered document. This is that document.
+    void testAFilteredCopyKeepsWhatItShows()
+    {
+        QTextDocument source;
+        QTextCursor writer(&source);
+        writer.insertText("first: ordinary");
+        writer.insertBlock();
+        QTextCharFormat red;
+        red.setForeground(Qt::red);
+        writer.insertText("second: an error", red);
+        writer.insertBlock();
+        writer.insertText("third: ordinary");
+        writer.insertBlock();
+        writer.insertText("fourth: an error", red);
+        QCOMPARE(source.blockCount(), 4);
+
+        // Only the lines that match.
+        QTextDocument filtered;
+        OutputWindow::copyFiltered(&source, &filtered,
+                                   OutputWindow::filterPredicate("error", {}), 0, 0);
+        QCOMPARE(filtered.blockCount(), 2);
+        QCOMPARE(filtered.findBlockByNumber(0).text(), QString("second: an error"));
+        QCOMPARE(filtered.findBlockByNumber(1).text(), QString("fourth: an error"));
+
+        // How they were drawn comes with them: a copy that kept only the text
+        // would show an error in the colour of ordinary output.
+        const QTextCharFormat format =
+            filtered.findBlockByNumber(0).begin().fragment().charFormat();
+        QCOMPARE(format.foreground().color(), QColor(Qt::red));
+
+        // With context, the lines around a match come too, in order and once
+        // each even where two matches ask for the same one.
+        QTextDocument withContext;
+        OutputWindow::copyFiltered(&source, &withContext,
+                                   OutputWindow::filterPredicate("error", {}), 1, 0);
+        QCOMPARE(withContext.blockCount(), 4);
+        QCOMPARE(withContext.findBlockByNumber(0).text(), QString("first: ordinary"));
+        QCOMPARE(withContext.findBlockByNumber(3).text(), QString("fourth: an error"));
+
+        // An empty filter is the whole document, which is what a pane shows
+        // when nothing is typed in its filter field.
+        QTextDocument unfiltered;
+        OutputWindow::copyFiltered(&source, &unfiltered, OutputWindow::filterPredicate({}, {}),
+                                   0, 0);
+        QCOMPARE(unfiltered.blockCount(), source.blockCount());
+
+        // And what it costs, because whether this can be rebuilt on every
+        // filter change or has to be maintained as output arrives is the
+        // question it was written to answer.
+        QTextDocument big;
+        QTextCursor bigWriter(&big);
+        for (int i = 0; i < 10000; ++i) {
+            if (i > 0)
+                bigWriter.insertBlock();
+            bigWriter.insertText(QString("line %1 of build output").arg(i), i % 5 ? QTextCharFormat() : red);
+        }
+        QTextDocument bigFiltered;
+        QElapsedTimer timer;
+        timer.start();
+        OutputWindow::copyFiltered(&big, &bigFiltered,
+                                   OutputWindow::filterPredicate("of build", {}), 0, 0);
+        const qint64 elapsed = timer.elapsed();
+        QCOMPARE(bigFiltered.blockCount(), 10000);
+        qInfo() << "filtering 10000 lines took" << elapsed << "ms";
     }
 
     void testWhatAFilterLetsThrough()
