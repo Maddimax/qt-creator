@@ -24,6 +24,7 @@
 #include "logchangedialog.h"
 #include "mcpsupport.h"
 #include "remotedialog.h"
+#include "gerrit/gerritpushdialog.h"
 #include "gerrit/gerritremotechooser.h"
 #include "stashdialog.h"
 #include "temporarypatchfile.h"
@@ -3163,6 +3164,7 @@ class GITSHARED_EXPORT GitPlugin final : public ExtensionSystem::IPlugin
         addTestCreator(createStashDialogTest);
         addTestCreator(Gerrit::Internal::createGerritRemoteChooserTest);
         addTestCreator(createLogChangeMarksTest);
+        addTestCreator(Gerrit::Internal::createGerritPushDialogTest);
 #endif
 
         dd = new GitPluginPrivate;

@@ -15,6 +15,10 @@
 #include <utils/layoutbuilder.h>
 #include <utils/theme/theme.h>
 
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
 #include <QApplication>
 #include <QCheckBox>
 #include <QDateTime>
@@ -29,6 +33,100 @@ using namespace Git::Internal;
 namespace Gerrit::Internal {
 
 static const int ReasonableDistance = 100;
+
+QString includeOlderBranchesText()
+{
+    return ::Git::Tr::tr("... Include older branches ...");
+}
+
+QString pushTarget(const PushOptions &options)
+{
+    QStringList extras;
+    QString target = options.commit.isEmpty() ? QString("HEAD") : options.commit;
+    target += ":refs/for";
+
+    // Three states, and the middle one says nothing: leave the change as it is
+    // rather than making it private or taking that back.
+    if (options.draft == Qt::Checked)
+        extras << "private";
+    else if (options.draft == Qt::Unchecked)
+        extras << "remove-private";
+
+    if (options.workInProgress == Qt::Checked)
+        extras << "wip";
+    else if (options.workInProgress == Qt::Unchecked)
+        extras << "ready";
+
+    target += '/' + options.remoteBranch;
+    if (!options.topic.isEmpty())
+        extras << "topic=" + options.topic;
+
+    const QStringList reviewers = options.reviewers.split(',', Qt::SkipEmptyParts);
+    for (const QString &reviewer : reviewers)
+        extras << "r=" + reviewer;
+
+    if (!extras.isEmpty())
+        target += '%' + extras.join(',');
+    return target;
+}
+
+QStringList localBranchChoices(const QString &output, const QString &currentBranch)
+{
+    QStringList branches;
+    if (currentBranch.isEmpty())
+        branches << "HEAD";
+
+    const QString branchPrefix("refs/heads/");
+    const QStringList refs = output.trimmed().split('\n');
+    for (const QString &ref : refs) {
+        if (ref.startsWith(branchPrefix))
+            branches << ref.mid(branchPrefix.size());
+    }
+    return branches;
+}
+
+RemoteBranchesMap parseRemoteBranches(const QString &output)
+{
+    RemoteBranchesMap remoteBranches;
+    const QString head = "/HEAD";
+    const QString remotesPrefix("refs/remotes/");
+
+    const QStringList refs = output.split('\n');
+    for (const QString &reference : refs) {
+        const QStringList entries = reference.split('\t');
+        // The symbolic HEAD of a remote is not a branch to push to.
+        if (entries.count() < 2 || entries.first().endsWith(head))
+            continue;
+        const QString ref = entries.at(0).mid(remotesPrefix.size());
+        const int refBranchIndex = ref.indexOf('/');
+        const qint64 timeT = entries.at(1).left(entries.at(1).indexOf(' ')).toLongLong();
+        remoteBranches.insert(ref.left(refBranchIndex),
+                              {ref.mid(refBranchIndex + 1),
+                               QDateTime::fromSecsSinceEpoch(timeT).date()});
+    }
+    return remoteBranches;
+}
+
+QStringList targetBranchChoices(const QList<BranchDate> &branches, const QString &suggested,
+                                bool includeOld, const QDate &today)
+{
+    QStringList choices;
+    bool excluded = false;
+    for (const BranchDate &bd : branches) {
+        const bool isSuggested = bd.first == suggested;
+        // A branch nobody has touched in a long time is probably not where
+        // this change goes - unless it is the one being suggested.
+        const bool stale = bd.second.isValid()
+                           && bd.second.daysTo(today) > Git::Constants::OBSOLETE_COMMIT_AGE_IN_DAYS;
+        if (includeOld || isSuggested || !stale)
+            choices << bd.first;
+        else
+            excluded = true;
+    }
+    if (excluded)
+        choices << includeOlderBranchesText();
+    return choices;
+}
 
 
 QString GerritPushDialog::determineRemoteBranch(const QString &localBranch)
@@ -70,25 +168,13 @@ QString GerritPushDialog::determineRemoteBranch(const QString &localBranch)
 void GerritPushDialog::initRemoteBranches()
 {
     QString output;
-    const QString head = "/HEAD";
-
     const QString remotesPrefix("refs/remotes/");
     if (!gitClient().synchronousForEachRefCmd(
                 m_workingDir, {"--format=%(refname)\t%(committerdate:raw)", remotesPrefix}, &output)) {
         return;
     }
 
-    const QStringList refs = output.split("\n");
-    for (const QString &reference : refs) {
-        const QStringList entries = reference.split('\t');
-        if (entries.count() < 2 || entries.first().endsWith(head))
-            continue;
-        const QString ref = entries.at(0).mid(remotesPrefix.size());
-        int refBranchIndex = ref.indexOf('/');
-        qint64 timeT = entries.at(1).left(entries.at(1).indexOf(' ')).toLongLong();
-        BranchDate bd(ref.mid(refBranchIndex + 1), QDateTime::fromSecsSinceEpoch(timeT).date());
-        m_remoteBranches.insert(ref.left(refBranchIndex), bd);
-    }
+    m_remoteBranches = parseRemoteBranches(output);
     m_remoteComboBox->updateRemotes(false);
 }
 
@@ -245,34 +331,10 @@ QString GerritPushDialog::initErrorMessage() const
 
 QString GerritPushDialog::pushTarget() const
 {
-    QStringList options;
-    QString target = selectedCommit();
-    if (target.isEmpty())
-        target = "HEAD";
-    target += ":refs/for";
-    const Qt::CheckState draftState = m_draftCheckBox->checkState();
-    const Qt::CheckState wipState = m_wipCheckBox->checkState();
-    if (draftState == Qt::Checked)
-        options << "private";
-    else if (draftState == Qt::Unchecked)
-        options << "remove-private";
-
-    if (wipState == Qt::Checked)
-        options << "wip";
-    else if (wipState == Qt::Unchecked)
-        options << "ready";
-    target += '/' + selectedRemoteBranchName();
-    const QString topic = selectedTopic();
-    if (!topic.isEmpty())
-        options << "topic=" + topic;
-
-    const QStringList reviewersInput = reviewers().split(',', Qt::SkipEmptyParts);
-    for (const QString &reviewer : reviewersInput)
-        options << "r=" + reviewer;
-
-    if (!options.isEmpty())
-        target += '%' + options.join(',');
-    return target;
+    return Gerrit::Internal::pushTarget({selectedCommit(), selectedRemoteBranchName(),
+                                         selectedTopic(), reviewers(),
+                                         m_draftCheckBox->checkState(),
+                                         m_wipCheckBox->checkState()});
 }
 
 void GerritPushDialog::storeTopic()
@@ -303,23 +365,20 @@ void GerritPushDialog::setRemoteBranches(bool includeOld)
             }
         }
 
-        int i = 0;
-        bool excluded = false;
-        const QList<BranchDate> remoteBranches = m_remoteBranches.values(remoteName);
-        for (const BranchDate &bd : remoteBranches) {
-            const bool isSuggested = bd.first == m_suggestedRemoteBranch;
-            if (includeOld || isSuggested || !bd.second.isValid()
-                    || bd.second.daysTo(QDate::currentDate()) <= Git::Constants::OBSOLETE_COMMIT_AGE_IN_DAYS) {
-                m_targetBranchComboBox->addItem(bd.first);
-                if (isSuggested)
-                    m_targetBranchComboBox->setCurrentIndex(i);
-                ++i;
-            } else {
-                excluded = true;
-            }
+        const QStringList choices = targetBranchChoices(m_remoteBranches.values(remoteName),
+                                                       m_suggestedRemoteBranch, includeOld,
+                                                       QDate::currentDate());
+        for (const QString &choice : choices) {
+            // The sentinel is not a branch: it carries the marker the change
+            // range check looks for.
+            if (choice == includeOlderBranchesText())
+                m_targetBranchComboBox->addItem(choice, 1);
+            else
+                m_targetBranchComboBox->addItem(choice);
         }
-        if (excluded)
-            m_targetBranchComboBox->addItem(Git::Tr::tr("... Include older branches ..."), 1);
+        const int suggested = m_targetBranchComboBox->findText(m_suggestedRemoteBranch);
+        if (suggested != -1)
+            m_targetBranchComboBox->setCurrentIndex(suggested);
         setChangeRange();
     }
     validate();
@@ -373,4 +432,147 @@ QString GerritPushDialog::reviewers() const
     return m_reviewersLineEdit->text();
 }
 
+#ifdef WITH_TESTS
+
+class GerritPushDialogTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testWhatIsPushed()
+    {
+        // The refspec is the whole output of this dialog; everything else is
+        // the form collecting it.
+        PushOptions options;
+        options.remoteBranch = "master";
+        QCOMPARE(pushTarget(options), QString("HEAD:refs/for/master"));
+
+        // A chosen commit is pushed instead of HEAD, with everything it
+        // depends on.
+        options.commit = "abc1234";
+        QCOMPARE(pushTarget(options), QString("abc1234:refs/for/master"));
+    }
+
+    void testTheMiddleStateOfABoxSaysNothing()
+    {
+        // Three states: mark it, unmark it, or leave it as it is. The last is
+        // the default, and has to add nothing at all - otherwise opening the
+        // dialog and pressing Ok would change the review.
+        PushOptions options;
+        options.remoteBranch = "master";
+        QVERIFY2(!pushTarget(options).contains('%'),
+                 qPrintable(pushTarget(options)));
+
+        options.draft = Qt::Checked;
+        QCOMPARE(pushTarget(options), QString("HEAD:refs/for/master%private"));
+        options.draft = Qt::Unchecked;
+        QCOMPARE(pushTarget(options), QString("HEAD:refs/for/master%remove-private"));
+
+        options.draft = Qt::PartiallyChecked;
+        options.workInProgress = Qt::Checked;
+        QCOMPARE(pushTarget(options), QString("HEAD:refs/for/master%wip"));
+        options.workInProgress = Qt::Unchecked;
+        QCOMPARE(pushTarget(options), QString("HEAD:refs/for/master%ready"));
+    }
+
+    void testTheTopicAndTheReviewers()
+    {
+        PushOptions options;
+        options.remoteBranch = "master";
+        options.topic = "my-topic";
+        options.reviewers = "alice,bob";
+        QCOMPARE(pushTarget(options),
+                 QString("HEAD:refs/for/master%topic=my-topic,r=alice,r=bob"));
+
+        // An empty reviewer between commas is not a reviewer.
+        options.reviewers = "alice,,bob,";
+        QCOMPARE(pushTarget(options),
+                 QString("HEAD:refs/for/master%topic=my-topic,r=alice,r=bob"));
+
+        // And everything together, in the order Gerrit is given them.
+        options.draft = Qt::Checked;
+        options.workInProgress = Qt::Checked;
+        options.reviewers = "alice";
+        QCOMPARE(pushTarget(options),
+                 QString("HEAD:refs/for/master%private,wip,topic=my-topic,r=alice"));
+    }
+
+    void testWhichLocalBranchesAreOffered()
+    {
+        const QString output = "refs/heads/master\nrefs/heads/feature/one\n";
+        QCOMPARE(localBranchChoices(output, "master"),
+                 (QStringList{"master", "feature/one"}));
+
+        // A detached HEAD has no branch name to push from, so it is offered as
+        // itself, first.
+        QCOMPARE(localBranchChoices(output, {}),
+                 (QStringList{"HEAD", "master", "feature/one"}));
+
+        // Nothing but the prefix is nothing to offer.
+        QVERIFY(localBranchChoices({}, "master").isEmpty());
+    }
+
+    void testWhichRemoteBranchesThereAre()
+    {
+        // The format is "refname\tcommitterdate:raw", and the raw date is
+        // seconds then a timezone.
+        const QString output =
+            "refs/remotes/origin/master\t1700000000 +0200\n"
+            "refs/remotes/origin/old\t1500000000 +0200\n"
+            "refs/remotes/gerrit/master\t1700000000 +0200\n";
+
+        const RemoteBranchesMap branches = parseRemoteBranches(output);
+        // keys() on a QMultiMap is one entry per value, not per remote.
+        QCOMPARE(QSet<QString>(branches.keyBegin(), branches.keyEnd()).size(), 2);
+        QCOMPARE(branches.values("origin").size(), 2);
+        QCOMPARE(branches.values("gerrit").size(), 1);
+        QCOMPARE(branches.values("gerrit").first().first, QString("master"));
+        QCOMPARE(branches.values("gerrit").first().second,
+                 QDateTime::fromSecsSinceEpoch(1700000000).date());
+
+        // A remote's symbolic HEAD is not a branch to push to.
+        QVERIFY(parseRemoteBranches("refs/remotes/origin/HEAD\t1700000000 +0200\n").isEmpty());
+        // Nor is a line without a date.
+        QVERIFY(parseRemoteBranches("refs/remotes/origin/master\n").isEmpty());
+    }
+
+    void testWhichTargetBranchesAreOffered()
+    {
+        const QDate today(2026, 8, 30);
+        const QList<BranchDate> branches = {
+            {"master", today.addDays(-1)},
+            {"ancient", today.addDays(-Git::Constants::OBSOLETE_COMMIT_AGE_IN_DAYS - 1)},
+            {"undated", {}},
+        };
+
+        // A branch nobody has touched in a long time is left out, and the
+        // sentinel says so.
+        const QStringList offered = targetBranchChoices(branches, {}, false, today);
+        QCOMPARE(offered, (QStringList{"master", "undated", includeOlderBranchesText()}));
+
+        // Asking for them lists them all, and then there is nothing left to
+        // ask for.
+        const QStringList all = targetBranchChoices(branches, {}, true, today);
+        QCOMPARE(all, (QStringList{"master", "ancient", "undated"}));
+
+        // The branch this change is suggested for is always offered, however
+        // old it is - it is where the change actually goes.
+        const QStringList suggested = targetBranchChoices(branches, "ancient", false, today);
+        QVERIFY2(suggested.contains("ancient"), qPrintable(suggested.join(", ")));
+        QVERIFY2(!suggested.contains(includeOlderBranchesText()),
+                 "nothing was left out, but the list still offered to include more");
+    }
+};
+
+QObject *createGerritPushDialogTest()
+{
+    return new GerritPushDialogTest;
+}
+
+#endif // WITH_TESTS
+
 } // Gerrit::Internal
+
+#ifdef WITH_TESTS
+#include "gerritpushdialog.moc"
+#endif

@@ -21612,3 +21612,58 @@ wildcard.
 **Next:** `GerritPushDialog`, which needs the remote chooser aspect (done two
 batches ago) and `LogChangeWidget` (still a widget - the push dialog is now its
 last dialog user besides the submit editor). Then `GerritDialog`.
+
+## 2026-08-30 — GerritPushDialog: what came out, and what did not
+
+**The port was attempted and backed out, and the reason is worth recording.**
+The dialog needs `LogChangeModel` - it shows the same commit list the log
+dialog does - but that class is defined in `logchangedialog.cpp`, not its
+header. Sharing it means moving a class that calls `gitClient()` into a header
+two other files include, and the same is true of `LogTableAspect`. Half-way
+through, the change had grown to four files and a header that pulls the git
+client into everything including it. That is a refactor to decide on
+deliberately, not one to arrive at by accident, so the dialog body went back to
+`HEAD`.
+
+**What did land is the dialog's actual logic**, all of it previously reachable
+only by running git against a repository:
+
+- `pushTarget()` - the refspec, which is the whole output of this dialog.
+  `HEAD:refs/for/<branch>` plus the options Gerrit reads after `%`. The three
+  states of the Draft and WIP boxes matter here: checked adds `private`/`wip`,
+  unchecked adds `remove-private`/`ready`, and **the middle state must add
+  nothing at all** - otherwise opening the dialog and pressing Ok would change
+  a review nobody meant to change. Control 1 makes the untouched box mark it
+  and three tests fail.
+- `localBranchChoices()` - `refs/heads/` stripped, and a detached HEAD offered
+  as "HEAD" first because there is no branch name to push from.
+- `parseRemoteBranches()` - the `refname\tcommitterdate:raw` format, skipping a
+  remote's symbolic HEAD.
+- `targetBranchChoices()` - a branch nobody has touched in
+  `OBSOLETE_COMMIT_AGE_IN_DAYS` is left out, with a sentinel offering to
+  include them; the suggested branch is always offered however old it is.
+  `today` is a parameter, so the rule can be asked without a calendar.
+
+All four are used by the widget dialog now, so they are not a parallel copy
+waiting to drift. `BranchComboBox` fills itself from `localBranchChoices()`.
+
+**A test that was wrong about Qt, not about the code:** `QMultiMap::keys()`
+returns one entry per *value*, so two branches on one remote made
+`keys().size()` 3 where I expected 2.
+
+Negative controls: the untouched box marking the change anyway; an empty
+reviewer between commas becoming a reviewer; a detached HEAD not offered to
+push from; a remote's symbolic HEAD offered as a branch; and the suggested
+branch dropped for being old. All five bit.
+
+QuickUi 186 passed / 0 failed / 1 skipped, exit 0. `Git` exit 0 with no
+failures, `GerritPushDialogTest` 8 passed. No `.qbs` edit.
+
+**Next, and it is a decision rather than a dialog:** `LogChangeModel` and
+`LogTableAspect` are wanted by three places now. Either they move into a header
+of their own inside the Git plugin - `logchangemodel.h`, with the git call
+behind it - or the table aspect goes to `QtcQuick`, since the same
+"model + current row + selection + activation" aspect has now been written six
+times (device processes, nick names, encodings, sessions, stashes, log
+changes). **The second is the better answer** and would shrink every remaining
+table dialog; it should come before `GerritPushDialog` and `GerritDialog`.

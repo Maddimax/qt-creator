@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "branchcombobox.h"
+#include "gerritpushdialog.h"
 #include "../gitclient.h"
 
 using namespace Git::Internal;
@@ -18,19 +19,14 @@ void BranchComboBox::init(const FilePath &repository)
     if (currentBranch.isEmpty()) {
         m_detached = true;
         currentBranch = "HEAD";
-        addItem(currentBranch);
     }
     QString output;
-    const QString branchPrefix("refs/heads/");
     if (!gitClient().synchronousForEachRefCmd(
-                m_repository, {"--format=%(refname)", branchPrefix}, &output)) {
+                m_repository, {"--format=%(refname)", "refs/heads/"}, &output)) {
         return;
     }
-    const QStringList branches = output.trimmed().split('\n');
-    for (const QString &ref : branches) {
-        const QString branch = ref.mid(branchPrefix.size());
+    for (const QString &branch : localBranchChoices(output, m_detached ? QString() : currentBranch))
         addItem(branch);
-    }
     if (currentBranch.isEmpty())
         return;
     int index = findText(currentBranch);
