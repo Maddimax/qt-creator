@@ -77,6 +77,12 @@ RowLayout {
         sourceModel: root.sourceModel
     }
 
+    // A row was chosen and acted on - the widget views these replace called it
+    // "activated" and reached it by double click or by Return. A page that
+    // opens something, or a dialog that accepts, listens for this; the row is
+    // one of the aspect's own.
+    signal rowActivated(row: int)
+
     // Which column the rows are sorted by, and which way. Starts at what the
     // aspect asked for; the reader changes it by clicking a heading, as they
     // did in the widget view. -1 is the model's own order.
@@ -241,6 +247,36 @@ RowLayout {
                         // selection were written for it.
                         selectionMode: TableView.ExtendedSelection
                         selectionModel: ItemSelectionModel { model: view.model }
+
+                        // Return on the row the keyboard is on, which is the
+                        // other half of what a widget view called activation.
+                        Keys.onPressed: (event) => {
+                            if (event.key !== Qt.Key_Return && event.key !== Qt.Key_Enter)
+                                return
+                            if (root.currentRow < 0)
+                                return
+                            root.rowActivated(root.currentRow)
+                            event.accepted = true
+                        }
+
+                        // Double click, the usual half. A passive handler, so
+                        // that the single clicks the view selects with are
+                        // untouched.
+                        TapHandler {
+                            objectName: "tableActivateTap"
+                            acceptedButtons: Qt.LeftButton
+                            gesturePolicy: TapHandler.DragThreshold
+
+                            onDoubleTapped: (eventPoint) => {
+                                const cell = view.cellAtPosition(eventPoint.position, true)
+                                if (cell.y < 0)
+                                    return
+                                const mapped = root.rows.mapToSource(
+                                    root.rows.index(cell.y, 0)).row
+                                if (mapped >= 0)
+                                    root.rowActivated(mapped)
+                            }
+                        }
                         ToolTip.text: root.toolTip
                         ToolTip.visible: false
                         // Each column as wide as it needs to be, and the last one

@@ -330,6 +330,7 @@ private slots:
     void testATableSortsByTheColumnItsAspectAsks();
     void testATableSortsNumbersAsNumbers();
     void testClickingAHeadingSortsByIt();
+    void testARowIsActivatedByReturn();
     void testATableCellShowsTheIconItsModelGives();
     void testATableWithNoColumnNamesHasNoHeader();
     void testTableAspectAddsAndRemovesRows();
@@ -5186,6 +5187,61 @@ void QuickUiTest::testClickingAHeadingSortsByIt()
             ++indicators;
     }
     QCOMPARE(indicators, 1);
+}
+
+void QuickUiTest::testARowIsActivatedByReturn()
+{
+    // What a widget view called "activated": the row the reader chose and
+    // meant, as against the row they are merely on. Nine dialogs open
+    // something with it.
+    //
+    // Only the keyboard half is checked here. A synthetic click does not even
+    // move the table's current row in this harness - the probe that found this
+    // read currentRow == -1 after one - so a test of the double-click half
+    // would be asserting about a click that never landed.
+    Utils::AspectContainer page;
+    TestTableAspect table(&page);
+    table.setLabelText("Rows");
+    table.m_model.setRows({{true, "red", "one"}, {true, "green", "two"},
+                           {true, "blue", "three"}});
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "TableDelegate"));
+    QQuickItem *view = nullptr;
+    QTRY_VERIFY(view = tableViewOf(quickWidget->rootObject()));
+    QTRY_COMPARE(view->property("rows").toInt(), 3);
+
+    QSignalSpy activated(delegate, SIGNAL(rowActivated(int)));
+    QWindow *const window = quickWidget->quickWindow();
+
+    // Nothing is chosen yet, so there is nothing to act on - a dialog that
+    // accepted here would accept no row at all.
+    view->forceActiveFocus();
+    QVERIFY2(view->hasActiveFocus(), "the table never took the keyboard");
+    QTest::keyClick(window, Qt::Key_Return);
+    QCOMPARE(activated.count(), 0);
+
+    QVERIFY(QMetaObject::invokeMethod(delegate, "selectRow", Q_ARG(int, 1)));
+    QTRY_COMPARE(delegate->property("currentRow").toInt(), 1);
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_COMPARE(activated.count(), 1);
+    QCOMPARE(activated.takeFirst().at(0).toInt(), 1);
+
+    // Another row, so that the number reported is the row and not a constant.
+    QVERIFY(QMetaObject::invokeMethod(delegate, "selectRow", Q_ARG(int, 2)));
+    QTRY_COMPARE(delegate->property("currentRow").toInt(), 2);
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_COMPARE(activated.count(), 1);
+    QCOMPARE(activated.takeFirst().at(0).toInt(), 2);
+
+    // A key that is not Return leaves it alone.
+    QTest::keyClick(window, Qt::Key_Space);
+    QCOMPARE(activated.count(), 0);
 }
 
 void QuickUiTest::testTableAspectDrawsWhatItsModelOffers()

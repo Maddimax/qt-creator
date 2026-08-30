@@ -21222,3 +21222,60 @@ both of which are the automatic-drag interface.
 outside any known screen`. Several QML `Popup`s could produce it - one flipped
 above its anchor near the top of the screen - and guessing which would be
 guessing. It needs the reproducer.
+
+## 2026-08-30 — Row activation, and a probe that saved the batch
+
+`NickNameDialog` was going to be the next table port, and reading it stopped
+the batch: it is a *pick one and go* dialog, and the gesture it is built around
+is `setActivationMode(DoubleClickActivation)`. Nine files use that, and 32
+places connect `QAbstractItemView::activated`. Porting those one at a time while
+dropping the gesture would be porting them wrong nine times, so - as with
+sorting two batches ago - the prerequisite came first.
+
+`TableDelegate` now has `signal rowActivated(row: int)`, from Return on the
+current row and from a double tap. The row is the aspect's own, not the one at
+that position in whatever the table is showing.
+
+**Three failures in a row were all my test, not the code.** This is the part
+worth keeping:
+
+1. Return did not fire. I had restructured the test and dropped the
+   `selectRow()` before it, so the handler's own `currentRow < 0` guard
+   returned early. The failure looked exactly like an unreachable handler.
+2. I then blamed input delivery and switched from the `QQuickWidget` to its
+   `quickWindow()`. That changed nothing, because that was not the problem
+   either.
+3. Only a **probe** settled it: four `qWarning`s reporting what each kind of
+   synthetic input produced, in one run, asserting nothing. It said
+   `single click -> currentRow=-1` and `return, focus=1 currentRow=1 -> 1`.
+
+So the keyboard half works, and **a synthetic click does not move a table's
+current row in this harness at all** - which is why the double-click probes
+read zero. The gesture was never the problem; the click never landed. When a
+UI test fails and the obvious cause is "the handler is dead", spend one run on
+a probe that only reports, before changing the code under test.
+
+**What is therefore not verified:** the double-tap half. It is the documented
+`TapHandler` idiom and the whole suite still passes with it in place, so it
+breaks nothing - but no test here can drive it. A test of it would need a real
+pointer, which is its own problem ([[real-mouse-breaks-hover-tests]]).
+
+**Also dropped rather than asserted:** selecting a row immediately after
+`sortBy()` in the same frame reported the pre-sort row. That is about
+`selectRow()` and the proxy's re-layout, not about activation, and I did not
+chase it - so it is an open question rather than a passing assertion.
+
+Negative controls: Return doing nothing; a row activated although none is
+chosen; and every key activating rather than only Return. All three bit.
+
+QuickUi 186 passed / 0 failed / 1 skipped, exit 0. `ProjectExplorer` exits 3 on
+its two standing failures plus `testMultipleBuildConfigs`, which is the known
+flake and not a table. `QtcQuick_qmllint` clean. No `.qbs` edit.
+
+**Found on the way, not fixed:** `NickNameEntry::toModelRow()` calls
+`i1->setFlags(flags)` twice and never `i2->setFlags(flags)`, so the Email
+column alone stays editable. Harmless-looking in the widget tree, but a Quick
+table reads `EditableRole` from those flags and would draw that one column as a
+field. It belongs in the `NickNameDialog` port, where it can be tested.
+
+**Next:** `NickNameDialog` itself, now that a row can be activated.
