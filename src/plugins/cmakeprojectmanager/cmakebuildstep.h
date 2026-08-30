@@ -97,6 +97,12 @@ private:
     bool isCleanStep() const;
 
     void handleBuildTargetsChanges(bool success);
+    // What the step works out about itself: which of the staging settings can
+    // be used, and the summary line the collapsed step shows. It used to live
+    // in createConfigWidget(), so the summary was whatever it had been until
+    // somebody opened the step.
+    void updateDetails();
+
     void recreateBuildTargetsModel();
     void updateBuildTargetsModel();
     void updateDeploymentData();

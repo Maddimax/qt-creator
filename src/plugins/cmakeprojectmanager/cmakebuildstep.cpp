@@ -297,6 +297,26 @@ CMakeBuildStep::CMakeBuildStep(BuildStepList *bsl, Id id) :
 
     connect(buildConfiguration(), &BuildConfiguration::activeRunConfigurationChanged,
             this, &CMakeBuildStep::updateBuildTargetsModel);
+
+    // The name the build steps list shows. It was set while the config widget
+    // was being built, so a step nobody had opened was listed under whatever
+    // name it happened to carry.
+    setDisplayName(Tr::tr("Build", "ConfigWidget display name."));
+
+    cmakeArguments.addOnChanged(this, [this] { updateDetails(); });
+    toolArguments.addOnChanged(this, [this] { updateDetails(); });
+    useStaging.addOnChanged(this, [this] { updateDetails(); });
+    stagingDir.addOnChanged(this, [this] { updateDetails(); });
+    useiOSAutomaticProvisioningUpdates.addOnChanged(this, [this] { updateDetails(); });
+
+    connect(buildConfiguration(), &BuildConfiguration::environmentChanged,
+            this, [this] { updateDetails(); });
+    connect(this, &CMakeBuildStep::buildTargetsChanged, this, [this] { updateDetails(); });
+
+    // And once when a form is about to show it: this reads the build
+    // directory and the environment, which are not settled while the step is
+    // still being constructed.
+    connect(this, &Utils::AspectContainer::shown, this, [this] { updateDetails(); });
 }
 
 void CMakeBuildStep::toMap(Utils::Store &map) const
@@ -647,9 +667,8 @@ void CMakeBuildStep::setBuildPreset(const QString &preset)
     m_buildPreset = preset;
 }
 
-QWidget *CMakeBuildStep::createConfigWidget()
+void CMakeBuildStep::updateDetails()
 {
-    auto updateDetails = [this] {
         const bool haveCleanTarget = m_buildTargets.contains(cleanTarget());
         useStaging.setEnabled(!haveCleanTarget);
         if (useStaging() && haveCleanTarget)
@@ -685,10 +704,10 @@ QWidget *CMakeBuildStep::createConfigWidget()
         }
 
         setSummaryText(summaryText);
-    };
+    }
 
-    setDisplayName(Tr::tr("Build", "ConfigWidget display name."));
-
+QWidget *CMakeBuildStep::createConfigWidget()
+{
     auto buildTargetsView = new QTreeView;
     buildTargetsView->setMinimumHeight(200);
     buildTargetsView->setModel(&m_buildTargetModel);
@@ -741,20 +760,7 @@ QWidget *CMakeBuildStep::createConfigWidget()
         createAndAddEnvironmentWidgets(builder);
 
     builder.setNoMargins();
-    auto widget = builder.emerge();
-
-    updateDetails();
-
-    cmakeArguments.addOnChanged(this, updateDetails);
-    toolArguments.addOnChanged(this, updateDetails);
-    useStaging.addOnChanged(this, updateDetails);
-    stagingDir.addOnChanged(this, updateDetails);
-    useiOSAutomaticProvisioningUpdates.addOnChanged(this, updateDetails);
-
-    connect(buildConfiguration(), &BuildConfiguration::environmentChanged, this, updateDetails);
-    connect(this, &CMakeBuildStep::buildTargetsChanged, widget, updateDetails);
-
-    return widget;
+    return builder.emerge();
 }
 
 void CMakeBuildStep::recreateBuildTargetsModel()
