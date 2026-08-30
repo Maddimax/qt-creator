@@ -17539,3 +17539,39 @@ Two smaller things the tests needed: `TaskModel::addTask()` asserts the task's
 category has been registered on that model with `addCategory()`, and a pane
 fills from what `TaskHub` reports *while it exists*, so tasks added before one
 is built never reach it.
+
+### Issues, drawn
+
+`IssuesPane.qml` is a `TreeView`: a task row is an icon, what went wrong and
+where, and a task with more to say carries it in a row underneath, which is
+where the links are. The pane keeps what the view used to - the current row,
+the selection the handlers act on, and the actions its menu is built from,
+which are now a `QtcQuick::ActionModel` with a provider, so the menu lists
+whatever registered a handler rather than naming any of it.
+
+`TaskView` and `TaskDelegate` are gone. ProjectExplorer now links `QtcQuick`,
+which it never did - its pages went through Core - so that is a `.qbs` edit,
+re-resolved with the usual control naming the product.
+
+**How you test a pane that cannot exist twice.** A second `TaskWindow` crashes,
+so the QML is checked against a **stand-in**: a small `QObject` answering
+`rows`, `currentRow`, `selectedRows`, `contextActions`, `setCurrentRow`,
+`setSelectedRows` and `activateRow`. QML is duck-typed, so to the list that is
+the same thing as the pane, and the interface is what the test pins down.
+
+Three things that cost time and will cost it again:
+
+- **`TreeViewDelegate` already has `row`, `model` and `text`.** Redeclaring one
+  shadows the base's, the view never initialises it, and *no row is drawn at
+  all*. `display` is worse: it shadows `AbstractButton::display`. Read
+  `task.text` and `task.model.decoration` instead - and `qmllint` does catch
+  this one, which is why it was cheap rather than free.
+- **A view's delegates are not QObject children of it.** `findChildren()`
+  returned three items for a list with two visible rows; the delegates are
+  *visual* children of the content item. Walk `childItems()` recursively.
+- **A test that collects every Qt warning is a false positive waiting to
+  happen.** `testTheMakeStepFormDrawsWhatItNames` went red on
+  `QUnifiedTimer::stopAnimationDriver: driver is not running`, left behind by
+  the new Quick test running before it. All four page tests now collect only
+  messages mentioning `qrc:/qt/qml/QtCreator`, and the rename control was
+  re-run to prove they still bite.

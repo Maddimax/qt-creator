@@ -5,6 +5,8 @@
 
 #include <coreplugin/ioutputpane.h>
 
+#include <qtcquick/actionmodel.h>
+
 #include <memory>
 
 namespace Utils { class FilePath; }
@@ -28,6 +30,14 @@ class TaskWindow final : public Core::IOutputPane
 {
     Q_OBJECT
 
+    // What the list binds to. A plain accessor is invisible to QML, and the
+    // pane reaches it untyped, so nothing would say the binding was wrong.
+    Q_PROPERTY(QAbstractItemModel *rows READ rows CONSTANT)
+    Q_PROPERTY(int currentRow READ currentRow NOTIFY currentRowChanged)
+    Q_PROPERTY(QList<int> selectedRows READ selectedRows NOTIFY selectedRowsChanged)
+    Q_PROPERTY(QtcQuick::ActionModel *contextActions READ contextActions CONSTANT)
+
+
 public:
     TaskWindow();
     ~TaskWindow() override;
@@ -41,14 +51,20 @@ public:
     // IOutputPane
     QWidget *outputWidget(QWidget *) override;
 
-    // Which task the pane is on, and the one it moves to. The walk used to
-    // read and write the view's current index, so nothing could say where the
-    // list was, or move it, without one.
-    int currentRow() const;
-    void setCurrentRow(int row);
+    // What the list shows and where it is. All three used to be the tree
+    // view's: the current index, the selection the task handlers act on, and
+    // the actions its context menu was built from.
+    QAbstractItemModel *rows() const;
+    int currentRow() const { return m_currentRow; }
+    Q_INVOKABLE void setCurrentRow(int row);
+    QList<int> selectedRows() const { return m_selectedRows; }
+    Q_INVOKABLE void setSelectedRows(const QList<int> &rows);
+    Q_INVOKABLE void activateRow(int row);
+    QtcQuick::ActionModel *contextActions() const;
 
 signals:
     void currentRowChanged();
+    void selectedRowsChanged();
 
 public:
     QList<QWidget *> toolBarWidgets() const override;
@@ -86,6 +102,9 @@ private:
     void loadSettings();
 
     void goToNextOrPrev(int offset);
+
+    int m_currentRow = -1;
+    QList<int> m_selectedRows;
 
     void triggerDefaultHandler(const QModelIndex &index);
     void setShowWarnings(bool);

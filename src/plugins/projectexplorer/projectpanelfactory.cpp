@@ -23,6 +23,10 @@
 #ifdef WITH_TESTS
 #include <QQmlError>
 #include <QScopeGuard>
+#include <qtcquick/qtcquickengine.h>
+#include <QQmlComponent>
+#include <QQuickItem>
+#include <QQuickWidget>
 #include <QSignalSpy>
 #include <QTest>
 #endif
@@ -172,6 +176,71 @@ static void collectQmlComplaints(QtMsgType type,
     }
     if (s_previousHandler)
         s_previousHandler(type, context, message);
+}
+
+// Everything IssuesPane.qml asks of the pane it is given. A TaskWindow cannot
+// be built twice, so this is what the list is checked against.
+class StandInPane final : public QObject
+{
+    Q_OBJECT
+
+    Q_PROPERTY(QAbstractItemModel *rows READ rows CONSTANT)
+    Q_PROPERTY(int currentRow READ currentRow NOTIFY currentRowChanged)
+    Q_PROPERTY(QList<int> selectedRows READ selectedRows NOTIFY selectedRowsChanged)
+    Q_PROPERTY(QtcQuick::ActionModel *contextActions READ contextActions CONSTANT)
+
+public:
+    explicit StandInPane(QAbstractItemModel *rows)
+        : m_rows(rows), m_actions(new QtcQuick::ActionModel(this))
+    {}
+
+    QAbstractItemModel *rows() const { return m_rows; }
+    int currentRow() const { return m_currentRow; }
+    QList<int> selectedRows() const { return m_selectedRows; }
+    QtcQuick::ActionModel *contextActions() const { return m_actions; }
+
+    Q_INVOKABLE void setCurrentRow(int row)
+    {
+        if (m_currentRow == row)
+            return;
+        m_currentRow = row;
+        emit currentRowChanged();
+    }
+    Q_INVOKABLE void setSelectedRows(const QList<int> &rows)
+    {
+        if (m_selectedRows == rows)
+            return;
+        m_selectedRows = rows;
+        emit selectedRowsChanged();
+    }
+    Q_INVOKABLE void activateRow(int row) { m_activated = row; }
+
+    int activated() const { return m_activated; }
+
+signals:
+    void currentRowChanged();
+    void selectedRowsChanged();
+
+private:
+    QAbstractItemModel * const m_rows;
+    QtcQuick::ActionModel * const m_actions;
+    int m_currentRow = -1;
+    int m_activated = -1;
+    QList<int> m_selectedRows;
+};
+
+// The rows a list drew, by the name the delegate carries. Down the *item*
+// tree, not the object tree: a view's delegates are visual children of its
+// content item, and findChildren() walks QObject parents, which they are not.
+static QList<QQuickItem *> findIssueRows(QQuickItem *item)
+{
+    QList<QQuickItem *> rows;
+    if (item->objectName() == "issueRow")
+        rows << item;
+    const QList<QQuickItem *> children = item->childItems();
+    for (QQuickItem * const child : children)
+        rows << findIssueRows(child);
+    return rows;
 }
 
 class ProjectPanelFactoryTest final : public QObject
@@ -364,6 +433,55 @@ private slots:
             QVERIFY2(names.contains(role),
                      qPrintable("the task model does not answer " + QString::fromLatin1(role)));
         }
+    }
+
+    // The Issues list, checked against a stand-in for the pane: a second
+    // TaskWindow cannot be built - it crashes on actions belonging to the
+    // plugin that made the first - so what the QML is given is the interface,
+    // not the class. QML is duck-typed, so a stand-in that answers the same
+    // names is the same thing to it.
+    void testTheIssuesListDrawsTheTasksItIsGiven()
+    {
+        const Utils::Id category("Test.Issues.List");
+        Internal::TaskModel model(nullptr);
+        model.addCategory({category, "Test", "Issues list test", true});
+        Internal::TaskFilterModel filter(&model);
+        model.addTask(Task(Task::Error, "first",
+                           Utils::FilePath::fromString("/nonexistent/a.cpp"), 1, category));
+        model.addTask(Task(Task::Warning, "second",
+                           Utils::FilePath::fromString("/nonexistent/b.cpp"), 2, category));
+
+        StandInPane stand(&filter);
+
+        QQmlComponent component(QtcQuick::engine(),
+                                QUrl("qrc:/qt/qml/QtCreator/ProjectExplorer/IssuesPane.qml"));
+        QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+        const std::unique_ptr<QObject> object(component.createWithInitialProperties(
+            {{"pane", QVariant::fromValue(&stand)}}));
+        QVERIFY(object);
+        auto * const list = qobject_cast<QQuickItem *>(object.get());
+        QVERIFY(list);
+
+        const std::unique_ptr<QQuickWidget> host(new QQuickWidget);
+        list->setParentItem(host->quickWindow()->contentItem());
+        // Sized as well as parented: a TableView with no viewport creates no
+        // delegates, and knowing its row count does not need one.
+        list->setWidth(700);
+        list->setHeight(300);
+        host->resize(700, 300);
+        host->show();
+
+        // The rows are the model's, which is what a list that was given no
+        // model would not have.
+        QTRY_COMPARE(list->property("rows").toInt(), 2);
+
+        // Clicking a row is what makes it current, and the pane is where that
+        // ends up - the view used to keep it.
+        // Waited for: the row count is known a frame before the delegates
+        // that show it exist.
+        QTRY_VERIFY2(!findIssueRows(list).isEmpty(), "the list drew no rows");
+        QMetaObject::invokeMethod(findIssueRows(list).first(), "clicked");
+        QTRY_COMPARE(stand.currentRow(), 0);
     }
 
     void testTheEnvironmentPanelKeepsItsTwoSurfacesInStep()

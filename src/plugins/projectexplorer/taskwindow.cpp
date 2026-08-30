@@ -40,6 +40,9 @@
 #include <QTextDocument>
 #include <QToolButton>
 #include <QVBoxLayout>
+#include <qtcquick/qtcquickwidget.h>
+
+#include <QQuickWidget>
 
 using namespace Core;
 using namespace Utils;
@@ -51,43 +54,6 @@ namespace ProjectExplorer {
 
 namespace Internal {
 
-class TaskView : public TreeView
-{
-public:
-    TaskView();
-    void resizeColumns();
-
-private:
-    void resizeEvent(QResizeEvent *e) override;
-    void keyReleaseEvent(QKeyEvent *e) override;
-    bool event(QEvent *e) override;
-    void mousePressEvent(QMouseEvent *e) override;
-    void mouseMoveEvent(QMouseEvent *e) override;
-    void mouseReleaseEvent(QMouseEvent *e) override;
-
-    QString anchorAt(const QPoint &pos);
-    void showToolTip(const Task &task, const QPoint &pos);
-
-    QString m_hoverAnchor;
-    QString m_clickAnchor;
-};
-
-class TaskDelegate : public QStyledItemDelegate
-{
-public:
-    using QStyledItemDelegate::QStyledItemDelegate;
-
-    QTextDocument &doc() { return m_doc; }
-private:
-    void paint(QPainter *painter, const QStyleOptionViewItem &option,
-               const QModelIndex &index) const override;
-    QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override;
-
-    bool needsSpecialHandling(const QModelIndex &index) const;
-
-    mutable QTextDocument m_doc;
-};
-
 /////
 // TaskWindow
 /////
@@ -97,7 +63,9 @@ class TaskWindowPrivate
 public:
     Internal::TaskModel *m_model = nullptr;
     Internal::TaskFilterModel *m_filter = nullptr;
-    TaskView m_treeView;
+    QPointer<QWidget> m_view;
+    QList<QAction *> m_handlerActions;
+    QtcQuick::ActionModel *m_contextActions = nullptr;
     const Core::Context m_taskWindowContext{Core::Context(Core::Constants::C_PROBLEM_PANE)};
     QToolButton *m_filterWarningsButton = nullptr;
     QToolButton *m_categoriesButton = nullptr;
@@ -129,34 +97,14 @@ TaskWindow::TaskWindow() : d(std::make_unique<TaskWindowPrivate>())
     d->m_filter = new Internal::TaskFilterModel(d->m_model);
     d->m_filter->setAutoAcceptChildRows(true);
 
-    d->m_treeView.setSearchRole(TaskModel::Description);
-    d->m_treeView.setHeaderHidden(true);
-    d->m_treeView.setExpandsOnDoubleClick(false);
-    d->m_treeView.setAlternatingRowColors(true);
-    d->m_treeView.setTextElideMode(Qt::ElideMiddle);
-    d->m_treeView.setItemDelegate(new TaskDelegate(this));
-    d->m_treeView.setModel(d->m_filter);
-    d->m_treeView.setFrameStyle(QFrame::NoFrame);
-    d->m_treeView.setWindowTitle(displayName());
-    d->m_treeView.setSelectionMode(QAbstractItemView::ExtendedSelection);
-    d->m_treeView.setWindowIcon(Icons::WINDOW.icon());
-    d->m_treeView.setContextMenuPolicy(Qt::ActionsContextMenu);
-    d->m_treeView.setAttribute(Qt::WA_MacShowFocusRect, false);
-    d->m_treeView.resizeColumns();
-
-    Core::IContext::attach(&d->m_treeView, d->m_taskWindowContext);
-
-    connect(d->m_treeView.selectionModel(), &QItemSelectionModel::currentChanged,
-            this, [this](const QModelIndex &index) { d->m_treeView.scrollTo(index); });
-    connect(&d->m_treeView, &QAbstractItemView::activated,
-            this, &TaskWindow::triggerDefaultHandler);
-    connect(d->m_treeView.selectionModel(), &QItemSelectionModel::selectionChanged,
-            this, [this] {
+    // What the list's context menu is drawn from. Asked again each time it
+    // opens: the handlers register themselves the first time the pane is used.
+    d->m_contextActions = new QtcQuick::ActionModel(this);
+    d->m_contextActions->setProvider([this] {
         delayedInitialization();
         updateTaskHandlerActionsState();
+        return d->m_handlerActions;
     });
-
-    d->m_treeView.setContextMenuPolicy(Qt::ActionsContextMenu);
 
     d->m_filterWarningsButton = createFilterButton(
                 Utils::Icons::WARNING_TOOLBAR.icon(),
@@ -234,10 +182,15 @@ void TaskWindow::delayedInitialization()
     const auto registerTaskHandlerAction = [this](QAction *action) {
         action->setParent(this);
         action->setEnabled(false);
-        d->m_treeView.addAction(action);
+        // Kept by the pane rather than added to a view: the list's context
+        // menu is drawn from these, and the pane is what has them.
+        d->m_handlerActions << action;
     };
     const auto getTasksForHandler = [this] {
-        return d->m_filter->tasks(d->m_treeView.selectionModel()->selectedIndexes());
+        QModelIndexList indexes;
+        for (const int row : std::as_const(m_selectedRows))
+            indexes << d->m_filter->index(row, 0);
+        return d->m_filter->tasks(indexes);
     };
     setupTaskHandlers(this, d->m_taskWindowContext, registerTaskHandlerAction, getTasksForHandler);
 }
@@ -247,9 +200,17 @@ QList<QWidget*> TaskWindow::toolBarWidgets() const
     return {d->m_externalButton, d->m_filterWarningsButton, d->m_categoriesButton, filterWidget()};
 }
 
-QWidget *TaskWindow::outputWidget(QWidget *)
+QWidget *TaskWindow::outputWidget(QWidget *parent)
 {
-    return &d->m_treeView;
+    if (!d->m_view) {
+        auto widget = new QtcQuick::QuickWidget(parent);
+        widget->quickWidget()->setInitialProperties({{"pane", QVariant::fromValue(this)}});
+        widget->setSource(QUrl("qrc:/qt/qml/QtCreator/ProjectExplorer/IssuesPane.qml"));
+        // The pane's own context, which used to be attached to the tree view.
+        Core::IContext::attach(widget, d->m_taskWindowContext);
+        d->m_view = widget;
+    }
+    return d->m_view;
 }
 
 void TaskWindow::clearTasks(Id categoryId)
@@ -363,7 +324,7 @@ void TaskWindow::showTask(const Task &task)
     int sourceRow = d->m_model->rowForTask(task);
     QModelIndex sourceIdx = d->m_model->index(sourceRow, 0);
     QModelIndex filterIdx = d->m_filter->mapFromSource(sourceIdx);
-    d->m_treeView.setCurrentIndex(filterIdx);
+    setCurrentRow(filterIdx.row());
     popup(Core::IOutputPane::ModeSwitch);
 }
 
@@ -457,7 +418,7 @@ void TaskWindow::clearContents()
 
 bool TaskWindow::hasFocus() const
 {
-    return d->m_treeView.window()->focusWidget() == &d->m_treeView;
+    return d->m_view && d->m_view->window()->focusWidget() == d->m_view;
 }
 
 bool TaskWindow::canFocus() const
@@ -467,15 +428,16 @@ bool TaskWindow::canFocus() const
 
 void TaskWindow::setFocus()
 {
-    if (d->m_filter->rowCount()) {
-        d->m_treeView.setFocus();
-        if (!d->m_treeView.currentIndex().isValid())
-            d->m_treeView.setCurrentIndex(d->m_filter->index(0,0, QModelIndex()));
-        if (d->m_treeView.selectionModel()->selection().isEmpty()) {
-            d->m_treeView.selectionModel()->setCurrentIndex(d->m_treeView.currentIndex(),
-                                                            QItemSelectionModel::Select);
-        }
-    }
+    if (d->m_filter->rowCount() == 0)
+        return;
+    if (d->m_view)
+        d->m_view->setFocus();
+    // Somewhere to start: the list opens on its first task, selected, which is
+    // what the view's selection model was told to do here.
+    if (m_currentRow < 0)
+        setCurrentRow(0);
+    if (m_selectedRows.isEmpty())
+        setSelectedRows({m_currentRow});
 }
 
 bool TaskWindow::canNext() const
@@ -509,18 +471,37 @@ void TaskWindow::goToNextOrPrev(int offset)
     triggerDefaultHandler(d->m_filter->index(row, 0));
 }
 
-int TaskWindow::currentRow() const
+QAbstractItemModel *TaskWindow::rows() const
 {
-    const QModelIndex current = d->m_treeView.currentIndex();
-    return current.isValid() && !current.parent().isValid() ? current.row() : -1;
+    return d->m_filter;
 }
 
 void TaskWindow::setCurrentRow(int row)
 {
-    if (row < 0 || row >= d->m_filter->rowCount())
+    if (m_currentRow == row)
         return;
-    d->m_treeView.setCurrentIndex(d->m_filter->index(row, 0));
+    m_currentRow = row;
     emit currentRowChanged();
+}
+
+void TaskWindow::setSelectedRows(const QList<int> &rows)
+{
+    if (m_selectedRows == rows)
+        return;
+    m_selectedRows = rows;
+    emit selectedRowsChanged();
+    updateTaskHandlerActionsState();
+}
+
+void TaskWindow::activateRow(int row)
+{
+    setCurrentRow(row);
+    triggerDefaultHandler(d->m_filter->index(row, 0));
+}
+
+QtcQuick::ActionModel *TaskWindow::contextActions() const
+{
+    return d->m_contextActions;
 }
 
 void TaskWindow::updateFilter()
@@ -534,177 +515,6 @@ bool TaskWindow::canNavigate() const
     return true;
 }
 
-void TaskDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option,
-                         const QModelIndex &index) const
-{
-    if (!needsSpecialHandling(index)) {
-        QStyledItemDelegate::paint(painter, option, index);
-        return;
-    }
-
-    QStyleOptionViewItem options = option;
-    initStyleOption(&options, index);
-
-    painter->save();
-    m_doc.setHtml(options.text);
-    m_doc.setTextWidth(options.rect.width());
-    options.text = "";
-    options.widget->style()->drawControl(QStyle::CE_ItemViewItem, &options, painter);
-    painter->translate(options.rect.left(), options.rect.top());
-    QRect clip(0, 0, options.rect.width(), options.rect.height());
-    QAbstractTextDocumentLayout::PaintContext paintContext;
-    paintContext.palette = options.palette;
-    painter->setClipRect(clip);
-    paintContext.clip = clip;
-    if (qobject_cast<const QAbstractItemView *>(options.widget)
-            ->selectionModel()->isSelected(index)) {
-        QAbstractTextDocumentLayout::Selection selection;
-        selection.cursor = QTextCursor(&m_doc);
-        selection.cursor.select(QTextCursor::Document);
-        selection.format.setBackground(options.palette.brush(QPalette::Highlight));
-        selection.format.setForeground(options.palette.brush(QPalette::HighlightedText));
-        paintContext.selections << selection;
-    }
-    m_doc.documentLayout()->draw(painter, paintContext);
-    painter->restore();
-}
-
-QSize TaskDelegate::sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const
-{
-    if (!needsSpecialHandling(index))
-        return QStyledItemDelegate::sizeHint(option, index);
-
-    QStyleOptionViewItem options = option;
-    options.initFrom(options.widget);
-    initStyleOption(&options, index);
-    m_doc.setHtml(options.text);
-    const auto view = qobject_cast<const QTreeView *>(options.widget);
-    QTC_ASSERT(view, return {});
-    m_doc.setTextWidth(view->width() * 0.85 - view->indentation());
-    return QSize(m_doc.idealWidth(), m_doc.size().height());
-}
-
-bool TaskDelegate::needsSpecialHandling(const QModelIndex &index) const
-{
-    QModelIndex sourceIndex = index;
-    if (const auto proxyModel = qobject_cast<const QAbstractProxyModel *>(index.model()))
-        sourceIndex = proxyModel->mapToSource(index);
-    return sourceIndex.internalId();
-}
-
-TaskView::TaskView()
-{
-    setMouseTracking(true);
-    setVerticalScrollMode(ScrollPerPixel);
-    setUniformRowHeights(false);
-}
-
-void TaskView::resizeColumns()
-{
-    setColumnWidth(0, width() * 0.85);
-}
-
-void TaskView::resizeEvent(QResizeEvent *e)
-{
-    TreeView::resizeEvent(e);
-    resizeColumns();
-}
-
-void TaskView::mousePressEvent(QMouseEvent *e)
-{
-    m_clickAnchor = anchorAt(e->pos());
-    if (m_clickAnchor.isEmpty())
-        TreeView::mousePressEvent(e);
-}
-
-void TaskView::mouseMoveEvent(QMouseEvent *e)
-{
-    const QString anchor = anchorAt(e->pos());
-    if (m_clickAnchor != anchor)
-        m_clickAnchor.clear();
-    if (m_hoverAnchor != anchor) {
-        m_hoverAnchor = anchor;
-        if (!m_hoverAnchor.isEmpty())
-            setCursor(Qt::PointingHandCursor);
-        else
-            unsetCursor();
-    }
-}
-
-void TaskView::mouseReleaseEvent(QMouseEvent *e)
-{
-    if (m_clickAnchor.isEmpty() || e->button() == Qt::RightButton) {
-        TreeView::mouseReleaseEvent(e);
-        return;
-    }
-
-    const QString anchor = anchorAt(e->pos());
-    if (anchor == m_clickAnchor) {
-        if (OutputLineParser::isLinkTarget(m_clickAnchor)) {
-            EditorManager::openEditorAt(
-                OutputLineParser::parseLinkTarget(m_clickAnchor),
-                {},
-                EditorManager::SwitchSplitIfAlreadyVisible);
-        } else {
-            QDesktopServices::openUrl(QUrl(m_clickAnchor));
-        }
-    }
-    m_clickAnchor.clear();
-}
-
-void TaskView::keyReleaseEvent(QKeyEvent *e)
-{
-    TreeView::keyReleaseEvent(e);
-    if (e->key() == Qt::Key_Space) {
-        const Task task = static_cast<TaskFilterModel *>(model())->task(currentIndex());
-        if (!task.isNull()) {
-            const QPoint toolTipPos = mapToGlobal(visualRect(currentIndex()).topLeft());
-            QMetaObject::invokeMethod(this, [this, task, toolTipPos] {
-                    showToolTip(task, toolTipPos); }, Qt::QueuedConnection);
-        }
-    }
-}
-
-bool TaskView::event(QEvent *e)
-{
-    if (e->type() != QEvent::ToolTip)
-        return TreeView::event(e);
-
-    const auto helpEvent = static_cast<QHelpEvent*>(e);
-    const Task task = static_cast<TaskFilterModel *>(model())->task(indexAt(helpEvent->pos()));
-    if (task.isNull())
-        return TreeView::event(e);
-    showToolTip(task, helpEvent->globalPos());
-    e->accept();
-    return true;
-}
-
-void TaskView::showToolTip(const Task &task, const QPoint &pos)
-{
-    if (!task.hasDetails()) {
-        ToolTip::hideImmediately();
-        return;
-    }
-
-    const auto layout = new QVBoxLayout;
-    layout->setContentsMargins(0, 0, 0, 0);
-    layout->addWidget(new QLabel(task.formattedDescription({})));
-    ToolTip::show(pos, layout);
-}
-
-QString TaskView::anchorAt(const QPoint &pos)
-{
-    const QModelIndex index = indexAt(pos);
-    if (!index.isValid() || !index.internalId())
-        return {};
-
-    const QRect itemRect = visualRect(index);
-    QTextDocument &doc = static_cast<TaskDelegate *>(itemDelegate())->doc();
-    doc.setHtml(model()->data(index, Qt::DisplayRole).toString());
-    const QAbstractTextDocumentLayout * const textLayout = doc.documentLayout();
-    QTC_ASSERT(textLayout, return {});
-    return textLayout->anchorAt(pos - itemRect.topLeft());
-}
 
 } // namespace Internal
 } // namespace ProjectExplorer

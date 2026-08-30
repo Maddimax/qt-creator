@@ -1,5 +1,5 @@
 add_qtc_plugin(ProjectExplorer
-  DEPENDS Qt::Qml
+  DEPENDS Qt::Qml QtcQuick
   PLUGIN_DEPENDS Core TextEditor
   PLUGIN_TEST_DEPENDS GenericProjectManager
   SOURCES
@@ -240,6 +240,7 @@ if(TARGET ProjectExplorer)
       CompileOutputSettingsPage.qml
       CustomParsersSettingsPage.qml
       DependenciesPanel.qml
+      IssuesPane.qml
       EditorProjectPanel.qml
       KitsPage.qml
       MakeStep.qml

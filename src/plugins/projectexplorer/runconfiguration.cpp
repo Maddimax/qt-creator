@@ -1186,8 +1186,12 @@ private slots:
         static QStringList *collected = nullptr;
         collected = &complaints;
         qInstallMessageHandler([](QtMsgType type, const QMessageLogContext &, const QString &msg) {
-            if (collected && (type == QtWarningMsg || type == QtCriticalMsg))
+            // Only what a page says about itself: an unrelated Qt warning from
+            // whatever ran before is not this page complaining.
+            if (collected && (type == QtWarningMsg || type == QtCriticalMsg)
+                && msg.contains("qrc:/qt/qml/QtCreator")) {
                 collected->append(msg);
+            }
         });
 
         const std::unique_ptr<QWidget> form(createAspectsForm(&page));

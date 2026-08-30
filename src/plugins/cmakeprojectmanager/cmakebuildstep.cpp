@@ -1022,8 +1022,12 @@ private slots:
         qInstallMessageHandler([](QtMsgType type, const QMessageLogContext &, const QString &msg) {
             if (!collected)
                 return;
-            if (type == QtWarningMsg || type == QtCriticalMsg)
+            // Only what a page says about itself: an unrelated Qt warning from
+            // whatever ran before is not this page complaining.
+            if ((type == QtWarningMsg || type == QtCriticalMsg)
+                && msg.contains("qrc:/qt/qml/QtCreator")) {
                 collected->append(msg);
+            }
             // A name the container does not hold reaches AspectModels, which
             // soft-asserts rather than failing as a binding.
             if (type == QtDebugMsg && msg.contains("SOFT ASSERT")

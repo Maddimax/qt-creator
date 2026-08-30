@@ -4,6 +4,7 @@ QtcPlugin {
     Depends { name: "Qt"; submodules: ["widgets", "xml", "network", "qml"] }
     Depends { name: "McpServerLib" }
     Depends { name: "Utils" }
+    Depends { name: "QtcQuick" }
 
     Depends { name: "Core" }
     Depends { name: "TextEditor" }
