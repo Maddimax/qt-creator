@@ -35,6 +35,10 @@
 #include <utils/algorithm.h>
 #include <utils/aspectlist.h>
 #include <utils/aspects.h>
+#include <utils/outputformatter.h>
+#include <QQuickTextDocument>
+#include <QTextBlock>
+#include <QTextDocument>
 #include <utils/environmentmodel.h>
 #include <utils/macroexpander.h>
 #include <utils/variablechooser.h>
@@ -342,6 +346,7 @@ private slots:
     void testASeveralLineFieldOffersVariablesToo();
     void testAnEnvironmentEditorDrawsItsTableAndItsButtons();
     void testANestedContainerIsDrawnWithTheQmlItNames();
+    void testFormattedOutputCanBeDrawnByQtQuick();
     void testAFieldOffersWhatWasTypedIntoItBefore();
     void testBrowsingStartsWhereThePathAlreadyPointsTo();
     void testALabelSaysTheValueItCannotShowInFull();
@@ -9976,6 +9981,60 @@ void QuickUiTest::testANestedContainerIsDrawnWithTheQmlItNames()
     QQuickItem *loader = nullptr;
     QTRY_VERIFY(loader = findQmlComponent(group, "QQuickLoader"));
     QTRY_COMPARE(loader->property("source").toUrl(), nested.qmlSource());
+}
+
+void QuickUiTest::testFormattedOutputCanBeDrawnByQtQuick()
+{
+    // Six output panes are text streams on Core::OutputWindow, which is a
+    // QPlainTextEdit. What decides whether they can be drawn with Qt Quick at
+    // all is whether the document Utils::OutputFormatter fills can be handed to
+    // a Quick view - if it cannot, every one of them needs a line model and the
+    // formatter has to be rewritten to feed it.
+    //
+    // It can. This is that, end to end, so the answer is a test rather than a
+    // paragraph.
+    QTextDocument document;
+    Utils::OutputFormatter formatter;
+    formatter.setSink(&document);
+    formatter.appendMessage("a plain line\n", Utils::NormalMessageFormat);
+    formatter.appendMessage("something went wrong\n", Utils::ErrorMessageFormat);
+    formatter.flush();
+
+    QVERIFY(document.toPlainText().contains("a plain line"));
+    QVERIFY(document.toPlainText().contains("something went wrong"));
+
+    // The two lines are not drawn alike, which is the whole point of a
+    // formatter and the thing a plain string model would lose.
+    const QTextCharFormat plainFormat =
+        document.findBlockByNumber(0).begin().fragment().charFormat();
+    const QTextCharFormat errorFormat =
+        document.findBlockByNumber(1).begin().fragment().charFormat();
+    QVERIFY2(plainFormat.foreground() != errorFormat.foreground(),
+             "the formatter drew an error the same as ordinary output");
+
+    QQmlComponent component(QtcQuick::engine());
+    component.setData(R"(
+        import QtQuick.Controls
+        TextArea { readOnly: true }
+    )", QUrl());
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    const std::unique_ptr<QObject> object(component.create());
+    QVERIFY(object);
+
+    auto * const quickDocument = object->property("textDocument").value<QQuickTextDocument *>();
+    QVERIFY2(quickDocument, "a TextArea has no document to substitute into");
+    quickDocument->setTextDocument(&document);
+
+    // What the view shows is what the formatter wrote.
+    QCOMPARE(object->property("text").toString(), document.toPlainText());
+
+    // And it keeps showing it: an output pane appends for as long as something
+    // is running, so a view that only took a copy at handover would stop after
+    // the first line.
+    formatter.appendMessage("and one more\n", Utils::NormalMessageFormat);
+    formatter.flush();
+    QVERIFY2(object->property("text").toString().contains("and one more"),
+             "the view stopped following the document it was given");
 }
 
 void QuickUiTest::testAVariableBeingDefinedIsNotOfferedForItself()

@@ -17678,3 +17678,37 @@ this before the Qt Quick view rather than after.
 zoom and the base font all touch the text edit itself. The next step there is a
 design one - deciding what a Qt Quick output view reads - rather than another
 extraction.
+
+### The design question the output panes were waiting on, answered
+
+The last three batches said the next step here was a decision: what does a Qt
+Quick output view *read*? The two candidates were a line model, which means
+rewriting `OutputFormatter` to feed it and losing formatting that spans a line,
+or the document the formatter already fills, if a Quick view can be given one.
+
+**It can, and the tree already does it.** `QQuickTextDocument::setTextDocument()`
+is public in Qt 6.11, and `codedocument.cpp:216` hands the Quick editor an
+existing `QTextDocument` exactly that way. `Utils::OutputFormatter::setSink()`
+already takes a plain `QTextDocument` rather than a text edit, so the formatter
+needs no change at all.
+
+So it is not a decision, it is a fact, and it is now a test rather than a
+paragraph: format two messages into a document, hand it to a read-only
+`TextArea`, and the view shows what the formatter wrote - **and keeps showing
+it** when more is appended, which is what an output pane does for as long as
+something is running. A view that took a copy at handover would pass the first
+assertion and fail that one.
+
+The test also pins what a line model would have cost: the two messages are
+drawn in different colours, and the assertion compares them, so "ordinary
+output and an error look alike" fails it.
+
+**Note on the controls.** Both of them edit the *test*, not our code, because
+the behaviour under test is Qt's: not handing the document over, and writing
+both lines as ordinary output. There is nothing of ours to break yet - that is
+what makes this a spike, and it is why it is worth having before six panes are
+built on the assumption.
+
+What this leaves for the output window is ordinary work rather than an open
+question: a Quick view showing the document, the zoom and base font on it, and
+the links, which are the formatter's and already carried in the document.
