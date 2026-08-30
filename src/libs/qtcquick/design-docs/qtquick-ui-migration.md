@@ -18843,3 +18843,43 @@ depends on. That is the second plugin in three batches where the answer to
 What is left of the pane migration is **one custom-painted item view** - the
 Test Results tree, `TestResultDelegate`, 287 lines of `paint()` - and **one
 editable console**, the debugger log.
+
+### The Test Results row, named so something else can draw it
+
+The last item view, and the only one with a real custom `paint()` -
+`TestResultDelegate`, 287 lines. This batch is the first part of it: the model
+now says what a row is made of, by name, and there are tests for that. The
+delegate and the pane are separate batches, and the reason is measured rather
+than felt: the pane has 48 uses of its tree view, and one of them is
+`ItemViewFind::createSearchableWrapper()` - Ctrl+F over an item view, which has
+no Qt Quick equivalent anywhere in this codebase. That is a capability to build,
+not a line to port, and it should not be discovered halfway through a rewrite.
+
+**Why the row had no names.** The widget delegate read every part of a row off
+the `TestResult` itself, in `paint()`. Nothing needed a role because the code
+that drew it was the code that fetched it. A Qt Quick delegate can only ask by
+name, and a name nobody answers is `undefined` rather than an error - so the
+row draws blank and nothing reports it.
+
+**Two roles for the output, not one**, which is the whole reason that `paint()`
+is 287 lines: a row shows its first line until it is selected, and then wraps
+and grows to show everything. `outputString(bool)` took a flag; a view cannot
+ask one role two ways, so there is a `summary` and a `fullOutput`.
+
+**The batch's own bug, caught by its own test.** An edit that added the role
+cases to `data()` never landed - the script it was in failed on an earlier
+assertion - while the edit naming the roles did. So the model named seven roles
+and answered none of them. Every name assertion still passed. What failed was
+the assertion on a *value*, which is why the tests now check both, and why two
+of the four controls did not bite until they did.
+
+**`AspectTable::withRoleNames()` is not always needed**, and here it is not:
+the base already names `display` and `decoration`, and these rows carry their
+own colour rather than answering `Qt::ForegroundRole`. Squish needs it for
+exactly the opposite reason. It is removed here rather than left in as
+decoration - a control proved it changed nothing.
+
+Also worth knowing: `-test AutoTest` on its own reports zero functions for
+every suite in that plugin, including one that predates this work.
+`-test AutoTest,TestResultModelTest` runs them. Whatever the cause, a green
+`-test AutoTest` means nothing on its own.

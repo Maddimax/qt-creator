@@ -20,6 +20,20 @@ namespace Autotest::Internal {
 class TestResultItem : public Utils::TypedTreeItem<TestResultItem, TestResultItem>
 {
 public:
+    // What a row is made of, named because QML addresses a role by name. The
+    // widget delegate read all of this off the TestResult directly, which is
+    // why none of it had a name: it was drawn by the same code that fetched
+    // it.
+    enum Role {
+        ResultStringRole = Qt::UserRole + 1, // "Pass", "Fail", ...
+        ResultColorRole,                     // What that word is written in.
+        SummaryRole,                         // The first line, for a row at rest.
+        FullOutputRole,                      // All of it, for the row being read.
+        DurationRole,
+        FileNameRole,
+        LineRole,
+    };
+
     explicit TestResultItem(const TestResult &testResult);
     QVariant data(int column, int role) const override;
     TestResult testResult() const { return m_testResult; }
@@ -58,7 +72,15 @@ private:
 
 class TestResultModel : public Utils::TreeModel<TestResultItem>
 {
+    Q_OBJECT
+
 public:
+    // The names the view reads a row by. A TreeModel names only the roles it
+    // was registered for, so without this a Qt Quick delegate finds nothing
+    // under any of them - and an unanswered role is undefined rather than an
+    // error, so the row draws blank and nothing complains.
+    QHash<int, QByteArray> roleNames() const override;
+
     explicit TestResultModel(QObject *parent = nullptr);
 
     void addTestResult(const TestResult &testResult, bool autoExpand = false);
@@ -125,5 +147,9 @@ private:
     bool m_regex = false;
     bool m_inverted = false;
 };
+
+#ifdef WITH_TESTS
+QObject *createTestResultModelTest();
+#endif
 
 } // namespace Autotest::Internal

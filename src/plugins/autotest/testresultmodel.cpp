@@ -3,6 +3,12 @@
 
 #include "testresultmodel.h"
 
+#include <utils/theme/theme.h>
+
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
 #include "autotesticons.h"
 #include "testresultspane.h"
 #include "testrunner.h"
@@ -88,6 +94,28 @@ QVariant TestResultItem::data(int column, int role) const
     }
     case Qt::DisplayRole:
         return m_testResult.isValid() ? m_testResult.outputString(true) : QVariant();
+    case ResultStringRole:
+        return resultString();
+    case ResultColorRole:
+        if (!m_testResult.isValid())
+            return {};
+        // A row that only says a test started is not a result, so it is not
+        // written in a result's colour.
+        if (m_testResult.result() == ResultType::TestStart)
+            return Utils::creatorColor(Utils::Theme::TextColorDisabled);
+        return TestResult::colorForType(m_testResult.result());
+    case SummaryRole:
+        return m_testResult.isValid() ? m_testResult.outputString(false) : QVariant();
+    case FullOutputRole:
+        return m_testResult.isValid() ? m_testResult.outputString(true) : QVariant();
+    case DurationRole:
+        if (!m_testResult.isValid() || !m_testResult.duration())
+            return {};
+        return *m_testResult.duration();
+    case FileNameRole:
+        return m_testResult.isValid() ? m_testResult.fileName().fileName() : QVariant();
+    case LineRole:
+        return m_testResult.isValid() && m_testResult.line() ? m_testResult.line() : QVariant();
     default:
         return TreeItem::data(column, role);
     }
@@ -403,6 +431,23 @@ void TestResultModel::raiseTestResultCount(const QString &id, ResultType type)
     m_testResultCount[id][type]++;
 }
 
+QHash<int, QByteArray> TestResultModel::roleNames() const
+{
+    // The base already names display and decoration; the rest are this
+    // model's own. AspectTable::withRoleNames() adds the table roles, which
+    // nothing here reads - Squish needs it because its rows are coloured
+    // through Qt::ForegroundRole, and these carry their own colour instead.
+    QHash<int, QByteArray> names = TreeModel::roleNames();
+    names.insert(TestResultItem::ResultStringRole, "resultString");
+    names.insert(TestResultItem::ResultColorRole, "resultColor");
+    names.insert(TestResultItem::SummaryRole, "summary");
+    names.insert(TestResultItem::FullOutputRole, "fullOutput");
+    names.insert(TestResultItem::DurationRole, "duration");
+    names.insert(TestResultItem::FileNameRole, "fileName");
+    names.insert(TestResultItem::LineRole, "line");
+    return names;
+}
+
 void TestResultModel::addTestResult(const TestResult &testResult, bool autoExpand)
 {
     if (const QString fn = testResult.fileName().fileName(); !fn.isEmpty())
@@ -626,4 +671,96 @@ bool TestResultFilterModel::filterAcceptsRow(int sourceRow, const QModelIndex &s
     return text.contains(m_filterText, m_caseSensitivity) != m_inverted;
 }
 
+#ifdef WITH_TESTS
+
+class TestResultModelTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheRowsAreReadableByName()
+    {
+        // The widget delegate read every part of a row off the TestResult
+        // itself, so none of it had a name. A Qt Quick delegate can only ask
+        // by name, and a role it asks for under a name nobody answers is
+        // undefined rather than an error - the row draws blank and nothing
+        // reports it.
+        TestResultModel model;
+        const QHash<int, QByteArray> names = model.roleNames();
+
+        // Qt's own two. Renaming display is the trap: the stock delegates
+        // bind their label to it.
+        QCOMPARE(names.value(Qt::DisplayRole), QByteArray("display"));
+        QCOMPARE(names.value(Qt::DecorationRole), QByteArray("decoration"));
+
+        QCOMPARE(names.value(TestResultItem::ResultStringRole), QByteArray("resultString"));
+        QCOMPARE(names.value(TestResultItem::ResultColorRole), QByteArray("resultColor"));
+        QCOMPARE(names.value(TestResultItem::SummaryRole), QByteArray("summary"));
+        QCOMPARE(names.value(TestResultItem::FullOutputRole), QByteArray("fullOutput"));
+        QCOMPARE(names.value(TestResultItem::DurationRole), QByteArray("duration"));
+        QCOMPARE(names.value(TestResultItem::FileNameRole), QByteArray("fileName"));
+        QCOMPARE(names.value(TestResultItem::LineRole), QByteArray("line"));
+
+        // And they are answered, not merely named. A role with a name and no
+        // value behind it is the same blank row, reached a different way.
+        TestResult result("someId", "someTest");
+        result.setResult(ResultType::Fail);
+        const TestResultItem item(result);
+        QVERIFY2(!item.data(0, TestResultItem::ResultStringRole).toString().isEmpty(),
+                 "the row names a result string and answers nothing under it");
+    }
+
+    void testARowAtRestSaysLessThanTheOneBeingRead()
+    {
+        // The whole reason the widget delegate was 287 lines: a row shows one
+        // line until it is selected, and then it wraps and grows to show
+        // everything. Two roles, because a view cannot ask one role two ways.
+        // Given an id and a name: a result without them is not valid, and an
+        // invalid one answers nothing at all.
+        TestResult result("someId", "someTest");
+        result.setDescription("first line\nsecond line\nthird line");
+        TestResultItem item(result);
+
+        QCOMPARE(item.data(0, TestResultItem::SummaryRole).toString(), QString("first line"));
+        QCOMPARE(item.data(0, TestResultItem::FullOutputRole).toString(),
+                 QString("first line\nsecond line\nthird line"));
+    }
+
+    void testARowThatOnlySaysATestStartedIsNotAResult()
+    {
+        // The delegate wrote a result's word in the colour of its severity,
+        // and a "test started" row in the disabled colour instead - it is not
+        // a pass or a failure, it is the heading above them.
+        TestResult start("someId", "someTest");
+        start.setResult(ResultType::TestStart);
+        TestResult failure("someId", "someTest");
+        failure.setResult(ResultType::Fail);
+
+        const QColor startColor
+            = TestResultItem(start).data(0, TestResultItem::ResultColorRole).value<QColor>();
+        const QColor failureColor
+            = TestResultItem(failure).data(0, TestResultItem::ResultColorRole).value<QColor>();
+
+        QVERIFY(startColor.isValid());
+        QVERIFY(failureColor.isValid());
+        QCOMPARE(failureColor, TestResult::colorForType(ResultType::Fail));
+
+        // The disabled colour specifically, as the widget used the palette's
+        // mid colour: colorForType() has an answer for TestStart too, and it
+        // is the wrong one - it makes a heading look like an outcome.
+        QCOMPARE(startColor, Utils::creatorColor(Utils::Theme::TextColorDisabled));
+    }
+};
+
+QObject *createTestResultModelTest()
+{
+    return new TestResultModelTest;
+}
+
+#endif // WITH_TESTS
+
 } // namespace Autotest::Internal
+
+#ifdef WITH_TESTS
+#include "testresultmodel.moc"
+#endif

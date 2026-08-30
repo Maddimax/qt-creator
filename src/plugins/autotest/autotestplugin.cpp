@@ -70,6 +70,7 @@
 
 #ifdef WITH_TESTS
 #include "autotestunittests.h"
+#include "testresultmodel.h"
 #include "testsettings_test.h"
 #endif
 
@@ -569,6 +570,7 @@ public:
 #ifdef WITH_TESTS
         addTestCreator(createAutotestUnitTests);
         addTestCreator(createTestSettingsTest);
+        addTestCreator(createTestResultModelTest);
 #endif
     }
 
