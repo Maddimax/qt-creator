@@ -20,7 +20,7 @@ class QComboBox;
 class QToolButton;
 QT_END_NAMESPACE
 
-namespace Core { class OutputWindow; }
+namespace Core { class OutputPaneView; }
 
 namespace SerialTerminal::Internal {
 
@@ -78,9 +78,9 @@ private:
     class SerialControlTab {
     public:
         explicit SerialControlTab(SerialControl *serialControl = nullptr,
-                                  Core::OutputWindow *window = nullptr);
+                                  Core::OutputPaneView *window = nullptr);
         SerialControl *serialControl = nullptr;
-        Core::OutputWindow *window = nullptr;
+        Core::OutputPaneView *window = nullptr;
         BehaviorOnOutput behaviorOnOutput = Flash;
         int inputCursorPosition = 0;
         QString inputText;
@@ -118,7 +118,7 @@ private:
     bool isCurrent(const SerialControl *rc) const;
     int findTabWithPort(const QString &portName) const;
     int findRunningTabWithPort(const QString &portName) const;
-    void handleOldOutput(Core::OutputWindow *window) const;
+    void handleOldOutput(Core::OutputPaneView *window) const;
 
     void updateCloseActions();
 

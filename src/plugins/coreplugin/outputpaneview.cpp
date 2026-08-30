@@ -26,6 +26,7 @@
 #include "find/ifindsupport.h"
 #include <utils/aggregate.h>
 #include <QSignalSpy>
+#include <QTabWidget>
 #include <QTest>
 #include <QApplication>
 #include <QTextBlock>
@@ -915,6 +916,53 @@ private slots:
         OutputPaneView view;
         QCOMPARE(OutputPaneView::scratchBufferNameTemplate(Tr::tr("output.txt")),
                  QString("output-XXXXXX.txt"));
+    }
+
+    // The shape the Serial Terminal and Application Output panes have: one
+    // view per connection or run, side by side in a tab widget. Whether views
+    // built that way are really independent is not obvious - they share a
+    // formatter type, a queue, a factory and a settings key - and the failure
+    // if they were not would be output appearing in the wrong tab.
+    void testViewsInATabWidgetAreIndependent()
+    {
+        QTabWidget tabs;
+        auto * const first = new OutputPaneView({}, &tabs);
+        auto * const second = new OutputPaneView({}, &tabs);
+        tabs.addTab(first, "first");
+        tabs.addTab(second, "second");
+        tabs.resize(400, 200);
+        tabs.show();
+
+        first->appendMessage("belongs to the first\n", Utils::GeneralMessageFormat);
+        second->appendMessage("belongs to the second\n", Utils::GeneralMessageFormat);
+        first->flush();
+        second->flush();
+
+        QCOMPARE(first->toPlainText(), QString("belongs to the first\n"));
+        QCOMPARE(second->toPlainText(), QString("belongs to the second\n"));
+
+        // Each draws its own document rather than the one made last.
+        QVERIFY(first->view());
+        QVERIFY(second->view());
+        QVERIFY2(first->view() != second->view(), "the two tabs share one view");
+        QCOMPARE(first->view()->document(), first->shownDocument());
+        QCOMPARE(second->view()->document(), second->shownDocument());
+
+        // A filter in one tab does not hide the other's output.
+        first->setFilter("nothing matches", {});
+        QVERIFY(first->shownDocument()->toPlainText().isEmpty());
+        QCOMPARE(second->shownDocument()->toPlainText(), QString("belongs to the second\n"));
+
+        // Nor does zooming one, which a pane does per tab and then fans out
+        // itself - it is not something the views do to each other.
+        first->setFontZoom(6);
+        QCOMPARE(first->fontZoom(), 6.0f);
+        QCOMPARE(second->fontZoom(), 0.0f);
+
+        // And a task in one is not known to the other.
+        first->registerPositionOf(7, 1, 0, 0, OutputPaneView::TaskSource::Parsed);
+        QVERIFY(first->knowsPositionOf(7));
+        QVERIFY2(!second->knowsPositionOf(7), "a task registered in one tab was known to another");
     }
 
     void testShowingWhereATaskWasReportedFrom()

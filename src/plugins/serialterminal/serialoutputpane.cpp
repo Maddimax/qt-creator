@@ -12,7 +12,8 @@
 #include <coreplugin/actionmanager/command.h>
 #include <coreplugin/icontext.h>
 #include <coreplugin/icore.h>
-#include <coreplugin/outputwindow.h>
+#include <coreplugin/icontext.h>
+#include <coreplugin/outputpaneview.h>
 #include <texteditor/fontsettings.h>
 
 #include <utils/algorithm.h>
@@ -70,7 +71,8 @@ void ComboBox::showPopup()
     QComboBox::showPopup();
 }
 
-SerialOutputPane::SerialControlTab::SerialControlTab(SerialControl *serialControl, Core::OutputWindow *w) :
+SerialOutputPane::SerialControlTab::SerialControlTab(SerialControl *serialControl,
+                                                     Core::OutputPaneView *w) :
     serialControl(serialControl), window(w)
 {}
 
@@ -144,7 +146,7 @@ QList<QWidget *> SerialOutputPane::toolBarWidgets() const
 
 void SerialOutputPane::clearContents()
 {
-    auto currentWindow = qobject_cast<Core::OutputWindow *>(m_tabWidget->currentWidget());
+    auto currentWindow = qobject_cast<Core::OutputPaneView *>(m_tabWidget->currentWidget());
     if (currentWindow)
         currentWindow->clear();
 }
@@ -156,8 +158,13 @@ bool SerialOutputPane::canFocus() const
 
 bool SerialOutputPane::hasFocus() const
 {
-    const QWidget *widget = m_tabWidget->currentWidget();
-    return widget ? widget->window()->focusWidget() == widget : false;
+    const QWidget * const widget = m_tabWidget->currentWidget();
+    if (!widget)
+        return false;
+    // The focus is on the widget the Quick scene is in, which is inside the
+    // view rather than the view itself.
+    const QWidget * const focused = widget->window()->focusWidget();
+    return focused && widget->isAncestorOf(focused);
 }
 
 void SerialOutputPane::setFocus()
@@ -200,7 +207,7 @@ void SerialOutputPane::appendMessage(SerialControl *rc, const QString &out, Util
 {
     const int index = indexOf(rc);
     if (index != -1) {
-        Core::OutputWindow *window = m_serialControlTabs.at(index).window;
+        Core::OutputPaneView *window = m_serialControlTabs.at(index).window;
         window->appendMessage(out, format);
         if (format != Utils::NormalMessageFormat) {
             if (m_serialControlTabs.at(index).behaviorOnOutput == Flash)
@@ -242,7 +249,8 @@ void SerialOutputPane::createNewOutputWindow(SerialControl *rc)
     static int counter = 0;
     Utils::Id contextId = Utils::Id(Constants::C_SERIAL_OUTPUT).withSuffix(counter++);
     Core::Context context(contextId);
-    auto ow = new Core::OutputWindow(context, Key(), m_tabWidget);
+    auto ow = new Core::OutputPaneView({}, m_tabWidget);
+    Core::IContext::attach(ow, context);
     auto fontSettingsChanged = [ow] {
         ow->setBaseFont(TextEditor::globalFontSettings().data().font());
     };
@@ -406,7 +414,7 @@ int SerialOutputPane::findRunningTabWithPort(const QString &portName) const
     });
 }
 
-void SerialOutputPane::handleOldOutput(Core::OutputWindow *window) const
+void SerialOutputPane::handleOldOutput(Core::OutputPaneView *window) const
 {
     // TODO: cleanOldAppOutput setting? (window->clear();)
     window->grayOutOldContent();

@@ -18492,3 +18492,43 @@ broke nothing, so it is gone - and the test's assertion could be tightened from
 Controls, four, three biting: never following; the reader's movement not
 noticed; and the reader's position not held against the cursor. The fourth is
 the one described above.
+
+### Serial Terminal, and the tab-widget shape
+
+The fourth pane, and it needed nothing new: `appendMessage`, `flush`, `clear`,
+`grayOutOldContent`, `scrollToBottom`, `setBaseFont` and `setWindowTitle` were
+all already there. Four batches of building the machinery and this one is a
+substitution.
+
+Its interest is its *shape*. Serial Terminal keeps one view per connection in a
+`QTabWidget`, which is what Application Output does per run, and that shape had
+never been exercised. Whether views built that way are really independent is
+not obvious - they share a formatter type, a queue, a factory and a settings
+key - and the failure if they were not would be output appearing in the wrong
+tab. So the test is in Core, on two `OutputPaneView`s in a `QTabWidget`: each
+holds its own text, draws its own document, filters without hiding the other's
+output, zooms alone, and does not know the other's tasks.
+
+**`hasFocus()` had to change in every ported pane and it is easy to miss.**
+`window()->focusWidget() == widget` was true for a `QPlainTextEdit` and is
+never true for a view holding a Quick scene: the focus is on the widget the
+scene is in, one level down. It has to become an `isAncestorOf` check, and
+nothing fails loudly if it does not - the pane simply never reports having
+focus.
+
+**What this port is covered by, stated plainly:** the compiler, the shared
+`OutputPaneView` tests, and a grep that no `Core::OutputWindow` remains in the
+plugin. Not by a test of the pane itself - Serial Terminal has no test suite,
+and its pane makes no tab without a serial connection to make one for.
+
+**The next gap, found while porting rather than by looking for it:**
+`Core::OutputWindow`'s constructor registered Undo, Redo, Cut, Copy, Paste and
+Select All against the pane's context. Nothing does that for a Qt Quick pane,
+so the *keyboard shortcuts* for Copy and Select All are gone from all four
+ported panes - the context menu added last batch offers the entries, but
+Ctrl+C does nothing. Serial Terminal passed a fresh context per tab for exactly
+those actions, and that context is now attached and unused.
+
+Controls: two, both biting - one shared document behind every view, and task
+positions kept in one place for all of them, which fails precisely on the tab
+test.
