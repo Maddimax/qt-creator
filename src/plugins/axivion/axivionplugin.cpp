@@ -1354,6 +1354,7 @@ class AxivionPlugin final : public ExtensionSystem::IPlugin
     {
 #ifdef WITH_TESTS
         addTestCreator(createAxivionPathMappingFormTest);
+        addTestCreator(createSingleFileAnalysisDialogTest);
 #endif
 
         IOptionsPage::registerCategory(

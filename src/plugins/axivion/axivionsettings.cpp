@@ -306,15 +306,44 @@ AxivionSettings::AxivionSettings()
     lastLocalBuildCommand.setAllowPathFromDevice(false);
     lastLocalBuildCommand.setHistoryCompleter("LocalBuildHistory");
 
+    // Drawn by the single file analysis dialog, not by this page.
+    singleFileAnalysis.setQmlSource(
+        QUrl("qrc:/qt/qml/QtCreator/Axivion/SingleFileAnalysisDialog.qml"));
+
+    lastBauhausConfig.setQmlName("BauhausConfig");
     lastBauhausConfig.setSettingsKey("LastBauhausConfig"); // used outside settings
+    lastBauhausConfig.setLabelText(Tr::tr("BAUHAUS_CONFIG Directory"));
     lastBauhausConfig.setExpectedKind(PathChooserKind::ExistingDirectory);
     lastBauhausConfig.setAllowPathFromDevice(false);
     lastBauhausConfig.setHistoryCompleter("Axivion.SFABauhausConfig");
 
+    bauhausConfigHint.setQmlName("BauhausConfigHint");
+    bauhausConfigHint.setText(
+        Tr::tr("Usually the directory containing the file \"axivion_config.json\"."));
+
+    lastSfaCommand.setQmlName("SfaCommand");
     lastSfaCommand.setSettingsKey("LastSfaCmd"); // used outside settings
+    lastSfaCommand.setLabelText(Tr::tr("Analysis Command"));
     lastSfaCommand.setExpectedKind(PathChooserKind::Any);
     lastSfaCommand.setAllowPathFromDevice(false);
     lastSfaCommand.setHistoryCompleter("Axivion.SFACommand");
+
+    sfaCommandHint.setQmlName("SfaCommandHint");
+    sfaCommandHint.setText(
+        "build_compile_commands --single_file %{CurrentDocument:FilePath} "
+        "%{ActiveProject:BuildConfig:Path}/compile_commands.json\n"
+        //: the text is preceded by a command to execute
+        + Tr::tr("or some shell/batch script holding cafeCC / axivion_analysis commands"
+                 " to execute.")
+              .append("\n\n")
+              .append(Tr::tr("Leave empty to derive from active project. File to analyze "
+                             "must be part of the active project.")));
+
+    noProjectWarning.setQmlName("NoProjectWarning");
+    noProjectWarning.setIconType(AspectControls::InfoType::Warning);
+    //: %1 is a Qt Creator variable string
+    noProjectWarning.setText(Tr::tr("No active project. Referring to %1 will fail.")
+                                 .arg("<code>%{ActiveProject:...}</code>"));
 
     defaultIssueKind.setSettingsKey("DefaultIssueKind"); // used without UI
     defaultIssueKind.setDefaultValue("SV"); // style violations

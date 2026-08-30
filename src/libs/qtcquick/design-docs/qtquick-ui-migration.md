@@ -20227,3 +20227,55 @@ QuickUi 181 passed / 0 failed / 1 skipped, exit 0. Squish exit 0,
 whether a dialog may list aspects another container owns, and what that does to
 auto-apply. That is the last thing in the way of the remaining candidates that
 draw settings rather than their own values.
+
+## 2026-08-30 — May a dialog draw what a settings page owns? No — and it does not have to
+
+The question the last entry left. Measured rather than reasoned about, in
+`testAnAspectBelongsToOneContainerAtATime`: `AspectContainer::insertAspect()`
+calls `setContainer(this)` **and** `setAutoApply(isAutoApply())`, so listing an
+aspect in a second container **takes it** - its `container()` repoints and its
+apply behaviour follows the new owner - while the first container still lists
+it. A settings page that lends two aspects to a dialog would silently start
+applying them as they are typed.
+
+**A "borrowed" listing is not the answer either.** It would have to be honoured
+in `fromMap`, `toMap`, `volatileToMap`, `readSettings`, `writeSettings`,
+`volatileValueToGui`, `guiToVolatileValue`, `apply` and `cancel` - nine
+behavioural decisions in the most-used class in the settings system, for one
+dialog.
+
+**The shape that works is the one already in use elsewhere: nest.** The two
+aspects move into an `AspectContainer` that `AxivionSettings` owns, and the
+dialog draws *that*. Nothing is transferred, because nothing is listed twice.
+`GlobalOrProjectAspect` has the same shape.
+
+Two things made it safe to do, and both were checked rather than assumed: the
+Axivion settings page names its aspects explicitly in its own QML, so a new
+nested group is not drawn there; and a container only nests its settings group
+around its aspects **while reading and writing**, so one with no group of its
+own leaves every key exactly where it was.
+
+**That last point cost a control.** The first version asserted
+`lastBauhausConfig.settingsKey() == "LastBauhausConfig"`, and control A - which
+gives the nested container a settings group, the one change that would move
+everyone's saved values - *passed*. The key is the aspect's own either way; the
+group is applied by `SettingsGroupNester` at read and write time and never
+appears in `settingsKey()`. The assertion is on `settingsGroups()` now, which
+is the thing that decides, and the control bites.
+
+Also extracted: `canStartSingleFileAnalysis(configValid, canDerive,
+commandGiven)`, which was a lambda over three answers.
+
+Negative controls: the nested container given a settings group; an analysis
+with nothing to run offered anyway; the configuration directory no longer
+mattering; and the page naming an aspect that is not there. All four bit - the
+first only after the assertion was fixed.
+
+QuickUi 182 passed / 0 failed / 1 skipped, exit 0. Axivion exit 0,
+`SingleFileAnalysisDialogTest` 5 passed. `Axivion_qmllint` clean. No `.qbs`
+edit.
+
+**Next:** `LocalBuildDialog` (Axivion) is the same shape and can now follow the
+same route - it draws `lastLocalBuildCommand`, which is still a direct member
+of the settings. After that the remaining candidates are the ones that need a
+new control rather than a new container.

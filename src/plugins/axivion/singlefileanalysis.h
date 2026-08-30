@@ -17,4 +17,8 @@ void shutdownAllAnalyses();
 
 LocalBuildState localBuildStateFor(const Utils::FilePath &filePath);
 
+#ifdef WITH_TESTS
+QObject *createSingleFileAnalysisDialogTest();
+#endif
+
 } // namespace Axivion::Internal

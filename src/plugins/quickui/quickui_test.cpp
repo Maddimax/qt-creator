@@ -414,6 +414,7 @@ private slots:
     void testWhichSizesAFontIsOfferedIn();
     void testAFontIsChosenAsOneControl();
     void testAMaskedFieldCanBeShown();
+    void testAnAspectBelongsToOneContainerAtATime();
 };
 
 // Settings a page carries but does not draw. Each was checked against the
@@ -1777,6 +1778,38 @@ QQuickItem *theVisibleOne(const QList<QQuickItem *> &items)
 }
 
 } // namespace
+
+void QuickUiTest::testAnAspectBelongsToOneContainerAtATime()
+{
+    // Several dialogs draw settings that a *settings page* owns - Axivion's
+    // single file analysis is one. Drawing them means listing them in a
+    // container of the dialog's own, and this is what that costs.
+    Utils::AspectContainer page;
+    // A settings page waits for Apply.
+    page.setAutoApply(false);
+    Utils::StringAspect setting(&page);
+    setting.setDisplayStyle(Utils::StringAspect::LineEditDisplay);
+    setting.setLabelText("Setting");
+
+    QCOMPARE(setting.container(), &page);
+    QVERIFY(!setting.isAutoApply());
+
+    // A dialog applies as it is typed into.
+    Utils::AspectContainer dialog;
+    dialog.setAutoApply(true);
+    dialog.registerAspect(&setting);
+
+    // Listing is a transfer, not a share: the aspect now points at the dialog
+    // and applies as the dialog does, so the page it belongs to has lost both.
+    QCOMPARE(setting.container(), &dialog);
+    QVERIFY2(setting.isAutoApply(),
+             "fixture: registering was expected to hand over the apply behaviour");
+
+    // And the page still lists it, so it holds an aspect that no longer points
+    // back at it - which is the part that does not announce itself.
+    QVERIFY(page.aspects().contains(&setting));
+    QCOMPARE(page.aspects().size(), 1);
+}
 
 void QuickUiTest::testAMaskedFieldCanBeShown()
 {

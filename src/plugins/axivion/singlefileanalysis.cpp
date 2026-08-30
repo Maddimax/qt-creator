@@ -11,6 +11,7 @@
 #include "localbuild.h"
 #include "pluginarserver.h"
 
+#include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/icore.h>
 
 #include <extensionsystem/pluginmanager.h>
@@ -34,6 +35,10 @@
 #include <utils/qtcprocess.h>
 
 #include <QDialog>
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
 #include <QDialogButtonBox>
 #include <QLoggingCategory>
 #include <QMessageBox>
@@ -48,82 +53,58 @@ namespace Axivion::Internal {
 
 static Q_LOGGING_CATEGORY(sfaLog, "qtc.axivion.sfa", QtWarningMsg)
 
+// Whether a single file analysis can be started at all: the config directory
+// has to be usable, and there has to be something to run - either the build
+// information can be derived from the current document, or a command was
+// given.
+//
+// Kept out of the dialog because it is a question about three answers, and
+// there the only way to ask it was to open the dialog and look at the button.
+bool canStartSingleFileAnalysis(bool configIsValid, bool canDerive, bool commandGiven)
+{
+    return configIsValid && (canDerive || commandGiven);
+}
+
 class SingleFileDialog : public QDialog
 {
 public:
     SingleFileDialog()
+        : m_buttons(new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this))
     {
-        QWidget *widget = new QWidget(this);
-        auto buttons = new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel);
-        auto okButton = buttons->button(QDialogButtonBox::Ok);
-        okButton->setText(Tr::tr("Start"));
-        auto hint = new QLabel(this);
-        auto warning = new InfoLabel(
-            //: %1 is a Qt Creator variable string
-            Tr::tr(
-                "No active project. "
-                "Referring to %1 will fail.")
-                .arg("<code>%{ActiveProject:...}</code>"),
-            InfoLabelType::Warning,
-            this);
-        warning->setElideMode(Qt::ElideNone); // ensure HTML stuff is taken into account
-        if (!ProjectManager::projects().isEmpty())
-            warning->setVisible(false);
-        hint->setText(
-            "build_compile_commands --single_file %{CurrentDocument:FilePath} "
-            "%{ActiveProject:BuildConfig:Path}/compile_commands.json\n"
-            //: the text is preceded by a command to execute
-            + Tr::tr(
-                "or some shell/batch script holding cafeCC / axivion_analysis commands"
-                " to execute.")
-                    .append("\n\n")
-                    .append(Tr::tr("Leave empty to derive from active project. File to analyze "
-                                   "must be part of the active project.")));
-        // for now only build_compile_commands...
-        // Makefile alternative..
-        // ActiveProject may be empty if no project is opened or different from current Axivion's
-        // projectName - do we have to handle this or just fail?
-        using namespace Layouting;
-        Column {
-            Layouting::Group {
-                title(Tr::tr("BAUHAUS_CONFIG Directory")), // could this be multiple directories?
-                Column {
-                    Row { Tr::tr("Usually the directory containing the file \"axivion_config.json\".") },
-                    Row { settings().lastBauhausConfig }
-                }
-            },
-            Layouting::Group {
-                title(Tr::tr("Analysis Command")),
-                Column {
-                    Row { settings().lastSfaCommand },
-                    Row { hint },
-                    Row { warning }
-                }
-            },
-            st
-        }.attachTo(widget);
-
-        QVBoxLayout *layout = new QVBoxLayout(this);
-        layout->addWidget(widget);
-        layout->addWidget(buttons);
-        connect(okButton, &QPushButton::clicked,
-                this, &QDialog::accept);
-        connect(buttons->button(QDialogButtonBox::Cancel), &QPushButton::clicked,
-                this, &QDialog::reject);
         setWindowTitle(Tr::tr("Single File Analysis"));
-        okButton->setEnabled(false);
+        m_buttons->button(QDialogButtonBox::Ok)->setText(Tr::tr("Start"));
+
+        // Only worth warning about where it would actually go wrong.
+        settings().noProjectWarning.setVisible(ProjectManager::projects().isEmpty());
+
+        const auto layout = new QVBoxLayout(this);
+        layout->addWidget(Core::createAspectForm(&settings().singleFileAnalysis));
+        layout->addWidget(m_buttons);
+
+        connect(m_buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
+        connect(m_buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
 
         const bool canDerive = buildInfoForCurrentDocumentDerivable();
-        auto updateOk = [okButton, canDerive] {
-            okButton->setEnabled(settings().lastBauhausConfig.isValid()
-                                 && (canDerive
-                                     || !settings().lastSfaCommand.volatileValue().isEmpty()));
+        const auto refreshStart = [this, canDerive] {
+            m_buttons->button(QDialogButtonBox::Ok)
+                ->setEnabled(canStartSingleFileAnalysis(
+                    settings().lastBauhausConfig.isValid(),
+                    canDerive,
+                    !settings().lastSfaCommand.volatileValue().isEmpty()));
         };
-        connect(&settings().lastBauhausConfig, &FilePathAspect::validChanged, this, updateOk);
-        connect(&settings().lastSfaCommand, &FilePathAspect::volatileValueChanged, this, updateOk);
+        // Whether the directory is usable is worked out separately from what
+        // it holds, so both are watched.
+        connect(&settings().lastBauhausConfig, &FilePathAspect::validChanged,
+                this, refreshStart);
+        connect(&settings().lastSfaCommand, &FilePathAspect::volatileValueChanged,
+                this, refreshStart);
+        refreshStart();
 
         resize(750, 300);
     }
+
+private:
+    QDialogButtonBox * const m_buttons;
 };
 
 struct SFAData
@@ -484,4 +465,70 @@ LocalBuildState localBuildStateFor(const FilePath &filePath)
     return s_sfaInstance.localBuildStateFor(filePath);
 }
 
+#ifdef WITH_TESTS
+
+class SingleFileAnalysisDialogTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheDialogDrawsWithTheQmlItNames()
+    {
+        const Utils::Result<> rendered = Core::aspectFormRenders(
+            &settings().singleFileAnalysis, "SingleFileAnalysisDialog.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+    }
+
+    void testTheSettingsAreStillWhereTheyWereSaved()
+    {
+        // The two aspects moved into a container of their own so the dialog
+        // can draw what it does not own. A container nests its settings group
+        // around everything in it while reading and writing, so one with a
+        // group of its own would move both of these and lose what users
+        // already have saved.
+        //
+        // Asserted on the group and not on settingsKey(): the key is the
+        // aspect's own either way, and the nesting only happens at read and
+        // write time - so a key comparison passes with the group added and
+        // says nothing.
+        QVERIFY2(settings().singleFileAnalysis.settingsGroups().isEmpty(),
+                 "the container the dialog draws would move its settings");
+        QCOMPARE(settings().lastBauhausConfig.settingsKey(), Utils::Key("LastBauhausConfig"));
+        QCOMPARE(settings().lastSfaCommand.settingsKey(), Utils::Key("LastSfaCmd"));
+
+        // And they are still the settings container's, not the dialog's: a
+        // second container listing them would have taken them.
+        QCOMPARE(settings().lastBauhausConfig.container(), &settings().singleFileAnalysis);
+        QVERIFY(settings().singleFileAnalysis.container() == &settings());
+    }
+
+    void testWhenAnAnalysisCanBeStarted()
+    {
+        // Nothing can start without a usable configuration directory.
+        QVERIFY(!canStartSingleFileAnalysis(false, true, true));
+        QVERIFY(!canStartSingleFileAnalysis(false, false, false));
+
+        // With one, either the build information can be derived from the
+        // current document, or a command has to be given.
+        QVERIFY(canStartSingleFileAnalysis(true, true, false));
+        QVERIFY(canStartSingleFileAnalysis(true, false, true));
+        QVERIFY2(!canStartSingleFileAnalysis(true, false, false),
+                 "an analysis with nothing to run was offered");
+
+        // Both is fine: the command wins, and that is the caller's business.
+        QVERIFY(canStartSingleFileAnalysis(true, true, true));
+    }
+};
+
+QObject *createSingleFileAnalysisDialogTest()
+{
+    return new SingleFileAnalysisDialogTest;
+}
+
+#endif // WITH_TESTS
+
 } // namespace Axivion::Internal
+
+#ifdef WITH_TESTS
+#include "singlefileanalysis.moc"
+#endif

@@ -80,8 +80,19 @@ public:
     Utils::FilePathAspect bauhausPython{this};
     Utils::FilePathAspect javaHome{this};
     Utils::FilePathAspect lastLocalBuildCommand{this};
-    Utils::FilePathAspect lastBauhausConfig{this};
-    Utils::FilePathAspect lastSfaCommand{this};
+
+    // What the single file analysis dialog draws. A container of its own
+    // rather than two aspects the dialog lists for itself: listing an aspect
+    // in a second container hands it over - its container() and its
+    // auto-apply both follow the new one - so a dialog cannot borrow what a
+    // settings page owns. Nested here it stays owned, and the dialog draws
+    // this. No settings group of its own, so the keys are unchanged.
+    Utils::AspectContainer singleFileAnalysis{this};
+    Utils::FilePathAspect lastBauhausConfig{&singleFileAnalysis};
+    Utils::TextDisplay bauhausConfigHint{&singleFileAnalysis};
+    Utils::FilePathAspect lastSfaCommand{&singleFileAnalysis};
+    Utils::TextDisplay sfaCommandHint{&singleFileAnalysis};
+    Utils::TextDisplay noProjectWarning{&singleFileAnalysis};
     Utils::StringAspect defaultIssueKind{this};
 
 signals:
