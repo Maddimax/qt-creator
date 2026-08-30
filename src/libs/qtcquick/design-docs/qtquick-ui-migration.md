@@ -17983,3 +17983,51 @@ What is left before Build System Output can switch is find support.
 `QPlainTextEdit`; a Quick view needs its own, and the search itself is document
 work of exactly the kind extracted here. That is the next batch, and after it
 the switch is a batch rather than a project.
+
+### Find, which turned out to be mostly already written
+
+Ctrl+F over the Qt Quick output view works. It cost far less than the plan
+expected, and two of the four controls taught something.
+
+**`BaseTextFindBase` was already free of widgets.** It asks an editor for five
+things - a cursor, a way to set one, a document, whether it is read-only, and a
+widget to hang the find bar on - and none of those needs the editor to be a
+`QPlainTextEdit`. `TextEditor`'s `QuickTextFind` had already found this and
+says so in a comment. So `Core::OutputViewFind` is thirty lines, lives in
+`outputview.cpp`, and is aggregated onto every view the factory hands out -
+which means a `FindToolBarPlaceHolder` anchored to one finds it by asking, the
+same way it does for `OutputWindow`. `QtcQuick` never learns that find exists.
+
+**The one real piece of work was the cursor.** A Quick text item keeps its
+selection as three integers - `cursorPosition`, `selectionStart`,
+`selectionEnd` - reported in document order, and says only where the *cursor*
+is. Reading start and end as anchor and position loses which way round the
+selection was made, and a find that wrapped would then resume from the wrong
+end of its own match. The anchor is the end the cursor is not at. There is a
+test for exactly that, and the naive mapping fails it.
+
+**A control that did not bite, twice, and the code went.** `ensureCursorVisible()`
+- a QML function nudging the Flickable so a match is on screen - is dead:
+Quick Controls' `TextArea` inside a `ScrollView` already follows its own
+cursor. The first control was suspect because it only proved scrolling
+*downwards*, so the test was extended to require scrolling back up when the
+search wraps. The control still did not bite, so the function was deleted. The
+test stays, because the requirement is real even though nothing here
+implements it - if the `ScrollView` is ever replaced with a bare `Flickable`,
+it goes red.
+
+**A trap in the control procedure itself.** The copies protecting the edited
+files were named by basename, and `coreplugin/outputview.cpp` and
+`qtcquick/outputview.cpp` share one. The second copy overwrote the first, and
+"restoring" wrote the wrong file back - destroying uncommitted work in a way
+the usual rule about `git checkout` does not cover. Name copies after the whole
+path.
+
+**What is still missing against the widget: highlighting all matches.** The
+widget uses `QPlainTextEdit::setExtraSelections`, which has no Quick
+equivalent, and merging a background format into the document is not an option
+because the pane owns that document and keeps appending to it. The way to do
+it here is to compute the match rectangles - pure document work, of exactly the
+kind already extracted - and draw them in QML with a Repeater over
+`positionToRectangle()`. That is the last piece before Build System Output can
+switch without losing anything.

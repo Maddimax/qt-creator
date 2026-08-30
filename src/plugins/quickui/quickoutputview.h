@@ -7,6 +7,7 @@
 
 #include <qtcquick/outputview.h>
 
+#include <QTextCursor>
 #include <QVBoxLayout>
 
 namespace QuickUi::Internal {
@@ -35,6 +36,8 @@ public:
     void setFontZoom(float zoom) override { m_view->setFontZoom(zoom); }
     float fontZoom() const override { return m_view->fontZoom(); }
     void setWheelZoomEnabled(bool enabled) override { m_view->setWheelZoomEnabled(enabled); }
+    QTextCursor textCursor() const override { return m_view->textCursor(); }
+    void setTextCursor(const QTextCursor &cursor) override { m_view->setTextCursor(cursor); }
 
 private:
     QtcQuick::OutputView * const m_view = new QtcQuick::OutputView;

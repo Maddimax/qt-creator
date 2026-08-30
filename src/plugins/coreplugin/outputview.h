@@ -10,10 +10,13 @@
 #include <functional>
 
 QT_BEGIN_NAMESPACE
+class QTextCursor;
 class QTextDocument;
 QT_END_NAMESPACE
 
 namespace Core {
+
+class IFindSupport;
 
 // A view showing output: a QTextDocument that a Utils::OutputFormatter fills,
 // with the font, zoom and links a pane expects around it.
@@ -45,6 +48,24 @@ public:
     void resetZoom() { setFontZoom(0); }
 
     virtual void setWheelZoomEnabled(bool enabled) = 0;
+
+    // Where the selection is, as a cursor on the document. Find support is
+    // written against these two rather than against a text widget - see
+    // Core::BaseTextFindBase, which asks an editor for a cursor, a document
+    // and somewhere to hang the find bar, and none of that needs the editor to
+    // be a QPlainTextEdit.
+    virtual QTextCursor textCursor() const = 0;
+
+    // Selects \a cursor's range and shows it, which is what a find step does
+    // with a match it found.
+    virtual void setTextCursor(const QTextCursor &cursor) = 0;
+
+    // Ctrl+F over this view. Also aggregated onto the view, so a
+    // FindToolBarPlaceHolder anchored to it finds it without being told.
+    IFindSupport *findSupport() const;
+
+private:
+    IFindSupport *m_findSupport = nullptr;
 
 signals:
     // A link was clicked. What it means is the pane's business - it is the one

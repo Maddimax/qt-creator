@@ -28,6 +28,8 @@ Item {
     signal zoomRequested(real delta)
 
     ScrollView {
+        id: scrollView
+
         anchors.fill: parent
         clip: true
 
@@ -58,4 +60,5 @@ Item {
             }
         }
     }
+
 }

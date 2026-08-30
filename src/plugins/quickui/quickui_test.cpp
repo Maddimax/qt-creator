@@ -39,6 +39,8 @@
 #include <utils/aspects.h>
 #include <qtcquick/outputview.h>
 #include <coreplugin/outputview.h>
+#include <utils/aggregate.h>
+#include <coreplugin/find/ifindsupport.h>
 #include <utils/outputformatter.h>
 #include <QAbstractTextDocumentLayout>
 #include <utils/stylehelper.h>
@@ -361,6 +363,9 @@ private slots:
     void testTheOutputViewSeesTheLinksAFormatterWrote();
     void testCoreHandsOutAnOutputViewItCannotDrawItself();
     void testCoreHasNoOutputViewWithoutAFrontEnd();
+    void testFindingTextInTheOutputView();
+    void testTheOutputViewScrollsAMatchIntoView();
+    void testABackwardsSelectionComesBackTheRightWayRound();
     void testAFieldOffersWhatWasTypedIntoItBefore();
     void testBrowsingStartsWhereThePathAlreadyPointsTo();
     void testALabelSaysTheValueItCannotShowInFull();
@@ -10415,6 +10420,152 @@ void QuickUiTest::testCoreHasNoOutputViewWithoutAFrontEnd()
         });
     });
     QVERIFY(!Core::createOutputView());
+}
+
+namespace {
+
+// A view holding many lines, so that a match can be off screen.
+struct OutputViewFixture
+{
+    OutputViewFixture()
+    {
+        QString text;
+        for (int i = 0; i < 60; ++i)
+            text += QString("line %1 of output\n").arg(i);
+        text.replace("line 2 of", "line 2 the needle of");
+        text.replace("line 50 of", "line 50 the needle of");
+        document.setPlainText(text);
+
+        view.reset(Core::createOutputView());
+        if (!view)
+            return;
+        view->setDocument(&document);
+        view->resize(400, 120);
+        view->show();
+    }
+
+    QQuickItem *textArea() const
+    {
+        auto * const quickWidget = view->findChild<QQuickWidget *>();
+        return quickWidget ? quickWidget->rootObject()->findChild<QQuickItem *>("outputText")
+                           : nullptr;
+    }
+
+    QTextDocument document;
+    std::unique_ptr<Core::OutputView> view;
+};
+
+} // namespace
+
+void QuickUiTest::testFindingTextInTheOutputView()
+{
+    OutputViewFixture fixture;
+    QVERIFY(fixture.view.get());
+
+    // Reached the way the find bar reaches it: FindToolBarPlaceHolder asks the
+    // widget it is anchored to, it does not get handed anything.
+    Core::IFindSupport * const find
+        = Utils::Aggregation::query<Core::IFindSupport>(fixture.view.get());
+    QVERIFY2(find, "nothing on the view answers as find support");
+    QCOMPARE(find, fixture.view->findSupport());
+
+    QQuickItem * const area = fixture.textArea();
+    QVERIFY(area);
+    QTRY_VERIFY(area->property("contentHeight").toReal() > 0);
+
+    // A match selects itself, in the view and not only in a cursor nobody
+    // draws.
+    QCOMPARE(find->findStep("needle", {}), Core::IFindSupport::Found);
+    const int first = area->property("selectionStart").toInt();
+    QCOMPARE(area->property("selectedText").toString(), QString("needle"));
+
+    // And the next one is a different one, further down.
+    QCOMPARE(find->findStep("needle", {}), Core::IFindSupport::Found);
+    QVERIFY2(area->property("selectionStart").toInt() > first,
+             "finding again stayed on the same match");
+    QCOMPARE(area->property("selectedText").toString(), QString("needle"));
+
+    // Past the last one it wraps rather than stopping, as the widget does.
+    QCOMPARE(find->findStep("needle", {}), Core::IFindSupport::Found);
+    QCOMPARE(area->property("selectionStart").toInt(), first);
+
+    // Case sensitivity is honoured, which is the flag with a visible answer
+    // either way.
+    QCOMPARE(find->findStep("NEEDLE", {}), Core::IFindSupport::Found);
+    QCOMPARE(find->findStep("NEEDLE", Utils::FindCaseSensitively),
+             Core::IFindSupport::NotFound);
+
+    QCOMPARE(find->findStep("haystack", {}), Core::IFindSupport::NotFound);
+}
+
+void QuickUiTest::testTheOutputViewScrollsAMatchIntoView()
+{
+    OutputViewFixture fixture;
+    QVERIFY(fixture.view.get());
+    QQuickItem * const area = fixture.textArea();
+    QVERIFY(area);
+    QTRY_VERIFY(area->property("contentHeight").toReal() > 0);
+
+    // Asked by property rather than by type: QQuickFlickable is private API,
+    // and a test does not need to link against it to read where it is. Walked
+    // up rather than taken as the parent, because a ScrollView puts a plain
+    // item between its Flickable and what it holds.
+    QQuickItem *flickable = area->parentItem();
+    while (flickable && !flickable->property("contentY").isValid())
+        flickable = flickable->parentItem();
+    QVERIFY2(flickable, "the text is not inside anything that scrolls");
+    const qreal beforeFinding = flickable->property("contentY").toReal();
+
+    Core::IFindSupport * const find
+        = Utils::Aggregation::query<Core::IFindSupport>(fixture.view.get());
+    QVERIFY(find);
+
+    // The second match is around line 50 of 60, well past the bottom of a view
+    // showing a handful. Selecting it is not finding it if it stays off
+    // screen - a ScrollView does not follow the cursor by itself.
+    QCOMPARE(find->findStep("needle", {}), Core::IFindSupport::Found);
+    QCOMPARE(find->findStep("needle", {}), Core::IFindSupport::Found);
+
+    const QRectF match = area->property("cursorRectangle").toRectF();
+    QTRY_VERIFY2(flickable->property("contentY").toReal() > beforeFinding,
+                 "the view never scrolled to the match it selected");
+    const qreal top = flickable->property("contentY").toReal();
+    const qreal visible = flickable->property("height").toReal();
+    QVERIFY2(match.y() >= top && match.y() + match.height() <= top + visible,
+             "the match is selected but drawn outside the visible area");
+
+    // And back up again when the search wraps. Scrolling only downwards would
+    // pass everything above, because output is read from the top.
+    QCOMPARE(find->findStep("needle", {}), Core::IFindSupport::Found);
+    QTRY_VERIFY2(flickable->property("contentY").toReal() < top,
+                 "the view never scrolled back up to the match it wrapped to");
+    const QRectF wrapped = area->property("cursorRectangle").toRectF();
+    const qreal afterWrap = flickable->property("contentY").toReal();
+    QVERIFY2(wrapped.y() >= afterWrap && wrapped.y() + wrapped.height() <= afterWrap + visible,
+             "the wrapped-to match is drawn outside the visible area");
+}
+
+void QuickUiTest::testABackwardsSelectionComesBackTheRightWayRound()
+{
+    // A Quick text item reports its selection in document order and says only
+    // where the cursor is. Reading the two as start and end loses which way
+    // round the selection was made, and a find that wrapped would then resume
+    // from the wrong end of its own match.
+    OutputViewFixture fixture;
+    QVERIFY(fixture.view.get());
+    QQuickItem * const area = fixture.textArea();
+    QVERIFY(area);
+    QTRY_VERIFY(area->property("contentHeight").toReal() > 0);
+
+    QMetaObject::invokeMethod(area, "select", Q_ARG(int, 20), Q_ARG(int, 10));
+    const QTextCursor backwards = fixture.view->textCursor();
+    QCOMPARE(backwards.anchor(), 20);
+    QCOMPARE(backwards.position(), 10);
+
+    QMetaObject::invokeMethod(area, "select", Q_ARG(int, 10), Q_ARG(int, 20));
+    const QTextCursor forwards = fixture.view->textCursor();
+    QCOMPARE(forwards.anchor(), 10);
+    QCOMPARE(forwards.position(), 20);
 }
 
 void QuickUiTest::testAVariableBeingDefinedIsNotOfferedForItself()

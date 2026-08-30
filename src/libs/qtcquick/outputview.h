@@ -9,6 +9,7 @@
 
 QT_BEGIN_NAMESPACE
 class QQuickItem;
+class QTextCursor;
 class QTextDocument;
 QT_END_NAMESPACE
 
@@ -45,6 +46,17 @@ public:
     float fontZoom() const;
     void resetZoom() { setFontZoom(0); }
     void setWheelZoomEnabled(bool enabled);
+
+    // Where the selection is, as a cursor on the document. A Quick text item
+    // keeps its selection as three integers rather than as a cursor, so this
+    // is a conversion in both directions.
+    QTextCursor textCursor() const;
+
+    // Selects the range. Scrolling it into view needs nothing here: a
+    // TextArea inside a ScrollView follows its own cursor, in both directions
+    // - which a control that stopped this from scrolling proved by not
+    // failing anything.
+    void setTextCursor(const QTextCursor &cursor);
 
     // The link at a point in the view, empty where there is none. What the
     // widget got from QPlainTextEdit::anchorAt().

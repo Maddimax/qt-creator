@@ -9,6 +9,7 @@
 #include <QQuickItem>
 #include <QQuickTextDocument>
 #include <QQuickWidget>
+#include <QTextCursor>
 #include <QTextDocument>
 
 namespace QtcQuick {
@@ -95,6 +96,39 @@ void OutputView::setWheelZoomEnabled(bool enabled)
 {
     if (QObject * const root = rootObject())
         root->setProperty("wheelZoomEnabled", enabled);
+}
+
+QTextCursor OutputView::textCursor() const
+{
+    QQuickItem * const area = textArea();
+    QTC_ASSERT(area && m_document, return {});
+
+    const int position = area->property("cursorPosition").toInt();
+    const int selectionStart = area->property("selectionStart").toInt();
+    const int selectionEnd = area->property("selectionEnd").toInt();
+    // The item reports the selection in document order and says only where the
+    // cursor is; the other end is the anchor. Without this a backwards
+    // selection comes back reversed, and a find that wrapped would resume from
+    // the wrong end of its own match.
+    const int anchor = position == selectionStart ? selectionEnd : selectionStart;
+
+    QTextCursor cursor(m_document);
+    cursor.setPosition(anchor);
+    cursor.setPosition(position, QTextCursor::KeepAnchor);
+    return cursor;
+}
+
+void OutputView::setTextCursor(const QTextCursor &cursor)
+{
+    QQuickItem * const area = textArea();
+    QTC_ASSERT(area, return);
+
+    if (cursor.hasSelection()) {
+        QMetaObject::invokeMethod(area, "select", Q_ARG(int, cursor.anchor()),
+                                  Q_ARG(int, cursor.position()));
+    } else {
+        area->setProperty("cursorPosition", cursor.position());
+    }
 }
 
 QString OutputView::linkAt(qreal x, qreal y) const
