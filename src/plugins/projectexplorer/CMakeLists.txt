@@ -1,6 +1,6 @@
 add_qtc_plugin(ProjectExplorer
   DEPENDS Qt::Qml QtcQuick
-  PLUGIN_DEPENDS Core TextEditor
+  PLUGIN_DEPENDS Core TextEditor QuickUi
   PLUGIN_TEST_DEPENDS GenericProjectManager
   SOURCES
     abi.cpp abi.h
@@ -22,6 +22,7 @@ add_qtc_plugin(ProjectExplorer
     buildsteplist.cpp buildsteplist.h
     buildstepspage.cpp buildstepspage.h
     buildsystem.cpp buildsystem.h
+    buildsystemoutputwindow.cpp buildsystemoutputwindow.h
     buildtargetinfo.h
     buildtargettype.h
     clangparser.cpp clangparser.h

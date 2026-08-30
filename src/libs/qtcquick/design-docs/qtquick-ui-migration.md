@@ -18073,3 +18073,69 @@ batch, and it is a batch - a filter line edit with three option actions, clear
 and zoom actions on `ActionManager`, a base font following
 `globalFontSettings()`, and a `FindToolBarPlaceHolder` that will now find the
 view's find support by asking.
+
+### Build System Output, switched - and the bug the old test could not see
+
+The first output surface drawn with Qt Quick rather than a `QPlainTextEdit`.
+`BuildSystemOutputWindow` no longer derives from `Core::OutputWindow`; it holds
+a `Core::OutputView` from the factory, a source document its
+`Utils::OutputFormatter` fills, and a second document holding what a filter
+lets through. Everything that was in it is still in it: clear, the filter line
+edit with its three options, the two zoom steps, the base font following
+`globalFontSettings()`, dimming what the last run left, retracting lines by
+prefix, find, and now highlighting of every match.
+
+**Split in two, so it can be tested.** `BuildSystemOutputView` does the work and
+registers nothing; `BuildSystemOutputWindow` adds the actions and the tool bar.
+The second claims fixed `ActionManager` ids, so there is exactly one of it and
+a test cannot make another - the same wall the Issues pane hit. The first can be
+built as often as a test likes.
+
+**Three call sites, and the third was found by the compiler, not by me.**
+`buildSystemOutput()` handed out a `Core::OutputWindow *` and two callers in
+`buildsystem.cpp` used it. A third, in `cmakeprojectmanager`, called
+`clearLinesPrefixedWith()` on it - and I had grepped only inside
+`projectexplorer/`. It is now three named entry points on
+`ProjectExplorerPlugin` rather than a widget pointer, which is what stopped the
+next caller from reaching past them.
+
+**The plugin had to be ordered.** `ProjectWindow` is built during
+`ProjectExplorerPlugin::initialize()`, so the output view factory has to be
+installed before that. `QuickUi` is now a declared `PLUGIN_DEPENDS` of
+`ProjectExplorer`, which meant moving `add_subdirectory(quickui)` up to Level 1
+in `src/plugins/CMakeLists.txt` - it only depends on Core, so that is where it
+belonged anyway.
+
+**And the real find: the incremental filter never worked, and its test was
+written so it could not fail.** With a filter set, no new line ever appeared.
+`appendFiltered()` walked every block up to `blockCount()`, including the last -
+but output arrives as *text and then a newline*, so the block that is last now
+is a line still being written. It was considered while empty, never looked at
+again, and the text that landed in it was lost.
+
+The equivalence test did not catch this because it fed its lines in the
+opposite order: `insertBlock()` and *then* `insertText()`. Written that way,
+every line is complete the moment it exists and no line is ever the last one
+while it is being written - so the case that breaks is unreachable from the
+fixture. Feeding the lines the way an `OutputFormatter` does makes the old code
+produce one line followed by seven blanks where filtering at once produces
+eight.
+
+So: `appendFiltered()` now stops before the last block and says why;
+`copyFiltered()` does not, because it is given a document nobody is adding to -
+they have different contracts and the test compares them across that
+difference deliberately. This is the third time in this migration that a
+fixture supplied the answer, and the first time it hid a defect rather than
+just a dead branch.
+
+One wart left alone, because the widget has it too: removing the *last* line by
+prefix takes the empty block a trailing newline leaves with it, so the next
+append lands on the end of the previous line. It surfaced as a test failure and
+the test was made realistic rather than the behaviour changed.
+
+Controls, all four biting on their own test: never pointing the view at the
+filtered document; not filtering what arrives while a filter is set; not
+rebuilding the filtered copy after lines are retracted from the middle of it;
+and not dimming when a run starts. Plus the one that matters most - putting
+`appendFiltered()`'s bound back - which the rewritten test now fails and the
+old one passed.

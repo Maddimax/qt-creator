@@ -7,6 +7,7 @@ QtcPlugin {
     Depends { name: "QtcQuick" }
 
     Depends { name: "Core" }
+    Depends { name: "QuickUi" }
     Depends { name: "TextEditor" }
 
     Depends { name: "libclang"; required: false }
@@ -42,6 +43,7 @@ QtcPlugin {
             "buildsteplist.cpp", "buildsteplist.h",
             "buildstepspage.cpp", "buildstepspage.h",
             "buildsystem.cpp", "buildsystem.h",
+            "buildsystemoutputwindow.cpp", "buildsystemoutputwindow.h",
             "buildtargetinfo.h",
             "buildtargettype.h",
             "clangparser.cpp", "clangparser.h",

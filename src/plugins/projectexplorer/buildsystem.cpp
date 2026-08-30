@@ -418,16 +418,13 @@ QVariant BuildSystem::extraData(const QString &buildKey, Utils::Id dataKey) cons
 
 void BuildSystem::startNewBuildSystemOutput(const QString &message)
 {
-    Core::OutputWindow *outputArea = ProjectExplorerPlugin::buildSystemOutput();
-    outputArea->grayOutOldContent();
-    outputArea->appendMessage(message + '\n', Utils::GeneralMessageFormat);
+    ProjectExplorerPlugin::startBuildSystemOutput(message + '\n');
     Core::MessageManager::writeFlashing(message);
 }
 
 void BuildSystem::appendBuildSystemOutput(const QString &message)
 {
-    Core::OutputWindow *outputArea = ProjectExplorerPlugin::buildSystemOutput();
-    outputArea->appendMessage(message + '\n', Utils::GeneralMessageFormat);
+    ProjectExplorerPlugin::appendToBuildSystemOutput(message + '\n');
     Core::MessageManager::writeSilently(message);
 }
 

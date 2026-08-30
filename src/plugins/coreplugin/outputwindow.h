@@ -90,6 +90,10 @@ public:
     // A line that arrives later can make an earlier skipped one into context,
     // so this is not simply "copy what matches": the lines owed *before* a new
     // match are copied with it.
+    //
+    // The source's last block is left alone: output arrives as text and then a
+    // newline, so whatever is last is a line still being written. Unlike
+    // copyFiltered(), which is given a document nobody is adding to.
     static void appendFiltered(const QTextDocument *source, QTextDocument *target,
                                const TextMatchingFunction &matches, int before, int after,
                                FilteredAppendState &state);

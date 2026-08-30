@@ -566,7 +566,12 @@ void OutputWindow::appendFiltered(const QTextDocument *source, QTextDocument *ta
         state.lastEmitted = block.blockNumber();
     };
 
-    for (int number = state.lastConsidered + 1; number < source->blockCount(); ++number) {
+    // Every block but the last. Nothing follows the last one, so it is a line
+    // still being written: output arrives as text and then a newline, so the
+    // block that is last now will have more added to it before it is done.
+    // Considering it here would emit half a line and then never look again.
+    const int complete = source->blockCount() - 1;
+    for (int number = state.lastConsidered + 1; number < complete; ++number) {
         const QTextBlock block = source->findBlockByNumber(number);
         state.lastConsidered = number;
         if (matches(block.text())) {
@@ -1259,20 +1264,23 @@ private slots:
             QTextDocument atOnce;
             OutputWindow::copyFiltered(&whole, &atOnce, matches, c.before, c.after);
 
-            // The same lines, but arriving one at a time.
+            // The same lines, but arriving one at a time - and arriving the way
+            // an OutputFormatter delivers them, as text followed by a newline.
+            // Written the other way round, block first and then text, no line
+            // is ever the last one while it is being written, and an
+            // incremental filter that mishandles exactly that looks correct.
             QTextDocument source;
             QTextDocument incremental;
             QTextCursor appender(&source);
             OutputWindow::FilteredAppendState state;
-            for (int i = 0; i < lines.size(); ++i) {
-                if (i > 0)
-                    appender.insertBlock();
-                appender.insertText(lines.at(i));
+            for (const QString &line : lines) {
+                appender.insertText(line);
+                appender.insertBlock();
                 OutputWindow::appendFiltered(&source, &incremental, matches, c.before, c.after,
                                              state);
             }
 
-            QCOMPARE(source.toPlainText(), whole.toPlainText());
+            QCOMPARE(source.toPlainText(), whole.toPlainText() + '\n');
             QVERIFY2(incremental.toPlainText() == atOnce.toPlainText(),
                      qPrintable(QString("filter \"%1\" (-%2/+%3):\n  line by line: %4\n  at once:      %5")
                                     .arg(QString::fromLatin1(c.filter))

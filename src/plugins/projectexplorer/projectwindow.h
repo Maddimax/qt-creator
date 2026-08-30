@@ -8,9 +8,10 @@
 
 #include <memory>
 
-namespace Core { class OutputWindow; }
 
 namespace ProjectExplorer::Internal {
+
+class BuildSystemOutputWindow;
 
 class ProjectWindowPrivate;
 
@@ -27,7 +28,7 @@ public:
     void activateDeploySettings();
     void activateRunSettings();
 
-    Core::OutputWindow *buildSystemOutput() const;
+    BuildSystemOutputWindow *buildSystemOutput() const;
 
 private:
     void hideEvent(QHideEvent *event) override;

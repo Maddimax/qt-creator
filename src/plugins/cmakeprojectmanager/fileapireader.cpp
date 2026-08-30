@@ -288,7 +288,7 @@ void FileApiReader::parse(bool forceCMakeRun,
 
             // Clean output if configured
             if (cmakeSettingsForProject(params.project).cleanOldOutput()) {
-                ProjectExplorerPlugin::buildSystemOutput()->clearLinesPrefixedWith(
+                ProjectExplorerPlugin::clearBuildSystemOutputLinesPrefixedWith(
                     Constants::OUTPUT_PREFIX, true);
                 Core::MessageManager::clearLinesPrefixedWith(Constants::OUTPUT_PREFIX, false);
             }

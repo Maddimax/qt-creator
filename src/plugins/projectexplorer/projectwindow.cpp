@@ -4,6 +4,7 @@
 #include "projectwindow.h"
 
 #include "buildinfo.h"
+#include "buildsystemoutputwindow.h"
 #include "buildmanager.h"
 #include "buildsettingspropertiespage.h"
 #include "devicesupport/devicekitaspects.h"
@@ -72,10 +73,6 @@ using namespace Utils;
 
 namespace ProjectExplorer::Internal {
 
-const char kBuildSystemOutputContext[] = "ProjectsMode.BuildSystemOutput";
-const char kRegExpActionId[] = "OutputFilter.RegularExpressions.BuildSystemOutput";
-const char kCaseSensitiveActionId[] = "OutputFilter.CaseSensitive.BuildSystemOutput";
-const char kInvertActionId[] = "OutputFilter.Invert.BuildSystemOutput";
 
 const int CONTENTS_MARGIN = 5;
 const int BELOW_CONTENTS_MARGIN = 16;
@@ -97,143 +94,6 @@ public:
         setWidget(inner);
     }
 };
-
-class BuildSystemOutputWindow : public OutputWindow
-{
-public:
-    BuildSystemOutputWindow();
-
-    QWidget *toolBar();
-
-private:
-    void updateFilter();
-
-    QPointer<QWidget> m_toolBar;
-    QPointer<FancyLineEdit> m_filterOutputLineEdit;
-    QAction m_clear;
-    QAction m_filterActionRegexp;
-    QAction m_filterActionCaseSensitive;
-    QAction m_invertFilterAction;
-    QAction m_zoomIn;
-    QAction m_zoomOut;
-};
-
-BuildSystemOutputWindow::BuildSystemOutputWindow()
-    : OutputWindow(Context(kBuildSystemOutputContext), "ProjectsMode.BuildSystemOutput.Zoom")
-{
-    setReadOnly(true);
-
-    Command *clearCommand = ActionManager::command(Core::Constants::OUTPUTPANE_CLEAR);
-    m_clear.setIcon(Utils::Icons::CLEAN_TOOLBAR.icon());
-    m_clear.setText(clearCommand->action()->text());
-    ActionManager::registerAction(&m_clear,
-                                  Core::Constants::OUTPUTPANE_CLEAR,
-                                  Context(kBuildSystemOutputContext));
-    connect(&m_clear, &QAction::triggered, this, &OutputWindow::clear);
-
-    m_filterActionRegexp.setCheckable(true);
-    m_filterActionRegexp.setText(Tr::tr("Use Regular Expressions"));
-    connect(&m_filterActionRegexp, &QAction::toggled, this, &BuildSystemOutputWindow::updateFilter);
-    ActionManager::registerAction(&m_filterActionRegexp,
-                                  kRegExpActionId,
-                                  Context(Constants::C_PROJECTEXPLORER));
-
-    m_filterActionCaseSensitive.setCheckable(true);
-    m_filterActionCaseSensitive.setText(Tr::tr("Case Sensitive"));
-    connect(&m_filterActionCaseSensitive,
-            &QAction::toggled,
-            this,
-            &BuildSystemOutputWindow::updateFilter);
-    ActionManager::registerAction(&m_filterActionCaseSensitive,
-                                  kCaseSensitiveActionId,
-                                  Context(Constants::C_PROJECTEXPLORER));
-
-    m_invertFilterAction.setCheckable(true);
-    m_invertFilterAction.setText(Tr::tr("Show Non-matching Lines"));
-    connect(&m_invertFilterAction, &QAction::toggled, this, &BuildSystemOutputWindow::updateFilter);
-    ActionManager::registerAction(&m_invertFilterAction,
-                                  kInvertActionId,
-                                  Context(Constants::C_PROJECTEXPLORER));
-
-    connect(&TextEditor::globalFontSettings(), &TextEditor::FontSettings::changed,
-            this,
-            [this] { setBaseFont(TextEditor::globalFontSettings().data().font()); });
-    setBaseFont(TextEditor::globalFontSettings().data().font());
-
-    m_zoomIn.setIcon(Utils::Icons::PLUS_TOOLBAR.icon());
-    m_zoomIn.setText(ActionManager::command(Core::Constants::ZOOM_IN)->action()->text());
-    connect(&m_zoomIn, &QAction::triggered, this, [this] { zoomIn(); });
-    ActionManager::registerAction(&m_zoomIn,
-                                  Core::Constants::ZOOM_IN,
-                                  Context(kBuildSystemOutputContext));
-
-    m_zoomOut.setIcon(Utils::Icons::MINUS_TOOLBAR.icon());
-    m_zoomOut.setText(ActionManager::command(Core::Constants::ZOOM_OUT)->action()->text());
-    connect(&m_zoomOut, &QAction::triggered, this, [this] { zoomOut(); });
-    ActionManager::registerAction(&m_zoomOut,
-                                  Core::Constants::ZOOM_OUT,
-                                  Context(kBuildSystemOutputContext));
-}
-
-QWidget *BuildSystemOutputWindow::toolBar()
-{
-    if (!m_toolBar) {
-        m_toolBar = new StyledBar(this);
-        auto clearButton
-            = Command::toolButtonWithAppendedShortcut(&m_clear, Core::Constants::OUTPUTPANE_CLEAR);
-
-        m_filterOutputLineEdit = new FancyLineEdit;
-        m_filterOutputLineEdit->setButtonVisible(FancyLineEdit::Left, true);
-        m_filterOutputLineEdit->setButtonIcon(FancyLineEdit::Left, Utils::Icons::MAGNIFIER.icon());
-        m_filterOutputLineEdit->setFiltering(true);
-        m_filterOutputLineEdit->setHistoryCompleter("ProjectsMode.BuildSystemOutput.Filter");
-        m_filterOutputLineEdit->setAttribute(Qt::WA_MacShowFocusRect, false);
-        connect(m_filterOutputLineEdit,
-                &FancyLineEdit::textChanged,
-                this,
-                &BuildSystemOutputWindow::updateFilter);
-        connect(m_filterOutputLineEdit,
-                &FancyLineEdit::returnPressed,
-                this,
-                &BuildSystemOutputWindow::updateFilter);
-        connect(m_filterOutputLineEdit, &FancyLineEdit::leftButtonClicked, this, [this] {
-            auto popup = new OptionsPopup(m_filterOutputLineEdit,
-                                          {kRegExpActionId,
-                                           kCaseSensitiveActionId,
-                                           kInvertActionId});
-            popup->show();
-        });
-
-        auto zoomInButton = Command::toolButtonWithAppendedShortcut(&m_zoomIn,
-                                                                    Core::Constants::ZOOM_IN);
-        auto zoomOutButton = Command::toolButtonWithAppendedShortcut(&m_zoomOut,
-                                                                     Core::Constants::ZOOM_OUT);
-
-        auto layout = new QHBoxLayout;
-        layout->setContentsMargins(0, 0, 0, 0);
-        layout->setSpacing(0);
-        m_toolBar->setLayout(layout);
-        layout->addWidget(clearButton);
-        layout->addWidget(m_filterOutputLineEdit);
-        layout->addWidget(zoomInButton);
-        layout->addWidget(zoomOutButton);
-        layout->addStretch();
-    }
-    return m_toolBar;
-}
-
-void BuildSystemOutputWindow::updateFilter()
-{
-    if (!m_filterOutputLineEdit)
-        return;
-    updateFilterProperties(m_filterOutputLineEdit->text(),
-                           m_filterActionCaseSensitive.isChecked() ? Qt::CaseSensitive
-                                                                    : Qt::CaseInsensitive,
-                           m_filterActionRegexp.isChecked(),
-                           m_invertFilterAction.isChecked(),
-                           0 /* before context */,
-                           0 /* after context */);
-}
 
 using ProjectPanels = QList<QWidget *>;
 
@@ -1886,7 +1746,7 @@ void ProjectWindow::activateRunSettings()
     d->activateTargetTab(2);
 }
 
-OutputWindow *ProjectWindow::buildSystemOutput() const
+BuildSystemOutputWindow *ProjectWindow::buildSystemOutput() const
 {
     return d->m_buildSystemOutput;
 }

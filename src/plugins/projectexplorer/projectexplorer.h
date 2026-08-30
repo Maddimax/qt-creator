@@ -160,7 +160,14 @@ public:
 
     static QWidget *createRecentProjectsView();
 
-    static Core::OutputWindow *buildSystemOutput();
+    // Writes to the Build System Output view in Projects mode. The second
+    // dims what the previous run left there first.
+    static void appendToBuildSystemOutput(const QString &message);
+    static void startBuildSystemOutput(const QString &message);
+
+    // Retracts lines already written there, by prefix.
+    static void clearBuildSystemOutputLinesPrefixedWith(const QString &prefix,
+                                                        bool deleteTrailingLineBreak);
 
 public slots:
     void handleLink(const QUrl &url) const;

@@ -66,6 +66,7 @@
 #include "projecttree.h"
 #include "projecttreewidget.h"
 #include "projectwelcomepage.h"
+#include "buildsystemoutputwindow.h"
 #include "projectwindow.h"
 #include "sanitizerparser.h"
 #include "selectablefilesmodel.h"
@@ -930,6 +931,7 @@ Result<> ProjectExplorerPlugin::initialize(const QStringList &arguments)
 
 #ifdef WITH_TESTS
     addTestCreator(createAbiTest);
+    addTestCreator(createBuildSystemOutputTest);
     addTestCreator(createAbiAspectsTest);
     addTestCreator(createClangParserTest);
     addTestCreator(createClangClParserTest);
@@ -4535,9 +4537,22 @@ void ProjectExplorerPlugin::handleLink(const QUrl &url) const
         qWarning() << "ProjectExplorerPlugin::handleLink: Unknown link:" << url;
 }
 
-OutputWindow *ProjectExplorerPlugin::buildSystemOutput()
+void ProjectExplorerPlugin::appendToBuildSystemOutput(const QString &message)
 {
-    return dd->m_proWindow->buildSystemOutput();
+    dd->m_proWindow->buildSystemOutput()->appendMessage(message, Utils::GeneralMessageFormat);
+}
+
+void ProjectExplorerPlugin::clearBuildSystemOutputLinesPrefixedWith(
+    const QString &prefix, bool deleteTrailingLineBreak)
+{
+    dd->m_proWindow->buildSystemOutput()->clearLinesPrefixedWith(prefix, deleteTrailingLineBreak);
+}
+
+void ProjectExplorerPlugin::startBuildSystemOutput(const QString &message)
+{
+    Internal::BuildSystemOutputWindow * const output = dd->m_proWindow->buildSystemOutput();
+    output->grayOutOldContent();
+    output->appendMessage(message, Utils::GeneralMessageFormat);
 }
 
 RecentProjectsEntries ProjectExplorerPlugin::recentProjects()
