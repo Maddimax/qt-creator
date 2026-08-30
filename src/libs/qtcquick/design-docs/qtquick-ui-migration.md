@@ -21359,3 +21359,56 @@ failures, `CodecSelectorTest` 9 passed. `Core_qmllint` clean. No `.qbs` edit.
 
 **Next:** the session dialog, then Gerrit, log-change, stash and bookmarks -
 all the same shape, all now unblocked.
+
+## 2026-08-30 — The session dialog, and a model QML already had a name for
+
+Third of the activation dialogs, and the first where the widget being replaced
+was a *class*: `SessionView` was a `TreeView` subclass holding a `SessionModel`
+and five one-line operations. Every one of those delegated to the model, so the
+view had nothing left once the table drew the rows, and it is deleted -
+`sessionview.cpp/.h`, and its entries in both build files.
+
+**A model that QML already reads can still be wrong for a table.**
+`SessionModel::roleNames()` maps `Qt::DisplayRole` to `"sessionName"`, because
+the Welcome page's QML reads it that way. A table cell reads `"display"`, and
+a role has exactly **one** name - so handing this model to a table draws the
+right number of empty rows. The dialog looks at it through a proxy that renames
+that one role and leaves the Welcome page's names alone. This is the other half
+of [[qtc-rolenames-plumbing-traps]]: the trap there was renaming DisplayRole
+and losing "display"; here the renaming was already done, by someone else, for
+a good reason.
+
+**A control that did not bite, and the bug it was hiding.** The test asserted
+`!data(index, EditableRole).toBool()`, and removing the override that answers
+that role changed nothing - because an *unanswered* role is an invalid QVariant
+and `.toBool()` is false. But QML sees `undefined` there, and
+`AspectTableCell` falls back to editable-by-default for a table, so the
+vacuous version would have shipped session names that could be renamed by
+typing over them. `QVERIFY(editable.isValid())` before the value is what makes
+the control bite. **Assert that the model answered, not just that the answer
+was falsy.**
+
+`updateActions()` is now `actionsFor(sessions, activeSession)` returning four
+bools, so the rules - the default session cannot be renamed or deleted, the
+active one cannot be deleted, and only a single selection can be opened or
+cloned - are seven assertions instead of a screenshot.
+
+Negative controls: the proxy leaving DisplayRole under the Welcome page's name;
+the default session deletable; a session renamable by typing in the list; and
+the `.qml` not handing the activation back. All four bit, the third only after
+the assertion was strengthened.
+
+QuickUi 186 passed / 0 failed / 1 skipped, exit 0. `Core` exit 0 with no
+failures, `SessionDialogTest` 8 passed. `Core_qmllint` clean.
+
+**The `.qbs` edit could not be re-resolved:** there is no `qbs` binary on this
+machine (`qbs resolve` exits 127). The edit is the deletion of the two
+`sessionview` entries, mirroring the same deletion from `CMakeLists.txt`, and
+both files were checked to agree afterwards - but it has not been resolved, and
+that is worth knowing before this branch is built with qbs.
+
+**Next:** Gerrit, log-change, stash and bookmarks - the last four of the
+activation family. `SessionNameInputDialog` is still a widget dialog; it
+belongs with the text-field group, and its `SessionValidator` (invalid
+characters, duplicate names, and the " (2)" fixup) is a rule worth extracting
+when it is ported.

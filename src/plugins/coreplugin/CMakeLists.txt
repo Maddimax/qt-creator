@@ -277,8 +277,6 @@ add_qtc_plugin(Core
     sessiondialog.h
     sessionmodel.cpp
     sessionmodel.h
-    sessionview.cpp
-    sessionview.h
     settingsmode.cpp
     settingsmode.h
     settingstransfer.cpp
@@ -375,6 +373,7 @@ if(TARGET Core)
     NO_PLUGIN
     QML_FILES
       CodecSelector.qml
+      SessionDialog.qml
       CustomLanguageModelsPage.qml
       EnvVarSeparatorsDialog.qml
       FilePropertiesDialog.qml

@@ -4,32 +4,46 @@
 #pragma once
 
 #include <QString>
+#include <QStringList>
 #include <QDialog>
 
+#include <memory>
+
 QT_BEGIN_NAMESPACE
-class QCheckBox;
 class QLineEdit;
+class QObject;
 class QPushButton;
 QT_END_NAMESPACE
 
 namespace Core::Internal {
 
+class SessionSettings;
+#ifdef WITH_TESTS
+class SessionDialogTest;
+QObject *createSessionDialogTest();
+#endif
+
 class SessionDialog : public QDialog
 {
 public:
     SessionDialog();
+    ~SessionDialog() override;
 
     void setAutoLoadSession(bool);
     bool autoLoadSession() const;
 
 private:
-    void updateActions(const QStringList &sessions);
+    void updateActions();
+    QString currentSession() const;
+    QStringList selectedSessions() const;
+    void switchToCurrentSession();
+    void selectSession(const QString &sessionName);
 
-    QPushButton *m_openButton;
-    QPushButton *m_renameButton;
-    QPushButton *m_cloneButton;
-    QPushButton *m_deleteButton;
-    QCheckBox *m_autoLoadCheckBox;
+    const std::unique_ptr<SessionSettings> m_settings;
+
+#ifdef WITH_TESTS
+    friend class SessionDialogTest;
+#endif
 };
 
 class SessionNameInputDialog : public QDialog

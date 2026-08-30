@@ -11,6 +11,7 @@
 #include "coreconstants.h"
 #include "coreplugintr.h"
 #include "dialogs/codecselector.h"
+#include "sessiondialog.h"
 #include "customlanguagemodels.h"
 #include "designmode.h"
 #include "dialogs/ioptionspage.h"
@@ -534,6 +535,7 @@ Result<> CorePlugin::initialize(const QStringList &arguments)
     addTestCreator(createExternalToolTest);
     addTestCreator(createEnvVarSeparatorsTest);
     addTestCreator(Internal::createCodecSelectorTest);
+    addTestCreator(Internal::createSessionDialogTest);
     addTestCreator(createFilePropertiesTest);
     addTestCreator(createMinimapImageTest);
     addTestCreator(createLocatorTest);

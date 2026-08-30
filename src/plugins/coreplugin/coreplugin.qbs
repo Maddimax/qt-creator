@@ -178,8 +178,6 @@ QtcPlugin {
             "sessiondialog.h",
             "sessionmodel.cpp",
             "sessionmodel.h",
-            "sessionview.cpp",
-            "sessionview.h",
             "secretaspect.cpp",
             "secretaspect.h",
             "settingsmode.cpp",
