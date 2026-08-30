@@ -18,6 +18,14 @@ QT_END_NAMESPACE
 namespace Core::Internal {
 
 class SessionSettings;
+class SessionNameSettings;
+
+// What is wrong with \a name as a session name, or nothing when it is a good
+// one. A session is a file, so a name that cannot be one is refused.
+QString sessionNameIssue(const QString &name, const QStringList &existing);
+
+// \a base with " (2)", " (3)"... until one is not taken.
+QString unusedSessionName(const QString &base, const QStringList &existing);
 #ifdef WITH_TESTS
 class SessionDialogTest;
 QObject *createSessionDialogTest();
@@ -50,6 +58,7 @@ class SessionNameInputDialog : public QDialog
 {
 public:
     SessionNameInputDialog();
+    ~SessionNameInputDialog() override;
 
     void setActionText(const QString &actionText, const QString &openActionText);
     void setValue(const QString &value);
@@ -57,7 +66,7 @@ public:
     bool isSwitchToRequested() const;
 
 private:
-    QLineEdit *m_newSessionLineEdit = nullptr;
+    const std::unique_ptr<SessionNameSettings> m_settings;
     QPushButton *m_switchToButton = nullptr;
     QPushButton *m_okButton = nullptr;
     bool m_usedSwitchTo = false;

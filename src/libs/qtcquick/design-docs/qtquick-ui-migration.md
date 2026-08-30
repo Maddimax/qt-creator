@@ -22062,3 +22062,48 @@ failures, `PasteViewTest` 9 passed. `CodePaster_qmllint` clean. No `.qbs` edit:
 the text-field dialogs and the ones needing a component of their own -
 `SessionNameInputDialog` is the obvious next one, and its `SessionValidator`
 (invalid characters, duplicate names, the " (2)" fixup) is the rule to extract.
+
+## 2026-08-31 — The session name dialog, and a validator with no fixup
+
+`SessionNameInputDialog` is the first of the text-field dialogs, and the
+interesting part is `SessionValidator`, which a `StringAspect` cannot take as
+it stands: a `QValidator` has two halves, and only one of them has an
+equivalent.
+
+- `validate()` becomes `sessionNameIssue(name, existing)` behind
+  `setValidationFunction()`. The aspect says *what is wrong* rather than
+  refusing the keystroke, which is better - the widget silently dropped a `/`
+  and left the reader guessing.
+- **`fixup()` has no equivalent at all.** A `QLineEdit` calls it when what was
+  typed is Intermediate and the reader presses Enter, and this one appended
+  " (2)", " (3)"... until the name was free. Nothing in the aspects does that.
+
+So the escalation moved to where the name is *suggested*: `cloneSession()` set
+`session + " (2)"` unconditionally, which is already taken as soon as you clone
+twice, and the widget only fixed it up after the reader hit Enter on it.
+`unusedSessionName()` picks the first free one up front. **The rule did not
+disappear; it moved to a place where it runs without being provoked.**
+
+Two things the extraction pinned that were previously assertions about
+nothing: the name check is **case-insensitive** on purpose, because two
+sessions differing only in case are one file on a case-insensitive filesystem;
+and an **empty name is not an error** - it is the buttons that refuse it,
+because there is nothing to complain about yet.
+
+**A control that did not run, and looked like a control that did not bite.**
+The `sed` for "a name that cannot be a file is accepted" never matched - the
+backslashes in `"/:\\?*"` defeated the shell quoting - so the suite passed and
+I nearly recorded it as a redundant guard. Re-doing it in Python with an
+`assert` on the anchor made it fail two tests immediately. **A control that
+edits nothing is indistinguishable from a control that bites nothing**, which
+is the same lesson as the silent replacements two batches ago, and the same
+fix: assert that the edit landed.
+
+Negative controls: the `.qml` naming an aspect that does not exist; a name that
+cannot be a file accepted; two sessions differing only in case; a clone always
+offered " (2)"; and the field never saying what is wrong. All five bit.
+
+QuickUi 191 passed / 0 failed / 1 skipped, exit 0. `Core` exit 0 with no
+failures, `SessionDialogTest` 12 passed. `Core_qmllint` clean. No `.qbs` edit.
+
+**Next:** the rest of the text-field dialogs.

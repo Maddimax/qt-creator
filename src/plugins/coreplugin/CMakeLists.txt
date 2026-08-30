@@ -374,6 +374,7 @@ if(TARGET Core)
     QML_FILES
       CodecSelector.qml
       SessionDialog.qml
+      SessionNameInputDialog.qml
       CustomLanguageModelsPage.qml
       EnvVarSeparatorsDialog.qml
       FilePropertiesDialog.qml

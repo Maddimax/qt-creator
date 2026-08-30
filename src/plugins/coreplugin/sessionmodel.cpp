@@ -192,7 +192,10 @@ void SessionModel::cloneSession(const QString &session)
     SessionNameInputDialog sessionInputDialog;
     sessionInputDialog.setWindowTitle(PE::Tr::tr("New Session Name"));
     sessionInputDialog.setActionText(PE::Tr::tr("&Clone"), PE::Tr::tr("Clone and &Open"));
-    sessionInputDialog.setValue(session + " (2)");
+    // A free name rather than always " (2)": cloning twice suggested a name
+    // that already existed, which the widget's validator only fixed up once
+    // the reader pressed Enter on it.
+    sessionInputDialog.setValue(unusedSessionName(session, SessionManager::sessions()));
 
     runSessionNameInputDialog(&sessionInputDialog, [session](const QString &newName) {
         SessionManager::cloneSession(session, newName);

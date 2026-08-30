@@ -40,63 +40,65 @@ struct Tr
 };
 } // namespace PE
 
-class SessionValidator : public QValidator
+// The characters a session name may not hold: a session is a file on disk, and
+// these are the ones a path cannot carry.
+static const QString invalidSessionNameCharacters = "/:\\?*";
+
+QString sessionNameIssue(const QString &name, const QStringList &existing)
+{
+    for (const QChar c : invalidSessionNameCharacters) {
+        if (name.contains(c))
+            return PE::Tr::tr("A session name cannot contain \"%1\".").arg(c);
+    }
+    // Case-insensitively: two sessions differing only in case would be one
+    // file on a case-insensitive filesystem.
+    if (existing.contains(name, Qt::CaseInsensitive))
+        return PE::Tr::tr("A session named \"%1\" already exists.").arg(name);
+    return {};
+}
+
+QString unusedSessionName(const QString &base, const QStringList &existing)
+{
+    // What the widget validator's fixup() did: " (2)", then " (3)", until one
+    // is free.
+    for (int i = 2; ; ++i) {
+        const QString candidate = base + " (" + QString::number(i) + ')';
+        if (!existing.contains(candidate, Qt::CaseInsensitive))
+            return candidate;
+    }
+}
+
+class SessionNameSettings final : public AspectContainer
 {
 public:
-    SessionValidator(QObject *parent, const QStringList &sessions);
-    void fixup(QString & input) const override;
-    QValidator::State validate(QString & input, int & pos) const override;
-private:
-    bool hasSession(const QString &input) const;
+    SessionNameSettings()
+    {
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Core/SessionNameInputDialog.qml"));
 
-    QStringList m_sessions;
+        prompt.setQmlName("Prompt");
+        prompt.setText(PE::Tr::tr("Enter the name of the session:"));
+
+        name.setQmlName("Name");
+        name.setDisplayStyle(StringAspect::LineEditDisplay);
+        name.setValidationFunction([](const QString &candidate) -> Result<> {
+            const QString issue = sessionNameIssue(candidate, SessionManager::sessions());
+            if (issue.isEmpty())
+                return ResultOk;
+            return ResultError(issue);
+        });
+    }
+
+    TextDisplay prompt{this};
+    StringAspect name{this};
 };
-
-SessionValidator::SessionValidator(QObject *parent, const QStringList &sessions)
-    : QValidator(parent), m_sessions(sessions)
-{
-}
-
-QValidator::State SessionValidator::validate(QString &input, int &pos) const
-{
-    Q_UNUSED(pos)
-
-    if (input.contains(QLatin1Char('/'))
-            || input.contains(QLatin1Char(':'))
-            || input.contains(QLatin1Char('\\'))
-            || input.contains(QLatin1Char('?'))
-            || input.contains(QLatin1Char('*')))
-        return QValidator::Invalid;
-
-    if (hasSession(input))
-        return QValidator::Intermediate;
-    else
-        return QValidator::Acceptable;
-}
-
-bool SessionValidator::hasSession(const QString &input) const
-{
-    return m_sessions.contains(input, Qt::CaseInsensitive);
-}
-
-void SessionValidator::fixup(QString &input) const
-{
-    int i = 2;
-    QString copy;
-    do {
-        copy = input + QLatin1String(" (") + QString::number(i) + QLatin1Char(')');
-        ++i;
-    } while (hasSession(copy));
-    input = copy;
-}
 
 SessionNameInputDialog::SessionNameInputDialog()
     : QDialog(ICore::dialogParent())
+    , m_settings(new SessionNameSettings)
 {
-    m_newSessionLineEdit = new QLineEdit(this);
-    m_newSessionLineEdit->setValidator(new SessionValidator(this, SessionManager::sessions()));
-
-    auto buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, Qt::Horizontal, this);
+    auto buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel,
+                                        Qt::Horizontal, this);
     m_okButton = buttons->button(QDialogButtonBox::Ok);
     m_switchToButton = new QPushButton;
     m_switchToButton->setDefault(true);
@@ -105,18 +107,14 @@ SessionNameInputDialog::SessionNameInputDialog()
         m_usedSwitchTo = true;
     });
 
-    // clang-format off
-    using namespace Layouting;
-    Column {
-        PE::Tr::tr("Enter the name of the session:"),
-        m_newSessionLineEdit,
-        buttons,
-    }.attachTo(this);
-    // clang-format on
+    auto layout = new QVBoxLayout(this);
+    layout->addWidget(Core::createAspectForm(m_settings.get()));
+    layout->addWidget(buttons);
 
-    connect(m_newSessionLineEdit, &QLineEdit::textChanged, this, [this](const QString &text) {
-        m_okButton->setEnabled(!text.isEmpty());
-        m_switchToButton->setEnabled(!text.isEmpty());
+    connect(&m_settings->name, &BaseAspect::changed, this, [this] {
+        const bool named = !m_settings->name().isEmpty();
+        m_okButton->setEnabled(named);
+        m_switchToButton->setEnabled(named);
     });
     m_okButton->setEnabled(false);
     m_switchToButton->setEnabled(false);
@@ -124,6 +122,8 @@ SessionNameInputDialog::SessionNameInputDialog()
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
 }
+
+SessionNameInputDialog::~SessionNameInputDialog() = default;
 
 void SessionNameInputDialog::setActionText(const QString &actionText, const QString &openActionText)
 {
@@ -133,12 +133,12 @@ void SessionNameInputDialog::setActionText(const QString &actionText, const QStr
 
 void SessionNameInputDialog::setValue(const QString &value)
 {
-    m_newSessionLineEdit->setText(value);
+    m_settings->name.setValue(value);
 }
 
 QString SessionNameInputDialog::value() const
 {
-    return m_newSessionLineEdit->text();
+    return m_settings->name();
 }
 
 bool SessionNameInputDialog::isSwitchToRequested() const
@@ -348,6 +348,60 @@ private slots:
         SessionSettings settings;
         const Result<> rendered = Core::aspectFormRenders(&settings, "SessionDialog.qml");
         QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+    }
+
+    void testTheNameDialogDrawsWithTheQmlItNames()
+    {
+        SessionNameSettings settings;
+        const Result<> rendered
+            = Core::aspectFormRenders(&settings, "SessionNameInputDialog.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+    }
+
+    void testWhatIsWrongWithASessionName()
+    {
+        const QStringList existing{"default", "Work"};
+
+        QVERIFY(sessionNameIssue("something new", existing).isEmpty());
+
+        // A session is a file, so a name that cannot be a file name is not one.
+        for (const QString &bad : QStringList{"a/b", "a:b", "a\\b", "a?b", "a*b"}) {
+            QVERIFY2(!sessionNameIssue(bad, existing).isEmpty(),
+                     qPrintable("accepted " + bad));
+        }
+
+        // Two sessions differing only in case would be one file on a
+        // case-insensitive filesystem.
+        QVERIFY2(!sessionNameIssue("Work", existing).isEmpty(), "a duplicate name was accepted");
+        QVERIFY2(!sessionNameIssue("work", existing).isEmpty(),
+                 "a name differing only in case was accepted");
+
+        // An empty name is not refused here - the buttons are what refuse it,
+        // because there is nothing to complain about yet.
+        QVERIFY(sessionNameIssue({}, existing).isEmpty());
+    }
+
+    void testWhichNameACloneIsOffered()
+    {
+        // The first free one, so cloning twice does not suggest a name that
+        // is already taken.
+        QCOMPARE(unusedSessionName("Work", {"Work"}), QString("Work (2)"));
+        QCOMPARE(unusedSessionName("Work", {"Work", "Work (2)"}), QString("Work (3)"));
+        QCOMPARE(unusedSessionName("Work", {"Work", "Work (2)", "Work (3)"}),
+                 QString("Work (4)"));
+
+        // Case-insensitively, for the same reason as above.
+        QCOMPARE(unusedSessionName("Work", {"work (2)"}), QString("Work (3)"));
+    }
+
+    void testTheNameFieldSaysWhatIsWrong()
+    {
+        // The rule reaches the field, so the reader is told rather than just
+        // refused.
+        SessionNameSettings settings;
+        QVERIFY2(!settings.name.validationMessage("a/b").isEmpty(),
+                 "the field accepted a name that cannot be a file");
+        QVERIFY(settings.name.validationMessage("something new").isEmpty());
     }
 
     void testWhatCanBeDoneToASelection()
