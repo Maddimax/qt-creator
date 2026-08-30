@@ -27,6 +27,9 @@
 
 #include <utils/aspectwidgets.h>
 #include <utils/algorithm.h>
+#include <utils/aspectpresentation.h>
+
+#include <qtcquick/aspectcontainermodel.h>
 #include <utils/checkablemessagebox.h>
 #include <utils/detailswidget.h>
 #include <utils/layoutbuilder.h>
@@ -1072,6 +1075,44 @@ class RunConfigurationTest : public QObject
     Q_OBJECT
 
 private slots:
+    // An aspect that draws itself with a widget - setConfigWidgetCreator() -
+    // has nothing for a Qt Quick page to draw, and a plain one answering
+    // AspectControls::Custom is shown as a placeholder saying so.
+    //
+    // Every remaining caller of setConfigWidgetCreator() is an AspectContainer,
+    // which answers Container regardless, so its children are drawn and the
+    // widget is only used by the widget form. That is the whole reason those
+    // call sites are not blocking anything, and nothing said so until now.
+    void testAGroupWithAWidgetOfItsOwnIsStillDrawnByQtQuick()
+    {
+        GlobalOrProjectAspect aspect;
+        auto * const project = new AspectContainer; // Owned by the aspect.
+        BoolAspect option(project);
+        option.setLabelText("Option");
+        aspect.setProjectSettings(project);
+
+        QVERIFY2(!aspect.configWidgetCreator(),
+                 "fixture: nothing has given this group a widget yet");
+        QVERIFY(QtcQuick::AspectContainerModel::isFullyRenderable(&aspect));
+
+        // What Perf, the QML profiler and Valgrind each do to it.
+        aspect.setConfigWidgetCreator([] { return new QWidget; });
+        QVERIFY(aspect.configWidgetCreator());
+
+        QCOMPARE(aspect.presentation().control, Utils::AspectControls::Container);
+        QVERIFY2(QtcQuick::AspectContainerModel::isFullyRenderable(&aspect),
+                 "a run settings group with a widget of its own draws as a placeholder");
+
+        // And the same is not true of a plain aspect: this is what the
+        // container is being contrasted with, so the contrast is asserted
+        // rather than assumed.
+        AspectContainer plain;
+        BoolAspect custom(&plain);
+        custom.setConfigWidgetCreator([] { return new QWidget; });
+        QCOMPARE(QtcQuick::AspectContainerModel::kindOf(&custom),
+                 QtcQuick::AspectContainerModel::Bool);
+    }
+
     // Run Settings draws a setting group the same way an options page does.
     // It used to lay the container out with widgets directly, which ignored
     // the QML the container names: the Perf profiler's events table asks for

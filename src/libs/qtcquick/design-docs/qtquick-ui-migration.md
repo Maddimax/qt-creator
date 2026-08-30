@@ -19527,3 +19527,74 @@ QuickUi 178 passed / 0 failed / 1 skipped, exit 0. `LogWindowTest` 18 passed.
 **The plan has no named pane left.** Every output pane, the debugger console
 and both log windows are drawn with Qt Quick. What remains is not a pane but a
 class of thing - see the next batch's entry for what was picked and why.
+
+## 2026-08-30 — The census, and a blocker that had already been cleared
+
+With no pane left to port, this batch counted what is actually outstanding
+rather than porting the next thing on a stale list. Three of the four things I
+expected to find were wrong.
+
+**`setConfigWidgetCreator` is not blocking anything, and has not been for a
+while.** The earlier entry called its call sites "the largest remaining
+functional gap", on the reasoning that such an aspect answers
+`AspectControls::Custom` and a Quick page draws a placeholder where an editor
+was. Nine call sites remain, and **every one of them is on an
+`AspectContainer`** - `EnvironmentAspect` and its two subclasses,
+`CustomParsersAspect`, `GlobalOrProjectAspect` (via
+`createRunConfigAspectWidget`, which Perf, the QML profiler and Valgrind all
+share) and CMake's configure-environment aspect.
+`AspectContainer::presentation()` answers `Container` whatever else is set on
+it, so the children are drawn and the widget is only ever used by the widget
+form. The rule is true only of *plain* aspects, and no plain aspect sets one.
+
+Now asserted rather than reasoned about, in
+`RunConfigurationTest::testAGroupWithAWidgetOfItsOwnIsStillDrawnByQtQuick`:
+a `GlobalOrProjectAspect` is given a config widget creator and must stay
+`isFullyRenderable()`. Two controls, both bit - `AspectContainer::presentation()`
+answering `Custom` when a creator is set, and `kindOf()` answering
+`Unsupported` for any aspect with one. Both are plausible "tidy-ups" that would
+silently take out three plugins' run settings.
+
+**My first version of that test was worth throwing away**, and says something
+about how to write them: it duplicated an existing test almost line for line,
+and its fixture had no config widget creator at all - so it asserted the
+opposite of the thing it was named for, and passed. Setting up the condition
+the test is *about* is not optional, and "it passes" is not evidence that it
+does.
+
+**The page sweep already had the number, measured.**
+`testAspectDrivenPagesRenderWithQuick` prints it: **108 aspect-driven options
+pages, 108 rendered with Qt Quick, 0 still on widgets.** One page holds no
+aspects at all (Browse). There is no porting backlog of pages.
+
+**The `FontPicker` gap is latent, not live.**
+`AspectContainerModel::kindOf()` maps `AspectControls::FontPicker` to
+`Unsupported`, and `Utils::FontAspect` has exactly one user
+(`LocalHelpManager::fallbackFont`, which *is* on the Help page). No placeholder
+is drawn, because `FontAspect` is itself an `AspectContainer`: the sweep walks
+into it and its `fontFamily` and `fontPointSize` children are drawn as an
+ordinary family picker and a number. So Quick draws two fields where the widget
+renderer draws one combined picker - a difference in presentation, not a
+missing editor.
+
+**What is left is not panes or pages.** The widget UI still in the tree is
+dialogs, wizards, the welcome page, editor infrastructure and QmlDesigner - a
+different class of work with different rules, and nothing this plan named.
+
+QuickUi 178 passed / 0 failed / 1 skipped, exit 0. `RunConfigurationTest` 11
+passed. `ProjectExplorer` as a whole exits 2 on the two standing failures
+(`RunWorkerConflictTest::testConflict` and
+`ProjectTest::testSourceToBinaryMapping(qbs)`). No `.qbs` edit.
+
+**Next.** The plan's own work is done: every output pane and all 108
+aspect-driven pages are drawn with Qt Quick. What I would pick up, in order:
+
+1. **The `QSKIP`-in-`initTestCase` defect.** A skip there makes every
+   subsequent `QTest::qExec()` in the process run *nothing*, and the test plan
+   is `QHash`-ordered, so which suites are silently skipped changes per run.
+   Everything above is measured with that hanging over it.
+2. **`FontAspect` as one control**, if the two-fields-instead-of-one difference
+   is worth closing.
+3. **Dialogs and wizards**, which is where the remaining widget UI actually is
+   - but that is a new plan, not this one, and it should be scoped before it is
+   started.
