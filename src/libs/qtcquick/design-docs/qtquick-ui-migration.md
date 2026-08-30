@@ -20718,3 +20718,48 @@ edit.
 **Next:** the nine dialogs, which are now routine - `QmlProfilerAttachDialog`
 and `StartRemoteDialog` (Valgrind) are the two smallest. Each is a
 `KitChooserAspect` plus a handful of fields.
+
+## 2026-08-30 — The first kit-chooser dialog, and a name that was already taken
+
+`QmlProfilerAttachDialog` is the first real user of `KitChooserAspect`, and it
+is the size the plan predicted: an `AttachSettings` container holding a
+`TextDisplay`, the chooser and an `IntegerAspect`, a three-line `.qml`, and a
+`QDialogButtonBox` beside `Core::createAspectForm()`. The dialog's four public
+functions - `port()`, `setPort()`, `kit()`, `setKitId()` - now forward to the
+aspects, so nothing outside it changed.
+
+**Adding a test class cost a link error, and that was the lucky outcome.**
+`class QmlProfilerAttachDialogTest` already existed in
+`tests/qmlprofilerattachdialog_test.cpp`; defining a second one in
+`qmlprofilerattachdialog.cpp` is the ODR clash that normally *links* and runs
+the other class's code. It only failed loudly here because both are `Q_OBJECT`,
+so moc generated two definitions of `metaObject()` and the linker refused. A
+plain class would have built. `grep -rn "class <Name>"` before adding one.
+
+**That pre-existing test is the port's real regression proof.** `testAccessors`
+drives the dialog through its public API - `setPort(4444)` then `port()`,
+`setKitId("dings")` then `kit()` against a kit it registers - and was written
+against the widget. It passes unchanged against the aspects, which is worth
+more than the new tests: it was not written to agree with them.
+
+**An assertion about "a kit with no device" cannot be made with a bare `Kit`.**
+`RunDeviceKitAspect::device()` falls back to
+`DeviceManager::defaultDevice(deviceTypeId(k))`, so a default-constructed kit
+resolves the desktop device and the predicate accepts it. The kit has to be
+given a *device type* that has no device before the rule has anything to
+refuse. The predicate is not vacuous, though - control 2 removed it and a real
+kit on this machine was offered, so something in the list does fail it.
+
+Negative controls: the `.qml` naming an aspect that does not exist; the chooser
+not given the dialog's kit rule; the dialog opening on the wrong port; and a
+port range narrower than the spin box allowed. All four bit.
+
+QuickUi 182 passed / 0 failed / 1 skipped, exit 0.
+`QmlProfilerAttachSettingsTest` 5 passed, `QmlProfilerAttachDialogTest` 3
+passed, both exit 0. No `.qbs` edit: `profiler.qbs` takes `*.qml` by wildcard,
+so a new form needs no mirror there - unlike the CMake list, which names every
+file.
+
+**Next:** `StartRemoteDialog` (Valgrind), then the seven remaining kit-chooser
+dialogs - five in Debugger, plus `DeviceProcessesDialog` and
+`ParseIssuesDialog`.

@@ -1,6 +1,7 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
+#include "qmlprofilerattachdialog.h"
 #include "ctfvisualizertool.h"
 #include "perfloaddialog.h"
 #include "mcpsupport.h"
@@ -77,6 +78,7 @@ class ProfilerPlugin final : public ExtensionSystem::IPlugin
 #ifdef WITH_TESTS
         addTest<CtfTimelineModelTest>();
         addTestCreator(createPerfLoadDialogTest);
+        addTestCreator(createQmlProfilerAttachSettingsTest);
         addTest<DebugMessagesModelTest>();
         addTest<FlameGraphModelTest>();
         addTest<FlameGraphViewTest>();
