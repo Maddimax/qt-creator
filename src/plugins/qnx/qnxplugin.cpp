@@ -4,6 +4,7 @@
 #include "qnxanalyzesupport.h"
 #include "qnxconstants.h"
 #include "qnxdebugsupport.h"
+#include "qnxdeployqtlibrariesdialog.h"
 #include "qnxdevice.h"
 #include "qnxqtversion.h"
 #include "qnxrunconfiguration.h"
@@ -124,6 +125,10 @@ class QnxPlugin final : public ExtensionSystem::IPlugin
         setupQnxDebugging();
         setupQnxQmlProfiler();
         setupQnxSdpEnvFileToolAspect();
+
+#ifdef WITH_TESTS
+        addTestCreator(createDeployQtLibrariesTest);
+#endif
     }
 
     void extensionsInitialized() final

@@ -21974,3 +21974,50 @@ does not take `*.qml` by wildcard.
 
 **Next:** `qnxdeployqtlibrariesdialog`, which is the other progress-and-log
 dialog and now has everything it needs, and `cpaster/pasteview`.
+
+## 2026-08-31 — The QNX deploy dialog, and two edits that silently did nothing
+
+The second dialog to use the progress aspect, and the third transcript-shaped
+one. The form is the Qt version to deploy, the Deploy button, the remote
+directory and the bar; `Core::OutputPaneView` takes the log, which the widget
+appended plain text to.
+
+Three rules came out, and the first is the one worth having:
+`progressStepsIn()` - **the upload never reports progress**, it prints sftp
+chatter, and the dialog counts `sftp> put` and `sftp> ln -s` lines. A symlink
+is a deployed file too, which control 2 removes. Then `setDeploying()`, because
+what is being deployed and where cannot change under a running upload, and
+`mustConfirmClose()`.
+
+**Two scripted edits matched nothing and I did not notice until the compiler
+did.** The first sliced from `int progressStepsIn(...)` to the constructor -
+but that name appears *twice*, and `index()` found the **declaration**, so the
+slice swallowed the dialog class. The second replaced
+`} // namespace Qnx::Internal`, and this file writes `} // Qnx::Internal`, so
+the whole test block was dropped while the `.moc` include beside it was
+appended - which linked as *"undefined symbol createDeployQtLibrariesTest"*
+and looked like a build-system problem for two runs.
+
+Both have the same shape: **a replacement that does not match is silent**. The
+fix that actually saves time is to assert afterwards - `grep -c` for what
+should now be there - rather than to read the error the compiler eventually
+gives. The AutoMoc note *"No relevant classes found"* was the real clue and I
+read it as a configuration problem instead of as "the class you think you wrote
+is not in this file".
+
+Qnx had no QML module at all, so this adds one - and the matching `*.qml` group
+in `qnx.qbs`, mirroring how every other plugin splits it.
+
+Negative controls: the `.qml` naming an aspect that does not exist; a symlink
+not counted as a deployed file; any output moving the bar; the fields staying
+editable while deploying; and an idle dialog asking before closing. All five
+bit.
+
+QuickUi 191 passed / 0 failed / 1 skipped, exit 0. `Qnx` exit 0 with no
+failures, `DeployQtLibrariesTest` 7 passed. `Qnx_qmllint` clean.
+
+**The `.qbs` edit is unverified**, as before: no `qbs` on this machine. It adds
+the wildcard group the CMake module mirrors, and both files were checked to
+agree.
+
+**Next:** `cpaster/pasteview` is the last of the read-only reports on the list.

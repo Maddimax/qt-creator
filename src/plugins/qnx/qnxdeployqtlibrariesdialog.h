@@ -5,7 +5,17 @@
 
 #include <projectexplorer/devicesupport/idevicefwd.h>
 
+#include <QtGlobal>
+
+QT_BEGIN_NAMESPACE
+class QObject;
+QT_END_NAMESPACE
+
 namespace Qnx::Internal {
+
+#ifdef WITH_TESTS
+QObject *createDeployQtLibrariesTest();
+#endif
 
 void executeQnxDeployQtLibrariesDialog(const ProjectExplorer::IDeviceConstPtr &device);
 

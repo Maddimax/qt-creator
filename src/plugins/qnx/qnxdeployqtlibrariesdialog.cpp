@@ -15,7 +15,11 @@
 
 #include <qtsupport/qtversionmanager.h>
 
+#include <coreplugin/dialogs/ioptionspage.h>
+#include <coreplugin/outputpaneview.h>
+
 #include <utils/algorithm.h>
+#include <utils/aspects.h>
 #include <utils/dialogtask.h>
 #include <utils/guiutils.h>
 #include <utils/hostosinfo.h>
@@ -30,7 +34,13 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
+#include <QHBoxLayout>
 #include <QPlainTextEdit>
+#include <QVBoxLayout>
 #include <QProgressBar>
 #include <QPushButton>
 #include <QtTaskTree/QConditional>
@@ -43,10 +53,66 @@ using namespace Utils;
 
 namespace Qnx::Internal {
 
+// How many files a line of sftp chatter says have arrived. The upload reports
+// one line per file, and a symlink counts too.
+int progressStepsIn(const QString &message)
+{
+    return message.count("sftp> put") + message.count("sftp> ln -s");
+}
+
+// Whether closing has to be confirmed: a deployment that is still running is
+// stopped by it.
+bool mustConfirmClose(bool deploying)
+{
+    return deploying;
+}
+
+class DeployQtSettings final : public AspectContainer
+{
+public:
+    DeployQtSettings()
+    {
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Qnx/DeployQtLibrariesDialog.qml"));
+
+        library.setQmlName("Library");
+        library.setLabelText(Tr::tr("Qt library to deploy:"));
+        library.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
+
+        deploy.setQmlName("Deploy");
+        deploy.setActionText(Tr::tr("Deploy"));
+
+        basePath.setQmlName("BasePath");
+
+        remoteDirectory.setQmlName("RemoteDirectory");
+        remoteDirectory.setLabelText(Tr::tr("Remote directory:"));
+        remoteDirectory.setDisplayStyle(StringAspect::LineEditDisplay);
+        remoteDirectory.setValue("/qt");
+
+        progress.setQmlName("Progress");
+        progress.setRange(0, 0);
+    }
+
+    // While a deployment runs, what it is deploying and where cannot change.
+    void setDeploying(bool deploying)
+    {
+        library.setEnabled(!deploying);
+        deploy.setEnabled(!deploying);
+        remoteDirectory.setEnabled(!deploying);
+    }
+
+    SelectionAspect library{this};
+    ActionAspect deploy{this};
+    TextDisplay basePath{this};
+    StringAspect remoteDirectory{this};
+    ProgressAspect progress{this};
+};
+
 class QnxDeployQtLibrariesDialog : public QDialog
 {
 public:
     explicit QnxDeployQtLibrariesDialog(const ProjectExplorer::IDeviceConstPtr &device);
+    ~QnxDeployQtLibrariesDialog() override;
 
 private:
     void closeEvent(QCloseEvent *event) override;
@@ -62,15 +128,15 @@ private:
                                                        const QString &baseDir = {},
                                                        const QStringList &nameFilters = {});
 
-    QString fullRemoteDirectory() const { return m_remoteDirectory->text(); }
+    QString fullRemoteDirectory() const { return m_settings.remoteDirectory(); }
 
-    QComboBox *m_qtLibraryCombo;
-    QPushButton *m_deployButton;
-    QLabel *m_basePathLabel;
-    QLineEdit *m_remoteDirectory;
-    QProgressBar *m_deployProgress;
-    QPlainTextEdit *m_deployLogWindow;
-    QPushButton *m_closeButton;
+    void appendLog(const QString &msg)
+    {
+        m_log->appendMessage(msg + '\n', Utils::NormalMessageFormat);
+    }
+
+    DeployQtSettings m_settings;
+    Core::OutputPaneView *m_log = nullptr;
 
     ProjectExplorer::IDeviceConstPtr m_device;
 
@@ -79,12 +145,12 @@ private:
     void emitProgressMessage(const QString &msg)
     {
         updateProgress(msg);
-        m_deployLogWindow->appendPlainText(msg);
+        appendLog(msg);
     }
 
     void emitErrorMessage(const QString &msg)
     {
-        m_deployLogWindow->appendPlainText(msg);
+        appendLog(msg);
     }
 
 private:
@@ -116,7 +182,7 @@ static QList<DeployableFile> collectFilesToUpload(const DeployableFile &deployab
 GroupItem QnxDeployQtLibrariesDialog::checkDirTask(const Storage<bool> &directoryExists)
 {
     const auto onSetup = [this](Process &process) {
-        m_deployLogWindow->appendPlainText(Tr::tr("Checking existence of \"%1\"")
+        appendLog(Tr::tr("Checking existence of \"%1\"")
                                            .arg(fullRemoteDirectory()));
         process.setCommand({m_device->filePath("test"), {"-d", fullRemoteDirectory()}});
     };
@@ -130,7 +196,7 @@ GroupItem QnxDeployQtLibrariesDialog::checkDirTask(const Storage<bool> &director
             *directoryExists = false;
             return DoneResult::Success;
         }
-        m_deployLogWindow->appendPlainText(Tr::tr("Connection failed: %1")
+        appendLog(Tr::tr("Connection failed: %1")
                                            .arg(process.errorString()));
         return DoneResult::Error;
     };
@@ -156,12 +222,12 @@ GroupItem QnxDeployQtLibrariesDialog::confirmOverwriteTask()
 GroupItem QnxDeployQtLibrariesDialog::removeDirTask()
 {
     const auto onSetup = [this](Process &process) {
-        m_deployLogWindow->appendPlainText(Tr::tr("Removing \"%1\"").arg(fullRemoteDirectory()));
+        appendLog(Tr::tr("Removing \"%1\"").arg(fullRemoteDirectory()));
         process.setCommand({m_device->filePath("rm"), {"-rf", fullRemoteDirectory()}});
     };
     const auto onError = [this](const Process &process) {
         QTC_ASSERT(process.exitCode() == 0, return);
-        m_deployLogWindow->appendPlainText(Tr::tr("Connection failed: %1")
+        appendLog(Tr::tr("Connection failed: %1")
                                            .arg(process.errorString()));
     };
     return ProcessTask(onSetup, onError, CallDoneFlag::OnError);
@@ -263,21 +329,19 @@ void QnxDeployQtLibrariesDialog::start()
 {
     QTC_ASSERT(m_device, return);
     QTC_ASSERT(!m_taskTreeRunner.isRunning(), return);
-    if (m_remoteDirectory->text().isEmpty()) {
+    if (fullRemoteDirectory().isEmpty()) {
         QMessageBox::warning(this, windowTitle(),
                              Tr::tr("Please input a remote directory to deploy to."));
         return;
     }
 
     m_progressCount = 0;
-    m_deployProgress->setValue(0);
-    m_remoteDirectory->setEnabled(false);
-    m_deployButton->setEnabled(false);
-    m_qtLibraryCombo->setEnabled(false);
-    m_deployLogWindow->clear();
+    m_settings.progress.setValue(0);
+    m_settings.setDeploying(true);
+    m_log->clear();
 
     m_deployableFiles = gatherFiles();
-    m_deployProgress->setRange(0, m_deployableFiles.count());
+    m_settings.progress.setRange(0, m_deployableFiles.count());
 
     m_taskTreeRunner.start(deployRecipe(), {}, [this] { handleUploadFinished(); });
 }
@@ -291,55 +355,39 @@ void QnxDeployQtLibrariesDialog::stop()
 }
 
 QnxDeployQtLibrariesDialog::QnxDeployQtLibrariesDialog(const IDevice::ConstPtr &device)
-    : QDialog(dialogParent()), m_device(device)
+    : QDialog(dialogParent())
+    , m_log(new Core::OutputPaneView)
+    , m_device(device)
 {
     setWindowTitle(Tr::tr("Deploy Qt to QNX Device"));
 
-    m_qtLibraryCombo = new QComboBox(this);
     const QtVersions qtVersions = QtVersionManager::sortVersions(
                 QtVersionManager::versions(QtVersion::isValidPredicate(
                 equal(&QtVersion::type, QString::fromLatin1(Constants::QNX_QNX_QT)))));
     for (QtVersion *v : qtVersions)
-        m_qtLibraryCombo->addItem(v->displayName(), v->uniqueId());
+        m_settings.library.addOption({v->displayName(), {}, v->uniqueId()});
 
-    m_deployButton = new QPushButton(Tr::tr("Deploy"), this);
-    m_deployButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    m_settings.deploy.setAction([this] { start(); });
 
-    m_basePathLabel = new QLabel(this);
+    auto closeButton = new QPushButton(Tr::tr("Close"), this);
+    connect(closeButton, &QAbstractButton::clicked, this, &QWidget::close);
 
-    m_remoteDirectory = new QLineEdit(this);
-    m_remoteDirectory->setText(QLatin1String("/qt"));
+    auto buttonRow = new QHBoxLayout;
+    buttonRow->addStretch();
+    buttonRow->addWidget(closeButton);
 
-    m_deployProgress = new QProgressBar(this);
-    m_deployProgress->setValue(0);
-    m_deployProgress->setTextVisible(true);
-
-    m_deployLogWindow = new QPlainTextEdit(this);
-
-    m_closeButton = new QPushButton(Tr::tr("Close"), this);
-
-    using namespace Layouting;
-
-    Column {
-        Form {
-            Tr::tr("Qt library to deploy:"), m_qtLibraryCombo, m_deployButton, br,
-            Tr::tr("Remote directory:"), m_basePathLabel, m_remoteDirectory, br
-        },
-        m_deployProgress,
-        m_deployLogWindow,
-        Row { st, m_closeButton }
-    }.attachTo(this);
-
-    connect(m_deployButton, &QAbstractButton::clicked,
-            this, &QnxDeployQtLibrariesDialog::start);
-    connect(m_closeButton, &QAbstractButton::clicked,
-            this, &QWidget::close);
+    auto layout = new QVBoxLayout(this);
+    layout->addWidget(Core::createAspectForm(&m_settings));
+    layout->addWidget(m_log);
+    layout->addLayout(buttonRow);
 }
+
+QnxDeployQtLibrariesDialog::~QnxDeployQtLibrariesDialog() = default;
 
 void QnxDeployQtLibrariesDialog::closeEvent(QCloseEvent *event)
 {
     // A disabled Deploy button indicates the upload is still running
-    if (!m_deployButton->isEnabled()) {
+    if (mustConfirmClose(!m_settings.deploy.isEnabled())) {
         const int answer = QMessageBox::question(this, windowTitle(),
             Tr::tr("Closing the dialog will stop the deployment. Are you sure you want to do this?"),
             QMessageBox::Yes | QMessageBox::No);
@@ -352,25 +400,23 @@ void QnxDeployQtLibrariesDialog::closeEvent(QCloseEvent *event)
 
 void QnxDeployQtLibrariesDialog::updateProgress(const QString &progressMessage)
 {
-    const int progress = progressMessage.count("sftp> put") + progressMessage.count("sftp> ln -s");
+    const int progress = progressStepsIn(progressMessage);
     if (progress != 0) {
         m_progressCount += progress;
-        m_deployProgress->setValue(m_progressCount);
+        m_settings.progress.setValue(m_progressCount);
     }
 }
 
 void QnxDeployQtLibrariesDialog::handleUploadFinished()
 {
-    m_remoteDirectory->setEnabled(true);
-    m_deployButton->setEnabled(true);
-    m_qtLibraryCombo->setEnabled(true);
+    m_settings.setDeploying(false);
 }
 
 QList<DeployableFile> QnxDeployQtLibrariesDialog::gatherFiles()
 {
     QList<DeployableFile> result;
 
-    const int qtVersionId = m_qtLibraryCombo->itemData(m_qtLibraryCombo->currentIndex()).toInt();
+    const int qtVersionId = m_settings.library.itemValue().toInt();
 
     auto qtVersion = dynamic_cast<const QnxQtVersion *>(QtVersionManager::version(qtVersionId));
 
@@ -434,4 +480,77 @@ void executeQnxDeployQtLibrariesDialog(const IDeviceConstPtr &device)
     dialog.exec();
 }
 
+#ifdef WITH_TESTS
+
+class DeployQtLibrariesTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheDialogDrawsWithTheQmlItNames()
+    {
+        DeployQtSettings settings;
+        const Result<> rendered
+            = Core::aspectFormRenders(&settings, "DeployQtLibrariesDialog.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+    }
+
+    void testHowFarTheUploadHasGot()
+    {
+        // The upload says nothing about progress directly; what it prints is
+        // sftp chatter, one line per file, and a symlink counts as a file too.
+        QCOMPARE(progressStepsIn("sftp> put /some/file"), 1);
+        QCOMPARE(progressStepsIn("sftp> ln -s a b"), 1);
+        QCOMPARE(progressStepsIn("sftp> put a\nsftp> put b\nsftp> ln -s c d"), 3);
+
+        // Anything else is not progress - a connection message must not move
+        // the bar.
+        QCOMPARE(progressStepsIn("Connection failed: no route to host"), 0);
+        QCOMPARE(progressStepsIn({}), 0);
+    }
+
+    void testWhatCannotChangeWhileDeploying()
+    {
+        // What is being deployed and where cannot change under a running
+        // upload.
+        DeployQtSettings settings;
+        settings.setDeploying(true);
+        QVERIFY2(!settings.library.isEnabled(), "the Qt version could be changed mid-upload");
+        QVERIFY2(!settings.remoteDirectory.isEnabled(),
+                 "the remote directory could be changed mid-upload");
+        QVERIFY2(!settings.deploy.isEnabled(), "a second deployment could be started");
+
+        settings.setDeploying(false);
+        QVERIFY(settings.library.isEnabled());
+        QVERIFY(settings.remoteDirectory.isEnabled());
+        QVERIFY(settings.deploy.isEnabled());
+    }
+
+    void testWhenClosingHasToBeConfirmed()
+    {
+        // Closing stops a running deployment, so it is worth asking about;
+        // closing an idle dialog is not.
+        QVERIFY(mustConfirmClose(true));
+        QVERIFY2(!mustConfirmClose(false), "an idle dialog asked before closing");
+    }
+
+    void testWhereItDeploysTo()
+    {
+        DeployQtSettings settings;
+        QCOMPARE(settings.remoteDirectory(), QString("/qt"));
+        QCOMPARE(settings.progress.presentation().control, AspectControls::ProgressBar);
+    }
+};
+
+QObject *createDeployQtLibrariesTest()
+{
+    return new DeployQtLibrariesTest;
+}
+
+#endif // WITH_TESTS
+
 } // Qnx::Internal
+
+#ifdef WITH_TESTS
+#include "qnxdeployqtlibrariesdialog.moc"
+#endif
