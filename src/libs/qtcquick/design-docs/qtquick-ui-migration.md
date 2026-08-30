@@ -19909,3 +19909,50 @@ edit: `debugger.qbs` lists `*.qml` by wildcard.
 
 **Next:** more of the same, cheapest first - and check the plugin has a QML
 module before counting a dialog as cheap.
+
+## 2026-08-30 — File Properties, and the screen that finds the next one
+
+`FilePropertiesDialog` is drawn from `FilePropertiesDialog.qml`: twelve labels
+become read-only `StringAspect`s (so the values stay selectable, which is what
+`TextSelectableByMouse` was for) and four check boxes become `BoolAspect`s,
+with `symLink` disabled because whether a file is a link is not something this
+dialog can change.
+
+**The screen, corrected and re-run.** Two greps per candidate - does the plugin
+have a `qt_add_qml_module`, and does the dialog build anything that is not a
+form control - with the hard-widget list widened by what the last batch caught
+(`Utils::TreeView`, `KitChooser`, `ProgressIndicator`, and item models).
+**16 candidates**, all but one in a QML-capable plugin. It still over-reports:
+`PluginDialog` came through and holds an `ExtensionSystem::PluginView`. A
+classifier can only rule things out; the last look is by eye.
+
+**What the dialog was doing rather than listing.**
+`detectTextFileSettings()` read a file's first 50000 bytes and wrote two labels
+from them, deciding the line endings *and* guessing the indentation - the step
+between one line's indent and the next, most common step wins, tabs anywhere
+make it Mixed. All of that was reachable only by opening a file's properties
+and reading two labels. It is now `Core::guessTextFileStyle()`, answering a
+struct of enums, and the dialog turns those into words. The test feeds it bytes.
+
+**Two things the tests found that reading had not.** The behaviour is subtler
+than it looks, and both of these were my expectations being wrong rather than
+the code:
+
+- A file with **no line break at all** answers Unknown for indentation too, not
+  just for line endings - it returns early, so an unindented blob and a
+  four-space blob are equally unknown.
+- A one-character indent change is skipped as a continuation line, **but it is
+  not remembered**: the next line is still measured against the last real
+  indent, so `" b"` then `"  c"` is a two-space step, not a one-space one. My
+  test asserted Unknown, and the code was right.
+
+Negative controls: CRLF no longer looked for before LF (a mixed file reads as
+Unix); a one-character change counted as an indent step; a file with no line
+breaks still guessing an indentation; and the page naming an aspect that is not
+there. All four bit.
+
+QuickUi 180 passed / 0 failed / 1 skipped, exit 0. Core exit 0,
+`FilePropertiesTest` 5 passed. `Core_qmllint` clean. No `.qbs` edit.
+
+**Next:** more from the 16, by eye rather than by classifier. `VersionDialog`
+and `FileSystemFilterOptions` are the two smallest that survive a second look.

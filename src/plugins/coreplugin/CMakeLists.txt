@@ -376,6 +376,7 @@ if(TARGET Core)
     QML_FILES
       CustomLanguageModelsPage.qml
       EnvVarSeparatorsDialog.qml
+      FilePropertiesDialog.qml
       ExternalToolsPage.qml
       GeneralSettingsPage.qml
       KeyboardSettingsPage.qml
