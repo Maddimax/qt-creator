@@ -6078,6 +6078,13 @@ under step 0 for why that compiles and does not link.
 
 ## Next steps
 
+> **This section is history as of 2026-08-30.** It was written while the
+> configuration forms were still to do, and parts of it were overtaken within
+> the week. The current position is the last section of this document, "The
+> closures are gone. What that leaves". What is still open from here is the two
+> questions at the end - the trackpad scrollbar and the three primitives with
+> no consumer - and both are design calls rather than work.
+
 **Where this actually stands.** Everything numbered below is done, and so is
 the survey that followed it: all 108 aspect-driven pages have been rendered
 and read, the four renderer-parity axes swept, every page's `tableModel()`
@@ -6120,53 +6127,30 @@ the call fails nothing, because reaching `createConfigWidget()` needs a project
 and a target. The seam it calls and the property it relies on are both tested;
 the one line joining them is not.
 
-### Why the other configuration forms cannot follow it
+### Why the other configuration forms could not follow it, and how they did
 
-`RunConfiguration::createConfigurationWidget()` lists its aspects into a
-`Layouting::Form` exactly as the build one did, so it looks like the same
-change. It is not, and the reason is worth writing down before someone tries:
+**Superseded - kept because the reasoning was right and the conclusion was
+temporary.** This section used to say that `RunConfiguration`, `BuildStep` and
+`DeployConfiguration` could not be ported the way build configurations were,
+because
 
     VariableChooser::addSupportForChildWidgets(widget, {this, macroExpander()});
 
-That is what puts "Insert variable" on a run configuration's fields, and it
-works by walking the **child widgets** of the form. A Qt Quick form has none,
-and **`QtcQuick` has no variable chooser at all** - not a delegate, not a
-helper, nothing. Porting this form the way the build one went would quietly
-take the macro expander away from every run-configuration field.
+puts "Insert variable" on a run configuration's fields by walking the **child
+widgets** of the form, a Qt Quick form has none, and QtcQuick had no variable
+chooser at all. Porting them would have taken the macro expander away from
+every field.
 
-So the remaining widget forms are exactly the ones that need it:
-`RunConfiguration`, `BuildStep` and `DeployConfiguration`. **A Qt Quick
-variable chooser is the prerequisite** - and calling it "a feature with no
-widget original to match", as this section first did, was wrong.
-`Utils::VariableChooser` is 633 lines with a definite shape: a popup holding a
-filter, a tree of variable groups and a description. That is a port, not an
-invention, and a smaller one than the file dialog.
+That was correct, and it is what made the chooser the prerequisite rather than
+a nice-to-have. Both halves exist now - `Utils::VariableModel` and
+`QtcVariableChooser.qml`, reached from a field's own "Insert Variable" button -
+and all three forms went through `ProjectExplorer::createAspectsForm()`.
 
-**Its first half is done.** What a macro expander offers is now
-`Utils::VariableModel`, out on its own rather than inside the chooser: the
-group items no longer point back at `VariableChooserPrivate`, the roles are
-its own enum, and `roleNames()` gives them the names a Qt Quick view reads a
-model by. The chooser holds one instead of being one, and behaves as it did.
+**Read the sections after this one for where things actually stand**; this one
+is history. The short version: the closures are gone, the eight aspects that
+drew themselves with `setConfigWidgetCreator()` all have Qt Quick surfaces, and
+the last section of this document is the current position.
 
-`tst_QuickUi` covers it, since a model nothing can read is exactly what this
-was: a group per provider, its variables once asked for, the three roles a
-chooser needs of a row - what to insert, what it stands for, what to say about
-it - the four role *names*, and the rule that the variable being edited is
-listed but cannot be chosen, so a field cannot be made to expand itself. All
-three controls bite.
-
-What is left of the chooser is the popup: a filter, a tree and a description,
-against a model that is now readable from QML.
-
-**Nothing has been lost so far**, which was checked rather than hoped: every
-other caller of `VariableChooser` is a dialog that is still a widget -
-`NameValuesDialog` (which is what the environment *kit aspect* decorates,
-not the Kits page), the spotlight filter's configuration, the LSP inspector,
-the CMake kit dialog, target setup. A ported page never had one.
-
-That also corrects the note above: build configurations were not "the one
-piece of porting left", they were the one that could be done without building
-something first.
 
 Two questions remain that are not mine to answer:
 
@@ -17451,3 +17435,31 @@ The four left are genuine: GDB's break-on-throw and break-on-catch are set from
 the Breakpoints view beside the breakpoints they create, and Valgrind's cycle
 detection and template shortening from the Callgrind toolbar beside the data
 they change.
+
+### No next step, stated plainly
+
+Read for a next batch on 2026-08-30 and there is not one. What the plan asks
+for is done, and the two things left in "Next steps" above are not work:
+
+- The **trackpad scrollbar** needs hardware to judge; a test asserting
+  `active` cannot answer whether it feels right.
+- **`QtcBadge`, `QtcPageIndicator` and `QtcProgressBar`** have no consumer.
+  They match their widget originals when rendered side by side, so the only
+  question is whether a design system keeps a primitive ahead of its first
+  page. That is a call for whoever owns the design system.
+
+The four settings still on the census allowlist are **not** in this category:
+GDB's break-on-throw and break-on-catch and Valgrind's cycle detection and
+template shortening are changed from the view or toolbar they belong to, on
+purpose. Drawing them on their settings pages as well would duplicate a
+control, not fix a gap.
+
+**What is worth doing next, if anything:** a visual parity sweep of the forms
+this migration produced, against the widget originals. That technique has paid
+for itself here before - the file dialog's icons, sidebar and settings-button
+placement, and the primitives comparison, all came out of rendering the two
+side by side rather than reading code. The catch is that the newest forms are
+the hardest to reach: a run configuration, a build step or a CMake build step
+needs a real project and target, so a stand-in container renders the QML but
+not the thing a user sees. That makes it a session with a project open, not a
+batch a test can drive.
