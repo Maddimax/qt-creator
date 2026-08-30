@@ -170,6 +170,7 @@ if(TARGET Debugger)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      CacheDirectoryDialog.qml
       ConsoleView.qml
       DebuggerInput.qml
       DebuggerRunSettings.qml

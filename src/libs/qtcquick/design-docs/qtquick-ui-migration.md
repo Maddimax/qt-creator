@@ -19850,3 +19850,62 @@ edit.
 
 **Next:** the 29 form-shaped dialogs, which are now the cheap ones with nothing
 in the way.
+
+## 2026-08-30 — The first of the form-shaped dialogs, and a correction
+
+`CacheDirectoryDialog` (the CDB symbol cache folder) is drawn from
+`CacheDirectoryDialog.qml`: the `QDialog` and its button box stay, the
+`PathChooser` and its form layout become a `FilePathAspect` on an
+`AspectContainer`. The established pattern, applied for the first time to one
+of the 29.
+
+**What `accept()` was doing rather than accepting.** It decided whether a
+chosen folder could be used at all - empty is allowed because the debugger
+picks its own, an existing folder is taken as it is, one that is not there yet
+is *made*, and a name taken by a file is refused. That is a question about a
+path, and inside `accept()` the only way to ask it was to open the dialog and
+press OK. It is now `prepareCacheDirectory()`, returning `Result<>`.
+
+**"29 form-shaped dialogs" is an over-estimate, and the classifier is why.**
+It looked for `QLineEdit`/`QComboBox`/`QCheckBox` and against a list of hard
+things - `QTreeView`, `QPlainTextEdit`, `paintEvent`. It cannot see
+plugin-specific widgets, so it put three non-forms in the cheap column:
+
+- `EnvVarSeparatorsDialog` - a `Utils::TreeView`, not a `QTreeView`
+- `AttachCoreDialog` - a `KitChooser` and a `ProgressIndicator`
+- `PrefixLangDialog` - a form, but in a plugin with **no QML module at all**,
+  so the cheap part is the dialog and the expensive part is the plugin
+
+Take the 29 as an upper bound. The real check is one grep per candidate:
+does its plugin have a `qt_add_qml_module`, and does the dialog build anything
+that is not an aspect?
+
+**Not worth doing one at a time:** `ILocatorFilter::openConfigDialog()` is one
+shared dialog behind most locator filter settings, and four filters call it
+with an `additionalWidget` they build themselves. Porting it means porting
+those four at the same time - a chain, not a batch - but it is the highest
+leverage dialog in that area when someone does.
+
+**One deliberate difference:** the two refusals share a message box caption now
+("Cannot Use Folder") where the widget dialog had "Already Exists" and "Cannot
+Create". The messages themselves still say which, and the test pins that they
+stay distinguishable.
+
+**A control that needed the test sharpened.** Removing the "a file is already
+there" branch failed nothing at first: execution fell through to
+`ensureWritableDir()`, which also refuses, and the test only asked *that* it
+was refused and that the path was named - both still true. The two refusals now
+have to stay distinguishable ("exists" against "created"), which is what a
+reader acts on, and the control bites.
+
+Negative controls: a missing folder accepted without being made; a file in the
+way treated as usable (the one above); the refusal no longer naming the path;
+and the page naming an aspect that is not there. All four bit.
+
+QuickUi 180 passed / 0 failed / 1 skipped, exit 0. `CacheDirectoryTest` 4
+passed. `Debugger` exits 1 on the pre-existing
+`DebuggerUnitTests::testStateMachine`. `Debugger_qmllint` clean. No `.qbs`
+edit: `debugger.qbs` lists `*.qml` by wildcard.
+
+**Next:** more of the same, cheapest first - and check the plugin has a QML
+module before counting a dialog as cheap.

@@ -4,6 +4,10 @@
 #include "cdbsymbolpathlisteditor.h"
 
 #include "../debuggertr.h"
+
+#include <coreplugin/dialogs/ioptionspage.h>
+
+#include <utils/aspects.h>
 #include "symbolpathsdialog.h"
 
 #include <coreplugin/icore.h>
@@ -11,6 +15,11 @@
 #include <utils/pathchooser.h>
 #include <utils/temporarydirectory.h>
 #include <utils/widgets.h>
+
+#ifdef WITH_TESTS
+#include <QTemporaryDir>
+#include <QTest>
+#endif
 
 #include <QAction>
 #include <QCheckBox>
@@ -31,68 +40,86 @@ namespace Debugger::Internal {
 // created. This is done here (suggest $TEMP\symbolcache
 // regardless of its existence).
 
+// What a chosen cache folder has to be before the dialog will close on it:
+// empty is allowed - the debugger picks its own then - an existing folder is
+// taken as it is, and one that is not there yet is made. Anything else is
+// refused, with the reason.
+//
+// Kept out of accept() because it is a question about a path, and there the
+// only way to ask it was to open the dialog and press OK.
+Result<> prepareCacheDirectory(const FilePath &cache)
+{
+    if (cache.isEmpty() || cache.isDir())
+        return ResultOk;
+
+    if (cache.exists()) {
+        return ResultError(
+            Tr::tr("A file named \"%1\" already exists.").arg(cache.toUserOutput()));
+    }
+
+    if (!cache.ensureWritableDir()) {
+        return ResultError(
+            Tr::tr("The folder \"%1\" could not be created.").arg(cache.toUserOutput()));
+    }
+
+    return ResultOk;
+}
+
+class CacheDirectorySettings final : public AspectContainer
+{
+public:
+    CacheDirectorySettings()
+    {
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Debugger/CacheDirectoryDialog.qml"));
+
+        path.setQmlName("Path");
+        path.setLabelText(Tr::tr("Path:"));
+        path.setExpectedKind(PathChooserKind::ExistingDirectory);
+        path.setHistoryCompleter("Debugger.CdbCacheDir.History");
+    }
+
+    FilePathAspect path{this};
+};
+
 class CacheDirectoryDialog : public QDialog
 {
 public:
     explicit CacheDirectoryDialog(QWidget *parent);
 
-    void setPath(const FilePath &p) { m_chooser->setFilePath(p); }
-    FilePath path() const { return m_chooser->filePath(); }
+    void setPath(const FilePath &p) { m_settings.path.setValue(p); }
+    FilePath path() const { return m_settings.path(); }
 
     void accept() override;
 
 private:
-    PathChooser *m_chooser;
-    QDialogButtonBox *m_buttonBox;
+    CacheDirectorySettings m_settings;
 };
 
-CacheDirectoryDialog::CacheDirectoryDialog(QWidget *parent) :
-    QDialog(parent), m_chooser(new PathChooser),
-    m_buttonBox(new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel))
+CacheDirectoryDialog::CacheDirectoryDialog(QWidget *parent)
+    : QDialog(parent)
 {
     setWindowTitle(Tr::tr("Select Local Cache Folder"));
     setModal(true);
 
-    auto formLayout = new QFormLayout;
-    m_chooser->setExpectedKind(PathChooserKind::ExistingDirectory);
-    m_chooser->setHistoryCompleter("Debugger.CdbCacheDir.History");
-    m_chooser->setMinimumWidth(400);
-    formLayout->addRow(Tr::tr("Path:"), m_chooser);
+    const auto buttonBox
+        = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+    connect(buttonBox, &QDialogButtonBox::accepted, this, &CacheDirectoryDialog::accept);
+    connect(buttonBox, &QDialogButtonBox::rejected, this, &CacheDirectoryDialog::reject);
 
-    auto mainLayout = new QVBoxLayout;
-    mainLayout->addLayout(formLayout);
-    mainLayout->addWidget(m_buttonBox);
+    const auto layout = new QVBoxLayout(this);
+    layout->addWidget(Core::createAspectForm(&m_settings));
+    layout->addWidget(buttonBox);
 
-    setLayout(mainLayout);
-
-    connect(m_buttonBox, &QDialogButtonBox::accepted, this, &CacheDirectoryDialog::accept);
-    connect(m_buttonBox, &QDialogButtonBox::rejected, this, &CacheDirectoryDialog::reject);
+    resize(500, 100);
 }
 
 void CacheDirectoryDialog::accept()
 {
-    FilePath cache = path();
-    // if cache is empty a default is used by the cdb
-    if (cache.isEmpty()) {
-        QDialog::accept();
-        return;
-    }
-    // Ensure path exists
-    // Folder exists - all happy.
-    if (cache.isDir()) {
-        QDialog::accept();
-        return;
-    }
-    // Does a file of the same name exist?
-    if (cache.exists()) {
-        Utils::AsynchronousMessageBox::warning(Tr::tr("Already Exists"),
-                                              Tr::tr("A file named \"%1\" already exists.").arg(cache.toUserOutput()));
-        return;
-    }
-    // Create
-    if (!cache.ensureWritableDir()) {
-        Utils::AsynchronousMessageBox::warning(Tr::tr("Cannot Create"),
-                                              Tr::tr("The folder \"%1\" could not be created.").arg(cache.toUserOutput()));
+    // One caption for both refusals, where the widget dialog had "Already
+    // Exists" and "Cannot Create". The messages themselves still say which.
+    if (const Result<> ready = prepareCacheDirectory(path()); !ready) {
+        Utils::AsynchronousMessageBox::warning(Tr::tr("Cannot Use Folder"), ready.error());
         return;
     }
     QDialog::accept();
@@ -214,4 +241,74 @@ int CdbSymbolPathListEditor::indexOfSymbolPath(const QStringList &paths,
     return -1;
 }
 
+#ifdef WITH_TESTS
+
+class CacheDirectoryTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheDialogDrawsWithTheQmlItNames()
+    {
+        CacheDirectorySettings settings;
+        const Result<> rendered
+            = Core::aspectFormRenders(&settings, "CacheDirectoryDialog.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+    }
+
+    void testWhatMakesAFolderUsableAsACache()
+    {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+        const FilePath root = FilePath::fromString(temp.path());
+
+        // Nothing chosen is allowed: the debugger picks its own then.
+        QVERIFY(prepareCacheDirectory({}));
+
+        // A folder that is already there is taken as it is.
+        QVERIFY(prepareCacheDirectory(root));
+
+        // One that is not there is made, which is the whole reason this runs
+        // on OK rather than on browsing.
+        const FilePath fresh = root / "made-on-accept";
+        QVERIFY(!fresh.exists());
+        QVERIFY(prepareCacheDirectory(fresh));
+        QVERIFY2(fresh.isDir(), "the folder was accepted without being created");
+
+        // A file of that name is refused, and the message says which file -
+        // "cannot create" with no name is not something a reader can act on.
+        const FilePath file = root / "in-the-way";
+        QVERIFY(file.writeFileContents("not a folder"));
+        const Result<> refused = prepareCacheDirectory(file);
+        QVERIFY2(!refused, "a file was accepted as a cache folder");
+        QVERIFY(refused.error().contains(file.toUserOutput()));
+
+        // And so is a folder that cannot be made.
+        const Result<> impossible = prepareCacheDirectory(file / "under-a-file");
+        QVERIFY2(!impossible, "a folder under a file was accepted");
+        QVERIFY(impossible.error().contains("under-a-file"));
+
+        // The two reasons are different, and stay that way: both refusals
+        // reach the reader as a message, and "could not be created" for a name
+        // that is taken by a file sends them looking for the wrong problem.
+        // Checked by the word that separates them, because falling from the
+        // first case into the second still refuses, and still names the path.
+        QVERIFY2(refused.error().contains("exists"),
+                 qPrintable("a file in the way was refused as: " + refused.error()));
+        QVERIFY2(impossible.error().contains("created"),
+                 qPrintable("an uncreatable folder was refused as: " + impossible.error()));
+    }
+};
+
+QObject *createCacheDirectoryTest()
+{
+    return new CacheDirectoryTest;
+}
+
+#endif // WITH_TESTS
+
 } // Debugger::Internal
+
+#ifdef WITH_TESTS
+#include "cdbsymbolpathlisteditor.moc"
+#endif

@@ -47,4 +47,8 @@ Utils::FilePath symbolCacheDirectory(const QStringList &paths);
 QStringList symbolPathsToAdd(bool useSymbolCache, bool useSymbolServer,
                              const Utils::FilePath &cacheDir);
 
+#ifdef WITH_TESTS
+QObject *createCacheDirectoryTest();
+#endif
+
 } // Debugger::Internal
