@@ -20874,3 +20874,67 @@ Mapping(qbs)` and `RunWorkerConflictTest::testConflict`) and nothing else. No
 **Next:** `DeviceProcessesDialog`, then the five Debugger kit-chooser dialogs.
 `DeviceProcessesDialog` is a table plus a kit chooser, so it also exercises the
 table shape the census counted thirty of.
+
+## 2026-08-30 — Sortable tables, which the next dialog needs before it exists
+
+`DeviceProcessesDialog` is the plan's next item and it cannot be ported
+faithfully yet: the widget view sets `setSortingEnabled(true)`, opens sorted on
+column 1, and carries a `lessThan()` of its own so that the pid column sorts as
+numbers. **Nothing in the Qt Quick table sorted at all** - `TableDelegate` built
+a `HorizontalHeaderView` that was a label bar, and `TableFilterModel` filtered
+without ever being asked to sort. So this batch is the prerequisite rather than
+the dialog, and it is worth more than one dialog: the census counted about
+thirty table-shaped dialogs, and a list of hundreds of processes in the order
+the device happened to return them is not the same feature.
+
+What it took:
+
+- **`AspectPresentation::sortColumn` / `sortOrder`**, defaulting to `-1` and
+  ascending, so every table that exists keeps the order its model gives.
+  Plumbed through `aspectmodels.cpp` as `sortColumn` and `sortAscending` -
+  the `pres` keys are derived there, not taken from the struct.
+- **`TableFilterModel::lessThan()`**, numeric when both sides parse as numbers
+  and case-insensitive otherwise. This is the comparison every widget table
+  over a column of numbers wrote for itself; having it once means the ported
+  dialogs do not have to. It was dead code until now - nothing called `sort()`
+  - so no existing page changes.
+- **`TableDelegate`**: `sortBy()` on a heading click, turning the order around
+  when the heading is already the sorted one, and an arrow saying which column
+  that is. Sorting the *proxy*, so `currentRow` and `selectedRows` keep
+  reporting in the aspect's own index space.
+
+**Subclass the style's delegate, do not replace it.** The first attempt gave
+`HorizontalHeaderView` a `Rectangle` delegate of its own - which changed how
+every table heading in the application looks, and
+`testTableAspectDrawsWhatItsModelOffers` said so immediately by finding zero
+`HorizontalHeaderViewDelegate` items where it wanted four. Writing
+`delegate: HorizontalHeaderViewDelegate { ... }` and adding a `TapHandler` and
+an `Image` inside it keeps the platform's heading and adds the two things it
+was missing. An existing test biting on an unrelated-looking change was what
+made the difference between a feature and a restyling nobody asked for.
+
+**`findQmlComponents` matches the type name, not the objectName.** Twice in one
+batch: `findQmlComponents(root, "tableHeaderSection")` and
+`findQmlComponent(heading, "tableSortIndicator")` both found nothing, because
+the arguments are `QQuickImage` and `HorizontalHeaderViewDelegate`. Find by
+type, then filter on `objectName()` - which is what the icon test beside it
+already did. See [[qtc-findqmlcomponents-matches-by-prefix]].
+
+Negative controls: numbers compared as text; the column the aspect asks for
+ignored; the order it asks for ignored; a second click on the sorted heading
+not turning it around; the heading taking no click; and every heading claiming
+to be the sorted one. All six bit.
+
+QuickUi 185 passed / 0 failed / 1 skipped, exit 0 - three more than before.
+`ProjectExplorer` exits 2 on its two standing failures and nothing else.
+`CppEditor` is not a usable signal here: two consecutive runs gave 2 and 33
+failures with disjoint sets, which is [[qtc-cppeditor-suite-is-flaky]], and
+none of them is a table. **Full `ninja` rather than a target build**:
+`AspectPresentation` gained two members, so everything that holds one had to be
+rebuilt. No `.qbs` edit: no files were added.
+
+**Next:** `DeviceProcessesDialog` itself, now that its table can sort. Its
+`kitChooser()` returns a `KitChooser *` and only three call sites use it, for
+`setKitPredicate()`, `currentKit()` and `setShowIcons()` - the first two the
+aspect already has, so the exported signature can narrow to
+`KitChooserAspect &` once `setShowIcons()` is added.

@@ -27,4 +27,24 @@ bool TableFilterModel::filterAcceptsRow(int row, const QModelIndex &parent) cons
     return extra.toString().contains(filterRegularExpression());
 }
 
+// A column of numbers sorts as numbers. Compared as text, a process list puts
+// 10 before 9 and a column of sizes is nonsense - which is why every widget
+// table over such a column had a comparison of its own.
+bool TableFilterModel::lessThan(const QModelIndex &left, const QModelIndex &right) const
+{
+    const QString l = sourceModel()->data(left).toString();
+    const QString r = sourceModel()->data(right).toString();
+
+    bool leftIsNumber = false;
+    bool rightIsNumber = false;
+    const qlonglong ln = l.toLongLong(&leftIsNumber);
+    const qlonglong rn = r.toLongLong(&rightIsNumber);
+    if (leftIsNumber && rightIsNumber)
+        return ln < rn;
+
+    // Case-insensitively, so that a list of names reads as one list rather
+    // than every capital ahead of every lowercase letter.
+    return QString::compare(l, r, Qt::CaseInsensitive) < 0;
+}
+
 } // namespace QtcQuick

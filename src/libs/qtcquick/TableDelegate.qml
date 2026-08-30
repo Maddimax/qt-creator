@@ -77,6 +77,35 @@ RowLayout {
         sourceModel: root.sourceModel
     }
 
+    // Which column the rows are sorted by, and which way. Starts at what the
+    // aspect asked for; the reader changes it by clicking a heading, as they
+    // did in the widget view. -1 is the model's own order.
+    property int sortColumn: root.pres.sortColumn ?? -1
+    property bool sortAscending: root.pres.sortAscending ?? true
+
+    // Sorting the proxy rather than the model: the order is this view's, and
+    // the aspect's rows keep the order they were given - which is the index
+    // space currentRow and selectedRows report in.
+    function applySorting(): void {
+        if (root.sortColumn < 0)
+            root.rows.sort(-1)
+        else
+            root.rows.sort(root.sortColumn, root.sortAscending ? Qt.AscendingOrder : Qt.DescendingOrder)
+    }
+
+    // A heading was clicked: the column it names becomes the one sorted by, and
+    // clicking the one already sorted by turns it around.
+    function sortBy(column: int): void {
+        if (column === root.sortColumn)
+            root.sortAscending = !root.sortAscending
+        else
+            root.sortColumn = column
+    }
+
+    onSortColumnChanged: root.applySorting()
+    onSortAscendingChanged: root.applySorting()
+    Component.onCompleted: root.applySorting()
+
     Connections {
         target: root.aspect
         function onControlConfigurationChanged() {
@@ -146,8 +175,39 @@ RowLayout {
                     Layout.fillWidth: true
 
                     sourceComponent: HorizontalHeaderView {
+                        id: header
+
                         syncView: view
                         clip: true
+
+                        // The style's own heading, with two things added: it
+                        // takes the click that changes what the rows are
+                        // sorted by, and it says when it is the column they
+                        // are sorted by. Subclassed rather than replaced so
+                        // that a heading still looks like the platform's.
+                        delegate: HorizontalHeaderViewDelegate {
+                            id: heading
+
+                            required property int index
+
+                            objectName: "tableHeaderSection"
+
+                            TapHandler {
+                                onTapped: root.sortBy(heading.index)
+                            }
+
+                            Image {
+                                objectName: "tableSortIndicator"
+                                anchors.right: parent.right
+                                anchors.rightMargin: Spacing.PaddingHS
+                                anchors.verticalCenter: parent.verticalCenter
+                                visible: root.sortColumn === heading.index
+                                fillMode: Image.Pad
+                                source: "image://qtcreator/utils/images/"
+                                        + (root.sortAscending ? "arrowup.png" : "arrowdown.png")
+                                        + "?color=Token_Text_Muted"
+                            }
+                        }
                     }
                 }
 

@@ -297,6 +297,8 @@ QVariantMap AspectModels::presentation(BaseAspect *aspect)
         {"maximum", p.maximum.isValid() ? p.maximum : widestBound(p.control, Upper)},
         {"step", p.singleStep.isValid() ? p.singleStep : QVariant(1)},
         {"filterPlaceholderText", p.filterPlaceholderText},
+        {"sortColumn", p.sortColumn},
+        {"sortAscending", p.sortOrder == Qt::AscendingOrder},
         {"showsDefault", p.showsDefault},
         {"allowAdding", p.allowAdding},
         {"allowRemoving", p.allowRemoving},

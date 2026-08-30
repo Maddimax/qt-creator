@@ -24,6 +24,7 @@ public:
 
 protected:
     bool filterAcceptsRow(int row, const QModelIndex &parent) const override;
+    bool lessThan(const QModelIndex &left, const QModelIndex &right) const override;
 };
 
 } // namespace QtcQuick

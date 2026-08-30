@@ -327,6 +327,9 @@ private slots:
     void testAControlOffersTheContextActionItsAspectDescribes();
     void testRecordingAKeySequenceIsTheAspectsToStartAndStop();
     void testTableAspectDrawsWhatItsModelOffers();
+    void testATableSortsByTheColumnItsAspectAsks();
+    void testATableSortsNumbersAsNumbers();
+    void testClickingAHeadingSortsByIt();
     void testATableCellShowsTheIconItsModelGives();
     void testATableWithNoColumnNamesHasNoHeader();
     void testTableAspectAddsAndRemovesRows();
@@ -4968,12 +4971,16 @@ public:
         p.control = Utils::AspectControls::Table;
         p.filterPlaceholderText = m_filterPlaceholderText;
         p.rowBackground = m_rowBackground;
+        p.sortColumn = m_sortColumn;
+        p.sortOrder = m_sortOrder;
         return p;
     }
 
     TestTableModel m_model;
     QString m_filterPlaceholderText;
     QColor m_rowBackground;
+    int m_sortColumn = -1;
+    Qt::SortOrder m_sortOrder = Qt::AscendingOrder;
 };
 
 // The TableView the delegate builds, and the model it actually shows - the
@@ -5030,6 +5037,155 @@ void QuickUiTest::testATableCellShowsTheIconItsModelGives()
 
     // One per row, in the column the model decorated.
     QTRY_COMPARE(iconsIn(quickWidget->rootObject()), 2);
+}
+
+// What the rows say in a column, in the order the view is showing them.
+static QStringList shownWords(QQuickItem *root)
+{
+    QQuickItem * const delegate = findQmlComponent(root, "TableDelegate");
+    if (!delegate)
+        return {};
+    const auto rows = delegate->property("rows").value<QAbstractItemModel *>();
+    if (!rows)
+        return {};
+    QStringList words;
+    for (int i = 0; i < rows->rowCount(); ++i)
+        words << rows->index(i, TestTableModel::ColumnWord).data().toString();
+    return words;
+}
+
+void QuickUiTest::testATableSortsByTheColumnItsAspectAsks()
+{
+    // The order the model gives them is what a table shows unless it asks for
+    // something else - so the unsorted case is half of this.
+    Utils::AspectContainer unsorted;
+    TestTableAspect plain(&unsorted);
+    plain.setLabelText("Rows");
+    plain.m_model.setRows({{true, "red", "gamma"}, {true, "green", "alpha"},
+                           {true, "blue", "beta"}});
+
+    const std::unique_ptr<QWidget> plainForm(showForm(&unsorted));
+    QVERIFY(plainForm);
+    auto plainQuick = plainForm->findChild<QQuickWidget *>();
+    QVERIFY(plainQuick);
+    QStringList order;
+    QTRY_COMPARE((order = shownWords(plainQuick->rootObject())).size(), 3);
+    QCOMPARE(order, QStringList({"gamma", "alpha", "beta"}));
+
+    // And a table that names a column opens on it.
+    Utils::AspectContainer page;
+    TestTableAspect table(&page);
+    table.setLabelText("Rows");
+    table.m_model.setRows({{true, "red", "gamma"}, {true, "green", "alpha"},
+                           {true, "blue", "beta"}});
+    table.m_sortColumn = TestTableModel::ColumnWord;
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QTRY_COMPARE(shownWords(quickWidget->rootObject()),
+                 QStringList({"alpha", "beta", "gamma"}));
+
+    // Descending is the aspect's to ask for too.
+    Utils::AspectContainer down;
+    TestTableAspect reversed(&down);
+    reversed.setLabelText("Rows");
+    reversed.m_model.setRows({{true, "red", "gamma"}, {true, "green", "alpha"},
+                              {true, "blue", "beta"}});
+    reversed.m_sortColumn = TestTableModel::ColumnWord;
+    reversed.m_sortOrder = Qt::DescendingOrder;
+
+    const std::unique_ptr<QWidget> downForm(showForm(&down));
+    QVERIFY(downForm);
+    auto downQuick = downForm->findChild<QQuickWidget *>();
+    QVERIFY(downQuick);
+    QTRY_COMPARE(shownWords(downQuick->rootObject()),
+                 QStringList({"gamma", "beta", "alpha"}));
+}
+
+void QuickUiTest::testATableSortsNumbersAsNumbers()
+{
+    // Compared as text, 10 comes before 9. A process list is the case this is
+    // for, and every widget table over a column of numbers carried its own
+    // comparison to avoid it.
+    Utils::AspectContainer page;
+    TestTableAspect table(&page);
+    table.setLabelText("Rows");
+    table.m_model.setRows({{true, "red", "10"}, {true, "green", "9"}, {true, "blue", "100"}});
+    table.m_sortColumn = TestTableModel::ColumnWord;
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QTRY_COMPARE(shownWords(quickWidget->rootObject()), QStringList({"9", "10", "100"}));
+}
+
+void QuickUiTest::testClickingAHeadingSortsByIt()
+{
+    Utils::AspectContainer page;
+    TestTableAspect table(&page);
+    table.setLabelText("Rows");
+    table.m_model.setRows({{true, "red", "gamma"}, {true, "green", "alpha"},
+                           {true, "blue", "beta"}});
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QTRY_COMPARE(shownWords(quickWidget->rootObject()).size(), 3);
+
+    // The heading of the column of words. Found by what it says, because the
+    // sections are in whatever order the view built them.
+    // By type and then by what it says: findQmlComponents matches the type
+    // name, and the sections are in whatever order the view built them.
+    QQuickItem *heading = nullptr;
+    QTRY_VERIFY(heading = Utils::findOrDefault(
+                    findQmlComponents(quickWidget->rootObject(), "HorizontalHeaderViewDelegate"),
+                    [](QQuickItem *item) {
+                        return item->objectName() == "tableHeaderSection"
+                               && item->property("index").toInt() == TestTableModel::ColumnWord;
+                    }));
+
+    const auto clickHeading = [quickWidget, heading] {
+        const QPointF centre
+            = heading->mapToScene(QPointF(heading->width() / 2, heading->height() / 2));
+        QTest::mouseClick(quickWidget, Qt::LeftButton, Qt::NoModifier, centre.toPoint());
+    };
+
+    // Nothing says which column is sorted by until one is.
+    QQuickItem * const delegate = findQmlComponent(quickWidget->rootObject(), "TableDelegate");
+    QVERIFY(delegate);
+    QCOMPARE(delegate->property("sortColumn").toInt(), -1);
+
+    clickHeading();
+    QTRY_COMPARE(shownWords(quickWidget->rootObject()),
+                 QStringList({"alpha", "beta", "gamma"}));
+    QCOMPARE(delegate->property("sortColumn").toInt(), int(TestTableModel::ColumnWord));
+
+    // And the same heading again turns it around rather than sorting afresh.
+    clickHeading();
+    QTRY_COMPARE(shownWords(quickWidget->rootObject()),
+                 QStringList({"gamma", "beta", "alpha"}));
+
+    // The heading that is sorted by is the one saying so.
+    QQuickItem *indicator = nullptr;
+    QTRY_VERIFY(indicator = Utils::findOrDefault(
+                    findQmlComponents(heading, "QQuickImage"),
+                    [](QQuickItem *item) {
+                        return item->objectName() == "tableSortIndicator";
+                    }));
+    QVERIFY2(indicator->isVisible(), "the sorted column showed no indicator");
+
+    // And only that column: an indicator on every heading says nothing.
+    int indicators = 0;
+    for (QQuickItem * const item :
+         findQmlComponents(quickWidget->rootObject(), "QQuickImage")) {
+        if (item->objectName() == "tableSortIndicator" && item->isVisible())
+            ++indicators;
+    }
+    QCOMPARE(indicators, 1);
 }
 
 void QuickUiTest::testTableAspectDrawsWhatItsModelOffers()

@@ -323,6 +323,13 @@ public:
     // Table. The text in an empty filter field; no filter where it is empty.
     QString filterPlaceholderText;
 
+    // Table. Which column the rows are sorted by to begin with, and which way.
+    // -1 leaves them in the order the model gives them, which is what a table
+    // does unless it asks otherwise. A table that names a column is sortable by
+    // any of them: the reader clicks a heading, as they did in the widget view.
+    int sortColumn = -1;
+    Qt::SortOrder sortOrder = Qt::AscendingOrder;
+
     // Container. Whether the aspects inside it go side by side rather than one
     // under the other, and without a group box around them. Five choices that
     // read as one value - the parts of an ABI - are one row, not five.
