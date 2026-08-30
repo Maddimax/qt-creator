@@ -22,6 +22,8 @@ namespace Internal { class VariableChooserPrivate; }
 // view reads them by.
 class QTCREATOR_UTILS_EXPORT VariableModel : public TreeModel<>
 {
+    Q_OBJECT
+
 public:
     enum Role {
         // "%{Foo}", what gets inserted.
@@ -29,7 +31,10 @@ public:
         // What it stands for right now.
         ExpandedTextRole,
         // What it is for, and its current value, as rich text.
-        CurrentValueDisplayRole
+        CurrentValueDisplayRole,
+        // Whether it may be chosen. A Qt Quick view cannot read item flags,
+        // so what flags() says has to be readable as data too.
+        SelectableRole
     };
 
     explicit VariableModel(QObject *parent = nullptr);
@@ -41,6 +46,7 @@ public:
     void setCurrentVariableName(const QByteArray &name);
     QByteArray currentVariableName() const;
 
+    QVariant data(const QModelIndex &index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
 
 private:

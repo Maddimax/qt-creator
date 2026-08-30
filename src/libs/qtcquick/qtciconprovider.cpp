@@ -4,6 +4,7 @@
 #include "qtciconprovider.h"
 
 #include <utils/icon.h>
+#include <utils/utilsicons.h>
 #include <utils/theme/theme.h>
 
 #include <QHash>
@@ -22,6 +23,10 @@ static QHash<qint64, QIcon> &registeredIcons()
 }
 
 static const QLatin1String iconPrefix{"@icon/"};
+// One of the icons Utils::Icons declares, by the name it declares it under.
+// The plain path form below tints a single image; these are built of layers
+// and only their own definition knows which.
+static const QLatin1String namePrefix{"@name/"};
 
 QString iconUrl(const QIcon &icon)
 {
@@ -57,6 +62,16 @@ QPixmap IconProvider::requestPixmap(const QString &id, QSize *size, const QSize 
         const QSize wanted = requestedSize.isValid() ? requestedSize
                                                      : icon.availableSizes().value(0);
         pixmap = icon.pixmap(wanted.isEmpty() ? QSize(16, 16) : wanted);
+        if (size)
+            *size = pixmap.size();
+        return pixmap;
+    }
+
+    if (mask.startsWith(namePrefix)) {
+        if (const std::optional<Utils::Icon> icon
+            = Utils::Icons::fromString(mask.mid(namePrefix.size()))) {
+            pixmap = icon->icon().pixmap(requestedSize.isValid() ? requestedSize : QSize(16, 16));
+        }
         if (size)
             *size = pixmap.size();
         return pixmap;

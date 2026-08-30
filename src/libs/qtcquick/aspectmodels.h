@@ -44,6 +44,12 @@ public:
     // itself rather than settle for the generic form of each.
     Q_INVOKABLE QtcQuick::NamedAspects *named(Utils::BaseAspect *aspect);
 
+    // The variables that may be written into \a aspect, as rows: what its own
+    // macro expander offers and what every field offers. Filtered through a
+    // proxy, because that is how a chooser narrows a long list and QML has no
+    // way to build one - call setFilterFixedString() on what comes back.
+    Q_INVOKABLE QAbstractItemModel *variables(Utils::BaseAspect *aspect);
+
     // Everything a delegate needs beyond the aspect's own properties: the
     // bounds, the choices, what may be added or removed. Read from the aspect
     // rather than taken as model roles, because a hand-written page has no

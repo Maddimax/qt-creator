@@ -336,6 +336,9 @@ private slots:
     void testFieldSaysWhatIsWrongAndKeepsItOut();
     void testFieldWaitsForAnAnswerItHasToFetch();
     void testAFieldCompletesAgainstWhatTheAspectOffers();
+    void testAFieldOffersTheVariablesItCanBeWrittenIn();
+    void testAVariableBeingDefinedIsNotOfferedForItself();
+    void testASeveralLineFieldOffersVariablesToo();
     void testAFieldOffersWhatWasTypedIntoItBefore();
     void testBrowsingStartsWhereThePathAlreadyPointsTo();
     void testALabelSaysTheValueItCannotShowInFull();
@@ -7232,9 +7235,11 @@ void QuickUiTest::testTheVariablesAMacroExpanderOffersAreAModel()
                 .toString().contains("The answer"));
 
     // Named, so a Qt Quick view can ask for them. A model without these is
-    // one a QML delegate cannot read at all.
+    // one a QML delegate cannot read at all - and "display" is among them
+    // because that is the name the stock tree delegate draws its label from.
     const QHash<int, QByteArray> names = model.roleNames();
-    for (const char *name : {"name", "unexpandedText", "expandedText", "currentValue"}) {
+    for (const char *name : {"display", "unexpandedText", "expandedText", "currentValue",
+                             "selectable"}) {
         QVERIFY2(names.values().contains(QByteArray(name)),
                  qPrintable(QString("no role is called %1").arg(name)));
     }
@@ -9638,6 +9643,259 @@ void QuickUiTest::testTableAspectFiltersItsRows()
     const QList<QQuickItem *> none = findQmlNamed(plainDelegate, "tableFilterField");
     QCOMPARE(none.size(), 1);
     QVERIFY(!none.first()->isVisible());
+}
+
+
+void QuickUiTest::testAFieldOffersTheVariablesItCanBeWrittenIn()
+{
+    // Every line edit on a widget page carries a variable chooser; a Quick
+    // page had none, so a value that was meant to be written in terms of
+    // %{...} had to be typed from memory.
+    Utils::MacroExpander expander;
+    expander.setDisplayName("Test");
+    expander.registerVariable("Test:Name", "What the test calls itself",
+                              [] { return QString("Nemo"); });
+
+    Utils::AspectContainer page;
+    page.setAutoApply(false);
+    Utils::StringAspect option(&page);
+    option.setLabelText("Option");
+    option.setDisplayStyle(Utils::StringAspect::LineEditDisplay);
+    option.setMacroExpander(&expander);
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+
+    QQuickItem *field = nullptr;
+    QTRY_VERIFY(field = findQmlComponent(quickWidget->rootObject(), "TextField"));
+
+    const QList<QQuickItem *> buttons = findQmlNamed(field, "insertVariableButton");
+    QCOMPARE(buttons.size(), 1);
+    QQuickItem * const button = buttons.first();
+
+    // The widget line edit only grows the button while it is being edited, so
+    // a form of ten fields is not ten icons. Unfocused it is not there.
+    QVERIFY2(!button->isVisible(), "the chooser button is offered on a field nobody is in");
+
+    field->forceActiveFocus();
+    QTRY_VERIFY(button->isVisible());
+    drawsAnIcon(button, "the insert-variable button");
+
+    // Pressed rather than opened from here: what opens it is a handler in the
+    // QML, and calling the popup's own method would leave that untested.
+    const QPointF centre = button->mapToScene(
+        QPointF(button->width() / 2, button->height() / 2));
+    QTest::mouseClick(quickWidget, Qt::LeftButton, Qt::NoModifier, centre.toPoint());
+
+    QObject * const chooser = field->findChild<QObject *>("variableChooser");
+    QVERIFY(chooser);
+    QTRY_VERIFY(chooser->property("visible").toBool());
+
+    auto rowFor = [chooser](const QString &unexpanded) -> QQuickItem * {
+        auto * const popup = chooser->property("contentItem").value<QQuickItem *>();
+        if (!popup)
+            return nullptr;
+        const QList<QQuickItem *> rows = findQmlNamed(popup, "variableRow");
+        return Utils::findOr(rows, nullptr, [&unexpanded](QQuickItem *row) {
+            return row->property("unexpandedText").toString() == unexpanded;
+        });
+    };
+
+    // Everything the two expanders offer is in there - far more than fits on
+    // screen, which is what the filter above the list is for.
+    QQuickItem * const contents = chooser->property("contentItem").value<QQuickItem *>();
+    QVERIFY(contents);
+    QQuickItem * const filter = findQmlNamed(contents, "variableFilter").value(0);
+    QVERIFY(filter);
+    filter->setProperty("text", "Test:Name");
+    QQuickItem *variable = nullptr;
+    QTRY_VERIFY(variable = rowFor("%{Test:Name}"));
+
+    // The list is walked from the filter, so that narrowing it to one variable
+    // does not then mean reaching for the mouse.
+    bool reached = false;
+    for (int i = 0; i < 10 && !reached; ++i) {
+        QTest::keyClick(quickWidget, Qt::Key_Down);
+        reached = chooser->property("currentText").toString() == "%{Test:Name}";
+    }
+    QVERIFY2(reached, "the keyboard never reached the variable the filter left on screen");
+
+    // What it is pointing at says what it is for, which is the whole reason
+    // for the list.
+    QObject * const description = chooser->findChild<QObject *>("variableDescription");
+    QVERIFY(description);
+    QTRY_VERIFY2(description->property("text").toString().contains("What the test calls itself"),
+                 qPrintable("the description says: " + description->property("text").toString()));
+
+    // A group is a heading. Clicking one selects it, says nothing about it,
+    // and Enter on it inserts nothing - it has no text of its own.
+    // By its row rather than by its place among the delegates: a view keeps
+    // those in whatever order it recycled them in.
+    const QList<QQuickItem *> rows = findQmlNamed(contents, "variableRow");
+    QQuickItem * const group = Utils::findOr(rows, nullptr, [](QQuickItem *row) {
+        return row->property("row").toInt() == 0;
+    });
+    QVERIFY(group);
+    QCOMPARE(group->property("unexpandedText").toString(), QString());
+    const QPointF onGroup = group->mapToScene(
+        QPointF(group->width() / 2, group->height() / 2));
+    QTest::mouseClick(quickWidget, Qt::LeftButton, Qt::NoModifier, onGroup.toPoint());
+    QTRY_COMPARE(description->property("text").toString(),
+                 chooser->property("defaultDescription").toString());
+    QVERIFY(!chooser->property("currentChoosable").toBool());
+    field->setProperty("text", "ab");
+    QTest::keyClick(quickWidget, Qt::Key_Return);
+    QCOMPARE(field->property("text").toString(), QString("ab"));
+    QVERIFY2(chooser->property("visible").toBool(),
+             "choosing nothing closed the chooser anyway");
+
+    // And choosing the variable writes it where the cursor is, unexpanded:
+    // the point is to store %{Test:Name}, not what it stands for today.
+    reached = false;
+    for (int i = 0; i < 10 && !reached; ++i) {
+        QTest::keyClick(quickWidget, Qt::Key_Down);
+        reached = chooser->property("currentText").toString() == "%{Test:Name}";
+    }
+    QVERIFY(reached);
+    field->setProperty("cursorPosition", 1);
+    QTest::keyClick(quickWidget, Qt::Key_Return);
+    QTRY_COMPARE(field->property("text").toString(), QString("a%{Test:Name}b"));
+    QTRY_VERIFY(!chooser->property("visible").toBool());
+}
+
+void QuickUiTest::testASeveralLineFieldOffersVariablesToo()
+{
+    // The widget renderer puts a chooser on every line edit, text edit and
+    // path chooser alike, so a value typed over several lines is no less
+    // written in terms of variables than a one-line one.
+    Utils::MacroExpander expander;
+    expander.setDisplayName("Test");
+    expander.registerVariable("Test:Name", "What the test calls itself",
+                              [] { return QString("Nemo"); });
+
+    Utils::AspectContainer page;
+    page.setAutoApply(false);
+    Utils::StringAspect option(&page);
+    option.setLabelText("Option");
+    option.setDisplayStyle(Utils::StringAspect::TextEditDisplay);
+    option.setMacroExpander(&expander);
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+
+    // Through the ScrollView: searching for "TextArea" from further up matches
+    // TextAreaDelegate itself, which has no text to insert into.
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "TextAreaDelegate"));
+    QQuickItem * const scroll = findQmlComponent(delegate, "ScrollView");
+    QVERIFY(scroll);
+    QQuickItem * const area = findQmlComponent(scroll, "TextArea");
+    QVERIFY(area);
+
+    QQuickItem * const button = findQmlNamed(quickWidget->rootObject(),
+                                             "insertVariableButton").value(0);
+    QVERIFY(button);
+    QVERIFY2(!button->isVisible(), "the chooser button is offered on a field nobody is in");
+
+    area->forceActiveFocus();
+    QTRY_VERIFY(button->isVisible());
+    drawsAnIcon(button, "the insert-variable button of a text area");
+
+    const QPointF centre = button->mapToScene(
+        QPointF(button->width() / 2, button->height() / 2));
+    QTest::mouseClick(quickWidget, Qt::LeftButton, Qt::NoModifier, centre.toPoint());
+
+    QObject * const chooser = delegate->findChild<QObject *>("variableChooser");
+    QVERIFY(chooser);
+    QTRY_VERIFY(chooser->property("visible").toBool());
+
+    // And what it offers goes into the text, at the cursor rather than over
+    // whatever is already there.
+    QQuickItem * const filter = findQmlNamed(
+        chooser->property("contentItem").value<QQuickItem *>(), "variableFilter").value(0);
+    QVERIFY(filter);
+    filter->setProperty("text", "Test:Name");
+    // The list is narrowed a frame later; walking it before then walks
+    // nothing.
+    QTRY_VERIFY(Utils::anyOf(findQmlNamed(chooser->property("contentItem").value<QQuickItem *>(),
+                                          "variableRow"),
+                             [](QQuickItem *row) {
+                                 return row->property("unexpandedText").toString()
+                                        == "%{Test:Name}";
+                             }));
+    bool reached = false;
+    for (int i = 0; i < 10 && !reached; ++i) {
+        QTest::keyClick(quickWidget, Qt::Key_Down);
+        reached = chooser->property("currentText").toString() == "%{Test:Name}";
+    }
+    QVERIFY2(reached, "the keyboard never reached the variable the filter left on screen");
+
+    area->setProperty("text", "ab");
+    area->setProperty("cursorPosition", 1);
+    QTest::keyClick(quickWidget, Qt::Key_Return);
+    QTRY_COMPARE(area->property("text").toString(), QString("a%{Test:Name}b"));
+}
+
+void QuickUiTest::testAVariableBeingDefinedIsNotOfferedForItself()
+{
+    // A variable whose value is being edited must not be offered as part of
+    // its own value. The widget tree lists it and refuses it; a Quick view
+    // cannot read item flags, so the model has to say so as data.
+    Utils::MacroExpander expander;
+    expander.setDisplayName("Test");
+    expander.registerVariable("Test:Name", "What the test calls itself",
+                              [] { return QString("Nemo"); });
+    expander.registerVariable("Test:Other", "Something else",
+                              [] { return QString("Other"); });
+
+    Utils::AspectContainer page;
+    Utils::StringAspect option(&page);
+    option.setMacroExpander(&expander);
+
+    QtcQuick::AspectModels models;
+    QAbstractItemModel * const rows = models.variables(&option);
+    QVERIFY(rows);
+    auto * const source = option.findChild<Utils::VariableModel *>();
+    QVERIFY(source);
+
+    const auto roleOf = [rows](const QByteArray &name) {
+        return rows->roleNames().key(name);
+    };
+    // At any depth: an expander that defers to another is a group inside a
+    // group, which is where an aspect's own variables end up.
+    const std::function<QModelIndex(const QModelIndex &, const QString &)> findIn =
+        [&](const QModelIndex &parent, const QString &unexpanded) {
+            for (int i = 0; i < rows->rowCount(parent); ++i) {
+                const QModelIndex row = rows->index(i, 0, parent);
+                if (row.data(roleOf("unexpandedText")).toString() == unexpanded)
+                    return row;
+                if (const QModelIndex found = findIn(row, unexpanded); found.isValid())
+                    return found;
+            }
+            return QModelIndex();
+        };
+    const auto findRow = [&](const QString &unexpanded) { return findIn({}, unexpanded); };
+
+    QVERIFY2(findRow("%{Test:Name}").isValid(),
+             "the variables were not fetched, so nothing could be filtered either");
+    QVERIFY(findRow("%{Test:Name}").data(roleOf("selectable")).toBool());
+
+    source->setCurrentVariableName("Test:Name");
+    QVERIFY2(!findRow("%{Test:Name}").data(roleOf("selectable")).toBool(),
+             "a variable was offered as a value for itself");
+    QVERIFY2(findRow("%{Test:Other}").data(roleOf("selectable")).toBool(),
+             "every other variable was refused along with it");
+
+    // And the filter narrows the list without losing the group above it.
+    QVERIFY(QMetaObject::invokeMethod(rows, "setFilterFixedString",
+                                      Q_ARG(QString, "Other")));
+    QVERIFY2(findRow("%{Test:Other}").isValid(),
+             "the filter dropped what it matched, or the group holding it");
+    QVERIFY2(!findRow("%{Test:Name}").isValid(), "the filter kept what it did not match");
 }
 
 QObject *createQuickUiTest()

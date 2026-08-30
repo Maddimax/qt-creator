@@ -16848,3 +16848,44 @@ down:
 So Perf was the only one, and now it is known rather than hoped. The check
 that would catch the next is already in the tree: the guard names the setting,
 and running any plugin's tests surfaces it.
+
+## Variables in a Quick field
+
+Every line edit, text edit and path chooser on a widget page carries a
+`Utils::VariableChooser`; `AspectWidgets::addMacroExpansion()` attaches one
+unconditionally. A Quick field had none, so a value meant to be written as
+`%{Foo}` had to be typed from memory. `QtcVariableChooser.qml` is that popup:
+a filter, the tree of what the expanders offer, and what the selected one is
+for.
+
+What it took, beyond the QML:
+
+- **`AspectModels.variables(aspect)`** hands out a `QSortFilterProxyModel` over
+  a `Utils::VariableModel`, cached on the aspect. QML narrows it by calling
+  `setFilterFixedString()`, which is a slot, because building a proxy is not
+  something QML can do.
+- **The tree has to be fetched to any depth first.** Each group fetches its
+  variables on demand and the filter is recursive, so a group whose children
+  are not there matches nothing and vanishes as soon as anything is typed. The
+  widget hides this by calling `expandAll()`; here they are all fetched up
+  front. Depth matters: an expander that defers to another - which is exactly
+  how an aspect names its own - is a group inside a group.
+- **A Quick view cannot read item flags.** The widget refuses the variable
+  being defined by returning flags without `ItemIsEnabled`. That had to become
+  data, `SelectableRole`, or the rule would simply not exist on this path.
+- **A group had to learn to say "no text".** Not answering a role gives QML the
+  *string* `"undefined"`, which is not empty, so a heading counted as
+  something to insert.
+
+Three things were found by running it rather than by reading it:
+
+- Renaming `Qt::DisplayRole` to `"name"` in `roleNames()`, done in the commit
+  before this one, removed `"display"` - and that is the name the stock
+  `TreeViewDelegate` draws its label from. Every row failed to bind.
+- `expandRecursively()` on assignment expands nothing: the rows arrive a frame
+  later. It belongs in `onRowsChanged`.
+- A double click cannot be delivered here by `QTest`: `mouseDClick()` sends a
+  synthetic event the widget does not forward, and two `mouseClick()` calls are
+  two single taps. The gesture is kept (`onDoubleClicked` on the row) but what
+  the tests drive is the keyboard - the filter walks the list with Up/Down and
+  activates with Enter, which the widget's tree does too once it has the focus.

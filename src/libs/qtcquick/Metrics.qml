@@ -21,6 +21,11 @@ QtObject {
     // current item is made of - kits, toolchains. Enough rows to pick from
     // without a long detail form squeezing the list away.
     readonly property int chooserListHeight: 180
+
+    // What a variable is for, under the list that chose it. The widget
+    // chooser gives its description this floor whether it is filled or not,
+    // so that picking one does not resize the popup.
+    readonly property int variableDescriptionHeight: 60
     // Height of a multi-line text editor in a settings form. Shorter than a
     // list: what goes in one is usually a handful of lines.
     readonly property int formTextAreaHeight: 90

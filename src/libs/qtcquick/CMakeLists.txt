@@ -50,6 +50,7 @@ if(TARGET QtcQuick)
       ButtonDelegate.qml
       ColorDelegate.qml
       CompletionPopup.qml
+      QtcVariableChooser.qml
       DeviceBrowse.qml
       DoubleDelegate.qml
       FilePathListDelegate.qml

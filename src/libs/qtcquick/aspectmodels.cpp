@@ -9,11 +9,14 @@
 #include "qtciconprovider.h"
 
 #include <QFontDatabase>
+#include <QSortFilterProxyModel>
 
 #include <utils/algorithm.h>
 #include <utils/aspectlist.h>
 #include <utils/algorithm.h>
 #include <utils/aspects.h>
+#include <utils/macroexpander.h>
+#include <utils/variablechooser.h>
 #include <utils/filedialogs.h>
 
 #include <utils/qtcassert.h>
@@ -76,6 +79,50 @@ AspectContainerModel *AspectModels::container(BaseAspect *aspect)
                                                                      Qt::FindDirectChildrenOnly))
         return existing;
     return new AspectContainerModel(container, container);
+}
+
+QAbstractItemModel *AspectModels::variables(BaseAspect *aspect)
+{
+    QTC_ASSERT(aspect, return nullptr);
+
+    // Cached on the aspect: a fresh one per call would be rebuilt every time
+    // the chooser opened, and a parentless one would be collected out from
+    // under QML.
+    if (auto existing = aspect->findChild<QSortFilterProxyModel *>({},
+                                                                   Qt::FindDirectChildrenOnly)) {
+        return existing;
+    }
+
+    auto model = new VariableModel(aspect);
+    // The aspect's own expander first, where it has one, then the global one -
+    // the order Utils::VariableChooser lists them in.
+    if (MacroExpander * const own = aspect->macroExpander())
+        model->addMacroExpanderProvider(MacroExpanderProvider(own));
+    model->addMacroExpanderProvider(MacroExpanderProvider(globalMacroExpander()));
+
+    // Each group fetches its variables on demand, and the filter below is
+    // recursive: a group whose children have not been fetched matches
+    // nothing, so it would vanish as soon as anything was typed. The widget
+    // chooser avoids that by keeping the tree expanded; here they are simply
+    // all fetched up front. Depth matters - an expander that defers to
+    // another one, which is how an aspect names its own, is a group inside a
+    // group.
+    const std::function<void(const QModelIndex &)> fetchAll = [&](const QModelIndex &parent) {
+        if (model->canFetchMore(parent))
+            model->fetchMore(parent);
+        for (int i = 0, n = model->rowCount(parent); i < n; ++i)
+            fetchAll(model->index(i, 0, parent));
+    };
+    fetchAll({});
+
+    auto filtered = new QSortFilterProxyModel(aspect);
+    filtered->setSourceModel(model);
+    filtered->setFilterCaseSensitivity(Qt::CaseInsensitive);
+    // A variable matches even when its group does not, and a group stays when
+    // one of its variables matches.
+    filtered->setRecursiveFilteringEnabled(true);
+    QQmlEngine::setObjectOwnership(filtered, QQmlEngine::CppOwnership);
+    return filtered;
 }
 
 QAbstractItemModel *AspectModels::tableModel(BaseAspect *aspect)

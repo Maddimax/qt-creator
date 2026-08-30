@@ -113,6 +113,14 @@ public:
             }
         }
 
+        // A group is a heading: it stands for no text at all. Said with an
+        // empty string rather than by not answering, because a view that
+        // reads it by role name gets the string "undefined" for the latter.
+        if (role == UnexpandedTextRole || role == ExpandedTextRole
+            || role == CurrentValueDisplayRole) {
+            return QString();
+        }
+
         return QVariant();
     }
 
@@ -322,13 +330,20 @@ QByteArray VariableModel::currentVariableName() const
     return m_currentVariableName;
 }
 
+QVariant VariableModel::data(const QModelIndex &index, int role) const
+{
+    if (role == SelectableRole)
+        return flags(index).testFlag(Qt::ItemIsEnabled);
+    return TreeModel<>::data(index, role);
+}
+
 QHash<int, QByteArray> VariableModel::roleNames() const
 {
     QHash<int, QByteArray> names = TreeModel<>::roleNames();
-    names.insert(Qt::DisplayRole, "name");
     names.insert(UnexpandedTextRole, "unexpandedText");
     names.insert(ExpandedTextRole, "expandedText");
     names.insert(CurrentValueDisplayRole, "currentValue");
+    names.insert(SelectableRole, "selectable");
     return names;
 }
 

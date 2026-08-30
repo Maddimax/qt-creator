@@ -116,9 +116,58 @@ RowLayout {
             // was drawn from its tail with its beginning scrolled out of
             // sight. The widget line edit shows the start of what it holds.
             onTextChanged: if (!activeFocus) cursorPosition = 0
-            // Room for the icon below, so what is typed does not run under it.
-            rightPadding: rightSideIcon.visible
-                          ? rightSideIcon.width + 2 * Spacing.PaddingHS : padding
+            // Room for the icons below, so what is typed does not run under
+            // them.
+            rightPadding: padding
+                          + (rightSideIcon.visible
+                             ? rightSideIcon.width + Spacing.PaddingHS : 0)
+                          + (variableButton.visible
+                             ? variableButton.width + Spacing.PaddingHS : 0)
+
+            // What the field may be written in terms of. The widget line edit
+            // grows this button while it has the focus and drops it again
+            // afterwards, so that a form is not a wall of icons; this follows
+            // it.
+            QtcIconDisplay {
+                id: variableButton
+
+                objectName: "insertVariableButton"
+                anchors.right: rightSideIcon.visible ? rightSideIcon.left : parent.right
+                anchors.rightMargin: Spacing.PaddingHS
+                anchors.verticalCenter: parent.verticalCenter
+                iconSource: "image://qtcreator/@name/REPLACE"
+                visible: field.activeFocus && !field.readOnly && field.enabled
+                ToolTip.text: qsTr("Insert Variable")
+                ToolTip.visible: variableHover.hovered
+
+                HoverHandler { id: variableHover }
+
+                TapHandler {
+                    onTapped: {
+                        chooser.variables = AspectModels.variables(delegate.aspect)
+                        chooser.offer()
+                    }
+                }
+            }
+
+            QtcVariableChooser {
+                id: chooser
+
+                // Set when opened: asking the aspect for its variables builds
+                // them, and a form of twenty fields would build twenty lists
+                // nobody looked at.
+                variables: null
+                y: field.height
+                width: Math.max(field.width, implicitWidth)
+
+                // Where it goes is the field's business: what was selected is
+                // replaced, and the cursor ends up after it.
+                onChose: (text) => {
+                    field.insert(field.selectionStart === field.selectionEnd
+                                 ? field.cursorPosition : field.selectionStart, text)
+                    field.forceActiveFocus()
+                }
+            }
 
             // An icon inside the field at its right, which the reader can
             // press: the aspect is told and decides what it means. The widget

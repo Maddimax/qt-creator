@@ -48,6 +48,8 @@ RowLayout {
     // Framed: the style dresses a TextField but not a TextArea, so without one
     // a multi-line value is an invisible box under its label.
     Frame {
+        id: frame
+
         Layout.fillWidth: true
         Layout.preferredHeight: Metrics.formTextAreaHeight
 
@@ -113,6 +115,43 @@ RowLayout {
                         area.cursorPosition = before.length + text.length
                     }
                 }
+            }
+        }
+
+        // The widget chooser puts its button in the top right corner of a
+        // text edit, not beside it, and shows it while the edit has the
+        // focus. In the frame rather than in the scrolled content: what is
+        // scrolled moves, and the button does not.
+        QtcIconDisplay {
+            objectName: "insertVariableButton"
+            anchors.right: parent.right
+            anchors.top: parent.top
+            z: 1
+            iconSource: "image://qtcreator/@name/REPLACE"
+            visible: area.activeFocus && !area.readOnly && area.enabled
+            ToolTip.text: qsTr("Insert Variable")
+            ToolTip.visible: variableHover.hovered
+
+            HoverHandler { id: variableHover }
+
+            TapHandler {
+                onTapped: {
+                    chooser.variables = AspectModels.variables(delegate.aspect)
+                    chooser.offer()
+                }
+            }
+        }
+
+        QtcVariableChooser {
+            id: chooser
+
+            variables: null
+            x: area.cursorRectangle.x
+            y: area.cursorRectangle.y + area.cursorRectangle.height
+
+            onChose: (text) => {
+                area.insert(area.cursorPosition, text)
+                area.forceActiveFocus()
             }
         }
     }
