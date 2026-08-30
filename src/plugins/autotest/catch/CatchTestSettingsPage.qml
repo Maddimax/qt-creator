@@ -43,4 +43,6 @@ AspectPage {
     }
 
     BoolDelegate { aspect: root.aspects.NoAnalysis }
+
+    BoolDelegate { aspect: root.aspects.WarnEmpty }
 }

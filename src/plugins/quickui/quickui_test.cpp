@@ -391,18 +391,6 @@ static const QSet<QString> &knownUndrawnSettings()
         "Valgrind: Analyzer.Valgrind.Callgrind.CycleDetection/CycleDetection",
         "Valgrind: Analyzer.Valgrind.Callgrind.ShortenTemplates/ShortenTemplates",
 
-        // A vim option, set with ":set tw=N". The widget layout listed the
-        // other integers of FakeVimSettings in a row and left this one out.
-        "General: FakeVim/TextWidth/TextWidth",
-
-        // Inherited from VcsBaseSettings. The CVS closure listed the binary
-        // path, the root, the timeout, the diff options and describe-by-id,
-        // and not this.
-        "CVS: LogCount/LogCount",
-
-        // Labelled, and shown by no UI before the port either: the Catch
-        // closure listed every other option and not this one.
-        "Catch Test: WarnEmpty/WarnEmpty",
     };
     return settings;
 }

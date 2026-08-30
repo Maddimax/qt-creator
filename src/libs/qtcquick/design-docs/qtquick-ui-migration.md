@@ -17417,3 +17417,37 @@ translation-unit-local helper in an anonymous namespace.
 That completes the eight aspects that drew themselves with
 `setConfigWidgetCreator()`. Every one of them now has a Qt Quick surface, and
 the widget path is untouched in all of them.
+
+## The closures are gone. What that leaves
+
+Measured rather than assumed, now that the eight `setConfigWidgetCreator()`
+aspects are done:
+
+- **No aspect overrides `addToLayoutImpl()` any more.** The only definition
+  left in the tree is `BaseAspect`'s own.
+- **Two `AspectWidgets::setLayouter()` callers remain**, and both are meant to
+  be there: one in QuickUi's own tests, and the Lua bindings, where an
+  extension supplies a layout Qt Creator cannot know in advance.
+- The page census walks every options page and asserts that every *labelled*
+  aspect is drawn; the panel census asserts every panel that names QML renders
+  with Qt Quick. Both are green.
+
+So the remaining honest measure of "nothing was lost on the way to Qt Quick" is
+the census's allowlist, and three of its six entries were not exclusions at all
+but admissions:
+
+- `FakeVim/TextWidth` - "the widget layout listed the other integers of
+  FakeVimSettings in a row and left this one out".
+- `CVS/LogCount` - inherited from `VcsBaseSettings`; **six other version
+  control pages draw it** and CVS was the only one that did not.
+- `Catch Test/WarnEmpty` - "shown by no UI before the port either".
+
+Each is one delegate. They are drawn now and struck from the allowlist, so the
+census enforces it: removing the CVS line again turns
+`testAspectDrivenPagesRenderWithQuick` red with "CVS does not draw:
+LogCount/LogCount".
+
+The four left are genuine: GDB's break-on-throw and break-on-catch are set from
+the Breakpoints view beside the breakpoints they create, and Valgrind's cycle
+detection and template shortening from the Callgrind toolbar beside the data
+they change.

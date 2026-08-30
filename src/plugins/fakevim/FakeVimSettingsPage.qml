@@ -58,6 +58,7 @@ AspectPage {
                 spacing: Spacing.GapHM
 
                 IntegerDelegate { aspect: root.aspects.ShiftWidth }
+                IntegerDelegate { aspect: root.aspects.TextWidth }
                 IntegerDelegate { aspect: root.aspects.TabStop }
                 IntegerDelegate { aspect: root.aspects.ScrollOff }
                 IntegerDelegate { aspect: root.aspects.TimeoutLen }

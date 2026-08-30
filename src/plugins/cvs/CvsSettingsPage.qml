@@ -26,6 +26,7 @@ AspectPage {
 
         ColumnLayout {
             IntegerDelegate { aspect: root.aspects.Timeout }
+            IntegerDelegate { aspect: root.aspects.LogCount }
             StringDelegate { aspect: root.aspects.DiffOptions }
             BoolDelegate { aspect: root.aspects.DescribeByCommitId }
         }
