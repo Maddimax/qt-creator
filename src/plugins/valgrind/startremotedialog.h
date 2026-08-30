@@ -7,6 +7,7 @@
 
 QT_BEGIN_NAMESPACE
 class QAction;
+class QObject;
 QT_END_NAMESPACE
 
 namespace Core { class Perspective; }
@@ -14,5 +15,9 @@ namespace Core { class Perspective; }
 namespace Valgrind::Internal {
 
 void setupExternalAnalyzer(QAction *action, Core::Perspective *perspective, Utils::Id runMode);
+
+#ifdef WITH_TESTS
+QObject *createStartRemoteDialogTest();
+#endif
 
 } // Valgrind::Internal

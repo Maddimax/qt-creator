@@ -3,6 +3,7 @@
 
 #include "callgrindtool.h"
 #include "memchecktool.h"
+#include "startremotedialog.h"
 #include "valgrindsettings.h"
 #include "valgrindtr.h"
 
@@ -52,6 +53,7 @@ public:
         addTestCreator(createValgrindMemcheckParserTest);
         addTestCreator(createValgrindTestRunnerTest);
         addTestCreator(createCallgrindToolTest);
+        addTestCreator(createStartRemoteDialogTest);
 #endif
     }
 };

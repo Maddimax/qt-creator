@@ -73,6 +73,7 @@ if(TARGET Valgrind)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      StartRemoteDialog.qml
       ValgrindSettingsPage.qml
   )
 endif()

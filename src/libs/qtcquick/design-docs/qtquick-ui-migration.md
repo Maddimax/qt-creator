@@ -20763,3 +20763,62 @@ file.
 **Next:** `StartRemoteDialog` (Valgrind), then the seven remaining kit-chooser
 dialogs - five in Debugger, plus `DeviceProcessesDialog` and
 `ParseIssuesDialog`.
+
+## 2026-08-30 — Valgrind's remote dialog, and a flag that is only written when asked
+
+`StartRemoteDialog` is the second kit-chooser dialog and the first with a
+validity rule: its Ok button follows whether the executable is there. The
+container is `KitChooserAspect` plus two `FilePathAspect`s and a
+`StringAspect`, and `StringDelegate` draws all three - a path aspect is a
+`Kind::FilePath`, which that delegate already serves with a browse button and
+a validation message under the field, so no new delegate was needed.
+
+**`FilePathAspect::isValid()` is not a property, it is a side effect of asking
+`validationMessage()`**, and the check behind it is asynchronous. Three
+consequences, all of which cost a red test before they were understood:
+
+- The first ask always answers empty. `AsyncValidation::messageFor()` starts
+  the check and returns nothing; the answer arrives with
+  `validationMessageChanged()`. So a `QCOMPARE(validationMessage(p), QString())`
+  passes on the *pending* state and proves nothing. Ask inside a `QTRY` that
+  also requires `isValid()`, which only becomes true once the answer is in.
+- **An empty candidate is never checked at all.** `m_candidate` starts as an
+  empty string, so `text == m_candidate` matches on the first call and returns
+  the empty message from the cache. A test has to ask about a real path
+  *first*, so that asking about the empty one is a change.
+- Nothing re-asks unless a field is drawn. Emptying the aspect headlessly
+  leaves `isValid()` true, because only the delegate's `error` binding calls
+  `validationMessage()`.
+
+This is why the dialog connects `validChanged` rather than reading the flag:
+in the constructor it is always false, and the Ok button would never come on.
+
+**The four settings keys are kept as the widget wrote them**, not handed to the
+aspects. `AnalyzerStartRemoteDialog/{profile,executable,workingDirectory,
+arguments}` are in every reader's settings file already, and a `SelectionAspect`
+would store the chooser's *row* where `profile` holds a kit id. `restoreFrom()`
+and `saveTo()` take the `QtcSettings *` rather than reaching for
+`ICore::settings()`, so the round trip is tested against a temporary file
+instead of the reader's own settings.
+
+**A file-local dialog can still be tested**: `friend class StartRemoteDialogTest`
+under `WITH_TESTS` is what makes the Ok wiring covered rather than only the
+rule underneath it - control 5 removed the `connect` and only that test noticed.
+
+One behaviour moved: the widget's chooser remembered the kit when the reader
+picked one, so a cancelled dialog still changed what the next one opened on.
+`rememberChoice()` is called on accept instead.
+
+Negative controls: the `.qml` naming an aspect that does not exist; the chooser
+not given the remote-kit rule; a settings key the reader's file does not have;
+arguments left as the label a string aspect draws by default; the Ok button not
+wired to the executable; and a working directory that accepts anything. All six
+bit.
+
+QuickUi 182 passed / 0 failed / 1 skipped, exit 0. `StartRemoteDialogTest` 8
+passed, exit 0; `Valgrind_qmllint` clean. No `.qbs` edit: `valgrind.qbs` takes
+`*.qml` by wildcard, as `profiler.qbs` does.
+
+**Next:** the seven remaining kit-chooser dialogs - five in Debugger
+(`StartApplicationDialog` and friends), plus `DeviceProcessesDialog` and
+`ParseIssuesDialog`. `ParseIssuesDialog` is the smallest.
