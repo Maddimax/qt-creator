@@ -17057,3 +17057,44 @@ guessed: `cmakebuildstep.cpp` is a 109-line closure with ten lines of
 behaviour in it and is the next real one;
 `debuggerrunconfigurationaspect.cpp` has no `createConfigWidget()` at all -
 its layout is an aspect's, not a step's, so it belongs to a different sweep.
+
+### What blocks CMakeBuildStep, measured
+
+Its behaviour is out of the layout now, but the page cannot follow yet, and the
+reason generalises well beyond this one step.
+
+What the closure still lists is three things: five aspect rows, a targets tree,
+and - **only for a preset build** (`!isCleanStep() && !m_buildPreset.isEmpty()`)
+- a "Clear system environment" check box and an `EnvironmentWidget`.
+
+- The **targets tree** is ready to port. Its state is not in the widget: the
+  view is a `QTreeView` over `m_buildTargetModel`, whose items already read and
+  write the step through `buildsBuildTarget()`/`setBuildsBuildTarget()`. It
+  needs the `tableModel()` treatment and nothing more.
+- The **environment editor** is not. `EnvironmentAspect` draws itself with
+  `setConfigWidgetCreator()`, and **the Qt Quick side has no support for that
+  at all** - no delegate reads `configWidgetCreator()`, and such an aspect has
+  no `presentation()` of its own, so it answers `AspectControls::Custom` and a
+  Quick page draws `UnsupportedDelegate`: the label plus "(no Qt Quick editor
+  yet)" in alert colour. Visible rather than silent, which is right, but it is
+  a placeholder where an editor used to be.
+
+Porting the page now would therefore trade a working environment editor for
+that placeholder on preset builds. That is a functional regression, so the page
+waits.
+
+**Ten aspects draw themselves with a bespoke widget** and block every page that
+holds one, not just this step:
+
+    projectexplorer/environmentaspect.cpp      cmakeprojectmanager/cmakebuildconfiguration.cpp
+    projectexplorer/deployconfiguration.cpp    debugger/debuggerrunconfigurationaspect.cpp
+    projectexplorer/customparser.cpp           profiler/perfrunconfigurationaspect.cpp
+    remote/remotelinuxenvironmentaspect.cpp    profiler/qmlprofilerrunconfigurationaspect.cpp
+    valgrind/valgrindplugin.cpp
+
+The environment one is the widest: it is on run configurations, build
+configurations and this build step. The good news is that its data is already a
+model - `Utils::EnvironmentModel`, a `QAbstractTableModel` in `libs/utils` - so
+a Qt Quick editor is a `TableDelegate` plus the buttons around it
+(`environmentwidget.cpp` is 574 lines, most of them the buttons, the batch-edit
+dialog and the summary), not a reimplementation of the data.
