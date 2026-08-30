@@ -38,6 +38,7 @@
 #include <utils/aspectlist.h>
 #include <utils/aspects.h>
 #include <qtcquick/outputview.h>
+#include <coreplugin/outputpaneview.h>
 #include <coreplugin/outputview.h>
 #include <utils/aggregate.h>
 #include <utils/theme/theme.h>
@@ -364,6 +365,7 @@ private slots:
     void testTheOutputViewSeesTheLinksAFormatterWrote();
     void testCoreHandsOutAnOutputViewItCannotDrawItself();
     void testCoreHasNoOutputViewWithoutAFrontEnd();
+    void testAPaneBuiltBeforeTheFrontEndStillGetsAView();
     void testFindingTextInTheOutputView();
     void testTheOutputViewScrollsAMatchIntoView();
     void testABackwardsSelectionComesBackTheRightWayRound();
@@ -10649,6 +10651,49 @@ void QuickUiTest::testEveryMatchIsHighlightedInTheOutputView()
     QTRY_VERIFY2([&] {
         return countsOf(quickWidget->grabFramebuffer(), highlight) > 0;
     }(), "nothing was highlighted after the view was given another document");
+}
+
+void QuickUiTest::testAPaneBuiltBeforeTheFrontEndStillGetsAView()
+{
+    // A Core-level pane can be built before this plugin has initialized:
+    // General Messages is made the first time anything writes a message, and
+    // that happens while plugins are still loading. Core cannot depend on a
+    // Qt Quick front end - it is below one - so the pane has to survive being
+    // made without one and pick one up later.
+    Core::setOutputViewFactory({});
+    const QScopeGuard restore([] { QuickUi::Internal::installOutputViewFactory(); });
+
+    Core::OutputPaneView view;
+    QVERIFY2(!view.view(), "a view was made when there was no front end to make it with");
+
+    // What it is told meanwhile is kept, not dropped.
+    view.appendMessage("written before anything could draw it\n", Utils::GeneralMessageFormat);
+    QFont base;
+    base.setPointSizeF(12);
+    view.setBaseFont(base);
+    view.setFontZoom(4);
+    QVERIFY(view.toPlainText().contains("written before"));
+
+    // The front end loads, and the pane is shown for the first time.
+    QuickUi::Internal::installOutputViewFactory();
+    view.resize(400, 200);
+    view.show();
+
+    // Asked of what is on screen before asking the pane, so that being shown
+    // is what has to make the view. Calling view() first would make it here in
+    // the test and leave that path unexercised.
+    auto * const quickWidget = view.findChild<QQuickWidget *>();
+    QVERIFY2(quickWidget, "being shown did not make the view");
+    QQuickItem * const area = quickWidget->rootObject()->findChild<QQuickItem *>("outputText");
+    QVERIFY(area);
+    QTRY_VERIFY2(area->property("text").toString().contains("written before"),
+                 "what the pane was told before it had a view was never drawn");
+
+    QCOMPARE(view.view()->document(), view.shownDocument());
+
+    // And so is the font it was given before there was anything to apply it to.
+    QCOMPARE(view.fontZoom(), 4.0f);
+    QTRY_COMPARE(area->property("font").value<QFont>().pointSizeF(), 16.0);
 }
 
 void QuickUiTest::testAVariableBeingDefinedIsNotOfferedForItself()

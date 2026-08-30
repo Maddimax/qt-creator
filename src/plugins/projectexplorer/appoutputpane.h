@@ -152,8 +152,9 @@ private:
     bool hasFilterContext() const final;
 
     void updateFilter() final;
-    const QList<Core::OutputWindow *> outputWindows() const final;
-    void ensureWindowVisible(Core::OutputWindow *ow) final;
+    QStringList outputTexts() const final;
+    bool canShowPositionOf(unsigned taskId) const final;
+    void showPositionOf(unsigned taskId) final;
     void visibilityChanged(bool visible) final;
 
     TabWidget *m_tabWidget;

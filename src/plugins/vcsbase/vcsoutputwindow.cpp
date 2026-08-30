@@ -282,9 +282,9 @@ QWidget *VcsOutputWindow::outputWidget(QWidget *parent)
     return &d->widget;
 }
 
-const QList<Core::OutputWindow *> VcsOutputWindow::outputWindows() const
+QStringList VcsOutputWindow::outputTexts() const
 {
-    return {&d->widget};
+    return {d->widget.toPlainText()};
 }
 
 void VcsOutputWindow::clearContents()

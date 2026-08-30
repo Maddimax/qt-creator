@@ -73,7 +73,9 @@ public:
 
 private:
     void updateFilter() override;
-    const QList<Core::OutputWindow *> outputWindows() const override { return {m_outputWindow}; }
+    QStringList outputTexts() const override;
+    bool canShowPositionOf(unsigned taskId) const override;
+    void showPositionOf(unsigned taskId) override;
 
     void updateFromSettings();
     Core::OutputWindow *m_outputWindow;

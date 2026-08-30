@@ -22,7 +22,7 @@ class VCSBASE_EXPORT VcsOutputWindow : public Core::IOutputPane
 
 public:
     QWidget *outputWidget(QWidget *parent) override;
-    const QList<Core::OutputWindow *> outputWindows() const override;
+    QStringList outputTexts() const override;
 
     void clearContents() override;
 

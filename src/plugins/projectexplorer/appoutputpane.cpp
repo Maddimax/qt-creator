@@ -624,19 +624,33 @@ void AppOutputPane::updateFilter()
     }
 }
 
-const QList<Core::OutputWindow *> AppOutputPane::outputWindows() const
+QStringList AppOutputPane::outputTexts() const
 {
-    QList<Core::OutputWindow *> windows;
+    QStringList texts;
     for (const RunControlTab &tab : std::as_const(m_runControlTabs)) {
         if (tab.window)
-            windows << tab.window;
+            texts << tab.window->toPlainText();
     }
-    return windows;
+    return texts;
 }
 
-void AppOutputPane::ensureWindowVisible(Core::OutputWindow *ow)
+bool AppOutputPane::canShowPositionOf(unsigned taskId) const
 {
-    m_tabWidget->setCurrentWidget(ow);
+    return Utils::anyOf(m_runControlTabs, [taskId](const RunControlTab &tab) {
+        return tab.window && tab.window->knowsPositionOf(taskId);
+    });
+}
+
+void AppOutputPane::showPositionOf(unsigned taskId)
+{
+    // One window per run, so which tab holds the task is this pane's to know.
+    for (const RunControlTab &tab : std::as_const(m_runControlTabs)) {
+        if (tab.window && tab.window->knowsPositionOf(taskId)) {
+            m_tabWidget->setCurrentWidget(tab.window);
+            tab.window->showPositionOf(taskId);
+            return;
+        }
+    }
 }
 
 void AppOutputPane::createNewOutputWindow(RunControl *rc)

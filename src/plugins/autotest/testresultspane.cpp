@@ -328,9 +328,9 @@ QWidget *TestResultsPane::outputWidget(QWidget *parent)
     return m_outputWidget;
 }
 
-const QList<Core::OutputWindow *> TestResultsPane::outputWindows() const
+QStringList TestResultsPane::outputTexts() const
 {
-    return {m_textOutput};
+    return {m_textOutput->toPlainText()};
 }
 
 QList<QWidget *> TestResultsPane::toolBarWidgets() const

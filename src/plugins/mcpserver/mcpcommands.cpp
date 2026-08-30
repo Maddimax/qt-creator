@@ -3914,16 +3914,13 @@ void McpCommands::registerCommands()
                         {"available_panes", available},
                         {"message", "Pick one of available_panes as 'name'."}};
             }
-            const QList<Core::OutputWindow *> outputWindows = match->outputWindows();
-            if (outputWindows.isEmpty()) {
+            const QStringList parts = match->outputTexts();
+            if (parts.isEmpty()) {
                 return {{"reason", "pane_has_no_text_output"},
                         {"pane", match->displayName()},
                         {"available_panes", available},
                         {"message", "This pane is not a plain-text output pane."}};
             }
-            QStringList parts;
-            for (Core::OutputWindow *window : outputWindows)
-                parts << window->toPlainText();
             return {{"reason", "ok"},
                     {"pane", match->displayName()},
                     {"text", lastLines(parts.join('\n'), maxLines)}};

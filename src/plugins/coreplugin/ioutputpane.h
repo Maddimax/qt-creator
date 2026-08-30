@@ -27,8 +27,16 @@ public:
     virtual QList<QWidget *> toolBarWidgets() const;
     Utils::Id id() const;
     QString displayName() const;
-    virtual const QList<OutputWindow *> outputWindows() const { return {}; }
-    virtual void ensureWindowVisible(OutputWindow *) { }
+    // The text this pane shows, one entry per view it holds. Empty for a pane
+    // that is not a plain-text one, which is what tells a reader to say so
+    // rather than to report a pane as empty.
+    virtual QStringList outputTexts() const { return {}; }
+
+    // Whether this pane can show where a task was reported, and doing so.
+    // Panes hold their views in their own way - one, or one per run - so
+    // finding the right one is theirs to do rather than a caller's.
+    virtual bool canShowPositionOf(unsigned taskId) const { Q_UNUSED(taskId) return false; }
+    virtual void showPositionOf(unsigned taskId) { Q_UNUSED(taskId) }
 
     int priorityInStatusBar() const;
 

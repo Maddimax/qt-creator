@@ -7,6 +7,7 @@
 #include "coreplugintr.h"
 #include "icontext.h"
 #include "ioutputpane.h"
+#include "outputpaneview.h"
 #include "outputwindow.h"
 
 #include <utils/qtcassert.h>
@@ -42,14 +43,14 @@ public:
         setDisplayName(Tr::tr("General Messages"));
         setPriorityInStatusBar(-100);
 
-        m_widget = new OutputWindow(Context(Constants::C_GENERAL_OUTPUT_PANE), zoomSettingsKey);
-        m_widget->setReadOnly(true);
+        m_widget = new OutputPaneView(zoomSettingsKey);
 
-        connect(this, &IOutputPane::zoomInRequested, m_widget, &Core::OutputWindow::zoomIn);
-        connect(this, &IOutputPane::zoomOutRequested, m_widget, &Core::OutputWindow::zoomOut);
-        connect(this, &IOutputPane::resetZoomRequested, m_widget, &Core::OutputWindow::resetZoom);
-        connect(this, &IOutputPane::fontChanged, m_widget, &OutputWindow::setBaseFont);
-        connect(this, &IOutputPane::wheelZoomEnabledChanged, m_widget, &OutputWindow::setWheelZoomEnabled);
+        connect(this, &IOutputPane::zoomInRequested, m_widget, &OutputPaneView::zoomIn);
+        connect(this, &IOutputPane::zoomOutRequested, m_widget, &OutputPaneView::zoomOut);
+        connect(this, &IOutputPane::resetZoomRequested, m_widget, &OutputPaneView::resetZoom);
+        connect(this, &IOutputPane::fontChanged, m_widget, &OutputPaneView::setBaseFont);
+        connect(this, &IOutputPane::wheelZoomEnabledChanged,
+                m_widget, &OutputPaneView::setWheelZoomEnabled);
 
         setupFilterUi("MessageOutputPane.Filter", "Core::Internal::MessageOutputWindow");
         setFilteringEnabled(true);
@@ -78,7 +79,7 @@ private:
         return m_widget;
     }
 
-    const QList<OutputWindow *> outputWindows() const final { return {m_widget}; }
+    QStringList outputTexts() const final { return {m_widget->toPlainText()}; }
 
     void clearContents() final { m_widget->clear(); }
 
@@ -96,11 +97,19 @@ private:
 
     void updateFilter() final
     {
-        m_widget->updateFilterProperties(filterText(), filterCaseSensitivity(), filterUsesRegexp(),
-                                         filterIsInverted(), beforeContext(), afterContext());
+        using Flag = OutputWindow::FilterModeFlag;
+        OutputWindow::FilterModeFlags mode;
+        if (filterUsesRegexp())
+            mode |= Flag::RegExp;
+        if (filterCaseSensitivity() == Qt::CaseSensitive)
+            mode |= Flag::CaseSensitive;
+        if (filterIsInverted())
+            mode |= Flag::Inverted;
+
+        m_widget->setFilter(filterText(), mode, beforeContext(), afterContext());
     }
 
-    OutputWindow *m_widget = nullptr;
+    OutputPaneView *m_widget = nullptr;
 };
 
 static MessageOutputWindow *messageOutputWindow()

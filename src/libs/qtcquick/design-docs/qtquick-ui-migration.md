@@ -18139,3 +18139,63 @@ rebuilding the filtered copy after lines are retracted from the middle of it;
 and not dimming when a run starts. Plus the one that matters most - putting
 `appendFiltered()`'s bound back - which the rewritten test now fails and the
 old one passed.
+
+### The contract that was blocking every pane, and General Messages through it
+
+`IOutputPane::outputWindows()` handed out `QList<Core::OutputWindow *>`, and two
+plugins called methods on what came back. That is what stopped any pane from
+being drawn with something that is not a `QPlainTextEdit`, and it was serving
+two unrelated needs. It is now three virtuals that say what the callers
+actually wanted:
+
+- `outputTexts()` - the text, for a reader. The MCP server was taking pointers
+  in order to call `toPlainText()` on them.
+- `canShowPositionOf(taskId)` / `showPositionOf(taskId)` - `ShowOutputTaskHandler`
+  was looping over a pane's windows to find the one holding a task, and calling
+  `ensureWindowVisible()` on the pane to bring it forward. A pane holds its
+  views in its own way - one, or one per run - so which one holds a task is
+  its business. `AppOutputPane` is the only one where the loop was real, and
+  the loop is now inside it.
+
+**The shared piece.** Last batch's `BuildSystemOutputView` became
+`Core::OutputPaneView`: source document, filtered document, the view, the zoom,
+dimming, retracting by prefix. Build System Output and General Messages both
+use it, and the four remaining text panes are meant to. Its tests moved to Core
+with it, and had to change what they ask: Core does not link Qt Quick, so they
+assert *which document is shown and what is in it*, and leave "does it reach
+the screen" to the QuickUi tests, which check it against the rendered frame.
+
+**A defect the test found, which is the reason to test the real pane and not a
+stand-in.** General Messages is built the first time anything writes a
+message - a function-local static behind `MessageManager::writeSilently()` -
+and that happens while plugins are still loading. Core is below any Qt Quick
+front end and cannot depend on one, so the pane was being built when
+`createOutputView()` still answered null, and it got no view at all, ever. The
+symptom in the test was a soft assert from `refilter()` and a document that was
+never shown.
+
+So `OutputPaneView` makes its view when there is something to make it with:
+in the constructor if a front end has loaded, and otherwise at `showEvent()`,
+which is the latest possible moment and one at which every plugin has certainly
+initialized. What it is told meanwhile - the text, the base font, the zoom -
+is kept and applied when the view appears. `ProjectExplorer` could solve the
+same problem with a plugin dependency; Core cannot, and this is the answer for
+every pane below the front end.
+
+**Two controls did not bite until the tests were made honest**, which is the
+same lesson as the last three batches:
+
+- "the pane hands out what is on screen rather than what it holds" passed
+  because the test never set a filter. Driving the pane's *own* filter - the
+  `FancyLineEdit` it puts in the tool bar, which is public through
+  `toolBarWidgets()` and is the only way in from outside - made it bite, and
+  made a second control (General Messages ignoring its filter entirely) bite
+  too.
+- "the view is never made late" passed because the test called `view()` before
+  showing the widget, which created it there. Asking what is on screen *before*
+  asking the pane leaves being-shown as the only thing that could have made it.
+
+Controls, six, all biting: General Messages handing out no text; the pane
+handing out the filtered text instead of everything; context lines not reaching
+the filter; General Messages ignoring its filter; the view never being made at
+`showEvent`; and the font and zoom set before the view existed being dropped.

@@ -26,9 +26,7 @@ ShowOutputTaskHandler::ShowOutputTaskHandler(
 
 bool ShowOutputTaskHandler::canHandle(const Task &task) const
 {
-    return Utils::anyOf(m_window->outputWindows(), [task](const Core::OutputWindow *ow) {
-        return ow->knowsPositionOf(task.id());
-    });
+    return m_window->canShowPositionOf(task.id());
 }
 
 void ShowOutputTaskHandler::handle(const Task &task)
@@ -36,13 +34,7 @@ void ShowOutputTaskHandler::handle(const Task &task)
     Q_ASSERT(canHandle(task));
     // popup first as this does move the visible area!
     m_window->popup(Core::IOutputPane::Flags(Core::IOutputPane::ModeSwitch | Core::IOutputPane::WithFocus));
-    for (Core::OutputWindow * const ow : m_window->outputWindows()) {
-        if (ow->knowsPositionOf(task.id())) {
-            m_window->ensureWindowVisible(ow);
-            ow->showPositionOf(task.id());
-            break;
-        }
-    }
+    m_window->showPositionOf(task.id());
 }
 
 QAction *ShowOutputTaskHandler::createAction(const QString &text, const QString &tooltip,

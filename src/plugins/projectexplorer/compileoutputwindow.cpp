@@ -201,6 +201,21 @@ void CompileOutputWindow::appendText(const QString &text, BuildStep::OutputForma
     m_outputWindow->appendMessage(text, fmt);
 }
 
+QStringList CompileOutputWindow::outputTexts() const
+{
+    return {m_outputWindow->toPlainText()};
+}
+
+bool CompileOutputWindow::canShowPositionOf(unsigned taskId) const
+{
+    return m_outputWindow->knowsPositionOf(taskId);
+}
+
+void CompileOutputWindow::showPositionOf(unsigned taskId)
+{
+    m_outputWindow->showPositionOf(taskId);
+}
+
 void CompileOutputWindow::clearContents()
 {
     m_outputWindow->clear();

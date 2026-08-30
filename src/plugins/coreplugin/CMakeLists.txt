@@ -238,6 +238,8 @@ add_qtc_plugin(Core
     outputpane.h
     outputpanemanager.cpp
     outputpanemanager.h
+    outputpaneview.cpp
+    outputpaneview.h
     outputview.cpp
     outputview.h
     outputwindow.cpp
