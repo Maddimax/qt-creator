@@ -341,6 +341,7 @@ private slots:
     void testAVariableBeingDefinedIsNotOfferedForItself();
     void testASeveralLineFieldOffersVariablesToo();
     void testAnEnvironmentEditorDrawsItsTableAndItsButtons();
+    void testANestedContainerIsDrawnWithTheQmlItNames();
     void testAFieldOffersWhatWasTypedIntoItBefore();
     void testBrowsingStartsWhereThePathAlreadyPointsTo();
     void testALabelSaysTheValueItCannotShowInFull();
@@ -9950,6 +9951,43 @@ void QuickUiTest::testAnEnvironmentEditorDrawsItsTableAndItsButtons()
 
     // The other surface, under them.
     QVERIFY(findQmlComponent(item, "TextAreaDelegate"));
+}
+
+void QuickUiTest::testANestedContainerIsDrawnWithTheQmlItNames()
+{
+    // A container inside a page can name QML of its own, and then that is what
+    // draws it. Drawn generically instead it would lose whatever that file
+    // draws and no generic form can: the run configuration settings of the
+    // Perf profiler, Valgrind and the QML profiler are all such containers,
+    // and Perf's holds an events table.
+    Utils::AspectContainer page;
+    page.setAutoApply(false);
+
+    Utils::AspectContainer nested(&page);
+    nested.setQmlName("Nested");
+    nested.setLabelText("Nested");
+    // A file that takes the "aspects" seam a page is given - not
+    // AspectForm.qml, which is the *generic* form and requires a model. What
+    // is checked is which file was loaded, not what it draws, so a page of
+    // another plugin's does as well as any.
+    nested.setQmlSource(
+        QUrl("qrc:/qt/qml/QtCreator/ProjectExplorer/ProjectCommentsPanel.qml"));
+    Utils::BoolAspect inner(&nested);
+    inner.setLabelText("Inner");
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+
+    QQuickItem *group = nullptr;
+    QTRY_VERIFY(group = findQmlComponent(quickWidget->rootObject(), "GroupDelegate"));
+
+    // The Loader is what tells the two apart: both paths put items in the
+    // group, and the generic one draws the same aspect just as happily.
+    QQuickItem *loader = nullptr;
+    QTRY_VERIFY(loader = findQmlComponent(group, "QQuickLoader"));
+    QTRY_COMPARE(loader->property("source").toUrl(), nested.qmlSource());
 }
 
 void QuickUiTest::testAVariableBeingDefinedIsNotOfferedForItself()

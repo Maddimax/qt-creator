@@ -44,6 +44,12 @@ public:
     // itself rather than settle for the generic form of each.
     Q_INVOKABLE QtcQuick::NamedAspects *named(Utils::BaseAspect *aspect);
 
+    // The QML a container names for itself, if it is a container and it names
+    // one. A nested container drawn generically loses whatever its own file
+    // draws - the Perf profiler's events table, for one, which no generic
+    // form can draw at all.
+    Q_INVOKABLE QUrl qmlSource(Utils::BaseAspect *aspect);
+
     // The variables that may be written into \a aspect, as rows: what its own
     // macro expander offers and what every field offers. Filtered through a
     // proxy, because that is how a chooser narrows a long list and QML has no

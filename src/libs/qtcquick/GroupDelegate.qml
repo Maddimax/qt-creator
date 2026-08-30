@@ -21,6 +21,16 @@ GroupBox {
     // Derived rather than taken as a model role, so that a hand-written page
     // can use this delegate with nothing but the aspect.
     readonly property var childModel: aspect ? AspectModels.container(aspect) : null
+    // A container that names QML of its own is drawn with it, exactly as a
+    // page is. Drawn generically it would lose whatever that file draws.
+    readonly property url ownSource: aspect ? AspectModels.qmlSource(aspect) : ""
+
+    function loadContents(loader: Loader): void {
+        if (root.ownSource.toString() !== "")
+            loader.setSource(root.ownSource, {"aspects": AspectModels.named(root.aspect)})
+        else
+            loader.setSource("AspectItems.qml", {"model": root.childModel})
+    }
 
     title: labelText
     visible: aspectVisible
@@ -37,7 +47,7 @@ GroupBox {
         // other. setSource() also lets the required model be set at creation.
         Loader {
             Layout.fillWidth: true
-            Component.onCompleted: setSource("AspectItems.qml", {"model": root.childModel})
+            Component.onCompleted: root.loadContents(this)
         }
     }
 }

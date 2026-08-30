@@ -17290,3 +17290,37 @@ there records what happened when it was not - the Perf events table went
 missing. A nested container inside a Qt Quick page is currently drawn by the
 generic container delegate, so whether it honours its own `qmlSource()` needs
 checking before that port, not after.
+
+### A nested container's own QML was being ignored
+
+Before porting `GlobalOrProjectAspect` - which would cover the Perf, QML
+profiler and Valgrind aspects at once - the question in front of it turned out
+to be a live defect rather than a design choice.
+
+`GroupDelegate`, `InlineGroupDelegate` and `FlattenedGroupDelegate` all drew a
+nested container by building `AspectModels.container(aspect)` and never looked
+at `qmlSource()`. So a container that names its own QML, registered inside
+another container, was drawn generically - losing whatever its file draws and
+no generic form can. This is exactly the bug the comment in
+`GlobalOrProjectAspectWidget` records from the *widget* side ("the Perf
+profiler's events table is drawn by a control the widget renderer has none
+of"), and `PerfSettings`, `QmlProfilerSettings` and `ValgrindSettings` all name
+QML **and** are the containers those three aspects hand over as project
+settings.
+
+`AspectModels.qmlSource()` hands the URL to QML, and the two delegates that
+draw a container's full contents choose on it. `InlineGroupDelegate` is left
+alone deliberately: an inline row is one row by definition, not a page.
+
+**The test fixture was wrong before the code was.** Pointing the nested
+container at `AspectForm.qml` fails - that is the *generic* form and requires
+`model`, not the `aspects` seam a page is given. The symptom is an empty
+`Loader.source`, because a failed `setSource()` leaves nothing behind, which
+reads exactly like "the feature does not work".
+
+**Profiler's suite aborts, and not because of this.** It exits 134 with
+different tests failing each run - `DebugMessagesModelTest::testColor`,
+`QmlProfilerDetailsRewriterTest::testMissingModelManager`,
+`FlameGraphViewTest::testSelection`. Baselined twice with these delegate
+changes backed out and HEAD's versions in place: 1 and 3 failures, still
+exit 134. Pre-existing.

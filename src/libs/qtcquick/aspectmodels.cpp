@@ -70,6 +70,12 @@ NamedAspects *AspectModels::named(BaseAspect *aspect)
     return new NamedAspects(container, container);
 }
 
+QUrl AspectModels::qmlSource(BaseAspect *aspect)
+{
+    const auto container = qobject_cast<AspectContainer *>(aspect);
+    return container ? container->qmlSource() : QUrl();
+}
+
 AspectContainerModel *AspectModels::container(BaseAspect *aspect)
 {
     auto container = qobject_cast<AspectContainer *>(aspect);
