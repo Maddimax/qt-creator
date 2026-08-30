@@ -119,5 +119,10 @@ private:
     bool m_suppressPopups = false;
 };
 
+#ifdef WITH_TESTS
+QObject *createRunConfigurationSelectionTest();
+#endif
+
 } // namespace Internal
+
 } // namespace Autotest

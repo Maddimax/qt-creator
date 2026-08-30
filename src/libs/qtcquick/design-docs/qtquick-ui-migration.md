@@ -20317,3 +20317,46 @@ look. `CloneIntoRunConfigDialog` (ProjectExplorer) and
 `RunConfigurationSelectionDialog` (AutoTest) are the two unread ones; both draw
 a chooser and some labels, so both are plausible, and both should be read
 before being called cheap - the classifier has been wrong five times now.
+
+## 2026-08-30 — Select Run Configuration, and a combo box carrying its own data
+
+Of the two unread candidates, `CloneIntoRunConfigDialog` is a `Utils::TreeView`
+over a sort proxy - not a form, and the sixth over-report. It does hold one
+thing worth taking out some day: which run configurations are eligible to clone
+from, which depends on the `syncRunConfigurations` setting in a way that is
+three nested loops and reachable only by opening the dialog with several
+projects loaded.
+
+`RunConfigurationSelectionDialog` is the form, and its shape is one not seen
+before here: **the combo box carried the data**. `populate()` put
+`{executable, arguments, workingDirectory}` into each item's `itemData`, and
+`updateLabels()` read them back out to fill three labels. The list and what is
+said about it were the same widget.
+
+They are separate now: the container holds the choices as a list of structs and
+answers what to show for whichever is picked. That made two things testable
+that were not:
+
+- **The empty first entry is what tells the caller nothing was picked.** It has
+  to stay first and stay selected when the list is refilled, and
+  `chosenName()` has to answer nothing for it - the caller checks for an empty
+  name and gives up.
+- **Going back to nothing clears the three fields.** Reading item data of the
+  empty entry gave three empty strings by construction; a port that guards
+  `index < 0` and returns early instead leaves the last configuration described
+  under an empty name. That is control B, and it bites.
+
+Negative controls: the empty first entry dropped so a configuration is chosen
+for the reader; the fields keeping the previously chosen one; the build target
+never named in the "could not determine" message; and the page naming an aspect
+that is not there. All four bit.
+
+QuickUi 182 passed / 0 failed / 1 skipped, exit 0. AutoTest exit 0,
+`RunConfigurationSelectionTest` 6 passed. `AutoTest_qmllint` clean. No `.qbs`
+edit.
+
+**Next:** the 16 are done or accounted for. What is left in the census is the
+35 dialogs holding an item view or a text editor, which is a different kind of
+work - each needs a model and a delegate rather than a form - and the ones the
+classifier never saw because they are declared in headers. Either is a new
+piece of scoping rather than a port.

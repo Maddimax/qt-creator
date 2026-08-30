@@ -15,6 +15,7 @@
 
 #include "../android/androidconstants.h"  // soft dependency
 
+#include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/icore.h>
 #include <coreplugin/progressmanager/taskprogress.h>
 
@@ -47,6 +48,10 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialog>
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
 #include <QDialogButtonBox>
 #include <QFormLayout>
 #include <QLabel>
@@ -66,23 +71,144 @@ static Q_LOGGING_CATEGORY(runnerLog, "qtc.autotest.testrunner", QtWarningMsg)
 
 static TestRunner *s_instance = nullptr;
 
+// One run configuration as the dialog shows it: the name in the box, and the
+// three things it says about whatever is picked.
+struct RunConfigurationChoice
+{
+    QString displayName;
+    QString executable;
+    QString arguments;
+    QString workingDirectory;
+};
+
+// What the dialog says it could not work out. The build target is named when
+// there is one, because "could not determine which run configuration" with
+// several targets open does not say which.
+QString couldNotDetermineText(const QString &buildTargetKey)
+{
+    const QString details
+        = Tr::tr("Could not determine which run configuration to choose for running tests");
+    return buildTargetKey.isEmpty() ? details : details + QString(" (%1)").arg(buildTargetKey);
+}
+
+class RunConfigurationSelectionSettings final : public Utils::AspectContainer
+{
+public:
+    explicit RunConfigurationSelectionSettings(const QString &buildTargetKey)
+    {
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/AutoTest/RunConfigurationSelectionDialog.qml"));
+
+        details.setQmlName("Details");
+        details.setText(couldNotDetermineText(buildTargetKey));
+
+        runConfiguration.setQmlName("RunConfiguration");
+        runConfiguration.setLabelText(Tr::tr("Run Configuration:"));
+        runConfiguration.setDisplayStyle(Utils::SelectionAspect::DisplayStyle::ComboBox);
+
+        remember.setQmlName("Remember");
+        remember.setLabelText(Tr::tr("Remember choice. Cached choices can be reset by switching "
+                                     "projects or using the option to clear the cache."));
+
+        const auto shown = [](Utils::StringAspect &aspect, const QString &qmlName,
+                              const QString &label) {
+            aspect.setQmlName(qmlName);
+            aspect.setLabelText(label);
+            aspect.setDisplayStyle(Utils::StringAspect::LineEditDisplay);
+            aspect.setReadOnly(true);
+        };
+        shown(executable, "Executable", Tr::tr("Executable:"));
+        shown(arguments, "Arguments", Tr::tr("Arguments:"));
+        shown(workingDirectory, "WorkingDirectory", Tr::tr("Working Directory:"));
+
+        runConfiguration.addOnChanged(this, [this] { refreshDetails(); });
+        setChoices({});
+    }
+
+    // The first entry is empty and stays first: the dialog opens on nothing
+    // chosen, which is what tells the caller the reader picked nothing.
+    void setChoices(const QList<RunConfigurationChoice> &choices)
+    {
+        m_choices = choices;
+        runConfiguration.clearOptions();
+        runConfiguration.addOption({});
+        for (const RunConfigurationChoice &choice : choices)
+            runConfiguration.addOption(choice.displayName);
+        runConfiguration.setValue(0);
+        refreshDetails();
+    }
+
+    // What is shown about the chosen one - nothing at all for the empty entry,
+    // rather than whatever was shown before it was picked.
+    void refreshDetails()
+    {
+        const int index = runConfiguration.value() - 1;
+        const RunConfigurationChoice choice = m_choices.value(index);
+        executable.setValue(choice.executable);
+        arguments.setValue(choice.arguments);
+        workingDirectory.setValue(choice.workingDirectory);
+    }
+
+    QString chosenName() const
+    {
+        return runConfiguration.value() > 0
+                   ? runConfiguration.displayForIndex(runConfiguration.value()) : QString();
+    }
+
+    Utils::TextDisplay details{this};
+    Utils::SelectionAspect runConfiguration{this};
+    Utils::BoolAspect remember{this};
+    Utils::StringAspect executable{this};
+    Utils::StringAspect arguments{this};
+    Utils::StringAspect workingDirectory{this};
+
+private:
+    QList<RunConfigurationChoice> m_choices;
+};
+
 class RunConfigurationSelectionDialog final : public QDialog
 {
 public:
-    explicit RunConfigurationSelectionDialog(const QString &buildTargetKey);
-    QString displayName() const;
-    QString executable() const;
-    bool rememberChoice() const;
+    explicit RunConfigurationSelectionDialog(const QString &buildTargetKey)
+        : QDialog(ICore::dialogParent())
+        , m_settings(buildTargetKey)
+    {
+        setWindowTitle(Tr::tr("Select Run Configuration"));
+
+        const auto buttonBox
+            = new QDialogButtonBox(QDialogButtonBox::Cancel | QDialogButtonBox::Ok, this);
+        buttonBox->button(QDialogButtonBox::Ok)->setDefault(true);
+        connect(buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
+        connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
+
+        const auto layout = new QVBoxLayout(this);
+        layout->addWidget(Core::createAspectForm(&m_settings));
+        layout->addWidget(buttonBox);
+
+        m_settings.setChoices(choicesForActiveProject());
+    }
+
+    QString displayName() const { return m_settings.chosenName(); }
+    QString executable() const { return m_settings.executable(); }
+    bool rememberChoice() const { return m_settings.remember(); }
+
 private:
-    void populate();
-    void updateLabels();
-    QLabel *m_details;
-    QLabel *m_executable;
-    QLabel *m_arguments;
-    QLabel *m_workingDir;
-    QComboBox *m_rcCombo;
-    QCheckBox *m_rememberCB;
-    QDialogButtonBox *m_buttonBox;
+    static QList<RunConfigurationChoice> choicesForActiveProject()
+    {
+        QList<RunConfigurationChoice> choices;
+        if (auto buildConfig = activeBuildConfigForActiveProject()) {
+            for (RunConfiguration * const rc : buildConfig->runConfigurations()) {
+                const auto runnable = rc->runnable();
+                choices.append({rc->displayName(),
+                                runnable.command.executable().toUserOutput(),
+                                runnable.command.arguments(),
+                                runnable.workingDirectory.toUserOutput()});
+            }
+        }
+        return choices;
+    }
+
+    RunConfigurationSelectionSettings m_settings;
 };
 
 TestRunner *TestRunner::instance()
@@ -998,88 +1124,90 @@ void TestRunner::reportResult(ResultType type, const QString &description)
 
 /*************************************************************************************************/
 
-RunConfigurationSelectionDialog::RunConfigurationSelectionDialog(const QString &buildTargetKey)
-    : QDialog(ICore::dialogParent())
+
+
+
+
+
+
+#ifdef WITH_TESTS
+
+class RunConfigurationSelectionTest final : public QObject
 {
-    setWindowTitle(Tr::tr("Select Run Configuration"));
+    Q_OBJECT
 
-    QString details = Tr::tr("Could not determine which run configuration to choose for running tests");
-    if (!buildTargetKey.isEmpty())
-        details.append(QString(" (%1)").arg(buildTargetKey));
-    m_details = new QLabel(details, this);
-    m_rcCombo = new QComboBox(this);
-    m_rememberCB = new QCheckBox(Tr::tr("Remember choice. Cached choices can be reset by switching "
-                                        "projects or using the option to clear the cache."), this);
-    m_executable = new QLabel(this);
-    m_arguments = new QLabel(this);
-    m_workingDir = new QLabel(this);
-    m_buttonBox = new QDialogButtonBox(this);
-    m_buttonBox->setStandardButtons(QDialogButtonBox::Cancel|QDialogButtonBox::Ok);
-    m_buttonBox->button(QDialogButtonBox::Ok)->setDefault(true);
-
-    auto formLayout = new QFormLayout;
-    formLayout->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
-    formLayout->addRow(m_details);
-    formLayout->addRow(Tr::tr("Run Configuration:"), m_rcCombo);
-    formLayout->addRow(m_rememberCB);
-    formLayout->addRow(Layouting::createHr(this));
-    formLayout->addRow(Tr::tr("Executable:"), m_executable);
-    formLayout->addRow(Tr::tr("Arguments:"), m_arguments);
-    formLayout->addRow(Tr::tr("Working Directory:"), m_workingDir);
-    // TODO Device support
-    auto vboxLayout = new QVBoxLayout(this);
-    vboxLayout->addLayout(formLayout);
-    vboxLayout->addStretch();
-    vboxLayout->addWidget(Layouting::createHr(this));
-    vboxLayout->addWidget(m_buttonBox);
-
-    connect(m_rcCombo, &QComboBox::currentTextChanged,
-            this, &RunConfigurationSelectionDialog::updateLabels);
-    connect(m_buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
-    connect(m_buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
-
-    populate();
-}
-
-QString RunConfigurationSelectionDialog::displayName() const
-{
-    return m_rcCombo ? m_rcCombo->currentText() : QString();
-}
-
-QString RunConfigurationSelectionDialog::executable() const
-{
-    return m_executable ? m_executable->text() : QString();
-}
-
-bool RunConfigurationSelectionDialog::rememberChoice() const
-{
-    return m_rememberCB ? m_rememberCB->isChecked() : false;
-}
-
-void RunConfigurationSelectionDialog::populate()
-{
-    m_rcCombo->addItem({}, QStringList{{}, {}, {}}); // empty default
-
-    if (auto buildConfig = activeBuildConfigForActiveProject()) {
-        for (RunConfiguration *rc : buildConfig->runConfigurations()) {
-            auto runnable = rc->runnable();
-            const QStringList rcDetails
-                = {runnable.command.executable().toUserOutput(),
-                   runnable.command.arguments(),
-                   runnable.workingDirectory.toUserOutput()};
-            m_rcCombo->addItem(rc->displayName(), rcDetails);
-        }
+    static QList<RunConfigurationChoice> twoChoices()
+    {
+        return {{"Debug run", "/bin/debug", "--verbose", "/work/debug"},
+                {"Release run", "/bin/release", {}, "/work/release"}};
     }
+
+private slots:
+    void testTheDialogDrawsWithTheQmlItNames()
+    {
+        RunConfigurationSelectionSettings settings({});
+        const Utils::Result<> rendered
+            = Core::aspectFormRenders(&settings, "RunConfigurationSelectionDialog.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+    }
+
+    void testWhatTheDialogSaysItCouldNotWorkOut()
+    {
+        // With several build targets open, "could not determine which run
+        // configuration" does not say which one it was trying to run.
+        QVERIFY(!couldNotDetermineText({}).contains('('));
+        QVERIFY(couldNotDetermineText("tst_foo").contains("tst_foo"));
+    }
+
+    void testNothingIsChosenUntilSomethingIsChosen()
+    {
+        RunConfigurationSelectionSettings settings({});
+        settings.setChoices(twoChoices());
+
+        // The empty first entry is what tells the caller the reader picked
+        // nothing, so it has to stay first and stay selected.
+        QCOMPARE(settings.runConfiguration.optionCount(), 3);
+        QCOMPARE(settings.chosenName(), QString());
+        QCOMPARE(settings.executable(), QString());
+        QCOMPARE(settings.arguments(), QString());
+        QCOMPARE(settings.workingDirectory(), QString());
+    }
+
+    void testTheFieldsFollowWhatIsChosen()
+    {
+        RunConfigurationSelectionSettings settings({});
+        settings.setChoices(twoChoices());
+
+        settings.runConfiguration.setValue(1);
+        QCOMPARE(settings.chosenName(), QString("Debug run"));
+        QCOMPARE(settings.executable(), QString("/bin/debug"));
+        QCOMPARE(settings.arguments(), QString("--verbose"));
+        QCOMPARE(settings.workingDirectory(), QString("/work/debug"));
+
+        settings.runConfiguration.setValue(2);
+        QCOMPARE(settings.chosenName(), QString("Release run"));
+        QCOMPARE(settings.executable(), QString("/bin/release"));
+        // Emptied, not left saying what the previous one took.
+        QVERIFY2(settings.arguments().isEmpty(),
+                 "the arguments of the previously chosen configuration were kept");
+
+        // And back to nothing chosen clears all three, rather than leaving the
+        // last one described under an empty name.
+        settings.runConfiguration.setValue(0);
+        QCOMPARE(settings.executable(), QString());
+        QCOMPARE(settings.workingDirectory(), QString());
+    }
+};
+
+QObject *createRunConfigurationSelectionTest()
+{
+    return new RunConfigurationSelectionTest;
 }
 
-void RunConfigurationSelectionDialog::updateLabels()
-{
-    int i = m_rcCombo->currentIndex();
-    const QStringList values = m_rcCombo->itemData(i).toStringList();
-    QTC_ASSERT(values.size() == 3, return);
-    m_executable->setText(values.at(0));
-    m_arguments->setText(values.at(1));
-    m_workingDir->setText(values.at(2));
-}
+#endif // WITH_TESTS
 
 } // namespace Internal::Autotest
+
+#ifdef WITH_TESTS
+#include "testrunner.moc"
+#endif

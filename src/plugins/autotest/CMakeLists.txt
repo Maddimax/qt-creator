@@ -111,6 +111,7 @@ if(TARGET AutoTest)
     NO_PLUGIN
     QML_FILES
       TestProjectPanel.qml
+      RunConfigurationSelectionDialog.qml
       TestResultsView.qml
       TestSettingsPage.qml
       boost/BoostTestSettingsPage.qml
