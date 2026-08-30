@@ -7,6 +7,7 @@ QtcPlugin {
     Depends { name: "CPlusPlus" }
     Depends { name: "QmlJS" }
     Depends { name: "Utils" }
+    Depends { name: "QtcQuick" }
 
     Depends { name: "Core" }
     Depends { name: "ProjectExplorer" }
@@ -44,10 +45,6 @@ QtcPlugin {
         "todoitemsscanner.h",
         "todooutputpane.cpp",
         "todooutputpane.h",
-        "todooutputtreeview.cpp",
-        "todooutputtreeview.h",
-        "todooutputtreeviewdelegate.cpp",
-        "todooutputtreeviewdelegate.h",
         "todoplugin.cpp",
         "todoplugin.qrc",
         "todoprojectpanel.cpp",

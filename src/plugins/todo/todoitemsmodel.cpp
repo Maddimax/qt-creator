@@ -12,6 +12,7 @@
 #include <utils/algorithm.h>
 
 #include <QIcon>
+#include <utils/aspectpresentation.h>
 
 using namespace Utils;
 
@@ -84,6 +85,11 @@ QVariant TodoItemsModel::data(const QModelIndex &index, int role) const
     }
 
     return QVariant();
+}
+
+QHash<int, QByteArray> TodoItemsModel::roleNames() const
+{
+    return Utils::AspectTable::withRoleNames(QAbstractTableModel::roleNames());
 }
 
 QVariant TodoItemsModel::headerData(int section, Qt::Orientation orientation, int role) const

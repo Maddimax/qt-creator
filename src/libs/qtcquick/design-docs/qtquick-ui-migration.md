@@ -17463,3 +17463,46 @@ the hardest to reach: a run configuration, a build step or a CMake build step
 needs a real project and target, so a stand-in container renders the QML but
 not the thing a user sees. That makes it a session with a project open, not a
 batch a test can drive.
+
+## The output panes
+
+The settings pages are done, so the next surface is the panes at the bottom of
+the window - `Core::IOutputPane`, thirteen of them. **To-Do Entries is the
+first**, at 324 lines the smallest that is a list rather than a terminal or a
+text stream.
+
+The shape turned out to be the one this migration has met over and over: the
+pane's state lived in the view.
+
+- **Which row is current** was the tree view's selection model, so `goToNext()`
+  and `goToPrev()` walked it with `indexBelow()`/`indexAbove()` and the pane
+  could not say where the list was without drawing one. The pane owns
+  `currentRow` now, wraps at both ends as the view did, and the QML follows it.
+- **The sort order** was the header's `sortIndicatorSection()`, which
+  `updateKeywordFilter()` read back every time it refiltered. The pane keeps the
+  column and the order; `sortBy()` is what a heading asks for.
+- Everything else the model already provided, so no data moved.
+
+What the QML needed of the model was **role names**: the widget delegate read
+`DecorationRole` and `ForegroundRole` straight out of the model, and a Qt Quick
+cell reads by name. `AspectTable::withRoleNames()` supplies them, and
+`AspectModels.decorationUrl()` turns the `QIcon` a row carries into something an
+`Image` can load - both already there for the tables.
+
+**A trap worth naming for the panes that follow.** `pane` reaches the QML as a
+context object, so it is untyped: `qmllint` cannot check it, and a plain C++
+accessor is invisible to QML. `rows()` and `currentRow()` were both plain
+accessors at first - the list drew nothing, the build was clean, and the lint
+was clean. They are `Q_PROPERTY` now. Anything a pane's QML binds to has to be a
+property or a `Q_INVOKABLE`, and nothing will tell you otherwise.
+
+`TodoOutputTreeView` and its item delegate are deleted - the pane was their only
+user. That is a `.qbs` edit, so the description was re-resolved, with the usual
+control: adding a `doesnotexist.cpp` to the Todo product makes the resolve say
+`Error while handling product 'Todo'`, so its silence on the real file list
+means something.
+
+**The exposure wait does not work for this window.** `qWaitForWindowExposed()`
+returns false on the pane's `QuickWidget` even though it is visible, sized and
+has a window handle, and the `TableView` populates regardless. Waiting on the
+row count instead is both the honest signal and 5 seconds faster.

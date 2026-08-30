@@ -40,6 +40,7 @@ public:
 
 #ifdef WITH_TESTS
         addTestCreator(createTodoSettingsTest);
+        addTestCreator(createTodoPaneTest);
 #endif
     }
 };

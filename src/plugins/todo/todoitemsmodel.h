@@ -26,6 +26,11 @@ public:
     QVariant data(const QModelIndex &index, int role) const override;
     QVariant headerData(int section, Qt::Orientation orientation, int role) const override;
 
+    // A Qt Quick cell reads its roles by name; the default names leave out the
+    // decoration and the colour a to-do is drawn in, which are two of the
+    // three things this model answers.
+    QHash<int, QByteArray> roleNames() const override;
+
     void sort(int column, Qt::SortOrder order = Qt::AscendingOrder) override;
     void todoItemsListUpdated();
 

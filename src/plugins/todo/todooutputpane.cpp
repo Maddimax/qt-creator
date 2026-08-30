@@ -7,7 +7,6 @@
 #include "constants.h"
 #include "todoitemsmodel.h"
 #include "todoitemsprovider.h"
-#include "todooutputtreeview.h"
 #include "todotr.h"
 
 #include <coreplugin/editormanager/editormanager.h>
@@ -18,6 +17,14 @@
 #include <QToolButton>
 #include <QButtonGroup>
 #include <QSortFilterProxyModel>
+#include <qtcquick/qtcquickwidget.h>
+
+#include <QQuickWidget>
+
+#ifdef WITH_TESTS
+#include <QSignalSpy>
+#include <QTest>
+#endif
 
 namespace Todo::Internal {
 
@@ -34,9 +41,9 @@ TodoOutputPane::TodoOutputPane(TodoItemsModel *todoItemsModel, QObject *parent) 
 
     setScanningScope(todoSettings().scanningScope);
 
-    connect(m_todoTreeView->model(), &TodoItemsModel::layoutChanged,
+    connect(rows(), &QAbstractItemModel::layoutChanged,
             this, &TodoOutputPane::navigateStateUpdate);
-    connect(m_todoTreeView->model(), &TodoItemsModel::layoutChanged,
+    connect(rows(), &QAbstractItemModel::layoutChanged,
             this, &TodoOutputPane::updateTodoCount);
 }
 
@@ -48,8 +55,13 @@ TodoOutputPane::~TodoOutputPane()
 
 QWidget *TodoOutputPane::outputWidget(QWidget *parent)
 {
-    Q_UNUSED(parent)
-    return m_todoTreeView;
+    if (!m_view) {
+        auto widget = new QtcQuick::QuickWidget(parent);
+        widget->quickWidget()->setInitialProperties({{"pane", QVariant::fromValue(this)}});
+        widget->setSource(QUrl("qrc:/qt/qml/QtCreator/Todo/TodoPane.qml"));
+        m_view = widget;
+    }
+    return m_view;
 }
 
 QList<QWidget*> TodoOutputPane::toolBarWidgets() const
@@ -71,12 +83,13 @@ void TodoOutputPane::clearContents()
 
 void TodoOutputPane::setFocus()
 {
-    m_todoTreeView->setFocus();
+    if (m_view)
+        m_view->setFocus();
 }
 
 bool TodoOutputPane::hasFocus() const
 {
-    return m_todoTreeView->window()->focusWidget() == m_todoTreeView;
+    return m_view && m_view->window()->focusWidget() == m_view;
 }
 
 bool TodoOutputPane::canFocus() const
@@ -91,28 +104,30 @@ bool TodoOutputPane::canNavigate() const
 
 bool TodoOutputPane::canNext() const
 {
-    return m_todoTreeView->model()->rowCount() > 0;
+    return rows()->rowCount() > 0;
 }
 
 bool TodoOutputPane::canPrevious() const
 {
-    return m_todoTreeView->model()->rowCount() > 0;
+    return rows()->rowCount() > 0;
 }
 
 void TodoOutputPane::goToNext()
 {
-    const QModelIndex nextIndex = nextModelIndex();
-    m_todoTreeView->selectionModel()->setCurrentIndex(nextIndex, QItemSelectionModel::SelectCurrent
-                                                      | QItemSelectionModel::Rows | QItemSelectionModel::Clear);
-    todoTreeViewClicked(nextIndex);
+    const int row = nextRow();
+    if (row < 0)
+        return;
+    setCurrentRow(row);
+    activateRow(row);
 }
 
 void TodoOutputPane::goToPrev()
 {
-    const QModelIndex prevIndex = previousModelIndex();
-    m_todoTreeView->selectionModel()->setCurrentIndex(prevIndex, QItemSelectionModel::SelectCurrent
-                                                      | QItemSelectionModel::Rows | QItemSelectionModel::Clear);
-    todoTreeViewClicked(prevIndex);
+    const int row = previousRow();
+    if (row < 0)
+        return;
+    setCurrentRow(row);
+    activateRow(row);
 }
 
 void TodoOutputPane::setScanningScope(ScanningScope scanningScope)
@@ -141,7 +156,7 @@ void TodoOutputPane::scopeButtonClicked(QAbstractButton *button)
         scanningScopeChanged(ScanningScopeSubProject);
     else if (button == m_wholeProjectButton)
         scanningScopeChanged(ScanningScopeProject);
-    emit setBadgeNumber(m_todoTreeView->model()->rowCount());
+    emit setBadgeNumber(rows()->rowCount());
 }
 
 void TodoOutputPane::scanningScopeChanged(ScanningScope scanningScope)
@@ -153,11 +168,27 @@ void TodoOutputPane::scanningScopeChanged(ScanningScope scanningScope)
     setScanningScope(todoSettings().scanningScope);
 }
 
-void TodoOutputPane::todoTreeViewClicked(const QModelIndex &index)
+void TodoOutputPane::setCurrentRow(int row)
+{
+    if (m_currentRow == row)
+        return;
+    m_currentRow = row;
+    emit currentRowChanged();
+}
+
+void TodoOutputPane::sortBy(int column, bool ascending)
+{
+    m_sortColumn = column;
+    m_sortOrder = ascending ? Qt::AscendingOrder : Qt::DescendingOrder;
+    m_filteredTodoItemsModel->sort(m_sortColumn, m_sortOrder);
+}
+
+void TodoOutputPane::activateRow(int row)
 {
     // Create a to-do item and notify that it was clicked on
-
-    int row = index.row();
+    const QModelIndex index = rows()->index(row, Constants::OUTPUT_COLUMN_TEXT);
+    if (!index.isValid())
+        return;
 
     TodoItem item;
     item.text = index.sibling(row, Constants::OUTPUT_COLUMN_TEXT).data().toString();
@@ -172,7 +203,7 @@ void TodoOutputPane::todoTreeViewClicked(const QModelIndex &index)
 
 void TodoOutputPane::updateTodoCount()
 {
-    emit setBadgeNumber(m_todoTreeView->model()->rowCount());
+    emit setBadgeNumber(rows()->rowCount());
 }
 
 void TodoOutputPane::updateKeywordFilter()
@@ -184,11 +215,9 @@ void TodoOutputPane::updateKeywordFilter()
     }
 
     QString pattern = keywords.isEmpty() ? QString() : QString("^(%1).*").arg(keywords.join('|'));
-    int sortColumn = m_todoTreeView->header()->sortIndicatorSection();
-    Qt::SortOrder sortOrder = m_todoTreeView->header()->sortIndicatorOrder();
-
     m_filteredTodoItemsModel->setFilterRegularExpression(pattern);
-    m_filteredTodoItemsModel->sort(sortColumn, sortOrder);
+    // The order the list is in, which the view used to keep in its header.
+    m_filteredTodoItemsModel->sort(m_sortColumn, m_sortOrder);
 
     updateTodoCount();
 }
@@ -207,16 +236,16 @@ void TodoOutputPane::createTreeView()
     m_filteredTodoItemsModel->setSourceModel(m_todoItemsModel);
     m_filteredTodoItemsModel->setDynamicSortFilter(false);
     m_filteredTodoItemsModel->setFilterKeyColumn(Constants::OUTPUT_COLUMN_TEXT);
+}
 
-    m_todoTreeView = new TodoOutputTreeView();
-    m_todoTreeView->setModel(m_filteredTodoItemsModel);
-
-    connect(m_todoTreeView, &TodoOutputTreeView::activated, this, &TodoOutputPane::todoTreeViewClicked);
+QAbstractItemModel *TodoOutputPane::rows() const
+{
+    return m_filteredTodoItemsModel;
 }
 
 void TodoOutputPane::freeTreeView()
 {
-    delete m_todoTreeView;
+    // Not the view: whoever asked for it owns it.
     delete m_filteredTodoItemsModel;
 }
 
@@ -281,32 +310,21 @@ void TodoOutputPane::freeScopeButtons()
     qDeleteAll(m_filterButtons);
 }
 
-QModelIndex TodoOutputPane::selectedModelIndex()
+
+int TodoOutputPane::nextRow() const
 {
-    QModelIndexList selectedIndexes = m_todoTreeView->selectionModel()->selectedIndexes();
-    if (selectedIndexes.isEmpty())
-        return QModelIndex();
-    else
-        // There is only one item selected
-        return selectedIndexes.first();
+    const int count = rows()->rowCount();
+    if (count == 0)
+        return -1;
+    return m_currentRow + 1 < count ? m_currentRow + 1 : 0;
 }
 
-QModelIndex TodoOutputPane::nextModelIndex()
+int TodoOutputPane::previousRow() const
 {
-    QModelIndex indexToBeSelected = m_todoTreeView->indexBelow(selectedModelIndex());
-    if (!indexToBeSelected.isValid())
-        return m_todoTreeView->model()->index(0, 0);
-    else
-        return indexToBeSelected;
-}
-
-QModelIndex TodoOutputPane::previousModelIndex()
-{
-    QModelIndex indexToBeSelected = m_todoTreeView->indexAbove(selectedModelIndex());
-    if (!indexToBeSelected.isValid())
-        return m_todoTreeView->model()->index(m_todoTreeView->model()->rowCount() - 1, 0);
-    else
-        return indexToBeSelected;
+    const int count = rows()->rowCount();
+    if (count == 0)
+        return -1;
+    return m_currentRow > 0 ? m_currentRow - 1 : count - 1;
 }
 
 static TodoOutputPane *s_instance = nullptr;
@@ -321,4 +339,103 @@ void setupTodoOutputPane(QObject *guard)
     s_instance = new TodoOutputPane(todoItemsProvider().todoItemsModel(), guard);
 }
 
+#ifdef WITH_TESTS
+
+class TodoPaneTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    // The pane used to keep its current row in a tree view's selection model,
+    // so it could not say where the list was without drawing one, and the sort
+    // order lived in that view's header. Both are the pane's now, and the list
+    // is drawn with Qt Quick.
+    void testTheListIsTheModelAndTheCurrentRowIsThePane()
+    {
+        TodoItem first;
+        first.text = "TODO first";
+        // A path that does not exist: activating a row opens the file only if
+        // there is one, which keeps this test out of the editor.
+        first.file = Utils::FilePath::fromString("/nonexistent/a.cpp");
+        first.line = 12;
+        TodoItem second;
+        second.text = "FIXME second";
+        second.file = Utils::FilePath::fromString("/nonexistent/b.cpp");
+        second.line = 34;
+        QList<TodoItem> items{first, second};
+
+        TodoItemsModel model;
+        model.setTodoItemsList(&items);
+        TodoOutputPane pane(&model, nullptr);
+
+        QCOMPARE(pane.rows()->rowCount(), 2);
+        // Ordered from the start: the pane sorts when it works out its filter,
+        // which it does while being built.
+        QCOMPARE(pane.rows()->index(0, Constants::OUTPUT_COLUMN_TEXT).data().toString(),
+                 QString("FIXME second"));
+
+        // Walking the list is the pane's own, and wraps at both ends the way
+        // the tree view's indexBelow()/indexAbove() did.
+        QCOMPARE(pane.currentRow(), -1);
+        QSignalSpy moved(&pane, &TodoOutputPane::currentRowChanged);
+        pane.goToNext();
+        QCOMPARE(pane.currentRow(), 0);
+        pane.goToNext();
+        QCOMPARE(pane.currentRow(), 1);
+        pane.goToNext();
+        QCOMPARE(pane.currentRow(), 0);
+        pane.goToPrev();
+        QCOMPARE(pane.currentRow(), 1);
+        QCOMPARE(moved.count(), 4);
+
+        // And the order is the pane's too, not a header's: turning it round is
+        // what clicking the heading asks for.
+        pane.sortBy(Constants::OUTPUT_COLUMN_TEXT, false);
+        QCOMPARE(pane.rows()->index(0, Constants::OUTPUT_COLUMN_TEXT).data().toString(),
+                 QString("TODO first"));
+        pane.sortBy(Constants::OUTPUT_COLUMN_TEXT, true);
+        QCOMPARE(pane.rows()->index(0, Constants::OUTPUT_COLUMN_TEXT).data().toString(),
+                 QString("FIXME second"));
+
+        // The model has to be readable by name or the list draws nothing: the
+        // text, the icon and the colour a to-do is drawn in.
+        const QList<QByteArray> names = pane.rows()->roleNames().values();
+        for (const QByteArray &role : {QByteArray("display"), QByteArray("decoration"),
+                                       QByteArray("foreground")}) {
+            QVERIFY2(names.contains(role),
+                     qPrintable("the model does not answer " + QString::fromLatin1(role)));
+        }
+
+        // Drawn with Qt Quick, and showing both entries.
+        const std::unique_ptr<QWidget> widget(pane.outputWidget(nullptr));
+        QVERIFY(widget);
+        auto * const quick = qobject_cast<QtcQuick::QuickWidget *>(widget.get());
+        QVERIFY2(quick, "the pane is not drawn with Qt Quick");
+        widget->resize(600, 300);
+        widget->show();
+        // Shown, but not waited on for exposure: this window reports itself
+        // exposed unreliably here, and what the test is after is the rows,
+        // which is a signal of its own.
+
+
+        QObject * const root = quick->rootObject();
+        QVERIFY(root);
+        QObject * const list = root->findChild<QObject *>("todoList");
+        QVERIFY2(list, "the pane draws no list");
+        QTRY_COMPARE(list->property("rows").toInt(), 2);
+        QVERIFY2(root->findChild<QObject *>("todoHeader"), "the list has no header to sort by");
+    }
+};
+
+QObject *createTodoPaneTest()
+{
+    return new TodoPaneTest;
+}
+
+#endif // WITH_TESTS
+
 } // Todo::Internal
+
+#ifdef WITH_TESTS
+#include "todooutputpane.moc"
+#endif

@@ -1,5 +1,5 @@
 add_qtc_plugin(Todo
-  DEPENDS QmlJS
+  DEPENDS QmlJS QtcQuick
   PLUGIN_DEPENDS Core CppEditor ProjectExplorer
   SOURCES
     constants.h
@@ -15,8 +15,6 @@ add_qtc_plugin(Todo
     todoitemsprovider.cpp todoitemsprovider.h
     todoitemsscanner.cpp todoitemsscanner.h
     todooutputpane.cpp todooutputpane.h
-    todooutputtreeview.cpp todooutputtreeview.h
-    todooutputtreeviewdelegate.cpp todooutputtreeviewdelegate.h
     todoplugin.cpp
     todoplugin.qrc
     todoprojectpanel.cpp todoprojectpanel.h
@@ -38,6 +36,7 @@ if(TARGET Todo)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      TodoPane.qml
       TodoProjectPanel.qml
       TodoSettingsPage.qml
   )
