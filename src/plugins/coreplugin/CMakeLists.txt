@@ -374,6 +374,7 @@ if(TARGET Core)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      CodecSelector.qml
       CustomLanguageModelsPage.qml
       EnvVarSeparatorsDialog.qml
       FilePropertiesDialog.qml

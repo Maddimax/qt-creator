@@ -21318,3 +21318,44 @@ edit: `vcsbase.qbs` takes `*.qml` by wildcard.
 **Next:** the other eight dialogs that used `DoubleClickActivation` - the codec
 selector, the session dialog, Gerrit, log-change, stash, and bookmarks - are
 now unblocked and are the same shape as this one.
+
+## 2026-08-30 — The codec selector, and a test that could not fail
+
+Second of the activation dialogs and the same shape as the first: a list, a
+message above it, and buttons. The `QListWidget` becomes a one-column model
+behind a table aspect, and the `CodecListWidget` subclass - which existed only
+to widen itself to its contents - goes away, because the table sizes its own
+column.
+
+**Three rules came out of the constructor, and they are the batch.** All three
+were unreachable while they lived inside a dialog that has to be given a
+`BaseTextDocument`:
+
+- `encodingFits()` - whether an encoding could have produced the bytes that
+  would not decode. Decode, re-encode, compare; the shortest-of-the-two length
+  is what lets a unicode header through. The test feeds it ASCII, a Latin-1
+  byte that is not valid UTF-8, and an empty sample.
+- `encodingNamed()` - a display name may carry aliases after a slash and the
+  first is the name to ask for.
+- `actionsFor()` - when Reload and Save are offered.
+
+**The third one is the lesson.** I first wrote that test with the rule copied
+into a lambda *in the test*, which passes whatever the dialog does - an
+assertion that cannot fail, and worse than none. Extracting it so
+`updateButtons()` calls the same function is what makes control 5 bite. Writing
+the expected answer out by hand next to the code that produces it is the shape
+to watch for: if the test contains the rule, it is testing itself.
+
+**One thing added rather than copied:** the table's filter field. The widget
+list had none, and there are two hundred encodings.
+
+Negative controls: the `.qml` naming an aspect that does not exist; the `.qml`
+not handing the activation back; the list naming its column, so a header
+appears; every encoding fitting every sample; reloading offered for a modified
+document; and the aliases kept in the encoding name. All six bit.
+
+QuickUi 186 passed / 0 failed / 1 skipped, exit 0. `Core` exit 0 with no
+failures, `CodecSelectorTest` 9 passed. `Core_qmllint` clean. No `.qbs` edit.
+
+**Next:** the session dialog, then Gerrit, log-change, stash and bookmarks -
+all the same shape, all now unblocked.

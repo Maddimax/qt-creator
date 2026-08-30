@@ -7,7 +7,15 @@
 
 #include <utils/textcodec.h>
 
+QT_BEGIN_NAMESPACE
+class QObject;
+QT_END_NAMESPACE
+
 namespace Core {
+
+#ifdef WITH_TESTS
+namespace Internal { QObject *createCodecSelectorTest(); }
+#endif
 
 struct CORE_EXPORT CodecSelectorResult
 {
