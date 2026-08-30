@@ -10,6 +10,9 @@
 #include <QDialog>
 #include <QIcon>
 
+#include <memory>
+#include <optional>
+
 QT_BEGIN_NAMESPACE
 class QDialogButtonBox;
 class QComboBox;
@@ -37,6 +40,20 @@ enum class LogRowMarks
     IconOnSelected
 };
 
+// One line of `git log --format=%h:%s %d`, taken apart.
+class LogRow
+{
+public:
+    QString hash;
+    QString subject;
+    // A commit some ref points at - the format puts "(refs)" at the end - which
+    // the list shows in bold.
+    bool named = false;
+};
+
+// The row \a line describes, or nothing when it is not a log line at all.
+std::optional<LogRow> parseLogLine(const QString &line);
+
 // Whether \a row is struck through, given the row the reader is on.
 bool logRowIsStruckOut(LogRowMarks marks, int row, int currentRow);
 // Whether \a row carries the mark icon.
@@ -45,6 +62,10 @@ bool logRowHasIcon(LogRowMarks marks, int row, int currentRow, bool selected);
 #ifdef WITH_TESTS
 QObject *createLogChangeMarksTest();
 #endif
+
+// The arguments the log is read with. Kept apart from running it so that what
+// the flags mean can be asked without a repository.
+QStringList logArguments(const QString &commit, unsigned flags, const QString &excludedRemote);
 
 // A widget that lists hash and subject of the changes
 // Used for reset and interactive rebase
@@ -91,6 +112,8 @@ private:
     QString m_excludedRemote;
 };
 
+class LogChangeSettings;
+
 class LogChangeDialog : public QDialog
 {
 public:
@@ -99,8 +122,12 @@ public:
         Select
     };
     LogChangeDialog(DialogType type, QWidget *parent);
+    ~LogChangeDialog() override;
 
-    void setSelectionMode(QAbstractItemView::SelectionMode mode);
+    // Whether more than one commit can be picked. The hint explaining how is
+    // shown only then.
+    void setMultiSelect(bool multi);
+    void setMarks(LogRowMarks marks);
 
     bool runDialog(const Utils::FilePath &repository, const QString &commit = QString(),
                    LogChangeWidget::LogFlags flags = LogChangeWidget::None);
@@ -110,13 +137,15 @@ public:
     QStringList commitList() const;
     QStringList patchRange() const;
     QString resetFlag() const;
-    LogChangeWidget *widget() const;
 
 private:
-    LogChangeWidget *m_widget = nullptr;
-    QLabel *m_selectionHintLabel = nullptr;
+    LogChangeModel *m_model = nullptr;
+    const std::unique_ptr<LogChangeSettings> m_settings;
     QDialogButtonBox *m_dialogButtonBox = nullptr;
-    QComboBox *m_resetTypeComboBox = nullptr;
+
+#ifdef WITH_TESTS
+    friend class LogChangeMarksTest;
+#endif
 };
 
 

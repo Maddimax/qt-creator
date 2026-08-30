@@ -1293,7 +1293,7 @@ void GitPluginPrivate::resetRepository()
     FilePath topLevel = state.topLevel();
 
     LogChangeDialog dialog(LogChangeDialog::Reset, ICore::dialogParent());
-    dialog.widget()->setMarks(LogRowMarks::StrikeOutBeforeCurrent);
+    dialog.setMarks(LogRowMarks::StrikeOutBeforeCurrent);
     dialog.setWindowTitle(Tr::tr("Undo Changes to %1").arg(topLevel.toUserOutput()));
     if (dialog.runDialog(topLevel, {}, LogChangeWidget::IncludeRemotes))
         gitClient().reset(topLevel, dialog.resetFlag(), dialog.commit());
@@ -1334,7 +1334,7 @@ void GitPluginPrivate::startRebaseFromCommit(const FilePath &workingDirectory,
 
     if (commit.isEmpty()) {
         LogChangeDialog dialog(LogChangeDialog::Select, ICore::dialogParent());
-        dialog.widget()->setMarks(LogRowMarks::IconUpToCurrent);
+        dialog.setMarks(LogRowMarks::IconUpToCurrent);
         dialog.setWindowTitle(Tr::tr("Interactive Rebase"));
         if (!dialog.runDialog(workingDirectory))
             return;
@@ -1671,8 +1671,8 @@ void GitPluginPrivate::createPatchesFromCommits()
     QTC_ASSERT(state.hasTopLevel(), return);
 
     LogChangeDialog dialog(LogChangeDialog::Select, Core::ICore::dialogParent());
-    dialog.widget()->setMarks(LogRowMarks::IconOnSelected);
-    dialog.setSelectionMode(QAbstractItemView::ContiguousSelection);
+    dialog.setMarks(LogRowMarks::IconOnSelected);
+    dialog.setMultiSelect(true);
     dialog.setWindowTitle(Tr::tr("Select Commits for Patch Creation"));
 
     const Utils::FilePath topLevel = state.topLevel();
@@ -1686,8 +1686,8 @@ void GitPluginPrivate::cherryPickCommits(const QString &branch)
     QTC_ASSERT(state.hasTopLevel(), return);
 
     LogChangeDialog dialog(LogChangeDialog::Select, Core::ICore::dialogParent());
-    dialog.widget()->setMarks(LogRowMarks::IconOnSelected);
-    dialog.setSelectionMode(QAbstractItemView::MultiSelection);
+    dialog.setMarks(LogRowMarks::IconOnSelected);
+    dialog.setMultiSelect(true);
     dialog.setWindowTitle(Tr::tr("Select Commits to Cherry-Pick"));
 
     const Utils::FilePath topLevel = state.topLevel();

@@ -21564,3 +21564,51 @@ removed.
 that already says everything a Quick table needs - then `GerritPushDialog` and
 `GerritDialog`, in that order, since the push dialog needs both this and the
 remote chooser aspect.
+
+## 2026-08-30 — LogChangeDialog, and what a widget was holding for it
+
+The dialog is a table aspect over `LogChangeModel` now, and `LogChangeWidget`
+is no longer part of it - the widget stays only for the submit editor and the
+push dialog, which still embed it.
+
+**Filling the list had to move before the dialog could.** `populateLog()` lived
+in the widget, so a dialog without a widget had no way to get rows. It is
+`LogChangeModel::populate()` now, answering which row should be current, and
+the widget calls it too. That is the same shape as the marks last batch: the
+thing the *view* was doing on the model's behalf belongs to the model, and both
+front ends then get it.
+
+**Two more rules came out on the way, both previously reachable only by running
+git:**
+
+- `parseLogLine()` - the `%h:%s %d` format. The subject may contain a colon, so
+  only the first one separates; a trailing `(refs)` is what makes a commit
+  bold. Control 5 splits on the last colon instead and the test names it.
+- `logArguments()` - what the flags mean: `--not --remotes` unless remotes are
+  included, `--remotes=<name>` when one is singled out, `--no-merges` for
+  `OmitMerges`.
+
+**`qmllint` passed a `.qml` that could not load.** `Connections` needs
+`import QtQuick`, and without it the file is clean to the linter and fails at
+runtime with *"Connections is not a type"* - which the render test caught and
+the lint did not. Worth knowing: `<Plugin>_qmllint` being clean is not evidence
+that a page loads. The render test is.
+
+One fidelity loss, stated: the widget dialog distinguished `ContiguousSelection`
+from `MultiSelection`, and a Qt Quick table always allows several. Both callers
+now say `setMultiSelect(true)`, which is what the hint under the prompt
+explains; nothing enforces contiguity any more.
+
+Negative controls: the `.qml` naming an aspect that does not exist; the `.qml`
+not handing the activation back; the commits coming back newest first; the
+select dialog offering a reset type; and a colon in the subject splitting the
+line again. All five bit.
+
+QuickUi 186 passed / 0 failed / 1 skipped, exit 0. `Git` exit 0 with no
+failures, `LogChangeMarksTest` 15 passed. `Git_qmllint` clean - which, per
+above, proves less than it looks. No `.qbs` edit: `git.qbs` takes `*.qml` by
+wildcard.
+
+**Next:** `GerritPushDialog`, which needs the remote chooser aspect (done two
+batches ago) and `LogChangeWidget` (still a widget - the push dialog is now its
+last dialog user besides the submit editor). Then `GerritDialog`.

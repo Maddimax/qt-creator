@@ -6,9 +6,12 @@
 #include "gitclient.h"
 #include "gittr.h"
 
+#include <coreplugin/dialogs/ioptionspage.h>
+
 #include <vcsbase/vcsoutputwindow.h>
 
 #ifdef WITH_TESTS
+#include <QSignalSpy>
 #include <QTest>
 #endif
 
@@ -39,6 +42,52 @@ enum Columns
     SubjectColumn,
     ColumnCount
 };
+
+std::optional<LogRow> parseLogLine(const QString &line)
+{
+    const int colonPos = line.indexOf(':');
+    if (colonPos == -1)
+        return {};
+    return LogRow{line.left(colonPos),
+                  line.right(line.size() - colonPos - 1),
+                  line.endsWith(')')};
+}
+
+QStringList logArguments(const QString &commit, unsigned flags, const QString &excludedRemote)
+{
+    QStringList arguments{"--max-count=1000", "--format=%h:%s %d"};
+    arguments << (commit.isEmpty() ? QString("HEAD") : commit);
+    if (!(flags & LogChangeWidget::IncludeRemotes)) {
+        QString remotesFlag("--remotes");
+        if (!excludedRemote.isEmpty())
+            remotesFlag += '=' + excludedRemote;
+        arguments << "--not" << remotesFlag;
+    }
+    if (flags & LogChangeWidget::OmitMerges)
+        arguments << "--no-merges";
+    arguments << "--";
+    return arguments;
+}
+
+// The cells one parsed line becomes. Not the reader's to edit, and bold where
+// a ref points at the commit.
+static QList<QStandardItem *> logRowItems(const LogRow &row)
+{
+    QList<QStandardItem *> items;
+    for (int c = 0; c < ColumnCount; ++c) {
+        auto item = new QStandardItem;
+        item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+        if (row.named) {
+            QFont font = item->font();
+            font.setBold(true);
+            item->setFont(font);
+        }
+        items.push_back(item);
+    }
+    items[HashColumn]->setText(row.hash);
+    items[SubjectColumn]->setText(row.subject);
+    return items;
+}
 
 bool logRowIsStruckOut(LogRowMarks marks, int row, int currentRow)
 {
@@ -94,6 +143,36 @@ public:
     }
 
     void setWorkingDirectory(const FilePath &workingDir) { m_workingDirectory = workingDir; }
+
+    // Fills the rows from the repository's log, and answers which row should be
+    // current: the one holding \a keepCommit if it is still there, else the
+    // first. The git call lives here rather than in a view, so that a dialog
+    // drawing these rows in Qt Quick needs no widget to fill them.
+    Utils::Result<int> populate(const FilePath &repository, const QString &commit,
+                                unsigned flags, const QString &excludedRemote,
+                                const QString &keepCommit)
+    {
+        setWorkingDirectory(repository);
+        if (const int rows = rowCount())
+            removeRows(0, rows);
+
+        const Result<QString> res = gitClient().synchronousLog(
+            repository, logArguments(commit, flags, excludedRemote), RunFlag::NoOutput);
+        if (!res)
+            return ResultError(res.error());
+
+        int selected = keepCommit.isEmpty() ? 0 : -1;
+        const QStringList lines = res->split('\n');
+        for (const QString &line : lines) {
+            const std::optional<LogRow> parsed = parseLogLine(line);
+            if (!parsed)
+                continue;
+            appendRow(logRowItems(*parsed));
+            if (selected == -1 && keepCommit == parsed->hash)
+                selected = rowCount() - 1;
+        }
+        return selected;
+    }
 
     // Which rows are marked, and against what. The view used to paint this
     // itself; saying it here means every view of these rows agrees, and a Qt
@@ -259,57 +338,16 @@ void LogChangeWidget::selectionChanged(const QItemSelection &selected,
     }
 }
 
-bool LogChangeWidget::populateLog(const FilePath &repository, const QString &commit, LogFlags flags)
+bool LogChangeWidget::populateLog(const FilePath &repository, const QString &commit,
+                                  LogFlags flags)
 {
-    const QString currentCommit = this->commit();
-    int selected = currentCommit.isEmpty() ? 0 : -1;
-    if (const int rowCount = m_model->rowCount())
-        m_model->removeRows(0, rowCount);
-
-    // Retrieve log using a custom format "Hash:Subject [(refs)]"
-    QStringList arguments;
-    arguments << "--max-count=1000" << "--format=%h:%s %d";
-    arguments << (commit.isEmpty() ? "HEAD" : commit);
-    if (!(flags & IncludeRemotes)) {
-        QString remotesFlag("--remotes");
-        if (!m_excludedRemote.isEmpty())
-            remotesFlag += '=' + m_excludedRemote;
-        arguments << "--not" << remotesFlag;
-    }
-    if (flags & OmitMerges)
-        arguments << "--no-merges";
-    arguments << "--";
-
-    const Result<QString> res = gitClient().synchronousLog(repository, arguments, RunFlag::NoOutput);
-    if (!res) {
-        VcsOutputWindow::appendError(repository, res.error());
+    const Result<int> selected = m_model->populate(repository, commit, flags,
+                                                   m_excludedRemote, this->commit());
+    if (!selected) {
+        VcsOutputWindow::appendError(repository, selected.error());
         return false;
     }
-
-    const QStringList lines = res->split('\n');
-    for (const QString &line : lines) {
-        const int colonPos = line.indexOf(':');
-        if (colonPos != -1) {
-            QList<QStandardItem *> row;
-            for (int c = 0; c < ColumnCount; ++c) {
-                auto item = new QStandardItem;
-                item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
-                if (line.endsWith(')')) {
-                    QFont font = item->font();
-                    font.setBold(true);
-                    item->setFont(font);
-                }
-                row.push_back(item);
-            }
-            const QString hash = line.left(colonPos);
-            row[HashColumn]->setText(hash);
-            row[SubjectColumn]->setText(line.right(line.size() - colonPos - 1));
-            m_model->appendRow(row);
-            if (selected == -1 && currentCommit == hash)
-                selected = m_model->rowCount() - 1;
-        }
-    }
-    setCurrentIndex(m_model->index(selected, 0));
+    setCurrentIndex(m_model->index(*selected, 0));
     return true;
 }
 
@@ -321,64 +359,176 @@ const QStandardItem *LogChangeWidget::currentItem(int column) const
     return nullptr;
 }
 
-LogChangeDialog::LogChangeDialog(DialogType type, QWidget *parent) :
-    QDialog(parent)
-    , m_widget(new LogChangeWidget)
-    , m_dialogButtonBox(new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this))
+class LogTableAspect final : public BaseAspect
 {
-    const bool isReset = type == Reset;
-    auto layout = new QVBoxLayout(this);
-    layout->addWidget(new QLabel(isReset ? Tr::tr("Reset to:") : Tr::tr("Select change:"), this));
-    m_selectionHintLabel = new QLabel(
-                Tr::tr("Hint: Select or deselect a single commit with a mouse click "
-                       "and multiple commits by dragging the mouse over them."), this);
-    m_selectionHintLabel->setVisible(false);
-    layout->addWidget(m_selectionHintLabel);
-    layout->addWidget(m_widget);
-    auto popUpLayout = new QHBoxLayout;
-    if (isReset) {
-        popUpLayout->addWidget(new QLabel(Tr::tr("Reset type:")));
-        m_resetTypeComboBox = new QComboBox;
-        m_resetTypeComboBox->addItem(Tr::tr("Hard"), "--hard");
-        m_resetTypeComboBox->addItem(Tr::tr("Mixed"), "--mixed");
-        m_resetTypeComboBox->addItem(Tr::tr("Soft"), "--soft");
-        m_resetTypeComboBox->setCurrentIndex(settings().lastResetIndex());
-        popUpLayout->addWidget(m_resetTypeComboBox);
-        popUpLayout->addItem(new QSpacerItem(0, 0, QSizePolicy::Expanding, QSizePolicy::Ignored));
+    Q_OBJECT
+
+public:
+    LogTableAspect(AspectContainer *container, QAbstractItemModel *model)
+        : BaseAspect(container), m_model(model)
+    {}
+
+    AspectPresentation presentation() const override
+    {
+        AspectPresentation p = BaseAspect::presentation();
+        p.control = AspectControls::Table;
+        return p;
     }
 
-    popUpLayout->addWidget(m_dialogButtonBox);
-    QPushButton *okButton = m_dialogButtonBox->button(QDialogButtonBox::Ok);
-    layout->addLayout(popUpLayout);
+    QAbstractItemModel *tableModel() override { return m_model; }
+
+    Q_INVOKABLE void setCurrentRow(int row)
+    {
+        if (m_currentRow == row)
+            return;
+        m_currentRow = row;
+        emit chosenChanged();
+    }
+
+    Q_INVOKABLE void setSelectedRows(const QVariantList &rows)
+    {
+        QList<int> selected;
+        for (const QVariant &row : rows)
+            selected << row.toInt();
+        if (m_selectedRows == selected)
+            return;
+        m_selectedRows = selected;
+        emit chosenChanged();
+    }
+
+    Q_INVOKABLE void activateRow(int row)
+    {
+        setCurrentRow(row);
+        emit rowActivated();
+    }
+
+    void showRow(int row)
+    {
+        setCurrentRow(row);
+        setSelectedRows(row >= 0 ? QVariantList{row} : QVariantList{});
+        emit selectRowRequested(row);
+    }
+
+    int currentRow() const { return m_currentRow; }
+    QList<int> selectedRows() const { return Utils::sorted(m_selectedRows); }
+
+signals:
+    void chosenChanged();
+    void rowActivated();
+    void selectRowRequested(int row);
+
+private:
+    QAbstractItemModel *const m_model;
+    int m_currentRow = -1;
+    QList<int> m_selectedRows;
+};
+
+class LogChangeSettings final : public AspectContainer
+{
+public:
+    explicit LogChangeSettings(QAbstractItemModel *model)
+        : commits(this, model)
+    {
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Git/LogChangeDialog.qml"));
+
+        prompt.setQmlName("Prompt");
+        hint.setQmlName("Hint");
+        hint.setText(Tr::tr("Hint: Select or deselect a single commit with a mouse click "
+                            "and multiple commits by dragging the mouse over them."));
+        // Only where more than one can be picked.
+        hint.setVisible(false);
+
+        commits.setQmlName("Commits");
+
+        resetType.setQmlName("ResetType");
+        resetType.setLabelText(Tr::tr("Reset type:"));
+        resetType.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
+        resetType.addOption({Tr::tr("Hard"), {}, "--hard"});
+        resetType.addOption({Tr::tr("Mixed"), {}, "--mixed"});
+        resetType.addOption({Tr::tr("Soft"), {}, "--soft"});
+        // Only the reset dialog asks how far to reset.
+        resetType.setVisible(false);
+    }
+
+    TextDisplay prompt{this};
+    TextDisplay hint{this};
+    LogTableAspect commits;
+    SelectionAspect resetType{this};
+};
+
+LogChangeDialog::LogChangeDialog(DialogType type, QWidget *parent)
+    : QDialog(parent)
+    , m_model(new LogChangeModel(nullptr))
+    , m_settings(new LogChangeSettings(m_model))
+    , m_dialogButtonBox(new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this))
+{
+    m_model->setParent(this);
+
+    const bool isReset = type == Reset;
+    m_settings->prompt.setText(isReset ? Tr::tr("Reset to:") : Tr::tr("Select change:"));
+    if (isReset) {
+        m_settings->resetType.setVisible(true);
+        m_settings->resetType.setValue(settings().lastResetIndex());
+    }
+
+    auto layout = new QVBoxLayout(this);
+    layout->addWidget(Core::createAspectForm(m_settings.get()));
+    layout->addWidget(m_dialogButtonBox);
 
     connect(m_dialogButtonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(m_dialogButtonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
 
-    connect(m_widget, &LogChangeWidget::activated, okButton, [okButton] { okButton->animateClick(); });
-    connect(m_widget, &LogChangeWidget::hasSelectionChanged, this, [this](bool hasSelection) {
-        m_dialogButtonBox->button(QDialogButtonBox::Ok)->setEnabled(hasSelection);
+    QPushButton *const okButton = m_dialogButtonBox->button(QDialogButtonBox::Ok);
+    connect(&m_settings->commits, &LogTableAspect::rowActivated,
+            okButton, [okButton] { okButton->animateClick(); });
+    connect(&m_settings->commits, &LogTableAspect::chosenChanged, this, [this, okButton] {
+        okButton->setEnabled(!m_settings->commits.selectedRows().isEmpty());
+        m_model->setChosen(m_settings->commits.currentRow(), m_settings->commits.selectedRows());
     });
-
+    okButton->setEnabled(false);
 
     resize(600, 400);
 }
 
-void LogChangeDialog::setSelectionMode(QAbstractItemView::SelectionMode mode)
+LogChangeDialog::~LogChangeDialog() = default;
+
+void LogChangeDialog::setMultiSelect(bool multi)
 {
-    m_widget->setSelectionMode(mode);
-    m_selectionHintLabel->setVisible(mode == QAbstractItemView::SelectionMode::MultiSelection);
+    // The widget dialog told the view its selection mode; a Quick table always
+    // takes several, so what is left is saying so.
+    m_settings->hint.setVisible(multi);
+}
+
+void LogChangeDialog::setMarks(LogRowMarks marks)
+{
+    m_model->setMarks(marks);
+    m_model->setMarkIcon(marks == LogRowMarks::IconUpToCurrent ? Utils::Icons::UNDO.icon()
+                         : marks == LogRowMarks::IconOnSelected ? Utils::Icons::PLUS.icon()
+                                                                : QIcon());
 }
 
 bool LogChangeDialog::runDialog(const FilePath &repository,
                                 const QString &commit,
                                 LogChangeWidget::LogFlags flags)
 {
-    if (!m_widget->init(repository, commit, flags))
+    const Result<int> selected = m_model->populate(repository, commit, flags, {}, this->commit());
+    if (!selected) {
+        VcsOutputWindow::appendError(repository, selected.error());
         return false;
+    }
+    if (m_model->rowCount() == 0) {
+        if (!(flags & LogChangeWidget::Silent)) {
+            VcsOutputWindow::appendError(
+                repository, GitClient::msgNoCommits(flags & LogChangeWidget::IncludeRemotes));
+        }
+        return false;
+    }
+    m_settings->commits.showRow(*selected);
 
     if (QDialog::exec() == QDialog::Accepted) {
-        if (m_resetTypeComboBox)
-            settings().lastResetIndex.setValue(m_resetTypeComboBox->currentIndex());
+        if (m_settings->resetType.isVisible())
+            settings().lastResetIndex.setValue(m_settings->resetType.value());
         return true;
     }
     return false;
@@ -386,35 +536,44 @@ bool LogChangeDialog::runDialog(const FilePath &repository,
 
 QString LogChangeDialog::commit() const
 {
-    return m_widget->commit();
+    if (const QStandardItem *item = m_model->item(m_settings->commits.currentRow(), HashColumn))
+        return item->text();
+    return {};
 }
 
 int LogChangeDialog::commitIndex() const
 {
-    return m_widget->commitIndex();
+    return m_settings->commits.currentRow();
 }
 
 QStringList LogChangeDialog::commitList() const
 {
-    return m_widget->commitList();
+    // Bottom to top, which is the order they have to be applied in.
+    QList<int> rows = m_settings->commits.selectedRows();
+    std::reverse(rows.begin(), rows.end());
+    return Utils::transform(rows, [this](int row) {
+        const QStandardItem *item = m_model->item(row, HashColumn);
+        return item ? item->text() : QString();
+    });
 }
 
 QStringList LogChangeDialog::patchRange() const
 {
-    return m_widget->patchRange();
+    const QList<int> rows = m_settings->commits.selectedRows();
+    if (rows.isEmpty())
+        return {};
+    const QStandardItem *highest = m_model->item(rows.first(), HashColumn);
+    QTC_ASSERT(highest, return {});
+    return {"-" + QString::number(rows.size()), highest->text()};
 }
 
 QString LogChangeDialog::resetFlag() const
 {
-    if (!m_resetTypeComboBox)
+    if (!m_settings->resetType.isVisible())
         return {};
-    return m_resetTypeComboBox->itemData(m_resetTypeComboBox->currentIndex()).toString();
+    return m_settings->resetType.itemValue().toString();
 }
 
-LogChangeWidget *LogChangeDialog::widget() const
-{
-    return m_widget;
-}
 
 #ifdef WITH_TESTS
 
@@ -499,6 +658,148 @@ private slots:
                  "a commit below the chosen one carried a mark");
         QVERIFY2(model.data(model.index(0, SubjectColumn), Qt::DecorationRole).isNull(),
                  "the mark was drawn in every column");
+    }
+
+    void testWhatALogLineSays()
+    {
+        // The format is "%h:%s %d" - hash, colon, subject, and the refs
+        // pointing at it, if any.
+        const std::optional<LogRow> plain = parseLogLine("abc1234: Fix the thing ");
+        QVERIFY(plain);
+        QCOMPARE(plain->hash, QString("abc1234"));
+        QCOMPARE(plain->subject, QString(" Fix the thing "));
+        QVERIFY2(!plain->named, "a commit with no refs was shown as if it had one");
+
+        // A commit some ref points at is shown in bold, and the format ends
+        // it with the refs in brackets.
+        const std::optional<LogRow> named = parseLogLine("def5678: Release  (HEAD -> master)");
+        QVERIFY(named);
+        QCOMPARE(named->hash, QString("def5678"));
+        QVERIFY2(named->named, "a commit a ref points at was not marked");
+
+        // A subject may contain a colon; only the first one separates.
+        const std::optional<LogRow> colon = parseLogLine("abc1234: git: do the thing");
+        QVERIFY(colon);
+        QCOMPARE(colon->hash, QString("abc1234"));
+        QCOMPARE(colon->subject, QString(" git: do the thing"));
+
+        // Anything without a colon is not a log line - git's own blank last
+        // line is the usual one.
+        QVERIFY2(!parseLogLine(""), "an empty line was taken for a commit");
+        QVERIFY(!parseLogLine("no colon here"));
+    }
+
+    void testHowTheLogIsAskedFor()
+    {
+        // What the flags mean, which is otherwise only visible by running git.
+        const QStringList plain = logArguments({}, LogChangeWidget::None, {});
+        QVERIFY2(plain.contains("HEAD"), qPrintable(plain.join(' ')));
+        QVERIFY2(plain.contains("--not") && plain.contains("--remotes"),
+                 "commits already on a remote were included");
+        QVERIFY2(!plain.contains("--no-merges"), "merges were omitted without being asked");
+
+        // A commit to start from replaces HEAD.
+        const QStringList from = logArguments("abc1234", LogChangeWidget::None, {});
+        QVERIFY(from.contains("abc1234"));
+        QVERIFY(!from.contains("HEAD"));
+
+        // Including remotes drops the exclusion entirely.
+        const QStringList remotes = logArguments({}, LogChangeWidget::IncludeRemotes, {});
+        QVERIFY2(!remotes.contains("--not"), "remotes were still excluded");
+
+        // One remote can be singled out - the push dialog excludes only the
+        // one it is pushing to.
+        const QStringList excluded = logArguments({}, LogChangeWidget::None, "origin");
+        QVERIFY2(excluded.contains("--remotes=origin"), qPrintable(excluded.join(' ')));
+
+        QVERIFY(logArguments({}, LogChangeWidget::OmitMerges, {}).contains("--no-merges"));
+    }
+
+    void testTheDialogDrawsWithTheQmlItNames()
+    {
+        LogChangeModel model(nullptr);
+        LogChangeSettings settings(&model);
+        const Result<> rendered = Core::aspectFormRenders(&settings, "LogChangeDialog.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+    }
+
+    void testOnlyTheResetDialogAsksHowFar()
+    {
+        // "Select change" has nothing to reset, so the reset type is not part
+        // of it; the reset dialog answers with what git wants on the command
+        // line.
+        LogChangeDialog select(LogChangeDialog::Select, nullptr);
+        QVERIFY2(!select.m_settings->resetType.isVisible(),
+                 "the select dialog offered a reset type");
+        QCOMPARE(select.resetFlag(), QString());
+
+        LogChangeDialog reset(LogChangeDialog::Reset, nullptr);
+        QVERIFY(reset.m_settings->resetType.isVisible());
+        reset.m_settings->resetType.setValue(0);
+        QCOMPARE(reset.resetFlag(), QString("--hard"));
+        reset.m_settings->resetType.setValue(2);
+        QCOMPARE(reset.resetFlag(), QString("--soft"));
+    }
+
+    void testTheHintIsShownOnlyWhereSeveralCanBePicked()
+    {
+        LogChangeDialog dialog(LogChangeDialog::Select, nullptr);
+        QVERIFY2(!dialog.m_settings->hint.isVisible(),
+                 "the dialog explained multi-selection where there is none");
+        dialog.setMultiSelect(true);
+        QVERIFY(dialog.m_settings->hint.isVisible());
+    }
+
+    void testWhichCommitsThePickAnswersWith()
+    {
+        LogChangeDialog dialog(LogChangeDialog::Select, nullptr);
+        for (int row = 0; row < 4; ++row) {
+            dialog.m_model->appendRow(logRowItems(
+                {QString("hash%1").arg(row), QString("subject%1").arg(row), false}));
+        }
+
+        // Nothing picked is nothing to answer with.
+        QCOMPARE(dialog.commit(), QString());
+        QVERIFY(dialog.commitList().isEmpty());
+        QVERIFY(dialog.patchRange().isEmpty());
+
+        dialog.m_settings->commits.setCurrentRow(1);
+        QCOMPARE(dialog.commit(), QString("hash1"));
+        QCOMPARE(dialog.commitIndex(), 1);
+
+        // A list of commits to apply comes back bottom to top, because that is
+        // the order they have to be applied in.
+        dialog.m_settings->commits.setSelectedRows({0, 2});
+        QCOMPARE(dialog.commitList(), (QStringList{"hash2", "hash0"}));
+
+        // And a range for format-patch is a count and the newest of them.
+        QCOMPARE(dialog.patchRange(), (QStringList{"-2", "hash0"}));
+    }
+
+    void testTheDrawnTableHandsBackWhatWasPicked()
+    {
+        // Three lines in the .qml carry the dialog.
+        LogChangeModel model(nullptr);
+        LogChangeSettings settings(&model);
+        for (int row = 0; row < 3; ++row)
+            model.appendRow(logRowItems({QString("hash%1").arg(row), "subject", false}));
+
+        const std::unique_ptr<QWidget> form(Core::createAspectForm(&settings));
+        QVERIFY(form);
+        QObject *const root = Core::aspectFormRoot(form.get());
+        QVERIFY2(root, "no front end said what the dialog was drawn from");
+
+        QObject *table = nullptr;
+        QTRY_VERIFY(table = root->findChild<QObject *>("commitTable"));
+
+        QSignalSpy activated(&settings.commits, &LogTableAspect::rowActivated);
+        QVERIFY(QMetaObject::invokeMethod(table, "rowActivated", Q_ARG(int, 2)));
+        QTRY_COMPARE(activated.count(), 1);
+        QCOMPARE(settings.commits.currentRow(), 2);
+
+        // And the dialog can put the reader on a row, which the view follows.
+        settings.commits.showRow(0);
+        QTRY_COMPARE(table->property("currentRow").toInt(), 0);
     }
 
     void testALogRowIsNotEditedInTheCell()
