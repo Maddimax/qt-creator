@@ -17939,3 +17939,47 @@ dropping `setFontZoom` so a pane's zoom is accepted and never applied; the
 adapter not connecting `linkActivated` so a click goes nowhere; and a
 `setOutputViewFactory()` that ignores being cleared. The first two are the
 failure modes a forwarding layer actually has - both are silent.
+
+### The last two document operations, and a control that did not bite
+
+`grayOutContentBefore()` and `removeLinesPrefixedWith()` are out of the widget
+now. They were the two things Build System Output needs that a Qt Quick pane
+could not do, and they are pure document work once the widget's cursor and
+palette are passed in rather than reached for.
+
+**An extraction must not change what is drawn.** The dimmed colour is halfway
+between the text and the background, and `Utils::StyleHelper::mergedColors()`
+looks like exactly that. It is not: it halves each colour with integer
+division *before* adding, so it differs by up to one per channel and keeps the
+first colour's alpha. Nobody would see it - which is the reason to notice it
+rather than the reason to ignore it, because the diff would have read as a
+tidy-up. The original arithmetic stayed.
+
+**A control that does not bite is worth reporting.** Making the start cursor
+never advance changes nothing any test can see, and that is not a gap in the
+test: dimming is idempotent and always the same grey, so where the range
+*begins* cannot affect the result. All three callers - the app output pane,
+the build system output, the serial terminal - call it at the start of a run,
+when everything present is already old. The cursor bounds how much of a
+document that can hold millions of characters gets re-touched. It is a bound
+on work, not on outcome, and the extraction says so.
+
+**A control that did not bite until the test was honest.** Removing the saved
+end format looked harmless because the test appended text with an explicit
+colour, which overrides whatever the block carries - so the assertion could
+not fail. Rewritten to append through `Utils::OutputFormatter` and to check the
+state the call *leaves behind*, it bites: without the restore the end of the
+document is left grey, and anything written there that does not name its own
+colour comes out dim. The lesson is the same one as before - a fixture that
+supplies the answer hides the code that was supposed to.
+
+`removeLinesPrefixedWith()` also has a surprise worth having written down:
+removing the *last* line takes the empty block a trailing newline leaves with
+it, so the document ends without one. Not a decision anybody made, and now
+asserted so that a port cannot quietly change it.
+
+What is left before Build System Output can switch is find support.
+`Core::OutputWindow` gets `IFindSupport` from `Aggregation`, over a
+`QPlainTextEdit`; a Quick view needs its own, and the search itself is document
+work of exactly the kind extracted here. That is the next batch, and after it
+the switch is a batch rather than a project.

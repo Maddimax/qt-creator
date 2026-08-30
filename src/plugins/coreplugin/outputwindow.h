@@ -11,6 +11,10 @@
 
 #include <QPlainTextEdit>
 
+QT_BEGIN_NAMESPACE
+class QPalette;
+QT_END_NAMESPACE
+
 namespace Utils {
 class OutputFormatter;
 class OutputLineParser;
@@ -89,6 +93,24 @@ public:
     static void appendFiltered(const QTextDocument *source, QTextDocument *target,
                                const TextMatchingFunction &matches, int before, int after,
                                FilteredAppendState &state);
+
+    // Dims the output a run left behind, so that what the next one appends
+    // stands out from it. \a startOfNewContent marks where the run being dimmed
+    // began, and is moved to where the next one will.
+    //
+    // It is a cursor rather than a position because the document is also cut
+    // from the front when the character limit bites, which would leave a
+    // position pointing at a line that is no longer the one meant.
+    //
+    // The palette is passed in because the dimmed colour is halfway between
+    // the text and the background, and a Qt Quick view has no widget palette
+    // to read that from.
+    static void grayOutContentBefore(QTextCursor &startOfNewContent, const QPalette &palette);
+
+    // Removes every line starting with \a prefix. What lets a pane retract
+    // what it said - the progress lines a build system overwrites.
+    static void removeLinesPrefixedWith(QTextDocument *document, const QString &prefix,
+                                        bool deleteTrailingLineBreak);
 
     OutputWindow(Context context, const Utils::Key &settingsKey, QWidget *parent = nullptr);
     ~OutputWindow() override;

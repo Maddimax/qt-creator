@@ -955,9 +955,10 @@ void OutputWindow::clear()
     d->startOfNewContentCursor.setPosition(0);
 }
 
-void OutputWindow::clearLinesPrefixedWith(const QString& prefix, bool deleteTrailingLineBreak)
+void OutputWindow::removeLinesPrefixedWith(QTextDocument *doc, const QString &prefix,
+                                           bool deleteTrailingLineBreak)
 {
-    QTextDocument *doc = document();
+    QTC_ASSERT(doc, return);
 
     auto block = doc->lastBlock();
     while (true) {
@@ -972,6 +973,11 @@ void OutputWindow::clearLinesPrefixedWith(const QString& prefix, bool deleteTrai
             break;
         block = block.previous();
     }
+}
+
+void OutputWindow::clearLinesPrefixedWith(const QString &prefix, bool deleteTrailingLineBreak)
+{
+    removeLinesPrefixedWith(document(), prefix, deleteTrailingLineBreak);
 }
 
 void OutputWindow::flush()
@@ -1015,29 +1021,43 @@ void OutputWindow::scrollToBottom()
     verticalScrollBar()->setValue(verticalScrollBar()->maximum());
 }
 
-void OutputWindow::grayOutOldContent()
+void OutputWindow::grayOutContentBefore(QTextCursor &startOfNewContent, const QPalette &palette)
 {
-    if (!d->cursor.atEnd())
-        d->cursor.movePosition(QTextCursor::End);
-    QTextCharFormat endFormat = d->cursor.charFormat();
+    QTextDocument * const document = startOfNewContent.document();
+    QTC_ASSERT(document, return);
 
-    d->cursor.setPosition(d->startOfNewContentCursor.position());
-    d->cursor.movePosition(QTextCursor::End, QTextCursor::KeepAnchor, 1);
+    QTextCursor cursor(document);
+    cursor.movePosition(QTextCursor::End);
+    // What the end of the document is drawn in, kept so that the block opened
+    // for the next run does not inherit the dimming applied below.
+    const QTextCharFormat endFormat = cursor.charFormat();
+
+    cursor.setPosition(startOfNewContent.position());
+    cursor.movePosition(QTextCursor::End, QTextCursor::KeepAnchor, 1);
+
+    // Halfway between the text and the background. Not StyleHelper's
+    // mergedColors(), which halves each colour before adding and so differs by
+    // up to one per channel - the point here is to move the operation, not to
+    // change what it draws.
+    const QColor background = palette.base().color();
+    const QColor text = palette.text().color();
+    const auto halfway = [](int a, int b) { return int(0.5 * a + 0.5 * b); };
 
     QTextCharFormat format;
-    const QColor bkgColor = palette().base().color();
-    const QColor fgdColor = palette().text().color();
-    double bkgFactor = 0.50;
-    double fgdFactor = 1.-bkgFactor;
-    format.setForeground(QColor((bkgFactor * bkgColor.red() + fgdFactor * fgdColor.red()),
-                             (bkgFactor * bkgColor.green() + fgdFactor * fgdColor.green()),
-                             (bkgFactor * bkgColor.blue() + fgdFactor * fgdColor.blue()) ));
-    d->cursor.mergeCharFormat(format);
+    format.setForeground(QColor(halfway(background.red(), text.red()),
+                                halfway(background.green(), text.green()),
+                                halfway(background.blue(), text.blue())));
+    cursor.mergeCharFormat(format);
 
-    d->cursor.movePosition(QTextCursor::End);
-    d->cursor.setCharFormat(endFormat);
-    d->startOfNewContentCursor.setPosition(d->cursor.position());
-    d->cursor.insertBlock(QTextBlockFormat());
+    cursor.movePosition(QTextCursor::End);
+    cursor.setCharFormat(endFormat);
+    startOfNewContent.setPosition(cursor.position());
+    cursor.insertBlock(QTextBlockFormat());
+}
+
+void OutputWindow::grayOutOldContent()
+{
+    grayOutContentBefore(d->startOfNewContentCursor, palette());
 }
 
 void OutputWindow::enableUndoRedo()
@@ -1302,6 +1322,98 @@ private slots:
         const auto halfTyped = OutputWindow::filterPredicate("error(", Flags(Flag::RegExp));
         QVERIFY2(!halfTyped("an error happened"),
                  "an unfinished regular expression let every line through");
+    }
+
+    // Dimming what a previous run left. The widget did this through a cursor
+    // it kept and its own palette, so nothing could ask it anything.
+    void testDimmingWhatTheLastRunLeft()
+    {
+        QPalette palette;
+        palette.setColor(QPalette::Base, Qt::black);
+        palette.setColor(QPalette::Text, Qt::white);
+        const QColor dimmed(127, 127, 127); // Halfway, as the widget drew it.
+
+        QTextDocument document;
+        QTextCursor startOfNewContent(&document);
+        startOfNewContent.setKeepPositionOnInsert(true);
+
+        // Filled the way a pane fills it, so that what the formatter does to
+        // the character formats is part of the test rather than assumed.
+        Utils::OutputFormatter formatter;
+        formatter.setSink(&document);
+        const auto append = [&formatter](const QString &text) {
+            formatter.appendMessage(text, Utils::NormalMessageFormat);
+            formatter.flush();
+        };
+        const auto colorOf = [&document](int position) {
+            QTextCursor cursor(&document);
+            cursor.setPosition(position + 1);
+            return cursor.charFormat().foreground().color();
+        };
+
+        append("first run\n");
+        const int firstRun = 0;
+        const QColor undimmed = colorOf(firstRun);
+        QVERIFY2(undimmed != dimmed, "the fixture starts out already dimmed");
+
+        OutputWindow::grayOutContentBefore(startOfNewContent, palette);
+        QCOMPARE(colorOf(firstRun), dimmed);
+
+        // The document is left ready for output that is not dimmed. Without
+        // the end format being put back, the block opened here carries the
+        // dimming, and anything written into it that does not name its own
+        // colour - which is not the formatter, but is every plain insert -
+        // comes out grey.
+        QTextCursor atEnd(&document);
+        atEnd.movePosition(QTextCursor::End);
+        QCOMPARE(atEnd.charFormat().foreground().color(), undimmed);
+
+        const int secondRun = document.characterCount() - 1;
+        append("second run\n");
+        QCOMPARE(colorOf(secondRun), undimmed);
+
+        // And dimming again takes the second run and leaves the first alone,
+        // rather than dimming what is already dim a second time.
+        OutputWindow::grayOutContentBefore(startOfNewContent, palette);
+        QCOMPARE(colorOf(secondRun), dimmed);
+        QCOMPARE(colorOf(firstRun), dimmed);
+
+        QVERIFY2(document.toPlainText().contains("first run")
+                     && document.toPlainText().contains("second run"),
+                 "dimming a run removed it");
+    }
+
+    // Retracting lines a pane has already printed - the progress lines a build
+    // system overwrites as it goes.
+    void testRemovingTheLinesAPaneTakesBack()
+    {
+        const auto textAfterRemoving = [](const QString &start, bool deleteTrailingLineBreak) {
+            QTextDocument document;
+            document.setPlainText(start);
+            OutputWindow::removeLinesPrefixedWith(&document, "Progress:", deleteTrailingLineBreak);
+            return document.toPlainText();
+        };
+
+        // Every line with the prefix goes, wherever it is, and the rest stays
+        // in order.
+        QCOMPARE(textAfterRemoving("Progress: 1\nkept\n", true), QString("kept\n"));
+        QCOMPARE(textAfterRemoving("kept\nkept two\n", true), QString("kept\nkept two\n"));
+
+        // Only at the start of a line. A line that merely mentions the prefix
+        // is output like any other.
+        QCOMPARE(textAfterRemoving("says Progress: here\n", true),
+                 QString("says Progress: here\n"));
+
+        // Whether the line break goes with it is the caller's choice, and it
+        // is the difference between retracting a line and blanking it.
+        QCOMPARE(textAfterRemoving("Progress: only\n", true), QString(""));
+        QCOMPARE(textAfterRemoving("Progress: only\n", false), QString("\n"));
+        QCOMPARE(textAfterRemoving("Progress: 1\nkept\n", false), QString("\nkept\n"));
+
+        // Removing the last line of output takes the empty block a trailing
+        // newline leaves behind with it, so the document ends without one.
+        // Surprising, and what the panes have always done.
+        QCOMPARE(textAfterRemoving("Progress: 1\nkept\nProgress: 2\n", true), QString("kept"));
     }
 };
 
