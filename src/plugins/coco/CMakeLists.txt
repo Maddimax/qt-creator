@@ -48,6 +48,7 @@ if(TARGET Coco)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      CocoBuildStep.qml
       CocoSettingsPage.qml
   )
 endif()

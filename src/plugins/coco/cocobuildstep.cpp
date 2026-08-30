@@ -15,45 +15,16 @@
 #include <QtTaskTree/QTaskTree>
 #include <utils/layoutbuilder.h>
 
-#include <QLabel>
-#include <QPushButton>
+#ifdef WITH_TESTS
+#include <projectexplorer/projectconfiguration.h>
+#include <utils/algorithm.h>
+#include <QTest>
+#endif
+
 
 namespace Coco::Internal {
 
 using namespace ProjectExplorer;
-
-class ButtonWidget : public QWidget
-// The configuration button of the CocoBuildstep must be part of a separated object
-// because it may be several times recreated by createConfigWidget().
-{
-public:
-    explicit ButtonWidget(CocoBuildStep *step);
-
-private slots:
-    void setButtonState(bool enabled, const QString &text);
-
-private:
-    QPushButton *m_button;
-};
-
-ButtonWidget::ButtonWidget(CocoBuildStep *step)
-    : m_button{new QPushButton}
-{
-    connect(m_button, &QPushButton::clicked, step, &CocoBuildStep::onButtonClicked);
-    connect(step, &CocoBuildStep::setButtonState, this, &ButtonWidget::setButtonState);
-
-    Layouting::Form builder;
-    builder.addRow({m_button, new QLabel});
-    builder.setNoMargins();
-    builder.attachTo(this);
-}
-
-void ButtonWidget::setButtonState(bool enabled, const QString &text)
-{
-    m_button->setEnabled(enabled);
-    if (!text.isEmpty())
-        m_button->setText(text);
-}
 
 CocoBuildStep *CocoBuildStep::create(BuildConfiguration *buildConfig)
 {
@@ -64,7 +35,17 @@ CocoBuildStep *CocoBuildStep::create(BuildConfiguration *buildConfig)
 
 CocoBuildStep::CocoBuildStep(ProjectExplorer::BuildStepList *bsl, Utils::Id id)
     : BuildStep(bsl, id)
-{}
+{
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Coco/CocoBuildStep.qml"));
+
+    m_toggleCoverage.setQmlName("ToggleCoverage");
+    m_toggleCoverage.setAction([this] { onButtonClicked(); });
+
+    // What the button says depends on the Coco installation and on the
+    // project's settings, so it is worked out when a form is about to show it
+    // as well as when the build system changes.
+    connect(this, &Utils::AspectContainer::shown, this, [this] { updateDisplay(); });
+}
 
 bool CocoBuildStep::init()
 {
@@ -83,19 +64,11 @@ void CocoBuildStep::onButtonClicked()
     m_valid = !m_valid;
 
     setSummaryText(Tr::tr("Coco Code Coverage: Reconfiguring..."));
-    emit setButtonState(false);
+    m_toggleCoverage.setEnabled(false);
 
     m_buildSettings->setCoverage(m_valid);
     m_buildSettings->provideFile();
     m_buildSettings->reconfigure();
-}
-
-QWidget *CocoBuildStep::createConfigWidget()
-{
-    auto widget = new ButtonWidget{this};
-    updateDisplay();
-
-    return widget;
 }
 
 void CocoBuildStep::updateDisplay()
@@ -104,7 +77,7 @@ void CocoBuildStep::updateDisplay()
 
     if (!cocoSettings().isValid()) {
         setSummaryText("<i>" + Tr::tr("Coco Code Coverage: No working Coco installation.") + "</i>");
-        emit setButtonState(false);
+        m_toggleCoverage.setEnabled(false);
         return;
     }
 
@@ -112,10 +85,12 @@ void CocoBuildStep::updateDisplay()
 
     if (m_valid) {
         setSummaryText("<b>" + Tr::tr("Coco Code Coverage: Enabled.") + "</b>");
-        emit setButtonState(true, Tr::tr("Disable Coverage"));
+        m_toggleCoverage.setEnabled(true);
+        m_toggleCoverage.setActionText(Tr::tr("Disable Coverage"));
     } else {
         setSummaryText(Tr::tr("Coco Code Coverage: Disabled."));
-        emit setButtonState(true, Tr::tr("Enable Coverage"));
+        m_toggleCoverage.setEnabled(true);
+        m_toggleCoverage.setActionText(Tr::tr("Enable Coverage"));
     }
 }
 
@@ -179,6 +154,67 @@ static void addBuildStep(Target *target)
     }
 }
 
+#ifdef WITH_TESTS
+
+class CocoBuildStepPageTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    // A CocoBuildStep needs a build configuration, so its page is checked
+    // against a stand-in holding the same aspect under the same name: that the
+    // page finds it, that the form is that page rather than the generic list,
+    // and that the aspect wants the control the page's delegate draws.
+    void testThePageDrawsWhatItNames()
+    {
+        Utils::AspectContainer page;
+        page.setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Coco/CocoBuildStep.qml"));
+
+        Utils::ActionAspect toggle(&page);
+        toggle.setQmlName("ToggleCoverage");
+        toggle.setActionText("Enable Coverage");
+
+        QStringList complaints;
+        static QStringList *collected = nullptr;
+        collected = &complaints;
+        const auto previous = qInstallMessageHandler(nullptr);
+        qInstallMessageHandler([](QtMsgType type, const QMessageLogContext &, const QString &msg) {
+            if (collected && (type == QtWarningMsg || type == QtCriticalMsg))
+                collected->append(msg);
+        });
+
+        const std::unique_ptr<QWidget> form(ProjectExplorer::createAspectsForm(&page));
+        if (form) {
+            form->resize(400, 200);
+            form->show();
+            QTest::qWaitForWindowExposed(form.get());
+        }
+        collected = nullptr;
+        qInstallMessageHandler(previous);
+
+        QVERIFY(form);
+        QVERIFY2(complaints.isEmpty(),
+                 qPrintable("the Coco build step page complains: " + complaints.join("; ")));
+
+        const QList<QWidget *> children = form->findChildren<QWidget *>();
+        QWidget * const quick = Utils::findOr(children, nullptr, [](QWidget *child) {
+            return qstrcmp(child->metaObject()->className(), "QQuickWidget") == 0;
+        });
+        QVERIFY2(quick, "the Coco build step page was not drawn with Qt Quick at all");
+        QCOMPARE(quick->property("source").toUrl(), page.qmlSource());
+
+        // Drawn with ButtonDelegate; AspectItems.qml maps that control to it.
+        QCOMPARE(int(toggle.presentation().control), int(Utils::AspectControls::Button));
+    }
+};
+
+QObject *createCocoBuildStepPageTest()
+{
+    return new CocoBuildStepPageTest;
+}
+
+#endif // WITH_TESTS
+
 void setupCocoBuildSteps()
 {
     static QMakeStepFactory theQmakeStepFactory;
@@ -200,3 +236,7 @@ void setupCocoBuildSteps()
 }
 
 } // namespace Coco::Internal
+
+#ifdef WITH_TESTS
+#include "cocobuildstep.moc"
+#endif

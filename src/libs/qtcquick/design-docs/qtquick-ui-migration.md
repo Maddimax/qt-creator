@@ -17034,3 +17034,26 @@ is what was meant.
 
 The page test is the MakeStep one again, and both of its halves were shown to
 bite: a wrong `aspects.Foo` and a control the aspect does not ask for.
+
+### CocoBuildStep: a button that was a widget
+
+Coco's build step drew one `QPushButton` inside a `ButtonWidget` the step
+rebuilt every time the form was opened, and told it what to say over a
+`setButtonState(bool, QString)` signal - a comment on the class explained that
+the button had to live in a separate object *because the config widget is
+recreated*, which is the shape of the problem rather than a reason.
+
+It is a `Utils::ActionAspect` now: the text, whether it can be pressed and what
+pressing it does all belong to the step, and `CocoBuildStep.qml` is one
+`ButtonDelegate`. `updateDisplay()` runs on `AspectContainer::shown()` as well
+as when the build system changes, which is where the closure used to call it.
+
+That the aspect asks for `AspectControls::Button` - and so is drawn by the
+delegate the page names - is asserted rather than assumed; it is the half of
+the page test that a wrong delegate would otherwise pass in silence.
+
+**Where the remaining bespoke step forms stand**, measured rather than
+guessed: `cmakebuildstep.cpp` is a 109-line closure with ten lines of
+behaviour in it and is the next real one;
+`debuggerrunconfigurationaspect.cpp` has no `createConfigWidget()` at all -
+its layout is an aspect's, not a step's, so it belongs to a different sweep.

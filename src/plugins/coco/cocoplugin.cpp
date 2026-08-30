@@ -126,6 +126,10 @@ private:
 
 void CocoPlugin::initialize()
 {
+#ifdef WITH_TESTS
+    addTestCreator(createCocoBuildStepPageTest);
+#endif
+
     setupCocoBuildSteps();
 
     IOptionsPage::registerCategory(
