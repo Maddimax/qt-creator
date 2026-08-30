@@ -17644,3 +17644,37 @@ had to make it, because both ended up as `setVisible(true)`.
 Two pieces of the output window are out now, both pure and both tested for the
 first time. What is left in it is not: the formatting, the links, the zoom and
 the base font all touch a `QPlainTextEdit` directly.
+
+### The character limit, and the character it lost
+
+The third piece of the output window, and the last of the pure ones: what a
+pane does when there is more output than its limit allows.
+
+- **A chunk too big to show** keeps its first and last half with a note
+  between them. `elideChunk()`.
+- **A document about to overflow** drops leading blocks until what is coming
+  fits, never the last one, which is where the new text lands.
+  `blocksToKeep()`.
+
+Both were arithmetic inside a `QPlainTextEdit`: to exercise either you had to
+produce megabytes of build output and watch.
+
+**This one changes behaviour, by one character.** The note said
+
+    const qsizetype elided = out.size() - d->maxCharCount;
+
+while what actually went was `out.size() - 2 * (maxCharCount / 2)`. For an even
+limit those agree; for an odd one the two halves lose a character to rounding,
+so the pane elided one *more* than it said. It now reports what it removed. The
+control - putting `size - maxCharCount` back - fails only the odd-limit
+assertion, which is exactly the character in question.
+
+That is three extractions from this window and three findings: a dead clause, a
+clamp nobody could see, and an off-by-one in a message. None of them was
+reachable while the logic lived in a widget, which is the argument for doing
+this before the Qt Quick view rather than after.
+
+**What is left in `OutputWindow` is not pure**: the formatter, the links, the
+zoom and the base font all touch the text edit itself. The next step there is a
+design one - deciding what a Qt Quick output view reads - rather than another
+extraction.

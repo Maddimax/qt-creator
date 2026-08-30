@@ -52,6 +52,16 @@ public:
     static QList<int> contextLines(const QList<int> &matchedLines, int lineCount,
                                    int before, int after);
 
+    // What is shown of a chunk too long to show: the first and last half of
+    // what the limit allows, with a note between them saying how much went.
+    static QString elideChunk(const QString &chunk, qsizetype maxCharCount);
+
+    // How many blocks a document may keep for \a incomingChars more characters
+    // to fit within \a maxCharCount, given what it holds now. -1 where nothing
+    // has to go, which is what QPlainTextEdit reads as "no limit".
+    static int blocksToKeep(const QList<int> &blockLengths, qsizetype existingChars,
+                            qsizetype incomingChars, qsizetype maxCharCount);
+
     OutputWindow(Context context, const Utils::Key &settingsKey, QWidget *parent = nullptr);
     ~OutputWindow() override;
 

@@ -511,6 +511,43 @@ OutputWindow::TextMatchingFunction OutputWindow::filterPredicate(const QString &
     };
 }
 
+QString OutputWindow::elideChunk(const QString &chunk, qsizetype maxCharCount)
+{
+    if (chunk.size() <= maxCharCount)
+        return chunk;
+
+    // Both halves of what the limit allows, which for an odd limit is one
+    // character fewer. The count reported is what actually goes, not
+    // size - maxCharCount: those differ by that same character, and the
+    // message is the only place anyone can see either.
+    const qsizetype half = maxCharCount / 2;
+    const qsizetype elided = chunk.size() - 2 * half;
+    return chunk.left(half)
+           + "[[[... "
+           + Tr::tr("Elided %n characters due to settings limit", nullptr, elided)
+           + " ...]]]"
+           + chunk.right(half);
+}
+
+int OutputWindow::blocksToKeep(const QList<int> &blockLengths, qsizetype existingChars,
+                               qsizetype incomingChars, qsizetype maxCharCount)
+{
+    qsizetype planned = existingChars + incomingChars;
+    if (planned <= maxCharCount)
+        return -1;
+
+    // Drop leading blocks until what is coming fits - but never the last one,
+    // which is where the new text lands.
+    int keep = int(blockLengths.size());
+    for (const int length : blockLengths) {
+        if (planned <= maxCharCount || keep <= 1)
+            break;
+        planned -= length;
+        keep -= 1;
+    }
+    return keep;
+}
+
 QList<int> OutputWindow::contextLines(const QList<int> &matchedLines, int lineCount,
                                       int before, int after)
 {
@@ -629,24 +666,14 @@ void OutputWindow::handleOutputChunk(
     int maxBlockCount = -1;
     if (out.size() > d->maxCharCount) {
         // Current chunk alone exceeds limit, we need to cut it.
-        const qsizetype elided = out.size() - d->maxCharCount;
-        out = out.left(d->maxCharCount / 2)
-                + "[[[... "
-                + Tr::tr("Elided %n characters due to settings limit", nullptr, elided)
-                + " ...]]]"
-                + out.right(d->maxCharCount / 2);
+        out = elideChunk(out, d->maxCharCount);
         maxBlockCount = out.count('\n') + 1;
     } else {
-        qsizetype plannedChars = document()->characterCount() + out.size();
-        if (plannedChars > d->maxCharCount) {
-            maxBlockCount = document()->blockCount();
-            QTextBlock tb = document()->firstBlock();
-            while (tb.isValid() && plannedChars > d->maxCharCount && maxBlockCount > 1) {
-                plannedChars -= tb.length();
-                maxBlockCount -= 1;
-                tb = tb.next();
-            }
-        }
+        QList<int> blockLengths;
+        for (QTextBlock tb = document()->firstBlock(); tb.isValid(); tb = tb.next())
+            blockLengths << tb.length();
+        maxBlockCount = blocksToKeep(blockLengths, document()->characterCount(), out.size(),
+                                     d->maxCharCount);
     }
     qCDebug(chunkLog) << "new max block count:" << maxBlockCount;
     setMaximumBlockCount(maxBlockCount);
@@ -994,6 +1021,39 @@ private slots:
         // And a match is never listed as its own context: it is already shown,
         // and saying so twice would hide the difference between the two.
         QCOMPARE(OutputWindow::contextLines({2, 3}, 10, 1, 1), QList<int>({1, 4}));
+    }
+
+    // What an output pane does about its character limit. Both of these were
+    // arithmetic inside a QPlainTextEdit: to see either you had to produce
+    // megabytes of build output and watch.
+    void testTheCharacterLimitKeepsBothEnds()
+    {
+        // Under the limit, nothing happens.
+        QCOMPARE(OutputWindow::elideChunk("short", 100), QString("short"));
+
+        // Over it, both ends are kept and the middle is said to be gone.
+        const QString chunk = QString("a").repeated(50) + QString("b").repeated(50);
+        const QString elided = OutputWindow::elideChunk(chunk, 20);
+        QVERIFY2(elided.startsWith(QString("a").repeated(10)), qPrintable(elided.left(20)));
+        QVERIFY2(elided.endsWith(QString("b").repeated(10)), qPrintable(elided.right(20)));
+        QVERIFY(elided.contains("[[[..."));
+
+        // And what it says went is what went: 100 characters in, 2 x 10 kept,
+        // so 80 elided. Reporting size - limit would say 80 here and 81 for an
+        // odd limit, which is the character the two halves lose to rounding.
+        QVERIFY2(elided.contains("80"), qPrintable(elided));
+        const QString oddLimit = OutputWindow::elideChunk(chunk, 21);
+        QVERIFY2(oddLimit.contains("80"), qPrintable(oddLimit));
+
+        // Nothing to drop while it all still fits.
+        QCOMPARE(OutputWindow::blocksToKeep({10, 10}, 20, 5, 100), -1);
+
+        // Otherwise the oldest blocks go, one at a time, until it does.
+        QCOMPARE(OutputWindow::blocksToKeep({10, 10, 10}, 30, 5, 25), 2);
+        QCOMPARE(OutputWindow::blocksToKeep({10, 10, 10}, 30, 5, 15), 1);
+
+        // Never the last one: it is where the new text lands.
+        QCOMPARE(OutputWindow::blocksToKeep({10, 10, 10}, 30, 100, 5), 1);
     }
 
     void testWhatAFilterLetsThrough()
