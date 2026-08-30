@@ -2154,6 +2154,7 @@ Result<> DebuggerPlugin::initialize(const QStringList &arguments)
 #ifdef WITH_TESTS
     addTestCreator(createDebuggerRunSettingsTest);
     addTestCreator(createDebuggerTest);
+    addTestCreator(createLogWindowTest);
     addTestCreator(createSourcePathMapTest);
     addTestCreator(createCdbPathsTest);
     addTestCreator(Debugger::createDebuggersSettingsTest);

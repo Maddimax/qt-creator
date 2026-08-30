@@ -19033,3 +19033,34 @@ handler and the pane hears the same signal.
 That is the last custom-painted item view. What remains of the whole pane
 migration is the debugger's log - a `QWidget` holding an editable transcript
 and a command input, which is not an output pane and not a port of this kind.
+
+### The debugger's log is not an output pane, and that changes the answer
+
+The last thing on the list, and reading it says it should not be ported the way
+the other twelve were. It is a `QWidget` in a debugger perspective holding
+three `QPlainTextEdit` subclasses: a combined transcript, an input pane the
+user types scripts into and runs, and a command line. Both text panes are
+**editable** - `clearUndoRedoStacks()` is part of the window's public API - and
+`Core::OutputPaneView` is read-only by design.
+
+So this wants the Qt Quick *editor*, not the Qt Quick *output view*. That
+editor exists - `TextEditor`'s `quicktexteditor.cpp`, whose own comment says it
+is "offered beside the widget one rather than instead of it: it is not
+finished, so it must not become what a text file opens in". Porting the
+debugger's log onto an unfinished editor would be putting weight on it before
+it can hold any, and building a second editable Quick text view beside it would
+be worse.
+
+What this batch takes instead is the one decision in there that could never be
+asked anything: **which line holds the answer to a command**. Clicking a
+command in the log jumps to its result, and the debugger writes that result
+three ways - `42^done`, `>42^done` when echoing, and `dtoken("42")@`. The rule
+that matters is that the line has to *start* with one of them: those digits
+appear in the middle of other lines constantly, and a search taking the first
+match it sees lands on an unrelated line. A control relaxing `startsWith` to
+`contains` finds "sending 42^ to the inferior" instead of the answer.
+
+**Recommendation, plainly.** The pane migration is done except for this, and
+this one is blocked on something outside it. The useful next work is finishing
+the Qt Quick text editor - which is a separate effort with its own plan - and
+the debugger's log becomes a small port once that is something to build on.

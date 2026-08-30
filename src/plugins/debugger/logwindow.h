@@ -78,4 +78,8 @@ private:
     DebuggerPane *m_leftPane;  // combined input
 };
 
+#ifdef WITH_TESTS
+QObject *createLogWindowTest();
+#endif
+
 } // Debugger::Internla

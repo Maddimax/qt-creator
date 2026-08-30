@@ -10,6 +10,10 @@
 #include "debuggertr.h"
 
 #include <QDebug>
+
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
 #include <QTime>
 
 #include <QFileDialog>
@@ -312,6 +316,31 @@ private:
 //
 /////////////////////////////////////////////////////////////////////
 
+// Where the answer to command \a token is. The debugger writes it three ways -
+// "42^done", ">42^done" when it is echoing, and dtoken("42")@ - and the line
+// has to *start* with one of them: those digits turn up in the middle of other
+// lines constantly, and a search that took the first one it saw would land on
+// an unrelated line.
+//
+// Kept out of the pane because it is a question about a transcript, not about
+// a text edit: inside one the only way to ask it was to run a debugger.
+QTextBlock blockForResult(const QTextDocument *document, int token)
+{
+    if (!document)
+        return {};
+
+    const QString needle = QString::number(token) + '^';
+    const QString echoed = '>' + needle;
+    const QString dtoken = QString("dtoken(\"%1\")@").arg(token);
+
+    for (QTextBlock block = document->firstBlock(); block.isValid(); block = block.next()) {
+        const QString line = block.text();
+        if (line.startsWith(needle) || line.startsWith(echoed) || line.startsWith(dtoken))
+            return block;
+    }
+    return {};
+}
+
 class CombinedPane : public DebuggerPane
 {
 public:
@@ -324,28 +353,17 @@ public:
 
     void gotoResult(int i)
     {
-        QString needle = QString::number(i) + '^';
-        QString needle2 = '>' + needle;
-        QString needle3 = QString::fromLatin1("dtoken(\"%1\")@").arg(i);
-        QTextCursor cursor(document());
-        do {
-            QTextCursor newCursor = document()->find(needle, cursor);
-            if (newCursor.isNull()) {
-                newCursor = document()->find(needle3, cursor);
-                if (newCursor.isNull())
-                    break; // Not found.
-            }
-            cursor = newCursor;
-            const QString line = cursor.block().text();
-            if (line.startsWith(needle) || line.startsWith(needle2) || line.startsWith(needle3)) {
-                setFocus();
-                setTextCursor(cursor);
-                ensureCursorVisible();
-                cursor.movePosition(QTextCursor::Down, QTextCursor::KeepAnchor);
-                setTextCursor(cursor);
-                break;
-            }
-        } while (cursor.movePosition(QTextCursor::Down));
+        const QTextBlock answer = blockForResult(document(), i);
+        if (!answer.isValid())
+            return;
+
+        setFocus();
+        QTextCursor cursor(answer);
+        setTextCursor(cursor);
+        ensureCursorVisible();
+        // The answer and the line under it: a result's payload follows it.
+        cursor.movePosition(QTextCursor::Down, QTextCursor::KeepAnchor);
+        setTextCursor(cursor);
     }
 };
 
@@ -709,6 +727,52 @@ void GlobalLogWindow::clearUndoRedoStacks()
     m_leftPane->clearUndoRedoStacks();
     m_rightPane->clearUndoRedoStacks();
 }
+
+#ifdef WITH_TESTS
+
+class LogWindowTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testFindingTheAnswerToACommand()
+    {
+        // Clicking a command in the log jumps to its answer. The debugger
+        // writes that answer three ways, and the digits of a token turn up in
+        // the middle of other lines constantly.
+        QTextDocument log;
+        log.setPlainText(
+            "sending 42^ to the inferior\n"   // mentions it, is not it
+            ">42^done,value=\"1\"\n"          // the echo of the command
+            "43^done,value=\"2\"\n"           // the plain form
+            "some line about 43^ again\n"
+            "dtoken(\"44\")@\n"
+            "trailing\n");
+
+        // The plain form, and the echoed one.
+        QCOMPARE(blockForResult(&log, 43).text(), QString("43^done,value=\"2\""));
+        QCOMPARE(blockForResult(&log, 42).text(), QString(">42^done,value=\"1\""));
+
+        // And the third spelling.
+        QCOMPARE(blockForResult(&log, 44).text(), QString("dtoken(\"44\")@"));
+
+        // A token mentioned inside a line is not that line's answer. This is
+        // the whole reason the search is not just "find these characters":
+        // line one contains "42^" and is not what was asked for.
+        QVERIFY(!blockForResult(&log, 42).text().startsWith("sending"));
+
+        // What is not there is not found, rather than the nearest thing.
+        QVERIFY(!blockForResult(&log, 99).isValid());
+        QVERIFY(!blockForResult(nullptr, 1).isValid());
+    }
+};
+
+QObject *createLogWindowTest()
+{
+    return new LogWindowTest;
+}
+
+#endif // WITH_TESTS
 
 } // namespace Debugger::Internal
 
