@@ -44,6 +44,11 @@ RowLayout {
         return index && index.valid ? root.rows.mapToSource(index) : index
     }
 
+    // A row was chosen and acted on - the widget views these replace called it
+    // "activated" and reached it by double click or by Return. The index is in
+    // the aspect's own model, like currentIndex above.
+    signal rowActivated(index: var)
+
     // A page showing a tree usually wants to offer these, and they are the
     // view's business rather than the aspect's.
     function expandAll(): void { view.expandRecursively(-1, -1) }
@@ -149,6 +154,33 @@ RowLayout {
                 selectionBehavior: TableView.SelectRows
                 selectionMode: TableView.SingleSelection
                 selectionModel: ItemSelectionModel { model: view.model }
+
+                // Return on the row the keyboard is on, and a double click:
+                // the two halves of what a widget view called activation.
+                Keys.onPressed: (event) => {
+                    if (event.key !== Qt.Key_Return && event.key !== Qt.Key_Enter)
+                        return
+                    const index = root.currentIndex
+                    if (!index || !index.valid)
+                        return
+                    root.rowActivated(index)
+                    event.accepted = true
+                }
+
+                TapHandler {
+                    objectName: "treeActivateTap"
+                    acceptedButtons: Qt.LeftButton
+                    gesturePolicy: TapHandler.DragThreshold
+
+                    onDoubleTapped: (eventPoint) => {
+                        const cell = view.cellAtPosition(eventPoint.position, true)
+                        if (cell.y < 0)
+                            return
+                        const index = root.rows.mapToSource(view.index(cell.y, cell.x))
+                        if (index && index.valid)
+                            root.rowActivated(index)
+                    }
+                }
                 ToolTip.text: root.toolTip
                 ToolTip.visible: false
                 Layout.fillWidth: true

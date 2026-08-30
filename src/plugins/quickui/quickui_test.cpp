@@ -333,6 +333,7 @@ private slots:
     void testARowIsActivatedByReturn();
     void testWhatATableAspectRemembers();
     void testATableAspectDescribesItsTable();
+    void testATreeRowIsActivatedByReturn();
     void testATableCellShowsTheIconItsModelGives();
     void testATableWithNoColumnNamesHasNoHeader();
     void testTableAspectAddsAndRemovesRows();
@@ -5958,6 +5959,60 @@ private:
 // indent and the branch handle stand in front of the cell. A column sized
 // from the cell alone is short by exactly them, so the first column - the one
 // holding the names - is the one that clips.
+void QuickUiTest::testATreeRowIsActivatedByReturn()
+{
+    // The same gesture the table has: the row the reader chose and meant. The
+    // Gerrit dialog opens a change with it.
+    //
+    // Only the keyboard half is checked, for the reason the table's test gives:
+    // a synthetic click does not move the view's current row in this harness.
+    Utils::AspectContainer page;
+    LongNamedTreeAspect tree;
+    tree.setLabelText("Rows");
+    page.registerAspect(&tree);
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "TreeDelegate"));
+    QQuickItem *const view = findQmlNamed(delegate, "aspectTree").value(0);
+    QVERIFY(view);
+    QTRY_VERIFY(findQmlNamed(view, "tableCellLabel").size() > 0);
+
+    QSignalSpy activated(delegate, SIGNAL(rowActivated(QVariant)));
+    QWindow *const window = quickWidget->quickWindow();
+
+    // Nothing is on yet, so there is nothing to act on.
+    view->forceActiveFocus();
+    QVERIFY2(view->hasActiveFocus(), "the tree never took the keyboard");
+    QTest::keyClick(window, Qt::Key_Return);
+    QCOMPARE(activated.count(), 0);
+
+    // Put the keyboard on the first row and press Return. The selection model
+    // is over the filter proxy, not the aspect's model - a source index set
+    // here simply does not take.
+    const auto rows = delegate->property("rows").value<QAbstractItemModel *>();
+    QVERIFY(rows);
+    auto *const selection = view->property("selectionModel").value<QItemSelectionModel *>();
+    QVERIFY(selection);
+    selection->setCurrentIndex(rows->index(0, 0), QItemSelectionModel::ClearAndSelect);
+    QTRY_VERIFY2(delegate->property("currentIndex").value<QModelIndex>().isValid(),
+                 "the tree was never put on a row");
+
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_COMPARE(activated.count(), 1);
+
+    // The index reported is the aspect's own, not the proxy's.
+    QCOMPARE(activated.takeFirst().at(0).value<QModelIndex>().model(), tree.tableModel());
+
+    // A key that is not Return leaves it alone.
+    QTest::keyClick(window, Qt::Key_Space);
+    QCOMPARE(activated.count(), 0);
+}
+
 void QuickUiTest::testAColumnMakesRoomForTheNamesInIt()
 {
     Utils::AspectContainer page;
