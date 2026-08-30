@@ -22,4 +22,8 @@ public:
     void readSettings() override { Utils::StringListAspect::readSettings(); }
 };
 
+#ifdef WITH_TESTS
+QObject *createEnvVarSeparatorsTest();
+#endif
+
 } // namespace Core::Internal

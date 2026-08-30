@@ -375,6 +375,7 @@ if(TARGET Core)
     NO_PLUGIN
     QML_FILES
       CustomLanguageModelsPage.qml
+      EnvVarSeparatorsDialog.qml
       ExternalToolsPage.qml
       GeneralSettingsPage.qml
       KeyboardSettingsPage.qml

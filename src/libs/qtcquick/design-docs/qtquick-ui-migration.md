@@ -19729,3 +19729,69 @@ QuickUi 180 passed / 0 failed / 1 skipped, exit 0. Core and Help exit 0.
 **Next:** only the third census item is left - a scoped look at dialogs and
 wizards, which is where the remaining widget UI is. That is a new plan rather
 than the next batch of this one, and it should be scoped before it is started.
+
+## 2026-08-30 — Dialogs, scoped; and one ported as the worked example
+
+The third census item. Scoped rather than started, as the last entry asked -
+plus one dialog ported, because a scoping note with no worked example is a
+guess about how much work something is.
+
+**The numbers.** 154 distinct `QDialog` subclasses outside QmlDesigner and the
+vendored trees; **22 already drawn with QML, 132 not**. Of the 65 defined in a
+`.cpp` (so their shape can be read):
+
+| shape | count | what it needs |
+|---|---|---|
+| a form of fields | 29 | aspects + QML, nothing new |
+| holds an item view or a text editor | 35 | a table or a view first |
+| neither | 1 | |
+
+**Porting a dialog does not mean porting dialog infrastructure.** The
+established pattern - `ChangeNumberDialog` is the smallest example - keeps the
+`QDialog`, its window title and its `QDialogButtonBox`, and replaces only the
+*content*: an `AspectContainer` with `setQmlSource()`, drawn by
+`Core::createAspectForm()`, with `Core::aspectFormRenders()` as the test. Same
+division as the panes, which kept their `QWidget` hosts.
+
+**The worked example: `EnvVarSeparatorsDialog`** (Core, 183 lines, the table
+shape that 35 of the remaining ones share). Its widget form built a
+`Utils::TreeView`, two buttons and a selection-model connection, and *did*
+three things inside that closure that nothing else could ask: what the rows
+mean as a `NameValueDictionary`, that Add appends a variable called
+`CUSTOM_VAR`, and that Remove is offered only when something is picked. Those
+are now `EnvVarSeparatorsSettings::separators()`, an `ActionAspect` action, and
+an `enabled` state driven by the table's `selectionChanged` - all reachable
+without opening a dialog, and all tested.
+
+One thing the port had to get right that the widget never faced: **removing
+several rows has to go back to front**, because each removal renumbers the ones
+under it. The widget dialog only ever removed one (`selected.size() == 1`), so
+this is new behaviour rather than a port of old behaviour, and it has its own
+control.
+
+**A control that did not bite, and the gap it found.** Deleting
+`onSelectedRowsChanged` from the QML - the line that tells the aspect which
+rows are picked - failed nothing, because the tests set the selection from C++.
+The obvious fix is to drive the drawn table (`TableDelegate.selectRow()`), and
+**it cannot be written from Core**: Core draws Qt Quick through a factory
+QuickUi installs and does not link Quick, so there is no `QQuickItem` to look
+for and `findChild()` does not cross into the QML object tree. The test was
+removed rather than left passing for the wrong reason, and the limitation is
+noted where the remaining tests set the selection.
+
+The same gap exists in `CustomParsersPageTest`, which also calls
+`setSelectedRows()` directly. **This is the thing worth fixing before porting
+32 more dialogs**: a way for a plugin that does not link Quick to drive its own
+rendered form. Everything else here was routine.
+
+Negative controls: Remove offered with nothing selected; rows removed front to
+back; and the page naming an aspect that is not there (`RemoveRow`), which
+`aspectFormRenders()` catches as an unassignable binding. All three bit. The
+fourth is the one written up above.
+
+QuickUi 180 passed / 0 failed / 1 skipped, exit 0. Core exit 0,
+`EnvVarSeparatorsTest` 5 passed (three tests plus init/cleanup). `Core_qmllint` clean. No `.qbs` edit:
+`coreplugin.qbs` lists `*.qml` by wildcard.
+
+**Next:** the QML-form testing seam above, then the 29 form-shaped dialogs,
+which are the cheap ones. That is a new plan; this one is done.

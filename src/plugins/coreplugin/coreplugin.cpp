@@ -14,6 +14,7 @@
 #include "designmode.h"
 #include "dialogs/ioptionspage.h"
 #include "documentmanager.h"
+#include "envvarseparatoraspect.h"
 #include "documentmanager_test.h"
 #include "find/minimapimage.h"
 #include "editmode.h"
@@ -529,6 +530,7 @@ Result<> CorePlugin::initialize(const QStringList &arguments)
     addTestCreator(createOutputPaneViewTest);
     addTestCreator(createDocumentManagerTest);
     addTestCreator(createExternalToolTest);
+    addTestCreator(createEnvVarSeparatorsTest);
     addTestCreator(createMinimapImageTest);
     addTestCreator(createLocatorTest);
     addTestCreator(createVcsManagerTest);
