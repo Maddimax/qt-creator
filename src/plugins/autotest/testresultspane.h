@@ -31,7 +31,7 @@ QT_END_NAMESPACE
 
 namespace Core {
 class IContext;
-class OutputWindow;
+class OutputPaneView;
 }
 
 namespace Autotest {
@@ -137,7 +137,7 @@ private:
     QToolButton *m_filterButton = nullptr;
     QToolButton *m_outputToggleButton = nullptr;
     QToolButton *m_showDurationButton = nullptr;
-    Core::OutputWindow *m_textOutput = nullptr;
+    Core::OutputPaneView *m_textOutput = nullptr;
     QMenu *m_filterMenu = nullptr;
     bool m_autoScroll = false;
     bool m_atEnd = false;

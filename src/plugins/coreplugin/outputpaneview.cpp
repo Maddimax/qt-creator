@@ -1097,6 +1097,28 @@ private slots:
                  "a line the second filter rejects was shown when it arrived later");
     }
 
+    void testNothingDrawsOutputWithTheWidgetAnyMore()
+    {
+        // The point of all of this. Every output surface in the product is
+        // drawn with Qt Quick now, and the way that stops being true is
+        // somebody adding one more Core::OutputWindow - which builds, runs,
+        // and looks like every other pane until someone notices it does not
+        // match.
+        //
+        // Asked of the widgets that exist rather than of the source, so it
+        // covers whatever this build actually put on screen.
+        QStringList offenders;
+        for (QWidget * const widget : QApplication::allWidgets()) {
+            if (widget->inherits("Core::OutputWindow")) {
+                offenders << QString("%1 (%2)").arg(widget->metaObject()->className(),
+                                                    widget->objectName());
+            }
+        }
+
+        QVERIFY2(offenders.isEmpty(),
+                 qPrintable("still drawn with the widget: " + offenders.join(", ")));
+    }
+
     void testViewsInATabWidgetAreIndependent()
     {
         QTabWidget tabs;

@@ -18690,3 +18690,39 @@ block, which would give a line another line's repository.
 That is the whole of the output work. What is left of the pane migration is the
 three with custom-painted views - Test Results, Squish, the debugger console -
 which the plan has said from the start need someone looking at the result.
+
+### The last two, and the end of the widget
+
+The plan said what remained was three panes with custom-painted views. That was
+half right, and looking rather than believing it found two more surfaces that
+needed nothing of the sort:
+
+- **Axivion's consoles** - one output view per build, created on demand. Four
+  lines.
+- **Test Results' text output** - the plain-text tab beside the custom tree.
+  The tree is what needs someone looking at it; the text beside it never did.
+
+Both are ported, and `Core::OutputWindow` is now instantiated **nowhere in the
+product**.
+
+**That claim is a test rather than a grep.** `QApplication::allWidgets()` is
+asked whether anything `inherits("Core::OutputWindow")`, so it covers what this
+build actually put on screen rather than what the source appears to say. It
+bites: putting the widget back in Test Results fails it with
+`still drawn with the widget: Core::OutputWindow ()`.
+
+That is worth having because of how this would come back. Nobody is going to
+delete the Qt Quick view; somebody is going to add one more `Core::OutputWindow`
+for a new pane, and it will build, run, and look like every other pane until
+someone notices it does not match.
+
+**An assertion caught something a blind replacement would not have.** Requiring
+exactly one occurrence of a pattern found a *second* `it.value()` site in
+Axivion I had not read - and a third afterwards. Counting rather than replacing
+is what turns "I read the file" into "the file agrees with me".
+
+What is left of the whole pane migration is three custom-painted views - the
+Test Results *tree*, Squish, the debugger console. `Core::OutputWindow` itself
+is now 1400 lines of widget with no callers, holding a dozen static functions
+that `OutputPaneView` uses. Taking the widget out and leaving the decisions
+behind is the obvious next batch, and it is a deletion rather than a port.

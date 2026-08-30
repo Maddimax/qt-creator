@@ -20,7 +20,7 @@
 #include <coreplugin/find/itemviewfind.h>
 #include <coreplugin/icontext.h>
 #include <coreplugin/icore.h>
-#include <coreplugin/outputwindow.h>
+#include <coreplugin/outputpaneview.h>
 #include <coreplugin/session.h>
 
 #include <projectexplorer/projectexplorer.h>
@@ -119,22 +119,21 @@ TestResultsPane::TestResultsPane(QObject *parent) :
 
     outputLayout->addWidget(ItemViewFind::createSearchableWrapper(m_treeView));
 
-    m_textOutput = new Core::OutputWindow(Core::Context("AutoTest.TextOutput"),
-                                          "AutoTest.TextOutput.Filter");
+    m_textOutput = new Core::OutputPaneView(Core::Context("AutoTest.TextOutput"),
+                                            "AutoTest.TextOutput.Filter");
 
     m_textOutput->setBaseFont(TextEditor::globalFontSettings().data().font());
-    m_textOutput->setWordWrapMode(QTextOption::WordWrap);
-    m_textOutput->setReadOnly(true);
+    m_textOutput->setWordWrapEnabled(true);
     m_outputWidget->addWidget(m_textOutput);
 
     setupFilterUi("AutoTest.TextOutput.Filter", "Autotest::Internal::TestResultsPane");
     setupContext("AutoTest.TextOutput", m_textOutput);
     setFilteringEnabled(true);
     setZoomButtonsEnabled(false);
-    connect(this, &IOutputPane::zoomInRequested, m_textOutput, &Core::OutputWindow::zoomIn);
-    connect(this, &IOutputPane::zoomOutRequested, m_textOutput, &Core::OutputWindow::zoomOut);
-    connect(this, &IOutputPane::resetZoomRequested, m_textOutput, &Core::OutputWindow::resetZoom);
-    connect(this, &IOutputPane::fontChanged, m_textOutput, &OutputWindow::setBaseFont);
+    connect(this, &IOutputPane::zoomInRequested, m_textOutput, &Core::OutputPaneView::zoomIn);
+    connect(this, &IOutputPane::zoomOutRequested, m_textOutput, &Core::OutputPaneView::zoomOut);
+    connect(this, &IOutputPane::resetZoomRequested, m_textOutput, &Core::OutputPaneView::resetZoom);
+    connect(this, &IOutputPane::fontChanged, m_textOutput, &Core::OutputPaneView::setBaseFont);
 
     createToolButtons();
 
@@ -478,9 +477,8 @@ void TestResultsPane::updateFilter()
 {
     const bool displaysText = m_outputWidget->currentIndex() == 1;
     if (displaysText) {
-        m_textOutput->updateFilterProperties(filterText(), filterCaseSensitivity(),
-                                             filterUsesRegexp(), filterIsInverted(),
-                                             beforeContext(), afterContext());
+        m_textOutput->setFilter(filterText(), filterCaseSensitivity(), filterUsesRegexp(),
+                                filterIsInverted(), beforeContext(), afterContext());
     } else {
         m_filterModel->updateFilterProperties(filterText(), filterCaseSensitivity(),
                                               filterUsesRegexp(), filterIsInverted());

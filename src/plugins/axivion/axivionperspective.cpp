@@ -18,7 +18,7 @@
 #include <coreplugin/icore.h>
 #include <coreplugin/editormanager/editormanager.h>
 #include <coreplugin/findplaceholder.h>
-#include <coreplugin/outputwindow.h>
+#include <coreplugin/outputpaneview.h>
 #include <coreplugin/perspective.h>
 
 #include <cppeditor/cppeditorconstants.h>
@@ -1683,7 +1683,7 @@ public:
 private:
     QComboBox m_consoleSelector;
     QStackedWidget m_consoleStack;
-    QHash<QString, OutputWindow *> m_consoles;
+    QHash<QString, Core::OutputPaneView *> m_consoles;
 };
 
 ConsoleWidget::ConsoleWidget(QWidget *parent)
@@ -1712,13 +1712,12 @@ void ConsoleWidget::addOrUpdateConsole(const QString &console, const QString &ou
         // add a new console
         static int counter = 0;
         const Id contextId = Id{"Axivion.Console"}.withSuffix(counter++);
-        auto outputWindow = new OutputWindow(Context{contextId}, "");
-        outputWindow->setReadOnly(true);
+        auto outputWindow = new Core::OutputPaneView(Context{contextId});
         m_consoleStack.addWidget(outputWindow);
         it = m_consoles.insert(console, outputWindow);
         m_consoleSelector.addItem(console);
     }
-    OutputWindow *outputWindow = it.value();
+    Core::OutputPaneView * const outputWindow = it.value();
     QTC_ASSERT(outputWindow, return);
     outputWindow->appendMessage(output, format);
 }
@@ -1736,7 +1735,7 @@ void ConsoleWidget::resetConsole(const QString &console)
     auto it = m_consoles.constFind(console);
     if (it == m_consoles.constEnd())
         return;
-    OutputWindow *outputWindow = it.value();
+    Core::OutputPaneView * const outputWindow = it.value();
     QTC_ASSERT(outputWindow, return);
     outputWindow->clear();
 }
@@ -1752,7 +1751,7 @@ void ConsoleWidget::removeFinished()
             toBeRemoved.append(it.key());
     }
     for (const QString &console : toBeRemoved) {
-        OutputWindow *output = m_consoles.value(console);
+        Core::OutputPaneView * const output = m_consoles.value(console);
         QTC_ASSERT(output, continue);
         m_consoles.remove(console);
         m_consoleStack.removeWidget(output);
