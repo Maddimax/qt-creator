@@ -22107,3 +22107,67 @@ QuickUi 191 passed / 0 failed / 1 skipped, exit 0. `Core` exit 0 with no
 failures, `SessionDialogTest` 12 passed. `Core_qmllint` clean. No `.qbs` edit.
 
 **Next:** the rest of the text-field dialogs.
+
+## 2026-08-31 — Both remotes dialogs, and a pattern used as a literal
+
+`remotedialog.cpp` holds two dialogs, and they are the two shapes the series
+keeps meeting: a two-field form (`RemoteAdditionDialog`) and a table with
+buttons beside it (`RemoteDialog`). Both are done in one batch because the
+first is what the second's Add button opens.
+
+Four rules came out of the addition dialog's validators, which did three jobs
+at once inside one `setValidationFunction` lambda:
+
+- `remoteNameIssue()` — what to *say*. Only "already exists" is worth a
+  message; `.lock`, a trailing `.` and a trailing `/` are mid-word states, so
+  they are refused silently, exactly as the widget did.
+- `isUsableRemoteName()` — what the **Ok** button follows.
+- `sanitizedRemoteName()` — what a typed name *becomes*. The widget did this
+  from inside the validator, by calling `setText()` on the field it was
+  validating; here it is a `changed` connection in the dialog.
+- `remoteUrlIssue()` — `GitRemote(url).isValid`.
+
+**The bug the extraction introduced, and the test caught.**
+`invalidBranchAndRemoteNamePattern()` returns a **`QString`**, and the widget
+built a `QRegularExpression` from it once in the constructor. Moving the call
+into a free function made it `QString::replace(const QString &, const QString &)`
+— a *literal* replacement of the pattern source, so nothing was ever
+sanitised. It compiles, it lints, and it silently does nothing.
+`QCOMPARE(sanitizedRemoteName("my fork"), "my_fork")` failed on the first run.
+**A function whose name says "pattern" is not a pattern**; when a regex moves
+out of a member, the `QRegularExpression` has to move with it.
+
+**A test premise that was wrong, not a bug.** `remoteUrlIssue("not a url")`
+returns nothing, because `RepoUrl`'s host group is `[^:/]+` and takes the
+whole string as a host. Anything that parses as `host:path` is accepted on
+trust — only git can really say. What *is* refused is a local path that is not
+there, so that is what the test asserts.
+
+**The first genuinely editable table in the series.** Every earlier one
+answered `EditableRole` with `false`; `RemoteModel::flags()` returns
+`ItemIsEditable`, and a remote is renamed and re-pointed by typing in the list.
+`AspectTableCell` already honours it, so the three lines from
+`qtc-model-ready-for-quick-view` are the whole of it — but the assertion is the
+other way round (`QVERIFY(editable.toBool())`), and it still has to check
+`isValid()` first, because an unanswered role also reads as editable.
+
+`RemoteModel::refresh()` grew a `setRemotes()` split out of it. That is a
+production shape, not a test hook: refreshing is "ask git, then set the rows",
+and the second half is the only way the list is filled.
+
+`updateButtonState()` was the view's selection model; it is now
+`remotes.hasSelection()` plus `setHaveSelection()` on the container, which is
+directly assertable without drawing anything.
+
+Negative controls: `EditableRole` not answered; Fetch left on with nothing
+chosen; the table without its `objectName`; and the addition form naming an
+aspect that is not there. All four bit, and the two real failures above bit
+first.
+
+QuickUi 191 passed / 0 failed / 1 skipped, exit 0. `Git` exit 0 with no
+failures, `RemoteDialogTest` 9 passed. `Git_qmllint` clean. No `.qbs` edit:
+`git.qbs` takes `*.qml` by wildcard.
+
+**Next:** the rest of the text-field dialogs — `MimeTypeDialog`
+(`mimetypesaspect.cpp`), `pasteselectdialog.cpp`, `directoryfilter.cpp`,
+`filesystemfilter.cpp`, `avdcreatordialog.cpp`.

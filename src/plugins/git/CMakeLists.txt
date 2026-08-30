@@ -59,6 +59,8 @@ if(TARGET Git)
       GerritDialog.qml
       GerritPushDialog.qml
       LogChangeDialog.qml
+      RemoteAdditionDialog.qml
+      RemoteDialog.qml
       StashDialog.qml
       gerrit/GerritSettingsPage.qml
   )

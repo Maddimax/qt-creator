@@ -3,6 +3,8 @@
 
 #include "remotemodel.h"
 
+#include <utils/aspectpresentation.h>
+
 #include "gitclient.h"
 #include "gittr.h"
 
@@ -101,6 +103,9 @@ int RemoteModel::columnCount(const QModelIndex &parent) const
 
 QVariant RemoteModel::data(const QModelIndex &index, int role) const
 {
+    if (role == Utils::AspectTable::EditableRole)
+        return Utils::AspectTable::isWritable(flags(index));
+
     const int row = index.row();
     switch (role) {
     case Qt::DisplayRole:
@@ -149,6 +154,14 @@ Qt::ItemFlags RemoteModel::flags(const QModelIndex &index) const
     return m_flags;
 }
 
+// A Quick table addresses roles by name and asks whether a cell may be written
+// to. These rows *are* the reader's to edit: a remote is renamed and re-pointed
+// in the list itself, which is what the widget view's edit triggers allowed.
+QHash<int, QByteArray> RemoteModel::roleNames() const
+{
+    return Utils::AspectTable::withRoleNames(QAbstractTableModel::roleNames());
+}
+
 void RemoteModel::clear()
 {
     if (m_remotes.isEmpty())
@@ -165,13 +178,18 @@ bool RemoteModel::refresh(const FilePath &workingDirectory, QString *errorMessag
     // get list of remotes.
     const QMap<QString, QString> remotesList = gitClient().synchronousRemotesList(workingDirectory,
                                                                                   errorMessage);
+    setRemotes(remotesList);
+    return true;
+}
+
+void RemoteModel::setRemotes(const QMap<QString, QString> &remotes)
+{
     beginResetModel();
     m_remotes.clear();
-    for (auto it = remotesList.begin(); it != remotesList.end(); ++it)
+    for (auto it = remotes.begin(); it != remotes.end(); ++it)
         m_remotes.push_back({it.key(), it.value()});
     endResetModel();
     emit refreshed();
-    return true;
 }
 
 } // Git::Internal

@@ -7,6 +7,7 @@
 
 #include <QAbstractTableModel>
 #include <QList>
+#include <QMap>
 #include <QVariant>
 
 namespace Git::Internal {
@@ -20,6 +21,9 @@ public:
 
     void clear();
     bool refresh(const Utils::FilePath &workingDirectory, QString *errorMessage);
+    // The rows, by name. What refreshing ends in, and the only way the
+    // list is filled.
+    void setRemotes(const QMap<QString, QString> &remotes);
 
     QStringList allRemoteNames() const;
     QString remoteName(int row) const;
@@ -38,6 +42,7 @@ public:
                         int role = Qt::DisplayRole) const override;
     bool setData(const QModelIndex &index, const QVariant &value, int role) override;
     Qt::ItemFlags flags(const QModelIndex &index) const override;
+    QHash<int, QByteArray> roleNames() const override;
 
     int remoteCount() const;
 

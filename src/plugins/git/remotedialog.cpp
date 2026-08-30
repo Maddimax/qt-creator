@@ -8,22 +8,23 @@
 #include "gittr.h"
 #include "remotemodel.h"
 
-#include <utils/fancylineedit.h>
-#include <utils/layoutbuilder.h>
-#include <utils/widgets.h>
+#include <coreplugin/dialogs/ioptionspage.h>
+
+#include <utils/aspects.h>
+
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
 
 #include <vcsbase/vcsoutputwindow.h>
 
-#include <QApplication>
-#include <QApplication>
 #include <QDialogButtonBox>
-#include <QGroupBox>
-#include <QHeaderView>
-#include <QLabel>
-#include <QMessageBox>
 #include <QPushButton>
+#include <QMessageBox>
 #include <QRegularExpression>
-#include <QTreeView>
+#include <QVBoxLayout>
+
+#include <memory>
 
 using namespace Utils;
 
@@ -33,153 +34,200 @@ namespace Git::Internal {
 // RemoteAdditionDialog:
 // --------------------------------------------------------------------------
 
+// What is wrong with \a name as a remote name, or nothing when it is a good
+// one. Git refuses these itself; saying so here means the reader is told
+// before the command runs.
+QString remoteNameIssue(const QString &name, const QStringList &existing)
+{
+    // Empty is not an error to complain about - there is nothing typed yet -
+    // but it is not a name either, so Ok stays off.
+    if (name.isEmpty())
+        return QString();
+    if (name.endsWith(".lock"))
+        return QString();
+    if (name.endsWith('.'))
+        return QString();
+    if (name.endsWith('/'))
+        return QString();
+    if (existing.contains(name))
+        return Tr::tr("A remote with the name \"%1\" already exists.").arg(name);
+    return QString();
+}
+
+// Whether \a name is one git will take. The messages above say *why* for the
+// cases worth explaining; this is what the Ok button follows.
+bool isUsableRemoteName(const QString &name, const QStringList &existing)
+{
+    return !name.isEmpty() && !name.endsWith(".lock") && !name.endsWith('.')
+           && !name.endsWith('/') && !existing.contains(name);
+}
+
+// What a typed remote name becomes: git takes none of these characters, so
+// they are turned into underscores as the reader types.
+QString sanitizedRemoteName(const QString &typed)
+{
+    // A pattern, not a literal: the function hands back the source of a
+    // regular expression.
+    static const QRegularExpression invalid(invalidBranchAndRemoteNamePattern());
+    QString name = typed;
+    return name.replace(invalid, "_");
+}
+
+QString remoteUrlIssue(const QString &url)
+{
+    if (url.isEmpty())
+        return QString();
+    return GitRemote(url).isValid ? QString() : Tr::tr("The URL may not be valid.");
+}
+
+class RemoteAdditionSettings final : public AspectContainer
+{
+public:
+    explicit RemoteAdditionSettings(const QStringList &remoteNames)
+        : m_remoteNames(remoteNames)
+    {
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Git/RemoteAdditionDialog.qml"));
+
+        name.setQmlName("Name");
+        name.setLabelText(Tr::tr("Name:"));
+        name.setDisplayStyle(StringAspect::LineEditDisplay);
+        name.setHistoryCompleter("Git.RemoteNames");
+        name.setValidationFunction([this](const QString &text) -> Result<> {
+            const QString issue = remoteNameIssue(text, m_remoteNames);
+            if (!issue.isEmpty())
+                return ResultError(issue);
+            // Silently not yet a name: nothing to say, but not acceptable.
+            return isUsableRemoteName(text, m_remoteNames) ? Result<>(ResultOk)
+                                                           : ResultError(QString());
+        });
+
+        url.setQmlName("Url");
+        url.setLabelText(Tr::tr("URL:"));
+        url.setDisplayStyle(StringAspect::LineEditDisplay);
+        url.setHistoryCompleter("Git.RemoteUrls");
+        url.setValidationFunction([](const QString &text) -> Result<> {
+            const QString issue = remoteUrlIssue(text);
+            if (!issue.isEmpty())
+                return ResultError(issue);
+            return text.isEmpty() ? ResultError(QString()) : Result<>(ResultOk);
+        });
+    }
+
+    StringAspect name{this};
+    StringAspect url{this};
+
+private:
+    const QStringList m_remoteNames;
+};
+
 class RemoteAdditionDialog : public QDialog
 {
 public:
-    RemoteAdditionDialog(const QStringList &remoteNames) :
-        m_invalidRemoteNameChars(invalidBranchAndRemoteNamePattern()),
-        m_remoteNames(remoteNames)
+    explicit RemoteAdditionDialog(const QStringList &remoteNames)
+        : m_settings(remoteNames)
     {
         resize(381, 93);
 
-        m_nameEdit = new FancyLineEdit(this);
-        m_nameEdit->setHistoryCompleter("Git.RemoteNames");
-        m_nameEdit->setValidationFunction([this](const QString &text) -> Result<> {
-            QString input = text;
-            m_nameEdit->setText(input.replace(m_invalidRemoteNameChars, "_"));
+        auto buttonBox = new QDialogButtonBox(QDialogButtonBox::Cancel | QDialogButtonBox::Ok);
+        QPushButton *const okButton = buttonBox->button(QDialogButtonBox::Ok);
+        okButton->setEnabled(false);
 
-            // "Intermediate" patterns, may change to Acceptable when user edits further:
-            if (input.endsWith(".lock")) //..may not end with ".lock"
-                return ResultError(QString());
+        auto layout = new QVBoxLayout(this);
+        layout->addWidget(Core::createAspectForm(&m_settings));
+        layout->addWidget(buttonBox);
 
-            if (input.endsWith('.')) // no dot at the end (but allowed in the middle)
-                return ResultError(QString());
-
-            if (input.endsWith('/')) // no slash at the end (but allowed in the middle)
-                return ResultError(QString());
-
-            if (m_remoteNames.contains(input))
-                return ResultError(Tr::tr("A remote with the name \"%1\" already exists.").arg(input));
-
-            // is a valid remote name
-            if (input.isEmpty())
-                return ResultError(QString());
-
-            return ResultOk;
-        });
-
-        m_urlEdit = new FancyLineEdit(this);
-        m_urlEdit->setHistoryCompleter("Git.RemoteUrls");
-        m_urlEdit->setValidationFunction([](const QString &text) -> Result<> {
-            if (text.isEmpty())
-                return ResultError(QString());
-
-            const GitRemote r(text);
-            if (!r.isValid)
-                return ResultError(Tr::tr("The URL may not be valid."));
-
-            return ResultOk;
-        });
-
-        auto buttonBox = new QDialogButtonBox(QDialogButtonBox::Cancel|QDialogButtonBox::Ok);
-        buttonBox->button(QDialogButtonBox::Ok)->setEnabled(false);
-
-        using namespace Layouting;
-        Grid {
-            Tr::tr("Name:"), m_nameEdit, br,
-            Tr::tr("URL:"), m_urlEdit, br,
-            Span(2, buttonBox)
-        }.attachTo(this);
-
-        connect(m_nameEdit, &QLineEdit::textChanged, this, [this, buttonBox] {
-            buttonBox->button(QDialogButtonBox::Ok)->setEnabled(m_nameEdit->isValid());
+        connect(&m_settings.name, &BaseAspect::changed, this, [this, okButton, remoteNames] {
+            // The characters git will not take become underscores as they are
+            // typed, which the widget line edit did from inside its validator.
+            const QString cleaned = sanitizedRemoteName(m_settings.name());
+            if (cleaned != m_settings.name())
+                m_settings.name.setValue(cleaned);
+            okButton->setEnabled(isUsableRemoteName(cleaned, remoteNames));
         });
 
         connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
         connect(buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
     }
 
-    QString remoteName() const
-    {
-        return m_nameEdit->text();
-    }
-
-    QString remoteUrl() const
-    {
-        return m_urlEdit->text();
-    }
+    QString remoteName() const { return m_settings.name(); }
+    QString remoteUrl() const { return m_settings.url(); }
 
 private:
-    FancyLineEdit *m_nameEdit;
-    FancyLineEdit *m_urlEdit;
-
-    const QRegularExpression m_invalidRemoteNameChars;
-    QStringList m_remoteNames;
+    RemoteAdditionSettings m_settings;
 };
-
 
 // --------------------------------------------------------------------------
 // RemoteDialog:
 // --------------------------------------------------------------------------
 
 
-RemoteDialog::RemoteDialog(QWidget *parent) :
-    QDialog(parent),
-    m_remoteModel(new RemoteModel(this))
+class RemoteDialogSettings final : public AspectContainer
+{
+public:
+    explicit RemoteDialogSettings(QAbstractItemModel *model)
+    {
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Git/RemoteDialog.qml"));
+
+        repository.setQmlName("Repository");
+
+        refresh.setQmlName("Refresh");
+        refresh.setActionText(Tr::tr("Re&fresh"));
+
+        remotes.setQmlName("Remotes");
+        remotes.setLabelText(Tr::tr("Remotes"));
+        remotes.setModel(model);
+
+        add.setQmlName("Add");
+        add.setActionText(Tr::tr("&Add..."));
+        fetch.setQmlName("Fetch");
+        fetch.setActionText(Tr::tr("F&etch"));
+        push.setQmlName("Push");
+        push.setActionText(Tr::tr("&Push"));
+        remove.setQmlName("Remove");
+        remove.setActionText(Tr::tr("&Remove"));
+    }
+
+    // Everything but adding acts on the remote that is picked.
+    void setHaveSelection(bool haveSelection)
+    {
+        fetch.setEnabled(haveSelection);
+        push.setEnabled(haveSelection);
+        remove.setEnabled(haveSelection);
+    }
+
+    TextDisplay repository{this};
+    ActionAspect refresh{this};
+    TableAspect remotes{this};
+    ActionAspect add{this};
+    ActionAspect fetch{this};
+    ActionAspect push{this};
+    ActionAspect remove{this};
+};
+
+RemoteDialog::RemoteDialog(QWidget *parent)
+    : QDialog(parent)
+    , m_remoteModel(new RemoteModel(this))
+    , m_settings(new RemoteDialogSettings(m_remoteModel))
 {
     setModal(false);
     setAttribute(Qt::WA_DeleteOnClose, true); // Do not update unnecessarily
-        setWindowTitle(Tr::tr("Remotes"));
+    setWindowTitle(Tr::tr("Remotes"));
 
-    m_repositoryLabel = new QLabel;
-
-    auto refreshButton = new QPushButton(Tr::tr("Re&fresh"));
-    refreshButton->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
-
-    m_remoteView = new QTreeView;
-    m_remoteView->setMinimumSize(QSize(0, 100));
-    m_remoteView->setEditTriggers(QAbstractItemView::AnyKeyPressed|QAbstractItemView::DoubleClicked|QAbstractItemView::EditKeyPressed);
-    m_remoteView->setSelectionMode(QAbstractItemView::SingleSelection);
-    m_remoteView->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_remoteView->setRootIsDecorated(false);
-    m_remoteView->setUniformRowHeights(true);
-    m_remoteView->setModel(m_remoteModel);
-    new HeaderViewStretcher(m_remoteView->header(), 1);
-
-    m_addButton = new QPushButton(Tr::tr("&Add..."));
-    m_addButton->setAutoDefault(false);
-
-    m_fetchButton = new QPushButton(Tr::tr("F&etch"));
-
-    m_pushButton = new QPushButton(Tr::tr("&Push"));
-
-    m_removeButton = new QPushButton(Tr::tr("&Remove"));
-    m_removeButton->setAutoDefault(false);
+    m_settings->add.setAction([this] { addRemote(); });
+    m_settings->fetch.setAction([this] { fetchFromRemote(); });
+    m_settings->push.setAction([this] { pushToRemote(); });
+    m_settings->remove.setAction([this] { removeRemote(); });
+    m_settings->refresh.setAction([this] { refreshRemotes(); });
 
     auto buttonBox = new QDialogButtonBox(QDialogButtonBox::Close);
 
-    using namespace Layouting;
-    Column {
-        Group {
-            Row { m_repositoryLabel, refreshButton }
-        },
-        Group {
-            title(Tr::tr("Remotes")),
-            Column {
-                m_remoteView,
-                Row { st, m_addButton, m_fetchButton, m_pushButton, m_removeButton }
-            }
-        },
-        buttonBox,
-    }.attachTo(this);
+    auto layout = new QVBoxLayout(this);
+    layout->addWidget(Core::createAspectForm(m_settings.get()));
+    layout->addWidget(buttonBox);
 
-    connect(m_addButton, &QPushButton::clicked, this, &RemoteDialog::addRemote);
-    connect(m_fetchButton, &QPushButton::clicked, this, &RemoteDialog::fetchFromRemote);
-    connect(m_pushButton, &QPushButton::clicked, this, &RemoteDialog::pushToRemote);
-    connect(m_removeButton, &QPushButton::clicked, this, &RemoteDialog::removeRemote);
-    connect(refreshButton, &QPushButton::clicked, this, &RemoteDialog::refreshRemotes);
-
-    connect(m_remoteView->selectionModel(), &QItemSelectionModel::selectionChanged,
+    connect(&m_settings->remotes, &TableAspect::chosenChanged,
             this, &RemoteDialog::updateButtonState);
     connect(m_remoteModel, &RemoteModel::refreshed,
             this, &RemoteDialog::updateButtonState);
@@ -196,7 +244,7 @@ void RemoteDialog::refresh(const FilePath &repository, bool force)
     if (m_remoteModel->workingDirectory() == repository && !force)
         return;
     // Refresh
-    m_repositoryLabel->setText(msgRepositoryLabel(repository));
+    m_settings->repository.setText(msgRepositoryLabel(repository));
     if (repository.isEmpty()) {
         m_remoteModel->clear();
     } else {
@@ -222,11 +270,10 @@ void RemoteDialog::addRemote()
 
 void RemoteDialog::removeRemote()
 {
-    const QModelIndexList indexList = m_remoteView->selectionModel()->selectedIndexes();
-    if (indexList.isEmpty())
+    const int row = m_settings->remotes.currentRow();
+    if (row < 0)
         return;
 
-    int row = indexList.at(0).row();
     const QString remoteName = m_remoteModel->remoteName(row);
     if (QMessageBox::question(this, Tr::tr("Delete Remote"),
                               Tr::tr("Would you like to delete the remote \"%1\"?").arg(remoteName),
@@ -238,35 +285,160 @@ void RemoteDialog::removeRemote()
 
 void RemoteDialog::pushToRemote()
 {
-    const QModelIndexList indexList = m_remoteView->selectionModel()->selectedIndexes();
-    if (indexList.isEmpty())
+    const int row = m_settings->remotes.currentRow();
+    if (row < 0)
         return;
 
-    const int row = indexList.at(0).row();
     const QString remoteName = m_remoteModel->remoteName(row);
     gitClient().push(m_remoteModel->workingDirectory(), {remoteName});
 }
 
 void RemoteDialog::fetchFromRemote()
 {
-    const QModelIndexList indexList = m_remoteView->selectionModel()->selectedIndexes();
-    if (indexList.isEmpty())
+    const int row = m_settings->remotes.currentRow();
+    if (row < 0)
         return;
 
-    int row = indexList.at(0).row();
     const QString remoteName = m_remoteModel->remoteName(row);
     gitClient().fetch(m_remoteModel->workingDirectory(), remoteName);
 }
 
 void RemoteDialog::updateButtonState()
 {
-    const QModelIndexList indexList = m_remoteView->selectionModel()->selectedIndexes();
-
-    const bool haveSelection = !indexList.isEmpty();
-    m_addButton->setEnabled(true);
-    m_fetchButton->setEnabled(haveSelection);
-    m_pushButton->setEnabled(haveSelection);
-    m_removeButton->setEnabled(haveSelection);
+    m_settings->setHaveSelection(m_settings->remotes.hasSelection());
 }
 
+#ifdef WITH_TESTS
+
+class RemoteDialogTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testBothDialogsDrawWithTheQmlTheyName()
+    {
+        RemoteAdditionSettings addition({});
+        const Result<> additionRendered
+            = Core::aspectFormRenders(&addition, "RemoteAdditionDialog.qml");
+        QVERIFY2(additionRendered,
+                 qPrintable(additionRendered ? QString() : additionRendered.error()));
+
+        RemoteModel model;
+        RemoteDialogSettings settings(&model);
+        const Result<> rendered = Core::aspectFormRenders(&settings, "RemoteDialog.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+    }
+
+    void testWhichNamesGitWouldTake()
+    {
+        const QStringList existing{"origin", "upstream"};
+
+        QVERIFY(isUsableRemoteName("fork", existing));
+
+        // Nothing typed yet, and the three shapes git refuses at the end of a
+        // name. None of them is worth a message - the reader is mid-word.
+        QVERIFY(!isUsableRemoteName("", existing));
+        QVERIFY(!isUsableRemoteName("fork.lock", existing));
+        QVERIFY(!isUsableRemoteName("fork.", existing));
+        QVERIFY(!isUsableRemoteName("fork/", existing));
+        QVERIFY(remoteNameIssue("", existing).isEmpty());
+        QVERIFY(remoteNameIssue("fork.lock", existing).isEmpty());
+
+        // A name that is already taken is worth saying out loud, because
+        // nothing the reader types next will fix it by accident.
+        QVERIFY(!isUsableRemoteName("origin", existing));
+        QVERIFY2(remoteNameIssue("origin", existing).contains("origin"),
+                 "the reader is not told which name is taken");
+
+        // A dot or a slash inside a name is fine - only the end matters.
+        QVERIFY(isUsableRemoteName("my.fork", existing));
+        QVERIFY(isUsableRemoteName("team/fork", existing));
+    }
+
+    void testWhatATypedNameBecomes()
+    {
+        // The characters git will not take become underscores as they are
+        // typed. A good name is left alone.
+        QCOMPARE(sanitizedRemoteName("fork"), QString("fork"));
+        QCOMPARE(sanitizedRemoteName("my fork"), QString("my_fork"));
+        QCOMPARE(sanitizedRemoteName("fork^2"), QString("fork_2"));
+    }
+
+    void testWhatIsSaidAboutAUrl()
+    {
+        QVERIFY2(remoteUrlIssue("").isEmpty(), "an empty field is complained about");
+        QVERIFY(remoteUrlIssue("git@codereview.qt-project.org:qt-creator/qt-creator").isEmpty());
+
+        // A local remote is refused when it is not there. Anything that parses
+        // as host:path is taken on trust, because only git can say.
+        QVERIFY2(!remoteUrlIssue("/no/such/repository/here").isEmpty(),
+                 "a local path that does not exist is offered as a remote");
+    }
+
+    void testARemoteIsRenamedInTheList()
+    {
+        RemoteModel model;
+        model.setRemotes({{"origin", "git://example.org/repo"}});
+        QCOMPARE(model.rowCount(), 1);
+
+        // Answered, not merely truthy: an unanswered role reads as undefined
+        // in QML, which a cell also takes for editable.
+        const QVariant editable = model.data(model.index(0, 0), AspectTable::EditableRole);
+        QVERIFY2(editable.isValid(), "the table was never told whether a cell may be written to");
+        QVERIFY2(editable.toBool(), "a remote can no longer be renamed in the list");
+
+        QVERIFY2(model.roleNames().values().contains("display"),
+                 "the table cannot read what a cell says");
+    }
+
+    void testWhatCanBeDoneToARemote()
+    {
+        RemoteModel model;
+        model.setRemotes({{"origin", "git://example.org/repo"}});
+        RemoteDialogSettings settings(&model);
+
+        // Adding needs nothing chosen; the other three act on what is.
+        settings.setHaveSelection(false);
+        QVERIFY(settings.add.isEnabled());
+        QVERIFY(!settings.fetch.isEnabled());
+        QVERIFY(!settings.push.isEnabled());
+        QVERIFY(!settings.remove.isEnabled());
+
+        settings.setHaveSelection(true);
+        QVERIFY(settings.add.isEnabled());
+        QVERIFY(settings.fetch.isEnabled());
+        QVERIFY(settings.push.isEnabled());
+        QVERIFY(settings.remove.isEnabled());
+    }
+
+    void testTheDrawnTableHandsBackWhatWasChosen()
+    {
+        RemoteModel model;
+        model.setRemotes({{"origin", "git://example.org/repo"},
+                          {"upstream", "git://example.org/upstream"}});
+        RemoteDialogSettings settings(&model);
+
+        const std::unique_ptr<QWidget> form(Core::createAspectForm(&settings));
+        QVERIFY(form);
+        QObject *const root = Core::aspectFormRoot(form.get());
+        QVERIFY2(root, "no front end said what the dialog was drawn from");
+
+        QObject *table = nullptr;
+        QTRY_VERIFY(table = root->findChild<QObject *>("remoteTable"));
+
+        QVERIFY(QMetaObject::invokeMethod(table, "selectRow", Q_ARG(int, 1)));
+        QTRY_COMPARE(settings.remotes.currentRow(), 1);
+        QCOMPARE(model.remoteName(settings.remotes.currentRow()), QString("upstream"));
+    }
+};
+
+QObject *createRemoteDialogTest()
+{
+    return new RemoteDialogTest;
+}
+
+#endif // WITH_TESTS
+
 } // Git::Internal
+
+#include "remotedialog.moc"
