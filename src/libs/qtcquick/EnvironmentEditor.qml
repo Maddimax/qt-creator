@@ -41,6 +41,7 @@ ColumnLayout {
             ButtonDelegate { aspect: root.editor.Toggle }
             ButtonDelegate { aspect: root.editor.AppendPath }
             ButtonDelegate { aspect: root.editor.PrependPath }
+            ButtonDelegate { aspect: root.editor.OpenTerminal }
         }
     }
 

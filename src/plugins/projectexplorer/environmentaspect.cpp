@@ -15,12 +15,16 @@
 #include "projectexplorertr.h"
 #include "target.h"
 
+#include <coreplugin/fileutils.h>
 #include <coreplugin/icore.h>
 
 #include <utils/algorithm.h>
 #include <utils/filedialogs.h>
+#include <utils/macroexpander.h>
 #include <utils/guard.h>
 #include <utils/qtcassert.h>
+
+#include <QDir>
 
 using namespace Utils;
 
@@ -112,6 +116,15 @@ EnvironmentEditorAspect::EnvironmentEditorAspect(Utils::AspectContainer *contain
     addAction(m_prependPath, "PrependPath", Tr::tr("Prepend Path..."), [this] {
         amendPathList(Utils::EnvironmentItem::Prepend);
     });
+    addAction(m_openTerminal, "OpenTerminal", Tr::tr("Open &Terminal"), [this] {
+        Utils::Environment env = m_variables.model().baseEnvironment();
+        m_variables.model().changes().modifyEnvironment(env, Utils::globalMacroExpander());
+        if (m_openTerminalHandler)
+            m_openTerminalHandler(env);
+        else
+            Core::FileUtils::openTerminal(Utils::FilePath::fromString(QDir::currentPath()), env);
+    });
+    m_openTerminal.setToolTip(Tr::tr("Open a terminal with this environment set up."));
 
     updateActions();
 
@@ -146,6 +159,11 @@ Utils::AspectPresentation EnvironmentEditorAspect::presentation() const
     Utils::AspectPresentation p = Utils::AspectContainer::presentation();
     p.control = Utils::AspectControls::EnvironmentEditor;
     return p;
+}
+
+void EnvironmentEditorAspect::setOpenTerminalHandler(const OpenTerminalHandler &handler)
+{
+    m_openTerminalHandler = handler;
 }
 
 void EnvironmentEditorAspect::setBaseEnvironment(const Utils::Environment &env)

@@ -68,6 +68,12 @@ public:
     // Sets what is being edited without reporting it back as an edit.
     void setChanges(const Utils::EnvironmentChanges &changes);
 
+    // What "Open Terminal" does with the environment as edited. A local one is
+    // opened where nothing is set, which is what the widget editor does; a
+    // remote configuration hands over its own.
+    using OpenTerminalHandler = std::function<void(const Utils::Environment &)>;
+    void setOpenTerminalHandler(const OpenTerminalHandler &handler);
+
 signals:
     // The user changed something. Not BaseAspect::changed(), which says the
     // aspect's own value changed and this one has none.
@@ -89,6 +95,8 @@ private:
     Utils::ActionAspect m_toggle;
     Utils::ActionAspect m_appendPath;
     Utils::ActionAspect m_prependPath;
+    Utils::ActionAspect m_openTerminal;
+    OpenTerminalHandler m_openTerminalHandler;
     // The table and the text are two views of one thing; writing either must
     // not come back as a change to the other.
     Utils::Guard m_updating;
@@ -156,6 +164,10 @@ signals:
     void devicePotentiallyChanged();
 
 protected:
+    // What a subclass reaches for to say what "Open Terminal" means where it
+    // runs, or to add an operation of its own beside the ones every editor has.
+    EnvironmentEditorAspect &editor() { return m_editor; }
+
     void fromMap(const Utils::Store &map) override;
     void toMap(Utils::Store &map) const override;
 

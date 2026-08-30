@@ -9898,7 +9898,7 @@ void QuickUiTest::testAnEnvironmentEditorDrawsItsTableAndItsButtons()
 
     std::vector<std::unique_ptr<Utils::ActionAspect>> actions;
     for (const QString &name : QStringList{"Edit", "Add", "Reset", "Unset", "Toggle",
-                                           "AppendPath", "PrependPath"}) {
+                                           "AppendPath", "PrependPath", "OpenTerminal"}) {
         auto action = std::make_unique<Utils::ActionAspect>(&editor);
         action->setQmlName(name);
         action->setActionText(name);
@@ -9932,7 +9932,7 @@ void QuickUiTest::testAnEnvironmentEditorDrawsItsTableAndItsButtons()
 
     // And one button per operation, each showing what it does.
     const QList<QQuickItem *> buttons = findQmlComponents(item, "ButtonDelegate");
-    QCOMPARE(buttons.size(), 7);
+    QCOMPARE(buttons.size(), 8);
     QStringList shown;
     for (QQuickItem * const button : buttons) {
         // Not the delegate itself: "ButtonDelegate" starts with "Button", so
@@ -9944,7 +9944,7 @@ void QuickUiTest::testAnEnvironmentEditorDrawsItsTableAndItsButtons()
         }
     }
     for (const QString &name : QStringList{"Edit", "Add", "Reset", "Unset", "Toggle",
-                                           "AppendPath", "PrependPath"}) {
+                                           "AppendPath", "PrependPath", "OpenTerminal"}) {
         QVERIFY2(shown.contains(name), qPrintable("no button says " + name));
     }
 

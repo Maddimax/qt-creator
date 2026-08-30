@@ -17228,3 +17228,30 @@ refreshes explicitly.
 
 That leaves `EnvironmentWidget` used only by the widget path, and the CMake
 build step is drawn by the same generic form as every other step.
+
+### The remote environment, and what the shared editor was still missing
+
+`RemoteLinuxEnvironmentAspect` was the second of the nine remaining
+`setConfigWidgetCreator()` aspects, and the cheapest: it subclasses
+`EnvironmentAspect`, which now has a Qt Quick surface, so all that was left was
+the two things its own widget adds.
+
+- **"Fetch Device Environment"** is an `ActionAspect` it registers. The
+  flattened container lists it, so it appears as a button on any page drawing
+  the aspect.
+- **"Open Terminal"** turned out to be missing from the shared editor
+  altogether. The widget `EnvironmentWidget` has always had it - opening a
+  local terminal by default and whatever `setOpenTerminalFunc()` says
+  otherwise - and the Qt Quick editor had seven buttons where the widget has
+  eight. `EnvironmentEditorAspect` now has the eighth, with the same default,
+  and `setOpenTerminalHandler()` for a configuration that runs elsewhere.
+  `EnvironmentAspect::editor()` is how a subclass reaches it.
+
+Both paths stay: the config widget creator is untouched, so the widget form
+still draws `RemoteLinuxEnvironmentAspectWidget`, and nothing is drawn twice
+because only one of the two builds at a time.
+
+That gap is worth naming as a pattern. **Porting a widget by matching what the
+*aspect* offers misses what the widget it embeds offers.** The seven buttons
+came from reading `ProjectEnvironmentPanel`, which is a page; the eighth only
+turned up when a *subclass* needed to change what it does.

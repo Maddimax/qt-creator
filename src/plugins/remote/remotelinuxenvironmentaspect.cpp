@@ -16,6 +16,10 @@
 #include <utils/devicefileaccess.h>
 #include <utils/qtcassert.h>
 
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
 #include <QMessageBox>
 #include <QPushButton>
 
@@ -95,6 +99,42 @@ RemoteLinuxEnvironmentAspect::RemoteLinuxEnvironmentAspect(AspectContainer *cont
     });
 
     setConfigWidgetCreator([this] { return new RemoteLinuxEnvironmentAspectWidget(this); });
+
+    // The same two things the widget above adds, for the pages that draw
+    // themselves: a device environment to fetch, and what a terminal means
+    // when the configuration runs somewhere else.
+    m_fetch.setQmlName("FetchDeviceEnvironment");
+    m_fetch.setActionText(Tr::tr("Fetch Device Environment"));
+    m_fetch.setAction([this] { fetchDeviceEnvironment(); });
+    registerAspect(&m_fetch);
+
+    editor().setOpenTerminalHandler([this](const Environment &env) { openTerminal(env); });
+}
+
+void RemoteLinuxEnvironmentAspect::fetchDeviceEnvironment()
+{
+    const IDevice::ConstPtr device = this->device();
+    if (!device)
+        return;
+    DeviceFileAccessPtr access = device->fileAccess();
+    QTC_ASSERT(access, return);
+    Result<Environment> res = access->deviceEnvironment();
+    QTC_ASSERT_RESULT(res, return);
+    setRemoteEnvironment(*res);
+}
+
+void RemoteLinuxEnvironmentAspect::openTerminal(const Utils::Environment &env)
+{
+    IDevice::ConstPtr device = this->device();
+    if (!device) {
+        QMessageBox::critical(Core::ICore::dialogParent(),
+                              Tr::tr("Cannot Open Terminal"),
+                              Tr::tr("Cannot open remote terminal: Current kit has no device."));
+        return;
+    }
+    const auto linuxDevice = std::dynamic_pointer_cast<const LinuxDevice>(device);
+    QTC_ASSERT(linuxDevice, return);
+    linuxDevice->openTerminal(env, FilePath());
 }
 
 void RemoteLinuxEnvironmentAspect::setRemoteEnvironment(const Utils::Environment &env)
@@ -138,4 +178,48 @@ void RemoteLinuxEnvironmentAspect::handleKitUpdate()
     emit environmentChanged();
 }
 
+#ifdef WITH_TESTS
+
+class RemoteLinuxEnvironmentAspectTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    // What the widget form adds on top of a plain environment - a device
+    // environment to fetch - has to be there for a page that draws itself too,
+    // or a remote run configuration silently loses it.
+    void testItOffersFetchingTheDeviceEnvironment()
+    {
+        RemoteLinuxEnvironmentAspect aspect;
+
+        const auto byName = [&aspect](const QString &name) -> Utils::BaseAspect * {
+            for (Utils::BaseAspect * const sub : aspect.aspects()) {
+                if (sub->qmlName() == name)
+                    return sub;
+            }
+            return nullptr;
+        };
+
+        Utils::BaseAspect * const fetch = byName("FetchDeviceEnvironment");
+        QVERIFY2(fetch, "nothing offers to fetch the device environment");
+        QCOMPARE(int(fetch->presentation().control), int(Utils::AspectControls::Button));
+        QVERIFY2(byName("Editor"), "the aspect offers no environment editor");
+
+        // And the bases it starts from, which is what it adds in its own
+        // constructor rather than inheriting.
+        QCOMPARE(aspect.displayNames().size(), 2);
+    }
+};
+
+QObject *createRemoteLinuxEnvironmentAspectTest()
+{
+    return new RemoteLinuxEnvironmentAspectTest;
+}
+
+#endif // WITH_TESTS
+
 } // namespace Remote
+
+#ifdef WITH_TESTS
+#include "remotelinuxenvironmentaspect.moc"
+#endif

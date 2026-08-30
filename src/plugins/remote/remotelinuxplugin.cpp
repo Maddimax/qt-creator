@@ -24,6 +24,7 @@
 #include <projectexplorer/projectexplorerconstants.h>
 
 #ifdef WITH_TESTS
+#include "remotelinuxenvironmentaspect.h"
 #include "filesystemaccess_test.h"
 #include "sshkeycreationdialog.h"
 #include "windowsdevicedetection_test.h"
@@ -79,6 +80,7 @@ public:
         setupKillAppStep();
 
 #ifdef WITH_TESTS
+        addTestCreator(Remote::createRemoteLinuxEnvironmentAspectTest);
         addTestCreator(createSshKeyCreationTest);
         addTestCreator(createSshKeyCreationDialogTest);
         addTest<AccessViaTest>();

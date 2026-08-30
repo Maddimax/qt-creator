@@ -23,8 +23,16 @@ private:
     void toMap(Utils::Store &map) const override;
     void handleKitUpdate() override;
 
+    void fetchDeviceEnvironment();
+    void openTerminal(const Utils::Environment &env);
+
+    Utils::ActionAspect m_fetch;
     Utils::Environment m_remoteEnvironment{Utils::OsTypeLinux};
     bool m_remoteEnvironmentFetched = false;
 };
+
+#ifdef WITH_TESTS
+QObject *createRemoteLinuxEnvironmentAspectTest();
+#endif
 
 } // namespace Remote
