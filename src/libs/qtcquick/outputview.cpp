@@ -27,6 +27,8 @@ OutputView::OutputView(QWidget *parent)
     connect(root, SIGNAL(copyContentsToScratchBufferRequested()),
             this, SIGNAL(copyContentsToScratchBufferRequested()));
     connect(root, SIGNAL(clearRequested()), this, SIGNAL(clearRequested()));
+    connect(root, SIGNAL(contextMenuAboutToShow(double, double)),
+            this, SIGNAL(contextMenuAboutToShow(qreal, qreal)));
     connect(root, SIGNAL(zoomRequested(double)), this, SLOT(zoomBy(double)));
 }
 
@@ -147,6 +149,29 @@ void OutputView::setBackgroundColor(const QColor &color)
     // and setting the widget's clear colour too changes nothing anyone sees.
     if (QObject * const root = rootObject())
         root->setProperty("backgroundColor", color);
+}
+
+void OutputView::setContextMenuActions(const QList<QAction *> &actions, bool replaceStandard)
+{
+    QObject * const root = rootObject();
+    QTC_ASSERT(root, return);
+
+    QVariantList asObjects;
+    for (QAction * const action : actions)
+        asObjects.append(QVariant::fromValue(static_cast<QObject *>(action)));
+
+    root->setProperty("extraActions", asObjects);
+    root->setProperty("extraActionsReplaceStandard", replaceStandard);
+}
+
+int OutputView::documentPositionAt(qreal x, qreal y) const
+{
+    QQuickItem * const area = textArea();
+    QTC_ASSERT(area, return -1);
+    int position = -1;
+    QMetaObject::invokeMethod(area, "positionAt", Q_RETURN_ARG(int, position),
+                              Q_ARG(qreal, x), Q_ARG(qreal, y));
+    return position;
 }
 
 void OutputView::copy()

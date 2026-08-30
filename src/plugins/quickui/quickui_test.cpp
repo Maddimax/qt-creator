@@ -371,6 +371,7 @@ private slots:
     void testClearInTheOutputMenuReachesThePane();
     void testTheOutputViewFollowsTheEndUntilTheReaderScrollsAway();
     void testAPaneLearnsItsNewZoomWhenTheWheelChangesIt();
+    void testAPaneCanAddToTheOutputContextMenu();
     void testFindingTextInTheOutputView();
     void testTheOutputViewScrollsAMatchIntoView();
     void testABackwardsSelectionComesBackTheRightWayRound();
@@ -10935,6 +10936,93 @@ void QuickUiTest::testAPaneLearnsItsNewZoomWhenTheWheelChangesIt()
     QTRY_COMPARE(zooms.count(), 1);
     QCOMPARE(view.fontZoom(), 1.0f);
     QCOMPARE(reported, 1.0f);
+}
+
+void QuickUiTest::testAPaneCanAddToTheOutputContextMenu()
+{
+    // The last thing the Qt Quick view had no answer for. The VCS pane changes
+    // its context menu by what is under the cursor - the file name there, the
+    // repository the line came from - so the entries cannot be decided in
+    // advance, and over one of its links they replace the standard ones
+    // entirely rather than joining them.
+    Core::OutputPaneView view;
+    view.resize(400, 200);
+    view.show();
+    QVERIFY(view.view());
+
+    view.appendMessage("a line of output with words in it\n", Utils::GeneralMessageFormat);
+    view.flush();
+
+    auto * const quickWidget = view.findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QObject * const menu = quickWidget->rootObject()->findChild<QObject *>("outputContextMenu");
+    QVERIFY(menu);
+
+    // Asked of the menu's own items rather than of its children: an
+    // Instantiator creates its delegates whether or not anything puts them in
+    // the menu, so finding them by name says nothing about where they are.
+    const auto extraEntries = [menu] {
+        QStringList texts;
+        const int count = menu->property("count").toInt();
+        for (int i = 0; i < count; ++i) {
+            QObject *item = nullptr;
+            QMetaObject::invokeMethod(menu, "itemAt", Q_RETURN_ARG(QQuickItem *,
+                                                                  reinterpret_cast<QQuickItem *&>(item)),
+                                      Q_ARG(int, i));
+            if (item && item->objectName() == "extraAction")
+                texts << item->property("text").toString();
+        }
+        return texts;
+    };
+    const auto standardIsVisible = [menu](const char *name) {
+        QObject * const entry = menu->findChild<QObject *>(QLatin1String(name));
+        return entry && entry->property("visible").toBool();
+    };
+
+    QVERIFY(extraEntries().isEmpty());
+
+    // A pane is asked before the menu opens, with the point it was asked for,
+    // and answers for whatever is there.
+    QAction openAction("Open \"main.cpp\"");
+    qreal askedX = -1;
+    qreal askedY = -1;
+    connect(&view, &Core::OutputPaneView::contextMenuAboutToShow, [&](qreal x, qreal y) {
+        askedX = x;
+        askedY = y;
+        view.setContextMenuActions({&openAction}, false);
+    });
+
+    QTest::mousePress(quickWidget, Qt::RightButton, {}, QPoint(30, 8));
+    QTest::mouseRelease(quickWidget, Qt::RightButton, {}, QPoint(30, 8));
+
+    QTRY_COMPARE(extraEntries(), QStringList{"Open \"main.cpp\""});
+    QVERIFY2(askedX >= 0 && askedY >= 0, "the pane was not told where the menu was asked for");
+
+    // Asked with the menu open: a menu item's visibility follows the popup it
+    // is in, so while the menu is closed every entry reports itself hidden and
+    // the question means nothing.
+    QTRY_VERIFY(menu->property("opened").toBool());
+    QVERIFY2(standardIsVisible("clear"), "an added entry hid the standard ones");
+
+    // The point is a place in the document, not just a pixel: that is how the
+    // pane knows which word was clicked.
+    const int position = view.documentPositionAt(askedX, askedY);
+    QVERIFY2(position > 0, "the view could not say where in the document the click was");
+    QVERIFY(position < view.shownDocument()->characterCount());
+
+    // Replacing rather than joining hides the standard entries.
+    view.setContextMenuActions({&openAction}, true);
+    QTRY_VERIFY2(!standardIsVisible("clear"),
+                 "the standard entries stayed when they were to be replaced");
+    QCOMPARE(extraEntries(), QStringList{"Open \"main.cpp\""});
+
+    // And a pane that offers nothing gets the standard menu back.
+    view.setContextMenuActions({}, false);
+    QTRY_VERIFY(extraEntries().isEmpty());
+    QVERIFY(standardIsVisible("clear"));
+
+    QMetaObject::invokeMethod(menu, "close");
+    QTRY_VERIFY(!menu->property("opened").toBool());
 }
 
 void QuickUiTest::testAVariableBeingDefinedIsNotOfferedForItself()

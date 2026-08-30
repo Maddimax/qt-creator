@@ -10,6 +10,7 @@
 #include <functional>
 
 QT_BEGIN_NAMESPACE
+class QAction;
 class QTextCursor;
 class QTextDocument;
 QT_END_NAMESPACE
@@ -59,6 +60,14 @@ public:
     // What the output is drawn on, for a pane offering a colour of its own.
     virtual void setBackgroundColor(const QColor &color) = 0;
 
+    // Entries a pane adds to the context menu, and whether they replace the
+    // standard ones rather than joining them.
+    virtual void setContextMenuActions(const QList<QAction *> &actions,
+                                       bool replaceStandard) = 0;
+
+    // Where in the document a point in the view is.
+    virtual int documentPositionAt(qreal x, qreal y) const = 0;
+
     // What a pane's Copy and Select All act on.
     virtual void copy() = 0;
     virtual void selectAll() = 0;
@@ -90,6 +99,9 @@ protected:
     virtual void showDocument(QTextDocument *document) = 0;
 
 signals:
+    // The context menu is about to open at this point.
+    void contextMenuAboutToShow(qreal x, qreal y);
+
     // What the view's context menu asked for. The view knows how to offer
     // these and nothing about how to do them.
     void saveContentsRequested();

@@ -120,6 +120,8 @@ OutputView *OutputPaneView::view()
     connect(m_view, &OutputView::copyContentsToScratchBufferRequested,
             this, &OutputPaneView::copyContentsToScratchBuffer);
     connect(m_view, &OutputView::clearRequested, this, &OutputPaneView::clear);
+    connect(m_view, &OutputView::contextMenuAboutToShow,
+            this, &OutputPaneView::contextMenuAboutToShow);
     connect(m_view, &OutputView::wheelZoom, this, [this] {
         // The view moved the zoom itself, so this has to catch up before
         // telling anyone: a pane reads fontZoom() to match its other views.
@@ -509,6 +511,19 @@ void OutputPaneView::copyContentsToScratchBuffer() const
     }
     editor->document()->setTemporary(true);
     editor->document()->setContents(toPlainText().toUtf8());
+}
+
+void OutputPaneView::setContextMenuActions(const QList<QAction *> &actions,
+                                           bool replaceStandard)
+{
+    if (OutputView * const output = view())
+        output->setContextMenuActions(actions, replaceStandard);
+}
+
+int OutputPaneView::documentPositionAt(qreal x, qreal y) const
+{
+    OutputView * const output = const_cast<OutputPaneView *>(this)->view();
+    return output ? output->documentPositionAt(x, y) : -1;
 }
 
 void OutputPaneView::copy()

@@ -8,6 +8,7 @@
 #include <QFont>
 
 QT_BEGIN_NAMESPACE
+class QAction;
 class QQuickItem;
 class QTextCursor;
 class QTextDocument;
@@ -78,6 +79,14 @@ public:
     // reader is there already; a pane calls it to go back to it.
     // What the context menu's first two entries do, so that the same
     // operations can be reached from a keyboard shortcut as well.
+    // Entries a pane adds to the context menu, and whether they replace the
+    // standard ones rather than joining them.
+    void setContextMenuActions(const QList<QAction *> &actions, bool replaceStandard);
+
+    // Where in the document a point in the view is, so that a pane can say
+    // what is under the cursor there.
+    int documentPositionAt(qreal x, qreal y) const;
+
     void copy();
     void selectAll();
 
@@ -86,6 +95,10 @@ public:
     QObject *contextMenu() const;
 
 signals:
+    // The context menu is about to open at this point. A pane answers by
+    // setting the entries it wants for whatever is there.
+    void contextMenuAboutToShow(qreal x, qreal y);
+
     // What the context menu asked for. The view does none of it itself.
     void saveContentsRequested();
     void copyContentsToScratchBufferRequested();

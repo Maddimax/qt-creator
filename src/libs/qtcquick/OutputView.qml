@@ -27,6 +27,19 @@ Item {
 
     // What the context menu asks for. The view does none of it: where to save
     // and what a scratch buffer is are decisions for whoever holds the output.
+    // Entries a pane adds to the context menu, as QActions. Read for their
+    // text and enabled state and triggered when chosen; what they mean is the
+    // pane's business.
+    property var extraActions: []
+
+    // Set when those entries are the whole menu rather than an addition, which
+    // is what the VCS pane does over one of its links.
+    property bool extraActionsReplaceStandard: false
+
+    // Emitted before the menu opens, with the point it was asked for, so a
+    // pane can decide what to offer for whatever is under the cursor there.
+    signal contextMenuAboutToShow(real x, real y)
+
     signal saveContentsRequested()
     signal copyContentsToScratchBufferRequested()
     signal clearRequested()
@@ -49,32 +62,51 @@ Item {
 
         MenuItem {
             objectName: "copy"
+            visible: !root.extraActionsReplaceStandard
             text: qsTr("&Copy")
             enabled: area.selectedText.length > 0
             onTriggered: area.copy()
         }
         MenuItem {
             objectName: "selectAll"
+            visible: !root.extraActionsReplaceStandard
             text: qsTr("Select &All")
             enabled: area.length > 0
             onTriggered: area.selectAll()
         }
-        MenuSeparator {}
+        MenuSeparator { visible: !root.extraActionsReplaceStandard }
         MenuItem {
             objectName: "saveContents"
+            visible: !root.extraActionsReplaceStandard
             text: qsTr("Save Contents...")
             enabled: area.length > 0
             onTriggered: root.saveContentsRequested()
         }
         MenuItem {
             objectName: "copyToScratchBuffer"
+            visible: !root.extraActionsReplaceStandard
             text: qsTr("Copy Contents to Scratch Buffer")
             enabled: area.length > 0
             onTriggered: root.copyContentsToScratchBufferRequested()
         }
-        MenuSeparator {}
+        MenuSeparator { visible: !root.extraActionsReplaceStandard }
+        Instantiator {
+            id: extraItems
+            model: root.extraActions
+            delegate: MenuItem {
+                required property var modelData
+                objectName: "extraAction"
+                text: modelData.text
+                enabled: modelData.enabled
+                onTriggered: modelData.trigger()
+            }
+            onObjectAdded: (index, object) => contextMenu.addItem(object as MenuItem)
+            onObjectRemoved: (index, object) => contextMenu.removeItem(object as MenuItem)
+        }
+
         MenuItem {
             objectName: "clear"
+            visible: !root.extraActionsReplaceStandard
             text: qsTr("Clear")
             enabled: area.length > 0
             onTriggered: root.clearRequested()
@@ -196,6 +228,9 @@ Item {
             TapHandler {
                 acceptedButtons: Qt.RightButton
                 onTapped: (eventPoint) => {
+                    // Asked before opening, not after: what a pane offers
+                    // depends on what is under the point that was clicked.
+                    root.contextMenuAboutToShow(eventPoint.position.x, eventPoint.position.y)
                     contextMenu.popup(eventPoint.position)
                 }
             }

@@ -18606,3 +18606,44 @@ filters by hiding blocks and has to be told when to look again.
 Five of the six text panes are drawn with Qt Quick now. Only VCS is left, and
 its `adaptContextMenu()` override is the last thing the Quick view has no
 answer for.
+
+### A context menu a pane can change, which is what VCS was waiting for
+
+The last thing the Qt Quick output view had no answer for. `VcsOutputWindow`
+overrides `adaptContextMenu(menu, pos)` and decides what to offer from *what is
+under the cursor at that point*: the file name in the word there, the
+repository the line came from, and over one of its links it clears the standard
+entries entirely rather than adding to them.
+
+Three things, and they are all about the point rather than the menu:
+
+- `contextMenuAboutToShow(x, y)` is emitted **before** the menu opens, with the
+  point it was asked for. A pane answers it by setting what it wants; asking
+  afterwards would be asking too late.
+- `setContextMenuActions(actions, replaceStandard)` takes plain `QAction`s. QML
+  reads their text and enabled state and triggers them, so nothing about what
+  they mean crosses the seam - and `replaceStandard` covers the case VCS has,
+  where its entries are the whole menu.
+- `documentPositionAt(x, y)` turns the point into a position in the document,
+  which is how a pane finds the word that was clicked.
+
+**Two things about testing a QML `Menu` that cost time and are worth keeping:**
+
+- **A menu item reports `visible: false` while the menu is closed.** Visibility
+  follows the popup it is in, so asserting anything about entries before
+  opening the menu is asserting nothing. The test right-clicks first and checks
+  with the menu open.
+- **An `Instantiator` creates its delegates whether or not anything adds them
+  to the menu.** `findChildren("extraAction")` therefore found the entries with
+  the code that puts them in the menu deleted - the control passed, because the
+  test was asserting presence rather than placement. Asked of the menu's own
+  `count` and `itemAt()`, it bites.
+
+Controls, four, all biting after that fix: the pane never asked; its entries
+created but never added; replacing the standard entries leaving them in place;
+and the point reported as something other than a document position.
+
+The VCS pane itself is the next batch and deliberately not this one: it is not
+a substitution like the last two. Its `handleLink()` override needs the same
+point-to-position mapping, it attaches per-block user data to remember which
+repository a line came from, and it formats its own entries by message style.

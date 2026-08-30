@@ -34,6 +34,8 @@ public:
                 this, &Core::OutputView::copyContentsToScratchBufferRequested);
         connect(m_view, &QtcQuick::OutputView::clearRequested,
                 this, &Core::OutputView::clearRequested);
+        connect(m_view, &QtcQuick::OutputView::contextMenuAboutToShow,
+                this, &Core::OutputView::contextMenuAboutToShow);
     }
 
     void showDocument(QTextDocument *document) override { m_view->setDocument(document); }
@@ -43,6 +45,10 @@ public:
     void setWheelZoomEnabled(bool enabled) override { m_view->setWheelZoomEnabled(enabled); }
     void setWordWrapEnabled(bool enabled) override { m_view->setWordWrapEnabled(enabled); }
     void setBackgroundColor(const QColor &color) override { m_view->setBackgroundColor(color); }
+    void setContextMenuActions(const QList<QAction *> &actions, bool replaceStandard) override
+    { m_view->setContextMenuActions(actions, replaceStandard); }
+    int documentPositionAt(qreal x, qreal y) const override
+    { return m_view->documentPositionAt(x, y); }
     void copy() override { m_view->copy(); }
     void selectAll() override { m_view->selectAll(); }
     void scrollToBottom() override { m_view->scrollToBottom(); }

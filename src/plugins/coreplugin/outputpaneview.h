@@ -107,6 +107,14 @@ public:
     void setMaxCharCount(qsizetype count);
     qsizetype maxCharCount() const;
 
+    // Entries this pane adds to the context menu, and whether they replace the
+    // standard ones. Set while answering contextMenuAboutToShow(), which is
+    // the only moment at which what is under the cursor is known.
+    void setContextMenuActions(const QList<QAction *> &actions, bool replaceStandard = false);
+
+    // Where in the shown document a point in the view is.
+    int documentPositionAt(qreal x, qreal y) const;
+
     void copy();
     void selectAll();
 
@@ -169,6 +177,9 @@ public:
 #endif
 
 signals:
+    // The context menu is about to open at this point in the view.
+    void contextMenuAboutToShow(qreal x, qreal y);
+
     // The zoom changed because the reader used Ctrl and the wheel here. A pane
     // holding several views listens for it to zoom the others to match.
     void wheelZoom();
