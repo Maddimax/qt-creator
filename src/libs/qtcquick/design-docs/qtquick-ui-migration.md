@@ -17798,3 +17798,37 @@ the other implementation rather than my reading of it.
 Five pieces of `OutputWindow` are out now and the filtering is complete without
 a view existing. What is left needs one: the zoom, the base font, and clicking
 a link.
+
+### The view, and why it is a class rather than a QML file
+
+`QtcQuick::OutputView` is a `QuickWidget` loading `OutputView.qml`. It exists
+as C++ for exactly one reason: `QQuickTextDocument::setTextDocument()` is not
+callable from QML, and handing over the document is the whole design.
+
+The alternative is a view that holds the text, which a pane would keep in step
+by copying. That is worse than it sounds. The formatter writes *into* a
+`QTextDocument` - `Utils::OutputFormatter::setSink(QTextDocument *, QObject *)`
+- and everything the line parsers leave behind lives in that document: the
+character formats for the message kinds, and the anchors the links are. A copy
+of the plain text keeps none of it, and a copy of the rich text goes stale on
+every append.
+
+So the pane keeps its document, and the view is given it. Which means the
+formatter, its parsers, and the six panes' output handling all cross unchanged;
+only the thing drawing the glyphs is replaced.
+
+**The two claims are separate and both are checked.** The test asserts the view
+shows what the formatter wrote, then appends to the *document* and asserts the
+view follows. Two controls, and they fail in different places: dropping the
+`setTextDocument()` call fails the first comparison, while copying the text
+across once - `area->setProperty("text", ...)` - passes it and fails only the
+follow assertion. That second control is the one worth keeping in mind, because
+it is the shape of the wrong design, and a test that only checked initial
+content would have passed it.
+
+`qtcquick.qbs` names its sources explicitly, so this needed a resolve; the
+`*.qml` group is a wildcard and did not. The resolve was verified by control -
+a `doesnotexist.cpp` in the product's `files` makes it name `QtcQuick`, so its
+silence otherwise means something.
+
+Still missing before a pane can switch: zoom, and clicking a link.

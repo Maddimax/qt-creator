@@ -23,6 +23,7 @@ QtcLibrary {
         "tablefiltermodel.cpp", "tablefiltermodel.h",
         "treefiltermodel.cpp", "treefiltermodel.h",
         "qtcquickengine.cpp", "qtcquickengine.h",
+        "outputview.cpp", "outputview.h",
         "qtcquickwidget.cpp", "qtcquickwidget.h",
     ]
 

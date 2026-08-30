@@ -35,6 +35,7 @@
 #include <utils/algorithm.h>
 #include <utils/aspectlist.h>
 #include <utils/aspects.h>
+#include <qtcquick/outputview.h>
 #include <utils/outputformatter.h>
 #include <QQuickTextDocument>
 #include <QTextBlock>
@@ -348,6 +349,7 @@ private slots:
     void testANestedContainerIsDrawnWithTheQmlItNames();
     void testFormattedOutputCanBeDrawnByQtQuick();
     void testHidingALineIsNotHowAQuickViewFilters();
+    void testTheOutputViewShowsWhatAFormatterWrites();
     void testAFieldOffersWhatWasTypedIntoItBefore();
     void testBrowsingStartsWhereThePathAlreadyPointsTo();
     void testALabelSaysTheValueItCannotShowInFull();
@@ -10094,6 +10096,46 @@ void QuickUiTest::testHidingALineIsNotHowAQuickViewFilters()
     QVERIFY2(qFuzzyCompare(allThree, withOneHidden),
              "a Qt Quick view honours QTextBlock::setVisible after all - if this fails, "
              "the output panes can keep filtering the way they do now");
+}
+
+void QuickUiTest::testTheOutputViewShowsWhatAFormatterWrites()
+{
+    // The view the six text-stream panes are headed for. It holds no text of
+    // its own: a pane hands it the document its formatter writes into, which
+    // is what carries the colours and the links the line parsers left.
+    QTextDocument document;
+    Utils::OutputFormatter formatter;
+    formatter.setSink(&document);
+    formatter.appendMessage("compiling everything\n", Utils::NormalMessageFormat);
+    formatter.appendMessage("it went wrong\n", Utils::ErrorMessageFormat);
+    formatter.flush();
+
+    const std::unique_ptr<QtcQuick::OutputView> view(new QtcQuick::OutputView);
+    view->setDocument(&document);
+    view->resize(600, 300);
+    view->show();
+
+    QQuickItem * const root = qobject_cast<QQuickItem *>(view->rootObject());
+    QVERIFY(root);
+    QQuickItem * const area = root->findChild<QQuickItem *>("outputText");
+    QVERIFY2(area, "the view draws no text at all");
+
+    // What the formatter wrote is what the view shows.
+    QTRY_COMPARE(area->property("text").toString(), document.toPlainText());
+    QVERIFY(area->property("text").toString().contains("it went wrong"));
+
+    // And it keeps showing it. A pane appends for as long as something runs,
+    // so a view that took a copy when it was handed the document would stop
+    // at the first two lines.
+    formatter.appendMessage("and again\n", Utils::ErrorMessageFormat);
+    formatter.flush();
+    QTRY_VERIFY2(area->property("text").toString().contains("and again"),
+                 "the view stopped following the document it was given");
+
+    // Read-only, because output is not edited, and selectable, because
+    // copying an error out of the pane is half of what a pane is for.
+    QVERIFY(area->property("readOnly").toBool());
+    QVERIFY(area->property("selectByMouse").toBool());
 }
 
 void QuickUiTest::testAVariableBeingDefinedIsNotOfferedForItself()

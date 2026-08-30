@@ -25,6 +25,7 @@ add_qtc_library(QtcQuick
     tablefiltermodel.cpp tablefiltermodel.h
     treefiltermodel.cpp treefiltermodel.h
     qtcquickengine.cpp qtcquickengine.h
+    outputview.cpp outputview.h
     qtcquickwidget.cpp qtcquickwidget.h
 )
 
@@ -65,6 +66,7 @@ if(TARGET QtcQuick)
       IntegerDelegate.qml
       KeySequenceDelegate.qml
       Metrics.qml
+      OutputView.qml
       MultiSelectionDelegate.qml
       QtcFileDialog.qml
       QtcBadge.qml
