@@ -3,6 +3,7 @@ add_qtc_plugin(QuickUi
   PLUGIN_DEPENDS Core
   DEPENDS QtcQuick Utils
   SOURCES
+    quickoutputview.h
     quickuiplugin.cpp
 )
 

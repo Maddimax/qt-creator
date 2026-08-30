@@ -17892,3 +17892,50 @@ The view is now complete enough for a pane to use. What is left is the seam:
 `Core` does not link `QtcQuick`, so it cannot construct an `OutputView` - the
 next batch is a factory in `Core` that a higher plugin installs, the same shape
 as `Core::setAspectFormFactory`.
+
+### The seam, and what the first pane switch will actually cost
+
+`Core::OutputView` is an abstract `QWidget` - set a document, set the base
+font, set and read the zoom, enable wheel zoom, and two signals back
+(`linkActivated`, `wheelZoom`). `Core::setOutputViewFactory()` /
+`createOutputView()` are the same shape as `setAspectFormFactory()`, and
+`QuickUi::Internal::QuickOutputView` is the implementation: one class holding a
+`QtcQuick::OutputView`, installed by the plugin that is allowed to know both
+sides.
+
+**Typed, not property-keyed.** `aspectFormRenders()` reaches its form by
+property name so that no plugin has to link Qt Quick, and that precedent nearly
+got copied here. It is not needed: the *interface* contains no Qt Quick, only
+the implementation does, and the implementation lives in a plugin that links
+both. So the panes get a compile-checked API and there are no strings to
+mistype. Property-keyed dispatch is for reaching an object you cannot name; an
+abstract base is for one you can.
+
+**`createOutputView()` returns null when nothing installed a factory**, and
+that is asserted rather than assumed. `createAspectForm()` gets the same
+question wrong in the other direction - it falls back to the widget layouter,
+so it can never answer "no" - and using it as a probe cost a batch. The control
+here is a `setOutputViewFactory()` that ignores an empty factory.
+
+**What the first pane switch costs, measured rather than guessed.** The seam
+does not make an `IOutputPane` swappable, because `outputWindows()` returns
+`QList<Core::OutputWindow *>` and two plugins read it: `ShowOutputTaskHandler`
+jumps to a task's position in the output, and the MCP server reads a pane's
+text. That is a cross-plugin contract typed on the concrete widget, and every
+one of the six streams overrides it.
+
+The surface that is *not* behind that contract is **Build System Output** in
+Projects mode (`BuildSystemOutputWindow`, projectwindow.cpp). It is not an
+`IOutputPane`; everything outside the file calls exactly two things,
+`grayOutOldContent()` and `appendMessage()`. It still owns a filter line edit
+with three option actions, clear and zoom actions bound to `ActionManager`
+commands, a base font following `globalFontSettings()`, and a
+`FindToolBarPlaceHolder`. So it is the right first switch, and it is a batch of
+its own rather than a footnote to this one - `grayOutOldContent()` and find
+support are both still only on the widget.
+
+Controls, all four biting: the plugin not installing the factory; the adapter
+dropping `setFontZoom` so a pane's zoom is accepted and never applied; the
+adapter not connecting `linkActivated` so a click goes nowhere; and a
+`setOutputViewFactory()` that ignores being cleared. The first two are the
+failure modes a forwarding layer actually has - both are silent.

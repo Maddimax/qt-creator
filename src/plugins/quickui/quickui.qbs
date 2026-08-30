@@ -12,6 +12,7 @@ QtcPlugin {
     Depends { name: "Qt.testlib"; condition: qtc.withAutotests }
 
     files: [
+        "quickoutputview.h",
         "quickuiplugin.cpp",
     ]
 

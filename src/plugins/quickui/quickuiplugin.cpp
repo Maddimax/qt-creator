@@ -1,6 +1,7 @@
 // Copyright (C) 2026 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
+#include "quickoutputview.h"
 #include "quickui_test.h"
 
 #include <coreplugin/dialogs/ioptionspage.h>
@@ -12,6 +13,7 @@
 #include <utils/environment.h>
 
 namespace QuickUi::Internal {
+
 
 class QuickUiPlugin final : public ExtensionSystem::IPlugin
 {
@@ -30,6 +32,9 @@ private:
         Core::setAspectFormFactory([](Utils::AspectContainer *container) {
             return QtcQuick::createAspectForm(container);
         });
+        // The panes draw output into a QTextDocument and need something to
+        // show it. Core cannot make one itself.
+        installOutputViewFactory();
         // For the forms that list a container's aspects rather than naming a
         // page: a build configuration has no QML of its own to name.
         Core::setGenericAspectFormFactory([](Utils::AspectContainer *container) {

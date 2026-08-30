@@ -3,6 +3,8 @@
 
 #include "quickui_test.h"
 
+#include "quickoutputview.h"
+
 #include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/icore.h>
 
@@ -36,6 +38,7 @@
 #include <utils/aspectlist.h>
 #include <utils/aspects.h>
 #include <qtcquick/outputview.h>
+#include <coreplugin/outputview.h>
 #include <utils/outputformatter.h>
 #include <QAbstractTextDocumentLayout>
 #include <utils/stylehelper.h>
@@ -356,6 +359,8 @@ private slots:
     void testTheOutputViewZoomsTheTextItDraws();
     void testCtrlWheelZoomsTheOutputViewAndPlainWheelDoesNot();
     void testTheOutputViewSeesTheLinksAFormatterWrote();
+    void testCoreHandsOutAnOutputViewItCannotDrawItself();
+    void testCoreHasNoOutputViewWithoutAFrontEnd();
     void testAFieldOffersWhatWasTypedIntoItBefore();
     void testBrowsingStartsWhereThePathAlreadyPointsTo();
     void testALabelSaysTheValueItCannotShowInFull();
@@ -10331,6 +10336,85 @@ void QuickUiTest::testTheOutputViewSeesTheLinksAFormatterWrote()
     QTest::mouseRelease(view->quickWidget(), Qt::LeftButton, {}, onTheLink);
     QTRY_COMPARE(activations.count(), 1);
     QCOMPARE(activations.first().first().toString(), target);
+}
+
+void QuickUiTest::testCoreHandsOutAnOutputViewItCannotDrawItself()
+{
+    // The seam the panes need. Everything here is reached through Core alone,
+    // which is all a pane has: Core cannot link a Qt Quick library, and the
+    // plugins holding the panes cannot reach past Core to one.
+    const std::unique_ptr<Core::OutputView> view(Core::createOutputView());
+    QVERIFY2(view.get(), "Core hands out no output view at all");
+
+    QTextDocument document;
+    Utils::OutputFormatter formatter;
+    formatter.setSink(&document);
+    // The formatter takes ownership of its parsers.
+    const QString target = "file:///tmp/broken.cpp::17::0";
+    formatter.setLineParsers({new WordLinkingParser("broken.cpp", target)});
+    formatter.appendMessage("broken.cpp: it went wrong\n", Utils::StdErrFormat);
+    formatter.flush();
+
+    QFont base;
+    base.setPointSizeF(12);
+    view->setBaseFont(base);
+    view->setDocument(&document);
+    QCOMPARE(view->document(), &document);
+    view->resize(600, 300);
+    view->show();
+
+    // Reached the way a test has to, not the way a pane would: what is drawn
+    // is behind an interface that deliberately does not say what draws it.
+    auto * const quickWidget = view->findChild<QQuickWidget *>();
+    QVERIFY2(quickWidget, "the view Core handed out draws nothing with Qt Quick");
+    QQuickItem * const area
+        = quickWidget->rootObject()->findChild<QQuickItem *>("outputText");
+    QVERIFY(area);
+
+    QTRY_COMPARE(area->property("text").toString(), document.toPlainText());
+    QTRY_VERIFY(area->property("contentHeight").toReal() > 0);
+
+    // Each call has to arrive on the other side. A forwarding layer that drops
+    // one is silent: the pane sets something and nothing happens.
+    view->setFontZoom(8);
+    QCOMPARE(view->fontZoom(), 8.0f);
+    QTRY_COMPARE(area->property("font").value<QFont>().pointSizeF(), 20.0);
+    view->resetZoom();
+    QTRY_COMPARE(area->property("font").value<QFont>().pointSizeF(), 12.0);
+
+    // And each signal has to come back. Both cross two objects here.
+    QSignalSpy wheelZooms(view.get(), &Core::OutputView::wheelZoom);
+    QWheelEvent wheel(QPointF(50, 10), quickWidget->mapToGlobal(QPoint(50, 10)), {},
+                      QPoint(0, 120), Qt::NoButton, Qt::ControlModifier, Qt::NoScrollPhase,
+                      false);
+    QCoreApplication::sendEvent(quickWidget, &wheel);
+    QTRY_COMPARE(wheelZooms.count(), 1);
+    QCOMPARE(view->fontZoom(), 1.0f);
+
+    QSignalSpy activations(view.get(), &Core::OutputView::linkActivated);
+    const QRectF firstLine
+        = document.documentLayout()->blockBoundingRect(document.firstBlock());
+    const QPoint onTheLink(10, qRound(firstLine.center().y()));
+    QTest::mousePress(quickWidget, Qt::LeftButton, {}, onTheLink);
+    QTest::mouseRelease(quickWidget, Qt::LeftButton, {}, onTheLink);
+    QTRY_COMPARE(activations.count(), 1);
+    QCOMPARE(activations.first().first().toString(), target);
+}
+
+void QuickUiTest::testCoreHasNoOutputViewWithoutAFrontEnd()
+{
+    // The documented answer when nothing installed a factory, which is what
+    // lets a pane keep its QPlainTextEdit rather than lose its output. The
+    // aspect form seam gets this wrong in one of its two functions - see
+    // createAspectForm(), which falls back and so can never say no - and that
+    // cost a batch, so this one is asserted rather than assumed.
+    Core::setOutputViewFactory({});
+    const QScopeGuard restore([] {
+        Core::setOutputViewFactory([](QWidget *parent) -> Core::OutputView * {
+            return new QuickOutputView(parent);
+        });
+    });
+    QVERIFY(!Core::createOutputView());
 }
 
 void QuickUiTest::testAVariableBeingDefinedIsNotOfferedForItself()
