@@ -40,14 +40,17 @@
 
 #include <utils/algorithm.h>
 #include <utils/layoutbuilder.h>
+
+#ifdef WITH_TESTS
+#include <projectexplorer/projectconfiguration.h>
+#include <utils/algorithm.h>
+#include <QTest>
+#endif
 #include <utils/pathchooser.h>
 
 #include <QListWidget>
 #include <QRandomGenerator>
 #include <QRegularExpression>
-#include <QTreeView>
-#include <QCheckBox>
-#include <QLabel>
 
 using namespace Core;
 using namespace ProjectExplorer;
@@ -198,6 +201,24 @@ Qt::ItemFlags CMakeTargetItem::flags(int) const
     return Qt::ItemIsUserCheckable | Qt::ItemIsEnabled | Qt::ItemIsSelectable;
 }
 
+QHash<int, QByteArray> CMakeBuildStep::TargetsModel::roleNames() const
+{
+    return Utils::AspectTable::withRoleNames(TreeModel::roleNames());
+}
+
+CMakeBuildStep::TargetsAspect::TargetsAspect(Utils::AspectContainer *container,
+                                             QAbstractItemModel *model)
+    : BaseAspect(container)
+    , m_model(model)
+{}
+
+Utils::AspectPresentation CMakeBuildStep::TargetsAspect::presentation() const
+{
+    Utils::AspectPresentation p = BaseAspect::presentation();
+    p.control = Utils::AspectControls::Table;
+    return p;
+}
+
 // CMakeBuildStep
 
 static bool supportsStageForInstallation(const Kit *kit)
@@ -219,6 +240,14 @@ static bool supportsStageForInstallation(const Kit *kit)
 CMakeBuildStep::CMakeBuildStep(BuildStepList *bsl, Id id) :
     CMakeAbstractProcessStep(bsl, id)
 {
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/CMakeProjectManager/CMakeBuildStep.qml"));
+
+    cmakeArguments.setQmlName("CMakeArguments");
+    toolArguments.setQmlName("ToolArguments");
+    useStaging.setQmlName("UseStaging");
+    stagingDir.setQmlName("StagingDirectory");
+    useiOSAutomaticProvisioningUpdates.setQmlName("AutomaticProvisioningUpdates");
+
     cmakeArguments.setSettingsKey(CMAKE_ARGUMENTS_KEY);
     cmakeArguments.setLabelText(Tr::tr("CMake arguments:"));
     cmakeArguments.setDisplayStyle(StringAspect::LineEditDisplay);
@@ -267,6 +296,28 @@ CMakeBuildStep::CMakeBuildStep(BuildStepList *bsl, Id id) :
     }
 
     m_buildTargetModel.setHeader({Tr::tr("Target")});
+
+    m_targets.setQmlName("Targets");
+    m_targets.setLabelText(Tr::tr("Targets:"));
+
+    m_clearEnvironment.setQmlName("ClearEnvironment");
+    m_clearEnvironment.setLabel(Tr::tr("Clear system environment"),
+                                Utils::BoolAspect::LabelPlacement::AtCheckBox);
+    m_environmentEditor.setQmlName("Environment");
+
+    // Only a preset build has an environment of its own to edit, and a clean
+    // step has none at all. The layout used to decide that while it was being
+    // built; the aspects say it themselves now.
+    updateEnvironmentVisibility();
+
+    m_clearEnvironment.addOnChanged(this, [this] {
+        setUseClearEnvironment(m_clearEnvironment());
+    });
+    connect(&m_environmentEditor, &ProjectExplorer::EnvironmentEditorAspect::changesEdited,
+            this, [this](const Utils::EnvironmentChanges &changes) {
+                setUserEnvironmentChanges(changes);
+            });
+    connect(this, &CMakeBuildStep::environmentChanged, this, [this] { refreshEnvironment(); });
 
     setBuildTargets({defaultBuildTarget()});
     auto *bs = qobject_cast<CMakeBuildSystem *>(buildSystem());
@@ -339,6 +390,11 @@ void CMakeBuildStep::fromMap(const Utils::Store &map)
     updateAndEmitEnvironmentChanged();
 
     m_buildPreset = map.value(BUILD_PRESET_KEY).toString();
+
+    // What was restored is what the form should show. Not left to
+    // updateAndEmitEnvironmentChanged() above: it says nothing when the
+    // environment it works out is the one already there.
+    updateEnvironmentVisibility();
 
     BuildStep::fromMap(map);
 }
@@ -665,6 +721,23 @@ QString CMakeBuildStep::activeRunConfigTarget() const
 void CMakeBuildStep::setBuildPreset(const QString &preset)
 {
     m_buildPreset = preset;
+    updateEnvironmentVisibility();
+}
+
+void CMakeBuildStep::updateEnvironmentVisibility()
+{
+    const bool editable = !isCleanStep() && !m_buildPreset.isEmpty();
+    m_clearEnvironment.setVisible(editable);
+    m_environmentEditor.setVisible(editable);
+    if (editable)
+        refreshEnvironment();
+}
+
+void CMakeBuildStep::refreshEnvironment()
+{
+    m_clearEnvironment.setValue(useClearEnvironment());
+    m_environmentEditor.setBaseEnvironment(baseEnvironment());
+    m_environmentEditor.setChanges(userEnvironmentChanges());
 }
 
 void CMakeBuildStep::updateDetails()
@@ -706,62 +779,6 @@ void CMakeBuildStep::updateDetails()
         setSummaryText(summaryText);
     }
 
-QWidget *CMakeBuildStep::createConfigWidget()
-{
-    auto buildTargetsView = new QTreeView;
-    buildTargetsView->setMinimumHeight(200);
-    buildTargetsView->setModel(&m_buildTargetModel);
-    buildTargetsView->setRootIsDecorated(false);
-    buildTargetsView->setHeaderHidden(true);
-
-    auto frame = ItemViewFind::createSearchableWrapper(buildTargetsView,
-                                                       ItemViewFind::LightColored);
-
-    auto createAndAddEnvironmentWidgets = [this](Layouting::Form &builder) {
-        auto clearBox = new QCheckBox(Tr::tr("Clear system environment"));
-        clearBox->setChecked(useClearEnvironment());
-
-        auto envWidget = new EnvironmentWidget(nullptr, EnvironmentWidget::TypeLocal, clearBox);
-        envWidget->setBaseEnvironment(baseEnvironment());
-        envWidget->setBaseEnvironmentText(baseEnvironmentText());
-        envWidget->setChanges(userEnvironmentChanges());
-        if (const IDeviceConstPtr &dev = BuildDeviceKitAspect::device(kit()))
-            envWidget->setBrowseHint(dev->rootPath());
-
-        connect(envWidget, &EnvironmentWidget::userChangesChanged, this, [this, envWidget] {
-            setUserEnvironmentChanges(envWidget->changes());
-        });
-
-        connect(clearBox, &QAbstractButton::toggled, this, [this, envWidget](bool checked) {
-            setUseClearEnvironment(checked);
-            envWidget->setBaseEnvironment(baseEnvironment());
-            envWidget->setBaseEnvironmentText(baseEnvironmentText());
-        });
-
-        connect(this, &CMakeBuildStep::environmentChanged, this, [this, envWidget] {
-            envWidget->setBaseEnvironment(baseEnvironment());
-            envWidget->setBaseEnvironmentText(baseEnvironmentText());
-        });
-
-        builder.addRow({clearBox});
-        builder.addRow({envWidget});
-    };
-
-    Layouting::Form builder;
-    builder.addRow({cmakeArguments});
-    builder.addRow({toolArguments});
-    builder.addRow({useStaging});
-    builder.addRow({Layouting::empty, stagingDir});
-    builder.addRow({useiOSAutomaticProvisioningUpdates});
-
-    builder.addRow({new QLabel(Tr::tr("Targets:")), frame});
-
-    if (!isCleanStep() && !m_buildPreset.isEmpty())
-        createAndAddEnvironmentWidgets(builder);
-
-    builder.setNoMargins();
-    return builder.emerge();
-}
 
 void CMakeBuildStep::recreateBuildTargetsModel()
 {
@@ -958,11 +975,114 @@ public:
     }
 };
 
+#ifdef WITH_TESTS
+
+class CMakeBuildStepPageTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    // A CMakeBuildStep needs a project and a target, so its page is checked
+    // against a stand-in holding the same aspects under the same names: that
+    // the page finds every one of them, that the form is that page rather than
+    // the generic list, and that each aspect wants the control whose delegate
+    // the page hands it to - a wrong delegate draws the wrong thing without a
+    // word.
+    void testThePageDrawsWhatItNames()
+    {
+        Utils::AspectContainer page;
+        page.setQmlSource(
+            QUrl("qrc:/qt/qml/QtCreator/CMakeProjectManager/CMakeBuildStep.qml"));
+
+        Utils::StringAspect cmakeArguments(&page);
+        cmakeArguments.setQmlName("CMakeArguments");
+        cmakeArguments.setDisplayStyle(Utils::StringAspect::LineEditDisplay);
+        Utils::StringAspect toolArguments(&page);
+        toolArguments.setQmlName("ToolArguments");
+        toolArguments.setDisplayStyle(Utils::StringAspect::LineEditDisplay);
+        Utils::BoolAspect useStaging(&page);
+        useStaging.setQmlName("UseStaging");
+        Utils::FilePathAspect stagingDir(&page);
+        stagingDir.setQmlName("StagingDirectory");
+        Utils::BoolAspect provisioning(&page);
+        provisioning.setQmlName("AutomaticProvisioningUpdates");
+        CMakeBuildStep::TargetsModel targets;
+        targets.setHeader({"Target"});
+        CMakeBuildStep::TargetsAspect targetsAspect(&page, &targets);
+        targetsAspect.setQmlName("Targets");
+        Utils::BoolAspect clearEnvironment(&page);
+        clearEnvironment.setQmlName("ClearEnvironment");
+        ProjectExplorer::EnvironmentEditorAspect environment(&page);
+        environment.setQmlName("Environment");
+
+        QStringList complaints;
+        static QStringList *collected = nullptr;
+        collected = &complaints;
+        const auto previous = qInstallMessageHandler(nullptr);
+        qInstallMessageHandler([](QtMsgType type, const QMessageLogContext &, const QString &msg) {
+            if (!collected)
+                return;
+            if (type == QtWarningMsg || type == QtCriticalMsg)
+                collected->append(msg);
+            // A name the container does not hold reaches AspectModels, which
+            // soft-asserts rather than failing as a binding.
+            if (type == QtDebugMsg && msg.contains("SOFT ASSERT")
+                && msg.contains("aspectmodels.cpp")) {
+                collected->append(msg);
+            }
+        });
+
+        const std::unique_ptr<QWidget> form(ProjectExplorer::createAspectsForm(&page));
+        if (form) {
+            form->resize(700, 500);
+            form->show();
+            QTest::qWaitForWindowExposed(form.get());
+        }
+        collected = nullptr;
+        qInstallMessageHandler(previous);
+
+        QVERIFY(form);
+        QVERIFY2(complaints.isEmpty(),
+                 qPrintable("the build step page complains: " + complaints.join("; ")));
+
+        const QList<QWidget *> children = form->findChildren<QWidget *>();
+        QWidget * const quick = Utils::findOr(children, nullptr, [](QWidget *child) {
+            return qstrcmp(child->metaObject()->className(), "QQuickWidget") == 0;
+        });
+        QVERIFY2(quick, "the build step page was not drawn with Qt Quick at all");
+        QCOMPARE(quick->property("source").toUrl(), page.qmlSource());
+
+        // The pairs the page draws: AspectItems.qml maps each control to the
+        // delegate CMakeBuildStep.qml hands that aspect to.
+        const QList<std::pair<Utils::BaseAspect *, Utils::AspectControls::Control>> wanted = {
+            {&cmakeArguments, Utils::AspectControls::LineEdit},
+            {&toolArguments, Utils::AspectControls::LineEdit},
+            {&useStaging, Utils::AspectControls::CheckBox},
+            {&stagingDir, Utils::AspectControls::PathChooser},
+            {&provisioning, Utils::AspectControls::CheckBox},
+            {&targetsAspect, Utils::AspectControls::Table},
+            {&clearEnvironment, Utils::AspectControls::CheckBox},
+            {&environment, Utils::AspectControls::EnvironmentEditor},
+        };
+        for (const auto &[aspect, control] : wanted)
+            QCOMPARE(int(aspect->presentation().control), int(control));
+    }
+};
+
+QObject *createCMakeBuildStepPageTest()
+{
+    return new CMakeBuildStepPageTest;
+}
+
+#endif // WITH_TESTS
+
 void setupCMakeBuildStep()
 {
     static CMakeBuildStepFactory theCMakeBuildStepFactory;
 }
 
 } // CMakeProjectManager::Internal
+
+
 
 #include <cmakebuildstep.moc>

@@ -17200,3 +17200,31 @@ comes back out of `aspect.environment()`. Note that `setChanges()` is
 deliberately the other direction and reports nothing, so a test that writes
 through *it* passes without proving anything; the first version of this one
 did exactly that and had to be corrected.
+
+### CMakeBuildStep, finally
+
+The page that has been waiting three batches. What its closure listed became
+three kinds of thing:
+
+- The **five aspect rows** are five delegates, named.
+- The **targets** are a `TableDelegate` over the model the step already keeps.
+  Nothing about the data moved: `CMakeTargetItem` has always read and written
+  the step through `buildsBuildTarget()`/`setBuildsBuildTarget()`. What was
+  missing was role *names* - `BaseTreeModel::roleNames()` leaves out
+  `checkState`/`checkable`, and a list of check boxes without those draws no
+  check boxes. A three-line subclass applies `AspectTable::withRoleNames()`.
+  Not `BaseTreeModel` itself: `registerNamedRole()` asserts a name is not
+  already taken, so adding names for everyone could make an existing model's
+  own registration fail.
+- The **environment** is the editor from the last batch, plus a check box for
+  "Clear system environment". The condition the closure applied while building
+  itself - a preset build that is not a clean step - is now visibility the
+  aspects carry, set when the preset arrives and when a step is restored.
+
+`updateAndEmitEnvironmentChanged()` is deliberately *not* what refreshes the
+form: it says nothing when the environment it computes equals the one already
+there, which is exactly the case when a step is restored from disk. `fromMap()`
+refreshes explicitly.
+
+That leaves `EnvironmentWidget` used only by the widget path, and the CMake
+build step is drawn by the same generic form as every other step.

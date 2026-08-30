@@ -88,6 +88,7 @@ if(TARGET CMakeProjectManager)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      CMakeBuildStep.qml
       CMakeFormatterSettingsPage.qml
       CMakeProjectPanel.qml
       CMakeSpecificSettingsPage.qml

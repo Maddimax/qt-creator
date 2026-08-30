@@ -79,6 +79,7 @@ class CMakeProjectPlugin final : public ExtensionSystem::IPlugin
         registerMcpTools();
 
 #ifdef WITH_TESTS
+        addTestCreator(createCMakeBuildStepPageTest);
         addTestCreator(createCMakeConfigTest);
         addTestCreator(createCMakeOutputParserTest);
         addTestCreator(createCMakeAutogenParserTest);

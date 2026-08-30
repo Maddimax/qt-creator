@@ -4,6 +4,8 @@
 #pragma once
 
 #include "cmakeabstractprocessstep.h"
+#include <projectexplorer/environmentaspect.h>
+
 #include <utils/treemodel.h>
 
 namespace Utils {
@@ -36,6 +38,30 @@ class CMakeBuildStep final : public CMakeAbstractProcessStep
     Q_OBJECT
 
 public:
+    // The role names a Qt Quick cell reads: BaseTreeModel leaves out the ones
+    // that say a cell is checkable and what it is checked to, and the targets
+    // are exactly a list of check boxes.
+    class TargetsModel final : public Utils::TreeModel<Utils::TreeItem, CMakeTargetItem>
+    {
+    public:
+        QHash<int, QByteArray> roleNames() const override;
+    };
+
+    // Which targets to build, from the model the items already read and write
+    // the step through.
+    class TargetsAspect final : public Utils::BaseAspect
+    {
+    public:
+        TargetsAspect(Utils::AspectContainer *container, QAbstractItemModel *model);
+
+        Utils::AspectPresentation presentation() const override;
+        QAbstractItemModel *tableModel() override { return m_model; }
+
+    private:
+        QAbstractItemModel * const m_model;
+    };
+
+
     CMakeBuildStep(ProjectExplorer::BuildStepList *bsl, Utils::Id id);
 
     QStringList buildTargets() const;
@@ -88,7 +114,6 @@ private:
     bool init() override;
     void setupOutputFormatter(Utils::OutputFormatter *formatter) override;
     QtTaskTree::GroupItem runRecipe() final;
-    QWidget *createConfigWidget() override;
 
     Utils::FilePath cmakeExecutable() const;
     QString currentInstallPrefix() const;
@@ -102,6 +127,8 @@ private:
     // in createConfigWidget(), so the summary was whatever it had been until
     // somebody opened the step.
     void updateDetails();
+    void updateEnvironmentVisibility();
+    void refreshEnvironment();
 
     void recreateBuildTargetsModel();
     void updateBuildTargetsModel();
@@ -115,7 +142,13 @@ private:
     QString m_allTarget = "all";
     QString m_installTarget = "install";
 
-    Utils::TreeModel<Utils::TreeItem, CMakeTargetItem> m_buildTargetModel;
+    TargetsModel m_buildTargetModel;
+    TargetsAspect m_targets{this, &m_buildTargetModel};
+
+    // The environment a preset build runs in: the same editor every page that
+    // edits an environment draws, plus what it starts from.
+    Utils::BoolAspect m_clearEnvironment{this};
+    ProjectExplorer::EnvironmentEditorAspect m_environmentEditor{this};
 
     Utils::Environment m_environment;
     Utils::EnvironmentChanges m_userEnvironmentChanges;
@@ -125,5 +158,9 @@ private:
 };
 
 void setupCMakeBuildStep();
+
+#ifdef WITH_TESTS
+QObject *createCMakeBuildStepPageTest();
+#endif
 
 } // CMakeProjectManager::Internal
