@@ -49,6 +49,7 @@ public:
 
 #ifdef WITH_TESTS
         addTestCreator(createMacroOptionsTest);
+        addTestCreator(createSaveMacroDialogTest);
 #endif
 
         Context textContext(TextEditor::Constants::C_TEXTEDITOR);

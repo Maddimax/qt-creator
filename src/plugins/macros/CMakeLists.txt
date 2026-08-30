@@ -35,5 +35,6 @@ if(TARGET Macros)
     NO_PLUGIN
     QML_FILES
       MacroSettingsPage.qml
+      SaveMacroDialog.qml
   )
 endif()

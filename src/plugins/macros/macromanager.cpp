@@ -19,6 +19,9 @@
 #include <coreplugin/editormanager/ieditor.h>
 #include <coreplugin/icontext.h>
 #include <coreplugin/icore.h>
+#include <coreplugin/dialogs/ioptionspage.h>
+
+#include <utils/aspects.h>
 
 #include <texteditor/texteditorconstants.h>
 
@@ -26,7 +29,12 @@
 #include <utils/qtcassert.h>
 
 #include <QAction>
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
 #include <QDialogButtonBox>
+#include <QVBoxLayout>
 #include <QDir>
 #include <QFile>
 #include <QFileDialog>
@@ -204,47 +212,84 @@ bool MacroManagerPrivate::executeMacro(Macro *macro)
     return !error;
 }
 
+// Whether a macro can be saved under this name. The widget dialog put a
+// QRegularExpressionValidator on the field, which refuses the keystroke, and
+// then asked hasAcceptableInput() whether to offer Save - so the rule was
+// written twice and could only be asked by typing into a dialog.
+bool isAcceptableMacroName(const QString &name)
+{
+    static const QRegularExpression word("\\A\\w+\\z");
+    return word.match(name).hasMatch();
+}
+
+// Where a macro of that name is kept. The name is part of a file name, which
+// is the reason the rule above is as narrow as it is.
+Utils::FilePath macroFilePath(const QString &name)
+{
+    return Utils::FilePath::fromString(MacroManager::macrosDirectory())
+           / (name + '.' + QLatin1String(Constants::M_EXTENSION));
+}
+
+class SaveMacroSettings final : public Utils::AspectContainer
+{
+public:
+    SaveMacroSettings()
+    {
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Macros/SaveMacroDialog.qml"));
+
+        name.setQmlName("Name");
+        name.setLabelText(Tr::tr("Name:"));
+        name.setDisplayStyle(Utils::StringAspect::LineEditDisplay);
+        // Said rather than refused: the widget field dropped the keystroke, so
+        // a space simply did not appear and nothing explained why.
+        name.setValidationFunction([](const QString &candidate) -> Utils::Result<> {
+            if (candidate.isEmpty() || isAcceptableMacroName(candidate))
+                return Utils::ResultOk;
+            return Utils::ResultError(Tr::tr("A macro name can hold only letters, digits "
+                                      "and underscores."));
+        });
+
+        description.setQmlName("Description");
+        description.setLabelText(Tr::tr("Description:"));
+        description.setDisplayStyle(Utils::StringAspect::LineEditDisplay);
+    }
+
+    Utils::StringAspect name{this};
+    Utils::StringAspect description{this};
+};
+
 class SaveDialog : public QDialog
 {
 public:
     SaveDialog()
         : QDialog(Core::ICore::dialogParent())
+        , m_buttonBox(new QDialogButtonBox(QDialogButtonBox::Cancel | QDialogButtonBox::Save))
     {
         resize(219, 91);
         setWindowTitle(Tr::tr("Save Macro"));
 
-        m_name = new QLineEdit;
-        m_name->setValidator(new QRegularExpressionValidator(QRegularExpression("\\w+"), this));
+        const auto layout = new QVBoxLayout(this);
+        layout->addWidget(Core::createAspectForm(&m_settings));
+        layout->addWidget(m_buttonBox);
 
-        m_description = new QLineEdit;
+        connect(m_buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
+        connect(m_buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
 
-        auto buttonBox = new QDialogButtonBox;
-        buttonBox->setStandardButtons(QDialogButtonBox::Cancel|QDialogButtonBox::Save);
-        auto saveButton = buttonBox->button(QDialogButtonBox::Save);
-        saveButton->setEnabled(false);
-        connect(m_name, &QLineEdit::textChanged, [saveButton, this]() {
-            saveButton->setEnabled(m_name->hasAcceptableInput());
-        });
-
-        using namespace Layouting;
-
-        Form {
-            Tr::tr("Name:"), m_name, br,
-            Tr::tr("Description:"), m_description, br,
-            buttonBox
-        }.attachTo(this);
-
-        connect(buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
-        connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
+        const auto refreshSave = [this] {
+            m_buttonBox->button(QDialogButtonBox::Save)
+                ->setEnabled(isAcceptableMacroName(m_settings.name()));
+        };
+        m_settings.name.addOnChanged(this, refreshSave);
+        refreshSave();
     }
 
-    QString name() const { return m_name->text(); }
-
-    QString description() const { return m_description->text(); }
+    QString name() const { return m_settings.name(); }
+    QString description() const { return m_settings.description(); }
 
 private:
-    QLineEdit *m_name;
-    QLineEdit *m_description;
+    SaveMacroSettings m_settings;
+    QDialogButtonBox * const m_buttonBox;
 };
 
 void MacroManagerPrivate::showSaveDialog()
@@ -254,11 +299,8 @@ void MacroManagerPrivate::showSaveDialog()
         if (dialog.name().isEmpty())
             return;
 
-        // Save in the resource path
-        const QString fileName = MacroManager::macrosDirectory() + QLatin1Char('/') + dialog.name()
-                + QLatin1Char('.') + QLatin1String(Constants::M_EXTENSION);
         currentMacro->setDescription(dialog.description());
-        currentMacro->save(fileName);
+        currentMacro->save(macroFilePath(dialog.name()).toUrlishString());
         addMacro(currentMacro);
         emit q->macroAdded();
     }
@@ -422,4 +464,75 @@ QString MacroManager::macrosDirectory()
     return QString();
 }
 
+#ifdef WITH_TESTS
+
+class SaveMacroDialogTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheDialogDrawsWithTheQmlItNames()
+    {
+        SaveMacroSettings settings;
+        const Utils::Result<> rendered
+            = Core::aspectFormRenders(&settings, "SaveMacroDialog.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+    }
+
+    void testWhatAMacroMayBeCalled()
+    {
+        QVERIFY(isAcceptableMacroName("build_and_run"));
+        QVERIFY(isAcceptableMacroName("Macro2"));
+
+        // The name becomes part of a file name, so the rule is narrow: no
+        // spaces, no separators, and nothing at all is not a name.
+        QVERIFY(!isAcceptableMacroName("my macro"));
+        QVERIFY(!isAcceptableMacroName("../escape"));
+        QVERIFY(!isAcceptableMacroName("with.dot"));
+        QVERIFY(!isAcceptableMacroName({}));
+
+        // Anchored at both ends: a name that merely *contains* something
+        // acceptable is not acceptable. The widget validator was anchored by
+        // being a validator; a plain match here would not be.
+        QVERIFY2(!isAcceptableMacroName("ok name"), "a name with a space was accepted");
+        QVERIFY2(!isAcceptableMacroName("/etc/passwd"), "a path was accepted as a name");
+    }
+
+    void testTheFieldSaysWhyRatherThanRefusingTheKeystroke()
+    {
+        // The widget field dropped the keystroke, so a space simply did not
+        // appear and nothing said why. The aspect takes it and complains.
+        SaveMacroSettings settings;
+
+        QCOMPARE(settings.name.validationMessage("fine_name"), QString());
+
+        const QString refused = settings.name.validationMessage("not fine");
+        QVERIFY2(!refused.isEmpty(), "a name with a space was accepted without comment");
+
+        // An empty field is not yet wrong - it is untouched. What is withheld
+        // until there is a name is Save, not an answer.
+        QCOMPARE(settings.name.validationMessage(QString()), QString());
+        QVERIFY(!isAcceptableMacroName({}));
+    }
+
+    void testWhereAMacroIsKept()
+    {
+        const Utils::FilePath path = macroFilePath("Macro2");
+        QCOMPARE(path.fileName(), QString("Macro2.") + Constants::M_EXTENSION);
+        QCOMPARE(path.parentDir(),
+                 Utils::FilePath::fromString(MacroManager::macrosDirectory()));
+    }
+};
+
+QObject *createSaveMacroDialogTest()
+{
+    return new SaveMacroDialogTest;
+}
+
+#endif // WITH_TESTS
+
 } // Macros::Internal
+
+#ifdef WITH_TESTS
+#include "macromanager.moc"
+#endif

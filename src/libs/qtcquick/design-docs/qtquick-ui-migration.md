@@ -20136,3 +20136,47 @@ failures. `ProjectExplorer_qmllint` clean. No `.qbs` edit.
 behaviour, that Save is offered only for a name matching `\w+`, which is a
 validator and a lambda today. After that the 16 are down to the ones needing a
 second look each.
+
+## 2026-08-30 — Save Macro, and a rule that was written twice
+
+`SaveDialog` in Macros: two fields and one behaviour, and the behaviour was
+**the same rule written twice**. A `QRegularExpressionValidator` on the field
+refused the keystroke, and `hasAcceptableInput()` then decided whether Save was
+offered. Neither could be asked without typing into a dialog.
+
+It is `isAcceptableMacroName()` now, used for both - the aspect's validation
+function and the Save button - so there is one rule and it can be asked.
+`macroFilePath()` went with it: the name becomes part of a file name, which is
+*why* the rule is as narrow as it is, and the two belong next to each other.
+
+**Anchoring is the part a port loses silently.** A `QRegularExpressionValidator`
+matches the whole field; `QRegularExpression::match()` does not. Written as
+`\w+` the check would accept `"ok name"` and `"/etc/passwd"` - a name that
+merely *contains* something acceptable - and nothing would look wrong. The
+pattern is `\A\w+\z`, and the test says so with those two inputs; control A
+un-anchors it and both fail.
+
+**A deliberate improvement.** The widget field dropped the keystroke, so a
+space simply did not appear and nothing said why. The aspect takes it and
+complains, through `validationFunction()`, so the reason is on screen. An empty
+field is still not complained about - what is withheld until there is a name is
+Save, not an answer.
+
+**A note for the next port:** `StringAspect::validationFunction()` is private
+and returns a variant that cannot be called. `BaseAspect::validationMessage()`
+is the public way to ask an aspect what is wrong with a candidate, and it is
+what the delegate uses - so a test that goes through it tests the same path the
+field does.
+
+Negative controls: the name rule un-anchored; the field accepting a bad name
+without saying anything; the macro filed without its extension; and the page
+naming an aspect that is not there. All four bit.
+
+QuickUi 181 passed / 0 failed / 1 skipped, exit 0. Macros exit 0,
+`SaveMacroDialogTest` 6 passed. `Macros_qmllint` clean. No `.qbs` edit:
+`macros.qbs` lists `*.qml` by wildcard.
+
+**Next:** the remaining candidates each need reading before they can be called
+cheap - the classifier has now over-reported four times, for four different
+reasons. `SingleFileDialog` (axivion), `MappedAutDialog` (squish) and
+`AvdDialog` (android) are the unread ones.

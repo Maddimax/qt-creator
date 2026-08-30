@@ -45,4 +45,8 @@ private:
     class MacroManagerPrivate *d;
 };
 
+#ifdef WITH_TESTS
+QObject *createSaveMacroDialogTest();
+#endif
+
 } // namespace Macros::Internal
