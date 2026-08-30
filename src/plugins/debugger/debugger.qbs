@@ -9,6 +9,7 @@ QtcPlugin {
     Depends { name: "QmlDebug" }
     Depends { name: "QmlJS" }
     Depends { name: "Utils" }
+    Depends { name: "QtcQuick" }
 
     Depends { name: "Core" }
     Depends { name: "CppEditor" }
@@ -186,8 +187,7 @@ QtcPlugin {
         prefix: "console/"
         files: [
             "consoleitem.cpp", "consoleitem.h",
-            "consoleedit.cpp", "consoleedit.h",
-            "consoleitemdelegate.cpp", "consoleitemdelegate.h",
+            "consolehistory.cpp", "consolehistory.h",
             "consoleitemmodel.cpp", "consoleitemmodel.h",
             "console.cpp", "console.h",
             "consoleproxymodel.cpp", "consoleproxymodel.h",

@@ -19225,3 +19225,78 @@ Quick answer — `ConsoleView.qml` in place of `Utils::TreeView` +
 `ConsoleItemDelegate`, the prompt row as a `TextArea` bound to these two
 functions, the selection model, and the context menu. Same shape as Test
 Results.
+
+## 2026-08-30 — The debugger console pane, drawn by Qt Quick
+
+`ConsoleView` is now a `QtcQuick::QuickWidget` over `ConsoleView.qml` instead
+of a `Utils::TreeView` with a 295-line painting delegate. `consoleitemdelegate`
+and `consoleedit` are gone (539 lines); `consolehistory` (63) replaces the part
+of the editor that was not text handling.
+
+**The prompt is a row, not a bar.** The widget reached it through
+`QStyledItemDelegate::createEditor()`, which a Quick `TreeView` has no
+equivalent for, and that was the reason to think this pane was blocked. It is
+not: the model already keeps the prompt as its last row, so the delegate shows
+a `TextInput` on whichever row says it is editable and text everywhere else.
+Which row that is lives in `flags()` — unreachable from QML — so `ConsoleItem`
+now answers `AspectTable::EditableRole`, the same seam the other ported models
+use.
+
+**A row that has not been filled in yet must say it has children.** Console
+objects are fetched on expand, and the widget delegate decided whether to paint
+an expander with `rowCount(index) || canFetchMore(index)` while painting.
+`QQmlTreeModelToTableModel` asks the *model*, and it guards both ways:
+
+    if (m_model->hasChildren(parentIndex) && m_model->canFetchMore(parentIndex))
+        m_model->fetchMore(parentIndex);
+
+and `expand()` returns early when `!hasChildren(idx)`. So a row that answers no
+is not merely drawn without an expander — it can never be opened *or* fetched,
+and there is no way back.
+
+**The override I wrote for that was dead, and only the negative control said
+so.** `ConsoleItemModel::hasChildren()` returning
+`TreeModel::hasChildren(parent) || canFetchMore(parent)` passed its test, and
+went on passing with the `|| canFetchMore(parent)` removed — because
+`TreeItem::hasChildren()` is already `canFetchMore() || childCount() > 0`, and
+the model's own `canFetchMore()` only narrows it with the `m_canFetchMore`
+gate. `A || (m_canFetchMore && A)` is `A`. The override is deleted; the test
+stays, because the behaviour it pins is now load-bearing in a way it was not
+when only a widget delegate read it, and it lives four classes away in Utils.
+Its control is a one-line edit to `TreeItem::hasChildren()`, which does bite.
+
+**Two things a Quick view of any lazily-populated tree needs**, worth checking
+before the next one: `hasChildren()` must count what can still be fetched, and
+`fetchMore()` is only ever reached through it.
+
+**The context menu is `ActionModel` + `Repeater`, like the Issues pane** — the
+three actions stay QActions in C++ with `Tr::tr`, so the pane can enable
+"Show in Editor" against the row the menu was opened over before the menu is
+shown, which is where the file finder lives.
+
+**Lost, deliberately, and small:** `setSearchRole(Qt::DisplayRole)` — the
+widget view's type-to-search. `Utils::TreeView` supplied it; a Quick `TreeView`
+has no equivalent, and nothing else in the pane used it.
+
+Negative controls: the prompt shown on every row rather than the editable one
+(the test asserts *exactly one*, and a first-match search would have passed
+with none — it did, at first, and the assertion was rewritten); Up no longer
+calling back for history; `ConsoleItem` no longer answering `EditableRole`;
+`TreeItem::hasChildren()` ignoring what can be fetched. All four bit. A fifth
+(the `hasChildren` override) did not, and that is what removed it.
+
+`.qbs` re-resolved with qbs 3.3.0 from `~/Qt/Qt Creator.app` — the version in
+the earlier entry that hung is not the one shipped there now. Same
+environmental outcome as before (vendored `src/shared/qbs` disables `qbscore`
+and the run aborts), and the same check applies: adding a missing file to
+`debugger.qbs` makes it name `Error while handling product 'Debugger'`, so its
+silence when whole means the product resolved.
+
+QuickUi 178 passed / 0 failed / 1 skipped, exit 0. `ConsoleItemModelTest` 11
+passed. `Debugger` exits 1 on the pre-existing
+`DebuggerUnitTests::testStateMachine`, baselined at HEAD.
+
+**Next:** the debugger log window, which is the last thing in this pane and is
+still blocked on a finished Qt Quick text editor - it shows a document with
+colouring and selection, which is the thing `ConsoleEdit` turned out not to be.
+Everything else the console had is ported.

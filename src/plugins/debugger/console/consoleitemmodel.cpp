@@ -3,9 +3,13 @@
 
 #include "consoleitemmodel.h"
 
+#include "consolehistory.h"
+
 #ifdef WITH_TESTS
 #include <QTest>
 #endif
+
+#include <utils/aspectpresentation.h>
 
 #include <QFontMetrics>
 #include <QFont>
@@ -27,7 +31,7 @@ QHash<int, QByteArray> ConsoleItemModel::roleNames() const
     names.insert(ConsoleItem::LineRole, "line");
     names.insert(ConsoleItem::ExpressionRole, "expression");
     names.insert(ConsoleItem::TextColorRole, "textColor");
-    return names;
+    return Utils::AspectTable::withRoleNames(names);
 }
 
 void ConsoleItemModel::clear()
@@ -215,6 +219,88 @@ private slots:
         QCOMPARE(ConsoleItem::nextInputRow(&model, 1), 2);
         QCOMPARE(ConsoleItem::previousInputRow(nullptr, 4), -1);
         QCOMPARE(ConsoleItem::nextInputRow(nullptr, 0), -1);
+    }
+
+    void testTypingOverTheHistoryAndBackOut()
+    {
+        ConsoleItemModel model;
+        model.clear();
+        model.appendItem(new ConsoleItem(ConsoleItem::InputType, "1 + 1"), 0);
+        model.appendItem(new ConsoleItem(ConsoleItem::DefaultType, "2"), 1);
+        model.appendItem(new ConsoleItem(ConsoleItem::InputType, "foo()"), 2);
+        QCOMPARE(model.rowCount(), 4); // row 3 is the prompt
+
+        ConsoleHistory history;
+        history.setModel(&model);
+        history.restart(3);
+
+        QCOMPARE(history.up("half").value_or(QString()), QString("foo()"));
+        QCOMPARE(history.up("foo()").value_or(QString()), QString("1 + 1"));
+        QVERIFY2(!history.up("1 + 1").has_value(), "walked off the top of the history");
+
+        QCOMPARE(history.down("1 + 1").value_or(QString()), QString("foo()"));
+        // Back at the bottom is what was being typed when the walk started,
+        // not the newest entry - the reader gets their unfinished line back.
+        QCOMPARE(history.down("foo()").value_or(QString()), QString("half"));
+        QVERIFY2(!history.down("half").has_value(), "walked off the bottom of the history");
+
+        // Running something moves the prompt, and the walk starts there again
+        // rather than from wherever it had got to.
+        model.appendItem(new ConsoleItem(ConsoleItem::InputType, "bar()"), 3);
+        history.restart(4);
+        QCOMPARE(history.up("").value_or(QString()), QString("bar()"));
+    }
+
+    void testARowStillToBeFilledInSaysItCanBeOpened()
+    {
+        ConsoleItemModel model;
+        model.clear();
+        model.setCanFetchMore(true);
+        model.appendItem(new ConsoleItem(ConsoleItem::DefaultType, "anObject",
+                                         [](ConsoleItem *item) {
+                                             item->appendChild(new ConsoleItem(
+                                                 ConsoleItem::DefaultType, "x: 1"));
+                                         }),
+                         0);
+        model.appendItem(new ConsoleItem(ConsoleItem::DebugType, "just a message"), 1);
+
+        const QModelIndex lazy = model.index(0, 0);
+        QCOMPARE(model.rowCount(lazy), 0);
+        QVERIFY2(model.canFetchMore(lazy), "fixture: the row has something left to fetch");
+
+        // TreeItem::hasChildren() already counts what can still be fetched, so
+        // no override is needed here - but a Qt Quick view will not offer to
+        // open, or even fetch, a row that answers no, and nothing else in this
+        // model would notice if that stopped being true.
+        QVERIFY2(model.hasChildren(lazy), "an object whose properties have not been "
+                                          "fetched yet cannot be opened");
+        QVERIFY2(!model.hasChildren(model.index(1, 0)), "a plain message offers to open");
+    }
+
+    void testOnlyTheRowAtTheBottomCanBeTypedInto()
+    {
+        ConsoleItemModel model;
+        model.clear();
+        model.appendItem(new ConsoleItem(ConsoleItem::InputType, "1 + 1"), 0);
+        QCOMPARE(model.rowCount(), 2); // row 1 is the prompt
+
+        // Which row is the prompt is in flags(), and QML cannot read flags.
+        QCOMPARE(model.roleNames().value(Utils::AspectTable::EditableRole),
+                 QByteArray("editable"));
+        QVERIFY(model.data(model.index(1, 0), Utils::AspectTable::EditableRole).toBool());
+        QVERIFY2(!model.data(model.index(0, 0), Utils::AspectTable::EditableRole).toBool(),
+                 "an entry that has already been run is still offered as the prompt");
+    }
+
+    void testWhatCopyingARowPutsOnTheClipboard()
+    {
+        QCOMPARE(ConsoleItem::copiedText("foo()", "file:///tmp/a.qml", 7),
+                 QString("foo() /tmp/a.qml: 7"));
+        QCOMPARE(ConsoleItem::copiedText("foo()", "/tmp/a.qml", 7),
+                 QString("foo() /tmp/a.qml: 7"));
+        // A message with nothing behind it copies as itself, with no room left
+        // for a stray separator.
+        QCOMPARE(ConsoleItem::copiedText("just a message", {}, -1), QString("just a message"));
     }
 };
 

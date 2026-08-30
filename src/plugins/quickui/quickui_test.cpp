@@ -26,6 +26,7 @@
 
 #include <QDir>
 
+#include <qtcquick/actionmodel.h>
 #include <qtcquick/aspectmodels.h>
 #include <qtcquick/filebrowser.h>
 #include <qtcquick/qtciconprovider.h>
@@ -374,6 +375,7 @@ private slots:
     void testAPaneCanAddToTheOutputContextMenu();
     void testATestResultRowSaysMoreWhenItIsTheCurrentOne();
     void testAConsoleRowSaysWhichKindOfMessageItIs();
+    void testTheConsolePromptTakesWhatIsTypedIntoIt();
     void testFindingTextInTheOutputView();
     void testTheOutputViewScrollsAMatchIntoView();
     void testABackwardsSelectionComesBackTheRightWayRound();
@@ -11140,6 +11142,153 @@ void QuickUiTest::testATestResultRowSaysMoreWhenItIsTheCurrentOne()
                  "the row grew no taller for the text it had to show");
 }
 
+namespace {
+
+// What ConsoleView.qml asks of the pane behind it. The real one is in the
+// Debugger plugin and reaches a live debug session; the component only needs
+// something that answers under these names.
+class StandInConsolePane final : public QObject
+{
+    Q_OBJECT
+
+    Q_PROPERTY(QtcQuick::ActionModel *contextActions READ contextActions CONSTANT)
+
+public:
+    StandInConsolePane()
+        : m_actions(new QtcQuick::ActionModel(this))
+    {}
+
+    QtcQuick::ActionModel *contextActions() const { return m_actions; }
+
+    Q_INVOKABLE void evaluate(const QString &expression) { evaluated << expression; }
+    Q_INVOKABLE QString historyUp(const QString &shown) { return older.value_or(shown); }
+    Q_INVOKABLE QString historyDown(const QString &shown) { return newer.value_or(shown); }
+
+    QStringList evaluated;
+    std::optional<QString> older;
+    std::optional<QString> newer;
+
+private:
+    QtcQuick::ActionModel * const m_actions;
+};
+
+// Delegate items are in the item tree but not the QObject tree, so findChild
+// does not reach them.
+QQuickItem *drawnItemNamed(QQuickItem *parent, const QString &name)
+{
+    for (QQuickItem * const child : parent->childItems()) {
+        if (child->objectName() == name)
+            return child;
+        if (QQuickItem * const found = drawnItemNamed(child, name))
+            return found;
+    }
+    return nullptr;
+}
+
+// Every row carries a prompt and hides all but one, so finding the first is
+// not the same as finding the one that is offered.
+QList<QQuickItem *> drawnItemsNamed(QQuickItem *parent, const QString &name)
+{
+    QList<QQuickItem *> found;
+    for (QQuickItem * const child : parent->childItems()) {
+        if (child->objectName() == name)
+            found << child;
+        found << drawnItemsNamed(child, name);
+    }
+    return found;
+}
+
+QQuickItem *theVisibleOne(const QList<QQuickItem *> &items)
+{
+    QQuickItem *shown = nullptr;
+    for (QQuickItem * const item : items) {
+        if (!item->isVisible())
+            continue;
+        if (shown)
+            return nullptr;
+        shown = item;
+    }
+    return shown;
+}
+
+} // namespace
+
+void QuickUiTest::testTheConsolePromptTakesWhatIsTypedIntoIt()
+{
+    // The last console row is where JavaScript is typed. In the widget view
+    // that was an editor the item view opened over the row; here it is part of
+    // the row, shown on whichever row says it is the editable one.
+    QStandardItemModel model;
+    model.setItemRoleNames({{Qt::DisplayRole, "display"},
+                            {Qt::DecorationRole, "decoration"},
+                            {Qt::UserRole + 1, "textColor"},
+                            {Qt::UserRole + 2, "fileName"},
+                            {Qt::UserRole + 3, "line"},
+                            {Qt::UserRole + 4, "expression"},
+                            {Qt::UserRole + 5, "editable"}});
+
+    auto * const message = new QStandardItem;
+    message->setData("something happened", Qt::DisplayRole);
+    message->setData(false, Qt::UserRole + 5);
+    model.appendRow(message);
+
+    auto * const prompt = new QStandardItem;
+    prompt->setData("", Qt::UserRole + 4);
+    prompt->setData(true, Qt::UserRole + 5);
+    model.appendRow(prompt);
+
+    QItemSelectionModel selection(&model);
+    StandInConsolePane pane;
+
+    const std::unique_ptr<QtcQuick::QuickWidget> view(new QtcQuick::QuickWidget);
+    view->quickWidget()->setInitialProperties(
+        {{"consoleRows", QVariant::fromValue(static_cast<QAbstractItemModel *>(&model))},
+         {"selection", QVariant::fromValue(&selection)},
+         {"pane", QVariant::fromValue(&pane)}});
+    view->setSource(QUrl("qrc:/qt/qml/QtCreator/Debugger/ConsoleView.qml"));
+    view->resize(600, 200);
+    view->show();
+
+    QQuickItem * const root = qobject_cast<QQuickItem *>(view->rootObject());
+    QVERIFY(root);
+
+    // Both rows carry one; exactly the editable row offers it. Asserting the
+    // count as well, because "the first one is hidden" would pass with no
+    // prompt anywhere.
+    QTRY_VERIFY2(drawnItemsNamed(root, "prompt").size() == 2, "the rows were not drawn");
+    QQuickItem * const input = theVisibleOne(drawnItemsNamed(root, "prompt"));
+    QVERIFY2(input, "not exactly one row offers something to type into");
+
+    // The one that does is the row with no message on it: a message that has
+    // already been printed is text, not a field.
+    QQuickItem * const said = theVisibleOne(drawnItemsNamed(root, "said"));
+    QVERIFY(said);
+    QCOMPARE(said->property("text").toString(), QString("something happened"));
+    QVERIFY2(said->parentItem() != input->parentItem(),
+             "the message row is the one offering a prompt");
+
+    // Enter runs what is in it.
+    QVERIFY(QMetaObject::invokeMethod(input, "forceActiveFocus"));
+    QTRY_VERIFY(input->hasActiveFocus());
+    input->setProperty("text", "1 + 1");
+    QTest::keyClick(view->quickWidget(), Qt::Key_Return);
+    QTRY_COMPARE(pane.evaluated, QStringList{"1 + 1"});
+
+    // Up and Down show what the pane answers, and leave the line alone when it
+    // has nothing to answer with.
+    pane.older = QString("foo()");
+    QTest::keyClick(view->quickWidget(), Qt::Key_Up);
+    QTRY_COMPARE(input->property("text").toString(), QString("foo()"));
+
+    pane.older.reset();
+    QTest::keyClick(view->quickWidget(), Qt::Key_Up);
+    QCOMPARE(input->property("text").toString(), QString("foo()"));
+
+    pane.newer = QString("half typed");
+    QTest::keyClick(view->quickWidget(), Qt::Key_Down);
+    QTRY_COMPARE(input->property("text").toString(), QString("half typed"));
+}
+
 void QuickUiTest::testAConsoleRowSaysWhichKindOfMessageItIs()
 {
     // The debugger console's row, drawn rather than painted. Fed a stand-in
@@ -11159,11 +11308,13 @@ void QuickUiTest::testAConsoleRowSaysWhichKindOfMessageItIs()
     model.appendRow(warning);
 
     QItemSelectionModel selection(&model);
+    StandInConsolePane pane;
 
     const std::unique_ptr<QtcQuick::QuickWidget> view(new QtcQuick::QuickWidget);
     view->quickWidget()->setInitialProperties(
         {{"consoleRows", QVariant::fromValue(static_cast<QAbstractItemModel *>(&model))},
-         {"selection", QVariant::fromValue(&selection)}});
+         {"selection", QVariant::fromValue(&selection)},
+         {"pane", QVariant::fromValue(&pane)}});
     view->setSource(QUrl("qrc:/qt/qml/QtCreator/Debugger/ConsoleView.qml"));
     view->resize(600, 200);
     view->show();

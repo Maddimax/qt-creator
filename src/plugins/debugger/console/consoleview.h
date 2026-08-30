@@ -3,35 +3,65 @@
 
 #pragma once
 
+#include "consolehistory.h"
+
+#include <qtcquick/actionmodel.h>
+#include <qtcquick/qtcquickwidget.h>
+
 #include <utils/fileinprojectfinder.h>
-#include <utils/itemviews.h>
+
+#include <QItemSelectionModel>
+
+QT_BEGIN_NAMESPACE
+class QAction;
+QT_END_NAMESPACE
 
 namespace Debugger::Internal {
 
 class ConsoleItemModel;
 
-class ConsoleView : public Utils::TreeView
+class ConsoleView : public QtcQuick::QuickWidget
 {
+    Q_OBJECT
+
+    Q_PROPERTY(QtcQuick::ActionModel *contextActions READ contextActions CONSTANT)
+
 public:
-    ConsoleView(ConsoleItemModel *model, QWidget *parent);
+    ConsoleView(ConsoleItemModel *model, QAbstractItemModel *rows, QWidget *parent);
+
+    QtcQuick::ActionModel *contextActions() const { return m_contextActions; }
 
     void onScrollToBottom();
     void populateFileFinder();
+    void setCurrentIndex(const QModelIndex &index, QItemSelectionModel::SelectionFlags flags);
+    void focusPrompt();
 
-protected:
-    void mousePressEvent(QMouseEvent *event) override;
-    void resizeEvent(QResizeEvent *e) override;
-    void drawBranches(QPainter *painter, const QRect &rect,
-                      const QModelIndex &index) const override;
-    void contextMenuEvent(QContextMenuEvent *event) override;
-    void focusInEvent(QFocusEvent *event) override;
+    // The prompt is a text field in the QML, so it can neither walk the rows
+    // for what was typed before nor run what is in it.
+    Q_INVOKABLE QString historyUp(const QString &shown);
+    Q_INVOKABLE QString historyDown(const QString &shown);
+    Q_INVOKABLE void evaluate(const QString &expression);
+
+private slots:
+    void onRowActivated(const QVariant &index);
+    void onContextMenuRequested(const QVariant &index);
 
 private:
-    void onRowActivated(const QModelIndex &index);
-    void copyToClipboard(const QModelIndex &index);
-    bool canShowItemInTextEditor(const QModelIndex &index);
+    void openRow(const QModelIndex &index);
+    void copyRow(const QModelIndex &index);
+    bool canShowInEditor(const QModelIndex &index) const;
 
-    ConsoleItemModel *m_model;
+    ConsoleItemModel * const m_model;
+    QAbstractItemModel * const m_rows;
+    QItemSelectionModel * const m_selection;
+    QtcQuick::ActionModel * const m_contextActions;
+    QAction *m_copy = nullptr;
+    QAction *m_showInEditor = nullptr;
+    QAction *m_clear = nullptr;
+    // Which row the menu was opened over. A menu entry acts on that, not on
+    // whatever the current row happens to be by the time it is picked.
+    QPersistentModelIndex m_menuRow;
+    ConsoleHistory m_history;
     Utils::FileInProjectFinder m_finder;
 };
 

@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "consoleitem.h"
+
+#include <utils/aspectpresentation.h>
 #include <utils/utilsicons.h>
 
 #include <QAbstractItemModel>
@@ -56,6 +58,15 @@ Qt::ItemFlags ConsoleItem::flags(int) const
     if (m_itemType == InputType && parent()->lastChild() == this)
           f |= Qt::ItemIsEditable;
     return f;
+}
+
+QString ConsoleItem::copiedText(const QString &expression, const QString &file, int line)
+{
+    const QUrl url(file);
+    const QString path = url.isLocalFile() ? url.toLocalFile() : file;
+    if (path.isEmpty())
+        return expression;
+    return QString::fromLatin1("%1 %2: %3").arg(expression, path, QString::number(line));
 }
 
 static bool isInput(const QAbstractItemModel *model, int row)
@@ -136,6 +147,9 @@ QVariant ConsoleItem::data(int column, int role) const
 
     switch (role)
     {
+    // Which row can be typed into is in flags(), which QML cannot reach.
+    case Utils::AspectTable::EditableRole:
+        return Utils::AspectTable::isWritable(flags(column));
     case TypeRole:
         return m_itemType;
     case FileRole:

@@ -1,5 +1,5 @@
 add_qtc_plugin(Debugger
-  DEPENDS LanguageUtils QmlDebug QmlJS registryaccess
+  DEPENDS LanguageUtils QmlDebug QmlJS QtcQuick registryaccess
   PLUGIN_DEPENDS Core CppEditor ProjectExplorer QtSupport TextEditor
   PLUGIN_RECOMMENDS QmakeProjectManager
   PLUGIN_TEST_DEPENDS QmakeProjectManager
@@ -15,9 +15,8 @@ add_qtc_plugin(Debugger
     cdb/stringinputstream.cpp cdb/stringinputstream.h
     commonoptionspage.cpp commonoptionspage.h
     console/console.cpp console/console.h
-    console/consoleedit.cpp console/consoleedit.h
+    console/consolehistory.cpp console/consolehistory.h
     console/consoleitem.cpp console/consoleitem.h
-    console/consoleitemdelegate.cpp console/consoleitemdelegate.h
     console/consoleitemmodel.cpp console/consoleitemmodel.h
     console/consoleproxymodel.cpp console/consoleproxymodel.h
     console/consoleview.cpp console/consoleview.h

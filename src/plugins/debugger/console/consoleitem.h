@@ -59,6 +59,10 @@ public:
     //
     // Kept out of the editor because it is a question about the model, and
     // inside a QTextEdit the only way to ask it was to press Up.
+    // What copying a row puts on the clipboard: what it said, plus the file
+    // and line where it says so.
+    static QString copiedText(const QString &expression, const QString &file, int line);
+
     static int previousInputRow(const QAbstractItemModel *model, int fromRow);
     static int nextInputRow(const QAbstractItemModel *model, int fromRow);
 

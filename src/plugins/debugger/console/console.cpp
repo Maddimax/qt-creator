@@ -3,9 +3,9 @@
 
 #include "console.h"
 
-#include "consoleview.h"
+#include "consoleitemmodel.h"
 #include "consoleproxymodel.h"
-#include "consoleitemdelegate.h"
+#include "consoleview.h"
 #include "../debuggertr.h"
 
 #include <coreplugin/findplaceholder.h>
@@ -51,7 +51,6 @@ Console::Console()
     vbox->setContentsMargins(0, 0, 0, 0);
     vbox->setSpacing(0);
 
-    m_consoleView = new ConsoleView(m_consoleItemModel, m_consoleWidget);
     auto proxyModel = new ConsoleProxyModel(this);
     proxyModel->setSourceModel(m_consoleItemModel);
     connect(m_consoleItemModel,
@@ -64,18 +63,13 @@ Console::Console()
     //model which will automatically reset the view.
     connect(m_consoleItemModel, &QAbstractItemModel::rowsInserted,
             proxyModel, &ConsoleProxyModel::onRowsInserted);
-    m_consoleView->setModel(proxyModel);
+
+    m_consoleView = new ConsoleView(m_consoleItemModel, proxyModel, m_consoleWidget);
 
     connect(proxyModel, &ConsoleProxyModel::setCurrentIndex,
-            m_consoleView->selectionModel(), &QItemSelectionModel::setCurrentIndex);
+            m_consoleView, &ConsoleView::setCurrentIndex);
     connect(proxyModel, &ConsoleProxyModel::scrollToBottom,
             m_consoleView, &ConsoleView::onScrollToBottom);
-
-    auto itemDelegate = new ConsoleItemDelegate(m_consoleItemModel, this);
-    connect(m_consoleView->selectionModel(), &QItemSelectionModel::currentChanged,
-            itemDelegate, &ConsoleItemDelegate::currentChanged);
-    m_consoleView->setItemDelegate(itemDelegate);
-    m_consoleView->setSearchRole(Qt::DisplayRole);
 
     vbox->addWidget(m_consoleView);
     vbox->addWidget(new Core::FindToolBarPlaceHolder(m_consoleWidget));
@@ -166,7 +160,7 @@ bool Console::hasFocus() const
 
 void Console::setFocus()
 {
-    m_consoleView->setFocus();
+    m_consoleView->focusPrompt();
 }
 
 bool Console::canNext() const
