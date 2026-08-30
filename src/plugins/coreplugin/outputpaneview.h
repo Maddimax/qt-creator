@@ -7,6 +7,7 @@
 #include "outputtasksink.h"
 #include "outputwindow.h"
 
+#include <utils/filepath.h>
 #include <utils/outputformat.h>
 #include <utils/outputformatter.h>
 #include <utils/storekey.h>
@@ -105,6 +106,24 @@ public:
     void setFontZoom(float zoom);
     float fontZoom() const;
 
+    // What a file of this pane's output is called by default, and what a
+    // scratch buffer of it is named after.
+    void setOutputFileNameHint(const QString &fileName);
+
+    // Writes everything the pane holds to \a file. Separate from the menu
+    // entry that asks where, so that what it writes can be checked without a
+    // file dialog.
+    Utils::Result<> saveContentsTo(const Utils::FilePath &file) const;
+
+    // Opens the pane's output in a temporary editor, for reading it with
+    // everything an editor has.
+    void copyContentsToScratchBuffer() const;
+
+    // The name pattern a scratch buffer of \a outputFileNameHint's output
+    // gets. Its own function because the fallback matters: a hint with no base
+    // name would otherwise produce a file called "-XXXXXX.txt".
+    static QString scratchBufferNameTemplate(const QString &outputFileNameHint);
+
     // Everything written, filter or no filter: what a reader asking a pane for
     // its text wants, which is not what happens to be on screen.
     QString toPlainText() const;
@@ -177,6 +196,7 @@ private:
     bool m_discardExcessiveOutput = false;
     bool m_wordWrapEnabled = false;
     QColor m_backgroundColor;
+    QString m_outputFileNameHint;
     OutputWindow::PendingOutputState m_pendingState;
 
     const Utils::Key m_zoomSettingsKey;

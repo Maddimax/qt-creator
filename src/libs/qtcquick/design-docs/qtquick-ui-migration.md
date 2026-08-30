@@ -18403,3 +18403,49 @@ menu at all. The widget's right-click offers Copy, Select All, Save As and
 Clear, and none of the three ported panes has any of it. That is the largest
 remaining gap in the output work and it applies to all of them, not just this
 pane.
+
+### The context menu, which three panes had been shipping without
+
+Right-clicking output offered Copy, Select All, Save Contents, Copy to Scratch
+Buffer and Clear. The Qt Quick view had none of it, and nothing said so: a
+missing context menu is invisible until someone right-clicks. Three panes were
+already drawn without it.
+
+The split is the same one as everywhere else in this work. The QML offers the
+entries and does the two the text item can do itself; the three it cannot -
+where to save, what a scratch buffer is, what clearing means - are signals, and
+the pane answers them. `saveContentsTo(FilePath)` takes the path so that what
+it writes can be checked without a file dialog, and the menu entry is the part
+that asks where.
+
+**Saving writes everything, not what is on screen.** A file of the output is
+not a file of the current search - the control that writes `shownDocument()`
+fails on exactly that.
+
+**Two traps, both found by the tests rather than by reading:**
+
+- A `MenuItem` has **no `trigger()`**. `onTriggered` is connected to its
+  `triggered()` signal, so that is what a test emits.
+  `QMetaObject::invokeMethod(item, "trigger")` returns `false` and does
+  nothing - and a test that ignores the return value passes while exercising
+  nothing at all. Every invoke here is wrapped in `QVERIFY`.
+- Triggering Save Contents on a real pane opens a **modal file dialog**, and
+  the test hung for its full three hundred seconds and aborted. The entries
+  that ask the user something are checked on a view with nothing connected to
+  it, where they only emit; Clear is the one entry a pane carries out on its
+  own, so it is the one followed all the way through.
+
+`setOutputFileNameHint()` is back, and Compile Output sets it again. Its only
+job is naming: the file the save dialog offers, and the scratch buffer's name -
+which falls back to "scratch" rather than producing a file called
+"-XXXXXX.txt".
+
+Controls, six, all biting: entries always usable; Copy offered with nothing
+selected; the adapter not forwarding the menu's requests; Clear announced but
+not carried out; saving what is on screen; and the scratch buffer's fallback
+name removed.
+
+The remaining panes are Application Output, VCS, Serial Terminal and the
+debugger log. `VcsOutputWindow` is the one with a wrinkle: it overrides
+`adaptContextMenu()` to add entries of its own, and nothing on the Qt Quick
+side offers that yet.

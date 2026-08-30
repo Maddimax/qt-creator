@@ -83,6 +83,12 @@ protected:
     virtual void showDocument(QTextDocument *document) = 0;
 
 signals:
+    // What the view's context menu asked for. The view knows how to offer
+    // these and nothing about how to do them.
+    void saveContentsRequested();
+    void copyContentsToScratchBufferRequested();
+    void clearRequested();
+
     // A link was clicked. What it means is the pane's business - it is the one
     // holding the formatter whose handleLink() answers.
     void linkActivated(const QString &href);

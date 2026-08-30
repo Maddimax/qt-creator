@@ -72,7 +72,16 @@ public:
     QString linkAt(qreal x, qreal y) const;
     QString hoveredLink() const;
 
+    // The context menu, by name. A Menu is a popup, so its items are not
+    // reachable from the view's item tree.
+    QObject *contextMenu() const;
+
 signals:
+    // What the context menu asked for. The view does none of it itself.
+    void saveContentsRequested();
+    void copyContentsToScratchBufferRequested();
+    void clearRequested();
+
     // Where the pane calls Utils::OutputFormatter::handleLink(). The view does
     // not know what a link means, only that one was clicked.
     void linkActivated(const QString &href);

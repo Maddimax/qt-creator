@@ -28,6 +28,12 @@ public:
         connect(m_view, &QtcQuick::OutputView::linkActivated,
                 this, &Core::OutputView::linkActivated);
         connect(m_view, &QtcQuick::OutputView::wheelZoom, this, &Core::OutputView::wheelZoom);
+        connect(m_view, &QtcQuick::OutputView::saveContentsRequested,
+                this, &Core::OutputView::saveContentsRequested);
+        connect(m_view, &QtcQuick::OutputView::copyContentsToScratchBufferRequested,
+                this, &Core::OutputView::copyContentsToScratchBufferRequested);
+        connect(m_view, &QtcQuick::OutputView::clearRequested,
+                this, &Core::OutputView::clearRequested);
     }
 
     void showDocument(QTextDocument *document) override { m_view->setDocument(document); }

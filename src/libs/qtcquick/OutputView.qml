@@ -25,6 +25,12 @@ Item {
     property bool wordWrapEnabled: false
     property color backgroundColor: Tokens.backgroundDefault
 
+    // What the context menu asks for. The view does none of it: where to save
+    // and what a scratch buffer is are decisions for whoever holds the output.
+    signal saveContentsRequested()
+    signal copyContentsToScratchBufferRequested()
+    signal clearRequested()
+
     signal linkActivated(string href)
     // One notch of Ctrl+wheel, in points. What that comes to is C++'s
     // decision, because the widget output window has to agree with it.
@@ -33,6 +39,46 @@ Item {
     Rectangle {
         anchors.fill: parent
         color: root.backgroundColor
+    }
+
+    // Named so a test can find it: a Menu is a popup and its items are not in
+    // the page's item tree.
+    Menu {
+        id: contextMenu
+        objectName: "outputContextMenu"
+
+        MenuItem {
+            objectName: "copy"
+            text: qsTr("&Copy")
+            enabled: area.selectedText.length > 0
+            onTriggered: area.copy()
+        }
+        MenuItem {
+            objectName: "selectAll"
+            text: qsTr("Select &All")
+            enabled: area.length > 0
+            onTriggered: area.selectAll()
+        }
+        MenuSeparator {}
+        MenuItem {
+            objectName: "saveContents"
+            text: qsTr("Save Contents...")
+            enabled: area.length > 0
+            onTriggered: root.saveContentsRequested()
+        }
+        MenuItem {
+            objectName: "copyToScratchBuffer"
+            text: qsTr("Copy Contents to Scratch Buffer")
+            enabled: area.length > 0
+            onTriggered: root.copyContentsToScratchBufferRequested()
+        }
+        MenuSeparator {}
+        MenuItem {
+            objectName: "clear"
+            text: qsTr("Clear")
+            enabled: area.length > 0
+            onTriggered: root.clearRequested()
+        }
     }
 
     ScrollView {
@@ -65,6 +111,13 @@ Item {
             HoverHandler {
                 cursorShape: area.hoveredLink.length > 0 ? Qt.PointingHandCursor
                                                          : Qt.IBeamCursor
+            }
+
+            TapHandler {
+                acceptedButtons: Qt.RightButton
+                onTapped: (eventPoint) => {
+                    contextMenu.popup(eventPoint.position)
+                }
             }
 
             WheelHandler {

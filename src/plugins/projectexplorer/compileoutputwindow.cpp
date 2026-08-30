@@ -61,6 +61,8 @@ CompileOutputWindow::CompileOutputWindow(QAction *cancelBuildAction) :
     m_outputWindow = new Core::OutputPaneView(SETTINGS_KEY);
     m_outputWindow->setWindowTitle(displayName());
     m_outputWindow->setWindowIcon(Icons::WINDOW.icon());
+    //: file name suggested for saving compile output
+    m_outputWindow->setOutputFileNameHint(Tr::tr("compile-output.txt"));
 
     Utils::ProxyAction *cancelBuildProxyButton =
             Utils::ProxyAction::proxyActionWithIcon(cancelBuildAction,

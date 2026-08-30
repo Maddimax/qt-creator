@@ -8,6 +8,13 @@
 #include <utils/algorithm.h>
 #include "coreplugintr.h"
 #include "icore.h"
+#include <utils/temporarydirectory.h>
+#include <utils/textfileformat.h>
+#include <utils/filedialogs.h>
+#include <utils/fileutils.h>
+#include "idocument.h"
+#include "editormanager/ieditor.h"
+#include "editormanager/editormanager.h"
 #include "outputview.h"
 #include "messagemanager.h"
 #include "ioutputpane.h"
@@ -34,6 +41,7 @@ OutputPaneView::OutputPaneView(const Key &zoomSettingsKey, QWidget *parent)
     : QWidget(parent)
     , m_startOfNewContent(&m_source)
     , m_zoomSettingsKey(zoomSettingsKey)
+    , m_outputFileNameHint(Tr::tr("output.txt"))
 {
     m_startOfNewContent.setKeepPositionOnInsert(true);
     // Itself as the sink object, so a parser that finds a task can tell this
@@ -76,6 +84,18 @@ OutputView *OutputPaneView::view()
 
     layout()->addWidget(m_view);
     m_view->setDocument(shownDocument());
+
+    connect(m_view, &OutputView::saveContentsRequested, this, [this] {
+        const FilePath file = FileUtils::getSaveFilePath(
+            {}, FileUtils::homePath() / m_outputFileNameHint);
+        if (file.isEmpty())
+            return;
+        if (const Result<> res = saveContentsTo(file); !res)
+            MessageManager::writeDisrupting(res.error());
+    });
+    connect(m_view, &OutputView::copyContentsToScratchBufferRequested,
+            this, &OutputPaneView::copyContentsToScratchBuffer);
+    connect(m_view, &OutputView::clearRequested, this, &OutputPaneView::clear);
     if (m_baseFontSet)
         m_view->setBaseFont(m_baseFont);
     m_view->setWordWrapEnabled(m_wordWrapEnabled);
@@ -403,6 +423,46 @@ QTextDocument *OutputPaneView::shownDocument() const
 QString OutputPaneView::toPlainText() const
 {
     return m_source.toPlainText();
+}
+
+void OutputPaneView::setOutputFileNameHint(const QString &fileName)
+{
+    m_outputFileNameHint = fileName;
+}
+
+Result<> OutputPaneView::saveContentsTo(const FilePath &file) const
+{
+    TextFileFormat format;
+    format.setEncoding(EditorManager::defaultTextEncoding());
+    format.lineTerminationMode = EditorManager::defaultLineEnding();
+    return format.writeFile(file, toPlainText());
+}
+
+QString OutputPaneView::scratchBufferNameTemplate(const QString &outputFileNameHint)
+{
+    QString prefix = FilePath::fromString(outputFileNameHint).baseName();
+    if (prefix.isEmpty())
+        prefix = "scratch";
+    return QString("%1-XXXXXX.txt").arg(prefix);
+}
+
+void OutputPaneView::copyContentsToScratchBuffer() const
+{
+    const auto tempPath
+        = FileUtils::scratchBufferFilePath(scratchBufferNameTemplate(m_outputFileNameHint));
+    if (!tempPath) {
+        MessageManager::writeDisrupting(tempPath.error());
+        return;
+    }
+
+    IEditor * const editor = EditorManager::openEditor(*tempPath);
+    if (!editor) {
+        MessageManager::writeDisrupting(
+            Tr::tr("Failed to open editor for \"%1\".").arg(tempPath->toUserOutput()));
+        return;
+    }
+    editor->document()->setTemporary(true);
+    editor->document()->setContents(toPlainText().toUtf8());
 }
 
 void OutputPaneView::setWordWrapEnabled(bool enabled)
@@ -802,6 +862,53 @@ private slots:
         discarding.flush();
         QVERIFY2(discarding.toPlainText().contains("Discarding excessive amount"),
                  "output was thrown away without saying so");
+    }
+
+    void testSavingWhatThePaneHolds()
+    {
+        OutputPaneView view;
+        view.appendMessage("first line\n", Utils::GeneralMessageFormat);
+        view.appendMessage("second line\n", Utils::GeneralMessageFormat);
+        view.flush();
+
+        Utils::TemporaryDirectory temp("outputpaneview-test");
+        QVERIFY(temp.isValid());
+        const Utils::FilePath file = temp.filePath("saved.txt");
+
+        const Utils::Result<> saved = view.saveContentsTo(file);
+        QVERIFY2(saved, qPrintable(saved ? QString() : saved.error()));
+
+        const Utils::Result<QByteArray> written = file.fileContents(-1);
+        QVERIFY(written);
+        QCOMPARE(QString::fromUtf8(*written), view.toPlainText());
+
+        // Everything, not what a filter happens to be showing: a file of the
+        // output is not a file of the current search.
+        view.setFilter("second", {});
+        QVERIFY(!view.shownDocument()->toPlainText().contains("first line"));
+        QVERIFY(view.saveContentsTo(file));
+        QVERIFY2(QString::fromUtf8(*file.fileContents(-1)).contains("first line"),
+                 "saving while filtered wrote only the lines on screen");
+    }
+
+    void testWhatAScratchBufferOfTheOutputIsCalled()
+    {
+        // The hint is a file name, and the scratch buffer is named after it so
+        // that two panes' buffers can be told apart in the editor's tabs.
+        QCOMPARE(OutputPaneView::scratchBufferNameTemplate("compile-output.txt"),
+                 QString("compile-output-XXXXXX.txt"));
+
+        // A hint with no base name would otherwise give a file called
+        // "-XXXXXX.txt", which names nothing.
+        QCOMPARE(OutputPaneView::scratchBufferNameTemplate({}),
+                 QString("scratch-XXXXXX.txt"));
+        QCOMPARE(OutputPaneView::scratchBufferNameTemplate(".txt"),
+                 QString("scratch-XXXXXX.txt"));
+
+        // And a pane that never set one still gets a usable name.
+        OutputPaneView view;
+        QCOMPARE(OutputPaneView::scratchBufferNameTemplate(Tr::tr("output.txt")),
+                 QString("output-XXXXXX.txt"));
     }
 
     void testShowingWhereATaskWasReportedFrom()

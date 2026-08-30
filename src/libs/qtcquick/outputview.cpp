@@ -23,6 +23,10 @@ OutputView::OutputView(QWidget *parent)
     QTC_ASSERT(root, return);
     m_baseFont = root->property("baseFont").value<QFont>();
     connect(root, SIGNAL(linkActivated(QString)), this, SIGNAL(linkActivated(QString)));
+    connect(root, SIGNAL(saveContentsRequested()), this, SIGNAL(saveContentsRequested()));
+    connect(root, SIGNAL(copyContentsToScratchBufferRequested()),
+            this, SIGNAL(copyContentsToScratchBufferRequested()));
+    connect(root, SIGNAL(clearRequested()), this, SIGNAL(clearRequested()));
     connect(root, SIGNAL(zoomRequested(double)), this, SLOT(zoomBy(double)));
 }
 
@@ -143,6 +147,13 @@ void OutputView::setBackgroundColor(const QColor &color)
     // and setting the widget's clear colour too changes nothing anyone sees.
     if (QObject * const root = rootObject())
         root->setProperty("backgroundColor", color);
+}
+
+QObject *OutputView::contextMenu() const
+{
+    QObject * const root = rootObject();
+    QTC_ASSERT(root, return nullptr);
+    return root->findChild<QObject *>("outputContextMenu");
 }
 
 QString OutputView::linkAt(qreal x, qreal y) const

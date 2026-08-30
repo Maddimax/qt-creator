@@ -367,6 +367,8 @@ private slots:
     void testCoreHasNoOutputViewWithoutAFrontEnd();
     void testAPaneBuiltBeforeTheFrontEndStillGetsAView();
     void testWordWrapAndBackgroundReachTheDrawnOutput();
+    void testTheOutputContextMenuOffersWhatTheWidgetDid();
+    void testClearInTheOutputMenuReachesThePane();
     void testFindingTextInTheOutputView();
     void testTheOutputViewScrollsAMatchIntoView();
     void testABackwardsSelectionComesBackTheRightWayRound();
@@ -10748,6 +10750,95 @@ void QuickUiTest::testWordWrapAndBackgroundReachTheDrawnOutput()
         // Most of the pane, not a stray pixel: the text is drawn over it.
         return found > frame.width() * frame.height() / 2;
     }(), "the chosen background colour was not what the pane was drawn on");
+}
+
+void QuickUiTest::testTheOutputContextMenuOffersWhatTheWidgetDid()
+{
+    // Right-clicking output offered Copy, Select All, Save Contents, Copy to
+    // Scratch Buffer and Clear. None of it existed on the Qt Quick side, and
+    // nothing said so - a missing context menu is invisible until someone
+    // right-clicks.
+    //
+    // Asked of a view on its own rather than of a pane, because a pane
+    // connects Save Contents to a *modal file dialog*: triggering it there
+    // hangs the test for its full timeout and then aborts.
+    const std::unique_ptr<Core::OutputView> view(Core::createOutputView());
+    QVERIFY(view.get());
+
+    QTextDocument document;
+    view->setDocument(&document);
+    view->resize(300, 200);
+    view->show();
+
+    auto * const quickWidget = view->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QObject * const menu = quickWidget->rootObject()->findChild<QObject *>("outputContextMenu");
+    QVERIFY2(menu, "the output view offers no context menu");
+
+    const auto item = [menu](const char *name) {
+        return menu->findChild<QObject *>(QLatin1String(name));
+    };
+    for (const char *name : {"copy", "selectAll", "saveContents", "copyToScratchBuffer", "clear"})
+        QVERIFY2(item(name), qPrintable(QString("no %1 entry").arg(QLatin1String(name))));
+
+    // Empty output: everything that acts on the contents is offered but not
+    // usable, as the widget's was.
+    QVERIFY(!item("selectAll")->property("enabled").toBool());
+    QVERIFY(!item("saveContents")->property("enabled").toBool());
+    QVERIFY(!item("copyToScratchBuffer")->property("enabled").toBool());
+    QVERIFY(!item("clear")->property("enabled").toBool());
+
+    document.setPlainText("something to act on\n");
+    QTRY_VERIFY(item("clear")->property("enabled").toBool());
+    QVERIFY(item("selectAll")->property("enabled").toBool());
+    QVERIFY(item("saveContents")->property("enabled").toBool());
+
+    // Copy needs a selection rather than merely some text.
+    QVERIFY2(!item("copy")->property("enabled").toBool(),
+             "Copy was offered with nothing selected");
+    // A MenuItem has no trigger(): onTriggered is connected to its triggered()
+    // signal, so that is what a test emits. Checked, because invoking a method
+    // that is not there merely returns false.
+    QVERIFY(QMetaObject::invokeMethod(item("selectAll"), "triggered"));
+    QTRY_VERIFY(item("copy")->property("enabled").toBool());
+
+    // And the entries the view cannot carry out itself reach whoever can.
+    QSignalSpy saves(view.get(), &Core::OutputView::saveContentsRequested);
+    QVERIFY(QMetaObject::invokeMethod(item("saveContents"), "triggered"));
+    QCOMPARE(saves.count(), 1);
+
+    QSignalSpy scratch(view.get(), &Core::OutputView::copyContentsToScratchBufferRequested);
+    QVERIFY(QMetaObject::invokeMethod(item("copyToScratchBuffer"), "triggered"));
+    QCOMPARE(scratch.count(), 1);
+
+    QSignalSpy clears(view.get(), &Core::OutputView::clearRequested);
+    QVERIFY(QMetaObject::invokeMethod(item("clear"), "triggered"));
+    QCOMPARE(clears.count(), 1);
+}
+
+void QuickUiTest::testClearInTheOutputMenuReachesThePane()
+{
+    // The one entry a pane carries out without asking anything of the user, so
+    // the only one that can be followed all the way through here.
+    Core::OutputPaneView view;
+    view.resize(300, 200);
+    view.show();
+    QVERIFY(view.view());
+
+    view.appendMessage("something to clear\n", Utils::GeneralMessageFormat);
+    view.flush();
+    QVERIFY(!view.toPlainText().isEmpty());
+
+    auto * const quickWidget = view.findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QObject * const clear
+        = quickWidget->rootObject()->findChild<QObject *>("outputContextMenu")
+              ->findChild<QObject *>("clear");
+    QVERIFY(clear);
+    QTRY_VERIFY(clear->property("enabled").toBool());
+
+    QVERIFY(QMetaObject::invokeMethod(clear, "triggered"));
+    QTRY_VERIFY2(view.toPlainText().isEmpty(), "Clear did not clear the pane's output");
 }
 
 void QuickUiTest::testAVariableBeingDefinedIsNotOfferedForItself()
