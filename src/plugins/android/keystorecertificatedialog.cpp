@@ -14,6 +14,10 @@
 #include <utils/layoutbuilder.h>
 #include <utils/qtcprocess.h>
 
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
 #include <QCheckBox>
 #include <QDialogButtonBox>
 #include <QLineEdit>
@@ -40,10 +44,9 @@ public:
     KeystoreData keystoreData() const;
 
 private:
-    PasswordStatus checkKeystorePassword();
-    PasswordStatus checkCertificatePassword();
-    bool checkCertificateAlias();
-    bool checkCountryCode();
+    KeystoreCertificateInput typedIn() const;
+    // Shows the first problem, or hides the label when there is none.
+    KeystoreCertificateIssue showIssue();
 
     void keystoreShowPassStateChanged(int state);
     void certificateShowPassStateChanged(int state);
@@ -167,18 +170,15 @@ AndroidCreateKeystoreCertificate::AndroidCreateKeystoreCertificate()
         Row { m_infoLabel, buttonBox }
     }.attachTo(this);
 
-    connect(m_keystorePassLineEdit, &QLineEdit::textChanged,
-            this, &AndroidCreateKeystoreCertificate::checkKeystorePassword);
-    connect(m_keystoreRetypePassLineEdit, &QLineEdit::textChanged,
-            this, &AndroidCreateKeystoreCertificate::checkKeystorePassword);
-    connect(m_certificatePassLineEdit, &QLineEdit::textChanged,
-            this, &AndroidCreateKeystoreCertificate::checkCertificatePassword);
-    connect(m_certificateRetypePassLineEdit, &QLineEdit::textChanged,
-            this, &AndroidCreateKeystoreCertificate::checkCertificatePassword);
-    connect(m_certificateAliasLineEdit, &QLineEdit::textChanged,
-            this, &AndroidCreateKeystoreCertificate::checkCertificateAlias);
-    connect(m_countryLineEdit, &QLineEdit::textChanged,
-            this, &AndroidCreateKeystoreCertificate::checkCountryCode);
+    // Every field says the same thing now: what is the first problem with all
+    // of this. Before, each field reported only its own, so typing into one
+    // could hide a complaint about another.
+    for (QLineEdit * const field : {m_keystorePassLineEdit, m_keystoreRetypePassLineEdit,
+                                    m_certificatePassLineEdit, m_certificateRetypePassLineEdit,
+                                    m_certificateAliasLineEdit, m_countryLineEdit}) {
+        connect(field, &QLineEdit::textChanged,
+                this, &AndroidCreateKeystoreCertificate::showIssue);
+    }
     connect(keystoreShowPassCheckBox, &QCheckBox::stateChanged,
             this, &AndroidCreateKeystoreCertificate::keystoreShowPassStateChanged);
     connect(m_certificateShowPassCheckBox, &QCheckBox::stateChanged,
@@ -201,66 +201,54 @@ KeystoreData AndroidCreateKeystoreCertificate::keystoreData() const
             certPassword};
 }
 
-AndroidCreateKeystoreCertificate::PasswordStatus AndroidCreateKeystoreCertificate::checkKeystorePassword()
+KeystoreCertificateIssue keystoreCertificateIssue(const KeystoreCertificateInput &input)
 {
-    if (m_keystorePassLineEdit->text().size() < 6) {
-        m_infoLabel->show();
-        m_infoLabel->setText(Tr::tr("Keystore password is too short."));
-        return Invalid;
-    }
-    if (m_keystorePassLineEdit->text() != m_keystoreRetypePassLineEdit->text()) {
-        m_infoLabel->show();
-        m_infoLabel->setText(Tr::tr("Keystore passwords do not match."));
-        return NoMatch;
+    // In the order the reader meets the fields, so the first complaint is
+    // about the first thing that is wrong rather than the last.
+    if (input.keystorePassword.size() < 6)
+        return {Tr::tr("Keystore password is too short."), "KeystorePassword"};
+    if (input.keystorePassword != input.keystoreRetype)
+        return {Tr::tr("Keystore passwords do not match."), "KeystoreRetype"};
+
+    if (input.certificateAlias.isEmpty())
+        return {Tr::tr("Certificate alias is missing."), "CertificateAlias"};
+
+    // A certificate reusing the keystore password has no password of its own
+    // to be wrong.
+    if (!input.certificateUsesKeystorePassword) {
+        if (input.certificatePassword.size() < 6)
+            return {Tr::tr("Certificate password is too short."), "CertificatePassword"};
+        if (input.certificatePassword != input.certificateRetype)
+            return {Tr::tr("Certificate passwords do not match."), "CertificateRetype"};
     }
 
-    m_infoLabel->hide();
-    return Match;
+    static const QRegularExpression twoLetters("[A-Z]{2}");
+    if (!input.countryCode.contains(twoLetters))
+        return {Tr::tr("Invalid country code."), "Country"};
+
+    return {};
 }
 
-AndroidCreateKeystoreCertificate::PasswordStatus AndroidCreateKeystoreCertificate::checkCertificatePassword()
+QString distinguishedName(const QString &commonName, const QString &organization,
+                          const QString &locality, const QString &country,
+                          const QString &organizationUnit, const QString &state)
 {
-    if (m_samePasswordCheckBox->checkState() == Qt::Checked)
-        return Match;
+    // A comma inside a value would start a new part of the name, so every one
+    // of them is escaped.
+    const auto escaped = [](const QString &value) {
+        return QString(value).replace(',', QLatin1String("\\,"));
+    };
 
-    if (m_certificatePassLineEdit->text().size() < 6) {
-        m_infoLabel->show();
-        m_infoLabel->setText(Tr::tr("Certificate password is too short."));
-        return Invalid;
-    }
-    if (m_certificatePassLineEdit->text() != m_certificateRetypePassLineEdit->text()) {
-        m_infoLabel->show();
-        m_infoLabel->setText(Tr::tr("Certificate passwords do not match."));
-        return NoMatch;
-    }
+    QString name = QString("CN=%1, O=%2, L=%3, C=%4")
+                       .arg(escaped(commonName), escaped(organization),
+                            escaped(locality), escaped(country));
 
-    m_infoLabel->hide();
-    return Match;
-}
+    if (!organizationUnit.isEmpty())
+        name += ", OU=" + escaped(organizationUnit);
+    if (!state.isEmpty())
+        name += ", S=" + escaped(state);
 
-bool AndroidCreateKeystoreCertificate::checkCertificateAlias()
-{
-    if (m_certificateAliasLineEdit->text().size() == 0) {
-        m_infoLabel->show();
-        m_infoLabel->setText(Tr::tr("Certificate alias is missing."));
-        return false;
-    }
-
-    m_infoLabel->hide();
-    return true;
-}
-
-bool AndroidCreateKeystoreCertificate::checkCountryCode()
-{
-    static const QRegularExpression re("[A-Z]{2}");
-    if (!m_countryLineEdit->text().contains(re)) {
-        m_infoLabel->show();
-        m_infoLabel->setText(Tr::tr("Invalid country code."));
-        return false;
-    }
-
-    m_infoLabel->hide();
-    return true;
+    return name;
 }
 
 void AndroidCreateKeystoreCertificate::keystoreShowPassStateChanged(int state)
@@ -285,17 +273,12 @@ void AndroidCreateKeystoreCertificate::buttonBoxAccepted()
                                                     Tr::tr("Keystore files (*.keystore *.jks)"));
     if (m_keystoreFilePath.isEmpty())
         return;
-    QString distinguishedNames(QString::fromLatin1("CN=%1, O=%2, L=%3, C=%4")
-                               .arg(m_commonNameLineEdit->text().replace(QLatin1Char(','), QLatin1String("\\,")))
-                               .arg(m_organizationNameLineEdit->text().replace(QLatin1Char(','), QLatin1String("\\,")))
-                               .arg(m_localityNameLineEdit->text().replace(QLatin1Char(','), QLatin1String("\\,")))
-                               .arg(m_countryLineEdit->text().replace(QLatin1Char(','), QLatin1String("\\,"))));
-
-    if (!m_organizationUnitLineEdit->text().isEmpty())
-        distinguishedNames += QLatin1String(", OU=") + m_organizationUnitLineEdit->text().replace(',', QLatin1String("\\,"));
-
-    if (!m_stateNameLineEdit->text().isEmpty())
-        distinguishedNames += QLatin1String(", S=") + m_stateNameLineEdit->text().replace(',', QLatin1String("\\,"));
+    const QString distinguishedNames = distinguishedName(m_commonNameLineEdit->text(),
+                                                         m_organizationNameLineEdit->text(),
+                                                         m_localityNameLineEdit->text(),
+                                                         m_countryLineEdit->text(),
+                                                         m_organizationUnitLineEdit->text(),
+                                                         m_stateNameLineEdit->text());
 
     const KeystoreData data = keystoreData();
     // clang-format off
@@ -339,41 +322,44 @@ void AndroidCreateKeystoreCertificate::samePasswordStateChanged(int state)
     validateUserInput();
 }
 
+KeystoreCertificateInput AndroidCreateKeystoreCertificate::typedIn() const
+{
+    return {m_keystorePassLineEdit->text(),
+            m_keystoreRetypePassLineEdit->text(),
+            m_samePasswordCheckBox->checkState() == Qt::Checked,
+            m_certificatePassLineEdit->text(),
+            m_certificateRetypePassLineEdit->text(),
+            m_certificateAliasLineEdit->text(),
+            m_countryLineEdit->text()};
+}
+
+KeystoreCertificateIssue AndroidCreateKeystoreCertificate::showIssue()
+{
+    const KeystoreCertificateIssue issue = keystoreCertificateIssue(typedIn());
+    m_infoLabel->setVisible(!issue.message.isEmpty());
+    m_infoLabel->setText(issue.message);
+    return issue;
+}
+
 bool AndroidCreateKeystoreCertificate::validateUserInput()
 {
-    switch (checkKeystorePassword()) {
-    case Invalid:
-        m_keystorePassLineEdit->setFocus();
-        return false;
-    case NoMatch:
-        m_keystoreRetypePassLineEdit->setFocus();
-        return false;
-    default:
-        break;
-    }
+    const KeystoreCertificateIssue issue = showIssue();
+    if (issue.message.isEmpty())
+        return true;
 
-    if (!checkCertificateAlias()) {
-        m_certificateAliasLineEdit->setFocus();
-        return false;
-    }
+    // Which field the problem is about, so the cursor lands on it.
+    static const QHash<QString, QLineEdit *AndroidCreateKeystoreCertificate::*> fields{
+        {"KeystorePassword", &AndroidCreateKeystoreCertificate::m_keystorePassLineEdit},
+        {"KeystoreRetype", &AndroidCreateKeystoreCertificate::m_keystoreRetypePassLineEdit},
+        {"CertificateAlias", &AndroidCreateKeystoreCertificate::m_certificateAliasLineEdit},
+        {"CertificatePassword", &AndroidCreateKeystoreCertificate::m_certificatePassLineEdit},
+        {"CertificateRetype", &AndroidCreateKeystoreCertificate::m_certificateRetypePassLineEdit},
+        {"Country", &AndroidCreateKeystoreCertificate::m_countryLineEdit},
+    };
+    if (QLineEdit *AndroidCreateKeystoreCertificate::*const member = fields.value(issue.field))
+        (this->*member)->setFocus();
 
-    switch (checkCertificatePassword()) {
-    case Invalid:
-        m_certificatePassLineEdit->setFocus();
-        return false;
-    case NoMatch:
-        m_certificateRetypePassLineEdit->setFocus();
-        return false;
-    default:
-        break;
-    }
-
-    if (!checkCountryCode()) {
-        m_countryLineEdit->setFocus();
-        return false;
-    }
-
-    return true;
+    return false;
 }
 
 std::optional<KeystoreData> executeKeystoreCertificateDialog()
@@ -384,4 +370,99 @@ std::optional<KeystoreData> executeKeystoreCertificateDialog()
     return dialog.keystoreData();
 }
 
+#ifdef WITH_TESTS
+
+class KeystoreCertificateTest final : public QObject
+{
+    Q_OBJECT
+
+    static KeystoreCertificateInput filledIn()
+    {
+        return {"secret1", "secret1", false, "secret2", "secret2", "myalias", "DE"};
+    }
+
+private slots:
+    void testWhatIsWrongWithWhatWasTyped()
+    {
+        QCOMPARE(keystoreCertificateIssue(filledIn()).message, QString());
+
+        // Six characters is the shortest a keystore password may be, and the
+        // complaint names the field the cursor should go to.
+        KeystoreCertificateInput input = filledIn();
+        input.keystorePassword = input.keystoreRetype = "short";
+        QVERIFY(!keystoreCertificateIssue(input).message.isEmpty());
+        QCOMPARE(keystoreCertificateIssue(input).field, QString("KeystorePassword"));
+
+        input = filledIn();
+        input.keystoreRetype = "secret1-but-not";
+        QCOMPARE(keystoreCertificateIssue(input).field, QString("KeystoreRetype"));
+
+        input = filledIn();
+        input.certificateAlias.clear();
+        QCOMPARE(keystoreCertificateIssue(input).field, QString("CertificateAlias"));
+
+        input = filledIn();
+        input.certificateRetype = "different";
+        QCOMPARE(keystoreCertificateIssue(input).field, QString("CertificateRetype"));
+    }
+
+    void testACertificateThatBorrowsTheKeystorePassword()
+    {
+        // With the box ticked the certificate has no password of its own, so
+        // one that would be refused on its own must not be looked at.
+        KeystoreCertificateInput input = filledIn();
+        input.certificatePassword = "no";
+        input.certificateRetype = "nope";
+
+        QVERIFY2(!keystoreCertificateIssue(input).message.isEmpty(),
+                 "fixture: this is refused while the certificate has its own password");
+
+        input.certificateUsesKeystorePassword = true;
+        QCOMPARE(keystoreCertificateIssue(input).message, QString());
+    }
+
+    void testTheFirstProblemIsTheOneReported()
+    {
+        // Everything wrong at once: the reader is told about the field they
+        // meet first, not the last one checked.
+        KeystoreCertificateInput input;
+        QCOMPARE(keystoreCertificateIssue(input).field, QString("KeystorePassword"));
+
+        // The country code is only reached once the rest is right.
+        input = filledIn();
+        input.countryCode = "Germany";
+        QCOMPARE(keystoreCertificateIssue(input).field, QString("Country"));
+        input.countryCode = "de";
+        QVERIFY2(!keystoreCertificateIssue(input).message.isEmpty(),
+                 "a lower-case country code was accepted");
+    }
+
+    void testTheNameKeytoolIsGiven()
+    {
+        QCOMPARE(distinguishedName("Nemo", "Acme", "Berlin", "DE", {}, {}),
+                 QString("CN=Nemo, O=Acme, L=Berlin, C=DE"));
+
+        // The two optional parts, in the order they are appended.
+        QCOMPARE(distinguishedName("Nemo", "Acme", "Berlin", "DE", "Research", "Berlin State"),
+                 QString("CN=Nemo, O=Acme, L=Berlin, C=DE, OU=Research, S=Berlin State"));
+
+        // A comma inside a value would otherwise start a new part of the name,
+        // so every one is escaped - including in the optional parts, which is
+        // easy to miss because they are appended separately.
+        QCOMPARE(distinguishedName("Nemo, Captain", "Acme", "Berlin", "DE", "R,D", {}),
+                 QString("CN=Nemo\\, Captain, O=Acme, L=Berlin, C=DE, OU=R\\,D"));
+    }
+};
+
+QObject *createKeystoreCertificateTest()
+{
+    return new KeystoreCertificateTest;
+}
+
+#endif // WITH_TESTS
+
 } // Android::Internal
+
+#ifdef WITH_TESTS
+#include "keystorecertificatedialog.moc"
+#endif

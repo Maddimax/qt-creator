@@ -19956,3 +19956,53 @@ QuickUi 180 passed / 0 failed / 1 skipped, exit 0. Core exit 0,
 
 **Next:** more from the 16, by eye rather than by classifier. `VersionDialog`
 and `FileSystemFilterOptions` are the two smallest that survive a second look.
+
+## 2026-08-30 — The keystore dialog's decisions, and why the form is not ported yet
+
+`VersionDialog` and `FileSystemFilterOptions`, the two the last entry named,
+were looked at and put back: the first needs a logo image, which no aspect
+provides and whose icon the by-name image provider cannot reach (it is Core's,
+not Utils'); the second is three controls and would not fill a batch.
+
+`AndroidCreateKeystoreCertificate` is the opposite - twenty fields, and four
+validation functions that are the clearest "does rather than lists" in the
+dialogs so far. Each one *decided* something and *showed* it in the same
+breath:
+
+    if (m_keystorePassLineEdit->text().size() < 6) {
+        m_infoLabel->show();
+        m_infoLabel->setText(Tr::tr("Keystore password is too short."));
+        return Invalid;
+    }
+
+Now one `keystoreCertificateIssue()` over a struct of what was typed, answering
+the first problem and **which field it is about** - the focus the widget code
+set by hand, kept as data so it survives the port. And
+`distinguishedName()`, which builds what keytool is given, escaping every comma
+because one inside a value would otherwise start a new part of the name.
+
+**A behaviour change that falls out of the extraction, and is an improvement:**
+each field used to report only *its own* problem, so typing into the alias
+could hide a complaint about the passwords. Every field now asks the same
+question - what is the first thing wrong with all of this - so the label always
+says the problem the reader will hit next.
+
+**The form itself is not ported, and the reason is specific.** Two "show
+password" check boxes have nowhere to go: a masked field is a `StringAspect`
+with `PasswordLineEditDisplay`, and `StringDelegate.qml` masks it but offers no
+way to reveal it. Only `SecretDelegate` has a reveal toggle, and that aspect is
+Core's keychain-backed `SecretAspect` - wrong for a password typed once and
+handed to keytool. Porting the form means first giving `StringDelegate` a
+reveal for password fields, which is a small change to a component every
+password field in Qt Creator uses, and belongs in its own batch rather than at
+the end of this one.
+
+Negative controls: a certificate borrowing the keystore password checked
+anyway; the country code accepting lower case; commas in the optional name
+parts left unescaped; and the alias check removed, which changes *which* field
+the first complaint is about. All four bit.
+
+QuickUi 180 passed / 0 failed / 1 skipped, exit 0. Android exit 0,
+`KeystoreCertificateTest` 6 passed. No `.qbs` edit.
+
+**Next:** the reveal on `StringDelegate` for password fields, then this form.
