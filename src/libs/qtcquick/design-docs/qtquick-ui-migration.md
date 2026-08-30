@@ -21188,3 +21188,37 @@ both, which for these preset-carrying dialogs is all of them.
 
 Negative control: reverting the added clause makes
 `testTwoRunsDifferByEveryFieldThatIsRemembered` fail on exactly that field.
+
+### Follow-up: two bugs the editor was reported for
+
+**The scroll handle was 0.55 pixels.** `ScrollBar.size` was the true proportion
+of the document on screen, so a 5001-line file gave half a pixel of handle -
+which is what "the handle is not visible" turned out to mean. `QScrollBar`
+floors the slider with `PM_ScrollBarSliderMin`; `Metrics.scrollBarHandleMinimum`
+does the same for both bars.
+
+The floor cannot be applied alone. `position` was `scrollY / contentHeight`,
+which is right only while `size` is the true proportion: the handle travels
+over the `1 - size` of the track beside it, so with the size floored it has to
+be `(scrollY / scrollable) * (1 - size)`, and the drag back the other way
+divides by `1 - size`. Get one without the other and the handle stops short of
+the bottom, or the document does.
+
+The existing test asserted the old mapping, which is why it had to change - it
+was not wrong before, it was specific to `size == shown`. It now also asserts
+the floor, and says so if the fixture's file is too short for the floor to
+apply, so the assertion cannot go quiet.
+
+**`Drag.startDrag()` never started anything.** `dragProxy` has
+`Drag.dragType: Drag.Automatic`, and an automatic drag begins when
+`Drag.active` becomes true; `startDrag()` refuses - with the warning that was
+reported - unless it is already active. So dragging a selection out of the
+Quick editor did nothing at all, and the warning was the only sign. Setting
+`Drag.active = true` is the whole fix, and matches the rest of the proxy, which
+already declares `Drag.supportedActions` and handles `Drag.onDragFinished` -
+both of which are the automatic-drag interface.
+
+**Not diagnosed:** `qt.qpa.window: Window position QRect(3,-123 1006x192)
+outside any known screen`. Several QML `Popup`s could produce it - one flipped
+above its anchor near the top of the screen - and guessing which would be
+guessing. It needs the reproducer.

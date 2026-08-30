@@ -253,7 +253,10 @@ Item {
                     if (far >= Application.styleHints.startDragDistance) {
                         textArea.pendingDragAt = -1
                         textArea.droppedOnSelf = false
-                        dragProxy.Drag.startDrag(Qt.CopyAction | Qt.MoveAction)
+                        // Making it active is what starts an Automatic drag,
+                        // and startDrag() refuses - with a warning - unless it
+                        // already is. Calling that instead started nothing.
+                        dragProxy.Drag.active = true
                     }
                     return
                 }
