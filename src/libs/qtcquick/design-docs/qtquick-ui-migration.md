@@ -21850,3 +21850,46 @@ and no files were added or removed.
 
 **Next:** the rest of the read-only reports. `VcpkgManifestEditor` and
 `MemcheckErrorView` are the next two by size, and the shape is now worked out.
+
+## 2026-08-31 — A fixed-pitch text area, and the CMake code dialog
+
+`CMakeCodeDialog` is the smallest read-only report there is - a line of
+explanation, a block of CMake to copy, and Close - and it needed one thing the
+aspects could not say: **a fixed-pitch font**. The widget set
+`globalFontSettings().data().font()` on its `QPlainTextEdit`; nothing in
+`AspectPresentation` carried that, and the only mention of monospace was
+`FontFilter::MonospacedFonts`, which is about which families a *picker* offers.
+
+So `AspectPresentation::monospace`, `StringAspect::setMonospace()`, and
+`Fonts.fixed` - `QFontDatabase::systemFont(FixedFont)` at body-text size, so a
+form holding both reads as one form. `TextAreaDelegate` picks between them.
+The suppression dialog in Valgrind wants the same thing, which is why this went
+in now rather than being worked around.
+
+**Two lookups by the wrong name, one after the other.** The test could not find
+the drawn field: `findQmlComponents(root, "QQuickTextArea")` returns nothing,
+because QtQuick.Controls' `TextArea` is a QML type and its class name is not
+that. The probe that found it printed *nothing at all* while the test passed -
+which is its own lesson: a probe that walks `children()` and finds no named
+objects looks exactly like a probe that did not run. `findChild<QQuickItem *>`
+by objectName, under each `TextAreaDelegate`, is what works.
+
+**The font test is worth having rather than asserting the flag.** Controls 1
+and 2 - the delegate ignoring the flag, and the flag never reaching QML - both
+leave `presentation().monospace` true and would pass a test that only asked the
+descriptor. Asking `QFontInfo(font).fixedPitch()` of the field that was drawn
+is what makes them fail.
+
+`cmakeCodeForPackages()` is now named in the header and tested: two packages
+give two blocks, separated rather than run together.
+
+Negative controls: the delegate ignoring the flag; the flag never reaching QML;
+and every text area drawn fixed-pitch. All three bit.
+
+QuickUi 190 passed / 0 failed / 1 skipped, exit 0. `Vcpkg` exit 0, 11 passed.
+`Vcpkg_qmllint` and `QtcQuick_qmllint` clean. No `.qbs` edit: `vcpkg.qbs` takes
+`*.qml` by wildcard and no files were added or removed.
+
+**Next:** `SuppressionDialog` in Valgrind, which is the other kind of text
+dialog - a field that is typed into, with a rule about when it may be saved and
+a file it appends to. It wants the same fixed-pitch field, which now exists.

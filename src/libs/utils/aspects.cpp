@@ -1034,6 +1034,7 @@ class StringAspectPrivate
 {
 public:
     StringAspect::DisplayStyle m_displayStyle = StringAspect::LabelDisplay;
+    bool m_monospace = false;
     std::function<QString(const QString &)> m_displayFilter;
 
     Qt::TextElideMode m_elideMode = Qt::ElideNone;
@@ -1261,6 +1262,12 @@ void StringAspect::setDisplayFilter(const std::function<QString(const QString &)
 
     \sa Utils::StringAspect::DisplayStyle
 */
+void StringAspect::setMonospace(bool monospace)
+{
+    d->m_monospace = monospace;
+    emit controlConfigurationChanged();
+}
+
 void StringAspect::setDisplayStyle(DisplayStyle displayStyle)
 {
     d->m_displayStyle = displayStyle;
@@ -1347,6 +1354,7 @@ AspectPresentation StringAspect::presentation() const
     case PasswordLineEditDisplay: p.control = AspectControls::PasswordLineEdit; break;
     }
     p.placeholderText = d->m_placeHolderText;
+    p.monospace = d->m_monospace;
     p.withResetButton = d->m_useResetButton;
     p.defaultValue = defaultValue();
     // What was typed here before, offered the way the widget line edit offers

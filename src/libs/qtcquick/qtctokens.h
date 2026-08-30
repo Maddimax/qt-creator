@@ -142,10 +142,15 @@ class QTCQUICK_EXPORT Fonts : public QObject
     Q_PROPERTY(int iconStandardLineHeight READ iconStandardLineHeight NOTIFY changed)
     Q_PROPERTY(QFont iconActive READ iconActive NOTIFY changed)
     Q_PROPERTY(int iconActiveLineHeight READ iconActiveLineHeight NOTIFY changed)
+    // Text where the columns line up: code to copy, a suppression rule, a
+    // command line. Sized like body text so that a form holding both reads as
+    // one form.
+    Q_PROPERTY(QFont fixed READ fixed NOTIFY changed)
 
 public:
     explicit Fonts(QObject *parent = nullptr);
 
+    QFont fixed() const;
     QFont h1() const;
     int h1LineHeight() const;
     QFont h2() const;

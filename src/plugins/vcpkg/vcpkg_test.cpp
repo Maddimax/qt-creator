@@ -23,6 +23,7 @@ private slots:
     void testWhichPackagesAFilterFinds();
     void testWhatTheDetailsPaneShows();
     void testWhenAPackageCanBeAdded();
+    void testTheCMakeCodeAPackageNeeds();
 };
 
 using namespace Search;
@@ -35,6 +36,23 @@ static VcpkgManifest packageNamed(const QString &name, const QString &shortDescr
     manifest.shortDescription = shortDescription;
     manifest.description = description;
     return manifest;
+}
+
+void VcpkgSearchTest::testTheCMakeCodeAPackageNeeds()
+{
+    // Two packages give two blocks, each of which is the three lines a
+    // CMakeLists.txt needs, and they are separated so they can be pasted as
+    // one lot.
+    const QString code = cmakeCodeForPackages({"zlib", "fmt"});
+    QVERIFY2(code.contains("zlib"), qPrintable(code));
+    QVERIFY2(code.contains("fmt"), qPrintable(code));
+    QVERIFY2(code.contains("find_package"), qPrintable(code));
+    QVERIFY2(code.contains("target_link_libraries"), qPrintable(code));
+
+    // The blocks are separated, not run together.
+    QVERIFY2(code.contains("\n\n"), "the packages ran into one another");
+
+    QVERIFY(cmakeCodeForPackages({}).isEmpty());
 }
 
 void VcpkgSearchTest::testWhichPackagesAFilterFinds()

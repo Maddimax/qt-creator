@@ -7,6 +7,9 @@
 
 namespace Vcpkg::Internal {
 
+// The lines a CMakeLists.txt needs for \a packages, one block each.
+QString cmakeCodeForPackages(const QStringList &packages);
+
 QByteArray addDependencyToManifest(const QByteArray &manifest, const QString &package);
 
 void setupVcpkgManifestEditor();

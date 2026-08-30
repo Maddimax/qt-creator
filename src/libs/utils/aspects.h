@@ -955,6 +955,10 @@ public:
     };
     void setDisplayStyle(DisplayStyle style);
 
+    // Whether the text is shown in a fixed-pitch font, for something whose
+    // columns line up.
+    void setMonospace(bool monospace);
+
     void fromMap(const Utils::Store &map) override;
     void toMap(Utils::Store &map) const override;
     void volatileToMap(Utils::Store &map) const override;

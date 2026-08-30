@@ -333,6 +333,7 @@ private slots:
     void testARowIsActivatedByReturn();
     void testWhatATableAspectRemembers();
     void testATableAspectDescribesItsTable();
+    void testATextAreaCanLineItsColumnsUp();
     void testATreeRowIsActivatedByReturn();
     void testATableCellShowsTheIconItsModelGives();
     void testATableWithNoColumnNamesHasNoHeader();
@@ -5190,6 +5191,61 @@ void QuickUiTest::testClickingAHeadingSortsByIt()
             ++indicators;
     }
     QCOMPARE(indicators, 1);
+}
+
+void QuickUiTest::testATextAreaCanLineItsColumnsUp()
+{
+    // Text whose columns line up - code to copy, a suppression rule - asks for
+    // a fixed-pitch font. Ordinary prose does not.
+    Utils::AspectContainer page;
+    Utils::StringAspect prose(&page);
+    prose.setLabelText("Prose");
+    prose.setDisplayStyle(Utils::StringAspect::TextEditDisplay);
+    prose.setValue("some words");
+
+    Utils::StringAspect code(&page);
+    code.setLabelText("Code");
+    code.setDisplayStyle(Utils::StringAspect::TextEditDisplay);
+    code.setMonospace(true);
+    code.setValue("find_package(zlib)");
+
+    QVERIFY(!prose.presentation().monospace);
+    QVERIFY(code.presentation().monospace);
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+
+    // By objectName rather than by type: QtQuick.Controls' TextArea is a QML
+    // type, so findQmlComponents("QQuickTextArea") finds nothing.
+    QQuickItem *proseArea = nullptr;
+    QQuickItem *codeArea = nullptr;
+    QTRY_VERIFY([&] {
+        proseArea = nullptr;
+        codeArea = nullptr;
+        for (QQuickItem *const delegate :
+             findQmlComponents(quickWidget->rootObject(), "TextAreaDelegate")) {
+            auto *const area = delegate->findChild<QQuickItem *>("textArea");
+            if (!area)
+                continue;
+            const QString text = area->property("text").toString();
+            if (text == "some words")
+                proseArea = area;
+            else if (text.startsWith("find_package"))
+                codeArea = area;
+        }
+        return proseArea && codeArea;
+    }());
+
+    // The one that asked is fixed-pitch and the one that did not is not, so
+    // the flag reaches the drawn field rather than only the descriptor.
+    const QFont codeFont = codeArea->property("font").value<QFont>();
+    const QFont proseFont = proseArea->property("font").value<QFont>();
+    QVERIFY2(QFontInfo(codeFont).fixedPitch(),
+             qPrintable("the code field was drawn in " + codeFont.family()));
+    QVERIFY2(codeFont.family() != proseFont.family(),
+             qPrintable("both fields were drawn in " + codeFont.family()));
 }
 
 void QuickUiTest::testWhatATableAspectRemembers()

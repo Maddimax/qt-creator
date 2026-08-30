@@ -323,6 +323,10 @@ public:
     // Table. The text in an empty filter field; no filter where it is empty.
     QString filterPlaceholderText;
 
+    // TextEdit. Whether the text is shown in a fixed-pitch font, for something
+    // whose columns line up - code to copy, a suppression rule.
+    bool monospace = false;
+
     // Table. Which column the rows are sorted by to begin with, and which way.
     // -1 leaves them in the order the model gives them, which is what a table
     // does unless it asks otherwise. A table that names a column is sortable by

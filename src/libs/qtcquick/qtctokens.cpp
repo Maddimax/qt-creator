@@ -6,6 +6,8 @@
 
 #include "qtctokens.h"
 
+#include <QFontDatabase>
+
 #include <utils/stylehelper.h>
 #include <utils/theme/theme.h>
 
@@ -268,6 +270,13 @@ QFont Fonts::h6Capital() const
 int Fonts::h6CapitalLineHeight() const
 {
     return Utils::StyleHelper::uiFontLineHeight(Utils::StyleHelper::UiElementH6Capital);
+}
+
+QFont Fonts::fixed() const
+{
+    QFont font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+    font.setPointSizeF(Utils::StyleHelper::uiFont(Utils::StyleHelper::UiElementBody1).pointSizeF());
+    return font;
 }
 
 QFont Fonts::body1() const

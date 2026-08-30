@@ -66,6 +66,8 @@ RowLayout {
                 placeholderText: delegate.pres.placeholderText ?? ""
                 enabled: delegate.aspect?.enabled ?? false
                 readOnly: delegate.aspect?.readOnly ?? true
+                // Text whose columns line up asks for a font where they do.
+                font: (delegate.pres.monospace ?? false) ? Fonts.fixed : Fonts.body1
                 wrapMode: TextEdit.NoWrap
                 ToolTip.text: delegate.toolTip
                 ToolTip.visible: hovered && delegate.toolTip !== ""

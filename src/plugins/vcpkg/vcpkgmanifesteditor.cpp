@@ -22,7 +22,10 @@
 #include <texteditor/textdocument.h>
 #include <texteditor/texteditor.h>
 
+#include <coreplugin/dialogs/ioptionspage.h>
+
 #include <QDialogButtonBox>
+#include <QVBoxLayout>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -57,7 +60,7 @@ R"(The package %1 provides CMake targets:
     return result;
 }
 
-static QString cmakeCodeForPackages(const QStringList &packages)
+QString cmakeCodeForPackages(const QStringList &packages)
 {
     QString result;
     for (const QString &package : packages)
@@ -65,28 +68,49 @@ static QString cmakeCodeForPackages(const QStringList &packages)
     return result;
 }
 
+class CMakeCodeSettings final : public AspectContainer
+{
+public:
+    explicit CMakeCodeSettings(const QStringList &packages)
+    {
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Vcpkg/CMakeCodeDialog.qml"));
+
+        hint.setQmlName("Hint");
+        hint.setText(Tr::tr("Copy paste the required lines into your CMakeLists.txt:"));
+
+        code.setQmlName("Code");
+        code.setDisplayStyle(StringAspect::TextEditDisplay);
+        // Read, not written: the reader copies it out.
+        code.setReadOnly(true);
+        // CMake lines whose arguments line up.
+        code.setMonospace(true);
+        code.setValue(cmakeCodeForPackages(packages));
+    }
+
+    TextDisplay hint{this};
+    StringAspect code{this};
+};
+
 class CMakeCodeDialog final : public QDialog
 {
 public:
     explicit CMakeCodeDialog(const QStringList &packages)
+        : m_settings(new CMakeCodeSettings(packages))
     {
         resize(600, 600);
 
-        auto codeBrowser = new QPlainTextEdit;
-        codeBrowser->setFont(globalFontSettings().data().font());
-        codeBrowser->setPlainText(cmakeCodeForPackages(packages));
-
         auto buttonBox = new QDialogButtonBox(QDialogButtonBox::Close);
 
-        using namespace Layouting;
-        Column {
-            Tr::tr("Copy paste the required lines into your CMakeLists.txt:"),
-            codeBrowser,
-            buttonBox,
-        }.attachTo(this);
+        auto layout = new QVBoxLayout(this);
+        layout->addWidget(Core::createAspectForm(m_settings.get()));
+        layout->addWidget(buttonBox);
 
         connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
     }
+
+private:
+    const std::unique_ptr<CMakeCodeSettings> m_settings;
 };
 
 class VcpkgManifestEditorWidget final : public TextEditor::TextEditorWidget
