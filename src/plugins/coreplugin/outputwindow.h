@@ -5,6 +5,7 @@
 
 #include "core_global.h"
 #include "icontext.h"
+#include "outputtasksink.h"
 
 #include <utils/outputformat.h>
 #include <utils/storekey.h>
@@ -25,7 +26,7 @@ namespace Core {
 class IFindSupport;
 namespace Internal { class OutputWindowPrivate; }
 
-class CORE_EXPORT OutputWindow : public QPlainTextEdit
+class CORE_EXPORT OutputWindow : public QPlainTextEdit, public OutputTaskSink
 {
     Q_OBJECT
 
@@ -124,9 +125,10 @@ public:
 
     void appendMessage(const QString &out, Utils::OutputFormat format);
 
-    enum class TaskSource { Direct, Parsed };
-    void registerPositionOf(
-        unsigned taskId, int linkedOutputLines, int skipLines, int offset, TaskSource taskSource);
+    using TaskSource = OutputTaskSink::TaskSource;
+    void registerPositionOf(unsigned taskId, int linkedOutputLines, int skipLines,
+                            int offset = 0,
+                            TaskSource taskSource = TaskSource::Direct) override;
     bool knowsPositionOf(unsigned taskId) const;
     void showPositionOf(unsigned taskId);
 

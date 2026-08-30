@@ -6,6 +6,11 @@
 #include "task.h"
 #include "taskhub.h"
 
+#include <coreplugin/outputpaneview.h>
+#include <coreplugin/outputview.h>
+#include <QTest>
+#include <QTextCursor>
+#include <coreplugin/outputtasksink.h>
 #include <coreplugin/outputwindow.h>
 #include <texteditor/fontsettings.h>
 #include <utils/algorithm.h>
@@ -115,14 +120,15 @@ void OutputTaskParser::fixTargetLink()
 void OutputTaskParser::runPostPrintActions(QObject *sink)
 {
     int offset = 0;
-    if (const auto ow = qobject_cast<Core::OutputWindow *>(sink)) {
-        Utils::reverseForeach(taskInfo(), [ow, &offset](const TaskInfo &ti) {
-            ow->registerPositionOf(
+    // Whatever the output is drawn with, so long as it remembers positions.
+    if (const auto view = dynamic_cast<Core::OutputTaskSink *>(sink)) {
+        Utils::reverseForeach(taskInfo(), [view, &offset](const TaskInfo &ti) {
+            view->registerPositionOf(
                 ti.task.id(),
                 ti.linkedLines,
                 ti.skippedLines,
                 offset,
-                Core::OutputWindow::TaskSource::Parsed);
+                Core::OutputTaskSink::TaskSource::Parsed);
             offset += ti.linkedLines;
         });
     }
@@ -226,4 +232,71 @@ void OutputTaskParser::setOrigin(const QString &source)
     d->origin = source;
 }
 
+#ifdef WITH_TESTS
+namespace Internal {
+
+// Reports one task for the line it recognises, the way a compiler parser does.
+class TaskReportingParser final : public OutputTaskParser
+{
+public:
+    explicit TaskReportingParser(const Task &task)
+        : m_task(task)
+    {}
+
+private:
+    Result handleLine(const QString &line, Utils::OutputFormat) override
+    {
+        if (!line.contains("error:"))
+            return Status::NotHandled;
+        scheduleTask(m_task, 1);
+        return Status::Done;
+    }
+
+    const Task m_task;
+};
+
+class OutputTaskParserTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testAParserTellsAQuickDrawnViewWhereItsTaskIs()
+    {
+        // runPostPrintActions() used to ask whether the sink was a
+        // Core::OutputWindow, so a pane drawn with anything else registered
+        // nothing at all - silently, and only noticeable by clicking a task in
+        // the Issues pane and having nothing happen.
+        const Task task(Task::Error, "an error", Utils::FilePath::fromString("main.cpp"), 1,
+                        Utils::Id("Test.Category"));
+
+        Core::OutputPaneView view;
+        view.formatter()->setLineParsers({new TaskReportingParser(task)});
+
+        // A process's own output, which is the only kind the formatter runs
+        // line parsers over.
+        view.appendMessage("configuring\n", Utils::StdErrFormat);
+        view.appendMessage("main.cpp:1: error: no\n", Utils::StdErrFormat);
+        view.formatter()->flush();
+
+        QVERIFY2(view.knowsPositionOf(task.id()),
+                 "the parser never told the view where its task was");
+
+        // And at the right line: the one the parser read, not the end.
+        view.showPositionOf(task.id());
+        QCOMPARE(view.view()->textCursor().selectedText(), QString("main.cpp:1: error: no"));
+    }
+};
+
+} // namespace Internal
+
+QObject *createOutputTaskParserTest()
+{
+    return new Internal::OutputTaskParserTest;
+}
+#endif // WITH_TESTS
+
 } // namespace ProjectExplorer
+
+#ifdef WITH_TESTS
+#include "ioutputparser.moc"
+#endif

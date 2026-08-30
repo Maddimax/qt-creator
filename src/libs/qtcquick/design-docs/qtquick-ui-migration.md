@@ -18199,3 +18199,55 @@ Controls, six, all biting: General Messages handing out no text; the pane
 handing out the filtered text instead of everything; context lines not reaching
 the filter; General Messages ignoring its filter; the view never being made at
 `showEvent`; and the font and zoom set before the view existed being dropped.
+
+### Task positions, and the cast that would have failed silently
+
+The last piece of `OutputWindow` that had not been ported, and the one Compile
+Output and Application Output need: clicking a task in the Issues pane shows
+the lines of output it was reported from.
+
+**The parser looked for a concrete widget.** `OutputTaskParser::runPostPrintActions()`
+did `qobject_cast<Core::OutputWindow *>(sink)` on the object the formatter
+holds as its sink. Any pane drawn with something else would have registered
+*nothing at all* - no warning, no crash, just a task that does nothing when
+clicked. Exactly the kind of failure the migration keeps producing, and this
+one was waiting two panes ahead.
+
+So there is now `Core::OutputTaskSink`, an abstract class both views implement,
+found with `dynamic_cast` because they are unrelated types - a widget and a
+`QWidget` wrapper around a Quick view - and no common QObject base is available
+to `qobject_cast` through.
+
+**The arithmetic came out with it.** `taskLineRange(blockCount, linkedOutputLines,
+skipLines, offset, extraLines)` is a free function in Core, and its test is the
+first time this has been asked anything without running a build and clicking a
+task. The `extraLines` term is the interesting one: a task reported *directly*
+names output still sitting in the widget's chunk queue, so its lines are where
+they *will* be, not where the end is now. `OutputPaneView` has no queue - it
+writes straight through - so that term is zero there, which is why the
+parameter is passed in rather than read from either view.
+
+**`showPositionOf` needs no new drawing.** Selecting the task's lines is enough:
+the Quick view scrolls to its cursor, as the find batch established. The
+selection is made from the end of the last line back to the start of the first,
+so the cursor lands on the *first* line of the task rather than below its
+output - a control that reverses it fails, and the difference is exactly what
+the reader sees after clicking.
+
+The widget centres the cursor and the Quick view only brings it into view. That
+is a real difference and it is left as is: `centerCursor()` has no Quick
+equivalent that does not fight the `ScrollView`.
+
+**Two mistakes worth recording.** Building only `Core` after adding a member to
+a header that ProjectExplorer includes gave an AddressSanitizer
+heap-buffer-overflow inside a `Utils::Key` copy - the caller allocated the old
+size and the constructor wrote the new layout. The stack frame naming
+`buildsystemoutputwindow.cpp` for an allocation whose overflow was in Core is
+what identified it. And the parser test failed at first because it fed
+`GeneralMessageFormat`: `OutputFormatter` runs line parsers only over
+`StdOutFormat`, `StdErrFormat` and `DebugFormat`, so nothing was ever parsed.
+
+Controls, all four biting on their own test: dropping `extraLines` from the
+arithmetic; not handing the view to the formatter as its sink; putting the
+`qobject_cast<Core::OutputWindow *>` back in the parser; and selecting the
+task's lines from the wrong end.

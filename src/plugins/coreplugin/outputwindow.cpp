@@ -1,6 +1,7 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
+#include "outputtasksink.h"
 #include "outputwindow.h"
 
 #include "actionmanager/actionmanager.h"
@@ -892,14 +893,8 @@ void OutputWindow::registerPositionOf(unsigned taskId, int linkedOutputLines, in
     // one written to the text edit, otherwise it's the last queued output.
     const int extraLines = taskSource == TaskSource::Parsed ? 0 : totalQueuedLines();
 
-    const int blocknumber = document()->blockCount() - offset;
-
-    // -1 because OutputFormatter has already added the newline.
-    const int firstLine = blocknumber - linkedOutputLines - skipLines - 1 + extraLines;
-
-    const int lastLine = firstLine + linkedOutputLines - 1;
-
-    d->taskPositions.insert(taskId, {firstLine, lastLine});
+    d->taskPositions.insert(taskId, taskLineRange(document()->blockCount(), linkedOutputLines,
+                                                  skipLines, offset, extraLines));
 }
 
 bool OutputWindow::knowsPositionOf(unsigned taskId) const
@@ -1389,6 +1384,32 @@ private slots:
         QVERIFY2(document.toPlainText().contains("first run")
                      && document.toPlainText().contains("second run"),
                  "dimming a run removed it");
+    }
+
+    // Which lines of the document a task's output occupies. The widget worked
+    // this out inside itself from its own block count, so the only way to ask
+    // it anything was to run a build and click a task in the Issues pane.
+    void testWhichLinesATaskWasReportedFrom()
+    {
+        // A parser reads output that is already written, so nothing is owed:
+        // five blocks, the last of them the empty one the trailing newline
+        // leaves, and a task covering the two lines before it.
+        QCOMPARE(Core::taskLineRange(5, 2, 0, 0, 0), qMakePair(2, 3));
+
+        // Skipped lines sit between the task's output and the end.
+        QCOMPARE(Core::taskLineRange(5, 2, 1, 0, 0), qMakePair(1, 2));
+
+        // The offset walks back over tasks already placed, which is how
+        // several found in one chunk end up on different lines.
+        QCOMPARE(Core::taskLineRange(5, 1, 0, 0, 0), qMakePair(3, 3));
+        QCOMPARE(Core::taskLineRange(5, 1, 0, 1, 0), qMakePair(2, 2));
+        QCOMPARE(Core::taskLineRange(5, 1, 0, 2, 0), qMakePair(1, 1));
+
+        // And a task reported directly names output still queued, so its lines
+        // are where they will be once that is written, not where the end is
+        // now. Getting this wrong points the task at the wrong lines only when
+        // output is arriving fast enough to be queued.
+        QCOMPARE(Core::taskLineRange(5, 1, 0, 0, 4), qMakePair(7, 7));
     }
 
     // Retracting lines a pane has already printed - the progress lines a build

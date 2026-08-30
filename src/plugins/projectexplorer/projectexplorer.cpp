@@ -931,6 +931,7 @@ Result<> ProjectExplorerPlugin::initialize(const QStringList &arguments)
 
 #ifdef WITH_TESTS
     addTestCreator(createAbiTest);
+    addTestCreator(createOutputTaskParserTest);
     addTestCreator(createAbiAspectsTest);
     addTestCreator(createClangParserTest);
     addTestCreator(createClangClParserTest);

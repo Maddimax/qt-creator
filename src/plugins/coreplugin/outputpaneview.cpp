@@ -16,6 +16,8 @@
 #include <utils/aggregate.h>
 #include <QTest>
 #include <QApplication>
+#include <QTextBlock>
+#include <QTextCursor>
 #include <QVBoxLayout>
 
 using namespace Utils;
@@ -28,7 +30,9 @@ OutputPaneView::OutputPaneView(const Key &zoomSettingsKey, QWidget *parent)
     , m_zoomSettingsKey(zoomSettingsKey)
 {
     m_startOfNewContent.setKeepPositionOnInsert(true);
-    m_formatter.setSink(&m_source);
+    // Itself as the sink object, so a parser that finds a task can tell this
+    // where the task's output went - see OutputTaskSink.
+    m_formatter.setSink(&m_source, this);
 
     auto * const layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
@@ -96,6 +100,44 @@ void OutputPaneView::grayOutOldContent()
         refilter();
 }
 
+void OutputPaneView::registerPositionOf(unsigned taskId, int linkedOutputLines, int skipLines,
+                                       int offset, TaskSource source)
+{
+    if (linkedOutputLines <= 0)
+        return;
+
+    // Nothing is queued here - what is appended is written straight away - so
+    // a task reported directly names output that is already in the document,
+    // the same as one a parser found.
+    Q_UNUSED(source)
+    m_taskPositions.insert(taskId, taskLineRange(m_source.blockCount(), linkedOutputLines,
+                                                 skipLines, offset, 0));
+}
+
+bool OutputPaneView::knowsPositionOf(unsigned taskId) const
+{
+    return m_taskPositions.contains(taskId);
+}
+
+void OutputPaneView::showPositionOf(unsigned taskId)
+{
+    OutputView * const output = view();
+    QTC_ASSERT(output, return);
+
+    const QPair<int, int> lines = m_taskPositions.value(taskId, {-1, -1});
+    if (lines.first < 0)
+        return;
+
+    // Selected from the end of the last line back to the start of the first,
+    // so the cursor - which is what the view scrolls to - ends up on the
+    // first line of the task rather than below its output.
+    QTextCursor cursor(m_source.findBlockByNumber(lines.second));
+    cursor.movePosition(QTextCursor::EndOfBlock);
+    cursor.setPosition(m_source.findBlockByNumber(lines.first).position(),
+                       QTextCursor::KeepAnchor);
+    output->setTextCursor(cursor);
+}
+
 void OutputPaneView::clear()
 {
     m_formatter.clear();
@@ -103,6 +145,7 @@ void OutputPaneView::clear()
     m_filtered.clear();
     m_appendState = {};
     m_startOfNewContent.setPosition(0);
+    m_taskPositions.clear();
 }
 
 void OutputPaneView::clearLinesPrefixedWith(const QString &prefix, bool deleteTrailingLineBreak)
@@ -398,6 +441,40 @@ private slots:
         QVERIFY2(!shown->shownDocument()->toPlainText().contains("matching nothing"),
                  "the pane's filter never reached its view");
         QVERIFY(shown->shownDocument()->toPlainText().contains(written));
+    }
+
+    void testShowingWhereATaskWasReportedFrom()
+    {
+        OutputPaneView view;
+        QVERIFY(view.view());
+
+        view.appendMessage("configuring\n", Utils::GeneralMessageFormat);
+        view.appendMessage("main.cpp:1: error: no\n", Utils::GeneralMessageFormat);
+        view.appendMessage("   here it is\n", Utils::GeneralMessageFormat);
+
+        QVERIFY(!view.knowsPositionOf(42));
+        view.registerPositionOf(42, 2, 0, 0, OutputPaneView::TaskSource::Parsed);
+        QVERIFY(view.knowsPositionOf(42));
+
+        // Clicking the task selects the lines it was reported from, which is
+        // what makes the view scroll to them.
+        view.showPositionOf(42);
+        const QTextCursor selected = view.view()->textCursor();
+        QCOMPARE(selected.selectedText().replace(QChar::ParagraphSeparator, '\n'),
+                 QString("main.cpp:1: error: no\n   here it is"));
+
+        // The cursor ends on the first line of the task, not below its output:
+        // the view scrolls to wherever the cursor is.
+        QCOMPARE(selected.position(),
+                 view.shownDocument()->findBlockByNumber(1).position());
+
+        // Nothing was registered for a task that has none, and asking does not
+        // move the selection.
+        view.showPositionOf(43);
+        QCOMPARE(view.view()->textCursor().selectedText(), selected.selectedText());
+
+        view.clear();
+        QVERIFY2(!view.knowsPositionOf(42), "positions survived the output being cleared");
     }
 
     void testFindSupportIsReachableFromTheOutputArea()

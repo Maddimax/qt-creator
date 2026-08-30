@@ -156,6 +156,8 @@ QtcPlugin {
             "outputpanemanager.h",
             "outputpaneview.cpp",
             "outputpaneview.h",
+            "outputtasksink.cpp",
+            "outputtasksink.h",
             "outputview.cpp",
             "outputview.h",
             "outputwindow.cpp",

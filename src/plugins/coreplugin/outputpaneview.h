@@ -4,6 +4,7 @@
 #pragma once
 
 #include "core_global.h"
+#include "outputtasksink.h"
 #include "outputwindow.h"
 
 #include <utils/outputformat.h>
@@ -27,7 +28,7 @@ class OutputView;
 //
 // Holds no actions and knows nothing about a pane's tool bar, so it can be
 // built as often as a test likes.
-class CORE_EXPORT OutputPaneView : public QWidget
+class CORE_EXPORT OutputPaneView : public QWidget, public OutputTaskSink
 {
     Q_OBJECT
 
@@ -50,6 +51,14 @@ public:
 
     void setFilter(const QString &text, OutputWindow::FilterModeFlags mode,
                    int before = 0, int after = 0);
+
+    // Which of its lines a task was reported from, and showing them when the
+    // task is clicked in the Issues pane.
+    void registerPositionOf(unsigned taskId, int linkedOutputLines, int skipLines,
+                            int offset = 0,
+                            TaskSource source = TaskSource::Direct) override;
+    bool knowsPositionOf(unsigned taskId) const;
+    void showPositionOf(unsigned taskId);
 
     void setBaseFont(const QFont &font);
     void setWheelZoomEnabled(bool enabled);
@@ -98,6 +107,7 @@ private:
     OutputWindow::FilterModeFlags m_filterMode;
     int m_beforeContext = 0;
     int m_afterContext = 0;
+    QHash<unsigned, QPair<int, int>> m_taskPositions;
     const Utils::Key m_zoomSettingsKey;
 };
 

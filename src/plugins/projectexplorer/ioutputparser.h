@@ -58,4 +58,8 @@ private:
     Private * const d;
 };
 
+#ifdef WITH_TESTS
+QObject *createOutputTaskParserTest();
+#endif
+
 } // namespace ProjectExplorer
