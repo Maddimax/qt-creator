@@ -62,6 +62,7 @@
 #include "projectfilewizardextension.h"
 #include "projectmanager.h"
 #include "projectnodes.h"
+#include "projectmodels.h"
 #include "projectpanelfactory.h"
 #include "projecttree.h"
 #include "projecttreewidget.h"
@@ -947,6 +948,7 @@ Result<> ProjectExplorerPlugin::initialize(const QStringList &arguments)
     addTestCreator(createTargetTripleAspectsTest);
     addTestCreator(createToolchainConfigAspectsTest);
     addTestCreator(createProjectPanelFactoryTest);
+    addTestCreator(Internal::createDropFileDialogTest);
     addTestCreator(Internal::createToolchainOptionsPageTest);
     addTestCreator(Internal::createDeviceSettingsPageTest);
     addTestCreator(createGenericOutputParserTest);

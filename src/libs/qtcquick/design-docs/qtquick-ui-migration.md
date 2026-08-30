@@ -20088,3 +20088,51 @@ QuickUi 181 passed / 0 failed / 1 skipped, exit 0. Android exit 0,
 (screenrecorder) and `SaveDialog` (macros) are the two that looked like real
 forms; `PluginDialog` and `VersionDialog` are not, for reasons already written
 down.
+
+## 2026-08-30 — Choose Drop Action, and a flag nobody sets headlessly
+
+Of the two the last entry named, `RecordOptionsDialog` turned out to hold a
+`CropScene` - a custom painting widget for picking a screen rectangle - so the
+classifier over-reported again, for the fourth time and for the fourth
+different reason. `DropFileDialog` is the real form, and a good one: its
+closure did three things at once.
+
+**What it listed depended on the drop, and so did what it said.** With a target
+directory there are four actions; without one only the two that move
+references, *and they are named differently* - "Copy Only File References"
+where the file options sit beside them, "Copy File References" where they do
+not, because "Only" answers a question nobody asked when there is nothing to
+contrast with. That is `offeredDropActions()` and `dropActionText()` now.
+
+**And two things it did:** the target directory is only editable for an action
+that puts files somewhere (`dropActionNeedsTargetDir()`), and OK is only
+available when the chosen action either needs no directory or has a usable one
+(`dropCanBeAccepted()`).
+
+**The test found a bug in my own port, which is what it was for.**
+`FilePathAspect::isValid()` is not computed - it is a flag written by
+`validationMessage()`, which only the *drawn* field asks for, on a timer. So:
+
+- Headless, a path is never valid, and asserting `canBeAccepted()` on a bare
+  container cannot work. The test says so where it would otherwise look like an
+  omission, and the decision itself is tested as a pure function instead.
+- More to the point, validity changes **independently of the value**, so
+  `addOnChanged` does not fire for it. My first version refreshed the OK button
+  on value changes only, which would have left it disabled until something else
+  happened to poke it. `FilePathAspect::validChanged` is a separate signal and
+  is now connected - the widget dialog listened to `PathChooser::validChanged`
+  for exactly this reason.
+
+Negative controls: the file options offered with nowhere to put files; a
+reference-only drop refused until a directory is usable; the directory staying
+editable whatever is chosen; and the page naming an aspect that is not there.
+All four bit.
+
+QuickUi 181 passed / 0 failed / 1 skipped, exit 0. `DropFileDialogTest` 7
+passed; `ProjectExplorer` as a whole exits 2 on two of its three standing
+failures. `ProjectExplorer_qmllint` clean. No `.qbs` edit.
+
+**Next:** `SaveDialog` (macros) is read and ready - two fields and one
+behaviour, that Save is offered only for a name matching `\w+`, which is a
+validator and a lambda today. After that the 16 are down to the ones needing a
+second look each.

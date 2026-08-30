@@ -12,6 +12,7 @@
 #include "projecttree.h"
 #include "target.h"
 
+#include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/documentmanager.h>
 #include <coreplugin/icore.h>
 #include <coreplugin/iversioncontrol.h>
@@ -31,6 +32,10 @@
 
 #include <QButtonGroup>
 #include <QDialog>
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
 #include <QDialogButtonBox>
 #include <QElapsedTimer>
 #include <QFileInfo>
@@ -783,82 +788,143 @@ bool FlatModel::canDropMimeData(const QMimeData *data, Qt::DropAction, int, int,
 
 enum class DropAction { Copy, CopyWithFiles, Move, MoveWithFiles };
 
+// Which drop actions are on offer, and what they are called. Without a target
+// directory only the reference-only ones are - there is nowhere to put files -
+// and then their names lose the "Only": with the file options beside them it
+// says which of the two this is, and on its own it answers a question nobody
+// asked.
+//
+// Kept out of the dialog because it is a question about the drop, and there
+// the only way to ask it was to drag files between two project nodes.
+QList<DropAction> offeredDropActions(bool canCopyFiles)
+{
+    if (canCopyFiles) {
+        return {DropAction::Copy, DropAction::Move,
+                DropAction::CopyWithFiles, DropAction::MoveWithFiles};
+    }
+    return {DropAction::Copy, DropAction::Move};
+}
+
+QString dropActionText(DropAction action, bool canCopyFiles)
+{
+    switch (action) {
+    case DropAction::Copy:
+        return canCopyFiles ? Tr::tr("Copy Only File References")
+                            : Tr::tr("Copy File References");
+    case DropAction::Move:
+        return canCopyFiles ? Tr::tr("Move Only File References")
+                            : Tr::tr("Move File References");
+    case DropAction::CopyWithFiles:
+        return Tr::tr("Copy file references and files");
+    case DropAction::MoveWithFiles:
+        return Tr::tr("Move file references and files");
+    }
+    return {};
+}
+
+// Only the actions that move files need somewhere to put them.
+bool dropActionNeedsTargetDir(DropAction action)
+{
+    return action == DropAction::CopyWithFiles || action == DropAction::MoveWithFiles;
+}
+
+// Whether the drop can go ahead: one that needs a target directory cannot
+// until there is a usable one.
+bool dropCanBeAccepted(DropAction action, bool targetDirIsValid)
+{
+    return !dropActionNeedsTargetDir(action) || targetDirIsValid;
+}
+
+class DropFileSettings final : public AspectContainer
+{
+public:
+    explicit DropFileSettings(const FilePath &defaultTargetDir)
+        : m_canCopyFiles(!defaultTargetDir.isEmpty())
+    {
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/ProjectExplorer/DropFileDialog.qml"));
+
+        question.setQmlName("Question");
+        question.setText(Tr::tr("You just dragged some files from one project node to "
+                                "another.\nWhat should %1 do now?")
+                             .arg(QGuiApplication::applicationDisplayName()));
+
+        action.setQmlName("Action");
+        action.setDisplayStyle(SelectionAspect::DisplayStyle::RadioButtons);
+        const QList<DropAction> offered = offeredDropActions(m_canCopyFiles);
+        for (const DropAction offer : offered)
+            action.addOption(dropActionText(offer, m_canCopyFiles));
+        m_offered = offered;
+        // The one that keeps the files with their references, where that is
+        // possible at all.
+        action.setDefaultValue(int(offered.indexOf(m_canCopyFiles ? DropAction::MoveWithFiles
+                                                                  : DropAction::Move)));
+        action.setValue(action.defaultValue());
+
+        targetDir.setQmlName("TargetDir");
+        targetDir.setLabelText(Tr::tr("Target directory:"));
+        targetDir.setExpectedKind(PathChooserKind::ExistingDirectory);
+        targetDir.setValue(defaultTargetDir);
+        // Nowhere to put files means no question about where.
+        targetDir.setVisible(m_canCopyFiles);
+
+        action.addOnChanged(this, [this] { refreshTargetDir(); });
+        refreshTargetDir();
+    }
+
+    void refreshTargetDir()
+    {
+        targetDir.setEnabled(m_canCopyFiles && dropActionNeedsTargetDir(chosenAction()));
+    }
+
+    DropAction chosenAction() const { return m_offered.value(action(), DropAction::Copy); }
+    bool canBeAccepted() const { return dropCanBeAccepted(chosenAction(), targetDir.isValid()); }
+
+    TextDisplay question{this};
+    SelectionAspect action{this};
+    FilePathAspect targetDir{this};
+
+private:
+    const bool m_canCopyFiles;
+    QList<DropAction> m_offered;
+};
+
 class DropFileDialog : public QDialog
 {
 public:
     DropFileDialog(const FilePath &defaultTargetDir)
-        : m_buttonBox(new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel)),
-          m_buttonGroup(new QButtonGroup(this))
+        : m_settings(defaultTargetDir)
+        , m_buttonBox(new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel))
     {
         setWindowTitle(Tr::tr("Choose Drop Action"));
-        const bool offerFileIo = !defaultTargetDir.isEmpty();
-        auto * const layout = new QVBoxLayout(this);
-        const QString idename(QGuiApplication::applicationDisplayName());
-        layout->addWidget(new QLabel(Tr::tr("You just dragged some files from one project node to "
-                                        "another.\nWhat should %1 do now?").arg(idename), this));
-        auto * const copyButton = new QRadioButton(this);
-        m_buttonGroup->addButton(copyButton, int(DropAction::Copy));
-        layout->addWidget(copyButton);
-        auto * const moveButton = new QRadioButton(this);
-        m_buttonGroup->addButton(moveButton, int(DropAction::Move));
-        layout->addWidget(moveButton);
-        if (offerFileIo) {
-            copyButton->setText(Tr::tr("Copy Only File References"));
-            moveButton->setText(Tr::tr("Move Only File References"));
-            auto * const copyWithFilesButton
-                    = new QRadioButton(Tr::tr("Copy file references and files"), this);
-            m_buttonGroup->addButton(copyWithFilesButton, int(DropAction::CopyWithFiles));
-            layout->addWidget(copyWithFilesButton);
-            auto * const moveWithFilesButton
-                    = new QRadioButton(Tr::tr("Move file references and files"), this);
-            m_buttonGroup->addButton(moveWithFilesButton, int(DropAction::MoveWithFiles));
-            layout->addWidget(moveWithFilesButton);
-            moveWithFilesButton->setChecked(true);
-            auto * const targetDirLayout = new QHBoxLayout;
-            layout->addLayout(targetDirLayout);
-            targetDirLayout->addWidget(new QLabel(Tr::tr("Target directory:"), this));
-            m_targetDirChooser = new PathChooser(this);
-            m_targetDirChooser->setExpectedKind(PathChooserKind::ExistingDirectory);
-            m_targetDirChooser->setFilePath(defaultTargetDir);
-            connect(m_targetDirChooser, &PathChooser::validChanged, this, [this](bool valid) {
-                m_buttonBox->button(QDialogButtonBox::Ok)->setEnabled(valid);
-            });
-            targetDirLayout->addWidget(m_targetDirChooser);
-            connect(m_buttonGroup, &QButtonGroup::buttonClicked, this, [this] {
-                switch (dropAction()) {
-                case DropAction::CopyWithFiles:
-                case DropAction::MoveWithFiles:
-                    m_targetDirChooser->setEnabled(true);
-                    m_buttonBox->button(QDialogButtonBox::Ok)
-                            ->setEnabled(m_targetDirChooser->isValid());
-                    break;
-                case DropAction::Copy:
-                case DropAction::Move:
-                    m_targetDirChooser->setEnabled(false);
-                    m_buttonBox->button(QDialogButtonBox::Ok)->setEnabled(true);
-                    break;
-                }
-            });
-        } else {
-            copyButton->setText(Tr::tr("Copy File References"));
-            moveButton->setText(Tr::tr("Move File References"));
-            moveButton->setChecked(true);
-        }
+
+        const auto layout = new QVBoxLayout(this);
+        layout->addWidget(Core::createAspectForm(&m_settings));
+        layout->addWidget(m_buttonBox);
+
         connect(m_buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
         connect(m_buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
-        layout->addWidget(m_buttonBox);
+
+        // Whether the drop can go ahead follows both the action and the
+        // directory, so both are watched rather than only the buttons.
+        const auto refreshOk = [this] {
+            m_buttonBox->button(QDialogButtonBox::Ok)->setEnabled(m_settings.canBeAccepted());
+        };
+        m_settings.action.addOnChanged(this, refreshOk);
+        m_settings.targetDir.addOnChanged(this, refreshOk);
+        // And on whether the path is usable, which is worked out separately
+        // from what it holds - the widget path chooser reported it the same
+        // way. Without this the button never follows a path becoming valid.
+        connect(&m_settings.targetDir, &FilePathAspect::validChanged, this, refreshOk);
+        refreshOk();
     }
 
-    DropAction dropAction() const { return static_cast<DropAction>(m_buttonGroup->checkedId()); }
-    FilePath targetDir() const
-    {
-        return m_targetDirChooser ? m_targetDirChooser->filePath() : FilePath();
-    }
+    DropAction dropAction() const { return m_settings.chosenAction(); }
+    FilePath targetDir() const { return m_settings.targetDir(); }
 
 private:
-    PathChooser *m_targetDirChooser = nullptr;
+    DropFileSettings m_settings;
     QDialogButtonBox * const m_buttonBox;
-    QButtonGroup * const m_buttonGroup;
 };
 
 
@@ -1153,4 +1219,94 @@ const QLoggingCategory &FlatModel::logger()
     return logger;
 }
 
+#ifdef WITH_TESTS
+
+class DropFileDialogTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheDialogDrawsWithTheQmlItNames()
+    {
+        DropFileSettings settings(FilePath::fromString(QDir::tempPath()));
+        const Result<> rendered = Core::aspectFormRenders(&settings, "DropFileDialog.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+    }
+
+    void testWhatIsOfferedDependsOnHavingSomewhereToPutFiles()
+    {
+        // With a target directory all four; without one, only the two that
+        // move references and leave the files alone.
+        QCOMPARE(offeredDropActions(true).size(), 4);
+        QCOMPARE(offeredDropActions(false),
+                 QList<DropAction>({DropAction::Copy, DropAction::Move}));
+
+        // And they are named differently: "Only" tells the two apart when the
+        // file options are beside them, and answers nothing when they are not.
+        QVERIFY(dropActionText(DropAction::Copy, true).contains("Only"));
+        QVERIFY2(!dropActionText(DropAction::Copy, false).contains("Only"),
+                 "the reference-only wording was kept where there is nothing to contrast with");
+    }
+
+    void testWhenTheDropCanGoAhead()
+    {
+        // Moving references needs no directory, so an unusable one does not
+        // stop it.
+        QVERIFY(dropCanBeAccepted(DropAction::Move, false));
+        QVERIFY(dropCanBeAccepted(DropAction::Copy, false));
+
+        // Moving the files themselves does need one.
+        QVERIFY(!dropCanBeAccepted(DropAction::MoveWithFiles, false));
+        QVERIFY(!dropCanBeAccepted(DropAction::CopyWithFiles, false));
+        QVERIFY(dropCanBeAccepted(DropAction::MoveWithFiles, true));
+    }
+
+    void testTheTargetDirectoryFollowsTheChoice()
+    {
+        const FilePath temp = FilePath::fromString(QDir::tempPath());
+        DropFileSettings settings(temp);
+
+        // Opens on moving the files, which is the one that needs the
+        // directory, so the directory is the one thing to fill in.
+        QCOMPARE(settings.chosenAction(), DropAction::MoveWithFiles);
+        QVERIFY(settings.targetDir.isEnabled());
+
+        // Whether the drop can go ahead is not asserted here: it rests on
+        // FilePathAspect::isValid(), which is only worked out once something
+        // asks the aspect for a validation message, and only the drawn field
+        // does that. Headless it is never asked and reads as not valid. The
+        // decision itself is testWhenTheDropCanGoAhead() above.
+
+        // Choosing a reference-only action takes the question away rather than
+        // leaving it there to be ignored.
+        const QList<DropAction> offered = offeredDropActions(true);
+        settings.action.setValue(int(offered.indexOf(DropAction::Move)));
+        QCOMPARE(settings.chosenAction(), DropAction::Move);
+        QVERIFY2(!settings.targetDir.isEnabled(),
+                 "the target directory stayed editable for a drop that does not use it");
+        QVERIFY(settings.canBeAccepted());
+    }
+
+    void testWithNowhereToPutFilesTheQuestionIsNotAsked()
+    {
+        DropFileSettings settings{FilePath()};
+
+        QCOMPARE(settings.chosenAction(), DropAction::Move);
+        QVERIFY2(!settings.targetDir.isVisible(),
+                 "a target directory was offered with no files to put in it");
+        QVERIFY(settings.canBeAccepted());
+    }
+};
+
+QObject *createDropFileDialogTest()
+{
+    return new DropFileDialogTest;
+}
+
+#endif // WITH_TESTS
+
 } // namespace ProjectExplorer::Internal
+
+#ifdef WITH_TESTS
+#include "projectmodels.moc"
+#endif

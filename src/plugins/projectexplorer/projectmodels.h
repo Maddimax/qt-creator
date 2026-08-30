@@ -111,4 +111,8 @@ private:
 };
 
 } // namespace Internal
+#ifdef WITH_TESTS
+namespace Internal { QObject *createDropFileDialogTest(); }
+#endif
+
 } // namespace ProjectExplorer
