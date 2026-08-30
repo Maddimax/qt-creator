@@ -29,7 +29,6 @@ public:
 
     bool init() override;
     void setupOutputFormatter(Utils::OutputFormatter *formatter) override;
-    QWidget *createConfigWidget() override;
 
     QStringList availableTargets() const;
     QString userArguments() const;
@@ -57,7 +56,11 @@ public:
     Utils::Environment makeEnvironment() const;
 
 protected:
-    void supportDisablingForSubdirs() { m_disablingForSubDirsSupported = true; }
+    void supportDisablingForSubdirs()
+    {
+        m_disablingForSubDirsSupported = true;
+        m_disabledForSubdirsAspect.setVisible(true);
+    }
     virtual QStringList displayArguments() const;
 
     Utils::FilePathAspect m_makeCommandAspect{this};

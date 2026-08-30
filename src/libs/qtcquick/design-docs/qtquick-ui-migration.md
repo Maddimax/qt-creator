@@ -16959,3 +16959,43 @@ container at a QML file it does not match, on purpose, and that file asks
 `AspectModels.named()` for an aspect that is not there - so the run prints one
 soft assert from `aspectmodels.cpp:66`. It passes, but a soft assert in a
 passing test is how people learn to ignore soft asserts.
+
+### MakeStep: the layout
+
+`MakeStep.qml` now holds what the closure listed: the make command and
+arguments, a row of three (job count, the MAKEFLAGS override and what the step
+makes of the two), the sub-directories switch, the targets and the run-as
+group. The two conditionals in the closure became aspect state -
+`supportDisablingForSubdirs()` makes its setting visible, and the run-as aspect
+has decided for itself that it is Unix-only all along.
+
+`createAspectsForm()` had to learn to ask for a container's own QML first. The
+obvious way to write that is wrong, and the helper's own test caught it:
+`Core::createAspectForm()` **never returns nullptr** - it falls back to the
+widget layouter - so trying it unconditionally drew every container that has no
+QML of its own with widgets. It is asked only where `qmlSource()` is set.
+
+`MakeInstallStep` inherits `MakeStep`, and so inherited its page. It had opted
+out of the layout before (`createConfigWidget()` calling *`BuildStep`'s*
+version, with a comment saying so) and now opts out of the QML with
+`setQmlSource({})`; its override is gone, because it had become exactly what it
+inherits. The other three subclasses - qmake's, generic's and autotools' - add
+no aspects of their own, so the page serves them as it is.
+
+**Testing a page whose step cannot be built.** A `MakeStep` needs a project and
+a target, so the page is checked against a stand-in container holding the same
+aspects under the same names. Three separate things, because none implies the
+others:
+
+- Every name the page asks for exists. A missing one is `undefined` in QML, and
+  a message handler over the load catches what QML says about it.
+- The form is the page, not the generic list. Both draw the same aspects and
+  neither complains, so the QQuickWidget's `source` is what tells them apart -
+  readable as a property, without linking Qt Quick Widgets.
+- Each aspect wants the control whose delegate the page hands it to. **A wrong
+  delegate is silent**: handing a multi-selection to an `IntegerDelegate`
+  produced no warning at all, which is why the controls each aspect asks for
+  are pinned in the test.
+
+No `.qbs` edit and so no resolve: ProjectExplorer's qml group is a `**/*.qml`
+wildcard.

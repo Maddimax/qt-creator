@@ -127,6 +127,16 @@ QWidget *createAspectsForm(AspectContainer *container)
 {
     QTC_ASSERT(container, return nullptr);
 
+    // Its own QML first, where it names one: a build step that has been given
+    // a layout of its own is not a list of rows. Only where it names one -
+    // createAspectForm() falls back to the widget layouter rather than
+    // returning nothing, so asking it unconditionally would draw every
+    // container that has no QML of its own with widgets.
+    if (!container->qmlSource().isEmpty()) {
+        if (QWidget * const form = Core::createAspectForm(container))
+            return form;
+    }
+
     if (QWidget * const form = Core::createGenericAspectForm(container))
         return form;
 

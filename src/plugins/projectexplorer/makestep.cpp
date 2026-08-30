@@ -50,6 +50,25 @@ MakeStep::MakeStep(BuildStepList *parent, Id id)
     setCommandLineProvider([this] { return effectiveMakeCommand(Execution); });
 
     // FIXME: Replace with  id.name() + MAKE_COMMAND_SUFFIX  after the Key/Store transition
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/ProjectExplorer/MakeStep.qml"));
+
+    // Named for the QML rather than left to the settings keys: those carry the
+    // step's id, and every make step - qmake's, cmake's, the plain one - has a
+    // different one.
+    m_makeCommandAspect.setQmlName("MakeCommand");
+    m_userArgumentsAspect.setQmlName("MakeArguments");
+    m_jobCountAspect.setQmlName("JobCount");
+    m_overrideMakeflagsAspect.setQmlName("OverrideMakeflags");
+    m_nonOverrideWarning.setQmlName("MakeflagsNote");
+    m_disabledForSubdirsAspect.setQmlName("DisabledForSubdirs");
+    m_buildTargetsAspect.setQmlName("BuildTargets");
+    m_runAsAspect.setQmlName("RunAs");
+
+    // The form lists it either way; whether it belongs to this step is what
+    // supportDisablingForSubdirs() says, and the layout used to decide that
+    // while it was being built.
+    m_disabledForSubdirsAspect.setVisible(false);
+
     m_makeCommandAspect.setSettingsKey(id.toKey() + MAKE_COMMAND_SUFFIX);
     m_makeCommandAspect.setExpectedKind(PathChooserKind::ExistingCommand);
     m_makeCommandAspect.setBaseDirectory(PathChooser::homePath());
@@ -378,22 +397,6 @@ CommandLine MakeStep::effectiveMakeCommand(MakeCommandType type) const
     cmd.addArgs(m_buildTargetsAspect());
 
     return cmd;
-}
-
-QWidget *MakeStep::createConfigWidget()
-{
-    Layouting::Form builder;
-    builder.addRow({m_makeCommandAspect});
-    builder.addRow({m_userArgumentsAspect});
-    builder.addRow({m_jobCountAspect, m_overrideMakeflagsAspect, m_nonOverrideWarning});
-    if (m_disablingForSubDirsSupported)
-        builder.addRow({m_disabledForSubdirsAspect});
-    builder.addRow({m_buildTargetsAspect});
-    if (m_runAsAspect.isVisible())
-        builder.addRow({m_runAsAspect});
-    builder.setNoMargins();
-
-    return builder.emerge();
 }
 
 QStringList MakeStep::availableTargets() const

@@ -40,7 +40,6 @@ public:
 
 private:
     void fromMap(const Store &map) final;
-    QWidget *createConfigWidget() final;
     bool init() final;
     QtTaskTree::GroupItem runRecipe() final;
     bool isJobCountSupported() const final { return false; }
@@ -63,6 +62,11 @@ private:
 
 MakeInstallStep::MakeInstallStep(BuildStepList *parent, Id id) : MakeStep(parent, id)
 {
+    // MakeStep names a page of its own, and this step is not that page: it
+    // hides most of what that page draws and adds settings of its own, which
+    // the generic form lists and that one would not.
+    setQmlSource({});
+
     m_makeBinary.setVisible(false);
     m_buildTargetsAspect.setVisible(false);
     m_userArgumentsAspect.setVisible(false);
@@ -133,12 +137,6 @@ MakeInstallStep::MakeInstallStep(BuildStepList *parent, Id id) : MakeStep(parent
         if (format == OutputFormat::Stderr && string.contains("target 'install'"))
             m_noInstallTarget = true;
     });
-}
-
-QWidget *MakeInstallStep::createConfigWidget()
-{
-    // Note: this intentionally skips the MakeStep::createConfigWidget() level.
-    return BuildStep::createConfigWidget();
 }
 
 bool MakeInstallStep::init()

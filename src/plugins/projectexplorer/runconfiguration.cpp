@@ -1092,6 +1092,95 @@ private slots:
         QTRY_COMPARE(wasShown.count(), 1);
     }
 
+    // A MakeStep needs a project and a target to exist, so its page is checked
+    // against a stand-in holding the same aspects under the same names.
+    //
+    // Two different things are checked, because neither covers the other. The
+    // page must find every aspect it asks for - a name it does not hold is
+    // undefined, and QML says so out loud. And each aspect must want the
+    // control whose delegate the page hands it to: handing a multi-selection
+    // to an IntegerDelegate draws the wrong thing *in silence*, which is what
+    // the second half pins down. AspectItems.qml holds the mapping from
+    // control to delegate that makes the pairs below the right ones.
+    void testTheMakeStepFormDrawsWhatItNames()
+    {
+        AspectContainer page;
+        page.setQmlSource(QUrl("qrc:/qt/qml/QtCreator/ProjectExplorer/MakeStep.qml"));
+
+        FilePathAspect makeCommand(&page);
+        makeCommand.setQmlName("MakeCommand");
+        makeCommand.setLabelText("Make:");
+        StringAspect makeArguments(&page);
+        makeArguments.setQmlName("MakeArguments");
+        makeArguments.setDisplayStyle(StringAspect::LineEditDisplay);
+        IntegerAspect jobCount(&page);
+        jobCount.setQmlName("JobCount");
+        jobCount.setRange(1, 999);
+        BoolAspect overrideMakeflags(&page);
+        overrideMakeflags.setQmlName("OverrideMakeflags");
+        overrideMakeflags.setLabel("Override MAKEFLAGS", BoolAspect::LabelPlacement::AtCheckBox);
+        TextDisplay makeflagsNote(&page);
+        makeflagsNote.setQmlName("MakeflagsNote");
+        makeflagsNote.setText("No conflict.");
+        BoolAspect disabledForSubdirs(&page);
+        disabledForSubdirs.setQmlName("DisabledForSubdirs");
+        MultiSelectionAspect buildTargets(&page);
+        buildTargets.setQmlName("BuildTargets");
+        buildTargets.setAllValues({"all", "clean"});
+        RunAsAspect runAs(&page);
+        runAs.setQmlName("RunAs");
+
+        QStringList complaints;
+        const auto previous = qInstallMessageHandler(nullptr);
+        static QStringList *collected = nullptr;
+        collected = &complaints;
+        qInstallMessageHandler([](QtMsgType type, const QMessageLogContext &, const QString &msg) {
+            if (collected && (type == QtWarningMsg || type == QtCriticalMsg))
+                collected->append(msg);
+        });
+
+        const std::unique_ptr<QWidget> form(createAspectsForm(&page));
+        if (form) {
+            form->resize(600, 400);
+            form->show();
+            QTest::qWaitForWindowExposed(form.get());
+        }
+        collected = nullptr;
+        qInstallMessageHandler(previous);
+
+        QVERIFY(form);
+        QVERIFY2(complaints.isEmpty(),
+                 qPrintable("the make step page complains: " + complaints.join("; ")));
+
+        // The page it names, not the generic list of its aspects - which would
+        // draw the same aspects and complain about nothing, so the URL is what
+        // tells the two apart. Read as a property: this plugin does not link
+        // Qt Quick Widgets.
+        const QList<QWidget *> children = form->findChildren<QWidget *>();
+        QWidget * const quick = Utils::findOr(children, nullptr, [](QWidget *child) {
+            return qstrcmp(child->metaObject()->className(), "QQuickWidget") == 0;
+        });
+        QVERIFY2(quick, "the make step page was not drawn with Qt Quick at all");
+        QCOMPARE(quick->property("source").toUrl(), page.qmlSource());
+
+        // MakeStep.qml draws these with StringDelegate, IntegerDelegate,
+        // BoolDelegate, TextDisplayDelegate, MultiSelectionDelegate and
+        // InlineGroupDelegate respectively.
+        const QList<std::pair<BaseAspect *, AspectControls::Control>> wanted = {
+            {&makeCommand, AspectControls::PathChooser},
+            {&makeArguments, AspectControls::LineEdit},
+            {&jobCount, AspectControls::SpinBox},
+            {&overrideMakeflags, AspectControls::CheckBox},
+            {&makeflagsNote, AspectControls::Label},
+            {&disabledForSubdirs, AspectControls::CheckBox},
+            {&buildTargets, AspectControls::MultiSelection},
+            {&runAs, AspectControls::Container},
+        };
+        for (const auto &[aspect, control] : wanted) {
+            QCOMPARE(int(aspect->presentation().control), int(control));
+        }
+    }
+
     void testNoRemoteExecutableIssues_data()
     {
         QTest::addColumn<bool>("hasExecutableAspect");

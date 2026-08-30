@@ -242,6 +242,7 @@ if(TARGET ProjectExplorer)
       DependenciesPanel.qml
       EditorProjectPanel.qml
       KitsPage.qml
+      MakeStep.qml
       ProjectCommentsPanel.qml
       ProjectEnvironmentPanel.qml
       ToolchainsPage.qml
