@@ -19,6 +19,9 @@ public:
         FileRole,
         LineRole,
         ExpressionRole,
+        // The file as it is shown, which is not the file it points at: see
+        // shownFileName().
+        FileNameRole,
         // What the row is written in. The delegate worked this out from the
         // type while painting, which is why it had no name and nothing else
         // could ask for it.
@@ -40,6 +43,11 @@ public:
                 const QString &file = QString(), int line = -1);
     ConsoleItem(ItemType itemType, const QString &expression,
                 std::function<void(ConsoleItem *)> doFetch);
+
+    // The file a row points at, as it is written on the row. A URL comes back
+    // as a path, and only the last component is shown - the rest of a path is
+    // width the message needs more.
+    static QString shownFileName(const QString &file);
 
     static QColor colorForType(ItemType type);
     static QIcon iconForType(ItemType type);

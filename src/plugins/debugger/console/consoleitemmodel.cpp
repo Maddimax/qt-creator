@@ -22,7 +22,8 @@ QHash<int, QByteArray> ConsoleItemModel::roleNames() const
 {
     QHash<int, QByteArray> names = TreeModel::roleNames();
     names.insert(ConsoleItem::TypeRole, "itemType");
-    names.insert(ConsoleItem::FileRole, "fileName");
+    names.insert(ConsoleItem::FileRole, "file");
+    names.insert(ConsoleItem::FileNameRole, "fileName");
     names.insert(ConsoleItem::LineRole, "line");
     names.insert(ConsoleItem::ExpressionRole, "expression");
     names.insert(ConsoleItem::TextColorRole, "textColor");
@@ -106,7 +107,8 @@ private slots:
         QCOMPARE(names.value(Qt::DecorationRole), QByteArray("decoration"));
 
         QCOMPARE(names.value(ConsoleItem::TypeRole), QByteArray("itemType"));
-        QCOMPARE(names.value(ConsoleItem::FileRole), QByteArray("fileName"));
+        QCOMPARE(names.value(ConsoleItem::FileRole), QByteArray("file"));
+        QCOMPARE(names.value(ConsoleItem::FileNameRole), QByteArray("fileName"));
         QCOMPARE(names.value(ConsoleItem::LineRole), QByteArray("line"));
         QCOMPARE(names.value(ConsoleItem::ExpressionRole), QByteArray("expression"));
         QCOMPARE(names.value(ConsoleItem::TextColorRole), QByteArray("textColor"));
@@ -125,6 +127,23 @@ private slots:
         // Only the first column says anything: the tree has one, and asking a
         // second used to be how a delegate got an empty string by accident.
         QVERIFY(!item.data(1, Qt::DisplayRole).isValid());
+    }
+
+    void testTheFileARowPointsAtAndTheFileItShows()
+    {
+        // Two different things. The row opens the file it points at, and shows
+        // only the last part of it: a path in the middle of a console message
+        // is width the message needs more than the reader does.
+        QCOMPARE(ConsoleItem::shownFileName("file:///tmp/some/thing.qml"), QString("thing.qml"));
+        QCOMPARE(ConsoleItem::shownFileName("/tmp/some/thing.qml"), QString("thing.qml"));
+        QCOMPARE(ConsoleItem::shownFileName("thing.qml"), QString("thing.qml"));
+        QCOMPARE(ConsoleItem::shownFileName({}), QString());
+
+        // And the row answers both, under different names.
+        const ConsoleItem item(ConsoleItem::WarningType, "expr", "file:///tmp/some/thing.qml", 3);
+        QCOMPARE(item.data(0, ConsoleItem::FileRole).toString(),
+                 QString("file:///tmp/some/thing.qml"));
+        QCOMPARE(item.data(0, ConsoleItem::FileNameRole).toString(), QString("thing.qml"));
     }
 
     void testEachKindOfMessageLooksLikeItself()

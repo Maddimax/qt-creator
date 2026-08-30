@@ -373,6 +373,7 @@ private slots:
     void testAPaneLearnsItsNewZoomWhenTheWheelChangesIt();
     void testAPaneCanAddToTheOutputContextMenu();
     void testATestResultRowSaysMoreWhenItIsTheCurrentOne();
+    void testAConsoleRowSaysWhichKindOfMessageItIs();
     void testFindingTextInTheOutputView();
     void testTheOutputViewScrollsAMatchIntoView();
     void testABackwardsSelectionComesBackTheRightWayRound();
@@ -11137,6 +11138,85 @@ void QuickUiTest::testATestResultRowSaysMoreWhenItIsTheCurrentOne()
     // held onto - a view is free to rebuild the row it is drawing.
     QTRY_VERIFY2(itemNamed(root, "output")->height() > restingHeight,
                  "the row grew no taller for the text it had to show");
+}
+
+void QuickUiTest::testAConsoleRowSaysWhichKindOfMessageItIs()
+{
+    // The debugger console's row, drawn rather than painted. Fed a stand-in
+    // model with the role names the real one answers.
+    QStandardItemModel model;
+    model.setItemRoleNames({{Qt::DisplayRole, "display"},
+                            {Qt::DecorationRole, "decoration"},
+                            {Qt::UserRole + 1, "textColor"},
+                            {Qt::UserRole + 2, "fileName"},
+                            {Qt::UserRole + 3, "line"}});
+
+    auto * const warning = new QStandardItem;
+    warning->setData("something happened", Qt::DisplayRole);
+    warning->setData(QColor(220, 140, 0), Qt::UserRole + 1);
+    warning->setData("thing.qml", Qt::UserRole + 2);
+    warning->setData(12, Qt::UserRole + 3);
+    model.appendRow(warning);
+
+    QItemSelectionModel selection(&model);
+
+    const std::unique_ptr<QtcQuick::QuickWidget> view(new QtcQuick::QuickWidget);
+    view->quickWidget()->setInitialProperties(
+        {{"consoleRows", QVariant::fromValue(static_cast<QAbstractItemModel *>(&model))},
+         {"selection", QVariant::fromValue(&selection)}});
+    view->setSource(QUrl("qrc:/qt/qml/QtCreator/Debugger/ConsoleView.qml"));
+    view->resize(600, 200);
+    view->show();
+
+    QQuickItem * const root = qobject_cast<QQuickItem *>(view->rootObject());
+    QVERIFY(root);
+
+    // Delegate items are in the item tree but not the QObject tree.
+    const std::function<QQuickItem *(QQuickItem *, const QString &)> itemNamed
+        = [&](QQuickItem *parent, const QString &name) -> QQuickItem * {
+        for (QQuickItem * const child : parent->childItems()) {
+            if (child->objectName() == name)
+                return child;
+            if (QQuickItem * const found = itemNamed(child, name))
+                return found;
+        }
+        return nullptr;
+    };
+
+    QTRY_VERIFY2(itemNamed(root, "said"), "no row was drawn at all");
+    QQuickItem * const said = itemNamed(root, "said");
+    QCOMPARE(said->property("text").toString(), QString("something happened"));
+    QCOMPARE(said->property("color").value<QColor>(), QColor(220, 140, 0));
+
+    // Where it came from, beside it rather than over it.
+    QQuickItem * const where = itemNamed(root, "where");
+    QVERIFY(where);
+    QVERIFY(where->isVisible());
+    QCOMPARE(itemNamed(root, "fileName")->property("text").toString(), QString("thing.qml"));
+    QCOMPARE(itemNamed(root, "line")->property("text").toString(), QString("12"));
+    QVERIFY2(where->x() >= said->x() + said->width(),
+             "where the message came from is drawn over the message");
+
+    // A row with nothing to say where it came from does not leave the space.
+    auto * const bare = new QStandardItem;
+    bare->setData("just an answer", Qt::DisplayRole);
+    model.appendRow(bare);
+    QTRY_VERIFY(model.rowCount() == 2);
+
+    // Found by its text, because both rows have a "where".
+    QQuickItem *bareWhere = nullptr;
+    const std::function<void(QQuickItem *)> findBare = [&](QQuickItem *parent) {
+        for (QQuickItem * const child : parent->childItems()) {
+            if (child->objectName() == "said"
+                && child->property("text").toString() == "just an answer") {
+                bareWhere = itemNamed(child->parentItem(), "where");
+            }
+            findBare(child);
+        }
+    };
+    QTRY_VERIFY([&] { bareWhere = nullptr; findBare(root); return bareWhere != nullptr; }());
+    QVERIFY2(!bareWhere->isVisible(),
+             "a row with no file kept the space where one would go");
 }
 
 void QuickUiTest::testAVariableBeingDefinedIsNotOfferedForItself()

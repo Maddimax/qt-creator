@@ -19138,3 +19138,35 @@ Next for this pane, in order: the QML row, then the pane - a `Utils::TreeView`
 with a 295-line delegate, which is the shape already done twice. `ConsoleEdit`,
 the `QTextEdit` for typing JavaScript into a row, stays on the widget path: it
 is the same blocker as the debugger log.
+
+### A console row, drawn
+
+`ConsoleItemDelegate::paint()` is 295 lines. `ConsoleView.qml` is the same row:
+which kind of message it is, what it said, and where it came from. The pane
+rewiring is the batch after this one.
+
+**Two files, not one.** A row *points at* a file - clicking it opens that - and
+*shows* a different string: a URL comes back as a path, and only the last
+component is written, because a path in the middle of a console message is
+width the message needs more than the reader does. Those are now `file` and
+`fileName`, and a control that made the delegate show the full one would have
+been invisible without them being separate.
+
+**Only a top-level row says which kind of message it is.** The rows under one
+are the parts of its answer, not messages of their own, and the widget
+expressed that as `index.parent() == QModelIndex()` in the middle of painting.
+It is `row.depth === 0` on the icon now.
+
+**A row with nothing to say about where it came from does not keep the space.**
+The widget decided that while laying out text; here the whole right-hand group
+is bound to whether there is a file at all. The control that shows it
+unconditionally fails on a row that has none - which is most rows in a console,
+so it would have been a visible waste of every line's width.
+
+Controls, three, all biting: the message not written in the colour the row asks
+for; the file and line keeping their space when there is none; and the message
+drawn over them rather than beside them.
+
+What the row does *not* do is the one thing left: `ConsoleEdit` is a `QTextEdit`
+opened over a row to type JavaScript into. It stays on the widget path, with
+the debugger log, until there is a finished Qt Quick editor to put it on.

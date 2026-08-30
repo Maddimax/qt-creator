@@ -3,6 +3,8 @@
 
 #include "consoleitem.h"
 #include <utils/utilsicons.h>
+
+#include <QUrl>
 #include <utils/theme/theme.h>
 
 namespace Debugger::Internal {
@@ -55,6 +57,14 @@ Qt::ItemFlags ConsoleItem::flags(int) const
     return f;
 }
 
+QString ConsoleItem::shownFileName(const QString &file)
+{
+    const QUrl url(file);
+    const QString path = url.isLocalFile() ? url.toLocalFile() : file;
+    const int lastSlash = path.lastIndexOf('/');
+    return lastSlash == -1 ? path : path.mid(lastSlash + 1);
+}
+
 // A row says which kind of message it is; these say what that looks like.
 // Both were inside the delegate's paint(), read off the type each time it drew.
 QColor ConsoleItem::colorForType(ItemType type)
@@ -104,6 +114,8 @@ QVariant ConsoleItem::data(int column, int role) const
         return m_line;
     case ExpressionRole:
         return expression();
+    case FileNameRole:
+        return shownFileName(m_file);
     case TextColorRole:
         return colorForType(m_itemType);
     case Qt::DecorationRole:
