@@ -10,12 +10,16 @@
 #include <QHeaderView>
 #include <QLabel>
 #include <QMenu>
+#include <QItemSelectionModel>
+#include <QQuickWidget>
 #include <QTabWidget>
 #include <QToolButton>
 #include <QVBoxLayout>
 
 #include <coreplugin/editormanager/editormanager.h>
 #include <coreplugin/outputpaneview.h>
+
+#include <qtcquick/qtcquickwidget.h>
 
 #include <utils/itemviews.h>
 #include <utils/stylehelper.h>
@@ -61,23 +65,20 @@ SquishOutputPane::SquishOutputPane()
 
     outputLayout->addWidget(m_summaryWidget);
 
-    m_treeView = new Utils::TreeView(m_outputWidget);
-    m_treeView->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
-    m_treeView->setAlternatingRowColors(true);
-
     m_model = new SquishResultModel(this);
     m_filterModel = new SquishResultFilterModel(m_model, this);
     m_filterModel->setDynamicSortFilter(true);
-    m_treeView->setModel(m_filterModel);
 
-    QHeaderView *header = m_treeView->header();
-    header->setSectionsMovable(false);
-    header->setStretchLastSection(false);
-    header->setSectionResizeMode(QHeaderView::ResizeToContents);
-    header->setSectionResizeMode(1, QHeaderView::Interactive);
-    m_treeView->setHeaderHidden(true);
+    // The pane's own, rather than a view's: navigating the results walks the
+    // tree, and without a widget holding the current row there is nothing to
+    // walk from.
+    m_selection = new QItemSelectionModel(m_filterModel, this);
 
-    outputLayout->addWidget(m_treeView);
+    m_resultsView = new QtcQuick::QuickWidget(m_outputWidget);
+    m_resultsView->quickWidget()->setInitialProperties({{"pane", QVariant::fromValue(this)}});
+    m_resultsView->setSource(QUrl("qrc:/qt/qml/QtCreator/Squish/SquishResults.qml"));
+
+    outputLayout->addWidget(m_resultsView);
 
     createToolButtons();
 
@@ -90,10 +91,8 @@ SquishOutputPane::SquishOutputPane()
     m_outputPane->addTab(m_runnerServerLog, Tr::tr("Runner/Server Log"));
 
     connect(m_outputPane, &QTabWidget::currentChanged, this, [this] { navigateStateChanged(); });
-    connect(m_treeView, &Utils::TreeView::activated, this, &SquishOutputPane::onItemActivated);
-    connect(header, &QHeaderView::sectionResized, this, &SquishOutputPane::onSectionResized);
     connect(m_model, &SquishResultModel::requestExpansion, this, [this](QModelIndex idx) {
-        m_treeView->expand(m_filterModel->mapFromSource(idx));
+        emit expandRequested(m_filterModel->mapFromSource(idx));
     });
     connect(m_model,
             &SquishResultModel::resultTypeCountUpdated,
@@ -136,7 +135,7 @@ void SquishOutputPane::visibilityChanged(bool visible)
 void SquishOutputPane::setFocus()
 {
     if (m_outputPane->currentIndex() == 0)
-        m_treeView->setFocus();
+        m_resultsView->setFocus();
     else if (m_outputPane->currentIndex() == 1)
         m_runnerServerLog->setFocus();
 }
@@ -145,9 +144,9 @@ bool SquishOutputPane::hasFocus() const
 {
     // The focus is on the widget the Quick scene is in, which is inside the
     // log view rather than the view itself.
-    const QWidget * const focused = m_runnerServerLog->window()->focusWidget();
-    return m_treeView->hasFocus()
-           || (focused && m_runnerServerLog->isAncestorOf(focused));
+    const QWidget * const focused = m_outputPane->window()->focusWidget();
+    return focused && (m_resultsView->isAncestorOf(focused)
+                       || m_runnerServerLog->isAncestorOf(focused));
 }
 
 bool SquishOutputPane::canFocus() const
@@ -175,7 +174,7 @@ void SquishOutputPane::goToNext()
     if (!canNext())
         return;
 
-    const QModelIndex currentIndex = m_treeView->currentIndex();
+    const QModelIndex currentIndex = m_selection->currentIndex();
     QModelIndex nextCurrentIndex;
 
     if (currentIndex.isValid()) {
@@ -207,8 +206,7 @@ void SquishOutputPane::goToNext()
         nextCurrentIndex = m_filterModel->mapFromSource(m_model->indexForItem(rootItem->childAt(0)));
     }
 
-    m_treeView->setCurrentIndex(nextCurrentIndex);
-    onItemActivated(nextCurrentIndex);
+    setCurrent(nextCurrentIndex);
 }
 
 void SquishOutputPane::goToPrev()
@@ -216,7 +214,7 @@ void SquishOutputPane::goToPrev()
     if (!canPrevious())
         return;
 
-    const QModelIndex currentIndex = m_treeView->currentIndex();
+    const QModelIndex currentIndex = m_selection->currentIndex();
     QModelIndex nextCurrentIndex;
 
     if (currentIndex.isValid()) {
@@ -245,15 +243,30 @@ void SquishOutputPane::goToPrev()
             nextCurrentIndex = m_filterModel->index(rowCount - 1, 0, nextCurrentIndex);
     }
 
-    m_treeView->setCurrentIndex(nextCurrentIndex);
-    onItemActivated(nextCurrentIndex);
+    setCurrent(nextCurrentIndex);
+}
+
+QAbstractItemModel *SquishOutputPane::rows() const
+{
+    return m_filterModel;
+}
+
+void SquishOutputPane::activate(const QModelIndex &index)
+{
+    setCurrent(index);
+}
+
+void SquishOutputPane::setCurrent(const QModelIndex &index)
+{
+    m_selection->setCurrentIndex(index, QItemSelectionModel::ClearAndSelect
+                                            | QItemSelectionModel::Rows);
+    onItemActivated(index);
 }
 
 void SquishOutputPane::addResultItem(SquishResultItem *item)
 {
     m_model->addResultItem(item);
-    m_treeView->setHeaderHidden(false);
-    if (!m_treeView->isVisible())
+    if (!m_resultsView->isVisible())
         popup(Core::IOutputPane::NoModeSwitch);
     flash();
     navigateStateChanged();
@@ -293,7 +306,6 @@ void SquishOutputPane::updateSummaryLabel()
 
 void SquishOutputPane::clearOldResults()
 {
-    m_treeView->setHeaderHidden(true);
     m_summaryWidget->setVisible(false);
     m_filterModel->clearResults();
     navigateStateChanged();
@@ -301,17 +313,17 @@ void SquishOutputPane::clearOldResults()
 
 void SquishOutputPane::createToolButtons()
 {
-    m_expandAll = new QToolButton(m_treeView);
+    m_expandAll = new QToolButton(m_resultsView);
     Utils::StyleHelper::setPanelWidget(m_expandAll);
     m_expandAll->setIcon(Utils::Icons::EXPAND_TOOLBAR.icon());
     m_expandAll->setToolTip(Tr::tr("Expand All"));
 
-    m_collapseAll = new QToolButton(m_treeView);
+    m_collapseAll = new QToolButton(m_resultsView);
     Utils::StyleHelper::setPanelWidget(m_collapseAll);
     m_collapseAll->setIcon(Utils::Icons::COLLAPSE_TOOLBAR.icon());
     m_collapseAll->setToolTip(Tr::tr("Collapse All"));
 
-    m_filterButton = new QToolButton(m_treeView);
+    m_filterButton = new QToolButton(m_resultsView);
     Utils::StyleHelper::setPanelWidget(m_filterButton);
     m_filterButton->setIcon(Utils::Icons::FILTER.icon());
     m_filterButton->setToolTip(Tr::tr("Filter Test Results"));
@@ -322,8 +334,10 @@ void SquishOutputPane::createToolButtons()
     initializeFilterMenu();
     m_filterButton->setMenu(m_filterMenu);
 
-    connect(m_expandAll, &QToolButton::clicked, m_treeView, &Utils::TreeView::expandAll);
-    connect(m_collapseAll, &QToolButton::clicked, m_treeView, &Utils::TreeView::collapseAll);
+    connect(m_expandAll, &QToolButton::clicked,
+            this, &SquishOutputPane::expandAllRequested);
+    connect(m_collapseAll, &QToolButton::clicked,
+            this, &SquishOutputPane::collapseAllRequested);
     connect(m_filterMenu, &QMenu::triggered, this, &SquishOutputPane::onFilterMenuTriggered);
 }
 
@@ -365,16 +379,6 @@ void SquishOutputPane::onItemActivated(const QModelIndex &idx)
             Utils::Link(Utils::FilePath::fromString(result.file()), result.line(), 0));
 }
 
-// TODO: this is currently a workaround - might vanish if a item delegate will be implemented
-void SquishOutputPane::onSectionResized(int logicalIndex, int /*oldSize*/, int /*newSize*/)
-{
-    // details column should have been modified by user, so no action, time stamp column is fixed
-    if (logicalIndex != 1) {
-        QHeaderView *header = m_treeView->header();
-        const int minimum = m_outputPane->width() - header->sectionSize(0) - header->sectionSize(2);
-        header->resizeSection(1, qMax(minimum, header->sectionSize(1)));
-    }
-}
 
 void SquishOutputPane::onFilterMenuTriggered(QAction *action)
 {

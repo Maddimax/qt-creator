@@ -8,8 +8,10 @@ QtcPlugin {
     Depends { name: "ProjectExplorer" }
     Depends { name: "TextEditor" }
     Depends { name: "Utils" }
+    Depends { name: "QtcQuick" }
 
     Depends { name: "Qt.widgets" }
+    Depends { name: "Qt.testlib"; condition: qtc.withAutotests }
 
     files: [
         "deletesymbolicnamedialog.cpp",

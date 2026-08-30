@@ -36,6 +36,9 @@ class SquishPlugin final : public ExtensionSystem::IPlugin
 private:
     void initialize() final
     {
+#ifdef WITH_TESTS
+        addTestCreator(createSquishResultModelTest);
+#endif
         IOptionsPage::registerCategory(
             Constants::SQUISH_SETTINGS_CATEGORY,
             Tr::tr("Squish"),

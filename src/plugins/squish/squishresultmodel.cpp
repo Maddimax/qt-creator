@@ -3,6 +3,12 @@
 
 #include "squishresultmodel.h"
 
+#include <utils/aspectpresentation.h>
+
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
 #include "squishtr.h"
 
 namespace Squish::Internal {
@@ -113,6 +119,13 @@ void SquishResultModel::updateResultTypeCount(const QModelIndex &parent, int fir
         emit resultTypeCountUpdated();
 }
 
+QHash<int, QByteArray> SquishResultModel::roleNames() const
+{
+    QHash<int, QByteArray> names = Utils::AspectTable::withRoleNames(TreeModel::roleNames());
+    names.insert(Type, "resultType");
+    return names;
+}
+
 void SquishResultModel::addResultItem(SquishResultItem *item)
 {
     m_rootItem->appendChild(item);
@@ -169,4 +182,71 @@ bool SquishResultFilterModel::filterAcceptsRow(int sourceRow, const QModelIndex 
     return m_enabled.contains(Result::Type(idx.data(Type).toInt()));
 }
 
+#ifdef WITH_TESTS
+
+class SquishResultModelTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheModelAnswersTheRolesTheViewAsksForByName()
+    {
+        // QML addresses a role by name. A TreeModel names only the roles it
+        // was registered for, so a view over this one would draw rows with no
+        // text, no colour and no tool tip - and nothing would report it: the
+        // build is clean, the lint is clean, and the list looks empty.
+        SquishResultModel model;
+        const QHash<int, QByteArray> names = model.roleNames();
+
+        // Qt's own name for the text. Renaming this is the trap: the stock
+        // delegates bind their label to "display" and draw nothing without it.
+        QCOMPARE(names.value(Qt::DisplayRole), QByteArray("display"));
+        QCOMPARE(names.value(Qt::ForegroundRole), QByteArray("foreground"));
+        // "cellToolTip", not "toolTip": a role asked for under the wrong name
+        // is undefined in QML rather than an error, so the tool tip would
+        // simply never appear.
+        QCOMPARE(names.value(Qt::ToolTipRole), QByteArray("cellToolTip"));
+        QCOMPARE(names.value(Type), QByteArray("resultType"));
+    }
+
+    void testWhatARowOfResultsSays()
+    {
+        SquishResultModel model;
+        model.addResultItem(new SquishResultItem(
+            TestResult(Result::Fail, "something went wrong")));
+
+        const QModelIndex first = model.index(0, 0);
+        QVERIFY(first.isValid());
+
+        // Three columns, as the header names them: the type, the message and
+        // the time.
+        QCOMPARE(model.columnCount(QModelIndex()), 3);
+        QCOMPARE(model.data(first, Qt::DisplayRole).toString(),
+                 TestResult::typeToString(Result::Fail));
+        QCOMPARE(model.data(model.index(0, 1), Qt::DisplayRole).toString(),
+                 QString("something went wrong"));
+
+        // The type is read in its own colour, and only in the first column -
+        // a message is not coloured by its severity.
+        QVERIFY(model.data(first, Qt::ForegroundRole).isValid());
+        QVERIFY(!model.data(model.index(0, 1), Qt::ForegroundRole).isValid());
+
+        // And the whole message is the tool tip, whichever column is hovered:
+        // the message column elides.
+        QCOMPARE(model.data(first, Qt::ToolTipRole).toString(),
+                 QString("something went wrong"));
+    }
+};
+
+QObject *createSquishResultModelTest()
+{
+    return new SquishResultModelTest;
+}
+
+#endif // WITH_TESTS
+
 } // namespace Squish::Internal
+
+#ifdef WITH_TESTS
+#include "squishresultmodel.moc"
+#endif

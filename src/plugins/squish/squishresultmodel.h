@@ -37,6 +37,11 @@ public:
 
     void addResultItem(SquishResultItem *item);
 
+    // QML addresses a role by name, and a TreeModel names only the roles it
+    // was told about - not display, foreground or the tool tip, which is what
+    // this model answers with.
+    QHash<int, QByteArray> roleNames() const override;
+
 signals:
     void resultTypeCountUpdated();
 
@@ -65,5 +70,9 @@ private:
     SquishResultModel *m_sourceModel;
     QSet<Result::Type> m_enabled;
 };
+
+#ifdef WITH_TESTS
+QObject *createSquishResultModelTest();
+#endif
 
 } // namespace Squish::Internal

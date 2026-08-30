@@ -1,7 +1,7 @@
 add_qtc_plugin(Squish
   PLUGIN_DEPENDS
     Core Debugger ProjectExplorer TextEditor
-  DEPENDS ExtensionSystem Utils
+  DEPENDS ExtensionSystem Utils Qt::Qml QtcQuick
   SOURCES
     deletesymbolicnamedialog.cpp deletesymbolicnamedialog.h
     objectsmapdocument.cpp objectsmapdocument.h
@@ -35,6 +35,11 @@ add_qtc_plugin(Squish
     testresult.cpp testresult.h
 )
 
+extend_qtc_plugin(Squish
+  CONDITION WITH_TESTS
+  DEPENDS Qt::Test
+)
+
 # Settings pages' Qt Quick forms. A module rather than a plain resource so that
 # qmllint and qmlcachegen see the files; qbs cannot build QML modules, so it
 # only lists them - the same split qtcquick already lives with.
@@ -45,6 +50,7 @@ if(TARGET Squish)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      SquishResults.qml
       SquishSettingsPage.qml
   )
 endif()

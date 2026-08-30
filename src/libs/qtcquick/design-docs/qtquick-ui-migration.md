@@ -18804,3 +18804,42 @@ The branch's own goal is met, separately: `Qt::PrintSupport` is gone from
 is a different project: 75 of Utils' 339 sources use widgets and 26 headers
 expose them - dialogs, wizards, item views, the completing line edit. That is
 not what this migration was for and should not be smuggled into it.
+
+### The Squish results tree, and a role that was never going to answer
+
+The plan said two custom-painted item views remained. Wrong again: Squish's
+results tree has **no custom delegate**. It is a `Utils::TreeView` over a
+`TreeModel<>` with a filter proxy - the Issues-pane shape with a tree instead
+of a list - so it is ported here. Only Test Results has a custom `paint()`.
+
+**Navigation had to come off the view.** `goToNext()`/`goToPrev()` walked the
+tree from `m_treeView->currentIndex()`. The pane owns a `QItemSelectionModel`
+now and the QML `TreeView` binds to it, so the walk works with no widget and
+the row still highlights - which is the same "what the pane has to take back
+from its view" as the To-Do pane, met a third time.
+
+**Expansion stayed with the view, because it has to.** Which row is which index
+is a tree view's own knowledge, so `expandAll`, `collapseAll` and the model's
+`requestExpansion` are signals the QML answers with `expandRecursively()`,
+`collapseRecursively()` and `expandToIndex()`.
+
+**The test found a bug in the QML I had just written.** `AspectTable::withRoleNames`
+names `Qt::ToolTipRole` **`cellToolTip`**, not `toolTip`. The delegate asked for
+`model.toolTip`, which in QML is not an error - it is `undefined` - so the tool
+tip would simply never have appeared, on a pane I cannot see. Asserting the
+role *names* rather than trusting them is what caught it, and it is the only
+kind of assertion that could have.
+
+**Two things went away with the widget.** `setHeaderHidden(false)` on the first
+result became a `HorizontalHeaderView` bound to the row count, and
+`onSectionResized` - a column-width workaround whose own comment said it "might
+vanish if an item delegate will be implemented" - is gone, because in QML the
+columns say how wide they are.
+
+Squish had no test suite; it has one now, covering the model contract the view
+depends on. That is the second plugin in three batches where the answer to
+"what covers this port?" was "nothing did, and now something does".
+
+What is left of the pane migration is **one custom-painted item view** - the
+Test Results tree, `TestResultDelegate`, 287 lines of `paint()` - and **one
+editable console**, the debugger log.
