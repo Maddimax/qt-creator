@@ -21810,3 +21810,43 @@ proves less than it looks.
 read-only reports, the text-field dialogs, and the ones needing a component of
 their own. `LogChangeWidget` is still a widget, but only the submit editor
 embeds it now, so it belongs with the editors rather than the dialogs.
+
+## 2026-08-31 — The first read-only report, and a search that could not find
+
+With the activation family done, the read-only reports are next, and the plan
+already settled what they are: a `TextDisplay` each, no new component. The
+vcpkg package search is the first, and it is the shape most of them have - a
+list on the left, a pane of read-only detail on the right.
+
+**The filter field went away, and `FilterTextRole` is why.** The widget dialog
+had its own `FancyLineEdit` because the list shows only names and the reader
+needs to search descriptions too. `TableFilterModel` already asks each row for
+`AspectTable::FilterTextRole` and searches that as well as the columns, so the
+row answers with its name *and* what the package says about itself, and the
+table's own filter field does the whole job.
+
+**A search that could not find what it was searching.**
+`package.description.contains(filter, Qt::CaseInsensitive)` on a `QStringList`
+compares whole **elements**: the long description only matched if the filter
+was an entire paragraph, word for word. The two lines above it - name and short
+description - are substring searches, so the intent is not in doubt. Committed
+as it was in the port, with a test saying what it did, and fixed in the commit
+after with `Utils::anyOf` over the paragraphs; the control reverting the clause
+fails on exactly that word.
+
+That is the third bug of this kind found by writing down what a widget dialog
+does: the extended-remote comparison, the duplicated `setFlags`, and now this.
+**All three were invisible because nothing asked the question in a test** - and
+all three were found by extracting the rule, not by reading the code.
+
+Negative controls: the list not sorted; a package found only by its name; the
+long description dropped from the details; a package already depended on
+addable again; and, for the fix, the paragraph comparison put back. All five
+bit.
+
+QuickUi 189 passed / 0 failed / 1 skipped, exit 0. `Vcpkg` exit 0, 10 passed.
+`Vcpkg_qmllint` clean. No `.qbs` edit: `vcpkg.qbs` takes `*.qml` by wildcard,
+and no files were added or removed.
+
+**Next:** the rest of the read-only reports. `VcpkgManifestEditor` and
+`MemcheckErrorView` are the next two by size, and the shape is now worked out.

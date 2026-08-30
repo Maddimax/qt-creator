@@ -58,7 +58,9 @@ QStringList packageNamesMatching(const QList<VcpkgManifest> &packages, const QSt
               return filter.isEmpty()
                      || package.name.contains(filter, Qt::CaseInsensitive)
                      || package.shortDescription.contains(filter, Qt::CaseInsensitive)
-                     || package.description.contains(filter, Qt::CaseInsensitive);
+                     || Utils::anyOf(package.description, [&filter](const QString &paragraph) {
+                            return paragraph.contains(filter, Qt::CaseInsensitive);
+                        });
           });
     QStringList names = transform(matching, [](const VcpkgManifest &package) {
         return package.name;

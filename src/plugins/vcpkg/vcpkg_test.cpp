@@ -55,10 +55,9 @@ void VcpkgSearchTest::testWhichPackagesAFilterFinds()
     QCOMPARE(packageNamesMatching(packages, "ZLIB"), (QStringList{"zlib"}));
     // ...by what it says it is...
     QCOMPARE(packageNamesMatching(packages, "compression"), (QStringList{"zlib"}));
-    // The longer description matches only a whole paragraph, because
-    // QStringList::contains() compares elements rather than searching inside
-    // them - unlike the two lines above it.
-    QVERIFY(packageNamesMatching(packages, "modern").isEmpty());
+    // ...and by a word from the longer description, which the list does not
+    // even show.
+    QCOMPARE(packageNamesMatching(packages, "modern"), (QStringList{"fmt"}));
     QCOMPARE(packageNamesMatching(packages, "A modern formatting library"),
              (QStringList{"fmt"}));
 
