@@ -68,7 +68,7 @@ class QnxAttachDebugDialog final : public DeviceProcessesDialog
 public:
     QnxAttachDebugDialog()
     {
-        kitChooser()->setKitPredicate([](const Kit *k) {
+        kitChooser().setKitPredicate([](const Kit *k) {
             return k->isValid() && RunDeviceTypeKitAspect::deviceTypeId(k) == Constants::QNX_QNX_OS_TYPE;
         });
 
@@ -86,7 +86,7 @@ public:
 
         auto mainLayout = dynamic_cast<QVBoxLayout*>(layout());
         QTC_ASSERT(mainLayout, return);
-        mainLayout->insertLayout(mainLayout->count() - 2, formLayout);
+        mainLayout->insertLayout(mainLayout->count() - 1, formLayout);
     }
 
     FilePath localExecutable() const { return m_localExecutable->filePath(); }
@@ -118,7 +118,7 @@ void showAttachToProcessDialog()
     if (dlg.exec() == QDialog::Rejected)
         return;
 
-    Kit *kit = dlg.kitChooser()->currentKit();
+    Kit *kit = dlg.kitChooser().currentKit();
     if (!kit)
         return;
 

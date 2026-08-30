@@ -15,9 +15,15 @@ namespace Utils { class ProcessInfo; }
 
 namespace ProjectExplorer {
 
-class KitChooser;
+class KitChooserAspect;
 
-namespace Internal { class DeviceProcessesDialogPrivate; }
+namespace Internal {
+class DeviceProcessesDialogPrivate;
+#ifdef WITH_TESTS
+class DeviceProcessesDialogTest;
+QObject *createDeviceProcessesDialogTest();
+#endif
+} // namespace Internal
 
 class PROJECTEXPLORER_EXPORT DeviceProcessesDialog : public QDialog
 {
@@ -31,13 +37,24 @@ public:
     void setDevice(const IDeviceConstPtr &device);
     void showAllDevices();
     Utils::ProcessInfo currentProcess() const;
-    KitChooser *kitChooser() const;
+    KitChooserAspect &kitChooser() const;
     void logMessage(const QString &line);
 
 private:
     void setKitVisible(bool);
+    void setDeviceToList(const IDeviceConstPtr &device);
+    void updateDevice();
+    void updateProcessList();
+    void killProcess();
+    void handleRemoteError(const QString &errorMsg);
+    void handleProcessListUpdated();
+    void updateButtons();
 
     const std::unique_ptr<Internal::DeviceProcessesDialogPrivate> d;
+
+#ifdef WITH_TESTS
+    friend class Internal::DeviceProcessesDialogTest;
+#endif
 };
 
 } // namespace ProjectExplorer

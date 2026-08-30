@@ -6,6 +6,7 @@
 #include "idevice.h"
 #include "../projectexplorertr.h"
 
+#include <utils/aspectpresentation.h>
 #include <utils/async.h>
 #include <utils/processinfo.h>
 #include <utils/qtcassert.h>
@@ -42,6 +43,18 @@ public:
     Qt::ItemFlags fl;
 };
 
+// A Quick table addresses roles by name, and a TreeModel names only the ones
+// it was registered for.
+class DeviceProcessModel
+    : public TreeModel<TypedTreeItem<DeviceProcessTreeItem>, DeviceProcessTreeItem>
+{
+public:
+    QHash<int, QByteArray> roleNames() const override
+    {
+        return AspectTable::withRoleNames(TreeModel::roleNames());
+    }
+};
+
 class DeviceProcessListPrivate
 {
 public:
@@ -60,7 +73,7 @@ public:
     const IDevice::ConstPtr device;
     State state = Inactive;
     QSingleTaskTreeRunner m_taskTree;
-    TreeModel<TypedTreeItem<DeviceProcessTreeItem>, DeviceProcessTreeItem> model;
+    DeviceProcessModel model;
     QSingleTaskTreeRunner m_signalOperationRunner;
 };
 
@@ -173,6 +186,10 @@ QVariant DeviceProcessTreeItem::data(int column, int role) const
         else
             return process.commandLine;
     }
+    // A Quick table asks the model this; a table whose cells say nothing is
+    // taken to be the reader's to edit, and a process list is not.
+    if (role == AspectTable::EditableRole)
+        return AspectTable::isWritable(fl);
     return {};
 }
 

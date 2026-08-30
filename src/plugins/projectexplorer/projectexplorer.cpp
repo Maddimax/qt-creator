@@ -31,6 +31,7 @@
 #include "devicesupport/devicecheckbuildstep.h"
 #include "devicesupport/devicekitaspects.h"
 #include "devicesupport/devicemanager.h"
+#include "devicesupport/deviceprocessesdialog.h"
 #include "devicesupport/devicesettingspage.h"
 #include "editorconfiguration.h"
 #include "editorsettingspropertiespage.h"
@@ -953,6 +954,7 @@ Result<> ProjectExplorerPlugin::initialize(const QStringList &arguments)
     addTestCreator(createProjectPanelFactoryTest);
     addTestCreator(Internal::createDropFileDialogTest);
     addTestCreator(Internal::createParseIssuesDialogTest);
+    addTestCreator(Internal::createDeviceProcessesDialogTest);
     addTestCreator(Internal::createFilterKitAspectsTest);
     addTestCreator(Internal::createDeviceTestDialogTest);
     addTestCreator(createKitChooserTest);

@@ -240,6 +240,7 @@ if(TARGET ProjectExplorer)
       CodeStyleProjectPanel.qml
       CompileOutputSettingsPage.qml
       CustomParsersSettingsPage.qml
+      DeviceProcessesDialog.qml
       DropFileDialog.qml
       FilterKitAspectsDialog.qml
       DependenciesPanel.qml

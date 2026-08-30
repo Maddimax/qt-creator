@@ -63,6 +63,9 @@ public:
 
     // Which kits this form can use. Asking again is what populate() is for.
     void setKitPredicate(const Kit::Predicate &predicate);
+    // Whether each entry carries its kit's own icon. Only a list of kits that
+    // are told apart by more than their names wants them.
+    void setShowIcons(bool showIcons);
     void populate();
 
     Utils::Id currentKitId() const;
@@ -82,6 +85,7 @@ public:
 
 private:
     Kit::Predicate m_kitPredicate;
+    bool m_showIcons = false;
     QList<KitChoice> m_choices;
     bool m_hasStartupKit = false;
 };

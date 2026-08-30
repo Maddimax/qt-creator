@@ -1649,13 +1649,13 @@ void DebuggerPluginPrivate::reloadDebuggingHelpers()
 void DebuggerPluginPrivate::attachToRunningApplication()
 {
     DeviceProcessesDialog dlg;
-    dlg.kitChooser()->setShowIcons(true);
+    dlg.kitChooser().setShowIcons(true);
     dlg.addAcceptButton(msgAttachToProcess());
     dlg.showAllDevices();
     if (dlg.exec() == QDialog::Rejected)
         return;
 
-    Kit *kit = dlg.kitChooser()->currentKit();
+    Kit *kit = dlg.kitChooser().currentKit();
     QTC_ASSERT(kit, return);
     IDevice::ConstPtr device = RunDeviceKitAspect::device(kit);
     QTC_ASSERT(device, return);

@@ -20938,3 +20938,72 @@ rebuilt. No `.qbs` edit: no files were added.
 `setKitPredicate()`, `currentKit()` and `setShowIcons()` - the first two the
 aspect already has, so the exported signature can narrow to
 `KitChooserAspect &` once `setShowIcons()` is added.
+
+## 2026-08-30 — DeviceProcessesDialog, and a model that has to stay the same one
+
+With the table sortable, `DeviceProcessesDialog` ports: a `KitChooserAspect`, a
+`ProcessTableAspect` and a `TextDisplay` for the error line, with Update List
+and Kill Process staying in the `QDialogButtonBox` where the widget had them.
+It is the first ported dialog that is **exported** and subclassed, so the shape
+of its public API mattered as much as its contents.
+
+**The aspect hands out a proxy, and that is the whole design.** A Quick table
+reads its model once - `readonly property var sourceModel: AspectModels.tableModel(aspect)`
+is a call, and a call records no dependency - so an aspect that answered a
+different model each time the device changed would draw the first one forever.
+`ProcessTableAspect` owns a `QIdentityProxyModel` and swaps what is *behind*
+it, so the identity the form bound to never changes and the row indices stay
+the model's own. See [[qml-binding-to-invokable-runs-once]].
+
+**Two things the process model needed before a Quick table could draw it**, both
+from [[qtc-model-ready-for-quick-view]]: `roleNames()` wrapped with
+`AspectTable::withRoleNames()`, which meant giving the anonymous
+`TreeModel<...>` a name of its own; and an `EditableRole` answer, without which
+a table takes its cells to be the reader's and the process list becomes a grid
+of text fields.
+
+**A widget-typed accessor was not the blocker it looked like.**
+`KitChooser *kitChooser() const` has three call sites, using
+`setKitPredicate()`, `currentKit()` and `setShowIcons()`. The aspect had the
+first two; the third is eight lines, because `SelectionAspect::Option` already
+carries an icon. The signature narrows to `KitChooserAspect &` and both callers
+change by a dot. See [[widen-api-instead-of-blocking]] - reading the call sites
+first is what turns "exported widget API" into an afternoon.
+
+**A control that did not bite, and what it found:** removing
+`error.setVisible(false)` from the container changed nothing, because the
+dialog's constructor ends in `updateButtons()`, which hides the line too. The
+assertion was asking the dialog, so it tested whichever of the two ran. Asking a
+bare `DeviceProcessesSettings` tests the container's own default, and the
+control bites. [[negative-control-two-guards]] again.
+
+**What is not covered, honestly:** the `.qml` hands the chosen row back with
+`onCurrentRowChanged`, and no C++ test that calls `setCurrentRow()` itself would
+notice if that line went. The form-root seam covers it -
+`root->findChild("processTable")` then `invokeMethod("selectRow", 1)` - and it
+is the control that proves the port works at all.
+
+**What is lost:** the widget view activated on double click, so
+`addAcceptButton()` accepted the dialog when a row was double-clicked. Nothing
+in the Qt Quick table has row activation, and adding a `TapHandler` over the
+view risks the single click that every other table depends on - so it is a
+follow-up of its own, and it needs a way to test it first
+([[qtest-cannot-double-click-quick]]). `QnxAttachDebugDialog` still inserts its
+two path choosers as widgets; its insertion index moved by one because the form
+is now a single widget, and porting it is a batch of its own.
+
+Negative controls: the `.qml` not handing the chosen row back; the aspect
+handing out whatever model it was last given; a new device keeping the row the
+reader was on; the buttons not following the selection; the kit offered even
+for a fixed device; the list opening unsorted; and the error line shown whether
+or not there is one. All seven bit - the last only after the assertion was
+moved off the dialog.
+
+QuickUi 185 passed / 0 failed / 1 skipped, exit 0.
+`DeviceProcessesDialogTest` 10 passed, exit 0; `ProjectExplorer` exits 2 on its
+two standing failures and nothing else; `ProjectExplorer_qmllint` clean. Full
+`ninja`, since `kitchooser.h` is a public header. No `.qbs` edit: no files
+added that a wildcard does not already take.
+
+**Next:** the five Debugger kit-chooser dialogs, which are the last of the nine
+- `StartApplicationDialog` is the big one and the other four are small.

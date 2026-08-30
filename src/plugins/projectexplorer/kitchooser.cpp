@@ -153,14 +153,27 @@ void KitChooserAspect::setKitPredicate(const Kit::Predicate &predicate)
     populate();
 }
 
+void KitChooserAspect::setShowIcons(bool showIcons)
+{
+    m_showIcons = showIcons;
+    populate();
+}
+
 void KitChooserAspect::populate()
 {
     m_choices = kitChoices(KitManager::sortedKits(), activeKitForActiveProject(), m_kitPredicate);
     m_hasStartupKit = !m_choices.isEmpty() && m_choices.first().isActiveProjectKit;
 
     kit.clearOptions();
-    for (const KitChoice &choice : std::as_const(m_choices))
-        kit.addOption({choice.displayName, choice.toolTip, choice.kitId.toSetting()});
+    for (const KitChoice &choice : std::as_const(m_choices)) {
+        SelectionAspect::Option option{choice.displayName, choice.toolTip,
+                                       choice.kitId.toSetting()};
+        if (m_showIcons) {
+            if (const Kit *const k = KitManager::kit(choice.kitId))
+                option.icon = k->displayIcon();
+        }
+        kit.addOption(option);
+    }
 
     const Id lastKit = Id::fromSetting(Core::ICore::settings()->value(lastKitKey));
     kit.setValue(qMax(0, initialKitChoice(m_choices, lastKit)));
