@@ -21062,3 +21062,62 @@ wildcard.
 and `StartApplicationDialog`. The watcher is the more interesting of the two -
 a Reset button whose enablement depends on the active run configuration, a
 waiting label, and a checkable Start Watching button driving a timer.
+
+## 2026-08-30 — The watcher dialog, and four states that were only ever drawn
+
+`UnstartedAppWatcherDialog` is the eighth of the nine and the first whose
+*state* was the interesting part rather than its fields. It waits for an
+executable to start, and it has four states - invalid, not watching, watching,
+found - each of which set five widget properties in its own `case` block.
+
+**Those four blocks were a table nobody could read.** They differed in what the
+reader may still touch, and that only showed up as a disabled field on screen:
+watching pins both the executable *and* the kit, because the list of processes
+to ignore was taken for that executable on that kit, and changing either
+mid-watch means waiting for one thing while ignoring another. Pulled out as
+`lookFor(state) -> WatcherLook`, the four are comparable - including that each
+says something different, which is what lets the reader tell them apart at all.
+`setWaitingState()` is now five lines that push the answer onto the aspects.
+
+**A getter that folds `isEnabled()` into its value.** `continueOnAttach()`
+returns `isEnabled() && isChecked()`, so for a CDB kit - where the dialog
+*checks* the box and disables it - the answer is **false**. The box shows
+checked and the dialog says no. That reads like a bug and is not: CDB continues
+the application itself, so asking the caller to continue it again would be
+asking twice. It survives the port because `BaseAspect` has `isEnabled()` too,
+and it now has a test saying so, which it never had.
+
+**Two aspect gaps found by porting, both with a faithful answer:**
+
+- `PathChooser::beforeBrowsing` has no aspect signal. It does not need one:
+  `setBaseDirectory()` takes a `Lazy<FilePath>` that `browseStartDirectory()`
+  evaluates *when someone browses*, which is the same moment for the same
+  reason. The lazy is the aspect's version of the signal.
+- `setHistoryCompleter(key, restoreLastItem)` has no second argument on the
+  aspect, so the field no longer opens on the last executable watched. Restored
+  in the constructor with `CompletionHistory::entries()`, whose first entry is
+  the most recent.
+
+**A line I wrote that the widget never had:** `setWaitingState()` looked like
+the place to enable and disable the Reset button too. The widget does not touch
+it there - Reset depends on whether there is a local run configuration to
+restore from, which does not change with the watcher's state. Reading the
+`case` blocks for what they *do not* do was as useful as reading what they do.
+
+The state enum moved to namespace scope so the table could be a free function,
+and lost its typo on the way (`UnstartedAppWacherState`).
+
+Negative controls: the `.qml` naming an aspect that does not exist; the
+executable editable while watching; two states saying the same thing; the state
+worked out but never pushed to the aspects; `continueOnAttach()` ignoring
+whether the box was left to the reader; the dialog reopening itself by default;
+and Reset offered with nothing to put back. All seven bit.
+
+QuickUi 186 passed / 0 failed / 0 skipped, exit 0.
+`UnstartedAppWatcherDialogTest` 8 passed, the other two Debugger dialog tests 6
+each, all exit 0; `Debugger_qmllint` clean. No `.qbs` edit: `debugger.qbs`
+takes `*.qml` by wildcard.
+
+**Next:** `StartApplicationDialog`, the last of the nine and the largest - it
+carries a `StartApplicationParameters` that is saved and restored as a named
+preset, so the interesting part will be that round trip rather than the form.

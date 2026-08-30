@@ -2162,6 +2162,7 @@ Result<> DebuggerPlugin::initialize(const QStringList &arguments)
     addTestCreator(createCdbPathsTest);
     addTestCreator(createCacheDirectoryTest);
     addTestCreator(createAttachCoreDialogTest);
+    addTestCreator(createUnstartedAppWatcherDialogTest);
     addTestCreator(createAttachToQmlPortSettingsTest);
     addTestCreator(Debugger::createDebuggersSettingsTest);
 #endif

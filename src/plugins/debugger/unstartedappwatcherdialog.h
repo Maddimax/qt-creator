@@ -9,19 +9,31 @@
 
 #include <utils/processinfo.h>
 
+#include <memory>
+
 QT_BEGIN_NAMESPACE
-class QLabel;
-class QCheckBox;
+class QObject;
+class QPushButton;
 QT_END_NAMESPACE
 
-namespace ProjectExplorer {
-class KitChooser;
-class Kit;
-}
-
-namespace Utils { class PathChooser; }
+namespace ProjectExplorer { class Kit; }
 
 namespace Debugger::Internal {
+
+class UnstartedAppWatcherSettings;
+
+enum UnstartedAppWatcherState
+{
+    InvalidWatcherState,
+    NotWatchingState,
+    WatchingState,
+    FoundState
+};
+
+#ifdef WITH_TESTS
+class UnstartedAppWatcherDialogTest;
+QObject *createUnstartedAppWatcherDialogTest();
+#endif
 
 class UnstartedAppWatcherDialog : public QDialog
 {
@@ -29,6 +41,7 @@ class UnstartedAppWatcherDialog : public QDialog
 
 public:
     UnstartedAppWatcherDialog(std::optional<QPoint> pos, QWidget *parent = nullptr);
+    ~UnstartedAppWatcherDialog() override;
 
     ProjectExplorer::Kit *currentKit() const;
     Utils::ProcessInfo currentProcess() const;
@@ -42,35 +55,26 @@ signals:
     void processFound();
 
 private:
-    void selectExecutable();
     void pidFound(const Utils::ProcessInfo &p);
     void startStopWatching(bool start);
     void findProcess();
     void stopAndCheckExecutable();
     void kitChanged();
 
-    enum UnstartedAppWacherState
-    {
-        InvalidWacherState,
-        NotWatchingState,
-        WatchingState,
-        FoundState
-    };
-
     void startStopTimer(bool start);
     bool checkExecutableString() const;
-    void setWaitingState(UnstartedAppWacherState state);
+    void setWaitingState(UnstartedAppWatcherState state);
 
-    ProjectExplorer::KitChooser *m_kitChooser;
-    Utils::PathChooser *m_pathChooser;
-    QLabel *m_waitingLabel;
-    QCheckBox *m_hideOnAttachCheckBox;
-    QCheckBox *m_continueOnAttachCheckBox;
+    const std::unique_ptr<UnstartedAppWatcherSettings> m_settings;
     QPushButton *m_watchingPushButton;
     Utils::ProcessInfo m_process;
     QSet<int> m_excluded;
     QTimer m_timer;
     std::optional<QPoint> m_lastPosition;
+
+#ifdef WITH_TESTS
+    friend class UnstartedAppWatcherDialogTest;
+#endif
 };
 
 } // Debugger::Internal
