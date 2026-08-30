@@ -16889,3 +16889,36 @@ Three things were found by running it rather than by reading it:
   two single taps. The gesture is kept (`onDoubleClicked` on the row) but what
   the tests drive is the keyboard - the filter walks the list with Up/Down and
   activates with Enter, which the widget's tree does too once it has the focus.
+
+## One function draws a container of aspects
+
+Build configurations, run configurations and build steps each built the same
+form by hand - `Layouting::Form`, one row per aspect, no margins - and each
+had drifted:
+
+- `BuildConfiguration` had been given the Qt Quick form with the widget loop
+  kept as a fallback, written out inline.
+- `RunConfiguration` and `BuildStep` still laid their aspects out with widgets
+  only, so a control the widget renderer cannot draw was not drawn at all.
+- Both of those filtered on `aspect->isVisible()` **at build time**. An aspect
+  that starts hidden and shows itself later - the build directory's warnings,
+  the Qt Quick compiler row - was left out of the form and could never come
+  back while it was open.
+
+They now share `ProjectExplorer::createAspectsForm()`, which asks for the Qt
+Quick form and falls back to the widget layout, and which lists every aspect
+and leaves hiding to the delegates. The `VariableChooser` calls stay at the
+call sites: they are a no-op against a Quick form, whose fields carry their own
+chooser now, and are still needed for the widget layout and for the config
+widgets that build steps write themselves.
+
+That helper is what the test drives, because it is the only one of the four
+that can be built without a project and a target: it asserts the form is drawn
+with Qt Quick *and* that the model behind it has a row for the hidden aspect.
+
+**Still hand-built, and each its own port:** `makestep.cpp`, `qmakestep.cpp`,
+`cmakebuildstep.cpp`, `cocobuildstep.cpp` and
+`debuggerrunconfigurationaspect.cpp` compose specific rows rather than listing
+their aspects, so they need a `.qml` each rather than this helper. MakeStep
+shows the usual trap in the layout - `if (m_runAsAspect.isVisible())` decides
+at build time what belongs in the form.

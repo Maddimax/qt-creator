@@ -522,19 +522,9 @@ QWidget *BuildConfiguration::createConfigWidget()
     // was open. The Qt Quick form lists them all for the same reason: its
     // model keeps every aspect and each delegate hides itself, so a row that
     // appears later has something to appear in.
-    if (QWidget * const form = Core::createGenericAspectForm(this)) {
-        auto vbox = new QVBoxLayout(widget);
-        vbox->setContentsMargins(0, 0, 0, 0);
-        vbox->addWidget(form);
-    } else {
-        Layouting::Form rows;
-        rows.setNoMargins();
-        for (BaseAspect *aspect : aspects()) {
-            rows.addItem(aspect);
-            rows.flush();
-        }
-        rows.attachTo(widget);
-    }
+    auto vbox = new QVBoxLayout(widget);
+    vbox->setContentsMargins(0, 0, 0, 0);
+    vbox->addWidget(createAspectsForm(this));
 
     return named;
 }

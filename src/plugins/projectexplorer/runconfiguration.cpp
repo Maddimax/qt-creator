@@ -324,16 +324,10 @@ bool RunConfiguration::isEnabled(Id) const
 
 QWidget *RunConfiguration::createConfigurationWidget()
 {
-    Layouting::Form form;
-    form.setNoMargins();
-    for (BaseAspect *aspect : std::as_const(*this)) {
-        if (aspect->isVisible()) {
-            form.addItem(aspect);
-            form.flush();
-        }
-    }
-    auto widget = form.emerge();
+    QWidget * const widget = createAspectsForm(this);
 
+    // A no-op on the Qt Quick form, whose fields carry their own chooser;
+    // what it is here for is the widget layout underneath it.
     VariableChooser::addSupportForChildWidgets(widget, {this, macroExpander()});
 
     auto detailsWidget = new DetailsWidget;
@@ -1053,6 +1047,38 @@ private slots:
         });
         QVERIFY2(drawnWithQml,
                  "a setting group that names its own QML was laid out with widgets");
+    }
+
+    // Build configurations, run configurations and build steps each built
+    // their form by hand, and two of the three listed only the aspects that
+    // were visible at the time - so a control that shows itself later, as the
+    // build directory's warnings and the Qt Quick compiler row do, had nothing
+    // to appear in. They now share one function, which is this one.
+    void testAFormListsEveryAspectAndIsDrawnWithQml()
+    {
+        AspectContainer container;
+        BoolAspect shown(&container);
+        shown.setLabelText("Shown");
+        BoolAspect later(&container);
+        later.setLabelText("Later");
+        later.setVisible(false);
+
+        const std::unique_ptr<QWidget> form(createAspectsForm(&container));
+        QVERIFY(form);
+
+        // By name rather than by type: this plugin does not link Qt Quick
+        // Widgets, and what matters is which renderer drew the form.
+        const QList<QWidget *> children = form->findChildren<QWidget *>();
+        const bool drawnWithQml = Utils::anyOf(children, [](const QWidget *child) {
+            return qstrcmp(child->metaObject()->className(), "QQuickWidget") == 0;
+        });
+        QVERIFY2(drawnWithQml, "a form of aspects was laid out with widgets");
+
+        // The model the form reads decides which rows exist at all: an aspect
+        // missing from it cannot appear later however visible it makes itself.
+        auto * const model = form->findChild<QAbstractItemModel *>();
+        QVERIFY2(model, "the Qt Quick form built no model");
+        QCOMPARE(model->rowCount(), 2);
     }
 
     void testNoRemoteExecutableIssues_data()

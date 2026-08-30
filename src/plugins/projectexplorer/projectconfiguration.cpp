@@ -6,6 +6,9 @@
 #include "projectexplorerconstants.h"
 #include "target.h"
 
+#include <coreplugin/dialogs/ioptionspage.h>
+
+#include <utils/layoutbuilder.h>
 #include <utils/macroexpander.h>
 #include <utils/qtcassert.h>
 
@@ -86,6 +89,22 @@ void ProjectConfiguration::fromMap(const Store &map)
 
     m_displayName.fromMap(map, Constants::DISPLAY_NAME_KEY);
     AspectContainer::fromMap(map);
+}
+
+QWidget *createAspectsForm(AspectContainer *container)
+{
+    QTC_ASSERT(container, return nullptr);
+
+    if (QWidget * const form = Core::createGenericAspectForm(container))
+        return form;
+
+    Layouting::Form rows;
+    rows.setNoMargins();
+    for (BaseAspect *aspect : std::as_const(*container)) {
+        rows.addItem(aspect);
+        rows.flush();
+    }
+    return rows.emerge();
 }
 
 Id idFromMap(const Store &map)

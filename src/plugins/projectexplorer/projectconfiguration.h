@@ -68,4 +68,14 @@ private:
 // helper function:
 PROJECTEXPLORER_EXPORT Utils::Id idFromMap(const Utils::Store &map);
 
+// Draws \a container as a form: the Qt Quick one where that renderer is
+// installed, and the widget layout where it is not. Build configurations, run
+// configurations and build steps each built this by hand, and each in a way
+// that let a control the widget renderer cannot draw go missing.
+//
+// Every aspect, not only the visible ones. A control knows to start hidden and
+// to show itself later, and one left out of the form here could never come
+// back while the form was open.
+PROJECTEXPLORER_EXPORT QWidget *createAspectsForm(Utils::AspectContainer *container);
+
 } // namespace ProjectExplorer

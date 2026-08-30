@@ -115,16 +115,7 @@ QWidget *BuildStep::doCreateConfigWidget()
 
 QWidget *BuildStep::createConfigWidget()
 {
-    Layouting::Form form;
-    form.setNoMargins();
-    for (BaseAspect *aspect : std::as_const(*this)) {
-        if (aspect->isVisible()) {
-            form.addItem(aspect);
-            form.flush();
-        }
-    }
-
-    return form.emerge();
+    return createAspectsForm(this);
 }
 
 void BuildStep::fromMap(const Store &map)
