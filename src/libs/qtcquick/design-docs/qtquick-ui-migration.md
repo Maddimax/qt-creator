@@ -20541,3 +20541,50 @@ routine. **The question actually worth answering next is the other one:** 21
 dialogs hold a text editor, and whether a Qt Quick `TextArea` is enough for one
 showing a *document* - as against the debugger log's transcript - has never
 been established. `PromptOverwriteDialog` and `CleanDialog` are among them.
+
+## 2026-08-30 — The text-editor dialogs: no new component is needed
+
+The open question, answered. Thirty-three unported dialogs hold a
+`QPlainTextEdit`, `QTextEdit` or `QTextBrowser`, and they are **three different
+things**, each of which already has somewhere to go:
+
+| what it is | how many | what it wants |
+|---|---|---|
+| a read-only report with no formatting | ~16 | `StringAspect`, `TextEditDisplay`, read-only - `AspectControls::TextEdit` maps to `Kind::Text` and `TextAreaDelegate` honours `readOnly` |
+| a multi-line field that is typed into | ~14 | the same `TextAreaDelegate`, not read-only |
+| a **coloured transcript** written to as something runs | a few | not a form field at all - `Core::OutputPaneView`, which is what the six output panes and the debugger log use |
+
+So the answer is that **none of them needs a new component**, and the question
+was miscast: it is not "is `TextArea` enough for a document" but "which of these
+three is this dialog". Only the third kind is a document, and it was already
+solved before the question was asked.
+
+**`DeviceTestDialog` is the proof of the third kind**, and the first time an
+output view has been put in a dialog rather than a pane. It works unchanged.
+
+**One thing it needed that an output view cannot say: bold.**
+`Utils::OutputFormat` has colours and no weight, and this dialog's last line -
+the answer - is the only bold one, which is what makes it the answer rather
+than one more thing that happened. So the summary is written straight into
+`sourceDocument()` with a `QTextCharFormat` instead of appended as a message.
+
+**That mixes a queued write with a direct one, and the order is not free.**
+`appendMessage()` queues; a direct document write does not. Without
+`flush()` first, the answer lands *above* the lines it is about. Control C
+removes the flush and the test - which builds the same sequence and checks the
+last line - catches it.
+
+Negative controls: an error formatted like anything else that happened; passing
+and failing saying the same thing; and the queue not drained before the answer
+is written. All three bit.
+
+QuickUi 182 passed / 0 failed / 1 skipped, exit 0. `DeviceTestDialogTest` 5
+passed; `ProjectExplorer` exits 2 on two of its three standing failures. No
+`.qbs` edit.
+
+**Next: there is no open question left in the dialog work.** What remains is
+execution - roughly thirty table-shaped, sixteen read-only reports, fourteen
+text fields, and twenty-five that each want their own component
+(`QGraphicsView`, `QStackedWidget`, `PluginView`, `KitChooser`, `paintEvent`).
+The first three groups are routine with worked examples; only the last needs
+thinking, and it should be scoped per dialog rather than as a group.

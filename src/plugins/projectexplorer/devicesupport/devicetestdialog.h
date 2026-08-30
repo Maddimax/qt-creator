@@ -28,10 +28,14 @@ private:
     void handleErrorMessage(const QString &message);
     void handleTestFinished(ProjectExplorer::DeviceTester::TestResult result);
 
-    void addText(const QString &text, Utils::Theme::Color color, bool bold);
+    void appendSummary(const QString &text, bool isError);
 
     class DeviceTestDialogPrivate;
     const std::unique_ptr<DeviceTestDialogPrivate> d;
 };
+
+#ifdef WITH_TESTS
+QObject *createDeviceTestDialogTest();
+#endif
 
 } // namespace ProjectExplorer::Internal

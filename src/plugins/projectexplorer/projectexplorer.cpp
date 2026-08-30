@@ -62,6 +62,7 @@
 #include "projectfilewizardextension.h"
 #include "projectmanager.h"
 #include "projectnodes.h"
+#include "devicesupport/devicetestdialog.h"
 #include "filterkitaspectsdialog.h"
 #include "projectmodels.h"
 #include "projectpanelfactory.h"
@@ -951,6 +952,7 @@ Result<> ProjectExplorerPlugin::initialize(const QStringList &arguments)
     addTestCreator(createProjectPanelFactoryTest);
     addTestCreator(Internal::createDropFileDialogTest);
     addTestCreator(Internal::createFilterKitAspectsTest);
+    addTestCreator(Internal::createDeviceTestDialogTest);
     addTestCreator(Internal::createToolchainOptionsPageTest);
     addTestCreator(Internal::createDeviceSettingsPageTest);
     addTestCreator(createGenericOutputParserTest);
