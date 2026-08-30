@@ -40,6 +40,7 @@
 #include <qtcquick/outputview.h>
 #include <coreplugin/outputview.h>
 #include <utils/aggregate.h>
+#include <utils/theme/theme.h>
 #include <coreplugin/find/ifindsupport.h>
 #include <utils/outputformatter.h>
 #include <QAbstractTextDocumentLayout>
@@ -366,6 +367,7 @@ private slots:
     void testFindingTextInTheOutputView();
     void testTheOutputViewScrollsAMatchIntoView();
     void testABackwardsSelectionComesBackTheRightWayRound();
+    void testEveryMatchIsHighlightedInTheOutputView();
     void testAFieldOffersWhatWasTypedIntoItBefore();
     void testBrowsingStartsWhereThePathAlreadyPointsTo();
     void testALabelSaysTheValueItCannotShowInFull();
@@ -10566,6 +10568,87 @@ void QuickUiTest::testABackwardsSelectionComesBackTheRightWayRound()
     const QTextCursor forwards = fixture.view->textCursor();
     QCOMPARE(forwards.anchor(), 10);
     QCOMPARE(forwards.position(), 20);
+}
+
+void QuickUiTest::testEveryMatchIsHighlightedInTheOutputView()
+{
+    // Highlighting every match is the one thing the widget did that the Quick
+    // view had no answer for. It turns out to need no drawing code: the
+    // highlighter is a QSyntaxHighlighter on the document, and a Quick text
+    // item renders the document's own layouts.
+    //
+    // Which is exactly why this asks the rendered frame rather than the
+    // document. That the formats are set says nothing about them arriving on
+    // screen, and the whole question here is whether they do.
+    OutputViewFixture fixture;
+    QVERIFY(fixture.view.get());
+    QQuickItem * const area = fixture.textArea();
+    QVERIFY(area);
+    QTRY_VERIFY(area->property("contentHeight").toReal() > 0);
+
+    auto * const quickWidget = fixture.view->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+
+    const QColor highlight
+        = Utils::creatorColor(Utils::Theme::OutputPanes_SearchResultBackgroundColor);
+    const auto countsOf = [](const QImage &image, const QColor &color) {
+        int found = 0;
+        for (int y = 0; y < image.height(); ++y) {
+            for (int x = 0; x < image.width(); ++x) {
+                if (image.pixelColor(x, y) == color)
+                    ++found;
+            }
+        }
+        return found;
+    };
+
+    const QImage before = quickWidget->grabFramebuffer();
+    QVERIFY2(!before.isNull(), "the view rendered nothing at all");
+    QCOMPARE(countsOf(before, highlight), 0);
+
+    Core::IFindSupport * const find
+        = Utils::Aggregation::query<Core::IFindSupport>(fixture.view.get());
+    QVERIFY(find);
+    find->highlightAll("needle", {});
+
+    QImage after;
+    QTRY_VERIFY2([&] {
+        after = quickWidget->grabFramebuffer();
+        return countsOf(after, highlight) > 0;
+    }(), "no match was drawn as highlighted");
+
+    // Behind the glyphs rather than over them: a highlight that covered the
+    // text would leave none of it the colour it was written in.
+    QVERIFY2(after != before, "the frame did not change at all");
+
+    // A word that is not there highlights nothing, so the check above is
+    // about the match and not about the search having been run at all.
+    find->highlightAll("haystack", {});
+    QTRY_VERIFY2([&] {
+        return countsOf(quickWidget->grabFramebuffer(), highlight) == 0;
+    }(), "a word that does not occur was highlighted anyway");
+
+    // And it goes away again, which is what closing the find bar does.
+    find->highlightAll("needle", {});
+    QTRY_VERIFY(countsOf(quickWidget->grabFramebuffer(), highlight) > 0);
+    find->clearHighlights();
+    QTRY_VERIFY2([&] {
+        return countsOf(quickWidget->grabFramebuffer(), highlight) == 0;
+    }(), "the highlighting stayed after it was cleared");
+
+    // A pane that shows one document and then another - the application
+    // output pane has one per run - must highlight in the new one. The
+    // highlighter belongs to the document it was made for, so it is replaced
+    // rather than kept.
+    QTextDocument second;
+    second.setPlainText("another needle over here\n");
+    fixture.view->setDocument(&second);
+    QTRY_VERIFY(area->property("text").toString().contains("over here"));
+
+    find->highlightAll("needle", {});
+    QTRY_VERIFY2([&] {
+        return countsOf(quickWidget->grabFramebuffer(), highlight) > 0;
+    }(), "nothing was highlighted after the view was given another document");
 }
 
 void QuickUiTest::testAVariableBeingDefinedIsNotOfferedForItself()

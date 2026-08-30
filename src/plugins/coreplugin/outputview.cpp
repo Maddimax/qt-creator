@@ -62,6 +62,27 @@ IFindSupport *OutputView::findSupport() const
     return m_findSupport;
 }
 
+void OutputView::setDocument(QTextDocument *document)
+{
+    m_document = document;
+    showDocument(document);
+
+    // Highlighting every match is a QSyntaxHighlighter on the document, which
+    // is why nothing here draws anything: a Qt Quick text item renders the
+    // document's own layouts, so the formats a highlighter sets arrive with
+    // them. It needs a document to attach to, so this is where it is enabled -
+    // BaseTextFindBase does nothing when asked before there is one.
+    auto * const find = static_cast<BaseTextFindBase *>(m_findSupport);
+    find->setResultHighlightingEnabled(false);
+    if (document)
+        find->setResultHighlightingEnabled(true);
+}
+
+QTextDocument *OutputView::document() const
+{
+    return m_document;
+}
+
 static OutputViewFactory s_outputViewFactory;
 
 void setOutputViewFactory(const OutputViewFactory &factory)

@@ -30,8 +30,7 @@ public:
         connect(m_view, &QtcQuick::OutputView::wheelZoom, this, &Core::OutputView::wheelZoom);
     }
 
-    void setDocument(QTextDocument *document) override { m_view->setDocument(document); }
-    QTextDocument *document() const override { return m_view->document(); }
+    void showDocument(QTextDocument *document) override { m_view->setDocument(document); }
     void setBaseFont(const QFont &font) override { m_view->setBaseFont(font); }
     void setFontZoom(float zoom) override { m_view->setFontZoom(zoom); }
     float fontZoom() const override { return m_view->fontZoom(); }

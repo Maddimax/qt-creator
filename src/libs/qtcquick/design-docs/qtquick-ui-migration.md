@@ -18031,3 +18031,45 @@ it here is to compute the match rectangles - pure document work, of exactly the
 kind already extracted - and draw them in QML with a Repeater over
 `positionToRectangle()`. That is the last piece before Build System Output can
 switch without losing anything.
+
+### Highlighting every match, which needed no drawing code
+
+The plan for this was to compute match rectangles and draw them in QML with a
+Repeater over `positionToRectangle()`. That would have worked and it would have
+been wrong: `BaseTextFindBase::setResultHighlightingEnabled(true)` installs a
+`SearchResultHighlighter` - a plain `QSyntaxHighlighter` - on the document, and
+a Qt Quick text item renders the document's *own* `QTextLayout`s. The formats a
+highlighter sets travel with them. So highlighting every match is one call, and
+the Repeater, the rectangles and the re-layout bookkeeping they would have
+needed do not exist.
+
+Reading what the widget path already does before designing a replacement for it
+has now paid twice in two batches - `BaseTextFindBase` was already free of
+widgets, and its highlighter was already document-based. The Quick editor's
+`QuickTextFind` had to draw its own highlights, which is what made this look
+hard; it draws into a custom viewport rather than showing a `QTextDocument`,
+so its answer was never the one for this.
+
+**The document moved into the interface to make this work.** The highlighter
+attaches to a document, so it can only be installed once there is one.
+`Core::OutputView::setDocument()` is therefore no longer virtual: it stores the
+document, hands it to `showDocument()` for the implementation to draw, and
+installs the highlighter. Setting a second document *replaces* the highlighter
+rather than keeping it - a pane with one document per run, as the application
+output pane has, otherwise highlights nothing after the first tab. The control
+that keeps the old highlighter fails on exactly that assertion.
+
+**Asked of the rendered frame, not of the document.** That the formats are set
+says nothing about them arriving on screen, and whether they arrive was the
+entire question. `QQuickWidget::grabFramebuffer()` works here, so the test
+counts pixels of the theme's search-result colour: none before, some after,
+none for a word that does not occur, none after `clearHighlights()`, and some
+again in a second document. A control that never enables the highlighting fails
+with "no match was drawn as highlighted".
+
+Build System Output can now switch without losing anything: dimming, retracting
+lines, zoom, links, find, and highlighting are all present. That is the next
+batch, and it is a batch - a filter line edit with three option actions, clear
+and zoom actions on `ActionManager`, a base font following
+`globalFontSettings()`, and a `FindToolBarPlaceHolder` that will now find the
+view's find support by asking.

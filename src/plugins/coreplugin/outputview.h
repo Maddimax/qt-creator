@@ -35,8 +35,12 @@ public:
 
     // The document to show. The view does not own it and does not copy it: a
     // pane keeps writing into it and the view follows.
-    virtual void setDocument(QTextDocument *document) = 0;
-    virtual QTextDocument *document() const = 0;
+    //
+    // Not virtual, because setting a document also installs the search-result
+    // highlighter on it, and that has to happen wherever the document comes
+    // from. showDocument() below is what an implementation draws with.
+    void setDocument(QTextDocument *document);
+    QTextDocument *document() const;
 
     // The font before the zoom, which is what a font settings change sets.
     virtual void setBaseFont(const QFont &font) = 0;
@@ -66,6 +70,11 @@ public:
 
 private:
     IFindSupport *m_findSupport = nullptr;
+    QTextDocument *m_document = nullptr;
+
+protected:
+    // Draw \a document. Called by setDocument(), which is what a pane uses.
+    virtual void showDocument(QTextDocument *document) = 0;
 
 signals:
     // A link was clicked. What it means is the pane's business - it is the one
