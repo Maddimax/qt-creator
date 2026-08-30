@@ -18251,3 +18251,42 @@ Controls, all four biting on their own test: dropping `extraLines` from the
 arithmetic; not handing the view to the formatter as its sink; putting the
 `qobject_cast<Core::OutputWindow *>` back in the parser; and selecting the
 task's lines from the wrong end.
+
+### The character limit, which the first two ports had quietly lost
+
+`elideChunk()` and `blocksToKeep()` were extracted and tested three batches ago
+and then nothing used them, so `Core::OutputPaneView` kept everything it was
+ever given. That is not a gap waiting for Compile Output - the widget applied
+`DEFAULT_MAX_CHAR_COUNT` whether a pane asked for one or not, so General
+Messages and Build System Output *lost* their limit the moment they were
+ported. Both have it back, by default, as the widget had it.
+
+`QTextDocument::setMaximumBlockCount()` is not a `QPlainTextEdit` feature - the
+property is on the document - so the mechanism carries across unchanged: work
+out how many blocks may stay, set it, and the document drops the rest from the
+front.
+
+**What the two-document design adds, and it is the interesting part.** The
+filtered copy follows the source *by block number*, and every one of those
+moves when the front of the source goes. So the source is watched for a removal
+at position 0 - nothing else takes anything off the front - and the filtered
+copy is made again when it happens rather than appended to. Without that, the
+filtered view stops updating entirely the first time the limit bites: the
+control that removes it fails on "the newest matching line was not shown".
+
+**A control that only half bit, and what it revealed.** Disabling the limit
+left the "oldest output goes" test passing, because `setMaxCharCount()` also
+sets a coarse block cap of a hundredth of the allowance, and with short lines
+that cap is reached first. The test was measuring the crude fallback and never
+the per-append character accounting. With lines long enough for the character
+allowance to be what bites, the same control keeps 1791 characters of an
+allowance of 1000 - and `blocksToKeep()` is finally covered by something.
+
+That is the fourth time a test in this migration has been satisfied by
+something other than the code it names. The pattern is always the same: a
+second mechanism, one size cruder, arriving at the same answer for the fixture
+that happened to be chosen.
+
+Controls, four, all biting: no limit applied at all; an oversized chunk written
+whole rather than elided; the filtered copy not rebuilt when the source is
+trimmed; and the default limit not being the widget's.

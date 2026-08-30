@@ -60,6 +60,13 @@ public:
     bool knowsPositionOf(unsigned taskId) const;
     void showPositionOf(unsigned taskId);
 
+    // How much output is kept. Beyond it the oldest lines go, and a single
+    // chunk larger than the whole allowance is elided in the middle. The
+    // widget applied this by default, so a pane that never asks for one still
+    // gets it.
+    void setMaxCharCount(qsizetype count);
+    qsizetype maxCharCount() const;
+
     void setBaseFont(const QFont &font);
     void setWheelZoomEnabled(bool enabled);
     void zoomIn();
@@ -108,6 +115,13 @@ private:
     int m_beforeContext = 0;
     int m_afterContext = 0;
     QHash<unsigned, QPair<int, int>> m_taskPositions;
+    qsizetype m_maxCharCount = 0;
+
+    // Set when the source loses leading blocks to the limit. The filtered copy
+    // follows the source by block number, and those all shift when the front
+    // of it goes.
+    bool m_sourceTrimmed = false;
+
     const Utils::Key m_zoomSettingsKey;
 };
 

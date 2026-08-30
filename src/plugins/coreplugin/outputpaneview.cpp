@@ -3,6 +3,7 @@
 
 #include "outputpaneview.h"
 
+#include "coreconstants.h"
 #include "icore.h"
 #include "outputview.h"
 #include "messagemanager.h"
@@ -33,6 +34,15 @@ OutputPaneView::OutputPaneView(const Key &zoomSettingsKey, QWidget *parent)
     // Itself as the sink object, so a parser that finds a task can tell this
     // where the task's output went - see OutputTaskSink.
     m_formatter.setSink(&m_source, this);
+
+    setMaxCharCount(Constants::DEFAULT_MAX_CHAR_COUNT);
+    connect(&m_source, &QTextDocument::contentsChange, this,
+            [this](int position, int charsRemoved, int) {
+                // Only the limit takes anything off the front; everything else
+                // this class does to the source refilters for itself.
+                if (position == 0 && charsRemoved > 0)
+                    m_sourceTrimmed = true;
+            });
 
     auto * const layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
@@ -78,16 +88,53 @@ OutputPaneView::~OutputPaneView() = default;
 
 void OutputPaneView::appendMessage(const QString &text, OutputFormat format)
 {
-    m_formatter.appendMessage(text, format);
+    QString out = text;
+    if (m_maxCharCount > 0) {
+        if (out.size() > m_maxCharCount) {
+            // This one chunk is more than the whole allowance, so nothing that
+            // is already there can be kept and the chunk itself has to lose
+            // its middle.
+            out = OutputWindow::elideChunk(out, m_maxCharCount);
+            m_source.setMaximumBlockCount(int(out.count('\n')) + 1);
+        } else {
+            QList<int> blockLengths;
+            for (QTextBlock block = m_source.firstBlock(); block.isValid(); block = block.next())
+                blockLengths << block.length();
+            m_source.setMaximumBlockCount(OutputWindow::blocksToKeep(
+                blockLengths, m_source.characterCount(), out.size(), m_maxCharCount));
+        }
+    }
+
+    m_sourceTrimmed = false;
+    m_formatter.appendMessage(out, format);
     m_formatter.flush();
 
-    // Only what arrived is filtered, not the whole document again: a build
-    // appends thousands of times.
     if (isFiltering()) {
-        OutputWindow::appendFiltered(&m_source, &m_filtered,
-                                     OutputWindow::filterPredicate(m_filterText, m_filterMode),
-                                     m_beforeContext, m_afterContext, m_appendState);
+        // What the filtered copy has already taken is addressed by block
+        // number, so losing the front of the source moves every one of them
+        // and the copy has to be made again.
+        if (m_sourceTrimmed) {
+            refilter();
+        } else {
+            // Otherwise only what arrived is filtered, not the whole document
+            // again: a build appends thousands of times.
+            OutputWindow::appendFiltered(&m_source, &m_filtered,
+                                         OutputWindow::filterPredicate(m_filterText, m_filterMode),
+                                         m_beforeContext, m_afterContext, m_appendState);
+        }
     }
+    m_sourceTrimmed = false;
+}
+
+void OutputPaneView::setMaxCharCount(qsizetype count)
+{
+    m_maxCharCount = count;
+    m_source.setMaximumBlockCount(int(count / 100));
+}
+
+qsizetype OutputPaneView::maxCharCount() const
+{
+    return m_maxCharCount;
 }
 
 void OutputPaneView::grayOutOldContent()
@@ -441,6 +488,78 @@ private slots:
         QVERIFY2(!shown->shownDocument()->toPlainText().contains("matching nothing"),
                  "the pane's filter never reached its view");
         QVERIFY(shown->shownDocument()->toPlainText().contains(written));
+    }
+
+    void testTheOldestOutputGoesWhenThereIsTooMuch()
+    {
+        OutputPaneView view;
+
+        // The default is the one the widget applied, so a pane that never asks
+        // for a limit still has one - which is what the first two panes ported
+        // quietly lost until this.
+        QCOMPARE(view.maxCharCount(), qsizetype(Constants::DEFAULT_MAX_CHAR_COUNT));
+
+        // Lines long enough that the character allowance is what bites. With
+        // short ones the coarse block cap setMaxCharCount() applies - a
+        // hundredth of the allowance - is reached first, and then this passes
+        // without the per-append accounting running at all.
+        view.setMaxCharCount(1000);
+        const QString padding(180, 'x');
+        for (int i = 0; i < 30; ++i) {
+            view.appendMessage(QString("line %1 of output %2\n").arg(i).arg(padding),
+                               Utils::GeneralMessageFormat);
+        }
+
+        const QString kept = view.toPlainText();
+        QVERIFY2(kept.size() <= 1200, qPrintable(QString("kept %1 characters of an allowance "
+                                                         "of 1000").arg(kept.size())));
+
+        // The end is what is kept: output is read from the bottom.
+        QVERIFY2(kept.contains("line 29 of"), "the newest output was dropped");
+        QVERIFY2(!kept.contains("line 0 of"), "the oldest output was kept");
+    }
+
+    void testAChunkTooBigToKeepLosesItsMiddle()
+    {
+        OutputPaneView view;
+        view.setMaxCharCount(200);
+
+        const QString huge = QString("start ") + QString(500, 'x') + " end\n";
+        view.appendMessage(huge, Utils::GeneralMessageFormat);
+
+        const QString kept = view.toPlainText();
+        QVERIFY2(kept.contains("start"), "the beginning of the chunk went");
+        QVERIFY2(kept.contains("end"), "the end of the chunk went");
+        QVERIFY2(kept.contains("..."), "nothing said that anything was left out");
+        QVERIFY(kept.size() < huge.size());
+    }
+
+    void testTheFilteredCopyFollowsOutputBeingDropped()
+    {
+        // The two-document design's own hazard: the filtered copy follows the
+        // source by block number, and every one of those moves when the front
+        // of the source goes.
+        OutputPaneView view;
+        view.setMaxCharCount(300);
+        view.appendMessage("keep: the first one\n", Utils::GeneralMessageFormat);
+        view.setFilter("keep", {});
+        QVERIFY(view.shownDocument()->toPlainText().contains("the first one"));
+
+        for (int i = 0; i < 100; ++i) {
+            view.appendMessage(QString("keep: number %1\n").arg(i), Utils::GeneralMessageFormat);
+            view.appendMessage(QString("drop: number %1\n").arg(i), Utils::GeneralMessageFormat);
+        }
+
+        const QString filtered = view.shownDocument()->toPlainText();
+        QVERIFY2(filtered.contains("keep: number 99"), "the newest matching line was not shown");
+        QVERIFY2(!filtered.contains("drop:"), "a line the filter rejects was shown");
+
+        // Every line it shows is one the source still has.
+        const QString source = view.toPlainText();
+        for (const QString &line : filtered.split('\n', Qt::SkipEmptyParts)) {
+            QVERIFY2(source.contains(line),
+                     qPrintable("the filtered copy still shows a dropped line: " + line));
+        }
     }
 
     void testShowingWhereATaskWasReportedFrom()
