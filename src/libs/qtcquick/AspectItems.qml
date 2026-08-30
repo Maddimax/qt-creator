@@ -49,6 +49,10 @@ GridLayout {
                 BoolDelegate {}
             }
             DelegateChoice {
+                roleValue: AspectContainerModel.EnvironmentEditor
+                EnvironmentEditorDelegate {}
+            }
+            DelegateChoice {
                 roleValue: AspectContainerModel.TriStateBool
                 TriStateDelegate {}
             }

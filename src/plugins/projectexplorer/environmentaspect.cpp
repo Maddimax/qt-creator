@@ -141,6 +141,13 @@ EnvironmentEditorAspect::EnvironmentEditorAspect(Utils::AspectContainer *contain
     });
 }
 
+Utils::AspectPresentation EnvironmentEditorAspect::presentation() const
+{
+    Utils::AspectPresentation p = Utils::AspectContainer::presentation();
+    p.control = Utils::AspectControls::EnvironmentEditor;
+    return p;
+}
+
 void EnvironmentEditorAspect::setBaseEnvironment(const Utils::Environment &env)
 {
     m_variables.model().setBaseEnvironment(env);

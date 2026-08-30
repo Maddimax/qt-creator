@@ -145,6 +145,7 @@ AspectContainerModel::Kind AspectContainerModel::kindOf(AspectControls::Control 
     case AspectControls::Table:                  return Table;
     case AspectControls::GroupedList:            return GroupedList;
     case AspectControls::Tree:                   return Tree;
+    case AspectControls::EnvironmentEditor:      return EnvironmentEditor;
     // IntegersAspect draws nothing in the widget path either, so drawing
     // nothing here is parity rather than a gap.
     case AspectControls::Invisible:

@@ -35,6 +35,7 @@
 #include <utils/algorithm.h>
 #include <utils/aspectlist.h>
 #include <utils/aspects.h>
+#include <utils/environmentmodel.h>
 #include <utils/macroexpander.h>
 #include <utils/variablechooser.h>
 #include <utils/groupedlistaspect.h>
@@ -339,6 +340,7 @@ private slots:
     void testAFieldOffersTheVariablesItCanBeWrittenIn();
     void testAVariableBeingDefinedIsNotOfferedForItself();
     void testASeveralLineFieldOffersVariablesToo();
+    void testAnEnvironmentEditorDrawsItsTableAndItsButtons();
     void testAFieldOffersWhatWasTypedIntoItBefore();
     void testBrowsingStartsWhereThePathAlreadyPointsTo();
     void testALabelSaysTheValueItCannotShowInFull();
@@ -9846,6 +9848,108 @@ void QuickUiTest::testASeveralLineFieldOffersVariablesToo()
     area->setProperty("cursorPosition", 1);
     QTest::keyClick(quickWidget, Qt::Key_Return);
     QTRY_COMPARE(area->property("text").toString(), QString("a%{Test:Name}b"));
+}
+
+// An aspect that stands in for ProjectExplorer's EnvironmentEditorAspect: the
+// component is in this module and reads its container by name, so what it
+// needs is the names, not that plugin's class.
+class StandInVariables final : public Utils::BaseAspect
+{
+    Q_OBJECT
+
+public:
+    explicit StandInVariables(Utils::AspectContainer *container)
+        : BaseAspect(container)
+    {}
+
+    Utils::AspectPresentation presentation() const override
+    {
+        Utils::AspectPresentation p = BaseAspect::presentation();
+        p.control = Utils::AspectControls::Table;
+        return p;
+    }
+
+    QAbstractItemModel *tableModel() override { return &m_model; }
+
+    Q_INVOKABLE void setCurrentRow(int row) { m_currentRow = row; }
+    int currentRow() const { return m_currentRow; }
+
+    Utils::EnvironmentModel m_model{this};
+    int m_currentRow = -1;
+};
+
+void QuickUiTest::testAnEnvironmentEditorDrawsItsTableAndItsButtons()
+{
+    // The environment editor every page that edits one draws: a table of what
+    // the variables come out as, the operations on whichever is current, and
+    // the same changes as text.
+    Utils::AspectContainer editor;
+    editor.setAutoApply(true);
+
+    StandInVariables variables(&editor);
+    variables.setQmlName("Variables");
+    Utils::Environment base;
+    base.set("QTC_EDITOR_TEST", "one");
+    variables.m_model.setBaseEnvironment(base);
+
+    Utils::StringAspect changes(&editor);
+    changes.setQmlName("Changes");
+    changes.setDisplayStyle(Utils::StringAspect::TextEditDisplay);
+
+    std::vector<std::unique_ptr<Utils::ActionAspect>> actions;
+    for (const QString &name : QStringList{"Edit", "Add", "Reset", "Unset", "Toggle",
+                                           "AppendPath", "PrependPath"}) {
+        auto action = std::make_unique<Utils::ActionAspect>(&editor);
+        action->setQmlName(name);
+        action->setActionText(name);
+        actions.push_back(std::move(action));
+    }
+
+    QQmlComponent component(QtcQuick::engine(),
+                            QUrl("qrc:/qt/qml/QtCreator/Ui/EnvironmentEditor.qml"));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    const std::unique_ptr<QObject> object(component.createWithInitialProperties(
+        {{"editor", QVariant::fromValue(QtcQuick::AspectModels().named(&editor))}}));
+    QVERIFY(object);
+    auto * const item = qobject_cast<QQuickItem *>(object.get());
+    QVERIFY(item);
+
+    const std::unique_ptr<QQuickWidget> host(new QQuickWidget);
+    item->setParentItem(host->quickWindow()->contentItem());
+    host->resize(900, 500);
+    host->show();
+    QVERIFY(QTest::qWaitForWindowExposed(host.get()));
+
+    // The variables the environment comes out with, drawn as rows. The rows
+    // are what matters: a TableDelegate is built whether or not the name it
+    // was given resolves to anything, so finding one proves nothing.
+    QQuickItem *table = nullptr;
+    QTRY_VERIFY(table = findQmlComponent(item, "TableDelegate"));
+    QQuickItem *view = nullptr;
+    QTRY_VERIFY(view = findQmlComponent(table, "QQuickTableView"));
+    QTRY_VERIFY2(view->property("rows").toInt() > 0,
+                 "the table shows no variables, so it was given no model");
+
+    // And one button per operation, each showing what it does.
+    const QList<QQuickItem *> buttons = findQmlComponents(item, "ButtonDelegate");
+    QCOMPARE(buttons.size(), 7);
+    QStringList shown;
+    for (QQuickItem * const button : buttons) {
+        // Not the delegate itself: "ButtonDelegate" starts with "Button", so
+        // the prefix search answers it first and it has no text of its own.
+        const QList<QQuickItem *> parts = findQmlComponents(button, "Button");
+        for (QQuickItem * const part : parts) {
+            if (part != button)
+                shown << part->property("text").toString();
+        }
+    }
+    for (const QString &name : QStringList{"Edit", "Add", "Reset", "Unset", "Toggle",
+                                           "AppendPath", "PrependPath"}) {
+        QVERIFY2(shown.contains(name), qPrintable("no button says " + name));
+    }
+
+    // The other surface, under them.
+    QVERIFY(findQmlComponent(item, "TextAreaDelegate"));
 }
 
 void QuickUiTest::testAVariableBeingDefinedIsNotOfferedForItself()

@@ -17138,3 +17138,34 @@ behaviour, and both earned their place:
 `ProjectTest::testMultipleBuildConfigs` failed once during this batch and is
 not related: run twice in isolation on the same binary it passed once and
 failed once.
+
+### The editor becomes a control
+
+`EnvironmentEditor.qml` has moved from ProjectExplorer into QtcQuick, because
+nothing in it is that plugin's: it is a `TableDelegate`, seven
+`ButtonDelegate`s and a `TextAreaDelegate` over names its container holds. The
+aspect that feeds it stays where it was.
+
+With the component in the shared module it can be a *control*:
+`AspectControls::EnvironmentEditor`, mapped to
+`AspectContainerModel::EnvironmentEditor` and chosen in `AspectItems.qml` like
+any other. `EnvironmentEditorAspect::presentation()` asks for it, so **any**
+container that registers one draws the editor rather than a group box holding a
+table, a text field and seven loose buttons - including the generic form that
+run configurations and build steps are drawn with. That is what makes the next
+step small.
+
+It is also what makes it testable here for the first time: the component and
+its model (`Utils::EnvironmentModel`) are both below the plugins now, so
+QuickUi's suite can stand in for the aspect with a container that registers the
+same names, and check the editor draws the variables, one button per operation,
+and the text surface.
+
+Two things that assertion had to survive:
+
+- `findQmlComponent(button, "Button")` answers the **`ButtonDelegate` itself** -
+  the prefix search - and a delegate has no `text`, so every button read as
+  empty.
+- "A `TableDelegate` is there" passes with a name that resolves to nothing. The
+  delegate is built either way; what is not is a row. The test waits for
+  `rows > 0`, and renaming the aspect in the QML then turns it red.

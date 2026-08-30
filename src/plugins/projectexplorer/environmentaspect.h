@@ -58,6 +58,10 @@ class PROJECTEXPLORER_EXPORT EnvironmentEditorAspect final : public Utils::Aspec
 public:
     explicit EnvironmentEditorAspect(Utils::AspectContainer *container = nullptr);
 
+    // Not a plain container: a page that holds one draws the editor rather
+    // than a group box listing a table, a text field and seven buttons.
+    Utils::AspectPresentation presentation() const override;
+
     void setBaseEnvironment(const Utils::Environment &env);
 
     Utils::EnvironmentChanges changes() const;

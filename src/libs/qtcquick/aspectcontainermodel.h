@@ -108,6 +108,7 @@ public:
         Table,
         GroupedList,
         Tree,
+        EnvironmentEditor,
         // Shows nothing at all, which some aspects legitimately do.
         Invisible,
         Unsupported,

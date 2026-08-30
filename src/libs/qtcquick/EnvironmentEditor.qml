@@ -6,8 +6,6 @@ pragma FunctionSignatureBehavior: Enforced
 
 import QtQuick
 import QtQuick.Layouts
-import QtCreator.Ui
-
 // A set of environment changes, in the two surfaces the widget form had: the
 // result as a table, and the changes as text. Which buttons can be pressed
 // depends on the row that is current, which the container decides.

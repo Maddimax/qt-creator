@@ -53,6 +53,8 @@ if(TARGET QtcQuick)
       QtcVariableChooser.qml
       DeviceBrowse.qml
       DoubleDelegate.qml
+      EnvironmentEditor.qml
+      EnvironmentEditorDelegate.qml
       FilePathListDelegate.qml
       FontFamilyDelegate.qml
       FormLabel.qml

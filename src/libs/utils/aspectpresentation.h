@@ -86,6 +86,11 @@ enum Control {
     // A tree of values the page reports rather than lets the user set, from
     // the model the aspect hands out. See BaseAspect::tableModel().
     Tree,
+    // A set of environment changes: the variables that result as a table, the
+    // operations on whichever is current, and the same changes as text. The
+    // aspect is a container holding those under known names; see
+    // ProjectExplorer::EnvironmentEditorAspect.
+    EnvironmentEditor,
 };
 Q_ENUM_NS(Control)
 
