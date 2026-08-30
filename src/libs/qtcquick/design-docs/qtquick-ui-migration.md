@@ -17255,3 +17255,38 @@ That gap is worth naming as a pattern. **Porting a widget by matching what the
 *aspect* offers misses what the widget it embeds offers.** The seven buttons
 came from reading `ProjectEnvironmentPanel`, which is a page; the eighth only
 turned up when a *subclass* needed to change what it does.
+
+### CMake's configure environment, and a label that was hard-coded
+
+`ConfigureEnvironmentAspect` is the third `EnvironmentAspect` subclass and the
+cheapest yet: its widget adds exactly one thing over the base - a terminal
+opens in the build directory - which is one `setOpenTerminalHandler()` call.
+
+It did surface one thing the Qt Quick surface had wrong. The widget form takes
+the label for its base-environment combo from **the aspect's own
+`labelText()`**, falling back to "Base environment for this run configuration:"
+only when it is empty - and CMake sets "Base environment for the CMake
+configure step:". The Quick surface had that fallback hard-coded, so the CMake
+page would have said "run configuration". It follows `labelText()` now, and
+keeps following it, since the aspect may set it after construction.
+
+**Correction to the count.** `projectexplorer/deployconfiguration.cpp` was in
+the list of aspects that draw themselves with a widget. It is not one: that
+`setConfigWidgetCreator` is `DeployConfigurationFactory`'s, a different
+function that has nothing to do with aspects. Six left, not seven.
+
+**And the next one is not a single aspect.** `PerfRunConfigurationAspect`,
+`QmlProfilerRunConfigurationAspect` and Valgrind's all say
+`createRunConfigAspectWidget(this)`, which is one shared widget in
+`runconfiguration.cpp`: a `DetailsWidget` summarising "Use Global Settings" or
+"Use Customized Settings" around the "use global settings" check box, a
+"Restore Global" button, and the project settings form. Making
+`GlobalOrProjectAspect` describe itself covers all three at once.
+
+That one has a question in front of it that this migration has not had to
+answer yet: the inner form is built with `Core::createAspectForm()` so that a
+settings container **with QML of its own** is drawn with it, and the comment
+there records what happened when it was not - the Perf events table went
+missing. A nested container inside a Qt Quick page is currently drawn by the
+generic container delegate, so whether it honours its own `qmlSource()` needs
+checking before that port, not after.

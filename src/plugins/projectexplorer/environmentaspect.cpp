@@ -258,8 +258,18 @@ EnvironmentAspect::EnvironmentAspect(AspectContainer *container)
 
     m_baseSelection.setQmlName("BaseEnvironment");
     m_baseSelection.setDisplayStyle(Utils::SelectionAspect::DisplayStyle::ComboBox);
-    m_baseSelection.setLabelText(Tr::tr("Base environment for this run configuration:"));
     registerAspect(&m_baseSelection);
+
+    // The aspect's own label, where it has set one - CMake's configure step
+    // says what its base environment is for - and the run configuration
+    // wording otherwise, which is what the widget form falls back to.
+    const auto followLabel = [this] {
+        m_baseSelection.setLabelText(
+            labelText().isEmpty() ? Tr::tr("Base environment for this run configuration:")
+                                  : labelText());
+    };
+    followLabel();
+    addOnLabelTextChanged(this, followLabel);
 
     m_editor.setQmlName("Editor");
     registerAspect(&m_editor);

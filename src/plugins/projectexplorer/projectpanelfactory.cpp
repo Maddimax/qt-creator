@@ -227,6 +227,13 @@ private slots:
         };
         QVERIFY2(rowFor("QTC_ASPECT_TEST") >= 0, "the editor was given no base environment");
 
+        // The label the combo carries is the aspect's own where it set one -
+        // CMake's configure step says what its base environment is for - and
+        // the run configuration wording otherwise.
+        QCOMPARE(base->labelText(), QString("Base environment for this run configuration:"));
+        aspect.setLabelText("Base environment for the CMake configure step:");
+        QCOMPARE(base->labelText(), QString("Base environment for the CMake configure step:"));
+
         // And what is edited *there* is what the aspect then reports, which is
         // what the run configuration builds its environment from. Through the
         // model, which is what the table writes to: setChanges() is the other

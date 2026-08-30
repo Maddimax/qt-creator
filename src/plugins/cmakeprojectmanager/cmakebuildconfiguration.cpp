@@ -2694,6 +2694,11 @@ ConfigureEnvironmentAspect::ConfigureEnvironmentAspect(BuildConfiguration *bc)
     setIsLocal(true);
     setAllowPrintOnRun(false);
     setConfigWidgetCreator([this, bc] { return new ConfigureEnvironmentAspectWidget(this, bc); });
+    // The one thing that widget adds over the base, for the pages that draw
+    // themselves: a terminal here belongs in the build directory.
+    editor().setOpenTerminalHandler([bc](const Environment &env) {
+        Core::FileUtils::openTerminal(bc->buildDirectory(), env);
+    });
     addSupportedBaseEnvironment(Tr::tr("Clean Environment"), {});
     setLabelText(Tr::tr("Base environment for the CMake configure step:"));
 
