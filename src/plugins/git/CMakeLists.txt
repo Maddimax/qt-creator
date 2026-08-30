@@ -56,6 +56,7 @@ if(TARGET Git)
       BranchCheckoutDialog.qml
       BranchAddDialog.qml
       GitSettingsPage.qml
+      GerritDialog.qml
       GerritPushDialog.qml
       LogChangeDialog.qml
       StashDialog.qml

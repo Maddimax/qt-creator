@@ -21762,3 +21762,51 @@ entry because `git.qbs` takes `*.qml` and `*/*.qml` by wildcard.
 a splitter, a details browser, a query field with a completer over saved
 queries, and a progress overlay on the tree. Its remote chooser is already an
 aspect; nothing else in it is shared with another dialog.
+
+## 2026-08-31 — GerritDialog, and the activation family is done
+
+The largest of them, and it went in two commits: `TreeDelegate` gained
+`rowActivated` first, because the dialog opens a change on double click and
+only the table had that.
+
+**A probe again, and again it was the test.** Return on a tree row did nothing.
+The probe said `currentIndex valid=0, focus=1` - the keyboard was there and the
+row was not. The cause: I had set the current index on the view's selection
+model using an index from the *aspect's* model, and that selection model is
+over the filter proxy, so it simply did not take. Nothing was wrong with the
+delegate. Second time in three batches that one `qWarning` run has saved a
+wrong fix; it is now the first thing to do when a UI test says a handler is
+dead.
+
+**The dialog's own port**: the tree, the query field, the details browser and
+the four buttons are aspects; the splitter between changes and details is a
+QML `SplitView`, which `QtcFileDialog.qml` already used. Two rules came out -
+`canFetchChange()` (nothing is offered while a fetch is running, because two
+gerrit operations at once mix up) and `rememberedQueries()` (most recent first,
+nothing twice).
+
+**The render test caught what qmllint did not, again.** The `BusyIndicator`
+over the tree was anchored inside a `RowLayout`, which Qt calls undefined
+behaviour and refuses at load time. `Git_qmllint` was clean. Wrapping the tree
+in a plain `Item` so the overlay has a parent that is not a layout is the fix.
+Together with the `Connections`/`import QtQuick` case two batches ago, that is
+twice that a clean lint meant nothing about whether the page loads.
+
+`GerritRemoteChooser` is deleted - both its dialogs use the aspect now. That is
+the fourth widget class to go this way, after `SessionView`, `BranchComboBox`
+and the three log item delegates.
+
+Negative controls, tree activation: Return doing nothing; every key activating;
+and the index reported being the proxy's rather than the aspect's. Dialog: the
+`.qml` naming an aspect that does not exist; the `.qml` not handing the
+activation back; a second fetch starting while one runs; and a query remembered
+twice. All seven bit.
+
+QuickUi 189 passed / 0 failed / 1 skipped, exit 0. `Git` exit 0 with no
+failures, `GerritDialogTest` 7 passed. `Git_qmllint` clean - which, as above,
+proves less than it looks.
+
+**The activation family is finished.** What is left of the census is the
+read-only reports, the text-field dialogs, and the ones needing a component of
+their own. `LogChangeWidget` is still a widget, but only the submit editor
+embeds it now, so it belongs with the editors rather than the dialogs.

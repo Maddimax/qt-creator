@@ -8,11 +8,6 @@
 #include <utils/aspects.h>
 #include <utils/filepath.h>
 
-#include <QComboBox>
-#include <QToolButton>
-#include <QWidget>
-
-#include <vector>
 
 QT_BEGIN_NAMESPACE
 class QObject;
@@ -40,7 +35,7 @@ QList<RemoteChoice> remoteChoices(
 int defaultRemoteIndex(const QList<RemoteChoice> &choices);
 
 // Which remote to talk to, as a form rather than a widget: a choice and a way
-// to ask the repository again. Mirrors GerritRemoteChooser, which it replaces.
+// to ask the repository again.
 class GerritRemoteChooserAspect : public Utils::AspectContainer
 {
     Q_OBJECT
@@ -78,38 +73,5 @@ private:
 #ifdef WITH_TESTS
 QObject *createGerritRemoteChooserTest();
 #endif
-
-class GerritRemoteChooser : public QWidget
-{
-    Q_OBJECT
-
-public:
-    GerritRemoteChooser(QWidget *parent = nullptr);
-    void setRepository(const Utils::FilePath &repository);
-    void setFallbackEnabled(bool value);
-    void setAllowDups(bool value);
-    bool setCurrentRemote(const QString &remoteName);
-
-    void updateRemotes(bool forceReload);
-    GerritServer currentServer() const;
-    QString currentRemoteName() const;
-    bool isEmpty() const;
-
-signals:
-    void remoteChanged();
-
-private:
-    void addRemote(const GerritServer &server, const QString &name);
-    void handleRemoteChanged();
-
-    Utils::FilePath m_repository;
-    QComboBox *m_remoteComboBox = nullptr;
-    QToolButton *m_resetRemoteButton = nullptr;
-    bool m_updatingRemotes = false;
-    bool m_enableFallback = false;
-    bool m_allowDups = false;
-    using NameAndServer = std::pair<QString, GerritServer>;
-    std::vector<NameAndServer> m_remotes;
-};
 
 } // namespace Gerrit::Internal

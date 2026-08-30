@@ -10,28 +10,32 @@
 
 #include <functional>
 
+#include <memory>
+
 QT_BEGIN_NAMESPACE
 class QDialogButtonBox;
-class QLabel;
 class QModelIndex;
-class QSortFilterProxyModel;
-class QStringListModel;
-class QPushButton;
-class QTextBrowser;
+class QObject;
 QT_END_NAMESPACE
-
-namespace Utils {
-class FancyLineEdit;
-class ProgressIndicator;
-class TreeView;
-} // Utils
 
 namespace Gerrit::Internal {
 
 class GerritChange;
+class GerritDialogSettings;
 class GerritModel;
-class GerritRemoteChooser;
 class GerritServer;
+
+// Whether the three fetch buttons are offered: a change has to be picked, and
+// nothing may be fetching already - two gerrit operations at once mix up.
+bool canFetchChange(bool fetchRunning, bool hasCurrentChange);
+
+// Puts \a query at the front of \a queries, which is the order they are
+// offered back in. Nothing is remembered twice.
+QStringList rememberedQueries(const QStringList &queries, const QString &query);
+
+#ifdef WITH_TESTS
+QObject *createGerritDialogTest();
+#endif
 
 class GerritDialog : public QDialog
 {
@@ -49,6 +53,8 @@ public:
     void scheduleUpdateRemotes();
 
 signals:
+    // The changes have arrived; the tree opens itself out.
+    void expandChanges();
     void fetchDisplay(const std::shared_ptr<Gerrit::Internal::GerritChange> &);
     void fetchCherryPick(const std::shared_ptr<Gerrit::Internal::GerritChange> &);
     void fetchCheckout(const std::shared_ptr<Gerrit::Internal::GerritChange> &);
@@ -69,30 +75,22 @@ private:
     void setProgressIndicatorVisible(bool v);
     QModelIndex currentIndex() const;
     void updateCompletions(const QString &query);
-    QPushButton *addActionButton(const QString &text, const std::function<void ()> &buttonSlot);
     void updateButtons();
 
     const std::shared_ptr<GerritServer> m_server;
-    QSortFilterProxyModel *m_filterModel;
     GerritModel *m_model;
-    QStringListModel *m_queryModel;
-    QPushButton *m_displayButton;
-    QPushButton *m_cherryPickButton;
-    QPushButton *m_checkoutButton;
-    QPushButton *m_refreshButton;
-    Utils::ProgressIndicator *m_progressIndicator;
+    const std::unique_ptr<GerritDialogSettings> m_settings;
     QTimer m_progressIndicatorTimer;
     Utils::FilePath m_repository;
     bool m_fetchRunning = false;
     bool m_updatingRemotes = false;
     bool m_shouldUpdateRemotes = false;
 
-    QLabel *m_repositoryLabel;
-    GerritRemoteChooser *m_remoteComboBox;
-    Utils::TreeView *m_treeView;
-    QTextBrowser *m_detailsBrowser;
     QDialogButtonBox *m_buttonBox;
-    Utils::FancyLineEdit *m_queryLineEdit;
+
+#ifdef WITH_TESTS
+    friend class GerritDialogTest;
+#endif
 };
 
 } // Gerrit::Internal
