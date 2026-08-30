@@ -59,4 +59,8 @@ private:
     Utils::FilePaths m_sharedFolders;
 };
 
+#ifdef WITH_TESTS
+QObject *createMappedAutDialogTest();
+#endif
+
 } // namespace Squish::Internal

@@ -38,6 +38,7 @@ private:
     {
 #ifdef WITH_TESTS
         addTestCreator(createSquishResultModelTest);
+        addTestCreator(createMappedAutDialogTest);
 #endif
         IOptionsPage::registerCategory(
             Constants::SQUISH_SETTINGS_CATEGORY,

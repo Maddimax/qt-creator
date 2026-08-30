@@ -20180,3 +20180,50 @@ QuickUi 181 passed / 0 failed / 1 skipped, exit 0. Macros exit 0,
 cheap - the classifier has now over-reported four times, for four different
 reasons. `SingleFileDialog` (axivion), `MappedAutDialog` (squish) and
 `AvdDialog` (android) are the unread ones.
+
+## 2026-08-30 — Recording Settings, and a list that arrives late
+
+All three unread candidates were read. `AvdDialog` is not a form - it has an
+`eventFilter`, three combo boxes that repopulate each other, and its own
+data-collection pass. `SingleFileDialog` (Axivion) *is* a form, and is left for
+a reason worth writing down (below). `MappedAutDialog` (Squish) is the one, and
+it had a shape none of the others did.
+
+**Its list arrives after the dialog is open.** The applications come from the
+Squish server, asked for in the constructor with a wait cursor and answered in
+a callback. So the combo box grows under a reader who may already have picked
+something. Three things follow, and the widget version had one of them:
+
+- The first entry stands for "none", so the box opens on nothing rather than on
+  the first application - a choice the reader did not make. The widget code had
+  this, as `okButton->setEnabled(index > 0)`; it is `hasApplication()` now.
+- Refilling must **keep the choice**, which `clearOptions()` + `addOption()`
+  does not do on its own.
+- And it must **drop** a choice that is no longer on offer, rather than leave
+  the index pointing at whatever moved into that position. Neither of the last
+  two existed before, because the widget list was only ever filled once.
+
+`SelectionAspect`'s API for this is `clearOptions()`, `addOption()` and
+`optionCount()` - not the `removeOption`/`optionsCount` a guess produces.
+
+**Why `SingleFileDialog` is not done.** Its form is two aspects that belong to
+the *global Axivion settings* container, not to the dialog. Every dialog ported
+so far owns its aspects, so `Core::createAspectForm()` on a container of its
+own works; here the same aspects would have to be listed by a second container,
+and a bare `AspectContainer` flips what it lists to auto-apply, which would
+change how the settings page saves them. That is a new shape and wants deciding
+before it is coded, not during. Its start rule -
+`config.isValid() && (canDerive || command is not empty)` - is worth extracting
+whichever way it goes.
+
+Negative controls: the placeholder dropped so the first application is picked
+for you; a choice kept when it is no longer on offer; index 0 counting as an
+application; and the page naming an aspect that is not there. All four bit.
+
+QuickUi 181 passed / 0 failed / 1 skipped, exit 0. Squish exit 0,
+`MappedAutDialogTest` 5 passed. `Squish_qmllint` clean. No `.qbs` edit.
+
+**Next:** `SingleFileDialog` needs the shared-aspect question answered first -
+whether a dialog may list aspects another container owns, and what that does to
+auto-apply. That is the last thing in the way of the remaining candidates that
+draw settings rather than their own values.

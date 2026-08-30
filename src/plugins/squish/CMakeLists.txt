@@ -51,6 +51,7 @@ if(TARGET Squish)
     NO_PLUGIN
     QML_FILES
       SquishResults.qml
+      MappedAutDialog.qml
       SquishSettingsPage.qml
   )
 endif()

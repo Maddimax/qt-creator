@@ -15,6 +15,7 @@
 #include <coreplugin/documentmanager.h>
 #include <coreplugin/editormanager/editormanager.h>
 #include <coreplugin/icore.h>
+#include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/session.h>
 
 #include <projectexplorer/projectexplorer.h>
@@ -28,6 +29,10 @@
 
 #include <QApplication>
 #include <QComboBox>
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
 #include <QDialogButtonBox>
 #include <QFileDialog>
 #include <QMessageBox>
@@ -44,55 +49,90 @@ static const char SK_OpenSuites[] = "SquishOpenSuites";
 
 static SquishFileHandler *m_instance = nullptr;
 
+// The applications the Squish server has been told about, and the arguments to
+// start one with. The first entry stands for "none": it is there so the box
+// opens on nothing rather than on the first application, which would be a
+// choice the reader did not make.
+class MappedAutSettings final : public Utils::AspectContainer
+{
+public:
+    MappedAutSettings()
+    {
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Squish/MappedAutDialog.qml"));
+
+        application.setQmlName("Application");
+        application.setLabelText(Tr::tr("Application:"));
+        application.setDisplayStyle(Utils::SelectionAspect::DisplayStyle::ComboBox);
+        application.addOption(Tr::tr("<No Application>"));
+
+        arguments.setQmlName("Arguments");
+        arguments.setLabelText(Tr::tr("Arguments:"));
+        arguments.setDisplayStyle(Utils::StringAspect::LineEditDisplay);
+    }
+
+    // Keeps the placeholder first and does not move the selection: the answer
+    // arrives while the dialog is open, and picking something for the reader
+    // because it has just appeared is not an improvement.
+    void setApplications(const QStringList &names)
+    {
+        const int chosen = application.value();
+        application.clearOptions();
+        application.addOption(Tr::tr("<No Application>"));
+        for (const QString &name : names)
+            application.addOption(name);
+        // What was picked, if it is still there. Nothing was, the first time.
+        application.setValue(chosen < application.optionCount() ? chosen : 0);
+    }
+
+    // Whether an application has been picked at all.
+    bool hasApplication() const { return application.value() > 0; }
+    QString applicationName() const
+    {
+        return hasApplication() ? application.displayForIndex(application.value()) : QString();
+    }
+
+    Utils::SelectionAspect application{this};
+    Utils::StringAspect arguments{this};
+};
+
 class MappedAutDialog : public QDialog
 {
 public:
     MappedAutDialog()
+        : m_buttons(new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this))
     {
-        auto label = new QLabel(Tr::tr("Application:"), this);
-        aut.addItem(Tr::tr("<No Application>"));
-        arguments.setLabelText(Tr::tr("Arguments:"));
-        arguments.setDisplayStyle(Utils::StringAspect::LineEditDisplay);
-
-        QWidget *widget = new QWidget(this);
-        auto buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
-
-        using namespace Layouting;
-        Form {
-            label, &aut, br,
-            arguments,
-            st
-        }.attachTo(widget);
-
-        QVBoxLayout *layout = new QVBoxLayout(this);
-        layout->addWidget(widget);
-        layout->addWidget(buttons);
-        setLayout(layout);
-
-        QPushButton *okButton = buttons->button(QDialogButtonBox::Ok);
-        okButton->setEnabled(false);
-        connect(okButton, &QPushButton::clicked, this, &QDialog::accept);
-        connect(buttons->button(QDialogButtonBox::Cancel), &QPushButton::clicked,
-                this, &QDialog::reject);
-        connect(&aut, &QComboBox::currentIndexChanged,
-                this, [okButton](int index) { okButton->setEnabled(index > 0); });
         setWindowTitle(Tr::tr("Recording Settings"));
 
-        auto squishTools = SquishTools::instance();
-        QApplication::setOverrideCursor(Qt::WaitCursor);
+        const auto layout = new QVBoxLayout(this);
+        layout->addWidget(Core::createAspectForm(&m_settings));
+        layout->addWidget(m_buttons);
 
-        squishTools->queryServerSettings([this](const QString &out, const QString &) {
-            SquishServerSettings s;
-            s.setFromXmlOutput(out);
+        connect(m_buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
+        connect(m_buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+
+        const auto refreshOk = [this] {
+            m_buttons->button(QDialogButtonBox::Ok)->setEnabled(m_settings.hasApplication());
+        };
+        m_settings.application.addOnChanged(this, refreshOk);
+        refreshOk();
+
+        // The list comes from the server, which takes a moment to answer.
+        QApplication::setOverrideCursor(Qt::WaitCursor);
+        SquishTools::instance()->queryServerSettings([this](const QString &out, const QString &) {
+            SquishServerSettings answered;
+            answered.setFromXmlOutput(out);
             QApplication::restoreOverrideCursor();
-            for (auto it = s.mappedAuts.cbegin(); it != s.mappedAuts.cend(); ++it)
-                aut.addItem(it.key());
+            m_settings.setApplications(answered.mappedAuts.keys());
         });
     }
 
+    QString application() const { return m_settings.applicationName(); }
+    QString arguments() const { return m_settings.arguments(); }
 
-    QComboBox aut;
-    Utils::StringAspect arguments;
+private:
+    MappedAutSettings m_settings;
+    QDialogButtonBox * const m_buttons;
 };
 
 SquishFileHandler::SquishFileHandler(QObject *parent)
@@ -434,7 +474,7 @@ void SquishFileHandler::recordTestCase(const QString &suiteName, const QString &
         if (dialog.exec() != QDialog::Accepted)
             return;
 
-        conf.setAut(dialog.aut.currentText());
+        conf.setAut(dialog.application());
         conf.setArguments(dialog.arguments());
     }
 
@@ -567,4 +607,70 @@ QStringList SquishFileHandler::suitePathsAsStringList() const
     return Utils::transform(m_suites.values(), &Utils::FilePath::toUrlishString);
 }
 
+#ifdef WITH_TESTS
+
+class MappedAutDialogTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheDialogDrawsWithTheQmlItNames()
+    {
+        MappedAutSettings settings;
+        const Utils::Result<> rendered
+            = Core::aspectFormRenders(&settings, "MappedAutDialog.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+    }
+
+    void testNothingIsPickedUntilSomethingIsPicked()
+    {
+        MappedAutSettings settings;
+
+        // The first entry stands for "none", so the box opens on nothing.
+        QCOMPARE(settings.application.optionCount(), 1);
+        QVERIFY(!settings.hasApplication());
+        QCOMPARE(settings.applicationName(), QString());
+
+        settings.setApplications({"addressbook", "spreadsheet"});
+        QCOMPARE(settings.application.optionCount(), 3);
+        QVERIFY2(!settings.hasApplication(),
+                 "an application was picked by the list arriving");
+
+        settings.application.setValue(1);
+        QVERIFY(settings.hasApplication());
+        QCOMPARE(settings.applicationName(), QString("addressbook"));
+    }
+
+    void testTheListArrivingDoesNotMoveTheChoice()
+    {
+        // The server answers while the dialog is open, so the list can grow
+        // under a reader who has already picked something.
+        MappedAutSettings settings;
+        settings.setApplications({"addressbook", "spreadsheet"});
+        settings.application.setValue(2);
+        QCOMPARE(settings.applicationName(), QString("spreadsheet"));
+
+        settings.setApplications({"addressbook", "spreadsheet", "calculator"});
+        QCOMPARE(settings.application.optionCount(), 4);
+        QCOMPARE(settings.applicationName(), QString("spreadsheet"));
+
+        // And a list that has shrunk past the choice goes back to none rather
+        // than to whatever is now at that position.
+        settings.setApplications({"addressbook"});
+        QVERIFY2(!settings.hasApplication(),
+                 "a choice that is no longer on offer was kept");
+    }
+};
+
+QObject *createMappedAutDialogTest()
+{
+    return new MappedAutDialogTest;
+}
+
+#endif // WITH_TESTS
+
 } // namespace Squish::Internal
+
+#ifdef WITH_TESTS
+#include "squishfilehandler.moc"
+#endif
