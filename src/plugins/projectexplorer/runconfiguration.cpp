@@ -45,6 +45,7 @@
 #include <QVBoxLayout>
 
 #ifdef WITH_TESTS
+#include <QSignalSpy>
 #include <QTest>
 #endif
 
@@ -1079,6 +1080,16 @@ private slots:
         auto * const model = form->findChild<QAbstractItemModel *>();
         QVERIFY2(model, "the Qt Quick form built no model");
         QCOMPARE(model->rowCount(), 2);
+
+        // And it says when it is looked at. What a container works out only
+        // then - a make step asking its toolchain whether it supports
+        // parallel jobs, which its constructor cannot ask for a subclass that
+        // does not exist yet - hangs off this.
+        QSignalSpy wasShown(&container, &AspectContainer::shown);
+        form->resize(400, 300);
+        form->show();
+        QVERIFY(QTest::qWaitForWindowExposed(form.get()));
+        QTRY_COMPARE(wasShown.count(), 1);
     }
 
     void testNoRemoteExecutableIssues_data()

@@ -12,6 +12,8 @@
 #include <utils/macroexpander.h>
 #include <utils/qtcassert.h>
 
+#include <QVBoxLayout>
+
 using namespace Utils;
 
 namespace ProjectExplorer {
@@ -91,6 +93,36 @@ void ProjectConfiguration::fromMap(const Store &map)
     AspectContainer::fromMap(map);
 }
 
+namespace {
+
+// Building a form is not showing it. What a container works out only when it
+// is looked at - a build step asking its toolchain whether it supports
+// parallel jobs - hangs off pageShown(), and the Qt Quick form reports it. So
+// must this one, or that work would happen on one path and not the other.
+class ShowReportingWidget final : public QWidget
+{
+public:
+    ShowReportingWidget(AspectContainer *container, QWidget *form)
+        : m_container(container)
+    {
+        auto layout = new QVBoxLayout(this);
+        layout->setContentsMargins(0, 0, 0, 0);
+        layout->addWidget(form);
+    }
+
+private:
+    void showEvent(QShowEvent *event) override
+    {
+        QWidget::showEvent(event);
+        if (m_container)
+            m_container->pageShown();
+    }
+
+    const QPointer<AspectContainer> m_container;
+};
+
+} // namespace
+
 QWidget *createAspectsForm(AspectContainer *container)
 {
     QTC_ASSERT(container, return nullptr);
@@ -104,7 +136,7 @@ QWidget *createAspectsForm(AspectContainer *container)
         rows.addItem(aspect);
         rows.flush();
     }
-    return rows.emerge();
+    return new ShowReportingWidget(container, rows.emerge());
 }
 
 Id idFromMap(const Store &map)

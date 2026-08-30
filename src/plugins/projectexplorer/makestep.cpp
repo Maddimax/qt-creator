@@ -87,6 +87,80 @@ MakeStep::MakeStep(BuildStepList *parent, Id id)
     updateMakeLabel();
 
     connect(&m_makeCommandAspect, &StringAspect::changed, this, updateMakeLabel);
+
+    setSummaryUpdater([this] {
+        const CommandLine make = effectiveMakeCommand(MakeStep::Display);
+        if (make.executable().isEmpty())
+            return Tr::tr("<b>Make:</b> %1").arg(MakeStep::msgNoMakeCommand());
+
+        if (!buildConfiguration())
+            return Tr::tr("<b>Make:</b> No build configuration.");
+
+        ProcessParameters param;
+        param.setMacroExpander(macroExpander());
+        param.setWorkingDirectory(buildDirectory());
+        param.setCommandLine(make);
+        param.setEnvironment(buildEnvironment());
+
+        if (param.commandMissing()) {
+            return Tr::tr("<b>Make:</b> %1 not found in the environment.")
+                        .arg(param.command().executable().toUserOutput()); // Override display text
+        }
+
+        return param.summaryInWorkdir(displayName());
+    });
+
+    auto updateDetails = [this] {
+        const bool jobCountVisible = isJobCountSupported();
+        m_jobCountAspect.setVisible(jobCountVisible);
+        m_overrideMakeflagsAspect.setVisible(jobCountVisible);
+
+        const bool jobCountEnabled = !userArgsContainsJobCount();
+        m_jobCountAspect.setEnabled(jobCountEnabled);
+        m_overrideMakeflagsAspect.setEnabled(jobCountEnabled);
+
+        QString warningText;
+        InfoType iconType = InfoType::Information;
+        if (makeflagsJobCountMismatch()) {
+            if (m_overrideMakeflagsAspect.value()) {
+                warningText = Tr::tr("Overriding <code>MAKEFLAGS</code> environment variable.");
+            } else {
+                warningText = Tr::tr("<code>MAKEFLAGS</code> specifies a conflicting job count.");
+                iconType = InfoType::Warning;
+            }
+        } else {
+            warningText = Tr::tr("No conflict with <code>MAKEFLAGS</code> environment variable.");
+        }
+        m_nonOverrideWarning.setText(QString::fromLatin1("<html><body><p>%1</p></body></html>")
+                                         .arg(warningText));
+        m_nonOverrideWarning.setIconType(iconType);
+    };
+
+    // When a form is about to show them, not here: this reads the build
+    // environment, and a step in a deploy configuration has no build
+    // configuration to read it from until later. It is also the one place
+    // where isJobCountSupported() cannot answer for the subclass -
+    // MakeInstallStep says no - because the subclass does not exist yet.
+    connect(this, &AspectContainer::shown, this, updateDetails);
+
+    connect(&m_makeCommandAspect, &StringAspect::changed, this, updateDetails);
+    connect(&m_userArgumentsAspect, &StringAspect::changed, this, updateDetails);
+    connect(&m_jobCountAspect, &IntegerAspect::changed, this, updateDetails);
+    connect(&m_overrideMakeflagsAspect, &BoolAspect::changed, this, updateDetails);
+    connect(&m_buildTargetsAspect, &BaseAspect::changed, this, updateDetails);
+
+    globalProjectExplorerSettings().useJom.addOnChanged(this, updateDetails);
+
+    // Guarded: a step in a deploy configuration has no build configuration of
+    // its own, and connecting from a null sender would drop the update
+    // without saying so.
+    if (BuildConfiguration * const bc = buildConfiguration()) {
+        connect(bc, &BuildConfiguration::kitChanged, this, updateDetails);
+        connect(bc, &BuildConfiguration::environmentChanged, this, updateDetails);
+        connect(bc, &BuildConfiguration::buildDirectoryChanged, this, updateDetails);
+        if (BuildSystem * const bs = bc->buildSystem())
+            connect(bs, &BuildSystem::parsingFinished, this, updateDetails);
+    }
 }
 
 void MakeStep::setSelectedBuildTarget(const QString &buildTarget)
@@ -319,72 +393,7 @@ QWidget *MakeStep::createConfigWidget()
         builder.addRow({m_runAsAspect});
     builder.setNoMargins();
 
-    auto widget = builder.emerge();
-
-    setSummaryUpdater([this] {
-        const CommandLine make = effectiveMakeCommand(MakeStep::Display);
-        if (make.executable().isEmpty())
-            return Tr::tr("<b>Make:</b> %1").arg(MakeStep::msgNoMakeCommand());
-
-        if (!buildConfiguration())
-            return Tr::tr("<b>Make:</b> No build configuration.");
-
-        ProcessParameters param;
-        param.setMacroExpander(macroExpander());
-        param.setWorkingDirectory(buildDirectory());
-        param.setCommandLine(make);
-        param.setEnvironment(buildEnvironment());
-
-        if (param.commandMissing()) {
-            return Tr::tr("<b>Make:</b> %1 not found in the environment.")
-                        .arg(param.command().executable().toUserOutput()); // Override display text
-        }
-
-        return param.summaryInWorkdir(displayName());
-    });
-
-    auto updateDetails = [this] {
-        const bool jobCountVisible = isJobCountSupported();
-        m_jobCountAspect.setVisible(jobCountVisible);
-        m_overrideMakeflagsAspect.setVisible(jobCountVisible);
-
-        const bool jobCountEnabled = !userArgsContainsJobCount();
-        m_jobCountAspect.setEnabled(jobCountEnabled);
-        m_overrideMakeflagsAspect.setEnabled(jobCountEnabled);
-
-        QString warningText;
-        InfoType iconType = InfoType::Information;
-        if (makeflagsJobCountMismatch()) {
-            if (m_overrideMakeflagsAspect.value()) {
-                warningText = Tr::tr("Overriding <code>MAKEFLAGS</code> environment variable.");
-            } else {
-                warningText = Tr::tr("<code>MAKEFLAGS</code> specifies a conflicting job count.");
-                iconType = InfoType::Warning;
-            }
-        } else {
-            warningText = Tr::tr("No conflict with <code>MAKEFLAGS</code> environment variable.");
-        }
-        m_nonOverrideWarning.setText(QString::fromLatin1("<html><body><p>%1</p></body></html>")
-                                         .arg(warningText));
-        m_nonOverrideWarning.setIconType(iconType);
-    };
-
-    updateDetails();
-
-    connect(&m_makeCommandAspect, &StringAspect::changed, widget, updateDetails);
-    connect(&m_userArgumentsAspect, &StringAspect::changed, widget, updateDetails);
-    connect(&m_jobCountAspect, &IntegerAspect::changed, widget, updateDetails);
-    connect(&m_overrideMakeflagsAspect, &BoolAspect::changed, widget, updateDetails);
-    connect(&m_buildTargetsAspect, &BaseAspect::changed, widget, updateDetails);
-
-    globalProjectExplorerSettings().useJom.addOnChanged(widget, updateDetails);
-
-    connect(buildConfiguration(), &BuildConfiguration::kitChanged, widget, updateDetails);
-    connect(buildConfiguration(), &BuildConfiguration::environmentChanged, widget, updateDetails);
-    connect(buildConfiguration(), &BuildConfiguration::buildDirectoryChanged, widget, updateDetails);
-    connect(buildSystem(), &BuildSystem::parsingFinished, widget, updateDetails);
-
-    return widget;
+    return builder.emerge();
 }
 
 QStringList MakeStep::availableTargets() const

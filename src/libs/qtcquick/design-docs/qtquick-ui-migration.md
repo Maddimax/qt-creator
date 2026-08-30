@@ -16922,3 +16922,40 @@ with Qt Quick *and* that the model behind it has a row for the hidden aspect.
 their aspects, so they need a `.qml` each rather than this helper. MakeStep
 shows the usual trap in the layout - `if (m_runAsAspect.isVisible())` decides
 at build time what belongs in the form.
+
+### MakeStep: what the closure did, and where it went
+
+`MakeStep::createConfigWidget()` listed six aspects and then did nearly
+everything else the step knows how to do: it installed the summary updater,
+worked out whether parallel jobs are supported and whether MAKEFLAGS conflicts,
+and made nine connections - all with the *widget* as their context, so all of
+it existed only while a form was open. The summary shown in the collapsed step
+header depended on a widget having been built first.
+
+The behaviour now lives in the constructor. Two things it cannot do there, and
+both are why this is a separate commit from the layout:
+
+- `updateDetails()` reads the build environment through
+  `buildConfiguration()->environment()`, unguarded. A make step in a *deploy*
+  configuration - `MakeInstallStep` - has no build configuration until later,
+  so calling it from the constructor is a null dereference waiting for the
+  right project.
+- It also asks `isJobCountSupported()`, which is virtual and which
+  `MakeInstallStep` answers `false`. A constructor is the one place that
+  question cannot be asked, because the subclass does not exist yet.
+
+Both are answered by `AspectContainer::shown()`, which fires when a form is
+about to be displayed and is exactly the old timing. For that to be a hook the
+whole migration can rely on, `createAspectsForm()`'s widget fallback now
+reports being shown too - the Qt Quick form already did, so the behaviour would
+otherwise have depended on which renderer drew the page.
+
+The test drives the Qt Quick path, which is the one that ships; the fallback
+branch is covered by construction only, because clearing the form factory to
+reach it would leave every later test in the run without a Quick renderer.
+
+**Noise worth naming:** `testASettingGroupIsDrawnWithTheQmlItNames` points a
+container at a QML file it does not match, on purpose, and that file asks
+`AspectModels.named()` for an aspect that is not there - so the run prints one
+soft assert from `aspectmodels.cpp:66`. It passes, but a soft assert in a
+passing test is how people learn to ignore soft asserts.
