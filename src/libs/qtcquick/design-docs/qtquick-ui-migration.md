@@ -17381,3 +17381,39 @@ when `QTC_DEBUGGER_MULTIPROCESS` is set, is an aspect that hides itself.
 
 `DebuggerUnitTests::testStateMachine` fails here, and at HEAD with these files
 reverted: it opens a `.pro` project, which needs a working qmake kit.
+
+### CustomParsersAspect: the last of the eight
+
+Which custom output parsers a run configuration uses kept its selection in the
+check states of a widget, and applied the project's defaults **while that
+widget was being built** - so a configuration nobody had opened ran with a
+different set of parsers than one that had been looked at once. That is now
+`applyProjectDefaults()`, called from the constructor and when `fromMap()`
+restores a configuration.
+
+The aspect is a container holding an explanatory `TextDisplay` - whose link to
+the Custom Parsers page is `activateLink()`, which both backends call - and a
+table of the parsers a project offers, checkable, over a model whose check
+state *is* the aspect's value rather than a copy of it. The summary the
+collapsed list used to show is the container's label.
+
+**An hour went into a bug that was not in any of that.** The new model was
+called `Internal::CustomParsersModel`, and
+`customparserssettingspage.cpp` already has a class of exactly that name in
+exactly that namespace. Two definitions of one class in different translation
+units is an ODR violation: the linker keeps one, so constructing the new model
+ran the *other* class's constructor body and methods against it. The symptoms
+were a `SEGV on unknown address 0x2` in a destructor and a `setData()` that
+returned true and changed nothing - neither of which points anywhere near the
+cause. What pointed at it was a stack frame naming a file the class is not in:
+
+    #4 ... CustomParsersModel::reload() customparserssettingspage.cpp:304
+    #5 ... CustomParsersModel::CustomParsersModel(...) customparser.cpp:202
+
+Renaming it to `ParserSelectionModel` fixed the crash and the assertion
+together. **Grep for the class name before adding one**, or put a
+translation-unit-local helper in an anonymous namespace.
+
+That completes the eight aspects that drew themselves with
+`setConfigWidgetCreator()`. Every one of them now has a Qt Quick surface, and
+the widget path is untouched in all of them.

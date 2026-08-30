@@ -188,24 +188,193 @@ CustomParserSettings CustomParserSettings::fromJson(const QJsonObject &obj)
     return settings;
 }
 
+namespace Internal {
+
+// The parsers a project offers, as rows a Qt Quick view can draw: the name,
+// and whether this configuration uses it. What is checked is the aspect's
+// value, not the model's - the model is a view of it.
+class ParserSelectionModel final : public QAbstractTableModel
+{
+public:
+    ParserSelectionModel(CustomParsersAspect *aspect, Project *project)
+        : QAbstractTableModel(aspect), m_aspect(aspect), m_project(project)
+    {
+        reload();
+    }
+
+    void reload()
+    {
+        beginResetModel();
+        m_parsers = CustomParsers::parsersAvailableInProject(m_project);
+        endResetModel();
+    }
+
+    int rowCount(const QModelIndex &parent) const override
+    {
+        return parent.isValid() ? 0 : int(m_parsers.size());
+    }
+
+    int columnCount(const QModelIndex &parent) const override
+    {
+        return parent.isValid() ? 0 : 1;
+    }
+
+    QVariant headerData(int, Qt::Orientation, int) const override { return {}; }
+
+    QVariant data(const QModelIndex &index, int role) const override
+    {
+        if (!index.isValid() || index.row() >= int(m_parsers.size()))
+            return {};
+        const CustomParserSettings &parser = m_parsers.at(index.row());
+        switch (role) {
+        case Qt::DisplayRole:
+            //: %1 = parser display name
+            return parser.runDefault ? Tr::tr("%1 (project default)").arg(parser.displayName)
+                                     : parser.displayName;
+        case Qt::CheckStateRole:
+            return m_aspect->parsers().contains(parser.id) ? Qt::Checked : Qt::Unchecked;
+        case Utils::AspectTable::CheckableRole:
+        case Utils::AspectTable::EditableRole:
+            return true;
+        default:
+            return {};
+        }
+    }
+
+    bool setData(const QModelIndex &index, const QVariant &value, int role) override
+    {
+        if (role != Qt::CheckStateRole || !index.isValid())
+            return false;
+        QList<Utils::Id> selected = m_aspect->parsers();
+        const Utils::Id id = m_parsers.at(index.row()).id;
+        if (value.value<Qt::CheckState>() == Qt::Checked) {
+            if (!selected.contains(id))
+                selected.append(id);
+        } else {
+            selected.removeAll(id);
+        }
+        m_aspect->setParsers(selected);
+        emit dataChanged(index, index, {Qt::CheckStateRole});
+        return true;
+    }
+
+    Qt::ItemFlags flags(const QModelIndex &index) const override
+    {
+        if (!index.isValid())
+            return {};
+        return Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsUserCheckable;
+    }
+
+    QHash<int, QByteArray> roleNames() const override
+    {
+        return Utils::AspectTable::withRoleNames(QAbstractTableModel::roleNames());
+    }
+
+private:
+    CustomParsersAspect * const m_aspect;
+    Project * const m_project;
+    QList<CustomParserSettings> m_parsers;
+};
+
+} // namespace Internal
+
+// What a page draws the list with.
+class CustomParsersAspect::SelectionAspect final : public Utils::BaseAspect
+{
+public:
+    SelectionAspect(Utils::AspectContainer *container, QAbstractItemModel *model)
+        : BaseAspect(container), m_model(model)
+    {}
+
+    Utils::AspectPresentation presentation() const override
+    {
+        Utils::AspectPresentation p = BaseAspect::presentation();
+        p.control = Utils::AspectControls::Table;
+        return p;
+    }
+
+    QAbstractItemModel *tableModel() override { return m_model; }
+
+private:
+    QAbstractItemModel * const m_model;
+};
+
 CustomParsersAspect::CustomParsersAspect(BuildConfiguration *bc)
 {
     setId("CustomOutputParsers");
     setSettingsKey("CustomOutputParsers");
     setDisplayName(Tr::tr("Custom Output Parsers"));
     addDataExtractor(this, &CustomParsersAspect::parsers, &Data::parsers);
-    setConfigWidgetCreator([this, bc] {
+    // Guarded: the aspect is built from a configuration, but nothing about it
+    // needs one - a parser that belongs to no project is available anywhere.
+    m_project = bc ? bc->project() : nullptr;
+    setConfigWidgetCreator([this] {
         const auto widget = new CustomParsersSelectionWidget(
-            CustomParsersSelectionWidget::InRunConfig, bc->project());
-        for (const auto &s : CustomParsers::parsersAvailableInProject(bc->project())) {
-            if (s.runDefault && !m_parsers.contains(s.id))
-                m_parsers.append(s.id);
-        }
+            CustomParsersSelectionWidget::InRunConfig, m_project);
+        applyProjectDefaults();
         widget->setSelectedParsers(m_parsers);
         connect(widget, &Internal::CustomParsersSelectionWidget::selectionChanged,
-                this, [this, widget] { m_parsers = widget->selectedParsers(); });
+                this, [this, widget] { setParsers(widget->selectedParsers()); });
         return widget;
     });
+
+    m_explanation.setQmlName("Explanation");
+    m_explanation.setText(Tr::tr(
+        "Custom output parsers scan command line output for user-provided error patterns<br>"
+        "to create entries in Issues.<br>"
+        "The parsers can be configured <a href=\"dummy\">here</a>."));
+    connect(&m_explanation, &Utils::TextDisplay::linkActivated, this, [] {
+        Core::ICore::showSettings(Constants::CUSTOM_PARSERS_SETTINGS_PAGE_ID);
+    });
+    registerAspect(&m_explanation);
+
+    m_model = new Internal::ParserSelectionModel(this, m_project);
+    // Registered by the base constructor it is given the container in; saying
+    // so twice would list it twice.
+    m_selection = new SelectionAspect(this, m_model);
+    m_selection->setQmlName("Parsers");
+
+    // The project's defaults are the project's, not something a form applies
+    // as it is built.
+    applyProjectDefaults();
+    updateSummary();
+
+    // A parser added or removed on the settings page changes what there is to
+    // choose from.
+    connect(&CustomParsers::instance(), &CustomParsers::changed, this, [this] {
+        m_model->reload();
+        applyProjectDefaults();
+    });
+}
+
+CustomParsersAspect::~CustomParsersAspect() = default;
+
+void CustomParsersAspect::setParsers(const QList<Utils::Id> &parsers)
+{
+    if (m_parsers == parsers)
+        return;
+    m_parsers = parsers;
+    updateSummary();
+    emit changed();
+}
+
+void CustomParsersAspect::applyProjectDefaults()
+{
+    QList<Utils::Id> selected = m_parsers;
+    for (const CustomParserSettings &s : CustomParsers::parsersAvailableInProject(m_project)) {
+        if (s.runDefault && !selected.contains(s.id))
+            selected.append(s.id);
+    }
+    setParsers(selected);
+}
+
+void CustomParsersAspect::updateSummary()
+{
+    // What the details widget shows when the list is collapsed, which is this
+    // group's title.
+    setLabelText(m_parsers.isEmpty()
+                     ? Tr::tr("There are no custom parsers active")
+                     : Tr::tr("There are %n custom parsers active", nullptr, m_parsers.count()));
 }
 
 OutputTaskParser *createCustomParserFromId(Utils::Id id)
@@ -220,6 +389,10 @@ OutputTaskParser *createCustomParserFromId(Utils::Id id)
 void CustomParsersAspect::fromMap(const Store &map)
 {
     m_parsers = transform(map.value(settingsKey()).toList(), &Id::fromSetting);
+    applyProjectDefaults();
+    if (m_model)
+        m_model->reload();
+    updateSummary();
 }
 
 void CustomParsersAspect::toMap(Store &map) const

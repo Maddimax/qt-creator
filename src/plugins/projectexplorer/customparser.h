@@ -6,7 +6,10 @@
 #include "ioutputparser.h"
 
 #include <projectexplorer/task.h>
+#include <utils/aspects.h>
 #include <utils/detailswidget.h>
+
+#include <memory>
 
 #include <QJsonObject>
 #include <QObject>
@@ -82,13 +85,20 @@ public:
     CustomParserExpression warning;
 };
 
-class PROJECTEXPLORER_EXPORT CustomParsersAspect : public Utils::BaseAspect
+namespace Internal { class ParserSelectionModel; }
+
+// Which of the project's custom output parsers a run configuration uses. A
+// container, so that a Qt Quick page draws the list: it used to keep the
+// selection in the check states of a widget it built, and to apply the
+// project's defaults while building it.
+class PROJECTEXPLORER_EXPORT CustomParsersAspect : public Utils::AspectContainer
 {
     Q_OBJECT
 public:
     CustomParsersAspect(BuildConfiguration *bc);
+    ~CustomParsersAspect() override;
 
-    void setParsers(const QList<Utils::Id> &parsers) { m_parsers = parsers; }
+    void setParsers(const QList<Utils::Id> &parsers);
     QList<Utils::Id> parsers() const { return m_parsers; }
 
 
@@ -101,7 +111,19 @@ private:
     void fromMap(const Utils::Store &map) override;
     void toMap(Utils::Store &map) const override;
 
+    // Selects what the project marks as a default for running, which the
+    // widget did whenever it rebuilt its check boxes.
+    void applyProjectDefaults();
+    void updateSummary();
+
     QList<Utils::Id> m_parsers;
+    Project *m_project = nullptr;
+    // Parented rather than held: a model handed to QML with no parent belongs
+    // to the engine, and the aspect outlives whatever draws it.
+    Internal::ParserSelectionModel *m_model = nullptr;
+    Utils::TextDisplay m_explanation;
+    class SelectionAspect;
+    SelectionAspect *m_selection = nullptr;
 };
 
 PROJECTEXPLORER_EXPORT ProjectExplorer::OutputTaskParser *createCustomParserFromId(Utils::Id id);

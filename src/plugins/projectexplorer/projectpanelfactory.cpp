@@ -3,6 +3,7 @@
 
 #include "projectpanelfactory.h"
 
+#include "customparser.h"
 #include "environmentaspect.h"
 
 #include "project.h"
@@ -242,6 +243,69 @@ private slots:
         QVERIFY(model->setData(model->index(row, 1), "two"));
         QCOMPARE(aspect.environment().expandedValueForKey("QTC_ASPECT_TEST"), QString("two"));
         QCOMPARE(aspect.userEnvironmentChanges().itemsFromUser().size(), 1);
+    }
+
+    // Which custom output parsers a run configuration uses lived in the check
+    // states of a widget it built, and the project's defaults were applied
+    // while that widget was being built - so a configuration nobody had opened
+    // ran with a different set of parsers than one that had been looked at.
+    void testCustomParsersKeepTheirOwnSelection()
+    {
+        PanelCensusProject project;
+
+        CustomParserSettings first;
+        first.id = Utils::Id("Test.Parser.One");
+        first.displayName = "One";
+        CustomParserSettings preselected;
+        preselected.id = Utils::Id("Test.Parser.Two");
+        preselected.displayName = "Two";
+        preselected.runDefault = true;
+        const QList<CustomParserSettings> saved = CustomParsers::get();
+        CustomParsers::set({first, preselected});
+        const QScopeGuard restore([saved] { CustomParsers::set(saved); });
+
+        CustomParsersAspect aspect(nullptr);
+
+        // What the project marks as a default for running is selected, and
+        // that happened without anything being drawn.
+        QVERIFY2(aspect.parsers().contains(preselected.id),
+                 "a parser the project runs by default was not selected");
+        QVERIFY(!aspect.parsers().contains(first.id));
+
+        const auto byName = [&aspect](const QString &name) -> BaseAspect * {
+            for (BaseAspect * const sub : aspect.aspects()) {
+                if (sub->qmlName() == name)
+                    return sub;
+            }
+            return nullptr;
+        };
+        BaseAspect * const list = byName("Parsers");
+        QVERIFY2(list, "nothing offers the parsers to choose from");
+        QVERIFY2(byName("Explanation"), "nothing says what a custom parser is");
+
+        QAbstractItemModel * const model = list->tableModel();
+        QVERIFY(model);
+        QCOMPARE(model->rowCount({}), 2);
+
+        // Ticking a row is what selects a parser, and the aspect is where the
+        // answer lives.
+        const auto rowFor = [model](const Utils::Id &id, const QString &name) {
+            for (int row = 0; row < model->rowCount({}); ++row) {
+                if (model->index(row, 0).data().toString().startsWith(name))
+                    return row;
+            }
+            Q_UNUSED(id)
+            return -1;
+        };
+        const int row = rowFor(first.id, "One");
+        QVERIFY(row >= 0);
+        QCOMPARE(model->index(row, 0).data(Qt::CheckStateRole).toInt(), int(Qt::Unchecked));
+        QVERIFY(model->setData(model->index(row, 0), Qt::Checked, Qt::CheckStateRole));
+        QVERIFY2(aspect.parsers().contains(first.id), "ticking a parser did not select it");
+
+        // And the summary the collapsed list shows follows.
+        QVERIFY2(aspect.labelText().contains("2"),
+                 qPrintable("the summary says: " + aspect.labelText()));
     }
 
     void testTheEnvironmentPanelKeepsItsTwoSurfacesInStep()
