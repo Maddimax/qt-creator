@@ -24,7 +24,6 @@
 #endif
 
 #include <QMenu>
-#include <QPlainTextEdit>
 #include <QPoint>
 #include <QPointer>
 #include <QRegularExpression>

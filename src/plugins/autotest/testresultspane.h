@@ -30,7 +30,6 @@ class QItemSelectionModel;
 class QModelIndex;
 class QQuickItem;
 class QMenu;
-class QPlainTextEdit;
 class QStackedWidget;
 class QToolButton;
 QT_END_NAMESPACE

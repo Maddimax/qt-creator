@@ -19064,3 +19064,45 @@ match it sees lands on an unrelated line. A control relaxing `startsWith` to
 this one is blocked on something outside it. The useful next work is finishing
 the Qt Quick text editor - which is a separate effort with its own plan - and
 the debugger's log becomes a small port once that is something to build on.
+
+### Swept, and the plan was about to declare victory too early
+
+Every `Core::IOutputPane` in the tree, checked for a `QPlainTextEdit` or an item
+view of its own rather than trusted:
+
+| pane | drawn with |
+|---|---|
+| General Messages, Compile Output, Application Output, VCS, Serial Terminal | Qt Quick |
+| Build System Output, Axivion consoles, Squish log, Test Results text tab | Qt Quick |
+| To-Do, Issues, Squish results, Test Results tree | Qt Quick |
+| Search Results | its own thing, never a text pane |
+| Terminal | not a candidate |
+| **Debugger console** | **still a widget** |
+
+The sweep found what several batches of prose had missed: the **debugger
+console** is a separate `IOutputPane` from the debugger's log, and it is a
+`Utils::TreeView` with a 295-line `ConsoleItemDelegate` - the same shape as the
+Test Results tree, which is now a solved problem. It also has a `ConsoleEdit`
+(a `QTextEdit`) for typing JavaScript into a row, which is the editable part
+and shares the log window's blocker.
+
+Three leftovers went with the sweep: two `#include <QPlainTextEdit>` and a
+forward declaration, all in panes ported batches ago, all unused. The build
+proves it - they were the only thing keeping those names in those files.
+
+**And a defect in the test runner, found while checking this work.** A `QSKIP`
+in a suite's `initTestCase()` makes **every subsequent `QTest::qExec()` in that
+process run nothing**: the suites before it run, the skipper reports its skip,
+and everything after reports `0 passed, 0 failed, 0 skipped` while looking
+entirely healthy. `-test AutoTest` has been reporting that for three of its four
+suites; each of them passes when run on its own.
+
+Two consequences worth stating. A green plugin-wide run is not evidence unless
+something in it actually ran - the totals must be read, not the exit code. And
+because the plan is a `QHash`, *which* suites are silently skipped depends on
+pointer ordering, so it can change between builds.
+
+**What is left of this migration:** the debugger console (a solved shape plus an
+editable part) and the debugger's log (editable throughout). Both want the Qt
+Quick text editor that already exists and is unfinished. That is the next piece
+of work and it is not this plan's.

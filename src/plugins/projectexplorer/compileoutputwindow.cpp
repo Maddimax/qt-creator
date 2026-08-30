@@ -32,7 +32,6 @@
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QLabel>
-#include <QPlainTextEdit>
 #include <QSpinBox>
 #include <QTextBlock>
 #include <QTextCharFormat>
