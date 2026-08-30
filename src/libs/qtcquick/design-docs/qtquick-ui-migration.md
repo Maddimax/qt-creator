@@ -17768,3 +17768,33 @@ and tested, so what is left to write is the appending and the view.
 That is four pieces of `OutputWindow` extracted, and the last of them answers
 the question the previous three raised. What remains genuinely needs a view:
 the zoom, the base font, and clicking a link.
+
+### Appending to the filtered document
+
+The last piece of the filtering that a view does not need to be present for.
+`appendFiltered()` copies the lines the source has gained since it was last
+looked at, so a build appending thousands of times pays for what arrived rather
+than for the whole document each time.
+
+The case that makes this more than "copy what matches" is **a line that arrives
+later making an earlier one into context**. With one line of leading context,
+
+    starting up          <- skipped: does not match, nothing has asked for it
+    error: first         <- matches, and now owes the line above it
+
+so the append that carries `error: first` has to carry `starting up` with it.
+The lines owed are bounded below by what is already there, or a line lands in
+the filtered document twice - a control that removes that clamp fails on
+exactly the one-line-of-context case.
+
+**What the test asserts is an equivalence**, not a list of expected outputs:
+feeding the lines one at a time must produce exactly what filtering the whole
+document at once produces, over six combinations of filter and context. That is
+the property the view actually relies on - that what you see while output
+streams is what you would have seen had it all arrived at once - and it is
+stronger than any set of hand-written expectations, because the reference is
+the other implementation rather than my reading of it.
+
+Five pieces of `OutputWindow` are out now and the filtering is complete without
+a view existing. What is left needs one: the zoom, the base font, and clicking
+a link.

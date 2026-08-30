@@ -547,6 +547,47 @@ void OutputWindow::copyFiltered(const QTextDocument *source, QTextDocument *targ
     }
 }
 
+void OutputWindow::appendFiltered(const QTextDocument *source, QTextDocument *target,
+                                  const TextMatchingFunction &matches, int before, int after,
+                                  FilteredAppendState &state)
+{
+    QTC_ASSERT(source && target && matches, return);
+
+    QTextCursor cursor(target);
+    cursor.movePosition(QTextCursor::End);
+
+    const auto emitBlock = [&](const QTextBlock &block) {
+        // An empty target starts with one empty block, which is the first line
+        // rather than a line before it.
+        if (!(target->blockCount() == 1 && target->firstBlock().length() <= 1))
+            cursor.insertBlock();
+        for (QTextBlock::iterator it = block.begin(); it != block.end(); ++it) {
+            const QTextFragment fragment = it.fragment();
+            if (fragment.isValid())
+                cursor.insertText(fragment.text(), fragment.charFormat());
+        }
+        state.lastEmitted = block.blockNumber();
+    };
+
+    for (int number = state.lastConsidered + 1; number < source->blockCount(); ++number) {
+        const QTextBlock block = source->findBlockByNumber(number);
+        state.lastConsidered = number;
+        if (matches(block.text())) {
+            // What this match is owed behind it, minus whatever is already
+            // there: the lines between are the ones that were skipped for not
+            // matching, and this match is what makes them context.
+            const int firstOwed = std::max(state.lastEmitted + 1, number - before);
+            for (int owed = firstOwed; owed < number; ++owed)
+                emitBlock(source->findBlockByNumber(owed));
+            emitBlock(block);
+            state.afterRemaining = after;
+        } else if (state.afterRemaining > 0) {
+            emitBlock(block);
+            state.afterRemaining -= 1;
+        }
+    }
+}
+
 QString OutputWindow::elideChunk(const QString &chunk, qsizetype maxCharCount)
 {
     if (chunk.size() <= maxCharCount)
@@ -1157,6 +1198,71 @@ private slots:
         const qint64 elapsed = timer.elapsed();
         QCOMPARE(bigFiltered.blockCount(), 10000);
         qInfo() << "filtering 10000 lines took" << elapsed << "ms";
+    }
+
+    // Output arrives a chunk at a time, and a build appends thousands of
+    // times, so the filtered document is appended to rather than rebuilt. What
+    // it must not do is disagree with a rebuild - and the case that would make
+    // it is a line that arrives later making an earlier skipped one into
+    // context.
+    void testAppendingLineByLineAgreesWithFilteringAtOnce()
+    {
+        const QStringList lines = {
+            "starting up",              // no match
+            "error: first failure",     // match
+            "some detail",              // no match
+            "more detail",              // no match
+            "error: second failure",    // match
+            "error: third failure",     // match, straight after another
+            "trailing one",             // no match
+            "trailing two",             // no match
+        };
+
+        struct Case { const char *filter; int before; int after; };
+        const QList<Case> cases = {
+            {"", 0, 0},
+            {"error", 0, 0},
+            {"error", 1, 0},
+            {"error", 0, 1},
+            {"error", 2, 2},
+            {"nothing matches this", 2, 2},
+        };
+
+        for (const Case &c : cases) {
+            const auto matches = OutputWindow::filterPredicate(QString::fromLatin1(c.filter), {});
+
+            QTextDocument whole;
+            QTextCursor writer(&whole);
+            for (int i = 0; i < lines.size(); ++i) {
+                if (i > 0)
+                    writer.insertBlock();
+                writer.insertText(lines.at(i));
+            }
+
+            QTextDocument atOnce;
+            OutputWindow::copyFiltered(&whole, &atOnce, matches, c.before, c.after);
+
+            // The same lines, but arriving one at a time.
+            QTextDocument source;
+            QTextDocument incremental;
+            QTextCursor appender(&source);
+            OutputWindow::FilteredAppendState state;
+            for (int i = 0; i < lines.size(); ++i) {
+                if (i > 0)
+                    appender.insertBlock();
+                appender.insertText(lines.at(i));
+                OutputWindow::appendFiltered(&source, &incremental, matches, c.before, c.after,
+                                             state);
+            }
+
+            QCOMPARE(source.toPlainText(), whole.toPlainText());
+            QVERIFY2(incremental.toPlainText() == atOnce.toPlainText(),
+                     qPrintable(QString("filter \"%1\" (-%2/+%3):\n  line by line: %4\n  at once:      %5")
+                                    .arg(QString::fromLatin1(c.filter))
+                                    .arg(c.before).arg(c.after)
+                                    .arg(incremental.toPlainText().replace('\n', '|'),
+                                         atOnce.toPlainText().replace('\n', '|'))));
+        }
     }
 
     void testWhatAFilterLetsThrough()

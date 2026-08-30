@@ -71,6 +71,25 @@ public:
     static void copyFiltered(const QTextDocument *source, QTextDocument *target,
                              const TextMatchingFunction &matches, int before, int after);
 
+    // How far a filtered document has followed the one it is built from.
+    struct FilteredAppendState
+    {
+        int lastConsidered = -1; // The last source block looked at.
+        int lastEmitted = -1;    // The last source block copied over.
+        int afterRemaining = 0;  // Context lines still owed after a match.
+    };
+
+    // Copies the lines \a source has gained since \a state last saw it. A
+    // rebuild costs the whole document, which a build appending thousands of
+    // times cannot pay; this pays only for what arrived.
+    //
+    // A line that arrives later can make an earlier skipped one into context,
+    // so this is not simply "copy what matches": the lines owed *before* a new
+    // match are copied with it.
+    static void appendFiltered(const QTextDocument *source, QTextDocument *target,
+                               const TextMatchingFunction &matches, int before, int after,
+                               FilteredAppendState &state);
+
     OutputWindow(Context context, const Utils::Key &settingsKey, QWidget *parent = nullptr);
     ~OutputWindow() override;
 
