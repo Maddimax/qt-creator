@@ -12,6 +12,11 @@
 #include <QTreeView>
 #include <QVBoxLayout>
 
+#ifdef WITH_TESTS
+#include <QStandardItemModel>
+#include <QTest>
+#endif
+
 using namespace Utils;
 
 namespace Core {
@@ -22,26 +27,63 @@ namespace Core {
     \internal
 */
 
+// A widget view, answering for itself.
+class WidgetViewTarget : public ItemViewTarget
+{
+public:
+    explicit WidgetViewTarget(QAbstractItemView *view)
+        : m_view(view)
+    {}
+
+    QAbstractItemModel *model() const override { return m_view->model(); }
+    QModelIndex currentIndex() const override { return m_view->currentIndex(); }
+    void setCurrentIndex(const QModelIndex &index) override { m_view->setCurrentIndex(index); }
+    void reveal(const QModelIndex &index) override
+    {
+        m_view->scrollTo(index);
+        // A match inside a collapsed row is not on screen however far the view
+        // scrolls, so opening its parent is part of revealing it.
+        if (index.parent().isValid()) {
+            if (auto treeView = qobject_cast<QTreeView *>(m_view))
+                treeView->expand(index.parent());
+        }
+    }
+
+    QWidget *widget() const override { return m_view; }
+
+private:
+    QAbstractItemView * const m_view;
+};
+
 class ItemModelFindPrivate
 {
 public:
-    explicit ItemModelFindPrivate(QAbstractItemView *view, int role, ItemViewFind::FetchOption option)
-        : m_view(view),
+    explicit ItemModelFindPrivate(ItemViewTarget *target, int role, ItemViewFind::FetchOption option)
+        : m_view(target),
           m_incrementalWrappedState(false),
           m_role(role),
           m_option(option)
     {
     }
 
-    QAbstractItemView *m_view;
+    ~ItemModelFindPrivate() { delete m_view; }
+
+    ItemViewTarget *m_view;
     QModelIndex m_incrementalFindStart;
     bool m_incrementalWrappedState;
     int m_role;
     ItemViewFind::FetchOption m_option;
 };
 
+ItemViewTarget::~ItemViewTarget() = default;
+
 ItemViewFind::ItemViewFind(QAbstractItemView *view, int role, FetchOption option)
-    : d(new ItemModelFindPrivate(view, role, option))
+    : d(new ItemModelFindPrivate(new WidgetViewTarget(view), role, option))
+{
+}
+
+ItemViewFind::ItemViewFind(ItemViewTarget *target, int role, FetchOption option)
+    : d(new ItemModelFindPrivate(target, role, option))
 {
 }
 
@@ -96,7 +138,7 @@ IFindSupport::Result ItemViewFind::findIncremental(const QString &txt, FindFlags
                                        &wrapped);
     if (wrapped != d->m_incrementalWrappedState) {
         d->m_incrementalWrappedState = wrapped;
-        showWrapIndicator(d->m_view);
+        showWrapIndicator(d->m_view->widget());
     }
     return result;
 }
@@ -107,7 +149,7 @@ IFindSupport::Result ItemViewFind::findStep(const QString &txt, FindFlags findFl
     IFindSupport::Result result = find(txt, findFlags, false/*startFromNext*/,
                                        &wrapped);
     if (wrapped)
-        showWrapIndicator(d->m_view);
+        showWrapIndicator(d->m_view->widget());
     if (result == IFindSupport::Found) {
         d->m_incrementalFindStart = d->m_view->currentIndex();
         d->m_incrementalWrappedState = false;
@@ -115,7 +157,9 @@ IFindSupport::Result ItemViewFind::findStep(const QString &txt, FindFlags findFl
     return result;
 }
 
-static QFrame *createHelper(QAbstractItemView *treeView,
+// Takes a widget rather than a view: what is wrapped only has to be something
+// a find bar can sit under, which a Qt Quick view is too.
+static QFrame *createHelper(QWidget *view,
                             ItemViewFind::ColorOption colorOption,
                             ItemViewFind *finder)
 {
@@ -128,10 +172,10 @@ static QFrame *createHelper(QAbstractItemView *treeView,
     auto vbox = new QVBoxLayout(widget);
     vbox->setContentsMargins(0, 0, 0, 0);
     vbox->setSpacing(0);
-    vbox->addWidget(treeView);
+    vbox->addWidget(view);
     vbox->addWidget(placeHolder);
 
-    Aggregation::aggregate({treeView, finder});
+    Aggregation::aggregate({view, finder});
 
     return widget;
 }
@@ -146,7 +190,7 @@ QFrame *ItemViewFind::createSearchableWrapper(QAbstractItemView *treeView,
 QFrame *ItemViewFind::createSearchableWrapper(ItemViewFind *finder,
                                               ItemViewFind::ColorOption colorOption)
 {
-    return createHelper(finder->d->m_view, colorOption, finder);
+    return createHelper(finder->d->m_view->widget(), colorOption, finder);
 }
 
 IFindSupport::Result ItemViewFind::find(const QString &searchTxt,
@@ -219,10 +263,7 @@ IFindSupport::Result ItemViewFind::find(const QString &searchTxt,
 
     if (resultIndex.isValid()) {
         d->m_view->setCurrentIndex(resultIndex);
-        d->m_view->scrollTo(resultIndex);
-        if (resultIndex.parent().isValid())
-            if (auto treeView = qobject_cast<QTreeView *>(d->m_view))
-                treeView->expand(resultIndex.parent());
+        d->m_view->reveal(resultIndex);
         if (wrapped)
             *wrapped = anyWrapped;
         return IFindSupport::Found;
@@ -322,4 +363,120 @@ QModelIndex ItemViewFind::followingIndex(const QModelIndex &idx, bool backward, 
     return nextIndex(idx, wrapped);
 }
 
+#ifdef WITH_TESTS
+
+namespace {
+
+// A target with no view behind it at all: a model, a current index, and a note
+// of what it was asked to reveal. Which is the point - searching an item view
+// never needed a widget, only these.
+class StandInTarget : public ItemViewTarget
+{
+public:
+    explicit StandInTarget(QAbstractItemModel *model)
+        : m_model(model)
+    {}
+
+    QAbstractItemModel *model() const override { return m_model; }
+    QModelIndex currentIndex() const override { return m_current; }
+    void setCurrentIndex(const QModelIndex &index) override { m_current = index; }
+    void reveal(const QModelIndex &index) override { revealed << index; }
+    QWidget *widget() const override { return nullptr; }
+
+    QList<QModelIndex> revealed;
+
+private:
+    QAbstractItemModel * const m_model;
+    QPersistentModelIndex m_current;
+};
+
+} // namespace
+
+class ItemViewFindTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testSearchingAListWithoutAView()
+    {
+        QStandardItemModel model;
+        for (const QString &text : QStringList{"alpha", "beta", "gamma", "Beta again"})
+            model.appendRow(new QStandardItem(text));
+
+        auto * const target = new StandInTarget(&model);
+        ItemViewFind find(target);
+
+        // Found from the top, and the row it found is the current one.
+        QCOMPARE(find.findStep("beta", {}), IFindSupport::Found);
+        QCOMPARE(target->currentIndex().data().toString(), QString("beta"));
+
+        // Case-blind unless asked, so the next step reaches the other one.
+        QCOMPARE(find.findStep("beta", {}), IFindSupport::Found);
+        QCOMPARE(target->currentIndex().data().toString(), QString("Beta again"));
+
+        // Asked, it does not.
+        target->setCurrentIndex({});
+        QCOMPARE(find.findStep("Beta again", Utils::FindCaseSensitively),
+                 IFindSupport::Found);
+        QCOMPARE(find.findStep("BETA", Utils::FindCaseSensitively), IFindSupport::NotFound);
+
+        // And what is not there is not found, rather than the search settling
+        // on whatever was current.
+        QCOMPARE(find.findStep("delta", {}), IFindSupport::NotFound);
+    }
+
+    void testSearchingWrapsAndRevealsWhatItFound()
+    {
+        QStandardItemModel model;
+        for (const QString &text : QStringList{"one", "two", "three"})
+            model.appendRow(new QStandardItem(text));
+
+        auto * const target = new StandInTarget(&model);
+        ItemViewFind find(target);
+
+        QCOMPARE(find.findStep("three", {}), IFindSupport::Found);
+        QCOMPARE(target->currentIndex().row(), 2);
+
+        // Past the end it starts again rather than stopping: a search that
+        // reached the bottom and gave up would hide the match above.
+        QCOMPARE(find.findStep("one", {}), IFindSupport::Found);
+        QCOMPARE(target->currentIndex().row(), 0);
+
+        // Everything it found, it asked to be shown. A match the reader cannot
+        // see is not a match as far as they are concerned.
+        QCOMPARE(target->revealed.size(), 2);
+        QCOMPARE(target->revealed.last().row(), 0);
+    }
+
+    void testSearchingBackwards()
+    {
+        QStandardItemModel model;
+        for (const QString &text : QStringList{"match", "filler", "match"})
+            model.appendRow(new QStandardItem(text));
+
+        auto * const target = new StandInTarget(&model);
+        ItemViewFind find(target);
+
+        // A step looks from *after* where it is, so from the top it passes the
+        // first row: findStep is "find the next one", and the row you are on
+        // is not the next one.
+        QCOMPARE(find.findStep("match", {}), IFindSupport::Found);
+        QCOMPARE(target->currentIndex().row(), 2);
+
+        QCOMPARE(find.findStep("match", Utils::FindBackward), IFindSupport::Found);
+        QCOMPARE(target->currentIndex().row(), 0);
+    }
+};
+
+QObject *createItemViewFindTest()
+{
+    return new ItemViewFindTest;
+}
+
+#endif // WITH_TESTS
+
 } // namespace Core
+
+#ifdef WITH_TESTS
+#include "itemviewfind.moc"
+#endif

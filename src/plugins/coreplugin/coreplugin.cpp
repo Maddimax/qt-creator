@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "outputpaneview.h"
+#include "find/itemviewfind.h"
 #include "outputtext.h"
 #include "coreplugin.h"
 
@@ -524,6 +525,7 @@ Result<> CorePlugin::initialize(const QStringList &arguments)
     addTestCreator(createActionManagerTest);
     addTestCreator(createOutputFilterTest);
     addTestCreator(OutputText::createOutputTextTest);
+    addTestCreator(createItemViewFindTest);
     addTestCreator(createOutputPaneViewTest);
     addTestCreator(createDocumentManagerTest);
     addTestCreator(createExternalToolTest);

@@ -18883,3 +18883,44 @@ Also worth knowing: `-test AutoTest` on its own reports zero functions for
 every suite in that plugin, including one that predates this work.
 `-test AutoTest,TestResultModelTest` runs them. Whatever the cause, a green
 `-test AutoTest` means nothing on its own.
+
+### Searching an item view, without an item view
+
+The one thing the Test Results pane needed that had no Qt Quick equivalent
+anywhere: `ItemViewFind`, which is Ctrl+F over a tree. It turned out to need a
+widget for four things and no more - the model, where the current row is,
+moving it, and scrolling to it - so it is now written against an interface that
+answers those, exactly as `BaseTextFindBase` is written against a cursor and a
+document rather than against a `QPlainTextEdit`.
+
+A widget view answers for itself through a small adapter. A Qt Quick view will
+answer through the pane holding it, which already owns a `QItemSelectionModel`
+and already knows how to reveal a row - that is what the Squish port built two
+batches ago, arrived at from the other direction.
+
+**One thing moved rather than being carried across.** Expanding a match's
+parent lived in the search: it did a `qobject_cast<QTreeView *>` after finding
+something. That is not a search's business - it belongs to *revealing* a row,
+which is now the target's - and a Quick view expands rows in a different way
+entirely.
+
+**`createSearchableWrapper` takes a widget now, not a view.** It only ever put
+its argument in a layout above a find bar, and a Qt Quick view is something
+that can sit there too.
+
+**The search can be asked things for the first time.** Three tests, against a
+model and a stand-in target with no view behind it: it finds, it steps to the
+*next* match rather than the one under the cursor, it is case-blind unless
+asked, it searches backwards, it wraps, and everything it finds it asks to have
+revealed.
+
+**A control that needed two edits, and why that is not a weakness.** Breaking
+the wrap in the loop changed nothing: the invalid index it then returns is
+turned back into the first row by the "pathological" branch at the top of
+`nextIndex()` on the following pass. Two routes to the same place. Breaking
+both fails the test, so the wrap is covered - but a single-line control was
+never going to show it, and reporting the first result as "does not bite" would
+have been the wrong conclusion.
+
+The Test Results pane is now unblocked. What is left for it is the QML delegate
+for a row and the pane rewiring - known work, no unknowns.
