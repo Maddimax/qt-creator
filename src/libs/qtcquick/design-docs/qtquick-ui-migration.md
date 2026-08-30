@@ -17098,3 +17098,43 @@ model - `Utils::EnvironmentModel`, a `QAbstractTableModel` in `libs/utils` - so
 a Qt Quick editor is a `TableDelegate` plus the buttons around it
 (`environmentwidget.cpp` is 574 lines, most of them the buttons, the batch-edit
 dialog and the summary), not a reimplementation of the data.
+
+## One environment editor, for every page that edits one
+
+The blocker recorded above turned out to be half solved already: the Project
+Environment panel is a **working Qt Quick environment editor** - a table over
+`Utils::EnvironmentModel`, seven `ActionAspect` buttons, and the same changes as
+text - and it ships. It was just written inside `projectexplorer.cpp` as part of
+that one panel.
+
+It is now `ProjectExplorer::EnvironmentEditorAspect`, an `AspectContainer` that
+registers `Variables`, `Changes` and the seven actions, plus
+`EnvironmentEditor.qml` which lays them out over the names. What belongs to the
+caller is only where the changes come from and where they go:
+`setChanges()` in, `changesEdited()` out. `ProjectEnvironmentPanel` is now that
+wiring and nothing else, and its QML is one `EnvironmentEditor`.
+
+That leaves `EnvironmentAspect` - the one on run and build configurations,
+which draws itself with `setConfigWidgetCreator()` - needing only what it has
+that the project panel does not: the base-environment selector, the "print on
+run" check box and the device browse hint. That is the next batch, and it
+unblocks the CMake build step's page along with it.
+
+**What the extraction was worth checking against.** Two existing tests hold the
+behaviour, and both earned their place:
+
+- `testTheEnvironmentPanelKeepsItsTwoSurfacesInStep` went red immediately: it
+  looked its aspects up among the panel's *direct* children, and they live one
+  level down now. Its subject - that typing in the text surface shows in the
+  table and vice versa, without the write coming round again - is unchanged, so
+  the lookup now recurses into nested containers.
+- `testPanelsThatSayWhatTheyShowRenderWithQuick` passed, and should not have
+  been able to fail on this. It collected `QtWarningMsg` mentioning
+  `qrc:/qt/qml/QtCreator`, but a name a container does not hold never becomes a
+  binding warning: it reaches `AspectModels`, which **soft-asserts**, and that
+  is a debug message. The sweep now collects those too, which is what made
+  renaming `aspects.Editor` in the panel's QML turn it red.
+
+`ProjectTest::testMultipleBuildConfigs` failed once during this batch and is
+not related: run twice in isolation on the same binary it passed once and
+failed once.

@@ -240,6 +240,7 @@ if(TARGET ProjectExplorer)
       CompileOutputSettingsPage.qml
       CustomParsersSettingsPage.qml
       DependenciesPanel.qml
+      EnvironmentEditor.qml
       EditorProjectPanel.qml
       KitsPage.qml
       MakeStep.qml

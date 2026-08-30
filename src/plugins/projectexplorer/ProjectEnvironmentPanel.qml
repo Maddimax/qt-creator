@@ -8,38 +8,17 @@ import QtQuick
 import QtQuick.Layouts
 import QtCreator.Ui
 
-// The environment a project adds, in the two surfaces the widget form had: the
-// result as a table, and the changes as text. Which buttons can be pressed
-// depends on the row that is current, which the container decides.
+// The environment a project adds. What editing one looks like is
+// EnvironmentEditor's business, and every page that edits an environment uses
+// the same one.
 AspectPage {
     id: root
 
     contentFillsHeight: true
 
-    RowLayout {
-        spacing: Spacing.GapHM
+    EnvironmentEditor {
+        editor: AspectModels.named(root.aspects.Editor)
         Layout.fillHeight: true
-
-        TableDelegate {
-            aspect: root.aspects.Variables
-            Layout.fillHeight: true
-
-            onCurrentRowChanged: root.aspects.Variables.setCurrentRow(currentRow)
-        }
-
-        ColumnLayout {
-            spacing: Spacing.GapVXs
-            Layout.alignment: Qt.AlignTop
-
-            ButtonDelegate { aspect: root.aspects.Edit }
-            ButtonDelegate { aspect: root.aspects.Add }
-            ButtonDelegate { aspect: root.aspects.Reset }
-            ButtonDelegate { aspect: root.aspects.Unset }
-            ButtonDelegate { aspect: root.aspects.Toggle }
-            ButtonDelegate { aspect: root.aspects.AppendPath }
-            ButtonDelegate { aspect: root.aspects.PrependPath }
-        }
+        Layout.fillWidth: true
     }
-
-    TextAreaDelegate { aspect: root.aspects.Changes }
 }

@@ -155,6 +155,14 @@ static void collectQmlComplaints(QtMsgType type,
 {
     if (s_qmlComplaints && type == QtWarningMsg && message.contains("qrc:/qt/qml/QtCreator"))
         *s_qmlComplaints << message;
+    // A name a container does not hold does not fail as a binding: it reaches
+    // AspectModels, which soft-asserts. That is a debug message, so without
+    // this the sweep would pass on a page asking for an aspect that is not
+    // there.
+    if (s_qmlComplaints && type == QtDebugMsg && message.contains("SOFT ASSERT")
+        && message.contains("aspectmodels.cpp")) {
+        *s_qmlComplaints << message;
+    }
     if (s_previousHandler)
         s_previousHandler(type, context, message);
 }
@@ -182,13 +190,22 @@ private slots:
         const std::optional<AspectContainer *> aspects = factory->aspects(&project);
         QVERIFY2(aspects && *aspects, "the panel offers no settings");
 
-        const auto byName = [&aspects](const QString &name) -> BaseAspect * {
-            for (BaseAspect * const aspect : (*aspects)->aspects()) {
+        // At any depth: the panel holds an EnvironmentEditorAspect, which is
+        // where the two surfaces live - every page that edits an environment
+        // uses the same one.
+        const std::function<BaseAspect *(AspectContainer *, const QString &)> byNameIn =
+            [&byNameIn](AspectContainer *container, const QString &name) -> BaseAspect * {
+            for (BaseAspect * const aspect : container->aspects()) {
                 if (aspect->qmlName() == name)
                     return aspect;
+                if (auto * const nested = qobject_cast<AspectContainer *>(aspect)) {
+                    if (BaseAspect * const found = byNameIn(nested, name))
+                        return found;
+                }
             }
             return nullptr;
         };
+        const auto byName = [&](const QString &name) { return byNameIn(*aspects, name); };
 
         BaseAspect * const changes = byName("Changes");
         BaseAspect * const variables = byName("Variables");

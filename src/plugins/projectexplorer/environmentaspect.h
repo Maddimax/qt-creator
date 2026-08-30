@@ -9,10 +9,86 @@
 #include "runconfiguration.h"
 
 #include <utils/aspects.h>
+#include <utils/environmentmodel.h>
+#include <utils/guard.h>
 #include <utils/environment.h>
 #include <utils/store.h>
 
 namespace ProjectExplorer {
+
+// The variables an environment ends up with, as a table a Qt Quick page can
+// draw. The rows are the model's; which one is current is the view's, and the
+// buttons beside it need to know.
+class PROJECTEXPLORER_EXPORT EnvironmentItemsAspect final : public Utils::BaseAspect
+{
+    Q_OBJECT
+
+public:
+    explicit EnvironmentItemsAspect(Utils::AspectContainer *container = nullptr);
+
+    Utils::AspectPresentation presentation() const override;
+    QAbstractItemModel *tableModel() override;
+
+    Q_INVOKABLE void setCurrentRow(int row);
+    QModelIndex currentIndex() const;
+
+    Utils::EnvironmentModel &model() { return m_model; }
+
+signals:
+    void currentRowChanged();
+
+private:
+    // Parented: a model handed to QML with no parent belongs to the engine.
+    Utils::EnvironmentModel m_model{this};
+    int m_currentRow = -1;
+};
+
+// Editing a set of environment changes: the resulting variables as a table,
+// the operations on whichever of them is current, and the same changes as
+// text. What the changes belong to is the caller's business - a project's
+// additional environment, a run configuration's - so it hands over what to
+// read them from and where to put them back.
+//
+// Drawn by EnvironmentEditor.qml, which any page can instantiate over the
+// names below.
+class PROJECTEXPLORER_EXPORT EnvironmentEditorAspect final : public Utils::AspectContainer
+{
+    Q_OBJECT
+
+public:
+    explicit EnvironmentEditorAspect(Utils::AspectContainer *container = nullptr);
+
+    void setBaseEnvironment(const Utils::Environment &env);
+
+    Utils::EnvironmentChanges changes() const;
+    // Sets what is being edited without reporting it back as an edit.
+    void setChanges(const Utils::EnvironmentChanges &changes);
+
+signals:
+    // The user changed something. Not BaseAspect::changed(), which says the
+    // aspect's own value changed and this one has none.
+    void changesEdited(const Utils::EnvironmentChanges &changes);
+
+private:
+    QString currentName() const;
+    void showChangesAsText();
+    void editCurrent();
+    void amendPathList(Utils::EnvironmentItem::Operation op);
+    void updateActions();
+
+    EnvironmentItemsAspect m_variables;
+    Utils::StringAspect m_changes;
+    Utils::ActionAspect m_edit;
+    Utils::ActionAspect m_add;
+    Utils::ActionAspect m_reset;
+    Utils::ActionAspect m_unset;
+    Utils::ActionAspect m_toggle;
+    Utils::ActionAspect m_appendPath;
+    Utils::ActionAspect m_prependPath;
+    // The table and the text are two views of one thing; writing either must
+    // not come back as a change to the other.
+    Utils::Guard m_updating;
+};
 
 class PROJECTEXPLORER_EXPORT EnvironmentAspect : public Utils::BaseAspect
 {
