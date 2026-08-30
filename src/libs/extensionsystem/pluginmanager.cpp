@@ -48,6 +48,9 @@
 #ifdef EXTENSIONSYSTEM_WITH_TESTOPTION
 #include <utils/hostosinfo.h>
 #include <QTest>
+#ifdef EXTENSIONSYSTEM_CAN_CLEAR_TEST_SKIP
+#include <QtTest/private/qtestresult_p.h>
+#endif
 #include <QThread>
 #endif
 
@@ -1093,6 +1096,20 @@ static int executeTestPlan(const TestPlan &testPlan)
         // avoid being stuck in QTBUG-24925
         if (!HostOsInfo::isWindowsHost())
             qExecArguments << "-nocrashhandler";
+
+        // A QSKIP in initTestCase leaves QTestResult's skip flag set for the
+        // rest of the process: invokeTests() restores it after cleanupTestCase
+        // (qtestcase.cpp) and nothing clears it again, and the whole run body
+        // sits behind a check of it. So the next qExec() here would run
+        // nothing at all - no test functions, not even initTestCase - and
+        // report "0 passed, 0 failed, 0 skipped", which reads as a suite that
+        // simply has no tests. One plugin skipping because its tool is not
+        // installed would silently cancel every suite after it, and which
+        // those are changes from run to run: the plan below is a QHash.
+#ifdef EXTENSIONSYSTEM_CAN_CLEAR_TEST_SKIP
+        QTestResult::setSkipCurrentTest(false);
+#endif
+
         failedTests += QTest::qExec(testObject, qExecArguments);
     }
 

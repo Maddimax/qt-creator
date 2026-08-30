@@ -100,6 +100,7 @@ if (Qt6_VERSION VERSION_GREATER_EQUAL 6.9.0)
     DesignerComponentsPrivate
     QmlPrivate
     QuickPrivate
+    TestPrivate
     QUIET
   )
 endif()

@@ -6,6 +6,9 @@ QtcLibrary {
 
     Depends { name: "Qt"; submodules: ["core"] }
     Depends { name: "Qt.testlib"; condition: qtc.withPluginTests }
+    // For QtTest/private/qtestresult_p.h - see the note in the CMake file.
+    Depends { name: "Qt.testlib-private"; condition: qtc.withPluginTests; required: false }
+
 
     Depends { name: "Utils" }
 

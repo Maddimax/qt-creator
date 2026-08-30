@@ -42,6 +42,16 @@ extend_qtc_library(ExtensionSystem
   PUBLIC_DEFINES EXTENSIONSYSTEM_WITH_TESTOPTION
 )
 
+# Clearing QTestResult's leaked skip flag between test objects is what keeps
+# one skipped suite from cancelling every later one, and there is no public
+# API for it. Without the private headers the runner still works; it is just
+# back to losing everything after a suite that skips in initTestCase.
+extend_qtc_library(ExtensionSystem
+  CONDITION TARGET Qt::TestPrivate
+  DEPENDS Qt::TestPrivate
+  DEFINES EXTENSIONSYSTEM_CAN_CLEAR_TEST_SKIP
+)
+
 extend_qtc_library(ExtensionSystem
   CONDITION TARGET Nanotrace
   PUBLIC_DEPENDS Nanotrace

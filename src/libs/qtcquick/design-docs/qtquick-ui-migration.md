@@ -19598,3 +19598,81 @@ aspect-driven pages are drawn with Qt Quick. What I would pick up, in order:
 3. **Dialogs and wizards**, which is where the remaining widget UI actually is
    - but that is a new plan, not this one, and it should be scoped before it is
    started.
+
+## 2026-08-30 — One skipped suite was cancelling every suite after it
+
+The first item on the previous entry's list, and it was worse than reported.
+
+**The mechanism, read out of `qtestcase.cpp` and then reproduced.**
+`TestMethods::invokeTests()` puts the whole run - `initTestCase`, every test
+function, `cleanupTestCase` - behind
+
+    if (!QTestResult::skipCurrentTest() && !QTestResult::currentTestFailed()) {
+
+and, at the end of that block, restores the skip flag it had cleared for
+`cleanupTestCase`:
+
+    QTestResult::setSkipCurrentTest(wasSkipped || QTestResult::skipCurrentTest());
+
+Nothing clears it again. `QTest::skipCurrentTest` is a file-static, so a
+`QSKIP` in `initTestCase` leaves it **true for the rest of the process** and
+every later `QTest::qExec()` falls straight past the `if`. The suite prints its
+banner and `Totals: 0 passed, 0 failed, 0 skipped`, which reads exactly like a
+suite that has no tests.
+
+**Only `initTestCase` does it.** A standalone two-suite binary
+(`skipwhere.cpp`) shows a `QSKIP` inside an ordinary test function leaves the
+next suite running normally, and the same skip moved into `initTestCase` leaves
+it running nothing. That control is what turned a plausible reading of the Qt
+source into a fact.
+
+**14 places in this tree skip in `initTestCase`** - Docker, DevContainer,
+ClangCodeModel, ClangTools, AutoTest, CppEditor, Debugger, Remote,
+CompilationDatabase, Meson's standalone tests - all of them "the tool this
+needs is not installed". Which suites they cancel is not even stable: the plan
+is `QHash<QObject *, QStringList>`, so the order changes run to run.
+
+**Measured, on this machine, for one plugin.** `-test ClangCodeModel` has ten
+suites and eight of them skip in `initTestCase` because there is no clangd
+here:
+
+|                | suites reporting 0/0/0 | tests run |
+|----------------|------------------------|-----------|
+| before the fix | 8                      | 22        |
+| after          | 0                      | 28        |
+
+Six tests that had never run, and eight suites that had been claiming to be
+empty now say honestly that they skipped.
+
+**The fix** is one line in `PluginManager`'s `executeTestPlan()`:
+`QTestResult::setSkipCurrentTest(false)` before each `qExec()`. There is no
+public API for it, so it needs `QtTest/private/qtestresult_p.h` and
+`Qt::TestPrivate` - which is in keeping with the tree, which already includes
+`QtGui/private/qguiapplication_p.h` and `QtCore/private/qobject_p.h`. Both the
+link and the include are conditional on the target existing, so a Qt without
+private headers still builds and is simply back to the old behaviour.
+
+**Verified in the product, not just standalone.** Two temporary probe suites
+were added to a plugin - one skipping in `initTestCase`, one that should run
+after it - and the run repeated ten times, because `QHash` ordering means a
+single run proves nothing:
+
+- with the fix: the following suite ran **10 of 10**
+- with the fix `#if 0`'d out: **6 of 10**, exactly the runs where the hash
+  happened to order it first
+
+The probes were then removed. `.qbs` re-resolved, with the missing-file control
+naming `ExtensionSystem` when broken and silent when whole.
+
+**What this means for every measurement in this document.** Totals reported
+here were taken with this bug live. Single-plugin runs (`-test QuickUi`) are
+unaffected - one plugin's suites are the only ones in the process - but any
+number taken from a multi-plugin run was an undercount of unknown size.
+
+QuickUi 178 passed / 0 failed / 1 skipped, exit 0. Core exit 0. `Debugger`
+exits 1 on the pre-existing `DebuggerUnitTests::testStateMachine`.
+
+**Next:** the second and third items from the previous entry stand -
+`FontAspect` drawn as one control rather than two fields, and a scoped look at
+dialogs and wizards, which is where the remaining widget UI is. Neither is this
+plan's work; both are new ones.
