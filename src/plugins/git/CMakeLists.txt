@@ -10,7 +10,6 @@ add_qtc_plugin(Git
     changeselectiondialog.cpp changeselectiondialog.h
     commitdata.cpp commitdata.h
     gerrit/authenticationdialog.cpp gerrit/authenticationdialog.h
-    gerrit/branchcombobox.cpp gerrit/branchcombobox.h
     gerrit/gerritdialog.cpp gerrit/gerritdialog.h
     gerrit/gerritmodel.cpp gerrit/gerritmodel.h
     gerrit/gerritoptionspage.cpp gerrit/gerritoptionspage.h
@@ -57,6 +56,7 @@ if(TARGET Git)
       BranchCheckoutDialog.qml
       BranchAddDialog.qml
       GitSettingsPage.qml
+      GerritPushDialog.qml
       LogChangeDialog.qml
       StashDialog.qml
       gerrit/GerritSettingsPage.qml

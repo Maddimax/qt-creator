@@ -21713,3 +21713,52 @@ on its two standing failures. No `.qbs` edit: no files added or removed.
 activation family, and the push dialog still needs `LogChangeModel` out of
 `logchangedialog.cpp`. That is now the only thing in its way - the table aspect
 it also needed is `Utils::TableAspect`.
+
+## 2026-08-30 — GerritPushDialog, on the second attempt
+
+The port that was backed out two batches ago went through, because both things
+that blocked it were dealt with in between: the table aspect is
+`Utils::TableAspect`, and `LogChangeModel` now has its declaration in
+`logchangedialog.h`.
+
+**Moving the model was smaller than it looked.** The worry was that a header
+declaring it would drag `gitClient()` into every file that includes it. It does
+not: only `populate()` calls git, and its body stays in the `.cpp`. The
+declaration needs `QStandardItemModel`, `FilePath` and `Result` and nothing
+else. **The thing that made the first attempt look expensive was the class
+being defined inline, not the class itself** - splitting declaration from
+definition was the whole job.
+
+`BranchComboBox` is deleted. It was 39 lines, and what it did - strip
+`refs/heads/`, offer a detached HEAD as "HEAD" - became `localBranchChoices()`
+last batch, so the widget had nothing left once a `SelectionAspect` held the
+list.
+
+**`PushOptions` now carries `Utils::TriState` rather than `Qt::CheckState`.**
+The three states mean the same thing, but the aspects speak `TriState`, and the
+conversion was the one place the port could have quietly turned "leave it
+alone" into "mark it" - which is why the test that the boxes start in the
+middle is there, and why control 3 makes them start marked.
+
+The warning about a target branch far from the local one was a palette change -
+red text on the label and the combo box. It is `InfoType::Warning` on the
+`TextDisplay` now, which is the same information said rather than coloured.
+
+Negative controls: the `.qml` naming an aspect that does not exist; the `.qml`
+not following the row the dialog asks for; the boxes starting marked rather
+than in the middle; and the boxes drawn as a choice of three names instead of
+check boxes. All four bit.
+
+QuickUi 188 passed / 0 failed / 1 skipped, exit 0. `Git` exit 0 with no
+failures, `GerritPushDialogTest` 11 passed. `Git_qmllint` clean.
+
+**The `.qbs` edit is again unverified**: there is no `qbs` on this machine
+(`qbs resolve` exits 127). It removes the two `branchcombobox` entries,
+mirroring the same removal from `CMakeLists.txt`, and both files were checked
+to agree afterwards - neither mentions the file, and the new `.qml` needs no
+entry because `git.qbs` takes `*.qml` and `*/*.qml` by wildcard.
+
+**Next:** `GerritDialog`, the last of the activation family and the largest -
+a splitter, a details browser, a query field with a completer over saved
+queries, and a progress overlay on the tree. Its remote chooser is already an
+aspect; nothing else in it is shared with another dialog.

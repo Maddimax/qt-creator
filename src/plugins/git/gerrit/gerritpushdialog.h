@@ -3,26 +3,25 @@
 
 #pragma once
 
+#include <utils/aspects.h>
 #include <utils/filepath.h>
 
 #include <QDialog>
 #include <QMultiMap>
 #include <QDate>
 
+#include <memory>
+
 QT_BEGIN_NAMESPACE
-class QCheckBox;
-class QComboBox;
 class QDialogButtonBox;
-class QLabel;
-class QLineEdit;
+class QObject;
 QT_END_NAMESPACE
 
-namespace Git::Internal { class LogChangeWidget; }
+namespace Git::Internal { class LogChangeModel; }
 
 namespace Gerrit::Internal {
 
-class BranchComboBox;
-class GerritRemoteChooser;
+class GerritPushSettings;
 
 // A remote branch and when it was last committed to.
 using BranchDate = QPair<QString, QDate>;
@@ -37,8 +36,8 @@ public:
     QString remoteBranch;
     QString topic;
     QString reviewers;     // comma separated, as typed
-    Qt::CheckState draft = Qt::PartiallyChecked;
-    Qt::CheckState workInProgress = Qt::PartiallyChecked;
+    Utils::TriState draft = Utils::TriState::Default;
+    Utils::TriState workInProgress = Utils::TriState::Default;
 };
 
 QString pushTarget(const PushOptions &options);
@@ -72,6 +71,7 @@ class GerritPushDialog : public QDialog
 public:
     GerritPushDialog(const Utils::FilePath &workingDir, const QString &reviewerList,
                      QWidget *parent);
+    ~GerritPushDialog() override;
 
     QString selectedCommit() const;
     QString selectedRemoteName() const;
@@ -86,22 +86,16 @@ private:
     void setChangeRange();
     void onRemoteChanged();
     void setRemoteBranches(bool includeOld = false);
-    void updateCommits(int index);
+    void updateCommits();
     void validate();
 
     QString determineRemoteBranch(const QString &localBranch);
     void initRemoteBranches();
     QString calculateChangeRange(const QString &branch);
+    QString currentLocalBranch() const;
 
-    BranchComboBox *m_localBranchComboBox;
-    Gerrit::Internal::GerritRemoteChooser *m_remoteComboBox;
-    QComboBox *m_targetBranchComboBox;
-    Git::Internal::LogChangeWidget *m_commitView;
-    QLabel *m_infoLabel;
-    QLineEdit *m_topicLineEdit;
-    QCheckBox *m_draftCheckBox;
-    QCheckBox *m_wipCheckBox;
-    QLineEdit *m_reviewersLineEdit;
+    Git::Internal::LogChangeModel *m_model = nullptr;
+    const std::unique_ptr<GerritPushSettings> m_settings;
     QDialogButtonBox *m_buttonBox;
 
     Utils::FilePath m_workingDir;
@@ -109,6 +103,10 @@ private:
     QString m_initErrorMessage;
     RemoteBranchesMap m_remoteBranches;
     bool m_hasLocalCommits = false;
+
+#ifdef WITH_TESTS
+    friend class GerritPushDialogTest;
+#endif
 };
 
 } // Gerrit::Internal

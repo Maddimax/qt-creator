@@ -89,6 +89,100 @@ static QList<QStandardItem *> logRowItems(const LogRow &row)
     return items;
 }
 
+LogChangeModel::LogChangeModel(QObject *parent)
+    : QStandardItemModel(0, ColumnCount, parent)
+{}
+
+QVariant LogChangeModel::data(const QModelIndex &index, int role) const
+{
+    if (role == Qt::ToolTipRole) {
+        const QString revision
+            = index.sibling(index.row(), HashColumn).data(Qt::EditRole).toString();
+        const auto it = m_descriptions.constFind(revision);
+        if (it != m_descriptions.constEnd())
+            return *it;
+        const QString desc = QString::fromUtf8(gitClient().synchronousShow(
+                             m_workingDirectory, revision, RunFlag::NoOutput));
+        m_descriptions[revision] = desc;
+        return desc;
+    }
+    if (role == Qt::FontRole && logRowIsStruckOut(m_marks, index.row(), m_currentRow)) {
+        QFont font = QStandardItemModel::data(index, role).value<QFont>();
+        font.setStrikeOut(true);
+        return font;
+    }
+    if (role == Qt::DecorationRole && index.column() == HashColumn) {
+        const bool selected = m_selectedRows.contains(index.row());
+        if (logRowHasIcon(m_marks, index.row(), m_currentRow, selected))
+            return m_icon;
+        return {};
+    }
+    if (role == AspectTable::EditableRole)
+        return AspectTable::isWritable(flags(index));
+    return QStandardItemModel::data(index, role);
+}
+
+QHash<int, QByteArray> LogChangeModel::roleNames() const
+{
+    return AspectTable::withRoleNames(QStandardItemModel::roleNames());
+}
+
+void LogChangeModel::setWorkingDirectory(const FilePath &workingDir)
+{
+    m_workingDirectory = workingDir;
+}
+
+Result<int> LogChangeModel::populate(const FilePath &repository, const QString &commit,
+                                     unsigned flags, const QString &excludedRemote,
+                                     const QString &keepCommit)
+{
+    setWorkingDirectory(repository);
+    if (const int rows = rowCount())
+        removeRows(0, rows);
+
+    const Result<QString> res = gitClient().synchronousLog(
+        repository, logArguments(commit, flags, excludedRemote), RunFlag::NoOutput);
+    if (!res)
+        return ResultError(res.error());
+
+    int selected = keepCommit.isEmpty() ? 0 : -1;
+    const QStringList lines = res->split('\n');
+    for (const QString &line : lines) {
+        const std::optional<LogRow> parsed = parseLogLine(line);
+        if (!parsed)
+            continue;
+        appendRow(logRowItems(*parsed));
+        if (selected == -1 && keepCommit == parsed->hash)
+            selected = rowCount() - 1;
+    }
+    return selected;
+}
+
+void LogChangeModel::setMarks(LogRowMarks marks)
+{
+    m_marks = marks;
+    refreshMarks();
+}
+
+void LogChangeModel::setChosen(int currentRow, const QList<int> &selectedRows)
+{
+    m_currentRow = currentRow;
+    m_selectedRows = selectedRows;
+    refreshMarks();
+}
+
+void LogChangeModel::setMarkIcon(const QIcon &icon)
+{
+    m_icon = icon;
+}
+
+void LogChangeModel::refreshMarks()
+{
+    if (const int rows = rowCount())
+        emit dataChanged(index(0, 0), index(rows - 1, columnCount() - 1),
+                         {Qt::FontRole, Qt::DecorationRole});
+}
+
 bool logRowIsStruckOut(LogRowMarks marks, int row, int currentRow)
 {
     // Only where there is a chosen row to be before.
@@ -109,103 +203,6 @@ bool logRowHasIcon(LogRowMarks marks, int row, int currentRow, bool selected)
     return false;
 }
 
-class LogChangeModel : public QStandardItemModel
-{
-public:
-    explicit LogChangeModel(LogChangeWidget *parent) : QStandardItemModel(0, ColumnCount, parent) {}
-
-    QVariant data(const QModelIndex &index, int role) const override
-    {
-        if (role == Qt::ToolTipRole) {
-            const QString revision = index.sibling(index.row(), HashColumn).data(Qt::EditRole).toString();
-            const auto it = m_descriptions.constFind(revision);
-            if (it != m_descriptions.constEnd())
-                return *it;
-            const QString desc = QString::fromUtf8(gitClient().synchronousShow(
-                                 m_workingDirectory, revision, RunFlag::NoOutput));
-            m_descriptions[revision] = desc;
-            return desc;
-        }
-        if (role == Qt::FontRole && logRowIsStruckOut(m_marks, index.row(), m_currentRow)) {
-            QFont font = QStandardItemModel::data(index, role).value<QFont>();
-            font.setStrikeOut(true);
-            return font;
-        }
-        if (role == Qt::DecorationRole && index.column() == HashColumn) {
-            const bool selected = m_selectedRows.contains(index.row());
-            if (logRowHasIcon(m_marks, index.row(), m_currentRow, selected))
-                return m_icon;
-            return {};
-        }
-        if (role == AspectTable::EditableRole)
-            return AspectTable::isWritable(flags(index));
-        return QStandardItemModel::data(index, role);
-    }
-
-    void setWorkingDirectory(const FilePath &workingDir) { m_workingDirectory = workingDir; }
-
-    // Fills the rows from the repository's log, and answers which row should be
-    // current: the one holding \a keepCommit if it is still there, else the
-    // first. The git call lives here rather than in a view, so that a dialog
-    // drawing these rows in Qt Quick needs no widget to fill them.
-    Utils::Result<int> populate(const FilePath &repository, const QString &commit,
-                                unsigned flags, const QString &excludedRemote,
-                                const QString &keepCommit)
-    {
-        setWorkingDirectory(repository);
-        if (const int rows = rowCount())
-            removeRows(0, rows);
-
-        const Result<QString> res = gitClient().synchronousLog(
-            repository, logArguments(commit, flags, excludedRemote), RunFlag::NoOutput);
-        if (!res)
-            return ResultError(res.error());
-
-        int selected = keepCommit.isEmpty() ? 0 : -1;
-        const QStringList lines = res->split('\n');
-        for (const QString &line : lines) {
-            const std::optional<LogRow> parsed = parseLogLine(line);
-            if (!parsed)
-                continue;
-            appendRow(logRowItems(*parsed));
-            if (selected == -1 && keepCommit == parsed->hash)
-                selected = rowCount() - 1;
-        }
-        return selected;
-    }
-
-    // Which rows are marked, and against what. The view used to paint this
-    // itself; saying it here means every view of these rows agrees, and a Qt
-    // Quick table needs no delegate at all.
-    void setMarks(LogRowMarks marks) { m_marks = marks; refreshMarks(); }
-    void setChosen(int currentRow, const QList<int> &selectedRows)
-    {
-        m_currentRow = currentRow;
-        m_selectedRows = selectedRows;
-        refreshMarks();
-    }
-    void setMarkIcon(const QIcon &icon) { m_icon = icon; }
-
-    QHash<int, QByteArray> roleNames() const override
-    {
-        return AspectTable::withRoleNames(QStandardItemModel::roleNames());
-    }
-
-private:
-    void refreshMarks()
-    {
-        if (const int rows = rowCount())
-            emit dataChanged(index(0, 0), index(rows - 1, columnCount() - 1),
-                             {Qt::FontRole, Qt::DecorationRole});
-    }
-
-    FilePath m_workingDirectory;
-    mutable QHash<QString, QString> m_descriptions;
-    LogRowMarks m_marks = LogRowMarks::None;
-    int m_currentRow = -1;
-    QList<int> m_selectedRows;
-    QIcon m_icon;
-};
 
 LogChangeWidget::LogChangeWidget(QWidget *parent)
     : Utils::TreeView(parent)

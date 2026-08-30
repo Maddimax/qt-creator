@@ -4,11 +4,13 @@
 #pragma once
 
 #include <utils/filepath.h>
+#include <utils/result.h>
 #include <utils/icon.h>
 #include <utils/itemviews.h>
 
 #include <QDialog>
 #include <QIcon>
+#include <QStandardItemModel>
 
 #include <memory>
 #include <optional>
@@ -22,8 +24,6 @@ class QStandardItem;
 QT_END_NAMESPACE
 
 namespace Git::Internal {
-
-class LogChangeModel;
 
 // How the rows are marked relative to the one the reader is on. Every dialog
 // that shows a log marks them, and each marks them differently - which used to
@@ -58,6 +58,43 @@ std::optional<LogRow> parseLogLine(const QString &line);
 bool logRowIsStruckOut(LogRowMarks marks, int row, int currentRow);
 // Whether \a row carries the mark icon.
 bool logRowHasIcon(LogRowMarks marks, int row, int currentRow, bool selected);
+
+// The commits of a repository's log, and which of them are marked. Declared
+// here because three dialogs show these rows; the git call behind populate()
+// stays in the .cpp, so including this does not drag the client in.
+class LogChangeModel : public QStandardItemModel
+{
+public:
+    explicit LogChangeModel(QObject *parent = nullptr);
+
+    QVariant data(const QModelIndex &index, int role) const override;
+    QHash<int, QByteArray> roleNames() const override;
+
+    void setWorkingDirectory(const Utils::FilePath &workingDir);
+
+    // Fills the rows from the repository's log, and answers which row should
+    // be current: the one holding \a keepCommit if it is still there, else the
+    // first. Filling lives here rather than in a view, so that a dialog
+    // drawing these rows in Qt Quick needs no widget to get them.
+    Utils::Result<int> populate(const Utils::FilePath &repository, const QString &commit,
+                                unsigned flags, const QString &excludedRemote,
+                                const QString &keepCommit);
+
+    // Which rows are marked, and against what.
+    void setMarks(LogRowMarks marks);
+    void setChosen(int currentRow, const QList<int> &selectedRows);
+    void setMarkIcon(const QIcon &icon);
+
+private:
+    void refreshMarks();
+
+    Utils::FilePath m_workingDirectory;
+    mutable QHash<QString, QString> m_descriptions;
+    LogRowMarks m_marks = LogRowMarks::None;
+    int m_currentRow = -1;
+    QList<int> m_selectedRows;
+    QIcon m_icon;
+};
 
 #ifdef WITH_TESTS
 QObject *createLogChangeMarksTest();
