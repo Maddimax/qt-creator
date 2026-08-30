@@ -51,6 +51,7 @@ if(TARGET QmakeProjectManager)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      QMakeStep.qml
       QmakeSettingsPage.qml
   )
 endif()

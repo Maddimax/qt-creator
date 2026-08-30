@@ -42,6 +42,10 @@
 #include <utils/qtcprocess.h>
 
 #include <QDir>
+
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
 #include <QMessageBox>
 #include <QPlainTextEdit>
 
@@ -62,14 +66,19 @@ QMakeStep::QMakeStep(BuildStepList *bsl, Id id)
 {
     setLowPriority();
 
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/QmakeProjectManager/QMakeStep.qml"));
+
+    buildType.setQmlName("QmakeBuildConfig");
     buildType.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
     buildType.setLabelText(Tr::tr("qmake build configuration:"));
     buildType.addOption(msgBuildConfigurationDebug());
     buildType.addOption(msgBuildConfigurationRelease());
 
+    userArguments.setQmlName("QmakeArguments");
     userArguments.setSettingsKey(QMAKE_ARGUMENTS_KEY);
     userArguments.setLabelText(Tr::tr("Additional arguments:"));
 
+    effectiveCall.setQmlName("EffectiveCall");
     effectiveCall.setDisplayStyle(StringAspect::TextEditDisplay);
     effectiveCall.setLabelText(Tr::tr("Effective qmake call:"));
     effectiveCall.setReadOnly(true);
@@ -97,6 +106,50 @@ QMakeStep::QMakeStep(BuildStepList *bsl, Id id)
     setSummaryUpdater(updateSummary);
 
     connect(buildConfiguration(), &BuildConfiguration::kitChanged, this, updateSummary);
+
+    // What the step works out about itself when a form is about to show it.
+    // Not here: these read the Qt version, the build system and the build
+    // configuration's own state, none of which is settled while the step is
+    // still being constructed.
+    connect(this, &AspectContainer::shown, this, [this] {
+        qmakeBuildConfigChanged();
+        // Qualified: a local of that name is in scope here, and the signal is
+        // what the closure meant.
+        emit BuildStep::updateSummary();
+        updateAbis();
+        updateEffectiveQMakeCall();
+    });
+
+    connect(&userArguments, &BaseAspect::changed, this, [this] {
+        updateAbis();
+        updateEffectiveQMakeCall();
+
+        emit qmakeBuildConfiguration()->qmakeBuildConfigurationChanged();
+        qmakeBuildSystem()->scheduleUpdateAllNowOrLater();
+    });
+
+    connect(&buildType, &BaseAspect::changed, this, [this] { buildConfigurationSelected(); });
+
+    if (Project * const p = project()) {
+        connect(p, &Project::projectLanguagesUpdated,
+                this, [this] { linkQmlDebuggingLibraryChanged(); });
+    }
+
+    if (QmakeBuildConfiguration * const bc = qmakeBuildConfiguration()) {
+        connect(bc, &QmakeBuildConfiguration::qmlDebuggingChanged, this, [this] {
+            linkQmlDebuggingLibraryChanged();
+            askForRebuild(Tr::tr("QML Debugging"));
+        });
+        connect(bc, &QmakeBuildConfiguration::useQtQuickCompilerChanged,
+                this, [this] { useQtQuickCompilerChanged(); });
+        connect(bc, &QmakeBuildConfiguration::separateDebugInfoChanged,
+                this, [this] { separateDebugInfoChanged(); });
+        connect(bc, &QmakeBuildConfiguration::qmakeBuildConfigurationChanged,
+                this, [this] { qmakeBuildConfigChanged(); });
+        connect(bc, &BuildConfiguration::kitChanged, this, [this] { qtVersionChanged(); });
+        if (BuildSystem * const bs = bc->buildSystem())
+            connect(bs, &BuildSystem::parsingFinished, this, [this] { updateEffectiveQMakeCall(); });
+    }
 }
 
 QmakeBuildConfiguration *QMakeStep::qmakeBuildConfiguration() const
@@ -425,55 +478,6 @@ void QMakeStep::fromMap(const Store &map)
     BuildStep::fromMap(map);
 }
 
-QWidget *QMakeStep::createConfigWidget()
-{
-    Layouting::Form builder;
-    builder.addRow({buildType});
-    builder.addRow({userArguments});
-    builder.addRow({effectiveCall});
-    builder.addRow({abis});
-    builder.setNoMargins();
-    auto widget = builder.emerge();
-
-    qmakeBuildConfigChanged();
-
-    emit updateSummary();
-    updateAbis();
-    updateEffectiveQMakeCall();
-
-    connect(&userArguments, &BaseAspect::changed, widget, [this] {
-        updateAbis();
-        updateEffectiveQMakeCall();
-
-        emit qmakeBuildConfiguration()->qmakeBuildConfigurationChanged();
-        qmakeBuildSystem()->scheduleUpdateAllNowOrLater();
-    });
-
-    connect(&buildType, &BaseAspect::changed,
-            widget, [this] { buildConfigurationSelected(); });
-
-    connect(qmakeBuildConfiguration(), &QmakeBuildConfiguration::qmlDebuggingChanged,
-            widget, [this] {
-        linkQmlDebuggingLibraryChanged();
-        askForRebuild(Tr::tr("QML Debugging"));
-    });
-
-    connect(project(), &Project::projectLanguagesUpdated,
-            this, [this] { linkQmlDebuggingLibraryChanged(); });
-    connect(buildSystem(), &BuildSystem::parsingFinished,
-            this, [this] { updateEffectiveQMakeCall(); });
-    connect(qmakeBuildConfiguration(), &QmakeBuildConfiguration::useQtQuickCompilerChanged,
-            this, [this] { useQtQuickCompilerChanged(); });
-    connect(qmakeBuildConfiguration(), &QmakeBuildConfiguration::separateDebugInfoChanged,
-            this, [this] { separateDebugInfoChanged(); });
-    connect(qmakeBuildConfiguration(), &QmakeBuildConfiguration::qmakeBuildConfigurationChanged,
-            this, [this] { qmakeBuildConfigChanged(); });
-    connect(buildConfiguration(), &BuildConfiguration::kitChanged,
-            this, [this] { qtVersionChanged(); });
-
-    return widget;
-}
-
 void QMakeStep::qtVersionChanged()
 {
     updateAbis();
@@ -716,4 +720,96 @@ QStringList QMakeStepConfig::toArguments() const
     return arguments;
 }
 
+#ifdef WITH_TESTS
+namespace Internal {
+
+class QMakeStepPageTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    // A QMakeStep needs a qmake project and a target, so its page is checked
+    // against a stand-in holding the same aspects under the same names. Three
+    // things, none of which implies the others: that every name the page asks
+    // for exists, that the form is that page rather than the generic list of
+    // aspects, and that each aspect wants the control whose delegate the page
+    // hands it to - a wrong delegate draws the wrong thing in silence.
+    void testThePageDrawsWhatItNames()
+    {
+        AspectContainer page;
+        page.setQmlSource(QUrl("qrc:/qt/qml/QtCreator/QmakeProjectManager/QMakeStep.qml"));
+
+        SelectionAspect buildConfig(&page);
+        buildConfig.setQmlName("QmakeBuildConfig");
+        buildConfig.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
+        buildConfig.addOption("Debug");
+        buildConfig.addOption("Release");
+        ProjectExplorer::ArgumentsAspect arguments(&page);
+        arguments.setQmlName("QmakeArguments");
+        StringAspect effective(&page);
+        effective.setQmlName("EffectiveCall");
+        effective.setDisplayStyle(StringAspect::TextEditDisplay);
+        effective.setReadOnly(true);
+        MultiSelectionAspect abis(&page);
+        abis.setQmlName("Abis");
+        abis.setDisplayStyle(MultiSelectionAspect::DisplayStyle::ListView);
+        abis.setAllValues({"arm64-v8a", "x86_64"});
+
+        QStringList complaints;
+        static QStringList *collected = nullptr;
+        collected = &complaints;
+        const auto previous = qInstallMessageHandler(nullptr);
+        qInstallMessageHandler([](QtMsgType type, const QMessageLogContext &, const QString &msg) {
+            if (collected && (type == QtWarningMsg || type == QtCriticalMsg))
+                collected->append(msg);
+        });
+
+        const std::unique_ptr<QWidget> form(ProjectExplorer::createAspectsForm(&page));
+        if (form) {
+            form->resize(600, 400);
+            form->show();
+            QTest::qWaitForWindowExposed(form.get());
+        }
+        collected = nullptr;
+        qInstallMessageHandler(previous);
+
+        QVERIFY(form);
+        QVERIFY2(complaints.isEmpty(),
+                 qPrintable("the qmake step page complains: " + complaints.join("; ")));
+
+        // The page it names, not the generic list - which would draw the same
+        // aspects and complain about nothing either.
+        const QList<QWidget *> children = form->findChildren<QWidget *>();
+        QWidget * const quick = Utils::findOr(children, nullptr, [](QWidget *child) {
+            return qstrcmp(child->metaObject()->className(), "QQuickWidget") == 0;
+        });
+        QVERIFY2(quick, "the qmake step page was not drawn with Qt Quick at all");
+        QCOMPARE(quick->property("source").toUrl(), page.qmlSource());
+
+        // QMakeStep.qml draws these with SelectionDelegate, InlineGroupDelegate,
+        // TextAreaDelegate and MultiSelectionDelegate respectively; the mapping
+        // from control to delegate is in AspectItems.qml.
+        const QList<std::pair<BaseAspect *, AspectControls::Control>> wanted = {
+            {&buildConfig, AspectControls::ComboBox},
+            {&arguments, AspectControls::Container},
+            {&effective, AspectControls::TextEdit},
+            {&abis, AspectControls::MultiSelection},
+        };
+        for (const auto &[aspect, control] : wanted)
+            QCOMPARE(int(aspect->presentation().control), int(control));
+    }
+};
+
+QObject *createQMakeStepPageTest()
+{
+    return new QMakeStepPageTest;
+}
+
+} // namespace Internal
+#endif // WITH_TESTS
+
 } // QmakeProjectManager
+
+#ifdef WITH_TESTS
+#include "qmakestep.moc"
+#endif

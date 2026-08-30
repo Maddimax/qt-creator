@@ -79,7 +79,6 @@ public:
     QmakeBuildSystem *qmakeBuildSystem() const;
     bool init() override;
     void setupOutputFormatter(Utils::OutputFormatter *formatter) override;
-    QWidget *createConfigWidget() override;
     void setForced(bool b);
 
     enum class ArgumentFlag {
@@ -158,6 +157,10 @@ private:
 
     Utils::Guard m_ignoreChanges;
 };
+
+#ifdef WITH_TESTS
+namespace Internal { QObject *createQMakeStepPageTest(); }
+#endif
 
 } // namespace QmakeProjectManager
 

@@ -16999,3 +16999,38 @@ others:
 
 No `.qbs` edit and so no resolve: ProjectExplorer's qml group is a `**/*.qml`
 wildcard.
+
+### QMakeStep: an aspect that lived in a QListWidget
+
+The qmake step is the first of the bespoke build-step forms to need
+workstream 2 first. Which ABIs to build for lived in the check states of a
+`QListWidget` the config widget built; the step copied them into
+`m_selectedAbis` when the widget said they had changed, and
+`updateAbiWidgets()` began with
+
+    if (!abisLabel)
+        return;
+
+so **nothing about the ABIs was computed unless somebody had opened the step**
+- including the Android defaults it picks and the `ANDROID_ABIS` and
+`QMAKE_APPLE_DEVICE_ARCHS` arguments `abisChanged()` derives from them.
+
+It is a `MultiSelectionAspect` now. It owns the values, the selection and
+whether the row appears at all, and it writes itself under the key the step
+used to write by hand, so a selection saved by an older Qt Creator is read
+back unchanged. That last claim is the risk in the change and was checked
+rather than assumed: a probe against the built `libUtils` showed the aspect
+writing `QtProjectManager.QMakeBuildStep.SelectedAbis` as a `QStringList`, and
+a hand-written map of that shape restoring into the aspect.
+
+The layout then ports like MakeStep's: four rows in `QMakeStep.qml`, and the
+initial refresh plus eleven connections move to the constructor, with the
+refresh hanging off `AspectContainer::shown()` for the same reason as before.
+One trap in moving it: the constructor already has a local lambda called
+`updateSummary`, so `emit updateSummary()` moved from the closure resolves to
+*that* rather than to the `BuildStep` signal it means. It compiles only
+because a lambda is not callable that way - `emit BuildStep::updateSummary()`
+is what was meant.
+
+The page test is the MakeStep one again, and both of its halves were shown to
+bite: a wrong `aspects.Foo` and a control the aspect does not ask for.
