@@ -21121,3 +21121,54 @@ takes `*.qml` by wildcard.
 **Next:** `StartApplicationDialog`, the last of the nine and the largest - it
 carries a `StartApplicationParameters` that is saved and restored as a named
 preset, so the interesting part will be that round trip rather than the form.
+
+## 2026-08-30 — StartApplicationDialog: the last of the nine
+
+Fifteen fields, a list of recent runs that fills them all in, and five fields
+that only mean something when a server is already running. The port is
+mechanical; three things in it are worth keeping.
+
+**A `SelectionAspect` option carries a `QVariant`, so the history needed no
+model.** The widget combo box held a `StartApplicationParameters` per item in
+`itemData`; `SelectionAspect::Option::itemData` is the same thing, and
+`itemValueForIndex()` reads it back. A list of *presets* - not of strings - is
+therefore an ordinary combo box aspect, which is worth knowing for the other
+dialogs that have one.
+
+**"Which fields are remote-only" is a list, so it should be a list.** The
+widget hid nine widgets one `setVisible(false)` at a time - five fields and
+their four labels - which is exactly the shape where one gets forgotten and
+stays on screen doing nothing. `remoteOnly()` returns the five aspects and the
+caller loops; the labels come with them, because an aspect's label is part of
+it.
+
+**The Ok rule is `localExecutable.isValid()`**, which is the asynchronous flag
+again: it is false until the drawn field asks, and the dialog follows
+`validChanged` rather than reading it once. Same as
+[[filepathaspect-isvalid-is-a-flag]]; this is the fourth dialog in this series
+where that is the answer, so it is now the default assumption rather than a
+discovery.
+
+**A bug found by reading `equals()` next to `toSettings()`:**
+`useTargetExtendedRemote` is written to the settings and read back, but is
+*not* compared. `run()` only appends to the history when
+`newParameters != history.back()`, so toggling that box and nothing else is
+silently never remembered. Left alone in this commit - a port should not change
+behaviour - and fixed in the one after it, so the fix can be dropped on its own.
+
+Negative controls: the `.qml` naming an aspect that does not exist; a channel
+of its own leaving the port choosable; a local run still showing the server
+fields; a recent run not filling extended-remote back in; a long command line
+not cut short; and a settings key the reader's file does not have. All six bit.
+
+QuickUi 185 passed / 0 failed / 1 skipped, exit 0 (the keychain test skipped
+again this run). `StartApplicationDialogTest` 8 passed, exit 0;
+`Debugger_qmllint` clean. No `.qbs` edit.
+
+**The nine kit-chooser dialogs are done.** What is left of the census: about
+thirty table-shaped dialogs - now that tables sort, these are the biggest
+group - fifteen read-only reports, fourteen text fields, and the dialogs
+needing a component of their own. Two known gaps carried forward: a Qt Quick
+table cannot be activated by double click ([[qtest-cannot-double-click-quick]]
+is why that is hard to test), and `QnxAttachDebugDialog` still adds its two
+path choosers as widgets.

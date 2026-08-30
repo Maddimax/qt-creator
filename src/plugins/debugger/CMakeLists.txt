@@ -182,6 +182,7 @@ if(TARGET Debugger)
       GdbSettingsPage.qml
       LoadCoreDialog.qml
       LocalsAndExpressionsSettingsPage.qml
+      StartApplicationDialog.qml
       UnstartedAppWatcherDialog.qml
   )
 endif()

@@ -24,6 +24,7 @@ std::optional<quint64> runAddressDialog(quint64 initialAddress);
 
 #ifdef WITH_TESTS
 QObject *createAttachToQmlPortSettingsTest();
+QObject *createStartApplicationDialogTest();
 #endif
 
 } // Debugger::Internal

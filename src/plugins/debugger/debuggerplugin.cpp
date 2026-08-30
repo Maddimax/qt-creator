@@ -2164,6 +2164,7 @@ Result<> DebuggerPlugin::initialize(const QStringList &arguments)
     addTestCreator(createAttachCoreDialogTest);
     addTestCreator(createUnstartedAppWatcherDialogTest);
     addTestCreator(createAttachToQmlPortSettingsTest);
+    addTestCreator(createStartApplicationDialogTest);
     addTestCreator(Debugger::createDebuggersSettingsTest);
 #endif
 
