@@ -14,6 +14,10 @@ QT_END_MOC_NAMESPACE
 
 namespace Android::Internal {
 
+#ifdef WITH_TESTS
+QObject *createSdkManagerProgressTest();
+#endif
+
 class AndroidSdkManagerPrivate;
 
 class InstallationChange

@@ -334,6 +334,7 @@ private slots:
     void testWhatATableAspectRemembers();
     void testATableAspectDescribesItsTable();
     void testATextAreaCanLineItsColumnsUp();
+    void testAProgressAspectSaysHowFarAlong();
     void testATreeRowIsActivatedByReturn();
     void testATableCellShowsTheIconItsModelGives();
     void testATableWithNoColumnNamesHasNoHeader();
@@ -5191,6 +5192,45 @@ void QuickUiTest::testClickingAHeadingSortsByIt()
             ++indicators;
     }
     QCOMPARE(indicators, 1);
+}
+
+void QuickUiTest::testAProgressAspectSaysHowFarAlong()
+{
+    Utils::AspectContainer page;
+    Utils::ProgressAspect progress(&page);
+    progress.setLabelText("Installing");
+    progress.setRange(0, 100);
+    progress.setValue(40);
+
+    QCOMPARE(progress.presentation().control, Utils::AspectControls::ProgressBar);
+    QCOMPARE(progress.presentation().minimum.toInt(), 0);
+    QCOMPARE(progress.presentation().maximum.toInt(), 100);
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+
+    // Through the delegate, as the text-area test does: findChild from the
+    // root does not reach an item a DelegateChooser created.
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "ProgressDelegate"));
+    QQuickItem *bar = nullptr;
+    QTRY_VERIFY(bar = delegate->findChild<QQuickItem *>("progressBar"));
+    QCOMPARE(bar->property("from").toReal(), 0.0);
+    QCOMPARE(bar->property("to").toReal(), 100.0);
+    QTRY_COMPARE(bar->property("value").toReal(), 40.0);
+    QVERIFY2(!bar->property("indeterminate").toBool(),
+             "a bar that knows how much there is ran on the spot");
+
+    // Following the aspect, not read once.
+    progress.setValue(90);
+    QTRY_COMPARE(bar->property("value").toReal(), 90.0);
+
+    // Work that cannot say how much there is runs on the spot instead.
+    progress.setRange(0, 0);
+    QTRY_VERIFY2(bar->property("indeterminate").toBool(),
+                 "a bar with nothing to count did not run on the spot");
 }
 
 void QuickUiTest::testATextAreaCanLineItsColumnsUp()

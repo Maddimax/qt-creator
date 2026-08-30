@@ -113,6 +113,9 @@ public:
         // Shows nothing at all, which some aspects legitimately do.
         Invisible,
         Unsupported,
+        // Appended rather than put beside Integer: a page test names kinds by
+        // number, so inserting one renumbers the rest.
+        Progress,
     };
     Q_ENUM(Kind)
 

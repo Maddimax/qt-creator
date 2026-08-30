@@ -72,6 +72,7 @@ if(TARGET Android)
     NO_PLUGIN
     QML_FILES
       AndroidSettingsPage.qml
+      SdkManagerProgress.qml
       KeystoreCertificateDialog.qml
       SdkManagerOptionsDialog.qml
   )

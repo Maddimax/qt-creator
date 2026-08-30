@@ -69,6 +69,10 @@ GridLayout {
                 IntegerDelegate {}
             }
             DelegateChoice {
+                roleValue: AspectContainerModel.Progress
+                ProgressDelegate {}
+            }
+            DelegateChoice {
                 roleValue: AspectContainerModel.Double
                 DoubleDelegate {}
             }

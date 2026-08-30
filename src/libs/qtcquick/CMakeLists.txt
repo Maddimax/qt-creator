@@ -65,6 +65,7 @@ if(TARGET QtcQuick)
       FlattenedGroupDelegate.qml
       GroupedListDelegate.qml
       IntegerDelegate.qml
+      ProgressDelegate.qml
       KeySequenceDelegate.qml
       Metrics.qml
       OutputView.qml

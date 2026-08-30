@@ -21926,3 +21926,51 @@ edit: `valgrind.qbs` takes `*.qml` by wildcard.
 `DetailedErrorView`, not a dialog, so it belongs with the panes; the remaining
 dialogs of this kind are in `androidsdkmanager`, `cpaster/pasteview` and
 `qnxdeployqtlibrariesdialog`, and the last of those is the largest.
+
+## 2026-08-31 — A progress bar, and an enum lesson that cost four runs
+
+The Android SDK manager's dialog is the plan's **third kind** of text dialog -
+a coloured transcript written to as something runs - and the second one to be
+ported, after `DeviceTestDialog`. `Core::OutputPaneView` takes it unchanged,
+as the plan said it would.
+
+What it needed that did not exist was a **progress bar**. Three dialogs have
+one and two of them are on the remaining list, so `AspectControls::ProgressBar`,
+`Utils::ProgressAspect` and `ProgressDelegate.qml` went in - a range, a value,
+and `indeterminate` when the maximum is zero, which is how a bar says the work
+cannot count itself.
+
+**Inserting a value into an enum, then building one target, is a trap.** I put
+`ProgressBar` beside `SpinBox` and `Progress` beside `Integer`, built only
+`QuickUi`, and watched `testAspectDrivenPagesRenderWithQuick` fail with
+*"TreeDelegate drew, which asked for kind 29"* - a **different page and
+delegate each run**. Appending the values instead did not fix it either. The
+cause was neither: objects compiled before the change still held the old
+numbers, so one translation unit's `Kind::Tree` was another's `Kind::Table`.
+A full `ninja` fixed it with no source change at all.
+
+Two things follow. **A changed enum needs a full build**, the same way
+[[rebuild-all-after-shared-vtable-change]] says a new virtual does - and the
+symptom is just as misleading, because it moves around. And **append rather
+than insert anyway**: a page test names kinds by number in its failure
+messages, and a renumbering makes every one of them a lie. Both values are at
+the end now, with a comment saying why.
+
+**The lookup that works for a delegate-created item** is by type and then
+`findChild` on the delegate - `findChild` from the root does not reach it. That
+is the third time this shape has come up (table header sections, text areas,
+now the bar), so it is worth stating plainly: **find the delegate, then the
+item inside it.**
+
+Negative controls: the bar not following the aspect; work with nothing to count
+showing a filled bar; a button offered with no question beside it; the answers
+enabled before the question; and the `.qml` naming an aspect that does not
+exist. All five bit.
+
+QuickUi 191 passed / 0 failed / 1 skipped, exit 0. `Android` exit 0 with no
+failures, `SdkManagerProgressTest` 5 passed. `Android_qmllint` and
+`QtcQuick_qmllint` clean. No `.qbs` edit: no files were added to a product that
+does not take `*.qml` by wildcard.
+
+**Next:** `qnxdeployqtlibrariesdialog`, which is the other progress-and-log
+dialog and now has everything it needs, and `cpaster/pasteview`.

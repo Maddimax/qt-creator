@@ -3591,6 +3591,28 @@ AspectPresentation TextDisplay::presentation() const
     renderer.
 */
 
+ProgressAspect::ProgressAspect(AspectContainer *container)
+    : TypedAspect(container)
+{}
+
+ProgressAspect::~ProgressAspect() = default;
+
+AspectPresentation ProgressAspect::presentation() const
+{
+    AspectPresentation p = TypedAspect::presentation();
+    p.control = AspectControls::ProgressBar;
+    p.minimum = m_minimum;
+    p.maximum = m_maximum;
+    return p;
+}
+
+void ProgressAspect::setRange(int minimum, int maximum)
+{
+    m_minimum = minimum;
+    m_maximum = maximum;
+    emit controlConfigurationChanged();
+}
+
 TableAspect::TableAspect(AspectContainer *container)
     : BaseAspect(container)
 {}

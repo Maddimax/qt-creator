@@ -3,6 +3,7 @@
 
 #include "androidbuildapkstep.h"
 #include "androidconfigurations.h"
+#include "androidsdkmanager.h"
 #include "androidsdkmanagerdialog.h"
 #include "keystorecertificatedialog.h"
 #include "androidconstants.h"
@@ -108,6 +109,7 @@ class AndroidPlugin final : public ExtensionSystem::IPlugin
         addTestCreator(createAndroidSdkManagerTest);
         addTestCreator(createKeystoreCertificateTest);
         addTestCreator(createSdkManagerOptionsTest);
+        addTestCreator(createSdkManagerProgressTest);
         addTestCreator(createAndroidSdkManagerOutputParserTest);
         addTestCreator(createAndroidQtVersionTest);
         addTestCreator(createAndroidConfigurationsTest);

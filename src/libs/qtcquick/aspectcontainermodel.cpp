@@ -129,6 +129,7 @@ AspectContainerModel::Kind AspectContainerModel::kindOf(AspectControls::Control 
     case AspectControls::ComboBox:               return Selection;
     case AspectControls::RadioButtonGroup:       return RadioGroup;
     case AspectControls::SpinBox:                return Integer;
+    case AspectControls::ProgressBar:            return Progress;
     case AspectControls::DoubleSpinBox:          return Double;
     case AspectControls::CommaSeparatedLineEdit: return StringList;
     case AspectControls::FilePathList:           return FilePathList;

@@ -91,6 +91,11 @@ enum Control {
     // aspect is a container holding those under known names; see
     // ProjectExplorer::EnvironmentEditorAspect.
     EnvironmentEditor,
+    // How far along something running is. Read, never set. Appended:
+    // inserting a value renumbers the rest, and a page test names them by
+    // number.
+    ProgressBar,
+
 };
 Q_ENUM_NS(Control)
 

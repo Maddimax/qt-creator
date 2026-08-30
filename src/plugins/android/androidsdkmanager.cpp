@@ -6,19 +6,27 @@
 #include "androidtr.h"
 #include "sdkmanageroutputparser.h"
 
+#include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/icore.h>
+#include <coreplugin/outputpaneview.h>
 
 #include <solutions/spinner/spinner.h>
 #include <QtTaskTree/QConditional>
 #include <QtTaskTree/QSingleTaskTreeRunner>
 
 #include <utils/algorithm.h>
+#include <utils/aspects.h>
 #include <utils/environment.h>
 #include <utils/layoutbuilder.h>
 #include <utils/outputformatter.h>
 #include <utils/qtcprocess.h>
 
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
 #include <QDialogButtonBox>
+#include <QVBoxLayout>
 #include <QLabel>
 #include <QLoggingCategory>
 #include <QMessageBox>
@@ -40,6 +48,53 @@ using namespace std::chrono_literals;
 
 namespace Android::Internal {
 
+// What the reader watches while the SDK manager runs: its output, the licence
+// question when one comes, and how far along it is.
+class SdkProgressSettings final : public AspectContainer
+{
+public:
+    SdkProgressSettings()
+    {
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Android/SdkManagerProgress.qml"));
+
+        question.setQmlName("Question");
+        question.setText(Tr::tr("Do you want to accept the Android SDK license?"));
+        question.setVisible(false);
+
+        yes.setQmlName("Yes");
+        yes.setActionText(Tr::tr("Yes"));
+        yes.setVisible(false);
+        no.setQmlName("No");
+        no.setActionText(Tr::tr("No"));
+        no.setVisible(false);
+
+        progress.setQmlName("Progress");
+        progress.setRange(0, 100);
+    }
+
+    // The question and the two buttons come and go together: there is nothing
+    // to answer until one is asked.
+    void setQuestionVisible(bool visible)
+    {
+        question.setVisible(visible);
+        yes.setVisible(visible);
+        no.setVisible(visible);
+    }
+
+    void setQuestionEnabled(bool enable)
+    {
+        question.setEnabled(enable);
+        yes.setEnabled(enable);
+        no.setEnabled(enable);
+    }
+
+    TextDisplay question{this};
+    ActionAspect yes{this};
+    ActionAspect no{this};
+    ProgressAspect progress{this};
+};
+
 class QuestionProgressDialog : public QDialog
 {
     Q_OBJECT
@@ -47,39 +102,23 @@ class QuestionProgressDialog : public QDialog
 public:
     QuestionProgressDialog()
         : QDialog(Core::ICore::dialogParent())
-        , m_outputTextEdit(new QPlainTextEdit)
-        , m_questionLabel(new QLabel(Tr::tr("Do you want to accept the Android SDK license?")))
-        , m_answerButtonBox(new QDialogButtonBox)
-        , m_progressBar(new QProgressBar)
-        , m_dialogButtonBox(new QDialogButtonBox)
-        , m_formatter(new OutputFormatter)
+        , m_output(new Core::OutputPaneView)
+        , m_settings(new SdkProgressSettings)
+        , m_dialogButtonBox(new QDialogButtonBox(QDialogButtonBox::Cancel))
     {
         setWindowTitle(Tr::tr("Android SDK Manager"));
-        m_outputTextEdit->setReadOnly(true);
-        m_questionLabel->setAlignment(Qt::AlignRight | Qt::AlignTrailing | Qt::AlignVCenter);
-        m_answerButtonBox->setStandardButtons(QDialogButtonBox::No | QDialogButtonBox::Yes);
-        m_dialogButtonBox->setStandardButtons(QDialogButtonBox::Cancel);
-        m_formatter->setSink(m_outputTextEdit->document(), m_outputTextEdit);
-        m_formatter->setParent(this);
 
-        using namespace Layouting;
+        m_settings->yes.setAction([this] { emit answerClicked(true); });
+        m_settings->no.setAction([this] { emit answerClicked(false); });
 
-        Column {
-            m_outputTextEdit,
-            Row { m_questionLabel, m_answerButtonBox },
-            m_progressBar,
-            m_dialogButtonBox
-        }.attachTo(this);
+        auto layout = new QVBoxLayout(this);
+        layout->addWidget(m_output);
+        layout->addWidget(Core::createAspectForm(m_settings.get()));
+        layout->addWidget(m_dialogButtonBox);
 
-        setQuestionVisible(false);
-        setQuestionEnabled(false);
+        m_settings->setQuestionVisible(false);
+        m_settings->setQuestionEnabled(false);
 
-        connect(m_answerButtonBox, &QDialogButtonBox::rejected, this, [this] {
-            emit answerClicked(false);
-        });
-        connect(m_answerButtonBox, &QDialogButtonBox::accepted, this, [this] {
-            emit answerClicked(true);
-        });
         connect(m_dialogButtonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
         connect(m_dialogButtonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
 
@@ -89,22 +128,18 @@ public:
         show();
     }
 
-    void setQuestionEnabled(bool enable)
-    {
-        m_questionLabel->setEnabled(enable);
-        m_answerButtonBox->setEnabled(enable);
-    }
-    void setQuestionVisible(bool visible)
-    {
-        m_questionLabel->setVisible(visible);
-        m_answerButtonBox->setVisible(visible);
-    }
+    ~QuestionProgressDialog() override = default;
+
+    void setQuestionEnabled(bool enable) { m_settings->setQuestionEnabled(enable); }
+    void setQuestionVisible(bool visible) { m_settings->setQuestionVisible(visible); }
+
     void appendMessage(const QString &text, OutputFormat format)
     {
-        m_formatter->appendMessage(text, format);
-        m_outputTextEdit->ensureCursorVisible();
+        m_output->appendMessage(text, format);
     }
-    void setProgress(int value) { m_progressBar->setValue(value); }
+
+    void setProgress(int value) { m_settings->progress.setValue(value); }
+
     void setDone()
     {
         m_dialogButtonBox->setStandardButtons(QDialogButtonBox::Close);
@@ -114,12 +149,13 @@ signals:
     void answerClicked(bool accepted);
 
 private:
-    QPlainTextEdit *m_outputTextEdit = nullptr;
-    QLabel *m_questionLabel = nullptr;
-    QDialogButtonBox *m_answerButtonBox = nullptr;
-    QProgressBar *m_progressBar = nullptr;
+    Core::OutputPaneView *m_output = nullptr;
+    const std::unique_ptr<SdkProgressSettings> m_settings;
     QDialogButtonBox *m_dialogButtonBox = nullptr;
-    OutputFormatter *m_formatter = nullptr;
+
+#ifdef WITH_TESTS
+    friend class SdkManagerProgressTest;
+#endif
 };
 
 static QString sdkRootArg()
@@ -633,6 +669,64 @@ AndroidSdkManager &sdkManager()
     static AndroidSdkManager theAndroidSdkManager;
     return theAndroidSdkManager;
 }
+
+#ifdef WITH_TESTS
+
+class SdkManagerProgressTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheFormDrawsWithTheQmlItNames()
+    {
+        SdkProgressSettings settings;
+        const Result<> rendered
+            = Core::aspectFormRenders(&settings, "SdkManagerProgress.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+    }
+
+    void testTheQuestionAndItsAnswersComeAndGoTogether()
+    {
+        // There is nothing to answer until a licence is asked about, and a
+        // button offered with no question beside it would be unanswerable.
+        SdkProgressSettings settings;
+        settings.setQuestionVisible(false);
+        QVERIFY(!settings.question.isVisible());
+        QVERIFY2(!settings.yes.isVisible(), "Yes was offered with no question");
+        QVERIFY2(!settings.no.isVisible(), "No was offered with no question");
+
+        settings.setQuestionVisible(true);
+        QVERIFY(settings.question.isVisible());
+        QVERIFY(settings.yes.isVisible());
+        QVERIFY(settings.no.isVisible());
+
+        // And they are enabled together too - the question arrives before the
+        // process is ready to be answered.
+        settings.setQuestionEnabled(false);
+        QVERIFY(!settings.yes.isEnabled());
+        QVERIFY(!settings.no.isEnabled());
+        settings.setQuestionEnabled(true);
+        QVERIFY(settings.yes.isEnabled());
+        QVERIFY(settings.no.isEnabled());
+    }
+
+    void testHowFarAlongItSays()
+    {
+        SdkProgressSettings settings;
+        QCOMPARE(settings.progress.presentation().control, AspectControls::ProgressBar);
+        QCOMPARE(settings.progress.maximum(), 100);
+
+        settings.progress.setValue(30);
+        QCOMPARE(settings.progress(), 30);
+    }
+};
+
+QObject *createSdkManagerProgressTest()
+{
+    return new SdkManagerProgressTest;
+}
+
+#endif // WITH_TESTS
 
 } // namespace Android::Internal
 

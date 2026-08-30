@@ -1417,6 +1417,29 @@ private:
 // that a page action is an aspect like everything else on the page, reachable
 // by name from the page's QML and drawable by either renderer, rather than
 // something only a layout could build.
+// How far along something running is: a step count and where it has got to.
+// Read, never set - the reader watches it rather than changing it.
+class QTCREATOR_UTILS_EXPORT ProgressAspect : public TypedAspect<int>
+{
+    Q_OBJECT
+
+public:
+    explicit ProgressAspect(AspectContainer *container = nullptr);
+    ~ProgressAspect() override;
+
+    AspectPresentation presentation() const override;
+
+    // The range the value runs over. A maximum of zero means the work cannot
+    // say how much there is, which a bar shows by running on the spot.
+    void setRange(int minimum, int maximum);
+    int minimum() const { return m_minimum; }
+    int maximum() const { return m_maximum; }
+
+private:
+    int m_minimum = 0;
+    int m_maximum = 100;
+};
+
 // A table of rows shown in a form: the model behind it, which row the reader
 // is on, which rows they picked, and which row they meant. Every dialog that
 // shows a list needs the same four, and each one wrote them again before this
