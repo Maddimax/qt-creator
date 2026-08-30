@@ -21412,3 +21412,50 @@ activation family. `SessionNameInputDialog` is still a widget dialog; it
 belongs with the text-field group, and its `SessionValidator` (invalid
 characters, duplicate names, and the " (2)" fixup) is a rule worth extracting
 when it is ported.
+
+## 2026-08-30 — The stash dialog, and picking the right one of four
+
+Four activation dialogs were left. `LogChangeDialog` looked like the obvious
+next one and is not: `LogChangeWidget` is a reusable widget with three custom
+`LogItemDelegate` subclasses painting its rows in `gitplugin.cpp`, and a second
+embedding in the submit editor. Porting it means porting those paint delegates,
+which is a batch of its own. `StashDialog` has one caller and no delegate, so
+it went first. **Reading the users of the widget, not the dialog, is what
+ordered these.**
+
+The port is now routine: `QSortFilterProxyModel` and the filter line edit go,
+the tree view becomes a table aspect, the six buttons become `ActionAspect`s in
+a column beside it, and `enableButtons()` becomes `actionsFor()` answering six
+bools.
+
+**A test that disagreed with the code, where the code was right.** I asserted
+that nothing can be done without a repository, and `canDeleteSelection` came
+back true: the widget's `m_deleteSelectionButton->setEnabled(hasSelection)`
+never consulted the repository either. It is unreachable rather than wrong -
+with no repository there are no rows, so nothing can be selected - and the test
+now says that instead of pretending otherwise. Changing it would have been a
+behaviour change smuggled into a port.
+
+**Two string functions came with the dialog and had never been tested**:
+`stashRestoreDefaultBranch()` (turn `stash@{0}` into a branch name and append
+the time) and `nextStash()` (walk the stack by name, because deleting rotates
+it). Both are four-line pure functions that were only reachable by opening the
+dialog against a repository with stashes in it.
+
+The `EditableRole` assertion is now written the way the previous batch found it
+has to be - `QVERIFY(editable.isValid())` before the value - and control 4
+bites on exactly that line.
+
+Negative controls: the `.qml` naming an aspect that does not exist; the `.qml`
+not handing the activation back; showing acting on a stash that was never
+chosen; a stash renamable by typing in the list; and the next stash along the
+stack not found. All five bit.
+
+QuickUi 186 passed / 0 failed / 1 skipped, exit 0. `Git` exit 0 with no
+failures, `StashDialogTest` 8 passed. `Git_qmllint` clean. No `.qbs` edit:
+`git.qbs` takes `*.qml` by wildcard.
+
+**Next:** `GerritDialog`, then `LogChangeDialog` with its three paint
+delegates. The bookmarks one turned out not to be a dialog - the
+`DoubleClickActivation` in `bookmarkmanager.cpp` is on the bookmarks *pane*,
+which belongs with the panes rather than here.

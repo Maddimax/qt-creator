@@ -7,17 +7,20 @@
 
 #include <QDialog>
 
-QT_BEGIN_NAMESPACE
-class QLabel;
-class QPushButton;
-class QSortFilterProxyModel;
-QT_END_NAMESPACE
+#include <memory>
 
-namespace Utils { class TreeView; }
+QT_BEGIN_NAMESPACE
+class QObject;
+QT_END_NAMESPACE
 
 namespace Git::Internal {
 
 class StashModel;
+class StashSettings;
+#ifdef WITH_TESTS
+class StashDialogTest;
+QObject *createStashDialogTest();
+#endif
 
 /* StashDialog: Non-modal dialog that manages the list of stashes
  * of the repository. Offers to show, restore, restore to branch
@@ -56,17 +59,12 @@ private:
     QList<int> selectedRows() const;    \
 
     StashModel *m_model;
-    QSortFilterProxyModel *m_proxyModel;
-    QPushButton *m_deleteAllButton;
-    QPushButton *m_deleteSelectionButton;
-    QPushButton *m_showCurrentButton;
-    QPushButton *m_restoreCurrentButton;
-    QPushButton *m_restoreCurrentInBranchButton;
-    QPushButton *m_refreshButton;
+    const std::unique_ptr<StashSettings> m_settings;
     Utils::FilePath m_repository;
 
-    QLabel *m_repositoryLabel;
-    Utils::TreeView *m_stashView;
+#ifdef WITH_TESTS
+    friend class StashDialogTest;
+#endif
 };
 
 } // Git::Internal

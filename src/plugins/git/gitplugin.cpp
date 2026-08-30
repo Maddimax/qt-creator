@@ -3201,6 +3201,7 @@ class GITSHARED_EXPORT GitPlugin final : public ExtensionSystem::IPlugin
         registerInstantBlameTests(this);
         addTestCreator(createBranchCheckoutDialogTest);
         addTestCreator(createBranchAddDialogTest);
+        addTestCreator(createStashDialogTest);
 #endif
 
         dd = new GitPluginPrivate;

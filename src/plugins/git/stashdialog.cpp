@@ -8,24 +8,29 @@
 #include "gittr.h"
 #include "gitutils.h"
 
+#include <coreplugin/dialogs/ioptionspage.h>
+
 #include <utils/algorithm.h>
-#include <utils/fancylineedit.h>
-#include <utils/itemviews.h>
-#include <utils/layoutbuilder.h>
+#include <utils/aspects.h>
 #include <utils/qtcassert.h>
+
+#ifdef WITH_TESTS
+#include <QSignalSpy>
+#include <QTest>
+#endif
 
 #include <QApplication>
 #include <QDateTime>
 #include <QDebug>
 #include <QDialogButtonBox>
 #include <QDir>
-#include <QHeaderView>
-#include <QLabel>
 #include <QMessageBox>
 #include <QModelIndex>
 #include <QPushButton>
-#include <QSortFilterProxyModel>
 #include <QStandardItemModel>
+#include <QVBoxLayout>
+
+#include <memory>
 
 using namespace Utils;
 
@@ -56,6 +61,21 @@ public:
     void setStashes(const QList<Stash> &stashes);
     const Stash &at(int i) { return m_stashes.at(i); }
 
+    // A Quick table asks the model whether a cell may be written to, and takes
+    // a cell that says nothing to be the reader's. A stash is changed by the
+    // buttons beside the list, not by typing over it.
+    QVariant data(const QModelIndex &index, int role) const override
+    {
+        if (role == AspectTable::EditableRole)
+            return AspectTable::isWritable(flags(index));
+        return QStandardItemModel::data(index, role);
+    }
+
+    QHash<int, QByteArray> roleNames() const override
+    {
+        return AspectTable::withRoleNames(QStandardItemModel::roleNames());
+    }
+
 private:
     QList<Stash> m_stashes;
 };
@@ -75,85 +95,157 @@ void StashModel::setStashes(const QList<Stash> &stashes)
         appendRow(stashModelRowItems(s));
 }
 
+// What the buttons beside the list offer. Pulled out of enableButtons() so
+// that the six can be compared without a repository to open.
+struct StashActions
+{
+    bool canDeleteAll = false;
+    bool canDeleteSelection = false;
+    bool canShow = false;
+    bool canRestore = false;
+    bool canRestoreInBranch = false;
+    bool canRefresh = false;
+
+    bool operator==(const StashActions &) const = default;
+};
+
+static StashActions actionsFor(bool hasRepository, int stashCount, int currentRow,
+                               int selectedCount)
+{
+    const bool hasStashes = hasRepository && stashCount > 0;
+    // Showing or restoring acts on the one the reader is on; deleting acts on
+    // everything they picked.
+    const bool hasCurrent = hasStashes && currentRow >= 0;
+    return {hasStashes, selectedCount > 0, hasCurrent, hasCurrent, hasCurrent, hasRepository};
+}
+
+class StashTableAspect final : public BaseAspect
+{
+    Q_OBJECT
+
+public:
+    StashTableAspect(AspectContainer *container, QAbstractItemModel *model)
+        : BaseAspect(container), m_model(model)
+    {}
+
+    AspectPresentation presentation() const override
+    {
+        AspectPresentation p = BaseAspect::presentation();
+        p.control = AspectControls::Table;
+        p.filterPlaceholderText = Tr::tr("Filter");
+        return p;
+    }
+
+    QAbstractItemModel *tableModel() override { return m_model; }
+
+    Q_INVOKABLE void setCurrentRow(int row)
+    {
+        if (m_currentRow == row)
+            return;
+        m_currentRow = row;
+        emit chosenChanged();
+    }
+
+    Q_INVOKABLE void setSelectedRows(const QVariantList &rows)
+    {
+        QList<int> selected;
+        for (const QVariant &row : rows)
+            selected << row.toInt();
+        if (m_selectedRows == selected)
+            return;
+        m_selectedRows = selected;
+        emit chosenChanged();
+    }
+
+    Q_INVOKABLE void activateRow(int row)
+    {
+        setCurrentRow(row);
+        emit rowActivated();
+    }
+
+    int currentRow() const { return m_currentRow; }
+    QList<int> selectedRows() const { return Utils::sorted(m_selectedRows); }
+
+signals:
+    void chosenChanged();
+    void rowActivated();
+
+private:
+    QAbstractItemModel *const m_model;
+    int m_currentRow = -1;
+    QList<int> m_selectedRows;
+};
+
+class StashSettings final : public AspectContainer
+{
+public:
+    explicit StashSettings(QAbstractItemModel *model)
+        : stashes(this, model)
+    {
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Git/StashDialog.qml"));
+
+        repository.setQmlName("Repository");
+        stashes.setQmlName("Stashes");
+
+        show.setQmlName("Show");
+        show.setActionText(Tr::tr("&Show"));
+        refresh.setQmlName("Refresh");
+        refresh.setActionText(Tr::tr("Re&fresh"));
+        restore.setQmlName("Restore");
+        restore.setActionText(Tr::tr("R&estore..."));
+        //: Restore a git stash to new branch to be created
+        restoreInBranch.setQmlName("RestoreInBranch");
+        restoreInBranch.setActionText(Tr::tr("Restore to &Branch..."));
+        deleteSelection.setQmlName("DeleteSelection");
+        deleteSelection.setActionText(Tr::tr("&Delete..."));
+        deleteAll.setQmlName("DeleteAll");
+        deleteAll.setActionText(Tr::tr("Delete &All..."));
+    }
+
+    TextDisplay repository{this};
+    StashTableAspect stashes;
+    ActionAspect show{this};
+    ActionAspect refresh{this};
+    ActionAspect restore{this};
+    ActionAspect restoreInBranch{this};
+    ActionAspect deleteSelection{this};
+    ActionAspect deleteAll{this};
+};
+
 // ---------- StashDialog
-StashDialog::StashDialog(QWidget *parent) : QDialog(parent),
-    m_model(new StashModel),
-    m_proxyModel(new QSortFilterProxyModel),
-    m_deleteAllButton(new QPushButton(Tr::tr("Delete &All..."))),
-    m_deleteSelectionButton(new QPushButton(Tr::tr("&Delete..."))),
-    m_showCurrentButton(new QPushButton(Tr::tr("&Show"))),
-    m_restoreCurrentButton(new QPushButton(Tr::tr("R&estore..."))),
-    //: Restore a git stash to new branch to be created
-    m_restoreCurrentInBranchButton(new QPushButton(Tr::tr("Restore to &Branch..."))),
-    m_refreshButton(new QPushButton(Tr::tr("Re&fresh")))
+StashDialog::StashDialog(QWidget *parent)
+    : QDialog(parent)
+    , m_model(new StashModel(this))
+    , m_settings(new StashSettings(m_model))
 {
     setAttribute(Qt::WA_DeleteOnClose, true);  // Do not update unnecessarily
     setWindowTitle(Tr::tr("Stashes"));
 
     resize(599, 485);
 
-    m_repositoryLabel = new QLabel(this);
+    m_settings->show.setAction([this] { showCurrent(); });
+    m_settings->refresh.setAction([this] { forceRefresh(); });
+    m_settings->restore.setAction([this] { restoreCurrent(); });
+    m_settings->restoreInBranch.setAction([this] { restoreCurrentInBranch(); });
+    m_settings->deleteSelection.setAction([this] { deleteSelection(); });
+    m_settings->deleteAll.setAction([this] { deleteAll(); });
 
-    auto filterLineEdit = new FancyLineEdit(this);
-    filterLineEdit->setFiltering(true);
+    auto buttonBox = new QDialogButtonBox(QDialogButtonBox::Close, this);
 
-    auto buttonBox = new QDialogButtonBox(this);
-    buttonBox->setOrientation(Qt::Vertical);
-    buttonBox->setStandardButtons(QDialogButtonBox::Close);
+    auto layout = new QVBoxLayout(this);
+    layout->addWidget(Core::createAspectForm(m_settings.get()));
+    layout->addWidget(buttonBox);
 
-    // Buttons
-    buttonBox->addButton(m_showCurrentButton, QDialogButtonBox::ActionRole);
-    connect(m_showCurrentButton, &QPushButton::clicked,
-            this, &StashDialog::showCurrent);
-    buttonBox->addButton(m_refreshButton, QDialogButtonBox::ActionRole);
-    connect(m_refreshButton, &QPushButton::clicked,
-            this, &StashDialog::forceRefresh);
-    buttonBox->addButton(m_restoreCurrentButton, QDialogButtonBox::ActionRole);
-    connect(m_restoreCurrentButton, &QPushButton::clicked,
-            this, &StashDialog::restoreCurrent);
-    buttonBox->addButton(m_restoreCurrentInBranchButton, QDialogButtonBox::ActionRole);
-    connect(m_restoreCurrentInBranchButton, &QPushButton::clicked,
-            this, &StashDialog::restoreCurrentInBranch);
-    buttonBox->addButton(m_deleteSelectionButton, QDialogButtonBox::ActionRole);
-    connect(m_deleteSelectionButton, &QPushButton::clicked,
-            this, &StashDialog::deleteSelection);
-    buttonBox->addButton(m_deleteAllButton, QDialogButtonBox::ActionRole);
-    connect(m_deleteAllButton, &QPushButton::clicked,
-            this, &StashDialog::deleteAll);
-
-    // Models
-    m_proxyModel->setSourceModel(m_model);
-    m_proxyModel->setFilterKeyColumn(-1);
-    m_proxyModel->setFilterCaseSensitivity(Qt::CaseInsensitive);
-
-    m_stashView = new TreeView(this);
-    m_stashView->setActivationMode(Utils::DoubleClickActivation);
-    m_stashView->setModel(m_proxyModel);
-    m_stashView->setSelectionMode(QAbstractItemView::ExtendedSelection);
-    m_stashView->setAllColumnsShowFocus(true);
-    m_stashView->setFocus();
-
-    using namespace Layouting;
-    Row {
-        Column {
-            m_repositoryLabel,
-            filterLineEdit,
-            m_stashView
-        },
-        buttonBox
-    }.attachTo(this);
-
-    connect(filterLineEdit, &Utils::FancyLineEdit::filterChanged,
-            m_proxyModel, &QSortFilterProxyModel::setFilterFixedString);
-    connect(m_stashView->selectionModel(), &QItemSelectionModel::currentRowChanged,
+    connect(&m_settings->stashes, &StashTableAspect::chosenChanged,
             this, &StashDialog::enableButtons);
-    connect(m_stashView->selectionModel(), &QItemSelectionModel::selectionChanged,
-            this, &StashDialog::enableButtons);
-    connect(m_stashView, &Utils::TreeView::activated,
+    connect(&m_settings->stashes, &StashTableAspect::rowActivated,
             this, &StashDialog::showCurrent);
 
     connect(buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
+
+    enableButtons();
 }
 
 StashDialog::~StashDialog() = default;
@@ -164,17 +256,11 @@ void StashDialog::refresh(const FilePath &repository, bool force)
         return;
     // Refresh
     m_repository = repository;
-    m_repositoryLabel->setText(msgRepositoryLabel(repository));
-    if (m_repository.isEmpty()) {
+    m_settings->repository.setText(msgRepositoryLabel(repository));
+    if (m_repository.isEmpty())
         m_model->setStashes({});
-    } else {
-        const QList<Stash> stashes = gitClient().synchronousStashList(m_repository);
-        m_model->setStashes(stashes);
-        if (!stashes.isEmpty()) {
-            for (int c = 0; c < ColumnCount; c++)
-                m_stashView->resizeColumnToContents(c);
-        }
-    }
+    else
+        m_model->setStashes(gitClient().synchronousStashList(m_repository));
     enableButtons();
 }
 
@@ -351,25 +437,12 @@ void StashDialog::restoreCurrentInBranch()
 
 int StashDialog::currentRow() const
 {
-    const QModelIndex proxyIndex = m_stashView->currentIndex();
-    if (proxyIndex.isValid()) {
-        const QModelIndex index = m_proxyModel->mapToSource(proxyIndex);
-        if (index.isValid())
-            return index.row();
-    }
-    return -1;
+    return m_settings->stashes.currentRow();
 }
 
 QList<int> StashDialog::selectedRows() const
 {
-    QList<int> rc;
-    const QModelIndexList rows = m_stashView->selectionModel()->selectedRows();
-    for (const QModelIndex &proxyIndex : rows) {
-        const QModelIndex index = m_proxyModel->mapToSource(proxyIndex);
-        if (index.isValid())
-            rc.push_back(index.row());
-    }
-    return Utils::sorted(std::move(rc));
+    return m_settings->stashes.selectedRows();
 }
 
 void StashDialog::forceRefresh()
@@ -379,16 +452,14 @@ void StashDialog::forceRefresh()
 
 void StashDialog::enableButtons()
 {
-    const bool hasRepository = !m_repository.isEmpty();
-    const bool hasStashes = hasRepository && m_model->rowCount();
-    const bool hasCurrentRow = hasRepository && hasStashes && currentRow() >= 0;
-    m_deleteAllButton->setEnabled(hasStashes);
-    m_showCurrentButton->setEnabled(hasCurrentRow);
-    m_restoreCurrentButton->setEnabled(hasCurrentRow);
-    m_restoreCurrentInBranchButton->setEnabled(hasCurrentRow);
-    const bool hasSelection = !m_stashView->selectionModel()->selectedRows().isEmpty();
-    m_deleteSelectionButton->setEnabled(hasSelection);
-    m_refreshButton->setEnabled(hasRepository);
+    const StashActions actions = actionsFor(!m_repository.isEmpty(), m_model->rowCount(),
+                                            currentRow(), selectedRows().size());
+    m_settings->deleteAll.setEnabled(actions.canDeleteAll);
+    m_settings->deleteSelection.setEnabled(actions.canDeleteSelection);
+    m_settings->show.setEnabled(actions.canShow);
+    m_settings->restore.setEnabled(actions.canRestore);
+    m_settings->restoreInBranch.setEnabled(actions.canRestoreInBranch);
+    m_settings->refresh.setEnabled(actions.canRefresh);
 }
 
 void StashDialog::warning(const QString &title, const QString &what, const QString &details)
@@ -406,4 +477,122 @@ bool StashDialog::ask(const QString &title, const QString &what, bool defaultBut
                 defaultButton ? QMessageBox::Yes : QMessageBox::No) == QMessageBox::Yes;
 }
 
+#ifdef WITH_TESTS
+
+class StashDialogTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheDialogDrawsWithTheQmlItNames()
+    {
+        StashModel model;
+        StashSettings settings(&model);
+        const Result<> rendered = Core::aspectFormRenders(&settings, "StashDialog.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+    }
+
+    void testWhatCanBeDoneToAStash()
+    {
+        // Without a repository there is nothing to act on - except that
+        // deleting a selection follows the selection alone, as the widget
+        // button did. Unreachable rather than wrong: with no repository there
+        // are no rows, so nothing can be selected.
+        QCOMPARE(actionsFor(false, 0, -1, 0), StashActions{});
+        QCOMPARE(actionsFor(false, 3, 0, 1),
+                 (StashActions{false, true, false, false, false, false}));
+
+        // A repository with no stashes: only refreshing, which is what would
+        // find some.
+        QCOMPARE(actionsFor(true, 0, -1, 0),
+                 (StashActions{false, false, false, false, false, true}));
+
+        // Stashes but none chosen: they can all be deleted, and nothing else.
+        QCOMPARE(actionsFor(true, 3, -1, 0),
+                 (StashActions{true, false, false, false, false, true}));
+
+        // One chosen: showing and restoring act on it.
+        QCOMPARE(actionsFor(true, 3, 1, 1),
+                 (StashActions{true, true, true, true, true, true}));
+
+        // Several picked but none current - deleting works on a group, the
+        // rest do not.
+        QCOMPARE(actionsFor(true, 3, -1, 2),
+                 (StashActions{true, true, false, false, false, true}));
+    }
+
+    void testAStashIsNotEditedInTheCell()
+    {
+        StashModel model;
+        model.setStashes({{"stash@{0}", "master", "work in progress"}});
+        QCOMPARE(model.rowCount(), 1);
+
+        // Answered, not merely falsy: an unanswered role reads as undefined in
+        // QML and a table cell with no answer is taken to be editable.
+        const QVariant editable = model.data(model.index(0, 0), AspectTable::EditableRole);
+        QVERIFY2(editable.isValid(), "the table was never told whether a cell may be written to");
+        QVERIFY2(!editable.toBool(), "a stash could be renamed by typing in the list");
+
+        QVERIFY2(model.roleNames().values().contains("display"),
+                 "the table cannot read what a cell says");
+    }
+
+    void testTheBranchAStashWouldBeRestoredTo()
+    {
+        // 'stash@{0}' becomes something that can be a branch name, with the
+        // time appended so that two restores do not collide.
+        const QString branch = stashRestoreDefaultBranch("stash@{0}");
+        QVERIFY2(!branch.contains('{') && !branch.contains('}') && !branch.contains('@'),
+                 qPrintable(branch));
+        QVERIFY2(branch.startsWith("stash0-"), qPrintable(branch));
+    }
+
+    void testTheNextStashAlongTheStack()
+    {
+        // Deleting rotates the stack, so the code walks it by name.
+        QCOMPARE(nextStash("stash@{0}"), QString("stash@{1}"));
+        QCOMPARE(nextStash("stash@{9}"), QString("stash@{10}"));
+
+        // Anything that is not a stash id has no next one.
+        QVERIFY(nextStash("stash").isEmpty());
+        QVERIFY(nextStash("stash@{x}").isEmpty());
+    }
+
+    void testTheDrawnTableHandsBackWhatWasChosen()
+    {
+        // Three lines in the .qml carry the dialog: the current row, the
+        // selection, and the activation.
+        StashModel model;
+        model.setStashes({{"stash@{0}", "master", "one"}, {"stash@{1}", "master", "two"}});
+        StashSettings settings(&model);
+
+        const std::unique_ptr<QWidget> form(Core::createAspectForm(&settings));
+        QVERIFY(form);
+        QObject *const root = Core::aspectFormRoot(form.get());
+        QVERIFY2(root, "no front end said what the dialog was drawn from");
+
+        QObject *table = nullptr;
+        QTRY_VERIFY(table = root->findChild<QObject *>("stashTable"));
+
+        QSignalSpy activated(&settings.stashes, &StashTableAspect::rowActivated);
+        QVERIFY(QMetaObject::invokeMethod(table, "rowActivated", Q_ARG(int, 1)));
+        QTRY_COMPARE(activated.count(), 1);
+        QCOMPARE(settings.stashes.currentRow(), 1);
+
+        // Selecting rows in the table reaches the aspect, in the model's own
+        // order whatever the view is showing.
+        QVERIFY(QMetaObject::invokeMethod(table, "selectRow", Q_ARG(int, 0)));
+        QTRY_COMPARE(settings.stashes.currentRow(), 0);
+    }
+};
+
+QObject *createStashDialogTest()
+{
+    return new StashDialogTest;
+}
+
+#endif // WITH_TESTS
+
 } // namespace Git::Internal
+
+#include "stashdialog.moc"
