@@ -21007,3 +21007,58 @@ added that a wildcard does not already take.
 
 **Next:** the five Debugger kit-chooser dialogs, which are the last of the nine
 - `StartApplicationDialog` is the big one and the other four are small.
+
+## 2026-08-30 — Two Debugger dialogs, and an aspect container that was already there
+
+`AttachToQmlPortDialog` and `AttachCoreDialog` are the same shape as the three
+before them, and both are done. What is worth recording is how little the
+second one took.
+
+**`AttachCoreDialog` was already half ported and nobody had noticed.**
+`AttachCoreDialogData` is an `AspectContainer` with four `FilePathAspect`s, a
+settings group and settings keys - written that way years before any of this.
+The whole port was: give it a `qmlSource` and a `KitChooserAspect`, name the
+four aspects for QML, and replace the `Layouting::Column{...}.attachTo(this)`
+with `Core::createAspectForm(&m_data)` beside the progress row. The dialog's
+own logic - the task tree that copies files to the device, reading the
+executable name out of the core file, the focus rules - did not move at all.
+
+**Which suggests where to look next when the nine are done:** a dialog whose
+fields are already aspects is an afternoon, and the census counted them by
+*shape* rather than by whether their state was already in a container. Grepping
+for `: public AspectContainer` in dialog files would find the rest of them.
+
+**The Ok rule is worth extracting even when it is three bools.**
+`AttachCoreDialog::State` already existed as a struct with an `isValid()`; the
+test asks it directly with each of the three turned off in turn, which is a
+thing no amount of driving the dialog would establish - two of the three are
+`FilePathAspect::isValid()` and so are false headlessly whatever the value.
+See [[filepathaspect-isvalid-is-a-flag]].
+
+**`setShowIcons()` is now testable, and that is new.** The widget chooser put
+the icons on combo items where nothing could ask about them.
+`SelectionAspect::optionForIndex(i)->icon` is an answer, so "the kits are told
+apart by more than their names" is an assertion rather than a screenshot.
+
+Two mechanical notes, both costing a build each: a `.cpp` gaining its first
+`Q_OBJECT` needs `#include "<file>.moc"` - AutoMoc says so plainly, but only
+after the whole target fails - and `Core::createAspectForm` lives in
+`coreplugin/dialogs/ioptionspage.h`, which a file using `Core::` for other
+reasons will not already have.
+
+Negative controls: each of the two `.qml` files naming an aspect that does not
+exist; a settings key the reader's file does not have; a core file that can
+only be chosen on this machine; the kit not required to load a core file; the
+wrong default port; and kits carrying no icons of their own. All seven bit.
+
+QuickUi 186 passed / 0 failed / 0 skipped, exit 0. The count moved because
+`testSecretIsFetchedBeforeItCanBeEdited` skips when the keychain does not
+answer in time and this run it did - nothing to do with this batch.
+`AttachCoreDialogTest` and `AttachToQmlPortSettingsTest` 6 passed each, exit 0;
+`Debugger_qmllint` clean. No `.qbs` edit: `debugger.qbs` takes `*.qml` by
+wildcard.
+
+**Next:** the two remaining kit-chooser dialogs, `UnstartedAppWatcherDialog`
+and `StartApplicationDialog`. The watcher is the more interesting of the two -
+a Reset button whose enablement depends on the active run configuration, a
+waiting label, and a checkable Start Watching button driving a timer.

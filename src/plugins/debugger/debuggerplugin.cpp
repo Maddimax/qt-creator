@@ -2161,6 +2161,8 @@ Result<> DebuggerPlugin::initialize(const QStringList &arguments)
     addTestCreator(createSourcePathMapTest);
     addTestCreator(createCdbPathsTest);
     addTestCreator(createCacheDirectoryTest);
+    addTestCreator(createAttachCoreDialogTest);
+    addTestCreator(createAttachToQmlPortSettingsTest);
     addTestCreator(Debugger::createDebuggersSettingsTest);
 #endif
 

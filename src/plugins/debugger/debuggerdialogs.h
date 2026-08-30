@@ -7,6 +7,10 @@
 
 #include <optional>
 
+QT_BEGIN_NAMESPACE
+class QObject;
+QT_END_NAMESPACE
+
 namespace ProjectExplorer { class Kit; }
 
 namespace Debugger::Internal {
@@ -17,5 +21,9 @@ void runStartRemoteCdbSessionDialog(ProjectExplorer::Kit *kit);
 void runAttachToQmlPortDialog();
 
 std::optional<quint64> runAddressDialog(quint64 initialAddress);
+
+#ifdef WITH_TESTS
+QObject *createAttachToQmlPortSettingsTest();
+#endif
 
 } // Debugger::Internal

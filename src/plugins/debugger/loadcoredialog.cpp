@@ -8,6 +8,7 @@
 #include "debuggertr.h"
 #include "gdb/gdbengine.h"
 
+#include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/icore.h>
 
 #include <projectexplorer/devicesupport/idevice.h>
@@ -16,19 +17,22 @@
 
 #include <utils/aspects.h>
 #include <utils/async.h>
-#include <utils/layoutbuilder.h>
 #include <utils/pathchooser.h>
 #include <utils/processinterface.h>
 #include <utils/progressindicator.h>
 #include <utils/qtcassert.h>
 #include <utils/temporaryfile.h>
 
-#include <QCheckBox>
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
 #include <QDialogButtonBox>
-#include <QFormLayout>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QVBoxLayout>
 
 using namespace Core;
 using namespace ProjectExplorer;
@@ -43,6 +47,17 @@ public:
     AttachCoreDialogData()
     {
         setSettingsGroup("DebugMode");
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Debugger/LoadCoreDialog.qml"));
+
+        kitChooser.setQmlName("Kit");
+        kitChooser.kit.setLabelText(Tr::tr("Kit:"));
+        kitChooser.setShowIcons(true);
+
+        coreFile.setQmlName("CoreFile");
+        symbolFile.setQmlName("SymbolFile");
+        overrideStartScript.setQmlName("StartScript");
+        sysRoot.setQmlName("SysRoot");
 
         coreFile.setSettingsKey("LastLocalCoreFile");
         coreFile.setHistoryCompleter("Debugger.CoreFile.History");
@@ -76,6 +91,7 @@ public:
         sysRoot.setLabelText(Tr::tr("Override S&ysRoot:"));
     }
 
+    ProjectExplorer::KitChooserAspect kitChooser{this};
     FilePathAspect coreFile{this};
     FilePathAspect symbolFile{this};
     FilePathAspect overrideStartScript{this};
@@ -95,9 +111,9 @@ public:
     FilePath sysRoot() const { return m_data.sysRoot(); }
 
     // For persistance.
-    ProjectExplorer::Kit *kit() const { return m_kitChooser->currentKit(); }
+    ProjectExplorer::Kit *kit() const { return m_data.kitChooser.currentKit(); }
 
-    void setKitId(Id id) { m_kitChooser->setCurrentKitId(id); }
+    void setKitId(Id id) { m_data.kitChooser.setCurrentKitId(id); }
     void restoreSettings() { m_data.readSettings(); }
     void saveSettings() const { m_data.writeSettings(); }
 
@@ -108,8 +124,6 @@ private:
     void accepted();
     void changed();
     void coreFileChanged(const FilePath &core);
-
-    KitChooser *m_kitChooser;
 
     AttachCoreDialogData m_data;
 
@@ -138,11 +152,15 @@ private:
     State getDialogState() const
     {
         State st;
-        st.validKit = (m_kitChooser->currentKit() != nullptr);
+        st.validKit = (m_data.kitChooser.currentKit() != nullptr);
         st.validSymbolFilename = m_data.symbolFile.isValid();
         st.validCoreFilename = m_data.coreFile.isValid();
         return st;
     }
+
+#ifdef WITH_TESTS
+    friend class AttachCoreDialogTest;
+#endif
 };
 
 AttachCoreDialog::AttachCoreDialog()
@@ -155,9 +173,7 @@ AttachCoreDialog::AttachCoreDialog()
     m_buttonBox->button(QDialogButtonBox::Ok)->setDefault(true);
     m_buttonBox->button(QDialogButtonBox::Ok)->setEnabled(false);
 
-    m_kitChooser = new KitChooser(this);
-    m_kitChooser->setShowIcons(true);
-    m_kitChooser->populate();
+    m_data.kitChooser.populate();
 
     m_progressIndicator = new ProgressIndicator(ProgressIndicatorSize::Small, this);
     m_progressIndicator->setVisible(false);
@@ -165,24 +181,15 @@ AttachCoreDialog::AttachCoreDialog()
     m_progressLabel = new QLabel();
     m_progressLabel->setVisible(false);
 
-    // clang-format off
-    using namespace Layouting;
+    const auto bottom = new QHBoxLayout;
+    bottom->addWidget(m_progressIndicator);
+    bottom->addWidget(m_progressLabel);
+    bottom->addWidget(m_buttonBox);
 
-    Column {
-        Form {
-            Tr::tr("Kit:"), m_kitChooser, br,
-            m_data.coreFile, br,
-            m_data.symbolFile, br,
-            m_data.overrideStartScript, br,
-            m_data.sysRoot, br,
-        },
-        st,
-        hr,
-        Row {
-            m_progressIndicator, m_progressLabel, m_buttonBox
-        }
-    }.attachTo(this);
-    // clang-format on
+    const auto layout = new QVBoxLayout(this);
+    layout->addWidget(Core::createAspectForm(&m_data));
+    layout->addStretch();
+    layout->addLayout(bottom);
 }
 
 int AttachCoreDialog::exec()
@@ -191,7 +198,7 @@ int AttachCoreDialog::exec()
     connect(&m_data.coreFile, &FilePathAspect::validChanged, this, [this] {
         coreFileChanged(m_data.coreFile());
     });
-    connect(m_kitChooser, &KitChooser::currentIndexChanged, this, &AttachCoreDialog::changed);
+    connect(&m_data.kitChooser.kit, &BaseAspect::changed, this, &AttachCoreDialog::changed);
     connect(m_buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
     connect(m_buttonBox, &QDialogButtonBox::accepted, this, &AttachCoreDialog::accepted);
     changed();
@@ -228,7 +235,7 @@ int AttachCoreDialog::exec()
 
     State st = getDialogState();
     if (!st.validKit) {
-        m_kitChooser->setFocus();
+        m_data.kitChooser.kit.setFocusToInputField();
     } else if (!st.validCoreFilename) {
         m_data.coreFile.setFocusToInputField();
     } else if (!st.validSymbolFilename) {
@@ -300,7 +307,7 @@ void AttachCoreDialog::accepted()
 void AttachCoreDialog::coreFileChanged(const FilePath &coreFile)
 {
     if (coreFile.osType() != OsType::OsTypeWindows && coreFile.exists()) {
-        Kit *k = m_kitChooser->currentKit();
+        Kit *k = m_data.kitChooser.currentKit();
         QTC_ASSERT(k, return);
         ProcessRunData debugger = DebuggerKitAspect::runnable(k);
         CoreInfo cinfo = CoreInfo::readExecutableNameFromCore(debugger, coreFile);
@@ -364,4 +371,87 @@ void runAttachToCoreDialog()
     runControl->start();
 }
 
+#ifdef WITH_TESTS
+
+class AttachCoreDialogTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheDialogDrawsWithTheQmlItNames()
+    {
+        AttachCoreDialogData data;
+        const Result<> rendered = Core::aspectFormRenders(&data, "LoadCoreDialog.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+    }
+
+    void testTheKeysItRemembers()
+    {
+        // These four are in every reader's settings file already, under the
+        // group the dialog has always written them to.
+        AttachCoreDialogData data;
+        QCOMPARE(data.settingsGroups(), QStringList{"DebugMode"});
+        QCOMPARE(data.coreFile.settingsKey(), Key("LastLocalCoreFile"));
+        QCOMPARE(data.symbolFile.settingsKey(), Key("LastExternalExecutableFile"));
+        QCOMPARE(data.overrideStartScript.settingsKey(), Key("LastExternalStartScript"));
+        QCOMPARE(data.sysRoot.settingsKey(), Key("LastSysRoot"));
+
+        // And the kit is not one of them: it is remembered beside them, as a
+        // kit id rather than as the chooser's row.
+        QVERIFY2(data.kitChooser.kit.settingsKey().isEmpty(),
+                 "the chooser's row was written into the reader's settings");
+    }
+
+    void testWhatTheFieldsAccept()
+    {
+        AttachCoreDialogData data;
+
+        // A core file and a symbol file may both be on the machine being
+        // debugged rather than on this one.
+        QVERIFY2(data.coreFile.presentation().allowPathFromDevice,
+                 "a core file could only be chosen on this machine");
+        QVERIFY2(data.symbolFile.presentation().allowPathFromDevice,
+                 "a symbol file could only be chosen on this machine");
+
+        QCOMPARE(data.sysRoot.presentation().pathKind, AspectControls::PathKind::Directory);
+        QCOMPARE(data.coreFile.presentation().pathKind, AspectControls::PathKind::File);
+    }
+
+    void testWhenTheCoreCanBeLoaded()
+    {
+        // All three are needed: a core file to read, something to read it
+        // against, and a kit whose debugger does the reading.
+        AttachCoreDialog dlg;
+        QPushButton *const ok = dlg.m_buttonBox->button(QDialogButtonBox::Ok);
+        QVERIFY(ok);
+        QVERIFY2(!ok->isEnabled(), "an empty dialog offered to load a core file");
+
+        AttachCoreDialog::State st = dlg.getDialogState();
+        QVERIFY2(!st.isValid(), "a dialog with no files chosen was taken to be complete");
+
+        st.validKit = true;
+        st.validCoreFilename = true;
+        st.validSymbolFilename = false;
+        QVERIFY2(!st.isValid(), "a core file with nothing to read it against was accepted");
+
+        st.validSymbolFilename = true;
+        st.validKit = false;
+        QVERIFY2(!st.isValid(), "a core file was accepted without a kit to read it");
+
+        st.validKit = true;
+        QVERIFY(st.isValid());
+    }
+};
+
+QObject *createAttachCoreDialogTest()
+{
+    return new AttachCoreDialogTest;
+}
+
+#endif // WITH_TESTS
+
 } // Debugger::Internal
+
+#ifdef WITH_TESTS
+#include "loadcoredialog.moc"
+#endif

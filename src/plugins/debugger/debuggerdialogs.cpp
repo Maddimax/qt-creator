@@ -7,6 +7,7 @@
 #include "debuggerruncontrol.h"
 #include "debuggertr.h"
 
+#include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/icore.h>
 
 #include <projectexplorer/devicesupport/devicekitaspects.h>
@@ -23,6 +24,10 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDebug>
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
 #include <QDialogButtonBox>
 #include <QDir>
 #include <QFormLayout>
@@ -492,20 +497,43 @@ void StartApplicationDialog::setParameters(const StartApplicationParameters &p)
 //
 ///////////////////////////////////////////////////////////////////////
 
+class AttachToQmlPortSettings final : public AspectContainer
+{
+public:
+    AttachToQmlPortSettings()
+    {
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Debugger/AttachToQmlPortDialog.qml"));
+
+        kitChooser.setQmlName("Kit");
+        kitChooser.kit.setLabelText(Tr::tr("Kit:"));
+        kitChooser.setShowIcons(true);
+
+        port.setQmlName("Port");
+        port.setLabelText(Tr::tr("&Port:"));
+        port.setRange(0, 65535);
+        // The port qmljsdebugger is usually told to listen on.
+        port.setDefaultValue(3768);
+        port.setValue(3768);
+    }
+
+    KitChooserAspect kitChooser{this};
+    IntegerAspect port{this};
+};
+
 class AttachToQmlPortDialog final : public QDialog
 {
 public:
     AttachToQmlPortDialog();
 
-    int port() const { return m_portSpinBox->value(); }
-    void setPort(const int port) { m_portSpinBox->setValue(port); }
+    int port() const { return m_settings.port(); }
+    void setPort(const int port) { m_settings.port.setValue(port); }
 
-    Kit *kit() const { return m_kitChooser->currentKit(); }
-    void setKitId(Utils::Id id) { m_kitChooser->setCurrentKitId(id); }
+    Kit *kit() const { return m_settings.kitChooser.currentKit(); }
+    void setKitId(Utils::Id id) { m_settings.kitChooser.setCurrentKitId(id); }
 
 private:
-    QSpinBox *m_portSpinBox;
-    KitChooser *m_kitChooser;
+    AttachToQmlPortSettings m_settings;
 };
 
 AttachToQmlPortDialog::AttachToQmlPortDialog()
@@ -513,24 +541,14 @@ AttachToQmlPortDialog::AttachToQmlPortDialog()
 {
     setWindowTitle(Tr::tr("Attach to QML Port"));
 
-    m_kitChooser = new KitChooser(this);
-    m_kitChooser->setShowIcons(true);
-    m_kitChooser->populate();
-
-    m_portSpinBox = new QSpinBox(this);
-    m_portSpinBox->setMaximum(65535);
-    m_portSpinBox->setValue(3768);
+    m_settings.kitChooser.populate();
 
     auto buttonBox = new QDialogButtonBox(this);
     buttonBox->setStandardButtons(QDialogButtonBox::Cancel|QDialogButtonBox::Ok);
     buttonBox->button(QDialogButtonBox::Ok)->setDefault(true);
 
-    auto formLayout = new QFormLayout();
-    formLayout->addRow(Tr::tr("Kit:"), m_kitChooser);
-    formLayout->addRow(Tr::tr("&Port:"), m_portSpinBox);
-
     auto verticalLayout = new QVBoxLayout(this);
-    verticalLayout->addLayout(formLayout);
+    verticalLayout->addWidget(Core::createAspectForm(&m_settings));
     verticalLayout->addWidget(buttonBox);
 
     connect(buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
@@ -790,6 +808,73 @@ std::optional<quint64> runAddressDialog(quint64 initialAddress)
     return dialog.address();
 }
 
+#ifdef WITH_TESTS
+
+class AttachToQmlPortSettingsTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheDialogDrawsWithTheQmlItNames()
+    {
+        AttachToQmlPortSettings settings;
+        const Result<> rendered
+            = Core::aspectFormRenders(&settings, "AttachToQmlPortDialog.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+    }
+
+    void testThePortItOpensOn()
+    {
+        AttachToQmlPortSettings settings;
+
+        // qmljsdebugger's usual port, so the reader usually has nothing to
+        // change.
+        QCOMPARE(settings.port(), 3768);
+        // The whole range, as the spin box allowed.
+        QCOMPARE(settings.port.presentation().maximum.toInt(), 65535);
+
+        settings.port.setValue(1234);
+        QCOMPARE(settings.port(), 1234);
+    }
+
+    void testTheKitsAreToldApartByMoreThanTheirNames()
+    {
+        // The widget chooser showed each kit's own icon here; two kits with
+        // the same name are otherwise the same entry twice.
+        AttachToQmlPortSettings settings;
+        settings.kitChooser.populate();
+        if (settings.kitChooser.kit.optionCount() == 0)
+            QSKIP("no kits are configured on this machine");
+
+        bool anyIcon = false;
+        for (int i = 0; i < settings.kitChooser.kit.optionCount(); ++i) {
+            const std::optional<SelectionAspect::Option> option
+                = settings.kitChooser.kit.optionForIndex(i);
+            QVERIFY(option);
+            anyIcon = anyIcon || !option->icon.isNull();
+        }
+        QVERIFY2(anyIcon, "no kit carried an icon of its own");
+    }
+
+    void testTheDialogRoundTripsWhatItIsGiven()
+    {
+        AttachToQmlPortDialog dlg;
+        dlg.setPort(4321);
+        QCOMPARE(dlg.port(), 4321);
+    }
+};
+
+QObject *createAttachToQmlPortSettingsTest()
+{
+    return new AttachToQmlPortSettingsTest;
+}
+
+#endif // WITH_TESTS
+
 } // Debugger::Internal
 
 Q_DECLARE_METATYPE(Debugger::Internal::StartApplicationParameters)
+
+#ifdef WITH_TESTS
+#include "debuggerdialogs.moc"
+#endif

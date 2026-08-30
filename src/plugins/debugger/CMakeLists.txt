@@ -170,6 +170,7 @@ if(TARGET Debugger)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      AttachToQmlPortDialog.qml
       CacheDirectoryDialog.qml
       ConsoleView.qml
       DebuggerInput.qml
@@ -179,6 +180,7 @@ if(TARGET Debugger)
       CommonSettingsPage.qml
       DebuggersPage.qml
       GdbSettingsPage.qml
+      LoadCoreDialog.qml
       LocalsAndExpressionsSettingsPage.qml
   )
 endif()

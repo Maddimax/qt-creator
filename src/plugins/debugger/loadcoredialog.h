@@ -3,8 +3,18 @@
 
 #pragma once
 
+#include <QtGlobal>
+
+QT_BEGIN_NAMESPACE
+class QObject;
+QT_END_NAMESPACE
+
 namespace Debugger::Internal {
 
 void runAttachToCoreDialog();
+
+#ifdef WITH_TESTS
+QObject *createAttachCoreDialogTest();
+#endif
 
 } // Debugger::Internal
