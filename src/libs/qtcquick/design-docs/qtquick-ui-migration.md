@@ -22941,3 +22941,64 @@ applied to it before picking from it again. `AddImplementationsDialog` and
 `Dialog` (both in `cppeditor/quickfixes/`), `VersionDialog` and `PluginDialog`
 (Core), `ExportDialog` and `MultiExportDialog` (ImageViewer) are the ones whose
 class bodies hold nothing but form controls.
+
+## 2026-08-31 — The export dialog, a plugin's first QML module, and two controls that did not bite
+
+`ExportDialog` (ImageViewer) writes an image out: where to, and how big. The
+two sides follow each other, which is the interesting part - `heightForWidth()`
+and `widthForHeight()` came out of two slots and a `QSignalBlocker`, and the
+blocker became a `Utils::Guard`.
+
+**ImageViewer had no QML module.** Adding one is eight lines of CMake in an
+`if(TARGET X)` block and a wildcard `Group` in the `.qbs` - the same shape
+every other plugin has - so "the plugin has no module" is not the obstacle an
+earlier entry took it for. `cmake -S . -B <build>` has to be re-run once for
+the new target to exist.
+
+**Two controls did not bite, and each said something.**
+
+- **The square branch was dead.** `heightForWidth()` began
+  `if (defaultSize.width() == defaultSize.height()) return width;`, and
+  removing it failed nothing. A square's ratio is exactly `1.0`, so
+  `qRound(w / 1.0)` is `w` for every integer - the branch never changed an
+  answer. Deleted; the test that a square stays square stays, because the
+  behaviour is still the contract.
+- **The guard control was half a control.** Removing the guard from the *width*
+  handler alone changed nothing, because the *height* handler still held one.
+  Removing both still changed nothing, because the test used 100 -> 30 -> 100,
+  which is a fixed point. The case that matters is one that does not come back:
+  **101 gives 30, and 30 gives 100**, so unguarded the second handler
+  overwrites the number that was just typed. With that in the test, both
+  guards removed bites - and so does removing either one.
+
+That is the same lesson as the earlier two-guards note, with a second half:
+**a reciprocal binding needs a test value that is not a fixed point**, or the
+guard it depends on is untested.
+
+`PathChooser::isValid()`/`errorMessage()` became
+`FilePathAspect::isValid()`/`validationMessage(value())` - the latter takes the
+candidate, which is easy to miss because the widget's took nothing.
+
+**Two of the six candidates named last time are still not form dialogs**, by
+the checks that entry asked for: nothing new there, but `VersionDialog` is:
+its logo is `setLabelPixmap()`, which **nothing on the Qt Quick side reads** -
+it appears only in the feasibility document. An about box drawn now would lose
+its logo, so that one needs `labelPixmap` honoured first.
+
+Negative controls: a square divided and rounded like anything else (**did not
+bite** - the branch was dead); the two sides unguarded (**did not bite until
+the test used a value that is not a fixed point**); the file offered as one to
+open; Reset going back to the last size rather than the image's; and the page
+naming an aspect that is not there. Three bit as written, two after the code
+and the test were fixed.
+
+QuickUi 197 passed / 0 failed / 1 skipped, exit 0. `ImageViewer` exit 0 with no
+failures, `ExportDialogTest` 10 passed. `ImageViewer_qmllint` zero warnings,
+`ninja all_qmllint` zero. **`.qbs` edited** - `imageviewer.qbs` gained the
+wildcard `qml` group - and **not re-resolved: there is no `qbs` binary on this
+machine**, as with every other `.qbs` edit in this series.
+
+**Next:** 24 form-only dialogs. `MultiExportDialog` is the other half of this
+one and now has a module to put its `.qml` in. `PluginDialog` (Core) and
+`AddImplementationsDialog` (CppEditor) are the next small ones;
+`VersionDialog` is blocked on `labelPixmap`.

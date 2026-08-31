@@ -5,23 +5,24 @@
 
 #include <QDialog>
 
-QT_BEGIN_NAMESPACE
-class QSpinBox;
-QT_END_NAMESPACE
+#include <memory>
 
-namespace Utils {
-class FilePath;
-class PathChooser;
-} // Utils
+namespace Utils { class FilePath; }
 
 namespace ImageViewer::Internal {
 
 struct ExportData;
+class ExportSettings;
+
+#ifdef WITH_TESTS
+QObject *createExportDialogTest();
+#endif
 
 class ExportDialog : public QDialog
 {
 public:
     explicit ExportDialog(QWidget *parent = nullptr);
+    ~ExportDialog() override;
 
     QSize exportSize() const;
     void setExportSize(const QSize &);
@@ -36,18 +37,7 @@ public:
     static QString imageNameFilterString();
 
 private:
-    void resetExportSize();
-    void exportWidthChanged(int width);
-    void exportHeightChanged(int height);
-
-    void setExportWidthBlocked(int width);
-    void setExportHeightBlocked(int height);
-
-    Utils::PathChooser *m_pathChooser;
-    QSpinBox *m_widthSpinBox;
-    QSpinBox *m_heightSpinBox;
-    QSize m_defaultSize;
-    qreal m_aspectRatio;
+    const std::unique_ptr<ExportSettings> m_settings;
 };
 
 } // ImageViewer::Internal
