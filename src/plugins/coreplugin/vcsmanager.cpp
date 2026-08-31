@@ -5,6 +5,7 @@
 
 #include "coreplugintr.h"
 #include "documentmanager.h"
+#include "dialogs/ioptionspage.h"
 #include "editormanager/editormanager.h"
 #include "icore.h"
 #include "idocument.h"
@@ -14,6 +15,7 @@
 #include <extensionsystem/pluginspec.h>
 
 #include <utils/algorithm.h>
+#include <utils/aspects.h>
 #include <utils/layoutbuilder.h>
 #include <utils/infobar.h>
 #include <utils/qtcassert.h>
@@ -23,7 +25,7 @@
 #include <QJsonArray>
 #include <QLabel>
 #include <QList>
-#include <QListWidget>
+#include <QVBoxLayout>
 #include <QMap>
 #include <QMessageBox>
 #include <QScrollArea>
@@ -45,52 +47,62 @@ namespace Core {
 const char TEST_PREFIX[] = "/8E3A9BA0-0B97-40DF-AEC1-2BDF9FC9EDBE/";
 #endif
 
+// One file or several - the question is the same and the wording is not.
+QString addToVcsMessage(int fileCount, const QString &vcsDisplayName)
+{
+    return fileCount == 1 ? Tr::tr("Add the file to version control (%1)").arg(vcsDisplayName)
+                          : Tr::tr("Add the files to version control (%1)").arg(vcsDisplayName);
+}
+
+class AddToVcsSettings final : public AspectContainer
+{
+public:
+    AddToVcsSettings(const FilePaths &files, const QString &vcsDisplayName)
+    {
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Core/AddToVcsDialog.qml"));
+
+        question.setQmlName("Question");
+        question.setText(addToVcsMessage(files.size(), vcsDisplayName));
+
+        // Read out, not chosen from: the reader is being told what is about to
+        // happen and answers with the buttons below.
+        this->files.setQmlName("Files");
+        this->files.setDisplayStyle(StringListAspect::DisplayStyle::ListView);
+        this->files.setUiAllowAdding(false);
+        this->files.setUiAllowRemoving(false);
+        this->files.setUiAllowEditing(false);
+        this->files.setValue(Utils::transform(files, &FilePath::toUserOutput));
+    }
+
+    TextDisplay question{this};
+    StringListAspect files{this};
+};
+
 class AddToVcsDialog final : public QDialog
 {
 public:
     AddToVcsDialog(const QString &title, const FilePaths &files, const QString &vcsDisplayName)
         : QDialog(ICore::dialogParent())
+        , m_settings(files, vcsDisplayName)
     {
-        using namespace Layouting;
-
         resize(363, 375);
         setMinimumSize({200, 200});
         setBaseSize({300, 500});
         setWindowTitle(title);
-
-        auto filesListWidget = new QListWidget;
-        filesListWidget->setSelectionMode(QAbstractItemView::NoSelection);
-        filesListWidget->setSelectionBehavior(QAbstractItemView::SelectRows);
-
-        QWidget *scrollAreaWidgetContents = Column{filesListWidget, noMargin}.emerge();
-        scrollAreaWidgetContents->setGeometry({0, 0, 341, 300});
-
-        auto scrollArea = new QScrollArea;
-        scrollArea->setWidgetResizable(true);
-        scrollArea->setWidget(scrollAreaWidgetContents);
 
         auto buttonBox = new QDialogButtonBox;
         buttonBox->setStandardButtons(QDialogButtonBox::No | QDialogButtonBox::Yes);
         connect(buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
         connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
 
-        const QString addTo = files.size() == 1
-                                  ? Tr::tr("Add the file to version control (%1)").arg(vcsDisplayName)
-                                  : Tr::tr("Add the files to version control (%1)").arg(vcsDisplayName);
-
-        // clang-format off
-        Column {
-            addTo,
-            scrollArea,
-            buttonBox
-        }.attachTo(this);
-        // clang-format on
-
-        for (const Utils::FilePath &file : files) {
-            QListWidgetItem *item = new QListWidgetItem(file.toUserOutput());
-            filesListWidget->addItem(item);
-        }
+        auto layout = new QVBoxLayout(this);
+        layout->addWidget(createAspectForm(&m_settings));
+        layout->addWidget(buttonBox);
     }
+
+private:
+    AddToVcsSettings m_settings;
 };
 
 // ---- VCSManagerPrivate:
@@ -815,6 +827,52 @@ void VcsManager::handleConfigurationChanges(IVersionControl *vc)
 #include <extensionsystem/pluginmanager.h>
 
 namespace Core::Internal {
+
+class AddToVcsDialogTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheDialogDrawsWithTheQmlItNames()
+    {
+        AddToVcsSettings settings({FilePath::fromString("/tmp/a.cpp")}, "Git");
+        const Utils::Result<> rendered = aspectFormRenders(&settings, "AddToVcsDialog.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+    }
+
+    void testOneFileAndSeveralAreAskedAboutDifferently()
+    {
+        QCOMPARE(addToVcsMessage(1, "Git"),
+                 Tr::tr("Add the file to version control (%1)").arg("Git"));
+        QCOMPARE(addToVcsMessage(2, "Git"),
+                 Tr::tr("Add the files to version control (%1)").arg("Git"));
+
+        // Which version control it is, always: a reader with two checkouts
+        // open has no other way to tell.
+        QVERIFY(addToVcsMessage(1, "Mercurial").contains("Mercurial"));
+    }
+
+    void testTheFilesAreReadOutNotEdited()
+    {
+        // The answer is Yes or No below; the list is what is being answered
+        // about, so nothing may be added to it, removed from it or typed in.
+        const FilePaths files = {FilePath::fromString("/tmp/a.cpp"),
+                                 FilePath::fromString("/tmp/b.cpp")};
+        AddToVcsSettings settings(files, "Git");
+        QCOMPARE(settings.files(), Utils::transform(files, &FilePath::toUserOutput));
+
+        const AspectPresentation p = settings.files.presentation();
+        QVERIFY2(!p.allowAdding, "a file could be added to the list of files being added");
+        QVERIFY2(!p.allowRemoving, "a file could be dropped from the list");
+        QVERIFY2(!p.allowEditing, "a file name could be typed over");
+    }
+};
+
+QObject *createAddToVcsDialogTest()
+{
+    return new AddToVcsDialogTest;
+}
+
 
 const char ID_VCS_A[] = "A";
 const char ID_VCS_B[] = "B";

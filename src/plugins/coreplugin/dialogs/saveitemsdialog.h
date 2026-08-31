@@ -9,11 +9,11 @@
 #include <QDialog>
 #include <QPointer>
 
+#include <memory>
+
 QT_BEGIN_NAMESPACE
-class QLabel;
-class QTreeWidget;
-class QCheckBox;
 class QDialogButtonBox;
+class QPushButton;
 QT_END_NAMESPACE
 
 namespace Core {
@@ -22,12 +22,19 @@ class IDocument;
 
 namespace Internal {
 
+class SaveItemsSettings;
+
+#ifdef WITH_TESTS
+QObject *createSaveItemsDialogTest();
+#endif
+
 class SaveItemsDialog : public QDialog
 {
     Q_OBJECT
 
 public:
     SaveItemsDialog(QWidget *parent, const QList<IDocument *> &items);
+    ~SaveItemsDialog() override;
 
     void setMessage(const QString &msg);
     void setAlwaysSaveMessage(const QString &msg);
@@ -42,12 +49,8 @@ private:
     void updateButtons();
     void adjustButtonWidths();
 
-    QLabel *m_warningLabel = nullptr;
-    QLabel *m_msgLabel;
-    QTreeWidget *m_treeWidget;
-    QCheckBox *m_saveBeforeBuildCheckBox;
+    const std::unique_ptr<SaveItemsSettings> d;
     QDialogButtonBox *m_buttonBox;
-    QList<QPointer<IDocument>> m_documents;
     QList<IDocument *> m_itemsToSave;
     Utils::FilePaths m_filesToDiff;
     QPushButton *m_diffButton = nullptr;

@@ -7,17 +7,20 @@
 #include "../diffservice.h"
 #include "../idocument.h"
 
+#include "ioptionspage.h"
+
+#include <utils/aspects.h>
 #include <utils/fsengine/fileiconprovider.h>
 #include <utils/hostosinfo.h>
-#include <utils/layoutbuilder.h>
-#include <utils/theme/theme.h>
 
-#include <QCheckBox>
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
+#include <QAbstractTableModel>
 #include <QDialogButtonBox>
-#include <QLabel>
-#include <QPalette>
 #include <QPushButton>
-#include <QTreeWidget>
+#include <QVBoxLayout>
 
 #include <algorithm>
 
@@ -25,40 +28,146 @@ using namespace Utils;
 
 namespace Core::Internal {
 
+// What the two buttons say depends on how much of the list is picked: all of
+// it, some of it, or none - and none is nothing to do, so they are off.
+QString saveButtonText(int selected, int total)
+{
+    if (selected == total && total > 0)
+        return Tr::tr("&Save All");
+    if (selected == 0)
+        return Tr::tr("&Save");
+    return Tr::tr("&Save Selected");
+}
+
+QString diffButtonText(int selected, int total)
+{
+    if (selected == total && total > 0)
+        return Tr::tr("&Diff All && Cancel");
+    if (selected == 0)
+        return Tr::tr("&Diff && Cancel");
+    return Tr::tr("&Diff Selected && Cancel");
+}
+
+// The name a document is listed under, and where it is. One that has never
+// been saved has no path, so it is listed under the name it would be saved as.
+QString documentDisplayName(const IDocument *document)
+{
+    const FilePath filePath = document->filePath();
+    return filePath.isEmpty() ? document->fallbackSaveAsFileName() : filePath.fileName();
+}
+
+QString documentDirectory(const IDocument *document)
+{
+    const FilePath filePath = document->filePath();
+    return filePath.isEmpty() ? QString() : filePath.absolutePath().toUserOutput();
+}
+
+class SaveItemsModel final : public QAbstractTableModel
+{
+public:
+    explicit SaveItemsModel(const QList<IDocument *> &items)
+        : m_documents(items.cbegin(), items.cend())
+    {}
+
+    IDocument *documentAt(int row) const
+    {
+        return row >= 0 && row < m_documents.size() ? m_documents.at(row).data() : nullptr;
+    }
+
+    // A document may have been closed - and deleted - elsewhere while this
+    // modal dialog was open. A QPointer that has gone null is such a one.
+    bool isStillOpen(const IDocument *document) const
+    {
+        return document && m_documents.contains(const_cast<IDocument *>(document));
+    }
+
+    int rowCount(const QModelIndex &parent = {}) const override
+    { return parent.isValid() ? 0 : m_documents.size(); }
+    int columnCount(const QModelIndex &parent = {}) const override
+    { return parent.isValid() ? 0 : 2; }
+
+    QVariant data(const QModelIndex &index, int role) const override
+    {
+        if (role == Utils::AspectTable::EditableRole)
+            return false;
+        const IDocument *document = documentAt(index.row());
+        if (!document)
+            return {};
+        switch (role) {
+        case Qt::DisplayRole:
+            return index.column() == 0 ? documentDisplayName(document)
+                                       : documentDirectory(document);
+        case Qt::DecorationRole:
+            if (index.column() == 0 && !document->filePath().isEmpty())
+                return FileIconProvider::icon(document->filePath());
+            return {};
+        default:
+            return {};
+        }
+    }
+
+    // Two nameless columns: the widget tree hid its header.
+    QVariant headerData(int, Qt::Orientation, int) const override { return {}; }
+
+    Qt::ItemFlags flags(const QModelIndex &index) const override
+    {
+        return index.isValid() ? Qt::ItemIsEnabled | Qt::ItemIsSelectable : Qt::NoItemFlags;
+    }
+
+    QHash<int, QByteArray> roleNames() const override
+    {
+        return Utils::AspectTable::withRoleNames(QAbstractTableModel::roleNames());
+    }
+
+private:
+    QList<QPointer<IDocument>> m_documents;
+};
+
+class SaveItemsSettings final : public AspectContainer
+{
+public:
+    explicit SaveItemsSettings(const QList<IDocument *> &items)
+        : model(items)
+    {
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Core/SaveItemsDialog.qml"));
+
+        // Only where something is about to be lost. The widget label painted
+        // itself with a theme colour; what it meant is that this is an error.
+        warning.setQmlName("Warning");
+        warning.setIconType(InfoType::Error);
+        warning.setText(Tr::tr("Some files are externally modified, saving "
+                               "them will discard the external changes!"));
+        warning.setVisible(std::any_of(items.cbegin(), items.cend(), [](const IDocument *doc) {
+            return doc->isConflicted();
+        }));
+
+        message.setQmlName("Message");
+        message.setText(Tr::tr("The following files have unsaved changes:"));
+
+        documents.setQmlName("Documents");
+        documents.setModel(&model);
+
+        // Named by the caller where there is one to name; not offered at all
+        // otherwise.
+        alwaysSave.setQmlName("AlwaysSave");
+        alwaysSave.setVisible(false);
+    }
+
+    TextDisplay warning{this};
+    TextDisplay message{this};
+    TableAspect documents{this};
+    BoolAspect alwaysSave{this};
+    SaveItemsModel model;
+};
+
 SaveItemsDialog::SaveItemsDialog(QWidget *parent, const QList<IDocument *> &items)
     : QDialog(parent)
-    , m_warningLabel(new QLabel)
-    , m_msgLabel(new QLabel(Tr::tr("The following files have unsaved changes:")))
-    , m_treeWidget(new QTreeWidget)
-    , m_saveBeforeBuildCheckBox(new QCheckBox(Tr::tr("Automatically save all files before building")))
+    , d(new SaveItemsSettings(items))
     , m_buttonBox(new QDialogButtonBox)
 {
     resize(457, 200);
     setWindowTitle(Tr::tr("Save Changes"));
-
-    QPalette palette = m_warningLabel->palette();
-    palette.setColor(
-        QPalette::WindowText, Utils::creatorColor(Utils::Theme::OutputPanes_ErrorMessageTextColor));
-    m_warningLabel->setPalette(palette);
-    const bool anyConflicted = std::any_of(items.cbegin(), items.cend(), [](const IDocument *doc) {
-        return doc->isConflicted();
-    });
-    if (anyConflicted) {
-        m_warningLabel->setText(
-            Tr::tr(
-                "Some files are externally modified, saving "
-                "them will discard the external changes!"));
-    } else {
-        m_warningLabel->setVisible(false);
-    }
-
-    m_treeWidget->setSelectionMode(QAbstractItemView::ExtendedSelection);
-    m_treeWidget->setTextElideMode(Qt::ElideLeft);
-    m_treeWidget->setIndentation(0);
-    m_treeWidget->setRootIsDecorated(false);
-    m_treeWidget->setUniformRowHeights(true);
-    m_treeWidget->setHeaderHidden(true);
-    m_treeWidget->setColumnCount(2);
 
     // QDialogButtonBox's behavior for "destructive" is wrong, the "do not save" should be left-aligned
     const QDialogButtonBox::ButtonRole discardButtonRole = HostOsInfo::isMacHost()
@@ -70,84 +179,50 @@ SaveItemsDialog::SaveItemsDialog(QWidget *parent, const QList<IDocument *> &item
     }
     m_buttonBox->setStandardButtons(QDialogButtonBox::Cancel | QDialogButtonBox::Save);
     QPushButton *discardButton = m_buttonBox->addButton(Tr::tr("Do &Not Save"), discardButtonRole);
-    m_treeWidget->setFocus();
 
-    m_saveBeforeBuildCheckBox->setVisible(false);
+    auto layout = new QVBoxLayout(this);
+    layout->addWidget(createAspectForm(d.get()));
+    layout->addWidget(m_buttonBox);
 
-    using namespace Layouting;
-    // clang-format off
-    Column {
-        m_warningLabel,
-        m_msgLabel,
-        m_treeWidget,
-        m_saveBeforeBuildCheckBox,
-        m_buttonBox
-    }.attachTo(this);
-    // clang-format on
+    // Everything, to begin with: the reader is being asked before something
+    // closes, and saving all of it is the answer that loses nothing.
+    QVariantList allRows;
+    for (int row = 0; row < d->model.rowCount(); ++row)
+        allRows.append(row);
+    d->documents.setSelectedRows(allRows);
 
-    m_documents = QList<QPointer<IDocument>>(items.cbegin(), items.cend());
-
-    for (IDocument *document : items) {
-        QString visibleName;
-        FilePath directory;
-        FilePath filePath = document->filePath();
-        if (filePath.isEmpty()) {
-            visibleName = document->fallbackSaveAsFileName();
-        } else {
-            directory = filePath.absolutePath();
-            visibleName = filePath.fileName();
-        }
-        QTreeWidgetItem *item = new QTreeWidgetItem(m_treeWidget,
-                QStringList{visibleName, directory.toUserOutput()});
-        if (!filePath.isEmpty())
-            item->setIcon(0, FileIconProvider::icon(filePath));
-        item->setData(0, Qt::UserRole, QVariant::fromValue(document));
-    }
-
-    m_treeWidget->resizeColumnToContents(0);
-    m_treeWidget->selectAll();
-    if (HostOsInfo::isMacHost())
-        m_treeWidget->setAlternatingRowColors(true);
-    adjustButtonWidths();
-    updateButtons();
-
+    connect(&d->documents, &TableAspect::chosenChanged, this, &SaveItemsDialog::updateButtons);
     connect(m_buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
     connect(m_buttonBox->button(QDialogButtonBox::Save),
             &QAbstractButton::clicked,
             this,
             &SaveItemsDialog::collectItemsToSave);
     connect(discardButton, &QAbstractButton::clicked, this, &SaveItemsDialog::discardAll);
-    connect(m_treeWidget, &QTreeWidget::itemSelectionChanged, this, &SaveItemsDialog::updateButtons);
 
+    adjustButtonWidths();
+    updateButtons();
     m_buttonBox->button(QDialogButtonBox::Save)->setDefault(true);
 }
 
+SaveItemsDialog::~SaveItemsDialog() = default;
+
 void SaveItemsDialog::setMessage(const QString &msg)
 {
-    m_msgLabel->setText(msg);
+    d->message.setText(msg);
 }
 
 void SaveItemsDialog::updateButtons()
 {
-    int count = m_treeWidget->selectedItems().count();
+    const int selected = d->documents.selectedRows().size();
+    const int total = d->model.rowCount();
+    const bool buttonsEnabled = selected > 0;
+
     QPushButton *saveButton = m_buttonBox->button(QDialogButtonBox::Save);
-    bool buttonsEnabled = true;
-    QString saveText = Tr::tr("&Save");
-    QString diffText = Tr::tr("&Diff && Cancel");
-    if (count == m_treeWidget->topLevelItemCount()) {
-        saveText = Tr::tr("&Save All");
-        diffText = Tr::tr("&Diff All && Cancel");
-    } else if (count == 0) {
-        buttonsEnabled = false;
-    } else {
-        saveText = Tr::tr("&Save Selected");
-        diffText = Tr::tr("&Diff Selected && Cancel");
-    }
     saveButton->setEnabled(buttonsEnabled);
-    saveButton->setText(saveText);
+    saveButton->setText(saveButtonText(selected, total));
     if (m_diffButton) {
         m_diffButton->setEnabled(buttonsEnabled);
-        m_diffButton->setText(diffText);
+        m_diffButton->setText(diffButtonText(selected, total));
     }
 }
 
@@ -157,7 +232,7 @@ void SaveItemsDialog::adjustButtonWidths()
     // Mac: make cancel + save button same size (work around dialog button box issue)
     QStringList possibleTexts;
     possibleTexts << Tr::tr("Save") << Tr::tr("Save All");
-    if (m_treeWidget->topLevelItemCount() > 1)
+    if (d->model.rowCount() > 1)
         possibleTexts << Tr::tr("Save Selected");
     int maxTextWidth = 0;
     QPushButton *saveButton = m_buttonBox->button(QDialogButtonBox::Save);
@@ -180,11 +255,10 @@ void SaveItemsDialog::adjustButtonWidths()
 void SaveItemsDialog::collectItemsToSave()
 {
     m_itemsToSave.clear();
-    const QList<QTreeWidgetItem *> items = m_treeWidget->selectedItems();
-    for (const QTreeWidgetItem *item : items) {
-        auto *document = item->data(0, Qt::UserRole).value<IDocument*>();
+    for (int row : d->documents.selectedRows()) {
+        IDocument *document = d->model.documentAt(row);
         // document might have been closed (and deleted) elsewhere while this modal dialog was open
-        if (m_documents.contains(document))
+        if (d->model.isStillOpen(document))
             m_itemsToSave.append(document);
     }
     accept();
@@ -193,11 +267,10 @@ void SaveItemsDialog::collectItemsToSave()
 void SaveItemsDialog::collectFilesToDiff()
 {
     m_filesToDiff.clear();
-    const QList<QTreeWidgetItem *> items = m_treeWidget->selectedItems();
-    for (const QTreeWidgetItem *item : items) {
-        auto *doc = item->data(0, Qt::UserRole).value<IDocument*>();
+    for (int row : d->documents.selectedRows()) {
+        IDocument *doc = d->model.documentAt(row);
         // document might have been closed (and deleted) elsewhere while this modal dialog was open
-        if (doc && m_documents.contains(doc))
+        if (d->model.isStillOpen(doc))
             m_filesToDiff.append(doc->filePath());
     }
     reject();
@@ -205,7 +278,7 @@ void SaveItemsDialog::collectFilesToDiff()
 
 void SaveItemsDialog::discardAll()
 {
-    m_treeWidget->clearSelection();
+    d->documents.setSelectedRows({});
     collectItemsToSave();
 }
 
@@ -221,13 +294,116 @@ FilePaths SaveItemsDialog::filesToDiff() const
 
 void SaveItemsDialog::setAlwaysSaveMessage(const QString &msg)
 {
-    m_saveBeforeBuildCheckBox->setText(msg);
-    m_saveBeforeBuildCheckBox->setVisible(true);
+    d->alwaysSave.setLabelText(msg);
+    d->alwaysSave.setVisible(true);
 }
 
 bool SaveItemsDialog::alwaysSaveChecked()
 {
-    return m_saveBeforeBuildCheckBox->isChecked();
+    return d->alwaysSave();
 }
 
+#ifdef WITH_TESTS
+
+class SaveItemsDialogTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheDialogDrawsWithTheQmlItNames()
+    {
+        SaveItemsSettings settings({});
+        const Utils::Result<> rendered
+            = aspectFormRenders(&settings, "SaveItemsDialog.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+    }
+
+    void testWhatTheButtonsSayFollowsTheSelection()
+    {
+        // All of it, some of it, or none - and none is nothing to do.
+        QCOMPARE(saveButtonText(3, 3), Tr::tr("&Save All"));
+        QCOMPARE(saveButtonText(1, 3), Tr::tr("&Save Selected"));
+        QCOMPARE(saveButtonText(0, 3), Tr::tr("&Save"));
+
+        QCOMPARE(diffButtonText(3, 3), Tr::tr("&Diff All && Cancel"));
+        QCOMPARE(diffButtonText(1, 3), Tr::tr("&Diff Selected && Cancel"));
+        QCOMPARE(diffButtonText(0, 3), Tr::tr("&Diff && Cancel"));
+
+        // One document, picked, is all of them - not "Selected".
+        QCOMPARE(saveButtonText(1, 1), Tr::tr("&Save All"));
+
+        // An empty list is not "all of them" either, or an empty dialog would
+        // offer to save everything.
+        QCOMPARE(saveButtonText(0, 0), Tr::tr("&Save"));
+    }
+
+    void testTheWarningIsOnlyThereWhenSomethingWouldBeLost()
+    {
+        // No documents, nothing conflicted, so nothing to warn about.
+        SaveItemsSettings settings({});
+        QVERIFY2(!settings.warning.isVisible(),
+                 "the dialog opens saying external changes will be discarded");
+        QCOMPARE(settings.warning.presentation().infoType, InfoType::Error);
+    }
+
+    void testTheAlwaysSaveFlagIsNotOfferedUnnamed()
+    {
+        // The caller names it where there is one to name; the widget check box
+        // was hidden until then and so is this.
+        SaveItemsSettings settings({});
+        QVERIFY2(!settings.alwaysSave.isVisible(),
+                 "an unnamed check box is offered before the caller names it");
+
+        SaveItemsDialog dialog(nullptr, {});
+        QVERIFY(!dialog.alwaysSaveChecked());
+        dialog.setAlwaysSaveMessage("Automatically save all files before building");
+        QVERIFY(!dialog.alwaysSaveChecked());
+    }
+
+    void testTheRowsAreReadNotWritten()
+    {
+        SaveItemsSettings settings({});
+        // Answered, not merely falsy: an unanswered role reads as undefined in
+        // QML, and a cell with no answer is taken to be editable.
+        const QVariant editable
+            = settings.model.data(settings.model.index(0, 0), Utils::AspectTable::EditableRole);
+        QVERIFY2(editable.isValid(), "the table was never told whether a cell may be written to");
+        QVERIFY2(!editable.toBool(), "a document could be renamed by typing in the list");
+
+        QVERIFY2(settings.model.headerData(0, Qt::Horizontal, Qt::DisplayRole).toString().isEmpty(),
+                 "the nameless columns came up with headings");
+        QVERIFY(settings.model.roleNames().values().contains("display"));
+    }
+
+    void testADocumentClosedElsewhereIsNotSaved()
+    {
+        // The dialog is modal, but a document can still be closed and deleted
+        // while it is open. A row whose document has gone is skipped.
+        SaveItemsSettings settings({});
+        QVERIFY2(!settings.model.isStillOpen(nullptr), "a document that is gone was saved anyway");
+        QCOMPARE(settings.model.documentAt(0), nullptr);
+        QCOMPARE(settings.model.documentAt(-1), nullptr);
+    }
+
+    void testNothingPickedSavesNothing()
+    {
+        // "Do Not Save" clears the selection and then collects, so what it
+        // collects has to be empty.
+        SaveItemsDialog dialog(nullptr, {});
+        QVERIFY(dialog.itemsToSave().isEmpty());
+        QVERIFY(dialog.filesToDiff().isEmpty());
+    }
+};
+
+QObject *createSaveItemsDialogTest()
+{
+    return new SaveItemsDialogTest;
+}
+
+#endif // WITH_TESTS
+
 } // Core::Internal
+
+#ifdef WITH_TESTS
+#include "saveitemsdialog.moc"
+#endif

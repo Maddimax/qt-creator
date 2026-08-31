@@ -14,6 +14,10 @@
 
 namespace Core {
 
+#ifdef WITH_TESTS
+namespace Internal { QObject *createAddToVcsDialogTest(); }
+#endif
+
 class IVersionControl;
 
 namespace Internal { class ICorePrivate; }

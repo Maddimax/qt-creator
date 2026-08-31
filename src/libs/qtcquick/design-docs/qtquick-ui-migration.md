@@ -23303,3 +23303,70 @@ twin of this one - the same list without the check boxes - and
 `SaveItemsDialog` (Core) is the same with two columns and a "Don't Save"
 button. `DeviceFactorySelectionDialog`, `CleanDialog`, `DeleteSymbolicNameDialog`
 and `FilterDialog` follow.
+
+## 2026-08-31 — Two lists of documents, and a list that is only read
+
+`AddToVcsDialog` (Core) is the read-only twin of last batch's overwrite prompt,
+and it needed **no model at all**: a list nobody may add to, remove from or
+type in is a `StringListAspect` with the three `setUiAllow*` flags off. That is
+the second dialog in three batches where the answer was the string list editor
+rather than a table - after `PathListDialog` - and both times the tell was the
+same: **the rows are strings and nothing is asked of them individually.**
+
+Its one rule is `addToVcsMessage(count, name)`, singular or plural, and it
+always names the version control - a reader with two checkouts open has no
+other way to tell which is asking.
+
+`SaveItemsDialog` (Core) is the table proper and the largest of the shape so
+far: two nameless columns with a file icon, an extended selection, and three
+buttons whose *text* follows how much of the list is picked. Those became
+`saveButtonText(selected, total)` and `diffButtonText(selected, total)`, and
+writing them out found the edge the widget version got right by accident:
+
+- `count == topLevelItemCount()` is "&Save All" - and for an **empty list**
+  that is `0 == 0`, so an empty dialog would offer to Save All. The widget
+  reached `count == 0` first only because the two branches were ordered that
+  way. The rules say `total > 0` and a control that drops it bites.
+
+**Three widget habits that became aspects:** the warning label painted itself
+with `Theme::OutputPanes_ErrorMessageTextColor` (an `InfoType::Error`
+`TextDisplay` now), the always-save check box was hidden until
+`setAlwaysSaveMessage()` named it (`setVisible(false)` and a `setLabelText()`),
+and "Do Not Save" cleared the selection and then collected - which is now
+`setSelectedRows({})` and reads as what it means.
+
+**The `QPointer` guard is the reason this dialog has a model rather than a
+list.** A document can be closed - and deleted - elsewhere while this modal
+dialog is open, so every row's document is a `QPointer` and
+`collectItemsToSave()` skips the ones that have gone. That is behaviour no
+`StringListAspect` could carry, and it is what tells the two shapes apart.
+
+**A test class has to be where its header says.** Both `vcsmanager.cpp` and
+`environmentwidget.cpp` (last batch) declare their factory in `::Internal` and
+define the class in the outer namespace; and `vcsmanager.cpp` already had a
+`#include <QTest>` **below** where the new class went, which is a compile error
+that names the macros rather than the include. Putting the class in the file's
+existing test section fixed both at once.
+
+**CppEditor's shifting failure set, again.** `-test CppEditor` gives exit 134
+and ten failures; the set is the same LocatorFilterTest cluster and
+GlobalRenamingTest pair as a run earlier in this session, from before any of
+this batch's work, with one substitution. `ModelManagerTest` alone gives one
+failure. Unchanged by this batch, and the same flakiness
+[[qtc-cppeditor-suite-is-flaky]] records.
+
+Negative controls: an empty list read as "all of them"; the warning always
+there; the always-save flag offered unnamed; the rows typable; a document that
+is gone saved anyway; the save page naming an aspect that is not there; one
+file and several read the same; and the list of files being added able to be
+added to. All eight bit.
+
+QuickUi 197 passed / 0 failed / 1 skipped, exit 0. `Core` exit 0 with no
+failures - `SaveItemsDialogTest` 9 passed, `AddToVcsDialogTest` 5. `TextEditor`
+clean, `ProjectExplorer` its two standing ones. `ninja all_qmllint` zero
+warnings. No `.qbs` edit.
+
+**Next:** `DeviceFactorySelectionDialog`, `CleanDialog`,
+`DeleteSymbolicNameDialog`, `FilterDialog`, `ProcessPickerDialog`. **Ask of
+each whether the rows are strings**: two of the last four turned out to need no
+model, and the tell is whether anything is asked of a row on its own.

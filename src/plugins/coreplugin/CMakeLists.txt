@@ -372,6 +372,7 @@ if(TARGET Core)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      AddToVcsDialog.qml
       CodecSelector.qml
       SessionDialog.qml
       SessionNameInputDialog.qml
@@ -390,6 +391,7 @@ if(TARGET Core)
       locator/UrlFilterDialog.qml
       MimeTypesPage.qml
       PromptOverwriteDialog.qml
+      SaveItemsDialog.qml
       SystemSettingsPage.qml
       mcp/McpSettingsPage.qml
   )
