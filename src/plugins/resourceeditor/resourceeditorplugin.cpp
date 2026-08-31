@@ -6,11 +6,12 @@
 #include "resourceeditortr.h"
 #include "resourcenode.h"
 
-#include <coreplugin/icore.h>
 #include <coreplugin/actionmanager/actioncontainer.h>
 #include <coreplugin/actionmanager/actionmanager.h>
 #include <coreplugin/actionmanager/command.h>
+#include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/editormanager/editormanager.h>
+#include <coreplugin/icore.h>
 
 #include <extensionsystem/iplugin.h>
 #include <extensionsystem/pluginmanager.h>
@@ -22,11 +23,17 @@
 #include <projectexplorer/projectnodes.h>
 
 #include <utils/action.h>
+#include <utils/aspects.h>
 #include <utils/qtcassert.h>
 #include <utils/stringutils.h>
 
 #include <QDebug>
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
 #include <QDialogButtonBox>
+#include <QVBoxLayout>
 #include <QFormLayout>
 #include <QInputDialog>
 #include <QMenu>
@@ -41,6 +48,27 @@ namespace ResourceEditor::Internal {
 const char resourcePrefix[] = ":";
 const char urlPrefix[] = "qrc:";
 
+class PrefixLangSettings final : public AspectContainer
+{
+public:
+    PrefixLangSettings()
+    {
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/ResourceEditor/PrefixLangDialog.qml"));
+
+        prefix.setQmlName("Prefix");
+        prefix.setLabelText(Tr::tr("Prefix:"));
+        prefix.setDisplayStyle(StringAspect::LineEditDisplay);
+
+        lang.setQmlName("Language");
+        lang.setLabelText(Tr::tr("Language:"));
+        lang.setDisplayStyle(StringAspect::LineEditDisplay);
+    }
+
+    StringAspect prefix{this};
+    StringAspect lang{this};
+};
+
 class PrefixLangDialog final : public QDialog
 {
 public:
@@ -48,40 +76,72 @@ public:
         : QDialog(ICore::dialogParent())
     {
         setWindowTitle(title);
-        auto layout = new QFormLayout(this);
-        m_prefixLineEdit = new QLineEdit(this);
-        m_prefixLineEdit->setText(prefix);
-        layout->addRow(Tr::tr("Prefix:"), m_prefixLineEdit);
 
-        m_langLineEdit = new QLineEdit(this);
-        m_langLineEdit->setText(lang);
-        layout->addRow(Tr::tr("Language:"), m_langLineEdit);
+        m_settings.prefix.setValue(prefix);
+        m_settings.lang.setValue(lang);
 
-        QDialogButtonBox *buttons = new QDialogButtonBox(QDialogButtonBox::Ok
-                                                         | QDialogButtonBox::Cancel,
-                                                         Qt::Horizontal,
-                                                         this);
+        auto buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel,
+                                            Qt::Horizontal, this);
 
+        auto layout = new QVBoxLayout(this);
+        layout->addWidget(Core::createAspectForm(&m_settings));
         layout->addWidget(buttons);
 
         connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
         connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
     }
 
-    QString prefix() const
-    {
-        return m_prefixLineEdit->text();
-    }
-
-    QString lang() const
-    {
-        return m_langLineEdit->text();
-    }
+    QString prefix() const { return m_settings.prefix(); }
+    QString lang() const { return m_settings.lang(); }
 
 private:
-    QLineEdit *m_prefixLineEdit;
-    QLineEdit *m_langLineEdit;
+    PrefixLangSettings m_settings;
 };
+
+#ifdef WITH_TESTS
+
+class PrefixLangDialogTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheDialogDrawsWithTheQmlItNames()
+    {
+        PrefixLangSettings settings;
+        const Result<> rendered
+            = Core::aspectFormRenders(&settings, "PrefixLangDialog.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+    }
+
+    void testTheDialogOpensOnWhatItWasGiven()
+    {
+        // Two callers: adding a prefix opens on nothing, renaming one opens on
+        // what the node already has. Both read the two fields back.
+        const PrefixLangDialog add(Tr::tr("Add Prefix"), {}, {});
+        QVERIFY(add.prefix().isEmpty());
+        QVERIFY(add.lang().isEmpty());
+
+        const PrefixLangDialog rename(Tr::tr("Rename Prefix"), "/images", "de");
+        QCOMPARE(rename.prefix(), QString("/images"));
+        QCOMPARE(rename.lang(), QString("de"));
+    }
+
+    void testAPrefixIsNotALanguage()
+    {
+        // Two fields that are both plain strings and are read back in order;
+        // swapping them is the mistake a port of this makes.
+        const PrefixLangDialog dialog(Tr::tr("Rename Prefix"), "/images", "de");
+        QVERIFY2(dialog.prefix().startsWith('/'), "the language came back as the prefix");
+        QVERIFY2(!dialog.lang().startsWith('/'), "the prefix came back as the language");
+    }
+};
+
+QObject *createPrefixLangDialogTest()
+{
+    return new PrefixLangDialogTest;
+}
+
+#endif // WITH_TESTS
 
 // ResourceEditorPlugin
 
@@ -131,6 +191,10 @@ class ResourceEditorPlugin final : public ExtensionSystem::IPlugin
 
 void ResourceEditorPlugin::initialize()
 {
+#ifdef WITH_TESTS
+    addTestCreator(createPrefixLangDialogTest);
+#endif
+
     setupResourceEditor(this);
 
     const Context projectTreeContext(ProjectExplorer::Constants::C_PROJECT_TREE);

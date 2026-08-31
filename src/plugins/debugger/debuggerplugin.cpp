@@ -2162,6 +2162,7 @@ Result<> DebuggerPlugin::initialize(const QStringList &arguments)
     addTestCreator(createSourcePathMapTest);
     addTestCreator(createCdbPathsTest);
     addTestCreator(createSymbolPathsDialogTest);
+    addTestCreator(createMultiBreakPointsDialogTest);
     addTestCreator(createCacheDirectoryTest);
     addTestCreator(createAttachCoreDialogTest);
     addTestCreator(createUnstartedAppWatcherDialogTest);

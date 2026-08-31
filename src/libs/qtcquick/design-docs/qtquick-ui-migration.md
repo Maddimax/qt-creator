@@ -23053,3 +23053,77 @@ this time: the wildcard group added last batch already covers the new `.qml`.
 blocked and should be skipped when picking: `VersionDialog` needs
 `labelPixmap` honoured on the Qt Quick side, and `QnxAttachDebugDialog` needs
 `DeviceProcessesDialog` ported first.
+
+## 2026-08-31 — A classifier that names what a dialog builds, and two it certifies
+
+`PluginDialog` was the third dialog in three batches to be picked off the
+"form controls only" list and turn out not to be one: it holds an
+`ExtensionSystem::PluginView`, a tree view with its own model. Before it,
+`RecordOptionsDialog` (a `CropScene`) and `PublicKeyDeploymentDialog` (a
+`QProgressDialog`). The classifier kept saying "form" because it looked for
+widget type *names it knows*, and a plugin's own widgets are not among them.
+
+**Inverted, it works.** Instead of asking "does the body mention a form
+control?", list every type the body constructs or holds - `new X`, `X *m_y` -
+and subtract a known-good set. What is left is what a port would have to deal
+with, named. The output is a table, and the numbers are much smaller and much
+more honest:
+
+| | |
+|---|---|
+| not yet drawn from a container | 70 |
+| **build nothing but known form controls** | **15** |
+| build something else, named | 55 |
+
+And the 55 are now *useful*: `AddImplementationsDialog` needs a `QScrollArea`,
+`GenerateConstructorDialog` needs `ParentClassesModel` and a
+`TopMarginDelegate`, `DeviceTestDialog` needs `OutputPaneView` (which exists),
+`TidyOptionsDialog` needs only `QTreeWidgetItem` - so it is the table shape,
+not a text editor as two earlier censuses both said.
+
+**Of the 15, seven are blocked for reasons already recorded**
+(`PublicKeyDeploymentDialog` is a progress dialog, `QnxAttachDebugDialog` and
+`SubdirsProjectWizardDialog` derive from unported bases,
+`InsertVirtualMethodsDialogTest` is a test subclass, `LogDialog` is assembled
+by its caller, `RemoveFileDialog` is in Utils, `VersionDialog` needs
+`labelPixmap`). `CrashHandlerDialog` is a separate tool. That leaves seven real
+ones, two of which this batch does.
+
+**`MultiBreakPointsDialog`** (Debugger): a condition, an ignore count and a
+thread specification, edited for several breakpoints at once. The interesting
+line is `if (enabledParts & ConditionPart)` deciding whether to *add the row to
+the form at all* - not every engine can stop conditionally. That is
+`condition.setVisible(...)` in the container's constructor, and the `.qml`
+lists the row unconditionally, which is exactly the split the standing rule
+asks for.
+
+**`PrefixLangDialog`** (ResourceEditor): two line edits, and the plugin's first
+QML module. Adding one was eight lines of CMake and a wildcard group in the
+`.qbs` again - the second time this batch series has done it, and it took a
+minute.
+
+**Two build-system reminders this cost time on**, both mechanical: a `.cpp`
+that gains a `Q_OBJECT` needs its `.moc` included *and* `<QTest>` included
+under `WITH_TESTS` - `breakhandler.cpp` had neither, and AutoMoc's error names
+the first but not the second.
+
+Negative controls: the condition row present whatever the engine can do; the
+ignore count allowed to go negative; the prefix and the language swapped on the
+way out; and the breakpoint page naming an aspect that is not there. All four
+bit.
+
+QuickUi 197 passed / 0 failed / 1 skipped, exit 0. `ResourceEditor` exit 0 with
+no failures, `PrefixLangDialogTest` 5 passed; `Debugger` is its standing
+`testStateMachine`, `MultiBreakPointsDialogTest` 6 passed.
+`ninja all_qmllint` zero warnings. **`.qbs` edited** -
+`resourceeditor.qbs` gained the wildcard `qml` group - and **not re-resolved:
+there is no `qbs` binary here.**
+
+**Next:** the five remaining certified-clean dialogs -
+`AddRelatedElementsDialog` (modelinglib), `DialogClosingOnEscape` (Help),
+`OpenWithDialog` (Core), `PasswordInputDialog` (Android) and
+`ReadOnlyFilesDialog` (Core). After those the list is genuinely the "builds
+something else" table, and the cheapest entries there are the ones whose only
+exotic type already has an aspect equivalent: `TidyOptionsDialog`
+(`QTreeWidgetItem` - the table shape), `PathListDialog` (likewise) and
+`DeviceTestDialog` (`OutputPaneView`, which exists).

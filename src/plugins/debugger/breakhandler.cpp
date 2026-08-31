@@ -13,6 +13,7 @@
 #include "enginemanager.h"
 #include "simplifytype.h"
 
+#include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/editormanager/editormanager.h>
 #include <coreplugin/icore.h>
 #include <coreplugin/session.h>
@@ -46,7 +47,12 @@
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QMenu>
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
 #include <QSpinBox>
+#include <QVBoxLayout>
 #include <QStyledItemDelegate>
 #include <QTimer>
 #include <QTimerEvent>
@@ -837,55 +843,135 @@ bool BreakpointDialog::showDialog(BreakpointParameters *data,
 }
 
 // Dialog allowing changing properties of multiple breakpoints at a time.
+class MultiBreakPointsSettings final : public AspectContainer
+{
+public:
+    explicit MultiBreakPointsSettings(BreakpointParts enabledParts)
+    {
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Debugger/MultiBreakPointsDialog.qml"));
+
+        condition.setQmlName("Condition");
+        condition.setLabelText(Tr::tr("&Condition:"));
+        condition.setDisplayStyle(StringAspect::LineEditDisplay);
+        // Not every engine can be told to stop only sometimes. The row is not
+        // there at all where the engine cannot, which is what the widget
+        // dialog did by not adding it to the form.
+        condition.setVisible(enabledParts & ConditionPart);
+
+        ignoreCount.setQmlName("IgnoreCount");
+        ignoreCount.setLabelText(Tr::tr("&Ignore count:"));
+        ignoreCount.setRange(0, 2147483647);
+
+        threadSpec.setQmlName("ThreadSpec");
+        threadSpec.setLabelText(Tr::tr("&Thread specification:"));
+        threadSpec.setDisplayStyle(StringAspect::LineEditDisplay);
+    }
+
+    StringAspect condition{this};
+    IntegerAspect ignoreCount{this};
+    StringAspect threadSpec{this};
+};
+
 class MultiBreakPointsDialog : public QDialog
 {
 public:
     MultiBreakPointsDialog(BreakpointParts enabledParts, QWidget *parent);
 
-    QString condition() const { return m_lineEditCondition->text(); }
-    int ignoreCount() const { return m_spinBoxIgnoreCount->value(); }
+    QString condition() const { return m_settings.condition(); }
+    int ignoreCount() const { return int(m_settings.ignoreCount()); }
     int threadSpec() const
-       { return BreakHandler::threadSpecFromDisplay(m_lineEditThreadSpec->text()); }
+       { return BreakHandler::threadSpecFromDisplay(m_settings.threadSpec()); }
 
-    void setCondition(const QString &c) { m_lineEditCondition->setText(c); }
-    void setIgnoreCount(int i) { m_spinBoxIgnoreCount->setValue(i); }
+    void setCondition(const QString &c) { m_settings.condition.setValue(c); }
+    void setIgnoreCount(int i) { m_settings.ignoreCount.setValue(i); }
     void setThreadSpec(int t)
-        { return m_lineEditThreadSpec->setText(BreakHandler::displayFromThreadSpec(t)); }
+        { m_settings.threadSpec.setValue(BreakHandler::displayFromThreadSpec(t)); }
 
 private:
-    QLineEdit *m_lineEditCondition;
-    QSpinBox *m_spinBoxIgnoreCount;
-    QLineEdit *m_lineEditThreadSpec;
-    QDialogButtonBox *m_buttonBox;
+    MultiBreakPointsSettings m_settings;
 };
 
-MultiBreakPointsDialog::MultiBreakPointsDialog(BreakpointParts enabledParts, QWidget *parent) :
-    QDialog(parent)
+MultiBreakPointsDialog::MultiBreakPointsDialog(BreakpointParts enabledParts, QWidget *parent)
+    : QDialog(parent)
+    , m_settings(enabledParts)
 {
     setWindowTitle(Tr::tr("Edit Breakpoint Properties"));
 
-    m_lineEditCondition = new QLineEdit(this);
-    m_spinBoxIgnoreCount = new QSpinBox(this);
-    m_spinBoxIgnoreCount->setMinimum(0);
-    m_spinBoxIgnoreCount->setMaximum(2147483647);
-    m_lineEditThreadSpec = new QLineEdit(this);
+    auto buttonBox = new QDialogButtonBox(this);
+    buttonBox->setStandardButtons(QDialogButtonBox::Cancel | QDialogButtonBox::Ok);
 
-    m_buttonBox = new QDialogButtonBox(this);
-    m_buttonBox->setStandardButtons(QDialogButtonBox::Cancel|QDialogButtonBox::Ok);
+    auto layout = new QVBoxLayout(this);
+    layout->addWidget(Core::createAspectForm(&m_settings));
+    layout->addWidget(buttonBox);
 
-    auto formLayout = new QFormLayout;
-    if (enabledParts & ConditionPart)
-        formLayout->addRow(Tr::tr("&Condition:"), m_lineEditCondition);
-    formLayout->addRow(Tr::tr("&Ignore count:"), m_spinBoxIgnoreCount);
-    formLayout->addRow(Tr::tr("&Thread specification:"), m_lineEditThreadSpec);
-
-    auto verticalLayout = new QVBoxLayout(this);
-    verticalLayout->addLayout(formLayout);
-    verticalLayout->addWidget(m_buttonBox);
-
-    connect(m_buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
-    connect(m_buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
+    connect(buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
+    connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
 }
+
+#ifdef WITH_TESTS
+
+class MultiBreakPointsDialogTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheDialogDrawsWithTheQmlItNames()
+    {
+        MultiBreakPointsSettings settings(AllParts);
+        const Result<> rendered
+            = Core::aspectFormRenders(&settings, "MultiBreakPointsDialog.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+    }
+
+    void testAnEngineThatCannotConditionIsNotAskedFordOne()
+    {
+        // The widget dialog left the row out of the form entirely; the aspect
+        // says it is not there, which is the same thing said once.
+        MultiBreakPointsSettings all(AllParts);
+        QVERIFY(all.condition.isVisible());
+
+        BreakpointParts noCondition = AllParts;
+        noCondition.setFlag(ConditionPart, false);
+        MultiBreakPointsSettings limited(noCondition);
+        QVERIFY2(!limited.condition.isVisible(),
+                 "an engine that cannot stop conditionally is asked for a condition");
+
+        // The other two are always there - no engine capability turns them off.
+        QVERIFY(limited.ignoreCount.isVisible());
+        QVERIFY(limited.threadSpec.isVisible());
+    }
+
+    void testWhatTheDialogHandsBack()
+    {
+        MultiBreakPointsDialog dialog(AllParts, nullptr);
+        dialog.setCondition("i == 3");
+        dialog.setIgnoreCount(7);
+        QCOMPARE(dialog.condition(), QString("i == 3"));
+        QCOMPARE(dialog.ignoreCount(), 7);
+
+        // A thread specification is shown as text and kept as a number, and
+        // "any thread" is -1 rather than 0.
+        dialog.setThreadSpec(-1);
+        QCOMPARE(dialog.threadSpec(), -1);
+        dialog.setThreadSpec(2);
+        QCOMPARE(dialog.threadSpec(), 2);
+    }
+
+    void testTheIgnoreCountCannotBeNegative()
+    {
+        // It counts hits to skip; the widget spin box had the same floor.
+        MultiBreakPointsSettings settings(AllParts);
+        QCOMPARE(settings.ignoreCount.presentation().minimum.toInt(), 0);
+    }
+};
+
+QObject *createMultiBreakPointsDialogTest()
+{
+    return new MultiBreakPointsDialogTest;
+}
+
+#endif // WITH_TESTS
 
 BreakHandler::BreakHandler(DebuggerEngine *engine)
   : m_engine(engine)
@@ -2997,3 +3083,7 @@ void BreakpointManager::loadSessionData()
 }
 
 } // namespace Debugger::Internal
+
+#ifdef WITH_TESTS
+#include "breakhandler.moc"
+#endif

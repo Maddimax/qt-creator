@@ -15,3 +15,17 @@ add_qtc_plugin(ResourceEditor
     resourcenode.cpp
     resourcenode.h
 )
+
+# The dialogs' Qt Quick forms. A module rather than a plain resource so that
+# qmllint and qmlcachegen see the files; qbs cannot build QML modules, so it
+# only lists them - the same split qtcquick already lives with.
+if(TARGET ResourceEditor)
+  qt_add_qml_module(ResourceEditor
+    URI QtCreator.ResourceEditor
+    VERSION 1.0
+    RESOURCE_PREFIX "/qt/qml"
+    NO_PLUGIN
+    QML_FILES
+      PrefixLangDialog.qml
+  )
+endif()

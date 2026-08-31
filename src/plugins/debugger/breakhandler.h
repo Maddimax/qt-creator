@@ -16,6 +16,10 @@ namespace Utils { class ItemViewEvent; }
 
 namespace Debugger::Internal {
 
+#ifdef WITH_TESTS
+QObject *createMultiBreakPointsDialogTest();
+#endif
+
 class BreakHandler;
 class BreakpointItem;
 class BreakpointManager;
