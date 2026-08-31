@@ -79,9 +79,12 @@ AspectContainerModel::Kind AspectContainerModel::kindOf(const BaseAspect *aspect
 
     // An id-valued selection with nothing to match against cannot show which
     // choice is current. An index-valued one with no choices is just an empty
-    // combo box, which is what the widget editor draws for it too.
-    if ((kind == Selection || kind == RadioGroup) && p.valueIsChoiceId && p.choices.isEmpty())
+    // combo box, which is what the widget editor draws for it too. An editable
+    // one shows its value as text, so it needs no choice to match.
+    if ((kind == Selection || kind == RadioGroup) && p.valueIsChoiceId && p.choices.isEmpty()
+        && !p.comboBoxEditable) {
         return Unsupported;
+    }
     if (kind == MultiSelection && p.choices.isEmpty())
         return Unsupported;
     if (kind == Container && p.inlineRow)

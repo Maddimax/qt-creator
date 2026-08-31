@@ -4474,6 +4474,7 @@ AspectPresentation StringSelectionAspect::presentation() const
     }
     p.sizeAdjustPolicy = m_sizeAdjustPolicy;
     p.minimumContentsLength = m_minimumContentsLength;
+    p.comboBoxEditable = m_comboBoxEditable;
     return p;
 }
 

@@ -62,8 +62,10 @@ RowLayout {
                                            : (delegate.aspect?.value ?? 0)
 
         enabled: (delegate.aspect?.enabled ?? false) && !(delegate.aspect?.readOnly ?? false)
+        // A value the list does not offer can be typed where the aspect says
+        // so - the widget combo box has always been editable for those.
+        editable: delegate.pres.comboBoxEditable ?? false
         currentIndex: wantedIndex
-        onModelChanged: currentIndex = Qt.binding(() => combo.wantedIndex)
         // The choice under the cursor has more to say than the aspect does,
         // where the list is of things that need telling apart.
         ToolTip.text: (delegate.pres.optionToolTips?.[combo.highlightedIndex] ?? "")
@@ -72,6 +74,23 @@ RowLayout {
         Layout.preferredWidth: Metrics.formControlWidth
 
         model: delegate.pres.options
+
+        // An editable list shows what the aspect holds even when that is not
+        // one of the rows, which is the whole point of being editable. This
+        // cannot be a binding: a ComboBox writes editText itself whenever the
+        // current row or the model changes, which would break one.
+        readonly property string aspectText: String(delegate.aspect?.value ?? "")
+        function showTypedValue(): void {
+            if (combo.editable && combo.wantedIndex < 0)
+                combo.editText = combo.aspectText
+        }
+        onAspectTextChanged: combo.showTypedValue()
+        onModelChanged: {
+            currentIndex = Qt.binding(() => combo.wantedIndex)
+            combo.showTypedValue()
+        }
+        onCurrentIndexChanged: combo.showTypedValue()
+        Component.onCompleted: combo.showTypedValue()
 
         delegate: ItemDelegate {
             required property int index
@@ -87,6 +106,15 @@ RowLayout {
             if (!delegate.aspect)
                 return
             delegate.aspect.value = delegate.pres.valueIsChoiceId ? delegate.pres.optionIds[index] : index
+        }
+
+        // What was typed rather than picked. Only an editable list has it, and
+        // only such a list stores what it is called rather than which row it
+        // is - an index would have nothing to point at.
+        onAccepted: {
+            if (!combo.editable || !delegate.aspect || !delegate.pres.valueIsChoiceId)
+                return
+            delegate.aspect.value = combo.editText
         }
 
         AspectContextMenu { aspect: delegate.aspect; pres: delegate.pres }

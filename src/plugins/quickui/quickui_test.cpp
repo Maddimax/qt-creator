@@ -283,6 +283,8 @@ private slots:
     void testStringListEditorReordersAndSeedsNewEntries();
     void testStringListEditorPicksPathsInsteadOfTypingThem();
     void testStringSelectionOffersItsChoices();
+    void testAnEditableChoiceTakesWhatIsTyped();
+    void testAnEditableChoiceWithNoChoicesIsStillAField();
     void testAspectListAddsRemovesAndShowsDetails();
     void testTextWithActionShowsSummaryAndActs();
     void testACheckBoxLabelCanBeALink();
@@ -1724,8 +1726,10 @@ void QuickUiTest::testSelectionWithoutDescribedChoicesIsUnsupported()
     asRadioButtons.addOption("Two");
 
     // No fill callback, so it has no choices to describe and no way to say
-    // which of them is current - its value is a choice id.
+    // which of them is current - its value is a choice id. Refusing to be
+    // typed into leaves nothing to draw.
     Utils::StringSelectionAspect undescribed(&page);
+    undescribed.setComboBoxEditable(false);
 
     QtcQuick::AspectContainerModel model(&page);
     QCOMPARE(model.rowCount(), 3);
@@ -4719,6 +4723,107 @@ void QuickUiTest::testStringSelectionOffersItsChoices()
 
     QMetaObject::invokeMethod(combo, "activated", Q_ARG(int, 0));
     QCOMPARE(selection.volatileValue(), QString("first"));
+}
+
+void QuickUiTest::testAnEditableChoiceTakesWhatIsTyped()
+{
+    // A StringSelectionAspect's combo box is editable unless the aspect says
+    // otherwise, so that a value the list does not offer - a J-Link interface
+    // speed, a device the chooser has not found - can be typed. The widget
+    // renderer has always honoured it; the descriptor never carried it, so
+    // every such list came out fixed on the Qt Quick side.
+    const auto fill = [](const Utils::StringSelectionAspect::ResultCallback &cb) {
+        const auto item = [](const QString &display, const QString &id) {
+            auto i = new QStandardItem(display);
+            i->setData(id);
+            return i;
+        };
+        cb({item("First", "first"), item("Second", "second")});
+    };
+
+    Utils::AspectContainer fixedPage;
+    Utils::StringSelectionAspect fixed(&fixedPage);
+    fixed.setLabelText("Pick");
+    fixed.setFillCallback(fill);
+    fixed.setComboBoxEditable(false);
+    QVERIFY2(!fixed.presentation().comboBoxEditable,
+             "an aspect that refused typing said nothing about it");
+
+    const std::unique_ptr<QWidget> fixedForm(QtcQuick::createGenericAspectForm(&fixedPage));
+    auto fixedQuick = fixedForm->findChild<QQuickWidget *>();
+    QVERIFY(fixedQuick);
+    QQuickItem *fixedCombo = nullptr;
+    QTRY_VERIFY(fixedCombo = findQmlComponent(fixedQuick->rootObject(), "ComboBox"));
+    QVERIFY2(!fixedCombo->property("editable").toBool(),
+             "a list of fixed choices could be typed into");
+
+    Utils::AspectContainer page;
+    Utils::StringSelectionAspect selection(&page);
+    selection.setLabelText("Pick");
+    selection.setFillCallback(fill);
+    selection.setValue("second");
+    QVERIFY2(selection.presentation().comboBoxEditable,
+             "the default has stopped being editable");
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QQuickItem *combo = nullptr;
+    QTRY_VERIFY(combo = findQmlComponent(quickWidget->rootObject(), "ComboBox"));
+    QVERIFY(combo->property("editable").toBool());
+    QCOMPARE(combo->property("currentIndex").toInt(), 1);
+
+    // What is typed and accepted reaches the aspect, whether or not the list
+    // offers it.
+    combo->setProperty("editText", "something else");
+    QMetaObject::invokeMethod(combo, "accepted");
+    QCOMPARE(selection.volatileValue(), QString("something else"));
+
+    // And picking from the list still stores the choice's id rather than its
+    // text, which is what the aspect is addressed by.
+    QMetaObject::invokeMethod(combo, "activated", Q_ARG(int, 0));
+    QCOMPARE(selection.volatileValue(), QString("first"));
+}
+
+void QuickUiTest::testAnEditableChoiceWithNoChoicesIsStillAField()
+{
+    // A chooser that found nothing - no device, no debug server - is not
+    // useless when it is editable: the reader types the value, which is what
+    // the widget editor lets them do. Only a fixed list with nothing in it has
+    // no editor to draw.
+    Utils::AspectContainer page;
+    Utils::StringSelectionAspect selection(&page);
+    selection.setLabelText("Interface speed");
+    selection.setFillCallback([](const Utils::StringSelectionAspect::ResultCallback &cb) {
+        cb({});
+    });
+    selection.setValue("4000");
+    QVERIFY(selection.presentation().choices.isEmpty());
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QQuickItem *combo = nullptr;
+    QTRY_VERIFY(combo = findQmlComponent(quickWidget->rootObject(), "ComboBox"));
+    QVERIFY(combo->property("editable").toBool());
+
+    // Nothing matches, so there is no current row - the value is the text.
+    QCOMPARE(combo->property("currentIndex").toInt(), -1);
+    QCOMPARE(combo->property("editText").toString(), QString("4000"));
+
+    Utils::AspectContainer fixedPage;
+    Utils::StringSelectionAspect fixed(&fixedPage);
+    fixed.setLabelText("Interface speed");
+    fixed.setFillCallback([](const Utils::StringSelectionAspect::ResultCallback &cb) {
+        cb({});
+    });
+    fixed.setComboBoxEditable(false);
+    const std::unique_ptr<QWidget> fixedForm(QtcQuick::createGenericAspectForm(&fixedPage));
+    auto fixedQuick = fixedForm->findChild<QQuickWidget *>();
+    QVERIFY(fixedQuick);
+    QVERIFY(fixedQuick->rootObject());
+    QVERIFY2(!findQmlComponent(fixedQuick->rootObject(), "ComboBox"),
+             "a fixed list with no choices drew a chooser with nothing in it");
 }
 
 void QuickUiTest::testAspectListAddsRemovesAndShowsDetails()

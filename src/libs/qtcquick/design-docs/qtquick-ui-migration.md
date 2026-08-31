@@ -23594,3 +23594,73 @@ off - `InsertVirtualMethodsDialog` and `GenerateGettersSettersDialog`
 overrides from [[qtc-model-ready-for-quick-view]] on a `Utils::TreeModel`, and
 `TreeDelegate` draws it. **`LoggingViewManagerWidget` is not a small one**: two
 tree views, eight tool buttons, two context menus and a save-to-file.
+
+## 2026-08-31 — The combo box that would not be typed into
+
+Reading `InsertVirtualMethodsDialog` for the next batch turned up its editable
+override-replacement combo, and with it a divergence of exactly the family the
+`setMinimumHeight` one belonged to.
+
+**`StringSelectionAspect::setComboBoxEditable()` never reached the
+descriptor.** It defaults to **`true`**, and the widget renderer honours it -
+an editable `QComboBox` with a contains-matching popup completer. Nothing put
+it in `AspectPresentation`, so `SelectionDelegate` drew a fixed list, always.
+Only eight call sites turn it off; every other one relied on the default and
+had silently lost the affordance: `sshkeycreationdialog`,
+`devicesettingspage`, `perfloaddialog`, Lua-defined settings,
+`iosrunconfiguration`, `compilerexplorersettings`, `jlinkgdbserverprovider`
+and `baremetaldevice`. Those are lists of things Qt Creator *looked for* -
+devices, debug servers, interface speeds - so "the one I want is not in the
+list" is the normal case, not the edge case.
+
+It is plumbed now: `presentation()` carries it, `aspectmodels.cpp` names it,
+and the delegate is `editable` when asked. Typed text reaches the aspect on
+`accepted`, guarded on `valueIsChoiceId` because only an id-valued list has
+somewhere to put a string - an index would have nothing to point at. That is
+the same undoable write the widget path makes: `value` is a `Q_PROPERTY` onto
+`setVolatileVariantValueFromGui`, which sets `m_undoable`.
+
+**`editText` cannot be a binding.** A `ComboBox` writes it itself whenever the
+current row or the model changes, which breaks one - the test read `""` where
+it had bound `"4000"`. It is set from a function called on the four occasions
+that matter (the aspect's value, the model, the current row, completion).
+
+**And the emptiness rule was wrong for it.** `kindOf()` refused an id-valued
+selection with no choices as `Unsupported`, reasoning that it cannot show which
+choice is current. An *editable* one does not need to: it shows the value as
+text. A chooser that found no devices at all is a working field on the widget
+side and was the "(no Qt Quick editor yet)" placeholder here. Now only a fixed
+list with nothing in it is unsupported.
+
+`testSelectionWithoutDescribedChoicesIsUnsupported` failed on the full run,
+which is the divergence stating itself: the aspect it built to be unsupported
+had been relying on the default. It says `setComboBoxEditable(false)` now.
+
+**The sweep that found it generalises.** `grep -oE 'aspect->m_[A-Za-z0-9_]+'
+src/libs/utils/aspectwidgetrenderer.cpp` lists everything the widget renderer
+reads straight off an aspect rather than out of the descriptor - five members.
+`m_comboBoxEditable` was the only real gap; `m_fillCallback` is run by
+`presentation()` itself, and `m_model`/`m_selectionModel`/`m_undoable` are the
+widget's own binding to a `StringSelectionAspect`, which the Quick side reaches
+through `choices` and `value`. **That list is empty of divergences now**, so
+that particular grep has been paid off.
+
+Negative controls: `presentation()` dropping the flag; the delegate ignoring
+it; the write-back not happening; the emptiness rule refusing an editable
+chooser again; the emptiness rule dropped entirely (so a fixed empty list drew
+a chooser with nothing in it); and nothing showing the typed value. All six
+bit.
+
+QuickUi 200 passed / 0 failed / 1 skipped, exit 0. `Core`, `BareMetal`,
+`CompilerExplorer` clean, `Docker` skipped; `ProjectExplorer` its two standing
+failures. `ninja all_qmllint` zero warnings. No `.qbs` edit - no file added or
+removed.
+
+**Next:** unchanged, and now unblocked - the trees with models of their own.
+`InsertVirtualMethodsDialog` is the one to start with: its editable
+override-replacement combo was the last thing in the way, and its
+`InsertVirtualMethodsModel` is a hand-written `QAbstractItemModel`, so the
+three overrides from [[qtc-model-ready-for-quick-view]] go on that rather than
+on a `Utils::TreeModel`. Then `GenerateGettersSettersDialog`, then
+`BookmarkDialog`, and `LoggingViewManagerWidget` last - it is still the big
+one.

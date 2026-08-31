@@ -287,6 +287,11 @@ public:
     // its index. An encoding selector stores the encoding name, for example.
     bool valueIsChoiceId = false;
 
+    // ComboBox. Whether the reader may type a value the list does not offer -
+    // a J-Link interface speed, a device the chooser has not found. Off unless
+    // the aspect says so, because a list of fixed choices is the usual case.
+    bool comboBoxEditable = false;
+
     // SpinBox and DoubleSpinBox. Unset when the aspect has no bound.
     QVariant minimum;
     QVariant maximum;

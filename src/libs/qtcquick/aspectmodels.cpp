@@ -290,6 +290,7 @@ QVariantMap AspectModels::presentation(BaseAspect *aspect)
         {"contextActionChecked", p.contextActionChecked},
         {"contextActionEnabled", p.contextActionEnabled},
         {"valueIsChoiceId", p.valueIsChoiceId},
+        {"comboBoxEditable", p.comboBoxEditable},
         // An aspect with no bound presents an unset minimum or maximum. The
         // delegates bind these straight into SpinBox.from/to, so substitute the
         // widest value of the right type rather than passing undefined to QML.
