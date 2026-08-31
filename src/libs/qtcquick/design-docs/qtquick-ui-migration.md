@@ -23370,3 +23370,52 @@ warnings. No `.qbs` edit.
 `DeleteSymbolicNameDialog`, `FilterDialog`, `ProcessPickerDialog`. **Ask of
 each whether the rows are strings**: two of the last four turned out to need no
 model, and the tell is whether anything is asked of a row on its own.
+
+## 2026-08-31 — Two lists that pick one thing, and the question that tells the shape
+
+The last entry asked, of each remaining list dialog, **whether the rows are
+strings**. Both of this batch's answer "no", and for the same reason from two
+directions.
+
+**`DeviceFactorySelectionDialog`** (ProjectExplorer) lists device kinds by
+display name, and each row carries the factory's `Utils::Id` - which is the
+whole answer the dialog gives. Strings on screen, an id underneath, so a model.
+It is the activation family again: `rowActivated` is what the widget's
+`itemDoubleClicked` was, and "Start Wizard" is off until something is picked.
+
+**`DeleteSymbolicNameDialog`** (Squish) lists strings, and *would* have been a
+`StringListAspect` but for what surrounds it: three radio buttons, a filter
+field over the list, and the list sorted. The filter and the sort are
+`setFilterPlaceholderText()` and `setSortColumn(0)` on a `TableAspect` - the
+widget built a `QSortFilterProxyModel` and wired a `FancyLineEdit` to it - so
+the table is the cheaper answer even though the rows are only text.
+
+So the question refines: **it is not "are the rows strings" but "is anything
+asked of a row, or of the list, that a plain list cannot answer"** - an id, a
+filter, a sort order, a check state. `PathListDialog` and `AddToVcsDialog`
+answered no to all four; these two answer yes to one each.
+
+**One rule was written twice and disagreed with itself.** Whether Ok is
+available was computed in `onAdjustReferencesToggled` as
+`!checked || hasSelection` and in `onSelectionChanged` as `!empty` - the second
+ignoring which radio button is on. They only agree because the list is disabled
+for the other two answers, so the second can never run then. `canAccept(result,
+hasSelection)` is one function now, and both connections call it.
+
+`selectedSymbolicName()` also stopped being a cached `m_selected` kept in step
+by a slot; it is the current row's text, asked for when wanted.
+
+Negative controls: every answer needing a name to point at; the list staying on
+for every answer; the dialog opening on removing everything; a device kind that
+cannot be created offered; a row that is not there still being a type; and the
+squish page naming an aspect that is not there. All six bit.
+
+QuickUi 197 passed / 0 failed / 1 skipped, exit 0. `Squish` exit 0 with no
+failures, `DeleteSymbolicNameDialogTest` 9 passed,
+`DeviceFactorySelectionDialogTest` 7; `ProjectExplorer` its two standing ones.
+`ninja all_qmllint` zero warnings. No `.qbs` edit: both plugins take their
+`.qml` by wildcard.
+
+**Next:** `CleanDialog` (VcsBase - a checkable tree of files to delete, so the
+overwrite-prompt shape), `FilterDialog` (ClangTools) and `ProcessPickerDialog`
+(Profiler), then the trees with models of their own.

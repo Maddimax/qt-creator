@@ -5,17 +5,19 @@
 
 #include <QDialog>
 
+#include <memory>
+
 QT_BEGIN_NAMESPACE
 class QDialogButtonBox;
-class QItemSelection;
-class QLabel;
-class QListView;
-class QRadioButton;
-class QSortFilterProxyModel;
-class QStringListModel;
 QT_END_NAMESPACE
 
 namespace Squish::Internal {
+
+class DeleteSymbolicNameSettings;
+
+#ifdef WITH_TESTS
+QObject *createDeleteSymbolicNameDialogTest();
+#endif
 
 class DeleteSymbolicNameDialog : public QDialog
 {
@@ -28,22 +30,11 @@ public:
                                       QWidget *parent = nullptr);
     ~DeleteSymbolicNameDialog() override;
 
-    QString selectedSymbolicName() const { return m_selected; }
-    Result result() const { return m_result; }
+    QString selectedSymbolicName() const;
+    Result result() const;
 
 private:
-    void updateDetailsLabel(const QString &nameToDelete);
-    void populateSymbolicNamesList(const QStringList &symbolicNames);
-    void onAdjustReferencesToggled(bool checked);
-    void onSelectionChanged(const QItemSelection &selection, const QItemSelection &);
-
-    QString m_selected;
-    Result m_result;
-    QStringListModel *m_listModel;
-    QSortFilterProxyModel *m_filterModel;
-
-    QLabel *m_detailsLabel;
-    QListView *m_symbolicNamesList;
+    const std::unique_ptr<DeleteSymbolicNameSettings> d;
     QDialogButtonBox *m_buttonBox;
 };
 

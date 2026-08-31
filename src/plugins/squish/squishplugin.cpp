@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "objectsmapeditor.h"
+#include "deletesymbolicnamedialog.h"
 #include "opensquishsuitesdialog.h"
 #include "squishfilehandler.h"
 #include "squishmessages.h"
@@ -39,6 +40,7 @@ private:
     {
 #ifdef WITH_TESTS
         addTestCreator(createSquishResultModelTest);
+        addTestCreator(createDeleteSymbolicNameDialogTest);
         addTestCreator(createMappedAutDialogTest);
         addTestCreator(createOpenSquishSuitesTest);
 #endif

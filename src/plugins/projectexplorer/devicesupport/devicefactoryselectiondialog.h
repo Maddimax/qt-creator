@@ -7,9 +7,10 @@
 
 #include <QDialog>
 
+#include <memory>
+
 QT_BEGIN_NAMESPACE
 class QDialogButtonBox;
-class QListWidget;
 QT_END_NAMESPACE
 
 namespace ProjectExplorer {
@@ -17,19 +18,23 @@ class IDeviceFactory;
 
 namespace Internal {
 
+class DeviceFactorySelectionSettings;
+
+#ifdef WITH_TESTS
+QObject *createDeviceFactorySelectionDialogTest();
+#endif
+
 class DeviceFactorySelectionDialog : public QDialog
 {
     Q_OBJECT
 
 public:
     explicit DeviceFactorySelectionDialog(QWidget *parent = nullptr);
+    ~DeviceFactorySelectionDialog() override;
     Utils::Id selectedId() const;
 
 private:
-    void handleItemSelectionChanged();
-    void handleItemDoubleClicked();
-
-    QListWidget *m_listWidget;
+    const std::unique_ptr<DeviceFactorySelectionSettings> m_settings;
     QDialogButtonBox *m_buttonBox;
 };
 

@@ -36,6 +36,7 @@
 #include "editorconfiguration.h"
 #include "editorsettingspropertiespage.h"
 #include "environmentaspect.h"
+#include "devicesupport/devicefactoryselectiondialog.h"
 #include "environmentwidget.h"
 #include "extraabi.h"
 #include "filesinallprojectsfind.h"
@@ -939,6 +940,7 @@ Result<> ProjectExplorerPlugin::initialize(const QStringList &arguments)
     addTestCreator(createAbiTest);
     addTestCreator(Internal::createWaitForStopDialogTest);
     addTestCreator(Internal::createPathListDialogTest);
+    addTestCreator(Internal::createDeviceFactorySelectionDialogTest);
     addTestCreator(createOutputTaskParserTest);
     addTestCreator(createAbiAspectsTest);
     addTestCreator(createClangParserTest);

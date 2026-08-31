@@ -51,6 +51,7 @@ if(TARGET Squish)
     NO_PLUGIN
     QML_FILES
       SquishResults.qml
+      DeleteSymbolicNameDialog.qml
       MappedAutDialog.qml
       OpenSquishSuitesDialog.qml
       SquishSettingsPage.qml
