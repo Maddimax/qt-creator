@@ -24468,3 +24468,57 @@ committed unverified, as every `.qbs` edit in this series has been.
 **Next:** `CropScene`, which needs a bounded-lifetime image provider decided
 first, and `LoggingViewManagerWidget`, still blocked on driving a tree's
 selection. With this the custom widget wizard is done.
+
+## 2026-08-31 — What CropScene actually costs
+
+**The port is not done, and the recorded blocker was the wrong one.** The plan
+said `CropScene` "needs a bounded-lifetime image provider decided first". That
+turned out to be the cheap part; two other things are not.
+
+**The image is not a shared decision.** `QtcQuick::engine()` is exported and
+`QQmlEngine::addImageProvider()` is public, so a plugin registers its own
+provider and answers with whatever the current frame is - one frame held, the
+last dropped when the next arrives, and a counter in the URL only because an
+`Image` will not reload a URL it is already showing. **Nor is the dependency
+unusual**: seven plugins already link `QtcQuick` (autotest, debugger,
+projectexplorer, quickui, squish, texteditor, todo), so ScreenRecorder joining
+them is routine, not an architectural change. Written and thrown away twice in
+this batch; about fifty lines, and it works.
+
+**What actually costs:**
+
+1. **`CropScene` has two users, not one.** Besides `CropWidget` in
+   `cropandtrim.cpp` it is what `RecordOptionsDialog` in `record.cpp` draws the
+   screen region with - a scaled-down thumbnail of the display, cropped the
+   same way. Deleting the widget breaks that dialog, so the two move together
+   or not at all. **This is the mistake this batch made**: the widget was
+   removed after grepping only the file it lived in, and the build said so.
+   Grep the whole plugin before deleting a class, not the file.
+2. **The interaction cannot be tested here.** Edge grips, a move area and
+   cursor shapes are drag gestures, and synthetic drags do not reach a Quick
+   item in this harness - proved two batches ago against both `TableView` and
+   `TableDelegate`. The rectangle arithmetic, the four fields and the page
+   itself are testable; the dragging would ship unasserted.
+3. **`CropSizeWarningIcon` is painted too**, and has three users -
+   `CropWidget`, `CropAndTrimWidget` and `ExportWidget` - two of which are
+   widget toolbars that are not being ported. It would have to stay a widget
+   beside a Quick form, or all three move.
+
+So `CropAndTrimDialog` is `CropScene`, `CropWidget`, `SelectionSlider`,
+`TrimWidget` and the dialog, plus `RecordOptionsDialog` in another file, plus a
+shared warning icon in a third. **Two batches, not one**, and the first of them
+is `CropScene` + both its callers with the provider - the two dialogs cannot be
+split.
+
+Nothing is committed from the attempt: an unused provider is worse than none.
+
+**What is left in the whole migration**, then:
+
+- `CropScene` and its two dialogs (above).
+- `LoggingViewManagerWidget`, still blocked on driving a tree's selection - and
+  that blocker is the harness, not the code.
+
+Both are large and both have a part that cannot be asserted here. That is worth
+saying plainly rather than discovering again: **the migration is at the point
+where what is left is not routine**, and each remaining piece needs a decision
+about what ships untested before it is worth starting.
