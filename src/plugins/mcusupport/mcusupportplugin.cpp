@@ -3,6 +3,8 @@
 
 #include "mcusupportplugin.h"
 
+#include "dialogs/mcukitcreationdialog.h"
+
 #include "mcubuildstep.h"
 #include "mcukitmanager.h"
 #include "mculegacyconstants.h"
@@ -187,6 +189,10 @@ public:
 void McuSupportPlugin::initialize()
 {
     setObjectName("McuSupportPlugin");
+
+#ifdef WITH_TESTS
+    addTestCreator(createMcuKitCreationDialogTest);
+#endif
     dd = new McuSupportPluginPrivate;
 
     connect(ProjectManager::instance(),

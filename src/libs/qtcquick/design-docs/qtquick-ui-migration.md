@@ -22875,3 +22875,69 @@ edit: both plugins take their `.qml` by wildcard and no C++ file was added.
 one of them** even though it looks it: it derives from `DeviceProcessesDialog`
 and inserts a `QFormLayout` into its base's layout, so it cannot be ported
 before its base is.
+
+## 2026-08-31 — Two more form dialogs, and a plugin that does not load here
+
+**Two of the four the last entry named are not form dialogs at all**, which is
+the class-body classifier being coarse rather than wrong: it looks for widget
+type names it knows, and does not know the ones a plugin invents.
+
+- `RecordOptionsDialog` (ScreenRecorder) holds a **`CropScene`** - a custom
+  painting widget - so it belongs with `ColorThemeDialog` and the other four in
+  "something else".
+- `PublicKeyDeploymentDialog` (Remote) is a **`QProgressDialog` subclass**, not
+  a `QDialog` with a form in it. It counted because it has a `QLabel`.
+
+So: **check what a dialog derives from and what it builds before counting it
+cheap.** Both are one grep.
+
+**`McuKitCreationDialog`** (McuSupport) is the batch's real one: five labels
+and four buttons, showing one message at a time out of a list you page through
+with `<` and `>`. Three rules came out of `updateMessage()` - the headline, the
+body, and the "1 / 3" counter - and the paging became
+`showMessage(messages, index)` on the container.
+
+**The widget version had no bounds check.** `m_currentIndex` starts at -1 and
+`updateMessage(inc)` indexes `m_messages[m_currentIndex]` straight away; it was
+safe only because the two buttons were disabled at the ends. Control 1 removes
+the guard the port added and the test **aborts with exit 134** - which is what
+the widget dialog would have done had anything ever moved past an end.
+
+**`UndoCheckOutDialog`** (ClearCase) is the red label the last entry flagged: a
+hand-built `QPalette` painting "The file was changed." red, which STYLE.md
+forbids and which says nothing to a reader who cannot see the colour. It is
+`InfoType::Warning` on a `TextDisplay` now, and the form draws it.
+
+**And it cannot be tested on this machine.** `ClearCase.json.in` says
+`"Platform" : "^(Linux|Windows)"`, so the plugin is not loaded on macOS - a
+`-test ClearCase` run prints nothing at all and exits 0, and the *existing*
+`ClearCaseTest` has never run here either. The empty-`Totals:` check in the
+runner script is what turned that from "the test passed" into a question.
+
+What is available instead, and what was run:
+
+- it builds, and `ClearCase_qmllint` is clean;
+- a name cross-check between the `.qml` and the `.cpp` - every
+  `root.aspects.X` against every `setQmlName("X")` - which is the technique
+  from [[verify-a-plugin-you-cannot-build]]. Misnaming one aspect makes it
+  report `NAMED BY THE QML BUT NOT SET: ['KeepCopy']` and exit 1.
+
+The test is written and registered; it will run for whoever builds on Linux or
+Windows.
+
+Negative controls: paging running off the end of the list (abort); the ends of
+the list not being the ends; one message still offered a previous and a next; a
+warning and an error looking the same; the page naming an aspect that is not
+there; and, for ClearCase, the name cross-check against a misnamed aspect. All
+six bit.
+
+QuickUi 197 passed / 0 failed / 1 skipped, exit 0. `McuSupport` exit 0 with no
+failures, `McuKitCreationDialogTest` 9 passed. `ninja all_qmllint` zero
+warnings. No `.qbs` edit: both plugins take their `.qml` by wildcard and no C++
+file was added.
+
+**Next:** 25 form-only dialogs left, and the list needs the two checks above
+applied to it before picking from it again. `AddImplementationsDialog` and
+`Dialog` (both in `cppeditor/quickfixes/`), `VersionDialog` and `PluginDialog`
+(Core), `ExportDialog` and `MultiExportDialog` (ImageViewer) are the ones whose
+class bodies hold nothing but form controls.

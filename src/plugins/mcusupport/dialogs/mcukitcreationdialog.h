@@ -8,12 +8,15 @@
 
 #include <QDialog>
 
-QT_BEGIN_NAMESPACE
-class QLabel;
-class QPushButton;
-QT_END_NAMESPACE
+#include <memory>
 
 namespace McuSupport::Internal {
+
+class McuKitCreationSettings;
+
+#ifdef WITH_TESTS
+QObject *createMcuKitCreationDialogTest();
+#endif
 
 class McuKitCreationDialog : public QDialog
 {
@@ -24,19 +27,14 @@ public:
                                   const SettingsHandler::Ptr &settingsHandler,
                                   McuPackagePtr qtMCUPackage,
                                   QWidget *parent = nullptr);
+    ~McuKitCreationDialog() override;
 
 private slots:
     void updateMessage(const int inc);
 
 private:
     int m_currentIndex = -1;
-    QLabel *m_iconLabel;
-    QLabel *m_textLabel;
-    QLabel *m_informationLabel;
-    QLabel *m_qtMCUsPathLabel;
-    QLabel *m_messageCountLabel;
-    QPushButton *m_previousButton;
-    QPushButton *m_nextButton;
+    const std::unique_ptr<McuKitCreationSettings> m_settings;
     const MessagesList &m_messages;
 };
 } // namespace McuSupport::Internal

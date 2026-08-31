@@ -20,6 +20,7 @@
 #include <coreplugin/documentmanager.h>
 #include <coreplugin/editormanager/documentmodel.h>
 #include <coreplugin/editormanager/editormanager.h>
+#include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/icore.h>
 #include <coreplugin/locator/commandlocator.h>
 #include <coreplugin/progressmanager/progressmanager.h>
@@ -1013,6 +1014,32 @@ void ClearCasePluginPrivate::setStatus(const FilePath &file, FileStatus::Status 
         QMetaObject::invokeMethod(this, &ClearCasePluginPrivate::updateStatusActions);
 }
 
+class UndoCheckOutSettings final : public AspectContainer
+{
+public:
+    UndoCheckOutSettings()
+    {
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/ClearCase/UndoCheckOutDialog.qml"));
+
+        question.setQmlName("Question");
+
+        modified.setQmlName("Modified");
+        modified.setText(Tr::tr("The file was changed."));
+        // The widget label painted itself red with a hand-built QPalette. What
+        // it meant is that this is a warning, which is what the form draws.
+        modified.setIconType(InfoType::Warning);
+
+        keep.setQmlName("Keep");
+        keep.setLabelText(Tr::tr("&Save copy of the file with a '.keep' extension"));
+        keep.setDefaultValue(true);
+    }
+
+    TextDisplay question{this};
+    TextDisplay modified{this};
+    BoolAspect keep{this};
+};
+
 class UndoCheckOutDialog : public QDialog
 {
 public:
@@ -1020,43 +1047,82 @@ public:
     {
         resize(323, 105);
         setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-        setWindowTitle(Tr::tr("Dialog"));
+        setWindowTitle(Tr::tr("Undo Check Out"));
 
-        lblMessage = new QLabel(this);
+        auto buttonBox = new QDialogButtonBox(QDialogButtonBox::No | QDialogButtonBox::Yes);
 
-        QPalette palette;
-        QBrush brush(QColor(255, 0, 0, 255));
-        brush.setStyle(Qt::SolidPattern);
-        palette.setBrush(QPalette::Active, QPalette::WindowText, brush);
-        palette.setBrush(QPalette::Inactive, QPalette::WindowText, brush);
-        QBrush brush1(QColor(68, 96, 92, 255));
-        brush1.setStyle(Qt::SolidPattern);
-        palette.setBrush(QPalette::Disabled, QPalette::WindowText, brush1);
-
-        auto lblModified = new QLabel(Tr::tr("The file was changed."));
-        lblModified->setPalette(palette);
-
-        chkKeep = new QCheckBox(Tr::tr("&Save copy of the file with a '.keep' extension"));
-        chkKeep->setChecked(true);
-
-        auto buttonBox = new QDialogButtonBox(QDialogButtonBox::No|QDialogButtonBox::Yes);
-
-        using namespace Layouting;
-
-        Column {
-            lblMessage,
-            lblModified,
-            chkKeep,
-            buttonBox
-        }.attachTo(this);
+        auto layout = new QVBoxLayout(this);
+        layout->addWidget(Core::createAspectForm(&m_settings));
+        layout->addWidget(buttonBox);
 
         connect(buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
         connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
     }
 
-    QLabel *lblMessage;
-    QCheckBox *chkKeep;
+    void setQuestion(const QString &question) { m_settings.question.setText(question); }
+    QString question() const { return m_settings.question.displayText(); }
+    bool keep() const { return m_settings.keep(); }
+    void setKeep(bool keep) { m_settings.keep.setValue(keep); }
+
+private:
+    UndoCheckOutSettings m_settings;
 };
+
+#ifdef WITH_TESTS
+
+class UndoCheckOutDialogTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheDialogDrawsWithTheQmlItNames()
+    {
+        UndoCheckOutSettings settings;
+        const Result<> rendered
+            = Core::aspectFormRenders(&settings, "UndoCheckOutDialog.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+    }
+
+    void testTheChangedFileIsAWarningRatherThanARedLabel()
+    {
+        // The widget label built a QPalette and painted itself red, which
+        // STYLE.md forbids and which says nothing to a reader who cannot see
+        // the colour. What it meant is that this is a warning.
+        UndoCheckOutSettings settings;
+        QCOMPARE(settings.modified.presentation().infoType, InfoType::Warning);
+        QCOMPARE(settings.modified.displayText(), Tr::tr("The file was changed."));
+    }
+
+    void testTheKeepCopyIsOfferedByDefault()
+    {
+        // Undoing a check-out throws the changes away, so the copy is the way
+        // back and is offered unless the reader has said otherwise.
+        UndoCheckOutSettings settings;
+        QVERIFY2(settings.keep(), "the changes would be dropped with nothing kept");
+
+        UndoCheckOutDialog dialog;
+        QVERIFY(dialog.keep());
+        dialog.setKeep(false);
+        QVERIFY(!dialog.keep());
+    }
+
+    void testTheQuestionNamesTheFile()
+    {
+        // Both callers pass a different question, and each names the file it
+        // is about - there is no default worth having.
+        UndoCheckOutDialog dialog;
+        QVERIFY(dialog.question().isEmpty());
+        dialog.setQuestion("Do you want to undo the check out of \"a.cpp\"?");
+        QVERIFY2(dialog.question().contains("a.cpp"), qPrintable(dialog.question()));
+    }
+};
+
+QObject *createUndoCheckOutDialogTest()
+{
+    return new UndoCheckOutDialogTest;
+}
+
+#endif // WITH_TESTS
 
 void ClearCasePluginPrivate::undoCheckOutCurrent()
 {
@@ -1073,11 +1139,12 @@ void ClearCasePluginPrivate::undoCheckOutCurrent()
     bool keep = false;
     if (result.exitCode()) { // return value is 1 if there is any difference
         UndoCheckOutDialog dialog;
-        dialog.lblMessage->setText(Tr::tr("Do you want to undo the check out of \"%1\"?").arg(fileName));
-        dialog.chkKeep->setChecked(m_settings.keepFileUndoCheckout);
+        dialog.setQuestion(
+            Tr::tr("Do you want to undo the check out of \"%1\"?").arg(fileName));
+        dialog.setKeep(m_settings.keepFileUndoCheckout);
         if (dialog.exec() != QDialog::Accepted)
             return;
-        keep = dialog.chkKeep->isChecked();
+        keep = dialog.keep();
         if (keep != m_settings.keepFileUndoCheckout) {
             m_settings.keepFileUndoCheckout = keep;
             m_settings.toSettings(ICore::settings());
@@ -1156,11 +1223,11 @@ void ClearCasePluginPrivate::undoHijackCurrent()
     if (askKeep) {
         UndoCheckOutDialog unhijackDlg;
         unhijackDlg.setWindowTitle(Tr::tr("Undo Hijack File"));
-        unhijackDlg.lblMessage->setText(Tr::tr("Do you want to undo hijack of \"%1\"?")
-                                       .arg(QDir::toNativeSeparators(fileName)));
+        unhijackDlg.setQuestion(Tr::tr("Do you want to undo hijack of \"%1\"?")
+                                    .arg(QDir::toNativeSeparators(fileName)));
         if (unhijackDlg.exec() != QDialog::Accepted)
             return;
-        keep = unhijackDlg.chkKeep->isChecked();
+        keep = unhijackDlg.keep();
     }
 
     FileChangeBlocker fcb(state.currentFile());
@@ -2767,6 +2834,7 @@ class ClearCasePlugin final : public ExtensionSystem::IPlugin
         dd = new ClearCasePluginPrivate;
 #ifdef WITH_TESTS
         addTest<ClearCaseTest>();
+        addTestCreator(createUndoCheckOutDialogTest);
 #endif
     }
     void extensionsInitialized() final

@@ -38,6 +38,7 @@ if(TARGET McuSupport)
     NO_PLUGIN
     QML_FILES
       McuSupportPage.qml
+      McuKitCreationDialog.qml
   )
 endif()
 

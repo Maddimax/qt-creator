@@ -26,5 +26,6 @@ if(TARGET ClearCase)
     NO_PLUGIN
     QML_FILES
       ClearCaseSettingsPage.qml
+      UndoCheckOutDialog.qml
   )
 endif()
