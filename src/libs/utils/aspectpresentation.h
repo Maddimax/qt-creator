@@ -95,6 +95,10 @@ enum Control {
     // inserting a value renumbers the rest, and a page test names them by
     // number.
     ProgressBar,
+    // A check box drawn as a button with an icon rather than a box and a
+    // label: what a toolbar's checkable QToolButton was. The icon, the text
+    // and the tool tip all say which state it is in. See Utils::ToggleAspect.
+    IconToggle,
 
 };
 Q_ENUM_NS(Control)

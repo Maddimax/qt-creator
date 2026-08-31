@@ -38,6 +38,7 @@
 #include <utils/algorithm.h>
 #include <utils/aspectlist.h>
 #include <utils/aspects.h>
+#include <utils/utilsicons.h>
 #include <qtcquick/outputview.h>
 #include <coreplugin/outputpaneview.h>
 #include <coreplugin/outputview.h>
@@ -83,6 +84,8 @@
 #include <QQmlEngine>
 #include <QQmlError>
 #include <QJSValue>
+#include <QQmlContext>
+#include <QQmlProperty>
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QMimeData>
@@ -345,6 +348,7 @@ private slots:
     void testATreesOpenBranchesCanBeKeptAcrossAChange();
     void testABranchIsCheckedByWhatIsUnderIt();
     void testATreeRowOffersWhatTheAspectDescribes();
+    void testAToggleIsDrawnAsTheButtonItsToolbarHad();
     void testATableCellShowsTheIconItsModelGives();
     void testATableWithNoColumnNamesHasNoHeader();
     void testTableAspectAddsAndRemovesRows();
@@ -6745,6 +6749,66 @@ void QuickUiTest::testATreeRowOffersWhatTheAspectDescribes()
     QMetaObject::invokeMethod(remove, "triggered");
     QCOMPARE(tree.picked, QString("delete"));
     QCOMPARE(tree.pickedRow, 1);
+}
+
+void QuickUiTest::testAToggleIsDrawnAsTheButtonItsToolbarHad()
+{
+    // A ToggleAspect carries an icon, a text and a tool tip for each of its
+    // two states, which is what a toolbar's checkable QToolButton showed. The
+    // descriptor did not carry any of it, so one drew as a plain check box.
+    const QIcon on = Utils::Icons::STOP_SMALL.icon();
+    const QIcon off = Utils::Icons::RUN_SMALL.icon();
+
+    Utils::AspectContainer page;
+    Utils::ToggleAspect toggle(&page);
+    toggle.setLabelText("Logging");
+    toggle.setOnIcon(on);
+    toggle.setOnText("Stop");
+    toggle.setOnTooltip("Stop logging");
+    toggle.setOffIcon(off);
+    toggle.setOffText("Start");
+    toggle.setOffTooltip("Start logging");
+
+    // Left to itself it is still a check box: a settings page draws one, and
+    // only a toolbar asks for the button.
+    QCOMPARE(toggle.presentation().control, Utils::AspectControls::CheckBox);
+
+    toggle.setUseIconButton(true);
+    QCOMPARE(toggle.presentation().control, Utils::AspectControls::IconToggle);
+    QCOMPARE(toggle.presentation().actionText, QString("Start"));
+    QCOMPARE(toggle.presentation().toolTip, QString("Start logging"));
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+
+    QQuickItem *button = nullptr;
+    QTRY_VERIFY(button = findQmlComponent(quickWidget->rootObject(), "IconToggleDelegate"));
+    QVERIFY(button->property("checkable").toBool());
+    QVERIFY2(!button->property("checked").toBool(), "the toggle opened turned on");
+    QCOMPARE(button->property("text").toString(), QString("Start"));
+    // An attached property, so the read needs the item's context.
+    QCOMPARE(QQmlProperty::read(button, "ToolTip.text", qmlContext(button)).toString(),
+             QString("Start logging"));
+    // A grouped property, so it is read through QQmlProperty rather than off
+    // the metaobject.
+    const QString offSource = QQmlProperty::read(button, "icon.source").toUrl().toString();
+    QVERIFY2(!offSource.isEmpty(), "the button carried no icon at all");
+
+    // What it looks like is what state it is in, and the aspect says so.
+    toggle.setValue(true);
+    QTRY_COMPARE(button->property("text").toString(), QString("Stop"));
+    QVERIFY(button->property("checked").toBool());
+    QCOMPARE(QQmlProperty::read(button, "ToolTip.text", qmlContext(button)).toString(),
+             QString("Stop logging"));
+    QVERIFY2(QQmlProperty::read(button, "icon.source").toUrl().toString() != offSource,
+             "the button showed the same icon in both states");
+
+    // And pressing it is what turns the setting on and off.
+    button->setProperty("checked", false);
+    QMetaObject::invokeMethod(button, "toggled");
+    QCOMPARE(toggle.value(), false);
 }
 
 void QuickUiTest::testATreeRowIsActivatedByReturn()

@@ -1016,6 +1016,7 @@ public:
         QString tooltip;
         QString text;
     } on, off;
+    bool useIconButton = false;
 };
 
 class ColorAspectPrivate
@@ -2394,6 +2395,32 @@ ToggleAspect::ToggleAspect(AspectContainer *container)
 
 ToggleAspect::~ToggleAspect() {}
 
+void ToggleAspect::setUseIconButton(bool useIconButton)
+{
+    if (d->useIconButton == useIconButton)
+        return;
+    d->useIconButton = useIconButton;
+    emit controlConfigurationChanged();
+}
+
+AspectPresentation ToggleAspect::presentation() const
+{
+    AspectPresentation p = BoolAspect::presentation();
+    if (!d->useIconButton)
+        return p;
+    p.control = AspectControls::IconToggle;
+    // Whichever state it is in says what it looks like, what it is called and
+    // what it explains - the same three the QAction carries.
+    const Internal::ToggleAspectPrivate::Data &data = value() ? d->on : d->off;
+    if (!data.icon.isNull())
+        p.actionIcon = data.icon;
+    if (!data.text.isEmpty())
+        p.actionText = data.text;
+    if (!data.tooltip.isEmpty())
+        p.toolTip = data.tooltip;
+    return p;
+}
+
 void ToggleAspect::setOffIcon(const QIcon &icon)
 {
     d->off.icon = icon;
@@ -2459,8 +2486,13 @@ QString ToggleAspect::offText() const
 
 void ToggleAspect::announceChanges(Changes changes, Announcement howToAnnounce)
 {
-    if (changes.valueFromVolatileValue || changes.valueFromOutside)
+    if (changes.valueFromVolatileValue || changes.valueFromOutside) {
         updateToggleAction(*this, d);
+        // Drawn as a button, the value is not only what it holds but what it
+        // looks like and what it explains, so the control has to be re-read.
+        if (d->useIconButton && howToAnnounce == DoEmit)
+            emit controlConfigurationChanged();
+    }
     BoolAspect::announceChanges(changes, howToAnnounce);
 }
 

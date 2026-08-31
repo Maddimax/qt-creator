@@ -329,6 +329,9 @@ QVariantMap AspectModels::presentation(BaseAspect *aspect)
         // offered "&Add", "&Delete" and "&Make Default". stripAccelerator
         // turns a literal "&&" back into one ampersand.
         {"actionText", Utils::stripAccelerator(p.actionText)},
+        // What the control explains, where the aspect's own tool tip is not
+        // it: a toggle explains whichever state it is in.
+        {"toolTip", p.toolTip},
         {"actionIcon", p.actionIcon.isNull() ? QString() : iconUrl(p.actionIcon)},
         {"actionIsDefault", p.actionIsDefault},
         // A password shares the String kind, and so the delegate, with an

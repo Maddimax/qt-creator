@@ -735,6 +735,13 @@ public:
     void setOffText(const QString &text);
     QString offText() const;
 
+    // Drawn as a button carrying the icon of whichever state it is in, rather
+    // than as a check box with a label beside it. A toolbar's toggle wants
+    // this; a settings page's does not.
+    void setUseIconButton(bool useIconButton);
+
+    AspectPresentation presentation() const override;
+
     QAction *action() override;
 
 protected:

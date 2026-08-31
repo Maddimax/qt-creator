@@ -24031,3 +24031,69 @@ tree group - two tree views, eight tool buttons, two context menus and a
 save-to-file; the row menu from two batches ago is what it was waiting for.
 After that the census's "genuinely custom" list is `CropScene`,
 `ColorSettings`, `DockManager`, `PluginView` and `CustomWidgetWizardPage`.
+
+## 2026-08-31 — A toggle that looks like the button it was
+
+**`LoggingViewManagerWidget` is not ported.** Reading it for this batch turned
+up four separate things the shared components cannot do, which is what "not a
+small one" has meant since the census:
+
+1. **Three checkable icon-only tool buttons** (Stop Logging, Timestamps,
+   Message Types, Auto Scroll). Fixed here.
+2. **Hiding a column** - Timestamps and Message Types hide columns 0 and 2 of
+   the log view. Not a shared gap: a proxy with `filterAcceptsColumn()` does it
+   inside the plugin.
+3. **Multi-selection in a tree** - "Copy Selected Logs" needs it, and
+   `TreeDelegate` is `SingleSelection` where `TableDelegate` is
+   `ExtendedSelection`. A shared decision: whether trees get it by default or
+   by a flag.
+4. **A row menu whose entries depend on the column that was asked** - the
+   category view says "Uncheck All Warning" or "Uncheck All", depending. The
+   `rowActions` added two batches ago are computed in `presentation()`, which
+   does not know the column; the tap sets the current index to column 0.
+   Making it carry the column would let the aspect re-describe the menu, which
+   is a change to what a current index means for every tree.
+
+**What this batch fixes: `Utils::ToggleAspect` already existed** and already
+carried an icon, a text and a tool tip **for each of its two states** - what a
+toolbar's checkable `QToolButton` showed, fed to a `QAction`. None of it
+reached `AspectPresentation`, so a `ToggleAspect` drew as a plain check box
+with the base label. The same family as the `comboBoxEditable` gap, and found
+the same way: by an aspect saying more than the descriptor carried.
+
+It is opt-in, `setUseIconButton(bool)`, exactly like
+`TriStateAspect::setUseCheckBox()`. Terminal's two toggles are on a *settings
+page*, where a labelled check box is right; only a toolbar wants the button. A
+`ToggleAspect` left alone still answers `CheckBox`, which the test pins.
+
+**The value is not only what it holds but what it looks like.** `setValue()`
+emits `changed`, and a delegate re-reads the descriptor on
+`controlConfigurationChanged` - so the icon and the tool tip stayed on the
+state the form was built in. `announceChanges()` emits both now, for the
+icon-button case only.
+
+`AspectPresentation::toolTip` reaches QML as `pres.toolTip` now. Every other
+delegate reads `aspect.toolTip`, which is the aspect's own; a control that
+explains *which state it is in* needs the descriptor's.
+
+**Reading a Quick property that is not a plain one.** `icon.source` is grouped
+and `ToolTip.text` is attached; neither can be read off the metaobject.
+`QQmlProperty::read(item, "icon.source")` handles the first, and the second
+needs the item's context as well: `QQmlProperty::read(item, "ToolTip.text",
+qmlContext(item))`. The private `qquickicon_p.h` is not available to a plugin,
+so there is no other way at the icon.
+
+Negative controls: the aspect never asking to be a button; the state not
+changing what is drawn; the descriptor carrying no tool tip; the button
+carrying no icon; and pressing it not reaching the aspect. All five bit.
+
+QuickUi 204 passed / 0 failed / 1 skipped, exit 0. `Terminal` - which owns the
+only two `ToggleAspect`s in the tree - `Core` and `Lua` all clean. `ninja
+all_qmllint` zero warnings. No `.qbs` edit: one `.qml` added, taken by
+QtcQuick's wildcard.
+
+**Next:** `LoggingViewManagerWidget` still, with 1 done and 2 not a shared
+concern. It needs a decision on 3 and 4 above before the port is worth
+starting - both change what a shared component does for every page that
+already uses it, so they are worth deciding on their own rather than inside a
+port.

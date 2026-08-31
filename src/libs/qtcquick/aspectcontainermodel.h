@@ -116,6 +116,7 @@ public:
         // Appended rather than put beside Integer: a page test names kinds by
         // number, so inserting one renumbers the rest.
         Progress,
+        IconToggle,
     };
     Q_ENUM(Kind)
 
