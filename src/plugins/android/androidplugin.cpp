@@ -5,6 +5,7 @@
 #include "androidconfigurations.h"
 #include "androidsdkmanager.h"
 #include "androidsdkmanagerdialog.h"
+#include "avdcreatordialog.h"
 #include "keystorecertificatedialog.h"
 #include "androidconstants.h"
 #include "androiddebugsupport.h"
@@ -114,6 +115,7 @@ class AndroidPlugin final : public ExtensionSystem::IPlugin
         addTestCreator(createAndroidQtVersionTest);
         addTestCreator(createAndroidConfigurationsTest);
         addTestCreator(Internal::createAndroidSettingsPageTest);
+        addTestCreator(Internal::createAvdCreatorDialogTest);
         addTestCreator(createAndroidLogcatCrashParserTest);
 #endif
     }

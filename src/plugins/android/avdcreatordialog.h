@@ -3,11 +3,17 @@
 
 #pragma once
 
+#include <QObject>
+
 #include <optional>
 
 namespace Android::Internal {
 
 class CreateAvdInfo;
+
+#ifdef WITH_TESTS
+QObject *createAvdCreatorDialogTest();
+#endif
 
 std::optional<CreateAvdInfo> executeAvdCreatorDialog();
 

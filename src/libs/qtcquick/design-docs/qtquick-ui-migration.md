@@ -22517,3 +22517,64 @@ wildcard.
    interesting kind: they are calls that only work because the object really is
    the derived aspect, which is exactly what `qtc-pane-qml-sees-only-properties`
    warns about from the other direction.
+
+## 2026-08-31 — The AVD creator, and a nameless phone
+
+`avdcreatordialog.cpp` is eight controls and three of them fill each other in:
+the ABI decides which API levels there are, the kind of device decides which
+skins and which images. All of that was `QComboBox::clear()` plus `addItem()`
+loops; it is `SelectionAspect::clearOptions()`/`addOption()` now, and the
+deciding happens in the dialog where it always did.
+
+Five rules came out of it, and the two that matter are the two that were
+buried in lambdas:
+
+- **`parseDeviceDefinitions()`** — what `avdmanager list device` says, turned
+  into rows. It was a nested loop inside a `ProcessTask` done-handler, so it
+  could only run with an Android SDK installed. The example output was already
+  written in a comment beside it; it is a test fixture now.
+- **`imageServesDeviceType()`** — which images a chosen kind of device
+  accepts. The widget filter said this by **widening a captured variable from
+  inside the predicate**: an image tagged for neither a phone nor a tablet set
+  `curDeviceType` to `PhoneOrTablet` and left it there, so an image early in
+  the list was judged against a different answer than one after it. As a
+  predicate it is three lines and order does not enter into it.
+
+**And the parser had a bug, which the fixture found on the first run.** A
+definition was appended on *every* separator or empty line, including two in a
+row - and the output ends with `---------` and then a newline. So every skin
+list has always had a **nameless entry at the end of the phones**, between the
+last real device and "Custom". Faithfully reproduced by the extraction, then
+found by counting the rows a five-device listing should give.
+
+**A validator that refused the keystroke becomes one that says what is wrong.**
+The name field had a `QRegularExpressionValidator` *and* an event filter that
+popped a tooltip beside the field for two seconds when a key was swallowed -
+the reader saw the character not appear and a tip explaining why. The aspect
+lets it be typed and says the same sentence in the field's own error line,
+which is where every other aspect says it. `nameIsUsable()` is what Ok
+follows, and an empty name is refused without a word about it.
+
+Negative controls: an empty block counted as a device (the bug above); a
+tablet read as a phone; a generic image serving only itself; any name accepted
+as an AVD name; the warning line present from the start; the page naming an
+aspect that is not there; and the API variant always in the label. All seven
+bit.
+
+QuickUi 196 passed / 0 failed / 1 skipped, exit 0. `Android` exit 0 with no
+failures, `AvdCreatorDialogTest` 10 passed. `Android_qmllint` zero warnings;
+`QtcQuick` the same 15. No `.qbs` edit: `android.qbs` takes `**/*.qml` by
+wildcard and no C++ file was added.
+
+**Next:** the 15 `QtcQuick_qmllint` warnings, which no batch has read. They are
+four kinds, and only one looks like a real defect:
+
+- `Member "recording"/"setRecording" not found on type "Utils::BaseAspect"`
+  (`KeySequenceDelegate`) and `clickRightSideIcon` likewise (`StringDelegate`).
+  These are calls that work only because the object really is the derived
+  aspect - the same gap as [[qtc-pane-qml-sees-only-properties]] seen from the
+  other side. A `required property Aspect` cannot say which aspect.
+- `Unexpected type for property "columnWidthProvider" expected function got
+  QVariant/double` in the three table/tree delegates.
+- `Member "aspect"/"itemModel"/"removed" not found on type "QQuickItem"`.
+- Three `== and != may perform type coercion`.
