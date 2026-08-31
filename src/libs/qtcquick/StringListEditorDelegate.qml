@@ -49,6 +49,17 @@ RowLayout {
         root.aspect.value = next
     }
 
+    // Order is the user's on a list where it means something - the URLs a web
+    // search filter offers are listed in the order they are tried.
+    function moveBy(index: int, offset: int): void {
+        const next = root.entries()
+        const to = index + offset
+        if (index < 0 || index >= next.length || to < 0 || to >= next.length)
+            return
+        next.splice(to, 0, next.splice(index, 1)[0])
+        root.aspect.value = next
+    }
+
     visible: aspectVisible
     spacing: Spacing.GapHM
     Layout.fillWidth: true
@@ -110,7 +121,7 @@ RowLayout {
                 enabled: root.editable
                 onClicked: {
                     const next = root.entries()
-                    next.push("")
+                    next.push(root.pres.newEntryText ?? "")
                     root.aspect.value = next
                     view.currentIndex = next.length - 1
                     view.itemAtIndex(view.currentIndex)?.forceActiveFocus()
@@ -126,6 +137,31 @@ RowLayout {
                     next.splice(view.currentIndex, 1)
                     root.aspect.value = next
                     view.currentIndex = -1
+                }
+            }
+
+            Button {
+                objectName: "stringListMoveUpButton"
+                text: qsTr("Move Up")
+                visible: root.pres.allowReordering ?? false
+                enabled: root.editable && view.currentIndex > 0
+                onClicked: {
+                    const to = view.currentIndex - 1
+                    root.moveBy(view.currentIndex, -1)
+                    view.currentIndex = to
+                }
+            }
+
+            Button {
+                objectName: "stringListMoveDownButton"
+                text: qsTr("Move Down")
+                visible: root.pres.allowReordering ?? false
+                enabled: root.editable && view.currentIndex >= 0
+                         && view.currentIndex < view.count - 1
+                onClicked: {
+                    const to = view.currentIndex + 1
+                    root.moveBy(view.currentIndex, 1)
+                    view.currentIndex = to
                 }
             }
 

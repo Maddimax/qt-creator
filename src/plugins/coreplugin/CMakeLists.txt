@@ -384,7 +384,9 @@ if(TARGET Core)
       LocatorSettingsPage.qml
       locator/LocatorFilterDialog.qml
       locator/LocatorFilterPrefixRow.qml
+      locator/FileSystemFilterDialog.qml
       locator/SpotlightFilterDialog.qml
+      locator/UrlFilterDialog.qml
       MimeTypesPage.qml
       SystemSettingsPage.qml
       mcp/McpSettingsPage.qml

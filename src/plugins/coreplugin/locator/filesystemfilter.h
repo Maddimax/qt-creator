@@ -7,6 +7,10 @@
 
 namespace Core::Internal {
 
+#ifdef WITH_TESTS
+QObject *createFileSystemFilterTest();
+#endif
+
 class FileSystemFilter final : public ILocatorFilter
 {
 public:
@@ -22,6 +26,10 @@ private:
 
     static const bool s_includeHiddenDefault = true;
     bool m_includeHidden = s_includeHiddenDefault;
+
+#ifdef WITH_TESTS
+    friend class FileSystemFilterTest;
+#endif
 };
 
 } // namespace Core::Internal

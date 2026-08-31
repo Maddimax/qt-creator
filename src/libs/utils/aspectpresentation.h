@@ -359,6 +359,11 @@ public:
     bool allowAdding = true;
     bool allowRemoving = true;
     bool allowEditing = true;
+    // StringList. What Add puts in the new entry. Empty for a list whose
+    // entries are typed from nothing; a list whose entries have a shape - a
+    // search URL with a placeholder in it - seeds that shape so the user edits
+    // it rather than remembering it.
+    QString newEntryText;
 
     // Table. The background the rows are meant to be *read against*, for a list
     // that shows what it is describing - the syntax formats of a colour scheme

@@ -309,6 +309,7 @@ QVariantMap AspectModels::presentation(BaseAspect *aspect)
         // background alone", which is what most tables want.
         {"rowBackground", p.rowBackground.isValid() ? QVariant(p.rowBackground) : QVariant()},
         {"allowReordering", p.allowReordering},
+        {"newEntryText", p.newEntryText},
         // ColorPicker and LineEdit: a control that can be put back to its
         // default offers a button for it.
         {"withResetButton", p.withResetButton},

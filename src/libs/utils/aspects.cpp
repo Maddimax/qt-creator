@@ -1094,6 +1094,8 @@ public:
     bool m_allowAdding{true};
     bool m_allowRemoving{true};
     bool m_allowEditing{true};
+    bool m_allowReordering{false};
+    QString m_newEntryText;
     StringListAspect::DisplayStyle m_displayStyle{StringListAspect::DisplayStyle::ListView};
 };
 
@@ -3272,6 +3274,8 @@ AspectPresentation StringListAspect::presentation() const
     p.allowAdding = d->m_allowAdding;
     p.allowRemoving = d->m_allowRemoving;
     p.allowEditing = d->m_allowEditing;
+    p.allowReordering = d->m_allowReordering;
+    p.newEntryText = d->m_newEntryText;
     return p;
 }
 
@@ -3320,6 +3324,14 @@ void StringListAspect::setUiAllowEditing(bool allowEditing)
 {
     d->m_allowEditing = allowEditing;
 }
+void StringListAspect::setUiAllowReordering(bool allowReordering)
+{
+    d->m_allowReordering = allowReordering;
+}
+void StringListAspect::setUiNewEntryText(const QString &text)
+{
+    d->m_newEntryText = text;
+}
 
 bool StringListAspect::uiAllowAdding() const
 {
@@ -3332,6 +3344,10 @@ bool StringListAspect::uiAllowRemoving() const
 bool StringListAspect::uiAllowEditing() const
 {
     return d->m_allowEditing;
+}
+bool StringListAspect::uiAllowReordering() const
+{
+    return d->m_allowReordering;
 }
 
 UndoableValue<QStringList> &StringListAspect::undoableValue()

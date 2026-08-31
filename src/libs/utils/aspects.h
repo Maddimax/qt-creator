@@ -1288,10 +1288,17 @@ public:
     void setUiAllowAdding(bool allowAdding);
     void setUiAllowRemoving(bool allowRemoving);
     void setUiAllowEditing(bool allowEditing);
+    // Whether the order of the entries is the user's - the URLs a web search
+    // filter offers are tried in the order they are listed - and so whether
+    // the list offers Move Up and Move Down.
+    void setUiAllowReordering(bool allowReordering);
+    // What Add puts in a new entry. Empty means an empty one.
+    void setUiNewEntryText(const QString &text);
 
     bool uiAllowAdding() const;
     bool uiAllowRemoving() const;
     bool uiAllowEditing() const;
+    bool uiAllowReordering() const;
 
 private:
     // The tree editor's Add flow appends the row-to-edit silently; only the

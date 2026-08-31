@@ -5,18 +5,17 @@
 
 #include "../coreplugintr.h"
 
-#include <utils/algorithm.h>
-#include <utils/layoutbuilder.h>
+#include "../dialogs/ioptionspage.h"
 
-#include <QCheckBox>
+#include <utils/algorithm.h>
+
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
 #include <QDesktopServices>
-#include <QDialogButtonBox>
 #include <QJsonArray>
 #include <QJsonObject>
-#include <QLabel>
-#include <QLineEdit>
-#include <QListWidget>
-#include <QPushButton>
 
 using namespace QtTaskTree;
 using namespace Utils;
@@ -24,121 +23,43 @@ using namespace Utils;
 namespace Core {
 namespace Internal {
 
-UrlFilterOptions::UrlFilterOptions(UrlLocatorFilter *filter, QWidget *parent)
-    : QDialog(parent)
-    , m_filter(filter)
+// What a new entry starts as: a search URL with the placeholder in it, so
+// that what has to be there is there to edit rather than to remember.
+const char kNewUrlTemplate[] = "https://www.example.com/search?query=%1";
+
+UrlFilterOptions::UrlFilterOptions(UrlLocatorFilter *filter)
+    : LocatorFilterOptions(filter)
 {
-    setWindowTitle(ILocatorFilter::msgConfigureDialogTitle());
-    resize(600, 400);
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Core/locator/UrlFilterDialog.qml"));
 
-    auto nameLabel = new QLabel(Tr::tr("Name:"));
-    nameLabel->setVisible(filter->isCustomFilter());
+    name.setQmlName("Name");
+    name.setLabelText(Tr::tr("Name:"));
+    name.setDisplayStyle(StringAspect::LineEditDisplay);
+    name.setValue(filter->displayName());
+    // Only a filter the user made themselves has a name of their choosing;
+    // the built-in ones are named by whoever registered them.
+    name.setVisible(filter->isCustomFilter());
 
-    nameEdit = new QLineEdit;
-    nameEdit->setText(filter->displayName());
-    nameEdit->selectAll();
-    nameEdit->setVisible(filter->isCustomFilter());
-
-    listWidget = new QListWidget;
-    listWidget->setDragDropMode(QAbstractItemView::InternalMove);
-    listWidget->setToolTip(
-        Tr::tr("Add \"%1\" placeholder for the query string.\nDouble-click to edit item."));
-    const QStringList remoteUrls = m_filter->remoteUrls();
-    for (const QString &url : remoteUrls) {
-        auto item = new QListWidgetItem(url);
-        listWidget->addItem(item);
-        item->setFlags(item->flags() | Qt::ItemIsEditable);
-    }
-
-    auto add = new QPushButton(Tr::tr("Add"));
-    remove = new QPushButton(Tr::tr("Remove"));
-    moveUp = new QPushButton(Tr::tr("Move Up"));
-    moveDown = new QPushButton(Tr::tr("Move Down"));
-
-    auto prefixLabel = new QLabel;
-    prefixLabel->setText(Core::ILocatorFilter::msgPrefixLabel());
-    prefixLabel->setToolTip(Core::ILocatorFilter::msgPrefixToolTip());
-
-    shortcutEdit = new QLineEdit;
-    shortcutEdit->setText(m_filter->shortcutString());
-
-    includeByDefault = new QCheckBox;
-    includeByDefault->setText(Core::ILocatorFilter::msgIncludeByDefault());
-    includeByDefault->setToolTip(Core::ILocatorFilter::msgIncludeByDefaultToolTip());
-    includeByDefault->setChecked(m_filter->isIncludedByDefault());
-
-    auto buttonBox = new QDialogButtonBox;
-    buttonBox->setStandardButtons(QDialogButtonBox::Cancel | QDialogButtonBox::Ok);
-
-    using namespace Layouting;
-
-    Column buttons { add, remove, moveUp, moveDown, st };
-
-    Grid {
-        nameLabel, nameEdit, br,
-        Column { Tr::tr("URLs:"), st }, Row { listWidget, buttons}, br,
-        prefixLabel, Row { shortcutEdit, includeByDefault, st }, br,
-        Span(2, buttonBox)
-    }.attachTo(this);
-
-    connect(add, &QPushButton::clicked, this, &UrlFilterOptions::addNewItem);
-    connect(remove, &QPushButton::clicked, this, &UrlFilterOptions::removeItem);
-    connect(moveUp, &QPushButton::clicked, this, &UrlFilterOptions::moveItemUp);
-    connect(moveDown, &QPushButton::clicked, this, &UrlFilterOptions::moveItemDown);
-    connect(listWidget,
-            &QListWidget::currentItemChanged,
-            this,
-            &UrlFilterOptions::updateActionButtons);
-    connect(buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
-    connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
-
-    updateActionButtons();
+    urls.setQmlName("Urls");
+    urls.setLabelText(Tr::tr("URLs:"));
+    urls.setToolTip(Tr::tr("Add \"%1\" placeholder for the query string."));
+    urls.setDisplayStyle(StringListAspect::DisplayStyle::ListView);
+    urls.setUiAllowReordering(true);
+    urls.setUiNewEntryText(newUrlTemplate());
+    urls.setValue(filter->remoteUrls());
 }
 
-void UrlFilterOptions::addNewItem()
+void UrlFilterOptions::applyTo(UrlLocatorFilter *filter) const
 {
-    QListWidgetItem *item = new QListWidgetItem("https://www.example.com/search?query=%1");
-    listWidget->addItem(item);
-    item->setSelected(true);
-    item->setFlags(item->flags() | Qt::ItemIsEditable);
-    listWidget->setCurrentItem(item);
-    listWidget->editItem(item);
+    LocatorFilterOptions::applyTo(filter);
+    filter->setRemoteUrls(urls());
+    if (filter->isCustomFilter())
+        filter->setDisplayName(name());
 }
 
-void UrlFilterOptions::removeItem()
+QString UrlFilterOptions::newUrlTemplate()
 {
-    if (QListWidgetItem *item = listWidget->currentItem()) {
-        listWidget->removeItemWidget(item);
-        delete item;
-    }
-}
-
-void UrlFilterOptions::moveItemUp()
-{
-    const int row = listWidget->currentRow();
-    if (row > 0) {
-        QListWidgetItem *item = listWidget->takeItem(row);
-        listWidget->insertItem(row - 1, item);
-        listWidget->setCurrentRow(row - 1);
-    }
-}
-
-void UrlFilterOptions::moveItemDown()
-{
-    const int row = listWidget->currentRow();
-    if (row >= 0 && row < listWidget->count() - 1) {
-        QListWidgetItem *item = listWidget->takeItem(row);
-        listWidget->insertItem(row + 1, item);
-        listWidget->setCurrentRow(row + 1);
-    }
-}
-
-void UrlFilterOptions::updateActionButtons()
-{
-    remove->setEnabled(listWidget->currentItem());
-    const int row = listWidget->currentRow();
-    moveUp->setEnabled(row > 0);
-    moveDown->setEnabled(row >= 0 && row < listWidget->count() - 1);
+    return QLatin1String(kNewUrlTemplate);
 }
 
 } // namespace Internal
@@ -208,17 +129,11 @@ void UrlLocatorFilter::restoreState(const QJsonObject &object)
 bool UrlLocatorFilter::openConfigDialog(QWidget *parent, bool &needsRefresh)
 {
     Q_UNUSED(needsRefresh)
-    Internal::UrlFilterOptions optionsDialog(this, parent);
-    if (optionsDialog.exec() == QDialog::Accepted) {
-        m_remoteUrls.clear();
-        setIncludedByDefault(optionsDialog.includeByDefault->isChecked());
-        setShortcutString(optionsDialog.shortcutEdit->text().trimmed());
-        for (int i = 0; i < optionsDialog.listWidget->count(); ++i)
-            m_remoteUrls.append(optionsDialog.listWidget->item(i)->text());
-        if (isCustomFilter())
-            setDisplayName(optionsDialog.nameEdit->text());
-        return true;
-    }
+    Internal::UrlFilterOptions options(this);
+    if (!ILocatorFilter::openConfigDialog(parent, &options))
+        return false;
+
+    options.applyTo(this);
     return true;
 }
 
@@ -228,4 +143,97 @@ void UrlLocatorFilter::addDefaultUrl(const QString &urlTemplate)
     m_defaultUrls.append(urlTemplate);
 }
 
+#ifdef WITH_TESTS
+
+namespace Internal {
+
+class UrlFilterTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheDialogDrawsWithTheQmlItNames()
+    {
+        UrlLocatorFilter filter("Test.UrlFilter");
+        UrlFilterOptions options(&filter);
+        const Result<> rendered
+            = Core::aspectFormRenders(&options, "locator/UrlFilterDialog.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+    }
+
+    void testTheDialogOpensOnWhatTheFilterHolds()
+    {
+        UrlLocatorFilter filter("Test.UrlFilter");
+        filter.addDefaultUrl("https://one.example/?q=%1");
+        filter.addDefaultUrl("https://two.example/?q=%1");
+        filter.setShortcutString("u");
+
+        const UrlFilterOptions options(&filter);
+        QCOMPARE(options.urls(), filter.remoteUrls());
+        QCOMPARE(options.shortcut(), QString("u"));
+    }
+
+    void testTheOrderOfTheUrlsIsTheReadersToSet()
+    {
+        // They are offered in the order they are listed, so the list has to
+        // say so - without this it draws Add and Remove and nothing else.
+        UrlLocatorFilter filter("Test.UrlFilter");
+        UrlFilterOptions options(&filter);
+        QVERIFY2(options.urls.presentation().allowReordering,
+                 "the URLs can no longer be put in the order they are tried");
+
+        options.urls.setValue({"first", "second"});
+        options.applyTo(&filter);
+        QCOMPARE(filter.remoteUrls(), (QStringList{"first", "second"}));
+
+        options.urls.setValue({"second", "first"});
+        options.applyTo(&filter);
+        QCOMPARE(filter.remoteUrls(), (QStringList{"second", "first"}));
+    }
+
+    void testANewEntryStartsAsASearchUrl()
+    {
+        // The widget list put a template in the new row and started editing
+        // it, so what has to be there is there to edit. An empty row would
+        // mean remembering the placeholder.
+        UrlLocatorFilter filter("Test.UrlFilter");
+        const UrlFilterOptions options(&filter);
+        const QString seeded = options.urls.presentation().newEntryText;
+        QVERIFY2(!seeded.isEmpty(), "Add leaves the reader an empty row");
+        QVERIFY2(seeded.contains("%1"), qPrintable(seeded));
+        QCOMPARE(seeded, UrlFilterOptions::newUrlTemplate());
+    }
+
+    void testOnlyAFilterOfTheReadersOwnIsNamed()
+    {
+        // The built-in filters are named by whoever registered them, so the
+        // field is not there - and a name typed into it must not reach them.
+        UrlLocatorFilter builtIn("Bug Tracker", "Test.BuiltIn");
+        UrlFilterOptions builtInOptions(&builtIn);
+        QVERIFY2(!builtInOptions.name.isVisible(), "a built-in filter offers to be renamed");
+        builtInOptions.name.setValue("Something Else");
+        builtInOptions.applyTo(&builtIn);
+        QCOMPARE(builtIn.displayName(), QString("Bug Tracker"));
+
+        UrlLocatorFilter custom("Mine", "Test.Custom");
+        custom.setIsCustomFilter(true);
+        UrlFilterOptions customOptions(&custom);
+        QVERIFY(customOptions.name.isVisible());
+        customOptions.name.setValue("Renamed");
+        customOptions.applyTo(&custom);
+        QCOMPARE(custom.displayName(), QString("Renamed"));
+    }
+};
+
+QObject *createUrlFilterTest()
+{
+    return new UrlFilterTest;
+}
+
+} // namespace Internal
+
+#endif // WITH_TESTS
+
 } // namespace Core
+
+#include "urllocatorfilter.moc"

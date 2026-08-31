@@ -280,6 +280,7 @@ private slots:
     void testIdValuedSelectionRoundTrips();
     void testARefilledListKeepsWhatWasPicked();
     void testStringListEditorAddsRemovesAndEdits();
+    void testStringListEditorReordersAndSeedsNewEntries();
     void testStringSelectionOffersItsChoices();
     void testAspectListAddsRemovesAndShowsDetails();
     void testTextWithActionShowsSummaryAndActs();
@@ -4454,6 +4455,80 @@ void QuickUiTest::testStringListEditorAddsRemovesAndEdits()
     QVERIFY(remove->property("enabled").toBool());
     QMetaObject::invokeMethod(remove, "clicked");
     QCOMPARE(list.volatileValue(), QStringList({"beta", "gamma"}));
+}
+
+void QuickUiTest::testStringListEditorReordersAndSeedsNewEntries()
+{
+    // Two things a list whose entries mean something in order needs, and which
+    // a plain list of strings must not grow: Move Up and Move Down, and a new
+    // row that starts as the shape the entries have.
+    Utils::AspectContainer plain;
+    Utils::StringListAspect quiet(&plain);
+    quiet.setLabelText("Entries");
+    quiet.setValue({"alpha", "beta"});
+
+    const std::unique_ptr<QWidget> plainForm(QtcQuick::createGenericAspectForm(&plain));
+    auto plainQuick = plainForm->findChild<QQuickWidget *>();
+    QVERIFY(plainQuick);
+    QQuickItem *plainEditor = nullptr;
+    QTRY_VERIFY(plainEditor
+                = findQmlComponent(plainQuick->rootObject(), "StringListEditorDelegate"));
+    QQuickItem *const plainUp = findButton(plainEditor, "Move Up");
+    QVERIFY(plainUp);
+    QVERIFY2(!plainUp->property("visible").toBool(),
+             "every list of strings grew a Move Up button");
+
+    Utils::AspectContainer page;
+    Utils::StringListAspect list(&page);
+    list.setLabelText("Entries");
+    list.setUiAllowReordering(true);
+    list.setUiNewEntryText("https://example.com/?q=%1");
+    list.setValue({"alpha", "beta"});
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QQuickItem *editor = nullptr;
+    QTRY_VERIFY(editor = findQmlComponent(quickWidget->rootObject(), "StringListEditorDelegate"));
+
+    QQuickItem *const view = findQmlComponent(editor, "QQuickListView");
+    QVERIFY(view);
+
+    QQuickItem *const up = findButton(editor, "Move Up");
+    QQuickItem *const down = findButton(editor, "Move Down");
+    QVERIFY(up);
+    QVERIFY(down);
+    QVERIFY(up->property("visible").toBool());
+    QVERIFY(down->property("visible").toBool());
+
+    // Nothing chosen, so there is nothing to move either way.
+    QVERIFY(!up->property("enabled").toBool());
+    QVERIFY(!down->property("enabled").toBool());
+
+    // The first row cannot go up and the last cannot go down, which is what
+    // the widget list's own buttons said.
+    view->setProperty("currentIndex", 0);
+    QVERIFY(!up->property("enabled").toBool());
+    QVERIFY(down->property("enabled").toBool());
+    view->setProperty("currentIndex", 1);
+    QVERIFY(up->property("enabled").toBool());
+    QVERIFY(!down->property("enabled").toBool());
+
+    // Moving takes the row with it, so the same entry stays current.
+    QMetaObject::invokeMethod(up, "clicked");
+    QCOMPARE(list.volatileValue(), QStringList({"beta", "alpha"}));
+    QCOMPARE(view->property("currentIndex").toInt(), 0);
+
+    QMetaObject::invokeMethod(down, "clicked");
+    QCOMPARE(list.volatileValue(), QStringList({"alpha", "beta"}));
+    QCOMPARE(view->property("currentIndex").toInt(), 1);
+
+    // And Add leaves the shape an entry has, not an empty row.
+    QQuickItem *const add = findButton(editor, "Add");
+    QVERIFY(add);
+    QMetaObject::invokeMethod(add, "clicked");
+    QCOMPARE(list.volatileValue(),
+             QStringList({"alpha", "beta", "https://example.com/?q=%1"}));
 }
 
 void QuickUiTest::testStringSelectionOffersItsChoices()

@@ -7,15 +7,6 @@
 
 #include "../core_global.h"
 
-#include <QDialog>
-
-QT_BEGIN_NAMESPACE
-class QCheckBox;
-class QLineEdit;
-class QListWidget;
-class QPushButton;
-QT_END_NAMESPACE
-
 namespace Core {
 
 class CORE_EXPORT UrlLocatorFilter final : public Core::ILocatorFilter
@@ -28,6 +19,7 @@ public:
 
     void addDefaultUrl(const QString &urlTemplate);
     QStringList remoteUrls() const { return m_remoteUrls; }
+    void setRemoteUrls(const QStringList &urls) { m_remoteUrls = urls; }
 
     void setIsCustomFilter(bool value) { m_isCustomFilter = value; }
     bool isCustomFilter() const { return m_isCustomFilter; }
@@ -47,29 +39,22 @@ private:
 
 namespace Internal {
 
-class UrlFilterOptions : public QDialog
+#ifdef WITH_TESTS
+QObject *createUrlFilterTest();
+#endif
+
+class UrlFilterOptions final : public LocatorFilterOptions
 {
-    Q_OBJECT
-    friend class Core::UrlLocatorFilter;
-
 public:
-    explicit UrlFilterOptions(UrlLocatorFilter *filter, QWidget *parent = nullptr);
+    explicit UrlFilterOptions(UrlLocatorFilter *filter);
 
-private:
-    void addNewItem();
-    void removeItem();
-    void moveItemUp();
-    void moveItemDown();
-    void updateActionButtons();
+    void applyTo(UrlLocatorFilter *filter) const;
 
-    UrlLocatorFilter *m_filter = nullptr;
-    QLineEdit *nameEdit;
-    QListWidget *listWidget;
-    QPushButton *remove;
-    QPushButton *moveUp;
-    QPushButton *moveDown;
-    QLineEdit *shortcutEdit;
-    QCheckBox *includeByDefault;
+    // What Add starts a new entry as.
+    static QString newUrlTemplate();
+
+    Utils::StringAspect name{this};
+    Utils::StringListAspect urls{this};
 };
 
 } // namespace Internal

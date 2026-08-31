@@ -4,6 +4,7 @@
 #include "filesystemfilter.h"
 
 #include "../coreplugintr.h"
+#include "../dialogs/ioptionspage.h"
 #include "../documentmanager.h"
 #include "../editormanager/editormanager.h"
 #include "../icore.h"
@@ -16,17 +17,15 @@
 #include <utils/environment.h>
 #include <utils/filepath.h>
 #include <utils/fsengine/fileiconprovider.h>
-#include <utils/layoutbuilder.h>
 #include <utils/link.h>
 
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
 #include <QApplication>
-#include <QCheckBox>
-#include <QDialog>
-#include <QDialogButtonBox>
 #include <QDir>
 #include <QJsonObject>
-#include <QLabel>
-#include <QLineEdit>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QStyle>
@@ -343,63 +342,31 @@ LocatorMatcherTasks FileSystemFilter::matchers()
     return {AsyncTask<void>(onSetup)};
 }
 
-class FileSystemFilterOptions : public QDialog
+class FileSystemFilterOptions final : public LocatorFilterOptions
 {
 public:
-    FileSystemFilterOptions(QWidget *parent)
-        : QDialog(parent)
+    FileSystemFilterOptions(FileSystemFilter *filter, bool includeHiddenValue)
+        : LocatorFilterOptions(filter)
     {
-        resize(360, 131);
-        setWindowTitle(ILocatorFilter::msgConfigureDialogTitle());
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Core/locator/FileSystemFilterDialog.qml"));
 
-        auto prefixLabel = new QLabel;
-        prefixLabel->setText(ILocatorFilter::msgPrefixLabel());
-        prefixLabel->setToolTip(ILocatorFilter::msgPrefixToolTip());
-
-        shortcutEdit = new QLineEdit;
-        includeByDefault = new QCheckBox;
-        hiddenFilesFlag = new QCheckBox(Tr::tr("Include hidden files"));
-
-        prefixLabel->setBuddy(shortcutEdit);
-
-        auto buttonBox = new QDialogButtonBox(QDialogButtonBox::Cancel|QDialogButtonBox::Ok);
-
-        using namespace Layouting;
-        Column {
-            Grid {
-                prefixLabel, shortcutEdit, includeByDefault, br,
-                Tr::tr("Filter:"), hiddenFilesFlag, br,
-            },
-            st,
-            Row {st, buttonBox }
-        }.attachTo(this);
-
-        connect(buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
-        connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
+        includeHidden.setQmlName("IncludeHidden");
+        includeHidden.setLabelText(Tr::tr("Include hidden files"));
+        includeHidden.setValue(includeHiddenValue);
     }
 
-    QLineEdit *shortcutEdit;
-    QCheckBox *includeByDefault;
-    QCheckBox *hiddenFilesFlag;
+    BoolAspect includeHidden{this};
 };
 
 bool FileSystemFilter::openConfigDialog(QWidget *parent, bool &needsRefresh)
 {
     Q_UNUSED(needsRefresh)
-    FileSystemFilterOptions dialog(parent);
-    dialog.includeByDefault->setText(msgIncludeByDefault());
-    dialog.includeByDefault->setToolTip(msgIncludeByDefaultToolTip());
-    dialog.includeByDefault->setChecked(isIncludedByDefault());
-    dialog.hiddenFilesFlag->setChecked(m_includeHidden);
-    dialog.shortcutEdit->setText(shortcutString());
+    FileSystemFilterOptions options(this, m_includeHidden);
+    if (!ILocatorFilter::openConfigDialog(parent, &options))
+        return false;
 
-    if (dialog.exec() == QDialog::Accepted) {
-        m_includeHidden = dialog.hiddenFilesFlag->isChecked();
-        setShortcutString(dialog.shortcutEdit->text().trimmed());
-        setIncludedByDefault(dialog.includeByDefault->isChecked());
-        return true;
-    }
-    return false;
+    m_includeHidden = options.includeHidden();
+    return true;
 }
 
 const char kIncludeHiddenKey[] = "includeHidden";
@@ -415,4 +382,54 @@ void FileSystemFilter::restoreState(const QJsonObject &object)
     m_includeHidden = object.value(kIncludeHiddenKey).toBool(s_includeHiddenDefault);
 }
 
+#ifdef WITH_TESTS
+
+class FileSystemFilterTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheDialogDrawsWithTheQmlItNames()
+    {
+        FileSystemFilter filter;
+        FileSystemFilterOptions options(&filter, true);
+        const Result<> rendered
+            = Core::aspectFormRenders(&options, "locator/FileSystemFilterDialog.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+    }
+
+    void testTheDialogOpensOnWhatTheFilterHolds()
+    {
+        FileSystemFilter filter;
+        filter.setShortcutString("f");
+
+        const FileSystemFilterOptions on(&filter, true);
+        QCOMPARE(on.includeHidden(), true);
+        const FileSystemFilterOptions off(&filter, false);
+        QCOMPARE(off.includeHidden(), false);
+
+        // The prefix row is filled from the same filter, which is what
+        // deriving from the shared options buys.
+        QCOMPARE(on.shortcut(), QString("f"));
+    }
+
+    void testHiddenFilesAreOfferedByDefault()
+    {
+        // Restoring a state that says nothing has to leave them on: this
+        // filter is how a path is typed, and a dot directory is a path.
+        FileSystemFilter filter;
+        filter.restoreState(QJsonObject());
+        QVERIFY2(filter.m_includeHidden, "browsing stopped offering hidden files");
+    }
+};
+
+QObject *createFileSystemFilterTest()
+{
+    return new FileSystemFilterTest;
+}
+
+#endif // WITH_TESTS
+
 } // namespace Core::Internal
+
+#include "filesystemfilter.moc"

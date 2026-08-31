@@ -22319,3 +22319,67 @@ list of URLs) and `directoryfilter.cpp` (a name, a directory list with its own
 Add/Edit/Remove, and two pattern fields). The directory list is the one that
 needs a decision: `FilePathListDelegate` is a semicolon field with one
 "Add...", where the widget has a list with three buttons.
+
+## 2026-08-31 — Two of the three remaining filters, and an ordered string list
+
+`filesystemfilter.cpp` and `urllocatorfilter.cpp` both hand-rolled the prefix
+row; both now derive from `LocatorFilterOptions` and add what they have of
+their own. The file system filter is one check box. The URL filter is a name,
+a list of search URLs, and the thing that made this batch bigger than two
+dialogs.
+
+**`StringListEditorDelegate` could not do what the widget list did.** The URLs
+are *tried in the order they are listed*, and the widget dialog had Move Up and
+Move Down beside Add and Remove. `AspectPresentation::allowReordering` already
+existed and was already honoured by `AspectListDelegate` and `TreeDelegate` -
+just not by the string list. So `StringListAspect::setUiAllowReordering()` and
+two more buttons, off by default, which is what keeps every other list of
+strings looking as it did.
+
+**And Add put something in the row.** `QListWidgetItem("https://www.example.com/search?query=%1")`,
+then `editItem()` on it: the shape an entry has was *there to edit* rather than
+to remember. The Quick editor appended an empty row.
+`AspectPresentation::newEntryText` and `setUiNewEntryText()` carry it, and
+`UrlFilterOptions::newUrlTemplate()` is where the string lives so the test can
+name it. **This is the kind of difference a page census cannot see**: both
+editors have an Add button, and only one of them tells you what an entry looks
+like.
+
+**What a container does with a value the filter will not take.** The name field
+is only there for a filter the user made themselves - the built-in ones are
+named by whoever registered them. That is two separate things and both are
+tested: `name.setVisible(filter->isCustomFilter())` in the constructor, *and*
+`applyTo()` refusing to write it. A hidden field that still writes on accept is
+a bug the widget dialog also avoided, and it takes a two-branch test to say so
+- one filter of each kind, both edited.
+
+**Both `-test` selector forms are traps, not one.** Last batch found that
+`-test "Plugin,ClassA ClassB"` matches nothing and exits 0. The
+space-separated form matches nothing for *function* names either:
+`-test "QuickUi,testA testB"` is silently empty the same way. One name per
+invocation, and the runner script has to fail when `Totals:` is missing -
+which is what caught it here on the first control.
+
+Swept the eight other plugins whose pages use `StringListAspect` (`Android`,
+`AutoTest`, `BareMetal`, `ExtensionManager`, `Lua`, `ScreenRecorder`,
+`TextEditor`, `Todo`): all exit 0 with no failures.
+
+Negative controls: the URL list not reorderable; Move Up/Down never offered;
+Move Up/Down offered to *every* list of strings; Add leaving an empty row; a
+built-in filter renamed on accept; the name field shown on every filter; and
+hidden files no longer offered by default. All seven bit.
+
+QuickUi 194 passed / 0 failed / 1 skipped, exit 0. `Core` exit 0 with no
+failures - `FileSystemFilterTest` 5 passed, `UrlFilterTest` 7 passed, and the
+two from last batch still 6 and 6. `Core_qmllint` zero warnings; `QtcQuick`
+still the same 15 pre-existing ones. No `.qbs` edit: `coreplugin.qbs` takes
+`*/*.qml`, and no C++ file was added anywhere.
+
+**Next:** `directoryfilter.cpp`, the last filter that builds its own dialog. It
+is a name, two pattern fields, and a list of directories with Add.../Edit.../
+Remove where Add and Edit open a folder picker. `StringListEditorDelegate` now
+has the buttons but types the paths; `FilePathListDelegate` browses but is a
+semicolon-separated field with one "Add...". Neither is the widget's
+affordance, so that is the decision to make before porting it - and giving
+`StringListEditorDelegate` a browse mode is the option that leaves one list
+editor rather than two.
