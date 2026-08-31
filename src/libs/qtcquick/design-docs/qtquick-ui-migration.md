@@ -23776,3 +23776,72 @@ from them:
 What is actually left of that group, after this batch:
 `GenerateGettersSettersDialog` (CppEditor), `BookmarkDialog` (shared/help),
 `SelectableFilesDialog` (ProjectExplorer), `LoggingViewManagerWidget` (Core).
+
+## 2026-08-31 — Getters and setters, and a correction to yesterday's correction
+
+`GenerateGettersSettersDialog` (CppEditor). One row per data member, one column
+per thing that can be generated for it, and four check boxes above the tree
+that are the same answer given for every row at once.
+
+**First, the correction block above was wrong about this one.**
+`ParentClassesModel` is `GenerateConstructorDialog`'s, not this dialog's.
+`GenerateGettersSettersDialog` uses `TreeModel<TreeItem, CandidateTreeItem>` -
+a `Utils::TreeModel` after all, so the original census note was half right and
+my correction of it was half wrong. What is true either way is that the
+overrides go on the model, never on `BaseTreeModel`: `registerNamedRole()`
+asserts a name is not already taken.
+
+**Where the three overrides go for a `Utils::TreeModel`.** `BaseTreeModel::data()`
+forwards any role it does not know to `item->data(column, role)`, so
+`CheckableRole` and `EditableRole` are answered by **the item**, per column -
+`CandidateTreeItem` already knew which columns are flags and which member can
+have which. Only `roleNames()` needs a subclass, and `headerData()` needs
+nothing: this model names its columns.
+
+**The column names had to move onto the model.** They were set by the dialog
+after constructing it, and a test that built the model without them got a
+model with **one column**: `BaseTreeModel::columnCount()` is the header's size,
+so `index(row, 1)` was invalid, every `setData()` past column 0 failed
+silently, and every cell but the member's name read as nothing. Two tests
+failed on that before they failed on anything real. The header is in
+`GetterSetterCandidateModel`'s constructor now - the columns are what the item
+answers by, so they are the model's, not the caller's.
+
+**The four boxes are `TriStateAspect` with `setUseCheckBox(true)`**, which is
+`TriStateDelegate` - "shown, not cycled to" is exactly what the widget's
+`preventPartiallyChecked` did by hand. The reciprocal binding is a
+`Utils::Guard`: the rows say what the box shows, and a box the *user* answers
+says it for every row.
+
+**A guard whose effect the values cannot show.** Dropping the guard changed no
+flag anywhere, so the control did not bite - the `TriState::Default`
+early-return already blocks the fan-out in the partly-checked case, and in the
+other two the fan-out writes what the rows already say. What it does prevent is
+a write back into the rows it was just read from, inside their own
+`dataChanged`. So the assertion watches **which rows are written**, not what
+they end up holding: setting row 1 must leave row 0 untouched. That bites -
+without the guard the set is `{0, 1}`.
+
+Counting `dataChanged` **emissions** would have been the wrong assertion: a
+`Utils::TreeModel` emits twice per write, once for the row from
+`TreeItem::update()` and once for the cell from `BaseTreeModel::setData()`.
+The first attempt expected 1 and got 2, on correct code.
+
+Negative controls: the item saying nothing about being checkable; a cell the
+member cannot have reading as writable; the model not naming its roles; the
+model without columns of its own again; the box not reaching the rows; nothing
+following the rows back; a box shown for something no member can have; the page
+naming an aspect that is not there; and the guard removed (after the assertion
+was made one that can see it). All nine bit.
+
+QuickUi 202 passed / 0 failed / 1 skipped, exit 0 - the skip is
+`testSecretIsFetchedBeforeItCanBeEdited` saying the macOS keychain did not
+answer, which is the environment and not this batch.
+`-test CppEditor,GenerateGettersSettersForClassTest` 9 passed, exit 0.
+`ninja all_qmllint` zero warnings. No `.qbs` edit: one `.qml` added, taken by
+CppEditor's wildcard.
+
+**Next:** `BookmarkDialog` (shared/help - `TopicChooser` already answered the
+module question for that library), `SelectableFilesDialog` (ProjectExplorer),
+and `LoggingViewManagerWidget` (Core) last: two tree views, eight tool buttons,
+two context menus and a save-to-file.

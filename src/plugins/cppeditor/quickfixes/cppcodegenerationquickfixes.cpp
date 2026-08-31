@@ -13,8 +13,11 @@
 
 #include <cplusplus/Overview.h>
 #include <cplusplus/CppRewriter.h>
+#include <coreplugin/dialogs/ioptionspage.h>
 #include <projectexplorer/projecttree.h>
+#include <utils/aspects.h>
 #include <utils/basetreeview.h>
+#include <utils/guard.h>
 #include <utils/treemodel.h>
 
 #include <QApplication>
@@ -31,6 +34,7 @@
 #include <QTableView>
 #include <QTreeView>
 #include <QLabel>
+#include <QVBoxLayout>
 
 #ifdef WITH_TESTS
 #include "cppquickfix_test.h"
@@ -1372,14 +1376,25 @@ public:
     {}
 
 private:
+    // Whether the column is one of the things that can be generated, rather
+    // than the member's name.
+    static bool isFlagColumn(int column)
+    {
+        return column > 0 && column <= static_cast<int>(std::size(ColumnFlag));
+    }
+
     QVariant data(int column, int role) const override
     {
         if (role == Qt::DisplayRole && column == NameColumn)
             return m_memberInfo->data.memberVariableName;
-        if (role == Qt::CheckStateRole && column > 0
-            && column <= static_cast<int>(std::size(ColumnFlag))) {
+        if (role == Qt::CheckStateRole && isFlagColumn(column))
             return m_memberInfo->requestedFlags & ColumnFlag[column] ? Qt::Checked : Qt::Unchecked;
-        }
+        // A widget view reads flags() for these; a Qt Quick one cannot, so the
+        // item answers both. See Utils::AspectTable.
+        if (role == AspectTable::CheckableRole)
+            return isFlagColumn(column);
+        if (role == AspectTable::EditableRole)
+            return AspectTable::isWritable(flags(column));
         return {};
     }
 
@@ -1439,22 +1454,19 @@ private:
     MemberInfo *const m_memberInfo;
 };
 
-class GenerateGettersSettersDialog : public QDialog
+// The candidates, with the role names a Qt Quick view addresses its cells by.
+// Not on BaseTreeModel: registerNamedRole() asserts a name is not already
+// taken, so naming these for every model could break one of its own.
+class GetterSetterCandidateModel : public TreeModel<TreeItem, CandidateTreeItem>
 {
-    static constexpr CandidateTreeItem::Column CheckBoxColumn[4]
-        = {CandidateTreeItem::Column::GetterColumn,
-           CandidateTreeItem::Column::SetterColumn,
-           CandidateTreeItem::Column::SignalColumn,
-           CandidateTreeItem::Column::QPropertyColumn};
-
 public:
-    GenerateGettersSettersDialog(const GetterSetterCandidates &candidates)
-        : QDialog()
-        , m_candidates(candidates)
+    explicit GetterSetterCandidateModel(QObject *parent = nullptr)
+        : TreeModel(parent)
     {
-        setWindowTitle(Tr::tr("Getters and Setters"));
-        const auto model = new TreeModel<TreeItem, CandidateTreeItem>(this);
-        model->setHeader(QStringList({
+        // Here rather than at the call site: the columns are what
+        // CandidateTreeItem answers by, so a model without them has one column
+        // and every cell but the member's name is out of reach.
+        setHeader({
             Tr::tr("Member"),
             Tr::tr("Getter"),
             Tr::tr("Setter"),
@@ -1462,107 +1474,200 @@ public:
             Tr::tr("Reset"),
             Tr::tr("QProperty"),
             Tr::tr("Constant QProperty"),
+        });
+    }
+
+    QHash<int, QByteArray> roleNames() const override
+    {
+        return AspectTable::withRoleNames(TreeModel::roleNames());
+    }
+};
+
+// One row per data member, one column per thing that can be generated for it.
+// The model is the dialog's; the aspect only hands it over.
+class GetterSetterTreeAspect final : public BaseAspect
+{
+public:
+    GetterSetterTreeAspect(AspectContainer *container, QAbstractItemModel *model)
+        : BaseAspect(container), m_model(model)
+    {}
+
+    AspectPresentation presentation() const override
+    {
+        AspectPresentation p = BaseAspect::presentation();
+        p.control = AspectControls::Tree;
+        return p;
+    }
+
+    QAbstractItemModel *tableModel() override { return m_model; }
+
+private:
+    QAbstractItemModel *const m_model;
+};
+
+// The four "for all members" boxes, in the order the dialog shows them, and
+// the column each one stands for.
+constexpr CandidateTreeItem::Column kAllMembersColumns[4]
+    = {CandidateTreeItem::Column::GetterColumn,
+       CandidateTreeItem::Column::SetterColumn,
+       CandidateTreeItem::Column::SignalColumn,
+       CandidateTreeItem::Column::QPropertyColumn};
+
+// What one of those boxes says about a column: checked when every member that
+// can have it has been asked for it, unchecked when none has, and neither when
+// some have. A member that cannot have it at all does not count either way.
+Qt::CheckState allMembersState(const GetterSetterCandidates &candidates, GenerateFlag flag)
+{
+    const int requested = Utils::count(candidates, [flag](const MemberInfo &mi) {
+        return mi.requestedFlags & flag;
+    });
+    if (requested == 0)
+        return Qt::Unchecked;
+    const int impossible = Utils::count(candidates, [flag](const MemberInfo &mi) {
+        return !(mi.possibleFlags & flag);
+    });
+    if (int(candidates.size()) - requested == impossible)
+        return Qt::Checked;
+    return Qt::PartiallyChecked;
+}
+
+TriState fromCheckState(Qt::CheckState state)
+{
+    switch (state) {
+    case Qt::Checked: return TriState::Enabled;
+    case Qt::Unchecked: return TriState::Disabled;
+    case Qt::PartiallyChecked: break;
+    }
+    return TriState::Default;
+}
+
+// What the dialog asks. The rows are the tree's; the four boxes above it are
+// the same answer given for every row at once.
+class GenerateGettersSettersAspects final : public AspectContainer
+{
+public:
+    GenerateGettersSettersAspects(const GetterSetterCandidates &candidates,
+                                  QAbstractItemModel *rows);
+
+    // The box standing for a column.
+    TriStateAspect *boxForColumn(CandidateTreeItem::Column column);
+
+    TextDisplay intro{this};
+    TriStateAspect allGetters{this};
+    TriStateAspect allSetters{this};
+    TriStateAspect allSignals{this};
+    TriStateAspect allProperties{this};
+    GetterSetterTreeAspect members;
+
+private:
+    void showWhatTheRowsSay();
+
+    const GetterSetterCandidates &m_candidates;
+    QAbstractItemModel *const m_rows;
+    Utils::Guard m_updating;
+};
+
+TriStateAspect *GenerateGettersSettersAspects::boxForColumn(CandidateTreeItem::Column column)
+{
+    switch (column) {
+    case CandidateTreeItem::Column::GetterColumn: return &allGetters;
+    case CandidateTreeItem::Column::SetterColumn: return &allSetters;
+    case CandidateTreeItem::Column::SignalColumn: return &allSignals;
+    case CandidateTreeItem::Column::QPropertyColumn: return &allProperties;
+    default: break;
+    }
+    return nullptr;
+}
+
+GenerateGettersSettersAspects::GenerateGettersSettersAspects(
+    const GetterSetterCandidates &candidates, QAbstractItemModel *rows)
+    : members(this, rows)
+    , m_candidates(candidates)
+    , m_rows(rows)
+{
+    setAutoApply(true);
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/CppEditor/GenerateGettersSettersDialog.qml"));
+
+    intro.setQmlName("Intro");
+    intro.setText(Tr::tr("Select the getters and setters to be created."));
+
+    members.setQmlName("Members");
+
+    const QString names[] = {Tr::tr("Create getters for all members"),
+                             Tr::tr("Create setters for all members"),
+                             Tr::tr("Create signals for all members"),
+                             Tr::tr("Create Q_PROPERTY for all members")};
+    const char *qmlNames[] = {"AllGetters", "AllSetters", "AllSignals", "AllProperties"};
+
+    for (std::size_t i = 0; i < std::size(kAllMembersColumns); ++i) {
+        const CandidateTreeItem::Column column = kAllMembersColumns[i];
+        const GenerateFlag flag = CandidateTreeItem::ColumnFlag[column];
+        TriStateAspect *box = boxForColumn(column);
+        box->setQmlName(QString::fromLatin1(qmlNames[i]));
+        box->setLabelText(names[i]);
+        box->setUseCheckBox(true);
+        // A box for something no member can have is not shown at all, which is
+        // what leaving it out of the layout came to.
+        box->setVisible(Utils::anyOf(candidates, [flag](const MemberInfo &mi) {
+            return mi.possibleFlags & flag;
         }));
+
+        // The answer given for every row at once. "Neither" is what the rows
+        // say, not something to act on.
+        connect(box, &BaseAspect::changed, this, [this, box, column] {
+            if (m_updating.isLocked())
+                return;
+            const TriState state = box->value();
+            if (state == TriState::Default)
+                return;
+            const int checkState = state == TriState::Enabled ? Qt::Checked : Qt::Unchecked;
+            for (int row = 0, rows = m_rows->rowCount(); row < rows; ++row)
+                m_rows->setData(m_rows->index(row, int(column)), checkState, Qt::CheckStateRole);
+        });
+    }
+
+    connect(rows, &QAbstractItemModel::dataChanged, this, [this] { showWhatTheRowsSay(); });
+    showWhatTheRowsSay();
+}
+
+void GenerateGettersSettersAspects::showWhatTheRowsSay()
+{
+    const Utils::GuardLocker locker(m_updating);
+    for (const CandidateTreeItem::Column column : kAllMembersColumns) {
+        boxForColumn(column)->setValue(
+            fromCheckState(allMembersState(m_candidates, CandidateTreeItem::ColumnFlag[column])));
+    }
+}
+
+class GenerateGettersSettersDialog : public QDialog
+{
+public:
+    GenerateGettersSettersDialog(const GetterSetterCandidates &candidates)
+        : QDialog()
+        , m_candidates(candidates)
+        , m_model(new GetterSetterCandidateModel(this))
+    {
+        setWindowTitle(Tr::tr("Getters and Setters"));
         for (MemberInfo &candidate : m_candidates)
-            model->rootItem()->appendChild(new CandidateTreeItem(&candidate));
-        const auto view = new BaseTreeView(this);
-        view->setModel(model);
-        int optimalWidth = 0;
-        for (int i = 0; i < model->columnCount(QModelIndex{}); ++i) {
-            view->resizeColumnToContents(i);
-            optimalWidth += view->columnWidth(i);
-        }
+            m_model->rootItem()->appendChild(new CandidateTreeItem(&candidate));
+
+        m_aspects.reset(new GenerateGettersSettersAspects(m_candidates, m_model));
 
         const auto buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
         connect(buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
         connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
 
-        const auto setCheckStateForAll = [model](int column, int checkState) {
-            for (int i = 0; i < model->rowCount(); ++i)
-                model->setData(model->index(i, column), checkState, Qt::CheckStateRole);
-        };
-        const auto preventPartiallyChecked = [](QCheckBox *checkbox) {
-            if (checkbox->checkState() == Qt::PartiallyChecked)
-                checkbox->setCheckState(Qt::Checked);
-        };
-        using Column = CandidateTreeItem::Column;
-        const auto createConnections = [this, setCheckStateForAll, preventPartiallyChecked](
-                                           QCheckBox *checkbox, Column column) {
-            connect(checkbox, &QCheckBox::stateChanged, this, [setCheckStateForAll, column](int state) {
-                if (state != Qt::PartiallyChecked)
-                    setCheckStateForAll(column, state);
-            });
-            connect(checkbox, &QCheckBox::clicked, this, [checkbox, preventPartiallyChecked] {
-                preventPartiallyChecked(checkbox);
-            });
-        };
-        std::array<QCheckBox *, 4> checkBoxes = {};
-
-        static_assert(std::size(CheckBoxColumn) == checkBoxes.size(),
-                      "Must contain the same number of elements");
-        for (std::size_t i = 0; i < checkBoxes.size(); ++i) {
-            if (Utils::anyOf(candidates, [i](const MemberInfo &mi) {
-                    return mi.possibleFlags & CandidateTreeItem::ColumnFlag[CheckBoxColumn[i]];
-                })) {
-                const Column column = CheckBoxColumn[i];
-                if (column == Column::GetterColumn)
-                    checkBoxes[i] = new QCheckBox(Tr::tr("Create getters for all members"));
-                else if (column == Column::SetterColumn)
-                    checkBoxes[i] = new QCheckBox(Tr::tr("Create setters for all members"));
-                else if (column == Column::SignalColumn)
-                    checkBoxes[i] = new QCheckBox(Tr::tr("Create signals for all members"));
-                else if (column == Column::QPropertyColumn)
-                    checkBoxes[i] = new QCheckBox(Tr::tr("Create Q_PROPERTY for all members"));
-
-                createConnections(checkBoxes[i], column);
-            }
-        }
-        connect(model, &QAbstractItemModel::dataChanged, this, [this, checkBoxes] {
-            const auto countExisting = [this](GenerateFlag flag) {
-                return Utils::count(m_candidates, [flag](const MemberInfo &mi) {
-                    return !(mi.possibleFlags & flag);
-                });
-            };
-            const auto countRequested = [this](GenerateFlag flag) {
-                return Utils::count(m_candidates, [flag](const MemberInfo &mi) {
-                    return mi.requestedFlags & flag;
-                });
-            };
-            const auto countToState = [this](int requestedCount, int alreadyExistsCount) {
-                if (requestedCount == 0)
-                    return Qt::Unchecked;
-                if (int(m_candidates.size()) - requestedCount == alreadyExistsCount)
-                    return Qt::Checked;
-                return Qt::PartiallyChecked;
-            };
-            for (std::size_t i = 0; i < checkBoxes.size(); ++i) {
-                if (checkBoxes[i]) {
-                    const GenerateFlag flag = CandidateTreeItem::ColumnFlag[CheckBoxColumn[i]];
-                    checkBoxes[i]->setCheckState(
-                        countToState(countRequested(flag), countExisting(flag)));
-                }
-            }
-        });
-
         const auto mainLayout = new QVBoxLayout(this);
-        mainLayout->addWidget(new QLabel(Tr::tr("Select the getters and setters "
-                                                "to be created.")));
-        for (auto checkBox : checkBoxes) {
-            if (checkBox)
-                mainLayout->addWidget(checkBox);
-        }
-        mainLayout->addWidget(view);
+        mainLayout->addWidget(Core::createAspectForm(m_aspects.get()));
         mainLayout->addWidget(buttonBox);
-        int left, right;
-        mainLayout->getContentsMargins(&left, nullptr, &right, nullptr);
-        optimalWidth += left + right;
-        resize(optimalWidth, mainLayout->sizeHint().height());
     }
 
     GetterSetterCandidates candidates() const { return m_candidates; }
 
 private:
     GetterSetterCandidates m_candidates;
+    GetterSetterCandidateModel *const m_model;
+    std::unique_ptr<GenerateGettersSettersAspects> m_aspects;
 };
 
 class GenerateGettersSettersOperation : public CppQuickFixOperation
@@ -2825,11 +2930,142 @@ private:
     }
 };
 
+// A member that can have everything in \a possible generated for it.
+static MemberInfo memberThatCan(const QString &name, int possible)
+{
+    ExistingGetterSetterData data;
+    data.memberVariableName = name;
+    return MemberInfo(data, possible);
+}
+
 class GenerateGettersSettersForClassTest : public Tests::CppQuickFixTestObject
 {
     Q_OBJECT
 public:
     using CppQuickFixTestObject::CppQuickFixTestObject;
+
+private slots:
+    void testTheDialogDrawsWithTheQmlItNames()
+    {
+        GetterSetterCandidates candidates{memberThatCan("m_one", GenerateGetter | GenerateSetter)};
+        GetterSetterCandidateModel rows;
+        rows.rootItem()->appendChild(new CandidateTreeItem(&candidates.front()));
+        GenerateGettersSettersAspects aspects(candidates, &rows);
+
+        const Result<> rendered
+            = Core::aspectFormRenders(&aspects, "GenerateGettersSettersDialog.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+    }
+
+    void testWhatABoxSaysAboutAllTheMembers()
+    {
+        // Nothing asked for is unchecked, and everything that can be asked for
+        // is checked - a member that cannot have a getter at all does not stop
+        // the box saying that every one that can, has one.
+        GetterSetterCandidates candidates{memberThatCan("m_one", GenerateGetter),
+                                          memberThatCan("m_two", GenerateGetter),
+                                          memberThatCan("m_three", GenerateSetter)};
+        QCOMPARE(allMembersState(candidates, GenerateGetter), Qt::Unchecked);
+
+        candidates[0].requestedFlags = GenerateGetter;
+        QCOMPARE(allMembersState(candidates, GenerateGetter), Qt::PartiallyChecked);
+
+        candidates[1].requestedFlags = GenerateGetter;
+        QCOMPARE(allMembersState(candidates, GenerateGetter), Qt::Checked);
+
+        // And a flag no member can have is never anything but unchecked.
+        QCOMPARE(allMembersState(candidates, GenerateSignal), Qt::Unchecked);
+    }
+
+    void testABoxForSomethingNoMemberCanHaveIsNotShown()
+    {
+        GetterSetterCandidates candidates{memberThatCan("m_one", GenerateGetter)};
+        GetterSetterCandidateModel rows;
+        rows.rootItem()->appendChild(new CandidateTreeItem(&candidates.front()));
+        GenerateGettersSettersAspects aspects(candidates, &rows);
+
+        QVERIFY(aspects.allGetters.isVisible());
+        QVERIFY2(!aspects.allSetters.isVisible(),
+                 "setters were offered for every member with no member able to have one");
+        QVERIFY(!aspects.allSignals.isVisible());
+        QVERIFY(!aspects.allProperties.isVisible());
+    }
+
+    void testTheRowsAndTheBoxesFollowEachOther()
+    {
+        GetterSetterCandidates candidates{memberThatCan("m_one", GenerateGetter | GenerateSetter),
+                                          memberThatCan("m_two", GenerateGetter | GenerateSetter)};
+        GetterSetterCandidateModel rows;
+        for (MemberInfo &candidate : candidates)
+            rows.rootItem()->appendChild(new CandidateTreeItem(&candidate));
+        GenerateGettersSettersAspects aspects(candidates, &rows);
+
+        QCOMPARE(aspects.allGetters.value(), TriState::Disabled);
+
+        // The box is the answer for every row at once.
+        aspects.allGetters.setValue(TriState::Enabled);
+        QCOMPARE(candidates[0].requestedFlags & GenerateGetter, int(GenerateGetter));
+        QCOMPARE(candidates[1].requestedFlags & GenerateGetter, int(GenerateGetter));
+
+        // And it follows them back: one row saying no leaves the box saying
+        // neither rather than no.
+        const int getterColumn = int(CandidateTreeItem::Column::GetterColumn);
+        rows.setData(rows.index(0, getterColumn), Qt::Unchecked, Qt::CheckStateRole);
+        QCOMPARE(aspects.allGetters.value(), TriState::Default);
+
+        rows.setData(rows.index(1, getterColumn), Qt::Unchecked, Qt::CheckStateRole);
+        QCOMPARE(aspects.allGetters.value(), TriState::Disabled);
+
+        // Setting the box back to what it already says changes no row: the
+        // update that put it there is not an answer to act on.
+        rows.setData(rows.index(0, getterColumn), Qt::Checked, Qt::CheckStateRole);
+        QCOMPARE(aspects.allGetters.value(), TriState::Default);
+        QCOMPARE(candidates[1].requestedFlags & GenerateGetter, 0);
+
+        // And the box being brought up to date does not write back into the
+        // rows it was read from. The flags cannot show this - what the box
+        // would write is what the rows already say - so watch which rows are
+        // written: setting one row must not touch the other.
+        QSet<int> written;
+        connect(&rows, &QAbstractItemModel::dataChanged, this,
+                [&written](const QModelIndex &topLeft, const QModelIndex &bottomRight) {
+                    for (int row = topLeft.row(); row <= bottomRight.row(); ++row)
+                        written.insert(row);
+                });
+        rows.setData(rows.index(1, getterColumn), Qt::Checked, Qt::CheckStateRole);
+        QCOMPARE(aspects.allGetters.value(), TriState::Enabled);
+        QCOMPARE(written, QSet<int>{1});
+    }
+
+    void testACellSaysWhetherItCanBeTicked()
+    {
+        // The name is read, never ticked; a column the member can have is a
+        // check box; one it cannot is a check box that cannot be used.
+        GetterSetterCandidates candidates{memberThatCan("m_one", GenerateGetter)};
+        GetterSetterCandidateModel rows;
+        rows.rootItem()->appendChild(new CandidateTreeItem(&candidates.front()));
+
+        const auto cell = [&rows](CandidateTreeItem::Column column, int role) {
+            return rows.index(0, int(column)).data(role);
+        };
+        using Column = CandidateTreeItem::Column;
+        QCOMPARE(cell(Column::NameColumn, Qt::DisplayRole).toString(), QString("m_one"));
+        QCOMPARE(cell(Column::NameColumn, AspectTable::CheckableRole).toBool(), false);
+        QCOMPARE(cell(Column::NameColumn, AspectTable::EditableRole).toBool(), false);
+
+        QCOMPARE(cell(Column::GetterColumn, AspectTable::CheckableRole).toBool(), true);
+        QCOMPARE(cell(Column::GetterColumn, AspectTable::EditableRole).toBool(), true);
+
+        QCOMPARE(cell(Column::SetterColumn, AspectTable::CheckableRole).toBool(), true);
+        QVERIFY2(!cell(Column::SetterColumn, AspectTable::EditableRole).toBool(),
+                 "a setter could be asked for that the member cannot have");
+
+        // And the names a Qt Quick view addresses those by are there at all.
+        const QHash<int, QByteArray> names = rows.roleNames();
+        QCOMPARE(names.value(Qt::CheckStateRole), QByteArray("checkState"));
+        QCOMPARE(names.value(AspectTable::CheckableRole), QByteArray("checkable"));
+    }
+
 private:
     void modifySettings(QuickFixSettings &s, const QVariantMap &, const QByteArray &) override
     {
