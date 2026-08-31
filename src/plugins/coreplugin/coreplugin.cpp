@@ -30,6 +30,7 @@
 #include "idocument.h"
 #include "iwizardfactory.h"
 #include "locator/locator.h"
+#include "locator/spotlightlocatorfilter.h"
 #include "dialogs/externaltoolconfig.h"
 #include "dialogs/shortcutsettings.h"
 #include "mimetypesettings.h"
@@ -539,6 +540,8 @@ Result<> CorePlugin::initialize(const QStringList &arguments)
     addTestCreator(createFilePropertiesTest);
     addTestCreator(createMinimapImageTest);
     addTestCreator(createLocatorTest);
+    addTestCreator(createLocatorFilterOptionsTest);
+    addTestCreator(Internal::createSpotlightFilterTest);
     addTestCreator(createVcsManagerTest);
     addTestCreator(createEditorManagerTest);
     addTestCreator(createTabbedEditorTest);

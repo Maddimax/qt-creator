@@ -7,6 +7,10 @@
 
 namespace Core::Internal {
 
+#ifdef WITH_TESTS
+QObject *createSpotlightFilterTest();
+#endif
+
 class SpotlightLocatorFilter final : public ILocatorFilter
 {
 public:
@@ -25,6 +29,10 @@ private:
     QString m_arguments;
     QString m_caseSensitiveArguments;
     bool m_sortResults = true;
+
+#ifdef WITH_TESTS
+    friend class SpotlightFilterTest;
+#endif
 };
 
 } // namespace Core::Internal

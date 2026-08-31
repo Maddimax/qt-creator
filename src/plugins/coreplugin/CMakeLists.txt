@@ -382,6 +382,9 @@ if(TARGET Core)
       GeneralSettingsPage.qml
       KeyboardSettingsPage.qml
       LocatorSettingsPage.qml
+      locator/LocatorFilterDialog.qml
+      locator/LocatorFilterPrefixRow.qml
+      locator/SpotlightFilterDialog.qml
       MimeTypesPage.qml
       SystemSettingsPage.qml
       mcp/McpSettingsPage.qml

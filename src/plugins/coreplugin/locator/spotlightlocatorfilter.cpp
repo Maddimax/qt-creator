@@ -4,25 +4,28 @@
 #include "spotlightlocatorfilter.h"
 
 #include "../coreplugintr.h"
+#include "../dialogs/ioptionspage.h"
 #include "../messagemanager.h"
 
 #include <utils/algorithm.h>
 #include <utils/async.h>
 #include <utils/commandline.h>
 #include <utils/environment.h>
-#include <utils/fancylineedit.h>
 #include <utils/link.h>
 #include <utils/macroexpander.h>
 #include <utils/pathchooser.h>
 #include <utils/qtcprocess.h>
 #include <utils/stringutils.h>
-#include <utils/variablechooser.h>
 
-#include <QCheckBox>
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
 #include <QDir>
-#include <QFormLayout>
 #include <QJsonObject>
 #include <QRegularExpression>
+
+#include <memory>
 
 using namespace QtTaskTree;
 using namespace Utils;
@@ -200,40 +203,66 @@ LocatorMatcherTasks SpotlightLocatorFilter::matchers()
     return {AsyncTask<void>(onSetup)};
 }
 
+class SpotlightFilterOptions final : public LocatorFilterOptions
+{
+public:
+    SpotlightFilterOptions(SpotlightLocatorFilter *filter,
+                           const QString &commandValue,
+                           const QString &argumentsValue,
+                           const QString &caseSensitiveArgumentsValue,
+                           bool sortResultsValue)
+        : LocatorFilterOptions(filter)
+        // The dialog's own, so that a field can offer the query variables
+        // while it is open. Nothing is expanded here - the search does that
+        // with the query the reader typed.
+        , m_expander(createMacroExpander(""))
+    {
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Core/locator/SpotlightFilterDialog.qml"));
+
+        command.setQmlName("Command");
+        command.setLabelText(Tr::tr("Executable:", "noun"));
+        command.setExpectedKind(PathChooserKind::ExistingCommand);
+        command.setValue(commandValue);
+
+        arguments.setQmlName("Arguments");
+        arguments.setLabelText(Tr::tr("Arguments:"));
+        arguments.setDisplayStyle(StringAspect::LineEditDisplay);
+        arguments.setMacroExpander(m_expander.get());
+        arguments.setValue(argumentsValue);
+
+        caseSensitiveArguments.setQmlName("CaseSensitiveArguments");
+        caseSensitiveArguments.setLabelText(Tr::tr("Case sensitive:"));
+        caseSensitiveArguments.setDisplayStyle(StringAspect::LineEditDisplay);
+        caseSensitiveArguments.setMacroExpander(m_expander.get());
+        caseSensitiveArguments.setValue(caseSensitiveArgumentsValue);
+
+        sortResults.setQmlName("SortResults");
+        sortResults.setLabelText(Tr::tr("Sort results"));
+        sortResults.setValue(sortResultsValue);
+    }
+
+    FilePathAspect command{this};
+    StringAspect arguments{this};
+    StringAspect caseSensitiveArguments{this};
+    BoolAspect sortResults{this};
+
+private:
+    const std::unique_ptr<MacroExpander> m_expander;
+};
+
 bool SpotlightLocatorFilter::openConfigDialog(QWidget *parent, bool &needsRefresh)
 {
     Q_UNUSED(needsRefresh)
-    QWidget configWidget;
-    QFormLayout *layout = new QFormLayout;
-    layout->setContentsMargins(0, 0, 0, 0);
-    layout->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
-    configWidget.setLayout(layout);
-    PathChooser *commandEdit = new PathChooser;
-    commandEdit->setExpectedKind(PathChooserKind::ExistingCommand);
-    commandEdit->lineEdit()->setText(m_command);
-    FancyLineEdit *argumentsEdit = new FancyLineEdit;
-    argumentsEdit->setText(m_arguments);
-    FancyLineEdit *caseSensitiveArgumentsEdit = new FancyLineEdit;
-    caseSensitiveArgumentsEdit->setText(m_caseSensitiveArguments);
-    auto sortResults = new QCheckBox(Tr::tr("Sort results"));
-    sortResults->setChecked(m_sortResults);
-    layout->addRow(Tr::tr("Executable:", "noun"), commandEdit);
-    layout->addRow(Tr::tr("Arguments:"), argumentsEdit);
-    layout->addRow(Tr::tr("Case sensitive:"), caseSensitiveArgumentsEdit);
-    layout->addRow({}, sortResults);
-    std::unique_ptr<MacroExpander> expander(createMacroExpander(""));
-    auto chooser = new VariableChooser(&configWidget);
-    chooser->addMacroExpanderProvider({this, [expander = expander.get()] { return expander; }});
-    chooser->addSupportedWidget(argumentsEdit);
-    chooser->addSupportedWidget(caseSensitiveArgumentsEdit);
-    const bool accepted = ILocatorFilter::openConfigDialog(parent, &configWidget);
-    if (accepted) {
-        m_command = commandEdit->unexpandedFilePath().toUrlishString();
-        m_arguments = argumentsEdit->text();
-        m_caseSensitiveArguments = caseSensitiveArgumentsEdit->text();
-        m_sortResults = sortResults->isChecked();
-    }
-    return accepted;
+    SpotlightFilterOptions options(this, m_command, m_arguments, m_caseSensitiveArguments,
+                                   m_sortResults);
+    if (!ILocatorFilter::openConfigDialog(parent, &options))
+        return false;
+
+    m_command = options.command.value();
+    m_arguments = options.arguments();
+    m_caseSensitiveArguments = options.caseSensitiveArguments();
+    m_sortResults = options.sortResults();
+    return true;
 }
 
 void SpotlightLocatorFilter::saveState(QJsonObject &obj) const
@@ -256,4 +285,88 @@ void SpotlightLocatorFilter::restoreState(const QJsonObject &obj)
     m_sortResults = obj.value(kSortResultsKey).toBool(kSortResultsDefault);
 }
 
+#ifdef WITH_TESTS
+
+class SpotlightFilterTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheDialogDrawsWithTheQmlItNames()
+    {
+        SpotlightLocatorFilter filter;
+        SpotlightFilterOptions options(&filter, "mdfind", "args", "sensitive args", true);
+        const Result<> rendered
+            = Core::aspectFormRenders(&options, "locator/SpotlightFilterDialog.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+    }
+
+    void testTheDialogOpensOnWhatTheFilterHolds()
+    {
+        SpotlightLocatorFilter filter;
+        filter.m_command = "somewhere/mdfind";
+        filter.m_arguments = "-first";
+        filter.m_caseSensitiveArguments = "-second";
+        filter.m_sortResults = false;
+
+        const SpotlightFilterOptions options(&filter, filter.m_command, filter.m_arguments,
+                                             filter.m_caseSensitiveArguments, filter.m_sortResults);
+        QCOMPARE(options.command.value(), QString("somewhere/mdfind"));
+        QCOMPARE(options.arguments(), QString("-first"));
+        QCOMPARE(options.caseSensitiveArguments(), QString("-second"));
+        QCOMPARE(options.sortResults(), false);
+
+        // The prefix row is filled from the same filter, which is the whole
+        // point of deriving from the shared options.
+        QCOMPARE(options.shortcut(), filter.shortcutString());
+    }
+
+    void testTheArgumentFieldsOfferTheQueryVariables()
+    {
+        // The arguments are written in terms of the query - that is what makes
+        // them arguments and not a fixed command line - so the fields have to
+        // offer those variables. The widget dialog gave the chooser to exactly
+        // these two fields and not to the executable.
+        SpotlightLocatorFilter filter;
+        SpotlightFilterOptions options(&filter, {}, {}, {}, true);
+
+        // Every aspect has an expander of its own; what setMacroExpander()
+        // does is add the dialog's as a sub-provider of it. So the question is
+        // what each field can resolve, not which object it hands out.
+        QString unknown;
+        for (const StringAspect *field : {&options.arguments, &options.caseSensitiveArguments}) {
+            MacroExpander *const expander = field->macroExpander();
+            QVERIFY2(expander, "an argument field has nothing to write the query with");
+            QVERIFY2(expander->resolveMacro("Query", &unknown),
+                     "an argument field does not know the query it is written against");
+            QVERIFY(expander->resolveMacro("Query:Escaped", &unknown));
+            QVERIFY(expander->resolveMacro("Query:EscapedWithWildcards", &unknown));
+            QVERIFY(expander->resolveMacro("Query:Regex", &unknown));
+        }
+
+        // The executable is a path, not a template; the widget dialog gave the
+        // chooser to the two argument fields and to nothing else.
+        QVERIFY2(!options.command.macroExpander()->resolveMacro("Query", &unknown),
+                 "the executable field offers the query variables too");
+    }
+
+    void testTheDefaultArgumentsAreWrittenWithThoseVariables()
+    {
+        // If they were not, the field would offer variables nothing uses, and
+        // the search would look for the literal text of the default.
+        QVERIFY2(defaultArguments().contains("%{Query"), qPrintable(defaultArguments()));
+        QVERIFY2(defaultArguments(Qt::CaseSensitive).contains("%{Query"),
+                 qPrintable(defaultArguments(Qt::CaseSensitive)));
+    }
+};
+
+QObject *createSpotlightFilterTest()
+{
+    return new SpotlightFilterTest;
+}
+
+#endif // WITH_TESTS
+
 } // namespace Core::Internal
+
+#include "spotlightlocatorfilter.moc"

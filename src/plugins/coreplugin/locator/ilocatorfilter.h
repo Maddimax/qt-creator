@@ -7,6 +7,7 @@
 
 #include <QtTaskTree/QTaskTree>
 
+#include <utils/aspects.h>
 #include <utils/filepath.h>
 #include <utils/id.h>
 #include <utils/link.h>
@@ -27,6 +28,13 @@ namespace Internal {
 class Locator;
 class LocatorWidget;
 }
+
+class ILocatorFilter;
+class LocatorFilterOptions;
+
+#ifdef WITH_TESTS
+CORE_EXPORT QObject *createLocatorFilterOptionsTest();
+#endif
 
 class ILocatorFilter;
 class LocatorStoragePrivate;
@@ -184,6 +192,24 @@ private:
     std::unique_ptr<LocatorMatcherPrivate> d;
 };
 
+// What every locator filter's configuration dialog offers: the prefix that
+// restricts a search to this filter, and whether the filter is asked at all
+// when no prefix is typed. A filter with settings of its own derives from
+// this, adds them, and names a .qml that draws both.
+class CORE_EXPORT LocatorFilterOptions : public Utils::AspectContainer
+{
+public:
+    explicit LocatorFilterOptions(ILocatorFilter *filter);
+
+    // Writes the shared half back. The prefix is trimmed: a filter is reached
+    // by typing it and then a space, so one with spaces around it could never
+    // be typed at all.
+    void applyTo(ILocatorFilter *filter) const;
+
+    Utils::StringAspect shortcut{this};
+    Utils::BoolAspect includedByDefault{this};
+};
+
 class CORE_EXPORT ILocatorFilter : public QObject
 {
     Q_OBJECT
@@ -264,7 +290,7 @@ protected:
     void setId(Utils::Id id);
     void setPriority(Priority priority);
     void setConfigurable(bool configurable);
-    bool openConfigDialog(QWidget *parent, QWidget *additionalWidget);
+    bool openConfigDialog(QWidget *parent, LocatorFilterOptions *options);
 
     virtual void saveState(QJsonObject &object) const;
     virtual void restoreState(const QJsonObject &object);

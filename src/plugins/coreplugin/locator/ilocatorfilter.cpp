@@ -6,12 +6,17 @@
 #include "locator.h"
 
 #include "../coreplugintr.h"
+#include "../dialogs/ioptionspage.h"
 
 #include <QtTaskTree/QSingleTaskTreeRunner>
 
 #include <utils/algorithm.h>
 #include <utils/async.h>
 #include <utils/fuzzymatcher.h>
+
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
 
 #include <QBoxLayout>
 #include <QCheckBox>
@@ -626,7 +631,8 @@ void ILocatorFilter::restoreState(const QByteArray &state)
 bool ILocatorFilter::openConfigDialog(QWidget *parent, bool &needsRefresh)
 {
     Q_UNUSED(needsRefresh)
-    return openConfigDialog(parent, nullptr);
+    LocatorFilterOptions options(this);
+    return openConfigDialog(parent, &options);
 }
 
 /*!
@@ -927,46 +933,48 @@ void ILocatorFilter::setConfigurable(bool configurable)
 
     Returns \c false if the user canceled the dialog.
 */
-bool ILocatorFilter::openConfigDialog(QWidget *parent, QWidget *additionalWidget)
+LocatorFilterOptions::LocatorFilterOptions(ILocatorFilter *filter)
+{
+    setAutoApply(true);
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Core/locator/LocatorFilterDialog.qml"));
+
+    shortcut.setQmlName("Shortcut");
+    shortcut.setLabelText(ILocatorFilter::msgPrefixLabel());
+    shortcut.setToolTip(ILocatorFilter::msgPrefixToolTip());
+    shortcut.setDisplayStyle(Utils::StringAspect::LineEditDisplay);
+    shortcut.setValue(filter->shortcutString());
+
+    includedByDefault.setQmlName("IncludedByDefault");
+    includedByDefault.setLabelText(ILocatorFilter::msgIncludeByDefault());
+    includedByDefault.setToolTip(ILocatorFilter::msgIncludeByDefaultToolTip());
+    includedByDefault.setValue(filter->isIncludedByDefault());
+}
+
+void LocatorFilterOptions::applyTo(ILocatorFilter *filter) const
+{
+    filter->setShortcutString(shortcut().trimmed());
+    filter->setIncludedByDefault(includedByDefault());
+}
+
+bool ILocatorFilter::openConfigDialog(QWidget *parent, LocatorFilterOptions *options)
 {
     QDialog dialog(parent, Qt::WindowTitleHint | Qt::WindowSystemMenuHint);
     dialog.setWindowTitle(msgConfigureDialogTitle());
 
-    auto vlayout = new QVBoxLayout(&dialog);
-    auto hlayout = new QHBoxLayout;
-    QLineEdit *shortcutEdit = new QLineEdit(shortcutString());
-    QCheckBox *includeByDefault = new QCheckBox(msgIncludeByDefault());
-    includeByDefault->setToolTip(msgIncludeByDefaultToolTip());
-    includeByDefault->setChecked(isIncludedByDefault());
-
-    auto prefixLabel = new QLabel(msgPrefixLabel());
-    prefixLabel->setToolTip(msgPrefixToolTip());
-    hlayout->addWidget(prefixLabel);
-    hlayout->addWidget(shortcutEdit);
-    hlayout->addWidget(includeByDefault);
-
-    QDialogButtonBox *buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok
-                                                       | QDialogButtonBox::Cancel);
+    auto buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
     connect(buttonBox, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
     connect(buttonBox, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
 
-    if (additionalWidget)
-        vlayout->addWidget(additionalWidget);
-    vlayout->addLayout(hlayout);
-    vlayout->addStretch();
-    vlayout->addWidget(buttonBox);
+    auto layout = new QVBoxLayout(&dialog);
+    layout->addWidget(createAspectForm(options));
+    layout->addStretch();
+    layout->addWidget(buttonBox);
 
-    bool accepted = false;
-    if (dialog.exec() == QDialog::Accepted) {
-        setShortcutString(shortcutEdit->text().trimmed());
-        setIncludedByDefault(includeByDefault->isChecked());
-        accepted = true;
-    }
-    if (additionalWidget) {
-        additionalWidget->setVisible(false);
-        additionalWidget->setParent(nullptr);
-    }
-    return accepted;
+    if (dialog.exec() != QDialog::Accepted)
+        return false;
+
+    options->applyTo(this);
+    return true;
 }
 
 /*!
@@ -1431,4 +1439,95 @@ ExecutableItem LocatorFileCache::matcher() const
     return AsyncTask<LocatorFileCachePrivate>(onSetup, onDone, CallDoneFlag::OnSuccess);
 }
 
+#ifdef WITH_TESTS
+
+namespace {
+
+// The smallest thing that is a filter: what a configuration dialog is opened
+// on, with nothing of its own to configure.
+class PlainFilter final : public ILocatorFilter
+{
+public:
+    PlainFilter() { setId("Test.PlainFilter"); }
+
+private:
+    LocatorMatcherTasks matchers() final { return {}; }
+};
+
+} // namespace
+
+class LocatorFilterOptionsTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheSharedDialogDrawsWithTheQmlItNames()
+    {
+        PlainFilter filter;
+        LocatorFilterOptions options(&filter);
+        const Utils::Result<> rendered
+            = aspectFormRenders(&options, "locator/LocatorFilterDialog.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+    }
+
+    void testTheDialogOpensOnWhatTheFilterHolds()
+    {
+        PlainFilter filter;
+        filter.setShortcutString("x");
+        filter.setIncludedByDefault(true);
+
+        const LocatorFilterOptions options(&filter);
+        QCOMPARE(options.shortcut(), QString("x"));
+        QCOMPARE(options.includedByDefault(), true);
+    }
+
+    void testThePrefixIsTrimmedOnTheWayBack()
+    {
+        // A filter is reached by typing its prefix and then a space, so a
+        // prefix with spaces around it could never be typed at all. The widget
+        // dialog trimmed on accept; so does this.
+        PlainFilter filter;
+        LocatorFilterOptions options(&filter);
+        options.shortcut.setValue("  x  ");
+        options.includedByDefault.setValue(false);
+        options.applyTo(&filter);
+
+        QCOMPARE(filter.shortcutString(), QString("x"));
+        QCOMPARE(filter.isIncludedByDefault(), false);
+
+        // And what is inside the prefix is left alone: it is a prefix, not a
+        // word, and nothing says it may not have a dot in it.
+        options.shortcut.setValue("a.b");
+        options.applyTo(&filter);
+        QCOMPARE(filter.shortcutString(), QString("a.b"));
+    }
+
+    void testTheTwoHalvesAreBothWrittenBack()
+    {
+        // Both, from one call: an earlier version of this dialog wrote the
+        // prefix and left the default alone, which is invisible unless the
+        // test changes both.
+        PlainFilter filter;
+        filter.setShortcutString("old");
+        filter.setIncludedByDefault(false);
+
+        LocatorFilterOptions options(&filter);
+        options.shortcut.setValue("new");
+        options.includedByDefault.setValue(true);
+        options.applyTo(&filter);
+
+        QCOMPARE(filter.shortcutString(), QString("new"));
+        QCOMPARE(filter.isIncludedByDefault(), true);
+    }
+};
+
+QObject *createLocatorFilterOptionsTest()
+{
+    return new LocatorFilterOptionsTest;
+}
+
+#endif // WITH_TESTS
+
 } // Core
+
+#include "ilocatorfilter.moc"

@@ -115,6 +115,14 @@ Utils::Result<> aspectFormRenders(AspectContainer *container, const QString &qml
     if (!container)
         return Utils::ResultError(QString("no container to render"));
 
+    // Said here rather than left to fall out of the complaint filter below:
+    // the caller is stating which form this container draws, and a container
+    // that names another one is the mistake worth reporting.
+    if (!container->qmlSource().toString().endsWith(qmlFileName)) {
+        return Utils::ResultError(QString("the container names %1, not %2")
+                                      .arg(container->qmlSource().toString(), qmlFileName));
+    }
+
     // Collected with a message handler rather than QQmlEngine::warnings, which
     // would mean linking Qt Quick here: a QML warning carries no logging
     // category, so the file name is what tells this form's complaints from
@@ -148,9 +156,13 @@ Utils::Result<> aspectFormRenders(AspectContainer *container, const QString &qml
     if (status != ready)
         return Utils::ResultError(QString("the form did not load, status %1").arg(status));
 
+    // Anything the form pulled in, not only the file the container named. A
+    // page built from a shared component reports the *component's* file, so
+    // filtering by the page's own name hid every complaint about it - a
+    // prefix row naming an aspect that does not exist rendered clean.
     const QStringList aboutThisForm
-        = Utils::filtered(s_complaints, [&qmlFileName](const QString &complaint) {
-              return complaint.contains(qmlFileName);
+        = Utils::filtered(s_complaints, [](const QString &complaint) {
+              return complaint.contains("qrc:/qt/qml/QtCreator/");
           });
     if (!aboutThisForm.isEmpty())
         return Utils::ResultError(aboutThisForm.join("; "));

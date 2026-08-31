@@ -22238,3 +22238,84 @@ plugins take `*.qml` by wildcard and no new C++ file was added.
 
 **Next:** `directoryfilter.cpp` and `filesystemfilter.cpp` in the Locator, then
 `avdcreatordialog.cpp`.
+
+## 2026-08-31 — The shared locator filter dialog, and what "qmllint clean" meant
+
+The plan called `ILocatorFilter::openConfigDialog()` "a chain, not a batch" and
+said four filters passed it an `additionalWidget`. **Only one does** -
+`SpotlightLocatorFilter`. The other three (`directoryfilter`,
+`filesystemfilter`, `urllocatorfilter`) override the one-argument version and
+build a dialog of their own, hand-rolling the prefix row each time. So the
+chain is two files, and doing it first is what stops the other three from
+hand-rolling it again.
+
+`Core::LocatorFilterOptions` is now the shared half: a `StringAspect` for the
+prefix and a `BoolAspect` for include-by-default, filled from the filter in the
+constructor and written back by `applyTo()`. A filter with settings of its own
+derives from it, adds them, and names a `.qml` that draws them above
+`LocatorFilterPrefixRow` - the first *shared page-level component* in this
+series, as opposed to a shared delegate.
+
+`openConfigDialog(QWidget *, QWidget *additionalWidget)` becomes
+`openConfigDialog(QWidget *, LocatorFilterOptions *)`. Nothing passes a widget
+any more, so the "reparent it back to nullptr afterwards" dance is gone with it.
+
+**The shared component broke the render check, and the check said nothing.**
+`aspectFormRenders()` filtered the collected QML complaints by *the page's file
+name*. A complaint about `LocatorFilterPrefixRow.qml` does not contain
+`LocatorFilterDialog.qml`, so pointing the prefix row at an aspect that does
+not exist rendered **clean**. The filter is now "any complaint naming a file
+under `qrc:/qt/qml/QtCreator/`" - which is everything the form pulled in - and
+the thing the file name used to check is now checked directly and better:
+`container->qmlSource()` has to end with the name the caller passed.
+
+Sweeping the 26 plugins that use `aspectFormRenders()` after broadening it
+found **no new failures**: the pre-existing ones are `Debugger`'s
+`testStateMachine`, `ProjectExplorer`'s two, `Profiler`'s abort and CppEditor's
+flakiness (`-test CppEditor,LocatorFilterTest` alone is 15 passed).
+`ClangFormat` is not built in this configuration, so its render test is the one
+this sweep could not exercise.
+
+**"qmllint clean" has meant "exit 0", which is not the same thing.**
+`ninja <Target>_qmllint` **succeeds with warnings**. Writing
+`FilePathDelegate` - a type that does not exist - into a page produced
+`FilePathDelegate was not found` in the qmllint output *and* an exit code of 0;
+only the render test failed the batch. Counting `^Warning:` lines instead:
+`Core`, `Git`, `CodePaster` and `LanguageClient` are genuinely at zero, and
+**`QtcQuick` has 15**, all pre-existing (`columnWidthProvider` typed as a
+function, `Member "recording" not found on type "Utils::BaseAspect"`, three
+`== vs ===`). Worth reading, not worth this batch.
+
+**Two API facts the port got wrong first.** A `FilePathAspect` is drawn by
+`StringDelegate`, not by any `FilePathDelegate` - `AspectItems.qml` maps
+`AspectContainerModel.FilePath` to `StringDelegate`. And
+`BaseAspect::setMacroExpander()` does not store the expander: it registers it
+as a *sub-provider* of the aspect's own, so `macroExpander()` answers a
+different object per aspect. Comparing those pointers is meaningless; ask each
+field what it can resolve instead, which is what the reader actually gets.
+
+**A mistyped `-test` selector exits 0 and prints no totals.**
+`-test "Core,ClassA ClassB"` matches nothing - the space-separated form names
+*functions of one class* - and the run is silently empty. Three controls were
+recorded as "did not bite" before the log said
+`No test function or class matches`. Every control run now goes through a
+script that treats a missing `Totals:` line as a failure of the run itself.
+
+Negative controls: the prefix row naming an aspect that is not there (which
+only bit *after* the filter was broadened - it is the reason it was); the
+prefix not trimmed on the way back; only the prefix written back and not the
+default; the second argument field losing the query variables; the executable
+field being given them; and a delegate type that does not exist. All six bit.
+
+QuickUi 193 passed / 0 failed / 1 skipped, exit 0. `Core` exit 0 with no
+failures - `LocatorFilterOptionsTest` 6 passed, `SpotlightFilterTest` 6 passed.
+`Core_qmllint` zero warnings. No `.qbs` edit: `coreplugin.qbs` takes
+`*/*.qml` by wildcard, which covers the new `locator/` files, and no new C++
+file was added.
+
+**Next:** the three filters that still hand-roll the prefix row -
+`filesystemfilter.cpp` (one check box), `urllocatorfilter.cpp` (a name and a
+list of URLs) and `directoryfilter.cpp` (a name, a directory list with its own
+Add/Edit/Remove, and two pattern fields). The directory list is the one that
+needs a decision: `FilePathListDelegate` is a semicolon field with one
+"Add...", where the widget has a list with three buttons.
