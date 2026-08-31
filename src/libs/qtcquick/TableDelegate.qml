@@ -55,6 +55,20 @@ RowLayout {
         view.selectionModel.setCurrentIndex(mapped, ItemSelectionModel.ClearAndSelect)
     }
 
+    // Moving through the rows from somewhere else - the filter field above
+    // them. \a delta is in rows as they are shown, because that is what the
+    // reader is looking at; one row for an arrow, five for a page, which is
+    // what the widget lists that filtered did.
+    function moveCurrentBy(delta: int): void {
+        const shown = root.rows.rowCount()
+        if (shown === 0)
+            return
+        const from = view.currentRow < 0 ? (delta > 0 ? -1 : shown) : view.currentRow
+        const to = Math.min(shown - 1, Math.max(0, from + delta))
+        view.selectionModel.setCurrentIndex(root.rows.index(to, 0),
+                                            ItemSelectionModel.ClearAndSelect)
+    }
+
     // Every selected row, in the aspect's own model, ascending. A page that
     // acts on a selection - export these, remove those - wants all of them and
     // not just the one the keyboard is on.
@@ -154,7 +168,35 @@ RowLayout {
                 placeholderText: root.pres.filterPlaceholderText ?? ""
                 enabled: root.aspect?.enabled ?? false
                 Layout.preferredWidth: Math.round(column.width / 4)
-                onTextChanged: root.rows.setFilterFixedString(text)
+                onTextChanged: {
+                    root.rows.setFilterFixedString(text)
+                    // Whatever the reader was on may be filtered away. Land on
+                    // the first row that is left, so that the arrows and
+                    // Return below have something to work with.
+                    if (root.currentRow < 0)
+                        root.moveCurrentBy(1)
+                }
+
+                // Type to filter, arrow to pick, Return to take it - without
+                // reaching for the mouse or tabbing into the list. The widget
+                // lists that filtered installed an event filter to do this.
+                Keys.onPressed: (event) => {
+                    switch (event.key) {
+                    case Qt.Key_Down: root.moveCurrentBy(1); break
+                    case Qt.Key_Up: root.moveCurrentBy(-1); break
+                    case Qt.Key_PageDown: root.moveCurrentBy(5); break
+                    case Qt.Key_PageUp: root.moveCurrentBy(-5); break
+                    case Qt.Key_Return:
+                    case Qt.Key_Enter:
+                        if (root.currentRow < 0)
+                            return
+                        root.rowActivated(root.currentRow)
+                        break
+                    default:
+                        return
+                    }
+                    event.accepted = true
+                }
             }
         }
 

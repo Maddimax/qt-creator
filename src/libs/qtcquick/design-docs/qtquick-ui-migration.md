@@ -23536,3 +23536,61 @@ run earlier in this session from before this work and what
    component each, and each is its own decision.
 
 The first group is the one with a worked example; start there.
+
+## 2026-08-31 — Type to filter, arrow to pick, and the affordance every table had lost
+
+Before porting more filtered lists, the thing they were all missing.
+
+**`TableDelegate`'s filter field kept the arrow keys to itself.** Every widget
+list that filtered installed an event filter on its line edit so that Down, Up,
+PageDown and PageUp walked the rows and Return took one - without reaching for
+the mouse or tabbing into the list. `TopicChooser` is the dialog that made it
+explicit; `DeleteSymbolicNameDialog`, `ProcessPickerDialog`, the MIME type
+dialog and the locator pages had all quietly lost it on the way across.
+
+The field hands those five keys to `moveCurrentBy(delta)` now - one row for an
+arrow, five for a page, clamped at both ends - and Return activates the current
+row. Typing still filters, and **a filter that leaves the reader on no row at
+all lands them on the first one left**, so the arrows and Return have something
+to work with afterwards.
+
+One deliberate difference from the widgets: **Up from nothing is the end of the
+list.** The event filter computed `max(0, row + delta)` from an invalid index,
+so Up and Down both landed on the first row; every other list goes to the end.
+
+**`TopicChooser`** (shared/help) is the dialog that had the behaviour, and it
+loses two things beside the event filter: the `QSortFilterProxyModel` and the
+`mapToSource()` in `link()` - the table reports in the model's own rows, so the
+row is the index into the links, the fourth dialog to lose that mapping.
+
+Its `.qml` lives in the **Help plugin's** module although the class is in the
+`shared_help` static library: the library has no module of its own, and
+`TopicChooser` is only ever constructed from Help. Worth knowing rather than
+copying - a second dialog in that library would want a module for it.
+
+**A control that could not tell two implementations apart.** "The first Down
+skips the first row" changed nothing, because dropping the special case still
+gives 0 for Down from an invalid row - the two differ only on **Up** from
+nothing, which the test never pressed. Asserting that needed a *second form*:
+once something is current, nothing clears it - `selectRow(-1)` is a no-op by
+design. That is the fourth control in this series blunted by a fixture that
+cannot reach the case.
+
+Negative controls: the filter field keeping the arrows; moving running off the
+end; Up from nothing landing on the first row (only after a fresh form was
+added to see it); Return in the field doing nothing; the topic chooser opening
+on nothing; a topic no longer saying where it leads; and the topic page naming
+an aspect that is not there. All seven bit.
+
+QuickUi 198 passed / 0 failed / 1 skipped, exit 0. `Help` exit 0 with no
+failures, `TopicChooserTest` 9 passed; `Core` and `ClangTools` clean;
+`Profiler` its standing `FlameGraphViewTest` abort. `ninja all_qmllint` zero
+warnings. No `.qbs` edit.
+
+**Next:** the trees with models of their own, which is where the census leaves
+off - `InsertVirtualMethodsDialog` and `GenerateGettersSettersDialog`
+(CppEditor), `LoggingViewManagerWidget` (Core), `BookmarkDialog`
+(shared/help - same module question as this batch). Each needs the three
+overrides from [[qtc-model-ready-for-quick-view]] on a `Utils::TreeModel`, and
+`TreeDelegate` draws it. **`LoggingViewManagerWidget` is not a small one**: two
+tree views, eight tool buttons, two context menus and a save-to-file.

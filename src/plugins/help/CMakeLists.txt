@@ -96,6 +96,7 @@ if(TARGET Help)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      TopicChooser.qml
       DocSettingsPage.qml
       FilterOptionList.qml
       FilterSettingsPage.qml

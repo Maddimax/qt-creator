@@ -345,6 +345,7 @@ private slots:
     void testTableAspectRemovesEverySelectedRow();
     void testTheRowTheUserIsOnIsDrawnAsSelected();
     void testTableAspectFiltersItsRows();
+    void testTypingInTheFilterCanReachTheRowsBelowIt();
     void testSelectingARowTellsThePageWhichOneItIs();
     void testEveryTableOnEveryPageReportsItsCurrentRow();
     void testEveryTreeOnEveryPageReportsItsCurrentItem();
@@ -10660,6 +10661,92 @@ void QuickUiTest::testSelectingARowTellsThePageWhichOneItIs()
     // applied, currentRow already holds the number the assertion would look
     // for, so it would be satisfied by the state before the filter rather than
     // by the mapping. See the migration doc.
+}
+
+void QuickUiTest::testTypingInTheFilterCanReachTheRowsBelowIt()
+{
+    // Type to filter, arrow to pick, Return to take it. The widget lists that
+    // filtered installed an event filter on their line edit to do this; every
+    // filtered table here had lost it, so the reader had to reach for the
+    // mouse or tab into the list.
+    Utils::AspectContainer page;
+    TestTableAspect table(&page);
+    table.setLabelText("Rows");
+    table.m_filterPlaceholderText = "Filter...";
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "TableDelegate"));
+    QQuickItem *view = nullptr;
+    QTRY_VERIFY(view = tableViewOf(quickWidget->rootObject()));
+    QTRY_COMPARE(view->property("rows").toInt(), 2);
+
+    QQuickItem *filter = findQmlNamed(delegate, "tableFilterField").value(0);
+    QVERIFY(filter);
+    QMetaObject::invokeMethod(filter, "forceActiveFocus");
+    QTRY_VERIFY(filter->hasActiveFocus());
+
+    // Nothing is on a row to begin with, and the first Down lands on the
+    // first one rather than on the second.
+    QCOMPARE(delegate->property("currentRow").toInt(), -1);
+    QTest::keyClick(quickWidget->quickWindow(), Qt::Key_Down);
+    QTRY_COMPARE(delegate->property("currentRow").toInt(), 0);
+    QTest::keyClick(quickWidget->quickWindow(), Qt::Key_Down);
+    QTRY_COMPARE(delegate->property("currentRow").toInt(), 1);
+
+    // And it stops at the end rather than running off it.
+    QTest::keyClick(quickWidget->quickWindow(), Qt::Key_Down);
+    QCOMPARE(delegate->property("currentRow").toInt(), 1);
+    QTest::keyClick(quickWidget->quickWindow(), Qt::Key_Up);
+    QTRY_COMPARE(delegate->property("currentRow").toInt(), 0);
+    QTest::keyClick(quickWidget->quickWindow(), Qt::Key_Up);
+    QCOMPARE(delegate->property("currentRow").toInt(), 0);
+
+    // A page moves further, and is clamped the same way.
+    QTest::keyClick(quickWidget->quickWindow(), Qt::Key_PageDown);
+    QTRY_COMPARE(delegate->property("currentRow").toInt(), 1);
+    QTest::keyClick(quickWidget->quickWindow(), Qt::Key_PageUp);
+    QTRY_COMPARE(delegate->property("currentRow").toInt(), 0);
+
+    // Return on the row the reader arrowed to, without leaving the field.
+    QSignalSpy activated(delegate, SIGNAL(rowActivated(int)));
+    QVERIFY(activated.isValid());
+    QTest::keyClick(quickWidget->quickWindow(), Qt::Key_Return);
+    QTRY_COMPARE(activated.count(), 1);
+    QCOMPARE(activated.first().first().toInt(), 0);
+
+    // And the field is still a field: typing into it filters, and does not
+    // move the row.
+    QTest::keyClick(quickWidget->quickWindow(), Qt::Key_T);
+    QTRY_COMPARE(filter->property("text").toString(), QString("t"));
+
+    // Up from nothing is the *end* of the list, which is what a list does
+    // everywhere else - the widget event filter this replaces landed on the
+    // first row either way. A second form, because nothing clears the current
+    // row once something is on it.
+    Utils::AspectContainer fresh;
+    TestTableAspect freshTable(&fresh);
+    freshTable.setLabelText("Rows");
+    freshTable.m_filterPlaceholderText = "Filter...";
+    const std::unique_ptr<QWidget> freshForm(showForm(&fresh));
+    QVERIFY(freshForm);
+    auto freshQuick = freshForm->findChild<QQuickWidget *>();
+    QVERIFY(freshQuick);
+    QQuickItem *freshDelegate = nullptr;
+    QTRY_VERIFY(freshDelegate = findQmlComponent(freshQuick->rootObject(), "TableDelegate"));
+    QTRY_VERIFY(tableViewOf(freshQuick->rootObject()));
+    QQuickItem *freshFilter = findQmlNamed(freshDelegate, "tableFilterField").value(0);
+    QVERIFY(freshFilter);
+    QMetaObject::invokeMethod(freshFilter, "forceActiveFocus");
+    QTRY_VERIFY(freshFilter->hasActiveFocus());
+
+    QCOMPARE(freshDelegate->property("currentRow").toInt(), -1);
+    QTest::keyClick(freshQuick->quickWindow(), Qt::Key_Up);
+    QTRY_COMPARE(freshDelegate->property("currentRow").toInt(), 1);
 }
 
 void QuickUiTest::testTableAspectFiltersItsRows()

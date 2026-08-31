@@ -5,22 +5,23 @@
 
 #include <QUrl>
 #include <QList>
-#include <QModelIndex>
 #include <QString>
 
 #include <QDialog>
 
-QT_BEGIN_NAMESPACE
-class QListView;
-class QSortFilterProxyModel;
-QT_END_NAMESPACE
-
+#include <memory>
 
 namespace Core {
 struct HelpLink;
 }
 
-namespace Utils { class FancyLineEdit; }
+namespace Help::Internal {
+class TopicChooserSettings;
+
+#ifdef WITH_TESTS
+QObject *createTopicChooserTest();
+#endif
+} // namespace Help::Internal
 
 class TopicChooser : public QDialog
 {
@@ -34,16 +35,5 @@ public:
     QUrl link() const;
 
 private:
-    void acceptDialog();
-    void setFilter(const QString &pattern);
-    void activated(const QModelIndex &index);
-    bool eventFilter(QObject *object, QEvent *event) override;
-
-    QList<QUrl> m_links;
-
-    QModelIndex m_activedIndex;
-    QSortFilterProxyModel *m_filterModel;
-
-    Utils::FancyLineEdit *m_lineEdit;
-    QListView *m_listWidget;
+    const std::unique_ptr<Help::Internal::TopicChooserSettings> d;
 };
