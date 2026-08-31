@@ -23472,3 +23472,67 @@ the last two of the table shape the census named. After those, what is left is
 the group that needs a model made Quick-ready first -
 `GenerateGettersSettersDialog`, `InsertVirtualMethodsDialog`,
 `LoggingViewManagerWidget` - and the genuinely custom widgets.
+
+## 2026-08-31 — The last two of the table shape
+
+`FilterDialog` (ClangTools) and `ProcessPickerDialog` (Profiler) finish the
+group the census called "a table or a list". Both replace a
+`QSortFilterProxyModel` or a `Utils::TreeModel` with a small
+`QAbstractTableModel` and a `TableAspect`, and between them they show the two
+things that shape asks for.
+
+**`FilterDialog`** is a multi-selection with three buttons that each pick a set
+of rows. Every one of them was a lambda reaching into the view's selection
+model; they are `rowsWithFixits()`, `rowsShown()` and "every row" now, and the
+buttons only pick - which set is which is a function.
+
+`sortedChecks()` came out of the model's constructor, and pulling it out is
+what makes the other two testable: **the rows the buttons pick are indices into
+the sorted order**, not into the list the caller passed, and nothing said so
+before.
+
+"Select All with Fixits" is disabled when no check has one, which was already
+there and is now `!rowsWithFixits(...).isEmpty()` beside the rule that fills it.
+
+**`ProcessPickerDialog`** is the filter-and-sort shape again -
+`setFilterPlaceholderText()` and `setSortColumn()` replacing a proxy model, a
+`FancyLineEdit` wired to it, and `setSortingEnabled(true)`. It also drops a
+role: the widget stored the list index in `Qt::UserRole` on the first column
+**so that a sorted or filtered row could be mapped back to its `ProcessInfo`**.
+`TableAspect` reports in the model's own rows whatever the view is showing, so
+the row *is* the index and the role is not needed. That is the third dialog to
+lose an index-carrying role this way.
+
+**And the PID column sorts as numbers for free.** `TableFilterModel::lessThan`
+compares two columns of digits numerically, which the widget's
+`setSortRole(Qt::DisplayRole)` did not - a process list sorted by PID as text
+put 10 before 9.
+
+Negative controls: the checks listed in the order they came; the fixits button
+picking every check; the fixits button offered when nothing has one; the dialog
+opening on everything; a process listed by its whole path; a row that is not
+there still being a process; the process list neither filtered nor sorted; and
+the filter page naming an aspect that is not there. All eight bit.
+
+QuickUi 197 passed / 0 failed / 1 skipped, exit 0. `ClangTools` exit 0 with no
+failures, `FilterDialogTest` 9 passed, `ProcessPickerDialogTest` 8. `Profiler`
+exits 134 on `FlameGraphViewTest::testSelection`, which is the same abort as a
+run earlier in this session from before this work and what
+[[qtc-profiler-suite-aborts]] records. `ninja all_qmllint` zero warnings. No
+`.qbs` edit: both plugins take their `.qml` by wildcard.
+
+**With this the table shape is done.** What the census leaves is two groups:
+
+1. **A tree with a model of its own** - `GenerateGettersSettersDialog`,
+   `InsertVirtualMethodsDialog`, `LoggingViewManagerWidget`,
+   `BookmarkDialog`, `TopicChooser`, `SelectableFilesDialog`. Each needs its
+   model made Quick-ready first, which is the three overrides from
+   [[qtc-model-ready-for-quick-view]], and then `TreeDelegate` draws it.
+   `LoggingViewManagerWidget` and the two CppEditor ones use
+   `Utils::TreeModel`, where the note about not fixing `BaseTreeModel`
+   centrally applies.
+2. **The genuinely custom** - `CropScene`, `ColorSettings`, `DockManager`,
+   `PluginView`, `SelectableFilesWidget`, `CustomWidgetWizardPage`. One
+   component each, and each is its own decision.
+
+The first group is the one with a worked example; start there.

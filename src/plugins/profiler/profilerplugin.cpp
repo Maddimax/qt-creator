@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "qmlprofilerattachdialog.h"
+#include "processpickerdialog.h"
 #include "ctfvisualizertool.h"
 #include "perfloaddialog.h"
 #include "mcpsupport.h"
@@ -79,6 +80,7 @@ class ProfilerPlugin final : public ExtensionSystem::IPlugin
         addTest<CtfTimelineModelTest>();
         addTestCreator(createPerfLoadDialogTest);
         addTestCreator(createQmlProfilerAttachSettingsTest);
+        addTestCreator(QmlProfiler::Internal::createProcessPickerDialogTest);
         addTest<DebugMessagesModelTest>();
         addTest<FlameGraphModelTest>();
         addTest<FlameGraphViewTest>();

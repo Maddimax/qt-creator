@@ -220,6 +220,7 @@ if(TARGET Profiler)
     NO_PLUGIN
     QML_FILES
       PerfLoadDialog.qml
+      ProcessPickerDialog.qml
       QmlProfilerAttachDialog.qml
       CallStackSamplerForm.qml
       CombinedSamplerForm.qml

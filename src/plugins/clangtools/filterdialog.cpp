@@ -5,135 +5,290 @@
 
 #include "clangtoolstr.h"
 
-#include <utils/algorithm.h>
-#include <utils/layoutbuilder.h>
-#include <utils/treemodel.h>
+#include <coreplugin/dialogs/ioptionspage.h>
 
-#include <QApplication>
-#include <QDialog>
+#include <utils/algorithm.h>
+#include <utils/aspects.h>
+
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
+#include <QAbstractTableModel>
 #include <QDialogButtonBox>
-#include <QHeaderView>
-#include <QItemSelectionModel>
 #include <QPushButton>
-#include <QTreeView>
+#include <QVBoxLayout>
+
+using namespace Utils;
 
 namespace ClangTools::Internal {
 
-enum Columns { CheckName, Count };
+enum Columns { CheckName, Count, ColumnCount };
 
-class CheckItem : public Utils::TreeItem
+// The order the checks are listed in: by what they are called, so that a
+// reader looking for one can find it.
+Checks sortedChecks(const Checks &checks)
 {
-public:
-    CheckItem(const Check &check) : check(check) {}
-
-    QVariant data(int column, int role) const override
-    {
-        if (role != Qt::DisplayRole)
-            return {};
-        switch (column) {
-        case Columns::CheckName: return check.displayName;
-        case Columns::Count: return check.count;
-        }
-        return {};
-    }
-
-    Check check;
-};
-
-static QItemSelectionModel::SelectionFlags selectionFlags()
-{
-    return QItemSelectionModel::Select | QItemSelectionModel::Rows;
+    return Utils::sorted(checks, [](const Check &lhs, const Check &rhs) {
+        return lhs.displayName < rhs.displayName;
+    });
 }
 
-class FilterChecksModel : public Utils::TreeModel<Utils::TreeItem, CheckItem>
+// Which rows a button picks. "Select All with Fixits" is only worth offering
+// where some check has one.
+QList<int> rowsWithFixits(const Checks &checks)
 {
-    Q_OBJECT
+    QList<int> rows;
+    for (int row = 0; row < checks.size(); ++row) {
+        if (checks.at(row).hasFixit)
+            rows.append(row);
+    }
+    return rows;
+}
 
+// Which rows the dialog opens on: the checks that are not filtered out now.
+QList<int> rowsShown(const Checks &checks)
+{
+    QList<int> rows;
+    for (int row = 0; row < checks.size(); ++row) {
+        if (checks.at(row).isShown)
+            rows.append(row);
+    }
+    return rows;
+}
+
+class FilterChecksModel final : public QAbstractTableModel
+{
 public:
-    FilterChecksModel(const Checks &checks)
-    {
-        const Checks sortedChecks = Utils::sorted(checks, [](const Check &lhs, const Check &rhs) {
-            return lhs.displayName < rhs.displayName;
-        });
+    explicit FilterChecksModel(const Checks &checks)
+        : m_checks(sortedChecks(checks))
+    {}
 
-        setHeader({Tr::tr("Check"), "#"});
-        setRootItem(new Utils::StaticTreeItem(QString()));
-        for (const Check &check : sortedChecks)
-            m_root->appendChild(new CheckItem(check));
+    const Checks &checks() const { return m_checks; }
+
+    QSet<QString> namesAt(const QList<int> &rows) const
+    {
+        QSet<QString> names;
+        for (int row : rows) {
+            if (row >= 0 && row < m_checks.size())
+                names << m_checks.at(row).name;
+        }
+        return names;
+    }
+
+    int rowCount(const QModelIndex &parent = {}) const override
+    { return parent.isValid() ? 0 : m_checks.size(); }
+    int columnCount(const QModelIndex &parent = {}) const override
+    { return parent.isValid() ? 0 : ColumnCount; }
+
+    QVariant data(const QModelIndex &index, int role) const override
+    {
+        if (role == AspectTable::EditableRole)
+            return false;
+        if (!index.isValid() || index.row() >= m_checks.size() || role != Qt::DisplayRole)
+            return {};
+        const Check &check = m_checks.at(index.row());
+        return index.column() == CheckName ? QVariant(check.displayName) : QVariant(check.count);
+    }
+
+    QVariant headerData(int section, Qt::Orientation orientation, int role) const override
+    {
+        if (orientation != Qt::Horizontal || role != Qt::DisplayRole)
+            return {};
+        return section == CheckName ? Tr::tr("Check") : QString("#");
+    }
+
+    Qt::ItemFlags flags(const QModelIndex &index) const override
+    { return index.isValid() ? Qt::ItemIsEnabled | Qt::ItemIsSelectable : Qt::NoItemFlags; }
+
+    QHash<int, QByteArray> roleNames() const override
+    { return AspectTable::withRoleNames(QAbstractTableModel::roleNames()); }
+
+private:
+    Checks m_checks;
+};
+
+class FilterSettings final : public AspectContainer
+{
+public:
+    explicit FilterSettings(const Checks &checks)
+        : model(checks)
+    {
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/ClangTools/FilterDialog.qml"));
+
+        message.setQmlName("Message");
+        message.setText(Tr::tr("Select the diagnostics to display."));
+
+        selectAll.setQmlName("SelectAll");
+        selectAll.setActionText(Tr::tr("Select All"));
+        selectAll.setAction([this] { selectRows(allRows()); });
+
+        selectWithFixits.setQmlName("SelectWithFixits");
+        selectWithFixits.setActionText(Tr::tr("Select All with Fixits"));
+        selectWithFixits.setAction([this] { selectRows(rowsWithFixits(model.checks())); });
+        // Nothing to pick where no check offers one.
+        selectWithFixits.setEnabled(!rowsWithFixits(model.checks()).isEmpty());
+
+        selectNone.setQmlName("SelectNone");
+        selectNone.setActionText(Tr::tr("Clear Selection"));
+        selectNone.setAction([this] { selectRows({}); });
+
+        this->checks.setQmlName("Checks");
+        this->checks.setModel(&model);
+
+        selectRows(rowsShown(model.checks()));
+    }
+
+    QSet<QString> selectedChecks() const { return model.namesAt(checks.selectedRows()); }
+
+    TextDisplay message{this};
+    ActionAspect selectAll{this};
+    ActionAspect selectWithFixits{this};
+    ActionAspect selectNone{this};
+    TableAspect checks{this};
+    FilterChecksModel model;
+
+private:
+    QList<int> allRows() const
+    {
+        QList<int> rows;
+        for (int row = 0; row < model.rowCount(); ++row)
+            rows.append(row);
+        return rows;
+    }
+    void selectRows(const QList<int> &rows)
+    {
+        checks.setSelectedRows(Utils::transform(rows, [](int row) { return QVariant(row); }));
     }
 };
 
 FilterDialog::FilterDialog(const Checks &checks, QWidget *parent)
     : QDialog(parent)
+    , d(new FilterSettings(checks))
 {
     resize(400, 400);
     setWindowTitle(Tr::tr("Filter Diagnostics"));
 
-    auto selectAll = new QPushButton(Tr::tr("Select All"));
-    auto selectWithFixits = new QPushButton(Tr::tr("Select All with Fixits"));
-    auto selectNone = new QPushButton(Tr::tr("Clear Selection"));
+    auto buttonBox = new QDialogButtonBox(QDialogButtonBox::Cancel | QDialogButtonBox::Ok);
 
-    auto buttonBox = new QDialogButtonBox(QDialogButtonBox::Cancel|QDialogButtonBox::Ok);
+    auto layout = new QVBoxLayout(this);
+    layout->addWidget(Core::createAspectForm(d.get()));
+    layout->addWidget(buttonBox);
 
-    m_model = new FilterChecksModel(checks);
-
-    m_view = new QTreeView(this);
-    m_view->setModel(m_model);
-    m_view->header()->setStretchLastSection(false);
-    m_view->header()->setSectionResizeMode(Columns::CheckName, QHeaderView::Stretch);
-    m_view->header()->setSectionResizeMode(Columns::Count, QHeaderView::ResizeToContents);
-    m_view->setSelectionMode(QAbstractItemView::MultiSelection);
-    m_view->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_view->setIndentation(0);
-
-    using namespace Layouting;
-
-    Column {
-        Tr::tr("Select the diagnostics to display."),
-        Row { selectAll, selectWithFixits, selectNone, st },
-        m_view,
-        buttonBox,
-    }.attachTo(this);
-
-    connect(m_view->selectionModel(), &QItemSelectionModel::selectionChanged, this, [this, buttonBox] {
-        const bool hasSelection = !m_view->selectionModel()->selectedRows().isEmpty();
-        buttonBox->button(QDialogButtonBox::Ok)->setEnabled(hasSelection);
-    });
+    // Showing nothing is not a filter, so Ok is off until something is picked.
+    const auto updateOk = [this, buttonBox] {
+        buttonBox->button(QDialogButtonBox::Ok)
+            ->setEnabled(!d->checks.selectedRows().isEmpty());
+    };
+    connect(&d->checks, &TableAspect::chosenChanged, this, updateOk);
+    updateOk();
 
     connect(buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
-
-    // Buttons
-    connect(selectNone, &QPushButton::clicked, m_view, &QTreeView::clearSelection);
-    connect(selectAll, &QPushButton::clicked, m_view, &QTreeView::selectAll);
-    connect(selectWithFixits, &QPushButton::clicked, m_view, [this] {
-        m_view->clearSelection();
-        m_model->forItemsAtLevel<1>([&](CheckItem *item) {
-            if (item->check.hasFixit)
-                m_view->selectionModel()->select(item->index(), selectionFlags());
-        });
-    });
-    selectWithFixits->setEnabled(
-        Utils::anyOf(checks, [](const Check &c) { return c.hasFixit; }));
-
-    // Select checks that are not filtered out
-    m_model->forItemsAtLevel<1>([this](CheckItem *item) {
-        if (item->check.isShown)
-            m_view->selectionModel()->select(item->index(), selectionFlags());
-    });
 }
 
 FilterDialog::~FilterDialog() = default;
 
 QSet<QString> FilterDialog::selectedChecks() const
 {
-    QSet<QString> checks;
-    m_model->forItemsAtLevel<1>([&](CheckItem *item) {
-        if (m_view->selectionModel()->isSelected(item->index()))
-            checks << item->check.name;
-    });
-    return checks;
+    return d->selectedChecks();
 }
+
+#ifdef WITH_TESTS
+
+class FilterDialogTest final : public QObject
+{
+    Q_OBJECT
+
+private:
+    static Checks threeChecks()
+    {
+        return {{"modernize-b", "Modernize B", 2, true, false},
+                {"bugprone-a", "Bugprone A", 5, false, true},
+                {"readability-c", "Readability C", 1, true, true}};
+    }
+
+private slots:
+    void testTheDialogDrawsWithTheQmlItNames()
+    {
+        FilterSettings settings(threeChecks());
+        const Result<> rendered = Core::aspectFormRenders(&settings, "FilterDialog.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+    }
+
+    void testTheChecksAreListedByName()
+    {
+        // So that a reader looking for one can find it, whatever order the
+        // diagnostics came in.
+        const Checks sorted = sortedChecks(threeChecks());
+        QCOMPARE(sorted.size(), 3);
+        QCOMPARE(sorted.at(0).displayName, QString("Bugprone A"));
+        QCOMPARE(sorted.at(1).displayName, QString("Modernize B"));
+        QCOMPARE(sorted.at(2).displayName, QString("Readability C"));
+    }
+
+    void testWhichRowsTheButtonsPick()
+    {
+        // Against the sorted order, because that is what the rows are.
+        const Checks sorted = sortedChecks(threeChecks());
+        QCOMPARE(rowsWithFixits(sorted), (QList<int>{0, 2}));
+        QCOMPARE(rowsShown(sorted), (QList<int>{1, 2}));
+
+        QVERIFY(rowsWithFixits({}).isEmpty());
+        QVERIFY(rowsShown({}).isEmpty());
+    }
+
+    void testTheDialogOpensOnWhatIsNotFilteredOut()
+    {
+        FilterSettings settings(threeChecks());
+        QCOMPARE(settings.selectedChecks(), QSet<QString>({"modernize-b", "readability-c"}));
+    }
+
+    void testTheThreeButtonsPickTheThreeSets()
+    {
+        FilterSettings settings(threeChecks());
+
+        settings.selectAll.triggerAction();
+        QCOMPARE(settings.selectedChecks(),
+                 QSet<QString>({"modernize-b", "bugprone-a", "readability-c"}));
+
+        settings.selectWithFixits.triggerAction();
+        QCOMPARE(settings.selectedChecks(), QSet<QString>({"bugprone-a", "readability-c"}));
+
+        settings.selectNone.triggerAction();
+        QVERIFY(settings.selectedChecks().isEmpty());
+    }
+
+    void testFixitsAreNotOfferedWhenThereAreNone()
+    {
+        const Checks none = {{"a", "A", 1, true, false}};
+        FilterSettings settings(none);
+        QVERIFY2(!settings.selectWithFixits.isEnabled(),
+                 "a button that would pick nothing was offered");
+
+        FilterSettings some(threeChecks());
+        QVERIFY(some.selectWithFixits.isEnabled());
+    }
+
+    void testTheRowsAreReadNotWritten()
+    {
+        FilterChecksModel model(threeChecks());
+        const QVariant editable = model.data(model.index(0, 0), AspectTable::EditableRole);
+        QVERIFY2(editable.isValid(), "the table was never told whether a cell may be written to");
+        QVERIFY2(!editable.toBool(), "a check could be renamed by typing in the list");
+        QCOMPARE(model.headerData(CheckName, Qt::Horizontal, Qt::DisplayRole).toString(),
+                 Tr::tr("Check"));
+        QCOMPARE(model.data(model.index(0, Count), Qt::DisplayRole).toInt(), 5);
+    }
+};
+
+QObject *createFilterDialogTest()
+{
+    return new FilterDialogTest;
+}
+
+#endif // WITH_TESTS
 
 } // ClangTools::Internal
 

@@ -5,13 +5,15 @@
 
 #include <QDialog>
 
-QT_BEGIN_NAMESPACE
-class QTreeView;
-QT_END_NAMESPACE
+#include <memory>
 
 namespace ClangTools::Internal {
 
-class FilterChecksModel;
+class FilterSettings;
+
+#ifdef WITH_TESTS
+QObject *createFilterDialogTest();
+#endif
 
 class Check
 {
@@ -35,8 +37,7 @@ public:
     QSet<QString> selectedChecks() const;
 
 private:
-    FilterChecksModel *m_model;
-    QTreeView *m_view;
+    const std::unique_ptr<FilterSettings> d;
 };
 
 } // ClangTools::Internal

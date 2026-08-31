@@ -6,6 +6,7 @@
 #include "clangtoolsprojectsettingswidget.h"
 #include "clangtoolstr.h"
 #include "diagnosticconfigswidget.h"
+#include "filterdialog.h"
 #include "diagnosticmark.h"
 #include "documentclangtoolrunner.h"
 #include "runsettingswidget.h"
@@ -201,6 +202,7 @@ private:
 #ifdef WITH_TESTS
         addTestCreator(createInlineSuppressedDiagnosticsTest);
         addTestCreator(createTidyOptionsDialogTest);
+        addTestCreator(createFilterDialogTest);
         addTest<PreconfiguredSessionTests>();
         addTest<ClangToolsUnitTests>();
         addTest<ReadExportedDiagnosticsTest>();

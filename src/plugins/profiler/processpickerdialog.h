@@ -9,16 +9,19 @@
 
 #include <optional>
 
+#include <memory>
+
 QT_BEGIN_NAMESPACE
 class QPushButton;
-class QSortFilterProxyModel;
-class QStandardItemModel;
-class QTreeView;
 QT_END_NAMESPACE
 
-namespace Utils { class FancyLineEdit; }
-
 namespace Profiler::Internal {
+
+class ProcessPickerSettings;
+
+#ifdef WITH_TESTS
+QObject *createProcessPickerDialogTest();
+#endif
 
 // A minimal "attach to process" picker: lists the running processes with a
 // type-to-filter field and returns the one the user chooses. Self-contained so
@@ -29,6 +32,7 @@ class ProcessPickerDialog : public QDialog
 
 public:
     explicit ProcessPickerDialog(QWidget *parent = nullptr);
+    ~ProcessPickerDialog() override;
 
     std::optional<Utils::ProcessInfo> selectedProcess() const;
 
@@ -39,11 +43,7 @@ public:
 private:
     void updateOkButton();
 
-    QList<Utils::ProcessInfo> m_processes;
-    QStandardItemModel *m_model = nullptr;
-    QSortFilterProxyModel *m_proxy = nullptr;
-    QTreeView *m_view = nullptr;
-    Utils::FancyLineEdit *m_filter = nullptr;
+    const std::unique_ptr<ProcessPickerSettings> d;
     QPushButton *m_okButton = nullptr;
 };
 
