@@ -381,6 +381,13 @@ public:
     // Label.
     AspectControls::InfoType infoType = AspectControls::InfoType::None;
     bool wordWrap = false;
+
+    // TextEdit. How tall the control has to be at least, and whether it takes
+    // whatever height the page has left. A form gives a multi-line value a box
+    // the size of a few lines; a dialog whose content *is* the text wants all
+    // of it.
+    int minimumHeight = 0;
+    bool fillsHeight = false;
     AspectControls::TextFormat textFormat = AspectControls::TextFormat::AutoText;
 
     // ColorPicker.

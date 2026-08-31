@@ -1055,6 +1055,8 @@ public:
 
     FilePath m_rightSideIconPath;
     int m_minimumHeight = 0;
+    bool m_wordWrap = false;
+    bool m_fillsHeight = false;
     QStringList m_completions;
 
     UndoableValue<QString> undoable;
@@ -1272,6 +1274,18 @@ void StringAspect::setMonospace(bool monospace)
     emit controlConfigurationChanged();
 }
 
+void StringAspect::setWordWrap(bool wordWrap)
+{
+    d->m_wordWrap = wordWrap;
+    emit controlConfigurationChanged();
+}
+
+void StringAspect::setFillsHeight(bool fillsHeight)
+{
+    d->m_fillsHeight = fillsHeight;
+    emit controlConfigurationChanged();
+}
+
 void StringAspect::setDisplayStyle(DisplayStyle displayStyle)
 {
     d->m_displayStyle = displayStyle;
@@ -1359,6 +1373,9 @@ AspectPresentation StringAspect::presentation() const
     }
     p.placeholderText = d->m_placeHolderText;
     p.monospace = d->m_monospace;
+    p.wordWrap = d->m_wordWrap;
+    p.minimumHeight = d->m_minimumHeight;
+    p.fillsHeight = d->m_fillsHeight;
     p.withResetButton = d->m_useResetButton;
     p.defaultValue = defaultValue();
     // What was typed here before, offered the way the widget line edit offers

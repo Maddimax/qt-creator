@@ -958,6 +958,12 @@ public:
     // Whether the text is shown in a fixed-pitch font, for something whose
     // columns line up.
     void setMonospace(bool monospace);
+    // TextEdit. Whether long lines are wrapped rather than scrolled to. Off,
+    // because the values edited over several lines here are lists of commands
+    // and patterns, where a wrapped line reads as two.
+    void setWordWrap(bool wordWrap);
+    // TextEdit. Whether the control takes the height the page has left.
+    void setFillsHeight(bool fillsHeight);
 
     void fromMap(const Utils::Store &map) override;
     void toMap(Utils::Store &map) const override;

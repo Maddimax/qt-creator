@@ -361,6 +361,8 @@ QVariantMap AspectModels::presentation(BaseAspect *aspect)
                            QMetaEnum::fromType<AspectControls::TextFormat>().valueToKey(
                                int(p.textFormat)))},
         {"wordWrap", p.wordWrap},
+        {"minimumHeight", p.minimumHeight},
+        {"fillsHeight", p.fillsHeight},
         // PathChooser. What the browse button should ask for, as a name.
         {"pathKind", QString::fromLatin1(
                          QMetaEnum::fromType<AspectControls::PathKind>().valueToKey(

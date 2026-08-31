@@ -336,6 +336,7 @@ private slots:
     void testWhatATableAspectRemembers();
     void testATableAspectDescribesItsTable();
     void testATextAreaCanLineItsColumnsUp();
+    void testATextAreaFillsADialogThatIsMostlyText();
     void testAProgressAspectSaysHowFarAlong();
     void testATreeRowIsActivatedByReturn();
     void testATableCellShowsTheIconItsModelGives();
@@ -4608,6 +4609,78 @@ void QuickUiTest::testStringListEditorPicksPathsInsteadOfTypingThem()
     editor->setProperty("browsingFor", 9);
     QVERIFY(QMetaObject::invokeMethod(editor, "chose", Q_ARG(QString, QString("/nine"))));
     QCOMPARE(paths.volatileValue(), QStringList({"/zero", "/two", "/three"}));
+}
+
+void QuickUiTest::testATextAreaFillsADialogThatIsMostlyText()
+{
+    // What the text-editor dialogs need beyond what a form does. On a form a
+    // multi-line value gets a box a few lines tall and long lines are scrolled
+    // to, because what is edited there is a list of commands or a pattern. A
+    // dialog whose content *is* the text wants the height and, for prose, the
+    // wrapping.
+    Utils::AspectContainer plain;
+    plain.setAutoApply(false);
+    Utils::StringAspect formSized(&plain);
+    formSized.setDisplayStyle(Utils::StringAspect::TextEditDisplay);
+    formSized.setLabelText("Commands:");
+
+    const std::unique_ptr<QWidget> plainForm(showForm(&plain));
+    QVERIFY(plainForm);
+    auto plainQuick = plainForm->findChild<QQuickWidget *>();
+    QVERIFY(plainQuick);
+    QQuickItem *formDelegate = nullptr;
+    QTRY_VERIFY(formDelegate = findQmlComponent(plainQuick->rootObject(), "TextAreaDelegate"));
+    QVERIFY2(!formDelegate->property("Layout.fillHeight").toBool(),
+             "every multi-line value on every form grew to fill the page");
+    QQuickItem *formArea = findQmlComponent(findQmlComponent(formDelegate, "ScrollView"),
+                                            "TextArea");
+    QVERIFY(formArea);
+    // TextEdit.NoWrap is 0; the enum lives in a private header.
+    QCOMPARE(formArea->property("wrapMode").toInt(), 0);
+    const qreal formHeight = formDelegate->height();
+    QVERIFY(formHeight > 0);
+
+    Utils::AspectContainer page;
+    page.setAutoApply(false);
+    Utils::StringAspect document(&page);
+    document.setDisplayStyle(Utils::StringAspect::TextEditDisplay);
+    document.setLabelText("Comment:");
+    document.setWordWrap(true);
+    document.setFillsHeight(true);
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "TextAreaDelegate"));
+
+    QQuickItem *area = findQmlComponent(findQmlComponent(delegate, "ScrollView"), "TextArea");
+    QVERIFY(area);
+    QVERIFY2(area->property("wrapMode").toInt() != 0,
+             "a comment field scrolls sideways instead of wrapping");
+    QTRY_VERIFY2(delegate->height() > formHeight,
+                 "the text is no taller in a dialog made of it than on a form");
+
+    // And the height an aspect asks for reaches the control. StringAspect has
+    // had setMinimumHeight() all along - the widget line edit honours it and a
+    // Lua extension's settings set it - and it stopped at the aspect on the
+    // way to Qt Quick.
+    Utils::AspectContainer tall;
+    tall.setAutoApply(false);
+    Utils::StringAspect asked(&tall);
+    asked.setDisplayStyle(Utils::StringAspect::TextEditDisplay);
+    asked.setLabelText("Script:");
+    asked.setMinimumHeight(int(formHeight) + 120);
+
+    const std::unique_ptr<QWidget> tallForm(showForm(&tall));
+    QVERIFY(tallForm);
+    auto tallQuick = tallForm->findChild<QQuickWidget *>();
+    QVERIFY(tallQuick);
+    QQuickItem *tallDelegate = nullptr;
+    QTRY_VERIFY(tallDelegate = findQmlComponent(tallQuick->rootObject(), "TextAreaDelegate"));
+    QTRY_VERIFY2(tallDelegate->height() >= formHeight + 120,
+                 "the height the aspect asked for did not reach the control");
 }
 
 void QuickUiTest::testStringSelectionOffersItsChoices()

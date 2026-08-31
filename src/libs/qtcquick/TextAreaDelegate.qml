@@ -39,6 +39,9 @@ RowLayout {
     visible: aspectVisible
     spacing: Spacing.GapHM
     Layout.fillWidth: true
+    // A form gives a multi-line value a box a few lines tall; a dialog whose
+    // content is the text says so and takes what the page has left.
+    Layout.fillHeight: delegate.pres.fillsHeight ?? false
 
     FormLabel {
         text: delegate.labelText
@@ -51,7 +54,9 @@ RowLayout {
         id: frame
 
         Layout.fillWidth: true
-        Layout.preferredHeight: Metrics.formTextAreaHeight
+        Layout.fillHeight: delegate.pres.fillsHeight ?? false
+        Layout.preferredHeight: Math.max(Metrics.formTextAreaHeight,
+                                         delegate.pres.minimumHeight ?? 0)
 
         ScrollView {
             anchors.fill: parent
@@ -68,7 +73,10 @@ RowLayout {
                 readOnly: delegate.aspect?.readOnly ?? true
                 // Text whose columns line up asks for a font where they do.
                 font: (delegate.pres.monospace ?? false) ? Fonts.fixed : Fonts.body1
-                wrapMode: TextEdit.NoWrap
+                // Off by default: the values edited over several lines here
+                // are lists of commands and patterns, where a wrapped line
+                // reads as two. Prose says otherwise.
+                wrapMode: (delegate.pres.wordWrap ?? false) ? TextEdit.Wrap : TextEdit.NoWrap
                 ToolTip.text: delegate.toolTip
                 ToolTip.visible: hovered && delegate.toolTip !== ""
 

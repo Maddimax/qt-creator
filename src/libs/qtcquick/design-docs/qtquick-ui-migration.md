@@ -22719,3 +22719,91 @@ the plugin files, so no C++ file was added.
 `RecordOptionsDialog` are the small ones. Before starting the 21 text-editor
 dialogs, answer their shared question once: `LogDialog` (coreplugin/icore.cpp)
 is the smallest of them and would settle whether `TextArea` is enough.
+
+## 2026-08-31 — The text-editor question, answered, and a census that is finally right
+
+The last entry said `LogDialog` would settle whether a Qt Quick `TextArea` is
+enough for the text-editor dialogs. **It is the wrong probe.** `LogDialog` is a
+`Utils::MarkdownBrowser` with `BaseTextFind` aggregated onto it and a
+`FindToolBarPlaceHolder` below it - a rendered, linked, findable document, not
+a text field. Worse, it is not in the text-editor list at all once the list is
+taken properly: **its class body is an `event()` override and nothing else**,
+because the dialog is assembled by its caller, `ICorePrivate::changeLog()`.
+
+**Two census methods, two different wrong answers.** The old one classified a
+dialog by the widgets its *file* mentions, so `TidyOptionsDialog` counted as a
+text editor because another class in `diagnosticconfigswidget.cpp` has a
+`QTextEdit`, and `MultiBreakPointsDialog` counted as one because
+`BreakpointDialog` shares `breakhandler.cpp`. Scoping to the **class body plus
+its out-of-line member definitions** fixes both and halves the group:
+
+| shape | file-scoped | class-scoped |
+|---|---|---|
+| form controls only | 29 | 29 |
+| a table or a list | 24 | 17 |
+| holds a text editor | 21 | **11** |
+| something else | 5 | 18 |
+
+The "something else" pile grew because dialogs assembled by their caller now
+land there with an empty body - `LogDialog`, `NameValuesDialog`,
+`ReadOnlyFilesDialog`. **Neither scope is right for those**, and there are
+about six. Read them.
+
+Of the 11: **eight are read-only** ("here is what happened") and **three are
+editable** (`BreakpointDialog`, `CheckOutDialog`, `ComponentNameDialog`). The
+read-only half already has its answer - `Core::OutputPaneView` was built for
+transcripts in dialogs three batches ago.
+
+**So the question was asked of the delegate rather than of a dialog**, which is
+what it was really about. `TextAreaDelegate` is a good surface and a
+form-shaped control, and a dialog made of text needs three things it did not
+have:
+
+- **It never wrapped.** `wrapMode: TextEdit.NoWrap`, hard-coded. Right for a
+  list of commands, wrong for a comment. `StringAspect::setWordWrap()` now says
+  so, through the `AspectPresentation::wordWrap` that already existed for
+  labels.
+- **It was always `Metrics.formTextAreaHeight` tall**, with no way to take the
+  page's height. `setFillsHeight()`.
+- **`StringAspect::setMinimumHeight()` never reached the presentation.** The
+  widget renderer honours it (`lineEdit->setMinimumHeight(aspect->minimumHeight())`)
+  and a Lua extension's settings set it, so this was a live divergence: the
+  same aspect drew differently on the two backends and only one of them was
+  wrong. Plumbed.
+
+What is still missing is **find**, which `LogDialog` and the other read-only
+ones want. `BaseTextFind` is a template over four methods and a
+`QTextDocument`, and a Quick `TextArea` has one - see
+[[find-is-four-methods-not-a-widget]] - so it is wiring, not a wall. It is the
+next thing to build if the read-only dialogs are ported before the editable
+ones.
+
+**No dialog was ported this batch**, and that is the honest outcome: the probe
+the plan named was wrong, and each of the three editable candidates carries an
+unrelated blocker - `BreakpointDialog` is a dozen fields, `CheckOutDialog`
+embeds `ActivitySelector` (a widget with three other callers), and
+`ComponentNameDialog` has a list, a path chooser and a generated preview. The
+three gaps are what those ports needed first.
+
+**A control that refused to apply.** Control 1 asserted `count == 1` for the
+line it was replacing and found **two** - `Layout.fillHeight` is on the root
+and on the frame. It aborted instead of silently patching one of them and
+reporting "did not bite".
+
+Negative controls: the text area never filling; it wrapping whatever the aspect
+says; the asked-for height stopping at the aspect again; and *every* text area
+filling, which makes the form-sized one as tall as the dialog-sized one and so
+pins both directions. All four bit.
+
+QuickUi 197 passed / 0 failed / 1 skipped, exit 0. `Lua`, `Beautifier` and
+`CppEditor` exit 0; `Debugger` is its standing `testStateMachine`.
+`ninja all_qmllint` still zero warnings. No `.qbs` edit and no new file.
+
+**Next:** the 29 form-only dialogs, which are routine - `SymbolPathsDialog`,
+`WaitForStopDialog`, `RecordOptionsDialog`, `QnxAttachDebugDialog`. Two things
+to know before touching the others: `UndoCheckOutDialog` hard-codes a red
+`QColor` for "The file was changed.", which is an `InfoType` on a `TextDisplay`
+and a STYLE.md violation fixed by the port; and the **Utils dialogs cannot be
+ported at all** - `createAspectForm()` lives in coreplugin and Utils is below
+it, so `PasswordDialog`, `RemoveFileDialog`, `NameValuesDialog` and
+`InspectorWidget` need a seam in Utils before anything else.
