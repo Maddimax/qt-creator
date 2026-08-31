@@ -208,6 +208,10 @@ private slots:
         const Utils::Result<> record
             = Core::aspectFormRenders(recordOptionsAspectsForTest(), "RecordOptionsPage.qml");
         QVERIFY2(record, qPrintable(record ? QString() : record.error()));
+
+        const Utils::Result<> trim
+            = Core::aspectFormRenders(trimAspectsForTest(), "TrimPage.qml");
+        QVERIFY2(trim, qPrintable(trim ? QString() : trim.error()));
     }
 
     void testWhatIsCroppedOutOfTheFrame()

@@ -64,6 +64,8 @@ QObject *createCropSceneTest();
 // pages. Owned by the caller.
 Utils::AspectContainer *cropAspectsForTest();
 Utils::AspectContainer *recordOptionsAspectsForTest();
+// And the trimming half, which needs a clip to be about.
+Utils::AspectContainer *trimAspectsForTest();
 #endif
 
 } // namespace ScreenRecorder::Internal

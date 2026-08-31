@@ -11,6 +11,7 @@
 #include "screenrecordertr.h"
 
 #ifdef WITH_TESTS
+#include "cropandtrim.h"
 #include "cropscene.h"
 #include "screenrecorder_test.h"
 #endif // WITH_TESTS
@@ -132,6 +133,7 @@ public:
 #ifdef WITH_TESTS
         addTest<FFmpegOutputParserTest>();
         addTestCreator(Internal::createCropSceneTest);
+        addTestCreator(createTrimTest);
 #endif
     }
 

@@ -38,4 +38,9 @@ private:
     CropSizeWarningIcon *m_cropSizeWarningIcon;
 };
 
+
+#ifdef WITH_TESTS
+QObject *createTrimTest();
+#endif
+
 } // namespace ScreenRecorder

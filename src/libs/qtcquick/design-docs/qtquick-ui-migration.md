@@ -24587,3 +24587,49 @@ every `.qbs` edit in this series has been.
 trim dialog - a two-handle range slider, which `QtQuick.Controls` has as
 `RangeSlider`. Then `LoggingViewManagerWidget`, still blocked on driving a
 tree's selection, and `CropSizeWarningIcon` with the two toolbars that hold it.
+
+## 2026-08-31 — Trimming, and a note the last section got wrong
+
+`SelectionSlider` and `TrimWidget`, the other half of the crop-and-trim dialog.
+With this both halves of it are aspect forms and `CropAndTrimDialog` is a
+`QVBoxLayout` holding two of them and a button box.
+
+**The last section called this "a two-handle range slider, which
+QtQuick.Controls has as RangeSlider". It is not one.** `SelectionSlider` is a
+plain `QSlider` with *one* handle - where the reader is in the clip - and a
+band painted into the groove behind it showing what is kept. The two ends of
+that band are set by two buttons, "Start:" and "End:", each taking the reader's
+current position. A `RangeSlider` would have been the wrong control and a
+different interaction.
+
+`TrimSlider.qml` is therefore a `Slider` whose `background` is the band: the
+groove is a `Rectangle` and the kept part another one inside it, positioned by
+frame numbers. The handle is the control's own, which is what the widget left
+to the style.
+
+**What the closure listed and what it did**, separated: `updateTrimWidgets()`
+set three enabled states, two labels and the slider's band from four numbers.
+That is `showWhatIsKept()` in the container, called whenever the slider or the
+range changes, and the three rules it encodes are what the tests state - Start
+is only offered where a clip would be left after it, End only where one would
+be left before it, and Reset only when the whole clip is not already kept.
+
+**`TimeLabel` is a `QLabel` that formats a frame**, and its formatting is now a
+free `frameLabel(clip, frame)` returning the same rich text - the number
+zero-padded to the clip's widest, and the timestamp. The widget stays: it has
+another user in `record.cpp`'s progress line, which is not being ported.
+
+Negative controls: the clip endable before it starts; resetting offered with
+the whole clip already kept; the reader allowed to leave the clip; the slider
+not told where the trim is; and the trim page naming an aspect that is not
+there. All five bit.
+
+QuickUi 206 passed / 0 failed / 1 skipped, exit 0. `ScreenRecorder` clean -
+`TrimTest` 5 passed, `CropSceneTest` 8, `FFmpegOutputParserTest` 23. `ninja
+all_qmllint` zero warnings. No `.qbs` edit: two `.qml` files added and nothing
+else, and the plugin's `.qbs` was already given `QtcQuick` last batch.
+
+**Next:** `LoggingViewManagerWidget`, still blocked on driving a tree's
+selection, and `CropSizeWarningIcon` with the two toolbars that hold it -
+`CropAndTrimWidget` and `ExportWidget`. Those two toolbars are the last of the
+screen recorder.

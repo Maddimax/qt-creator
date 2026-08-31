@@ -4,6 +4,10 @@
 #include "cropandtrim.h"
 #include "cropscene.h"
 
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
 #include <utils/aspects.h>
 #include <utils/aspectwidgets.h>
 #include <utils/guard.h>
@@ -186,58 +190,188 @@ CropWidget::CropWidget(QWidget *parent)
         layout->addWidget(form);
 }
 
-class SelectionSlider : public QSlider
+// What a frame number reads as: the number itself, zero-padded to the widest
+// the clip needs, and the time it lands at. What TimeLabel drew.
+static QString frameLabel(const ClipInfo &clip, int frame)
 {
+    const int digits = qCeil(log10(double(clip.framesCount() + 1)));
+    return QString("<b>%1</b> (%2)")
+        .arg(frame, digits, 10, QLatin1Char('0'))
+        .arg(clip.timeStamp(frame));
+}
+
+// Where the reader is in the clip and which part of it is being kept. Drawn as
+// one slider with a band behind its handle: the widget painted the band into
+// the groove itself and left the handle to the style.
+class TrimSliderAspect final : public BaseAspect
+{
+    Q_OBJECT
+
 public:
-    explicit SelectionSlider(QWidget *parent = nullptr);
+    explicit TrimSliderAspect(AspectContainer *container = nullptr)
+        : BaseAspect(container)
+    {}
 
-    void setSelectionRange(FrameRange range);
+    AspectPresentation presentation() const override
+    {
+        AspectPresentation p = BaseAspect::presentation();
+        // Drawn by the page itself, never by a delegate.
+        p.control = AspectControls::Custom;
+        return p;
+    }
 
-protected:
-    void paintEvent(QPaintEvent *) override;
+    QVariant volatileVariantValue() const override
+    {
+        return QVariantMap{{"frames", m_frames},
+                           {"current", m_current},
+                           {"start", m_range.first},
+                           {"end", m_range.second}};
+    }
+
+    void setFrameCount(int frames)
+    {
+        m_frames = frames;
+        emit changed();
+    }
+
+    int currentFrame() const { return m_current; }
+
+    // Said by the drawn slider as it is dragged, and by whatever else moves
+    // the reader through the clip.
+    Q_INVOKABLE void setCurrentFrame(int frame)
+    {
+        const int inside = qBound(0, frame, m_frames);
+        if (inside == m_current)
+            return;
+        m_current = inside;
+        emit changed();
+    }
+
+    FrameRange range() const { return m_range; }
+    void setRange(FrameRange range)
+    {
+        if (range == m_range)
+            return;
+        m_range = range;
+        emit changed();
+    }
 
 private:
-    FrameRange m_range;
+    int m_frames = 0;
+    int m_current = 0;
+    FrameRange m_range = {0, 0};
 };
 
-SelectionSlider::SelectionSlider(QWidget *parent)
-    : QSlider(Qt::Horizontal, parent)
-    , m_range({-1, -1})
+// What the trimming half of the dialog asks: where the reader is, and where
+// the part being kept starts and ends.
+class TrimAspects final : public AspectContainer
 {
-    setPageStep(50);
+    Q_OBJECT
+
+public:
+    explicit TrimAspects(const ClipInfo &clip);
+
+    int currentFrame() const { return slider.currentFrame(); }
+    void setCurrentFrame(int frame) { slider.setCurrentFrame(frame); }
+    FrameRange trimRange() const { return slider.range(); }
+    void setTrimRange(FrameRange range);
+
+    TrimSliderAspect slider{this};
+    TextDisplay currentTime{this};
+    TextDisplay clipDuration{this};
+    ActionAspect setStart{this};
+    TextDisplay startTime{this};
+    ActionAspect setEnd{this};
+    TextDisplay endTime{this};
+    TextDisplay rangeTime{this};
+    ActionAspect resetTrim{this};
+
+signals:
+    void positionChanged();
+    void trimRangeChanged(FrameRange range);
+
+private:
+    void showWhatIsKept();
+
+    const ClipInfo m_clipInfo;
+};
+
+TrimAspects::TrimAspects(const ClipInfo &clip)
+    : m_clipInfo(clip)
+{
+    setAutoApply(true);
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/ScreenRecorder/TrimPage.qml"));
+
+    slider.setQmlName("Slider");
+    slider.setFrameCount(m_clipInfo.framesCount());
+
+    const auto time = [](TextDisplay &aspect, const char *qmlName) {
+        aspect.setQmlName(QString::fromLatin1(qmlName));
+        aspect.setTextFormat(AspectControls::TextFormat::RichText);
+    };
+    time(currentTime, "CurrentTime");
+    time(clipDuration, "ClipDuration");
+    time(startTime, "StartTime");
+    time(endTime, "EndTime");
+    time(rangeTime, "RangeTime");
+
+    setStart.setQmlName("SetStart");
+    setStart.setActionText(Tr::tr("Start:"));
+    setStart.setToolTip(Tr::tr("Keep the clip from here."));
+    setStart.setAction([this] {
+        setTrimRange({currentFrame(), trimRange().second});
+        emit trimRangeChanged(trimRange());
+    });
+
+    setEnd.setQmlName("SetEnd");
+    setEnd.setActionText(Tr::tr("End:"));
+    setEnd.setToolTip(Tr::tr("Keep the clip up to here."));
+    setEnd.setAction([this] {
+        setTrimRange({trimRange().first, currentFrame()});
+        emit trimRangeChanged(trimRange());
+    });
+
+    resetTrim.setQmlName("ResetTrim");
+    resetTrim.setActionIcon(Icons::RESET.icon());
+    resetTrim.setToolTip(Tr::tr("Keep the whole clip."));
+    resetTrim.setAction([this] {
+        setTrimRange({0, m_clipInfo.framesCount()});
+        emit trimRangeChanged(trimRange());
+    });
+
+    connect(&slider, &BaseAspect::changed, this, [this] {
+        showWhatIsKept();
+        emit positionChanged();
+    });
+
+    clipDuration.setText(frameLabel(m_clipInfo, m_clipInfo.framesCount()));
+    setTrimRange({0, m_clipInfo.framesCount()});
 }
 
-void SelectionSlider::setSelectionRange(FrameRange range)
+void TrimAspects::setTrimRange(FrameRange range)
 {
-    m_range = range;
-    update();
+    slider.setRange(range);
+    showWhatIsKept();
 }
 
-void SelectionSlider::paintEvent(QPaintEvent *)
+void TrimAspects::showWhatIsKept()
 {
-    QStyleOptionSlider opt;
-    initStyleOption(&opt);
-    opt.subControls = QStyle::SC_SliderHandle; // Draw only the handle. We draw the rest, here.
+    const FrameRange range = trimRange();
+    const int current = currentFrame();
 
-    const int tickOffset = style()->pixelMetric(QStyle::PM_SliderTickmarkOffset, &opt, this);
-    QRect grooveRect = style()->subControlRect(QStyle::CC_Slider, &opt,
-                                               QStyle::SC_SliderGroove, this)
-                           .adjusted(tickOffset, 0, -tickOffset, 0);
-    grooveRect.setTop(rect().top());
-    grooveRect.setBottom(rect().bottom());
-    const QColor bgColor = palette().window().color();
-    const QColor fgColor = palette().text().color();
-    const QColor grooveColor = StyleHelper::mergedColors(bgColor, fgColor, 80);
-    const QColor selectionColor = StyleHelper::mergedColors(bgColor, fgColor, 45);
-    QPainter p(this);
-    p.fillRect(grooveRect, grooveColor);
-    const qreal pixelsPerFrame = grooveRect.width() / qreal(maximum());
-    const int startPixels = int(m_range.first * pixelsPerFrame);
-    const int endPixels = int((maximum() - m_range.second) * pixelsPerFrame);
-    p.fillRect(grooveRect.adjusted(startPixels, 0, -endPixels, 0), selectionColor);
-    style()->drawComplexControl(QStyle::CC_Slider, &opt, &p, this);
+    currentTime.setText(frameLabel(m_clipInfo, current));
+    startTime.setText(frameLabel(m_clipInfo, range.first));
+    endTime.setText(frameLabel(m_clipInfo, range.second));
+    rangeTime.setText(frameLabel(m_clipInfo, range.second - range.first));
+
+    // Only where there would still be a clip left afterwards.
+    setStart.setEnabled(current < m_clipInfo.framesCount() && current < range.second);
+    setEnd.setEnabled(current > 0 && current > range.first);
+    resetTrim.setEnabled(!m_clipInfo.isCompleteRange(range));
 }
 
+// The trimming half of the dialog: an aspect form, held in a widget so that
+// the dialog's layout can take it.
 class TrimWidget : public QWidget
 {
     Q_OBJECT
@@ -245,138 +379,30 @@ class TrimWidget : public QWidget
 public:
     explicit TrimWidget(const ClipInfo &clip, QWidget *parent = nullptr);
 
-    void setCurrentFrame(int frame);
-    int currentFrame() const;
-    void setTrimRange(FrameRange range);
-    FrameRange trimRange() const;
+    void setCurrentFrame(int frame) { d->setCurrentFrame(frame); }
+    int currentFrame() const { return d->currentFrame(); }
+    void setTrimRange(FrameRange range) { d->setTrimRange(range); }
+    FrameRange trimRange() const { return d->trimRange(); }
 
 signals:
     void positionChanged();
     void trimRangeChanged(FrameRange range);
 
 private:
-    void resetTrimRange();
-    void updateTrimWidgets();
-    void emitTrimRangeChange();
-
-    ClipInfo m_clipInfo;
-    SelectionSlider *m_frameSlider;
-    TimeLabel *m_currentTime;
-    TimeLabel *m_clipDuration;
-
-    struct {
-        QPushButton *button;
-        TimeLabel *timeLabel;
-    } m_trimStart, m_trimEnd;
-    TimeLabel *m_trimRange;
-    QToolButton *m_trimResetButton;
+    const std::unique_ptr<TrimAspects> d;
 };
 
 TrimWidget::TrimWidget(const ClipInfo &clip, QWidget *parent)
     : QWidget(parent)
-    , m_clipInfo(clip)
+    , d(new TrimAspects(clip))
 {
-    m_frameSlider = new SelectionSlider;
+    auto layout = new QVBoxLayout(this);
+    layout->setContentsMargins(0, 0, 0, 0);
+    if (QWidget *form = AspectWidgets::createAspectForm(d.get()))
+        layout->addWidget(form);
 
-    m_currentTime = new TimeLabel(m_clipInfo);
-
-    m_clipDuration = new TimeLabel(m_clipInfo);
-
-    m_trimStart.button = new QPushButton(Tr::tr("Start:"));
-    m_trimStart.timeLabel = new TimeLabel(m_clipInfo);
-
-    m_trimEnd.button = new QPushButton(Tr::tr("End:"));
-    m_trimEnd.timeLabel = new TimeLabel(m_clipInfo);
-
-    m_trimRange = new TimeLabel(m_clipInfo);
-
-    m_trimResetButton = new QToolButton;
-    m_trimResetButton->setIcon(Icons::RESET.icon());
-
-    using namespace Layouting;
-    Column {
-        Row { m_frameSlider, m_currentTime, QString("/"), m_clipDuration },
-        Group {
-            title(Tr::tr("Trimming")),
-            Row {
-                m_trimStart.button, m_trimStart.timeLabel,
-                Space(20),
-                m_trimEnd.button, m_trimEnd.timeLabel,
-                st, Space(20),
-                Tr::tr("Range:"), m_trimRange,
-                m_trimResetButton,
-            },
-        },
-        noMargin,
-    }.attachTo(this);
-
-    connect(m_frameSlider, &QSlider::valueChanged, this, [this] {
-        m_currentTime->setFrame(currentFrame());
-        updateTrimWidgets();
-        emit positionChanged();
-    });
-    connect(m_trimStart.button, &QPushButton::clicked, this, [this] (){
-        m_trimStart.timeLabel->setFrame(currentFrame());
-        updateTrimWidgets();
-        emitTrimRangeChange();
-    });
-    connect(m_trimEnd.button, &QPushButton::clicked, this, [this] (){
-        m_trimEnd.timeLabel->setFrame(currentFrame());
-        updateTrimWidgets();
-        emitTrimRangeChange();
-    });
-    connect(m_trimResetButton, &QToolButton::clicked, this, &TrimWidget::resetTrimRange);
-
-    m_frameSlider->setMaximum(m_clipInfo.framesCount());
-    m_currentTime->setFrame(currentFrame());
-    m_clipDuration->setFrame(m_clipInfo.framesCount());
-    resetTrimRange();
-}
-
-void TrimWidget::setCurrentFrame(int frame)
-{
-    m_frameSlider->setValue(frame);
-}
-
-int TrimWidget::currentFrame() const
-{
-    return m_frameSlider->value();
-}
-
-void TrimWidget::setTrimRange(FrameRange range)
-{
-    m_trimStart.timeLabel->setFrame(range.first);
-    m_trimEnd.timeLabel->setFrame(range.second);
-    m_frameSlider->setSelectionRange(trimRange());
-}
-
-FrameRange TrimWidget::trimRange() const
-{
-    return { m_trimStart.timeLabel->frame(), m_trimEnd.timeLabel->frame() };
-}
-
-void TrimWidget::resetTrimRange()
-{
-    setTrimRange({0, m_clipInfo.framesCount()});
-    emitTrimRangeChange();
-    updateTrimWidgets();
-}
-
-void TrimWidget::updateTrimWidgets()
-{
-    const int current = currentFrame();
-    const int trimStart = m_trimStart.timeLabel->frame();
-    const int trimEnd = m_trimEnd.timeLabel->frame();
-    m_trimStart.button->setEnabled(current < m_clipInfo.framesCount() && current < trimEnd);
-    m_trimEnd.button->setEnabled(current > 0 && current > trimStart);
-    m_trimRange->setFrame(trimEnd - trimStart);
-    m_frameSlider->setSelectionRange(trimRange());
-    m_trimResetButton->setEnabled(!m_clipInfo.isCompleteRange(trimRange()));
-}
-
-void TrimWidget::emitTrimRangeChange()
-{
-    emit trimRangeChanged(trimRange());
+    connect(d.get(), &TrimAspects::positionChanged, this, &TrimWidget::positionChanged);
+    connect(d.get(), &TrimAspects::trimRangeChanged, this, &TrimWidget::trimRangeChanged);
 }
 
 class CropAndTrimDialog : public QDialog
@@ -581,7 +607,92 @@ void CropAndTrimWidget::updateWidgets()
 
 
 #ifdef WITH_TESTS
+
+class TrimTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testWhatCanBeTrimmedFromWhereTheReaderIs()
+    {
+        // Start is only offered where there would still be a clip after it,
+        // and End only where there would be one before it - which is what the
+        // widget's two buttons said by greying themselves out.
+        ClipInfo clip;
+        clip.duration = 10;
+        clip.rFrameRate = 25;
+        TrimAspects trim(clip);
+        const int frames = clip.framesCount();
+        QCOMPARE(trim.trimRange(), qMakePair(0, frames));
+
+        // The whole clip is kept to begin with, so there is nothing to reset,
+        // and nothing before frame zero to end at.
+        QVERIFY(!trim.resetTrim.isEnabled());
+        QVERIFY2(!trim.setEnd.isEnabled(), "the clip could be ended before it began");
+        QVERIFY(trim.setStart.isEnabled());
+
+        trim.setCurrentFrame(100);
+        QVERIFY(trim.setStart.isEnabled());
+        QVERIFY(trim.setEnd.isEnabled());
+
+        // Ending it here leaves a clip, and now there is something to reset.
+        trim.setEnd.triggerAction();
+        QCOMPARE(trim.trimRange(), qMakePair(0, 100));
+        QVERIFY(trim.resetTrim.isEnabled());
+
+        // The reader is on the end now, so it cannot also be the start.
+        QVERIFY2(!trim.setStart.isEnabled(), "the clip could start where it ends");
+
+        trim.resetTrim.triggerAction();
+        QCOMPARE(trim.trimRange(), qMakePair(0, frames));
+        QVERIFY(!trim.resetTrim.isEnabled());
+    }
+
+    void testTheReaderStaysInsideTheClip()
+    {
+        ClipInfo clip;
+        clip.duration = 10;
+        clip.rFrameRate = 25;
+        TrimAspects trim(clip);
+
+        trim.setCurrentFrame(-5);
+        QCOMPARE(trim.currentFrame(), 0);
+        trim.setCurrentFrame(99999);
+        QCOMPARE(trim.currentFrame(), clip.framesCount());
+    }
+
+    void testWhatTheSliderHandsToQml()
+    {
+        ClipInfo clip;
+        clip.duration = 4;
+        clip.rFrameRate = 25;
+        TrimAspects trim(clip);
+        trim.setCurrentFrame(40);
+        trim.setEnd.triggerAction();
+
+        const QVariantMap drawn = trim.slider.volatileVariantValue().toMap();
+        QCOMPARE(drawn.value("frames").toInt(), clip.framesCount());
+        QCOMPARE(drawn.value("current").toInt(), 40);
+        QCOMPARE(drawn.value("start").toInt(), 0);
+        QCOMPARE(drawn.value("end").toInt(), 40);
+    }
+};
+
+QObject *createTrimTest()
+{
+    return new TrimTest;
+}
+
 namespace Internal {
+Utils::AspectContainer *trimAspectsForTest()
+{
+    // A clip long enough that a range can be trimmed out of the middle.
+    ClipInfo clip;
+    clip.duration = 10;
+    clip.rFrameRate = 25;
+    return new TrimAspects(clip);
+}
+
 Utils::AspectContainer *cropAspectsForTest()
 {
     return new CropAspects;

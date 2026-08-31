@@ -33,6 +33,8 @@ if(TARGET ScreenRecorder)
       CropPage.qml
       CropScene.qml
       RecordOptionsPage.qml
+      TrimPage.qml
+      TrimSlider.qml
       ScreenRecorderSettingsPage.qml
   )
 endif()
