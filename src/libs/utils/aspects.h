@@ -238,12 +238,20 @@ public:
     // refilled each time its dialog opens is shown whole, the way the widget
     // views expanded theirs.
     void expandControl();
+    // Puts the reader on a row of whatever this aspect is drawn as, opening
+    // whatever it is under. The counterpart of TableAspect::showRow() for an
+    // aspect whose rows are addressed by index rather than by row.
+    void showIndexInControl(const QModelIndex &index);
     // The control's context-menu entry was toggled. See
     // AspectPresentation::contextActionText.
     Q_INVOKABLE virtual void triggerContextAction(bool checked);
     // One of AspectPresentation::rowActions was picked on a row of the tree
     // this aspect is drawn as. The index is in the aspect's own model.
     Q_INVOKABLE virtual void triggerRowAction(const QModelIndex &index, const QVariant &id);
+    // Said by the drawn tree as the reader moves through it, in the aspect's
+    // own model. The counterpart of TableAspect::setCurrentRow(), and of
+    // showIndexInControl() going the other way.
+    Q_INVOKABLE virtual void setCurrentIndex(const QModelIndex &index);
     // A link in the aspect's text was activated. Declared here so that a
     // renderer holding only a BaseAspect can report it; what it means is the
     // aspect's business.
@@ -387,6 +395,7 @@ signals:
     void controlFocusRequested();
     void controlValidationRequested();
     void controlExpandRequested();
+    void controlIndexRequested(const QModelIndex &index);
 
 protected:
     // final: no aspect builds its own controls any more. An aspect says which

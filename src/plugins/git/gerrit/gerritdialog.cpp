@@ -84,7 +84,7 @@ public:
 
     QAbstractItemModel *tableModel() override { return m_model; }
 
-    Q_INVOKABLE void setCurrentIndex(const QModelIndex &index)
+    void setCurrentIndex(const QModelIndex &index) override
     {
         if (m_currentIndex == index)
             return;

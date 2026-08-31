@@ -931,6 +931,11 @@ void BaseAspect::expandControl()
     emit controlExpandRequested();
 }
 
+void BaseAspect::showIndexInControl(const QModelIndex &index)
+{
+    emit controlIndexRequested(index);
+}
+
 void BaseAspect::triggerContextAction(bool checked)
 {
     Q_UNUSED(checked)
@@ -941,6 +946,11 @@ void BaseAspect::triggerRowAction(const QModelIndex &index, const QVariant &id)
 {
     Q_UNUSED(index)
     Q_UNUSED(id)
+}
+
+void BaseAspect::setCurrentIndex(const QModelIndex &index)
+{
+    Q_UNUSED(index)
 }
 
 void BaseAspect::triggerAction()

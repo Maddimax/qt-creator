@@ -50,9 +50,6 @@ AspectPage {
                     objectName: "changeTree"
                     anchors.fill: parent
                     aspect: root.aspects.Changes
-
-                    onCurrentIndexChanged:
-                        root.aspects.Changes.setCurrentIndex(changes.currentIndex)
                     onRowActivated: (index) => root.aspects.Changes.activateIndex(index)
                 }
 

@@ -44,6 +44,10 @@ RowLayout {
         return index && index.valid ? root.rows.mapToSource(index) : index
     }
 
+    // The aspect is told where the reader is without every page having to say
+    // so: an aspect that does not care answers the base's no-op.
+    onCurrentIndexChanged: root.aspect?.setCurrentIndex(root.currentIndex)
+
     // A row was chosen and acted on - the widget views these replace called it
     // "activated" and reached it by double click or by Return. The index is in
     // the aspect's own model, like currentIndex above.
@@ -57,6 +61,22 @@ RowLayout {
     // view's business rather than the aspect's.
     function expandAll(): void { view.expandRecursively(-1, -1) }
     function collapseAll(): void { view.collapseRecursively() }
+
+    // Puts the reader on a row. The index is in the aspect's own model, like
+    // everything else here; an invalid one clears the selection, which is what
+    // "no folder in particular" comes to.
+    function setCurrentIndex(index: var): void {
+        if (!index || !index.valid) {
+            view.selectionModel.clearCurrentIndex()
+            view.selectionModel.clearSelection()
+            return
+        }
+        const shown = root.rows.mapFromSource(index)
+        if (!shown.valid)
+            return
+        view.expandToIndex(shown)
+        view.selectionModel.setCurrentIndex(shown, ItemSelectionModel.ClearAndSelect)
+    }
 
     // A page that filters the tree on the user's behalf - "show me what else
     // uses this shortcut" - writes into the field rather than into the proxy,
@@ -154,6 +174,12 @@ RowLayout {
         // anything about this one.
         function onControlExpandRequested(): void {
             root.expandAll()
+        }
+
+        // And the aspect saying which row the reader should be on - the folder
+        // picked in the box above the tree is the folder shown in it.
+        function onControlIndexRequested(index: var): void {
+            root.setCurrentIndex(index)
         }
     }
 

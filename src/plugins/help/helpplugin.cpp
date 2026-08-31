@@ -658,6 +658,7 @@ private:
         dd = new HelpPluginPrivate;
 #ifdef WITH_TESTS
         addTestCreator(createBookmarkManagerTest);
+        addTestCreator(Help::Internal::createBookmarkDialogTest);
         addTestCreator(Help::Internal::createTopicChooserTest);
         addTestCreator(createLocalHelpManagerTest);
         addTestCreator(createFilterSettingsPageTest);

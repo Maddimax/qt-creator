@@ -13,6 +13,8 @@
 
 #include <QIcon>
 #include <QDialog>
+
+#include <memory>
 #include <QWidget>
 #include <QTreeView>
 #include <QStandardItemModel>
@@ -34,6 +36,12 @@ namespace Utils { class FancyLineEdit; }
 
 class BookmarkManager;
 
+class BookmarkDialogAspects;
+
+#ifdef WITH_TESTS
+namespace Help::Internal { QObject *createBookmarkDialogTest(); }
+#endif
+
 class BookmarkDialog : public QDialog
 {
     Q_OBJECT
@@ -41,34 +49,15 @@ class BookmarkDialog : public QDialog
 public:
     BookmarkDialog(BookmarkManager *manager, const QString &title,
         const QString &url, QWidget *parent = 0);
-    ~BookmarkDialog();
+    ~BookmarkDialog() override;
 
 private:
     void addAccepted();
-    void addNewFolder();
-    void toggleExpanded();
-    void itemChanged(QStandardItem *item);
-    void textChanged(const QString& string);
-    void selectBookmarkFolder(int index);
-    void showContextMenu(const QPoint &point);
-    void currentChanged(const QModelIndex& current);
-    bool eventFilter(QObject *object, QEvent *e) override;
 
-    QString m_url;
-    QString m_title;
-
-    QString oldText;
-    QStandardItem *renameItem;
-
-    BookmarkManager *bookmarkManager;
-    QSortFilterProxyModel *proxyModel;
-
-    QLineEdit *m_bookmarkEdit;
-    QDialogButtonBox *m_buttonBox;
-    QComboBox *m_bookmarkFolders;
-    QPushButton *m_newFolderButton;
-    QTreeView *m_treeView;
-    QToolButton *m_toolButton;
+    const QString m_url;
+    BookmarkManager *const bookmarkManager;
+    std::unique_ptr<BookmarkDialogAspects> m_aspects;
+    QDialogButtonBox *m_buttonBox = nullptr;
 };
 
 class TreeView : public Utils::NavigationTreeView
@@ -141,7 +130,8 @@ public:
     void saveBookmarks();
     QStringList bookmarkFolders() const;
     QModelIndex addNewFolder(const QModelIndex &index);
-    void removeBookmarkItem(QTreeView *treeView, const QModelIndex& index);
+    // The widget is only what a confirmation is asked in front of.
+    void removeBookmarkItem(QWidget *dialogParent, const QModelIndex &index);
     void showBookmarkDialog(QWidget *parent, const QString &name, const QString &url);
     void addNewBookmark(const QModelIndex &index, const QString &name, const QString &url);
     void setupBookmarkModels();

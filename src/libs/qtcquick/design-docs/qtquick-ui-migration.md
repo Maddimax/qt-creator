@@ -23908,3 +23908,65 @@ two classes the last two batches added pass alone (9 and 31, exit 0).
 **Next:** `BookmarkDialog` with the rename question above answered first, then
 `SelectableFilesDialog` (ProjectExplorer) and `LoggingViewManagerWidget`
 (Core).
+
+## 2026-08-31 — The bookmark dialog, and the answer to the rename question
+
+`BookmarkDialog` (shared/help). Its `.qml` is in the **Help plugin's** module,
+the same answer `TopicChooser` gave for that library.
+
+**The rename question, answered: one row at a time.** A `BookmarkFolderModel`
+proxy over the manager's tree answers `EditableRole` **only for the row being
+renamed** - set by the "Rename Folder" row action, cleared the moment the name
+is written. So a folder is a label that can be pointed at, which is what the
+tree is mostly for, and becomes a field exactly when it is being renamed, which
+is what the widget's `setEditable(true); edit(index); setEditable(false)` came
+to. The proxy is where this belongs: `BookmarkManager` owns the model and
+`BookmarkWidget` shares it, so neither could be changed for the dialog's sake.
+
+**A tree can now say back where the reader is**, which is what actually made
+the port work. `BaseAspect::setCurrentIndex(const QModelIndex &)` is a virtual
+no-op, `TreeDelegate` calls it on every change, and an aspect that cares
+overrides it - `TableAspect::setCurrentRow()` for a tree, and the counterpart
+of `showIndexInControl()` going the other way (also added here, so the folder
+named in the box is the folder shown in the tree). `GerritDialog.qml` said it
+by hand and no longer needs to.
+
+**A `Q_INVOKABLE` on an aspect without `Q_OBJECT` is not there.** The first
+attempt gave the plugin's aspect its own `Q_INVOKABLE setChosenIndex()`; the
+class is in an anonymous namespace with no `Q_OBJECT`, so moc never saw it and
+QML said "Property 'setChosenIndex' ... is not a function" - at *render* time,
+caught only because `aspectFormRenders()` reads QML complaints. That is the
+argument for putting the seam on `BaseAspect`: a plugin aspect that has to
+declare `Q_OBJECT` to be reachable from a shared delegate will sooner or later
+forget to.
+
+**`removeBookmarkItem()` took a `QTreeView *`** and used it only as the parent
+of a confirmation box. It takes a `QWidget *` now, which is one fewer widget in
+a shared API.
+
+Also fixed on the way: `TreeDelegate` never refreshed `pres` on
+`controlConfigurationChanged` (previous section), and the ASan crash from
+growing `AspectPresentation` - **`BaseAspect` gaining a virtual is the same
+hazard**, so full `ninja` after touching `aspects.h` too.
+
+Negative controls: every folder cell writable; the row staying writable after
+it is named; the model not naming its roles; naming a folder in the box not
+moving the tree; and the tree offering bookmarks as well as folders. All five
+bit.
+
+QuickUi 203 passed / 0 failed / 1 skipped, exit 0. `Help` 9 passed for
+`BookmarkDialogTest` and the whole plugin clean, `Git` and `Core` clean;
+`CppEditor` its standing whole-suite failures, none of them new and none in a
+class this batch touches. `ninja all_qmllint` zero warnings. No `.qbs` edit:
+one `.qml` added, taken by the Help plugin's wildcard.
+
+**What the port does not carry over:** the widget dialog's F2 and
+Delete/Backspace on the tree, which are the keyboard reaches for the two row
+actions. `TreeDelegate` has no key handling beyond Return, and adding it is a
+shared decision - which keys, and whether a tree that offers nothing should
+swallow them - rather than this dialog's.
+
+**Next:** `SelectableFilesDialog` (ProjectExplorer), then
+`LoggingViewManagerWidget` (Core): two tree views, eight tool buttons, two
+context menus and a save-to-file. The row menu added last batch is what the
+second of those was waiting for.
