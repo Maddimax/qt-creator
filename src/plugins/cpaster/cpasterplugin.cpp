@@ -360,6 +360,7 @@ private:
     
 #ifdef WITH_TESTS
         addTestCreator(createPasteViewTest);
+        addTestCreator(createPasteSelectDialogTest);
 #endif
     }
 

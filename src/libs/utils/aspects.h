@@ -1462,6 +1462,10 @@ public:
 
     // The text in the empty filter field. No filter where it is empty.
     void setFilterPlaceholderText(const QString &text);
+    // Whether the rows are read in a fixed-width font. A list whose entries
+    // are columns of text lined up with spaces needs one, or they are not
+    // columns.
+    void setMonospace(bool monospace);
     // Which column the rows are sorted by to begin with. -1 leaves them in the
     // order the model gives them.
     void setSortColumn(int column, Qt::SortOrder order = Qt::AscendingOrder);
@@ -1490,6 +1494,7 @@ signals:
 
 private:
     QAbstractItemModel *m_model = nullptr;
+    bool m_monospace = false;
     QString m_filterPlaceholderText;
     int m_sortColumn = -1;
     Qt::SortOrder m_sortOrder = Qt::AscendingOrder;

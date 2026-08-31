@@ -3626,6 +3626,7 @@ AspectPresentation TableAspect::presentation() const
     p.filterPlaceholderText = m_filterPlaceholderText;
     p.sortColumn = m_sortColumn;
     p.sortOrder = m_sortOrder;
+    p.monospace = m_monospace;
     return p;
 }
 
@@ -3645,6 +3646,12 @@ void TableAspect::setModel(QAbstractItemModel *model)
 void TableAspect::setFilterPlaceholderText(const QString &text)
 {
     m_filterPlaceholderText = text;
+    emit controlConfigurationChanged();
+}
+
+void TableAspect::setMonospace(bool monospace)
+{
+    m_monospace = monospace;
     emit controlConfigurationChanged();
 }
 

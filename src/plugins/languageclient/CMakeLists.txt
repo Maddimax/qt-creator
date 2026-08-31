@@ -60,6 +60,7 @@ if(TARGET LanguageClient)
     QML_FILES
       LanguageClientProjectPanel.qml
       LanguageClientsPage.qml
+      MimeTypeDialog.qml
   )
 endif()
 

@@ -4,11 +4,16 @@
 #pragma once
 
 #include <QList>
+#include <QObject>
 
 namespace CodePaster {
 
 class Protocol;
 
 QString executeFetchDialog(const QList<Protocol *> &protocols);
+
+#ifdef WITH_TESTS
+QObject *createPasteSelectDialogTest();
+#endif
 
 } // CodePaster

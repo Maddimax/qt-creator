@@ -40,6 +40,7 @@ if(TARGET CodePaster)
     QML_FILES
       CodePasterSettingsPage.qml
       PasteView.qml
+      PasteSelectDialog.qml
       FileShareSettingsPage.qml
   )
 endif()

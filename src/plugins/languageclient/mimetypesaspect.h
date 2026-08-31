@@ -9,6 +9,10 @@
 
 namespace LanguageClient {
 
+#ifdef WITH_TESTS
+QObject *createMimeTypeDialogTest();
+#endif
+
 class LANGUAGECLIENT_EXPORT MimeTypesAspect : public Utils::TypedAspect<QStringList>
 {
     Q_OBJECT

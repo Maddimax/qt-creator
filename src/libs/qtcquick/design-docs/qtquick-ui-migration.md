@@ -22171,3 +22171,70 @@ failures, `RemoteDialogTest` 9 passed. `Git_qmllint` clean. No `.qbs` edit:
 **Next:** the rest of the text-field dialogs — `MimeTypeDialog`
 (`mimetypesaspect.cpp`), `pasteselectdialog.cpp`, `directoryfilter.cpp`,
 `filesystemfilter.cpp`, `avdcreatordialog.cpp`.
+
+## 2026-08-31 — Two list dialogs, and a font a table can ask for
+
+`MimeTypeDialog` (`languageclient/mimetypesaspect.cpp`) and `PasteSelectDialog`
+(`cpaster/pasteselectdialog.cpp`) are both a list with something above it, and
+between them they needed one thing the shared table did not have.
+
+**The checkable list is three overrides and nothing else.** `MimeTypeModel` was
+already a `QStringListModel` holding the ticks in `m_selectedMimeTypes`; making
+it a Quick table meant answering `CheckableRole`, `EditableRole`, `roleNames()`
+and an empty `headerData()`. `AspectTableCell` already draws a check box with
+the row's text beside it, which is what the `QListView` did. The filter field
+and the sort came free — `setFilterPlaceholderText()` and `setSortColumn(0)`
+replace a `QSortFilterProxyModel` and a `FancyLineEdit` wired to it.
+
+**One behaviour the widget model got away with and a Quick cell does not.**
+`setData()` never emitted `dataChanged`. A `QListView` re-read the check state
+off the model after any edit, so nothing showed; a QML `CheckBox` *binds* to
+`checkState` and is only redrawn when told. The tick would have stuck on
+screen. Nothing about the port makes this visible — it is a test with a
+`QSignalSpy` or nothing.
+
+**The filter is a substring, where the widget used a wildcard.**
+`setFilterWildcard()` against `setFilterFixedString()` in `TableFilterModel`:
+unanchored, both find a row by what is in it, and only `*`/`?` are lost. Worth
+knowing rather than fixing — every ported table now filters the same way.
+
+**A table can ask to be read in a fixed-width font.** The paste listing is
+columns lined up with spaces, and the widget list set Courier on itself. That
+has no equivalent in a descriptor, so `TableAspect::setMonospace()` now sets
+`AspectPresentation::monospace` (which `TextAreaDelegate` already honoured),
+`TableDelegate` turns it into `AspectTableCell.defaultFont`, and the cell's
+label reads `ownFont ?? defaultFont`.
+
+**The control that did not bite found a role nobody had ever tested.** Removing
+`ownFont ??` — so a model's own `Qt::FontRole` would be thrown away — broke
+nothing, because `TestTableModel` never answered it. `cellFont` had been in
+`withRoleNames()` since it was written, honoured in `AspectTableCell` since it
+was written, and asserted nowhere. `testATableCellReadsInTheFontItsModelGives`
+covers it now, and both halves of the control bite: dropping `ownFont ??`, and
+dropping the name from `withRoleNames()`. **A control that does not bite on a
+line you just wrote is usually about a line you did not.**
+
+**Changing a member of an exported class needs the full build, and the crash
+says nothing about it.** Adding `bool m_monospace` to `TableAspect` and then
+building only the plugins that use it gave
+`AddressSanitizer: stack-buffer-overflow` inside `QList<int>::QList()` in the
+`TableAspect` constructor, from a container declared on a test's stack. It is
+not a memory bug: the plugin was compiled against the old size and left the new
+member off the end of the object. `ninja` with no target, then the same test
+passes. Same family as the vtable note from 2026-08-24.
+
+Negative controls: `CheckableRole` not answered; no `dataChanged` when a tick
+changes; the paste field not following the list; the paste id taken as the
+whole line; the listing not asked to be fixed-width; the cell ignoring what the
+aspect asked for; the cell ignoring the font its model gives; and `cellFont`
+not named for QML. All eight bit — the seventh only after the missing test was
+written.
+
+QuickUi 193 passed / 0 failed / 1 skipped, exit 0. `LanguageClient` and
+`CodePaster` exit 0 with no failures — `MimeTypeDialogTest` 7 passed,
+`PasteSelectDialogTest` 9 passed. `LanguageClient_qmllint`,
+`CodePaster_qmllint` and `QtcQuick_qmllint` clean. No `.qbs` edit: both
+plugins take `*.qml` by wildcard and no new C++ file was added.
+
+**Next:** `directoryfilter.cpp` and `filesystemfilter.cpp` in the Locator, then
+`avdcreatordialog.cpp`.

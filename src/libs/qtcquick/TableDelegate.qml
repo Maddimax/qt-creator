@@ -325,6 +325,8 @@ RowLayout {
 
                             editable: root.editable
                             highlighted: selected || current
+                            defaultFont: (root.pres.monospace ?? false) ? Fonts.fixed
+                                                                        : Fonts.body2
                         }
                     }
                 }

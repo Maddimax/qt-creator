@@ -30,6 +30,9 @@ Item {
     property bool editableByDefault: true
     // Whether the view says this cell is in the row the user is on.
     property bool highlighted: false
+    // What a cell reads in when its model asks for nothing of its own. A list
+    // whose entries are columns lined up with spaces is drawn fixed-width.
+    property font defaultFont: Fonts.body2
 
     readonly property var choices: model.choices ?? []
     readonly property string cellText: model.display ?? ""
@@ -160,7 +163,7 @@ Item {
             objectName: "tableCellLabel"
             text: cell.cellText
             color: cell.cellForeground ?? Tokens.textDefault
-            font: cell.ownFont ?? Fonts.body2
+            font: cell.ownFont ?? cell.defaultFont
             // Line up with the text in an editable cell, and keep two columns
             // of text apart.
             leftPadding: Spacing.PaddingHS

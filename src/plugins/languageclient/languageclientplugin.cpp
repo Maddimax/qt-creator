@@ -58,6 +58,7 @@ void LanguageClientPlugin::initialize()
 #ifdef WITH_TESTS
     addTestCreator(&createSnippetParsingTest);
     addTestCreator(&createLanguageClientSettingsPageTest);
+    addTestCreator(&createMimeTypeDialogTest);
 #endif
 
     LanguageClientSettings::registerClientType({Constants::LANGUAGECLIENT_STDIO_SETTINGS_ID,

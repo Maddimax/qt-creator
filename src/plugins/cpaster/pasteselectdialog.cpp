@@ -7,34 +7,137 @@
 #include "protocol.h"
 #include "settings.h"
 
+#include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/icore.h>
 
-#include <utils/hostosinfo.h>
-#include <utils/layoutbuilder.h>
+#include <utils/algorithm.h>
+#include <utils/aspects.h>
 #include <utils/qtcassert.h>
 
 #include <QtTaskTree/QSingleTaskTreeRunner>
 
-#include <QComboBox>
-#include <QDebug>
+#ifdef WITH_TESTS
+#include <QSignalSpy>
+#include <QTest>
+#endif
+
 #include <QDialog>
 #include <QDialogButtonBox>
-#include <QLabel>
-#include <QLineEdit>
-#include <QListWidget>
-#include <QPushButton>
+#include <QStringListModel>
+#include <QVBoxLayout>
+
+#include <memory>
 
 using namespace QtTaskTree;
+using namespace Utils;
 
 namespace CodePaster {
+
+// What a listed entry stands for. The protocols return a line per paste -
+// the id, then a title and a date lined up behind it - and only the first
+// word of it is the paste itself.
+QString pasteIdFromEntry(const QString &entry)
+{
+    QString id = entry;
+    const int blankPos = id.indexOf(QLatin1Char(' '));
+    if (blankPos != -1)
+        id.truncate(blankPos);
+    return id;
+}
+
+class PasteListModel final : public QStringListModel
+{
+public:
+    using QStringListModel::QStringListModel;
+
+    QVariant data(const QModelIndex &index, int role) const final
+    {
+        if (role == AspectTable::EditableRole)
+            return AspectTable::isWritable(flags(index));
+        return QStringListModel::data(index, role);
+    }
+
+    // A listing is read, not written; the widget list these rows replace was
+    // not editable either.
+    Qt::ItemFlags flags(const QModelIndex &index) const final
+    {
+        if (!index.isValid())
+            return Qt::NoItemFlags;
+        return Qt::ItemIsEnabled | Qt::ItemIsSelectable;
+    }
+
+    // One nameless column, so no heading.
+    QVariant headerData(int, Qt::Orientation, int) const final { return {}; }
+
+    QHash<int, QByteArray> roleNames() const final
+    {
+        return AspectTable::withRoleNames(QStringListModel::roleNames());
+    }
+};
+
+class PasteSelectSettings final : public AspectContainer
+{
+    // First, so that it is destroyed last: the aspect does not own the model.
+    PasteListModel m_model;
+
+public:
+    explicit PasteSelectSettings(const QStringList &protocolNames)
+    {
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/CodePaster/PasteSelectDialog.qml"));
+
+        protocol.setQmlName("Protocol");
+        protocol.setLabelText(Tr::tr("Protocol:"));
+        protocol.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
+        for (const QString &name : protocolNames)
+            protocol.addOption(name);
+
+        paste.setQmlName("Paste");
+        paste.setLabelText(Tr::tr("Paste:"));
+        paste.setDisplayStyle(StringAspect::LineEditDisplay);
+
+        pastes.setQmlName("Pastes");
+        pastes.setModel(&m_model);
+        // The entries are columns lined up with spaces, which they only are in
+        // a fixed-width font.
+        pastes.setMonospace(true);
+
+        refresh.setQmlName("Refresh");
+        refresh.setActionText(Tr::tr("Refresh"));
+
+        // Moving through the list fills the field, the way picking a row in
+        // the list this replaces did. The whole entry, not the id: what is
+        // shown is what the list shows, and the id is taken from it on accept.
+        connect(&pastes, &TableAspect::chosenChanged, this, [this] {
+            const QString chosen = entryAt(pastes.currentRow());
+            if (!chosen.isEmpty())
+                paste.setValue(chosen);
+        });
+    }
+
+    void setEntries(const QStringList &entries) { m_model.setStringList(entries); }
+    QString entryAt(int row) const
+    {
+        if (row < 0 || row >= m_model.rowCount())
+            return {};
+        return m_model.index(row, 0).data().toString();
+    }
+
+    QString pasteId() const { return pasteIdFromEntry(paste()); }
+
+    SelectionAspect protocol{this};
+    StringAspect paste{this};
+    TableAspect pastes{this};
+    ActionAspect refresh{this};
+};
 
 class PasteSelectDialog : public QDialog
 {
 public:
     explicit PasteSelectDialog(const QList<Protocol *> &protocols);
 
-    QString pasteId() const;
-    int protocol() const;
+    QString pasteId() const { return m_settings.pasteId(); }
+    int protocol() const { return m_settings.protocol(); }
 
 private:
     void protocolChanged(int);
@@ -42,91 +145,41 @@ private:
 
     const QList<Protocol *> m_protocols;
 
-    QComboBox *m_protocolBox = nullptr;
-    QListWidget *m_listWidget = nullptr;
-    QPushButton *m_refreshButton = nullptr;
-    QLineEdit *m_pasteEdit = nullptr;
+    PasteSelectSettings m_settings;
     QSingleTaskTreeRunner m_taskTreeRunner;
 };
 
 PasteSelectDialog::PasteSelectDialog(const QList<Protocol *> &protocols)
     : QDialog(Core::ICore::dialogParent())
     , m_protocols(protocols)
+    , m_settings(Utils::transform(protocols, [](const Protocol *p) { return p->name(); }))
 {
     setObjectName("CodePaster.PasteSelectDialog");
     resize(550, 350);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
-    m_protocolBox = new QComboBox(this);
-    m_protocolBox->setObjectName("protocolBox");
+    auto buttons = new QDialogButtonBox(QDialogButtonBox::Cancel | QDialogButtonBox::Ok);
 
-    m_pasteEdit = new QLineEdit(this);
-    m_pasteEdit->setObjectName("pasteEdit");
-    m_pasteEdit->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    auto layout = new QVBoxLayout(this);
+    layout->addWidget(Core::createAspectForm(&m_settings));
+    layout->addWidget(buttons);
 
-    m_listWidget = new QListWidget(this);
-    m_listWidget->setObjectName("listWidget");
-    m_listWidget->setAlternatingRowColors(true);
-
-    auto buttons = new QDialogButtonBox(QDialogButtonBox::Cancel|QDialogButtonBox::Ok);
-
-    m_refreshButton = buttons->addButton(Tr::tr("Refresh"), QDialogButtonBox::ActionRole);
-
-    m_listWidget->setSelectionMode(QAbstractItemView::SingleSelection);
-    if (!Utils::HostOsInfo::isMacHost())
-        m_listWidget->setFrameStyle(QFrame::NoFrame);
-
-    // Proportional formatting of columns for CodePaster
-    QFont listFont = m_listWidget->font();
-    listFont.setFamily(QLatin1String("Courier"));
-    listFont.setStyleHint(QFont::TypeWriter);
-    m_listWidget->setFont(listFont);
-
-    using namespace Layouting;
-    Column {
-        Form {
-            Tr::tr("Protocol:"), m_protocolBox, br,
-            Tr::tr("Paste:"), m_pasteEdit
-        },
-        m_listWidget,
-        buttons
-    }.attachTo(this);
-
-    connect(m_listWidget, &QListWidget::currentTextChanged, m_pasteEdit, &QLineEdit::setText);
-    connect(m_listWidget, &QListWidget::doubleClicked, this, &QDialog::accept);
-
-    for (const Protocol *protocol : protocols) {
-        const QString name = protocol->name();
-        m_protocolBox->addItem(name);
-    }
-    connect(m_protocolBox, &QComboBox::currentIndexChanged,
-            this, &PasteSelectDialog::protocolChanged);
-    connect(m_refreshButton, &QPushButton::clicked, this, &PasteSelectDialog::list);
+    connect(&m_settings.pastes, &TableAspect::rowActivated, this, &QDialog::accept);
+    connect(&m_settings.protocol, &BaseAspect::changed, this, [this] {
+        protocolChanged(m_settings.protocol());
+    });
+    m_settings.refresh.setAction([this] { list(); });
 
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
 
-    const int index = m_protocolBox->findText(settings().protocols.stringValue());
+    const int index = m_settings.protocol.indexForDisplay(settings().protocols.stringValue());
     if (index >= 0) {
-        if (index != m_protocolBox->currentIndex())
-            m_protocolBox->setCurrentIndex(index);
-         else
+        if (index != m_settings.protocol())
+            m_settings.protocol.setValue(index);
+        else
             protocolChanged(index); // Trigger a refresh
     }
-}
-
-QString PasteSelectDialog::pasteId() const
-{
-    QString id = m_pasteEdit->text();
-    const int blankPos = id.indexOf(QLatin1Char(' '));
-    if (blankPos != -1)
-        id.truncate(blankPos);
-    return id;
-}
-
-int PasteSelectDialog::protocol() const
-{
-    return m_protocolBox->currentIndex();
 }
 
 void PasteSelectDialog::list()
@@ -136,16 +189,15 @@ void PasteSelectDialog::list()
     Protocol *protocol = m_protocols[index];
     QTC_ASSERT((protocol->capabilities() & Capability::List), return);
 
-    m_listWidget->clear();
+    m_settings.setEntries({});
     if (Protocol::ensureConfiguration(protocol)) {
-        m_listWidget->addItem(Tr::tr("Waiting for items..."));
+        m_settings.setEntries({Tr::tr("Waiting for items...")});
 
         const auto listHandler = [this](const QStringList &results) {
-            m_listWidget->clear();
-            m_listWidget->addItems(results);
+            m_settings.setEntries(results);
         };
         const auto errorHandler = [this] {
-            m_listWidget->addItem(Tr::tr("Error while retrieving items."));
+            m_settings.setEntries({Tr::tr("Error while retrieving items.")});
         };
         m_taskTreeRunner.start({protocol->listRecipe(listHandler)}, {},
                                errorHandler, CallDoneFlag::OnError);
@@ -156,13 +208,11 @@ void PasteSelectDialog::protocolChanged(int i)
 {
     m_taskTreeRunner.reset();
     const bool canList = m_protocols.at(i)->capabilities() & Capability::List;
-    m_refreshButton->setEnabled(canList);
-    if (canList) {
+    m_settings.refresh.setEnabled(canList);
+    if (canList)
         list();
-    } else {
-        m_listWidget->clear();
-        m_listWidget->addItem(new QListWidgetItem(Tr::tr("This protocol does not support listing")));
-    }
+    else
+        m_settings.setEntries({Tr::tr("This protocol does not support listing")});
 }
 
 QString executeFetchDialog(const QList<Protocol *> &protocols)
@@ -179,4 +229,109 @@ QString executeFetchDialog(const QList<Protocol *> &protocols)
     return dialog.pasteId();
 }
 
+#ifdef WITH_TESTS
+
+class PasteSelectDialogTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheDialogDrawsWithTheQmlItNames()
+    {
+        PasteSelectSettings settings({"Pastebin.Com", "Pastebin.Ca"});
+        const Result<> rendered = Core::aspectFormRenders(&settings, "PasteSelectDialog.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+    }
+
+    void testWhichPasteAnEntryStandsFor()
+    {
+        // The listed line is the id and then what it is; only the first word
+        // is asked for.
+        QCOMPARE(pasteIdFromEntry("1234567 Some title 2026-08-31"), QString("1234567"));
+        QCOMPARE(pasteIdFromEntry("1234567"), QString("1234567"));
+        QCOMPARE(pasteIdFromEntry(""), QString());
+
+        // What the reader typed themselves is a paste id as it stands.
+        QCOMPARE(pasteIdFromEntry("abcdef"), QString("abcdef"));
+    }
+
+    void testTheListIsReadOnlyAndUnheaded()
+    {
+        PasteListModel model(QStringList{"1234567 Some title"});
+        const QModelIndex first = model.index(0, 0);
+
+        const QVariant editable = model.data(first, AspectTable::EditableRole);
+        QVERIFY2(editable.isValid(), "the list was never told whether a row may be written to");
+        QVERIFY2(!editable.toBool(), "a listing could be typed over");
+
+        QVERIFY2(model.headerData(0, Qt::Horizontal, Qt::DisplayRole).toString().isEmpty(),
+                 "the nameless column came up with a heading");
+        QVERIFY(model.roleNames().values().contains("display"));
+    }
+
+    void testTheEntriesAreReadInColumns()
+    {
+        // The protocols line their listings up with spaces, so the rows are
+        // only columns in a fixed-width font. The widget list set one on
+        // itself; here the aspect says so and the cell follows.
+        PasteSelectSettings settings({"Pastebin.Com"});
+        QVERIFY2(settings.pastes.presentation().monospace,
+                 "the listing is drawn in a proportional font and does not line up");
+    }
+
+    void testMovingThroughTheListFillsTheField()
+    {
+        PasteSelectSettings settings({"Pastebin.Com"});
+        settings.setEntries({"1234567 First paste", "7654321 Second paste"});
+
+        settings.pastes.setCurrentRow(1);
+        QCOMPARE(settings.paste(), QString("7654321 Second paste"));
+        // What is fetched is the id, not the line it was read off.
+        QCOMPARE(settings.pasteId(), QString("7654321"));
+
+        // A row that is no longer there leaves what was typed alone - the
+        // field is the reader's as well as the list's.
+        settings.paste.setValue("typed-by-hand");
+        settings.pastes.setCurrentRow(-1);
+        QCOMPARE(settings.paste(), QString("typed-by-hand"));
+    }
+
+    void testTheProtocolsAreOffered()
+    {
+        PasteSelectSettings settings({"Pastebin.Com", "DPaste.Com"});
+        QCOMPARE(settings.protocol.indexForDisplay("DPaste.Com"), 1);
+        QCOMPARE(settings.protocol.indexForDisplay("Nothing.Com"), -1);
+    }
+
+    void testTheDrawnTableHandsBackWhatWasChosen()
+    {
+        PasteSelectSettings settings({"Pastebin.Com"});
+        settings.setEntries({"1234567 First paste", "7654321 Second paste"});
+
+        const std::unique_ptr<QWidget> form(Core::createAspectForm(&settings));
+        QVERIFY(form);
+        QObject *const root = Core::aspectFormRoot(form.get());
+        QVERIFY2(root, "no front end said what the dialog was drawn from");
+
+        QObject *table = nullptr;
+        QTRY_VERIFY(table = root->findChild<QObject *>("pasteTable"));
+
+        QSignalSpy activated(&settings.pastes, &TableAspect::rowActivated);
+        QVERIFY(QMetaObject::invokeMethod(table, "selectRow", Q_ARG(int, 1)));
+        QTRY_COMPARE(settings.paste(), QString("7654321 Second paste"));
+
+        QVERIFY(QMetaObject::invokeMethod(table, "rowActivated", Q_ARG(int, 1)));
+        QTRY_COMPARE(activated.count(), 1);
+    }
+};
+
+QObject *createPasteSelectDialogTest()
+{
+    return new PasteSelectDialogTest;
+}
+
+#endif // WITH_TESTS
+
 } // CodePaster
+
+#include "pasteselectdialog.moc"

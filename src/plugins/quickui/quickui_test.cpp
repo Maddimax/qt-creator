@@ -350,6 +350,8 @@ private slots:
     void testNoPageHasAnApplyThatCannotSaveAnything();
     void testEditingAPageMakesItDirtyAndCancelPutsItBack();
     void testTableCellReadsInItsOwnColours();
+    void testATableReadsInAFixedWidthFontWhenAsked();
+    void testATableCellReadsInTheFontItsModelGives();
     void testATableIsReadOnTheBackgroundItsAspectNames();
     void testTheFormatListIsReadOnTheSchemesOwnBackground();
     void testListRowShowsWhatTheListSaysAboutTheItem();
@@ -4852,6 +4854,7 @@ public:
     // Unset unless a test says otherwise, so that every other table here looks
     // as it did.
     QIcon rowIcon;
+    std::optional<QFont> rowFont;
 
     QVariant data(const QModelIndex &index, int role) const override
     {
@@ -4886,6 +4889,8 @@ public:
             return Utils::AspectTable::isWritable(flags(index));
         case Utils::AspectTable::CheckableRole:
             return flags(index).testFlag(Qt::ItemIsUserCheckable);
+        case Qt::FontRole:
+            return index.column() == ColumnLocked && rowFont ? QVariant(*rowFont) : QVariant();
         case Qt::ForegroundRole:
             return index.column() == ColumnLocked ? QVariant(QColor(Qt::red)) : QVariant();
         case Qt::BackgroundRole:
@@ -4979,6 +4984,7 @@ public:
         p.rowBackground = m_rowBackground;
         p.sortColumn = m_sortColumn;
         p.sortOrder = m_sortOrder;
+        p.monospace = m_monospace;
         return p;
     }
 
@@ -4987,6 +4993,7 @@ public:
     QColor m_rowBackground;
     int m_sortColumn = -1;
     Qt::SortOrder m_sortOrder = Qt::AscendingOrder;
+    bool m_monospace = false;
 };
 
 // The TableView the delegate builds, and the model it actually shows - the
@@ -9764,6 +9771,80 @@ void QuickUiTest::testTableCellReadsInItsOwnColours()
             ++painted;
     }
     QCOMPARE(painted, 2);
+}
+
+void QuickUiTest::testATableReadsInAFixedWidthFontWhenAsked()
+{
+    // A listing whose entries are columns lined up with spaces is only columns
+    // in a fixed-width font. The widget lists that did this set the font on
+    // themselves; here the aspect asks and the cell follows.
+    // A table that says nothing reads in the form's font, which is what every
+    // other table wants.
+    Utils::AspectContainer plain;
+    TestTableAspect proportional(&plain);
+    proportional.setLabelText("Rows");
+    const std::unique_ptr<QWidget> plainForm(showForm(&plain));
+    QVERIFY(plainForm);
+    auto plainQuick = plainForm->findChild<QQuickWidget *>();
+    QVERIFY(plainQuick);
+    QQuickItem *plainView = nullptr;
+    QTRY_VERIFY(plainView = tableViewOf(plainQuick->rootObject()));
+    QList<QQuickItem *> plainLabels;
+    QTRY_COMPARE((plainLabels = findQmlNamed(plainView, "tableCellLabel")).size(), 2);
+    const QString proportionalFamily
+        = plainLabels.first()->property("font").value<QFont>().family();
+    QVERIFY(!proportionalFamily.isEmpty());
+
+    Utils::AspectContainer page;
+    TestTableAspect fixed(&page);
+    fixed.setLabelText("Rows");
+    fixed.m_monospace = true;
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QQuickItem *view = nullptr;
+    QTRY_VERIFY(view = tableViewOf(quickWidget->rootObject()));
+    QList<QQuickItem *> labels;
+    QTRY_COMPARE((labels = findQmlNamed(view, "tableCellLabel")).size(), 2);
+    const QString fixedFamily = labels.first()->property("font").value<QFont>().family();
+
+    QVERIFY2(fixedFamily != proportionalFamily,
+             qPrintable(QString("a table that asked for a fixed-width font got %1, "
+                                "the same one every other table gets").arg(fixedFamily)));
+}
+
+void QuickUiTest::testATableCellReadsInTheFontItsModelGives()
+{
+    // A row that is meant to be read in a font of its own - a list of syntax
+    // formats showing what each one looks like - answers Qt::FontRole, and
+    // that is the cell's font whatever the table asked for. Qt::FontRole is
+    // not in the default roleNames() either, so without naming it QML cannot
+    // see it at all.
+    QFont wanted;
+    wanted.setFamily("Zapfino");
+    wanted.setItalic(true);
+
+    Utils::AspectContainer page;
+    TestTableAspect table(&page);
+    table.setLabelText("Rows");
+    table.m_model.rowFont = wanted;
+    // The table asks for the other font, so that what wins is the model's and
+    // not merely the only answer there was.
+    table.m_monospace = true;
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QQuickItem *view = nullptr;
+    QTRY_VERIFY(view = tableViewOf(quickWidget->rootObject()));
+
+    QList<QQuickItem *> labels;
+    QTRY_COMPARE((labels = findQmlNamed(view, "tableCellLabel")).size(), 2);
+    const QFont drawn = labels.first()->property("font").value<QFont>();
+    QCOMPARE(drawn.family(), wanted.family());
+    QVERIFY2(drawn.italic(), "the cell took the family and dropped the rest of the font");
 }
 
 void QuickUiTest::testEditingAPageMakesItDirtyAndCancelPutsItBack()
