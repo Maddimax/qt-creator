@@ -7,21 +7,21 @@
 #include "imageview.h" // ExportData
 #include "imageviewertr.h"
 
+#include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/icore.h>
 
+#include <utils/aspects.h>
 #include <utils/pathchooser.h>
 #include <utils/stringutils.h>
 #include <utils/utilsicons.h>
 
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
 #include <QDialogButtonBox>
-#include <QFormLayout>
-#include <QLabel>
-#include <QLineEdit>
-#include <QMenu>
 #include <QMessageBox>
-#include <QScreen>
-#include <QToolButton>
-#include <QWidgetAction>
+#include <QVBoxLayout>
 
 using namespace Utils;
 
@@ -135,6 +135,34 @@ static void writeSettings(const QSize &size, const QString &sizeSpec)
     settings->endGroup();
 }
 
+// The sizes offered for an image that is not an icon: half of it where that
+// is still worth having, itself, and then doublings until there are four.
+QVector<QSize> generatedSizes(const QSize &svgSize)
+{
+    QVector<QSize> sizes;
+    if (svgSize.width() >= 16)
+        sizes.append(svgSize / 2);
+    sizes.append(svgSize);
+    for (int factor = 2; sizes.size() < 4; factor *= 2)
+        sizes.append(svgSize * factor);
+    return sizes;
+}
+
+// Where the width and the height go in the name. The caller passes a name for
+// one image and gets one per size out of it, so the name has to say where the
+// numbers belong.
+FilePath withSizePlaceholder(const FilePath &filePath)
+{
+    FilePath f = filePath;
+    QString ff = f.path();
+    const int lastDot = ff.lastIndexOf('.');
+    if (lastDot != -1) {
+        ff.insert(lastDot, "-%1");
+        f = f.withNewPath(ff);
+    }
+    return f;
+}
+
 QVector<QSize> MultiExportDialog::standardIconSizes()
 {
     QVector<QSize> result;
@@ -146,62 +174,85 @@ QVector<QSize> MultiExportDialog::standardIconSizes()
 }
 
 // --- MultiExportDialog
+
+// What the menu on the size field offers.
+enum class SizeChoice { Clear, StandardIcons, Generated };
+
+class MultiExportSettings final : public AspectContainer
+{
+public:
+    MultiExportSettings()
+    {
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/ImageViewer/MultiExportDialog.qml"));
+
+        const QString fileToolTip
+            = Tr::tr("Enter a file name containing place holders %1 "
+                     "which will be replaced by the width and height of the image, respectively.")
+                  .arg("%1, %2");
+        file.setQmlName("File");
+        file.setLabelText(Tr::tr("File:"));
+        file.setToolTip(fileToolTip);
+        file.setExpectedKind(PathChooserKind::SaveFile);
+        file.setPromptDialogFilter(ExportDialog::imageNameFilterString());
+
+        sizes.setQmlName("Sizes");
+        sizes.setLabelText(Tr::tr("Sizes:"));
+        sizes.setDisplayStyle(StringAspect::LineEditDisplay);
+        sizes.setToolTip(Tr::tr(
+            "A comma-separated list of size specifications of the form \"<width>x<height>\"."));
+
+        // The widget field carried a menu on a button inside itself. An action
+        // that offers choices is the same thing said once.
+        sizeOptions.setQmlName("SizeOptions");
+        sizeOptions.setActionText(Tr::tr("Sizes"));
+        sizeOptions.setActionIcon(Icons::ARROW_DOWN.icon());
+        sizeOptions.setChoices({
+            {.display = Tr::tr("Clear"), .id = int(SizeChoice::Clear)},
+            {.display = Tr::tr("Set Standard Icon Sizes"), .id = int(SizeChoice::StandardIcons)},
+            {.display = Tr::tr("Generate Sizes"), .id = int(SizeChoice::Generated)},
+        });
+    }
+
+    void setSizes(const QVector<QSize> &s) { sizes.setValue(sizesToString(s)); }
+    QVector<QSize> chosenSizes() const { return stringToSizes(sizes().trimmed()); }
+
+    FilePathAspect file{this};
+    StringAspect sizes{this};
+    ActionAspect sizeOptions{this};
+};
+
 MultiExportDialog::MultiExportDialog(QWidget *parent)
     : QDialog(parent)
-    , m_pathChooser(new Utils::PathChooser(this))
-    , m_sizesLineEdit(new QLineEdit)
+    , m_settings(new MultiExportSettings)
 {
-    auto formLayout = new QFormLayout(this);
-
-    m_pathChooser->setMinimumWidth(screen()->availableGeometry().width() / 5);
-    m_pathChooser->setExpectedKind(Utils::PathChooserKind::SaveFile);
-    m_pathChooser->setPromptDialogFilter(ExportDialog::imageNameFilterString());
-    const QString pathChooserToolTip =
-        Tr::tr("Enter a file name containing place holders %1 "
-           "which will be replaced by the width and height of the image, respectively.")
-          .arg("%1, %2");
-    m_pathChooser->setToolTip(pathChooserToolTip);
-    QLabel *pathChooserLabel = new QLabel(Tr::tr("File:"));
-    pathChooserLabel->setToolTip(pathChooserToolTip);
-    formLayout->addRow(pathChooserLabel, m_pathChooser);
-
-    auto sizeEditButton = new QToolButton;
-    sizeEditButton->setFocusPolicy(Qt::NoFocus);
-    sizeEditButton->setIcon(Utils::Icons::ARROW_DOWN.icon());
-    auto sizeEditMenu = new QMenu(this);
-    sizeEditMenu->addAction(Tr::tr("Clear"),
-                            m_sizesLineEdit, &QLineEdit::clear);
-    sizeEditMenu->addAction(Tr::tr("Set Standard Icon Sizes"), this,
-                            &MultiExportDialog::setStandardIconSizes);
-    sizeEditMenu->addAction(Tr::tr("Generate Sizes"), this,
-                            &MultiExportDialog::setGeneratedSizes);
-    sizeEditButton->setMenu(sizeEditMenu);
-    sizeEditButton->setPopupMode(QToolButton::InstantPopup);
-
-    const QString sizesToolTip =
-        Tr::tr("A comma-separated list of size specifications of the form \"<width>x<height>\".");
-    auto sizesLabel = new QLabel(Tr::tr("Sizes:"));
-    sizesLabel->setToolTip(sizesToolTip);
-    formLayout->addRow(sizesLabel, m_sizesLineEdit);
-    m_sizesLineEdit->setToolTip(sizesToolTip);
-    auto optionsAction = new QWidgetAction(this);
-    optionsAction->setDefaultWidget(sizeEditButton);
-    m_sizesLineEdit->addAction(optionsAction, QLineEdit::TrailingPosition);
-
-    QDialogButtonBox *buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+    auto buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     connect(buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
-    formLayout->addRow(buttonBox);
+
+    auto layout = new QVBoxLayout(this);
+    layout->addWidget(Core::createAspectForm(m_settings.get()));
+    layout->addWidget(buttonBox);
+
+    m_settings->sizeOptions.setOnChoice([this](const QVariant &id) {
+        switch (SizeChoice(id.toInt())) {
+        case SizeChoice::Clear: m_settings->sizes.setValue(QString()); break;
+        case SizeChoice::StandardIcons: setStandardIconSizes(); break;
+        case SizeChoice::Generated: setGeneratedSizes(); break;
+        }
+    });
 }
+
+MultiExportDialog::~MultiExportDialog() = default;
 
 void MultiExportDialog::setSizes(const QVector<QSize> &s)
 {
-    m_sizesLineEdit->setText(sizesToString(s));
+    m_settings->setSizes(s);
 }
 
 QVector<QSize> MultiExportDialog::sizes() const
 {
-    return stringToSizes(sizesSpecification());
+    return m_settings->chosenSizes();
 }
 
 void MultiExportDialog::setStandardIconSizes()
@@ -211,13 +262,7 @@ void MultiExportDialog::setStandardIconSizes()
 
 void MultiExportDialog::setGeneratedSizes()
 {
-    QVector<QSize> sizes;
-    if (m_svgSize.width() >= 16)
-        sizes.append(m_svgSize / 2);
-    sizes.append(m_svgSize);
-    for (int factor = 2; sizes.size() < 4; factor *= 2)
-        sizes.append(m_svgSize * factor);
-    setSizes(sizes);
+    setSizes(generatedSizes(m_svgSize));
 }
 
 void MultiExportDialog::suggestSizes()
@@ -244,13 +289,14 @@ QVector<ExportData> MultiExportDialog::exportData() const
 
 QString MultiExportDialog::sizesSpecification() const
 {
-    return m_sizesLineEdit->text().trimmed();
+    return m_settings->sizes().trimmed();
 }
 
 void MultiExportDialog::accept()
 {
-    if (!m_pathChooser->isValid()) {
-        QMessageBox::warning(this, windowTitle(), m_pathChooser->errorMessage());
+    if (!m_settings->file.isValid()) {
+        QMessageBox::warning(this, windowTitle(),
+                             m_settings->file.validationMessage(m_settings->file.value()));
         return;
     }
 
@@ -297,19 +343,154 @@ void MultiExportDialog::accept()
 
 FilePath MultiExportDialog::exportFileName() const
 {
-    return m_pathChooser->filePath();
+    return m_settings->file();
 }
 
 void MultiExportDialog::setExportFileName(const FilePath &filePath)
 {
-    FilePath f = filePath;
-    QString ff = f.path();
-    const int lastDot = ff.lastIndexOf('.');
-    if (lastDot != -1) {
-        ff.insert(lastDot, "-%1");
-        f = f.withNewPath(ff);
-    };
-    m_pathChooser->setFilePath(f);
+    m_settings->file.setValue(withSizePlaceholder(filePath));
 }
 
+#ifdef WITH_TESTS
+
+class MultiExportDialogTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheDialogDrawsWithTheQmlItNames()
+    {
+        MultiExportSettings settings;
+        const Result<> rendered
+            = Core::aspectFormRenders(&settings, "MultiExportDialog.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+    }
+
+    void testHowASizeIsWritten()
+    {
+        // "4" is 4x4, because a list of icon sizes is mostly squares and
+        // writing each of them twice reads worse.
+        QCOMPARE(sizeFromString("4"), QSize(4, 4));
+        QCOMPARE(sizeFromString("2x4"), QSize(2, 4));
+        QCOMPARE(sizeToString({4, 4}), QString("4"));
+        QCOMPARE(sizeToString({2, 4}), QString("2x4"));
+
+        // Nothing that is not a size at all.
+        QVERIFY(!sizeFromString("").isValid());
+        QVERIFY(!sizeFromString("x").isValid());
+        QVERIFY(!sizeFromString("0").isValid());
+        QVERIFY(!sizeFromString("-4").isValid());
+        QVERIFY(!sizeFromString("4x0").isValid());
+        QVERIFY(!sizeFromString("wide").isValid());
+    }
+
+    void testOneBadSizeSpoilsTheList()
+    {
+        // All or nothing, so that a typo cannot quietly export fewer images
+        // than were asked for.
+        QCOMPARE(stringToSizes("16,32,48").size(), 3);
+        QCOMPARE(stringToSizes("16, 32x64 ,48").size(), 3);
+        QVERIFY2(stringToSizes("16,nonsense,48").isEmpty(),
+                 "a list with one bad entry exported the other two");
+        QVERIFY(stringToSizes("").isEmpty());
+
+        // And a list survives being written out and read back.
+        const QVector<QSize> sizes = {{16, 16}, {32, 64}};
+        QCOMPARE(stringToSizes(sizesToString(sizes)), sizes);
+    }
+
+    void testWhatSizesAreOfferedForAnImage()
+    {
+        // Half of it, itself, and doublings until there are four.
+        QCOMPARE(generatedSizes({64, 64}),
+                 (QVector<QSize>{{32, 32}, {64, 64}, {128, 128}, {256, 256}}));
+
+        // Below 16 there is no half worth having, so it starts at itself.
+        const QVector<QSize> small = generatedSizes({8, 8});
+        QCOMPARE(small.size(), 4);
+        QCOMPARE(small.first(), QSize(8, 8));
+
+        // The proportions are kept, whatever they are.
+        const QVector<QSize> wide = generatedSizes({64, 32});
+        QCOMPARE(wide.first(), QSize(32, 16));
+    }
+
+    void testTheNameSaysWhereTheNumbersGo()
+    {
+        // One name in, one image per size out - so the name has to carry the
+        // width and the height, and the placeholder goes before the suffix.
+        QCOMPARE(withSizePlaceholder(FilePath::fromString("/tmp/icon.png")),
+                 FilePath::fromString("/tmp/icon-%1.png"));
+        // No suffix, nowhere to put it before.
+        QCOMPARE(withSizePlaceholder(FilePath::fromString("/tmp/icon")),
+                 FilePath::fromString("/tmp/icon"));
+
+        QCOMPARE(fileNameForSize("/tmp/icon-%1x%2.png", {16, 32}),
+                 FilePath::fromString("/tmp/icon-16x32.png"));
+    }
+
+    void testTheFieldOffersTheThreeWaysToFillIt()
+    {
+        // The widget field carried them on a button inside itself; they are
+        // the action's choices now, and all three have to be there.
+        MultiExportSettings settings;
+        const QList<AspectPresentation::Choice> choices = settings.sizeOptions.presentation().choices;
+        QCOMPARE(choices.size(), 3);
+        QCOMPARE(choices.at(0).id.toInt(), int(SizeChoice::Clear));
+        QCOMPARE(choices.at(1).id.toInt(), int(SizeChoice::StandardIcons));
+        QCOMPARE(choices.at(2).id.toInt(), int(SizeChoice::Generated));
+    }
+
+    void testEachWayOfFillingItDoesSomethingDifferent()
+    {
+        MultiExportDialog dialog;
+        dialog.setSvgSize({64, 64});
+
+        dialog.setSizes(MultiExportDialog::standardIconSizes());
+        const QVector<QSize> standard = dialog.sizes();
+        QVERIFY(standard.contains(QSize(16, 16)));
+        QVERIFY(standard.contains(QSize(256, 256)));
+
+        dialog.setSizes(generatedSizes({64, 64}));
+        QCOMPARE(dialog.sizes().size(), 4);
+        QVERIFY2(dialog.sizes() != standard, "generating sizes gave the standard icon sizes");
+
+        dialog.setSizes({});
+        QVERIFY(dialog.sizes().isEmpty());
+    }
+
+    void testASquareImageIsTakenForAnIcon()
+    {
+        // suggestSizes() has three answers and no settings to read here, so
+        // what is left is the square/not-square choice.
+        MultiExportDialog square;
+        square.setSvgSize({64, 64});
+        square.suggestSizes();
+        QCOMPARE(square.sizes(), MultiExportDialog::standardIconSizes());
+
+        MultiExportDialog wide;
+        wide.setSvgSize({64, 32});
+        wide.suggestSizes();
+        QCOMPARE(wide.sizes(), generatedSizes({64, 32}));
+    }
+
+    void testTheFileIsOneToWriteTo()
+    {
+        MultiExportSettings settings;
+        QCOMPARE(settings.file.presentation().pathKind, AspectControls::PathKind::SaveFile);
+        QVERIFY(!settings.file.presentation().promptDialogFilter.isEmpty());
+    }
+};
+
+QObject *createMultiExportDialogTest()
+{
+    return new MultiExportDialogTest;
+}
+
+#endif // WITH_TESTS
+
 } // ImageViewer:Internal
+
+#ifdef WITH_TESTS
+#include "multiexportdialog.moc"
+#endif

@@ -8,23 +8,24 @@
 #include <QSize>
 #include <QVector>
 
-QT_BEGIN_NAMESPACE
-class QLineEdit;
-QT_END_NAMESPACE
+#include <memory>
 
-namespace Utils {
-class FilePath;
-class PathChooser;
-} // Utils
+namespace Utils { class FilePath; }
 
 namespace ImageViewer::Internal {
 
 struct ExportData;
+class MultiExportSettings;
+
+#ifdef WITH_TESTS
+QObject *createMultiExportDialogTest();
+#endif
 
 class MultiExportDialog : public QDialog
 {
 public:
     explicit MultiExportDialog(QWidget *parent = nullptr);
+    ~MultiExportDialog() override;
 
     Utils::FilePath exportFileName() const;
     void setExportFileName(const Utils::FilePath &);
@@ -49,10 +50,8 @@ private:
 
     QString sizesSpecification() const;
 
-    Utils::PathChooser *m_pathChooser;
-    QLineEdit *m_sizesLineEdit;
+    const std::unique_ptr<MultiExportSettings> m_settings;
     QSize m_svgSize;
-
 };
 
 } // ImageViewer::Internal

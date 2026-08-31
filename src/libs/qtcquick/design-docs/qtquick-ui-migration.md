@@ -23002,3 +23002,54 @@ machine**, as with every other `.qbs` edit in this series.
 one and now has a module to put its `.qml` in. `PluginDialog` (Core) and
 `AddImplementationsDialog` (CppEditor) are the next small ones;
 `VersionDialog` is blocked on `labelPixmap`.
+
+## 2026-08-31 — The multi-export dialog, and a menu that lived inside a field
+
+`MultiExportDialog` writes one image out at several sizes. It is the other half
+of the last batch's dialog and needed no new module, which is the point of
+having added one.
+
+**A menu inside a line edit becomes an action with choices.** The size field
+carried a `QToolButton` in a `QWidgetAction` at its trailing edge, whose menu
+offered Clear, Set Standard Icon Sizes and Generate Sizes. That is
+`ActionAspect::setChoices()` plus `setOnChoice()` - the same shape the
+toolchain and kit pages use for their Add buttons - and it moves the three ways
+of filling the field from inside it to beside it. **A widget hidden inside
+another widget is the kind of affordance a census cannot see**; it was only
+found by reading the constructor.
+
+Most of the rules were already free functions and only needed testing:
+`sizeFromString`, `sizesToString`, `stringToSizes`, `fileNameForSize`. Two more
+came out: `generatedSizes(svgSize)` from a slot, and `withSizePlaceholder()`
+from `setExportFileName()`.
+
+**Three behaviours worth having written down**, all of which a port could have
+dropped without anything complaining:
+
+- **"4" means 4x4.** A list of icon sizes is mostly squares, and writing each
+  of them twice reads worse.
+- **One bad entry spoils the whole list.** `stringToSizes()` returns nothing
+  rather than the entries it could parse, so a typo cannot quietly export three
+  images where four were asked for.
+- **A square image is taken for an icon** and offered the standard icon sizes;
+  anything else gets halves and doublings of itself.
+
+`suggestSizes()` reads a remembered list from the settings first, which is why
+the test exercises only the square/not-square branch: with no settings written,
+that is the whole decision.
+
+Negative controls: a bad entry skipped rather than spoiling the list; a small
+image offered a half of itself; the name losing its `-%1`; one of the three
+ways to fill the field gone; every image taken for an icon; and the page naming
+an aspect that is not there. All six bit.
+
+QuickUi 197 passed / 0 failed / 1 skipped, exit 0. `ImageViewer` exit 0 with no
+failures - `MultiExportDialogTest` 11 passed, `ExportDialogTest` still 10.
+`ImageViewer_qmllint` zero warnings, `ninja all_qmllint` zero. No `.qbs` edit
+this time: the wildcard group added last batch already covers the new `.qml`.
+
+**Next:** 23 form-only dialogs. `PluginDialog` (Core) and
+`AddImplementationsDialog` (CppEditor) are the next small ones. Two are
+blocked and should be skipped when picking: `VersionDialog` needs
+`labelPixmap` honoured on the Qt Quick side, and `QnxAttachDebugDialog` needs
+`DeviceProcessesDialog` ported first.

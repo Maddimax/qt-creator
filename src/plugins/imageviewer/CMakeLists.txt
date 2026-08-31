@@ -28,5 +28,6 @@ if(TARGET ImageViewer)
     NO_PLUGIN
     QML_FILES
       ExportDialog.qml
+      MultiExportDialog.qml
   )
 endif()
