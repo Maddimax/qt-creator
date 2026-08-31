@@ -234,6 +234,7 @@ if(TARGET ProjectExplorer)
     NO_PLUGIN
     QML_FILES
       AppOutputSettingsPage.qml
+      PathListDialog.qml
       WaitForStopDialog.qml
       BuildAndRunProjectPanel.qml
       BuildAndRunSettingsPage.qml

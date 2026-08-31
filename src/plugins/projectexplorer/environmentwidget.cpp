@@ -5,11 +5,14 @@
 
 #include "projectexplorertr.h"
 
+#include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/fileutils.h>
 #include <coreplugin/find/itemviewfind.h>
 
 #include <utils/filedialogs.h>
+
 #include <utils/algorithm.h>
+#include <utils/aspects.h>
 #include <utils/detailswidget.h>
 #include <utils/environment.h>
 #include <utils/environmentdialog.h>
@@ -37,95 +40,139 @@
 #include <QTreeView>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
 #include <QVBoxLayout>
 
 using namespace Utils;
 
 namespace ProjectExplorer {
 
-class PathTreeWidget : public QTreeWidget
+// A PATH-like variable, as a list rather than as one string. The platform's
+// separator is what holds it together on the way in and out.
+QStringList pathsFromString(const QString &paths)
+{
+    return paths.split(Utils::HostOsInfo::pathListSeparator(), Qt::SkipEmptyParts);
+}
+
+QString pathsToString(const QStringList &paths)
+{
+    return paths.join(Utils::HostOsInfo::pathListSeparator());
+}
+
+class PathListSettings final : public AspectContainer
 {
 public:
-    QSize sizeHint() const override
+    PathListSettings(const QString &varName, const QString &paths)
     {
-        return QSize(800, 600);
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/ProjectExplorer/PathListDialog.qml"));
+
+        // The variable's name is what the widget tree put in its one header.
+        entries.setQmlName("Paths");
+        entries.setLabelText(varName);
+        entries.setDisplayStyle(StringListAspect::DisplayStyle::ListView);
+        entries.setUiPathKind(AspectControls::PathKind::ExistingDirectory);
+        entries.setUiAllowReordering(true);
+        entries.setValue(pathsFromString(paths));
     }
+
+    StringListAspect entries{this};
 };
 
 class PathListDialog : public QDialog
 {
 public:
-    PathListDialog(const QString &varName, const QString &paths, QWidget *parent) : QDialog(parent)
+    PathListDialog(const QString &varName, const QString &paths, QWidget *parent)
+        : QDialog(parent)
+        , m_settings(varName, paths)
     {
-        const auto mainLayout = new QVBoxLayout(this);
-        const auto viewLayout = new QHBoxLayout;
-        const auto buttonsLayout = new QVBoxLayout;
-        const auto addButton = new QPushButton(Tr::tr("Add..."));
-        const auto removeButton = new QPushButton(Tr::tr("Remove"));
-        const auto editButton = new QPushButton(Tr::tr("Edit..."));
-        buttonsLayout->addWidget(addButton);
-        buttonsLayout->addWidget(removeButton);
-        buttonsLayout->addWidget(editButton);
-        buttonsLayout->addStretch(1);
+        resize(800, 600);
+
         const auto buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok
                                                     | QDialogButtonBox::Cancel);
-        viewLayout->addWidget(&m_view);
-        viewLayout->addLayout(buttonsLayout);
-        mainLayout->addLayout(viewLayout);
-        mainLayout->addWidget(buttonBox);
-
-        m_view.setHeaderLabel(varName);
-        m_view.setDragDropMode(QAbstractItemView::InternalMove);
-        const QStringList pathList = paths.split(Utils::HostOsInfo::pathListSeparator(),
-                                                 Qt::SkipEmptyParts);
-        for (const QString &path : pathList)
-            addPath(path);
-
         connect(buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
         connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
-        connect(addButton, &QPushButton::clicked, this, [this] {
-            const FilePath dir = FileUtils::getExistingDirectory(Tr::tr("Choose Directory"));
-            if (!dir.isEmpty())
-                addPath(dir.toUserOutput());
-        });
-        connect(removeButton, &QPushButton::clicked, this, [this] {
-            const QList<QTreeWidgetItem *> selected = m_view.selectedItems();
-            QTC_ASSERT(selected.count() == 1, return);
-            delete selected.first();
-        });
-        connect(editButton, &QPushButton::clicked, this, [this] {
-            const QList<QTreeWidgetItem *> selected = m_view.selectedItems();
-            QTC_ASSERT(selected.count() == 1, return);
-            m_view.editItem(selected.first(), 0);
-        });
-        const auto updateButtonStates = [this, removeButton, editButton] {
-            const bool hasSelection = !m_view.selectedItems().isEmpty();
-            removeButton->setEnabled(hasSelection);
-            editButton->setEnabled(hasSelection);
-        };
-        connect(m_view.selectionModel(), &QItemSelectionModel::selectionChanged,
-                this, updateButtonStates);
-        updateButtonStates();
+
+        const auto mainLayout = new QVBoxLayout(this);
+        mainLayout->addWidget(Core::createAspectForm(&m_settings));
+        mainLayout->addWidget(buttonBox);
     }
 
-    QString paths() const
-    {
-        QStringList pathList;
-        for (int i = 0; i < m_view.topLevelItemCount(); ++i)
-            pathList << m_view.topLevelItem(i)->text(0);
-        return pathList.join(Utils::HostOsInfo::pathListSeparator());
-    }
+    QString paths() const { return pathsToString(m_settings.entries()); }
 
 private:
-    void addPath(const QString &path)
+    PathListSettings m_settings;
+};
+
+#ifdef WITH_TESTS
+
+namespace Internal {
+
+class PathListDialogTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheDialogDrawsWithTheQmlItNames()
     {
-        const auto item = new QTreeWidgetItem(&m_view, {path});
-        item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable
-                       | Qt::ItemIsDragEnabled);
+        PathListSettings settings("PATH", {});
+        const Utils::Result<> rendered
+            = Core::aspectFormRenders(&settings, "PathListDialog.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
     }
 
-    PathTreeWidget m_view;
+    void testAPathListIsOneStringAndSeveralEntries()
+    {
+        const QString sep = QString(Utils::HostOsInfo::pathListSeparator());
+        QCOMPARE(pathsFromString("/one" + sep + "/two"), (QStringList{"/one", "/two"}));
+        QCOMPARE(pathsToString({"/one", "/two"}), "/one" + sep + "/two");
+
+        // Empty stretches are not entries: a variable that ends with the
+        // separator, or has two in a row, has no nameless directory in it.
+        QCOMPARE(pathsFromString("/one" + sep), QStringList{"/one"});
+        QCOMPARE(pathsFromString(sep + sep), QStringList());
+        QCOMPARE(pathsFromString(""), QStringList());
+    }
+
+    void testTheEntriesArePickedAndOrdered()
+    {
+        // Directories, so Add... and Edit... open a chooser rather than
+        // leaving a path to be typed; and the order is the reader's, because
+        // a PATH is searched in order.
+        PathListSettings settings("PATH", "/one");
+        QCOMPARE(settings.entries.presentation().pathKind,
+                 Utils::AspectControls::PathKind::ExistingDirectory);
+        QVERIFY2(settings.entries.presentation().allowReordering,
+                 "the directories can no longer be put in the order they are searched");
+    }
+
+    void testWhatTheDialogWasOpenedOnComesBack()
+    {
+        const QString sep = QString(Utils::HostOsInfo::pathListSeparator());
+        PathListDialog dialog("PATH", "/one" + sep + "/two", nullptr);
+        QCOMPARE(dialog.paths(), "/one" + sep + "/two");
+    }
+
+    void testTheVariableNamesItself()
+    {
+        // The widget tree put the variable's name in its one header; there is
+        // no header here, so it is the list's label.
+        PathListSettings settings("LD_LIBRARY_PATH", {});
+        QCOMPARE(settings.entries.labelText(), QString("LD_LIBRARY_PATH"));
+    }
 };
+
+QObject *createPathListDialogTest()
+{
+    return new PathListDialogTest;
+}
+
+} // namespace Internal
+
+#endif // WITH_TESTS
 
 ////
 // EnvironmentWidget::EnvironmentWidget
@@ -572,3 +619,7 @@ bool editEnvironmentPathList(Utils::EnvironmentModel *model,
 }
 
 } // namespace ProjectExplorer
+
+#ifdef WITH_TESTS
+#include "environmentwidget.moc"
+#endif

@@ -9,6 +9,8 @@
 #include "clangtoolsutils.h"
 #include "executableinfo.h"
 
+#include <coreplugin/dialogs/ioptionspage.h>
+
 #include <cppeditor/cppeditorconstants.h>
 #include <cppeditor/cpptoolsreuse.h>
 
@@ -16,12 +18,18 @@
 #include <projectexplorer/selectablefilesmodel.h>
 
 #include <utils/algorithm.h>
+#include <utils/aspects.h>
 #include <utils/fancylineedit.h>
 #include <utils/infolabel.h>
 #include <utils/layoutbuilder.h>
 #include <utils/qtcassert.h>
 #include <utils/stringutils.h>
 
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
+#include <QAbstractTableModel>
 #include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
@@ -38,6 +46,7 @@
 #include <QStringListModel>
 #include <QTextEdit>
 #include <QTreeView>
+#include <QVBoxLayout>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 
@@ -191,77 +200,242 @@ public:
     }
 };
 
-class TidyOptionsDialog : public QDialog
+// The options of one clang-tidy check, as rows. A QMap on the way in and out,
+// so the order the reader sees is the map's - by option name.
+class TidyOptionsModel final : public QAbstractTableModel
 {
-    Q_OBJECT
 public:
-    TidyOptionsDialog(const QString &check, const ClangDiagnosticConfig::TidyCheckOptions &options,
-                      QWidget *parent = nullptr) : QDialog(parent)
+    explicit TidyOptionsModel(const ClangDiagnosticConfig::TidyCheckOptions &options)
     {
-        setWindowTitle(Tr::tr("Options for %1").arg(check));
-        resize(600, 300);
-
-        m_optionsWidget.setColumnCount(2);
-        m_optionsWidget.setHeaderLabels({Tr::tr("Option"), Tr::tr("Value")});
-        const auto addItem = [this](const QString &option, const QString &value) {
-            const auto item = new QTreeWidgetItem(&m_optionsWidget, QStringList{option, value});
-            item->setFlags(item->flags() | Qt::ItemIsEditable);
-            return item;
-        };
         for (auto it = options.begin(); it != options.end(); ++it)
-            addItem(it.key(), it.value());
-        m_optionsWidget.resizeColumnToContents(0);
-
-        const auto addButton = new QPushButton(Tr::tr("Add Option"));
-        const auto removeButton = new QPushButton(Tr::tr("Remove Option"));
-        const auto buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok
-                                                    | QDialogButtonBox::Cancel);
-
-        using namespace Layouting;
-        Column {
-            Row {
-                &m_optionsWidget,
-                Column {
-                    addButton,
-                    removeButton,
-                    st
-                }
-            },
-            buttonBox
-        }.attachTo(this);
-
-        connect(addButton, &QPushButton::clicked, this, [this, addItem] {
-            const auto item = addItem(Tr::tr("<new option>"), {});
-            m_optionsWidget.editItem(item);
-        });
-        connect(removeButton, &QPushButton::clicked, this, [this] {
-            qDeleteAll(m_optionsWidget.selectedItems());
-        });
-
-        const auto toggleRemoveButtonEnabled = [this, removeButton] {
-            removeButton->setEnabled(!m_optionsWidget.selectionModel()->selectedRows().isEmpty());
-        };
-        connect(&m_optionsWidget, &QTreeWidget::itemSelectionChanged,
-                this, [toggleRemoveButtonEnabled] { toggleRemoveButtonEnabled(); });
-        toggleRemoveButtonEnabled();
-
-        connect(buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
-        connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
+            m_rows.append({it.key(), it.value()});
     }
 
     ClangDiagnosticConfig::TidyCheckOptions options() const
     {
         ClangDiagnosticConfig::TidyCheckOptions opts;
-        for (int i = 0; i < m_optionsWidget.topLevelItemCount(); ++i) {
-            const QTreeWidgetItem * const item = m_optionsWidget.topLevelItem(i);
-            opts.insert(item->text(0), item->text(1));
+        for (const Row &row : m_rows) {
+            // A row with no name is not an option. The widget list let one be
+            // added and handed it to clang-tidy under an empty key.
+            if (!row.option.isEmpty())
+                opts.insert(row.option, row.value);
         }
         return opts;
     }
 
+    int rowCount(const QModelIndex &parent = {}) const override
+    { return parent.isValid() ? 0 : m_rows.size(); }
+    int columnCount(const QModelIndex &parent = {}) const override
+    { return parent.isValid() ? 0 : 2; }
+
+    QVariant data(const QModelIndex &index, int role) const override
+    {
+        if (role == Utils::AspectTable::EditableRole)
+            return Utils::AspectTable::isWritable(flags(index));
+        if (!index.isValid() || index.row() >= m_rows.size())
+            return {};
+        if (role != Qt::DisplayRole && role != Qt::EditRole)
+            return {};
+        const Row &row = m_rows.at(index.row());
+        return index.column() == 0 ? row.option : row.value;
+    }
+
+    bool setData(const QModelIndex &index, const QVariant &value, int role) override
+    {
+        if (role != Qt::EditRole || !index.isValid() || index.row() >= m_rows.size())
+            return false;
+        Row &row = m_rows[index.row()];
+        (index.column() == 0 ? row.option : row.value) = value.toString();
+        emit dataChanged(index, index, {role});
+        return true;
+    }
+
+    QVariant headerData(int section, Qt::Orientation orientation, int role) const override
+    {
+        if (orientation != Qt::Horizontal || role != Qt::DisplayRole)
+            return {};
+        return section == 0 ? Tr::tr("Option") : Tr::tr("Value");
+    }
+
+    Qt::ItemFlags flags(const QModelIndex &index) const override
+    {
+        if (!index.isValid())
+            return Qt::NoItemFlags;
+        return Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable;
+    }
+
+    QHash<int, QByteArray> roleNames() const override
+    {
+        return Utils::AspectTable::withRoleNames(QAbstractTableModel::roleNames());
+    }
+
+    void addOption()
+    {
+        beginInsertRows({}, m_rows.size(), m_rows.size());
+        m_rows.append({Tr::tr("<new option>"), {}});
+        endInsertRows();
+    }
+
+    void removeRows(const QList<int> &rows)
+    {
+        // Backwards, so that removing one does not move the next.
+        for (int i = rows.size() - 1; i >= 0; --i) {
+            const int row = rows.at(i);
+            if (row < 0 || row >= m_rows.size())
+                continue;
+            beginRemoveRows({}, row, row);
+            m_rows.removeAt(row);
+            endRemoveRows();
+        }
+    }
+
 private:
-    QTreeWidget m_optionsWidget;
+    struct Row { QString option; QString value; };
+    QList<Row> m_rows;
 };
+
+class TidyOptionsSettings final : public AspectContainer
+{
+public:
+    explicit TidyOptionsSettings(const ClangDiagnosticConfig::TidyCheckOptions &options)
+        : m_model(options)
+    {
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/ClangTools/TidyOptionsDialog.qml"));
+
+        rows.setQmlName("Options");
+        rows.setModel(&m_model);
+
+        add.setQmlName("Add");
+        add.setActionText(Tr::tr("Add Option"));
+        add.setAction([this] { m_model.addOption(); });
+
+        remove.setQmlName("Remove");
+        remove.setActionText(Tr::tr("Remove Option"));
+        remove.setAction([this] { m_model.removeRows(rows.selectedRows()); });
+
+        connect(&rows, &TableAspect::chosenChanged, this, [this] {
+            remove.setEnabled(!rows.selectedRows().isEmpty());
+        });
+        remove.setEnabled(false);
+    }
+
+    ClangDiagnosticConfig::TidyCheckOptions options() const { return m_model.options(); }
+
+    TableAspect rows{this};
+    ActionAspect add{this};
+    ActionAspect remove{this};
+
+private:
+    TidyOptionsModel m_model;
+};
+
+class TidyOptionsDialog : public QDialog
+{
+public:
+    TidyOptionsDialog(const QString &check, const ClangDiagnosticConfig::TidyCheckOptions &options,
+                      QWidget *parent = nullptr)
+        : QDialog(parent)
+        , m_settings(options)
+    {
+        setWindowTitle(Tr::tr("Options for %1").arg(check));
+        resize(600, 300);
+
+        const auto buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok
+                                                    | QDialogButtonBox::Cancel);
+        connect(buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
+        connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
+
+        const auto layout = new QVBoxLayout(this);
+        layout->addWidget(Core::createAspectForm(&m_settings));
+        layout->addWidget(buttonBox);
+    }
+
+    ClangDiagnosticConfig::TidyCheckOptions options() const { return m_settings.options(); }
+
+private:
+    TidyOptionsSettings m_settings;
+};
+
+#ifdef WITH_TESTS
+
+class TidyOptionsDialogTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheDialogDrawsWithTheQmlItNames()
+    {
+        TidyOptionsSettings settings({{"WarnOnFloat", "true"}});
+        const Result<> rendered
+            = Core::aspectFormRenders(&settings, "TidyOptionsDialog.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+    }
+
+    void testTheOptionsSurviveTheDialog()
+    {
+        const ClangDiagnosticConfig::TidyCheckOptions given
+            = {{"IgnoreMacros", "true"}, {"WarnOnFloat", "false"}};
+        TidyOptionsSettings settings(given);
+        QCOMPARE(settings.options(), given);
+    }
+
+    void testAnOptionWithNoNameIsNotAnOption()
+    {
+        // The widget list added a row called "<new option>" and handed
+        // whatever was left of it to clang-tidy. A row the reader emptied
+        // instead of naming is not one.
+        TidyOptionsModel model({});
+        model.addOption();
+        QCOMPARE(model.rowCount(), 1);
+        QVERIFY(model.setData(model.index(0, 0), QString(), Qt::EditRole));
+        QVERIFY(model.setData(model.index(0, 1), "true", Qt::EditRole));
+        QVERIFY2(model.options().isEmpty(), "an option with no name was handed to clang-tidy");
+
+        QVERIFY(model.setData(model.index(0, 0), "IgnoreMacros", Qt::EditRole));
+        QCOMPARE(model.options(), ClangDiagnosticConfig::TidyCheckOptions({{"IgnoreMacros", "true"}}));
+    }
+
+    void testBothColumnsAreTheReadersToWrite()
+    {
+        // Answered, not merely truthy: an unanswered role reads as undefined
+        // in QML, which a cell also takes for editable.
+        TidyOptionsModel model({{"WarnOnFloat", "true"}});
+        for (int column = 0; column < 2; ++column) {
+            const QVariant editable
+                = model.data(model.index(0, column), Utils::AspectTable::EditableRole);
+            QVERIFY2(editable.isValid(), "the table was never told whether a cell may be written to");
+            QVERIFY2(editable.toBool(), "an option could not be typed over");
+        }
+        QVERIFY(model.roleNames().values().contains("display"));
+        QCOMPARE(model.headerData(0, Qt::Horizontal, Qt::DisplayRole).toString(), Tr::tr("Option"));
+    }
+
+    void testRowsAreRemovedBackToFront()
+    {
+        // Front to back takes the wrong ones: removing row 0 moves row 1 to 0.
+        TidyOptionsModel model({{"a", "1"}, {"b", "2"}, {"c", "3"}});
+        model.removeRows({0, 2});
+        QCOMPARE(model.options(), ClangDiagnosticConfig::TidyCheckOptions({{"b", "2"}}));
+    }
+
+    void testRemoveIsOfferedOnlyForSomethingChosen()
+    {
+        TidyOptionsSettings settings({{"a", "1"}});
+        QVERIFY2(!settings.remove.isEnabled(), "Remove was offered with nothing picked");
+        settings.rows.setSelectedRows({0});
+        QVERIFY(settings.remove.isEnabled());
+        settings.rows.setSelectedRows({});
+        QVERIFY(!settings.remove.isEnabled());
+    }
+};
+
+QObject *createTidyOptionsDialogTest()
+{
+    return new TidyOptionsDialogTest;
+}
+
+#endif // WITH_TESTS
 
 namespace ClangTidyPrefixTree {
 

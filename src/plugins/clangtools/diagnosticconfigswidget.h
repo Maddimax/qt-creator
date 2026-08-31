@@ -11,6 +11,10 @@
 
 namespace ClangTools::Internal {
 
+#ifdef WITH_TESTS
+QObject *createTidyOptionsDialogTest();
+#endif
+
 class ClazyChecksSortFilterModel;
 class ClazyChecksTreeModel;
 class ClazyChecksWidget;

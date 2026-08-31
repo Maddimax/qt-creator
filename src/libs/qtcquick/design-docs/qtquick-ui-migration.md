@@ -23192,3 +23192,65 @@ wildcard and no C++ file was added.
 - **the genuinely custom** (`CropScene`, `ColorSettings`, `DockManager`,
   `PluginView`), which need a component each.
 Starting with the table shape is the obvious order.
+
+## 2026-08-31 — The table shape, twice, and a dialog that needed no new code
+
+The first two of the table-shaped dialogs, and they turned out to be two
+different things.
+
+**`PathListDialog`** (ProjectExplorer) - a `PATH`-like variable edited one
+directory per row, with Add.../Remove/Edit... and internal-move drag and drop -
+**needed no new component at all.** It is exactly the
+`StringListEditorDelegate` that the locator batches grew: browse mode from
+`setUiPathKind()`, ordering from `setUiAllowReordering()`, and the variable's
+name as the list's label where the widget tree put it in its one header. The
+port is a container with **one aspect in it**.
+
+That is worth noting as the payoff for two earlier batches: a dialog whose
+widget version is a `QTreeWidget` subclass, three buttons, a selection handler
+and an `addPath()` helper comes to twenty lines.
+
+Two rules came out of it: `pathsFromString()`/`pathsToString()`, and the thing
+they turn on - **an empty stretch is not a directory**. A variable that ends
+with the separator, or has two in a row, has no nameless entry in it;
+`Qt::SkipEmptyParts` is what says so and the control that removes it bites.
+
+**`TidyOptionsDialog`** (ClangTools) is the table proper: a `QTreeWidget` of
+option/value rows becomes a small `QAbstractTableModel` plus a `TableAspect`
+and two `ActionAspect`s. The three model overrides from
+[[qtc-model-ready-for-quick-view]] are the whole of what it takes -
+`headerData`, `EditableRole`, `roleNames`.
+
+**A bug the port fixes.** The widget list's Add added a row called
+"&lt;new option&gt;" and `options()` inserted **whatever was in column 0**,
+including nothing - so a row the reader added and did not name was handed to
+clang-tidy under an empty key. `options()` now skips a row with no name.
+
+And the removal order: the widget deleted `selectedItems()` directly, which is
+safe because the items are pointers. A model has to go **backwards through the
+rows**, or removing row 0 moves row 1 into its place. That is the same note as
+`CustomQbsPropertiesDialog` three months of batches ago, and it is worth
+re-recording because the two ports look nothing alike.
+
+**Two mechanical things again**, the same pair as last batch: a `.cpp` that
+gains a `Q_OBJECT` needs its `.moc` *and* `<QTest>`, and a test class has to
+be in the namespace its header declares it in - `environmentwidget.cpp` is
+`namespace ProjectExplorer` while the factory is declared in
+`ProjectExplorer::Internal`.
+
+Negative controls: an option with no name handed to clang-tidy; rows removed
+front to back; Remove offered with nothing picked; an empty stretch counted as
+a directory; the directories typed rather than picked and not ordered; and the
+tidy page naming an aspect that is not there. All six bit.
+
+QuickUi 197 passed / 0 failed / 1 skipped, exit 0. `ClangTools` exit 0 with no
+failures, `TidyOptionsDialogTest` 8 passed, `PathListDialogTest` 7;
+`ProjectExplorer` is its two standing ones. `ninja all_qmllint` zero warnings.
+No `.qbs` edit: both plugins take their `.qml` by wildcard.
+
+**Next:** more of the table shape - `SaveItemsDialog`,
+`DeviceFactorySelectionDialog`, `CleanDialog`, `PromptOverwriteDialog`,
+`ProcessPickerDialog`, `AddToVcsDialog`, `DeleteSymbolicNameDialog`,
+`FilterDialog`. **Check first whether the list is of paths**: if it is,
+`StringListEditorDelegate` may do it with no model at all, as `PathListDialog`
+just did.

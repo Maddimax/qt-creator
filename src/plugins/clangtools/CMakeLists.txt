@@ -64,5 +64,6 @@ if(TARGET ClangTools)
       ClangToolsProjectPanel.qml
       ClangToolsRunOptionsForm.qml
       ClangToolsSettingsPage.qml
+      TidyOptionsDialog.qml
   )
 endif()

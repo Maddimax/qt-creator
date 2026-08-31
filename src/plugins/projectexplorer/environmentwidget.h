@@ -22,6 +22,10 @@ class FilePath;
 
 namespace ProjectExplorer {
 
+#ifdef WITH_TESTS
+namespace Internal { QObject *createPathListDialogTest(); }
+#endif
+
 class PROJECTEXPLORER_EXPORT EnvironmentWidget : public QWidget
 {
     Q_OBJECT
