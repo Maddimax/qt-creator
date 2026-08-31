@@ -50,6 +50,7 @@ if(TARGET VcsBase)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      CleanDialog.qml
       CommonVcsSettingsPage.qml
       NickNameDialog.qml
   )

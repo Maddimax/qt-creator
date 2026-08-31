@@ -23419,3 +23419,56 @@ failures, `DeleteSymbolicNameDialogTest` 9 passed,
 **Next:** `CleanDialog` (VcsBase - a checkable tree of files to delete, so the
 overwrite-prompt shape), `FilterDialog` (ClangTools) and `ProcessPickerDialog`
 (Profiler), then the trees with models of their own.
+
+## 2026-08-31 — Cleaning a repository, and a control that could not reach the case
+
+`CleanDialog` (VcsBase) is the checkable-list shape with two things the
+overwrite prompt did not have: rows that may be directories, and a
+"Select All" box that has to follow the rows as well as set them.
+
+**Three rules came out of it**, and each was a line buried in a slot:
+
+- `isInitiallyChecked(listedAsRemovable, isDirectory)` - **a directory is
+  never ticked to begin with**, even when version control listed it as
+  removable, because deleting one takes everything under it.
+- `allRowsChecked(states)` - what "Select All" reports.
+- `cleanRepositoryTitle()`, which was a group box title.
+
+**The box is derived now, and that fixes a small lie.** `setFileList()` ticked
+"Select All" whenever nothing was ignored - but the directory rows are never
+ticked, so a listing of one file and one directory showed the box ticked with
+a row unticked under it. It follows `allRowsChecked()` in both directions, with
+a `Utils::Guard` between them, and an empty list reports **not** all-checked
+rather than vacuously true.
+
+**A control that could not reach the case it was written for.** "A directory is
+opened in an editor" changed nothing, because the test used an *empty* model:
+`fileToOpen(0)` returns nothing through the out-of-range branch whatever the
+directory branch does. Listing the real temporary directory - a path that
+`isDir()` actually answers yes to - makes the row exist, and then both that
+control and the ticking one bite through the model rather than only through
+the free function.
+
+That is the third time in this series a control has been blunted by a fixture
+that cannot express the case: after the reciprocal binding that needed a value
+which is not a fixed point, and the cell font that needed a model answering
+`Qt::FontRole`. **The pattern is a test that reaches the right answer down the
+wrong path.**
+
+Negative controls: a directory ticked like a file; an empty list reporting
+everything as picked; a directory opened in an editor (twice - the second time
+against a real directory); a directory ticked through the model;
+`CheckableRole` not answered; the column losing its name; and the page naming
+an aspect that is not there. All seven bit, one of them only after the fixture
+was fixed.
+
+QuickUi 197 passed / 0 failed / 1 skipped, exit 0. `VcsBase` exit 0 with no
+failures, `CleanDialogTest` 9 passed; `Git`, `Mercurial` and `Bazaar` clean.
+`ninja all_qmllint` zero warnings. No `.qbs` edit: `vcsbase.qbs` takes `*.qml`
+by wildcard.
+
+**Next:** `FilterDialog` (ClangTools) and `ProcessPickerDialog` (Profiler) are
+the last two of the table shape the census named. After those, what is left is
+the group that needs a model made Quick-ready first -
+`GenerateGettersSettersDialog`, `InsertVirtualMethodsDialog`,
+`LoggingViewManagerWidget` - and the genuinely custom widgets.

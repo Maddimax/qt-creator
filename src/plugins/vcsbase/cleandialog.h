@@ -7,15 +7,16 @@
 
 #include <QDialog>
 
-QT_BEGIN_NAMESPACE
-class QModelIndex;
-QT_END_NAMESPACE
-
 namespace Utils { class FilePath; }
 
 namespace VcsBase {
 
-namespace Internal { class CleanDialogPrivate; }
+namespace Internal {
+class CleanDialogPrivate;
+#ifdef WITH_TESTS
+QObject *createCleanDialogTest();
+#endif
+} // namespace Internal
 
 class VCSBASE_EXPORT CleanDialog : public QDialog
 {
@@ -32,13 +33,8 @@ public slots:
     void accept() override;
 
 private:
-    void slotDoubleClicked(const QModelIndex &);
-    void selectAllItems(bool checked);
-    void updateSelectAllCheckBox();
-
     QStringList checkedFiles() const;
     bool promptToDelete();
-    void addFile(const Utils::FilePath &workingDirectory, const QString &fileName, bool checked);
 
     Internal::CleanDialogPrivate *const d;
 };

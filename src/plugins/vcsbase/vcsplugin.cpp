@@ -3,6 +3,7 @@
 
 #include "vcsplugin.h"
 
+#include "cleandialog.h"
 #include "commonvcssettings.h"
 #include "nicknamedialog.h"
 #include "vcsbaseconstants.h"
@@ -98,6 +99,7 @@ void VcsPlugin::initialize()
 #ifdef WITH_TESTS
     addTestCreator(createVcsOutputViewTest);
     addTestCreator(createNickNameDialogTest);
+    addTestCreator(createCleanDialogTest);
 #endif
     d = new VcsPluginPrivate(this);
 
