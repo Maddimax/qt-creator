@@ -29,6 +29,7 @@
 #include "icore.h"
 #include "idocument.h"
 #include "iwizardfactory.h"
+#include "dialogs/promptoverwritedialog.h"
 #include "locator/locator.h"
 #include "locator/directoryfilter.h"
 #include "locator/filesystemfilter.h"
@@ -541,6 +542,7 @@ Result<> CorePlugin::initialize(const QStringList &arguments)
     addTestCreator(Internal::createCodecSelectorTest);
     addTestCreator(Internal::createSessionDialogTest);
     addTestCreator(createFilePropertiesTest);
+    addTestCreator(Internal::createPromptOverwriteDialogTest);
     addTestCreator(createMinimapImageTest);
     addTestCreator(createLocatorTest);
     addTestCreator(createLocatorFilterOptionsTest);

@@ -11,17 +11,13 @@
 
 #include <memory>
 
-QT_BEGIN_NAMESPACE
-class QTreeView;
-class QStandardItemModel;
-class QStandardItem;
-class QLabel;
-QT_END_NAMESPACE
-
 namespace Core {
 
 namespace Internal {
 class PromptOverwriteDialogPrivate;
+#ifdef WITH_TESTS
+QObject *createPromptOverwriteDialogTest();
+#endif
 } // namespace Internal
 
 // Documentation inside.
@@ -44,7 +40,6 @@ public:
     Utils::FilePaths uncheckedFiles() const { return files(Qt::Unchecked); }
 
 private:
-    QStandardItem *itemForFile(const Utils::FilePath &f) const;
     Utils::FilePaths files(Qt::CheckState cs) const;
 
     std::unique_ptr<Internal::PromptOverwriteDialogPrivate> d;

@@ -23254,3 +23254,52 @@ No `.qbs` edit: both plugins take their `.qml` by wildcard.
 `FilterDialog`. **Check first whether the list is of paths**: if it is,
 `StringListEditorDelegate` may do it with no model at all, as `PathListDialog`
 just did.
+
+## 2026-08-31 — A checkable list of files, and a name that lost its first letter
+
+`PromptOverwriteDialog` (Core) is the table shape with the check-box column:
+the files that are already there, ticked, and the folder they are all in said
+once above them. A `QStandardItemModel` of one column becomes a small
+`QAbstractTableModel`; the accessors the callers use - `setFileChecked()`,
+`isFileEnabled()`, `checkedFiles()` - keep their signatures and look the rows
+up by `FilePath` as they did.
+
+**The name stripping was wrong when there was nothing to strip.** Each row
+showed `nativeFileName.right(size - commonSize - 1)` - the file's name with the
+common folder taken off, and the separator with it. Where the files have **no
+common folder**, `commonSize` is 0 and the expression takes the last
+`size - 1` characters: **the first character of the path goes missing**, so
+`/tmp/a.cpp` is listed as `tmp/a.cpp`. `relativeToCommon()` returns the whole
+name when there is no common prefix, and says so in a test.
+
+Whether that can happen in practice depends on `FilePaths::commonPath()`, which
+this does not try to answer - the point is that the display had a branch it
+never declared, and the rule now has one it does.
+
+**Two roles and a signal are the whole of the check-box column**, and each has
+a control: `CheckableRole` answered (else the cells draw as fields),
+`dataChanged` emitted on a tick (else a bound `CheckBox` never redraws - the
+same finding as `MimeTypeModel` two batches ago, in a model written from
+scratch this time), and `headerData` empty so the one nameless column does not
+come up called "1".
+
+**A per-row flag written to every row.** `setFileEnabled()` and
+`setFileChecked()` share a `write()` helper that takes a pointer-to-member;
+the control that makes it assign to every row bites twice - once on the
+enabling and once on the ticking - which is what a shared helper should do.
+
+Negative controls: the old `right(length)` stripping back; files starting
+unticked; closing one row closing them all; `CheckableRole` not answered;
+nothing said when a tick changes; and the page naming an aspect that is not
+there. All six bit.
+
+QuickUi 197 passed / 0 failed / 1 skipped, exit 0. `Core` exit 0 with no
+failures, `PromptOverwriteDialogTest` 9 passed. Swept the plugins that use the
+dialog - `ProjectExplorer` (its two standing ones), `VcsBase` and `Git` clean.
+`Core_qmllint` zero warnings, `ninja all_qmllint` zero. No `.qbs` edit.
+
+**Next:** more of the same shape. `AddToVcsDialog` (Core) is the read-only
+twin of this one - the same list without the check boxes - and
+`SaveItemsDialog` (Core) is the same with two columns and a "Don't Save"
+button. `DeviceFactorySelectionDialog`, `CleanDialog`, `DeleteSymbolicNameDialog`
+and `FilterDialog` follow.

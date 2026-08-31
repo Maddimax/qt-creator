@@ -389,6 +389,7 @@ if(TARGET Core)
       locator/SpotlightFilterDialog.qml
       locator/UrlFilterDialog.qml
       MimeTypesPage.qml
+      PromptOverwriteDialog.qml
       SystemSettingsPage.qml
       mcp/McpSettingsPage.qml
   )
