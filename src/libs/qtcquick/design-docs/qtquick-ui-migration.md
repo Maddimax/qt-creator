@@ -24678,3 +24678,47 @@ removed from a file that was already listing `ffmpegutils.cpp`.
 **Next:** `LoggingViewManagerWidget` is the only thing the census has left, and
 it is still blocked on driving a tree's selection - the harness, not the code.
 Everything else the census named is done.
+
+## 2026-09-01 — The logging viewer was never blocked
+
+**Neither of its two views is a tree.** `LoggingEntryModel` is a
+`Utils::ListModel<LogEntry>` and `LoggingCategoryModel` is a
+`QAbstractListModel`; both are flat. What they are shown in is
+`Utils::BaseTreeView`, which is the styled view Qt Creator uses for lists as
+much as for trees - and reading that class name is where "blocked on driving a
+tree's selection" came from, three sections ago.
+
+It matters because everything that blocker was about is settled for tables:
+`TableDelegate` has been `ExtendedSelection` with `selectedRows` all along,
+`TableAspect` has `setSelectedRows()`, and **a table's selection can be driven
+from a test** - `selectionModel->select()` sticks on a `TableView` where a
+`TreeView` discards it, which is the one asymmetry the earlier investigation
+did find. So "Copy Selected Logs" needs nothing new.
+
+**What it did need was the row menu**, which only `TreeDelegate` had.
+`TableDelegate` has it now, the same shape: `rowActions` from the descriptor, a
+right-click that makes the *cell* current before the menu is built - so an
+aspect can re-describe what it offers per column, which the category view's
+"Uncheck All Warning" does - and `BaseAspect::triggerRowAction()` going back,
+with the index in the aspect's own rows.
+
+**The control that mapping needs a filter to bite.** With nothing filtered a
+proxy's rows *are* the source's, so handing back the view's index instead of
+the mapped one is invisible. The test types into the filter field first, which
+leaves one row: the view's row 0 and the aspect's row 1. Third time in this
+series that a control was masked by its fixture - see
+[[negative-control-masked-by-fixture]].
+
+Negative controls: the table having no menu at all; an entry the aspect
+withheld offered anyway; and the aspect told the proxy's row rather than its
+own (after the filter was added, so that the two differ). All three bit.
+
+QuickUi 207 passed / 0 failed / 1 skipped, exit 0. `Core`, `Git` and `Help`
+clean; `ProjectExplorer` its two standing failures. `ninja all_qmllint` zero
+warnings. No `.qbs` edit - no file added or removed.
+
+**Next:** `LoggingViewManagerWidget` itself, which now needs nothing that is
+not already there: two `TableAspect`s, four `ToggleAspect`s drawn as icon
+buttons, two `ActionAspect`s, a `StringAspect` for the filter, the row menus
+above, and a column-hiding proxy that is the plugin's own. It is the last thing
+the census names.

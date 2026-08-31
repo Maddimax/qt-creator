@@ -72,6 +72,10 @@ RowLayout {
     // Every selected row, in the aspect's own model, ascending. A page that
     // acts on a selection - export these, remove those - wants all of them and
     // not just the one the keyboard is on.
+    // What a row offers when it is asked. A popup is not in the item tree, so
+    // this is the only way to reach it from outside.
+    readonly property alias rowMenu: rowMenu
+
     readonly property var selectedRows: {
         const rows = []
         const indexes = view.selectionModel.selectedIndexes
@@ -299,6 +303,54 @@ RowLayout {
                                 return
                             root.rowActivated(root.currentRow)
                             event.accepted = true
+                        }
+
+                        // What a row offers when it is asked. Built only where
+                        // the aspect describes something to offer, and named so
+                        // that a test can find a popup that is not in the item
+                        // tree.
+                        Menu {
+                            id: rowMenu
+
+                            objectName: "tableRowMenu"
+
+                            Repeater {
+                                model: root.pres.rowActions ?? []
+
+                                delegate: MenuItem {
+                                    id: entry
+
+                                    required property var modelData
+
+                                    text: entry.modelData.display
+                                    enabled: entry.modelData.enabled
+                                    onTriggered: root.aspect?.triggerRowAction(
+                                                     root.rows.mapToSource(
+                                                         view.selectionModel.currentIndex),
+                                                     entry.modelData.id)
+                                }
+                            }
+                        }
+
+                        // Asking a row what it offers. The cell is made current
+                        // first, not the row: what an entry says can depend on
+                        // the column it was asked of, and the aspect is told
+                        // which cell before the menu is built from what it then
+                        // describes.
+                        TapHandler {
+                            objectName: "tableRowMenuTap"
+                            enabled: (root.pres.rowActions ?? []).length > 0
+                            acceptedButtons: Qt.RightButton
+
+                            onTapped: (eventPoint) => {
+                                const cell = view.cellAtPosition(eventPoint.position, true)
+                                if (cell.y < 0)
+                                    return
+                                view.selectionModel.setCurrentIndex(
+                                    view.index(cell.y, cell.x),
+                                    ItemSelectionModel.ClearAndSelect)
+                                rowMenu.popup()
+                            }
                         }
 
                         // Double click, the usual half. A passive handler, so

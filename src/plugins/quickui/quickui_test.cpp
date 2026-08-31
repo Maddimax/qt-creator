@@ -348,6 +348,7 @@ private slots:
     void testATreesOpenBranchesCanBeKeptAcrossAChange();
     void testABranchIsCheckedByWhatIsUnderIt();
     void testATreeRowOffersWhatTheAspectDescribes();
+    void testATableRowOffersWhatTheAspectDescribes();
     void testAToggleIsDrawnAsTheButtonItsToolbarHad();
     void testATreesRowsCanBePickedTogether();
     void testARowMenuKnowsWhichCellItWasAskedOf();
@@ -5328,10 +5329,29 @@ public:
         p.sortColumn = m_sortColumn;
         p.sortOrder = m_sortOrder;
         p.monospace = m_monospace;
+        p.rowActions = m_rowActions;
         return p;
     }
 
+    void setRowActions(const QList<Utils::AspectPresentation::Choice> &actions)
+    {
+        m_rowActions = actions;
+        emit controlConfigurationChanged();
+    }
+
+    void triggerRowAction(const QModelIndex &index, const QVariant &id) override
+    {
+        picked = id.toString();
+        pickedRow = index.isValid() ? index.row() : -1;
+        pickedColumn = index.isValid() ? index.column() : -1;
+    }
+
+    QString picked;
+    int pickedRow = -2;
+    int pickedColumn = -2;
+
     TestTableModel m_model;
+    QList<Utils::AspectPresentation::Choice> m_rowActions;
     QString m_filterPlaceholderText;
     QColor m_rowBackground;
     int m_sortColumn = -1;
@@ -6937,6 +6957,70 @@ void QuickUiTest::testARowMenuKnowsWhichCellItWasAskedOf()
     QCOMPARE(tree.picked, QString("uncheck"));
     QCOMPARE(tree.pickedRow, 0);
     QCOMPARE(tree.pickedColumn, 0);
+}
+
+void QuickUiTest::testATableRowOffersWhatTheAspectDescribes()
+{
+    // The same right-click menu a tree's rows have. The logging viewer's two
+    // views are flat lists, so this is where they need it.
+    Utils::AspectContainer page;
+    TestTableAspect table(&page);
+    table.setLabelText("Words");
+    table.m_filterPlaceholderText = "Filter";
+    table.setRowActions({{"Copy Selected", {}, true, QString("copy")},
+                         {"Copy All", {}, false, QString("copyAll")}});
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "TableDelegate"));
+
+    auto menu = delegate->property("rowMenu").value<QObject *>();
+    QVERIFY(menu);
+    QTRY_COMPARE(menu->property("count").toInt(), 2);
+
+    const auto entryAt = [menu](int index) {
+        QQuickItem *item = nullptr;
+        QMetaObject::invokeMethod(menu, "itemAt", Q_RETURN_ARG(QQuickItem *, item),
+                                  Q_ARG(int, index));
+        return item;
+    };
+
+    QQuickItem *const copy = entryAt(0);
+    QVERIFY(copy);
+    QCOMPARE(copy->property("text").toString(), QString("Copy Selected"));
+    QVERIFY(copy->property("enabled").toBool());
+
+    // An entry the aspect withheld is drawn but cannot be used.
+    QQuickItem *const copyAll = entryAt(1);
+    QVERIFY(copyAll);
+    QVERIFY2(!copyAll->property("enabled").toBool(),
+             "an entry the aspect withheld could still be picked");
+
+    // Picking one says which cell it was asked of, in the aspect's own rows -
+    // which is not the row the view shows once anything is filtered out. The
+    // fixture's second row is the only one saying "two", so the one row left
+    // is the aspect's row 1 and the view's row 0.
+    QQuickItem *filter = nullptr;
+    QTRY_VERIFY(filter = findQmlNamed(delegate, "tableFilterField").value(0));
+    filter->setProperty("text", "two");
+
+    QQuickItem *view = nullptr;
+    QTRY_VERIFY(view = tableViewOf(quickWidget->rootObject()));
+    auto selection = view->property("selectionModel").value<QItemSelectionModel *>();
+    auto shown = view->property("model").value<QAbstractItemModel *>();
+    QVERIFY(selection);
+    QVERIFY(shown);
+    QTRY_COMPARE(shown->rowCount(), 1);
+    selection->setCurrentIndex(shown->index(0, 0), QItemSelectionModel::ClearAndSelect);
+
+    QMetaObject::invokeMethod(copy, "triggered");
+    QCOMPARE(table.picked, QString("copy"));
+    QCOMPARE(table.pickedRow, 1);
+    QCOMPARE(table.pickedColumn, 0);
 }
 
 void QuickUiTest::testATreeRowIsActivatedByReturn()
