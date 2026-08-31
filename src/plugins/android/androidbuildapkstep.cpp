@@ -13,6 +13,7 @@
 #include "manifestwizard.h"
 #include "javaparser.h"
 
+#include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/fileutils.h>
 #include <coreplugin/icore.h>
 #include <coreplugin/messagemanager.h>
@@ -42,6 +43,10 @@
 #include <QDir>
 #include <QComboBox>
 #include <QDateTime>
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
 #include <QDialogButtonBox>
 #include <QFileDialog>
 #include <QFormLayout>
@@ -243,19 +248,63 @@ enum PasswordContext
     CertificatePassword
 };
 
+// What the dialog asks for, and what it is asking about. The alias goes in
+// brackets after the question where there is one, so that a reader with
+// several certificates knows which password is wanted.
+QString passwordPrompt(PasswordContext context, const QString &extraContextStr)
+{
+    QString prompt = context == KeystorePassword ? Tr::tr("Enter keystore password")
+                                                 : Tr::tr("Enter certificate password");
+    prompt += extraContextStr.isEmpty() ? QString(":") : QString(" (%1):").arg(extraContextStr);
+    return prompt;
+}
+
+QString passwordDialogTitle(PasswordContext context)
+{
+    return context == KeystorePassword ? Tr::tr("Keystore") : Tr::tr("Certificate");
+}
+
+class PasswordInputSettings final : public AspectContainer
+{
+public:
+    PasswordInputSettings(PasswordContext context, const QString &extraContextStr)
+    {
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Android/PasswordInputDialog.qml"));
+
+        prompt.setQmlName("Prompt");
+        prompt.setText(passwordPrompt(context, extraContextStr));
+
+        password.setQmlName("Password");
+        password.setDisplayStyle(StringAspect::PasswordLineEditDisplay);
+
+        // Only after a password has been refused, and gone again as soon as
+        // the next one is typed.
+        warning.setQmlName("Warning");
+        warning.setText(::Android::Tr::tr("Incorrect password."));
+        warning.setIconType(InfoType::Warning);
+        warning.setVisible(false);
+    }
+
+    TextDisplay prompt{this};
+    StringAspect password{this};
+    TextDisplay warning{this};
+};
+
 class PasswordInputDialog : public QDialog
 {
 public:
     PasswordInputDialog(PasswordContext context, std::function<bool (const QString &)> callback,
                         const QString &extraContextStr);
-    QString password() const { return inputEdit->text(); }
+    QString password() const { return m_settings.password(); }
+#ifdef WITH_TESTS
+    // Typing, without a keyboard. What the field does with it is the aspect's.
+    void setPassword(const QString &password) { m_settings.password.setValue(password); }
+#endif
 
 private:
     std::function<bool (const QString &)> verifyCallback = [](const QString &) { return true; };
-    QLabel *inputContextlabel = new QLabel(this);
-    QLineEdit *inputEdit = new QLineEdit(this);
-    InfoLabel *warningLabel
-        = new InfoLabel(::Android::Tr::tr("Incorrect password."), InfoLabelType::Warning, this);
+    PasswordInputSettings m_settings;
     QDialogButtonBox *buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel,
                                                        this);
 };
@@ -1320,46 +1369,33 @@ PasswordInputDialog::PasswordInputDialog(PasswordContext context,
                                          std::function<bool (const QString &)> callback,
                                          const QString &extraContextStr) :
     QDialog(Core::ICore::dialogParent(), Qt::Dialog | Qt::CustomizeWindowHint | Qt::WindowTitleHint),
-    verifyCallback(callback)
-
+    verifyCallback(callback),
+    m_settings(context, extraContextStr)
 {
-    inputEdit->setEchoMode(QLineEdit::Password);
-
-    warningLabel->hide();
+    setWindowTitle(passwordDialogTitle(context));
 
     auto mainLayout = new QVBoxLayout(this);
-    mainLayout->addWidget(inputContextlabel);
-    mainLayout->addWidget(inputEdit);
-    mainLayout->addWidget(warningLabel);
+    mainLayout->addWidget(Core::createAspectForm(&m_settings));
     mainLayout->addWidget(buttonBox);
 
-    connect(inputEdit, &QLineEdit::textChanged, this, [this](const QString &text) {
-        buttonBox->button(QDialogButtonBox::Ok)->setEnabled(!text.isEmpty());
+    // Nothing typed is not a password, so there is nothing to check yet.
+    buttonBox->button(QDialogButtonBox::Ok)->setEnabled(false);
+    connect(&m_settings.password, &BaseAspect::changed, this, [this] {
+        buttonBox->button(QDialogButtonBox::Ok)->setEnabled(!m_settings.password().isEmpty());
+        m_settings.warning.setVisible(false);
     });
 
     connect(buttonBox, &QDialogButtonBox::accepted, this, [this] {
-        if (verifyCallback(inputEdit->text())) {
+        if (verifyCallback(m_settings.password())) {
             accept(); // Dialog accepted.
         } else {
-            warningLabel->show();
-            inputEdit->clear();
+            m_settings.warning.setVisible(true);
+            m_settings.password.setValue(QString());
             adjustSize();
         }
     });
 
     connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
-
-    setWindowTitle(context == KeystorePassword ? Tr::tr("Keystore") : Tr::tr("Certificate"));
-
-    QString contextStr;
-    if (context == KeystorePassword)
-        contextStr = Tr::tr("Enter keystore password");
-    else
-        contextStr = Tr::tr("Enter certificate password");
-
-    contextStr += extraContextStr.isEmpty() ? QStringLiteral(":") :
-                                              QStringLiteral(" (%1):").arg(extraContextStr);
-    inputContextlabel->setText(contextStr);
 }
 
 // AndroidBuildApkStepFactory
@@ -1381,6 +1417,85 @@ void setupAndroidBuildApkStep()
 {
     static AndroidBuildApkStepFactory theAndroidBuildApkStepFactory;
 }
+
+#ifdef WITH_TESTS
+
+class PasswordInputDialogTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheDialogDrawsWithTheQmlItNames()
+    {
+        PasswordInputSettings settings(KeystorePassword, {});
+        const Result<> rendered
+            = Core::aspectFormRenders(&settings, "PasswordInputDialog.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+    }
+
+    void testWhatIsAskedForAndAboutWhat()
+    {
+        QCOMPARE(passwordPrompt(KeystorePassword, {}), Tr::tr("Enter keystore password") + ":");
+        QCOMPARE(passwordPrompt(CertificatePassword, {}),
+                 Tr::tr("Enter certificate password") + ":");
+
+        // A reader with several certificates has to be told which one.
+        QVERIFY2(passwordPrompt(CertificatePassword, "release").contains("release"),
+                 "the question does not say which certificate it is about");
+        QVERIFY(passwordPrompt(CertificatePassword, "release").endsWith(":"));
+
+        QCOMPARE(passwordDialogTitle(KeystorePassword), Tr::tr("Keystore"));
+        QCOMPARE(passwordDialogTitle(CertificatePassword), Tr::tr("Certificate"));
+    }
+
+    void testThePasswordIsNotShownWhileItIsTyped()
+    {
+        PasswordInputSettings settings(KeystorePassword, {});
+        QCOMPARE(settings.password.presentation().control, AspectControls::PasswordLineEdit);
+    }
+
+    void testTheWarningIsOutOfTheWayUntilAPasswordIsRefused()
+    {
+        PasswordInputSettings settings(KeystorePassword, {});
+        QVERIFY2(!settings.warning.isVisible(),
+                 "the dialog opens saying the password is incorrect");
+    }
+
+    void testARefusedPasswordIsSaidAndCleared()
+    {
+        // The dialog stays open, says so, and empties the field - so the next
+        // attempt starts from nothing rather than from the wrong password.
+        int asked = 0;
+        PasswordInputDialog dialog(KeystorePassword,
+                                   [&asked](const QString &) { ++asked; return false; },
+                                   {});
+        auto *const box = dialog.findChild<QDialogButtonBox *>();
+        QVERIFY(box);
+        // Something has to be typed first, or Ok is not there to press.
+        dialog.setPassword("wrong");
+        QVERIFY(box->button(QDialogButtonBox::Ok)->isEnabled());
+        box->button(QDialogButtonBox::Ok)->click();
+        QCOMPARE(asked, 1);
+        QVERIFY2(dialog.password().isEmpty(), "the refused password was left in the field");
+        QCOMPARE(dialog.result(), int(QDialog::Rejected));
+    }
+
+    void testNothingTypedIsNotAPassword()
+    {
+        PasswordInputDialog dialog(KeystorePassword, [](const QString &) { return true; }, {});
+        auto *const box = dialog.findChild<QDialogButtonBox *>();
+        QVERIFY(box);
+        QVERIFY2(!box->button(QDialogButtonBox::Ok)->isEnabled(),
+                 "an empty password would have been offered to keytool");
+    }
+};
+
+QObject *createPasswordInputDialogTest()
+{
+    return new PasswordInputDialogTest;
+}
+
+#endif // WITH_TESTS
 
 } // Android::Internal
 

@@ -73,6 +73,7 @@ if(TARGET Android)
     QML_FILES
       AndroidSettingsPage.qml
       AvdCreatorDialog.qml
+      PasswordInputDialog.qml
       SdkManagerProgress.qml
       KeystoreCertificateDialog.qml
       SdkManagerOptionsDialog.qml

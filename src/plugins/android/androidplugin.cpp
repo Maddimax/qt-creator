@@ -116,6 +116,7 @@ class AndroidPlugin final : public ExtensionSystem::IPlugin
         addTestCreator(createAndroidConfigurationsTest);
         addTestCreator(Internal::createAndroidSettingsPageTest);
         addTestCreator(Internal::createAvdCreatorDialogTest);
+        addTestCreator(Internal::createPasswordInputDialogTest);
         addTestCreator(createAndroidLogcatCrashParserTest);
 #endif
     }

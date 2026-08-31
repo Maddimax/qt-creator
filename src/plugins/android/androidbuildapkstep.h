@@ -15,6 +15,10 @@ QT_END_NAMESPACE
 
 namespace Android::Internal {
 
+#ifdef WITH_TESTS
+QObject *createPasswordInputDialogTest();
+#endif
+
 class AndroidBuildApkStep : public ProjectExplorer::AbstractProcessStep
 {
     Q_OBJECT

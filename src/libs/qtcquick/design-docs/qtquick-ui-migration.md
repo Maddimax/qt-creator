@@ -23127,3 +23127,68 @@ something else" table, and the cheapest entries there are the ones whose only
 exotic type already has an aspect equivalent: `TidyOptionsDialog`
 (`QTreeWidgetItem` - the table shape), `PathListDialog` (likewise) and
 `DeviceTestDialog` (`OutputPaneView`, which exists).
+
+## 2026-08-31 — The last form-only dialog, and a classifier that was still wrong
+
+`OpenWithDialog` was on the last entry's list of five certified-clean dialogs.
+It holds a `QListWidget`. **The classifier's own regex was the bug**: it matched
+pointer members as `X *m_name`, and this one is
+`QListWidget *editorListWidget;` - no `m_`. Matching any member name instead
+drops the certified-clean count from 15 to **9**, and three of the five the last
+entry named (`OpenWithDialog`, `AddRelatedElementsDialog`,
+`ReadOnlyFilesDialog`) are not clean at all.
+
+**Of the corrected 9, eight are blockers already recorded** - a progress
+dialog, two derived from unported bases, a test subclass, two assembled by
+their callers (`LogDialog`, `DialogClosingOnEscape` - the latter is *only* an
+escape-key override with no content), one in Utils, and `VersionDialog`
+awaiting `labelPixmap`.
+
+**So the form-only seam is exhausted.** `PasswordInputDialog` (Android) was
+the one left, and it is done here. Everything remaining builds something that
+needs a decision, and the classifier now names what: the cheapest are the ones
+whose only exotic type already has an equivalent - `TidyOptionsDialog` and
+`PathListDialog` need `QTreeWidgetItem` (the table shape), `DeviceTestDialog`
+needs `OutputPaneView`, which exists.
+
+**Three behaviours came out of the password dialog**, all of which live in the
+constructor now rather than in three widget callbacks:
+
+- **Nothing typed is not a password**, so Ok is off until something is.
+- **A refused password is said and cleared** - the dialog stays open, shows the
+  warning, and empties the field, so the next attempt starts from nothing
+  rather than from the wrong password.
+- **The warning goes again as soon as the next character is typed.** The widget
+  version only ever showed it; it never hid it again, so a reader who mistyped
+  once was told they were wrong until the dialog closed.
+
+That last one is a small improvement rather than a port, and it is worth saying
+which: the widget dialog had no `hide()` anywhere after the initial one.
+
+**A test that pressed a button that was not there.** The first version clicked
+Ok without typing anything, and the verify callback was never called - the
+button is disabled, which is the behaviour the very next test asserts. Typing
+first is what the reader does. A click on a disabled button is silent, so this
+looked like a broken port rather than a broken test.
+
+Negative controls: an empty password offered to keytool; a refused password
+left in the field; the dialog opening with the warning shown; the password
+shown while it is typed; the question not saying which certificate; and the
+page naming an aspect that is not there. All six bit.
+
+QuickUi 197 passed / 0 failed / 1 skipped, exit 0. `Android` exit 0 with no
+failures, `PasswordInputDialogTest` 8 passed. `Android_qmllint` zero warnings,
+`ninja all_qmllint` zero. No `.qbs` edit: `android.qbs` takes `**/*.qml` by
+wildcard and no C++ file was added.
+
+**Next:** there is no cheap tier left. The remaining 58 split into
+- **the table shape** (`TidyOptionsDialog`, `PathListDialog`, `SaveItemsDialog`,
+  `DeviceFactorySelectionDialog`, `CleanDialog`, `PromptOverwriteDialog`,
+  `ProcessPickerDialog`, ...), which is routine and has worked examples;
+- **dialogs holding a tree with a model of their own**
+  (`GenerateGettersSettersDialog`, `InsertVirtualMethodsDialog`,
+  `LoggingViewManagerWidget`), which need the model made Quick-ready first -
+  three overrides, per the note from the Locator batches;
+- **the genuinely custom** (`CropScene`, `ColorSettings`, `DockManager`,
+  `PluginView`), which need a component each.
+Starting with the table shape is the obvious order.
