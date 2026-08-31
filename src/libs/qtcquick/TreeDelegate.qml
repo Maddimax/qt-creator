@@ -252,7 +252,10 @@ RowLayout {
                 clip: true
                 boundsBehavior: Flickable.StopAtBounds
                 selectionBehavior: TableView.SelectRows
-                selectionMode: TableView.SingleSelection
+                // The same as TableDelegate's, and for the same reason: the
+                // widget views these replace used ExtendedSelection, and a
+                // page that copies what is picked needs more than one row.
+                selectionMode: TableView.ExtendedSelection
                 selectionModel: ItemSelectionModel { model: view.model }
 
                 // Return on the row the keyboard is on, and a double click:
@@ -393,8 +396,14 @@ RowLayout {
                         acceptedButtons: Qt.RightButton
 
                         onTapped: {
+                            // The cell, not the row: what a menu entry says
+                            // can depend on the column it was asked of - "Uncheck
+                            // All Warning" rather than "Uncheck All" - and the
+                            // aspect is told which cell before the menu is
+                            // built from what it then describes.
                             view.selectionModel.setCurrentIndex(
-                                view.index(cell.row, 0), ItemSelectionModel.ClearAndSelect)
+                                view.index(cell.row, cell.column),
+                                ItemSelectionModel.ClearAndSelect)
                             rowMenu.popup()
                         }
                     }

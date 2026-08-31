@@ -349,6 +349,8 @@ private slots:
     void testABranchIsCheckedByWhatIsUnderIt();
     void testATreeRowOffersWhatTheAspectDescribes();
     void testAToggleIsDrawnAsTheButtonItsToolbarHad();
+    void testATreesRowsCanBePickedTogether();
+    void testARowMenuKnowsWhichCellItWasAskedOf();
     void testATableCellShowsTheIconItsModelGives();
     void testATableWithNoColumnNamesHasNoHeader();
     void testTableAspectAddsAndRemovesRows();
@@ -6650,9 +6652,9 @@ class RowMenuTreeAspect : public Utils::BaseAspect
 public:
     RowMenuTreeAspect()
     {
-        m_model.setHeader({"Name"});
-        m_model.rootItem()->appendChild(new Utils::StaticTreeItem(QStringList{"first"}));
-        m_model.rootItem()->appendChild(new Utils::StaticTreeItem(QStringList{"second"}));
+        m_model.setHeader({"Name", "State"});
+        m_model.rootItem()->appendChild(new Utils::StaticTreeItem(QStringList{"first", "on"}));
+        m_model.rootItem()->appendChild(new Utils::StaticTreeItem(QStringList{"second", "off"}));
     }
 
     Utils::AspectPresentation presentation() const override
@@ -6660,6 +6662,10 @@ public:
         Utils::AspectPresentation p = BaseAspect::presentation();
         p.control = Utils::AspectControls::Tree;
         p.rowActions = m_rowActions;
+        if (m_columnInActionText && !p.rowActions.isEmpty()) {
+            p.rowActions[0].display
+                = QString("%1 %2").arg(p.rowActions.at(0).display).arg(m_askedColumn);
+        }
         return p;
     }
 
@@ -6675,14 +6681,32 @@ public:
     {
         picked = id.toString();
         pickedRow = index.isValid() ? index.row() : -1;
+        pickedColumn = index.isValid() ? index.column() : -1;
     }
+
+    // What a page does when what a menu entry means depends on the cell it
+    // was asked of: re-describe the menu from the cell it was just told.
+    void setCurrentIndex(const QModelIndex &index) override
+    {
+        const int column = index.isValid() ? index.column() : -1;
+        if (m_askedColumn == column)
+            return;
+        m_askedColumn = column;
+        if (m_columnInActionText)
+            emit controlConfigurationChanged();
+    }
+
+    void setColumnInActionText(bool on) { m_columnInActionText = on; }
 
     QString picked;
     int pickedRow = -2;
+    int pickedColumn = -2;
 
 private:
     Utils::TreeModel<Utils::TreeItem, Utils::StaticTreeItem> m_model{this};
     QList<Utils::AspectPresentation::Choice> m_rowActions;
+    bool m_columnInActionText = false;
+    int m_askedColumn = -2;
 };
 
 } // namespace
@@ -6809,6 +6833,104 @@ void QuickUiTest::testAToggleIsDrawnAsTheButtonItsToolbarHad()
     button->setProperty("checked", false);
     QMetaObject::invokeMethod(button, "toggled");
     QCOMPARE(toggle.value(), false);
+}
+
+void QuickUiTest::testATreesRowsCanBePickedTogether()
+{
+    // A page that acts on what is picked - copy these logs - wants every row
+    // and not just the one the keyboard is on. The widget trees these replace
+    // all used ExtendedSelection, so a tree offers exactly what a table does.
+    Utils::AspectContainer treePage;
+    RowMenuTreeAspect tree;
+    tree.setLabelText("Rows");
+    treePage.registerAspect(&tree);
+
+    Utils::AspectContainer tablePage;
+    TestTableAspect table(&tablePage);
+    table.setLabelText("Words");
+
+    const std::unique_ptr<QWidget> treeForm(showForm(&treePage));
+    const std::unique_ptr<QWidget> tableForm(showForm(&tablePage));
+    QVERIFY(treeForm);
+    QVERIFY(tableForm);
+
+    auto treeWidget = treeForm->findChild<QQuickWidget *>();
+    auto tableWidget = tableForm->findChild<QQuickWidget *>();
+    QVERIFY(treeWidget);
+    QVERIFY(tableWidget);
+
+    QQuickItem *treeDelegate = nullptr;
+    QTRY_VERIFY(treeDelegate = findQmlComponent(treeWidget->rootObject(), "TreeDelegate"));
+    QQuickItem *const treeView = findQmlNamed(treeDelegate, "aspectTree").value(0);
+    QVERIFY(treeView);
+    QQuickItem *tableView = nullptr;
+    QTRY_VERIFY(tableView = tableViewOf(tableWidget->rootObject()));
+
+    QCOMPARE(treeView->property("selectionMode"), tableView->property("selectionMode"));
+    QCOMPARE(treeView->property("selectionBehavior"), tableView->property("selectionBehavior"));
+}
+
+void QuickUiTest::testARowMenuKnowsWhichCellItWasAskedOf()
+{
+    // "Uncheck All Warning" rather than "Uncheck All": what an entry means can
+    // depend on the column it was asked of. The aspect is told which cell
+    // before the menu is built, so it can say so.
+    Utils::AspectContainer page;
+    RowMenuTreeAspect tree;
+    tree.setLabelText("Rows");
+    tree.setColumnInActionText(true);
+    tree.setRowActions({{"Uncheck All", {}, true, QString("uncheck")}});
+    page.registerAspect(&tree);
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "TreeDelegate"));
+    QTRY_VERIFY(findQmlNamed(delegate, "tableCellLabel").size() > 0);
+
+    auto menu = delegate->property("rowMenu").value<QObject *>();
+    QVERIFY(menu);
+    QTRY_COMPARE(menu->property("count").toInt(), 1);
+
+    const auto entryText = [menu] {
+        QQuickItem *item = nullptr;
+        QMetaObject::invokeMethod(menu, "itemAt", Q_RETURN_ARG(QQuickItem *, item),
+                                  Q_ARG(int, 0));
+        return item ? item->property("text").toString() : QString();
+    };
+
+    // Right-clicking is what tells the aspect which cell was asked, so the
+    // click is what drives it: a menu built from the row alone would say the
+    // same thing whichever column was under the pointer.
+    QQuickItem *const view = findQmlNamed(delegate, "aspectTree").value(0);
+    QVERIFY(view);
+    const QList<QQuickItem *> cells = findQmlNamed(delegate, "tableCellLabel");
+    QVERIFY(cells.size() >= 2);
+
+    const auto rightClick = [quickWidget](QQuickItem *cell) {
+        const QPointF centre = cell->mapToScene(
+            QPointF(cell->width() / 2, cell->height() / 2));
+        QTest::mousePress(quickWidget, Qt::RightButton, {}, centre.toPoint());
+        QTest::mouseRelease(quickWidget, Qt::RightButton, {}, centre.toPoint());
+    };
+
+    rightClick(cells.at(1));
+    QTRY_COMPARE(entryText(), QString("Uncheck All 1"));
+
+    rightClick(cells.at(0));
+    QTRY_COMPARE(entryText(), QString("Uncheck All 0"));
+
+    // And what is picked is reported with the cell it was asked of.
+    QQuickItem *entry = nullptr;
+    QMetaObject::invokeMethod(menu, "itemAt", Q_RETURN_ARG(QQuickItem *, entry), Q_ARG(int, 0));
+    QVERIFY(entry);
+    QMetaObject::invokeMethod(entry, "triggered");
+    QCOMPARE(tree.picked, QString("uncheck"));
+    QCOMPARE(tree.pickedRow, 0);
+    QCOMPARE(tree.pickedColumn, 0);
 }
 
 void QuickUiTest::testATreeRowIsActivatedByReturn()

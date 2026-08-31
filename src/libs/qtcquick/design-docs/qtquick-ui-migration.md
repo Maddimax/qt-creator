@@ -24097,3 +24097,67 @@ concern. It needs a decision on 3 and 4 above before the port is worth
 starting - both change what a shared component does for every page that
 already uses it, so they are worth deciding on their own rather than inside a
 port.
+
+## 2026-08-31 — The two decisions the logging viewer was waiting on
+
+Both are changes to what `TreeDelegate` does for every page that already uses
+one, which is why the last section left them to be decided rather than made
+inside a port.
+
+**A tree lets as much be picked as a table does.** `selectionMode` is
+`ExtendedSelection` now, the same value and the same reason `TableDelegate`
+has: the widget trees these replace all used it, and a page that acts on what
+is picked - "Copy Selected Logs" - needs more than the row the keyboard is on.
+Nothing reads a tree's selection today, so nothing could break; the test
+compares the tree's `selectionMode` and `selectionBehavior` with a table's
+rather than naming the enum, because `QQuickTableView`'s enums are in a private
+header a plugin cannot include.
+
+**Reporting that selection is not in this batch, and here is why.** The obvious
+seam - `selectedIndexes` on the delegate, `BaseAspect::setSelectedIndexes()`
+answering it, mirroring `TableAspect::setSelectedRows()` - was written and then
+taken out again, because **a `TreeView` discards a selection set from outside
+it**: `select()` and even `setCurrentIndex(..., ClearAndSelect | Rows)` leave
+`hasSelection()` false, on the very same call that works on a `TableView`. The
+*current index* does stick, which is why the menu test below can drive it. So
+the seam had no test that could bite, and an untested seam with no user yet is
+worse than none. Whoever ports the logging viewer needs a way to drive a
+TreeView's selection first - a real drag, or a `selectRow()`-style function on
+the delegate like the one `TableDelegate` already has.
+
+**A row menu is asked of a cell, not of a row.** The tap now makes
+`view.index(cell.row, cell.column)` current instead of column 0, so an aspect
+told which cell can re-describe `rowActions` before the menu is built from
+them - "Uncheck All Warning" rather than "Uncheck All", which is what the
+logging viewer's category menu says. Signals are synchronous, so by the time
+`setCurrentIndex()` returns the delegate has re-read the descriptor and the
+popup shows the new text.
+
+**The control for that did not bite at first**, and the reason is worth having:
+the test drove `selectionModel->setCurrentIndex()` itself, so changing what the
+*tap* passes changed nothing it could see. It sends a real right-click at a
+cell's centre now. A control masked by the fixture again - see
+[[negative-control-masked-by-fixture]].
+
+**Removing a virtual from `BaseAspect` is the same hazard as adding one.**
+Taking `setSelectedIndexes()` out and rebuilding only `QuickUi` left every
+other plugin referencing a symbol that was gone: `Symbol not found:
+Utils::BaseAspect::setSelectedIndexes` from every dylib, no plugin loaded, and
+the run exited **0 with no `Totals:` line at all**. Full `ninja` after touching
+`aspects.h`, in either direction.
+
+Negative controls: a tree letting only one row be picked; and the menu being
+asked of the row rather than the cell (after the test was made one that can see
+it). Both bit.
+
+QuickUi 206 passed / 0 failed / 1 skipped, exit 0. `Core`, `Help`, `Git` clean.
+`ProjectExplorer` had four rather than its usual two: `KitChooserTest` passes
+alone (10 passed, exit 0), and `ProjectTest::testMultipleBuildConfigs` fails
+alone too with the "2 targets where it wants 1" signature of
+[[qtc-projecttest-multiplebuildconfigs-flaky]], which is what starves the
+chooser after it. `CppEditor` its standing whole-suite abort. `ninja
+all_qmllint` zero warnings. No `.qbs` edit - no file added or removed.
+
+**Next:** `LoggingViewManagerWidget`, with three of its four blockers settled
+(icon toggles, column hiding is plugin-local, a column-aware row menu) and the
+fourth - reporting a tree's selection - needing a way to drive one first.
