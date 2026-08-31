@@ -11,8 +11,6 @@ namespace Utils { class Process; }
 
 namespace ScreenRecorder {
 
-class CropSizeWarningIcon;
-
 class ExportWidget : public Utils::StyledBar
 {
     Q_OBJECT

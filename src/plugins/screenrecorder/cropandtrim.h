@@ -7,18 +7,25 @@
 
 #include <utils/widgets.h>
 
+#include <memory>
+
 QT_BEGIN_NAMESPACE
 class QToolButton;
 QT_END_NAMESPACE
 
 namespace ScreenRecorder {
 
+class CropAndTrimAspects;
+
+// The button that opens the crop and trim dialog, with what it would do beside
+// it. A StyledBar so that the recorder's own layout can take it.
 class CropAndTrimWidget : public Utils::StyledBar
 {
     Q_OBJECT
 
 public:
     CropAndTrimWidget(QWidget *parent = nullptr);
+    ~CropAndTrimWidget() override;
 
     void setClip(const ClipInfo &clip);
 
@@ -27,16 +34,12 @@ signals:
     void trimRangeChanged(FrameRange range);
 
 private:
-    void updateWidgets();
-
-    QToolButton *m_button;
-
-    ClipInfo m_clipInfo;
-    QRect m_cropRect;
-    int m_currentFrame = 0;
-    FrameRange m_trimRange;
-    CropSizeWarningIcon *m_cropSizeWarningIcon;
+    const std::unique_ptr<CropAndTrimAspects> d;
 };
+
+// What the button says it would do - the crop and the trim, or that neither
+// narrows anything.
+QString cropAndTrimSummary(const ClipInfo &clip, const QRect &cropRect, FrameRange trimRange);
 
 
 #ifdef WITH_TESTS

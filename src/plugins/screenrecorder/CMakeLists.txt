@@ -30,6 +30,7 @@ if(TARGET ScreenRecorder)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      CropAndTrimBar.qml
       CropPage.qml
       CropScene.qml
       RecordOptionsPage.qml

@@ -92,47 +92,15 @@ int TimeLabel::frame() const
 
 constexpr QSize warningIconSize(16, 16);
 
-CropSizeWarningIcon::CropSizeWarningIcon(IconVariant backgroundType, QWidget *parent)
-    : QWidget(parent)
-    , m_iconVariant(backgroundType)
+bool cropSizeNeedsWarning(const QSize &size)
 {
-    setMinimumSize(warningIconSize);
-    setToolTip(Tr::tr("Width and height are not both divisible by 2. "
-                      "The video export for some of the lossy formats will not work."));
-    m_updateTimer = new QTimer(this);
-    m_updateTimer->setInterval(350);
-    m_updateTimer->setSingleShot(true);
-    m_updateTimer->callOnTimeout(this, &CropSizeWarningIcon::updateVisibility);
+    return (size.width() % 2 == 1) || (size.height() % 2 == 1);
 }
 
-void CropSizeWarningIcon::setCropSize(const QSize &size)
+QString cropSizeWarning()
 {
-    m_cropSize = size;
-    m_updateTimer->stop();
-    if (needsWarning())
-        m_updateTimer->start();
-    else
-        setVisible(false);
-}
-
-void CropSizeWarningIcon::paintEvent(QPaintEvent*)
-{
-    const QIcon icon = m_iconVariant == StandardVariant ? Icons::WARNING.icon()
-                                                        : Icons::WARNING_TOOLBAR.icon();
-    QRect iconRect(QPoint(), warningIconSize);
-    iconRect.moveCenter(rect().center());
-    QPainter p(this);
-    icon.paint(&p, iconRect);
-}
-
-void CropSizeWarningIcon::updateVisibility()
-{
-    setVisible(needsWarning());
-}
-
-bool CropSizeWarningIcon::needsWarning() const
-{
-    return (m_cropSize.width() % 2 == 1) || (m_cropSize.height() % 2 == 1);
+    return Tr::tr("Width and height are not both divisible by 2. "
+                  "The video export for some of the lossy formats will not work.");
 }
 
 namespace FFmpegUtils {

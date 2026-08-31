@@ -56,29 +56,12 @@ private:
     int m_frame = -1;
 };
 
-class CropSizeWarningIcon : public QWidget
-{
-public:
-    enum IconVariant {
-        StandardVariant,
-        ToolBarVariant,
-    };
+// Whether a clip of this size can be encoded by the lossy formats: they need
+// both sides even. What CropSizeWarningIcon showed itself for.
+bool cropSizeNeedsWarning(const QSize &size);
 
-    explicit CropSizeWarningIcon(IconVariant backgroundType, QWidget *parent = nullptr);
-
-    void setCropSize(const QSize &size);
-
-protected:
-    void paintEvent(QPaintEvent*) override;
-
-private:
-    void updateVisibility();
-    bool needsWarning() const;
-
-    QSize m_cropSize;
-    const IconVariant m_iconVariant;
-    QTimer *m_updateTimer;
-};
+// What to say about it.
+QString cropSizeWarning();
 
 namespace FFmpegUtils {
 

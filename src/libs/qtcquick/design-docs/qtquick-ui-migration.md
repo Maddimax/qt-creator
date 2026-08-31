@@ -24633,3 +24633,48 @@ else, and the plugin's `.qbs` was already given `QtcQuick` last batch.
 selection, and `CropSizeWarningIcon` with the two toolbars that hold it -
 `CropAndTrimWidget` and `ExportWidget`. Those two toolbars are the last of the
 screen recorder.
+
+## 2026-08-31 — The crop-and-trim bar, and one user rather than two
+
+`CropAndTrimWidget` and `CropSizeWarningIcon`. **With this the screen recorder
+has no painted widget left.**
+
+**The plan said the icon had "two toolbars that hold it". It has one.**
+`ExportWidget` only *forward-declares* `CropSizeWarningIcon` in its header -
+`export.cpp` never builds one. The declaration is gone with the class. Worth
+remembering when a survey counts users: a forward declaration is not a use, and
+grep does not know the difference.
+
+**What is left of the painted icon is its rule.** `cropSizeNeedsWarning(QSize)`
+- both sides even, or the lossy formats will not encode it - and
+`cropSizeWarning()` for the sentence. The bar shows it as a `TextDisplay` with
+`InfoType::Warning`, three words with the whole sentence as the tool tip.
+**`TextDisplayDelegate` uses `infoType` for the text's colour only and hides a
+label with no text**, so an icon-only indicator is not something the aspect
+vocabulary draws; saying it in words is the change, and it is deliberate.
+
+**The 350 ms debounce is gone**, and that is not a loss. It existed because
+`CropWidget`'s copy of the icon updated while the crop rectangle was being
+dragged and would otherwise have flickered. The bar's copy only ever updates
+when a clip is set or the dialog is accepted, so there is nothing to debounce.
+
+**A file-editing mistake worth writing down.** Replacing the widget's body by
+`s.index("class ...")` for the start and `s.index("#ifdef WITH_TESTS")` for the
+end put the end *before* the start - the file opens with a guarded include -
+so `s[:start] + body + s[end:]` duplicated four hundred lines, and the build
+reported it as "call to 'frameLabel' is ambiguous". When cutting a range out of
+a file by searching, check that the end marker is after the start, or cut by
+line number as this batch ended up doing.
+
+Negative controls: only an odd width warned about; the bar never showing the
+warning; a narrowed clip still reading as complete; and the bar naming an
+aspect that is not there. All four bit.
+
+QuickUi 206 passed / 0 failed / 1 skipped, exit 0. `ScreenRecorder` clean -
+`TrimTest` 7 passed, `CropSceneTest` 8, `FFmpegOutputParserTest` 23. `ninja
+all_qmllint` zero warnings. No `.qbs` edit: one `.qml` added and one class
+removed from a file that was already listing `ffmpegutils.cpp`.
+
+**Next:** `LoggingViewManagerWidget` is the only thing the census has left, and
+it is still blocked on driving a tree's selection - the harness, not the code.
+Everything else the census named is done.

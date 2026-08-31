@@ -212,6 +212,10 @@ private slots:
         const Utils::Result<> trim
             = Core::aspectFormRenders(trimAspectsForTest(), "TrimPage.qml");
         QVERIFY2(trim, qPrintable(trim ? QString() : trim.error()));
+
+        const Utils::Result<> bar
+            = Core::aspectFormRenders(cropAndTrimBarAspectsForTest(), "CropAndTrimBar.qml");
+        QVERIFY2(bar, qPrintable(bar ? QString() : bar.error()));
     }
 
     void testWhatIsCroppedOutOfTheFrame()

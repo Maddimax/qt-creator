@@ -12,6 +12,7 @@
 #include <utils/aspectwidgets.h>
 #include <utils/guard.h>
 
+#include <QHBoxLayout>
 #include <QVBoxLayout>
 
 #include "ffmpegutils.h"
@@ -543,68 +544,120 @@ void CropAndTrimDialog::setCurrentFrame(int frame)
     m_trimWidget->setCurrentFrame(frame);
 }
 
-CropAndTrimWidget::CropAndTrimWidget(QWidget *parent)
-    : StyledBar(parent)
+QString cropAndTrimSummary(const ClipInfo &clip, const QRect &cropRect, FrameRange trimRange)
 {
-    m_button = new QToolButton;
-    m_button->setText(Tr::tr("Crop and Trim..."));
+    if (clip.isNull())
+        return {};
+    const QString cropText = clip.isCompleteArea(cropRect)
+                                 ? Tr::tr("Complete area.")
+                                 : Tr::tr("Crop to %1x%2px.")
+                                       .arg(cropRect.width()).arg(cropRect.height());
+    const QString trimText = clip.isCompleteRange(trimRange)
+                                 ? Tr::tr("Complete clip.")
+                                 : Tr::tr("Frames %1 to %2.")
+                                       .arg(trimRange.first).arg(trimRange.second);
+    return cropText + " " + trimText;
+}
 
-    m_cropSizeWarningIcon = new CropSizeWarningIcon(CropSizeWarningIcon::ToolBarVariant);
+// What the bar asks: one button, and a warning where what it would produce
+// cannot be encoded.
+class CropAndTrimAspects final : public AspectContainer
+{
+    Q_OBJECT
 
-    using namespace Layouting;
-    Row {
-        m_button,
-        m_cropSizeWarningIcon,
-        noMargin, spacing(0),
-    }.attachTo(this);
+public:
+    CropAndTrimAspects();
 
-    connect(m_button, &QPushButton::clicked, this, [this] {
-        CropAndTrimDialog dlg(m_clipInfo, Core::ICore::dialogParent());
-        dlg.setCropRect(m_cropRect);
-        dlg.setTrimRange(m_trimRange);
-        dlg.setCurrentFrame(m_currentFrame);
-        if (dlg.exec() == QDialog::Accepted) {
-            m_cropRect = dlg.cropRect();
-            m_trimRange = dlg.trimRange();
-            m_currentFrame = dlg.currentFrame();
-            emit cropRectChanged(m_cropRect);
-            emit trimRangeChanged(m_trimRange);
-            updateWidgets();
-        }
+    void setClip(const ClipInfo &clip);
+    void showWhatItWouldDo();
+
+    ActionAspect cropAndTrim{this};
+    TextDisplay warning{this};
+
+    ClipInfo clipInfo;
+    QRect cropRect;
+    FrameRange trimRange = {0, 0};
+    int currentFrame = 0;
+
+signals:
+    void cropRectChanged(const QRect &rect);
+    void trimRangeChanged(FrameRange range);
+};
+
+CropAndTrimAspects::CropAndTrimAspects()
+{
+    setAutoApply(true);
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/ScreenRecorder/CropAndTrimBar.qml"));
+
+    cropAndTrim.setQmlName("CropAndTrim");
+    cropAndTrim.setActionText(Tr::tr("Crop and Trim..."));
+    cropAndTrim.setAction([this] {
+        CropAndTrimDialog dlg(clipInfo, Core::ICore::dialogParent());
+        dlg.setCropRect(cropRect);
+        dlg.setTrimRange(trimRange);
+        dlg.setCurrentFrame(currentFrame);
+        if (dlg.exec() != QDialog::Accepted)
+            return;
+        cropRect = dlg.cropRect();
+        trimRange = dlg.trimRange();
+        currentFrame = dlg.currentFrame();
+        emit cropRectChanged(cropRect);
+        emit trimRangeChanged(trimRange);
+        showWhatItWouldDo();
     });
 
-    updateWidgets();
+    warning.setQmlName("Warning");
+    warning.setIconType(InfoType::Warning);
+    warning.setText(Tr::tr("Odd crop size."));
+    warning.setToolTip(cropSizeWarning());
+    warning.setVisible(false);
+
+    showWhatItWouldDo();
 }
+
+void CropAndTrimAspects::setClip(const ClipInfo &clip)
+{
+    // Only a clip of a different size says nothing about the rectangle.
+    if (clip.dimensions != clipInfo.dimensions)
+        cropRect = {QPoint(), clip.dimensions};
+    clipInfo = clip;
+    currentFrame = 0;
+    trimRange = {currentFrame, clipInfo.framesCount()};
+    showWhatItWouldDo();
+}
+
+void CropAndTrimAspects::showWhatItWouldDo()
+{
+    const QString summary = cropAndTrimSummary(clipInfo, cropRect, trimRange);
+    if (!summary.isEmpty())
+        cropAndTrim.setToolTip(summary);
+    // Said rather than drawn as a bare icon: the bar has room for three words,
+    // and the whole sentence is still the tool tip.
+    warning.setVisible(cropSizeNeedsWarning(cropRect.size()));
+}
+
+CropAndTrimWidget::CropAndTrimWidget(QWidget *parent)
+    : StyledBar(parent)
+    , d(new CropAndTrimAspects)
+{
+    auto layout = new QHBoxLayout(this);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
+    if (QWidget *form = AspectWidgets::createAspectForm(d.get()))
+        layout->addWidget(form);
+
+    connect(d.get(), &CropAndTrimAspects::cropRectChanged,
+            this, &CropAndTrimWidget::cropRectChanged);
+    connect(d.get(), &CropAndTrimAspects::trimRangeChanged,
+            this, &CropAndTrimWidget::trimRangeChanged);
+}
+
+CropAndTrimWidget::~CropAndTrimWidget() = default;
 
 void CropAndTrimWidget::setClip(const ClipInfo &clip)
 {
-    if (clip.dimensions != m_clipInfo.dimensions)
-        m_cropRect = {QPoint(), clip.dimensions}; // Reset only if clip size changed
-    m_clipInfo = clip;
-    m_currentFrame = 0;
-    m_trimRange = {m_currentFrame, m_clipInfo.framesCount()};
-    updateWidgets();
+    d->setClip(clip);
 }
-
-void CropAndTrimWidget::updateWidgets()
-{
-    if (!m_clipInfo.isNull()) {
-        const QString cropText =
-            !m_clipInfo.isCompleteArea(m_cropRect)
-                ? Tr::tr("Crop to %1x%2px.").arg(m_cropRect.width()).arg(m_cropRect.height())
-                : Tr::tr("Complete area.");
-
-        const QString trimText =
-            !m_clipInfo.isCompleteRange(m_trimRange)
-                ? Tr::tr("Frames %1 to %2.").arg(m_trimRange.first).arg(m_trimRange.second)
-                : Tr::tr("Complete clip.");
-
-        m_button->setToolTip(cropText + " " + trimText);
-    }
-
-    m_cropSizeWarningIcon->setCropSize(m_cropRect.size());
-}
-
 
 #ifdef WITH_TESTS
 
@@ -661,6 +714,49 @@ private slots:
         QCOMPARE(trim.currentFrame(), clip.framesCount());
     }
 
+    void testWhatTheBarSaysItWouldDo()
+    {
+        // The button's tool tip is the whole answer: what is cropped and what
+        // is trimmed, or that neither narrows anything.
+        ClipInfo clip;
+        clip.duration = 4;
+        clip.rFrameRate = 25;
+        clip.dimensions = {640, 480};
+        const FrameRange whole = {0, clip.framesCount()};
+
+        QCOMPARE(cropAndTrimSummary(clip, {0, 0, 640, 480}, whole),
+                 QString("Complete area. Complete clip."));
+        QCOMPARE(cropAndTrimSummary(clip, {10, 10, 100, 50}, whole),
+                 QString("Crop to 100x50px. Complete clip."));
+        QCOMPARE(cropAndTrimSummary(clip, {0, 0, 640, 480}, qMakePair(10, 20)),
+                 QString("Complete area. Frames 10 to 20."));
+
+        // A clip that is not there says nothing at all.
+        QVERIFY(cropAndTrimSummary({}, {0, 0, 640, 480}, whole).isEmpty());
+    }
+
+    void testAnOddCropSizeIsWarnedAbout()
+    {
+        // Both sides have to be even for the lossy formats, which is what the
+        // painted icon appeared for.
+        QVERIFY(!cropSizeNeedsWarning({640, 480}));
+        QVERIFY(cropSizeNeedsWarning({641, 480}));
+        QVERIFY(cropSizeNeedsWarning({640, 481}));
+        QVERIFY(cropSizeNeedsWarning({641, 481}));
+
+        ClipInfo clip;
+        clip.duration = 4;
+        clip.rFrameRate = 25;
+        clip.dimensions = {640, 480};
+        CropAndTrimAspects bar;
+        bar.setClip(clip);
+        QVERIFY2(!bar.warning.isVisible(), "an even crop was warned about");
+
+        bar.cropRect = {0, 0, 641, 480};
+        bar.showWhatItWouldDo();
+        QVERIFY(bar.warning.isVisible());
+    }
+
     void testWhatTheSliderHandsToQml()
     {
         ClipInfo clip;
@@ -684,6 +780,11 @@ QObject *createTrimTest()
 }
 
 namespace Internal {
+Utils::AspectContainer *cropAndTrimBarAspectsForTest()
+{
+    return new CropAndTrimAspects;
+}
+
 Utils::AspectContainer *trimAspectsForTest()
 {
     // A clip long enough that a range can be trimmed out of the middle.
