@@ -4,6 +4,7 @@
 #include "scxmleditor.h"
 
 #ifdef WITH_TESTS
+#include "common/colorsettings.h"
 #include "common/statistics.h"
 #endif
 
@@ -24,6 +25,7 @@ private:
         setupScxmlEditor(this);
 #ifdef WITH_TESTS
         addTestCreator(ScxmlEditor::Common::createStatisticsTest);
+        addTestCreator(ScxmlEditor::Common::createColorSettingsTest);
 #endif
     }
 

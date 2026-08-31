@@ -6,7 +6,7 @@ add_qtc_plugin(ScxmlEditor
     common/colorsettings.cpp common/colorsettings.h
     common/colorthemedialog.cpp common/colorthemedialog.h
     common/colorthemes.cpp common/colorthemes.h
-    common/colorthemeview.cpp common/colorthemeview.h
+    common/themecolors.cpp common/themecolors.h
     common/colortoolbutton.cpp common/colortoolbutton.h
     common/dragshapebutton.cpp common/dragshapebutton.h
     common/graphicsview.cpp common/graphicsview.h
@@ -109,6 +109,7 @@ if(TARGET ScxmlEditor)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      ColorSettings.qml
       Statistics.qml
   )
 endif()

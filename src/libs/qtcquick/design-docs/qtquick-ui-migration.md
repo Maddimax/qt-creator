@@ -24295,3 +24295,61 @@ No `.qbs` edit - no file added or removed.
 `ColorThemeView` (the swatch strip in `ScxmlEditor`'s `ColorSettings`), and the
 custom widget wizard's two pages. `LoggingViewManagerWidget` stays blocked on
 driving a tree's selection.
+
+## 2026-08-31 — The first painted widget
+
+`ColorSettings` (ScxmlEditor), and the `ColorThemeView` inside it - the first
+of the two things the corrected census calls painted rather than laid out.
+
+**What it was**: a combo of theme names with a + and a - beside it, over a
+cascade of seven overlapping colour swatches, each a `QFrame` with a
+`paintEvent` drawing a rounded rectangle with a vertical gradient, a border
+that thickened on hover, and a `QColorDialog` on click.
+
+**What it is now**: three aspects and a hand-written page. The theme is a
+`StringSelectionAspect`, the two buttons are `ActionAspect`s with the PLUS and
+MINUS icons, and the colours are one plugin-local aspect holding the list.
+The cascade is a `Repeater` of `Rectangle`s with the same geometry the widget
+computed in `updateItemRects()` - `min(w, h) / 2` a side, offset by a seventh
+of that per swatch - and `QtQuick.Dialogs`' `ColorDialog` where the widget
+opened `QColorDialog`.
+
+**A painted widget is not necessarily a QML component.** This one turned out to
+be a `Repeater` and two bindings, because what it painted was a rounded
+rectangle with a gradient - things QML has. Worth checking before assuming the
+remaining one (`CropScene`) needs a `QQuickPaintedItem`.
+
+**The colour list outlived the widget.** `ColorThemeView::defaultColors()` is
+what a theme is a diff against, and `colorthemes.cpp` uses it too, so the file
+is now `themecolors.{h,cpp}` with a free `defaultThemeColors()` and the
+painting is gone. Leaving a 258-line painted widget in the tree for one live
+static would have been keeping the widget.
+
+**Two names that hid a base class's.** `toMap()`/`fromMap()` on an aspect are
+`BaseAspect`'s, with different signatures - `-Woverloaded-virtual` says so and
+the build is not warning-free about it. The aspect's own pair is
+`savedColors()`/`showSavedColors()`.
+
+**`#include <QTest>` inside a namespace** is a wall of errors from inside
+QtCore (`class template specialization of 'QTypeInfo' must occur at global
+scope`, `incomplete type 'QBitArray'`). The test block went in before the
+namespace's closing brace and took its includes with it. Includes at the top,
+guarded; only the class inside.
+
+Negative controls: every colour kept whether or not it differs from the
+default; a theme shown on top of whatever was there rather than from the
+defaults; colours pickable with no theme to keep them in; and the page naming
+an aspect that is not there. All four bit.
+
+QuickUi 206 passed / 0 failed / 1 skipped, exit 0. `ScxmlEditor` 7 passed for
+`ColorSettingsTest` and the plugin clean; `Core` and `Help` clean. `ninja
+all_qmllint` zero warnings.
+
+**`.qbs` edited** - `colorthemeview` is `themecolors` in the file list - and
+**not re-resolved**: there is no `qbs` binary on this machine, so the change is
+a textual rename of two entries and is committed unverified, as every `.qbs`
+edit in this series has been.
+
+**Next:** `CropScene` (screenrecorder), the other painted one, and the custom
+widget wizard's two pages. `LoggingViewManagerWidget` stays blocked on driving
+a tree's selection.

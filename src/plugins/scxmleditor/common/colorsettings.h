@@ -6,32 +6,35 @@
 #include <QFrame>
 #include <QVariantMap>
 
-QT_BEGIN_NAMESPACE
-class QComboBox;
-QT_END_NAMESPACE
+#include <memory>
 
 namespace ScxmlEditor::Common {
 
-class ColorThemeView;
+class ColorSettingsAspects;
 
+// The colour themes: which one is being edited, and the colours in it. A
+// widget only so that ColorThemeDialog can hold it; everything it asks is
+// aspects.
 class ColorSettings : public QFrame
 {
     Q_OBJECT
 
 public:
     explicit ColorSettings(QWidget *parent = nullptr);
+    ~ColorSettings() override;
 
     void save();
-    void updateCurrentColors();
-    void createTheme();
-    void removeTheme();
+
+#ifdef WITH_TESTS
+    ColorSettingsAspects *aspectsForTest() const { return d.get(); }
+#endif
 
 private:
-    void selectTheme(int);
-
-    QVariantMap m_colorThemes;
-    ColorThemeView *m_colorThemeView;
-    QComboBox *m_comboColorThemes;
+    const std::unique_ptr<ColorSettingsAspects> d;
 };
+
+#ifdef WITH_TESTS
+QObject *createColorSettingsTest();
+#endif
 
 } // namespace ScxmlEditor::Common

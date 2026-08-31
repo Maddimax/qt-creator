@@ -3,7 +3,7 @@
 
 #include "colorthemedialog.h"
 #include "colorthemes.h"
-#include "colorthemeview.h"
+#include "themecolors.h"
 #include "scxmldocument.h"
 #include "scxmleditorconstants.h"
 #include "scxmleditortr.h"
@@ -169,7 +169,7 @@ void ColorThemes::setCurrentColors(const QVariantMap &colorData)
 
     QStringList serializedColors;
 
-    QList<QColor> colors = ColorThemeView::defaultColors();
+    QList<QColor> colors = defaultThemeColors();
     for (QVariantMap::const_iterator i = colorData.begin(); i != colorData.end(); ++i) {
         const int k = i.key().toInt();
         if (k >= 0 && k < colors.count()) {

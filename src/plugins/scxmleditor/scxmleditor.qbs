@@ -41,7 +41,7 @@ QtcPlugin {
             "colorsettings.cpp", "colorsettings.h",
             "colorthemedialog.cpp", "colorthemedialog.h",
             "colorthemes.cpp", "colorthemes.h",
-            "colorthemeview.cpp", "colorthemeview.h",
+            "themecolors.cpp", "themecolors.h",
             "colortoolbutton.cpp", "colortoolbutton.h",
             "dragshapebutton.cpp", "dragshapebutton.h",
             "graphicsview.cpp", "graphicsview.h",
