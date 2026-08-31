@@ -86,7 +86,7 @@ RowLayout {
 
                         Image {
                             source: row.decoration
-                            visible: row.decoration != ""
+                            visible: String(row.decoration) !== ""
                             fillMode: Image.PreserveAspectFit
                             sourceSize.width: Metrics.listRowIconSize
                             sourceSize.height: Metrics.listRowIconSize
@@ -131,7 +131,10 @@ RowLayout {
             Layout.fillWidth: true
             active: view.currentIndex >= 0
 
+            // The row carries these; a ListView hands back a QQuickItem.
+            // qmllint disable missing-property
             readonly property var currentItemModel: view.currentItem?.itemModel ?? null
+            // qmllint enable missing-property
 
             onCurrentItemModelChanged: {
                 if (currentItemModel)
@@ -154,8 +157,10 @@ RowLayout {
 
         Button {
             text: qsTr("Remove")
+            // qmllint disable missing-property
             enabled: root.editable && view.currentIndex >= 0
                      && !(view.currentItem?.removed ?? false)
+            // qmllint enable missing-property
             onClicked: {
                 const row = view.currentIndex
                 view.currentIndex = -1

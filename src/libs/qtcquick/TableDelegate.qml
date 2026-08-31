@@ -288,6 +288,11 @@ RowLayout {
                         // long description made its column wider than the table,
                         // which scrolled the centred header label out of the
                         // clipped header - the column looked unnamed.
+                        // A function literal is what TableView's own documentation assigns
+                        // here, and the property is a QJSValue. qmllint wants a type it has
+                        // no way to name: annotating the signature turns two complaints into
+                        // one about QJSValue itself.
+                        // qmllint disable Quick.unexpected-var-type
                         columnWidthProvider: function (column) {
                             // What every column but the last wants. They get
                             // it when the table can hold it - the widget header
@@ -310,6 +315,7 @@ RowLayout {
                                 used += capped(i)
                             return Math.max(Metrics.lineEditWidth, view.width - used)
                         }
+                        // qmllint enable Quick.unexpected-var-type
                         // A width the provider already answered for is cached, so
                         // the last column has to be asked again when the table is
                         // resized.

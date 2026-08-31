@@ -190,6 +190,11 @@ RowLayout {
                 // the last one takes what is left; the same rule TableDelegate
                 // follows, and for the same reason - a column wider than the
                 // view scrolls its header label out of sight.
+                // A function literal is what TableView's own documentation assigns
+                // here, and the property is a QJSValue. qmllint wants a type it has
+                // no way to name: annotating the signature turns two complaints into
+                // one about QJSValue itself.
+                // qmllint disable Quick.unexpected-var-type
                 columnWidthProvider: function (column) {
                     // What every column but the last wants. They get it when
                     // the table can hold it - the widget header sized each
@@ -212,6 +217,7 @@ RowLayout {
                         used += capped(i)
                     return Math.max(Metrics.lineEditWidth, view.width - used)
                 }
+                // qmllint enable Quick.unexpected-var-type
                 onWidthChanged: Qt.callLater(view.forceLayout)
 
                 ScrollBar.vertical: ScrollBar {}

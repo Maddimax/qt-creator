@@ -43,10 +43,14 @@ AspectPage {
                 value: filterList.currentRow
             }
 
+            // The two lists a filter is made of. They are on the Help
+            // plugin's own aspect, which the page is handed as a BaseAspect.
             FilterOptionList {
                 objectName: "componentList"
                 title: qsTr("Components")
+                // qmllint disable missing-property
                 options: root.filters?.components ?? null
+                // qmllint enable missing-property
                 Layout.fillHeight: true
                 Layout.preferredWidth: 1
                 Layout.fillWidth: true
@@ -55,7 +59,9 @@ AspectPage {
             FilterOptionList {
                 objectName: "versionList"
                 title: qsTr("Versions")
+                // qmllint disable missing-property
                 options: root.filters?.versions ?? null
+                // qmllint enable missing-property
                 Layout.fillHeight: true
                 Layout.preferredWidth: 1
                 Layout.fillWidth: true

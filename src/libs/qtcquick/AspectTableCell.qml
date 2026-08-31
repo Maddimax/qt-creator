@@ -84,7 +84,9 @@ Item {
         Image {
             objectName: "tableCellIcon"
             source: AspectModels.decorationUrl(cell.model.decoration ?? undefined)
-            visible: source != ""
+            // String(): a url compared with !== is never equal to a string,
+            // so every cell would reserve room for an icon it has not got.
+            visible: String(source) !== ""
             fillMode: Image.PreserveAspectFit
             sourceSize.width: Metrics.listRowIconSize
             sourceSize.height: Metrics.listRowIconSize

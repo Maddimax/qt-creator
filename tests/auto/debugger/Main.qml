@@ -45,7 +45,7 @@ Window {
         onTriggered: {
             var message = "tick"
             root.counter = root.counter + 1
-            root.label = describe(message, root.counter)
+            root.label = root.describe(message, root.counter)
         }
     }
 

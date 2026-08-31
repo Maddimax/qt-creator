@@ -39,7 +39,11 @@ GridLayout {
         // do so now. Here rather than in the two delegates that used to, so
         // that it happens wherever an aspect is drawn - and so that the widget
         // side, which asks in one place too, asks in the same cases.
+        // Every delegate below has an aspect; a Repeater hands back a
+        // QQuickItem, which is the most any of them have in common.
+        // qmllint disable missing-property
         onItemAdded: (index, item) => item.aspect?.requestDisplayText()
+        // qmllint enable missing-property
 
         delegate: DelegateChooser {
             role: "kind"

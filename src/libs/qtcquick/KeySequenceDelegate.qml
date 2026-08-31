@@ -23,7 +23,9 @@ RowLayout {
     readonly property string toolTip: aspect?.toolTip ?? ""
     readonly property bool aspectVisible: aspect?.visible ?? true
     readonly property bool editable: (aspect?.enabled ?? false) && !(aspect?.readOnly ?? false)
+    // qmllint disable missing-property
     readonly property bool recording: aspect?.recording ?? false
+    // qmllint enable missing-property
 
     visible: aspectVisible
     spacing: Spacing.GapHM
@@ -58,6 +60,8 @@ RowLayout {
         enabled: delegate.editable
         ToolTip.text: qsTr("Click and type the new key sequence.")
         ToolTip.visible: hovered
+        // qmllint disable missing-property
         onClicked: delegate.aspect.setRecording(checked)
+        // qmllint enable missing-property
     }
 }

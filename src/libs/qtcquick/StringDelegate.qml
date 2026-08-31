@@ -183,7 +183,11 @@ RowLayout {
 
                 TapHandler {
                     enabled: field.enabled && !field.readOnly
+                    // Only a StringAspect has one, and this delegate draws
+                    // three kinds of aspect.
+                    // qmllint disable missing-property
                     onTapped: delegate.aspect?.clickRightSideIcon()
+                    // qmllint enable missing-property
                 }
             }
             echoMode: delegate.pres.password && !reveal.checked

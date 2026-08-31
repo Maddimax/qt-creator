@@ -22578,3 +22578,71 @@ four kinds, and only one looks like a real defect:
   QVariant/double` in the three table/tree delegates.
 - `Member "aspect"/"itemModel"/"removed" not found on type "QQuickItem"`.
 - Three `== and != may perform type coercion`.
+
+## 2026-08-31 — The qmllint warnings, and a "fix" that broke a layout
+
+`ninja all_qmllint` is at **zero warnings across the whole repository** now. It
+was 15 in `QtcQuick`, two in the Help plugin's filter page and one in a
+debugger test fixture. **`ninja <Target>_qmllint` exits 0 with warnings**, as
+the locator batch found, so the number is the check - `grep -c '^Warning:'`,
+not the exit code. The lint targets are not part of `all`, so nothing runs them
+unless a batch does.
+
+**Eight of the fifteen were fixable, and one of the fixes was wrong.**
+`visible: source != ""` on a cell's icon became `source !== ""` - and the
+column-width test went red: *"a property name longer than any column is
+allowed to be" takes 518.25px and has 498px to draw in*. A `url` property
+compared with `!==` against a string is **never** equal, so every cell became
+an icon cell and reserved room for a picture it did not have. `String(source)
+!== ""` is both checkable and right. **The equality-coercion warning is not a
+style nit on a `url`**; it is the one case where the coercion is what makes the
+comparison work at all.
+
+The icon test did not catch it - it counts cells that are *visible and* have a
+non-empty source, so it stayed at zero either way. What caught it was a test
+about column widths, three files away.
+
+**Seven could not be fixed, and all seven are the same sentence:** a shared
+delegate calls a member of a type it cannot name.
+
+- `item.aspect` in `AspectItems` - a `Repeater` hands back a `QQuickItem`, and
+  a `QQuickItem` is the most the delegates have in common.
+- `view.currentItem?.itemModel` / `?.removed` in `AspectListDelegate` - same,
+  from a `ListView`.
+- `recording` / `setRecording` in `KeySequenceDelegate` and
+  `clickRightSideIcon` in `StringDelegate` - `Member ... not found on type
+  "Utils::BaseAspect"`. These work because the object really is the derived
+  aspect. `KeySequenceDelegate`'s aspect lives in coreplugin, which this
+  library cannot see; `clickRightSideIcon()` is a `StringAspect` invokable and
+  `StringDelegate` draws three kinds of aspect.
+- The same shape again in `help/FilterSettingsPage.qml`, whose `filters` is
+  handed over as a `BaseAspect`.
+
+Each is now a one-line `// qmllint disable missing-property` with the reason
+above it. **The suppressions are line-scoped, and that is worth proving**: a
+`missing-property` mistake elsewhere in `KeySequenceDelegate` is still
+reported, and so is an unqualified access.
+
+**`columnWidthProvider` is a lint bug, not ours.** Annotating the signature
+(`function (column: int) : real`) turned two complaints into one; assigning a
+named method instead of a literal turned it into *"expected function got
+QJSValue"* - for a property that **is** declared `QJSValue`. Reverted to the
+literal the TableView documentation uses and suppressed
+`Quick.unexpected-var-type` at the three sites.
+
+Not touched: **101 `Info:` lines**, mostly unused imports. A different job.
+
+Negative controls: the url comparison coercing again (which fails the
+column-width test); an unqualified access in a file that suppresses
+`missing-property`; a `missing-property` mistake elsewhere in that same file;
+and one `qmllint disable` line removed. All four bit.
+
+QuickUi 196 passed / 0 failed / 1 skipped, exit 0. `Help`, `Core`, `Git` and
+`Android` exit 0 with no failures. `ninja all_qmllint` zero warnings. No
+`.qbs` edit and no new file.
+
+**Next:** the census's remaining dialogs. `pasteselectdialog`, `directoryfilter`
+and the locator family are done; what the census still names is the list of
+dialogs that need a component of their own. Worth re-running the census rather
+than trusting the old list - four batches have removed whole categories from
+it since it was taken.
