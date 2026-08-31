@@ -22807,3 +22807,71 @@ and a STYLE.md violation fixed by the port; and the **Utils dialogs cannot be
 ported at all** - `createAspectForm()` lives in coreplugin and Utils is below
 it, so `PasswordDialog`, `RemoveFileDialog`, `NameValuesDialog` and
 `InspectorWidget` need a seam in Utils before anything else.
+
+## 2026-08-31 — Two form dialogs, and a test that fails the second time
+
+The first two of the 29 form-only dialogs, from two plugins.
+
+**`SymbolPathsDialog`** (Debugger) is mostly its explanation: a
+`QStyle::SP_MessageBoxQuestion` pixmap in one `QLabel` beside three paragraphs
+of rich text in another. Both are one `TextDisplay` now - `setTextFormat()`
+keeps the markup and `setIconType()` draws the icon, so the platform pixmap
+and the hand-built `QHBoxLayout` holding it both go. Two check boxes and a
+`PathChooser` are the rest of it.
+
+Its header declared **`doNotAskAgain()` and `setDoNotAskAgain()`, which have no
+definitions anywhere**. Nothing calls them - it would not link - so they have
+been dead since whenever the checkbox they belonged to was removed. Deleted.
+A port reads the whole header, which is how these turn up.
+
+**`WaitForStopDialog`** (ProjectExplorer) is a label that lists what is still
+running. Two rules came out of it:
+
+- `waitForStopText(names)` - the sentence, a blank line, then one name per
+  line.
+- `remainingShowTime(elapsed)` - **the dialog is kept up for a moment after the
+  last application stops**, so that stopping instantly does not flash it past
+  unread. That was `if (m_timer.elapsed() < 1000) singleShot(1000 - elapsed)`
+  buried in a slot, and it is the kind of thing a port drops without noticing.
+  Now a function with both ends clamped, and a test rather than a `qWait`.
+
+Its bare "Cancel" `QPushButton` becomes a `QDialogButtonBox(Cancel)`, which is
+what every other dialog in this series keeps.
+
+**A standing failure this batch uncovered, which is not a regression.**
+`ProjectExplorer::Internal::SessionTest::testSessionSwitch` **passes on a fresh
+settings directory and fails on the second run against the same one**: it
+creates `session2` and never removes it, so `createSession("session2")` returns
+false the next time. It only showed up now because this is the first batch that
+reuses one `-settingspath` across many runs - which itself was the fix for the
+startup hangs two batches ago. **Use a fresh settings directory per full-plugin
+run**; the per-class runs are fine to share one.
+
+With that, ProjectExplorer is back to its two standing failures
+(`ProjectTest::testSourceToBinaryMapping(qbs)`, `RunWorkerConflictTest`), and
+Debugger to its one (`DebuggerUnitTests::testStateMachine`).
+
+**Two asserts stopped a control and a registration from silently doing
+nothing.** The `addTestCreator` regex matched eight spaces of indent and
+`projectexplorer.cpp` uses four, so the registration aborted instead of landing
+nowhere - and the test run that followed printed no `Totals:` at all, which the
+runner script now treats as a failed run. The same script caught a control
+earlier in the session for the same reason.
+
+Negative controls: the explanation read as plain text; the cache offered as any
+path rather than a directory; the page naming an aspect that is not there; the
+names run into the sentence; the dialog closing the instant the last
+application stops; and a clock that has gone backwards waiting longer than the
+moment. All six bit.
+
+QuickUi 197 passed / 0 failed / 1 skipped, exit 0. `SymbolPathsDialogTest` 6
+passed, `WaitForStopDialogTest` 5. `Debugger_qmllint` and
+`ProjectExplorer_qmllint` zero warnings, `ninja all_qmllint` zero. No `.qbs`
+edit: both plugins take their `.qml` by wildcard and no C++ file was added.
+
+**Next:** 27 form-only dialogs left. `RecordOptionsDialog` (ScreenRecorder),
+`PublicKeyDeploymentDialog` (Remote), `McuKitCreationDialog` and
+`PrefixLangDialog` are the next small ones. **`QnxAttachDebugDialog` is not
+one of them** even though it looks it: it derives from `DeviceProcessesDialog`
+and inserts a `QFormLayout` into its base's layout, so it cannot be ported
+before its base is.

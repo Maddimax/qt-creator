@@ -60,6 +60,7 @@
 #include "projectexplorericons.h"
 #include "projectexplorersettings.h"
 #include "projectexplorertr.h"
+#include "waitforstopdialog.h"
 #include "projectfilewizardextension.h"
 #include "projectmanager.h"
 #include "projectnodes.h"
@@ -936,6 +937,7 @@ Result<> ProjectExplorerPlugin::initialize(const QStringList &arguments)
 
 #ifdef WITH_TESTS
     addTestCreator(createAbiTest);
+    addTestCreator(Internal::createWaitForStopDialogTest);
     addTestCreator(createOutputTaskParserTest);
     addTestCreator(createAbiAspectsTest);
     addTestCreator(createClangParserTest);

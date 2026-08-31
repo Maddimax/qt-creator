@@ -3,14 +3,19 @@
 
 #pragma once
 
-#include <QCheckBox>
 #include <QDialog>
-#include <QLabel>
-#include <QString>
 
-#include <utils/pathchooser.h>
+#include <utils/filepath.h>
+
+#include <memory>
 
 namespace Debugger::Internal {
+
+class SymbolPathsSettings;
+
+#ifdef WITH_TESTS
+QObject *createSymbolPathsDialogTest();
+#endif
 
 class SymbolPathsDialog : public QDialog
 {
@@ -21,21 +26,15 @@ public:
     bool useSymbolCache() const;
     bool useSymbolServer() const;
     Utils::FilePath path() const;
-    bool doNotAskAgain() const;
 
     void setUseSymbolCache(bool useSymbolCache);
     void setUseSymbolServer(bool useSymbolServer);
     void setPath(const Utils::FilePath &path);
-    void setDoNotAskAgain(bool doNotAskAgain) const;
 
     static bool useCommonSymbolPaths(bool &useSymbolCache, bool &useSymbolServer, Utils::FilePath &path);
 
 private:
-    QLabel *m_pixmapLabel;
-    QLabel *m_msgLabel;
-    QCheckBox *m_useLocalSymbolCache;
-    QCheckBox *m_useSymbolServer;
-    Utils::PathChooser *m_pathChooser;
+    const std::unique_ptr<SymbolPathsSettings> m_settings;
 };
 
 } // Debugger::Internal

@@ -173,6 +173,7 @@ if(TARGET Debugger)
       AttachToQmlPortDialog.qml
       CacheDirectoryDialog.qml
       ConsoleView.qml
+      SymbolPathsDialog.qml
       DebuggerInput.qml
       DebuggerRunSettings.qml
       CdbOptionsPage.qml

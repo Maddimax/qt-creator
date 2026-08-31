@@ -7,9 +7,7 @@
 #include <QDialog>
 #include <QElapsedTimer>
 
-QT_BEGIN_NAMESPACE
-class QLabel;
-QT_END_NAMESPACE
+#include <memory>
 
 namespace ProjectExplorer {
 
@@ -17,11 +15,18 @@ class RunControl;
 
 namespace Internal {
 
+class WaitForStopSettings;
+
+#ifdef WITH_TESTS
+QObject *createWaitForStopDialogTest();
+#endif
+
 class WaitForStopDialog : public QDialog
 {
     Q_OBJECT
 public:
     explicit WaitForStopDialog(const QList<RunControl *> &runControls);
+    ~WaitForStopDialog() override;
 
     bool canceled();
 private:
@@ -29,7 +34,7 @@ private:
     void runControlFinished(const RunControl *runControl);
 
     QList<ProjectExplorer::RunControl *> m_runControls;
-    QLabel *m_progressLabel;
+    const std::unique_ptr<WaitForStopSettings> m_settings;
     QElapsedTimer m_timer;
 };
 
