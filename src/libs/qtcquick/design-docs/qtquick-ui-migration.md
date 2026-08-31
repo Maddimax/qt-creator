@@ -24353,3 +24353,58 @@ edit in this series has been.
 **Next:** `CropScene` (screenrecorder), the other painted one, and the custom
 widget wizard's two pages. `LoggingViewManagerWidget` stays blocked on driving
 a tree's selection.
+
+## 2026-08-31 — The plugin details page, and why not CropScene
+
+**`CropScene` is the plan's next painted widget, and this batch does not take
+it.** Reading it first: it paints the recorded frame, dims everything outside
+the crop rectangle at 0.85 opacity, and draws four dashed black-on-white lines
+at its edges, with edge grips and a move area. The dimming and the lines are
+`Rectangle`s and a `ShapePath` with `strokeStyle: DashLine`, and the grips are
+handlers - none of that is the problem. **Handing the frame to QML is.** QML has
+no `QImage`, and the only route this tree has is `QtcQuick::iconUrl()`, which
+registers a `QIcon` in a map that is deliberately never emptied - "the icon is
+kept for as long as the application runs". A video frame per scrub step through
+that leaks the film. A provider with a bounded lifetime is a real design
+decision, it has exactly one user, and `CropScene` is one of five widgets in an
+815-line file that would all have to move together. Worth a batch of its own,
+not a corner of this one.
+
+**`CustomWidgetPluginWizardPage`** instead - the other thing the corrected
+census lists, and routine: five line edits, one intro line, and two rules.
+Five `StringAspect`s, a `TextDisplay`, and a page.
+
+**What the closure listed and what it did, kept apart.** The widget derived the
+header file name and the plugin name from the collection class in a
+`textChanged` handler, and the source file name from the header in another; the
+three collection fields were greyed out by `setCollectionEnabled()` reaching
+for six widgets. All of that is in the container's constructor now, on
+`BaseAspect::changed`, and the greying is `setEnabled()` on three aspects - the
+labels come with them.
+
+**A rule worth having on its own.** Whether the page can be left was
+`slotCheckCompleteness()` writing an `m_complete` member from three places.
+It is `pluginPageIsComplete(pluginName, collectionClass, classCount)`, a free
+function the test can state the whole rule about in five lines: a plugin always
+needs a name, a collection of more than one widget needs a class to gather them
+into, and one widget needs none.
+
+**`textEdited` versus `textChanged` does not survive the port**, and does not
+need to. The widget rechecked completeness only when the *user* typed, and
+called the check by hand after setting a field itself. An aspect has one
+`changed`, so completeness is rechecked on both - more often, same answer,
+because the check only reports when it flips.
+
+Negative controls: a collection of many needing no class; the file names not
+following the class; the collection asked for however many widgets there are;
+and the page naming an aspect that is not there. All four bit.
+
+QuickUi 206 passed / 0 failed / 1 skipped, exit 0. `QmakeProjectManager` 6
+passed for `CustomWidgetPluginPageTest` and the plugin clean; `ScxmlEditor` and
+`Core` clean. `ninja all_qmllint` zero warnings. No `.qbs` edit: one `.qml`
+added, taken by QmakeProjectManager's wildcard.
+
+**Next:** `CustomWidgetWidgetsWizardPage`, the other page of that wizard - it
+holds `ClassList` and `ClassDefinition`, so it is a list beside a tabbed editor
+rather than a form. Then `CropScene` with the image question answered first,
+and `LoggingViewManagerWidget`, still blocked on driving a tree's selection.

@@ -51,6 +51,7 @@ if(TARGET QmakeProjectManager)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      CustomWidgetPluginPage.qml
       QMakeStep.qml
       QmakeSettingsPage.qml
   )
