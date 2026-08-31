@@ -344,6 +344,7 @@ private slots:
     void testATreeRowIsActivatedByReturn();
     void testATreesOpenBranchesCanBeKeptAcrossAChange();
     void testABranchIsCheckedByWhatIsUnderIt();
+    void testATreeRowOffersWhatTheAspectDescribes();
     void testATableCellShowsTheIconItsModelGives();
     void testATableWithNoColumnNamesHasNoHeader();
     void testTableAspectAddsAndRemovesRows();
@@ -6634,6 +6635,116 @@ void QuickUiTest::testABranchIsCheckedByWhatIsUnderIt()
     // one of the two from underneath makes the branch partial again.
     tree.rows().setLeafChecked(0, 1, true);
     QTRY_COMPARE(box->property("checkState").toInt(), int(Qt::PartiallyChecked));
+}
+
+namespace {
+
+// A tree whose rows offer something when they are asked, and which records
+// what was picked on which row.
+class RowMenuTreeAspect : public Utils::BaseAspect
+{
+public:
+    RowMenuTreeAspect()
+    {
+        m_model.setHeader({"Name"});
+        m_model.rootItem()->appendChild(new Utils::StaticTreeItem(QStringList{"first"}));
+        m_model.rootItem()->appendChild(new Utils::StaticTreeItem(QStringList{"second"}));
+    }
+
+    Utils::AspectPresentation presentation() const override
+    {
+        Utils::AspectPresentation p = BaseAspect::presentation();
+        p.control = Utils::AspectControls::Tree;
+        p.rowActions = m_rowActions;
+        return p;
+    }
+
+    QAbstractItemModel *tableModel() override { return &m_model; }
+
+    void setRowActions(const QList<Utils::AspectPresentation::Choice> &actions)
+    {
+        m_rowActions = actions;
+        emit controlConfigurationChanged();
+    }
+
+    void triggerRowAction(const QModelIndex &index, const QVariant &id) override
+    {
+        picked = id.toString();
+        pickedRow = index.isValid() ? index.row() : -1;
+    }
+
+    QString picked;
+    int pickedRow = -2;
+
+private:
+    Utils::TreeModel<Utils::TreeItem, Utils::StaticTreeItem> m_model{this};
+    QList<Utils::AspectPresentation::Choice> m_rowActions;
+};
+
+} // namespace
+
+void QuickUiTest::testATreeRowOffersWhatTheAspectDescribes()
+{
+    // "Delete Folder", "Rename Folder" - what a widget tree put behind a right
+    // click. The aspect describes the entries and is told which row they were
+    // asked of, because what they do is about that row and not about wherever
+    // the reader happened to be.
+    Utils::AspectContainer page;
+    RowMenuTreeAspect tree;
+    tree.setLabelText("Rows");
+    page.registerAspect(&tree);
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "TreeDelegate"));
+    QTRY_VERIFY(findQmlNamed(delegate, "tableCellLabel").size() > 0);
+
+    // A tree whose rows offer nothing has an empty menu rather than one with
+    // blank entries in it.
+    auto menu = delegate->property("rowMenu").value<QObject *>();
+    QVERIFY(menu);
+    QCOMPARE(menu->property("count").toInt(), 0);
+
+    tree.setRowActions({{"Delete Folder", {}, true, QString("delete")},
+                        {"Rename Folder", {}, false, QString("rename")}});
+    QTRY_COMPARE(menu->property("count").toInt(), 2);
+
+    const auto entryAt = [menu](int index) {
+        QQuickItem *item = nullptr;
+        QMetaObject::invokeMethod(menu, "itemAt", Q_RETURN_ARG(QQuickItem *, item),
+                                  Q_ARG(int, index));
+        return item;
+    };
+
+    QQuickItem *const remove = entryAt(0);
+    QVERIFY(remove);
+    QCOMPARE(remove->property("text").toString(), QString("Delete Folder"));
+    QVERIFY(remove->property("enabled").toBool());
+
+    // An entry the aspect says is not offered is drawn but cannot be used.
+    QQuickItem *const rename = entryAt(1);
+    QVERIFY(rename);
+    QCOMPARE(rename->property("text").toString(), QString("Rename Folder"));
+    QVERIFY2(!rename->property("enabled").toBool(),
+             "an entry the aspect withheld could still be picked");
+
+    // Picking one says which row it was asked of. The menu is opened on the
+    // row the reader right-clicked, which is what makes it current.
+    QQuickItem *const view = findQmlNamed(delegate, "aspectTree").value(0);
+    QVERIFY(view);
+    auto selection = view->property("selectionModel").value<QItemSelectionModel *>();
+    auto shown = view->property("model").value<QAbstractItemModel *>();
+    QVERIFY(selection);
+    QVERIFY(shown);
+    selection->setCurrentIndex(shown->index(1, 0), QItemSelectionModel::ClearAndSelect);
+
+    QMetaObject::invokeMethod(remove, "triggered");
+    QCOMPARE(tree.picked, QString("delete"));
+    QCOMPARE(tree.pickedRow, 1);
 }
 
 void QuickUiTest::testATreeRowIsActivatedByReturn()

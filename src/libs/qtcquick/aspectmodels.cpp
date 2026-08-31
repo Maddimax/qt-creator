@@ -284,6 +284,14 @@ QVariantMap AspectModels::presentation(BaseAspect *aspect)
                             })},
         {"optionToolTips", Utils::transform<QStringList>(
                                p.choices, &AspectPresentation::Choice::toolTip)},
+        // What a row of a tree offers when it is asked. One list of maps rather
+        // than parallel lists: a Menu's Repeater reads them by name.
+        {"rowActions", Utils::transform<QVariantList>(
+                           p.rowActions, [](const AspectPresentation::Choice &c) {
+                               return QVariant(QVariantMap{{"display", c.display},
+                                                           {"id", c.id.toString()},
+                                                           {"enabled", c.enabled}});
+                           })},
         // A control's context menu, for a state that is about the setting
         // rather than about its value.
         {"contextActionText", Utils::stripAccelerator(p.contextActionText)},

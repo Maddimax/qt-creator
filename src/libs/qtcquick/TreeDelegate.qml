@@ -49,6 +49,10 @@ RowLayout {
     // the aspect's own model, like currentIndex above.
     signal rowActivated(index: var)
 
+    // What a row offers when it is asked. A popup is not in the item tree, so
+    // this is the only way to reach it from outside.
+    readonly property alias rowMenu: rowMenu
+
     // A page showing a tree usually wants to offer these, and they are the
     // view's business rather than the aspect's.
     function expandAll(): void { view.expandRecursively(-1, -1) }
@@ -128,6 +132,13 @@ RowLayout {
 
     Connections {
         target: root.aspect
+
+        // An aspect can change what it wants drawn - which entries a row
+        // offers - and says so with this. The binding above cannot see it: a
+        // call to presentation() records no dependency on anything.
+        function onControlConfigurationChanged(): void {
+            root.pres = AspectModels.presentation(root.aspect)
+        }
 
         // A dialog that opens on a tree puts the cursor in its filter field,
         // so that the reader can narrow it down without reaching for the
@@ -271,6 +282,30 @@ RowLayout {
 
                 ScrollBar.vertical: ScrollBar {}
 
+                // What a row offers when it is asked. A popup is not in the
+                // item tree, so it is named here for a test to find, and it is
+                // built only where the aspect describes something to offer.
+                Menu {
+                    id: rowMenu
+
+                    objectName: "treeRowMenu"
+
+                    Repeater {
+                        model: root.pres.rowActions ?? []
+
+                        delegate: MenuItem {
+                            id: entry
+
+                            required property var modelData
+
+                            text: entry.modelData.display
+                            enabled: entry.modelData.enabled
+                            onTriggered: root.aspect?.triggerRowAction(root.currentIndex,
+                                                                       entry.modelData.id)
+                        }
+                    }
+                }
+
                 delegate: TreeViewDelegate {
                     id: cell
 
@@ -307,6 +342,21 @@ RowLayout {
                         // A tree reports what the page found unless its model
                         // says a cell may be written to.
                         editableByDefault: false
+                    }
+
+                    // Asking a row what it offers. The row is made current
+                    // first: what the menu does is about the row that was
+                    // asked, not about wherever the reader happened to be.
+                    TapHandler {
+                        objectName: "treeRowMenuTap"
+                        enabled: (root.pres.rowActions ?? []).length > 0
+                        acceptedButtons: Qt.RightButton
+
+                        onTapped: {
+                            view.selectionModel.setCurrentIndex(
+                                view.index(cell.row, 0), ItemSelectionModel.ClearAndSelect)
+                            rowMenu.popup()
+                        }
                     }
 
                     // Dragging a row somewhere else. Only where the tree says

@@ -283,6 +283,12 @@ public:
     };
     QList<Choice> choices;
 
+    // Tree. What one of its rows offers when it is asked - "Delete Folder",
+    // "Rename Folder". Empty for a tree whose rows offer nothing, which is
+    // most of them. What was picked goes back through
+    // BaseAspect::triggerRowAction().
+    QList<Choice> rowActions;
+
     // Whether the aspect's value is the id of the selected choice rather than
     // its index. An encoding selector stores the encoding name, for example.
     bool valueIsChoiceId = false;

@@ -23845,3 +23845,66 @@ CppEditor's wildcard.
 module question for that library), `SelectableFilesDialog` (ProjectExplorer),
 and `LoggingViewManagerWidget` (Core) last: two tree views, eight tool buttons,
 two context menus and a save-to-file.
+
+## 2026-08-31 — A tree row that offers something, and two gaps behind it
+
+**`BookmarkDialog` is not ported.** Reading it for this batch turned up two
+things missing from `TreeDelegate`, and a third that is a design question
+rather than a gap. The two are fixed here; the question is stated below so the
+next batch starts from it rather than discovering it half way through.
+
+**A row of a tree can offer what its aspect describes.**
+`AspectPresentation::rowActions` is a list of `Choice`s - "Delete Folder",
+"Rename Folder" - and `BaseAspect::triggerRowAction(index, id)` is the way
+back, a virtual beside `triggerAction()` and `triggerContextAction()`. The
+index is in the aspect's own model, like everything else `TreeDelegate` hands
+out. A right-click makes that row current *before* opening the menu: what an
+entry does is about the row that was asked, not about wherever the reader
+happened to be. The menu is exposed as `rowMenu`, because a popup is not in the
+item tree and there is otherwise no way to reach it - the same alias
+`ButtonDelegate` has.
+
+**`TreeDelegate` never followed its aspect.** Every other delegate refreshes
+`pres` on `controlConfigurationChanged`; this one had the initial binding and
+nothing else, and a call to `presentation()` records no dependency on anything,
+so it ran once and never again. A tree whose aspect changed what it wanted
+drawn was drawn as it was at creation. Found because the row menu was empty
+after the aspect described entries for it - which is also why the *second*
+control below fails identically to the first.
+
+**The ASan crash was the descriptor growing.** Adding a field to
+`AspectPresentation` changes the size of something returned by value from every
+`presentation()` in the tree, and rebuilding three targets left the rest
+compiled against the old one: a stack-buffer-overflow inside
+`Layouting::LayoutItem`'s vector, nowhere near the change. Full `ninja` after
+touching that header, every time. Same as [[rebuild-all-after-shared-vtable-change]].
+
+**The question `BookmarkDialog` poses.** Its folders are renamed in place - the
+widget makes the item editable, starts an editor, and makes it read-only again,
+reached by F2 or by "Rename Folder". A Qt Quick cell is a `TextField` when the
+model says `EditableRole`, so the obvious port makes every folder a field - and
+then **clicking a folder no longer selects it**, which is what the tree is
+mostly *for*: the dialog's whole job is picking the folder to add into. The two
+uses of a click collide. The faithful answer is a model that says
+`EditableRole` only for the one row being renamed, set by the row action and
+cleared when the text is written; that is a small proxy over
+`BookmarkManager::treeBookmarkModel()`, which cannot be subclassed (the manager
+owns it and `BookmarkWidget` shares it). Worth doing deliberately, not as a
+side effect of a layout port.
+
+Negative controls: the descriptor not carrying the row actions; the tree not
+following what its aspect wants drawn; an entry the aspect withheld offered
+anyway; the aspect not told which row was asked; and the entry's text sent
+instead of its id. All five bit. The fourth bit differently than expected -
+passing an invalid index made the invokable reject the call outright, so
+nothing was recorded at all rather than a wrong row.
+
+QuickUi 203 passed / 0 failed / 1 skipped, exit 0 - the skip is the keychain
+one again. `Core`, `Help`, `Git` clean; `ProjectExplorer` its two standing
+failures; `CppEditor` its usual whole-suite abort with a shifting set, and the
+two classes the last two batches added pass alone (9 and 31, exit 0).
+`ninja all_qmllint` zero warnings. No `.qbs` edit - no file added or removed.
+
+**Next:** `BookmarkDialog` with the rename question above answered first, then
+`SelectableFilesDialog` (ProjectExplorer) and `LoggingViewManagerWidget`
+(Core).

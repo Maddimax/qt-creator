@@ -937,6 +937,12 @@ void BaseAspect::triggerContextAction(bool checked)
     QTC_CHECK(false); // An aspect that offers one has to handle it.
 }
 
+void BaseAspect::triggerRowAction(const QModelIndex &index, const QVariant &id)
+{
+    Q_UNUSED(index)
+    Q_UNUSED(id)
+}
+
 void BaseAspect::triggerAction()
 {}
 

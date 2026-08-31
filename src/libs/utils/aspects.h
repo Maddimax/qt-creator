@@ -241,6 +241,9 @@ public:
     // The control's context-menu entry was toggled. See
     // AspectPresentation::contextActionText.
     Q_INVOKABLE virtual void triggerContextAction(bool checked);
+    // One of AspectPresentation::rowActions was picked on a row of the tree
+    // this aspect is drawn as. The index is in the aspect's own model.
+    Q_INVOKABLE virtual void triggerRowAction(const QModelIndex &index, const QVariant &id);
     // A link in the aspect's text was activated. Declared here so that a
     // renderer holding only a BaseAspect can report it; what it means is the
     // aspect's business.
