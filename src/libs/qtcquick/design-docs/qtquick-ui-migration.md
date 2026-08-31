@@ -23756,3 +23756,23 @@ same plugin, same shape. Then `BookmarkDialog` (shared/help, the module
 question this series has already answered once for `TopicChooser`), and
 `LoggingViewManagerWidget` (Core) last: two tree views, eight tool buttons,
 two context menus and a save-to-file.
+
+### Corrections to the census list above
+
+Two things the earlier sections say about the "tree with a model of its own"
+group are wrong, and a reader picking the next batch off that list would start
+from them:
+
+- **None of them uses `Utils::TreeModel`.** The 2026-08-31 filter-field section
+  says `LoggingViewManagerWidget` and the two CppEditor ones do, and the note
+  about not fixing `BaseTreeModel` centrally therefore does not apply to any of
+  them. `InsertVirtualMethodsModel` and `GenerateGettersSettersDialog`'s
+  `ParentClassesModel` are hand-written `QAbstractItemModel`s;
+  `LoggingViewManagerWidget` has a `QAbstractListModel` and a
+  `Utils::ListModel<LogEntry>`. Each gets the three overrides on itself.
+- **`TopicChooser` is done**, in the batch that section reports; it is listed
+  as pending in the same list.
+
+What is actually left of that group, after this batch:
+`GenerateGettersSettersDialog` (CppEditor), `BookmarkDialog` (shared/help),
+`SelectableFilesDialog` (ProjectExplorer), `LoggingViewManagerWidget` (Core).
